@@ -4965,7 +4965,7 @@ export class BotRuntime {
 		return tools.executeTool(bot, runId, name, args, runContext);
 	}
 
-	private async forumService(path: string, botId: string, body: unknown, signal: AbortSignal): Promise<unknown> {
+	private async forumService<T>(path: string, botId: string, body: unknown, signal: AbortSignal): Promise<T> {
 		return withAbortableTimeout(
 			signal,
 			serviceBindingTimeoutMs,
@@ -5000,7 +5000,7 @@ export class BotRuntime {
 					}
 					throw new Error(`Bickr page request failed with status ${response.status}.`);
 				}
-				return payload.data;
+				return payload.data as T;
 			},
 		);
 	}

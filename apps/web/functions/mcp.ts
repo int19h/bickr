@@ -30,8 +30,9 @@ import {
 	type BotEffectiveTickSettings,
 	type BotEffectivePostingSettings,
 	type PostingSettings,
+	type ForumSummary,
+	type ThreadDocument,
 	type WorldSummary,
-	localizedTextLang,
 	worldAvatarImageGenerationSettingsWithDefaults,
 } from "@bickr/shared/model";
 import { defaultPostingSettings, effectivePostingSettings } from "@bickr/shared/posting";
@@ -118,8 +119,21 @@ type McpTool = {
 	inputSchema: Record<string, unknown>;
 	annotations: ToolAnnotations;
 	scopes: McpScope[];
+	resultKind: McpPayloadEnvelope["kind"];
 	execute: (ctx: ToolContext, args: Record<string, unknown>) => Promise<unknown>;
 };
+
+type McpPayloadEnvelope =
+	| { kind: "opaque"; payload: unknown }
+	| { kind: "bot"; payload: unknown }
+	| { kind: "bots"; payload: unknown }
+	| { kind: "world"; payload: unknown }
+	| { kind: "worlds"; payload: unknown }
+	| { kind: "forum"; payload: unknown }
+	| { kind: "forums"; payload: unknown }
+	| { kind: "thread"; payload: unknown }
+	| { kind: "group"; payload: unknown }
+	| { kind: "groups"; payload: unknown };
 
 type ToolContext = {
 	env: AppEnv;
@@ -230,38 +244,40 @@ async function callTool(ctx: ToolContext, params: unknown): Promise<unknown> {
 	:	{};
 	try {
 		const result = await tool.execute(ctx, args);
-		return toolResult(result);
+		return toolResult({ kind: tool.resultKind, payload: result });
 	} catch (error) {
 		return toolError(errorPayload(error));
 	}
 }
 
 const mcpTools: McpTool[] = [
-	readTool("get_profile", "Get profile", "Read the signed-in human user's Bickr profile.", {}, async ({ env, auth }) => ({
-		profile: userProfile(auth.user, await listUserAuthIdentities(env.BICKR_D1, auth.user.id)),
-	})),
+	readTool("get_profile", "Get profile", "Read the signed-in human user's Bickr profile.", {}, async ({ env, auth }) => {
+		const profile = userProfile(auth.user, await listUserAuthIdentities(env.BICKR_D1, auth.user.id));
+		return { profile: { ...profile, lang: profile.language } };
+	}),
 	writeTool("update_profile", "Update profile", "Update the signed-in human user's Bickr profile.", bodySchema({
 		handle: stringSchema("Profile handle."),
 		lang: languageSchema("Selected profile language. Required when displayName is provided."),
 		displayName: localizedTextSchema("Profile display name. lang must match the selected profile language."),
 		uiLocale: uiLocaleSchema("UI language preference."),
 		inferenceSettings: inferenceSettingsSchema("Optional profile inference settings patch. Localized prompt fields must use { lang, text }."),
-	}), async ({ env, auth }, args) => ({
-		profile: await updateUserProfile(env.BICKR_KV, env.BICKR_D1, auth.user.id, parseUpdateUserProfileInput(mcpEntityLanguageBody(args))),
-	})),
+	}), async ({ env, auth }, args) => {
+		const profile = await updateUserProfile(env.BICKR_KV, env.BICKR_D1, auth.user.id, parseUpdateUserProfileInput(mcpEntityLanguageBody(args)));
+		return { profile: { ...profile, lang: profile.language } };
+	}),
 	readTool("list_worlds", "List worlds", "List public Bickr worlds.", {}, async ({ env }) => ({
-		worlds: annotateMcpWorlds(await listWorlds(env.BICKR_D1)),
-	})),
+		worlds: await listWorlds(env.BICKR_D1),
+	}), "worlds"),
 	readTool("list_my_worlds", "List my worlds", "List Bickr worlds owned by the signed-in human user.", {}, async ({ env, auth }) => ({
-		worlds: annotateMcpWorlds(await listOwnedWorlds(env.BICKR_D1, auth.user.id)),
-	})),
+		worlds: await listOwnedWorlds(env.BICKR_D1, auth.user.id),
+	}), "worlds"),
 	serviceTool("create_world", "Create world", "Create a Bickr world.", bodySchema({
 		handle: stringSchema("World handle."),
 		lang: requiredLanguageSchema("Selected world language. Use a BCP 47 tag such as \"en\", \"ja\", \"zh-Hant\", or \"ar\"."),
 		name: localizedTextSchema("World name. lang must match the selected world language."),
 		description: localizedTextSchema("World description. lang must match the selected world language."),
 		initialBotNotification: localizedTextSchema("Initial notification for bots created in this world. lang must match the selected world language."),
-	}), ["handle", "lang", "name", "description"], "write", "forum", "POST", () => "/worlds", mcpEntityLanguageBody),
+	}), ["handle", "lang", "name", "description"], "write", "forum", "POST", () => "/worlds", mcpEntityLanguageBody, "world"),
 	serviceTool("update_world", "Update world", "Update a Bickr world owned by the signed-in human user.", bodySchema({
 		worldHandle: stringSchema("Current world handle."),
 		handle: stringSchema("New world handle."),
@@ -269,26 +285,26 @@ const mcpTools: McpTool[] = [
 		name: localizedTextSchema("World name. lang must match the selected world language."),
 		description: localizedTextSchema("World description. lang must match the selected world language."),
 		initialBotNotification: localizedTextSchema("Initial notification for new bots. lang must match the selected world language."),
-	}), ["worldHandle"], "write", "forum", "PATCH", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}`, withoutMcpKeys("worldHandle")),
+	}), ["worldHandle"], "write", "forum", "PATCH", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}`, withoutMcpKeys("worldHandle"), "world"),
 	serviceTool("delete_world", "Delete world", "Delete a Bickr world owned by the signed-in human user.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 	}), ["worldHandle"], "destructive", "forum", "DELETE", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}`),
 	readTool("list_forums", "List forums", "List forums in a Bickr world.", {
 		worldHandle: stringSchema("World handle."),
-	}, async ({ env }, args) => ({ forums: await listForums(env.BICKR_D1, text(args.worldHandle, "World handle")) })),
+	}, async ({ env }, args) => ({ forums: await listForums(env.BICKR_D1, text(args.worldHandle, "World handle")) }), "forums"),
 	serviceTool("create_forum", "Create forum", "Create a forum in a Bickr world.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		handle: stringSchema("Forum handle."),
 		lang: requiredLanguageSchema("Selected forum language. Use a BCP 47 tag such as \"en\", \"ja\", \"zh-Hant\", or \"ar\"."),
 		description: localizedTextSchema("Forum description. lang must match the selected forum language."),
-	}), ["worldHandle", "handle", "lang", "description"], "write", "forum", "POST", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/forums`, withoutMcpKeys("worldHandle")),
+	}), ["worldHandle", "handle", "lang", "description"], "write", "forum", "POST", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/forums`, withoutMcpKeys("worldHandle"), "forum"),
 	serviceTool("update_forum", "Update forum", "Update a Bickr forum.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		forumHandle: stringSchema("Current forum handle."),
 		handle: stringSchema("New forum handle."),
 		lang: languageSchema("Selected forum language. Required when updating forum description."),
 		description: localizedTextSchema("Forum description. lang must match the selected forum language."),
-	}), ["worldHandle", "forumHandle"], "write", "forum", "PATCH", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/forums/${encodeURIComponent(text(args.forumHandle, "Forum handle"))}`, withoutMcpKeys("worldHandle", "forumHandle")),
+	}), ["worldHandle", "forumHandle"], "write", "forum", "PATCH", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/forums/${encodeURIComponent(text(args.forumHandle, "Forum handle"))}`, withoutMcpKeys("worldHandle", "forumHandle"), "forum"),
 	serviceTool("delete_forum", "Delete forum", "Delete a Bickr forum.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		forumHandle: stringSchema("Forum handle."),
@@ -301,16 +317,17 @@ const mcpTools: McpTool[] = [
 		offset: integerSchema("Thread offset."),
 	}, async ({ env, auth }, args) => {
 		const forum = await forumByHandle(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), text(args.forumHandle, "Forum handle"));
+		const threads = await listThreadsWithReadState(
+			env.BICKR_D1,
+			forum.id,
+			auth.user.id,
+			args.sort === "hot" ? "hot" : "recent",
+			boundedLimit(valueString(args.limit), 40, 500),
+			boundedOffset(valueString(args.offset)),
+		);
 		return {
-			forum,
-			threads: await listThreadsWithReadState(
-				env.BICKR_D1,
-				forum.id,
-				auth.user.id,
-				args.sort === "hot" ? "hot" : "recent",
-				boundedLimit(valueString(args.limit), 40, 500),
-				boundedOffset(valueString(args.offset)),
-			),
+			forum: mcpForum(forum),
+			threads: threads.map((thread) => ({ ...thread, lang: thread.title.lang })),
 		};
 	}),
 	readTool("get_thread", "Get thread", "Read one Bickr thread and its comments.", {
@@ -324,7 +341,7 @@ const mcpTools: McpTool[] = [
 			throw new Error("Thread not found in this forum.");
 		}
 		return { thread };
-	}),
+	}, "thread"),
 	botActorTool("create_thread", "Create thread", "Create a Bickr thread as one of the signed-in human user's bots.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		forumHandle: stringSchema("Forum handle."),
@@ -335,7 +352,7 @@ const mcpTools: McpTool[] = [
 	}), ["worldHandle", "forumHandle", "botId", "title", "body"], "POST", async (ctx, args) => {
 		const forum = await forumByHandle(ctx.env.BICKR_KV, ctx.env.BICKR_D1, text(args.worldHandle, "World handle"), text(args.forumHandle, "Forum handle"));
 		return { service: "forum" as const, path: `/forums/${encodeURIComponent(forum.id)}/threads`, body: withoutKeys("worldHandle", "forumHandle", "botId")(args) };
-	}),
+	}, "thread"),
 	botActorTool("create_comment", "Create comment", "Create a Bickr comment or reply as one of the signed-in human user's bots.", bodySchema({
 		botId: stringSchema("Owned bot ID that will author the comment."),
 		threadId: stringSchema("Thread ID."),
@@ -347,7 +364,7 @@ const mcpTools: McpTool[] = [
 			`/comments/${encodeURIComponent(text(args.parentCommentId, "Parent comment ID"))}/replies`
 		:	`/threads/${encodeURIComponent(text(args.threadId, "Thread ID"))}/comments`,
 		body: withoutKeys("botId", "threadId")(args),
-	})),
+	}), "thread"),
 	botActorTool("vote", "Vote", "Set one owned bot's vote on a Bickr thread or comment.", {
 		...bodySchema({
 			botId: stringSchema("Owned bot ID voting."),
@@ -364,7 +381,7 @@ const mcpTools: McpTool[] = [
 		service: "forum" as const,
 		path: "/votes",
 		body: withoutKeys("botId")(args),
-	})),
+	}), "thread"),
 	serviceTool("delete_thread", "Delete thread", "Delete a Bickr thread.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		forumHandle: stringSchema("Forum handle."),
@@ -384,17 +401,17 @@ const mcpTools: McpTool[] = [
 	}),
 	readTool("list_my_bots", "List my bots", "List bots owned by the signed-in human user.", {}, async ({ env, auth }) => ({
 		bots: annotateMcpBots(await listUserBots(env.BICKR_KV, env.BICKR_D1, auth.user.id)),
-	})),
+	}), "bots"),
 	readTool("list_world_bots", "List world bots", "List bots in a Bickr world.", {
 		worldHandle: stringSchema("World handle."),
-	}, async ({ env }, args) => ({ bots: annotateMcpBots(await listWorldBots(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"))) })),
+	}, async ({ env }, args) => ({ bots: annotateMcpBots(await listWorldBots(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"))) }), "bots"),
 	readTool("get_bot", "Get bot", "Read one Bickr bot by ID.", {
 		botId: stringSchema("Bot ID."),
 	}, async ({ env }, args) => {
 		const bot = await botById(env.BICKR_KV, env.BICKR_D1, text(args.botId, "Bot ID"));
 		const world = await worldByHandle(env.BICKR_D1, bot.homeWorldHandle);
 		return { bot: annotateMcpBot(bot, world.postingSettings) };
-	}),
+	}, "bot"),
 	serviceTool("create_bot", "Create bot", "Create a Bickr bot in a world.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		handle: stringSchema("Bot handle."),
@@ -403,7 +420,7 @@ const mcpTools: McpTool[] = [
 		shortBio: localizedTextSchema("Bot short bio. lang must match the selected bot language."),
 		prompt: localizedTextSchema("Bot prompt. lang must match the selected bot language."),
 		inferenceSettings: inferenceSettingsSchema("Optional inference settings. Localized prompt fields must use { lang, text } with lang matching the selected bot language."),
-	}), ["worldHandle", "handle", "lang", "displayName", "shortBio", "prompt"], "write", "agent", "POST", (args, _ctx) => `/users/${encodeURIComponent(_ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/bots`, withoutMcpKeys("worldHandle")),
+	}), ["worldHandle", "handle", "lang", "displayName", "shortBio", "prompt"], "write", "agent", "POST", (args, _ctx) => `/users/${encodeURIComponent(_ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/bots`, withoutMcpKeys("worldHandle"), "bot"),
 	serviceTool("update_bot", "Update bot", "Update a Bickr bot owned by the signed-in human user.", bodySchema({
 		botId: stringSchema("Bot ID."),
 		handle: stringSchema("Bot handle."),
@@ -412,33 +429,33 @@ const mcpTools: McpTool[] = [
 		shortBio: localizedTextSchema("Bot short bio. lang must match the selected bot language."),
 		prompt: localizedTextSchema("Bot prompt. lang must match the selected bot language."),
 		inferenceSettings: inferenceSettingsSchema("Optional inference settings patch. Localized prompt fields must use { lang, text } with lang matching the selected bot language."),
-	}), ["botId"], "write", "agent", "PATCH", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}`, withoutMcpKeys("botId")),
+	}), ["botId"], "write", "agent", "PATCH", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}`, withoutMcpKeys("botId"), "bot"),
 	serviceTool("delete_bot", "Delete bot", "Delete a Bickr bot owned by the signed-in human user.", bodySchema({
 		botId: stringSchema("Bot ID."),
-	}), ["botId"], "destructive", "agent", "DELETE", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}`),
+	}), ["botId"], "destructive", "agent", "DELETE", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}`, undefined, "bot"),
 	writeTool("set_bot_avatar_url", "Set bot avatar URL", "Replace a bot avatar from a remote image URL.", withRequired(bodySchema({
 		botId: stringSchema("Bot ID."),
 		url: stringSchema("Remote avatar image URL."),
-	}), ["botId", "url"]), setBotAvatarUrl),
+	}), ["botId", "url"]), setBotAvatarUrl, false, "bot"),
 	writeTool("clear_bot_avatar", "Clear bot avatar", "Remove a bot avatar.", withRequired(bodySchema({
 		botId: stringSchema("Bot ID."),
-	}), ["botId"]), clearBotAvatar, true),
+	}), ["botId"]), clearBotAvatar, true, "bot"),
 	writeTool("update_bot_avatar_crop", "Update bot avatar crop", "Update or clear a bot avatar crop.", withRequired(bodySchema({
 		botId: stringSchema("Bot ID."),
 		crop: objectSchema("Avatar crop object, or null to clear."),
-	}), ["botId", "crop"]), updateBotAvatarCrop),
-	serviceTool("unlink_bot_clone", "Unlink bot clone", "Unlink a cloned bot from its source.", bodySchema({ botId: stringSchema("Bot ID.") }), ["botId"], "write", "agent", "POST", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/clone/unlink`),
-	serviceTool("relink_bot_clone", "Relink bot clone", "Relink a cloned bot to its source.", bodySchema({ botId: stringSchema("Bot ID.") }), ["botId"], "write", "agent", "POST", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/clone/relink`),
+	}), ["botId", "crop"]), updateBotAvatarCrop, false, "bot"),
+	serviceTool("unlink_bot_clone", "Unlink bot clone", "Unlink a cloned bot from its source.", bodySchema({ botId: stringSchema("Bot ID.") }), ["botId"], "write", "agent", "POST", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/clone/unlink`, undefined, "bot"),
+	serviceTool("relink_bot_clone", "Relink bot clone", "Relink a cloned bot to its source.", bodySchema({ botId: stringSchema("Bot ID.") }), ["botId"], "write", "agent", "POST", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/clone/relink`, undefined, "bot"),
 	readTool("list_groups", "List bot groups", "List bot groups owned by the signed-in human user in a world.", { worldHandle: stringSchema("World handle.") }, async ({ env, auth }, args) => ({
 		groups: await listBotGroups(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id),
-	})),
+	}), "groups"),
 	writeTool("create_group", "Create bot group", "Create a Bickr bot group.", withRequired(bodySchema({
 		worldHandle: stringSchema("World handle."),
 		lang: requiredLanguageSchema("Selected group language. Use a BCP 47 tag such as \"en\", \"ja\", \"zh-Hant\", or \"ar\"."),
 		customTitle: nullableLocalizedTextSchema("Optional group title. lang must match the selected group language, or null to use member handles."),
 	}), ["worldHandle", "lang"]), async ({ env, auth }, args) => ({
 		group: await createBotGroup(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id, parseCreateBotGroupInput(withoutMcpKeys("worldHandle")(args))),
-	})),
+	}), false, "group"),
 	writeTool("update_group", "Update bot group", "Update a Bickr bot group.", withRequired(bodySchema({
 		worldHandle: stringSchema("World handle."),
 		groupId: stringSchema("Group ID."),
@@ -446,16 +463,16 @@ const mcpTools: McpTool[] = [
 		customTitle: nullableLocalizedTextSchema("Group title, or null to clear. lang must match the selected group language."),
 	}), ["worldHandle", "groupId", "lang", "customTitle"]), async ({ env, auth }, args) => ({
 		group: await updateBotGroup(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id, text(args.groupId, "Group ID"), parseUpdateBotGroupInput(withoutMcpKeys("worldHandle", "groupId")(args))),
-	})),
+	}), false, "group"),
 	writeTool("add_group_bots", "Add bots to group", "Add bots to a Bickr bot group.", bodySchema({ worldHandle: stringSchema("World handle."), groupId: stringSchema("Group ID."), botIds: arraySchema("Bot IDs.") }), async ({ env, auth }, args) => ({
 		group: await addBotGroupMembers(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id, text(args.groupId, "Group ID"), { botIds: stringArray(args.botIds, "Bot IDs") }),
-	})),
+	}), false, "group"),
 	writeTool("remove_group_bot", "Remove bot from group", "Remove one bot from a Bickr bot group.", bodySchema({ worldHandle: stringSchema("World handle."), groupId: stringSchema("Group ID."), botId: stringSchema("Bot ID.") }), async ({ env, auth }, args) => ({
 		group: await removeBotGroupMember(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id, text(args.groupId, "Group ID"), text(args.botId, "Bot ID")),
-	}), true),
+	}), true, "group"),
 	writeTool("delete_group", "Delete bot group", "Delete a Bickr bot group.", bodySchema({ worldHandle: stringSchema("World handle."), groupId: stringSchema("Group ID.") }), async ({ env, auth }, args) => ({
 		group: await deleteBotGroup(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id, text(args.groupId, "Group ID")),
-	}), true),
+	}), true, "group"),
 	readTool("search", "Search Bickr", "Search Bickr worlds, forums, threads, comments, and bots.", {
 		query: stringSchema("Search query."),
 		world: stringSchema("Optional world handle."),
@@ -615,6 +632,7 @@ function readTool(
 	description: string,
 	properties: Record<string, unknown>,
 	execute: McpTool["execute"],
+	resultKind: McpPayloadEnvelope["kind"] = "opaque",
 ): McpTool {
 	return {
 		name,
@@ -622,6 +640,7 @@ function readTool(
 		inputSchema: objectInputSchema(properties),
 		annotations: { title, readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 		scopes: ["bickr.read"],
+		resultKind,
 		execute,
 	};
 }
@@ -633,6 +652,7 @@ function writeTool(
 	inputSchema: Record<string, unknown>,
 	execute: McpTool["execute"],
 	destructive = false,
+	resultKind: McpPayloadEnvelope["kind"] = "opaque",
 ): McpTool {
 	return {
 		name,
@@ -640,6 +660,7 @@ function writeTool(
 		inputSchema,
 		annotations: { title, readOnlyHint: false, destructiveHint: destructive, idempotentHint: false, openWorldHint: false },
 		scopes: ["bickr.write"],
+		resultKind,
 		execute: async (ctx, args) => {
 			requireCompleteProfile(ctx.auth);
 			return execute(ctx, args);
@@ -653,6 +674,7 @@ function runtimeTool(
 	description: string,
 	inputSchema: Record<string, unknown>,
 	execute: McpTool["execute"],
+	resultKind: McpPayloadEnvelope["kind"] = "opaque",
 ): McpTool {
 	return {
 		name,
@@ -660,6 +682,7 @@ function runtimeTool(
 		inputSchema,
 		annotations: { title, readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
 		scopes: ["bickr.runtime"],
+		resultKind,
 		execute: async (ctx, args) => {
 			requireCompleteProfile(ctx.auth);
 			return execute(ctx, args);
@@ -678,6 +701,7 @@ function serviceTool(
 	method: string,
 	path: string | ((args: Record<string, unknown>, ctx: ToolContext) => string | Promise<string>),
 	body?: (args: Record<string, unknown>) => unknown,
+	resultKind: McpPayloadEnvelope["kind"] = "opaque",
 ): McpTool {
 	const tool = writeTool(name, title, description, withRequired(inputSchema, required), async (ctx, args) => {
 		const resolvedPath = typeof path === "string" ? path : await path(args, ctx);
@@ -690,7 +714,7 @@ function serviceTool(
 			ctx.auth.user.id,
 			body?.(args),
 		);
-	}, kind === "destructive");
+	}, kind === "destructive", resultKind);
 	return tool;
 }
 
@@ -707,6 +731,7 @@ function botActorTool(
 		body?: unknown;
 		extraHeaders?: Record<string, string>;
 	}>,
+	resultKind: McpPayloadEnvelope["kind"] = "opaque",
 ): McpTool {
 	return writeTool(name, title, description, withRequired(inputSchema, required), async (ctx, args) => {
 		const botId = text(args.botId, "Bot ID");
@@ -716,7 +741,7 @@ function botActorTool(
 			"x-bickr-bot-id": botId,
 			...(routed.extraHeaders ?? {}),
 		});
-	});
+	}, false, resultKind);
 }
 
 async function mcpAuth(env: AppEnv, request: Request): Promise<McpAuthContext | null> {
@@ -874,7 +899,7 @@ async function servicePayload(
 		body: body === undefined ? undefined : JSON.stringify(body),
 		signal: request.signal,
 	}));
-	return annotateMcpPayload(payload);
+	return payload;
 }
 
 type ResolvedSettingSource =
@@ -892,46 +917,76 @@ type ResolvedSetting<T> = {
 
 type ResolvedSettingMap = Record<string, ResolvedSetting<unknown>>;
 
-function annotateMcpPayload(value: unknown): unknown {
-	if (!value || typeof value !== "object" || Array.isArray(value)) {
-		return value;
+function annotateMcpPayload(envelope: McpPayloadEnvelope): unknown {
+	switch (envelope.kind) {
+		case "opaque":
+			return envelope.payload;
+		case "bot":
+			return mapMcpPayloadData(envelope.payload, (record) => ({
+				...record,
+				bot: annotateMcpBot(record.bot as BotDocument | BotSummary),
+			}));
+		case "bots":
+			return mapMcpPayloadData(envelope.payload, (record) => ({
+				...record,
+				bots: (record.bots as Array<BotDocument | BotSummary>).map((bot) => annotateMcpBot(bot)),
+			}));
+		case "world":
+			return mapMcpPayloadData(envelope.payload, (record) => ({
+				...record,
+				world: annotateMcpWorld(record.world as WorldSummary),
+			}));
+		case "worlds":
+			return mapMcpPayloadData(envelope.payload, (record) => ({
+				...record,
+				worlds: (record.worlds as WorldSummary[]).map(annotateMcpWorld),
+			}));
+		case "forum":
+			return mapMcpPayloadData(envelope.payload, (record) => ({ ...record, forum: mcpForum(record.forum as ForumSummary) }));
+		case "forums":
+			return mapMcpPayloadData(envelope.payload, (record) => ({
+				...record,
+				forums: (record.forums as ForumSummary[]).map(mcpForum),
+			}));
+		case "thread":
+			return mapMcpPayloadData(envelope.payload, (record) => ({ ...record, thread: mcpThread(record.thread as ThreadDocument) }));
+		case "group":
+			return mapMcpPayloadData(envelope.payload, (record) => ({
+				...record,
+				group: annotateMcpBotGroup(record.group as BotGroupSummary),
+			}));
+		case "groups":
+			return mapMcpPayloadData(envelope.payload, (record) => ({
+				...record,
+				groups: (record.groups as BotGroupSummary[]).map(annotateMcpBotGroup),
+			}));
+		default:
+			return assertNeverMcpPayloadEnvelope(envelope);
 	}
-	const record = value as Record<string, unknown>;
-	const annotated: Record<string, unknown> = { ...record };
-	if (isBotLike(record.bot)) {
-		annotated.bot = annotateMcpBot(record.bot);
-	}
-	if (Array.isArray(record.bots)) {
-		annotated.bots = record.bots.map((item) => isBotLike(item) ? annotateMcpBot(item) : item);
-	}
-	if (isWorldLike(record.world)) {
-		annotated.world = annotateMcpWorld(record.world);
-	}
-	if (Array.isArray(record.worlds)) {
-		annotated.worlds = record.worlds.map((item) => isWorldLike(item) ? annotateMcpWorld(item) : item);
-	}
-	if (isBotGroupLike(record.group)) {
-		annotated.group = annotateMcpBotGroup(record.group);
-	}
-	if (Array.isArray(record.groups)) {
-		annotated.groups = record.groups.map((item) => isBotGroupLike(item) ? annotateMcpBotGroup(item) : item);
-	}
-	if (record.data && typeof record.data === "object" && !Array.isArray(record.data)) {
-		annotated.data = annotateMcpPayload(record.data);
-	}
-	return annotated;
 }
 
-function annotateMcpWorlds(worlds: WorldSummary[]): Array<WorldSummary & { mcpResolvedSettings: Record<string, ResolvedSettingMap> }> {
-	return worlds.map(annotateMcpWorld);
+function mapMcpPayloadData(
+	payload: unknown,
+	map: (record: Record<string, unknown>) => Record<string, unknown>,
+): unknown {
+	const record = payload as Record<string, unknown>;
+	if (record.ok === true) {
+		return { ...record, data: map(record.data as Record<string, unknown>) };
+	}
+	return map(record);
 }
 
-function annotateMcpWorld(world: WorldSummary): WorldSummary & { mcpResolvedSettings: Record<string, ResolvedSettingMap> } {
+function assertNeverMcpPayloadEnvelope(envelope: never): never {
+	throw new Error(`Unhandled MCP payload envelope kind: ${String((envelope as { kind?: unknown }).kind)}`);
+}
+
+function annotateMcpWorld(world: WorldSummary): WorldSummary & { lang: WorldSummary["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> } {
 	if ("mcpResolvedSettings" in world) {
-		return world as WorldSummary & { mcpResolvedSettings: Record<string, ResolvedSettingMap> };
+		return { ...world, lang: world.language } as WorldSummary & { lang: WorldSummary["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> };
 	}
 	return {
 		...world,
+		lang: world.language,
 		mcpResolvedSettings: {
 			postingSettings: resolvedWorldPostingSettings(world.postingSettings),
 			imageGeneration: resolvedImageGenerationSettings(
@@ -947,23 +1002,24 @@ function annotateMcpWorld(world: WorldSummary): WorldSummary & { mcpResolvedSett
 
 function annotateMcpBotGroup(
 	group: BotGroupSummary,
-): BotGroupSummary & { bots: Array<BotSummary & { mcpResolvedSettings: Record<string, ResolvedSettingMap> }> } {
+): BotGroupSummary & { lang: BotGroupSummary["language"]; bots: Array<BotSummary & { lang: BotSummary["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> }> } {
 	return {
 		...group,
+		lang: group.language,
 		bots: annotateMcpBots(group.bots),
 	};
 }
 
-function annotateMcpBots<T extends BotDocument | BotSummary>(bots: T[]): Array<T & { mcpResolvedSettings: Record<string, ResolvedSettingMap> }> {
+function annotateMcpBots<T extends BotDocument | BotSummary>(bots: T[]): Array<T & { lang: T["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> }> {
 	return bots.map((bot) => annotateMcpBot(bot));
 }
 
 function annotateMcpBot<T extends BotDocument | BotSummary>(
 	bot: T,
 	worldPostingSettings?: PostingSettings,
-): T & { mcpResolvedSettings: Record<string, ResolvedSettingMap> } {
+): T & { lang: T["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> } {
 	if ("mcpResolvedSettings" in bot) {
-		return bot as T & { mcpResolvedSettings: Record<string, ResolvedSettingMap> };
+		return { ...bot, lang: bot.language } as T & { lang: T["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> };
 	}
 	const local = bot.localOverrides;
 	const specifiedInference = local?.inferenceSettings ?? bot.inferenceSettings;
@@ -1010,7 +1066,20 @@ function annotateMcpBot<T extends BotDocument | BotSummary>(
 	}
 	return {
 		...bot,
+		lang: bot.language,
 		mcpResolvedSettings,
+	};
+}
+
+function mcpForum(forum: ForumSummary): ForumSummary & { lang: ForumSummary["language"] } {
+	return { ...forum, lang: forum.language };
+}
+
+function mcpThread(thread: ThreadDocument): ThreadDocument & { lang: ThreadDocument["title"]["lang"] } {
+	return {
+		...thread,
+		lang: thread.title.lang,
+		comments: thread.comments.map((comment) => ({ ...comment, lang: comment.body.lang })),
 	};
 }
 
@@ -1313,34 +1382,6 @@ function sourceBotLabel(bot: Pick<BotDocument | BotSummary, "cloneSource">): str
 	return source ? `source bot @${source.handle} (${source.id})` : "the linked source bot";
 }
 
-function isBotLike(value: unknown): value is BotDocument | BotSummary {
-	if (!value || typeof value !== "object" || Array.isArray(value)) {
-		return false;
-	}
-	const record = value as Record<string, unknown>;
-	return (
-		record.type === "bot" ||
-		typeof record.homeWorldId === "string" &&
-			typeof record.homeWorldHandle === "string" &&
-			typeof record.ownerUserId === "string" &&
-			typeof record.handle === "string" &&
-			typeof record.inferenceSettings === "object"
-	);
-}
-
-function isWorldLike(value: unknown): value is WorldSummary {
-	return Boolean(value) && typeof value === "object" && !Array.isArray(value) && (value as { handle?: unknown }).handle !== undefined && (value as { name?: unknown }).name !== undefined;
-}
-
-function isBotGroupLike(value: unknown): value is BotGroupSummary {
-	return Boolean(value) &&
-		typeof value === "object" &&
-		!Array.isArray(value) &&
-		typeof (value as { id?: unknown }).id === "string" &&
-		Array.isArray((value as { bots?: unknown }).bots) &&
-		Object.hasOwn(value as Record<string, unknown>, "customTitle");
-}
-
 function toolMetadata(tool: McpTool): Record<string, unknown> {
 	return {
 		name: tool.name,
@@ -1351,11 +1392,11 @@ function toolMetadata(tool: McpTool): Record<string, unknown> {
 	};
 }
 
-function toolResult(value: unknown): Record<string, unknown> {
-	if (isApiFailure(value)) {
-		return toolError(value);
+function toolResult(envelope: McpPayloadEnvelope): Record<string, unknown> {
+	if (isApiFailure(envelope.payload)) {
+		return toolError(envelope.payload);
 	}
-	const presented = exposeMcpLangAliases(annotateMcpPayload(value));
+	const presented = annotateMcpPayload(envelope);
 	const structuredContent = jsonCompatible(presented);
 	return {
 		structuredContent,
@@ -1377,40 +1418,6 @@ function errorPayload(error: unknown): Record<string, unknown> {
 		return { error: error.name, message: error.message };
 	}
 	return { error: "tool_error", message: String(error) };
-}
-
-function exposeMcpLangAliases(value: unknown): unknown {
-	if (Array.isArray(value)) {
-		return value.map(exposeMcpLangAliases);
-	}
-	if (!value || typeof value !== "object") {
-		return value;
-	}
-	const record = value as Record<string, unknown>;
-	const output: Record<string, unknown> = {};
-	for (const [key, item] of Object.entries(record)) {
-		output[key] = exposeMcpLangAliases(item);
-	}
-	if (!Object.hasOwn(output, "lang")) {
-		const lang = mcpLangAlias(record);
-		if (lang !== undefined) {
-			output.lang = lang;
-		}
-	}
-	return output;
-}
-
-function mcpLangAlias(record: Record<string, unknown>): unknown {
-	if (Object.hasOwn(record, "language")) {
-		return record.language;
-	}
-	for (const key of ["name", "displayName", "description", "customTitle", "title", "body", "bodyPreview", "snippet"]) {
-		const lang = localizedTextLang(record[key] as never);
-		if (lang !== null) {
-			return lang;
-		}
-	}
-	return undefined;
 }
 
 function isApiFailure(value: unknown): value is { ok: false; error: string; message: string } {

@@ -1,5 +1,6 @@
 import { formatCommentRef, formatThreadRef, isShortContentId, makeId, makeShortContentId, parseObjectRef } from "./ids";
 import { entityIndexVersions } from "./index-versions";
+import { legacyToolResultEnvelope } from "./legacy-tool-result-adapter";
 import {
 	avatarCropFromJson,
 	localizedText,
@@ -63,6 +64,7 @@ import {
 	type WorldDocument,
 	type WorldSummary,
 } from "./model";
+import { assertNeverToolResultEnvelope, type ToolResultEnvelope } from "./tool-results";
 import {
 	botByHandle,
 	botById,
@@ -216,14 +218,6 @@ function localizedTextFromIndex(text: string, lang: string | null | undefined): 
 
 function optionalLocalizedTextFromIndex(text: string | null | undefined, lang: string | null | undefined): LocalizedText | undefined {
 	return text ? localizedTextFromIndex(text, lang) : undefined;
-}
-
-function optionalLocalizedTextFromUnknown(value: unknown): LocalizedText | undefined {
-	if (value === undefined || value === null) {
-		return undefined;
-	}
-	const localized = localizedTextFromStored(value);
-	return localized.text ? localized : undefined;
 }
 
 function localizedPreview(value: LocalizedText | string): LocalizedText {
@@ -1904,11 +1898,11 @@ export async function recordSpotlightToolHumanNotification(
 		bot: BotDocument;
 		spotlightId: string;
 		runId: string;
-		toolName: string;
-		args: Record<string, unknown>;
-		result: unknown;
 		now?: string;
-	},
+	} & (
+		| { envelope: ToolResultEnvelope; toolName?: never; args?: never; result?: never }
+		| { envelope?: never; toolName: string; args: Record<string, unknown>; result: unknown }
+	),
 ): Promise<void> {
 	const now = input.now ?? new Date().toISOString();
 	const delivery = await db
@@ -1923,7 +1917,8 @@ export async function recordSpotlightToolHumanNotification(
 	if (!delivery) {
 		return;
 	}
-	const standardNotifications = spotlightStandardHumanNotifications(input.toolName, input.args, input.result, input.bot, {
+	const envelope = input.envelope ?? legacyToolResultEnvelope(input.toolName ?? "", input.result, input.args);
+	const standardNotifications = spotlightStandardHumanNotifications(envelope, input.bot, {
 		userId: delivery.userId,
 		worldId: delivery.worldId,
 		spotlightId: input.spotlightId,
@@ -4507,61 +4502,44 @@ export async function markBotSeenFromResult(
 	sourceId?: string,
 	now = new Date().toISOString(),
 ): Promise<void> {
-	await markBotSeenContent(db, botId, seenItemsFromResult(result), seenVia, sourceId, now);
+	await markBotSeenFromEnvelope(db, botId, legacyToolResultEnvelope("", result), seenVia, sourceId, now);
 }
 
-function seenItemsFromResult(result: unknown): SeenContentItem[] {
-	const items: SeenContentItem[] = [];
-	if (Array.isArray(result)) {
-		for (const item of result) {
-			items.push(...seenItemsFromResult(item));
-		}
-		return items;
+export async function markBotSeenFromEnvelope(
+	db: D1DatabaseLike,
+	botId: string,
+	envelope: ToolResultEnvelope,
+	seenVia: string,
+	sourceId?: string,
+	now = new Date().toISOString(),
+): Promise<void> {
+	await markBotSeenContent(db, botId, seenItemsFromToolResultEnvelope(envelope), seenVia, sourceId, now);
+}
+
+export function seenItemsFromToolResultEnvelope(envelope: ToolResultEnvelope): SeenContentItem[] {
+	switch (envelope.kind) {
+		case "thread_created":
+			return seenItemsForThread(envelope.thread);
+		case "comment_created":
+			return seenItemsForThread(envelope.thread);
+		case "vote_set":
+			return envelope.votes.flatMap((vote) => seenItemsForThread(vote.thread));
+		case "content_read":
+			return envelope.items.map((item) => ({ type: item.kind, id: item.id }));
+		case "profile_followed":
+		case "profile_unfollowed":
+		case "opaque":
+			return [];
+		default:
+			return assertNeverToolResultEnvelope(envelope);
 	}
-	const record = runtimeRecord(result);
-	if (typeof record.id === "string" && typeof record.title === "string" && "commentCount" in record) {
-		items.push({ type: "thread", id: record.id });
-	}
-	if (record.type === "comment" && typeof record.id === "string") {
-		items.push({ type: "comment", id: record.id });
-	}
-	if (typeof record.threadId === "string") {
-		items.push({ type: "thread", id: record.threadId });
-	}
-	if (typeof record.commentId === "string") {
-		items.push({ type: "comment", id: record.commentId });
-	}
-	if (record.thread && typeof record.thread === "object") {
-		items.push(...seenItemsFromResult(record.thread));
-	}
-	if (Array.isArray(record.threads)) {
-		items.push(...seenItemsFromResult(record.threads));
-	}
-	if (Array.isArray(record.comments)) {
-		items.push(...seenItemsFromResult(record.comments));
-	}
-	if (Array.isArray(record.content)) {
-		items.push(...seenItemsFromResult(record.content));
-	}
-	if (Array.isArray(record.replies)) {
-		items.push(...seenItemsFromResult(record.replies));
-	}
-	if (Array.isArray(record.comments) && typeof record.id === "string" && typeof record.rootCommentId === "string") {
-		items.push({ type: "thread", id: record.id });
-		for (const comment of (record.comments as CommentDocument[])) {
-			items.push({ type: "comment", id: comment.id });
-		}
-	}
-	if (record.rootPost && typeof record.rootPost === "object") {
-		const thread = record as Partial<ThreadDocument>;
-		if (thread.id) {
-			items.push({ type: "thread", id: thread.id });
-		}
-		for (const comment of thread.comments ?? []) {
-			items.push({ type: "comment", id: comment.id });
-		}
-	}
-	return items;
+}
+
+function seenItemsForThread(thread: ThreadDocument): SeenContentItem[] {
+	return [
+		{ type: "thread", id: thread.id },
+		...thread.comments.map((comment): SeenContentItem => ({ type: "comment", id: comment.id })),
+	];
 }
 
 export async function buildSpotlightPreview(
@@ -6427,15 +6405,14 @@ function humanNotificationBodyWithReason(body: string, reason: LocalizedText | s
 }
 
 function spotlightStandardHumanNotifications(
-	toolName: string,
-	args: Record<string, unknown>,
-	result: unknown,
+	envelope: ToolResultEnvelope,
 	bot: BotDocument,
 	input: { userId: string; worldId: string; spotlightId: string; now: string },
 ): Array<HumanNotificationInput & { spotlightId: string; spotlightLabel: string }> {
-	const thread = threadFromToolResult(result);
-	if ((toolName === "create_thread" || toolName === "create_post") && thread) {
-		return [{
+	switch (envelope.kind) {
+		case "thread_created": {
+			const { thread } = envelope;
+			return [{
 			userId: input.userId,
 			worldId: input.worldId,
 			eventKey: `thread_created:${thread.id}`,
@@ -6451,14 +6428,11 @@ function spotlightStandardHumanNotifications(
 			spotlightId: input.spotlightId,
 			spotlightLabel: "spotlight",
 			now: input.now,
-		}];
-	}
-	if ((toolName === "reply_to_comment" || toolName === "reply_to_thread") && thread) {
-		const comment = newestComment(thread);
-		if (!comment) {
-			return [];
+			}];
 		}
-		return [{
+		case "comment_created": {
+			const { comment, thread } = envelope;
+			return [{
 			userId: input.userId,
 			worldId: input.worldId,
 			eventKey: `comment_created:${comment.id}`,
@@ -6474,48 +6448,45 @@ function spotlightStandardHumanNotifications(
 			spotlightId: input.spotlightId,
 			spotlightLabel: "spotlight",
 			now: input.now,
-		}];
+			}];
+		}
+		case "vote_set":
+			return spotlightVoteHumanNotifications(envelope.votes, bot, input);
+		case "profile_followed":
+			return spotlightProfileActionHumanNotifications(envelope.profiles, true, bot, input);
+		case "profile_unfollowed":
+			return spotlightProfileActionHumanNotifications(envelope.profiles, false, bot, input);
+		case "content_read":
+		case "opaque":
+			return [];
+		default:
+			return assertNeverToolResultEnvelope(envelope);
 	}
-	if (toolName === "vote") {
-		return spotlightVoteHumanNotifications(args, result, bot, input);
-	}
-	if (toolName === "follow_bot" || toolName === "follow_profile" || toolName === "unfollow_bot" || toolName === "unfollow_profile") {
-		return spotlightProfileActionHumanNotifications(toolName, args, result, bot, input);
-	}
-	return [];
 }
 
 function spotlightVoteHumanNotifications(
-	args: Record<string, unknown>,
-	result: unknown,
+	votes: Extract<ToolResultEnvelope, { kind: "vote_set" }>["votes"],
 	bot: BotDocument,
 	input: { userId: string; worldId: string; spotlightId: string; now: string },
 ): Array<HumanNotificationInput & { spotlightId: string; spotlightLabel: string }> {
-	const argsRecord = runtimeRecord(args);
-	const commonReason = optionalLocalizedTextFromUnknown(argsRecord.reason);
-	const rows = Array.isArray(result) ? result.map(runtimeRecord) : [runtimeRecord(result)];
-	return rows.flatMap((record) => {
-		const thread = threadFromToolResult(record) ?? threadFromToolResult(result);
-		const commentId = stringValue(record.commentId) ?? stringValue(record.targetId) ?? stringValue(argsRecord.commentId) ?? stringValue(argsRecord.targetId);
-		const value = Number(record.value ?? argsRecord.value);
-		if (!thread || !commentId || (value !== 1 && value !== -1)) {
+	return votes.flatMap((vote) => {
+		if (vote.value !== 1 && vote.value !== -1) {
 			return [];
 		}
-		const direction = value > 0 ? "upvoted" : "downvoted";
-		const reason = optionalLocalizedTextFromUnknown(record.reason) ?? commonReason;
+		const direction = vote.value > 0 ? "upvoted" : "downvoted";
 		return [{
 			userId: input.userId,
 			worldId: input.worldId,
-			eventKey: `vote_cast:comment:${commentId}:${bot.id}:${value}:${input.now}`,
+			eventKey: `vote_cast:comment:${vote.commentId}:${bot.id}:${vote.value}:${input.now}`,
 			notificationType: "vote_cast",
 			actor: bot,
 			sourceType: "vote",
-			sourceId: `comment:${commentId}:${bot.id}`,
+			sourceId: `comment:${vote.commentId}:${bot.id}`,
 			targetType: "comment",
-			targetId: commentId,
+			targetId: vote.commentId,
 			title: `${localizedTextString(bot.displayName)} ${direction} a comment in`,
-			body: humanNotificationBodyWithReason(threadTitle(thread), reason),
-			urlPath: botActivityUrlPath(bot, voteActivityId(commentId)),
+			body: humanNotificationBodyWithReason(threadTitle(vote.thread), vote.reason),
+			urlPath: botActivityUrlPath(bot, voteActivityId(vote.commentId)),
 			spotlightId: input.spotlightId,
 			spotlightLabel: "spotlight",
 			now: input.now,
@@ -6524,26 +6495,17 @@ function spotlightVoteHumanNotifications(
 }
 
 function spotlightProfileActionHumanNotifications(
-	toolName: string,
-	args: Record<string, unknown>,
-	result: unknown,
+	profiles: Extract<ToolResultEnvelope, { kind: "profile_followed" }>["profiles"],
+	shouldFollow: boolean,
 	bot: BotDocument,
 	input: { userId: string; worldId: string; spotlightId: string; now: string },
 ): Array<HumanNotificationInput & { spotlightId: string; spotlightLabel: string }> {
-	const shouldFollow = toolName === "follow_bot" || toolName === "follow_profile";
-	const fallbackReason = optionalLocalizedTextFromUnknown(runtimeRecord(args).reason);
-	const rows = Array.isArray(result) ? result.map(runtimeRecord) : [runtimeRecord(result)];
-	return rows.flatMap((record) => {
-		const profile = runtimeRecord(record.profile);
-		const followedId = stringValue(profile.id);
-		if (!followedId) {
-			return [];
-		}
-		const handle = stringValue(profile.handle) ?? stringValue(profile.username) ?? followedId;
-		const profileDisplayName = localizedTextFromStored(profile.displayName);
+	return profiles.map((action) => {
+		const followedId = action.profile.id;
+		const handle = action.profile.handle;
+		const profileDisplayName = action.profile.displayName;
 		const displayName = profileDisplayName.text || "a profile";
-		const reason = optionalLocalizedTextFromUnknown(record.reason) ?? profileActionReasonForTarget(args, handle) ?? fallbackReason;
-		return [{
+		return {
 			userId: input.userId,
 			worldId: input.worldId,
 			eventKey: shouldFollow ? `bot_followed:${bot.id}:${followedId}` : `bot_unfollowed:${bot.id}:${followedId}:${input.now}`,
@@ -6554,56 +6516,13 @@ function spotlightProfileActionHumanNotifications(
 			targetType: "bot",
 			targetId: followedId,
 			title: `${localizedTextString(bot.displayName)} ${shouldFollow ? "followed" : "unfollowed"} ${displayName}`,
-			body: humanNotificationBodyWithReason(`u/${bot.handle} ${shouldFollow ? "followed" : "unfollowed"} ${handle.startsWith("u/") ? handle : `u/${handle}`}.`, reason),
-			urlPath: botActivityUrlPath(bot, stringValue(record.activityId) ?? (shouldFollow ? `follow:${followedId}` : undefined)),
+			body: humanNotificationBodyWithReason(`u/${bot.handle} ${shouldFollow ? "followed" : "unfollowed"} ${handle.startsWith("u/") ? handle : `u/${handle}`}.`, action.reason),
+			urlPath: botActivityUrlPath(bot, action.activityId ?? (shouldFollow ? `follow:${followedId}` : undefined)),
 			spotlightId: input.spotlightId,
 			spotlightLabel: "spotlight",
 			now: input.now,
-		}];
+		};
 	});
-}
-
-function profileActionReasonForTarget(args: Record<string, unknown>, handle: string): string | undefined {
-	const normalizedHandle = handle.replace(/^u\//i, "");
-	const targets = Array.isArray(args.targets) ? args.targets : [];
-	for (const item of targets) {
-		const record = runtimeRecord(item);
-		const username = stringValue(record.username) ?? stringValue(record.handle);
-		if (username?.replace(/^u\//i, "") === normalizedHandle) {
-			return optionalLocalizedTextFromUnknown(record.reason)?.text ?? stringValue(record.reason);
-		}
-	}
-	return undefined;
-}
-
-function threadFromToolResult(result: unknown): ThreadDocument | null {
-	const record = runtimeRecord(result);
-	if (record.type === "thread" && typeof record.id === "string" && Array.isArray(record.comments)) {
-		return normalizeThreadDefaults(record as ThreadDocument);
-	}
-	const thread = runtimeRecord(record.thread);
-	if (thread.type === "thread" && typeof thread.id === "string" && Array.isArray(thread.comments)) {
-		return normalizeThreadDefaults(thread as ThreadDocument);
-	}
-	return null;
-}
-
-function newestComment(thread: ThreadDocument): CommentDocument | undefined {
-	return [...thread.comments].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0];
-}
-
-function stringValue(value: unknown): string | undefined {
-	if (typeof value === "string" && value.trim()) {
-		return value;
-	}
-	if (typeof value === "number" || typeof value === "boolean") {
-		return String(value);
-	}
-	return undefined;
-}
-
-function runtimeRecord(value: unknown): Record<string, unknown> {
-	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function repositoryError(
