@@ -18,8 +18,4 @@ export {
 	rebaseInferenceDraftForFallbackChange,
 	slugify,
 } from "./bot-drafts";
-export { CreateBotModal } from "./create";
-export { BotEdit } from "./edit";
-export { BotProfileScreen } from "./profile";
-export { BotLoopScreen } from "./runtime";
 export { RuntimeRow } from "./runtime-row";

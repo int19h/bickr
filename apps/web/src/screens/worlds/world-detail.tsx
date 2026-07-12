@@ -22,6 +22,7 @@ import {
 import { SpaLink } from "../../components/navigation";
 import { languageDraftValue, languageInputValue } from "../../components/ui-text";
 import { defaultLanguageTag } from "../../language";
+import { lazyWithRetry } from "../../dynamic-import";
 import type { WorldTab } from "../../routes";
 import {
 	Confirm,
@@ -49,7 +50,7 @@ import {
 import { isValidHandle, slugify } from "../bots/bot-drafts";
 import { visibleForums } from "../../app-records";
 import type { BotActivityKindFilter } from "../bots/activity-feed";
-import { NotificationsScreen, type LoadHumanNotifications } from "../notifications";
+import type { LoadHumanNotifications } from "../notifications";
 import type { SubscriptionTarget } from "../subscriptions";
 import {
 	BotActivityList,
@@ -61,6 +62,10 @@ import {
 	matchesBotActivityKind,
 } from "../bots";
 import { BotGroupsTab } from "./groups";
+
+const NotificationsScreen = lazyWithRetry(() =>
+	import("../notifications").then((module) => ({ default: module.NotificationsScreen })),
+);
 
 export function WorldDetail({
 	bots,

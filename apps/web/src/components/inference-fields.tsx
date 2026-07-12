@@ -18,9 +18,10 @@ import type { AvatarTextPromptFillMode } from "../avatar/target";
 import {
 	effectiveNumberPlaceholder,
 	effectiveOptionalNumberPlaceholder,
+	providerRoutingPlaceholder,
 	providerRoutingPlaceholderForInheritance,
 	rebaseInferenceDraftForFallbackChange,
-} from "../screens/bots";
+} from "../screens/bots/bot-drafts";
 import {
 	effectiveInferenceDraftBaseUrl,
 	effectiveInferenceDraftModel,
@@ -503,8 +504,6 @@ export function AgenticLoopInferenceFields({
 const openRouterProviderRoutingDocsUrl = "https://openrouter.ai/docs/guides/routing/provider-selection";
 
 const openRouterImageGenerationDocsUrl = "https://openrouter.ai/docs/guides/overview/multimodal/image-generation#aspect-ratio";
-
-export const providerRoutingPlaceholder = "{\n\n}";
 
 const reasoningEffortOptions = [
 	{ value: "default", label: "Default" },
