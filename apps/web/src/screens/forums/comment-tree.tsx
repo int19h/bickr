@@ -80,8 +80,11 @@ export function CommentNode({
 			className={`comment ${isTarget ? "flash" : ""} ${indeterminate ? "implied" : ""} ${isLastSibling ? "last-sibling" : ""} ${hasReplies ? "has-replies" : ""}`}
 			id={commentDomId(comment.id)}
 		>
-			{onToggle && (
-				<div className="checkcell">
+			<div
+				aria-hidden={onToggle ? undefined : true}
+				className={onToggle ? "checkcell" : "checkcell placeholder"}
+			>
+				{onToggle && (
 					<input
 						aria-label="Spotlight this reply chain"
 						checked={checked}
@@ -92,8 +95,8 @@ export function CommentNode({
 						title="Spotlight this reply chain"
 						type="checkbox"
 					/>
-				</div>
-			)}
+				)}
+			</div>
 			<div className="comment-main">
 				<div className="head">
 					<span className="comment-author-line">
