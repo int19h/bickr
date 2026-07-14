@@ -426,8 +426,12 @@ function ForumThreadRow({
 			>
 				<span className="sr-only">Open {textValue(thread.title)}</span>
 			</SpaLink>
-			{onCheck && (
-				<div className="checkcell" onClick={(event) => event.stopPropagation()}>
+			<div
+				aria-hidden={onCheck ? undefined : true}
+				className={onCheck ? "checkcell" : "checkcell placeholder"}
+				onClick={onCheck ? (event) => event.stopPropagation() : undefined}
+			>
+				{onCheck && (
 					<input
 						aria-label={`Spotlight ${textValue(thread.title)}`}
 						checked={Boolean(checked)}
@@ -435,8 +439,8 @@ function ForumThreadRow({
 						onChange={(event) => onCheck(event.target.checked)}
 						type="checkbox"
 					/>
-				</div>
-			)}
+				)}
+			</div>
 			<div className="scorecell">
 				<Icon name="arrowUp" size={13} />
 				<div className="score">{thread.voteScore}</div>

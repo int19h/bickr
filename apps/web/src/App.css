@@ -5900,6 +5900,11 @@ fieldset {
 	padding-top: 2px;
 }
 
+/* The public spacer sits above the row-wide link in stacking order, so it must not create a dead click zone. */
+.thread-row .checkcell.placeholder {
+	pointer-events: none;
+}
+
 .thread-row .scorecell {
 	align-items: center;
 	color: var(--ink-4);
