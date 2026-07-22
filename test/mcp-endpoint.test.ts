@@ -219,10 +219,12 @@ describe("MCP endpoint", () => {
 		}
 	});
 
-	it("advertises every mutating tool as one portable operations array", () => {
+	it("advertises portable schemas and every mutating tool as one operations array", () => {
 		const tools = mcpToolMetadataForTest();
 		const forbiddenKeywords = new Set(["oneOf", "anyOf", "allOf", "$ref", "$defs", "if", "then", "else", "not"]);
 		for (const tool of tools) {
+			assertNoSchemaKeywords(tool.inputSchema, forbiddenKeywords, tool.name);
+			expect(JSON.stringify(tool.inputSchema).length, `${tool.name} schema bytes`).toBeLessThanOrEqual(5_000);
 			if (tool.annotations.readOnlyHint === true) {
 				continue;
 			}
@@ -242,8 +244,6 @@ describe("MCP endpoint", () => {
 			});
 			expect(schemaRequired(new Map([[tool.name, tool]]), tool.name), tool.name).toContain("operationId");
 			expect(schemaProperties(operationSchema), tool.name).toHaveProperty("operationId");
-			assertNoSchemaKeywords(tool.inputSchema, forbiddenKeywords, tool.name);
-			expect(JSON.stringify(tool.inputSchema).length, `${tool.name} schema bytes`).toBeLessThanOrEqual(5_000);
 		}
 	});
 
@@ -323,6 +323,15 @@ describe("MCP endpoint", () => {
 			commentId: "cmt_current",
 			value: 1,
 			reason: lt("Current-format vote."),
+		});
+		const body = await jsonResponse(response);
+		expect(body.result).toMatchObject({
+			structuredContent: {
+				results: [{ operationId: "vote-comment", status: "succeeded", result: null, resultWarning: { error: "TypeError" } }],
+				succeeded: 1,
+				failed: 0,
+				indeterminate: 0,
+			},
 		});
 	});
 
@@ -471,17 +480,17 @@ describe("MCP endpoint", () => {
 			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
 		});
 		const body = await jsonResponse(response);
-		const result = body.result as { structuredContent: { results: Array<Record<string, unknown>>; succeeded: number; failed: number } };
+		const result = body.result as { structuredContent: { results: Array<Record<string, unknown>>; succeeded: number; failed: number; indeterminate: number } };
 
 		expect(serviceBodies).toEqual([{ text: "alpha" }, { text: "beta" }]);
-		expect(result.structuredContent).toMatchObject({ succeeded: 2, failed: 0 });
+		expect(result.structuredContent).toMatchObject({ succeeded: 2, failed: 0, indeterminate: 0 });
 		expect(result.structuredContent.results).toMatchObject([
 			{ operationId: "first", status: "succeeded", result: { ok: true, data: { accepted: true } } },
 			{ operationId: "second", status: "succeeded", result: { ok: true, data: { accepted: true } } },
 		]);
 	});
 
-	it("continues a mutation batch after an operation fails", async () => {
+	it("continues a mutation batch after a definitive service failure", async () => {
 		const kv = new MapKV();
 		const accessToken = await issueAccessToken(kv, ["bickr.runtime"]);
 		let callCount = 0;
@@ -504,7 +513,7 @@ describe("MCP endpoint", () => {
 				fetch: async () => {
 					callCount += 1;
 					if (callCount === 2) {
-						throw new Error("second operation failed");
+						return Response.json({ ok: false, error: "rejected", message: "second operation failed" }, { status: 409 });
 					}
 					return Response.json({ ok: true, data: { accepted: true } });
 				},
@@ -512,15 +521,199 @@ describe("MCP endpoint", () => {
 			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
 		});
 		const body = await jsonResponse(response);
-		const result = body.result as { structuredContent: { results: Array<Record<string, unknown>>; succeeded: number; failed: number } };
+		const result = body.result as { structuredContent: { results: Array<Record<string, unknown>>; succeeded: number; failed: number; indeterminate: number } };
 
 		expect(callCount).toBe(3);
-		expect(result.structuredContent).toMatchObject({ succeeded: 2, failed: 1 });
+		expect(result.structuredContent).toMatchObject({ succeeded: 2, failed: 1, indeterminate: 0 });
 		expect(result.structuredContent.results).toMatchObject([
 			{ operationId: "first", status: "succeeded" },
 			{ operationId: "second", status: "failed", error: { message: "second operation failed" } },
 			{ operationId: "third", status: "succeeded" },
 		]);
+	});
+
+	it("reports thrown mutation outcomes as indeterminate and continues in order", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.runtime"]);
+		let callCount = 0;
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: {
+				name: "inject_runtime",
+				arguments: {
+					operations: [
+						{ operationId: "first", botId: "bot_a", text: "alpha" },
+						{ operationId: "second", botId: "bot_b", text: "beta" },
+						{ operationId: "third", botId: "bot_c", text: "gamma" },
+					],
+				},
+			},
+		}, {
+			AGENT_RUNTIME: {
+				fetch: async () => {
+					callCount += 1;
+					if (callCount === 2) {
+						throw new Error("response was not observed");
+					}
+					return Response.json({ ok: true, data: { accepted: true } });
+				},
+			},
+			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+		});
+		const body = await jsonResponse(response);
+		const result = body.result as { structuredContent: { results: Array<Record<string, unknown>>; succeeded: number; failed: number; indeterminate: number } };
+
+		expect(callCount).toBe(3);
+		expect(result.structuredContent).toMatchObject({ succeeded: 2, failed: 0, indeterminate: 1 });
+		expect(result.structuredContent.results).toMatchObject([
+			{ operationId: "first", status: "succeeded" },
+			{ operationId: "second", status: "indeterminate", error: { message: "response was not observed" } },
+			{ operationId: "third", status: "succeeded" },
+		]);
+	});
+
+	it("sets isError when every mutation receives a definitive failure", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.runtime"]);
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: {
+				name: "inject_runtime",
+				arguments: { operations: [{ operationId: "rejected", botId: "bot_a", text: "alpha" }] },
+			},
+		}, {
+			AGENT_RUNTIME: { fetch: async () => Response.json({ ok: false, error: "rejected", message: "not accepted" }, { status: 409 }) },
+			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+		});
+		const body = await jsonResponse(response);
+
+		expect(body.result).toMatchObject({
+			isError: true,
+			structuredContent: {
+				results: [{ operationId: "rejected", status: "failed" }],
+				succeeded: 0,
+				failed: 1,
+				indeterminate: 0,
+			},
+		});
+	});
+
+	it("echoes operation IDs exactly", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.runtime"]);
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: {
+				name: "inject_runtime",
+				arguments: {
+					operations: [
+						{ operationId: " op ", botId: "bot_a", text: "alpha" },
+						{ operationId: "op", botId: "bot_b", text: "beta" },
+					],
+				},
+			},
+		}, {
+			AGENT_RUNTIME: { fetch: async () => Response.json({ ok: true, data: { accepted: true } }) },
+			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+		});
+		const body = await jsonResponse(response);
+		const result = body.result as { structuredContent: { results: Array<{ operationId: string }> } };
+
+		expect(result.structuredContent.results.map(({ operationId }) => operationId)).toEqual([" op ", "op"]);
+	});
+
+	it("rejects structurally invalid mutation batches before dispatching any operation", async () => {
+		const invalidArguments: Array<Record<string, unknown>> = [
+			{ extra: true, operations: [{ operationId: "one", botId: "bot_a", text: "alpha" }] },
+			{ operations: [] },
+			{ operations: Array.from({ length: 51 }, (_, index) => ({ operationId: `op-${index}`, botId: "bot_a", text: "alpha" })) },
+			{ operations: [{ operationId: "same", botId: "bot_a", text: "alpha" }, { operationId: "same", botId: "bot_b", text: "beta" }] },
+			{ operations: ["not-an-object"] },
+			{ operations: [{ operationId: "missing-text", botId: "bot_a" }] },
+			{ operations: [{ operationId: "extra-key", botId: "bot_a", text: "alpha", unexpected: true }] },
+			{ operations: [{ operationId: "   ", botId: "bot_a", text: "alpha" }] },
+		];
+
+		for (const argumentsValue of invalidArguments) {
+			const kv = new MapKV();
+			const accessToken = await issueAccessToken(kv, ["bickr.runtime"]);
+			let callCount = 0;
+			const response = await callMcp(kv, accessToken, {
+				jsonrpc: "2.0",
+				id: 1,
+				method: "tools/call",
+				params: { name: "inject_runtime", arguments: argumentsValue },
+			}, {
+				AGENT_RUNTIME: {
+					fetch: async () => {
+						callCount += 1;
+						return Response.json({ ok: true });
+					},
+				},
+				INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+			});
+			const body = await jsonResponse(response);
+
+			expect(callCount).toBe(0);
+			expect(body.result).toMatchObject({ isError: true });
+		}
+	});
+
+	it("requires a complete profile before dispatching a bulk mutation", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.runtime"]);
+		await kv.put(kvKeys.user("usr_mcp"), JSON.stringify({ ...testUser(), profileCompletedAt: null }));
+		let callCount = 0;
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: {
+				name: "inject_runtime",
+				arguments: { operations: [{ operationId: "one", botId: "bot_a", text: "alpha" }] },
+			},
+		}, {
+			AGENT_RUNTIME: { fetch: async () => { callCount += 1; return Response.json({ ok: true }); } },
+			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+		});
+		const body = await jsonResponse(response);
+
+		expect(callCount).toBe(0);
+		expect(body.result).toMatchObject({
+			isError: true,
+			structuredContent: { message: expect.stringContaining("Complete your Bickr profile") },
+		});
+	});
+
+	it("rejects legacy vote fields inside bulk operations before dispatch", async () => {
+		const kv = new MapKV();
+		const bot = testBot({ id: "bot_source", handle: "source-bot" });
+		await kv.put(kvKeys.bot(bot.id), JSON.stringify(bot));
+		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
+		let callCount = 0;
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: {
+				name: "vote",
+				arguments: { operations: [{ operationId: "legacy", botId: bot.id, threadId: "thr_old", value: 1 }] },
+			},
+		}, {
+			BICKR_D1: mcpSettingsD1(),
+			FORUM_COORDINATOR_SERVICE: { fetch: async () => { callCount += 1; return Response.json({ ok: true }); } },
+			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+		});
+		const body = await jsonResponse(response);
+
+		expect(callCount).toBe(0);
+		expect(body.result).toMatchObject({ isError: true, structuredContent: { message: expect.stringContaining("threadId") } });
 	});
 
 	it("rejects JSON-RPC batch request bodies for the advertised MCP protocol", async () => {

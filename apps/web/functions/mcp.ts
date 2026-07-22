@@ -143,8 +143,9 @@ type MutationOperation = {
 };
 
 type MutationOperationResult =
-	| { operationId: string; status: "succeeded"; result: JsonValue }
-	| { operationId: string; status: "failed"; error: JsonValue };
+	| { operationId: string; status: "succeeded"; result: JsonValue; resultWarning?: JsonValue }
+	| { operationId: string; status: "failed"; error: JsonValue }
+	| { operationId: string; status: "indeterminate"; error: JsonValue };
 
 type McpPayloadEnvelope =
 	| { kind: "opaque"; payload: unknown }
@@ -295,20 +296,21 @@ async function callMutationTool(
 		const results: MutationOperationResult[] = [];
 		// Preserve input order and avoid concurrent writes to the same logical entity.
 		for (const operation of operations) {
+			let payload: unknown;
 			try {
-				const payload = await tool.executeOperation(ctx, operation.arguments);
-				if (isApiFailure(payload)) {
-					results.push({ operationId: operation.operationId, status: "failed", error: jsonCompatible(payload) });
-					continue;
-				}
-				results.push({
-					operationId: operation.operationId,
-					status: "succeeded",
-					result: jsonCompatible(annotateMcpPayload({ kind: tool.resultKind, payload })),
-				});
+				payload = await tool.executeOperation(ctx, operation.arguments);
 			} catch (error) {
-				results.push({ operationId: operation.operationId, status: "failed", error: jsonCompatible(errorPayload(error)) });
+				// An exception can happen after a downstream service committed but before its
+				// response was observed (for example, a timeout). Never call that "failed":
+				// doing so would make an unsafe automatic retry look reasonable.
+				results.push({ operationId: operation.operationId, status: "indeterminate", error: jsonCompatible(errorPayload(error)) });
+				continue;
 			}
+			if (isApiFailure(payload)) {
+				results.push({ operationId: operation.operationId, status: "failed", error: jsonCompatible(payload) });
+				continue;
+			}
+			results.push(successfulMutationOperationResult(operation.operationId, tool.resultKind, payload));
 		}
 		return mutationToolResult(results);
 	} catch (error) {
@@ -343,7 +345,10 @@ function mutationOperations(args: Record<string, unknown>, operationSchema: Reco
 		if (missingKey) {
 			throw new InputError(`Operation ${index + 1} is missing required argument ${missingKey}.`);
 		}
-		const operationId = text(record.operationId, `Operation ${index + 1} ID`);
+		if (typeof record.operationId !== "string" || !record.operationId.trim()) {
+			throw new InputError(`Operation ${index + 1} ID is required.`);
+		}
+		const operationId = record.operationId;
 		if (seenIds.has(operationId)) {
 			throw new InputError(`Operation ID ${operationId} is duplicated.`);
 		}
@@ -1544,11 +1549,36 @@ function mutationToolResult(results: MutationOperationResult[]): Record<string, 
 		results,
 		succeeded: results.filter((result) => result.status === "succeeded").length,
 		failed: results.filter((result) => result.status === "failed").length,
+		indeterminate: results.filter((result) => result.status === "indeterminate").length,
 	};
 	return {
+		...(structuredContent.succeeded === 0 ? { isError: true } : {}),
 		structuredContent,
 		content: [{ type: "text", text: JSON.stringify(structuredContent, null, 2) }],
 	};
+}
+
+function successfulMutationOperationResult(
+	operationId: string,
+	kind: McpPayloadEnvelope["kind"],
+	payload: unknown,
+): MutationOperationResult {
+	try {
+		return {
+			operationId,
+			status: "succeeded",
+			result: jsonCompatible(annotateMcpPayload({ kind, payload })),
+		};
+	} catch (error) {
+		// The mutation itself returned successfully. A presentation failure must not
+		// relabel the committed operation or encourage the caller to retry it.
+		return {
+			operationId,
+			status: "succeeded",
+			result: null,
+			resultWarning: jsonCompatible(errorPayload(error)),
+		};
+	}
 }
 
 function toolError(value: unknown): Record<string, unknown> {
@@ -1635,14 +1665,17 @@ function objectInputSchema(properties: Record<string, unknown>): Record<string, 
 function mutationInputSchema(operationSchema: Record<string, unknown>): Record<string, unknown> {
 	const properties = schemaProperties(operationSchema);
 	const required = schemaRequired(operationSchema);
+	if ("operationId" in properties) {
+		throw new Error("MCP mutation operation schemas may not define the reserved operationId property.");
+	}
 	return withRequired(objectInputSchema({
 		operations: {
 			type: "array",
-			description: `One or more mutations, executed in input order. At most ${maxMutationOperations} operations are accepted. Use one element for a single mutation.`,
+			description: `Mutations run sequentially in order and continue after errors. failed is definitive; indeterminate may have applied and must not be retried without reconciliation. Maximum ${maxMutationOperations}.`,
 			items: {
 				type: "object",
 				properties: {
-					operationId: stringSchema("Caller-provided identifier returned with this operation's result."),
+					operationId: stringSchema("Caller-provided identifier returned exactly with this operation's result."),
 					...properties,
 				},
 				required: ["operationId", ...required],
