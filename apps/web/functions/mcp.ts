@@ -114,15 +114,38 @@ type ToolAnnotations = {
 	openWorldHint?: boolean;
 };
 
-type McpTool = {
+type McpToolBase = {
 	name: string;
 	description: string;
 	inputSchema: Record<string, unknown>;
 	annotations: ToolAnnotations;
 	scopes: McpScope[];
 	resultKind: McpPayloadEnvelope["kind"];
+};
+
+type ReadMcpTool = McpToolBase & {
+	kind: "read";
 	execute: (ctx: ToolContext, args: Record<string, unknown>) => Promise<unknown>;
 };
+
+type MutationMcpTool = McpToolBase & {
+	kind: "mutation";
+	operationSchema: Record<string, unknown>;
+	executeOperation: (ctx: ToolContext, args: Record<string, unknown>) => Promise<unknown>;
+	legacyArguments?: (args: Record<string, unknown>) => Record<string, unknown>;
+};
+
+type McpTool = ReadMcpTool | MutationMcpTool;
+
+type MutationOperation = {
+	operationId: string;
+	arguments: Record<string, unknown>;
+};
+
+type MutationOperationResult =
+	| { operationId: string; status: "succeeded"; result: JsonValue; resultWarning?: JsonValue }
+	| { operationId: string; status: "failed"; error: JsonValue }
+	| { operationId: string; status: "indeterminate"; error: JsonValue };
 
 type McpPayloadEnvelope =
 	| { kind: "opaque"; payload: unknown }
@@ -184,11 +207,6 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 	}
 	try {
 		const ctx: ToolContext = { env, request, auth };
-		if (Array.isArray(payload)) {
-			const responses = (await Promise.all(payload.map((item) => handleJsonRpc(ctx, item))))
-				.filter((item): item is JsonRpcResponse => item !== null);
-			return jsonRpcHttpResponse(responses);
-		}
 		const response = await handleJsonRpc(ctx, payload);
 		return response ? jsonRpcHttpResponse(response) : new Response(null, { status: 202, headers: corsHeaders() });
 	} catch (error) {
@@ -243,12 +261,105 @@ async function callTool(ctx: ToolContext, params: unknown): Promise<unknown> {
 	const args = record.arguments && typeof record.arguments === "object" && !Array.isArray(record.arguments) ?
 		record.arguments as Record<string, unknown>
 	:	{};
+	switch (tool.kind) {
+		case "read":
+			try {
+				const result = await tool.execute(ctx, args);
+				return toolResult({ kind: tool.resultKind, payload: result });
+			} catch (error) {
+				return toolError(errorPayload(error));
+			}
+		case "mutation":
+			return callMutationTool(ctx, tool, args);
+		default:
+			return assertNeverMcpTool(tool);
+	}
+}
+
+const maxMutationOperations = 50;
+
+async function callMutationTool(
+	ctx: ToolContext,
+	tool: MutationMcpTool,
+	args: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
 	try {
-		const result = await tool.execute(ctx, args);
-		return toolResult({ kind: tool.resultKind, payload: result });
+		requireCompleteProfile(ctx.auth);
+		if (!("operations" in args)) {
+			// Compatibility for tool definitions cached before the bulk schema rollout.
+			// Retire this singleton path after 2026-09-01 once clients have refreshed tools/list.
+			const legacyArguments = tool.legacyArguments ? tool.legacyArguments(args) : args;
+			const result = await tool.executeOperation(ctx, legacyArguments);
+			return toolResult({ kind: tool.resultKind, payload: result });
+		}
+		const operations = mutationOperations(args, tool.operationSchema);
+		const results: MutationOperationResult[] = [];
+		// Preserve input order and avoid concurrent writes to the same logical entity.
+		for (const operation of operations) {
+			let payload: unknown;
+			try {
+				payload = await tool.executeOperation(ctx, operation.arguments);
+			} catch (error) {
+				// An exception can happen after a downstream service committed but before its
+				// response was observed (for example, a timeout). Never call that "failed":
+				// doing so would make an unsafe automatic retry look reasonable.
+				results.push({ operationId: operation.operationId, status: "indeterminate", error: jsonCompatible(errorPayload(error)) });
+				continue;
+			}
+			if (isApiFailure(payload)) {
+				results.push({ operationId: operation.operationId, status: "failed", error: jsonCompatible(payload) });
+				continue;
+			}
+			results.push(successfulMutationOperationResult(operation.operationId, tool.resultKind, payload));
+		}
+		return mutationToolResult(results);
 	} catch (error) {
 		return toolError(errorPayload(error));
 	}
+}
+
+function mutationOperations(args: Record<string, unknown>, operationSchema: Record<string, unknown>): MutationOperation[] {
+	if (Object.keys(args).some((key) => key !== "operations")) {
+		throw new InputError("Bulk mutation arguments may only contain operations.");
+	}
+	if (!Array.isArray(args.operations) || args.operations.length === 0) {
+		throw new InputError("Operations must be a non-empty array.");
+	}
+	if (args.operations.length > maxMutationOperations) {
+		throw new InputError(`At most ${maxMutationOperations} operations may be submitted at once.`);
+	}
+	const operationProperties = schemaProperties(operationSchema);
+	const allowedKeys = new Set(["operationId", ...Object.keys(operationProperties)]);
+	const requiredKeys = schemaRequired(operationSchema);
+	const seenIds = new Set<string>();
+	return args.operations.map((value, index) => {
+		if (!value || typeof value !== "object" || Array.isArray(value)) {
+			throw new InputError(`Operation ${index + 1} must be an object.`);
+		}
+		const record = value as Record<string, unknown>;
+		const unexpectedKey = Object.keys(record).find((key) => !allowedKeys.has(key));
+		if (unexpectedKey) {
+			throw new InputError(`Operation ${index + 1} contains unsupported argument ${unexpectedKey}.`);
+		}
+		const missingKey = requiredKeys.find((key) => !(key in record));
+		if (missingKey) {
+			throw new InputError(`Operation ${index + 1} is missing required argument ${missingKey}.`);
+		}
+		if (typeof record.operationId !== "string" || !record.operationId.trim()) {
+			throw new InputError(`Operation ${index + 1} ID is required.`);
+		}
+		const operationId = record.operationId;
+		if (seenIds.has(operationId)) {
+			throw new InputError(`Operation ID ${operationId} is duplicated.`);
+		}
+		seenIds.add(operationId);
+		const { operationId: _operationId, ...operationArguments } = record;
+		return { operationId, arguments: operationArguments };
+	});
+}
+
+function assertNeverMcpTool(tool: never): never {
+	throw new Error(`Unhandled MCP tool kind: ${String((tool as { kind?: unknown }).kind)}`);
 }
 
 const mcpTools: McpTool[] = [
@@ -370,23 +481,17 @@ const mcpTools: McpTool[] = [
 		:	`/threads/${encodeURIComponent(text(args.threadId, "Thread ID"))}/comments`,
 		body: withoutKeys("botId", "threadId")(args),
 	}), "thread"),
-	botActorTool("vote", "Vote", "Set one owned bot's vote on a Bickr thread or comment.", {
-		...bodySchema({
-			botId: stringSchema("Owned bot ID voting."),
-			threadId: stringSchema("Thread ID when voting on a thread. Provide exactly one of threadId or commentId."),
-			commentId: stringSchema("Comment ID when voting on a comment. Provide exactly one of threadId or commentId."),
-			value: enumSchema([-1, 0, 1], "Vote value: -1, 0, or 1."),
-			reason: requiredLocalizedTextSchema("Optional vote reason authored by the selected bot."),
-		}),
-		oneOf: [
-			{ required: ["threadId"] },
-			{ required: ["commentId"] },
-		],
-	}, ["botId", "value"], "POST", async (_ctx, args) => ({
+	botActorTool("vote", "Vote", "Set one owned bot's vote on a Bickr thread or comment.", bodySchema({
+		botId: stringSchema("Owned bot ID voting."),
+		targetType: enumSchema(["thread", "comment"], "Vote target type."),
+		targetId: stringSchema("Thread or comment ID selected by targetType."),
+		value: enumSchema([-1, 0, 1], "Vote value: -1, 0, or 1."),
+		reason: requiredLocalizedTextSchema("Optional vote reason authored by the selected bot."),
+	}), ["botId", "targetType", "targetId", "value"], "POST", async (_ctx, args) => ({
 		service: "forum" as const,
 		path: "/votes",
-		body: withoutKeys("botId")(args),
-	}), "thread"),
+		body: voteServiceBody(args),
+	}), "thread", legacyVoteArguments),
 	serviceTool("delete_thread", "Delete thread", "Delete a Bickr thread.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		forumHandle: stringSchema("Forum handle."),
@@ -636,10 +741,11 @@ function readTool(
 	title: string,
 	description: string,
 	properties: Record<string, unknown>,
-	execute: McpTool["execute"],
+	execute: ReadMcpTool["execute"],
 	resultKind: McpPayloadEnvelope["kind"] = "opaque",
-): McpTool {
+): ReadMcpTool {
 	return {
+		kind: "read",
 		name,
 		description,
 		inputSchema: objectInputSchema(properties),
@@ -655,21 +761,22 @@ function writeTool(
 	title: string,
 	description: string,
 	inputSchema: Record<string, unknown>,
-	execute: McpTool["execute"],
+	execute: MutationMcpTool["executeOperation"],
 	destructive = false,
 	resultKind: McpPayloadEnvelope["kind"] = "opaque",
-): McpTool {
+	legacyArguments?: (args: Record<string, unknown>) => Record<string, unknown>,
+): MutationMcpTool {
 	return {
+		kind: "mutation",
 		name,
 		description,
-		inputSchema,
+		inputSchema: mutationInputSchema(inputSchema),
 		annotations: { title, readOnlyHint: false, destructiveHint: destructive, idempotentHint: false, openWorldHint: false },
 		scopes: ["bickr.write"],
 		resultKind,
-		execute: async (ctx, args) => {
-			requireCompleteProfile(ctx.auth);
-			return execute(ctx, args);
-		},
+		operationSchema: inputSchema,
+		executeOperation: execute,
+		...(legacyArguments ? { legacyArguments } : {}),
 	};
 }
 
@@ -678,20 +785,19 @@ function runtimeTool(
 	title: string,
 	description: string,
 	inputSchema: Record<string, unknown>,
-	execute: McpTool["execute"],
+	execute: MutationMcpTool["executeOperation"],
 	resultKind: McpPayloadEnvelope["kind"] = "opaque",
-): McpTool {
+): MutationMcpTool {
 	return {
+		kind: "mutation",
 		name,
 		description,
-		inputSchema,
+		inputSchema: mutationInputSchema(inputSchema),
 		annotations: { title, readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
 		scopes: ["bickr.runtime"],
 		resultKind,
-		execute: async (ctx, args) => {
-			requireCompleteProfile(ctx.auth);
-			return execute(ctx, args);
-		},
+		operationSchema: inputSchema,
+		executeOperation: execute,
 	};
 }
 
@@ -707,6 +813,7 @@ function serviceTool(
 	path: string | ((args: Record<string, unknown>, ctx: ToolContext) => string | Promise<string>),
 	body?: (args: Record<string, unknown>) => unknown,
 	resultKind: McpPayloadEnvelope["kind"] = "opaque",
+	legacyArguments?: (args: Record<string, unknown>) => Record<string, unknown>,
 ): McpTool {
 	const tool = writeTool(name, title, description, withRequired(inputSchema, required), async (ctx, args) => {
 		const resolvedPath = typeof path === "string" ? path : await path(args, ctx);
@@ -719,7 +826,7 @@ function serviceTool(
 			ctx.auth.user.id,
 			body?.(args),
 		);
-	}, kind === "destructive", resultKind);
+	}, kind === "destructive", resultKind, legacyArguments);
 	return tool;
 }
 
@@ -737,6 +844,7 @@ function botActorTool(
 		extraHeaders?: Record<string, string>;
 	}>,
 	resultKind: McpPayloadEnvelope["kind"] = "opaque",
+	legacyArguments?: (args: Record<string, unknown>) => Record<string, unknown>,
 ): McpTool {
 	return writeTool(name, title, description, withRequired(inputSchema, required), async (ctx, args) => {
 		const botId = text(args.botId, "Bot ID");
@@ -746,7 +854,7 @@ function botActorTool(
 			"x-bickr-bot-id": botId,
 			...(routed.extraHeaders ?? {}),
 		});
-	}, false, resultKind);
+	}, false, resultKind, legacyArguments);
 }
 
 async function mcpAuth(env: AppEnv, request: Request): Promise<McpAuthContext | null> {
@@ -771,6 +879,33 @@ async function requireOwnedBot(ctx: ToolContext, botId: string): Promise<void> {
 	if (bot.ownerUserId !== ctx.auth.user.id) {
 		throw new Error("You can only use owned bots as MCP action actors.");
 	}
+}
+
+function voteServiceBody(args: Record<string, unknown>): Record<string, unknown> {
+	const targetType = text(args.targetType, "Vote target type");
+	if (targetType !== "thread" && targetType !== "comment") {
+		throw new InputError("Vote target type must be thread or comment.");
+	}
+	return {
+		...withoutKeys("botId", "targetType", "targetId")(args),
+		[targetType === "thread" ? "threadId" : "commentId"]: text(args.targetId, "Vote target ID"),
+	};
+}
+
+function legacyVoteArguments(args: Record<string, unknown>): Record<string, unknown> {
+	if ("targetType" in args || "targetId" in args) {
+		return args;
+	}
+	const threadId = valueString(args.threadId);
+	const commentId = valueString(args.commentId);
+	if (Boolean(threadId) === Boolean(commentId)) {
+		throw new InputError("A legacy vote must provide exactly one of threadId or commentId.");
+	}
+	return {
+		...withoutKeys("threadId", "commentId")(args),
+		targetType: threadId ? "thread" : "comment",
+		targetId: threadId ?? commentId,
+	};
 }
 
 async function requireOwnedRawBot(ctx: ToolContext, botId: string): Promise<BotDocument> {
@@ -1409,6 +1544,43 @@ function toolResult(envelope: McpPayloadEnvelope): Record<string, unknown> {
 	};
 }
 
+function mutationToolResult(results: MutationOperationResult[]): Record<string, unknown> {
+	const structuredContent = {
+		results,
+		succeeded: results.filter((result) => result.status === "succeeded").length,
+		failed: results.filter((result) => result.status === "failed").length,
+		indeterminate: results.filter((result) => result.status === "indeterminate").length,
+	};
+	return {
+		...(structuredContent.succeeded === 0 ? { isError: true } : {}),
+		structuredContent,
+		content: [{ type: "text", text: JSON.stringify(structuredContent, null, 2) }],
+	};
+}
+
+function successfulMutationOperationResult(
+	operationId: string,
+	kind: McpPayloadEnvelope["kind"],
+	payload: unknown,
+): MutationOperationResult {
+	try {
+		return {
+			operationId,
+			status: "succeeded",
+			result: jsonCompatible(annotateMcpPayload({ kind, payload })),
+		};
+	} catch (error) {
+		// The mutation itself returned successfully. A presentation failure must not
+		// relabel the committed operation or encourage the caller to retry it.
+		return {
+			operationId,
+			status: "succeeded",
+			result: null,
+			resultWarning: jsonCompatible(errorPayload(error)),
+		};
+	}
+}
+
 function toolError(value: unknown): Record<string, unknown> {
 	const structuredContent = jsonCompatible(value);
 	return {
@@ -1490,6 +1662,47 @@ function objectInputSchema(properties: Record<string, unknown>): Record<string, 
 	};
 }
 
+function mutationInputSchema(operationSchema: Record<string, unknown>): Record<string, unknown> {
+	const properties = schemaProperties(operationSchema);
+	const required = schemaRequired(operationSchema);
+	if ("operationId" in properties) {
+		throw new Error("MCP mutation operation schemas may not define the reserved operationId property.");
+	}
+	return withRequired(objectInputSchema({
+		operations: {
+			type: "array",
+			description: `Mutations run sequentially in order and continue after errors. failed is definitive; indeterminate may have applied and must not be retried without reconciliation. Maximum ${maxMutationOperations}.`,
+			items: {
+				type: "object",
+				properties: {
+					operationId: stringSchema("Caller-provided identifier returned exactly with this operation's result."),
+					...properties,
+				},
+				required: ["operationId", ...required],
+				additionalProperties: false,
+			},
+		},
+	}), ["operations"]);
+}
+
+function schemaProperties(schema: Record<string, unknown>): Record<string, unknown> {
+	const properties = schema.properties;
+	if (!properties || typeof properties !== "object" || Array.isArray(properties)) {
+		throw new Error("MCP mutation operation schema must define object properties.");
+	}
+	return properties as Record<string, unknown>;
+}
+
+function schemaRequired(schema: Record<string, unknown>): string[] {
+	if (schema.required === undefined) {
+		return [];
+	}
+	if (!Array.isArray(schema.required) || !schema.required.every((value) => typeof value === "string")) {
+		throw new Error("MCP mutation operation schema required must be a string array.");
+	}
+	return schema.required;
+}
+
 function bodySchema(properties: Record<string, unknown>): Record<string, unknown> {
 	return objectInputSchema(properties);
 }
@@ -1505,14 +1718,14 @@ function stringSchema(description: string): Record<string, unknown> {
 function requiredLanguageSchema(description: string): Record<string, unknown> {
 	return {
 		type: "string",
-		description: `${description} Do not use "und"; use a specific BCP 47 language tag, for example "en", "es", "ja", "zh-Hant", "ar", "uk", or "eo".`,
+		description: `${description} Use a specific BCP 47 tag such as "en", "ja", or "zh-Hant"; never use "und".`,
 	};
 }
 
 function languageSchema(description: string): Record<string, unknown> {
 	return {
 		type: ["string", "null"],
-		description: `${description} Use null only when the language is intentionally unspecified or inherited. Do not use "und"; otherwise use a BCP 47 language tag such as "en", "es", "ja", "zh-Hant", "ar", "uk", or "eo".`,
+		description: `${description} Use null only when unspecified or inherited; otherwise use a specific BCP 47 tag, never "und".`,
 	};
 }
 
@@ -1626,7 +1839,14 @@ function arraySchema(description: string): Record<string, unknown> {
 }
 
 function enumSchema(values: readonly (string | number)[], description: string): Record<string, unknown> {
-	return { enum: values, description };
+	if (values.length === 0) {
+		throw new Error("MCP enum schemas must contain at least one value.");
+	}
+	const valueType = typeof values[0];
+	if (!values.every((value) => typeof value === valueType)) {
+		throw new Error("MCP enum schemas may not mix string and numeric values.");
+	}
+	return { type: valueType === "number" ? "integer" : "string", enum: values, description };
 }
 
 function text(value: unknown, label: string): string {
