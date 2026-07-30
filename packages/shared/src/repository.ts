@@ -92,6 +92,8 @@ import {
 	type D1DatabaseLike,
 	type D1PreparedStatementLike,
 	type KVNamespaceLike,
+	chunks,
+	d1MaxBoundParameters,
 	deleteKey,
 	kvKeys,
 	putObjectIndex,
@@ -155,11 +157,13 @@ type PublicUserIndexRow = {
 	updatedAt: string;
 };
 
-type WorldSummaryIndexRow = Omit<WorldSummary, "avatar" | "avatarCrop" | "avatarUrl" | "imageGeneration" | "postingSettings" | "threadSettings" | "name" | "description" | "prompt" | "initialBotNotification"> & {
+export type WorldSummaryIndexRow = Omit<WorldSummary, "avatar" | "avatarCrop" | "avatarUrl" | "imageGeneration" | "postingSettings" | "threadSettings" | "name" | "description" | "prompt" | "recurringPromptEnabled" | "recurringPrompt" | "initialBotNotification"> & {
 	language: string | null;
 	name: string;
 	description: string;
 	prompt: string;
+	recurringPromptEnabled: number;
+	recurringPrompt: string;
 	initialBotNotification: string;
 	avatarCrop: string | null;
 	avatarUrl: string | null;
@@ -167,11 +171,39 @@ type WorldSummaryIndexRow = Omit<WorldSummary, "avatar" | "avatarCrop" | "avatar
 	nameLang: string | null;
 	descriptionLang: string | null;
 	promptLang: string | null;
+	recurringPromptLang: string | null;
 	initialBotNotificationLang: string | null;
 	postingThreadBodyCharacters: number | null;
 	postingCommentBodyCharacters: number | null;
 	threadCommentLimit: number | null;
 };
+
+function worldSummarySelectColumns(alias?: string): string {
+	const column = (name: string): string => alias ? `${alias}.${name}` : name;
+	return `${column("world_id")} AS id,
+				${column("handle")} AS handle,
+				${column("language")} AS language,
+				${column("name")} AS name,
+				${column("name_lang")} AS nameLang,
+				${column("description")} AS description,
+				${column("description_lang")} AS descriptionLang,
+				${column("prompt")} AS prompt,
+				${column("prompt_lang")} AS promptLang,
+				${column("recurring_prompt_enabled")} AS recurringPromptEnabled,
+				${column("recurring_prompt")} AS recurringPrompt,
+				${column("recurring_prompt_lang")} AS recurringPromptLang,
+				${column("avatar_url")} AS avatarUrl,
+				${column("avatar_crop")} AS avatarCrop,
+				${column("image_generation")} AS imageGenerationJson,
+				${column("initial_bot_notification")} AS initialBotNotification,
+				${column("initial_bot_notification_lang")} AS initialBotNotificationLang,
+				${column("posting_thread_body_characters")} AS postingThreadBodyCharacters,
+				${column("posting_comment_body_characters")} AS postingCommentBodyCharacters,
+				${column("thread_comment_limit")} AS threadCommentLimit,
+				${column("created_by_user_id")} AS createdByUserId,
+				${column("created_at")} AS createdAt,
+				${column("updated_at")} AS updatedAt`;
+}
 
 type ForumSummaryIndexRow = Omit<ForumSummary, "description" | "threadSettings"> & {
 	language: string | null;
@@ -860,11 +892,7 @@ async function publicUserById(db: D1DatabaseLike, userId: string): Promise<Publi
 async function publicUsersByIds(db: D1DatabaseLike, userIds: string[]): Promise<Map<string, PublicUser>> {
 	const ids = [...new Set(userIds.filter(Boolean))];
 	const users = new Map<string, PublicUser>();
-	for (let index = 0; index < ids.length; index += 90) {
-		const batch = ids.slice(index, index + 90);
-		if (batch.length === 0) {
-			continue;
-		}
+	for (const batch of chunks(ids, d1MaxBoundParameters)) {
 		const placeholders = batch.map(() => "?").join(", ");
 		const result = await db
 			.prepare(
@@ -999,26 +1027,7 @@ export async function listWorlds(db: D1DatabaseLike): Promise<WorldListSummary[]
 	const result = await db
 		.prepare(
 			`SELECT
-				w.world_id AS id,
-				w.handle,
-				w.language,
-				w.name,
-				w.name_lang AS nameLang,
-				w.description,
-				w.description_lang AS descriptionLang,
-				w.prompt,
-				w.prompt_lang AS promptLang,
-				w.avatar_url AS avatarUrl,
-				w.avatar_crop AS avatarCrop,
-				w.image_generation AS imageGenerationJson,
-				w.initial_bot_notification AS initialBotNotification,
-				w.initial_bot_notification_lang AS initialBotNotificationLang,
-				w.posting_thread_body_characters AS postingThreadBodyCharacters,
-				w.posting_comment_body_characters AS postingCommentBodyCharacters,
-				w.thread_comment_limit AS threadCommentLimit,
-				w.created_by_user_id AS createdByUserId,
-				w.created_at AS createdAt,
-				w.updated_at AS updatedAt,
+				${worldSummarySelectColumns("w")},
 				COALESCE(forum_counts.forumCount, 0) AS forumCount,
 				COALESCE(bot_counts.botCount, 0) AS botCount
 			 FROM worlds_index w
@@ -1040,6 +1049,18 @@ export async function listWorlds(db: D1DatabaseLike): Promise<WorldListSummary[]
 		.all<WorldSummaryIndexRow & Pick<WorldListSummary, "forumCount" | "botCount">>();
 
 	return (result.results ?? []).map(worldSummaryFromIndexRow);
+}
+
+export function assertWorldRecurringPromptConfiguration(
+	world: Pick<WorldDocument, "recurringPromptEnabled" | "recurringPrompt">,
+): void {
+	if (world.recurringPromptEnabled && !localizedTextString(world.recurringPrompt).trim()) {
+		throw new RepositoryError(
+			"bad_request",
+			"World recurring prompt text is required when the recurring prompt is enabled.",
+			400,
+		);
+	}
 }
 
 export async function createWorld(
@@ -1069,6 +1090,8 @@ export async function createWorld(
 		name: input.name,
 		description: input.description,
 		prompt: input.prompt ?? localizedText("", input.language),
+		recurringPromptEnabled: input.recurringPromptEnabled ?? false,
+		recurringPrompt: input.recurringPrompt ?? localizedText("", input.language),
 		...(input.imageGeneration ? { imageGeneration: mergeImageGenerationSettings(undefined, input.imageGeneration) } : {}),
 		initialBotNotification: input.initialBotNotification ?? defaultInitialBotNotificationText(input.language),
 		...(postingSettingsHasValues(postingSettings) ? { postingSettings } : {}),
@@ -1078,13 +1101,14 @@ export async function createWorld(
 		createdAt: now,
 		updatedAt: now,
 	};
+	assertWorldRecurringPromptConfiguration(world);
 
 	await writeJson(kv, kvKeys.world(world.id), world);
 	await upsertWorldIndexProjection(db, world);
 	await putObjectIndex(db, world, "world", entityIndexVersions.world, world.id);
 	await createIntroForumForWorld(kv, db, world, userId, now);
 
-	return worldSummary(world);
+	return worldSummaryFromDocument(world);
 }
 
 export async function listForums(db: D1DatabaseLike, worldHandle: string): Promise<ForumSummary[]> {
@@ -2299,26 +2323,7 @@ export async function listOwnedWorlds(db: D1DatabaseLike, userId: string): Promi
 	const result = await db
 		.prepare(
 			`SELECT
-				world_id AS id,
-				handle,
-				language,
-				name,
-				name_lang AS nameLang,
-				description,
-				description_lang AS descriptionLang,
-				prompt,
-				prompt_lang AS promptLang,
-				avatar_url AS avatarUrl,
-				avatar_crop AS avatarCrop,
-				image_generation AS imageGenerationJson,
-				initial_bot_notification AS initialBotNotification,
-				initial_bot_notification_lang AS initialBotNotificationLang,
-				posting_thread_body_characters AS postingThreadBodyCharacters,
-				posting_comment_body_characters AS postingCommentBodyCharacters,
-				thread_comment_limit AS threadCommentLimit,
-				created_by_user_id AS createdByUserId,
-				created_at AS createdAt,
-				updated_at AS updatedAt
+				${worldSummarySelectColumns()}
 			 FROM worlds_index
 			 WHERE created_by_user_id = ? AND deleted_at IS NULL
 			 ORDER BY lower(handle) ASC`,
@@ -2409,23 +2414,6 @@ async function listOwnedForumsByWorld(
 		description: string;
 		descriptionLang: string | null;
 		threadCommentLimit: number | null;
-		groupWorldId: string;
-		groupWorldHandle: string;
-		groupWorldLanguage: string | null;
-		groupWorldName: string;
-		groupWorldNameLang: string | null;
-		groupWorldDescription: string;
-		groupWorldDescriptionLang: string | null;
-		groupWorldPrompt: string;
-		groupWorldPromptLang: string | null;
-		groupWorldInitialBotNotification: string;
-		groupWorldInitialBotNotificationLang: string | null;
-		groupWorldPostingThreadBodyCharacters: number | null;
-		groupWorldPostingCommentBodyCharacters: number | null;
-		groupWorldThreadCommentLimit: number | null;
-		groupWorldCreatedByUserId: string;
-		groupWorldCreatedAt: string;
-		groupWorldUpdatedAt: string;
 	};
 	const result = await db
 		.prepare(
@@ -2441,24 +2429,7 @@ async function listOwnedForumsByWorld(
 				f.personal_bot_id AS personalBotId,
 				f.thread_comment_limit AS threadCommentLimit,
 				f.created_at AS createdAt,
-				f.updated_at AS updatedAt,
-				w.world_id AS groupWorldId,
-				w.handle AS groupWorldHandle,
-				w.language AS groupWorldLanguage,
-				w.name AS groupWorldName,
-				w.name_lang AS groupWorldNameLang,
-				w.description AS groupWorldDescription,
-				w.description_lang AS groupWorldDescriptionLang,
-				w.prompt AS groupWorldPrompt,
-				w.prompt_lang AS groupWorldPromptLang,
-				w.initial_bot_notification AS groupWorldInitialBotNotification,
-				w.initial_bot_notification_lang AS groupWorldInitialBotNotificationLang,
-				w.posting_thread_body_characters AS groupWorldPostingThreadBodyCharacters,
-				w.posting_comment_body_characters AS groupWorldPostingCommentBodyCharacters,
-				w.thread_comment_limit AS groupWorldThreadCommentLimit,
-				w.created_by_user_id AS groupWorldCreatedByUserId,
-				w.created_at AS groupWorldCreatedAt,
-				w.updated_at AS groupWorldUpdatedAt
+				f.updated_at AS updatedAt
 			 FROM forums_index f
 			 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
 			 WHERE f.created_by_user_id = ?
@@ -2468,34 +2439,20 @@ async function listOwnedForumsByWorld(
 		)
 		.bind(userId)
 		.all<ForumWithWorldRow>();
+	const worldsById = await worldSummariesByIds(db, (result.results ?? []).map((row) => row.worldId));
 	const groups = new Map<string, HumanOwnedForumGroup>();
 	for (const row of result.results ?? []) {
-		let group = groups.get(row.groupWorldId);
+		const world = worldsById.get(row.worldId);
+		if (!world) {
+			continue;
+		}
+		let group = groups.get(row.worldId);
 		if (!group) {
 			const createdGroup: HumanOwnedForumGroup = {
-				world: {
-					id: row.groupWorldId,
-					handle: row.groupWorldHandle,
-					language: languageFromStored(row.groupWorldLanguage),
-					name: localizedTextFromParts(row.groupWorldName, row.groupWorldNameLang ?? row.groupWorldLanguage),
-					description: localizedTextFromParts(row.groupWorldDescription, row.groupWorldDescriptionLang ?? row.groupWorldLanguage),
-					prompt: localizedTextFromParts(row.groupWorldPrompt, row.groupWorldPromptLang ?? row.groupWorldLanguage),
-					initialBotNotification: localizedTextFromParts(
-						row.groupWorldInitialBotNotification,
-						row.groupWorldInitialBotNotificationLang ?? row.groupWorldLanguage,
-					),
-					...postingSettingsObject(
-						row.groupWorldPostingThreadBodyCharacters,
-						row.groupWorldPostingCommentBodyCharacters,
-					),
-					...threadSettingsObject(row.groupWorldThreadCommentLimit),
-					createdByUserId: row.groupWorldCreatedByUserId,
-					createdAt: row.groupWorldCreatedAt,
-					updatedAt: row.groupWorldUpdatedAt,
-				},
+				world,
 				forums: [],
 			};
-			groups.set(row.groupWorldId, createdGroup);
+			groups.set(row.worldId, createdGroup);
 			group = createdGroup;
 		}
 		group.forums.push({
@@ -2535,41 +2492,18 @@ async function groupBotsByWorld(db: D1DatabaseLike, bots: BotSummary[]): Promise
 	return [...groups.values()];
 }
 
-async function worldSummariesByIds(
+export async function worldSummariesByIds(
 	db: D1DatabaseLike,
 	worldIds: string[],
 ): Promise<Map<string, WorldSummary>> {
 	const ids = [...new Set(worldIds.filter(Boolean))];
 	const worlds = new Map<string, WorldSummary>();
-	for (let index = 0; index < ids.length; index += 90) {
-		const batch = ids.slice(index, index + 90);
-		if (batch.length === 0) {
-			continue;
-		}
+	for (const batch of chunks(ids, d1MaxBoundParameters)) {
 		const placeholders = batch.map(() => "?").join(", ");
 		const result = await db
 			.prepare(
 				`SELECT
-					world_id AS id,
-					handle,
-					language,
-					name,
-					name_lang AS nameLang,
-					description,
-					description_lang AS descriptionLang,
-					prompt,
-					prompt_lang AS promptLang,
-					avatar_url AS avatarUrl,
-					avatar_crop AS avatarCrop,
-					image_generation AS imageGenerationJson,
-					initial_bot_notification AS initialBotNotification,
-					initial_bot_notification_lang AS initialBotNotificationLang,
-					posting_thread_body_characters AS postingThreadBodyCharacters,
-					posting_comment_body_characters AS postingCommentBodyCharacters,
-					thread_comment_limit AS threadCommentLimit,
-					created_by_user_id AS createdByUserId,
-					created_at AS createdAt,
-					updated_at AS updatedAt
+					${worldSummarySelectColumns()}
 				 FROM worlds_index
 				 WHERE world_id IN (${placeholders}) AND deleted_at IS NULL`,
 			)
@@ -2581,6 +2515,14 @@ async function worldSummariesByIds(
 		}
 	}
 	return worlds;
+}
+
+export async function worldSummaryById(db: D1DatabaseLike, worldId: string): Promise<WorldSummary> {
+	const world = (await worldSummariesByIds(db, [worldId])).get(worldId);
+	if (!world) {
+		throw new RepositoryError("not_found", "World not found.", 404);
+	}
+	return world;
 }
 
 async function worldPostingSettingsById(
@@ -2597,11 +2539,7 @@ async function worldPostingSettingsByIds(
 ): Promise<Map<string, PostingSettings | undefined>> {
 	const ids = [...new Set(worldIds.filter(Boolean))];
 	const worlds = new Map<string, PostingSettings | undefined>();
-	for (let index = 0; index < ids.length; index += 90) {
-		const batch = ids.slice(index, index + 90);
-		if (batch.length === 0) {
-			continue;
-		}
+	for (const batch of chunks(ids, d1MaxBoundParameters)) {
 		const placeholders = batch.map(() => "?").join(", ");
 		const result = await db
 			.prepare(
@@ -2670,23 +2608,6 @@ async function foreignBotBlockersForOwnedWorlds(
 ): Promise<HumanProfileDeleteBlocker[]> {
 	type BlockingBotRow = {
 		worldId: string;
-		worldHandle: string;
-		worldLanguage: string | null;
-		worldName: string;
-		worldNameLang: string | null;
-		worldDescription: string;
-		worldDescriptionLang: string | null;
-		worldPrompt: string;
-		worldPromptLang: string | null;
-		worldAvatarUrl: string | null;
-		worldAvatarCrop: string | null;
-		worldInitialBotNotification: string;
-		worldInitialBotNotificationLang: string | null;
-		worldPostingThreadBodyCharacters: number | null;
-		worldPostingCommentBodyCharacters: number | null;
-		worldCreatedByUserId: string;
-		worldCreatedAt: string;
-		worldUpdatedAt: string;
 		botId: string;
 		homeWorldId: string;
 		homeWorldHandle: string;
@@ -2714,23 +2635,6 @@ async function foreignBotBlockersForOwnedWorlds(
 		.prepare(
 			`SELECT
 				w.world_id AS worldId,
-				w.handle AS worldHandle,
-				w.language AS worldLanguage,
-				w.name AS worldName,
-				w.name_lang AS worldNameLang,
-				w.description AS worldDescription,
-				w.description_lang AS worldDescriptionLang,
-				w.prompt AS worldPrompt,
-				w.prompt_lang AS worldPromptLang,
-				w.avatar_url AS worldAvatarUrl,
-				w.avatar_crop AS worldAvatarCrop,
-				w.initial_bot_notification AS worldInitialBotNotification,
-				w.initial_bot_notification_lang AS worldInitialBotNotificationLang,
-				w.posting_thread_body_characters AS worldPostingThreadBodyCharacters,
-				w.posting_comment_body_characters AS worldPostingCommentBodyCharacters,
-				w.created_by_user_id AS worldCreatedByUserId,
-				w.created_at AS worldCreatedAt,
-				w.updated_at AS worldUpdatedAt,
 				b.bot_id AS botId,
 				b.home_world_id AS homeWorldId,
 				b.home_world_handle AS homeWorldHandle,
@@ -2763,30 +2667,18 @@ async function foreignBotBlockersForOwnedWorlds(
 		)
 		.bind(userId, userId)
 		.all<BlockingBotRow>();
+	const worldsById = await worldSummariesByIds(db, (result.results ?? []).map((row) => row.worldId));
 	const groups = new Map<string, HumanProfileDeleteBlocker>();
 	for (const row of result.results ?? []) {
+		const world = worldsById.get(row.worldId);
+		if (!world) {
+			continue;
+		}
 		let group = groups.get(row.worldId);
 		if (!group) {
 			group = {
 				type: "foreign_bots_in_owned_world",
-				world: {
-					id: row.worldId,
-					handle: row.worldHandle,
-					language: languageFromStored(row.worldLanguage),
-					name: localizedTextFromParts(row.worldName, row.worldNameLang ?? row.worldLanguage),
-					description: localizedTextFromParts(row.worldDescription, row.worldDescriptionLang ?? row.worldLanguage),
-					prompt: localizedTextFromParts(row.worldPrompt, row.worldPromptLang ?? row.worldLanguage),
-					...(row.worldAvatarUrl ? { avatarUrl: row.worldAvatarUrl } : {}),
-					...(avatarCropFromJson(row.worldAvatarCrop) ? { avatarCrop: avatarCropFromJson(row.worldAvatarCrop) } : {}),
-					initialBotNotification: localizedTextFromParts(row.worldInitialBotNotification, row.worldInitialBotNotificationLang ?? row.worldLanguage),
-					...postingSettingsObject(
-						row.worldPostingThreadBodyCharacters,
-						row.worldPostingCommentBodyCharacters,
-					),
-					createdByUserId: row.worldCreatedByUserId,
-					createdAt: row.worldCreatedAt,
-					updatedAt: row.worldUpdatedAt,
-				},
+				world,
 				bots: [],
 			};
 			groups.set(row.worldId, group);
@@ -3336,19 +3228,20 @@ export async function upsertUserIndexProjection(
 	return normalized;
 }
 
-export async function upsertWorldIndexProjection(
+export function worldIndexProjectionStatement(
 	db: D1DatabaseLike,
 	world: WorldDocument,
-): Promise<WorldDocument> {
+): D1PreparedStatementLike {
 	const normalized = normalizeWorldDefaults(world);
-	await db
+	return db
 		.prepare(
 			`INSERT INTO worlds_index (
 				world_id, handle, language, name, name_lang, description, description_lang, prompt, prompt_lang,
+				recurring_prompt_enabled, recurring_prompt, recurring_prompt_lang,
 				avatar_url, avatar_crop, image_generation, initial_bot_notification, initial_bot_notification_lang,
 				created_by_user_id, visibility, posting_thread_body_characters, posting_comment_body_characters,
 				thread_comment_limit, created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(world_id) DO UPDATE SET
 				handle = excluded.handle,
 				language = excluded.language,
@@ -3358,6 +3251,9 @@ export async function upsertWorldIndexProjection(
 				description_lang = excluded.description_lang,
 				prompt = excluded.prompt,
 				prompt_lang = excluded.prompt_lang,
+				recurring_prompt_enabled = excluded.recurring_prompt_enabled,
+				recurring_prompt = excluded.recurring_prompt,
+				recurring_prompt_lang = excluded.recurring_prompt_lang,
 				avatar_url = excluded.avatar_url,
 				avatar_crop = excluded.avatar_crop,
 				image_generation = excluded.image_generation,
@@ -3368,7 +3264,8 @@ export async function upsertWorldIndexProjection(
 				posting_comment_body_characters = excluded.posting_comment_body_characters,
 				thread_comment_limit = excluded.thread_comment_limit,
 				updated_at = excluded.updated_at,
-				deleted_at = excluded.deleted_at`,
+				deleted_at = excluded.deleted_at
+			WHERE worlds_index.deleted_at IS NULL`,
 		)
 		.bind(
 			normalized.id,
@@ -3380,6 +3277,9 @@ export async function upsertWorldIndexProjection(
 			localizedTextLangSql(normalized.description),
 			localizedTextSql(normalized.prompt),
 			localizedTextLangSql(normalized.prompt),
+			normalized.recurringPromptEnabled ? 1 : 0,
+			localizedTextSql(normalized.recurringPrompt),
+			localizedTextLangSql(normalized.recurringPrompt),
 			normalized.avatar?.url ?? null,
 			avatarCropJson(normalized.avatar?.crop),
 			imageGenerationSettingsJson(normalized.imageGeneration),
@@ -3393,8 +3293,15 @@ export async function upsertWorldIndexProjection(
 			normalized.createdAt,
 			normalized.updatedAt,
 			normalized.deletedAt ?? null,
-		)
-		.run();
+		);
+}
+
+export async function upsertWorldIndexProjection(
+	db: D1DatabaseLike,
+	world: WorldDocument,
+): Promise<WorldDocument> {
+	const normalized = normalizeWorldDefaults(world);
+	await worldIndexProjectionStatement(db, normalized).run();
 	await upsertWorldSearchIndex(db, normalized);
 	return normalized;
 }
@@ -3558,7 +3465,7 @@ async function existingUserHandlesForBase(db: D1DatabaseLike, base: string): Pro
 	return new Set((result.results ?? []).map((row) => row.handle));
 }
 
-function worldSummary(world: WorldDocument): WorldSummary {
+export function worldSummaryFromDocument(world: WorldDocument): WorldSummary {
 	return {
 		id: world.id,
 		handle: world.handle,
@@ -3566,6 +3473,8 @@ function worldSummary(world: WorldDocument): WorldSummary {
 		name: world.name,
 		description: world.description,
 		prompt: world.prompt ?? localizedText("", world.language),
+		recurringPromptEnabled: world.recurringPromptEnabled,
+		recurringPrompt: world.recurringPrompt,
 		...(world.avatar ? { avatar: world.avatar, avatarUrl: world.avatar.url } : {}),
 		...(world.avatar?.crop ? { avatarCrop: world.avatar.crop } : {}),
 		...(world.imageGeneration ? { imageGeneration: cloneImageGenerationSettings(world.imageGeneration) } : {}),
@@ -3578,7 +3487,7 @@ function worldSummary(world: WorldDocument): WorldSummary {
 	};
 }
 
-function worldSummaryFromIndexRow<T extends WorldSummaryIndexRow>(row: T): Omit<T, keyof WorldSummaryIndexRow> & WorldSummary {
+export function worldSummaryFromIndexRow<T extends WorldSummaryIndexRow>(row: T): Omit<T, keyof WorldSummaryIndexRow> & WorldSummary {
 	const {
 		avatarCrop,
 		avatarUrl,
@@ -3586,6 +3495,7 @@ function worldSummaryFromIndexRow<T extends WorldSummaryIndexRow>(row: T): Omit<
 		nameLang,
 		descriptionLang,
 		promptLang,
+		recurringPromptLang,
 		initialBotNotificationLang,
 		postingThreadBodyCharacters,
 		postingCommentBodyCharacters,
@@ -3600,6 +3510,8 @@ function worldSummaryFromIndexRow<T extends WorldSummaryIndexRow>(row: T): Omit<
 		name: localizedTextFromParts(world.name, nameLang ?? world.language),
 		description: localizedTextFromParts(world.description, descriptionLang ?? world.language),
 		prompt: localizedTextFromParts(world.prompt ?? "", promptLang ?? world.language),
+		recurringPromptEnabled: booleanFromStored(world.recurringPromptEnabled),
+		recurringPrompt: localizedTextFromParts(world.recurringPrompt ?? "", recurringPromptLang ?? world.language),
 		initialBotNotification: localizedTextFromParts(world.initialBotNotification, initialBotNotificationLang ?? world.language),
 		...(avatarUrl ? { avatarUrl } : {}),
 		...(crop ? { avatarCrop: crop } : {}),
@@ -3982,6 +3894,8 @@ export function normalizeWorldDefaults(world: WorldDocument): WorldDocument {
 		name: localizedTextFromStored(raw.name, language),
 		description: localizedTextFromStored(raw.description, language),
 		prompt: localizedTextFromStored(raw.prompt, language),
+		recurringPromptEnabled: raw.recurringPromptEnabled === true,
+		recurringPrompt: localizedTextFromStored(raw.recurringPrompt, language),
 		initialBotNotification: localizedTextFromStored(raw.initialBotNotification, language),
 		...(world.imageGeneration ? { imageGeneration: mergeImageGenerationSettings(undefined, world.imageGeneration) } : { imageGeneration: undefined }),
 		...(postingSettingsHasValues(world.postingSettings) ?

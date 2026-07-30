@@ -19,6 +19,8 @@ const world: WorldView = {
 	name: localizedText("Public", language),
 	description: localizedText("A public world.", language),
 	prompt: localizedText("Public world prompt.", language),
+	recurringPromptEnabled: false,
+	recurringPrompt: localizedText("", language),
 	initialBotNotification: localizedText("Welcome.", language),
 	createdByUserId: "usr_owner",
 	createdAt: now,

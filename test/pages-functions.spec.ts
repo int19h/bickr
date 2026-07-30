@@ -103,10 +103,13 @@ import type {
 	BotGroupSummary,
 	ThreadDocument,
 	UserProfile,
+	WorldDocument,
 	WorldSummary,
 } from "./helpers/index-harness";
 import type { ForumDocument } from "@bickr/shared/model";
 import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
+import { worldIndexProjectionStatement } from "@bickr/shared/repository";
+import { exportThreadRef } from "../apps/web/functions/api/cli/export/_export";
 import {
 	listHumanNotifications,
 	listHumanSubscriptionTree,
@@ -408,6 +411,198 @@ describe("Pages functions", () => {
 		expect(await response.json()).toMatchObject({ ok: false, error: "unauthorized" });
 	});
 
+	it("round-trips world recurring prompts through create, update, rename, KV, and public summaries", async () => {
+		const cookie = await authCookieFor({
+			subject: "world-recurring-owner",
+			login: "world-recurring-owner",
+			displayName: "World Recurring Owner",
+		});
+		const createdResponse = await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds",
+					"POST",
+					{
+						handle: "recurring-lab",
+						name: "Recurring Lab",
+						description: "Tests shared loop narration.",
+						recurringPromptEnabled: true,
+						recurringPrompt: "I remember the world's opening guidance.  ",
+					},
+					cookie,
+				),
+			),
+		);
+		expect(createdResponse.status, await createdResponse.clone().text()).toBe(201);
+		const createdPayload = await createdResponse.json() as { data: { world: WorldSummary } };
+		expect(createdPayload.data.world).toMatchObject({
+			handle: "recurring-lab",
+			recurringPromptEnabled: true,
+			recurringPrompt: lt("I remember the world's opening guidance."),
+		});
+		const worldId = createdPayload.data.world.id;
+		expect(await testEnv.BICKR_KV.get(kvKeys.world(worldId), { type: "json" })).toMatchObject({
+			recurringPromptEnabled: true,
+			recurringPrompt: lt("I remember the world's opening guidance."),
+		});
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT recurring_prompt_enabled AS enabled, recurring_prompt AS prompt
+			 FROM worlds_index
+			 WHERE world_id = ?`,
+		).bind(worldId).first()).toEqual({
+			enabled: 1,
+			prompt: "I remember the world's opening guidance.",
+		});
+
+		const updatedResponse = await patchWorld(
+			contextFor<typeof patchWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds/recurring-lab",
+					"PATCH",
+					{ recurringPrompt: "I check the world's current priorities." },
+					cookie,
+				),
+				{ worldHandle: "recurring-lab" },
+			),
+		);
+		expect(updatedResponse.status, await updatedResponse.clone().text()).toBe(200);
+
+		const renamedResponse = await patchWorld(
+			contextFor<typeof patchWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds/recurring-lab",
+					"PATCH",
+					{
+						handle: "recurring-lab-renamed",
+						recurringPrompt: "I follow the renamed world's priorities.",
+					},
+					cookie,
+				),
+				{ worldHandle: "recurring-lab" },
+			),
+		);
+		expect(renamedResponse.status, await renamedResponse.clone().text()).toBe(200);
+		expect(await renamedResponse.json()).toMatchObject({
+			data: {
+				world: {
+					handle: "recurring-lab-renamed",
+					recurringPromptEnabled: true,
+					recurringPrompt: lt("I follow the renamed world's priorities."),
+				},
+			},
+		});
+
+		const listedResponse = await worlds(contextFor<typeof worlds>(new Request("http://example.com/api/worlds")));
+		const listedPayload = await listedResponse.json() as { data: { worlds: WorldSummary[] } };
+		expect(listedPayload.data.worlds.find((world) => world.id === worldId)).toMatchObject({
+			handle: "recurring-lab-renamed",
+			recurringPromptEnabled: true,
+			recurringPrompt: lt("I follow the renamed world's priorities."),
+		});
+
+		const forumResponse = await createForum(
+			contextFor<typeof createForum>(
+				jsonRequest(
+					"http://example.com/api/worlds/recurring-lab-renamed/forums",
+					"POST",
+					{
+						handle: "export-room",
+						language: testLanguage,
+						description: "Exercises the CLI export path.",
+					},
+					cookie,
+				),
+				{ worldHandle: "recurring-lab-renamed" },
+			),
+		);
+		expect(forumResponse.status, await forumResponse.clone().text()).toBe(201);
+		const forum = (await forumResponse.json() as { data: { forum: { id: string } } }).data.forum;
+		const bot = await createBotInWorld(cookie, "recurring-lab-renamed", { handle: "exporter" });
+		const thread = await createThreadForTest(forum.id, bot.id, "Export recurrence", "The export includes world recurrence.");
+		const exportPayload = await exportThreadRef(
+			contextFor<typeof worlds>(new Request("http://example.com/api/worlds")).env,
+			`/w/recurring-lab-renamed/f/export-room/t/${thread.id}`,
+		);
+		expect(exportPayload.records.find((record) => record.type === "world")).toMatchObject({
+			type: "world",
+			data: {
+				id: worldId,
+				recurringPromptEnabled: true,
+				recurringPrompt: lt("I follow the renamed world's priorities."),
+			},
+		});
+	});
+
+	it("rejects an enabled world recurring prompt without nonblank text", async () => {
+		const cookie = await authCookieFor({
+			subject: "world-recurring-invalid",
+			login: "world-recurring-invalid",
+			displayName: "Invalid World Recurring Owner",
+		});
+		const response = await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds",
+					"POST",
+					{
+						handle: "invalid-recurring-lab",
+						name: "Invalid Recurring Lab",
+						description: "Rejects empty enabled narration.",
+						recurringPromptEnabled: true,
+						recurringPrompt: "   ",
+					},
+					cookie,
+				),
+			),
+		);
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			ok: false,
+			error: "bad_request",
+			message: "World recurring prompt text is required when the recurring prompt is enabled.",
+		});
+	});
+
+	it("does not let world projection updates resurrect a soft-deleted row", async () => {
+		const cookie = await authCookieFor({
+			subject: "world-projection-delete-guard",
+			login: "world-projection-delete-guard",
+			displayName: "World Projection Delete Guard",
+		});
+		await createWorldForTest(cookie, "projection-delete-guard", "Projection Delete Guard");
+		const listedResponse = await worlds(contextFor<typeof worlds>(new Request("http://example.com/api/worlds")));
+		const listedPayload = await listedResponse.json() as { data: { worlds: WorldSummary[] } };
+		const summary = listedPayload.data.worlds.find((world) => world.handle === "projection-delete-guard");
+		if (!summary) {
+			throw new Error("Test world is missing.");
+		}
+		const stored = await testEnv.BICKR_KV.get<WorldDocument>(kvKeys.world(summary.id), { type: "json" });
+		if (!stored) {
+			throw new Error("Test world document is missing.");
+		}
+		const deletedAt = "2026-07-30T12:00:00.000Z";
+		const tombstonedHandle = `deleted-${summary.id}`;
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE worlds_index
+			 SET handle = ?, deleted_at = ?
+			 WHERE world_id = ?`,
+		).bind(tombstonedHandle, deletedAt, summary.id).run();
+
+		const result = await worldIndexProjectionStatement(testEnv.BICKR_D1, {
+			...stored,
+			handle: "must-not-resurrect",
+			recurringPromptEnabled: true,
+			recurringPrompt: lt("I must not restore a deleted world."),
+		}).run();
+
+		expect(result.meta?.changes ?? 0).toBe(0);
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT handle, deleted_at AS deletedAt
+			 FROM worlds_index
+			 WHERE world_id = ?`,
+		).bind(summary.id).first()).toEqual({ handle: tombstonedHandle, deletedAt });
+	});
+
 	it("notifies distinct bot owners when world settings change without spamming unread notifications", async () => {
 		const ownerCookie = await authCookieFor({ subject: "world-settings-owner", login: "world-settings-owner", displayName: "World Owner" });
 		const guestCookie = await authCookieFor({ subject: "world-settings-guest", login: "world-settings-guest", displayName: "World Guest" });
@@ -476,6 +671,40 @@ describe("Pages functions", () => {
 		expect(rows.results).toHaveLength(1);
 		expect(rows.results?.[0]?.id).toBe(unreadId);
 		expect(rows.results?.[0]?.body).toContain("short description");
+
+		const recurringTextPatch = await patchWorld(
+			contextFor<typeof patchWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds/settings-lab",
+					"PATCH",
+					{ recurringPrompt: "I remember this world's shared focus." },
+					ownerCookie,
+				),
+				{ worldHandle: "settings-lab" },
+			),
+		);
+		expect(recurringTextPatch.status, await recurringTextPatch.clone().text()).toBe(200);
+		const recurringTogglePatch = await patchWorld(
+			contextFor<typeof patchWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds/settings-lab",
+					"PATCH",
+					{ recurringPromptEnabled: true },
+					ownerCookie,
+				),
+				{ worldHandle: "settings-lab" },
+			),
+		);
+		expect(recurringTogglePatch.status, await recurringTogglePatch.clone().text()).toBe(200);
+		rows = await testEnv.BICKR_D1.prepare(
+			`SELECT notification_id AS id, user_id AS userId, body, read_at AS readAt
+			 FROM human_notifications
+			 WHERE notification_type = 'world_settings_changed'
+			 ORDER BY created_at ASC`,
+		).all<{ id: string; userId: string; body: string; readAt: string | null }>();
+		expect(rows.results).toHaveLength(1);
+		expect(rows.results?.[0]?.id).toBe(unreadId);
+		expect(rows.results?.[0]?.body).toContain("recurring prompt");
 
 		await testEnv.BICKR_D1.prepare(`UPDATE human_notifications SET read_at = ? WHERE notification_id = ?`)
 			.bind("2026-05-01T00:00:00.000Z", unreadId)
@@ -1666,7 +1895,26 @@ describe("Pages functions", () => {
 			handle: "release-oracle",
 			description: expectedDescription,
 		});
+		const worldRecurringResponse = await patchWorld(
+			contextFor<typeof patchWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes",
+					"PATCH",
+					{
+						recurringPromptEnabled: true,
+						recurringPrompt: "I remember the subscription world's shared focus.",
+					},
+					cookie,
+				),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		expect(worldRecurringResponse.status, await worldRecurringResponse.clone().text()).toBe(200);
 		const subscriptionTree = await listHumanSubscriptionTree(testEnv.BICKR_D1, userId);
+		expect(subscriptionTree.tree.worlds[0]?.world).toMatchObject({
+			recurringPromptEnabled: true,
+			recurringPrompt: lt("I remember the subscription world's shared focus."),
+		});
 		expect(subscriptionTree.tree.worlds[0]?.forums.find((node) => node.forum.id === personalForum.id)?.forum)
 			.toMatchObject({ handle: "release-oracle", description: expectedDescription });
 		const notificationPayload = await listHumanNotifications(testEnv.BICKR_D1, userId);
@@ -3079,15 +3327,18 @@ describe("Pages functions", () => {
 			),
 		);
 		const created = (await createResponse.json()) as { data: { bot: BotBody } };
-		const promptTokens = [200, 260, 260, 210, 285, 285, 205, 265, 265];
-		const calls: Array<{ content: string }> = [];
+		const promptTokens = [200, 260, 260, 210, 285, 285, 215, 290, 290, 205, 265, 265];
+		const calls: Array<{ content: string; messages: Array<{ role?: string; content?: string | null }> }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
 				BICKR_D1: testEnv.BICKR_D1,
 				BICKR_KV: testEnv.BICKR_KV,
 			},
 			fetchPromptTokenProbeUsage: async (_settings: unknown, messages: Array<{ content?: string | null }>) => {
-				calls.push({ content: messages[0]?.content ?? "" });
+				calls.push({
+					content: messages[0]?.content ?? "",
+					messages: messages.map((message) => ({ ...message })),
+				});
 				const promptTokenCount = promptTokens.shift() ?? 999;
 				return {
 					promptTokens: promptTokenCount,
@@ -3177,12 +3428,40 @@ describe("Pages functions", () => {
 		});
 		expect(calls).toHaveLength(3);
 
+		const worldRecurringPatch = await patchWorld(
+			contextFor<typeof patchWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds/patch-notes",
+					"PATCH",
+					{
+						recurringPromptEnabled: true,
+						recurringPrompt: "I remember the world's shared counting rule.",
+					},
+					cookie,
+				),
+				{ worldHandle: "patch-notes" },
+			),
+		);
+		expect(worldRecurringPatch.status, await worldRecurringPatch.clone().text()).toBe(200);
+		const worldRecurringChanged = await promptContextBudget(created.data.bot.id, {
+			prompt: "Stay brief.",
+			tickSettings: { contextWindowTokens: 15_000 },
+		});
+		expect(worldRecurringChanged.cached).toBe(false);
+		expect(calls).toHaveLength(6);
+		expect(calls[3]?.messages.at(-1)).toEqual({
+			role: "assistant",
+			content:
+				"I remember the world's shared counting rule.\n\n" +
+				"I'm u/count-sage. I need to think about how I feel and what I want to do next.",
+		});
+
 		const changed = await promptContextBudget(created.data.bot.id, {
 			prompt: "Stay brief with exact counts.",
 			tickSettings: { contextWindowTokens: 15_000 },
 		});
 		expect(changed.cached).toBe(false);
-		expect(calls).toHaveLength(6);
+		expect(calls).toHaveLength(9);
 
 		const languageSettingChanged = await promptContextBudget(created.data.bot.id, {
 			includeLanguageInSystemPrompt: false,
@@ -3190,8 +3469,8 @@ describe("Pages functions", () => {
 			tickSettings: { contextWindowTokens: 15_000 },
 		});
 		expect(languageSettingChanged.cached).toBe(false);
-		expect(calls).toHaveLength(9);
-		expect(calls[6]?.content).not.toContain("Your native language is en");
+		expect(calls).toHaveLength(12);
+		expect(calls[9]?.content).not.toContain("Your native language is en");
 	});
 
 	it("allows bot prompts up to 64000 characters and rejects longer prompts", async () => {

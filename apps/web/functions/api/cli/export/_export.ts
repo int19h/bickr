@@ -1,7 +1,7 @@
 import { localizedText, type BotPublicProfile, type CommentDocument, type ForumSummary, type LanguageTag, type LocalizedText, type ThreadDocument, type WorldSummary } from "@bickr/shared/model";
-import { worldByHandle } from "@bickr/shared/repository";
+import { worldByHandle, worldSummaryById } from "@bickr/shared/repository";
 import { forumByHandle, listThreads, readThread } from "@bickr/shared/social";
-import { type D1DatabaseLike } from "@bickr/shared/storage";
+import { chunks, d1MaxBoundParameters, type D1DatabaseLike } from "@bickr/shared/storage";
 import { InputError, normalizeHandle } from "@bickr/shared/validation";
 import { parsePathname } from "../../../../src/routes";
 import { type AppEnv } from "../../_auth";
@@ -126,57 +126,7 @@ async function socialExportForThreads(env: AppEnv, threads: ThreadDocument[]): P
 
 async function worldSummaryByHandle(db: D1DatabaseLike, handle: string): Promise<WorldSummary> {
 	const world = await worldByHandle(db, handle);
-	const row = await db.prepare(
-		`SELECT language, name, name_lang AS nameLang, description, description_lang AS descriptionLang,
-		        prompt, prompt_lang AS promptLang,
-		        initial_bot_notification AS initialBotNotification,
-		        initial_bot_notification_lang AS initialBotNotificationLang,
-		        created_by_user_id AS createdByUserId, created_at AS createdAt, updated_at AS updatedAt,
-		        posting_thread_body_characters AS postingThreadBodyCharacters,
-		        posting_comment_body_characters AS postingCommentBodyCharacters
-		 FROM worlds_index
-		 WHERE world_id = ? AND deleted_at IS NULL`,
-	)
-		.bind(world.id)
-		.first<{
-			language: string | null;
-			name: string;
-			nameLang: string | null;
-			description: string;
-			descriptionLang: string | null;
-			prompt: string;
-			promptLang: string | null;
-			initialBotNotification: string;
-			initialBotNotificationLang: string | null;
-			createdByUserId: string;
-			createdAt: string;
-			updatedAt: string;
-			postingThreadBodyCharacters: number | null;
-			postingCommentBodyCharacters: number | null;
-		}>();
-	if (!row) {
-		throw new InputError("World not found.");
-	}
-	return {
-		id: world.id,
-		handle: world.handle,
-		language: languageTag(row.language),
-		name: localizedText(row.name, languageTag(row.nameLang ?? row.language)),
-		description: localizedText(row.description, languageTag(row.descriptionLang ?? row.language)),
-		prompt: localizedText(row.prompt, languageTag(row.promptLang ?? row.language)),
-		initialBotNotification: localizedText(row.initialBotNotification, languageTag(row.initialBotNotificationLang ?? row.language)),
-		...(row.postingThreadBodyCharacters !== null || row.postingCommentBodyCharacters !== null ?
-			{
-				postingSettings: {
-					...(row.postingThreadBodyCharacters !== null ? { threadBodyCharacters: row.postingThreadBodyCharacters } : {}),
-					...(row.postingCommentBodyCharacters !== null ? { commentBodyCharacters: row.postingCommentBodyCharacters } : {}),
-				},
-			}
-		:	{}),
-		createdByUserId: row.createdByUserId,
-		createdAt: row.createdAt,
-		updatedAt: row.updatedAt,
-	};
+	return worldSummaryById(db, world.id);
 }
 
 async function votesForThreads(db: D1DatabaseLike, threads: ThreadDocument[]): Promise<ExportVote[]> {
@@ -185,7 +135,7 @@ async function votesForThreads(db: D1DatabaseLike, threads: ThreadDocument[]): P
 		...thread.comments.map((comment) => ({ targetType: "comment" as const, targetId: comment.id })),
 	]);
 	const votes: ExportVote[] = [];
-	for (const batch of chunks(targets, 80)) {
+	for (const batch of chunks(targets, Math.floor(d1MaxBoundParameters / 2))) {
 		const clauses = batch.map(() => "(v.target_type = ? AND v.target_id = ?)").join(" OR ");
 		const result = await db.prepare(
 			`SELECT
@@ -233,7 +183,7 @@ export function exportVoteFromRow(row: ExportVoteRow): ExportVote {
 
 async function botProfilesByIds(db: D1DatabaseLike, ids: string[]): Promise<BotPublicProfile[]> {
 	const profiles: BotPublicProfile[] = [];
-	for (const batch of chunks([...new Set(ids)], 90)) {
+	for (const batch of chunks([...new Set(ids)], d1MaxBoundParameters)) {
 		if (batch.length === 0) {
 			continue;
 		}
@@ -311,12 +261,4 @@ function avatarCropFromIndex(value: string | null): BotPublicProfile["avatarCrop
 	} catch {
 		return undefined;
 	}
-}
-
-function chunks<T>(items: T[], size: number): T[][] {
-	const batches: T[][] = [];
-	for (let index = 0; index < items.length; index += size) {
-		batches.push(items.slice(index, index + size));
-	}
-	return batches;
 }
