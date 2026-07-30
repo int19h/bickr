@@ -6,6 +6,16 @@ export type ObjectIndexRepairScope =
 
 export function objectIndexScopeStaleStatement(
 	db: D1DatabaseLike,
+	scope: Extract<ObjectIndexRepairScope, { kind: "world" }>,
+	options?: { includeScopeRoot?: boolean; requireLiveScopeRoot?: boolean },
+): D1PreparedStatementLike;
+export function objectIndexScopeStaleStatement(
+	db: D1DatabaseLike,
+	scope: Extract<ObjectIndexRepairScope, { kind: "forum" }>,
+	options?: { includeScopeRoot?: boolean },
+): D1PreparedStatementLike;
+export function objectIndexScopeStaleStatement(
+	db: D1DatabaseLike,
 	scope: ObjectIndexRepairScope,
 	options: { includeScopeRoot?: boolean; requireLiveScopeRoot?: boolean } = {},
 ): D1PreparedStatementLike {
@@ -31,7 +41,6 @@ export function objectIndexScopeStaleStatement(
 			`UPDATE objects_index
 			 SET index_version = 0
 			 WHERE deleted_at IS NULL
-			   ${requireLiveScopeRoot ? "AND EXISTS (SELECT 1 FROM forums_index WHERE forum_id = ? AND deleted_at IS NULL)" : ""}
 			   AND (
 				${includeScopeRoot ? "object_id = ? OR" : ""} object_id IN (
 					SELECT thread_id
@@ -41,7 +50,6 @@ export function objectIndexScopeStaleStatement(
 			   )`,
 		)
 		.bind(
-			...(requireLiveScopeRoot ? [scope.forumId] : []),
 			...(includeScopeRoot ? [scope.forumId] : []),
 			scope.forumId,
 		);

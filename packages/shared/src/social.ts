@@ -96,6 +96,7 @@ import {
 	type KVNamespaceLike,
 	chunks,
 	d1MaxBoundParameters,
+	d1SafeBoundParameters,
 	kvKeys,
 	deleteKey,
 	putObjectIndex,
@@ -642,7 +643,7 @@ async function threadWithAuthorAvatars(db: D1DatabaseLike, thread: ThreadDocumen
 		return thread;
 	}
 	const avatarsById = new Map<string, { url: string; crop?: AvatarCrop }>();
-	for (const batch of chunks(authorIds, d1MaxBoundParameters)) {
+	for (const batch of chunks(authorIds, d1SafeBoundParameters)) {
 		const placeholders = batch.map(() => "?").join(", ");
 		const result = await db
 			.prepare(
@@ -1517,7 +1518,7 @@ async function rowsByIds<T>(
 	query: (placeholders: string) => string,
 ): Promise<T[]> {
 	const rows: T[] = [];
-	for (const batch of chunks([...ids], d1MaxBoundParameters)) {
+	for (const batch of chunks([...ids], d1SafeBoundParameters)) {
 		if (batch.length === 0) {
 			continue;
 		}
@@ -3227,8 +3228,8 @@ async function botFollowerCounts(db: D1DatabaseLike, botIds: string[]): Promise<
 	if (uniqueIds.length === 0) {
 		return counts;
 	}
-	for (let index = 0; index < uniqueIds.length; index += d1MaxBoundParameters) {
-		const batch = uniqueIds.slice(index, index + d1MaxBoundParameters);
+	for (let index = 0; index < uniqueIds.length; index += d1SafeBoundParameters) {
+		const batch = uniqueIds.slice(index, index + d1SafeBoundParameters);
 		const placeholders = batch.map(() => "?").join(", ");
 		const result = await db
 			.prepare(
@@ -4989,7 +4990,7 @@ async function deleteExpiredNotificationKvDocuments(
 
 async function deleteNotificationRows(db: D1DatabaseLike, notificationIds: string[]): Promise<number> {
 	let deletedRows = 0;
-	for (const batch of chunks(notificationIds, d1MaxBoundParameters)) {
+	for (const batch of chunks(notificationIds, d1SafeBoundParameters)) {
 		const placeholders = batch.map(() => "?").join(", ");
 		const result = await db
 			.prepare(`DELETE FROM notifications WHERE notification_id IN (${placeholders})`)

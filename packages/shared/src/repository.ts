@@ -3232,6 +3232,13 @@ export function worldIndexProjectionStatement(
 	db: D1DatabaseLike,
 	world: WorldDocument,
 ): D1PreparedStatementLike {
+	return normalizedWorldIndexProjectionStatement(db, normalizeWorldDefaults(world));
+}
+
+function normalizedWorldIndexProjectionStatement(
+	db: D1DatabaseLike,
+	world: WorldDocument,
+): D1PreparedStatementLike {
 	return db
 		.prepare(
 			`INSERT INTO worlds_index (
@@ -3300,7 +3307,7 @@ export async function upsertWorldIndexProjection(
 	world: WorldDocument,
 ): Promise<WorldDocument> {
 	const normalized = normalizeWorldDefaults(world);
-	await worldIndexProjectionStatement(db, normalized).run();
+	await normalizedWorldIndexProjectionStatement(db, normalized).run();
 	await upsertWorldSearchIndex(db, normalized);
 	return normalized;
 }
