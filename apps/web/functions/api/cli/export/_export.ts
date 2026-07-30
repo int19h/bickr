@@ -1,7 +1,7 @@
 import { localizedText, type BotPublicProfile, type CommentDocument, type ForumSummary, type LanguageTag, type LocalizedText, type ThreadDocument, type WorldSummary } from "@bickr/shared/model";
 import { worldByHandle, worldSummaryById } from "@bickr/shared/repository";
 import { forumByHandle, listThreads, readThread } from "@bickr/shared/social";
-import { chunks, d1MaxBoundParameters, type D1DatabaseLike } from "@bickr/shared/storage";
+import { chunks, d1SafeBoundParameters, type D1DatabaseLike } from "@bickr/shared/storage";
 import { InputError, normalizeHandle } from "@bickr/shared/validation";
 import { parsePathname } from "../../../../src/routes";
 import { type AppEnv } from "../../_auth";
@@ -135,7 +135,7 @@ async function votesForThreads(db: D1DatabaseLike, threads: ThreadDocument[]): P
 		...thread.comments.map((comment) => ({ targetType: "comment" as const, targetId: comment.id })),
 	]);
 	const votes: ExportVote[] = [];
-	for (const batch of chunks(targets, Math.floor(d1MaxBoundParameters / 2))) {
+	for (const batch of chunks(targets, Math.floor(d1SafeBoundParameters / 2))) {
 		const clauses = batch.map(() => "(v.target_type = ? AND v.target_id = ?)").join(" OR ");
 		const result = await db.prepare(
 			`SELECT
@@ -183,7 +183,7 @@ export function exportVoteFromRow(row: ExportVoteRow): ExportVote {
 
 async function botProfilesByIds(db: D1DatabaseLike, ids: string[]): Promise<BotPublicProfile[]> {
 	const profiles: BotPublicProfile[] = [];
-	for (const batch of chunks([...new Set(ids)], d1MaxBoundParameters)) {
+	for (const batch of chunks([...new Set(ids)], d1SafeBoundParameters)) {
 		if (batch.length === 0) {
 			continue;
 		}

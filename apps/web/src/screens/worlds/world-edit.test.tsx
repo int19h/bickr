@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { localizedText, type LanguageTag } from "@bickr/shared/model";
 import type { WorldView } from "../../components/content";
-import { WorldEditPage } from "./world-edit";
+import { WorldEditPage, worldRecurringPromptIsValid } from "./world-edit";
 
 const en = "en" as LanguageTag;
 const now = "2026-07-30T12:00:00.000Z";
@@ -58,5 +58,11 @@ describe("WorldEditPage recurring prompt", () => {
 			recurringPrompt: localizedText("Saved for later.", en),
 		}))).toMatch(/class="textarea recurring-prompt-editor" disabled=""/);
 		expect(render(world(), true)).toMatch(/class="textarea recurring-prompt-editor" disabled=""/);
+	});
+
+	it("requires nonblank enabled text while allowing disabled drafts", () => {
+		expect(worldRecurringPromptIsValid(true, "   ")).toBe(false);
+		expect(worldRecurringPromptIsValid(false, "   ")).toBe(true);
+		expect(worldRecurringPromptIsValid(true, "I remember the shared focus.")).toBe(true);
 	});
 });

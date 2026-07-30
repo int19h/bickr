@@ -39,6 +39,7 @@ import {
 	googleOauthFetchMock,
 	googleStart,
 	handleAgentRuntimeRequest,
+	handleForumCoordinatorRequest,
 	health,
 	htmlTitle,
 	isValidHandleText,
@@ -601,6 +602,86 @@ describe("Pages functions", () => {
 			 FROM worlds_index
 			 WHERE world_id = ?`,
 		).bind(summary.id).first()).toEqual({ handle: tombstonedHandle, deletedAt });
+	});
+
+	it("returns 404 without renaming child indexes when deletion wins a world rename race", async () => {
+		const cookie = await authCookieFor({
+			subject: "world-rename-delete-race",
+			login: "world-rename-delete-race",
+			displayName: "World Rename Delete Race",
+		});
+		await createWorldForTest(cookie, "rename-delete-race", "Rename Delete Race");
+		const worldRow = await testEnv.BICKR_D1.prepare(
+			`SELECT world_id AS id
+			 FROM worlds_index
+			 WHERE handle = ? AND deleted_at IS NULL`,
+		).bind("rename-delete-race").first<{ id: string }>();
+		if (!worldRow) {
+			throw new Error("Test world is missing.");
+		}
+		const forumRow = await testEnv.BICKR_D1.prepare(
+			`SELECT forum_id AS id, world_handle AS worldHandle
+			 FROM forums_index
+			 WHERE world_id = ? AND deleted_at IS NULL`,
+		).bind(worldRow.id).first<{ id: string; worldHandle: string }>();
+		if (!forumRow) {
+			throw new Error("Test world's intro forum is missing.");
+		}
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE objects_index
+			 SET index_version = 77
+			 WHERE object_id = ?`,
+		).bind(forumRow.id).run();
+
+		const deletedAt = "2026-07-30T12:00:00.000Z";
+		let raced = false;
+		const racingD1 = {
+			prepare: testEnv.BICKR_D1.prepare.bind(testEnv.BICKR_D1),
+			batch: async (statements: D1PreparedStatement[]) => {
+				if (!raced) {
+					raced = true;
+					await testEnv.BICKR_D1.prepare(
+						`UPDATE worlds_index
+						 SET deleted_at = ?
+						 WHERE world_id = ?`,
+					).bind(deletedAt, worldRow.id).run();
+				}
+				return testEnv.BICKR_D1.batch(statements);
+			},
+		} as D1Database;
+		const response = await patchWorld(
+			contextFor<typeof patchWorld>(
+				jsonRequest(
+					"http://example.com/api/worlds/rename-delete-race",
+					"PATCH",
+					{ handle: "rename-must-not-land", language: testLanguage },
+					cookie,
+				),
+				{ worldHandle: "rename-delete-race" },
+				{
+					FORUM_COORDINATOR_SERVICE: {
+						fetch: (request: Request) => handleForumCoordinatorRequest(request, {
+							BICKR_D1: racingD1,
+							BICKR_KV: testEnv.BICKR_KV,
+						}),
+					} as unknown as Fetcher,
+				},
+			),
+		);
+
+		expect(response.status, await response.clone().text()).toBe(404);
+		expect(raced).toBe(true);
+		expect(await response.json()).toMatchObject({ ok: false, error: "not_found" });
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT world_handle AS worldHandle
+			 FROM forums_index
+			 WHERE forum_id = ?`,
+		).bind(forumRow.id).first()).toEqual({ worldHandle: forumRow.worldHandle });
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT index_version AS indexVersion
+			 FROM objects_index
+			 WHERE object_id = ?`,
+		).bind(forumRow.id).first()).toEqual({ indexVersion: 77 });
 	});
 
 	it("notifies distinct bot owners when world settings change without spamming unread notifications", async () => {

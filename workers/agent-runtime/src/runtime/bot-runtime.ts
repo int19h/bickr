@@ -897,7 +897,7 @@ export function providerMessagesWithReasoningPrefill(messages: ChatMessage[], re
 function contextBudgetPromptParts(bot: RuntimeBotDocument, settings: ProviderSettings): ContextBudgetPromptParts {
 	const { tools: providerTools } = providerToolsForBotRound(bot, settings);
 	const fixedSystemToolInstructionTools = providerTools;
-	const worldPrompt = stringValue('worldPrompt' in bot ? bot.worldPrompt : undefined) ?? '';
+	const worldPrompt = stringValue(bot.worldPrompt) ?? '';
 	const botWithoutPrompt = { ...bot, prompt: { lang: bot.language, text: '' } };
 	const fixedSystemMessage =
 		settings.toolCalls === 'at_will'
@@ -2550,7 +2550,7 @@ export class BotRuntime {
 			...bot,
 			effectivePostingSettings: effectivePostingSettings(world?.postingSettings, bot.postingSettings),
 			worldPrompt: stringValue(world?.prompt) ?? '',
-			...(worldRecurringPrompt ? { worldRecurringPrompt } : {}),
+			worldRecurringPrompt,
 		};
 	}
 
@@ -2587,7 +2587,7 @@ export class BotRuntime {
 	}
 
 	private async runProviderLoop(
-		bot: BotDocument,
+		bot: RuntimeBotDocument,
 		settings: ProviderSettings,
 		runId: string,
 		_messages: ChatMessage[],
@@ -4396,7 +4396,7 @@ export class BotRuntime {
 		};
 	}
 
-	private async readCommentTreeTokenBudget(bot: BotDocument): Promise<number> {
+	private async readCommentTreeTokenBudget(bot: RuntimeBotDocument): Promise<number> {
 		const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
 		const settings = this.effectiveProviderSettings(bot, owner);
 		const parts = contextBudgetPromptParts(bot, settings);
@@ -4411,7 +4411,7 @@ export class BotRuntime {
 			}),
 		);
 		const personaPromptFingerprint = await sha256Hex(localizedTextString(bot.prompt));
-		const worldPromptFingerprint = await sha256Hex(stringValue('worldPrompt' in bot ? bot.worldPrompt : undefined) ?? '');
+		const worldPromptFingerprint = await sha256Hex(stringValue(bot.worldPrompt) ?? '');
 		const cachedCounts = this.contextBudgetCachedCounts(
 			await promptContextBudgetCacheFingerprint({
 				botId: bot.id,
@@ -4937,7 +4937,7 @@ export class BotRuntime {
 	}
 
 	private async executeTool(
-		bot: BotDocument,
+		bot: RuntimeBotDocument,
 		runId: string,
 		name: string,
 		args: Record<string, unknown>,
@@ -5063,7 +5063,7 @@ export class BotRuntime {
 	}
 
 	private async appendNotificationSyntheticContext(
-		bot: BotDocument,
+		bot: RuntimeBotDocument,
 		runId: string,
 		notifications: LoopNotification[],
 		existingProfileUsernames: ReadonlySet<string>,
@@ -5109,7 +5109,7 @@ export class BotRuntime {
 	}
 
 	private async appendSpotlightSyntheticContext(
-		bot: BotDocument,
+		bot: RuntimeBotDocument,
 		runId: string,
 		contexts: SpotlightSyntheticContext[],
 		existingProfileUsernames: ReadonlySet<string>,

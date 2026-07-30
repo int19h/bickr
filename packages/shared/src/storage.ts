@@ -5,6 +5,8 @@ import { isCloudflareRateLimitError, retryCloudflareOperation } from "./cloudfla
 // D1 currently allows 100 bound parameters per statement. Keep set-oriented
 // queries below this shared ceiling so callers do not invent divergent limits.
 export const d1MaxBoundParameters = 100;
+// Leave one slot for a future fixed predicate without making full batches fail.
+export const d1SafeBoundParameters = d1MaxBoundParameters - 1;
 
 export function chunks<T>(items: readonly T[], size: number): T[][] {
 	const result: T[][] = [];

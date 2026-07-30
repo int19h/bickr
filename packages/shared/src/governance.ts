@@ -83,15 +83,34 @@ export async function updateWorld(
 		const [projectionResult] = await db.batch([
 			worldIndexProjectionStatement(db, updated),
 			db
-				.prepare(`UPDATE forums_index SET world_handle = ?, updated_at = ? WHERE world_id = ? AND deleted_at IS NULL`)
-				.bind(updated.handle, now, updated.id),
+				.prepare(
+					`UPDATE forums_index
+					 SET world_handle = ?, updated_at = ?
+					 WHERE world_id = ? AND deleted_at IS NULL
+					   AND EXISTS (SELECT 1 FROM worlds_index WHERE world_id = ? AND deleted_at IS NULL)`,
+				)
+				.bind(updated.handle, now, updated.id, updated.id),
 			db
-				.prepare(`UPDATE bots_index SET home_world_handle = ?, updated_at = ? WHERE home_world_id = ? AND deleted_at IS NULL`)
-				.bind(updated.handle, now, updated.id),
+				.prepare(
+					`UPDATE bots_index
+					 SET home_world_handle = ?, updated_at = ?
+					 WHERE home_world_id = ? AND deleted_at IS NULL
+					   AND EXISTS (SELECT 1 FROM worlds_index WHERE world_id = ? AND deleted_at IS NULL)`,
+				)
+				.bind(updated.handle, now, updated.id, updated.id),
 			db
-				.prepare(`UPDATE threads_index SET world_handle = ? WHERE world_id = ? AND deleted_at IS NULL`)
-				.bind(updated.handle, updated.id),
-			objectIndexScopeStaleStatement(db, { kind: "world", worldId: updated.id }, { includeScopeRoot: false }),
+				.prepare(
+					`UPDATE threads_index
+					 SET world_handle = ?
+					 WHERE world_id = ? AND deleted_at IS NULL
+					   AND EXISTS (SELECT 1 FROM worlds_index WHERE world_id = ? AND deleted_at IS NULL)`,
+				)
+				.bind(updated.handle, updated.id, updated.id),
+			objectIndexScopeStaleStatement(
+				db,
+				{ kind: "world", worldId: updated.id },
+				{ includeScopeRoot: false, requireLiveScopeRoot: true },
+			),
 		]);
 		if ((projectionResult?.meta?.changes ?? 0) < 1) {
 			throw new RepositoryError("not_found", "World not found.", 404);

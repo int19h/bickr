@@ -93,7 +93,7 @@ import {
 	type D1PreparedStatementLike,
 	type KVNamespaceLike,
 	chunks,
-	d1MaxBoundParameters,
+	d1SafeBoundParameters,
 	deleteKey,
 	kvKeys,
 	putObjectIndex,
@@ -892,7 +892,7 @@ async function publicUserById(db: D1DatabaseLike, userId: string): Promise<Publi
 async function publicUsersByIds(db: D1DatabaseLike, userIds: string[]): Promise<Map<string, PublicUser>> {
 	const ids = [...new Set(userIds.filter(Boolean))];
 	const users = new Map<string, PublicUser>();
-	for (const batch of chunks(ids, d1MaxBoundParameters)) {
+	for (const batch of chunks(ids, d1SafeBoundParameters)) {
 		const placeholders = batch.map(() => "?").join(", ");
 		const result = await db
 			.prepare(
@@ -2498,7 +2498,7 @@ export async function worldSummariesByIds(
 ): Promise<Map<string, WorldSummary>> {
 	const ids = [...new Set(worldIds.filter(Boolean))];
 	const worlds = new Map<string, WorldSummary>();
-	for (const batch of chunks(ids, d1MaxBoundParameters)) {
+	for (const batch of chunks(ids, d1SafeBoundParameters)) {
 		const placeholders = batch.map(() => "?").join(", ");
 		const result = await db
 			.prepare(
@@ -2539,7 +2539,7 @@ async function worldPostingSettingsByIds(
 ): Promise<Map<string, PostingSettings | undefined>> {
 	const ids = [...new Set(worldIds.filter(Boolean))];
 	const worlds = new Map<string, PostingSettings | undefined>();
-	for (const batch of chunks(ids, d1MaxBoundParameters)) {
+	for (const batch of chunks(ids, d1SafeBoundParameters)) {
 		const placeholders = batch.map(() => "?").join(", ");
 		const result = await db
 			.prepare(
@@ -3232,7 +3232,6 @@ export function worldIndexProjectionStatement(
 	db: D1DatabaseLike,
 	world: WorldDocument,
 ): D1PreparedStatementLike {
-	const normalized = normalizeWorldDefaults(world);
 	return db
 		.prepare(
 			`INSERT INTO worlds_index (
@@ -3268,31 +3267,31 @@ export function worldIndexProjectionStatement(
 			WHERE worlds_index.deleted_at IS NULL`,
 		)
 		.bind(
-			normalized.id,
-			normalized.handle,
-			normalized.language,
-			localizedTextSql(normalized.name),
-			localizedTextLangSql(normalized.name),
-			localizedTextSql(normalized.description),
-			localizedTextLangSql(normalized.description),
-			localizedTextSql(normalized.prompt),
-			localizedTextLangSql(normalized.prompt),
-			normalized.recurringPromptEnabled ? 1 : 0,
-			localizedTextSql(normalized.recurringPrompt),
-			localizedTextLangSql(normalized.recurringPrompt),
-			normalized.avatar?.url ?? null,
-			avatarCropJson(normalized.avatar?.crop),
-			imageGenerationSettingsJson(normalized.imageGeneration),
-			localizedTextSql(normalized.initialBotNotification),
-			localizedTextLangSql(normalized.initialBotNotification),
-			normalized.createdByUserId,
-			normalized.visibility,
-			normalized.postingSettings?.threadBodyCharacters ?? null,
-			normalized.postingSettings?.commentBodyCharacters ?? null,
-			normalized.threadSettings?.commentLimit ?? null,
-			normalized.createdAt,
-			normalized.updatedAt,
-			normalized.deletedAt ?? null,
+			world.id,
+			world.handle,
+			world.language,
+			localizedTextSql(world.name),
+			localizedTextLangSql(world.name),
+			localizedTextSql(world.description),
+			localizedTextLangSql(world.description),
+			localizedTextSql(world.prompt),
+			localizedTextLangSql(world.prompt),
+			world.recurringPromptEnabled ? 1 : 0,
+			localizedTextSql(world.recurringPrompt),
+			localizedTextLangSql(world.recurringPrompt),
+			world.avatar?.url ?? null,
+			avatarCropJson(world.avatar?.crop),
+			imageGenerationSettingsJson(world.imageGeneration),
+			localizedTextSql(world.initialBotNotification),
+			localizedTextLangSql(world.initialBotNotification),
+			world.createdByUserId,
+			world.visibility,
+			world.postingSettings?.threadBodyCharacters ?? null,
+			world.postingSettings?.commentBodyCharacters ?? null,
+			world.threadSettings?.commentLimit ?? null,
+			world.createdAt,
+			world.updatedAt,
+			world.deletedAt ?? null,
 		);
 }
 

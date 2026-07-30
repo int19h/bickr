@@ -618,7 +618,8 @@ describe("Tick flow", () => {
 			botWithEffectivePostingSettings: (value: BotDocument) => Promise<BotDocument & { worldRecurringPrompt?: string }>;
 		}).botWithEffectivePostingSettings.bind(runtime);
 
-		await expect(enrich(bot)).resolves.toMatchObject({
+		const enriched = await enrich(bot);
+		expect(enriched).toMatchObject({
 			worldRecurringPrompt: "I remember the world's live focus.",
 		});
 
@@ -627,7 +628,7 @@ describe("Tick flow", () => {
 			recurringPromptEnabled: false,
 			recurringPrompt: lt("I remember the world's live focus."),
 		}));
-		expect((await enrich(bot)).worldRecurringPrompt).toBeUndefined();
+		expect((await enrich(enriched)).worldRecurringPrompt).toBeUndefined();
 	});
 
 	it("resumes the current iteration without notification or recurring setup", async () => {

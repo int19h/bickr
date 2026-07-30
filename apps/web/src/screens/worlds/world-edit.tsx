@@ -1,41 +1,28 @@
-import { useContext, useEffect, useState } from "react";
-import type { UpdateWorldInput, WorldSummary } from "@bickr/shared/model";
-import {
-	defaultCommentBodyCharacters,
-	defaultThreadBodyCharacters,
-} from "@bickr/shared/posting";
-import { defaultThreadCommentLimit } from "@bickr/shared/thread-policy";
-import {
-	handleHelpText,
-	isValidHandleText,
-	maxWorldPromptLength,
-	maxWorldRecurringPromptLength,
-} from "@bickr/shared/validation";
-import { api } from "../../api";
-import { avatarImagePixels, cloudflareImageUrl } from "../../avatar-image-urls";
-import { AvatarCropModal } from "../../avatar/AvatarCropModal";
-import { AvatarUploadModal } from "../../avatar/AvatarUploadModal";
-import { worldAvatarTarget } from "../../avatar/target";
-import { Reference, type WorldView } from "../../components/content";
-import { SpaLink } from "../../components/navigation";
-import { languageDraftValue, languageInputValue } from "../../components/ui-text";
-import { defaultLanguageTag } from "../../language";
-import {
-	Avatar,
-	Confirm,
-	FallbackImage,
-	Field,
-	Icon,
-	ImageLightbox,
-	textValue,
-	ToastContext,
-} from "../../ui";
-import { runApiAction } from "../../use-api";
-import { LanguageField, localizedDraft, textLang } from "../../components/form-fields";
-import { optionalNumberDraftValue, slugify } from "../bots/bot-drafts";
-import { parseOptionalPositiveInteger } from "../../components/record-display";
+import { useContext, useEffect, useState } from 'react';
+import type { UpdateWorldInput, WorldSummary } from '@bickr/shared/model';
+import { defaultCommentBodyCharacters, defaultThreadBodyCharacters } from '@bickr/shared/posting';
+import { defaultThreadCommentLimit } from '@bickr/shared/thread-policy';
+import { handleHelpText, isValidHandleText, maxWorldPromptLength, maxWorldRecurringPromptLength } from '@bickr/shared/validation';
+import { api } from '../../api';
+import { avatarImagePixels, cloudflareImageUrl } from '../../avatar-image-urls';
+import { AvatarCropModal } from '../../avatar/AvatarCropModal';
+import { AvatarUploadModal } from '../../avatar/AvatarUploadModal';
+import { worldAvatarTarget } from '../../avatar/target';
+import { Reference, type WorldView } from '../../components/content';
+import { SpaLink } from '../../components/navigation';
+import { languageDraftValue, languageInputValue } from '../../components/ui-text';
+import { defaultLanguageTag } from '../../language';
+import { Avatar, Confirm, FallbackImage, Field, Icon, ImageLightbox, textValue, ToastContext } from '../../ui';
+import { runApiAction } from '../../use-api';
+import { LanguageField, localizedDraft, textLang } from '../../components/form-fields';
+import { optionalNumberDraftValue, slugify } from '../bots/bot-drafts';
+import { parseOptionalPositiveInteger } from '../../components/record-display';
 
 type WorldMutationResponse = { world: WorldSummary };
+
+export function worldRecurringPromptIsValid(enabled: boolean, text: string): boolean {
+	return text.length <= maxWorldRecurringPromptLength && (!enabled || text.trim().length > 0);
+}
 
 export function WorldEditPage({
 	busy,
@@ -61,7 +48,9 @@ export function WorldEditPage({
 	const [recurringPrompt, setRecurringPrompt] = useState(textValue(world.recurringPrompt));
 	const [initialBotNotification, setInitialBotNotification] = useState(textValue(world.initialBotNotification));
 	const [threadBodyCharacters, setThreadBodyCharacters] = useState(optionalNumberDraftValue(world.postingSettings?.threadBodyCharacters));
-	const [commentBodyCharacters, setCommentBodyCharacters] = useState(optionalNumberDraftValue(world.postingSettings?.commentBodyCharacters));
+	const [commentBodyCharacters, setCommentBodyCharacters] = useState(
+		optionalNumberDraftValue(world.postingSettings?.commentBodyCharacters),
+	);
 	const [threadCommentLimit, setThreadCommentLimit] = useState(optionalNumberDraftValue(world.threadSettings?.commentLimit));
 	const [uploadOpen, setUploadOpen] = useState(false);
 	const [cropOpen, setCropOpen] = useState(false);
@@ -103,15 +92,12 @@ export function WorldEditPage({
 		name.trim().length > 0 &&
 		description.trim().length > 0 &&
 		prompt.length <= maxWorldPromptLength &&
-		recurringPrompt.length <= maxWorldRecurringPromptLength &&
-		(!recurringPromptEnabled || recurringPrompt.trim().length > 0) &&
+		worldRecurringPromptIsValid(recurringPromptEnabled, recurringPrompt) &&
 		initialBotNotification.trim().length > 0 &&
-		(threadBodyCharactersValue === null ||
-			(threadBodyCharactersValue >= 1 && threadBodyCharactersValue <= defaultThreadBodyCharacters)) &&
+		(threadBodyCharactersValue === null || (threadBodyCharactersValue >= 1 && threadBodyCharactersValue <= defaultThreadBodyCharacters)) &&
 		(commentBodyCharactersValue === null ||
 			(commentBodyCharactersValue >= 1 && commentBodyCharactersValue <= defaultCommentBodyCharacters)) &&
-		(threadCommentLimitValue === null ||
-			(threadCommentLimitValue >= 1 && threadCommentLimitValue <= defaultThreadCommentLimit));
+		(threadCommentLimitValue === null || (threadCommentLimitValue >= 1 && threadCommentLimitValue <= defaultThreadCommentLimit));
 	const savedLanguage = languageInputValue(language);
 	const dirty =
 		handle !== world.handle ||
@@ -156,35 +142,39 @@ export function WorldEditPage({
 
 	async function deleteAvatar(): Promise<void> {
 		const target = worldAvatarTarget(world, null);
-		const result = await runApiAction((message) => toast.push(message), () => api<WorldMutationResponse>(target.endpoints.clear, {
-			method: "DELETE",
-		}));
+		const result = await runApiAction(
+			(message) => toast.push(message),
+			() =>
+				api<WorldMutationResponse>(target.endpoints.clear, {
+					method: 'DELETE',
+				}),
+		);
 		if (!result) {
 			return;
 		}
 		onWorldUpdated(result.data.world);
-		toast.push("Deleted world avatar.");
+		toast.push('Deleted world avatar.');
 	}
 
 	return (
 		<div className="main-inner">
 			<div className="page-header">
-					<div className="page-title-block">
-						<button className="back-link" onClick={onBack} type="button">
-							{textValue(world.name)}
-						</button>
+				<div className="page-title-block">
+					<button className="back-link" onClick={onBack} type="button">
+						{textValue(world.name)}
+					</button>
 					<h1>
 						<Avatar actor="world" colorSeed={world.handle} crop={world.avatarCrop} imageUrl={world.avatarUrl} name={world.name} size="lg" />
-						<span>{readonly ? "View world" : "Edit world"}</span>
+						<span>{readonly ? 'View world' : 'Edit world'}</span>
 					</h1>
 					<p className="sub">
 						<Reference kind="world" name={world.handle} />
-						{readonly ? " settings are read-only for you" : " settings"}
+						{readonly ? ' settings are read-only for you' : ' settings'}
 					</p>
 				</div>
 				<div className="actions">
 					<button className="btn ghost" disabled={busy} onClick={onBack} type="button">
-						{dirty && !readonly ? "Discard" : "Back"}
+						{dirty && !readonly ? 'Discard' : 'Back'}
 					</button>
 					{!readonly && (
 						<button className="btn primary" disabled={!dirty || !valid || busy} onClick={() => void submit()} type="button">
@@ -203,20 +193,21 @@ export function WorldEditPage({
 						</div>
 						<div className="profile-avatar-column">
 							<button
-								aria-label={world.avatarUrl ? "View avatar" : "Avatar fallback"}
+								aria-label={world.avatarUrl ? 'View avatar' : 'Avatar fallback'}
 								className="bot-profile-avatar-frame"
 								disabled={!world.avatarUrl}
-								onClick={() => world.avatarUrl ? setLightboxUrl(world.avatarUrl) : undefined}
+								onClick={() => (world.avatarUrl ? setLightboxUrl(world.avatarUrl) : undefined)}
 								type="button"
 							>
-								{world.avatarUrl ?
+								{world.avatarUrl ? (
 									<FallbackImage
 										alt=""
 										fallbackSrc={world.avatarUrl}
-										src={cloudflareImageUrl(world.avatarUrl, { width: avatarImagePixels(220), format: "auto" })}
+										src={cloudflareImageUrl(world.avatarUrl, { width: avatarImagePixels(220), format: 'auto' })}
 									/>
-								:	<Avatar actor="world" colorSeed={world.handle} name={world.name} size="hero" />
-								}
+								) : (
+									<Avatar actor="world" colorSeed={world.handle} name={world.name} size="hero" />
+								)}
 							</button>
 							<div className="profile-avatar-actions">
 								<button
@@ -237,18 +228,15 @@ export function WorldEditPage({
 								>
 									<Icon name="upload" size={16} />
 								</button>
-								{readonly ?
+								{readonly ? (
 									<button className="btn icon-only" disabled title="Generate avatar" type="button">
 										<Icon name="sparkles" size={16} />
 									</button>
-								:	<SpaLink
-										className="btn icon-only"
-										title="Generate avatar"
-										to={{ route: "world-avatar", worldHandle: world.handle }}
-									>
+								) : (
+									<SpaLink className="btn icon-only" title="Generate avatar" to={{ route: 'world-avatar', worldHandle: world.handle }}>
 										<Icon name="sparkles" size={16} />
 									</SpaLink>
-								}
+								)}
 								<button
 									className="btn icon-only danger"
 									disabled={readonly || !world.avatarUrl}
@@ -266,12 +254,26 @@ export function WorldEditPage({
 								<input className="input" disabled={readonly} onChange={(event) => setHandle(slugify(event.target.value))} value={handle} />
 							</div>
 						</Field>
-							<Field hint="shown to human users" label="Name">
-								<input autoFocus className="input" disabled={readonly} maxLength={80} onChange={(event) => setName(event.target.value)} value={name} />
-							</Field>
-							<LanguageField disabled={readonly} onChange={setLanguage} value={language} />
-							<Field hint="shown to human users" label="Short description">
-							<textarea className="textarea" disabled={readonly} maxLength={500} onChange={(event) => setDescription(event.target.value)} rows={4} value={description} />
+						<Field hint="shown to human users" label="Name">
+							<input
+								autoFocus
+								className="input"
+								disabled={readonly}
+								maxLength={80}
+								onChange={(event) => setName(event.target.value)}
+								value={name}
+							/>
+						</Field>
+						<LanguageField disabled={readonly} onChange={setLanguage} value={language} />
+						<Field hint="shown to human users" label="Short description">
+							<textarea
+								className="textarea"
+								disabled={readonly}
+								maxLength={500}
+								onChange={(event) => setDescription(event.target.value)}
+								rows={4}
+								value={description}
+							/>
 						</Field>
 					</section>
 
@@ -325,25 +327,65 @@ export function WorldEditPage({
 							<span className="meta">world defaults</span>
 						</div>
 						<Field hint="shown to participants entering the world" label="Initial participant notification">
-							<textarea className="textarea" disabled={readonly} maxLength={1_000} onChange={(event) => setInitialBotNotification(event.target.value)} rows={4} value={initialBotNotification} />
+							<textarea
+								className="textarea"
+								disabled={readonly}
+								maxLength={1_000}
+								onChange={(event) => setInitialBotNotification(event.target.value)}
+								rows={4}
+								value={initialBotNotification}
+							/>
 						</Field>
 						<div className="field-row">
 							<Field help="Blank keeps the global default." label="Thread body characters">
 								<div className="input-suffix">
-									<input className="input" disabled={readonly} min={1} max={defaultThreadBodyCharacters} onChange={(event) => setThreadBodyCharacters(event.target.value)} placeholder={String(defaultThreadBodyCharacters)} step={1} type="number" value={threadBodyCharacters} />
+									<input
+										className="input"
+										disabled={readonly}
+										min={1}
+										max={defaultThreadBodyCharacters}
+										onChange={(event) => setThreadBodyCharacters(event.target.value)}
+										placeholder={String(defaultThreadBodyCharacters)}
+										step={1}
+										type="number"
+										value={threadBodyCharacters}
+									/>
 									<span className="suffix">chars</span>
 								</div>
 							</Field>
 							<Field help="Blank keeps the global default." label="Comment body characters">
 								<div className="input-suffix">
-									<input className="input" disabled={readonly} min={1} max={defaultCommentBodyCharacters} onChange={(event) => setCommentBodyCharacters(event.target.value)} placeholder={String(defaultCommentBodyCharacters)} step={1} type="number" value={commentBodyCharacters} />
+									<input
+										className="input"
+										disabled={readonly}
+										min={1}
+										max={defaultCommentBodyCharacters}
+										onChange={(event) => setCommentBodyCharacters(event.target.value)}
+										placeholder={String(defaultCommentBodyCharacters)}
+										step={1}
+										type="number"
+										value={commentBodyCharacters}
+									/>
 									<span className="suffix">chars</span>
 								</div>
 							</Field>
 						</div>
-						<Field help="Blank keeps the global default. A thread locks as soon as it reaches this many comments." label="Thread comment limit">
+						<Field
+							help="Blank keeps the global default. A thread locks as soon as it reaches this many comments."
+							label="Thread comment limit"
+						>
 							<div className="input-suffix">
-								<input className="input" disabled={readonly} min={1} max={defaultThreadCommentLimit} onChange={(event) => setThreadCommentLimit(event.target.value)} placeholder={String(defaultThreadCommentLimit)} step={1} type="number" value={threadCommentLimit} />
+								<input
+									className="input"
+									disabled={readonly}
+									min={1}
+									max={defaultThreadCommentLimit}
+									onChange={(event) => setThreadCommentLimit(event.target.value)}
+									placeholder={String(defaultThreadCommentLimit)}
+									step={1}
+									type="number"
+									value={threadCommentLimit}
+								/>
 								<span className="suffix">comments</span>
 							</div>
 						</Field>
@@ -363,8 +405,12 @@ export function WorldEditPage({
 				open={cropOpen && !readonly}
 				target={worldAvatarTarget(world, null)}
 			/>
-				<Confirm
-					body={<>This removes the avatar for <b>{textValue(world.name)}</b>.</>}
+			<Confirm
+				body={
+					<>
+						This removes the avatar for <b>{textValue(world.name)}</b>.
+					</>
+				}
 				confirmText="Delete avatar"
 				danger
 				onClose={() => setDeleteAvatarConfirm(false)}
@@ -372,7 +418,7 @@ export function WorldEditPage({
 				open={deleteAvatarConfirm && !readonly}
 				title="Delete avatar?"
 			/>
-				<ImageLightbox onClose={() => setLightboxUrl(null)} title={textValue(world.name)} url={lightboxUrl} />
+			<ImageLightbox onClose={() => setLightboxUrl(null)} title={textValue(world.name)} url={lightboxUrl} />
 		</div>
 	);
 }
