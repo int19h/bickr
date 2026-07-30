@@ -6,19 +6,35 @@ export type ObjectIndexRepairScope =
 
 export function objectIndexScopeStaleStatement(
 	db: D1DatabaseLike,
+	scope: Extract<ObjectIndexRepairScope, { kind: "world" }>,
+	options?: { includeScopeRoot?: boolean; requireLiveScopeRoot?: boolean },
+): D1PreparedStatementLike;
+export function objectIndexScopeStaleStatement(
+	db: D1DatabaseLike,
+	scope: Extract<ObjectIndexRepairScope, { kind: "forum" }>,
+	options?: { includeScopeRoot?: boolean },
+): D1PreparedStatementLike;
+export function objectIndexScopeStaleStatement(
+	db: D1DatabaseLike,
 	scope: ObjectIndexRepairScope,
-	options: { includeScopeRoot?: boolean } = {},
+	options: { includeScopeRoot?: boolean; requireLiveScopeRoot?: boolean } = {},
 ): D1PreparedStatementLike {
 	const includeScopeRoot = options.includeScopeRoot ?? true;
+	const requireLiveScopeRoot = options.requireLiveScopeRoot ?? false;
 	if (scope.kind === "world") {
 		return db
 			.prepare(
 				`UPDATE objects_index
 				 SET index_version = 0
 				 WHERE world_id = ? AND deleted_at IS NULL
-				   ${includeScopeRoot ? "" : "AND object_id <> ?"}`,
+				   ${includeScopeRoot ? "" : "AND object_id <> ?"}
+				   ${requireLiveScopeRoot ? "AND EXISTS (SELECT 1 FROM worlds_index WHERE world_id = ? AND deleted_at IS NULL)" : ""}`,
 			)
-			.bind(scope.worldId, ...(!includeScopeRoot ? [scope.worldId] : []));
+			.bind(
+				scope.worldId,
+				...(!includeScopeRoot ? [scope.worldId] : []),
+				...(requireLiveScopeRoot ? [scope.worldId] : []),
+			);
 	}
 	return db
 		.prepare(
@@ -33,5 +49,8 @@ export function objectIndexScopeStaleStatement(
 				)
 			   )`,
 		)
-		.bind(...(includeScopeRoot ? [scope.forumId] : []), scope.forumId);
+		.bind(
+			...(includeScopeRoot ? [scope.forumId] : []),
+			scope.forumId,
+		);
 }

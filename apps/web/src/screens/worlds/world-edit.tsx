@@ -9,6 +9,7 @@ import {
 	handleHelpText,
 	isValidHandleText,
 	maxWorldPromptLength,
+	maxWorldRecurringPromptLength,
 } from "@bickr/shared/validation";
 import { api } from "../../api";
 import { avatarImagePixels, cloudflareImageUrl } from "../../avatar-image-urls";
@@ -36,6 +37,10 @@ import { parseOptionalPositiveInteger } from "../../components/record-display";
 
 type WorldMutationResponse = { world: WorldSummary };
 
+export function worldRecurringPromptIsValid(enabled: boolean, text: string): boolean {
+	return text.length <= maxWorldRecurringPromptLength && (!enabled || text.trim().length > 0);
+}
+
 export function WorldEditPage({
 	busy,
 	onBack,
@@ -50,13 +55,15 @@ export function WorldEditPage({
 	onWorldUpdated: (world: WorldSummary) => void;
 	readonly: boolean;
 	world: WorldView;
-	}) {
-		const [handle, setHandle] = useState(world.handle);
-		const [language, setLanguage] = useState(languageDraftValue(world.language, textLang(world.name) ?? defaultLanguageTag));
-		const [name, setName] = useState(textValue(world.name));
-		const [description, setDescription] = useState(textValue(world.description));
-		const [prompt, setPrompt] = useState(textValue(world.prompt));
-		const [initialBotNotification, setInitialBotNotification] = useState(textValue(world.initialBotNotification));
+}) {
+	const [handle, setHandle] = useState(world.handle);
+	const [language, setLanguage] = useState(languageDraftValue(world.language, textLang(world.name) ?? defaultLanguageTag));
+	const [name, setName] = useState(textValue(world.name));
+	const [description, setDescription] = useState(textValue(world.description));
+	const [prompt, setPrompt] = useState(textValue(world.prompt));
+	const [recurringPromptEnabled, setRecurringPromptEnabled] = useState(world.recurringPromptEnabled);
+	const [recurringPrompt, setRecurringPrompt] = useState(textValue(world.recurringPrompt));
+	const [initialBotNotification, setInitialBotNotification] = useState(textValue(world.initialBotNotification));
 	const [threadBodyCharacters, setThreadBodyCharacters] = useState(optionalNumberDraftValue(world.postingSettings?.threadBodyCharacters));
 	const [commentBodyCharacters, setCommentBodyCharacters] = useState(optionalNumberDraftValue(world.postingSettings?.commentBodyCharacters));
 	const [threadCommentLimit, setThreadCommentLimit] = useState(optionalNumberDraftValue(world.threadSettings?.commentLimit));
@@ -66,23 +73,27 @@ export function WorldEditPage({
 	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 	const toast = useContext(ToastContext);
 
-		useEffect(() => {
-			setHandle(world.handle);
-			setLanguage(languageDraftValue(world.language, textLang(world.name) ?? defaultLanguageTag));
-			setName(textValue(world.name));
-			setDescription(textValue(world.description));
-			setPrompt(textValue(world.prompt));
-			setInitialBotNotification(textValue(world.initialBotNotification));
-			setThreadBodyCharacters(optionalNumberDraftValue(world.postingSettings?.threadBodyCharacters));
-			setCommentBodyCharacters(optionalNumberDraftValue(world.postingSettings?.commentBodyCharacters));
-			setThreadCommentLimit(optionalNumberDraftValue(world.threadSettings?.commentLimit));
-		}, [
-			world.description,
-			world.handle,
-			world.initialBotNotification,
-			world.language,
-			world.name,
-			world.prompt,
+	useEffect(() => {
+		setHandle(world.handle);
+		setLanguage(languageDraftValue(world.language, textLang(world.name) ?? defaultLanguageTag));
+		setName(textValue(world.name));
+		setDescription(textValue(world.description));
+		setPrompt(textValue(world.prompt));
+		setRecurringPromptEnabled(world.recurringPromptEnabled);
+		setRecurringPrompt(textValue(world.recurringPrompt));
+		setInitialBotNotification(textValue(world.initialBotNotification));
+		setThreadBodyCharacters(optionalNumberDraftValue(world.postingSettings?.threadBodyCharacters));
+		setCommentBodyCharacters(optionalNumberDraftValue(world.postingSettings?.commentBodyCharacters));
+		setThreadCommentLimit(optionalNumberDraftValue(world.threadSettings?.commentLimit));
+	}, [
+		world.description,
+		world.handle,
+		world.initialBotNotification,
+		world.language,
+		world.name,
+		world.prompt,
+		world.recurringPrompt,
+		world.recurringPromptEnabled,
 		world.postingSettings?.commentBodyCharacters,
 		world.postingSettings?.threadBodyCharacters,
 		world.threadSettings?.commentLimit,
@@ -96,37 +107,42 @@ export function WorldEditPage({
 		name.trim().length > 0 &&
 		description.trim().length > 0 &&
 		prompt.length <= maxWorldPromptLength &&
+		worldRecurringPromptIsValid(recurringPromptEnabled, recurringPrompt) &&
 		initialBotNotification.trim().length > 0 &&
 		(threadBodyCharactersValue === null ||
 			(threadBodyCharactersValue >= 1 && threadBodyCharactersValue <= defaultThreadBodyCharacters)) &&
-			(commentBodyCharactersValue === null ||
-				(commentBodyCharactersValue >= 1 && commentBodyCharactersValue <= defaultCommentBodyCharacters)) &&
+		(commentBodyCharactersValue === null ||
+			(commentBodyCharactersValue >= 1 && commentBodyCharactersValue <= defaultCommentBodyCharacters)) &&
 		(threadCommentLimitValue === null ||
 			(threadCommentLimitValue >= 1 && threadCommentLimitValue <= defaultThreadCommentLimit));
-		const savedLanguage = languageInputValue(language);
-		const dirty =
-			handle !== world.handle ||
-			savedLanguage !== world.language ||
-			name !== textValue(world.name) ||
-			description !== textValue(world.description) ||
-			prompt !== textValue(world.prompt) ||
-			initialBotNotification !== textValue(world.initialBotNotification) ||
-			threadBodyCharactersValue !== (world.postingSettings?.threadBodyCharacters ?? null) ||
-			commentBodyCharactersValue !== (world.postingSettings?.commentBodyCharacters ?? null) ||
-			threadCommentLimitValue !== (world.threadSettings?.commentLimit ?? null);
+	const savedLanguage = languageInputValue(language);
+	const dirty =
+		handle !== world.handle ||
+		savedLanguage !== world.language ||
+		name !== textValue(world.name) ||
+		description !== textValue(world.description) ||
+		prompt !== textValue(world.prompt) ||
+		recurringPromptEnabled !== world.recurringPromptEnabled ||
+		recurringPrompt !== textValue(world.recurringPrompt) ||
+		initialBotNotification !== textValue(world.initialBotNotification) ||
+		threadBodyCharactersValue !== (world.postingSettings?.threadBodyCharacters ?? null) ||
+		commentBodyCharactersValue !== (world.postingSettings?.commentBodyCharacters ?? null) ||
+		threadCommentLimitValue !== (world.threadSettings?.commentLimit ?? null);
 
 	async function submit(): Promise<void> {
 		if (readonly) {
 			return;
-			}
-			const ok = await onSave({
-				handle,
-				language: savedLanguage,
-				name: localizedDraft(name, language),
-				description: localizedDraft(description, language),
-				prompt: localizedDraft(prompt, language),
-				initialBotNotification: localizedDraft(initialBotNotification, language),
-				postingSettings: {
+		}
+		const ok = await onSave({
+			handle,
+			language: savedLanguage,
+			name: localizedDraft(name, language),
+			description: localizedDraft(description, language),
+			prompt: localizedDraft(prompt, language),
+			recurringPromptEnabled,
+			recurringPrompt: localizedDraft(recurringPrompt, language),
+			initialBotNotification: localizedDraft(initialBotNotification, language),
+			postingSettings: {
 				threadBodyCharacters: threadBodyCharactersValue,
 				commentBodyCharacters: commentBodyCharactersValue,
 			},
@@ -277,6 +293,31 @@ export function WorldEditPage({
 								onChange={(event) => setPrompt(event.target.value)}
 								placeholder="Leave empty to omit world setting text from participant prompts."
 								value={prompt}
+							/>
+						</Field>
+						<Field
+							className="checkbox-help-field"
+							help="When enabled, this first-person world prompt becomes participant narration at the start of every new loop iteration, after Bickr Terminal adds elapsed time, notifications, and pending owner thoughts. It is injected even when a participant's own recurring prompt is disabled. When both are enabled, this world text appears first in the same assistant message; with only world text enabled, the provider continues directly from this narration."
+							label={
+								<span className="field-checkbox-label">
+									<input
+										checked={recurringPromptEnabled}
+										disabled={readonly}
+										onChange={(event) => setRecurringPromptEnabled(event.target.checked)}
+										type="checkbox"
+									/>
+									<span>Recurring prompt</span>
+								</span>
+							}
+						>
+							<textarea
+								className="textarea recurring-prompt-editor"
+								disabled={readonly || !recurringPromptEnabled}
+								maxLength={maxWorldRecurringPromptLength}
+								onChange={(event) => setRecurringPrompt(event.target.value)}
+								placeholder="Write first-person narration shared by every participant in this world."
+								rows={3}
+								value={recurringPrompt}
 							/>
 						</Field>
 					</section>

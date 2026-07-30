@@ -167,6 +167,20 @@ describe("KV document normalization sweep", () => {
 		});
 	});
 
+	it("materializes disabled world recurring prompt defaults in legacy documents", async () => {
+		const worldId = await seedLegacyWorld();
+
+		const result = await normalizeKvDocuments(testEnv, "world");
+		const swept = await testEnv.BICKR_KV.get<WorldDocument>(kvKeys.world(worldId), { type: "json" });
+
+		expect(result).toMatchObject({ rewritten: 1, done: true });
+		expect(swept).toMatchObject({
+			schemaVersion,
+			recurringPromptEnabled: false,
+			recurringPrompt: { lang: null, text: "" },
+		});
+	});
+
 	it("exposes an internal-auth-only endpoint and honors its entity-type filter", async () => {
 		const [userId] = await seedLegacyUsers(1);
 		if (!userId) {

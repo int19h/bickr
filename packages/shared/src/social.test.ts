@@ -543,6 +543,8 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV; bot: BotDoc
 		name: en("Primary"),
 		description: en("Primary world"),
 		prompt: en(""),
+		recurringPromptEnabled: false,
+		recurringPrompt: en(""),
 		initialBotNotification: en("Welcome."),
 		...(options.worldPostingSettings ? { postingSettings: options.worldPostingSettings } : {}),
 		...(options.worldThreadSettings ? { threadSettings: options.worldThreadSettings } : {}),

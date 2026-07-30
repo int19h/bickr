@@ -89,6 +89,8 @@ function world(overrides: Partial<WorldSummary> = {}): WorldSummary {
 		name: localizedText("World One", en),
 		description: localizedText("A world.", en),
 		prompt: localizedText("World prompt.", en),
+		recurringPromptEnabled: false,
+		recurringPrompt: localizedText("", en),
 		initialBotNotification: localizedText("Welcome.", en),
 		language: en,
 		createdByUserId: "usr_one",

@@ -22,12 +22,15 @@ import {
 	threadSettingsHasValues,
 } from "./thread-policy";
 import {
+	assertWorldRecurringPromptConfiguration,
 	assertThreadSettingsInputWithinLimit,
 	mergeImageGenerationSettings,
 	normalizeForumDefaults,
 	normalizeWorldDefaults,
 	RepositoryError,
 	softDeleteBotGroupsForWorld,
+	worldIndexProjectionStatement,
+	worldSummaryFromDocument,
 } from "./repository";
 import { upsertForumSearchIndex, upsertWorldSearchIndex } from "./search";
 import {
@@ -75,110 +78,55 @@ export async function updateWorld(
 		revision: world.revision + 1,
 		updatedAt: now,
 	};
+	assertWorldRecurringPromptConfiguration(updated);
 	if (nextHandle !== world.handle) {
-		await db.batch([
+		const [projectionResult] = await db.batch([
+			worldIndexProjectionStatement(db, updated),
 			db
 				.prepare(
-					`UPDATE worlds_index
-					 SET handle = ?,
-					     language = ?,
-					     name = ?,
-					     name_lang = ?,
-					     description = ?,
-					     description_lang = ?,
-					     prompt = ?,
-					     prompt_lang = ?,
-					     avatar_url = ?,
-					     avatar_crop = ?,
-					     image_generation = ?,
-					     initial_bot_notification = ?,
-					     initial_bot_notification_lang = ?,
-					     posting_thread_body_characters = ?,
-					     posting_comment_body_characters = ?,
-					     thread_comment_limit = ?,
-					     updated_at = ?
-					 WHERE world_id = ? AND deleted_at IS NULL`,
+					`UPDATE forums_index
+					 SET world_handle = ?, updated_at = ?
+					 WHERE world_id = ? AND deleted_at IS NULL
+					   AND EXISTS (SELECT 1 FROM worlds_index WHERE world_id = ? AND deleted_at IS NULL)`,
 				)
-				.bind(
-					updated.handle,
-					updated.language,
-					updated.name.text,
-					updated.name.lang,
-					updated.description.text,
-					updated.description.lang,
-					updated.prompt.text,
-					updated.prompt.lang,
-					updated.avatar?.url ?? null,
-					avatarCropJson(updated.avatar?.crop),
-					imageGenerationSettingsJson(updated.imageGeneration),
-					updated.initialBotNotification.text,
-					updated.initialBotNotification.lang,
-					updated.postingSettings?.threadBodyCharacters ?? null,
-					updated.postingSettings?.commentBodyCharacters ?? null,
-					updated.threadSettings?.commentLimit ?? null,
-					now,
-					updated.id,
-				),
+				.bind(updated.handle, now, updated.id, updated.id),
 			db
-				.prepare(`UPDATE forums_index SET world_handle = ?, updated_at = ? WHERE world_id = ? AND deleted_at IS NULL`)
-				.bind(updated.handle, now, updated.id),
+				.prepare(
+					`UPDATE bots_index
+					 SET home_world_handle = ?, updated_at = ?
+					 WHERE home_world_id = ? AND deleted_at IS NULL
+					   AND EXISTS (SELECT 1 FROM worlds_index WHERE world_id = ? AND deleted_at IS NULL)`,
+				)
+				.bind(updated.handle, now, updated.id, updated.id),
 			db
-				.prepare(`UPDATE bots_index SET home_world_handle = ?, updated_at = ? WHERE home_world_id = ? AND deleted_at IS NULL`)
-				.bind(updated.handle, now, updated.id),
-			db
-				.prepare(`UPDATE threads_index SET world_handle = ? WHERE world_id = ? AND deleted_at IS NULL`)
-				.bind(updated.handle, updated.id),
-			objectIndexScopeStaleStatement(db, { kind: "world", worldId: updated.id }, { includeScopeRoot: false }),
+				.prepare(
+					`UPDATE threads_index
+					 SET world_handle = ?
+					 WHERE world_id = ? AND deleted_at IS NULL
+					   AND EXISTS (SELECT 1 FROM worlds_index WHERE world_id = ? AND deleted_at IS NULL)`,
+				)
+				.bind(updated.handle, updated.id, updated.id),
+			objectIndexScopeStaleStatement(
+				db,
+				{ kind: "world", worldId: updated.id },
+				{ includeScopeRoot: false, requireLiveScopeRoot: true },
+			),
 		]);
+		if ((projectionResult?.meta?.changes ?? 0) < 1) {
+			throw new RepositoryError("not_found", "World not found.", 404);
+		}
 		await writeJson(kv, kvKeys.world(updated.id), updated);
 	} else {
-		await db
-			.prepare(
-				`UPDATE worlds_index
-				 SET language = ?,
-				     name = ?,
-				     name_lang = ?,
-				     description = ?,
-				     description_lang = ?,
-				     prompt = ?,
-				     prompt_lang = ?,
-				     avatar_url = ?,
-				     avatar_crop = ?,
-				     image_generation = ?,
-				     initial_bot_notification = ?,
-				     initial_bot_notification_lang = ?,
-				     posting_thread_body_characters = ?,
-				     posting_comment_body_characters = ?,
-				     thread_comment_limit = ?,
-				     updated_at = ?
-				 WHERE world_id = ? AND deleted_at IS NULL`,
-			)
-			.bind(
-				updated.language,
-				updated.name.text,
-				updated.name.lang,
-				updated.description.text,
-				updated.description.lang,
-				updated.prompt.text,
-				updated.prompt.lang,
-				updated.avatar?.url ?? null,
-				avatarCropJson(updated.avatar?.crop),
-				imageGenerationSettingsJson(updated.imageGeneration),
-				updated.initialBotNotification.text,
-				updated.initialBotNotification.lang,
-				updated.postingSettings?.threadBodyCharacters ?? null,
-				updated.postingSettings?.commentBodyCharacters ?? null,
-				updated.threadSettings?.commentLimit ?? null,
-				now,
-				updated.id,
-			)
-			.run();
+		const projectionResult = await worldIndexProjectionStatement(db, updated).run();
+		if ((projectionResult.meta?.changes ?? 0) < 1) {
+			throw new RepositoryError("not_found", "World not found.", 404);
+		}
 		await writeJson(kv, kvKeys.world(updated.id), updated);
 	}
 	await upsertWorldSearchIndex(db, updated);
 	await putObjectIndex(db, updated, "world", entityIndexVersions.world, updated.id);
 	await recordWorldSettingsChangedHumanNotifications(db, { previous: world, updated, editorUserId: userId, now });
-	return worldSummary(updated);
+	return worldSummaryFromDocument(updated);
 }
 
 export async function updateWorldAvatar(
@@ -209,7 +157,7 @@ export async function updateWorldAvatar(
 	await upsertWorldSearchIndex(db, updated);
 	await putObjectIndex(db, updated, "world", entityIndexVersions.world, updated.id);
 	await recordWorldSettingsChangedHumanNotifications(db, { previous: world, updated, editorUserId: userId, now });
-	return worldSummary(updated);
+	return worldSummaryFromDocument(updated);
 }
 
 export async function deleteWorld(
@@ -251,7 +199,7 @@ export async function deleteWorld(
 		.run();
 	await upsertWorldSearchIndex(db, deleted);
 	await putObjectIndex(db, deleted, "world", entityIndexVersions.world, deleted.id);
-	return worldSummary(deleted);
+	return worldSummaryFromDocument(deleted);
 }
 
 export async function updateForum(
@@ -588,30 +536,6 @@ async function userOwnsBot(
 		.bind(botId)
 		.first<{ ownerUserId: string }>();
 	return row?.ownerUserId === userId;
-}
-
-function worldSummary(world: WorldDocument): WorldSummary {
-	return {
-		id: world.id,
-		handle: world.handle,
-		language: world.language,
-		name: world.name,
-		description: world.description,
-		prompt: world.prompt,
-		...(world.avatar ? { avatar: world.avatar, avatarUrl: world.avatar.url } : {}),
-		...(world.avatar?.crop ? { avatarCrop: world.avatar.crop } : {}),
-		...(world.imageGeneration ? { imageGeneration: world.imageGeneration } : {}),
-		initialBotNotification: world.initialBotNotification,
-		...(postingSettingsHasValues(world.postingSettings) ? { postingSettings: world.postingSettings } : {}),
-		...(threadSettingsHasValues(world.threadSettings) ? { threadSettings: world.threadSettings } : {}),
-		createdByUserId: world.createdByUserId,
-		createdAt: world.createdAt,
-		updatedAt: world.updatedAt,
-	};
-}
-
-function imageGenerationSettingsJson(settings: WorldDocument["imageGeneration"]): string | null {
-	return settings ? JSON.stringify(settings) : null;
 }
 
 function forumSummary(forum: ForumDocument): ForumSummary {

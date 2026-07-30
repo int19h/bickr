@@ -47,6 +47,7 @@ export interface Env {
 export type RuntimeBotDocument = BotDocument & {
 	effectivePostingSettings?: BotEffectivePostingSettings;
 	worldPrompt?: string;
+	worldRecurringPrompt?: string;
 };
 
 export type RuntimeRow = {

@@ -871,14 +871,33 @@ export function effectiveReasoningPrefill(bot: Pick<BotDocument, 'handle' | 'inf
 	return custom && custom.trim() ? custom : defaultReasoningPrefill(bot.handle);
 }
 
+export function effectiveLoopRecurringPrompt(
+	bot: Pick<RuntimeBotDocument, 'handle' | 'inferenceSettings' | 'worldRecurringPrompt'>,
+): string | undefined {
+	const worldContribution =
+		bot.worldRecurringPrompt && bot.worldRecurringPrompt.trim() ? bot.worldRecurringPrompt.trimEnd() : undefined;
+	const participantContribution = effectiveReasoningPrefill(bot);
+	if (!worldContribution) {
+		return participantContribution;
+	}
+	if (!participantContribution) {
+		return worldContribution;
+	}
+	// The world contribution intentionally shares the participant's assistant
+	// message. Providers that continue a final assistant prefill require the
+	// participant-specific contribution to remain last, including its
+	// load-bearing trailing whitespace.
+	return `${worldContribution}\n\n${participantContribution}`;
+}
+
 export function providerMessagesWithReasoningPrefill(messages: ChatMessage[], reasoningPrefill: string | undefined): ChatMessage[] {
 	return reasoningPrefill ? [...messages, { role: 'assistant', content: reasoningPrefill }] : messages;
 }
 
-function contextBudgetPromptParts(bot: BotDocument, settings: ProviderSettings): ContextBudgetPromptParts {
+function contextBudgetPromptParts(bot: RuntimeBotDocument, settings: ProviderSettings): ContextBudgetPromptParts {
 	const { tools: providerTools } = providerToolsForBotRound(bot, settings);
 	const fixedSystemToolInstructionTools = providerTools;
-	const worldPrompt = stringValue('worldPrompt' in bot ? bot.worldPrompt : undefined) ?? '';
+	const worldPrompt = stringValue(bot.worldPrompt) ?? '';
 	const botWithoutPrompt = { ...bot, prompt: { lang: bot.language, text: '' } };
 	const fixedSystemMessage =
 		settings.toolCalls === 'at_will'
@@ -898,7 +917,7 @@ function contextBudgetPromptParts(bot: BotDocument, settings: ProviderSettings):
 		fullSystemMessage,
 		model: settings.model,
 		personaSystemMessage,
-		reasoningPrefill: effectiveReasoningPrefill(bot),
+		reasoningPrefill: effectiveLoopRecurringPrompt(bot),
 		providerTools,
 		supportsPrefill: settings.supportsPrefill ?? true,
 	};
@@ -2523,10 +2542,15 @@ export class BotRuntime {
 
 	private async botWithEffectivePostingSettings(bot: BotDocument): Promise<RuntimeBotDocument> {
 		const world = await readJson<WorldDocument>(this.env.BICKR_KV, kvKeys.world(bot.homeWorldId));
+		const worldRecurringPrompt =
+			world?.recurringPromptEnabled === true && localizedTextString(world.recurringPrompt).trim() ?
+				localizedTextString(world.recurringPrompt).trimEnd()
+			:	undefined;
 		return {
 			...bot,
 			effectivePostingSettings: effectivePostingSettings(world?.postingSettings, bot.postingSettings),
 			worldPrompt: stringValue(world?.prompt) ?? '',
+			worldRecurringPrompt,
 		};
 	}
 
@@ -2563,7 +2587,7 @@ export class BotRuntime {
 	}
 
 	private async runProviderLoop(
-		bot: BotDocument,
+		bot: RuntimeBotDocument,
 		settings: ProviderSettings,
 		runId: string,
 		_messages: ChatMessage[],
@@ -4372,7 +4396,7 @@ export class BotRuntime {
 		};
 	}
 
-	private async readCommentTreeTokenBudget(bot: BotDocument): Promise<number> {
+	private async readCommentTreeTokenBudget(bot: RuntimeBotDocument): Promise<number> {
 		const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
 		const settings = this.effectiveProviderSettings(bot, owner);
 		const parts = contextBudgetPromptParts(bot, settings);
@@ -4387,7 +4411,7 @@ export class BotRuntime {
 			}),
 		);
 		const personaPromptFingerprint = await sha256Hex(localizedTextString(bot.prompt));
-		const worldPromptFingerprint = await sha256Hex(stringValue('worldPrompt' in bot ? bot.worldPrompt : undefined) ?? '');
+		const worldPromptFingerprint = await sha256Hex(stringValue(bot.worldPrompt) ?? '');
 		const cachedCounts = this.contextBudgetCachedCounts(
 			await promptContextBudgetCacheFingerprint({
 				botId: bot.id,
@@ -4913,7 +4937,7 @@ export class BotRuntime {
 	}
 
 	private async executeTool(
-		bot: BotDocument,
+		bot: RuntimeBotDocument,
 		runId: string,
 		name: string,
 		args: Record<string, unknown>,
@@ -4989,7 +5013,7 @@ export class BotRuntime {
 	}
 
 	private async buildMessages(
-		bot: BotDocument,
+		bot: RuntimeBotDocument,
 		input: LoopInput,
 		runId: string,
 		inputCreatedAt: string,
@@ -5025,7 +5049,7 @@ export class BotRuntime {
 				this.appendLoopMessage(runId, { role: 'assistant', content: input.toolUseReminder }, 'reminder');
 			}
 		}
-		const recurringPrompt = effectiveReasoningPrefill(bot);
+		const recurringPrompt = effectiveLoopRecurringPrompt(bot);
 		if (setupMode === 'new_iteration' && recurringPrompt) {
 			this.appendLoopMessage(runId, { role: 'assistant', content: recurringPrompt }, 'synthetic_context');
 		}
@@ -5039,7 +5063,7 @@ export class BotRuntime {
 	}
 
 	private async appendNotificationSyntheticContext(
-		bot: BotDocument,
+		bot: RuntimeBotDocument,
 		runId: string,
 		notifications: LoopNotification[],
 		existingProfileUsernames: ReadonlySet<string>,
@@ -5085,7 +5109,7 @@ export class BotRuntime {
 	}
 
 	private async appendSpotlightSyntheticContext(
-		bot: BotDocument,
+		bot: RuntimeBotDocument,
 		runId: string,
 		contexts: SpotlightSyntheticContext[],
 		existingProfileUsernames: ReadonlySet<string>,

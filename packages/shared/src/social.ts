@@ -76,6 +76,7 @@ import {
 	normalizeWorldDefaults,
 	RepositoryError,
 	type RepositoryErrorDetails,
+	worldSummariesByIds,
 } from "./repository";
 import {
 	effectivePostingSettings,
@@ -93,6 +94,9 @@ import {
 	type D1PreparedStatementLike,
 	type D1Result,
 	type KVNamespaceLike,
+	chunks,
+	d1MaxBoundParameters,
+	d1SafeBoundParameters,
 	kvKeys,
 	deleteKey,
 	putObjectIndex,
@@ -107,8 +111,6 @@ const mentionPattern = new RegExp(
 	`(^|${handleBoundaryPatternSource})(?:@|u/)(${handlePatternSource})(?=$|${handleEndBoundaryPatternSource})`,
 	"giu",
 );
-// D1 currently allows 100 bound parameters per statement, so multi-row queries below are chunked.
-const d1MaxBoundParameters = 100;
 const threadHotScoreCoefficients = {
 	voteScore: 2,
 	recentCommentCount: 1.5,
@@ -238,14 +240,6 @@ function optionalLocalizedTextFromIndex(text: string | null | undefined, lang: s
 function localizedPreview(value: LocalizedText | string): LocalizedText {
 	const localized = localizedTextFromStored(value);
 	return localizedText(preview(localized.text), localized.lang);
-}
-
-function chunks<T>(items: T[], size: number): T[][] {
-	const result: T[][] = [];
-	for (let index = 0; index < items.length; index += size) {
-		result.push(items.slice(index, index + size));
-	}
-	return result;
 }
 
 function cropFromIndex(value: string | null | undefined): AvatarCrop | undefined {
@@ -649,7 +643,7 @@ async function threadWithAuthorAvatars(db: D1DatabaseLike, thread: ThreadDocumen
 		return thread;
 	}
 	const avatarsById = new Map<string, { url: string; crop?: AvatarCrop }>();
-	for (const batch of chunks(authorIds, d1MaxBoundParameters)) {
+	for (const batch of chunks(authorIds, d1SafeBoundParameters)) {
 		const placeholders = batch.map(() => "?").join(", ");
 		const result = await db
 			.prepare(
@@ -1375,53 +1369,11 @@ async function subscriptionWorldSummariesByIds(
 	db: D1DatabaseLike,
 	ids: Set<string>,
 ): Promise<WorldSummary[]> {
-	return rowsByIds<{
-		id: string;
-		handle: string;
-		language: string | null;
-		name: string;
-		nameLang: string | null;
-		description: string;
-		descriptionLang: string | null;
-		prompt: string;
-		promptLang: string | null;
-		initialBotNotification: string;
-		initialBotNotificationLang: string | null;
-		createdByUserId: string;
-		createdAt: string;
-		updatedAt: string;
-	}>(
-		db,
-		ids,
-		(placeholders) => `SELECT
-			world_id AS id,
-			handle,
-			language,
-			name,
-			name_lang AS nameLang,
-			description,
-			description_lang AS descriptionLang,
-			prompt,
-			prompt_lang AS promptLang,
-			initial_bot_notification AS initialBotNotification,
-			initial_bot_notification_lang AS initialBotNotificationLang,
-			created_by_user_id AS createdByUserId,
-			created_at AS createdAt,
-			updated_at AS updatedAt
-		 FROM worlds_index
-		 WHERE world_id IN (${placeholders}) AND deleted_at IS NULL`,
-	).then((worlds) => worlds.map((row) => ({
-		id: row.id,
-		handle: row.handle,
-		language: row.language as WorldSummary["language"],
-		name: localizedTextFromIndex(row.name, row.nameLang),
-		description: localizedTextFromIndex(row.description, row.descriptionLang),
-		prompt: localizedTextFromIndex(row.prompt, row.promptLang),
-		initialBotNotification: localizedTextFromIndex(row.initialBotNotification, row.initialBotNotificationLang),
-		createdByUserId: row.createdByUserId,
-		createdAt: row.createdAt,
-		updatedAt: row.updatedAt,
-	})));
+	const worlds = await worldSummariesByIds(db, [...ids]);
+	return [...ids].flatMap((id) => {
+		const world = worlds.get(id);
+		return world ? [world] : [];
+	});
 }
 
 async function subscriptionForumSummariesByIds(
@@ -1566,7 +1518,7 @@ async function rowsByIds<T>(
 	query: (placeholders: string) => string,
 ): Promise<T[]> {
 	const rows: T[] = [];
-	for (const batch of chunks([...ids], d1MaxBoundParameters)) {
+	for (const batch of chunks([...ids], d1SafeBoundParameters)) {
 		if (batch.length === 0) {
 			continue;
 		}
@@ -2174,6 +2126,12 @@ function worldSettingsChangeLabels(previous: WorldDocument, updated: WorldDocume
 	if (localizedTextString(previous.name) !== localizedTextString(updated.name)) labels.push("name");
 	if (localizedTextString(previous.description) !== localizedTextString(updated.description)) labels.push("short description");
 	if (localizedTextString(previous.prompt) !== localizedTextString(updated.prompt)) labels.push("prompt");
+	if (
+		previous.recurringPromptEnabled !== updated.recurringPromptEnabled ||
+		localizedTextString(previous.recurringPrompt) !== localizedTextString(updated.recurringPrompt)
+	) {
+		labels.push("recurring prompt");
+	}
 	if (localizedTextString(previous.initialBotNotification) !== localizedTextString(updated.initialBotNotification)) labels.push("initial participant notification");
 	if (JSON.stringify(previous.postingSettings ?? {}) !== JSON.stringify(updated.postingSettings ?? {})) labels.push("posting limits");
 	if (JSON.stringify(previous.threadSettings ?? {}) !== JSON.stringify(updated.threadSettings ?? {})) labels.push("thread comment limit");
@@ -3270,8 +3228,8 @@ async function botFollowerCounts(db: D1DatabaseLike, botIds: string[]): Promise<
 	if (uniqueIds.length === 0) {
 		return counts;
 	}
-	for (let index = 0; index < uniqueIds.length; index += d1MaxBoundParameters) {
-		const batch = uniqueIds.slice(index, index + d1MaxBoundParameters);
+	for (let index = 0; index < uniqueIds.length; index += d1SafeBoundParameters) {
+		const batch = uniqueIds.slice(index, index + d1SafeBoundParameters);
 		const placeholders = batch.map(() => "?").join(", ");
 		const result = await db
 			.prepare(
@@ -5032,7 +4990,7 @@ async function deleteExpiredNotificationKvDocuments(
 
 async function deleteNotificationRows(db: D1DatabaseLike, notificationIds: string[]): Promise<number> {
 	let deletedRows = 0;
-	for (const batch of chunks(notificationIds, d1MaxBoundParameters)) {
+	for (const batch of chunks(notificationIds, d1SafeBoundParameters)) {
 		const placeholders = batch.map(() => "?").join(", ");
 		const result = await db
 			.prepare(`DELETE FROM notifications WHERE notification_id IN (${placeholders})`)
