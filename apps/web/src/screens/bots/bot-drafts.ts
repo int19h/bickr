@@ -1,5 +1,4 @@
 import {
-	defaultProviderModel,
 	defaultReasoningPrefill,
 	localizedText,
 	type BotInferenceSettings,
@@ -10,6 +9,7 @@ import {
 	type LanguageTag,
 	type UpdateBotInput,
 } from "@bickr/shared/model";
+import { isOpenRouterProviderBaseUrl } from "@bickr/shared/inference-settings";
 import { isValidHandleText, maxBotPromptLength, sanitizeHandleInput } from "@bickr/shared/validation";
 import { parseOptionalPositiveInteger, parsePositiveInteger } from "../../components/record-display";
 import { textLang } from "../../components/form-fields";
@@ -18,9 +18,10 @@ import { defaultLanguageTag } from "../../language";
 import {
 	effectiveInferenceDraftBaseUrl,
 	effectiveInferenceDraftModel,
+	effectiveInferenceSettingsModel,
+	inferenceInheritanceContext,
 	inferenceFallbackContextForDraft,
 	inferenceFallbackContextForSettings,
-	isOpenRouterProviderBaseUrl,
 	numericDraftValue,
 	providerRoutingDraftFingerprintValue,
 } from "../../settings-drafts/common";
@@ -468,22 +469,7 @@ export function providerRoutingPlaceholderForInheritance(inherited?: InferenceMo
 }
 
 export function effectiveBotModel(bot: BotSummary, inherited?: BotInferenceSettings | null): string {
-	const botSettings = bot.inferenceSettings;
-	const botHasDirectProvider =
-		Boolean(botSettings.openRouterApiKeySet) ||
-		Boolean(botSettings.openRouterApiKey?.trim()) ||
-		Boolean(botSettings.baseUrl?.trim());
-	const inheritedHasProvider =
-		Boolean(inherited?.openRouterApiKeySet) ||
-		Boolean(inherited?.openRouterApiKey?.trim()) ||
-		Boolean(inherited?.baseUrl?.trim());
-	if (botSettings.model && (botHasDirectProvider || inheritedHasProvider || !inherited)) {
-		return botSettings.model;
-	}
-	if (inherited?.model && inheritedHasProvider) {
-		return inherited.model;
-	}
-	return defaultProviderModel;
+	return effectiveInferenceSettingsModel(bot.inferenceSettings, inferenceInheritanceContext(inherited));
 }
 
 export function optionalNumberDraftValue(value: number | undefined): string {

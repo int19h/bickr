@@ -138,8 +138,8 @@ import {
 } from "../../workers/agent-runtime/src/compaction/engine";
 import { providerCompactionSummaryLimitsForChat } from "../../workers/agent-runtime/src/compaction/limits";
 import { oldestRowsForTokenFraction } from "../../workers/agent-runtime/src/compaction/selection";
+import { isOpenRouterProviderBaseUrl } from "../../packages/shared/src/inference-settings";
 import {
-	isOpenRouterProviderBaseUrl,
 	metaCompactionToolName,
 	openRouterServerToolSelection,
 	providerCompactionSummaryPropertyDescription,

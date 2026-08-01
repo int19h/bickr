@@ -1,6 +1,7 @@
 import type { BotInferenceSettings, LanguageTag } from "@bickr/shared/model";
 import { mergeInferenceSettings } from "@bickr/shared/repository";
 import { describe, expect, it } from "vitest";
+import { effectiveInferenceDraftModel, effectiveInferenceSettingsModel } from "./common";
 import {
 	inferenceDraftChanged,
 	inferenceDraftFromSettings,
@@ -17,6 +18,17 @@ const allDomains = {
 } as const;
 
 describe("inference settings draft", () => {
+	it("keeps a stored public bot model when private provider inheritance is unavailable", () => {
+		expect(effectiveInferenceSettingsModel({ model: "anthropic/claude-opus-4" }, null)).toBe(
+			"anthropic/claude-opus-4",
+		);
+	});
+
+	it("does not unlock an unpersisted draft model without a provider", () => {
+		const draft = inferenceDraftFromSettings({ model: "anthropic/claude-opus-4" });
+		expect(effectiveInferenceDraftModel(draft, null)).toBe("openrouter/free");
+	});
+
 	it.each([
 		["empty", {}],
 		["partial", { baseUrl: "https://openrouter.ai/api/v1", model: "anthropic/claude-haiku-4.5", temperature: 0.4 }],

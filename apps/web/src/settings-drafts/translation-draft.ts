@@ -5,6 +5,7 @@ import {
 	type BotTranslationSettingsInput,
 	type LanguageTag,
 } from "@bickr/shared/model";
+import { isOpenRouterProviderBaseUrl } from "@bickr/shared/inference-settings";
 import {
 	effectiveReasoningEffortForModel,
 	effectiveStructuredToolCallsForModel,
@@ -16,7 +17,6 @@ import {
 	effectiveInferenceSettingsBaseUrl,
 	effectiveInferenceSettingsModel,
 	inferenceCapabilityContext,
-	isOpenRouterProviderBaseUrl,
 	nullableNumberInput,
 	nullableTextInput,
 	numericDraftValue,

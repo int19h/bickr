@@ -1,30 +1,4 @@
-import type {
-	BotCompactionMode,
-	BotInferenceReasoningEffort,
-	BotInferenceToolCalls,
-	BotPromptCacheMode,
-	JsonObject,
-} from '@bickr/shared/model';
-
-export type ProviderSettings = {
-	apiKey?: string;
-	baseUrl: string;
-	model: string;
-	compactionMode?: BotCompactionMode;
-	promptCacheMode?: BotPromptCacheMode;
-	providerRouting?: JsonObject;
-	reasoningEffort?: Exclude<BotInferenceReasoningEffort, 'default'>;
-	supportsPrefill?: boolean;
-	toolCalls?: BotInferenceToolCalls;
-	temperature: number;
-	usesCustomBaseUrl?: boolean;
-	topK?: number;
-	topP?: number;
-	minP?: number;
-	frequencyPenalty?: number;
-	presencePenalty?: number;
-	repetitionPenalty?: number;
-};
+export type { ProviderSettings } from '@bickr/shared/inference-settings';
 
 export function providerMessageTextContent(value: unknown): string | undefined {
 	if (typeof value === 'string') {

@@ -4,6 +4,7 @@ import type {
 	BotPromptCacheMode,
 	LanguageTag,
 } from "@bickr/shared/model";
+import { isOpenRouterProviderBaseUrl } from "@bickr/shared/inference-settings";
 import {
 	effectiveCompactionModeForModel,
 	effectiveReasoningEffortForModel,
@@ -22,7 +23,6 @@ import {
 	effectiveInferenceSettingsProviderRouting,
 	inferenceCapabilityContextForDraft,
 	inferenceFallbackContextForDraft,
-	isOpenRouterProviderBaseUrl,
 	localizedOptionalDraft,
 	nullableNumberInput,
 	nullableNumberInputMatchingInherited,
