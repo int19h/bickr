@@ -130,3 +130,22 @@ If the application uses Durable Objects or Workflows, refer to the relevant best
 
 - Durable Objects: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/
 - Workflows: https://developers.cloudflare.com/workflows/build/rules-of-workflows/
+
+## Autonomous Agent Coordination (agent-ops)
+
+Autonomous work on Bickr is coordinated through the agent-ops harness at
+`~/git/agent-ops`. If you are running as a dispatched work-item duty (lead,
+implementation, or review), read these before acting:
+
+- `~/git/agent-ops/docs/protocol.md` — the coordination protocol: roles,
+  channels, message grammar, the work-item state machine, and the independent
+  review gate. Bickr roles and channels follow the standard naming
+  (`lead-bickr-<item>`, `#bickr-<item>`) on the shared local IRC server.
+- `~/git/agent-ops/docs/storage.md` — the box-wide storage protocol. Bickr's
+  transient storage lives under `/build/bickr/` (`scratch/`, `logs/`); see
+  that document's Node/wrangler section for the gitignored in-repo build
+  output exception (`node_modules/`, `dist/`, `.wrangler/`, `coverage/`).
+
+Frozen work-item checks for Bickr are local-only: `npm test` and
+`npm run build`. Deploys (including `deploy:test` against the live test
+deployment) are never frozen checks and remain owner- or lead-driven.
