@@ -170,6 +170,7 @@ type ToolContext = {
 	request: Request;
 	auth: McpAuthContext;
 	providerEnvironment?: Promise<ProviderEnvironmentSettings>;
+	optionalProviderEnvironment?: Promise<ProviderEnvironmentSettings | undefined>;
 };
 
 class InsufficientScopeError extends Error {
@@ -296,10 +297,20 @@ async function callMutationTool(
 			// Compatibility for tool definitions cached before the bulk schema rollout.
 			// Retire this singleton path after 2026-09-01 once clients have refreshed tools/list.
 			const legacyArguments = tool.legacyArguments ? tool.legacyArguments(args) : args;
+			if (mcpPayloadHasBots(tool.resultKind)) {
+				// Resolve all presentation dependencies before the legacy mutation commits.
+				// A later presentation failure must never make a committed write look retryable.
+				await providerEnvironmentForMcp(ctx);
+			}
 			const result = await tool.executeOperation(ctx, legacyArguments);
 			return await toolResult({ kind: tool.resultKind, payload: result }, ctx);
 		}
 		const operations = mutationOperations(args, tool.operationSchema);
+		if (mcpPayloadHasBots(tool.resultKind)) {
+			// The bulk result can degrade presentation to resultWarning, but fetching
+			// once before all writes also removes avoidable post-commit network I/O.
+			await providerEnvironmentForMcp(ctx);
+		}
 		const results: MutationOperationResult[] = [];
 		// Preserve input order and avoid concurrent writes to the same logical entity.
 		for (const operation of operations) {
@@ -520,7 +531,7 @@ const mcpTools: McpTool[] = [
 		bots: annotateMcpBots(
 			await listUserBots(ctx.env.BICKR_KV, ctx.env.BICKR_D1, ctx.auth.user.id),
 			ctx.auth.user,
-			await providerEnvironmentForMcp(ctx),
+			await optionalProviderEnvironmentForMcp(ctx),
 		),
 	}), "bots"),
 	readTool("list_world_bots", "List world bots", "List bots in a Bickr world.", {
@@ -529,7 +540,7 @@ const mcpTools: McpTool[] = [
 		bots: annotateMcpBots(
 			await listWorldBots(ctx.env.BICKR_KV, ctx.env.BICKR_D1, text(args.worldHandle, "World handle")),
 			ctx.auth.user,
-			await providerEnvironmentForMcp(ctx),
+			await optionalProviderEnvironmentForMcp(ctx),
 		),
 	}), "bots"),
 	readTool("get_bot", "Get bot", "Read one Bickr bot by ID.", {
@@ -542,7 +553,7 @@ const mcpTools: McpTool[] = [
 				bot,
 				world.postingSettings,
 				ctx.auth.user,
-				await providerEnvironmentForMcp(ctx),
+				await optionalProviderEnvironmentForMcp(ctx),
 			),
 		};
 	}, "bot"),
@@ -1071,6 +1082,14 @@ function providerEnvironmentForMcp(ctx: ToolContext): Promise<ProviderEnvironmen
 	return ctx.providerEnvironment;
 }
 
+function optionalProviderEnvironmentForMcp(ctx: ToolContext): Promise<ProviderEnvironmentSettings | undefined> {
+	ctx.optionalProviderEnvironment ??= providerEnvironmentForMcp(ctx).catch((error: unknown) => {
+		console.error("mcp provider environment unavailable", error);
+		return undefined;
+	});
+	return ctx.optionalProviderEnvironment;
+}
+
 async function loadProviderEnvironmentForMcp(ctx: ToolContext): Promise<ProviderEnvironmentSettings> {
 	const payload = await servicePayload(
 		ctx.env.AGENT_RUNTIME,
@@ -1134,7 +1153,7 @@ type ResolvedSettingMap = Record<string, ResolvedSetting<unknown>>;
 function annotateMcpPayload(
 	envelope: McpPayloadEnvelope,
 	viewer: UserDocument | undefined,
-	providerEnvironment: ProviderEnvironmentSettings,
+	providerEnvironment: ProviderEnvironmentSettings | undefined,
 ): unknown {
 	switch (envelope.kind) {
 		case "opaque":
@@ -1223,7 +1242,7 @@ function annotateMcpWorld(world: WorldSummary): WorldSummary & { lang: WorldSumm
 function annotateMcpBotGroup(
 	group: BotGroupSummary,
 	viewer?: UserDocument,
-	providerEnvironment: ProviderEnvironmentSettings = {},
+	providerEnvironment?: ProviderEnvironmentSettings,
 ): BotGroupSummary & { lang: BotGroupSummary["language"]; bots: Array<BotSummary & { lang: BotSummary["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> }> } {
 	return {
 		...group,
@@ -1235,7 +1254,7 @@ function annotateMcpBotGroup(
 function annotateMcpBots<T extends BotDocument | BotSummary>(
 	bots: T[],
 	viewer?: UserDocument,
-	providerEnvironment: ProviderEnvironmentSettings = {},
+	providerEnvironment?: ProviderEnvironmentSettings,
 ): Array<T & { lang: T["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> }> {
 	return bots.map((bot) => annotateMcpBot(bot, undefined, viewer, providerEnvironment));
 }
@@ -1244,7 +1263,7 @@ function annotateMcpBot<T extends BotDocument | BotSummary>(
 	bot: T,
 	worldPostingSettings?: PostingSettings,
 	viewer?: UserDocument,
-	providerEnvironment: ProviderEnvironmentSettings = {},
+	providerEnvironment?: ProviderEnvironmentSettings,
 ): T & { lang: T["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> } {
 	if ("mcpResolvedSettings" in bot) {
 		return { ...bot, lang: bot.language } as T & { lang: T["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> };
@@ -1274,7 +1293,7 @@ function annotateMcpBot<T extends BotDocument | BotSummary>(
 		),
 		tickSettings: resolvedTickSettings(bot.tickSettings, "effectiveTickSettings" in bot ? bot.effectiveTickSettings : undefined),
 	};
-	if (viewer?.id === bot.ownerUserId) {
+	if (viewer?.id === bot.ownerUserId && providerEnvironment) {
 		// Effective inference settings depend on private owner defaults. Public bot
 		// configuration remains visible, but MCP only claims a resolved value when
 		// it has the owning profile needed to compute that value truthfully.
@@ -1676,7 +1695,7 @@ async function toolResult(envelope: McpPayloadEnvelope, ctx: ToolContext): Promi
 	if (isApiFailure(envelope.payload)) {
 		return toolError(envelope.payload);
 	}
-	const providerEnvironment = mcpPayloadHasBots(envelope.kind) ? await providerEnvironmentForMcp(ctx) : {};
+	const providerEnvironment = mcpPayloadHasBots(envelope.kind) ? await optionalProviderEnvironmentForMcp(ctx) : undefined;
 	const presented = annotateMcpPayload(envelope, ctx.auth.user, providerEnvironment);
 	const structuredContent = jsonCompatible(presented);
 	return {

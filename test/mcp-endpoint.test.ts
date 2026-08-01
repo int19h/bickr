@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { localizedText, type BotDocument, type LanguageTag, type LocalizedText, type UserDocument } from "../packages/shared/src/model";
 import {
 	createMcpAuthorizationCode,
@@ -927,6 +927,64 @@ describe("MCP endpoint", () => {
 		expect(structured.bot.mcpResolvedSettings).not.toHaveProperty("inferenceSettings");
 	});
 
+	it("keeps bot reads available when runtime provider settings are unavailable", async () => {
+		const kv = new MapKV();
+		const bot = testBot({ id: "bot_source", handle: "runtime-unavailable", inferenceSettings: {} });
+		await kv.put(kvKeys.bot(bot.id), JSON.stringify(bot));
+		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		try {
+			const response = await callMcp(kv, accessToken, {
+				jsonrpc: "2.0",
+				id: 1,
+				method: "tools/call",
+				params: { name: "get_bot", arguments: { botId: bot.id } },
+			}, { BICKR_D1: mcpSettingsD1(), MCP_PROVIDER_ENVIRONMENT_ERROR: true });
+			const body = await jsonResponse(response);
+			const structured = (body.result as { structuredContent: { bot: {
+				mcpResolvedSettings: Record<string, Record<string, unknown>>;
+			} } }).structuredContent;
+
+			expect(response.status).toBe(200);
+			expect(structured.bot.mcpResolvedSettings).not.toHaveProperty("inferenceSettings");
+			expect(consoleError).toHaveBeenCalledOnce();
+		} finally {
+			consoleError.mockRestore();
+		}
+	});
+
+	it("resolves runtime provider settings before a legacy bot mutation can commit", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
+		let mutationCalls = 0;
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		try {
+			const response = await callMcp(kv, accessToken, {
+				jsonrpc: "2.0",
+				id: 1,
+				method: "tools/call",
+				params: {
+					name: "update_bot",
+					arguments: { botId: "bot_source", inferenceSettings: { model: null } },
+				},
+			}, {
+				MCP_PROVIDER_ENVIRONMENT_ERROR: true,
+				AGENT_RUNTIME: {
+					fetch: async () => {
+						mutationCalls += 1;
+						return Response.json({ ok: true, data: { bot: testBot({ id: "bot_source", handle: "unchanged" }) } });
+					},
+				},
+			});
+			const body = await jsonResponse(response);
+
+			expect(mutationCalls).toBe(0);
+			expect(body.result).toMatchObject({ isError: true });
+		} finally {
+			consoleError.mockRestore();
+		}
+	});
+
 	it("annotates update_bot receipts with profile-inherited effective settings", async () => {
 		const kv = new MapKV();
 		const bot = testBot({ id: "bot_updated_default", handle: "updated-default", inferenceSettings: {} });
@@ -994,6 +1052,7 @@ async function callMcp(kv: KVNamespaceLike, accessToken: string | null, body: un
 	}
 	const {
 		AGENT_RUNTIME: upstreamAgentRuntime,
+		MCP_PROVIDER_ENVIRONMENT_ERROR: providerEnvironmentError = false,
 		MCP_PROVIDER_ENVIRONMENT: providerEnvironment = { apiKeySet: true, model: "openrouter/free" },
 		...restEnv
 	} = env;
@@ -1008,6 +1067,9 @@ async function callMcp(kv: KVNamespaceLike, accessToken: string | null, body: un
 		AGENT_RUNTIME: {
 			fetch: async (request: Request) => {
 				if (new URL(request.url).pathname === "/provider-settings/environment") {
+					if (providerEnvironmentError) {
+						return Response.json({ ok: false, error: "unavailable", message: "Provider environment unavailable." }, { status: 503 });
+					}
 					return Response.json({
 						ok: true,
 						data: { kind: "provider_environment", settings: providerEnvironment },
