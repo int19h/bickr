@@ -61,6 +61,7 @@ const maxBotGroupTitleLength = 80;
 export const maxBotPromptLength = 64_000;
 export const maxWorldPromptLength = maxBotPromptLength;
 export const maxBotReasoningPrefillLength = 500;
+export const maxWorldRecurringPromptLength = maxBotReasoningPrefillLength;
 export const maxProviderRoutingJsonLength = 8_000;
 const maxThreadTitleLength = 160;
 export const maxThreadBodyHardLength = postingHardLimit(defaultThreadBodyCharacters);
@@ -323,6 +324,20 @@ export function parseCreateWorldInput(input: unknown): CreateWorldInput {
 		name: localizedRequiredText(record.name, "World name", 80, language),
 		description: localizedRequiredText(record.description, "World description", 500, language),
 		prompt: localizedOptionalTextPreservingEmpty(record.prompt, "World prompt", maxWorldPromptLength, language) ?? localizedText("", language),
+		...(record.recurringPromptEnabled === undefined ?
+			{}
+		:	{ recurringPromptEnabled: requiredBoolean(record.recurringPromptEnabled, "World recurring prompt enabled") }),
+		...(record.recurringPrompt === undefined ?
+			{}
+		:	{
+				recurringPrompt:
+					localizedOptionalTextPreservingEmpty(
+						record.recurringPrompt,
+						"World recurring prompt",
+						maxWorldRecurringPromptLength,
+						language,
+					) ?? localizedText("", language),
+			}),
 		...((record.imageGeneration === undefined && record.image_generation === undefined) ?
 			{}
 		:	{
@@ -369,6 +384,19 @@ export function parseUpdateWorldInput(input: unknown): UpdateWorldInput {
 	if (record.prompt !== undefined) {
 		const textLanguage = language ?? requiredEntityLanguage(record.language, "World language");
 		update.prompt = localizedOptionalTextPreservingEmpty(record.prompt, "World prompt", maxWorldPromptLength, textLanguage) ?? localizedText("", textLanguage);
+	}
+	if (record.recurringPromptEnabled !== undefined) {
+		update.recurringPromptEnabled = requiredBoolean(record.recurringPromptEnabled, "World recurring prompt enabled");
+	}
+	if (record.recurringPrompt !== undefined) {
+		const textLanguage = language ?? requiredEntityLanguage(record.language, "World language");
+		update.recurringPrompt =
+			localizedOptionalTextPreservingEmpty(
+				record.recurringPrompt,
+				"World recurring prompt",
+				maxWorldRecurringPromptLength,
+				textLanguage,
+			) ?? localizedText("", textLanguage);
 	}
 	if (record.imageGeneration !== undefined || record.image_generation !== undefined) {
 		const imageGeneration = aliasedValue(record, "imageGeneration", "image_generation");
@@ -1241,6 +1269,13 @@ function parseNullableBoolean(value: unknown, label: string): boolean | null {
 	}
 	if (typeof value !== "boolean") {
 		throw new InputError(`${label} must be a boolean or null.`);
+	}
+	return value;
+}
+
+function requiredBoolean(value: unknown, label: string): boolean {
+	if (typeof value !== "boolean") {
+		throw new InputError(`${label} must be a boolean.`);
 	}
 	return value;
 }

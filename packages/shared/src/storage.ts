@@ -2,6 +2,20 @@ import { type EntityDocument } from "./model";
 import { type IndexedEntityType } from "./index-versions";
 import { isCloudflareRateLimitError, retryCloudflareOperation } from "./cloudflare";
 
+// D1 currently allows 100 bound parameters per statement. Keep set-oriented
+// queries below this shared ceiling so callers do not invent divergent limits.
+export const d1MaxBoundParameters = 100;
+// Leave one slot for a future fixed predicate without making full batches fail.
+export const d1SafeBoundParameters = d1MaxBoundParameters - 1;
+
+export function chunks<T>(items: readonly T[], size: number): T[][] {
+	const result: T[][] = [];
+	for (let index = 0; index < items.length; index += size) {
+		result.push(items.slice(index, index + size));
+	}
+	return result;
+}
+
 export const kvKeys = {
 	user: (userId: string) => `v1:user:${userId}`,
 	session: (sessionHash: string) => `v1:session:${sessionHash}`,

@@ -97,6 +97,8 @@ export type WorldDocument = EntityDocument & {
 	name: LocalizedText;
 	description: LocalizedText;
 	prompt: LocalizedText;
+	recurringPromptEnabled: boolean;
+	recurringPrompt: LocalizedText;
 	avatar?: AvatarImage;
 	imageGeneration?: BotImageGenerationSettings;
 	initialBotNotification: LocalizedText;

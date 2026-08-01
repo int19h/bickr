@@ -59,6 +59,7 @@ import type {
 	ProfileRelationshipSearchResult,
 	ReadContentItem,
 	RunContext,
+	RuntimeBotDocument,
 	RuntimeRow,
 	SpotlightActionScope,
 	SpotlightMutationScope,
@@ -97,7 +98,7 @@ export type RuntimeToolsRuntime = {
 	throwIfStopped(runId: string, signal: AbortSignal): void;
 	forumService<T>(path: string, botId: string, body: unknown, signal: AbortSignal): Promise<T>;
 	vectorSearchBots(worldId: string, query: string, limit: number): Promise<BotSearchResult[]>;
-	readCommentTreeTokenBudget(bot: BotDocument): Promise<number>;
+	readCommentTreeTokenBudget(bot: RuntimeBotDocument): Promise<number>;
 	providerContentInActiveContext(): ProviderContextContentScope;
 	recentToolResultRows(): RuntimeRow[];
 	setLastSuccessfulLogOffSeq(seq: number, source: 'tool_result'): void;
@@ -111,7 +112,7 @@ export class RuntimeTools {
 	}
 
 	async executeTool(
-		bot: BotDocument,
+		bot: RuntimeBotDocument,
 		runId: string,
 		name: string,
 		args: Record<string, unknown>,
@@ -669,7 +670,7 @@ export class RuntimeTools {
 		}
 	}
 
-	private async threadReadResult(bot: BotDocument, thread: ThreadDocument, operation: string, targetCommentId?: string) {
+	private async threadReadResult(bot: RuntimeBotDocument, thread: ThreadDocument, operation: string, targetCommentId?: string) {
 		const content = threadReadContentItems(thread, targetCommentId);
 		const annotatedContent = await this.annotateReadContentFollowStatus(bot.id, content);
 		const commentTree = readContentItemTree(annotatedContent);
@@ -686,7 +687,7 @@ export class RuntimeTools {
 		};
 	}
 
-	private async readCommentById(bot: BotDocument, commentId: string, operation: string) {
+	private async readCommentById(bot: RuntimeBotDocument, commentId: string, operation: string) {
 		const row = await this.runtime.env.BICKR_D1.prepare(
 			`SELECT thread_id AS threadId
 			 FROM comments_index

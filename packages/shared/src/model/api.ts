@@ -214,6 +214,8 @@ export type WorldSummary = {
 	name: LocalizedText;
 	description: LocalizedText;
 	prompt: LocalizedText;
+	recurringPromptEnabled: boolean;
+	recurringPrompt: LocalizedText;
 	avatar?: AvatarImage;
 	avatarUrl?: string;
 	avatarCrop?: AvatarCrop;
@@ -658,6 +660,8 @@ export type CreateWorldInput = {
 	name: LocalizedText;
 	description: LocalizedText;
 	prompt?: LocalizedText;
+	recurringPromptEnabled?: boolean;
+	recurringPrompt?: LocalizedText;
 	imageGeneration?: BotImageGenerationSettingsInput | null;
 	initialBotNotification?: LocalizedText;
 	postingSettings?: PostingSettingsInput;
@@ -670,6 +674,8 @@ export type UpdateWorldInput = Partial<{
 	name: LocalizedText;
 	description: LocalizedText;
 	prompt: LocalizedText;
+	recurringPromptEnabled: boolean;
+	recurringPrompt: LocalizedText;
 	imageGeneration: BotImageGenerationSettingsInput | null;
 	initialBotNotification: LocalizedText;
 	postingSettings: PostingSettingsInput;

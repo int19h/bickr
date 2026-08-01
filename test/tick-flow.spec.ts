@@ -7,6 +7,7 @@ import {
 	createThreadForTest,
 	defaultReasoningPrefill,
 	describe,
+	effectiveLoopRecurringPrompt,
 	effectiveReasoningPrefill,
 	ExclusiveOperationQueue,
 	expect,
@@ -17,6 +18,7 @@ import {
 	formatRuntimeInputForContext,
 	handleForumCoordinatorRequest,
 	it,
+	kvKeys,
 	localizedTextString,
 	lt,
 	memoryRuntimeSql,
@@ -49,6 +51,7 @@ import type {
 	ProviderToolDefinition,
 	SpotlightIncludedContent,
 	SpotlightSyntheticContext,
+	WorldDocument,
 } from "./helpers/index-harness";
 
 describe("Tick flow", () => {
@@ -445,7 +448,7 @@ describe("Tick flow", () => {
 					shortBio: lt("Reads changelogs."),
 					prompt: lt("Stay precise."),
 					inferenceSettings: {},
-				} as Parameters<typeof standardPrompt>[0],
+					} as unknown as Parameters<typeof standardPrompt>[0] & { worldRecurringPrompt: string },
 			{
 				notifications: [],
 				injections: ["Check the daily thread."],
@@ -505,7 +508,7 @@ describe("Tick flow", () => {
 					shortBio: lt("Reads changelogs."),
 					prompt: lt("Stay precise."),
 					inferenceSettings: { recurringPromptEnabled: false },
-				} as Parameters<typeof standardPrompt>[0],
+					} as unknown as Parameters<typeof standardPrompt>[0] & { worldRecurringPrompt: string },
 			{
 				notifications: [],
 				injections: [],
@@ -517,6 +520,115 @@ describe("Tick flow", () => {
 		);
 
 		expect(messages.some((message) => message.content === defaultReasoningPrefill("release-sage"))).toBe(false);
+	});
+
+	it("combines world and participant recurring contributions into one world-first assistant message", async () => {
+		const base = {
+			handle: "release-sage",
+			inferenceSettings: { recurringPrompt: lt("I should inspect the release notes.  ") },
+		};
+		expect(effectiveLoopRecurringPrompt(base)).toBe("I should inspect the release notes.  ");
+		expect(effectiveLoopRecurringPrompt({
+			...base,
+			worldRecurringPrompt: "I remember that this world values primary sources.  \n",
+		})).toBe(
+			"I remember that this world values primary sources.\n\nI should inspect the release notes.  ",
+		);
+		expect(effectiveLoopRecurringPrompt({
+			...base,
+			inferenceSettings: { recurringPromptEnabled: false },
+			worldRecurringPrompt: "I follow this world's shared focus.  ",
+		})).toBe("I follow this world's shared focus.");
+		expect(effectiveLoopRecurringPrompt({
+			...base,
+			inferenceSettings: { recurringPromptEnabled: false },
+		})).toBeUndefined();
+
+		const ledgerMessages: Array<{ role: string; content?: string | null }> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			previousTerminalTickEvent: () => null,
+			appendLoopMessage: (_runId: string, message: { role: string; content?: string | null }) => {
+				ledgerMessages.push(message);
+				return {
+					seq: ledgerMessages.length,
+					runId: "run-world-recurring",
+					role: message.role,
+					message,
+					origin: "synthetic_context",
+					tokenEstimate: 1,
+					createdAt: "2026-05-01T00:15:00.000Z",
+				};
+			},
+			activeLoopMessagesForProvider: () => ledgerMessages,
+			activeLoopMessageRows: () => [],
+			profileUsernamesInActiveContext: () => new Set<string>(),
+		});
+		const buildMessages = (BotRuntime.prototype as unknown as {
+			buildMessages: (
+				bot: Parameters<typeof standardPrompt>[0] & { worldRecurringPrompt?: string },
+				input: Record<string, unknown>,
+				runId: string,
+				inputCreatedAt: string,
+			) => Promise<Array<{ role: string; content?: string | null }>>;
+		}).buildMessages.bind(runtime);
+		const combined = "I remember that this world values primary sources.\n\nI should inspect the release notes.  ";
+
+		const messages = await buildMessages(
+			{
+				handle: "release-sage",
+				language: testLanguage,
+				displayName: lt("Release Sage"),
+				shortBio: lt("Reads changelogs."),
+				prompt: lt("Stay precise."),
+				inferenceSettings: base.inferenceSettings,
+				worldRecurringPrompt: "I remember that this world values primary sources.  ",
+			} as Parameters<typeof standardPrompt>[0] & { worldRecurringPrompt: string },
+			{ notifications: [], injections: [], spotlightContexts: [], ping: false },
+			"run-world-recurring",
+			"2026-05-01T00:15:00.000Z",
+		);
+
+		expect(messages.filter((message) => message.content === combined)).toEqual([
+			{ role: "assistant", content: combined },
+		]);
+	});
+
+	it("loads the enabled world contribution from the raw world KV document", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const profile = await createBotForTest(cookie, "world-recurring-reader");
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, profile.id);
+		const key = kvKeys.world(bot.homeWorldId);
+		const world = await testEnv.BICKR_KV.get<WorldDocument>(key, { type: "json" });
+		if (!world) {
+			throw new Error("Test world is missing.");
+		}
+		await testEnv.BICKR_KV.put(key, JSON.stringify({
+			...world,
+			recurringPromptEnabled: true,
+			recurringPrompt: lt("I remember the world's live focus.  \n"),
+		}));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: {
+				BICKR_D1: testEnv.BICKR_D1,
+				BICKR_KV: testEnv.BICKR_KV,
+			},
+		});
+		const enrich = (BotRuntime.prototype as unknown as {
+			botWithEffectivePostingSettings: (value: BotDocument) => Promise<BotDocument & { worldRecurringPrompt?: string }>;
+		}).botWithEffectivePostingSettings.bind(runtime);
+
+		const enriched = await enrich(bot);
+		expect(enriched).toMatchObject({
+			worldRecurringPrompt: "I remember the world's live focus.",
+		});
+
+		await testEnv.BICKR_KV.put(key, JSON.stringify({
+			...world,
+			recurringPromptEnabled: false,
+			recurringPrompt: lt("I remember the world's live focus."),
+		}));
+		expect((await enrich(enriched)).worldRecurringPrompt).toBeUndefined();
 	});
 
 	it("resumes the current iteration without notification or recurring setup", async () => {
@@ -554,14 +666,15 @@ describe("Tick flow", () => {
 		}).buildMessages.bind(runtime);
 
 		const messages = await buildMessages(
-				{
-					handle: "release-sage",
-					language: testLanguage,
-					displayName: lt("Release Sage"),
-					shortBio: lt("Reads changelogs."),
-					prompt: lt("Stay precise."),
-					inferenceSettings: {},
-				} as Parameters<typeof standardPrompt>[0],
+			{
+				handle: "release-sage",
+				language: testLanguage,
+				displayName: lt("Release Sage"),
+				shortBio: lt("Reads changelogs."),
+				prompt: lt("Stay precise."),
+				inferenceSettings: {},
+				worldRecurringPrompt: "I follow this world's shared focus.",
+			} as unknown as Parameters<typeof standardPrompt>[0] & { worldRecurringPrompt: string },
 			{
 				notifications: [{ message: "This should not be injected again." }],
 				injections: ["Keep reading the daily thread."],
@@ -580,6 +693,7 @@ describe("Tick flow", () => {
 		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("Keep reading the daily thread."))).toBe(true);
 		expect(messages.some((message) => message.content === "Use Bickr controls directly.")).toBe(true);
 		expect(messages.at(-1)?.content).not.toBe("I'm u/release-sage. I need to think about how I feel and what I want to do next.");
+		expect(messages.some((message) => message.content === "I follow this world's shared focus.")).toBe(false);
 	});
 
 	it("enriches referenced profiles only when active uncompacted history lacks them", async () => {
@@ -646,7 +760,7 @@ describe("Tick flow", () => {
 			});
 			const buildMessages = (BotRuntime.prototype as unknown as {
 				buildMessages: (
-					bot: BotDocument,
+					bot: BotDocument & { worldRecurringPrompt?: string },
 					input: Record<string, unknown>,
 					runId: string,
 					inputCreatedAt: string,
@@ -904,9 +1018,9 @@ describe("Tick flow", () => {
 			activeLoopMessagesForProvider: () => messages,
 			activeLoopMessageRows: () => [],
 		});
-		const buildMessages = (BotRuntime.prototype as unknown as {
-			buildMessages: (
-				bot: BotDocument,
+			const buildMessages = (BotRuntime.prototype as unknown as {
+				buildMessages: (
+					bot: BotDocument & { worldRecurringPrompt?: string },
 				input: Record<string, unknown>,
 				runId: string,
 				inputCreatedAt: string,
@@ -972,7 +1086,7 @@ describe("Tick flow", () => {
 		});
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
-				bot: BotDocument,
+				bot: BotDocument & { worldRecurringPrompt?: string },
 				input: Record<string, unknown>,
 				runId: string,
 				inputCreatedAt: string,
@@ -1472,7 +1586,7 @@ describe("Tick flow", () => {
 		});
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
-				bot: BotDocument,
+				bot: BotDocument & { worldRecurringPrompt?: string },
 				input: Record<string, unknown>,
 				runId: string,
 				inputCreatedAt: string,
@@ -1481,7 +1595,7 @@ describe("Tick flow", () => {
 		}).buildMessages.bind(runtime);
 
 		const built = await buildMessages(
-			bot,
+			{ ...bot, worldRecurringPrompt: "I follow this world's shared focus." },
 			{ notifications: [], injections: [], spotlightContexts: contexts, ping: false },
 			"run-spotlight-context",
 			"2026-05-01T00:15:00.000Z",
@@ -1491,6 +1605,7 @@ describe("Tick flow", () => {
 		expect(setup?.content).toBe("While browsing Bickr, I stumbled on an interesting thread.");
 		expect(built.some((message) => typeof message.content === "string" && message.content.includes("checking my notifications"))).toBe(false);
 		expect(built.some((message) => message.content === effectiveReasoningPrefill(bot))).toBe(false);
+		expect(built.some((message) => message.content === "I follow this world's shared focus.")).toBe(false);
 		const setupToolCallMessages = built.filter(
 			(message): message is Record<string, unknown> & { tool_calls: Array<{ function: { name: string } }> } => Array.isArray(message.tool_calls),
 		);

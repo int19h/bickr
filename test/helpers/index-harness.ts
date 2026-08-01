@@ -109,6 +109,7 @@ import {
 	buildRuntimeLoopInput,
 	BotRuntime,
 	defaultReasoningPrefill,
+	effectiveLoopRecurringPrompt,
 	effectiveReasoningPrefill,
 	effectiveProviderSettingsForBot,
 	effectiveProviderSettingsForTranslation,
@@ -234,6 +235,7 @@ import {
 	type SpotlightSyntheticContext,
 	type ThreadDocument,
 	type UserProfile,
+	type WorldDocument,
 	type WorldSummary,
 } from "../../packages/shared/src/model";
 import {
@@ -322,6 +324,7 @@ export {
 	effectiveCompactionModeForModel,
 	effectiveProviderSettingsForBot,
 	effectiveProviderSettingsForTranslation,
+	effectiveLoopRecurringPrompt,
 	effectiveReasoningEffortForModel,
 	effectiveReasoningPrefill,
 	effectiveStructuredToolCallsForModel,
@@ -515,6 +518,7 @@ export type {
 	SpotlightSyntheticContext,
 	ThreadDocument,
 	UserProfile,
+	WorldDocument,
 	WorldSummary,
 };
 

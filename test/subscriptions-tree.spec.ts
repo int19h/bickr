@@ -88,6 +88,8 @@ function sampleTree(): HumanSubscriptionTree {
 				name: lt("Alpha World"),
 				description: lt("Primary watched world."),
 				prompt: lt(""),
+				recurringPromptEnabled: false,
+				recurringPrompt: lt(""),
 				initialBotNotification: lt("Welcome."),
 				createdByUserId: "usr_owner",
 				createdAt: now,
