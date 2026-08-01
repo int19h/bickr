@@ -752,7 +752,7 @@ describe("MCP endpoint", () => {
 			displayName: "",
 			shortBio: "",
 			prompt: "",
-			inferenceSettings: {},
+			inferenceSettings: { temperature: 0.7 },
 			postingSettings: {
 				commentBodyCharacters: 500,
 			},
@@ -785,6 +785,7 @@ describe("MCP endpoint", () => {
 			source: "source_bot",
 		});
 		expect(structured.bot.mcpResolvedSettings.inferenceSettings.temperature).toMatchObject({
+			specified: 0.7,
 			effective: 0.2,
 			source: "source_bot",
 		});
@@ -800,6 +801,34 @@ describe("MCP endpoint", () => {
 		expect(structured.bot.mcpResolvedSettings.postingSettings.threadBodyCharacters).toMatchObject({
 			effective: 6000,
 			source: "world",
+		});
+	});
+
+	it("applies the runtime provider gate to linked source models", async () => {
+		const kv = new MapKV();
+		const source = testBot({
+			id: "bot_source",
+			handle: "source-bot",
+			inferenceSettings: { model: "source/model" },
+		});
+		const clone = testBot({ id: "bot_clone", handle: "clone-bot", inferenceSettings: {} });
+		await kv.put(kvKeys.bot(source.id), JSON.stringify(source));
+		await kv.put(kvKeys.bot(clone.id), JSON.stringify(clone));
+		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: { name: "get_bot", arguments: { botId: clone.id } },
+		}, { BICKR_D1: mcpSettingsD1() });
+		const body = await jsonResponse(response);
+		const structured = (body.result as { structuredContent: { bot: {
+			mcpResolvedSettings: Record<string, Record<string, unknown>>;
+		} } }).structuredContent;
+
+		expect(structured.bot.mcpResolvedSettings.inferenceSettings.model).toMatchObject({
+			effective: "openrouter/free",
+			source: "bickr_default",
 		});
 	});
 
@@ -841,6 +870,61 @@ describe("MCP endpoint", () => {
 			effective: { only: ["deepseek/fp8"] },
 			source: "profile",
 		});
+	});
+
+	it("uses the agent runtime deployment defaults in MCP annotations", async () => {
+		const kv = new MapKV();
+		const bot = testBot({ id: "bot_source", handle: "deployment-default", inferenceSettings: {} });
+		await kv.put(kvKeys.bot(bot.id), JSON.stringify(bot));
+		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: { name: "get_bot", arguments: { botId: bot.id } },
+		}, {
+			BICKR_D1: mcpSettingsD1(),
+			MCP_PROVIDER_ENVIRONMENT: { apiKeySet: true, model: "deployment/model" },
+		});
+		const body = await jsonResponse(response);
+		const structured = (body.result as { structuredContent: { bot: {
+			mcpResolvedSettings: Record<string, Record<string, unknown>>;
+		} } }).structuredContent;
+
+		expect(structured.bot.mcpResolvedSettings.inferenceSettings.model).toMatchObject({
+			effective: "deployment/model",
+			source: "bickr_default",
+		});
+		expect(structured.bot.mcpResolvedSettings.inferenceSettings.openRouterApiKeySet).toMatchObject({
+			effective: true,
+			source: "bickr_default",
+		});
+	});
+
+	it("omits profile-dependent resolved inference settings for bots owned by someone else", async () => {
+		const kv = new MapKV();
+		const bot = testBot({
+			id: "bot_source",
+			handle: "other-owner",
+			ownerUserId: "usr_other",
+			inferenceSettings: { model: "anthropic/claude-opus-4", openRouterApiKeySet: true },
+		});
+		await kv.put(kvKeys.bot(bot.id), JSON.stringify(bot));
+		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: { name: "get_bot", arguments: { botId: bot.id } },
+		}, { BICKR_D1: mcpSettingsD1() });
+		const body = await jsonResponse(response);
+		const structured = (body.result as { structuredContent: { bot: {
+			inferenceSettings: Record<string, unknown>;
+			mcpResolvedSettings: Record<string, Record<string, unknown>>;
+		} } }).structuredContent;
+
+		expect(structured.bot.inferenceSettings.model).toBe("anthropic/claude-opus-4");
+		expect(structured.bot.mcpResolvedSettings).not.toHaveProperty("inferenceSettings");
 	});
 
 	it("annotates update_bot receipts with profile-inherited effective settings", async () => {
@@ -908,11 +992,34 @@ async function callMcp(kv: KVNamespaceLike, accessToken: string | null, body: un
 	if (accessToken) {
 		headers.set("authorization", `Bearer ${accessToken}`);
 	}
+	const {
+		AGENT_RUNTIME: upstreamAgentRuntime,
+		MCP_PROVIDER_ENVIRONMENT: providerEnvironment = { apiKeySet: true, model: "openrouter/free" },
+		...restEnv
+	} = env;
+	const agentRuntime = upstreamAgentRuntime as { fetch(request: Request): Promise<Response> } | undefined;
 	return onRequestPost(pagesContext(new Request("https://bickr.social/mcp", {
 		method: "POST",
 		headers,
 		body: JSON.stringify(body),
-	}), { BICKR_KV: kv, ...env }));
+	}), {
+		BICKR_KV: kv,
+		...restEnv,
+		AGENT_RUNTIME: {
+			fetch: async (request: Request) => {
+				if (new URL(request.url).pathname === "/provider-settings/environment") {
+					return Response.json({
+						ok: true,
+						data: { kind: "provider_environment", settings: providerEnvironment },
+					});
+				}
+				if (!agentRuntime) {
+					return Response.json({ ok: false, error: "not_found", message: "Agent runtime mock is not configured." }, { status: 404 });
+				}
+				return agentRuntime.fetch(request);
+			},
+		},
+	}));
 }
 
 function pagesContext(request: Request, env: Record<string, unknown> = {}): TestPagesContext {
@@ -1107,7 +1214,7 @@ function testBot(
 		revision: 1,
 		homeWorldId: "w_mcp",
 		homeWorldHandle: "mcp-world",
-		ownerUserId: "usr_mcp",
+		ownerUserId: overrides.ownerUserId ?? "usr_mcp",
 		handle: overrides.handle,
 		language: overrides.language ?? en,
 		includeLanguageInSystemPrompt: overrides.includeLanguageInSystemPrompt ?? false,

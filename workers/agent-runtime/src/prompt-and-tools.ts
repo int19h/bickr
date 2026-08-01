@@ -392,8 +392,6 @@ export function isMetaCompactionToolDefinition(definition: ProviderToolDefinitio
 	return definition.type === "function" && definition.function.name === metaCompactionToolName;
 }
 
-export { isOpenRouterProviderBaseUrl };
-
 export function openRouterServerToolSelection(
 	baseUrl: string,
 	settings: BotToolSettings | undefined,

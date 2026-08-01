@@ -1,5 +1,4 @@
-import { defaultProviderBaseUrl } from '@bickr/shared/inference-settings';
-import { defaultProviderModel } from '@bickr/shared/model';
+import { defaultProviderBaseUrl, defaultProviderModel } from '@bickr/shared/model';
 
 export const providerContextCompletionReserveTokens = 5_000;
 

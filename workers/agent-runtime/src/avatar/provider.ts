@@ -1,5 +1,6 @@
 import { worldAvatarMembersPromptUserContent } from '@bickr/shared/avatar-prompts';
 import { avatarContentTypeFromBytes, avatarMaxBytes, validateAvatarDataUrl } from '@bickr/shared/avatar-storage';
+import { isOpenRouterProviderBaseUrl } from '@bickr/shared/inference-settings';
 import {
 	effectiveStructuredToolCallsForModel,
 } from '@bickr/shared/openrouter-model-capabilities';
@@ -26,7 +27,7 @@ import {
 	type ProviderReasoningConfig,
 	type ProviderSingleStringResponseSpec,
 } from '../compaction/engine';
-import { isOpenRouterProviderBaseUrl, standardPrompt, type ProviderToolDefinition } from '../prompt-and-tools';
+import { standardPrompt, type ProviderToolDefinition } from '../prompt-and-tools';
 import { providerMessageTextContent, type ProviderSettings } from '../provider-requests';
 import type { AvatarGenerationDisplayMessage, AvatarGenerationStreamSink, AvatarProvider } from './service';
 import type { ImageGenerationProviderSettings } from './target';

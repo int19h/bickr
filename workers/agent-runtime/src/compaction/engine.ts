@@ -14,9 +14,9 @@ import {
 	type BotStructuredToolCalls,
 	type JsonObject,
 } from '@bickr/shared/model';
+import { isOpenRouterProviderBaseUrl } from '@bickr/shared/inference-settings';
 import {
 	isMetaCompactionToolDefinition,
-	isOpenRouterProviderBaseUrl,
 	metaCompactionToolDefinition,
 	metaCompactionToolName,
 	nativeLanguageSystemPromptLine,

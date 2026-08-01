@@ -4,6 +4,7 @@ import { ExclusiveOperationQueue } from '@bickr/shared/exclusive-operation-queue
 import { updateWorld } from '@bickr/shared/governance';
 import { json } from '@bickr/shared/http';
 import { type ObjectIndexConvergenceTask, runObjectIndexConvergenceBatch } from '@bickr/shared/index-repair';
+import { providerEnvironmentSettingsFromBindings } from '@bickr/shared/inference-settings';
 import { addInternalServiceAuthHeader, internalServiceUrl, isTrustedInternalServiceRequest } from '@bickr/shared/internal-service';
 import {
 	botById,
@@ -150,6 +151,19 @@ export const agentRuntimeRouteTable = [
 				ok: true,
 				runtime: 'agent-runtime-worker',
 			}),
+	},
+	{
+		id: 'provider-environment',
+		method: 'GET',
+		pattern: /^\/provider-settings\/environment$/,
+		dispatch: 'direct',
+		handler: async (context) => {
+			requireAuthenticatedServiceRequest(context.request);
+			return ok({
+				kind: 'provider_environment' as const,
+				settings: providerEnvironmentSettingsFromBindings(context.env, { includeApiKey: false }),
+			});
+		},
 	},
 	{
 		id: 'translate',

@@ -1,6 +1,7 @@
 import {
 	resolveBotProviderSettings,
 	type BotProviderSettingSource,
+	type ProviderEnvironmentSettings,
 	type ResolvedBotProviderSetting,
 	type ResolvedBotProviderSettings,
 } from "@bickr/shared/inference-settings";
@@ -168,6 +169,7 @@ type ToolContext = {
 	env: AppEnv;
 	request: Request;
 	auth: McpAuthContext;
+	providerEnvironment?: Promise<ProviderEnvironmentSettings>;
 };
 
 class InsufficientScopeError extends Error {
@@ -270,7 +272,7 @@ async function callTool(ctx: ToolContext, params: unknown): Promise<unknown> {
 		case "read":
 			try {
 				const result = await tool.execute(ctx, args);
-				return toolResult({ kind: tool.resultKind, payload: result }, ctx.auth.user);
+				return await toolResult({ kind: tool.resultKind, payload: result }, ctx);
 			} catch (error) {
 				return toolError(errorPayload(error));
 			}
@@ -295,7 +297,7 @@ async function callMutationTool(
 			// Retire this singleton path after 2026-09-01 once clients have refreshed tools/list.
 			const legacyArguments = tool.legacyArguments ? tool.legacyArguments(args) : args;
 			const result = await tool.executeOperation(ctx, legacyArguments);
-			return toolResult({ kind: tool.resultKind, payload: result }, ctx.auth.user);
+			return await toolResult({ kind: tool.resultKind, payload: result }, ctx);
 		}
 		const operations = mutationOperations(args, tool.operationSchema);
 		const results: MutationOperationResult[] = [];
@@ -315,7 +317,7 @@ async function callMutationTool(
 				results.push({ operationId: operation.operationId, status: "failed", error: jsonCompatible(payload) });
 				continue;
 			}
-			results.push(successfulMutationOperationResult(operation.operationId, tool.resultKind, payload, ctx.auth.user));
+			results.push(await successfulMutationOperationResult(operation.operationId, tool.resultKind, payload, ctx));
 		}
 		return mutationToolResult(results);
 	} catch (error) {
@@ -514,20 +516,35 @@ const mcpTools: McpTool[] = [
 		const forum = await forumByHandle(ctx.env.BICKR_KV, ctx.env.BICKR_D1, text(args.worldHandle, "World handle"), text(args.forumHandle, "Forum handle"));
 		return `/forums/${encodeURIComponent(forum.id)}/threads/${encodeURIComponent(text(args.threadId, "Thread ID"))}/comments/${encodeURIComponent(text(args.commentId, "Comment ID"))}`;
 	}),
-	readTool("list_my_bots", "List my bots", "List bots owned by the signed-in human user.", {}, async ({ env, auth }) => ({
-		bots: annotateMcpBots(await listUserBots(env.BICKR_KV, env.BICKR_D1, auth.user.id), auth.user),
+	readTool("list_my_bots", "List my bots", "List bots owned by the signed-in human user.", {}, async (ctx) => ({
+		bots: annotateMcpBots(
+			await listUserBots(ctx.env.BICKR_KV, ctx.env.BICKR_D1, ctx.auth.user.id),
+			ctx.auth.user,
+			await providerEnvironmentForMcp(ctx),
+		),
 	}), "bots"),
 	readTool("list_world_bots", "List world bots", "List bots in a Bickr world.", {
 		worldHandle: stringSchema("World handle."),
-	}, async ({ env, auth }, args) => ({
-		bots: annotateMcpBots(await listWorldBots(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle")), auth.user),
+	}, async (ctx, args) => ({
+		bots: annotateMcpBots(
+			await listWorldBots(ctx.env.BICKR_KV, ctx.env.BICKR_D1, text(args.worldHandle, "World handle")),
+			ctx.auth.user,
+			await providerEnvironmentForMcp(ctx),
+		),
 	}), "bots"),
 	readTool("get_bot", "Get bot", "Read one Bickr bot by ID.", {
 		botId: stringSchema("Bot ID."),
-	}, async ({ env, auth }, args) => {
-		const bot = await botById(env.BICKR_KV, env.BICKR_D1, text(args.botId, "Bot ID"));
-		const world = await worldByHandle(env.BICKR_D1, bot.homeWorldHandle);
-		return { bot: annotateMcpBot(bot, world.postingSettings, auth.user) };
+	}, async (ctx, args) => {
+		const bot = await botById(ctx.env.BICKR_KV, ctx.env.BICKR_D1, text(args.botId, "Bot ID"));
+		const world = await worldByHandle(ctx.env.BICKR_D1, bot.homeWorldHandle);
+		return {
+			bot: annotateMcpBot(
+				bot,
+				world.postingSettings,
+				ctx.auth.user,
+				await providerEnvironmentForMcp(ctx),
+			),
+		};
 	}, "bot"),
 	serviceTool("create_bot", "Create bot", "Create a Bickr bot in a world.", bodySchema({
 		worldHandle: stringSchema("World handle."),
@@ -1049,6 +1066,58 @@ async function servicePayload(
 	return payload;
 }
 
+function providerEnvironmentForMcp(ctx: ToolContext): Promise<ProviderEnvironmentSettings> {
+	ctx.providerEnvironment ??= loadProviderEnvironmentForMcp(ctx);
+	return ctx.providerEnvironment;
+}
+
+async function loadProviderEnvironmentForMcp(ctx: ToolContext): Promise<ProviderEnvironmentSettings> {
+	const payload = await servicePayload(
+		ctx.env.AGENT_RUNTIME,
+		ctx.env,
+		ctx.request,
+		"/provider-settings/environment",
+		"GET",
+		ctx.auth.user.id,
+	);
+	return providerEnvironmentFromServicePayload(payload);
+}
+
+function providerEnvironmentFromServicePayload(payload: unknown): ProviderEnvironmentSettings {
+	if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+		throw new Error("Agent runtime returned an invalid provider-environment envelope.");
+	}
+	const envelope = payload as Record<string, unknown>;
+	const data = envelope.data;
+	if (envelope.ok !== true || !data || typeof data !== "object" || Array.isArray(data)) {
+		throw new Error("Agent runtime did not return provider-environment data.");
+	}
+	const providerEnvironment = data as Record<string, unknown>;
+	const settings = providerEnvironment.settings;
+	if (
+		providerEnvironment.kind !== "provider_environment" ||
+		!settings ||
+		typeof settings !== "object" ||
+		Array.isArray(settings)
+	) {
+		throw new Error("Agent runtime returned an invalid provider-environment payload.");
+	}
+	const record = settings as Record<string, unknown>;
+	if (
+		(record.apiKeySet !== undefined && typeof record.apiKeySet !== "boolean") ||
+		(record.baseUrl !== undefined && typeof record.baseUrl !== "string") ||
+		(record.model !== undefined && typeof record.model !== "string") ||
+		"apiKey" in record
+	) {
+		throw new Error("Agent runtime returned invalid redacted provider settings.");
+	}
+	return {
+		...(record.apiKeySet !== undefined ? { apiKeySet: record.apiKeySet } : {}),
+		...(record.baseUrl !== undefined ? { baseUrl: record.baseUrl } : {}),
+		...(record.model !== undefined ? { model: record.model } : {}),
+	};
+}
+
 type ResolvedSettingSource =
 	| BotProviderSettingSource
 	| "world";
@@ -1062,19 +1131,24 @@ type ResolvedSetting<T> = {
 
 type ResolvedSettingMap = Record<string, ResolvedSetting<unknown>>;
 
-function annotateMcpPayload(envelope: McpPayloadEnvelope, viewer?: UserDocument): unknown {
+function annotateMcpPayload(
+	envelope: McpPayloadEnvelope,
+	viewer: UserDocument | undefined,
+	providerEnvironment: ProviderEnvironmentSettings,
+): unknown {
 	switch (envelope.kind) {
 		case "opaque":
 			return envelope.payload;
 		case "bot":
 			return mapMcpPayloadData(envelope.payload, (record) => ({
 				...record,
-				bot: annotateMcpBot(record.bot as BotDocument | BotSummary, undefined, viewer),
+				bot: annotateMcpBot(record.bot as BotDocument | BotSummary, undefined, viewer, providerEnvironment),
 			}));
 		case "bots":
 			return mapMcpPayloadData(envelope.payload, (record) => ({
 				...record,
-				bots: (record.bots as Array<BotDocument | BotSummary>).map((bot) => annotateMcpBot(bot, undefined, viewer)),
+				bots: (record.bots as Array<BotDocument | BotSummary>).map((bot) =>
+					annotateMcpBot(bot, undefined, viewer, providerEnvironment)),
 			}));
 		case "world":
 			return mapMcpPayloadData(envelope.payload, (record) => ({
@@ -1098,12 +1172,13 @@ function annotateMcpPayload(envelope: McpPayloadEnvelope, viewer?: UserDocument)
 		case "group":
 			return mapMcpPayloadData(envelope.payload, (record) => ({
 				...record,
-				group: annotateMcpBotGroup(record.group as BotGroupSummary, viewer),
+				group: annotateMcpBotGroup(record.group as BotGroupSummary, viewer, providerEnvironment),
 			}));
 		case "groups":
 			return mapMcpPayloadData(envelope.payload, (record) => ({
 				...record,
-				groups: (record.groups as BotGroupSummary[]).map((group) => annotateMcpBotGroup(group, viewer)),
+				groups: (record.groups as BotGroupSummary[]).map((group) =>
+					annotateMcpBotGroup(group, viewer, providerEnvironment)),
 			}));
 		default:
 			return assertNeverMcpPayloadEnvelope(envelope);
@@ -1148,25 +1223,28 @@ function annotateMcpWorld(world: WorldSummary): WorldSummary & { lang: WorldSumm
 function annotateMcpBotGroup(
 	group: BotGroupSummary,
 	viewer?: UserDocument,
+	providerEnvironment: ProviderEnvironmentSettings = {},
 ): BotGroupSummary & { lang: BotGroupSummary["language"]; bots: Array<BotSummary & { lang: BotSummary["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> }> } {
 	return {
 		...group,
 		lang: group.language,
-		bots: annotateMcpBots(group.bots, viewer),
+		bots: annotateMcpBots(group.bots, viewer, providerEnvironment),
 	};
 }
 
 function annotateMcpBots<T extends BotDocument | BotSummary>(
 	bots: T[],
 	viewer?: UserDocument,
+	providerEnvironment: ProviderEnvironmentSettings = {},
 ): Array<T & { lang: T["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> }> {
-	return bots.map((bot) => annotateMcpBot(bot, undefined, viewer));
+	return bots.map((bot) => annotateMcpBot(bot, undefined, viewer, providerEnvironment));
 }
 
 function annotateMcpBot<T extends BotDocument | BotSummary>(
 	bot: T,
 	worldPostingSettings?: PostingSettings,
 	viewer?: UserDocument,
+	providerEnvironment: ProviderEnvironmentSettings = {},
 ): T & { lang: T["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> } {
 	if ("mcpResolvedSettings" in bot) {
 		return { ...bot, lang: bot.language } as T & { lang: T["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> };
@@ -1197,12 +1275,16 @@ function annotateMcpBot<T extends BotDocument | BotSummary>(
 		tickSettings: resolvedTickSettings(bot.tickSettings, "effectiveTickSettings" in bot ? bot.effectiveTickSettings : undefined),
 	};
 	if (viewer?.id === bot.ownerUserId) {
+		// Effective inference settings depend on private owner defaults. Public bot
+		// configuration remains visible, but MCP only claims a resolved value when
+		// it has the owning profile needed to compute that value truthfully.
 		mcpResolvedSettings.inferenceSettings = resolvedInferenceSettings(
 			specifiedInference,
 			bot.inferenceSettings,
 			viewer.inferenceSettings,
 			cloneLinked,
 			sourceBotLabel(bot),
+			providerEnvironment,
 		);
 	}
 	if (bot.inferenceSettings.imageGeneration) {
@@ -1285,12 +1367,16 @@ function resolvedInferenceSettings(
 	profile: BotInferenceSettings | undefined,
 	cloneLinked: boolean,
 	sourceBot: string,
+	providerEnvironment: ProviderEnvironmentSettings,
 ): ResolvedSettingMap {
+	// Linked clones inherit inferenceSettings as one object. A local model selects
+	// the whole local object; without one, the whole effective object comes from
+	// the source bot, even if ignored partial local fields are still visible as specified.
 	const inheritedFromSource = cloneLinked && !specified.model?.trim();
 	const resolution = resolveBotProviderSettings(
 		{ inferenceSettings: effective },
 		{ inferenceSettings: profile },
-		{},
+		providerEnvironment,
 		{ botSource: inheritedFromSource ? "source_bot" : "bot" },
 	);
 	const keys = [
@@ -1369,6 +1455,10 @@ function providerSettingExplanation(
 			return `${prefix || "No bot or source bot value applies, so "}Bickr resolves the effective ${label} from the owner's profile defaults.`;
 		case "bickr_default":
 			return `${prefix || "No bot, source bot, or profile value applies, so "}Bickr resolves the effective ${label} from its default behavior.`;
+		case "model_capability":
+			return hasSpecifiedValue ?
+				`This bot specifies ${label}, but the selected model's capabilities constrain its effective value.`
+			:	`The selected model's capabilities constrain the effective ${label}.`;
 		default:
 			return assertNeverProviderSettingSource(source);
 	}
@@ -1582,11 +1672,12 @@ function toolMetadata(tool: McpTool): Record<string, unknown> {
 	};
 }
 
-function toolResult(envelope: McpPayloadEnvelope, viewer?: UserDocument): Record<string, unknown> {
+async function toolResult(envelope: McpPayloadEnvelope, ctx: ToolContext): Promise<Record<string, unknown>> {
 	if (isApiFailure(envelope.payload)) {
 		return toolError(envelope.payload);
 	}
-	const presented = annotateMcpPayload(envelope, viewer);
+	const providerEnvironment = mcpPayloadHasBots(envelope.kind) ? await providerEnvironmentForMcp(ctx) : {};
+	const presented = annotateMcpPayload(envelope, ctx.auth.user, providerEnvironment);
 	const structuredContent = jsonCompatible(presented);
 	return {
 		structuredContent,
@@ -1608,17 +1699,18 @@ function mutationToolResult(results: MutationOperationResult[]): Record<string, 
 	};
 }
 
-function successfulMutationOperationResult(
+async function successfulMutationOperationResult(
 	operationId: string,
 	kind: McpPayloadEnvelope["kind"],
 	payload: unknown,
-	viewer?: UserDocument,
-): MutationOperationResult {
+	ctx: ToolContext,
+): Promise<MutationOperationResult> {
 	try {
+		const providerEnvironment = mcpPayloadHasBots(kind) ? await providerEnvironmentForMcp(ctx) : {};
 		return {
 			operationId,
 			status: "succeeded",
-			result: jsonCompatible(annotateMcpPayload({ kind, payload }, viewer)),
+			result: jsonCompatible(annotateMcpPayload({ kind, payload }, ctx.auth.user, providerEnvironment)),
 		};
 	} catch (error) {
 		// The mutation itself returned successfully. A presentation failure must not
@@ -1630,6 +1722,10 @@ function successfulMutationOperationResult(
 			resultWarning: jsonCompatible(errorPayload(error)),
 		};
 	}
+}
+
+function mcpPayloadHasBots(kind: McpPayloadEnvelope["kind"]): boolean {
+	return kind === "bot" || kind === "bots" || kind === "group" || kind === "groups";
 }
 
 function toolError(value: unknown): Record<string, unknown> {

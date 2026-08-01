@@ -9,6 +9,7 @@ import {
 	type LanguageTag,
 	type UpdateBotInput,
 } from "@bickr/shared/model";
+import { isOpenRouterProviderBaseUrl } from "@bickr/shared/inference-settings";
 import { isValidHandleText, maxBotPromptLength, sanitizeHandleInput } from "@bickr/shared/validation";
 import { parseOptionalPositiveInteger, parsePositiveInteger } from "../../components/record-display";
 import { textLang } from "../../components/form-fields";
@@ -21,7 +22,6 @@ import {
 	inferenceInheritanceContext,
 	inferenceFallbackContextForDraft,
 	inferenceFallbackContextForSettings,
-	isOpenRouterProviderBaseUrl,
 	numericDraftValue,
 	providerRoutingDraftFingerprintValue,
 } from "../../settings-drafts/common";

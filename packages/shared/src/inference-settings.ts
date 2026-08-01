@@ -6,6 +6,7 @@ import {
 	modelSupportsPromptCacheControl,
 } from "./openrouter-model-capabilities";
 import {
+	defaultProviderBaseUrl,
 	defaultProviderModel,
 	defaultTextGenerationTemperature,
 	legacyDefaultTextGenerationTemperature,
@@ -19,13 +20,33 @@ import {
 	type UserDocument,
 } from "./model";
 
-export const defaultProviderBaseUrl = "https://openrouter.ai/api/v1";
-
 export type ProviderEnvironmentSettings = {
+	apiKey?: string;
+	apiKeySet?: boolean;
+	baseUrl?: string;
+	model?: string;
+};
+
+export type ProviderEnvironmentBindings = {
 	OPENROUTER_API_KEY?: string;
 	OPENROUTER_BASE_URL?: string;
 	OPENROUTER_MODEL?: string;
 };
+
+export function providerEnvironmentSettingsFromBindings(
+	bindings: ProviderEnvironmentBindings,
+	options: { includeApiKey?: boolean } = {},
+): ProviderEnvironmentSettings {
+	const apiKey = trimmed(bindings.OPENROUTER_API_KEY);
+	const baseUrl = trimmed(bindings.OPENROUTER_BASE_URL);
+	const model = trimmed(bindings.OPENROUTER_MODEL);
+	return {
+		...(options.includeApiKey === false || !apiKey ? {} : { apiKey }),
+		apiKeySet: Boolean(apiKey),
+		...(baseUrl ? { baseUrl } : {}),
+		...(model ? { model } : {}),
+	};
+}
 
 export type ProviderSettings = {
 	apiKey?: string;
@@ -47,7 +68,19 @@ export type ProviderSettings = {
 	repetitionPenalty?: number;
 };
 
-export type BotProviderSettingSource = "bot" | "source_bot" | "profile" | "bickr_default";
+export type BotProviderSettingSource =
+	| "bot"
+	| "source_bot"
+	| "profile"
+	| "bickr_default"
+	| "model_capability";
+
+type BotOrSourceSettingSource = Extract<BotProviderSettingSource, "bot" | "source_bot">;
+
+export type BotProviderSettingsResolutionOptions = {
+	assumeBotProviderAvailable?: boolean;
+	botSource?: BotOrSourceSettingSource;
+};
 
 export type ResolvedBotProviderSetting<T> = {
 	effective: T;
@@ -82,14 +115,14 @@ export function resolveBotProviderSettings(
 	bot: Pick<BotDocument, "inferenceSettings">,
 	owner: Pick<UserDocument, "inferenceSettings">,
 	env: ProviderEnvironmentSettings = {},
-	options: { botSource?: Extract<BotProviderSettingSource, "bot" | "source_bot"> } = {},
+	options: BotProviderSettingsResolutionOptions = {},
 ): BotProviderSettingsResolution {
 	const botSource = options.botSource ?? "bot";
 	const botSettings = bot.inferenceSettings;
 	const profileSettings = owner.inferenceSettings ?? {};
-	const envModel = trimmed(env.OPENROUTER_MODEL);
-	const envBaseUrl = trimmed(env.OPENROUTER_BASE_URL);
-	const envApiKey = trimmed(env.OPENROUTER_API_KEY);
+	const envModel = trimmed(env.model);
+	const envBaseUrl = trimmed(env.baseUrl);
+	const envApiKey = trimmed(env.apiKey);
 	const profileModel = trimmed(profileSettings.model);
 	const botModel = trimmed(botSettings.model);
 	const profileBaseUrl = trimmed(profileSettings.baseUrl);
@@ -100,7 +133,8 @@ export function resolveBotProviderSettings(
 	const botApiKeySet = Boolean(botApiKey || botSettings.openRouterApiKeySet);
 	const botTemperatureIsLegacyDefault = botSettings.temperature === legacyDefaultTextGenerationTemperature;
 	const hasProfileProvider = profileApiKeySet || Boolean(profileBaseUrl);
-	const hasBotOrInheritedProvider = botApiKeySet || Boolean(botBaseUrl) || hasProfileProvider;
+	const hasBotOrInheritedProvider =
+		botApiKeySet || Boolean(botBaseUrl) || hasProfileProvider || options.assumeBotProviderAvailable === true;
 	const hasCustomBaseUrl = Boolean(botBaseUrl || profileBaseUrl);
 	const inheritedDefaults: BotInferenceSettings = botModel ? {} : profileSettings;
 
@@ -115,7 +149,7 @@ export function resolveBotProviderSettings(
 	const credential =
 		botApiKeySet ? resolvedSetting(true, botSource)
 		: profileApiKeySet ? resolvedSetting(true, "profile")
-		: !hasCustomBaseUrl && envApiKey ? resolvedSetting(true, "bickr_default")
+		: !hasCustomBaseUrl && (envApiKey || env.apiKeySet) ? resolvedSetting(true, "bickr_default")
 		: undefined;
 	const temperature =
 		botSettings.temperature !== undefined && (!botTemperatureIsLegacyDefault || profileSettings.temperature === undefined) ?
@@ -147,39 +181,39 @@ export function resolveBotProviderSettings(
 		providerRouting?.effective,
 	);
 	const reasoningEffort = reasoningEffortValue ?
-		resolvedSetting(reasoningEffortValue, reasoningEffortInput?.source ?? "bickr_default")
+		capabilityResolvedSetting(reasoningEffortInput, reasoningEffortValue)
 	: undefined;
 	const toolCallsInput = selectedOptionalSetting(botSettings.toolCalls, inheritedDefaults.toolCalls, botSource);
-	const toolCalls = resolvedSetting(
+	const toolCalls = capabilityResolvedSetting(
+		toolCallsInput,
 		effectiveToolCallsForModel(model.effective, openRouter, toolCallsInput?.effective, providerRouting?.effective),
-		toolCallsInput?.source ?? "bickr_default",
 	);
 	const compactionModeInput = selectedOptionalSetting(
 		botSettings.compactionMode,
 		inheritedDefaults.compactionMode,
 		botSource,
 	);
-	const compactionMode = resolvedSetting(
+	const compactionMode = capabilityResolvedSetting(
+		compactionModeInput,
 		effectiveCompactionModeForModel(model.effective, openRouter, compactionModeInput?.effective, providerRouting?.effective),
-		compactionModeInput?.source ?? "bickr_default",
 	);
 	const promptCacheModeInput = selectedOptionalSetting(
 		botSettings.promptCacheMode,
 		inheritedDefaults.promptCacheMode,
 		botSource,
 	);
-	const promptCacheMode = resolvedSetting(
+	const promptCacheMode = capabilityResolvedSetting(
+		promptCacheModeInput,
 		modelSupportsPromptCacheControl(model.effective, openRouter) ? promptCacheModeInput?.effective ?? "off" : "off",
-		promptCacheModeInput?.source ?? "bickr_default",
 	);
 	const supportsPrefillInput = selectedOptionalSetting(
 		botSettings.supportsPrefill,
 		inheritedDefaults.supportsPrefill,
 		botSource,
 	);
-	const supportsPrefill = resolvedSetting(
+	const supportsPrefill = capabilityResolvedSetting(
+		supportsPrefillInput,
 		effectiveSupportsPrefillForModel(model.effective, openRouter, supportsPrefillInput?.effective, providerRouting?.effective),
-		supportsPrefillInput?.source ?? "bickr_default",
 	);
 	const topK = selectedOptionalSetting(botSettings.topK, inheritedDefaults.topK, botSource);
 	const topP = selectedOptionalSetting(botSettings.topP, inheritedDefaults.topP, botSource);
@@ -258,10 +292,20 @@ function resolvedSetting<T>(effective: T, source: BotProviderSettingSource): Res
 	return { effective, source };
 }
 
+function capabilityResolvedSetting<TInput, TEffective>(
+	input: ResolvedBotProviderSetting<TInput> | undefined,
+	effective: TEffective,
+): ResolvedBotProviderSetting<TEffective> {
+	return resolvedSetting(
+		effective,
+		input && !Object.is(input.effective, effective) ? "model_capability" : input?.source ?? "bickr_default",
+	);
+}
+
 function selectedOptionalSetting<T>(
 	botValue: T | undefined,
 	profileValue: T | undefined,
-	botSource: Extract<BotProviderSettingSource, "bot" | "source_bot">,
+	botSource: BotOrSourceSettingSource,
 ): ResolvedBotProviderSetting<T> | undefined {
 	if (botValue !== undefined) {
 		return resolvedSetting(botValue, botSource);

@@ -7,7 +7,11 @@ import { isD1UniqueConstraintError } from '@bickr/shared/d1-errors';
 import { ExclusiveOperationQueue } from '@bickr/shared/exclusive-operation-queue';
 import { json } from '@bickr/shared/http';
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseObjectRef, parseThreadRef } from '@bickr/shared/ids';
-import { resolveBotProviderSettings } from '@bickr/shared/inference-settings';
+import {
+	isOpenRouterProviderBaseUrl,
+	providerEnvironmentSettingsFromBindings,
+	resolveBotProviderSettings,
+} from '@bickr/shared/inference-settings';
 import {
 	addInternalServiceAuthHeader,
 	internalServiceUrl,
@@ -129,7 +133,6 @@ import {
 	localizedTextString,
 } from '@bickr/shared/model';
 import {
-	isOpenRouterProviderBaseUrl,
 	mutableToolNames,
 	openRouterServerToolSelection,
 	standardPrompt,
@@ -1085,7 +1088,7 @@ export function effectiveProviderSettingsForBot(
 	owner: Pick<UserDocument, 'inferenceSettings'>,
 	env: Pick<Env, 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
 ): ProviderSettings {
-	return resolveBotProviderSettings(bot, owner, env).settings;
+	return resolveBotProviderSettings(bot, owner, providerEnvironmentSettingsFromBindings(env)).settings;
 }
 
 export function effectiveProviderSettingsForTranslation(

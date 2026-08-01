@@ -9,6 +9,7 @@ import type { BotSummary } from "./api";
 import type { ToolResultEnvelope } from "../tool-results";
 
 export const defaultProviderModel = "openrouter/free";
+export const defaultProviderBaseUrl = "https://openrouter.ai/api/v1";
 export const defaultTextGenerationTemperature = 1;
 export const legacyDefaultTextGenerationTemperature = 0.9;
 export const defaultTranslationPrompt = "Translate to English.";

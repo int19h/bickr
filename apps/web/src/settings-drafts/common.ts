@@ -37,8 +37,7 @@ export function inferenceCapabilityContextForDraft(
 	inherited?: BotInferenceSettings | null,
 ): InferenceCapabilityContext {
 	const fallback = inferenceFallbackContextForDraft(draft, inherited);
-	const baseUrl = effectiveInferenceDraftBaseUrl(draft, fallback);
-	const model = effectiveInferenceDraftModel(draft, fallback);
+	const { baseUrl, model } = resolvedDraftProviderConnection(draft, fallback).settings;
 	const providerRouting = effectiveInferenceDraftProviderRouting(draft, fallback);
 	return inferenceCapabilityContext(model, baseUrl, providerRouting);
 }
@@ -61,46 +60,57 @@ export function inferenceCapabilityContext(
 	};
 }
 
-export { isOpenRouterProviderBaseUrl };
-
 export function effectiveInferenceDraftModel(
 	draft: InferenceDraft,
 	inherited?: InferenceModelUnlockContext | null,
 ): string {
-	return resolveBotProviderSettings(
-		{ inferenceSettings: inferenceSettingsFromDraftConnection(draft) },
-		{ inferenceSettings: inferenceSettingsFromUnlockContext(inherited) },
-	).settings.model;
+	return resolvedDraftProviderConnection(draft, inherited).settings.model;
 }
 
 export function effectiveInferenceSettingsModel(
 	settings: BotInferenceSettings,
 	inherited?: InferenceModelUnlockContext | null,
 ): string {
-	return resolveBotProviderSettings(
-		{ inferenceSettings: settings },
-		{ inferenceSettings: inferenceSettingsFromUnlockContext(inherited) },
-	).settings.model;
+	return resolvedStoredProviderConnection(settings, inherited).settings.model;
 }
 
 export function effectiveInferenceDraftBaseUrl(
 	draft: InferenceDraft,
 	inherited?: InferenceModelUnlockContext | null,
 ): string {
-	return resolveBotProviderSettings(
-		{ inferenceSettings: inferenceSettingsFromDraftConnection(draft) },
-		{ inferenceSettings: inferenceSettingsFromUnlockContext(inherited) },
-	).settings.baseUrl;
+	return resolvedDraftProviderConnection(draft, inherited).settings.baseUrl;
 }
 
 export function effectiveInferenceSettingsBaseUrl(
 	settings: BotInferenceSettings,
 	inherited?: InferenceModelUnlockContext | null,
 ): string {
+	return resolvedStoredProviderConnection(settings, inherited).settings.baseUrl;
+}
+
+function resolvedDraftProviderConnection(
+	draft: InferenceDraft,
+	inherited?: InferenceModelUnlockContext | null,
+) {
+	return resolveBotProviderSettings(
+		{ inferenceSettings: inferenceSettingsFromDraftConnection(draft) },
+		{ inferenceSettings: inferenceSettingsFromUnlockContext(inherited) },
+	);
+}
+
+function resolvedStoredProviderConnection(
+	settings: BotInferenceSettings,
+	inherited?: InferenceModelUnlockContext | null,
+) {
 	return resolveBotProviderSettings(
 		{ inferenceSettings: settings },
 		{ inferenceSettings: inferenceSettingsFromUnlockContext(inherited) },
-	).settings.baseUrl;
+		{},
+		// Public bot payloads intentionally omit the owner's provider credential.
+		// When that private inheritance context is unavailable, the stored model has
+		// already passed write-time access enforcement and remains authoritative.
+		{ assumeBotProviderAvailable: inherited == null },
+	);
 }
 
 function inferenceSettingsFromDraftConnection(draft: InferenceDraft): BotInferenceSettings {
