@@ -7,6 +7,7 @@ import { isD1UniqueConstraintError } from '@bickr/shared/d1-errors';
 import { ExclusiveOperationQueue } from '@bickr/shared/exclusive-operation-queue';
 import { json } from '@bickr/shared/http';
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseObjectRef, parseThreadRef } from '@bickr/shared/ids';
+import { resolveBotProviderSettings } from '@bickr/shared/inference-settings';
 import {
 	addInternalServiceAuthHeader,
 	internalServiceUrl,
@@ -85,7 +86,6 @@ import {
 	defaultReasoningPrefill,
 	defaultTranslationPrompt,
 	defaultTextGenerationTemperature,
-	legacyDefaultTextGenerationTemperature,
 	type BotInferenceSubmission,
 	type BotInferenceSubmissionMessage,
 	type BotInferenceSubmissionPurpose,
@@ -1085,114 +1085,7 @@ export function effectiveProviderSettingsForBot(
 	owner: Pick<UserDocument, 'inferenceSettings'>,
 	env: Pick<Env, 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
 ): ProviderSettings {
-	const userSettings = owner.inferenceSettings ?? {};
-	const envModel = trimmed(env.OPENROUTER_MODEL);
-	const envBaseUrl = trimmed(env.OPENROUTER_BASE_URL);
-	const envApiKey = trimmed(env.OPENROUTER_API_KEY);
-	const userModel = trimmed(userSettings.model);
-	const botModel = trimmed(bot.inferenceSettings.model);
-	const userBaseUrl = trimmed(userSettings.baseUrl);
-	const botBaseUrl = trimmed(bot.inferenceSettings.baseUrl);
-	const userApiKey = trimmed(userSettings.openRouterApiKey);
-	const botApiKey = trimmed(bot.inferenceSettings.openRouterApiKey);
-	const botTemperatureIsLegacyDefault = bot.inferenceSettings.temperature === legacyDefaultTextGenerationTemperature;
-	const hasUserProvider = Boolean(userApiKey || userBaseUrl);
-	const hasBotOrInheritedProvider = Boolean(botApiKey || botBaseUrl || hasUserProvider);
-	const hasCustomBaseUrl = Boolean(botBaseUrl || userBaseUrl);
-	const inheritedDefaults: BotInferenceSettings = botModel ? {} : userSettings;
-
-	const model =
-		botModel && hasBotOrInheritedProvider
-			? botModel
-			: userModel && hasUserProvider
-				? userModel
-				: envModel
-					? envModel
-					: fallbackProviderModel;
-	const baseUrl = botBaseUrl ?? userBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl;
-	const temperature =
-		bot.inferenceSettings.temperature !== undefined && (!botTemperatureIsLegacyDefault || userSettings.temperature === undefined)
-			? bot.inferenceSettings.temperature
-			: inheritedDefaults.temperature !== undefined
-				? inheritedDefaults.temperature
-				: bot.inferenceSettings.temperature !== undefined
-					? bot.inferenceSettings.temperature
-					: defaultTextGenerationTemperature;
-	const providerRouting =
-		bot.inferenceSettings.providerRouting !== undefined ? bot.inferenceSettings.providerRouting : inheritedDefaults.providerRouting;
-	const effectiveProviderRouting = openRouterProviderRouting(baseUrl, providerRouting);
-	const openRouterBaseUrl = isOpenRouterProviderBaseUrl(baseUrl);
-	const reasoningEffort = effectiveReasoningEffortForModel(
-		model,
-		openRouterBaseUrl,
-		bot.inferenceSettings.reasoningEffort ?? inheritedDefaults.reasoningEffort,
-		effectiveProviderRouting,
-	);
-	const toolCalls = effectiveToolCallsForModel(
-		model,
-		openRouterBaseUrl,
-		bot.inferenceSettings.toolCalls ?? inheritedDefaults.toolCalls,
-		effectiveProviderRouting,
-	);
-	const compactionMode = effectiveCompactionModeForModel(
-		model,
-		openRouterBaseUrl,
-		bot.inferenceSettings.compactionMode ?? inheritedDefaults.compactionMode,
-		effectiveProviderRouting,
-	);
-	const promptCacheMode = modelSupportsPromptCacheControl(model, openRouterBaseUrl)
-		? bot.inferenceSettings.promptCacheMode ?? inheritedDefaults.promptCacheMode
-		: undefined;
-	const supportsPrefill = effectiveSupportsPrefillForModel(
-		model,
-		openRouterBaseUrl,
-		bot.inferenceSettings.supportsPrefill ?? inheritedDefaults.supportsPrefill,
-		effectiveProviderRouting,
-	);
-
-	return {
-		apiKey: botApiKey ?? userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
-		baseUrl,
-		model,
-		compactionMode,
-		...(promptCacheMode && promptCacheMode !== 'off' ? { promptCacheMode } : {}),
-		...(effectiveProviderRouting ? { providerRouting: effectiveProviderRouting } : {}),
-		...(reasoningEffort ? { reasoningEffort } : {}),
-		supportsPrefill,
-		toolCalls,
-		temperature,
-		...(hasCustomBaseUrl ? { usesCustomBaseUrl: true } : {}),
-		...(bot.inferenceSettings.topK !== undefined
-			? { topK: bot.inferenceSettings.topK }
-			: inheritedDefaults.topK !== undefined
-				? { topK: inheritedDefaults.topK }
-				: {}),
-		...(bot.inferenceSettings.topP !== undefined
-			? { topP: bot.inferenceSettings.topP }
-			: inheritedDefaults.topP !== undefined
-				? { topP: inheritedDefaults.topP }
-				: {}),
-		...(bot.inferenceSettings.minP !== undefined
-			? { minP: bot.inferenceSettings.minP }
-			: inheritedDefaults.minP !== undefined
-				? { minP: inheritedDefaults.minP }
-				: {}),
-		...(bot.inferenceSettings.frequencyPenalty !== undefined
-			? { frequencyPenalty: bot.inferenceSettings.frequencyPenalty }
-			: inheritedDefaults.frequencyPenalty !== undefined
-				? { frequencyPenalty: inheritedDefaults.frequencyPenalty }
-				: {}),
-		...(bot.inferenceSettings.presencePenalty !== undefined
-			? { presencePenalty: bot.inferenceSettings.presencePenalty }
-			: inheritedDefaults.presencePenalty !== undefined
-				? { presencePenalty: inheritedDefaults.presencePenalty }
-				: {}),
-		...(bot.inferenceSettings.repetitionPenalty !== undefined
-			? { repetitionPenalty: bot.inferenceSettings.repetitionPenalty }
-			: inheritedDefaults.repetitionPenalty !== undefined
-				? { repetitionPenalty: inheritedDefaults.repetitionPenalty }
-				: {}),
-	};
+	return resolveBotProviderSettings(bot, owner, env).settings;
 }
 
 export function effectiveProviderSettingsForTranslation(

@@ -738,6 +738,7 @@ describe("MCP endpoint", () => {
 			shortBio: "Source bio",
 			prompt: "Source prompt",
 			inferenceSettings: {
+				baseUrl: "http://localhost:11434/v1",
 				model: "source/model",
 				temperature: 0.2,
 				imageGeneration: {
@@ -802,6 +803,83 @@ describe("MCP endpoint", () => {
 		});
 	});
 
+	it("uses the shared runtime resolution for profile-inherited MCP settings", async () => {
+		const kv = new MapKV();
+		const bot = testBot({ id: "bot_source", handle: "profile-default", inferenceSettings: {} });
+		const user = testUser({
+			inferenceSettings: {
+				model: "deepseek/deepseek-v4-flash-0731",
+				openRouterApiKey: "profile-secret",
+				providerRouting: { only: ["deepseek/fp8"] },
+			},
+		});
+		await kv.put(kvKeys.bot(bot.id), JSON.stringify(bot));
+		const accessToken = await issueAccessToken(kv, ["bickr.read"], user);
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: { name: "get_bot", arguments: { botId: bot.id } },
+		}, { BICKR_D1: mcpSettingsD1() });
+		const body = await jsonResponse(response);
+		const toolResult = body.result as { structuredContent: unknown };
+		const structured = toolResult.structuredContent as {
+			bot: { inferenceSettings: Record<string, unknown>; mcpResolvedSettings: Record<string, Record<string, unknown>> };
+		};
+
+		expect(structured.bot.inferenceSettings).not.toHaveProperty("openRouterApiKey");
+		expect(JSON.stringify(structured)).not.toContain("profile-secret");
+		expect(structured.bot.mcpResolvedSettings.inferenceSettings.model).toMatchObject({
+			effective: "deepseek/deepseek-v4-flash-0731",
+			source: "profile",
+		});
+		expect(structured.bot.mcpResolvedSettings.inferenceSettings.openRouterApiKeySet).toMatchObject({
+			effective: true,
+			source: "profile",
+		});
+		expect(structured.bot.mcpResolvedSettings.inferenceSettings.providerRouting).toMatchObject({
+			effective: { only: ["deepseek/fp8"] },
+			source: "profile",
+		});
+	});
+
+	it("annotates update_bot receipts with profile-inherited effective settings", async () => {
+		const kv = new MapKV();
+		const bot = testBot({ id: "bot_updated_default", handle: "updated-default", inferenceSettings: {} });
+		const user = testUser({
+			inferenceSettings: {
+				model: "deepseek/deepseek-v4-flash-0731",
+				openRouterApiKey: "profile-secret",
+			},
+		});
+		const accessToken = await issueAccessToken(kv, ["bickr.write"], user);
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: {
+				name: "update_bot",
+				arguments: {
+					operations: [{ operationId: "clear-model", botId: bot.id, inferenceSettings: { model: null } }],
+				},
+			},
+		}, {
+			AGENT_RUNTIME: { fetch: async () => Response.json({ ok: true, data: { bot } }) },
+			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+		});
+		const body = await jsonResponse(response);
+		const toolResult = body.result as { structuredContent: { results: Array<{ result: unknown }> } };
+		const result = toolResult.structuredContent.results[0]?.result as {
+			data: { bot: { mcpResolvedSettings: Record<string, Record<string, unknown>> } };
+		};
+
+		expect(result.data.bot.mcpResolvedSettings.inferenceSettings.model).toMatchObject({
+			effective: "deepseek/deepseek-v4-flash-0731",
+			source: "profile",
+		});
+		expect(JSON.stringify(result)).not.toContain("profile-secret");
+	});
+
 	it("rejects write tools before execution when the token has read scope only", async () => {
 		const kv = new MapKV();
 		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
@@ -854,8 +932,8 @@ async function jsonResponse(response: Response): Promise<Record<string, unknown>
 	return await response.json() as Record<string, unknown>;
 }
 
-async function issueAccessToken(kv: KVNamespaceLike, scopes: string[]): Promise<string> {
-	await kv.put(kvKeys.user("usr_mcp"), JSON.stringify(testUser()));
+async function issueAccessToken(kv: KVNamespaceLike, scopes: string[], user = testUser()): Promise<string> {
+	await kv.put(kvKeys.user("usr_mcp"), JSON.stringify(user));
 	const now = new Date();
 	const client = await registerMcpClient(kv, {
 		clientName: "MCP Inspector",
@@ -1049,7 +1127,7 @@ function testBot(
 	};
 }
 
-function testUser(): UserDocument {
+function testUser(overrides: Partial<UserDocument> = {}): UserDocument {
 	return {
 		id: "usr_mcp",
 		type: "user",
@@ -1061,6 +1139,7 @@ function testUser(): UserDocument {
 		profileCompletedAt: "2026-05-01T00:00:00.000Z",
 		createdAt: "2026-05-01T00:00:00.000Z",
 		updatedAt: "2026-05-01T00:00:00.000Z",
+		...overrides,
 	};
 }
 

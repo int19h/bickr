@@ -1,4 +1,10 @@
 import {
+	resolveBotProviderSettings,
+	type BotProviderSettingSource,
+	type ResolvedBotProviderSetting,
+	type ResolvedBotProviderSettings,
+} from "@bickr/shared/inference-settings";
+import {
 	addInternalServiceAuthHeader,
 	type InternalServiceAuthEnv,
 	internalServiceUrl,
@@ -17,8 +23,6 @@ import {
 } from "@bickr/shared/mcp-auth";
 import {
 	avatarImageGenerationSettingsWithDefaults,
-	defaultProviderModel,
-	defaultTextGenerationTemperature,
 	type AvatarCrop,
 	type AvatarImage,
 	type BotDocument,
@@ -32,6 +36,7 @@ import {
 	type PostingSettings,
 	type ForumSummary,
 	type ThreadDocument,
+	type UserDocument,
 	type WorldSummary,
 	worldAvatarImageGenerationSettingsWithDefaults,
 } from "@bickr/shared/model";
@@ -265,7 +270,7 @@ async function callTool(ctx: ToolContext, params: unknown): Promise<unknown> {
 		case "read":
 			try {
 				const result = await tool.execute(ctx, args);
-				return toolResult({ kind: tool.resultKind, payload: result });
+				return toolResult({ kind: tool.resultKind, payload: result }, ctx.auth.user);
 			} catch (error) {
 				return toolError(errorPayload(error));
 			}
@@ -290,7 +295,7 @@ async function callMutationTool(
 			// Retire this singleton path after 2026-09-01 once clients have refreshed tools/list.
 			const legacyArguments = tool.legacyArguments ? tool.legacyArguments(args) : args;
 			const result = await tool.executeOperation(ctx, legacyArguments);
-			return toolResult({ kind: tool.resultKind, payload: result });
+			return toolResult({ kind: tool.resultKind, payload: result }, ctx.auth.user);
 		}
 		const operations = mutationOperations(args, tool.operationSchema);
 		const results: MutationOperationResult[] = [];
@@ -310,7 +315,7 @@ async function callMutationTool(
 				results.push({ operationId: operation.operationId, status: "failed", error: jsonCompatible(payload) });
 				continue;
 			}
-			results.push(successfulMutationOperationResult(operation.operationId, tool.resultKind, payload));
+			results.push(successfulMutationOperationResult(operation.operationId, tool.resultKind, payload, ctx.auth.user));
 		}
 		return mutationToolResult(results);
 	} catch (error) {
@@ -510,17 +515,19 @@ const mcpTools: McpTool[] = [
 		return `/forums/${encodeURIComponent(forum.id)}/threads/${encodeURIComponent(text(args.threadId, "Thread ID"))}/comments/${encodeURIComponent(text(args.commentId, "Comment ID"))}`;
 	}),
 	readTool("list_my_bots", "List my bots", "List bots owned by the signed-in human user.", {}, async ({ env, auth }) => ({
-		bots: annotateMcpBots(await listUserBots(env.BICKR_KV, env.BICKR_D1, auth.user.id)),
+		bots: annotateMcpBots(await listUserBots(env.BICKR_KV, env.BICKR_D1, auth.user.id), auth.user),
 	}), "bots"),
 	readTool("list_world_bots", "List world bots", "List bots in a Bickr world.", {
 		worldHandle: stringSchema("World handle."),
-	}, async ({ env }, args) => ({ bots: annotateMcpBots(await listWorldBots(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"))) }), "bots"),
+	}, async ({ env, auth }, args) => ({
+		bots: annotateMcpBots(await listWorldBots(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle")), auth.user),
+	}), "bots"),
 	readTool("get_bot", "Get bot", "Read one Bickr bot by ID.", {
 		botId: stringSchema("Bot ID."),
-	}, async ({ env }, args) => {
+	}, async ({ env, auth }, args) => {
 		const bot = await botById(env.BICKR_KV, env.BICKR_D1, text(args.botId, "Bot ID"));
 		const world = await worldByHandle(env.BICKR_D1, bot.homeWorldHandle);
-		return { bot: annotateMcpBot(bot, world.postingSettings) };
+		return { bot: annotateMcpBot(bot, world.postingSettings, auth.user) };
 	}, "bot"),
 	serviceTool("create_bot", "Create bot", "Create a Bickr bot in a world.", bodySchema({
 		worldHandle: stringSchema("World handle."),
@@ -1043,10 +1050,8 @@ async function servicePayload(
 }
 
 type ResolvedSettingSource =
-	| "bot"
-	| "source_bot"
-	| "world"
-	| "bickr_default";
+	| BotProviderSettingSource
+	| "world";
 
 type ResolvedSetting<T> = {
 	effective: T;
@@ -1057,19 +1062,19 @@ type ResolvedSetting<T> = {
 
 type ResolvedSettingMap = Record<string, ResolvedSetting<unknown>>;
 
-function annotateMcpPayload(envelope: McpPayloadEnvelope): unknown {
+function annotateMcpPayload(envelope: McpPayloadEnvelope, viewer?: UserDocument): unknown {
 	switch (envelope.kind) {
 		case "opaque":
 			return envelope.payload;
 		case "bot":
 			return mapMcpPayloadData(envelope.payload, (record) => ({
 				...record,
-				bot: annotateMcpBot(record.bot as BotDocument | BotSummary),
+				bot: annotateMcpBot(record.bot as BotDocument | BotSummary, undefined, viewer),
 			}));
 		case "bots":
 			return mapMcpPayloadData(envelope.payload, (record) => ({
 				...record,
-				bots: (record.bots as Array<BotDocument | BotSummary>).map((bot) => annotateMcpBot(bot)),
+				bots: (record.bots as Array<BotDocument | BotSummary>).map((bot) => annotateMcpBot(bot, undefined, viewer)),
 			}));
 		case "world":
 			return mapMcpPayloadData(envelope.payload, (record) => ({
@@ -1093,12 +1098,12 @@ function annotateMcpPayload(envelope: McpPayloadEnvelope): unknown {
 		case "group":
 			return mapMcpPayloadData(envelope.payload, (record) => ({
 				...record,
-				group: annotateMcpBotGroup(record.group as BotGroupSummary),
+				group: annotateMcpBotGroup(record.group as BotGroupSummary, viewer),
 			}));
 		case "groups":
 			return mapMcpPayloadData(envelope.payload, (record) => ({
 				...record,
-				groups: (record.groups as BotGroupSummary[]).map(annotateMcpBotGroup),
+				groups: (record.groups as BotGroupSummary[]).map((group) => annotateMcpBotGroup(group, viewer)),
 			}));
 		default:
 			return assertNeverMcpPayloadEnvelope(envelope);
@@ -1142,21 +1147,26 @@ function annotateMcpWorld(world: WorldSummary): WorldSummary & { lang: WorldSumm
 
 function annotateMcpBotGroup(
 	group: BotGroupSummary,
+	viewer?: UserDocument,
 ): BotGroupSummary & { lang: BotGroupSummary["language"]; bots: Array<BotSummary & { lang: BotSummary["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> }> } {
 	return {
 		...group,
 		lang: group.language,
-		bots: annotateMcpBots(group.bots),
+		bots: annotateMcpBots(group.bots, viewer),
 	};
 }
 
-function annotateMcpBots<T extends BotDocument | BotSummary>(bots: T[]): Array<T & { lang: T["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> }> {
-	return bots.map((bot) => annotateMcpBot(bot));
+function annotateMcpBots<T extends BotDocument | BotSummary>(
+	bots: T[],
+	viewer?: UserDocument,
+): Array<T & { lang: T["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> }> {
+	return bots.map((bot) => annotateMcpBot(bot, undefined, viewer));
 }
 
 function annotateMcpBot<T extends BotDocument | BotSummary>(
 	bot: T,
 	worldPostingSettings?: PostingSettings,
+	viewer?: UserDocument,
 ): T & { lang: T["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> } {
 	if ("mcpResolvedSettings" in bot) {
 		return { ...bot, lang: bot.language } as T & { lang: T["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> };
@@ -1179,7 +1189,6 @@ function annotateMcpBot<T extends BotDocument | BotSummary>(
 	};
 	const mcpResolvedSettings: Record<string, ResolvedSettingMap> = {
 		cloneProfile,
-		inferenceSettings: resolvedInferenceSettings(specifiedInference, bot.inferenceSettings, cloneLinked, sourceBotLabel(bot)),
 		postingSettings: resolvedPostingSettings(
 			bot.postingSettings,
 			"effectivePostingSettings" in bot ? bot.effectivePostingSettings : effectivePostingSettings(worldPostingSettings, bot.postingSettings),
@@ -1187,6 +1196,15 @@ function annotateMcpBot<T extends BotDocument | BotSummary>(
 		),
 		tickSettings: resolvedTickSettings(bot.tickSettings, "effectiveTickSettings" in bot ? bot.effectiveTickSettings : undefined),
 	};
+	if (viewer?.id === bot.ownerUserId) {
+		mcpResolvedSettings.inferenceSettings = resolvedInferenceSettings(
+			specifiedInference,
+			bot.inferenceSettings,
+			viewer.inferenceSettings,
+			cloneLinked,
+			sourceBotLabel(bot),
+		);
+	}
 	if (bot.inferenceSettings.imageGeneration) {
 		mcpResolvedSettings.imageGeneration = resolvedImageGenerationSettings(
 			specifiedInference.imageGeneration,
@@ -1264,15 +1282,23 @@ function cloneFieldHasSpecifiedValue(value: unknown): boolean {
 function resolvedInferenceSettings(
 	specified: BotInferenceSettings,
 	effective: BotInferenceSettings,
+	profile: BotInferenceSettings | undefined,
 	cloneLinked: boolean,
 	sourceBot: string,
 ): ResolvedSettingMap {
+	const inheritedFromSource = cloneLinked && !specified.model?.trim();
+	const resolution = resolveBotProviderSettings(
+		{ inferenceSettings: effective },
+		{ inferenceSettings: profile },
+		{},
+		{ botSource: inheritedFromSource ? "source_bot" : "bot" },
+	);
 	const keys = [
+		"openRouterApiKeySet",
 		"baseUrl",
 		"model",
 		"compactionMode",
-		"recurringPromptEnabled",
-		"recurringPrompt",
+		"promptCacheMode",
 		"supportsPrefill",
 		"reasoningEffort",
 		"toolCalls",
@@ -1284,48 +1310,72 @@ function resolvedInferenceSettings(
 		"frequencyPenalty",
 		"presencePenalty",
 		"repetitionPenalty",
-	] as const;
+	] as const satisfies ReadonlyArray<keyof ResolvedBotProviderSettings>;
 	const resolved: ResolvedSettingMap = {};
 	for (const key of keys) {
-		const fallback = inferenceDefault(key);
-		const effectiveSpecified = effective[key] !== undefined;
-		const effectiveValue = effectiveSpecified ? effective[key] : fallback.value;
-		if (effectiveValue === undefined) {
+		const setting = resolution.resolved[key];
+		if (!setting) {
 			continue;
 		}
-		resolved[key] = resolvedField(
-			specified[key],
-			effectiveValue,
-			cloneLinked && effectiveSpecified,
+		resolved[key] = resolvedProviderSetting(
+			setting,
+			key === "openRouterApiKeySet" ? specified.openRouterApiKeySet : specified[key],
 			`inference setting ${key}`,
 			sourceBot,
-			fallback.explanation,
 		);
 	}
-	if (specified.openRouterApiKeySet || effective.openRouterApiKeySet) {
-		resolved.openRouterApiKeySet = resolvedField(
-			specified.openRouterApiKeySet,
-			effective.openRouterApiKeySet ?? false,
-			cloneLinked,
-			"inference setting openRouterApiKeySet",
-			sourceBot,
-			undefined,
-		);
+	for (const key of ["recurringPromptEnabled", "recurringPrompt"] as const) {
+		if (effective[key] !== undefined) {
+			resolved[key] = resolvedField(
+				specified[key],
+				effective[key],
+				inheritedFromSource,
+				`inference setting ${key}`,
+				sourceBot,
+				undefined,
+			);
+		}
 	}
 	return resolved;
 }
 
-function inferenceDefault(
-	key: keyof BotInferenceSettings,
-): { value?: unknown; explanation?: string } {
-	switch (key) {
-		case "model":
-			return { value: defaultProviderModel, explanation: "No bot or source bot model is specified, so Bickr uses its default provider model." };
-		case "temperature":
-			return { value: defaultTextGenerationTemperature, explanation: "No bot or source bot temperature is specified, so Bickr uses its default text generation temperature." };
+function resolvedProviderSetting(
+	setting: ResolvedBotProviderSetting<unknown>,
+	specified: unknown,
+	label: string,
+	sourceBot: string,
+): ResolvedSetting<unknown> {
+	return {
+		...(specified !== undefined ? { specified } : {}),
+		effective: setting.effective,
+		source: setting.source,
+		explanation: providerSettingExplanation(setting.source, label, sourceBot, specified !== undefined),
+	};
+}
+
+function providerSettingExplanation(
+	source: BotProviderSettingSource,
+	label: string,
+	sourceBot: string,
+	hasSpecifiedValue: boolean,
+): string {
+	const prefix = hasSpecifiedValue && source !== "bot" ? `This bot specifies ${label}, but ` : "";
+	switch (source) {
+		case "bot":
+			return `The effective ${label} is resolved from this bot's setting.`;
+		case "source_bot":
+			return `${prefix || "This linked clone does not specify a local value, so "}Bickr resolves the effective ${label} from ${sourceBot}.`;
+		case "profile":
+			return `${prefix || "No bot or source bot value applies, so "}Bickr resolves the effective ${label} from the owner's profile defaults.`;
+		case "bickr_default":
+			return `${prefix || "No bot, source bot, or profile value applies, so "}Bickr resolves the effective ${label} from its default behavior.`;
 		default:
-			return {};
+			return assertNeverProviderSettingSource(source);
 	}
+}
+
+function assertNeverProviderSettingSource(source: never): never {
+	throw new Error(`Unhandled provider setting source: ${String(source)}`);
 }
 
 function resolvedImageGenerationSettings(
@@ -1532,11 +1582,11 @@ function toolMetadata(tool: McpTool): Record<string, unknown> {
 	};
 }
 
-function toolResult(envelope: McpPayloadEnvelope): Record<string, unknown> {
+function toolResult(envelope: McpPayloadEnvelope, viewer?: UserDocument): Record<string, unknown> {
 	if (isApiFailure(envelope.payload)) {
 		return toolError(envelope.payload);
 	}
-	const presented = annotateMcpPayload(envelope);
+	const presented = annotateMcpPayload(envelope, viewer);
 	const structuredContent = jsonCompatible(presented);
 	return {
 		structuredContent,
@@ -1562,12 +1612,13 @@ function successfulMutationOperationResult(
 	operationId: string,
 	kind: McpPayloadEnvelope["kind"],
 	payload: unknown,
+	viewer?: UserDocument,
 ): MutationOperationResult {
 	try {
 		return {
 			operationId,
 			status: "succeeded",
-			result: jsonCompatible(annotateMcpPayload({ kind, payload })),
+			result: jsonCompatible(annotateMcpPayload({ kind, payload }, viewer)),
 		};
 	} catch (error) {
 		// The mutation itself returned successfully. A presentation failure must not

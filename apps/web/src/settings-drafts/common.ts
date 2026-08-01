@@ -1,11 +1,14 @@
 import {
-	defaultProviderModel,
 	localizedText,
 	localizedTextString,
 	type BotInferenceSettings,
 	type JsonObject,
 	type LanguageTag,
 } from "@bickr/shared/model";
+import {
+	isOpenRouterProviderBaseUrl,
+	resolveBotProviderSettings,
+} from "@bickr/shared/inference-settings";
 import {
 	modelSupportsPrefill,
 	modelSupportsPromptCacheControl,
@@ -58,74 +61,68 @@ export function inferenceCapabilityContext(
 	};
 }
 
-export function isOpenRouterProviderBaseUrl(baseUrl: string): boolean {
-	try {
-		const url = new URL(baseUrl);
-		if (url.protocol !== "https:" || url.hostname !== "openrouter.ai") {
-			return false;
-		}
-		const path = url.pathname.replace(/\/+$/, "");
-		return path === "/api/v1" || path === "/api/v1/chat/completions" || path === "/api/v1/images";
-	} catch {
-		return false;
-	}
-}
+export { isOpenRouterProviderBaseUrl };
 
 export function effectiveInferenceDraftModel(
 	draft: InferenceDraft,
 	inherited?: InferenceModelUnlockContext | null,
 ): string {
-	const draftHasProvider =
-		Boolean(draft.openRouterApiKey.trim()) ||
-		(draft.openRouterApiKeySet && !draft.clearOpenRouterApiKey) ||
-		Boolean(draft.baseUrl.trim());
-	const inheritedHasProvider =
-		Boolean(inherited?.apiKeySet || inherited?.openRouterApiKeySet) ||
-		Boolean(inherited?.openRouterApiKey?.trim()) ||
-		Boolean(inherited?.baseUrl?.trim());
-	const draftModel = draft.model.trim();
-	if (draftModel && (draftHasProvider || inheritedHasProvider)) {
-		return draftModel;
-	}
-	if (inherited?.model && inheritedHasProvider) {
-		return inherited.model;
-	}
-	return defaultProviderModel;
+	return resolveBotProviderSettings(
+		{ inferenceSettings: inferenceSettingsFromDraftConnection(draft) },
+		{ inferenceSettings: inferenceSettingsFromUnlockContext(inherited) },
+	).settings.model;
 }
 
 export function effectiveInferenceSettingsModel(
 	settings: BotInferenceSettings,
 	inherited?: InferenceModelUnlockContext | null,
 ): string {
-	const settingsHasProvider =
-		Boolean(settings.openRouterApiKeySet) ||
-		Boolean(settings.openRouterApiKey?.trim()) ||
-		Boolean(settings.baseUrl?.trim());
-	const inheritedHasProvider =
-		Boolean(inherited?.apiKeySet || inherited?.openRouterApiKeySet) ||
-		Boolean(inherited?.openRouterApiKey?.trim()) ||
-		Boolean(inherited?.baseUrl?.trim());
-	if (settings.model?.trim() && (settingsHasProvider || inheritedHasProvider || !inherited)) {
-		return settings.model.trim();
-	}
-	if (inherited?.model && inheritedHasProvider) {
-		return inherited.model;
-	}
-	return defaultProviderModel;
+	return resolveBotProviderSettings(
+		{ inferenceSettings: settings },
+		{ inferenceSettings: inferenceSettingsFromUnlockContext(inherited) },
+	).settings.model;
 }
 
 export function effectiveInferenceDraftBaseUrl(
 	draft: InferenceDraft,
 	inherited?: InferenceModelUnlockContext | null,
 ): string {
-	return draft.baseUrl.trim() || inherited?.baseUrl?.trim() || "https://openrouter.ai/api/v1";
+	return resolveBotProviderSettings(
+		{ inferenceSettings: inferenceSettingsFromDraftConnection(draft) },
+		{ inferenceSettings: inferenceSettingsFromUnlockContext(inherited) },
+	).settings.baseUrl;
 }
 
 export function effectiveInferenceSettingsBaseUrl(
 	settings: BotInferenceSettings,
 	inherited?: InferenceModelUnlockContext | null,
 ): string {
-	return settings.baseUrl?.trim() || inherited?.baseUrl?.trim() || "https://openrouter.ai/api/v1";
+	return resolveBotProviderSettings(
+		{ inferenceSettings: settings },
+		{ inferenceSettings: inferenceSettingsFromUnlockContext(inherited) },
+	).settings.baseUrl;
+}
+
+function inferenceSettingsFromDraftConnection(draft: InferenceDraft): BotInferenceSettings {
+	return {
+		...(!draft.clearOpenRouterApiKey && draft.openRouterApiKey.trim() ? { openRouterApiKey: draft.openRouterApiKey.trim() } : {}),
+		...(!draft.clearOpenRouterApiKey && draft.openRouterApiKeySet ? { openRouterApiKeySet: true } : {}),
+		...(draft.baseUrl.trim() ? { baseUrl: draft.baseUrl.trim() } : {}),
+		...(draft.model.trim() ? { model: draft.model.trim() } : {}),
+	};
+}
+
+function inferenceSettingsFromUnlockContext(
+	inherited?: InferenceModelUnlockContext | null,
+): BotInferenceSettings | undefined {
+	if (!inherited) {
+		return undefined;
+	}
+	const { apiKeySet, ...settings } = inherited;
+	return {
+		...settings,
+		...(apiKeySet || settings.openRouterApiKeySet ? { openRouterApiKeySet: true } : {}),
+	};
 }
 
 export function effectiveInferenceDraftProviderRouting(

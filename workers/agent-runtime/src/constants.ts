@@ -1,3 +1,4 @@
+import { defaultProviderBaseUrl } from '@bickr/shared/inference-settings';
 import { defaultProviderModel } from '@bickr/shared/model';
 
 export const providerContextCompletionReserveTokens = 5_000;
@@ -96,7 +97,7 @@ export const dayMs = 24 * 60 * 60 * 1000;
 
 export const fallbackProviderModel = defaultProviderModel;
 
-export const fallbackProviderBaseUrl = 'https://openrouter.ai/api/v1';
+export const fallbackProviderBaseUrl = defaultProviderBaseUrl;
 
 export const legacyProviderToolCallHistoryNormalizedStateKey = 'loop_messages_provider_tool_call_history_normalized_v1';
 
