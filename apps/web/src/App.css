@@ -1252,6 +1252,34 @@ button:disabled {
 	padding: 10px;
 }
 
+.sidebar-community-links {
+	align-items: center;
+	display: flex;
+	gap: 4px;
+	margin-top: 8px;
+}
+
+.sidebar-community-link {
+	align-items: center;
+	border-radius: 5px;
+	color: var(--ink-3);
+	display: inline-flex;
+	height: 28px;
+	justify-content: center;
+	transition:
+		background 80ms,
+		color 80ms;
+	width: 28px;
+}
+
+.sidebar-community-link:hover {
+	background: var(--paper-2);
+}
+
+.sidebar-community-link-discord {
+	color: #5865f2;
+}
+
 .main {
 	background: var(--paper);
 	overflow-y: auto;

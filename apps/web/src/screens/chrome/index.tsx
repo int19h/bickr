@@ -59,6 +59,8 @@ import {
 import { useUiText } from "../../components/ui-text";
 
 const bickrLogoSrc = "/bickr.png";
+const githubRepositoryUrl = "https://github.com/int19h/bickr";
+const discordInviteUrl = "https://discord.gg/9jhVMHU2e";
 
 export type ThemePreference = "system" | "light" | "dark";
 
@@ -1062,9 +1064,29 @@ function SidebarNavigation({
 			)}
 
 			<div className="sidebar-footnote">
-				{t.nav.footnoteLine1}
-				<br />
-				{t.nav.footnoteLine2}
+				<div>{t.nav.footnote}</div>
+				<div className="sidebar-community-links">
+					<a
+						aria-label={t.nav.githubLink}
+						className="sidebar-community-link"
+						href={githubRepositoryUrl}
+						rel="noopener noreferrer"
+						target="_blank"
+						title="GitHub"
+					>
+						<Icon name="github" size={19} />
+					</a>
+					<a
+						aria-label={t.nav.discordLink}
+						className="sidebar-community-link sidebar-community-link-discord"
+						href={discordInviteUrl}
+						rel="noopener noreferrer"
+						target="_blank"
+						title="Discord"
+					>
+						<Icon name="discord" size={19} />
+					</a>
+				</div>
 			</div>
 		</>
 	);
