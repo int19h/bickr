@@ -7,6 +7,7 @@ import {
 	MaintenanceModeEnabledError,
 	requireMaintenanceDisabled,
 } from "@bickr/shared/maintenance";
+import { testEntryResponse } from "./_test-entry";
 
 export const strictTransportSecurity = "max-age=31536000; includeSubDomains";
 export const contentSecurityPolicy = [
@@ -31,11 +32,15 @@ const stateChangingGetPaths = new Set([
 ]);
 
 export const onRequest: PagesFunction<AppEnv> = async (context) => {
+	const entryResponse = testEntryResponse(context.env, context.request);
+	if (entryResponse) {
+		return securityHeadersResponse(entryResponse, context.env);
+	}
 	const maintenanceResponse = await pagesMaintenanceResponse(context.request, context.env.BICKR_D1);
 	if (maintenanceResponse) {
-		return securityHeadersResponse(maintenanceResponse);
+		return securityHeadersResponse(maintenanceResponse, context.env);
 	}
-	return securityHeadersResponse(await context.next());
+	return securityHeadersResponse(await context.next(), context.env);
 };
 
 async function pagesMaintenanceResponse(request: Request, db: D1Database): Promise<Response | null> {
@@ -65,7 +70,10 @@ async function pagesMaintenanceResponse(request: Request, db: D1Database): Promi
 	}
 }
 
-export function securityHeadersResponse(response: Response): Response {
+export function securityHeadersResponse(
+	response: Response,
+	env?: Pick<AppEnv, "BICKR_ENVIRONMENT" | "TEST_ENTRY_MODE">,
+): Response {
 	// WebSocket upgrade responses (the bot loop monitor proxied through
 	// /api/me/bots/:botId/runtime/monitor) must pass through untouched:
 	// reconstructing a 101 response drops the webSocket and throws in workerd.
@@ -74,6 +82,13 @@ export function securityHeadersResponse(response: Response): Response {
 	}
 	const headers = new Headers(response.headers);
 	headers.set("Strict-Transport-Security", strictTransportSecurity);
+	if (env?.BICKR_ENVIRONMENT === "test") {
+		headers.set("X-Robots-Tag", "noindex, nofollow");
+	}
+	if (env?.TEST_ENTRY_MODE === "migration") {
+		headers.set("Cache-Control", "no-store");
+		appendVary(headers, "Cookie");
+	}
 	if (isHtmlResponse(headers)) {
 		headers.set("Content-Security-Policy", contentSecurityPolicy);
 		headers.delete("Access-Control-Allow-Origin");
@@ -83,6 +98,13 @@ export function securityHeadersResponse(response: Response): Response {
 		status: response.status,
 		statusText: response.statusText,
 	});
+}
+
+function appendVary(headers: Headers, field: string): void {
+	const fields = headers.get("Vary")?.split(",").map((value) => value.trim().toLowerCase()) ?? [];
+	if (!fields.includes(field.toLowerCase())) {
+		headers.append("Vary", field);
+	}
 }
 
 function isHtmlResponse(headers: Headers): boolean {

@@ -81,9 +81,10 @@ export default defineConfig({
 			workbox: {
 				cleanupOutdatedCaches: true,
 				clientsClaim: true,
-				globPatterns: ["**/*.{css,html,js,png,svg,woff2,ttf}"],
-				navigateFallback: "/index.html",
-				navigateFallbackDenylist: [/^\/api\//, /^\/c\//, /^\/t\//, /^\/oauth(?:\/|$)/, /^\/mcp(?:\/|$)/, /^\/\.well-known(?:\/|$)/],
+				// Navigations must always reach Pages Functions so maintenance and
+				// environment-entry gates cannot be bypassed by a cached app shell.
+				globPatterns: ["**/*.{css,js,png,svg,woff2,ttf}"],
+				navigateFallback: null,
 				skipWaiting: true,
 			},
 		}),

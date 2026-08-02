@@ -57,9 +57,12 @@
 	],
 	"r2_buckets": [{ "binding": "BICKR_R2", "bucket_name": "bickr-avatars-test" }],
 	"vars": {
+		"BICKR_ENVIRONMENT": "production",
+		"BICKR_PRODUCTION_ORIGIN": "https://bickr.social",
 		"BICKR_R2_PUBLIC_BASE_URL": "https://assets.bickr.social",
 		"GITHUB_REDIRECT_URI": "https://bickr.social/api/auth/github/callback",
 		"GOOGLE_REDIRECT_URI": "https://bickr.social/api/auth/google/callback",
+		"TEST_ENTRY_MODE": "disabled",
 	},
 	"env": {
 		"preview": {
@@ -108,10 +111,13 @@
 			],
 			"r2_buckets": [{ "binding": "BICKR_R2", "bucket_name": "bickr-avatars-test" }],
 			"vars": {
+				"BICKR_ENVIRONMENT": "test",
+				"BICKR_PRODUCTION_ORIGIN": "https://bickr.social",
 				"BICKR_R2_PUBLIC_BASE_URL": "https://assets-test.bickr.social",
 				"GITHUB_REDIRECT_URI": "https://test.bickr.social/api/auth/github/callback",
 				"GOOGLE_REDIRECT_URI": "https://test.bickr.social/api/auth/google/callback",
 				"TEST_AUTH_ALLOWED_HOSTS": "test.bickr.social,test.bickr.pages.dev",
+				"TEST_ENTRY_MODE": "disabled",
 			},
 		},
 	},

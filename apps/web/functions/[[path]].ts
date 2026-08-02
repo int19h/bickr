@@ -1,5 +1,6 @@
 import { fail } from "@bickr/shared/api";
 import { pageMetadataForRequest, type PageMetadata } from "./_page-metadata";
+import { testEnvironmentExitUrl } from "./_test-entry";
 import type { AppEnv } from "./api/_auth";
 
 export const onRequest: PagesFunction<AppEnv, "path"> = async (context) => {
@@ -32,12 +33,18 @@ export const onRequest: PagesFunction<AppEnv, "path"> = async (context) => {
 			title: "Bickr",
 		};
 	}
+	if (context.env.BICKR_ENVIRONMENT === "test") {
+		metadata = { ...metadata, robots: "noindex,nofollow" };
+	}
 
-	const transformed = new HTMLRewriter()
+	const rewriter = new HTMLRewriter()
 		.on("title", new TitleHandler(metadata.title))
 		.on('meta[name="description"]', new AttributeHandler("content", metadata.description))
-		.on("head", new HeadHandler(metadata, context.request.url))
-		.transform(response);
+		.on("head", new HeadHandler(metadata, context.request.url));
+	if (context.env.TEST_ENTRY_MODE === "migration") {
+		rewriter.on("body", new TestEnvironmentBodyHandler(testEnvironmentExitUrl(context.request)));
+	}
+	const transformed = rewriter.transform(response);
 
 	if (!metadata.robots) {
 		return transformed;
@@ -88,6 +95,23 @@ class HeadHandler {
 
 	element(element: Element): void {
 		element.append(metadataTags(this.metadata, this.requestUrl), { html: true });
+	}
+}
+
+class TestEnvironmentBodyHandler {
+	private readonly exitUrl: string;
+
+	constructor(exitUrl: string) {
+		this.exitUrl = exitUrl;
+	}
+
+	element(element: Element): void {
+		const existingClass = element.getAttribute("class")?.trim();
+		element.setAttribute("class", existingClass ? `${existingClass} bickr-test-environment` : "bickr-test-environment");
+		element.prepend(
+			`<aside class="test-environment-banner" role="status"><strong>TEST ENVIRONMENT</strong><span>Changes here do not affect bickr.social.</span><a href="${escapeAttribute(this.exitUrl)}">Leave test</a></aside>`,
+			{ html: true },
+		);
 	}
 }
 

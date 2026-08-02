@@ -44,6 +44,14 @@ general append-only backup and must be empty when the snapshot begins.
   service proxy secret has been removed from production.
 - The fresh test stores and both TLS 1.2 asset hostnames exist. The existing
   `assets-test.bickr.social` hostname remains active for stored avatar URLs.
+- Test HTML is marked `noindex`, the service worker no longer serves cached
+  navigation shells, and `/sw.js` is served without browser caching. Deploy
+  this transition build well before the maintenance window so returning
+  browsers can activate it while the populated test site is still available.
+
+The current preview configuration deliberately leaves the test-entry gateway
+disabled. The generated fresh-test Pages configuration enables it only after
+production has been accepted and the new isolated test environment is ready.
 
 ## Remaining pre-maintenance user inputs
 
@@ -264,3 +272,32 @@ disabled state and that production remains healthy. At this point test and
 production no longer share writable storage and the reverse Durable Object
 transfer path is closed. Keep the old asset hostname and the frozen KV backup
 throughout the rollback window.
+
+The recreated Pages configuration also activates the migration entry gateway:
+
+- A normal document visit shows a brief migration notice and then continues to
+  the same path and query on `https://bickr.social`.
+- `?test=1` sets a host-only, HTTP-only test opt-in cookie and redirects to the
+  clean test URL. Opted-in pages display a persistent **TEST ENVIRONMENT**
+  banner; `?test=0` clears the cookie.
+- Requests without that cookie to API, MCP, WebSocket, OAuth, or mutation paths
+  fail with an explicit `403` instead of being redirected to production.
+- Health, maintenance status, and the authenticated test service proxy remain
+  reachable without the cookie. Test responses remain `noindex` and no-store.
+
+Verify both sides of the gate before announcing that test is available again:
+
+```sh
+curl -fsSI https://test.bickr.social/w/example
+curl -fsS -D - -o /dev/null 'https://test.bickr.social/w/example?test=1'
+curl -sS -o /dev/null -w '%{http_code}\n' https://test.bickr.social/api/worlds
+curl -fsS https://test.bickr.social/api/health
+```
+
+The first response must be HTML with `Cache-Control: no-store` and
+`X-Robots-Tag: noindex, nofollow`; the opt-in response must be `303` with a
+host-only `bickr_test_environment` cookie; the unauthenticated API response
+must be `403`; and health must remain `200`. In a browser, verify that the
+notice redirects to the equivalent production URL and that opting in shows the
+banner. Production and test intentionally do not share sessions, so users sign
+in once on `bickr.social` after the migration.

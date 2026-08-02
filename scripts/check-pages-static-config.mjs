@@ -22,10 +22,8 @@ if (!existsSync(distClient)) {
 
 const routes = JSON.parse(readFileSync(routesPath, "utf8"));
 const excludePaths = Array.isArray(routes.exclude) ? routes.exclude : [];
-const headerPaths = readFileSync(headersPath, "utf8")
-	.split("\n")
-	.filter((line) => /^\/\S*$/.test(line.trim()))
-	.map((line) => line.trim());
+const headerRules = parseHeaderRules(readFileSync(headersPath, "utf8"));
+const headerPaths = [...headerRules.keys()];
 
 for (const path of [...excludePaths, ...headerPaths]) {
 	if (path.includes("*")) {
@@ -49,6 +47,22 @@ for (const name of readdirSync(distClient)) {
 	}
 }
 
+const serviceWorkerPath = join(distClient, "sw.js");
+if (existsSync(serviceWorkerPath)) {
+	const serviceWorker = readFileSync(serviceWorkerPath, "utf8");
+	if (/NavigationRoute|createHandlerBoundToURL/.test(serviceWorker)) {
+		failures.push("/sw.js still installs a navigation fallback that can bypass Pages Functions gates.");
+	}
+	if (/url\s*:\s*["']\/?index\.html["']/.test(serviceWorker)) {
+		failures.push("/sw.js still precaches the HTML app shell.");
+	}
+}
+
+const serviceWorkerHeaders = headerRules.get("/sw.js") ?? [];
+if (!serviceWorkerHeaders.includes("cache-control: no-cache, no-store, must-revalidate")) {
+	failures.push("/sw.js must be served with Cache-Control: no-cache, no-store, must-revalidate.");
+}
+
 if (failures.length > 0) {
 	fail([
 		"Pages static config is out of sync with the build output:",
@@ -62,4 +76,21 @@ console.log("Pages static config matches build output.");
 function fail(message) {
 	console.error(message);
 	process.exit(1);
+}
+
+function parseHeaderRules(contents) {
+	const rules = new Map();
+	let currentPath = null;
+	for (const line of contents.split("\n")) {
+		const trimmed = line.trim();
+		if (/^\/\S*$/.test(trimmed)) {
+			currentPath = trimmed;
+			rules.set(currentPath, []);
+			continue;
+		}
+		if (currentPath && trimmed && !trimmed.startsWith("/*")) {
+			rules.get(currentPath).push(trimmed.toLowerCase());
+		}
+	}
+	return rules;
 }

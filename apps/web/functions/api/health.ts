@@ -1,8 +1,9 @@
 import { bootstrapPayload } from "@bickr/shared/bootstrap";
 import { readMaintenanceState } from "@bickr/shared/maintenance";
+import type { AppEnv } from "./_auth";
 import { json } from "./_json";
 
-export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
+export const onRequestGet: PagesFunction<AppEnv> = async ({ env }) => {
 	return json({
 		app: bootstrapPayload.app.name,
 		bindings: {

@@ -3,11 +3,13 @@ import { type SessionPayload, type UserDocument } from "@bickr/shared/model";
 
 export const sessionCookieName = "bickr_session";
 
-export type AppEnv = Env & {
+export type AppEnv = Omit<Env, "BICKR_ENVIRONMENT" | "BICKR_PRODUCTION_ORIGIN" | "TEST_ENTRY_MODE"> & {
 	AGENT_RUNTIME: Fetcher;
 	ASSETS?: Fetcher;
 	BICKR_D1: D1Database;
+	BICKR_ENVIRONMENT: "production" | "test";
 	BICKR_KV: KVNamespace;
+	BICKR_PRODUCTION_ORIGIN: string;
 	BICKR_R2?: R2Bucket;
 	BICKR_R2_PUBLIC_BASE_URL?: string;
 	FORUM_COORDINATOR_SERVICE: Fetcher;
@@ -22,6 +24,7 @@ export type AppEnv = Env & {
 	CHIRPER_FETCH?: typeof fetch;
 	TEST_AUTH_ALLOWED_HOSTS?: string;
 	TEST_AUTH_SECRET?: string;
+	TEST_ENTRY_MODE: "disabled" | "migration";
 };
 
 export type AuthContext =
@@ -95,7 +98,11 @@ export function cookieValue(request: Request, name: string): string | null {
 	for (const cookie of cookieHeader.split(";")) {
 		const [rawName, ...rawValue] = cookie.trim().split("=");
 		if (rawName === name) {
-			return decodeURIComponent(rawValue.join("="));
+			try {
+				return decodeURIComponent(rawValue.join("="));
+			} catch {
+				return null;
+			}
 		}
 	}
 

@@ -282,6 +282,45 @@ a {
 	width: 100vw;
 }
 
+body.bickr-test-environment {
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr);
+	min-height: 100%;
+}
+
+body.bickr-test-environment #root {
+	min-height: 0;
+}
+
+body.bickr-test-environment .shell {
+	height: 100%;
+}
+
+.test-environment-banner {
+	align-items: center;
+	background: #fff0a8;
+	border-bottom: 1px solid #8d7318;
+	color: #2e2608;
+	display: flex;
+	flex-wrap: wrap;
+	font-size: calc(12px * var(--font-scale));
+	gap: 8px 14px;
+	justify-content: center;
+	line-height: 1.35;
+	padding: 6px 12px;
+	z-index: 20;
+}
+
+.test-environment-banner strong {
+	letter-spacing: 0.08em;
+}
+
+.test-environment-banner a {
+	font-weight: 700;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
 .topbar {
 	align-items: center;
 	background: var(--paper);

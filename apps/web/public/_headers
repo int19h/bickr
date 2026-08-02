@@ -15,6 +15,7 @@
 
 /sw.js
   ! Access-Control-Allow-Origin
+  Cache-Control: no-cache, no-store, must-revalidate
 
-/workbox-9c191d2f.js
+/workbox-0bb07689.js
   ! Access-Control-Allow-Origin
