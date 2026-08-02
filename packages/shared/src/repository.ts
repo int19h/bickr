@@ -28,6 +28,8 @@ import {
 	type BotLocalOverrides,
 	type BotPublicProfile,
 	type BotSummary,
+	type PublicBotInferenceSettings,
+	type PublicBotLocalOverrides,
 	type BotTickSpreadResult,
 	type BotTranslationSettings,
 	type BotTranslationSettingsInput,
@@ -543,7 +545,7 @@ function normalizeProviderProfile(profile: ProviderUserProfile): ProviderUserPro
 		login,
 		...(displayName ? { displayName } : {}),
 		...(email ? { email } : {}),
-		...(avatarUrl ? { avatarUrl } : {}),
+		...(avatarUrl !== undefined ? { avatarUrl } : {}),
 	};
 }
 
@@ -1433,7 +1435,7 @@ export async function createBot(
 	await upsertBotSearchIndex(db, effectiveBot);
 	await putObjectIndex(db, bot, "bot", entityIndexVersions.bot, bot.homeWorldId);
 
-	return botSummary(effectiveBot, {
+	return publicBotSummary(effectiveBot, {
 		includeToolSettings: true,
 		nextDueAt: await botRuntimeNextDueAt(db, bot.id),
 		owner: publicUser(owner),
@@ -1520,7 +1522,7 @@ export async function updateBot(
 	await upsertBotSearchIndex(db, effectiveUpdated);
 	await putObjectIndex(db, updated, "bot", entityIndexVersions.bot, updated.homeWorldId);
 
-	return botSummary(effectiveUpdated, {
+	return publicBotSummary(effectiveUpdated, {
 		includeToolSettings: true,
 		nextDueAt: await botRuntimeNextDueAt(db, updated.id),
 		owner: publicUser(owner),
@@ -1552,7 +1554,7 @@ export async function updateBotAvatar(
 	await upsertBotSearchIndex(db, effectiveUpdated);
 	await putObjectIndex(db, updated, "bot", entityIndexVersions.bot, updated.homeWorldId);
 
-	return botSummary(effectiveUpdated, {
+	return publicBotSummary(effectiveUpdated, {
 		includeToolSettings: true,
 		nextDueAt: await botRuntimeNextDueAt(db, updated.id),
 		owner: publicUser(owner),
@@ -1583,7 +1585,7 @@ export async function deleteBotAvatar(
 	await upsertBotSearchIndex(db, effectiveUpdated);
 	await putObjectIndex(db, updated, "bot", entityIndexVersions.bot, updated.homeWorldId);
 
-	return botSummary(effectiveUpdated, {
+	return publicBotSummary(effectiveUpdated, {
 		includeToolSettings: true,
 		nextDueAt: await botRuntimeNextDueAt(db, updated.id),
 		owner: publicUser(owner),
@@ -1627,7 +1629,7 @@ export async function deleteBot(
 	await upsertBotSearchIndex(db, deleted);
 	await putObjectIndex(db, deleted, "bot", entityIndexVersions.bot, deleted.homeWorldId);
 
-	return botSummary(deleted, { includeToolSettings: true, nextDueAt: null, owner, worldPostingSettings });
+	return publicBotSummary(deleted, { includeToolSettings: true, nextDueAt: null, owner, worldPostingSettings });
 }
 
 export async function unlinkBotClone(
@@ -1647,7 +1649,7 @@ export async function unlinkBotClone(
 	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
 	if (!cloneSource.linked) {
 		const effective = await effectiveBotDocument(kv, db, bot);
-		return botSummary(effective, {
+		return publicBotSummary(effective, {
 			includeToolSettings: true,
 			nextDueAt: await botRuntimeNextDueAt(db, bot.id),
 			owner: publicUser(owner),
@@ -1685,7 +1687,7 @@ export async function unlinkBotClone(
 	await upsertBotSearchIndex(db, effectiveUpdated);
 	await putObjectIndex(db, updated, "bot", entityIndexVersions.bot, updated.homeWorldId);
 
-	return botSummary(effectiveUpdated, {
+	return publicBotSummary(effectiveUpdated, {
 		includeToolSettings: true,
 		nextDueAt: await botRuntimeNextDueAt(db, updated.id),
 		owner: publicUser(owner),
@@ -1748,7 +1750,7 @@ export async function relinkBotClone(
 	await upsertBotSearchIndex(db, effectiveUpdated);
 	await putObjectIndex(db, next, "bot", entityIndexVersions.bot, next.homeWorldId);
 
-	return botSummary(effectiveUpdated, {
+	return publicBotSummary(effectiveUpdated, {
 		includeToolSettings: true,
 		nextDueAt: await botRuntimeNextDueAt(db, next.id),
 		owner: publicUser(owner),
@@ -2253,7 +2255,7 @@ async function botGroupSummaries(
 	const effectiveBots = await effectiveBotDocuments(kv, db, rawBots);
 	const worldPostingSettings = await worldPostingSettingsByIds(db, effectiveBots.map((bot) => bot.homeWorldId));
 	const botSummaries = await attachBotOwners(db, effectiveBots.map((bot) =>
-		botSummary(bot, {
+		publicBotSummary(bot, {
 			includePrompt: false,
 			worldPostingSettings: worldPostingSettings.get(bot.homeWorldId),
 		}),
@@ -3159,7 +3161,7 @@ export async function refreshLinkedCloneIndexes(
 			await upsertBotSearchIndex(db, effective);
 			await putObjectIndex(db, raw, "bot", entityIndexVersions.bot, raw.homeWorldId);
 			const worldPostingSettings = await worldPostingSettingsById(db, raw.homeWorldId);
-			summaries.push(botSummary(effective, {
+			summaries.push(publicBotSummary(effective, {
 				includeToolSettings: true,
 				nextDueAt: await botRuntimeNextDueAt(db, raw.id),
 				worldPostingSettings,
@@ -3583,8 +3585,8 @@ function forumSummaryFromIndexRow(row: ForumSummaryIndexRow): ForumSummary {
 	};
 }
 
-function botSummary(
-	bot: BotDocument,
+export function publicBotSummary(
+	bot: BotDocument | BotSummary,
 	options: {
 		includePrompt?: boolean;
 		includeToolSettings?: boolean;
@@ -3593,43 +3595,68 @@ function botSummary(
 		worldPostingSettings?: PostingSettings;
 	} = {},
 ): BotSummary {
+	const source =
+		isBotDocument(bot) ? { kind: "document" as const, document: bot }
+		: { kind: "summary" as const, summary: bot };
+	const summary = source.kind === "summary" ? source.summary : undefined;
+	const owner = options.owner ?? summary?.owner;
+	const includePrompt = options.includePrompt ?? (source.kind === "document" || summary?.prompt !== undefined);
+	const includeToolSettings = options.includeToolSettings ?? summary?.toolSettings !== undefined;
+	const avatarUrl = bot.avatar?.url ?? summary?.avatarUrl;
+	const avatarCrop = bot.avatar?.crop ?? summary?.avatarCrop;
+	const nextDueAt = options.nextDueAt !== undefined ? options.nextDueAt : summary?.nextDueAt;
 	return {
 		id: bot.id,
 		homeWorldId: bot.homeWorldId,
 		homeWorldHandle: bot.homeWorldHandle,
 		ownerUserId: bot.ownerUserId,
-		...(options.owner ? { owner: options.owner } : {}),
+		...(owner ? { owner } : {}),
 		handle: bot.handle,
 		language: bot.language,
 		includeLanguageInSystemPrompt: bot.includeLanguageInSystemPrompt,
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
-		...(bot.avatar ? { avatar: bot.avatar, avatarUrl: bot.avatar.url } : {}),
-		...(bot.avatar?.crop ? { avatarCrop: bot.avatar.crop } : {}),
-		...(options.includePrompt === false ? {} : { prompt: bot.prompt }),
-		inferenceSettings: publicInferenceSettings(bot.inferenceSettings),
-		...(options.includeToolSettings ? { toolSettings: publicToolSettings(bot.toolSettings) } : {}),
+		...(bot.avatar ? { avatar: bot.avatar } : {}),
+		...(avatarUrl ? { avatarUrl } : {}),
+		...(avatarCrop ? { avatarCrop } : {}),
+		...(includePrompt && bot.prompt !== undefined ? { prompt: bot.prompt } : {}),
+		inferenceSettings: publicInferenceSettings(bot.inferenceSettings, source.kind === "summary"),
+		...(includeToolSettings && bot.toolSettings ? { toolSettings: publicToolSettings(bot.toolSettings) } : {}),
 		postingSettings: mergePostingSettings(bot.postingSettings, undefined),
-		effectivePostingSettings: effectivePostingSettings(options.worldPostingSettings, bot.postingSettings),
+		effectivePostingSettings:
+			source.kind === "document" ?
+				effectivePostingSettings(options.worldPostingSettings, bot.postingSettings)
+			: source.summary.effectivePostingSettings,
 		tickSettings: bot.tickSettings,
-		effectiveTickSettings: effectiveTickSettings(bot.tickSettings),
+		effectiveTickSettings:
+			source.kind === "document" ? effectiveTickSettings(bot.tickSettings) : source.summary.effectiveTickSettings,
 		...(bot.importSource ? { importSource: bot.importSource } : {}),
 		...(bot.cloneSource ? { cloneSource: bot.cloneSource } : {}),
-		...(bot.localOverrides ? { localOverrides: publicBotLocalOverrides(bot.localOverrides) } : {}),
-		...(options.nextDueAt !== undefined ? { nextDueAt: options.nextDueAt } : {}),
+		...(bot.localOverrides ? {
+			localOverrides: publicBotLocalOverrides(bot.localOverrides, source.kind === "summary"),
+		} : {}),
+		...(summary?.lastActiveAt !== undefined ? { lastActiveAt: summary.lastActiveAt } : {}),
+		...(nextDueAt !== undefined ? { nextDueAt } : {}),
 		createdAt: bot.createdAt,
 		updatedAt: bot.updatedAt,
 	};
 }
 
-function publicBotLocalOverrides(overrides: BotLocalOverrides): BotLocalOverrides {
+function isBotDocument(bot: BotDocument | BotSummary): bot is BotDocument {
+	return "type" in bot && bot.type === "bot";
+}
+
+function publicBotLocalOverrides(
+	overrides: BotLocalOverrides | PublicBotLocalOverrides,
+	preserveApiKeySet = false,
+): PublicBotLocalOverrides {
 	return {
 		language: overrides.language,
 		includeLanguageInSystemPrompt: overrides.includeLanguageInSystemPrompt,
 		displayName: overrides.displayName,
 		shortBio: overrides.shortBio,
 		...(overrides.prompt !== undefined ? { prompt: overrides.prompt } : {}),
-		inferenceSettings: publicInferenceSettings(overrides.inferenceSettings),
+		inferenceSettings: publicInferenceSettings(overrides.inferenceSettings, preserveApiKeySet),
 		hasAvatar: overrides.hasAvatar,
 		...(overrides.avatar ? { avatar: overrides.avatar, avatarUrl: overrides.avatar.url } : {}),
 		...(overrides.avatar?.crop ? { avatarCrop: overrides.avatar.crop } : {}),
@@ -3648,7 +3675,7 @@ function botSummaryWithLastActive(
 	} = {},
 ): BotSummary {
 	return {
-		...botSummary(bot, options),
+		...publicBotSummary(bot, options),
 		lastActiveAt: lastActiveAt ?? bot.createdAt,
 	};
 }
@@ -4134,12 +4161,15 @@ export function enforceInferenceModelAccess(
 	return settings;
 }
 
-function publicInferenceSettings(settings: BotInferenceSettings | undefined): BotInferenceSettings {
+function publicInferenceSettings(
+	settings: BotInferenceSettings | PublicBotInferenceSettings | undefined,
+	preserveApiKeySet = false,
+): PublicBotInferenceSettings {
 	const normalized = mergeInferenceSettings(undefined, settings);
 	const { openRouterApiKey, openRouterApiKeySet: _openRouterApiKeySet, ...publicSettings } = normalized;
 	return {
 		...publicSettings,
-		...(openRouterApiKey ? { openRouterApiKeySet: true } : {}),
+		...(openRouterApiKey || (preserveApiKeySet && settings?.openRouterApiKeySet) ? { openRouterApiKeySet: true } : {}),
 	};
 }
 

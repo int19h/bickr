@@ -738,6 +738,7 @@ describe("MCP endpoint", () => {
 			shortBio: "Source bio",
 			prompt: "Source prompt",
 			inferenceSettings: {
+				openRouterApiKey: "source-bot-secret",
 				baseUrl: "http://localhost:11434/v1",
 				model: "source/model",
 				temperature: 0.2,
@@ -752,7 +753,7 @@ describe("MCP endpoint", () => {
 			displayName: "",
 			shortBio: "",
 			prompt: "",
-			inferenceSettings: { temperature: 0.7 },
+			inferenceSettings: { openRouterApiKey: "clone-override-secret", temperature: 0.7 },
 			postingSettings: {
 				commentBodyCharacters: 500,
 			},
@@ -771,9 +772,21 @@ describe("MCP endpoint", () => {
 		}, { BICKR_D1: mcpSettingsD1() });
 		const body = await jsonResponse(response);
 		const toolResult = body.result as Record<string, unknown>;
-		const structured = toolResult.structuredContent as { bot: { language: string | null; lang: string | null; mcpResolvedSettings: Record<string, Record<string, unknown>> } };
+		const structured = toolResult.structuredContent as { bot: {
+			language: string | null;
+			lang: string | null;
+			inferenceSettings: Record<string, unknown>;
+			localOverrides?: { inferenceSettings: Record<string, unknown> };
+			mcpResolvedSettings: Record<string, Record<string, unknown>>;
+		} };
 
 		expect(response.status).toBe(200);
+		expect(JSON.stringify(body)).not.toContain("source-bot-secret");
+		expect(JSON.stringify(body)).not.toContain("clone-override-secret");
+		expect(structured.bot.inferenceSettings).not.toHaveProperty("openRouterApiKey");
+		expect(structured.bot.inferenceSettings.openRouterApiKeySet).toBe(true);
+		expect(structured.bot.localOverrides?.inferenceSettings).not.toHaveProperty("openRouterApiKey");
+		expect(structured.bot.localOverrides?.inferenceSettings.openRouterApiKeySet).toBe(true);
 		expect(structured.bot.language).toBe("en");
 		expect(structured.bot.lang).toBe("en");
 		expect(structured.bot.mcpResolvedSettings.cloneProfile.displayName).toMatchObject({
@@ -907,7 +920,7 @@ describe("MCP endpoint", () => {
 			id: "bot_source",
 			handle: "other-owner",
 			ownerUserId: "usr_other",
-			inferenceSettings: { model: "anthropic/claude-opus-4", openRouterApiKeySet: true },
+			inferenceSettings: { model: "anthropic/claude-opus-4", openRouterApiKey: "other-owner-secret" },
 		});
 		await kv.put(kvKeys.bot(bot.id), JSON.stringify(bot));
 		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
@@ -924,6 +937,9 @@ describe("MCP endpoint", () => {
 		} } }).structuredContent;
 
 		expect(structured.bot.inferenceSettings.model).toBe("anthropic/claude-opus-4");
+		expect(structured.bot.inferenceSettings).not.toHaveProperty("openRouterApiKey");
+		expect(structured.bot.inferenceSettings.openRouterApiKeySet).toBe(true);
+		expect(JSON.stringify(body)).not.toContain("other-owner-secret");
 		expect(structured.bot.mcpResolvedSettings).not.toHaveProperty("inferenceSettings");
 	});
 
@@ -987,7 +1003,11 @@ describe("MCP endpoint", () => {
 
 	it("annotates update_bot receipts with profile-inherited effective settings", async () => {
 		const kv = new MapKV();
-		const bot = testBot({ id: "bot_updated_default", handle: "updated-default", inferenceSettings: {} });
+		const bot = testBot({
+			id: "bot_updated_default",
+			handle: "updated-default",
+			inferenceSettings: { openRouterApiKey: "upstream-bot-secret" },
+		});
 		const user = testUser({
 			inferenceSettings: {
 				model: "deepseek/deepseek-v4-flash-0731",
@@ -1019,6 +1039,9 @@ describe("MCP endpoint", () => {
 			effective: "deepseek/deepseek-v4-flash-0731",
 			source: "profile",
 		});
+		expect(result.data.bot).not.toHaveProperty("type");
+		expect(result.data.bot).not.toHaveProperty("revision");
+		expect(JSON.stringify(result)).not.toContain("upstream-bot-secret");
 		expect(JSON.stringify(result)).not.toContain("profile-secret");
 	});
 
