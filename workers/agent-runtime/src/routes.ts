@@ -6,6 +6,7 @@ import { json } from '@bickr/shared/http';
 import { type ObjectIndexConvergenceTask, runObjectIndexConvergenceBatch } from '@bickr/shared/index-repair';
 import { providerEnvironmentSettingsFromBindings } from '@bickr/shared/inference-settings';
 import { addInternalServiceAuthHeader, internalServiceUrl, isTrustedInternalServiceRequest } from '@bickr/shared/internal-service';
+import { mutationMaintenanceResponse, readMaintenanceState } from '@bickr/shared/maintenance';
 import {
 	botById,
 	createBot,
@@ -146,8 +147,9 @@ export const agentRuntimeRouteTable = [
 		method: '*',
 		pattern: /^\/health$/,
 		dispatch: 'direct',
-		handler: async () =>
+		handler: async ({ env }) =>
 			json({
+				maintenance: await readMaintenanceState(env.BICKR_D1),
 				ok: true,
 				runtime: 'agent-runtime-worker',
 			}),
@@ -746,6 +748,10 @@ export async function handleAgentRuntimeRequest(
 		Partial<Pick<Env, 'FORUM_COORDINATOR_SERVICE' | 'INTERNAL_SERVICE_SECRET'>>,
 	context: UserBotsCoordinatorContext | string = 'direct',
 ): Promise<Response> {
+	const maintenanceResponse = await mutationMaintenanceResponse(request, env.BICKR_D1, { allowRuntimeStop: true });
+	if (maintenanceResponse) {
+		return maintenanceResponse;
+	}
 	const coordinator = typeof context === 'string' ? { objectId: context } : context;
 	const operation = () => handleAgentRuntimeRequestExclusive(request, env, coordinator);
 	return coordinator.queue ? coordinator.queue.run(operation) : operation();
@@ -876,6 +882,10 @@ export default {
 		if (!isTrustedInternalServiceRequest(request, env.INTERNAL_SERVICE_SECRET)) {
 			return agentRuntimeNotFoundResponse();
 		}
+		const maintenanceResponse = await mutationMaintenanceResponse(request, env.BICKR_D1, { allowRuntimeStop: true });
+		if (maintenanceResponse) {
+			return maintenanceResponse;
+		}
 
 		const resolved = resolveAgentRuntimeRoute(url.pathname, request.method);
 		if (!resolved) {
@@ -900,6 +910,11 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 async function runScheduledAgentRuntimeTasks(env: Env, scheduledTime: number): Promise<void> {
+	const maintenance = await readMaintenanceState(env.BICKR_D1);
+	if (maintenance.enabled) {
+		console.log(JSON.stringify({ event: 'scheduled_tasks_deferred', reason: 'maintenance', scheduledTime }));
+		return;
+	}
 	await Promise.all([
 		dispatchDueBots(env, scheduledTime),
 		refreshGlobalInferenceCostStatsCacheIfStale(env.BICKR_D1, new Date(scheduledTime)).catch((error) => {
@@ -913,6 +928,9 @@ export async function dispatchDueBots(
 	scheduledTime: number,
 	options: { batchSize?: number; maxDispatches?: number } = {},
 ): Promise<{ dispatched: number; budgetExhausted: boolean }> {
+	if ((await readMaintenanceState(env.BICKR_D1)).enabled) {
+		return { dispatched: 0, budgetExhausted: false };
+	}
 	const now = new Date(scheduledTime).toISOString();
 	const batchSize = Math.max(1, Math.floor(options.batchSize ?? scheduledDispatchSelectLimit));
 	const maxDispatches = Math.max(0, Math.floor(options.maxDispatches ?? scheduledDispatchBudget));

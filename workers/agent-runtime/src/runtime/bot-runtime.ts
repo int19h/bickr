@@ -17,6 +17,7 @@ import {
 	internalServiceUrl,
 	isTrustedInternalServiceRequest,
 } from '@bickr/shared/internal-service';
+import { mutationMaintenanceResponse } from '@bickr/shared/maintenance';
 import {
 	botById,
 	botPublicProfile,
@@ -1658,6 +1659,10 @@ export class BotRuntime {
 		try {
 			if (!isTrustedInternalServiceRequest(request, this.env.INTERNAL_SERVICE_SECRET)) {
 				return agentRuntimeNotFoundResponse();
+			}
+			const maintenanceResponse = await mutationMaintenanceResponse(request, this.env.BICKR_D1, { allowRuntimeStop: true });
+			if (maintenanceResponse) {
+				return maintenanceResponse;
 			}
 			const url = new URL(request.url);
 			const botId = botIdFromPath(url.pathname);

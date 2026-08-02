@@ -1,0 +1,34 @@
+// Post-transfer only. After production has been validated and rollback no
+// longer needs the transferred source tombstone, this creates fresh empty test
+// Durable Object namespaces and binds the already-provisioned test-v2 stores.
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "bickr-forum-coordinator-test",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-04-25",
+	"workers_dev": false,
+	"preview_urls": false,
+	"observability": { "enabled": true },
+	"durable_objects": {
+		"bindings": [
+			{ "name": "WORLD_COORDINATOR", "class_name": "WorldCoordinator" },
+			{ "name": "FORUM_COORDINATOR", "class_name": "ForumCoordinator" },
+		],
+	},
+	"exports": {
+		"ForumCoordinator": { "type": "durable-object", "storage": "sqlite" },
+		"WorldCoordinator": { "type": "durable-object", "storage": "sqlite" },
+	},
+	"kv_namespaces": [{ "binding": "BICKR_KV", "id": "a57182d3ecff4f66a8725f6900f60817" }],
+	"d1_databases": [
+		{
+			"binding": "BICKR_D1",
+			"database_name": "bickr-test-v2",
+			"database_id": "626f2b02-f546-46d9-85f9-b784868a5338",
+			"migrations_dir": "../../migrations",
+		},
+	],
+	"ai": { "binding": "AI" },
+	"vectorize": [{ "binding": "BICKR_SEARCH_VECTORIZE", "index_name": "bickr-bot-search-test-v2" }],
+	"triggers": { "crons": ["0 0 * * *"] },
+}

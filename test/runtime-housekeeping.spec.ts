@@ -325,6 +325,22 @@ describe("runtime housekeeping", () => {
 			INTERNAL_SERVICE_SECRET: "test-secret",
 			BICKR_D1: {
 				prepare(sql: string) {
+					if (sql.includes("FROM maintenance_control")) {
+						const statement = {
+							bind() {
+								return statement;
+							},
+							async first<T>() {
+								return {
+									enabled: 0,
+									message: "Scheduled maintenance.",
+									activatedAt: null,
+									updatedAt: "2026-07-10T00:00:00.000Z",
+								} as T;
+							},
+						};
+						return statement;
+					}
 					return {
 						bind(...params: unknown[]) {
 							prepareCalls.push({ sql, params });

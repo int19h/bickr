@@ -2628,7 +2628,7 @@ describe("Avatar", () => {
 			});
 			const response = await agentRuntimeWorker.fetch(
 				request as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
-				{ USER_BOTS: namespace } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+				{ BICKR_D1: testEnv.BICKR_D1, USER_BOTS: namespace } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
 			);
 
 			expect(response.status).toBe(200);
@@ -2695,7 +2695,7 @@ describe("Avatar", () => {
 		});
 		const response = await agentRuntimeWorker.fetch(
 			request as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
-			{ USER_BOTS: namespace } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+			{ BICKR_D1: testEnv.BICKR_D1, USER_BOTS: namespace } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
 		);
 
 		expect(response.status).toBe(200);

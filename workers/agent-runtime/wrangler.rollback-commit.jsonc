@@ -1,0 +1,30 @@
+// Rollback phase 2. Production commits the reverse transfer to test.
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "bickr-agent-runtime",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-04-25",
+	"compatibility_flags": ["enable_request_signal"],
+	"workers_dev": false,
+	"preview_urls": false,
+	"observability": { "enabled": true },
+	"exports": {
+		"BotRuntime": { "type": "durable-object", "state": "transferred", "transferred_to": "bickr-agent-runtime-test" },
+		"UserBotsCoordinator": { "type": "durable-object", "state": "transferred", "transferred_to": "bickr-agent-runtime-test" },
+	},
+	"durable_objects": {
+		"bindings": [
+			{ "name": "BOT_RUNTIME", "class_name": "BotRuntime", "script_name": "bickr-agent-runtime-test" },
+			{ "name": "USER_BOTS", "class_name": "UserBotsCoordinator", "script_name": "bickr-agent-runtime-test" },
+		],
+	},
+	"kv_namespaces": [{ "binding": "BICKR_KV", "id": "f153e4189e40485488cbbe0ca4ba91eb" }],
+	"d1_databases": [
+		{
+			"binding": "BICKR_D1",
+			"database_name": "bickr-test",
+			"database_id": "d45193d4-15af-461d-84e7-9f8c276a30f8",
+			"migrations_dir": "../../migrations",
+		},
+	],
+}

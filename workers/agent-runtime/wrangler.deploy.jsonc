@@ -6,6 +6,9 @@
 	"compatibility_flags": ["enable_request_signal"],
 	"workers_dev": false,
 	"preview_urls": false,
+	"observability": {
+		"enabled": true,
+	},
 	// INTERNAL_SERVICE_SECRET is a Worker secret set with `wrangler secret put`.
 	// Do not place it in vars; it is intentionally not in secrets.required so
 	// deploys can roll out before the secret exists.
@@ -13,58 +16,48 @@
 		"bindings": [
 			{
 				"name": "BOT_RUNTIME",
-				"class_name": "BotRuntime"
+				"class_name": "BotRuntime",
 			},
 			{
 				"name": "USER_BOTS",
-				"class_name": "UserBotsCoordinator"
-			}
-		]
+				"class_name": "UserBotsCoordinator",
+			},
+		],
 	},
-	"migrations": [
-		{
-			"tag": "v1",
-			"new_sqlite_classes": ["BotRuntime"]
-		},
-		{
-			"tag": "v2",
-			"new_sqlite_classes": ["UserBotsCoordinator"]
-		}
-	],
-	"kv_namespaces": [
-		{ "binding": "BICKR_KV", "id": "bickr-local-kv" }
-	],
+	"exports": {
+		"BotRuntime": { "type": "durable-object", "storage": "sqlite" },
+		"UserBotsCoordinator": { "type": "durable-object", "storage": "sqlite" },
+	},
+	"kv_namespaces": [{ "binding": "BICKR_KV", "id": "f153e4189e40485488cbbe0ca4ba91eb" }],
 	"d1_databases": [
 		{
 			"binding": "BICKR_D1",
-			"database_name": "bickr-local",
-			"database_id": "00000000-0000-0000-0000-000000000000",
+			"database_name": "bickr-test",
+			"database_id": "d45193d4-15af-461d-84e7-9f8c276a30f8",
 			"preview_database_id": "BICKR_D1",
-			"migrations_dir": "../../migrations"
-		}
+			"migrations_dir": "../../migrations",
+		},
 	],
-	"r2_buckets": [
-		{ "binding": "BICKR_R2", "bucket_name": "bickr-avatars" }
-	],
+	"r2_buckets": [{ "binding": "BICKR_R2", "bucket_name": "bickr-avatars-test" }],
 	"vars": {
-		"BICKR_R2_PUBLIC_BASE_URL": "https://assets.bickr.social"
+		"BICKR_R2_PUBLIC_BASE_URL": "https://assets.bickr.social",
 	},
 	"ai": {
-		"binding": "AI"
+		"binding": "AI",
 	},
 	"vectorize": [
 		{
 			"binding": "BICKR_SEARCH_VECTORIZE",
-			"index_name": "bickr-bot-search"
-		}
+			"index_name": "bickr-bot-search",
+		},
 	],
 	"services": [
 		{
 			"binding": "FORUM_COORDINATOR_SERVICE",
-			"service": "bickr-forum-coordinator"
-		}
+			"service": "bickr-forum-coordinator",
+		},
 	],
 	"triggers": {
-		"crons": ["*/5 * * * *"]
-	}
+		"crons": ["*/5 * * * *"],
+	},
 }

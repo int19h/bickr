@@ -14,111 +14,105 @@
 	"services": [
 		{
 			"binding": "AGENT_RUNTIME",
-			"service": "bickr-agent-runtime"
+			"service": "bickr-agent-runtime",
 		},
 		{
 			"binding": "FORUM_COORDINATOR_SERVICE",
-			"service": "bickr-forum-coordinator"
-		}
+			"service": "bickr-forum-coordinator",
+		},
 	],
 	"durable_objects": {
 		"bindings": [
 			{
 				"name": "BOT_RUNTIME",
 				"class_name": "BotRuntime",
-				"script_name": "bickr-agent-runtime"
+				"script_name": "bickr-agent-runtime",
 			},
 			{
 				"name": "USER_BOTS",
 				"class_name": "UserBotsCoordinator",
-				"script_name": "bickr-agent-runtime"
+				"script_name": "bickr-agent-runtime",
 			},
 			{
 				"name": "WORLD_COORDINATOR",
 				"class_name": "WorldCoordinator",
-				"script_name": "bickr-forum-coordinator"
+				"script_name": "bickr-forum-coordinator",
 			},
 			{
 				"name": "FORUM_COORDINATOR",
 				"class_name": "ForumCoordinator",
-				"script_name": "bickr-forum-coordinator"
-			}
-		]
+				"script_name": "bickr-forum-coordinator",
+			},
+		],
 	},
-	"kv_namespaces": [
-		{ "binding": "BICKR_KV", "id": "bickr-local-kv" }
-	],
+	"kv_namespaces": [{ "binding": "BICKR_KV", "id": "f153e4189e40485488cbbe0ca4ba91eb" }],
 	"d1_databases": [
 		{
 			"binding": "BICKR_D1",
-			"database_name": "bickr-local",
-			"database_id": "00000000-0000-0000-0000-000000000000",
+			"database_name": "bickr-test",
+			"database_id": "d45193d4-15af-461d-84e7-9f8c276a30f8",
 			"preview_database_id": "BICKR_D1",
-			"migrations_dir": "../../migrations"
-		}
+			"migrations_dir": "../../migrations",
+		},
 	],
-	"r2_buckets": [
-		{ "binding": "BICKR_R2", "bucket_name": "bickr-avatars" }
-	],
+	"r2_buckets": [{ "binding": "BICKR_R2", "bucket_name": "bickr-avatars-test" }],
 	"vars": {
-		"BICKR_R2_PUBLIC_BASE_URL": "https://assets.bickr.social"
+		"BICKR_R2_PUBLIC_BASE_URL": "https://assets.bickr.social",
+		"GITHUB_REDIRECT_URI": "https://bickr.social/api/auth/github/callback",
+		"GOOGLE_REDIRECT_URI": "https://bickr.social/api/auth/google/callback",
 	},
 	"env": {
 		"preview": {
 			"services": [
 				{
 					"binding": "AGENT_RUNTIME",
-					"service": "bickr-agent-runtime-test"
+					"service": "bickr-agent-runtime-test",
 				},
 				{
 					"binding": "FORUM_COORDINATOR_SERVICE",
-					"service": "bickr-forum-coordinator-test"
-				}
+					"service": "bickr-forum-coordinator-test",
+				},
 			],
 			"durable_objects": {
 				"bindings": [
 					{
 						"name": "BOT_RUNTIME",
 						"class_name": "BotRuntime",
-						"script_name": "bickr-agent-runtime-test"
+						"script_name": "bickr-agent-runtime-test",
 					},
 					{
 						"name": "USER_BOTS",
 						"class_name": "UserBotsCoordinator",
-						"script_name": "bickr-agent-runtime-test"
+						"script_name": "bickr-agent-runtime-test",
 					},
 					{
 						"name": "WORLD_COORDINATOR",
 						"class_name": "WorldCoordinator",
-						"script_name": "bickr-forum-coordinator-test"
+						"script_name": "bickr-forum-coordinator-test",
 					},
 					{
 						"name": "FORUM_COORDINATOR",
 						"class_name": "ForumCoordinator",
-						"script_name": "bickr-forum-coordinator-test"
-					}
-				]
+						"script_name": "bickr-forum-coordinator-test",
+					},
+				],
 			},
-			"kv_namespaces": [
-				{ "binding": "BICKR_KV", "id": "f153e4189e40485488cbbe0ca4ba91eb" }
-			],
+			"kv_namespaces": [{ "binding": "BICKR_KV", "id": "f153e4189e40485488cbbe0ca4ba91eb" }],
 			"d1_databases": [
 				{
 					"binding": "BICKR_D1",
 					"database_name": "bickr-test",
 					"database_id": "d45193d4-15af-461d-84e7-9f8c276a30f8",
-					"migrations_dir": "../../migrations"
-				}
+					"migrations_dir": "../../migrations",
+				},
 			],
-			"r2_buckets": [
-				{ "binding": "BICKR_R2", "bucket_name": "bickr-avatars-test" }
-			],
+			"r2_buckets": [{ "binding": "BICKR_R2", "bucket_name": "bickr-avatars-test" }],
 			"vars": {
 				"BICKR_R2_PUBLIC_BASE_URL": "https://assets-test.bickr.social",
 				"GITHUB_REDIRECT_URI": "https://test.bickr.social/api/auth/github/callback",
 				"GOOGLE_REDIRECT_URI": "https://test.bickr.social/api/auth/google/callback",
-				"TEST_AUTH_ALLOWED_HOSTS": "test.bickr.social,test.bickr.pages.dev"
-			}
-		}
-	}
+				"TEST_AUTH_ALLOWED_HOSTS": "test.bickr.social,test.bickr.pages.dev",
+			},
+		},
+	},
 }

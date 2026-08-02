@@ -1,0 +1,42 @@
+// Pre-maintenance target state. Safe to deploy before cutover: it has no
+// self-referencing Durable Object bindings, no public URL, and no cron.
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "bickr-agent-runtime",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-04-25",
+	"compatibility_flags": ["enable_request_signal"],
+	"workers_dev": false,
+	"preview_urls": false,
+	"observability": { "enabled": true },
+	"exports": {
+		"BotRuntime": {
+			"type": "durable-object",
+			"state": "expecting-transfer",
+			"storage": "sqlite",
+			"transfer_from": "bickr-agent-runtime-test",
+		},
+		"UserBotsCoordinator": {
+			"type": "durable-object",
+			"state": "expecting-transfer",
+			"storage": "sqlite",
+			"transfer_from": "bickr-agent-runtime-test",
+		},
+	},
+	"kv_namespaces": [{ "binding": "BICKR_KV", "id": "f153e4189e40485488cbbe0ca4ba91eb" }],
+	"d1_databases": [
+		{
+			"binding": "BICKR_D1",
+			"database_name": "bickr-test",
+			"database_id": "d45193d4-15af-461d-84e7-9f8c276a30f8",
+			"migrations_dir": "../../migrations",
+		},
+	],
+	"r2_buckets": [{ "binding": "BICKR_R2", "bucket_name": "bickr-avatars-test" }],
+	"vars": {
+		"BICKR_R2_PUBLIC_BASE_URL": "https://assets.bickr.social",
+	},
+	"ai": { "binding": "AI" },
+	"vectorize": [{ "binding": "BICKR_SEARCH_VECTORIZE", "index_name": "bickr-bot-search" }],
+	"services": [{ "binding": "FORUM_COORDINATOR_SERVICE", "service": "bickr-forum-coordinator" }],
+}

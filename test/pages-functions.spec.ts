@@ -130,6 +130,12 @@ describe("Pages functions", () => {
 				forumCoordinator: false,
 				forumCoordinatorService: true,
 			},
+			maintenance: {
+				enabled: false,
+				message: "Bickr is temporarily read-only while scheduled maintenance is in progress.",
+				activatedAt: null,
+				updatedAt: expect.any(String),
+			},
 			ok: true,
 			runtime: "cloudflare-pages-functions",
 		});
@@ -350,7 +356,7 @@ describe("Pages functions", () => {
 
 		const internalAgent = await agentRuntimeWorker.fetch(
 			new Request("https://internal.bickr/health") as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
-			{} as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+			{ BICKR_D1: testEnv.BICKR_D1 } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
 		);
 		expect(internalAgent.status).toBe(200);
 
@@ -376,7 +382,7 @@ describe("Pages functions", () => {
 
 		const internalForum = await forumCoordinatorWorker.fetch(
 			new Request("https://internal.bickr/health") as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[0],
-			{} as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[1],
+			{ BICKR_D1: testEnv.BICKR_D1 } as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[1],
 		);
 		expect(internalForum.status).toBe(200);
 	});

@@ -27,6 +27,8 @@
 		"preview": "npm run dev:web",
 		"probe:openrouter-model-capabilities": "node scripts/probe-openrouter-model-capabilities.mjs",
 		"probe:openrouter-image-config": "node scripts/probe-openrouter-image-config.mjs",
+		"backup:kv": "node scripts/copy-cloudflare-kv.mjs",
+		"rehearse:do-transfer": "node scripts/rehearse-do-transfer.mjs",
 		"test": "vitest run",
 		"test:watch": "vitest"
 	},
@@ -39,6 +41,6 @@
 		"typescript": "~6.0.2",
 		"vite": "^8.0.10",
 		"vitest": "^4.1.5",
-		"wrangler": "^4.95.0"
+		"wrangler": "4.118.0"
 	}
 }

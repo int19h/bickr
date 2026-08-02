@@ -1,7 +1,8 @@
 import { bootstrapPayload } from "@bickr/shared/bootstrap";
+import { readMaintenanceState } from "@bickr/shared/maintenance";
 import { json } from "./_json";
 
-export const onRequestGet: PagesFunction<Env> = ({ env }) => {
+export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
 	return json({
 		app: bootstrapPayload.app.name,
 		bindings: {
@@ -10,6 +11,7 @@ export const onRequestGet: PagesFunction<Env> = ({ env }) => {
 			forumCoordinator: Boolean(env.FORUM_COORDINATOR),
 			forumCoordinatorService: Boolean(env.FORUM_COORDINATOR_SERVICE),
 		},
+		maintenance: await readMaintenanceState(env.BICKR_D1),
 		ok: true,
 		runtime: "cloudflare-pages-functions",
 	});

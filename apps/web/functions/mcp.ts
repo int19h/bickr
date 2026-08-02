@@ -22,6 +22,7 @@ import {
 	type McpAuthContext,
 	type McpScope,
 } from "@bickr/shared/mcp-auth";
+import { requireMaintenanceDisabled } from "@bickr/shared/maintenance";
 import {
 	avatarImageGenerationSettingsWithDefaults,
 	type AvatarCrop,
@@ -294,6 +295,12 @@ async function callMutationTool(
 	args: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
 	try {
+		// Stopping an already-running visit helps the maintenance drain. Every
+		// other runtime or data mutation is blocked before presentation prefetches
+		// or any operation in a bulk request can commit.
+		if (tool.name !== "stop_runtime") {
+			await requireMaintenanceDisabled(ctx.env.BICKR_D1);
+		}
 		requireCompleteProfile(ctx.auth);
 		if (!("operations" in args)) {
 			// Compatibility for tool definitions cached before the bulk schema rollout.

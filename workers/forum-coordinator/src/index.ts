@@ -31,6 +31,7 @@ import {
 	internalServiceUrl,
 	isTrustedInternalServiceRequest,
 } from "@bickr/shared/internal-service";
+import { deferAlarmDuringMaintenance, mutationMaintenanceResponse, readMaintenanceState } from "@bickr/shared/maintenance";
 import {
 	InputError,
 	normalizeHandle,
@@ -140,6 +141,9 @@ export class WorldCoordinator {
 	}
 
 	async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
+		if (await deferAlarmDuringMaintenance(this.env.BICKR_D1, this.state.storage)) {
+			return;
+		}
 		await runCoordinatorAlarm(this.env, {
 			objectId: this.state.id.toString(),
 			queue: this.queue,
@@ -172,6 +176,9 @@ export class ForumCoordinator {
 	}
 
 	async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
+		if (await deferAlarmDuringMaintenance(this.env.BICKR_D1, this.state.storage)) {
+			return;
+		}
 		await runCoordinatorAlarm(this.env, {
 			cache: this.threadFreshCache,
 			objectId: this.state.id.toString(),
@@ -186,6 +193,10 @@ export async function handleForumCoordinatorRequest(
 	env: ForumCoordinatorEnv,
 	context: CoordinatorContext | string = "direct",
 ): Promise<Response> {
+	const maintenanceResponse = await mutationMaintenanceResponse(request, env.BICKR_D1);
+	if (maintenanceResponse) {
+		return maintenanceResponse;
+	}
 	const coordinator: CoordinatorContext = typeof context === "string" ? { objectId: context } : context;
 	const operation = () => handleForumCoordinatorRequestExclusive(request, env, coordinator);
 	return coordinator.queue ? coordinator.queue.run(operation) : operation();
@@ -531,6 +542,11 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 async function runDailyForumCoordinatorMaintenance(env: Env, now: string): Promise<void> {
+	const maintenance = await readMaintenanceState(env.BICKR_D1);
+	if (maintenance.enabled) {
+		console.log(JSON.stringify({ event: "scheduled_tasks_deferred", reason: "maintenance", scheduledTime: now }));
+		return;
+	}
 	const [hotScores, notificationPrune, botSeenContentPrune, inferenceUsagePrune, indexRepair] = await Promise.allSettled([
 		refreshThreadHotScores(env.BICKR_D1, now),
 		pruneExpiredNotifications(env.BICKR_KV, env.BICKR_D1, { now }),
@@ -568,9 +584,14 @@ async function handleForumWorkerFetch(request: Request, env: Env): Promise<Respo
 	if (!isTrustedInternalServiceRequest(request, env.INTERNAL_SERVICE_SECRET)) {
 		return forumCoordinatorNotFoundResponse();
 	}
+	const maintenanceResponse = await mutationMaintenanceResponse(request, env.BICKR_D1);
+	if (maintenanceResponse) {
+		return maintenanceResponse;
+	}
 
 	if (url.pathname === "/health") {
 		return json({
+			maintenance: await readMaintenanceState(env.BICKR_D1),
 			ok: true,
 			runtime: "forum-coordinator-worker",
 		});

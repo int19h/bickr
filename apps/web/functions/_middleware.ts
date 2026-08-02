@@ -1,4 +1,12 @@
 import type { AppEnv } from "./api/_auth";
+import {
+	isRuntimeStopRequest,
+	isSafeHttpMethod,
+	maintenanceFailureResponse,
+	MaintenanceControlUnavailableError,
+	MaintenanceModeEnabledError,
+	requireMaintenanceDisabled,
+} from "@bickr/shared/maintenance";
 
 export const strictTransportSecurity = "max-age=31536000; includeSubDomains";
 export const contentSecurityPolicy = [
@@ -15,9 +23,47 @@ export const contentSecurityPolicy = [
 	"form-action 'self'",
 ].join("; ");
 
+const stateChangingGetPaths = new Set([
+	"/api/auth/github/start",
+	"/api/auth/github/callback",
+	"/api/auth/google/start",
+	"/api/auth/google/callback",
+]);
+
 export const onRequest: PagesFunction<AppEnv> = async (context) => {
+	const maintenanceResponse = await pagesMaintenanceResponse(context.request, context.env.BICKR_D1);
+	if (maintenanceResponse) {
+		return securityHeadersResponse(maintenanceResponse);
+	}
 	return securityHeadersResponse(await context.next());
 };
+
+async function pagesMaintenanceResponse(request: Request, db: D1Database): Promise<Response | null> {
+	const pathname = new URL(request.url).pathname;
+	// MCP uses POST for both reads and writes, so its discriminated tool registry
+	// enforces the gate after resolving the requested tool. Runtime stop remains
+	// available because it only drains work already admitted before the freeze.
+	if (pathname === "/mcp" || isRuntimeStopRequest(request)) {
+		return null;
+	}
+	if (isSafeHttpMethod(request.method) && !stateChangingGetPaths.has(pathname)) {
+		return null;
+	}
+	try {
+		await requireMaintenanceDisabled(db);
+		return null;
+	} catch (error) {
+		if (!(error instanceof MaintenanceModeEnabledError) && !(error instanceof MaintenanceControlUnavailableError)) {
+			throw error;
+		}
+		console.warn("Pages mutation blocked by maintenance control", {
+			controlAvailable: !(error instanceof MaintenanceControlUnavailableError),
+			method: request.method,
+			pathname,
+		});
+		return maintenanceFailureResponse(error);
+	}
+}
 
 export function securityHeadersResponse(response: Response): Response {
 	// WebSocket upgrade responses (the bot loop monitor proxied through

@@ -21,6 +21,7 @@
 		"./internal-service": "./src/internal-service.ts",
 		"./legacy-tool-result-adapter": "./src/legacy-tool-result-adapter.ts",
 		"./kv-normalization-sweep": "./src/kv-normalization-sweep.ts",
+		"./maintenance": "./src/maintenance.ts",
 		"./mcp-auth": "./src/mcp-auth.ts",
 		"./model": "./src/model.ts",
 		"./openrouter-model-capabilities": "./src/openrouter-model-capabilities.ts",

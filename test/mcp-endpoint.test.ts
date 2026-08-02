@@ -87,6 +87,38 @@ function assertNoSchemaKeywords(value: unknown, forbidden: Set<string>, path: st
 }
 
 describe("MCP endpoint", () => {
+	it("keeps read tools available while blocking mutations during maintenance", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.read", "bickr.write"]);
+		const environment = { BICKR_D1: emptyD1(), MAINTENANCE_ENABLED: true };
+
+		const readResponse = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: { name: "get_profile", arguments: {} },
+		}, environment);
+		expect((await jsonResponse(readResponse)).result).toMatchObject({
+			structuredContent: { profile: { id: "usr_mcp" } },
+		});
+
+		const mutationResponse = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 2,
+			method: "tools/call",
+			params: {
+				name: "update_profile",
+				arguments: { displayName: lt("Blocked update") },
+			},
+		}, environment);
+		expect((await jsonResponse(mutationResponse)).result).toMatchObject({
+			isError: true,
+			structuredContent: {
+				error: "MaintenanceModeEnabledError",
+			},
+		});
+	});
+
 	it("serves protected resource and authorization server metadata", async () => {
 		const protectedResource = await jsonResponse(await onProtectedResourceGet(pagesContext(new Request("https://bickr.social/.well-known/oauth-protected-resource"))));
 		expect(protectedResource).toMatchObject({
@@ -1135,6 +1167,7 @@ async function callMcp(kv: KVNamespaceLike, accessToken: string | null, body: un
 	}
 	const {
 		AGENT_RUNTIME: upstreamAgentRuntime,
+		MAINTENANCE_ENABLED: maintenanceEnabled = false,
 		MCP_PROVIDER_ENVIRONMENT_ERROR: providerEnvironmentError = false,
 		MCP_PROVIDER_ENVIRONMENT: providerEnvironment = { apiKeySet: true, model: "openrouter/free" },
 		...restEnv
@@ -1147,6 +1180,7 @@ async function callMcp(kv: KVNamespaceLike, accessToken: string | null, body: un
 	}), {
 		BICKR_KV: kv,
 		...restEnv,
+		BICKR_D1: maintenanceAwareD1(restEnv.BICKR_D1 ?? emptyD1(), maintenanceEnabled === true),
 		AGENT_RUNTIME: {
 			fetch: async (request: Request) => {
 				if (new URL(request.url).pathname === "/provider-settings/environment") {
@@ -1165,6 +1199,35 @@ async function callMcp(kv: KVNamespaceLike, accessToken: string | null, body: un
 			},
 		},
 	}));
+}
+
+function maintenanceAwareD1(database: unknown, enabled: boolean): unknown {
+	const db = database as {
+		batch(statements: unknown[]): Promise<unknown[]>;
+		prepare(sql: string): unknown;
+	};
+	return {
+		batch: (statements: unknown[]) => db.batch(statements),
+		prepare: (sql: string) => {
+			if (!sql.includes("FROM maintenance_control")) {
+				return db.prepare(sql);
+			}
+			const statement = {
+				bind() {
+					return statement;
+				},
+				first: async () => ({
+					enabled: enabled ? 1 : 0,
+					message: "Scheduled maintenance.",
+					activatedAt: enabled ? "2026-08-02T00:00:00.000Z" : null,
+					updatedAt: "2026-08-02T00:00:00.000Z",
+				}),
+				all: async () => ({ success: true, results: [] }),
+				run: async () => ({ success: true, meta: { changes: 0 } }),
+			};
+			return statement;
+		},
+	};
 }
 
 function pagesContext(request: Request, env: Record<string, unknown> = {}): TestPagesContext {

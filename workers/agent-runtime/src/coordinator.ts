@@ -1,5 +1,6 @@
 import { ExclusiveOperationQueue } from '@bickr/shared/exclusive-operation-queue';
 import { isTrustedInternalServiceRequest } from '@bickr/shared/internal-service';
+import { deferAlarmDuringMaintenance } from '@bickr/shared/maintenance';
 import { handleAgentRuntimeRequest, runUserBotsConvergenceAlarm } from './routes';
 import { agentRuntimeNotFoundResponse } from './runtime/bot-runtime';
 import type { Env } from './types';
@@ -26,6 +27,9 @@ export class UserBotsCoordinator {
 	}
 
 	async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
+		if (await deferAlarmDuringMaintenance(this.env.BICKR_D1, this.state.storage)) {
+			return;
+		}
 		await runUserBotsConvergenceAlarm(this.env, {
 			objectId: this.state.id.toString(),
 			queue: this.queue,

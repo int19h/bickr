@@ -5,6 +5,9 @@
 	"compatibility_date": "2026-04-25",
 	"workers_dev": false,
 	"preview_urls": false,
+	"observability": {
+		"enabled": true,
+	},
 	// INTERNAL_SERVICE_SECRET is a Worker secret set with `wrangler secret put`.
 	// Do not place it in vars; it is intentionally not in secrets.required so
 	// deploys can roll out before the secret exists.
@@ -12,46 +15,38 @@
 		"bindings": [
 			{
 				"name": "WORLD_COORDINATOR",
-				"class_name": "WorldCoordinator"
+				"class_name": "WorldCoordinator",
 			},
 			{
 				"name": "FORUM_COORDINATOR",
-				"class_name": "ForumCoordinator"
-			}
-		]
+				"class_name": "ForumCoordinator",
+			},
+		],
 	},
-	"migrations": [
-		{
-			"tag": "v1",
-			"new_sqlite_classes": ["ForumCoordinator"]
-		},
-		{
-			"tag": "v2",
-			"new_sqlite_classes": ["WorldCoordinator"]
-		}
-	],
-	"kv_namespaces": [
-		{ "binding": "BICKR_KV", "id": "bickr-local-kv" }
-	],
+	"exports": {
+		"ForumCoordinator": { "type": "durable-object", "storage": "sqlite" },
+		"WorldCoordinator": { "type": "durable-object", "storage": "sqlite" },
+	},
+	"kv_namespaces": [{ "binding": "BICKR_KV", "id": "f153e4189e40485488cbbe0ca4ba91eb" }],
 	"d1_databases": [
 		{
 			"binding": "BICKR_D1",
-			"database_name": "bickr-local",
-			"database_id": "00000000-0000-0000-0000-000000000000",
+			"database_name": "bickr-test",
+			"database_id": "d45193d4-15af-461d-84e7-9f8c276a30f8",
 			"preview_database_id": "BICKR_D1",
-			"migrations_dir": "../../migrations"
-		}
+			"migrations_dir": "../../migrations",
+		},
 	],
 	"ai": {
-		"binding": "AI"
+		"binding": "AI",
 	},
 	"vectorize": [
 		{
 			"binding": "BICKR_SEARCH_VECTORIZE",
-			"index_name": "bickr-bot-search"
-		}
+			"index_name": "bickr-bot-search",
+		},
 	],
 	"triggers": {
-		"crons": ["0 0 * * *"]
-	}
+		"crons": ["0 0 * * *"],
+	},
 }
