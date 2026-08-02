@@ -13,9 +13,11 @@ const authHeaders = cloudflareAuthHeaders();
 const apiBase = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/storage/kv/namespaces`;
 const maximumBulkEntries = 500;
 const maximumBulkBytes = 45 * 1024 * 1024;
-// A KV value can be 25 MiB. Keep the worst-case in-flight body footprint
-// bounded even though Bickr's canonical documents are normally much smaller.
-const readConcurrency = 4;
+const maximumBulkReadEntries = 100;
+// A KV value can be 25 MiB. Bound raw fallback reads so a batch containing
+// binary values cannot create an unbounded in-memory response set.
+const rawReadConcurrency = 4;
+let bulkReadsAvailable = true;
 
 class NonRetryableRequestError extends Error {}
 
@@ -51,9 +53,9 @@ for await (const keys of listAllKeys(sourceNamespaceId)) {
 		continue;
 	}
 
-	for (let offset = 0; offset < keys.length; offset += readConcurrency) {
-		const group = keys.slice(offset, offset + readConcurrency);
-		const values = await Promise.all(group.map((key) => readKey(sourceNamespaceId, key)));
+	for (let offset = 0; offset < keys.length; offset += maximumBulkReadEntries) {
+		const group = keys.slice(offset, offset + maximumBulkReadEntries);
+		const values = await readKeys(sourceNamespaceId, group);
 		for (const value of values) {
 			const approximateRequestBytes =
 				Buffer.byteLength(value.key) +
@@ -143,6 +145,58 @@ async function readKey(namespaceId, key) {
 		expiration: key.expiration,
 		metadata: key.metadata,
 	};
+}
+
+async function readKeys(namespaceId, keys) {
+	if (!bulkReadsAvailable) {
+		return readKeysIndividually(namespaceId, keys);
+	}
+	try {
+		const response = await cloudflareRequest(`${apiBase}/${namespaceId}/bulk/get`, {
+			method: 'POST',
+			headers: { ...authHeaders, 'content-type': 'application/json' },
+			body: JSON.stringify({
+				keys: keys.map((key) => key.name),
+				type: 'text',
+			}),
+		});
+		const values = response.result?.values;
+		if (!values || typeof values !== 'object' || Array.isArray(values)) {
+			throw new Error('Cloudflare KV bulk read returned an invalid values map.');
+		}
+		return keys.map((key) => {
+			const value = values[key.name];
+			if (typeof value !== 'string') {
+				throw new Error(`Cloudflare KV bulk read omitted or changed the type of key ${key.name}.`);
+			}
+			return {
+				key: key.name,
+				raw: Buffer.from(value, 'utf8'),
+				expiration: key.expiration,
+				metadata: key.metadata,
+			};
+		});
+	} catch (error) {
+		// The REST bulk-read endpoint accepts only text values. Preserve the
+		// original byte-for-byte path for an entire batch if Cloudflare rejects
+		// it or reports a non-text value, so a future binary KV record cannot make
+		// a launch backup incomplete.
+		if (!(error instanceof NonRetryableRequestError)) {
+			bulkReadsAvailable = false;
+			console.warn('Cloudflare KV bulk reads are unavailable; using bounded raw reads for the remaining backup.');
+		}
+		return readKeysIndividually(namespaceId, keys);
+	}
+}
+
+async function readKeysIndividually(namespaceId, keys) {
+	const values = [];
+	for (let offset = 0; offset < keys.length; offset += rawReadConcurrency) {
+		values.push(...await Promise.all(
+			keys.slice(offset, offset + rawReadConcurrency).map((key) => readKey(namespaceId, key)),
+		));
+	}
+	return values;
 }
 
 function toBulkWrite(value) {
