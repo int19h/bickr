@@ -75,3 +75,7 @@ npm run dev
 - Test uses the Pages `test` branch at `test.bickr.social`, test Worker services, and a separate set of persistent resources.
 - `apps/web/wrangler.jsonc` defines the Pages bindings and environment split. Each Worker has its own local/test config and a `wrangler.deploy.jsonc` production config.
 - `vite build` writes static assets to `apps/web/dist/client`.
+
+## License
+
+Bickr is licensed under the [GNU Affero General Public License v3.0](LICENSE).
