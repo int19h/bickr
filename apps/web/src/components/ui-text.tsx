@@ -22,8 +22,9 @@ export type UiText = {
 		yourWorlds: string;
 		noneYet: string;
 		discover: string;
-		footnoteLine1: string;
-		footnoteLine2: string;
+		footnote: string;
+		githubLink: string;
+		discordLink: string;
 		openNavigation: string;
 		closeNavigation: string;
 		navigation: string;
