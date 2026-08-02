@@ -729,6 +729,66 @@ describe("MCP endpoint", () => {
 		});
 	});
 
+	it("redacts stored bot credentials from every bot-list MCP response", async () => {
+		const kv = new MapKV();
+		const bot = testBot({
+			id: "bot_listed",
+			handle: "listed-bot",
+			inferenceSettings: { openRouterApiKey: "listed-bot-secret", model: "listed/model" },
+		});
+		await kv.put(kvKeys.bot(bot.id), JSON.stringify(bot));
+		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
+
+		for (const [name, args] of [
+			["list_my_bots", {}],
+			["list_world_bots", { worldHandle: "mcp-world" }],
+		] as const) {
+			const response = await callMcp(kv, accessToken, {
+				jsonrpc: "2.0",
+				id: 1,
+				method: "tools/call",
+				params: { name, arguments: args },
+			}, { BICKR_D1: mcpBotCollectionD1(bot.id) });
+			const body = await jsonResponse(response);
+			const structured = (body.result as { structuredContent: {
+				bots: Array<{ inferenceSettings: Record<string, unknown> }>;
+			} }).structuredContent;
+
+			expect(response.status).toBe(200);
+			expect(structured.bots).toHaveLength(1);
+			expect(structured.bots[0]?.inferenceSettings).not.toHaveProperty("openRouterApiKey");
+			expect(structured.bots[0]?.inferenceSettings.openRouterApiKeySet).toBe(true);
+			expect(JSON.stringify(body)).not.toContain("listed-bot-secret");
+		}
+	});
+
+	it("redacts stored bot credentials from MCP bot groups", async () => {
+		const kv = new MapKV();
+		const bot = testBot({
+			id: "bot_grouped",
+			handle: "grouped-bot",
+			inferenceSettings: { openRouterApiKey: "grouped-bot-secret" },
+		});
+		await kv.put(kvKeys.bot(bot.id), JSON.stringify(bot));
+		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: { name: "list_groups", arguments: { worldHandle: "mcp-world" } },
+		}, { BICKR_D1: mcpBotCollectionD1(bot.id, "grp_mcp") });
+		const body = await jsonResponse(response);
+		const structured = (body.result as { structuredContent: {
+			groups: Array<{ bots: Array<{ inferenceSettings: Record<string, unknown> }> }>;
+		} }).structuredContent;
+		const groupedBot = structured.groups[0]?.bots[0];
+
+		expect(response.status).toBe(200);
+		expect(groupedBot?.inferenceSettings).not.toHaveProperty("openRouterApiKey");
+		expect(groupedBot?.inferenceSettings.openRouterApiKeySet).toBe(true);
+		expect(JSON.stringify(body)).not.toContain("grouped-bot-secret");
+	});
+
 	it("includes specified and effective MCP settings with origins for inherited bot values", async () => {
 		const kv = new MapKV();
 		const source = testBot({
@@ -738,6 +798,7 @@ describe("MCP endpoint", () => {
 			shortBio: "Source bio",
 			prompt: "Source prompt",
 			inferenceSettings: {
+				openRouterApiKey: "source-bot-secret",
 				baseUrl: "http://localhost:11434/v1",
 				model: "source/model",
 				temperature: 0.2,
@@ -752,7 +813,7 @@ describe("MCP endpoint", () => {
 			displayName: "",
 			shortBio: "",
 			prompt: "",
-			inferenceSettings: { temperature: 0.7 },
+			inferenceSettings: { openRouterApiKey: "clone-override-secret", temperature: 0.7 },
 			postingSettings: {
 				commentBodyCharacters: 500,
 			},
@@ -771,9 +832,21 @@ describe("MCP endpoint", () => {
 		}, { BICKR_D1: mcpSettingsD1() });
 		const body = await jsonResponse(response);
 		const toolResult = body.result as Record<string, unknown>;
-		const structured = toolResult.structuredContent as { bot: { language: string | null; lang: string | null; mcpResolvedSettings: Record<string, Record<string, unknown>> } };
+		const structured = toolResult.structuredContent as { bot: {
+			language: string | null;
+			lang: string | null;
+			inferenceSettings: Record<string, unknown>;
+			localOverrides?: { inferenceSettings: Record<string, unknown> };
+			mcpResolvedSettings: Record<string, Record<string, unknown>>;
+		} };
 
 		expect(response.status).toBe(200);
+		expect(JSON.stringify(body)).not.toContain("source-bot-secret");
+		expect(JSON.stringify(body)).not.toContain("clone-override-secret");
+		expect(structured.bot.inferenceSettings).not.toHaveProperty("openRouterApiKey");
+		expect(structured.bot.inferenceSettings.openRouterApiKeySet).toBe(true);
+		expect(structured.bot.localOverrides?.inferenceSettings).not.toHaveProperty("openRouterApiKey");
+		expect(structured.bot.localOverrides?.inferenceSettings.openRouterApiKeySet).toBe(true);
 		expect(structured.bot.language).toBe("en");
 		expect(structured.bot.lang).toBe("en");
 		expect(structured.bot.mcpResolvedSettings.cloneProfile.displayName).toMatchObject({
@@ -907,7 +980,7 @@ describe("MCP endpoint", () => {
 			id: "bot_source",
 			handle: "other-owner",
 			ownerUserId: "usr_other",
-			inferenceSettings: { model: "anthropic/claude-opus-4", openRouterApiKeySet: true },
+			inferenceSettings: { model: "anthropic/claude-opus-4", openRouterApiKey: "other-owner-secret" },
 		});
 		await kv.put(kvKeys.bot(bot.id), JSON.stringify(bot));
 		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
@@ -924,6 +997,9 @@ describe("MCP endpoint", () => {
 		} } }).structuredContent;
 
 		expect(structured.bot.inferenceSettings.model).toBe("anthropic/claude-opus-4");
+		expect(structured.bot.inferenceSettings).not.toHaveProperty("openRouterApiKey");
+		expect(structured.bot.inferenceSettings.openRouterApiKeySet).toBe(true);
+		expect(JSON.stringify(body)).not.toContain("other-owner-secret");
 		expect(structured.bot.mcpResolvedSettings).not.toHaveProperty("inferenceSettings");
 	});
 
@@ -987,7 +1063,11 @@ describe("MCP endpoint", () => {
 
 	it("annotates update_bot receipts with profile-inherited effective settings", async () => {
 		const kv = new MapKV();
-		const bot = testBot({ id: "bot_updated_default", handle: "updated-default", inferenceSettings: {} });
+		const bot = testBot({
+			id: "bot_updated_default",
+			handle: "updated-default",
+			inferenceSettings: { openRouterApiKey: "upstream-bot-secret" },
+		});
 		const user = testUser({
 			inferenceSettings: {
 				model: "deepseek/deepseek-v4-flash-0731",
@@ -1019,6 +1099,9 @@ describe("MCP endpoint", () => {
 			effective: "deepseek/deepseek-v4-flash-0731",
 			source: "profile",
 		});
+		expect(result.data.bot).not.toHaveProperty("type");
+		expect(result.data.bot).not.toHaveProperty("revision");
+		expect(JSON.stringify(result)).not.toContain("upstream-bot-secret");
 		expect(JSON.stringify(result)).not.toContain("profile-secret");
 	});
 
@@ -1210,6 +1293,73 @@ function mcpSettingsD1(): unknown {
 	return {
 		batch: async () => [],
 		prepare: (sql: string) => ({ ...statement, sql, values: [] }),
+	};
+}
+
+function mcpBotCollectionD1(botId: string, groupId?: string): unknown {
+	return {
+		batch: async () => [],
+		prepare: (sql: string) => {
+			const statement = {
+				values: [] as unknown[],
+				bind(...values: unknown[]) {
+					this.values = values;
+					return this;
+				},
+				async first<T>() {
+					if (sql.includes("FROM worlds_index")) {
+						return {
+							id: "w_mcp",
+							handle: "mcp-world",
+							postingThreadBodyCharacters: 6000,
+							postingCommentBodyCharacters: null,
+						} as T;
+					}
+					return null;
+				},
+				async all<T>() {
+					if (sql.includes("WITH selected AS")) {
+						return { success: true, results: [{ id: botId, nextDueAt: null, lastActiveAt: null }] as T[] };
+					}
+					if (sql.includes("FROM bot_groups")) {
+						return {
+							success: true,
+							results: groupId ? [{
+								id: groupId,
+								worldId: "w_mcp",
+								ownerUserId: "usr_mcp",
+								language: "en",
+								customTitle: "MCP Group",
+								customTitleLang: "en",
+								createdAt: "2026-05-01T00:00:00.000Z",
+								updatedAt: "2026-05-01T00:00:00.000Z",
+							}] as T[] : [],
+						};
+					}
+					if (sql.includes("FROM bot_group_members")) {
+						return {
+							success: true,
+							results: groupId ? [{ groupId, botId }] as T[] : [],
+						};
+					}
+					if (sql.includes("FROM worlds_index")) {
+						return {
+							success: true,
+							results: [{
+								id: "w_mcp",
+								postingThreadBodyCharacters: 6000,
+								postingCommentBodyCharacters: null,
+							}] as T[],
+						};
+					}
+					return { success: true, results: [] as T[] };
+				},
+				async run() {
+					return { success: true, meta: { changes: 0 } };
+				},
+			};
+			return statement;
+		},
 	};
 }
 

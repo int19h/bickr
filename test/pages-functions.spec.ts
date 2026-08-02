@@ -2579,7 +2579,7 @@ describe("Pages functions", () => {
 			repetitionPenalty: 1.1,
 			toolCalls: "railroad",
 		});
-		expect(created.data.bot.inferenceSettings.openRouterApiKey).toBeUndefined();
+		expect(created.data.bot.inferenceSettings).not.toHaveProperty("openRouterApiKey");
 		expect(created.data.bot.inferenceSettings.recurringPromptEnabled).toBeUndefined();
 		expect(created.data.bot.toolSettings).toMatchObject({
 			openRouter: {
@@ -3835,7 +3835,7 @@ describe("Pages functions", () => {
 				repetitionPenalty: 1.05,
 			},
 		});
-		expect(profilePayload.data.profile.inferenceSettings.openRouterApiKey).toBeUndefined();
+		expect(profilePayload.data.profile.inferenceSettings).not.toHaveProperty("openRouterApiKey");
 
 		for (const inferenceSettings of [
 			{ frequencyPenalty: -2.1 },

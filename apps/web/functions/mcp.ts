@@ -41,7 +41,7 @@ import {
 	type WorldSummary,
 	worldAvatarImageGenerationSettingsWithDefaults,
 } from "@bickr/shared/model";
-import { defaultPostingSettings, effectivePostingSettings } from "@bickr/shared/posting";
+import { defaultPostingSettings } from "@bickr/shared/posting";
 import { defaultThreadCommentLimit } from "@bickr/shared/thread-policy";
 import {
 	addBotGroupMembers,
@@ -59,6 +59,8 @@ import {
 	rawBotById,
 	removeBotGroupMember,
 	RepositoryError,
+	isBotDocument,
+	publicBotSummary,
 	refreshLinkedCloneIndexes,
 	updateBotGroup,
 	updateBotAvatar,
@@ -155,8 +157,8 @@ type MutationOperationResult =
 
 type McpPayloadEnvelope =
 	| { kind: "opaque"; payload: unknown }
+	| { kind: "presented"; payload: unknown }
 	| { kind: "bot"; payload: unknown }
-	| { kind: "bots"; payload: unknown }
 	| { kind: "world"; payload: unknown }
 	| { kind: "worlds"; payload: unknown }
 	| { kind: "forum"; payload: unknown }
@@ -533,7 +535,7 @@ const mcpTools: McpTool[] = [
 			ctx.auth.user,
 			await optionalProviderEnvironmentForMcp(ctx),
 		),
-	}), "bots"),
+	}), "presented"),
 	readTool("list_world_bots", "List world bots", "List bots in a Bickr world.", {
 		worldHandle: stringSchema("World handle."),
 	}, async (ctx, args) => ({
@@ -542,7 +544,7 @@ const mcpTools: McpTool[] = [
 			ctx.auth.user,
 			await optionalProviderEnvironmentForMcp(ctx),
 		),
-	}), "bots"),
+	}), "presented"),
 	readTool("get_bot", "Get bot", "Read one Bickr bot by ID.", {
 		botId: stringSchema("Bot ID."),
 	}, async (ctx, args) => {
@@ -556,7 +558,7 @@ const mcpTools: McpTool[] = [
 				await optionalProviderEnvironmentForMcp(ctx),
 			),
 		};
-	}, "bot"),
+	}, "presented"),
 	serviceTool("create_bot", "Create bot", "Create a Bickr bot in a world.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		handle: stringSchema("Bot handle."),
@@ -1157,17 +1159,12 @@ function annotateMcpPayload(
 ): unknown {
 	switch (envelope.kind) {
 		case "opaque":
+		case "presented":
 			return envelope.payload;
 		case "bot":
 			return mapMcpPayloadData(envelope.payload, (record) => ({
 				...record,
 				bot: annotateMcpBot(record.bot as BotDocument | BotSummary, undefined, viewer, providerEnvironment),
-			}));
-		case "bots":
-			return mapMcpPayloadData(envelope.payload, (record) => ({
-				...record,
-				bots: (record.bots as Array<BotDocument | BotSummary>).map((bot) =>
-					annotateMcpBot(bot, undefined, viewer, providerEnvironment)),
 			}));
 		case "world":
 			return mapMcpPayloadData(envelope.payload, (record) => ({
@@ -1251,23 +1248,27 @@ function annotateMcpBotGroup(
 	};
 }
 
-function annotateMcpBots<T extends BotDocument | BotSummary>(
-	bots: T[],
+function annotateMcpBots(
+	bots: Array<BotDocument | BotSummary>,
 	viewer?: UserDocument,
 	providerEnvironment?: ProviderEnvironmentSettings,
-): Array<T & { lang: T["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> }> {
+): Array<BotSummary & { lang: BotSummary["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> }> {
 	return bots.map((bot) => annotateMcpBot(bot, undefined, viewer, providerEnvironment));
 }
 
-function annotateMcpBot<T extends BotDocument | BotSummary>(
-	bot: T,
+function annotateMcpBot(
+	candidate: BotDocument | BotSummary,
 	worldPostingSettings?: PostingSettings,
 	viewer?: UserDocument,
 	providerEnvironment?: ProviderEnvironmentSettings,
-): T & { lang: T["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> } {
-	if ("mcpResolvedSettings" in bot) {
-		return { ...bot, lang: bot.language } as T & { lang: T["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> };
-	}
+): BotSummary & { lang: BotSummary["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> } {
+	// Treat every bot-bearing result as untrusted at this final caller-facing
+	// boundary. The allowlisted summary prevents storage-only fields and future
+	// internal additions from becoming part of the MCP protocol by accident.
+	const bot = publicBotSummary(
+		candidate,
+		isBotDocument(candidate) ? { includeToolSettings: true, worldPostingSettings } : {},
+	);
 	const local = bot.localOverrides;
 	const specifiedInference = local?.inferenceSettings ?? bot.inferenceSettings;
 	const cloneLinked = bot.cloneSource?.linked === true;
@@ -1288,10 +1289,10 @@ function annotateMcpBot<T extends BotDocument | BotSummary>(
 		cloneProfile,
 		postingSettings: resolvedPostingSettings(
 			bot.postingSettings,
-			"effectivePostingSettings" in bot ? bot.effectivePostingSettings : effectivePostingSettings(worldPostingSettings, bot.postingSettings),
+			bot.effectivePostingSettings,
 			worldPostingSettings,
 		),
-		tickSettings: resolvedTickSettings(bot.tickSettings, "effectiveTickSettings" in bot ? bot.effectiveTickSettings : undefined),
+		tickSettings: resolvedTickSettings(bot.tickSettings, bot.effectiveTickSettings),
 	};
 	if (viewer?.id === bot.ownerUserId && providerEnvironment) {
 		// Effective inference settings depend on private owner defaults. Public bot
@@ -1744,7 +1745,7 @@ async function successfulMutationOperationResult(
 }
 
 function mcpPayloadHasBots(kind: McpPayloadEnvelope["kind"]): boolean {
-	return kind === "bot" || kind === "bots" || kind === "group" || kind === "groups";
+	return kind === "bot" || kind === "group" || kind === "groups";
 }
 
 function toolError(value: unknown): Record<string, unknown> {

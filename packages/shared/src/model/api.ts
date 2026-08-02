@@ -29,6 +29,16 @@ import type {
 	UiLocalePreference,
 } from "./entities";
 
+// Caller-facing settings expose only whether a credential is configured. Write
+// payloads use BotInferenceSettingsInput and stored documents use BotInferenceSettings.
+export type PublicBotInferenceSettings = Omit<BotInferenceSettings, "openRouterApiKey"> & {
+	openRouterApiKey?: never;
+};
+
+export type PublicBotLocalOverrides = Omit<BotLocalOverrides, "inferenceSettings"> & {
+	inferenceSettings: PublicBotInferenceSettings;
+};
+
 export type PublicUser = {
 	id: string;
 	handle: string;
@@ -53,7 +63,7 @@ export type LinkedAuthIdentity = {
 
 export type UserProfile = PublicUser & {
 	authIdentities: LinkedAuthIdentity[];
-	inferenceSettings: BotInferenceSettings;
+	inferenceSettings: PublicBotInferenceSettings;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -262,7 +272,7 @@ export type BotSummary = {
 	avatarUrl?: string;
 	avatarCrop?: AvatarCrop;
 	prompt?: LocalizedText;
-	inferenceSettings: BotInferenceSettings;
+	inferenceSettings: PublicBotInferenceSettings;
 	toolSettings?: BotToolSettings;
 	postingSettings: PostingSettings;
 	effectivePostingSettings: BotEffectivePostingSettings;
@@ -270,7 +280,7 @@ export type BotSummary = {
 	effectiveTickSettings: BotEffectiveTickSettings;
 	importSource?: ChirperImportSource;
 	cloneSource?: BotCloneSourceSummary;
-	localOverrides?: BotLocalOverrides;
+	localOverrides?: PublicBotLocalOverrides;
 	lastActiveAt?: string;
 	nextDueAt?: string | null;
 	createdAt: string;
