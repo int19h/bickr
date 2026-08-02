@@ -1266,9 +1266,7 @@ button:disabled {
 	display: inline-flex;
 	height: 28px;
 	justify-content: center;
-	transition:
-		background 80ms,
-		color 80ms;
+	transition: background 80ms;
 	width: 28px;
 }
 

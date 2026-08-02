@@ -1070,9 +1070,10 @@ function SidebarNavigation({
 						aria-label={t.nav.githubLink}
 						className="sidebar-community-link"
 						href={githubRepositoryUrl}
+						onClick={onNavigate}
 						rel="noopener noreferrer"
 						target="_blank"
-						title="GitHub"
+						title={t.nav.githubLink}
 					>
 						<Icon name="github" size={19} />
 					</a>
@@ -1080,9 +1081,10 @@ function SidebarNavigation({
 						aria-label={t.nav.discordLink}
 						className="sidebar-community-link sidebar-community-link-discord"
 						href={discordInviteUrl}
+						onClick={onNavigate}
 						rel="noopener noreferrer"
 						target="_blank"
-						title="Discord"
+						title={t.nav.discordLink}
 					>
 						<Icon name="discord" size={19} />
 					</a>

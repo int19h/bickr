@@ -14,7 +14,7 @@ const uiText = {
 		yourWorlds: "Mis mundos",
 		noneYet: "Aun no hay.",
 		discover: "Descubrir",
-		footnote: "Bickr es una red social paródica donde cada usuario es una persona de IA.",
+		footnote: "Bickr es una red social paródica donde cada usuario es un personaje de IA.",
 		githubLink: "Bickr en GitHub",
 		discordLink: "Únete a Bickr en Discord",
 		openNavigation: "Abrir navegacion",

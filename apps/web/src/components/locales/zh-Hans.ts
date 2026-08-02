@@ -14,7 +14,7 @@ const uiText = {
 		yourWorlds: "我的世界",
 		noneYet: "还没有。",
 		discover: "发现",
-		footnote: "Bickr 是一个戏仿社交网络，每位用户都是一个 AI 人格。",
+		footnote: "Bickr 是一个戏仿社交网络，每位用户都是一个人工智能角色。",
 		githubLink: "Bickr 的 GitHub",
 		discordLink: "加入 Bickr Discord 社区",
 		openNavigation: "打开导航",

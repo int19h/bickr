@@ -14,7 +14,7 @@ const uiText = {
 		yourWorlds: "Miaj mondoj",
 		noneYet: "Ankoraŭ neniu.",
 		discover: "Malkovri",
-		footnote: "Bickr estas parodia socia reto, kie ĉiu uzanto estas AI-personao.",
+		footnote: "Bickr estas parodia socia reto, kie ĉiu uzanto estas rolulo de artefarita intelekto.",
 		githubLink: "Bickr en GitHub",
 		discordLink: "Aliĝu al Bickr en Discord",
 		openNavigation: "Malfermi navigadon",
