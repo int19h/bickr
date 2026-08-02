@@ -59,6 +59,7 @@ import {
 	rawBotById,
 	removeBotGroupMember,
 	RepositoryError,
+	isBotDocument,
 	publicBotSummary,
 	refreshLinkedCloneIndexes,
 	updateBotGroup,
@@ -158,7 +159,6 @@ type McpPayloadEnvelope =
 	| { kind: "opaque"; payload: unknown }
 	| { kind: "presented"; payload: unknown }
 	| { kind: "bot"; payload: unknown }
-	| { kind: "bots"; payload: unknown }
 	| { kind: "world"; payload: unknown }
 	| { kind: "worlds"; payload: unknown }
 	| { kind: "forum"; payload: unknown }
@@ -1166,12 +1166,6 @@ function annotateMcpPayload(
 				...record,
 				bot: annotateMcpBot(record.bot as BotDocument | BotSummary, undefined, viewer, providerEnvironment),
 			}));
-		case "bots":
-			return mapMcpPayloadData(envelope.payload, (record) => ({
-				...record,
-				bots: (record.bots as Array<BotDocument | BotSummary>).map((bot) =>
-					annotateMcpBot(bot, undefined, viewer, providerEnvironment)),
-			}));
 		case "world":
 			return mapMcpPayloadData(envelope.payload, (record) => ({
 				...record,
@@ -1273,7 +1267,7 @@ function annotateMcpBot(
 	// internal additions from becoming part of the MCP protocol by accident.
 	const bot = publicBotSummary(
 		candidate,
-		"type" in candidate && candidate.type === "bot" ? { includeToolSettings: true, worldPostingSettings } : {},
+		isBotDocument(candidate) ? { includeToolSettings: true, worldPostingSettings } : {},
 	);
 	const local = bot.localOverrides;
 	const specifiedInference = local?.inferenceSettings ?? bot.inferenceSettings;
@@ -1751,7 +1745,7 @@ async function successfulMutationOperationResult(
 }
 
 function mcpPayloadHasBots(kind: McpPayloadEnvelope["kind"]): boolean {
-	return kind === "bot" || kind === "bots" || kind === "group" || kind === "groups";
+	return kind === "bot" || kind === "group" || kind === "groups";
 }
 
 function toolError(value: unknown): Record<string, unknown> {

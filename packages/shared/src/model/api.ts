@@ -31,7 +31,9 @@ import type {
 
 // Caller-facing settings expose only whether a credential is configured. Write
 // payloads use BotInferenceSettingsInput and stored documents use BotInferenceSettings.
-export type PublicBotInferenceSettings = Omit<BotInferenceSettings, "openRouterApiKey">;
+export type PublicBotInferenceSettings = Omit<BotInferenceSettings, "openRouterApiKey"> & {
+	openRouterApiKey?: never;
+};
 
 export type PublicBotLocalOverrides = Omit<BotLocalOverrides, "inferenceSettings"> & {
 	inferenceSettings: PublicBotInferenceSettings;

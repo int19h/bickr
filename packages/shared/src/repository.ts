@@ -545,7 +545,7 @@ function normalizeProviderProfile(profile: ProviderUserProfile): ProviderUserPro
 		login,
 		...(displayName ? { displayName } : {}),
 		...(email ? { email } : {}),
-		...(avatarUrl !== undefined ? { avatarUrl } : {}),
+		...(avatarUrl ? { avatarUrl } : {}),
 	};
 }
 
@@ -3642,7 +3642,7 @@ export function publicBotSummary(
 	};
 }
 
-function isBotDocument(bot: BotDocument | BotSummary): bot is BotDocument {
+export function isBotDocument(bot: BotDocument | BotSummary): bot is BotDocument {
 	return "type" in bot && bot.type === "bot";
 }
 
