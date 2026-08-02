@@ -8,7 +8,7 @@ import {
 } from '../packages/shared/src/maintenance';
 import { handleAgentRuntimeRequest } from '../workers/agent-runtime/src/routes';
 import { handleForumCoordinatorRequest } from '../workers/forum-coordinator/src/index';
-import { contextFor, describe, expect, it, testEnv, vi } from './helpers/index-harness';
+import { contextFor, describe, expect, it, jsonRequest, testEnv, testServiceProxy, vi } from './helpers/index-harness';
 
 async function setMaintenance(enabled: boolean): Promise<void> {
 	const now = '2026-08-02T00:00:00.000Z';
@@ -44,6 +44,7 @@ describe('maintenance control', () => {
 
 		expect((await invoke(new Request('https://test.bickr.social/api/worlds'))).status).toBe(200);
 		expect((await invoke(new Request('https://test.bickr.social/mcp', { method: 'POST' }))).status).toBe(200);
+		expect((await invoke(new Request('https://test.bickr.social/api/__test__/service-proxy', { method: 'POST' }))).status).toBe(200);
 		expect((await invoke(new Request('https://test.bickr.social/api/me/bots/bot_1/runtime/stop', { method: 'POST' }))).status).toBe(200);
 
 		for (const pathname of [
@@ -54,6 +55,57 @@ describe('maintenance control', () => {
 		]) {
 			expect((await invoke(new Request(`https://test.bickr.social${pathname}`))).status).toBe(503);
 		}
+	});
+
+	it('gates the authenticated service proxy by its parsed inner request', async () => {
+		await setMaintenance(true);
+		const proxiedRequests: Request[] = [];
+		const agentRuntime = {
+			fetch: async (request: Request) => {
+				proxiedRequests.push(request);
+				return Response.json({ ok: true });
+			},
+		} as unknown as Fetcher;
+		const invoke = (input: Record<string, unknown>) =>
+			testServiceProxy(
+				contextFor<typeof testServiceProxy>(
+					jsonRequest(
+						'https://test.bickr.social/api/__test__/service-proxy',
+						'POST',
+						input,
+						undefined,
+						{ 'x-test-auth-secret': 'secret' },
+					),
+					{},
+					{
+						AGENT_RUNTIME: agentRuntime,
+						BICKR_D1: testEnv.BICKR_D1,
+						INTERNAL_SERVICE_SECRET: 'service-secret',
+						TEST_AUTH_ALLOWED_HOSTS: 'test.bickr.social,test.bickr.pages.dev',
+						TEST_AUTH_SECRET: 'secret',
+					},
+				),
+			);
+
+		expect(await invoke({ service: 'agent-runtime', method: 'GET', path: '/health' })).toHaveProperty('status', 200);
+		expect(await invoke({
+			service: 'agent-runtime',
+			method: 'POST',
+			path: '/bots/bot_1/stop',
+			headers: { 'x-bickr-scheduler': '1' },
+		})).toHaveProperty('status', 200);
+		const blocked = await invoke({
+			service: 'agent-runtime',
+			method: 'POST',
+			path: '/bots/bot_1/tick',
+			headers: { 'x-bickr-scheduler': '1' },
+		});
+		expect(blocked.status).toBe(503);
+		expect(await blocked.json()).toMatchObject({ error: 'maintenance' });
+		expect(proxiedRequests.map((request) => new URL(request.url).pathname)).toEqual([
+			'/health',
+			'/bots/bot_1/stop',
+		]);
 	});
 
 	it('exposes a no-store public status response', async () => {

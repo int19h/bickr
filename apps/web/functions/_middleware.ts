@@ -30,6 +30,7 @@ const stateChangingGetPaths = new Set([
 	"/api/auth/google/start",
 	"/api/auth/google/callback",
 ]);
+const delegatedMaintenancePaths = new Set(["/api/__test__/service-proxy"]);
 
 export const onRequest: PagesFunction<AppEnv> = async (context) => {
 	const entryResponse = testEntryResponse(context.env, context.request);
@@ -48,7 +49,10 @@ async function pagesMaintenanceResponse(request: Request, db: D1Database): Promi
 	// MCP uses POST for both reads and writes, so its discriminated tool registry
 	// enforces the gate after resolving the requested tool. Runtime stop remains
 	// available because it only drains work already admitted before the freeze.
-	if (pathname === "/mcp" || isRuntimeStopRequest(request)) {
+	// The authenticated test proxy gates its parsed inner request with the same
+	// maintenance policy. Letting it reach that route keeps safe reads and
+	// runtime stops available without opening a proxy-shaped mutation side door.
+	if (pathname === "/mcp" || delegatedMaintenancePaths.has(pathname) || isRuntimeStopRequest(request)) {
 		return null;
 	}
 	if (isSafeHttpMethod(request.method) && !stateChangingGetPaths.has(pathname)) {

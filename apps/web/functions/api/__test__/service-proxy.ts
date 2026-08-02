@@ -1,5 +1,6 @@
 import { readJsonBody } from "@bickr/shared/api";
 import { addInternalServiceAuthHeader, internalServiceUrl } from "@bickr/shared/internal-service";
+import { mutationMaintenanceResponse } from "@bickr/shared/maintenance";
 import { asRecord, InputError, requiredText } from "@bickr/shared/validation";
 import { type AppEnv } from "../_auth";
 import { pageErrorResponse } from "../_errors";
@@ -42,13 +43,18 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 			service: input.service,
 		});
 
-		const response = await serviceBinding(env, input.service).fetch(
-			new Request(internalServiceUrl(input.path), {
-				body: input.body,
-				headers: serviceProxyHeaders(input.headers, env.INTERNAL_SERVICE_SECRET),
-				method: input.method,
-			}),
-		);
+		const serviceRequest = new Request(internalServiceUrl(input.path), {
+			body: input.body,
+			headers: serviceProxyHeaders(input.headers, env.INTERNAL_SERVICE_SECRET),
+			method: input.method,
+		});
+		const maintenanceResponse = await mutationMaintenanceResponse(serviceRequest, env.BICKR_D1, {
+			allowRuntimeStop: true,
+		});
+		if (maintenanceResponse) {
+			return maintenanceResponse;
+		}
+		const response = await serviceBinding(env, input.service).fetch(serviceRequest);
 		return safeServiceProxyResponse(response);
 	} catch (error) {
 		return pageErrorResponse(error);
