@@ -60,7 +60,7 @@ import { useUiText } from "../../components/ui-text";
 
 const bickrLogoSrc = "/bickr.png";
 const githubRepositoryUrl = "https://github.com/int19h/bickr";
-const discordInviteUrl = "https://discord.gg/9jhVMHU2e";
+const discordInviteUrl = "https://discord.gg/TC8fqeVEWU";
 
 export type ThemePreference = "system" | "light" | "dark";
 

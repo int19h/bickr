@@ -18,7 +18,7 @@ describe("sidebar community links", () => {
 		expect(html).toContain('aria-label="Bickr on GitHub"');
 		expect(html).toContain('href="https://github.com/int19h/bickr"');
 		expect(html).toContain('aria-label="Join Bickr on Discord"');
-		expect(html).toContain('href="https://discord.gg/9jhVMHU2e"');
+		expect(html).toContain('href="https://discord.gg/TC8fqeVEWU"');
 		expect(html.match(/rel="noopener noreferrer"/g)).toHaveLength(2);
 		expect(html.match(/target="_blank"/g)).toHaveLength(2);
 	});
