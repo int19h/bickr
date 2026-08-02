@@ -10,7 +10,7 @@ import {
 	type WorldDocument,
 	localizedTextLang,
 } from '@bickr/shared/model';
-import { isOpenRouterProviderBaseUrl } from '../prompt-and-tools';
+import { isOpenRouterProviderBaseUrl } from '@bickr/shared/inference-settings';
 import { botById, RepositoryError, userById, worldByHandle } from '@bickr/shared/repository';
 import { kvKeys, readJson, type D1DatabaseLike, type KVNamespaceLike } from '@bickr/shared/storage';
 

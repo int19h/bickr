@@ -381,6 +381,34 @@ describe("Pages functions", () => {
 		expect(internalForum.status).toBe(200);
 	});
 
+	it("exposes only redacted provider environment settings to authenticated internal callers", async () => {
+		const response = await handleAgentRuntimeRequest(
+			new Request("https://internal.bickr/provider-settings/environment", {
+				headers: { "x-bickr-user-id": "usr_internal" },
+			}),
+			{
+				OPENROUTER_API_KEY: "deployment-secret",
+				OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1",
+				OPENROUTER_MODEL: "deployment/model",
+			} as unknown as Parameters<typeof handleAgentRuntimeRequest>[1],
+		);
+		const payload = await response.json() as Record<string, unknown>;
+
+		expect(response.status).toBe(200);
+		expect(payload).toEqual({
+			ok: true,
+			data: {
+				kind: "provider_environment",
+				settings: {
+					apiKeySet: true,
+					baseUrl: "https://openrouter.ai/api/v1",
+					model: "deployment/model",
+				},
+			},
+		});
+		expect(JSON.stringify(payload)).not.toContain("deployment-secret");
+	});
+
 	it("requires scheduler intent for internal vector reindexing", async () => {
 		const response = await handleAgentRuntimeRequest(
 			new Request("https://internal.bickr/search/reindex-vectors", {
@@ -2551,7 +2579,7 @@ describe("Pages functions", () => {
 			repetitionPenalty: 1.1,
 			toolCalls: "railroad",
 		});
-		expect(created.data.bot.inferenceSettings.openRouterApiKey).toBeUndefined();
+		expect(created.data.bot.inferenceSettings).not.toHaveProperty("openRouterApiKey");
 		expect(created.data.bot.inferenceSettings.recurringPromptEnabled).toBeUndefined();
 		expect(created.data.bot.toolSettings).toMatchObject({
 			openRouter: {
@@ -3807,7 +3835,7 @@ describe("Pages functions", () => {
 				repetitionPenalty: 1.05,
 			},
 		});
-		expect(profilePayload.data.profile.inferenceSettings.openRouterApiKey).toBeUndefined();
+		expect(profilePayload.data.profile.inferenceSettings).not.toHaveProperty("openRouterApiKey");
 
 		for (const inferenceSettings of [
 			{ frequencyPenalty: -2.1 },

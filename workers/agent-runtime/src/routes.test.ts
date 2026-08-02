@@ -3,6 +3,7 @@ import { agentRuntimeRouteTable, matchAgentRuntimeRoute } from './routes';
 
 const routeCases = [
 	{ method: 'GET', path: '/health', handlerId: 'health' },
+	{ method: 'GET', path: '/provider-settings/environment', handlerId: 'provider-environment' },
 	{ method: 'POST', path: '/users/user-1/translate', handlerId: 'translate' },
 	{ method: 'GET', path: '/search/entities', handlerId: 'search-entities' },
 	{ method: 'POST', path: '/search/reindex-vectors', handlerId: 'reindex-search-vectors' },

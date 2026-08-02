@@ -1,3 +1,4 @@
+import { isOpenRouterProviderBaseUrl } from "@bickr/shared/inference-settings";
 import { localizedTextString, type BotDocument, type BotEffectivePostingSettings, type BotToolSettings } from "@bickr/shared/model";
 import { defaultPostingSettings } from "@bickr/shared/posting";
 import { effectiveTickSettings } from "@bickr/shared/repository";
@@ -389,20 +390,6 @@ export function metaCompactionToolDefinition(
 
 export function isMetaCompactionToolDefinition(definition: ProviderToolDefinition): boolean {
 	return definition.type === "function" && definition.function.name === metaCompactionToolName;
-}
-
-export function isOpenRouterProviderBaseUrl(baseUrl: string): boolean {
-	let url: URL;
-	try {
-		url = new URL(baseUrl);
-	} catch {
-		return false;
-	}
-	if (url.protocol !== "https:" || url.hostname !== "openrouter.ai") {
-		return false;
-	}
-	const path = url.pathname.replace(/\/+$/, "");
-	return path === "/api/v1" || path === "/api/v1/chat/completions" || path === "/api/v1/images";
 }
 
 export function openRouterServerToolSelection(
