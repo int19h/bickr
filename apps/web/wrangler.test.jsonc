@@ -21,7 +21,7 @@
 		{ "binding": "BICKR_R2", "bucket_name": "bickr-avatars-test" }
 	],
 	"vars": {
-		"BICKR_R2_PUBLIC_BASE_URL": "https://assets-test.bickr.social",
+		"BICKR_R2_PUBLIC_BASE_URL": "https://test-assets.bickr.social",
 		"INTERNAL_SERVICE_SECRET": "test-internal-service-secret"
 	}
 }

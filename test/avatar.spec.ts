@@ -120,14 +120,14 @@ describe("Avatar", () => {
 					{ botId: bot.id },
 					{
 						BICKR_R2: r2.bucket,
-						BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+						BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 					},
 				),
 			);
 			expect(response.status).toBe(200);
 			const body = (await response.json()) as { data: { bot: BotBody } };
 			avatarUrl = body.data.bot.avatarUrl ?? "";
-			expect(avatarUrl).toMatch(/^https:\/\/assets-test\.bickr\.social\/worlds\/.+\/bots\/.+\/avatars\/.+\.png$/);
+			expect(avatarUrl).toMatch(/^https:\/\/test-assets\.bickr\.social\/worlds\/.+\/bots\/.+\/avatars\/.+\.png$/);
 			expect(r2.objects.size).toBe(1);
 			const stored = [...r2.objects.values()][0];
 			expect(stored?.bytes).toEqual(sourceBytes);
@@ -176,7 +176,7 @@ describe("Avatar", () => {
 		const bot = await createBotForTest(cookie, "avatar-cropper");
 		const userId = await userIdForHandle("octocat");
 		const r2 = fakeR2Bucket();
-		const publicBaseUrl = "https://assets-test.bickr.social";
+		const publicBaseUrl = "https://test-assets.bickr.social";
 		const avatar = await storeAvatarImage(r2.bucket, {
 			botId: bot.id,
 			worldId: bot.homeWorldId,
@@ -322,14 +322,14 @@ describe("Avatar", () => {
 					{},
 					{
 						BICKR_R2: r2.bucket,
-						BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+						BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 					},
 				),
 			);
 			expect(response.status, await response.clone().text()).toBe(200);
 			const body = (await response.json()) as { data: { profile: UserProfile } };
 			avatarUrl = body.data.profile.avatarUrl ?? "";
-			expect(avatarUrl).toMatch(new RegExp(`^https://assets-test\\.bickr\\.social/users/${userId}/avatars/.+\\.png$`));
+			expect(avatarUrl).toMatch(new RegExp(`^https://test-assets\\.bickr\\.social/users/${userId}/avatars/.+\\.png$`));
 			expect(body.data.profile.avatar?.url).toBe(avatarUrl);
 			expect(body.data.profile.avatar?.crop).toBeUndefined();
 			expect(r2.objects.size).toBe(1);
@@ -375,7 +375,7 @@ describe("Avatar", () => {
 		const cookie = await authCookie();
 		const userId = await userIdForHandle("octocat");
 		const r2 = fakeR2Bucket();
-		const publicBaseUrl = "https://assets-test.bickr.social";
+		const publicBaseUrl = "https://test-assets.bickr.social";
 		const avatar = await storeAvatarImage(r2.bucket, {
 			target: "user",
 			userId,
@@ -452,7 +452,7 @@ describe("Avatar", () => {
 		await authCookie();
 		const userId = await userIdForHandle("octocat");
 		const r2 = fakeR2Bucket();
-		const publicBaseUrl = "https://assets-test.bickr.social";
+		const publicBaseUrl = "https://test-assets.bickr.social";
 		const existingAvatar = await storeAvatarImage(r2.bucket, {
 			target: "user",
 			userId,
@@ -636,7 +636,7 @@ describe("Avatar", () => {
 		const sourceDocument = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, source.id);
 		const userId = await userIdForHandle("octocat");
 		const r2 = fakeR2Bucket();
-		const publicBaseUrl = "https://assets-test.bickr.social";
+		const publicBaseUrl = "https://test-assets.bickr.social";
 		const sourceBytes = pngAvatarBytes();
 		const sourceAvatar = await storeAvatarImage(r2.bucket, {
 			botId: sourceDocument.id,
@@ -698,7 +698,7 @@ describe("Avatar", () => {
 		);
 		expect(cloneResponse.status, await cloneResponse.clone().text()).toBe(201);
 		const cloneBody = (await cloneResponse.json()) as { data: { bot: BotBody } };
-		expect(cloneBody.data.bot.avatarUrl).toMatch(/^https:\/\/assets-test\.bickr\.social\/worlds\/.+\/bots\/.+\/avatars\/.+\.png$/);
+		expect(cloneBody.data.bot.avatarUrl).toMatch(/^https:\/\/test-assets\.bickr\.social\/worlds\/.+\/bots\/.+\/avatars\/.+\.png$/);
 		expect(cloneBody.data.bot.avatarUrl).toBe(sourceAvatar.url);
 		expect(cloneBody.data.bot.avatarCrop).toEqual(sourceCrop);
 		expect(cloneBody.data.bot.cloneSource).toMatchObject({
@@ -1135,7 +1135,7 @@ describe("Avatar", () => {
 					{ botId: bot.id },
 					{
 						BICKR_R2: r2.bucket,
-						BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+						BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 					},
 				),
 			);
@@ -1166,7 +1166,7 @@ describe("Avatar", () => {
 				{ botId: bot.id },
 				{
 					BICKR_R2: fakeR2Bucket().bucket,
-					BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 				},
 			),
 		);
@@ -1194,7 +1194,7 @@ describe("Avatar", () => {
 					{ botId: bot.id },
 					{
 						BICKR_R2: r2.bucket,
-						BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+						BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 					},
 				),
 			);
@@ -1208,7 +1208,7 @@ describe("Avatar", () => {
 					{ botId: bot.id },
 					{
 						BICKR_R2: r2.bucket,
-						BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+						BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 					},
 				),
 			);
@@ -1238,7 +1238,7 @@ describe("Avatar", () => {
 				{ botId: bot.id },
 				{
 					BICKR_R2: fakeR2Bucket().bucket,
-					BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 				},
 			),
 		);
@@ -1320,7 +1320,7 @@ describe("Avatar", () => {
 				BICKR_D1: testEnv.BICKR_D1,
 				BICKR_KV: testEnv.BICKR_KV,
 				BICKR_R2: fakeR2Bucket().bucket,
-				BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+				BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 				OPENROUTER_API_KEY: "test-key",
 			},
 		);
@@ -1336,7 +1336,7 @@ describe("Avatar", () => {
 				BICKR_D1: testEnv.BICKR_D1,
 				BICKR_KV: testEnv.BICKR_KV,
 				BICKR_R2: fakeR2Bucket().bucket,
-				BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+				BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 				OPENROUTER_API_KEY: "test-key",
 			},
 		);
@@ -1390,7 +1390,7 @@ describe("Avatar", () => {
 					BICKR_D1: testEnv.BICKR_D1,
 					BICKR_KV: testEnv.BICKR_KV,
 					BICKR_R2: r2.bucket,
-					BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 					OPENROUTER_API_KEY: "test-key",
 				},
 			);
@@ -1421,7 +1421,7 @@ describe("Avatar", () => {
 					BICKR_D1: testEnv.BICKR_D1,
 					BICKR_KV: testEnv.BICKR_KV,
 					BICKR_R2: r2.bucket,
-					BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 					OPENROUTER_API_KEY: "test-key",
 				},
 			);
@@ -1472,7 +1472,7 @@ describe("Avatar", () => {
 				BICKR_D1: testEnv.BICKR_D1,
 				BICKR_KV: testEnv.BICKR_KV,
 				BICKR_R2: r2.bucket,
-				BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+				BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 			},
 		);
 		expect(applyResponse.status).toBe(200);
@@ -1523,7 +1523,7 @@ describe("Avatar", () => {
 				BICKR_D1: testEnv.BICKR_D1,
 				BICKR_KV: testEnv.BICKR_KV,
 				BICKR_R2: r2.bucket,
-				BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+				BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 				OPENROUTER_API_KEY: "test-key",
 			};
 			const responses = await Promise.all([
@@ -1623,7 +1623,7 @@ describe("Avatar", () => {
 					BICKR_D1: testEnv.BICKR_D1,
 					BICKR_KV: testEnv.BICKR_KV,
 					BICKR_R2: r2.bucket,
-					BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 					OPENROUTER_API_KEY: "test-key",
 				},
 			);
@@ -1713,7 +1713,7 @@ describe("Avatar", () => {
 					BICKR_D1: testEnv.BICKR_D1,
 					BICKR_KV: testEnv.BICKR_KV,
 					BICKR_R2: r2.bucket,
-					BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 					OPENROUTER_API_KEY: "test-key",
 				},
 			);
@@ -1792,7 +1792,7 @@ describe("Avatar", () => {
 					BICKR_D1: testEnv.BICKR_D1,
 					BICKR_KV: testEnv.BICKR_KV,
 					BICKR_R2: r2.bucket,
-					BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 					OPENROUTER_API_KEY: "test-key",
 				},
 			);
@@ -1837,7 +1837,7 @@ describe("Avatar", () => {
 					BICKR_D1: testEnv.BICKR_D1,
 					BICKR_KV: testEnv.BICKR_KV,
 					BICKR_R2: r2.bucket,
-					BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 					OPENROUTER_API_KEY: "test-key",
 				},
 			);
@@ -1886,7 +1886,7 @@ describe("Avatar", () => {
 					BICKR_D1: testEnv.BICKR_D1,
 					BICKR_KV: testEnv.BICKR_KV,
 					BICKR_R2: r2.bucket,
-					BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+					BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 					OPENROUTER_API_KEY: "test-key",
 				},
 			);
@@ -3014,7 +3014,7 @@ describe("Avatar", () => {
 									BICKR_D1: testEnv.BICKR_D1,
 									BICKR_KV: testEnv.BICKR_KV,
 									BICKR_R2: r2.bucket,
-									BICKR_R2_PUBLIC_BASE_URL: "https://assets-test.bickr.social",
+									BICKR_R2_PUBLIC_BASE_URL: "https://test-assets.bickr.social",
 								}),
 						} as unknown as Fetcher,
 					},
@@ -3022,7 +3022,7 @@ describe("Avatar", () => {
 			);
 			expect(response.status).toBe(201);
 			const body = (await response.json()) as { data: { bot: BotBody } };
-			expect(body.data.bot.avatarUrl).toMatch(/^https:\/\/assets-test\.bickr\.social\/worlds\/.+\/bots\/.+\/avatars\/.+\.webp$/);
+			expect(body.data.bot.avatarUrl).toMatch(/^https:\/\/test-assets\.bickr\.social\/worlds\/.+\/bots\/.+\/avatars\/.+\.webp$/);
 			const storedBot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, body.data.bot.id);
 			expect(storedBot.importSource).toMatchObject({
 				provider: "chirper",

@@ -256,15 +256,16 @@ back.
 ### 7. Isolate and reopen test
 
 Once the live production validation is accepted, recreate the test Workers
-against the empty test-v2 stores and deploy the preview with matching bindings:
+against the empty test-v2 stores. The steady `env.test` / `env.preview`
+bindings in the normal Wrangler configs must point to those same v2 resources
+before the ordinary test deployment is used; the build-time configuration
+check fails closed if they drift back to the promoted production stores.
 
 ```sh
 npx wrangler deploy --config workers/forum-coordinator/wrangler.recreate-test.jsonc
 npx wrangler deploy --config workers/agent-runtime/wrangler.recreate-test.jsonc
-npm run build -w @bickr/web
-npx wrangler pages deploy ../../../apps/web/dist/client \
-  --cwd ops/cloudflare/pages-recreate-test \
-  --project-name=bickr --branch=test --commit-dirty=true
+npm run cf-typegen
+npm run deploy:test
 ```
 
 Confirm `test.bickr.social/api/maintenance` reports the fresh test database's

@@ -78,27 +78,29 @@
 					},
 				],
 			},
-			"kv_namespaces": [{ "binding": "BICKR_KV", "id": "f153e4189e40485488cbbe0ca4ba91eb" }],
+			// Production owns the original launch stores. The steady test deploy
+			// must never rebind this Worker to them after namespace recreation.
+			"kv_namespaces": [{ "binding": "BICKR_KV", "id": "a57182d3ecff4f66a8725f6900f60817" }],
 			"d1_databases": [
 				{
 					"binding": "BICKR_D1",
-					"database_name": "bickr-test",
-					"database_id": "d45193d4-15af-461d-84e7-9f8c276a30f8",
+					"database_name": "bickr-test-v2",
+					"database_id": "626f2b02-f546-46d9-85f9-b784868a5338",
 					"migrations_dir": "../../migrations",
 				},
 			],
-			"r2_buckets": [{ "binding": "BICKR_R2", "bucket_name": "bickr-avatars-test" }],
+			"r2_buckets": [{ "binding": "BICKR_R2", "bucket_name": "bickr-avatars-test-v2" }],
 			"ai": {
 				"binding": "AI",
 			},
 			"vectorize": [
 				{
 					"binding": "BICKR_SEARCH_VECTORIZE",
-					"index_name": "bickr-bot-search-test",
+					"index_name": "bickr-bot-search-test-v2",
 				},
 			],
 			"vars": {
-				"BICKR_R2_PUBLIC_BASE_URL": "https://assets-test.bickr.social",
+				"BICKR_R2_PUBLIC_BASE_URL": "https://test-assets.bickr.social",
 				"OPENROUTER_MODEL": "openrouter/free",
 			},
 			"services": [

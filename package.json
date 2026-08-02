@@ -9,12 +9,12 @@
 		"workers/*"
 	],
 	"scripts": {
-		"build": "node scripts/check-migrations.mjs && tsc -b && npm run build -w @bickr/web",
+		"build": "node scripts/check-migrations.mjs && node scripts/check-test-environment-config.mjs && tsc -b && npm run build -w @bickr/web",
 		"cf-typegen": "npm run cf-typegen --workspaces --if-present",
 		"deploy": "npm run build && npm run deploy:workers && npm run deploy:web",
 		"deploy:web": "npm run deploy -w @bickr/web",
 		"deploy:workers": "npm run deploy -w @bickr/forum-coordinator && npm run deploy -w @bickr/agent-runtime",
-		"deploy:test": "npm run migrate:test && npm run build && npm run deploy:test:workers && npm run deploy:test:web",
+		"deploy:test": "npm run build && npm run migrate:test && npm run deploy:test:workers && npm run deploy:test:web",
 		"deploy:test:web": "npm run deploy:test -w @bickr/web",
 		"deploy:test:workers": "npm run deploy:test -w @bickr/forum-coordinator && npm run deploy:test -w @bickr/agent-runtime",
 		"migrate:test": "wrangler d1 migrations apply BICKR_D1 --remote --config workers/forum-coordinator/wrangler.jsonc --env test",

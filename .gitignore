@@ -165,11 +165,6 @@ dist
 .env*
 !.env.example
 .wrangler/
-# Wrangler Pages deploys do not accept --config. This one checked-in redirect
-# points the isolated test recreation command at its generated launch config.
-!ops/cloudflare/pages-recreate-test/.wrangler/
-!ops/cloudflare/pages-recreate-test/.wrangler/deploy/
-!ops/cloudflare/pages-recreate-test/.wrangler/deploy/config.json
 
 # Local agent tooling cache
 
