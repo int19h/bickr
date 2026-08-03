@@ -726,18 +726,22 @@ describe("Tick limits and recovery", () => {
 		]);
 	});
 
-	it("fails clearly when the malformed-only retry also returns only malformed tool calls", async () => {
+	it("preserves the all-dropped retry for a missing call ID without adding a JSON correction", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const retainedLogs: Array<{ kind: BotLoopMessageLog["kind"]; text: string }> = [];
 		const callProvider = vi.fn()
 			.mockResolvedValueOnce(providerResponseWithRawToolCalls([
-				{ id: "call-bad-1", name: "read_thread", arguments: "{\"threadId\":" },
+				{ id: "", name: "read_thread", arguments: '{"threadRef":"t/abc"}' },
 			]))
 			.mockResolvedValueOnce(providerResponseWithRawToolCalls([
 				{ id: "call-bad-2", name: "read_thread", arguments: "[]" },
 			]));
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
-				runtimeEvent(type === "provider_request" ? callProvider.mock.calls.length + 1 : callProvider.mock.calls.length + 100, runId, type as BotRuntimeEvent["type"], payload),
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
 			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
 				appendedLoopMessages.push({ message, origin });
 				return {
@@ -759,7 +763,9 @@ describe("Tick limits and recovery", () => {
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
 			recordInferenceSubmission: () => {},
-			recordLoopMessageLog: () => {},
+			recordLoopMessageLog: (_messageSeq: number, kind: BotLoopMessageLog["kind"], text: string) => {
+				retainedLogs.push({ kind, text });
+			},
 			recordProviderUsage: () => {},
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
@@ -789,8 +795,29 @@ describe("Tick limits and recovery", () => {
 
 		expect(callProvider).toHaveBeenCalledTimes(2);
 		expect(appendedLoopMessages.filter((message) => message.origin === "dropped_provider_response")).toHaveLength(2);
-		expect(appendedLoopMessages.filter((message) => message.origin === "self_correction")).toHaveLength(1);
+		expect(appendedLoopMessages.filter((message) => message.origin === "self_correction")).toHaveLength(0);
 		expect(appendedLoopMessages.filter((message) => message.origin === "provider_response")).toHaveLength(0);
+		const [missingIdLog] = retainedLogs
+			.filter((log) => log.kind === "provider_response")
+			.map((log) => JSON.parse(log.text) as Record<string, unknown>);
+		expect(missingIdLog).toMatchObject({
+			status: "invalid",
+			droppedToolCalls: [{ id: "", name: "read_thread", reason: "missing_tool_call_id" }],
+		});
+		expect(events.filter((event) => event.type === "provider_tool_call_dropped")).toEqual([
+			expect.objectContaining({
+				payload: expect.objectContaining({
+					reason: "missing_tool_call_id",
+					retrying: true,
+				}),
+			}),
+			expect.objectContaining({
+				payload: expect.objectContaining({
+					reason: "arguments_not_json_object",
+					retrying: false,
+				}),
+			}),
+		]);
 	});
 
 	it("railroads no-tool responses by preserving them and injecting a correction", async () => {

@@ -2547,7 +2547,7 @@ export class BotRuntime {
 			let responseStatus: ProviderMessageStatus = 'complete';
 			let interruptedError: ProviderResponseInterruptedError | null = null;
 			let requestEvent: BotRuntimeEvent;
-			let malformedOnlyRetried = false;
+			let allToolCallsDroppedRetried = false;
 			for (;;) {
 				const budgetCheck = await this.ensureProviderPromptWithinBudget(bot, settings, runId, runContext.signal, providerTools);
 				providerTools = budgetCheck.providerTools;
@@ -2605,10 +2605,12 @@ export class BotRuntime {
 				const failedResponse = response;
 				const sanitized = sanitizeProviderResponseToolCalls(response);
 				response = sanitized.response;
-				const malformedOnlyResponse =
+				const allToolCallsDroppedResponse =
 					responseStatus === 'complete' &&
 					sanitized.originalToolCallCount > 0 &&
-					response.toolCalls.length === 0 &&
+					response.toolCalls.length === 0;
+				const malformedArgumentsOnlyResponse =
+					allToolCallsDroppedResponse &&
 					sanitized.dropped.length === sanitized.originalToolCallCount &&
 					sanitized.dropped.every((call) =>
 						call.reason === 'invalid_arguments_json' || call.reason === 'arguments_not_json_object',
@@ -2618,7 +2620,7 @@ export class BotRuntime {
 					requestEvent.seq,
 					sanitized.dropped,
 					'generated_response',
-					malformedOnlyResponse && !malformedOnlyRetried,
+					allToolCallsDroppedResponse && !allToolCallsDroppedRetried,
 				);
 				this.recordRepairedProviderToolCalls(runId, requestEvent.seq, sanitized.repaired);
 				if (response.usage) {
@@ -2634,25 +2636,31 @@ export class BotRuntime {
 						usage: response.usage,
 					});
 				}
-				if (!malformedOnlyResponse) {
+				if (!allToolCallsDroppedResponse) {
 					break;
 				}
-				this.appendMalformedProviderResponseAttempt(
+				this.appendDroppedProviderResponseAttempt(
 					runId,
 					failedResponse,
 					requestEvent.seq,
 					sanitized.dropped,
 				);
-				if (malformedOnlyRetried) {
-					throw new Error('Inference provider returned only malformed page-control requests after retry.');
+				if (allToolCallsDroppedRetried) {
+					throw new Error(
+						malformedArgumentsOnlyResponse
+							? 'Inference provider returned only malformed page-control requests after retry.'
+							: 'Inference provider returned only invalid page-control requests after retry.',
+					);
 				}
-				const correction = malformedToolCallSelfCorrection(sanitized.dropped);
-				this.appendEvent(runId, 'assistant_message', {
-					content: correction,
-					status: 'complete',
-				});
-				this.appendLoopMessage(runId, { role: 'assistant', content: correction }, 'self_correction');
-				malformedOnlyRetried = true;
+				if (malformedArgumentsOnlyResponse) {
+					const correction = malformedToolCallSelfCorrection(sanitized.dropped);
+					this.appendEvent(runId, 'assistant_message', {
+						content: correction,
+						status: 'complete',
+					});
+					this.appendLoopMessage(runId, { role: 'assistant', content: correction }, 'self_correction');
+				}
+				allToolCallsDroppedRetried = true;
 			}
 			await this.appendProviderMessages(runId, response, responseStatus, requestEvent.seq);
 			const responseGeneratedTokens = Math.max(0, Math.floor(response.usage?.completionTokens ?? 0));
@@ -3386,7 +3394,7 @@ export class BotRuntime {
 		}
 	}
 
-	private appendMalformedProviderResponseAttempt(
+	private appendDroppedProviderResponseAttempt(
 		runId: string,
 		response: ProviderResponse,
 		streamSeq: number,
