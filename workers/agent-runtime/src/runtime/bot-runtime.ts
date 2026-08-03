@@ -605,12 +605,44 @@ export async function releaseRuntimeRun(
 
 const metaCompactionToolMisuseSelfCorrection = `${providerCompactionToolName} cannot be used at this time, so I need to use another Bickr control or continue normally.`;
 
-export function malformedToolCallSelfCorrection(dropped: readonly DroppedProviderToolCall[]): string {
-	const malformed = dropped.filter((call) =>
-		call.reason === 'invalid_arguments_json' || call.reason === 'arguments_not_json_object',
-	);
+type MalformedArgumentsDroppedProviderToolCall = DroppedProviderToolCall & {
+	reason: 'invalid_arguments_json' | 'arguments_not_json_object';
+};
+
+type NonEmptyMalformedArgumentsDroppedProviderToolCalls = readonly [
+	MalformedArgumentsDroppedProviderToolCall,
+	...MalformedArgumentsDroppedProviderToolCall[],
+];
+
+function isMalformedArgumentsDroppedProviderToolCall(
+	call: DroppedProviderToolCall,
+): call is MalformedArgumentsDroppedProviderToolCall {
+	return call.reason === 'invalid_arguments_json' || call.reason === 'arguments_not_json_object';
+}
+
+function allToolCallsHaveMalformedArguments(
+	dropped: readonly DroppedProviderToolCall[],
+	originalToolCallCount: number,
+): NonEmptyMalformedArgumentsDroppedProviderToolCalls | null {
+	if (dropped.length === 0 || dropped.length !== originalToolCallCount) {
+		return null;
+	}
+	const malformed: MalformedArgumentsDroppedProviderToolCall[] = [];
+	for (const call of dropped) {
+		if (!isMalformedArgumentsDroppedProviderToolCall(call)) {
+			return null;
+		}
+		malformed.push(call);
+	}
+	const first = malformed[0];
+	return first ? [first, ...malformed.slice(1)] : null;
+}
+
+export function malformedToolCallSelfCorrection(
+	dropped: NonEmptyMalformedArgumentsDroppedProviderToolCalls,
+): string {
 	const canonicalNames: string[] = [];
-	for (const call of malformed) {
+	for (const call of dropped) {
 		const name = canonicalToolName(call.name);
 		if (name && !canonicalNames.includes(name)) {
 			canonicalNames.push(name);
@@ -622,9 +654,9 @@ export function malformedToolCallSelfCorrection(dropped: readonly DroppedProvide
 		...displayedNames,
 		...(omittedNameCount > 0 ? [`${omittedNameCount} more`] : []),
 	].join(', ');
-	const subject = malformed.length === 1
+	const subject = dropped.length === 1
 		? `${displayedNames[0] ? `the ${displayedNames[0]}` : 'that'} Bickr control`
-		: `${malformed.length} Bickr controls${nameList ? ` (${nameList})` : ''}`;
+		: `${dropped.length} Bickr controls${nameList ? ` (${nameList})` : ''}`;
 	const exampleName = canonicalNames.find((name) => bickrFunctionToolArgumentExample(name) !== undefined);
 	const example = exampleName ? bickrFunctionToolArgumentExample(exampleName) : undefined;
 	return `I formatted ${subject} incorrectly. I need to retry with valid JSON object arguments, with every string literal and any authored prose properly quoted and escaped.${
@@ -2609,12 +2641,9 @@ export class BotRuntime {
 					responseStatus === 'complete' &&
 					sanitized.originalToolCallCount > 0 &&
 					response.toolCalls.length === 0;
-				const malformedArgumentsOnlyResponse =
-					allToolCallsDroppedResponse &&
-					sanitized.dropped.length === sanitized.originalToolCallCount &&
-					sanitized.dropped.every((call) =>
-						call.reason === 'invalid_arguments_json' || call.reason === 'arguments_not_json_object',
-					);
+				const malformedArgumentsOnlyResponse = allToolCallsDroppedResponse
+					? allToolCallsHaveMalformedArguments(sanitized.dropped, sanitized.originalToolCallCount)
+					: null;
 				await this.recordDroppedProviderToolCalls(
 					runId,
 					requestEvent.seq,
@@ -2653,7 +2682,7 @@ export class BotRuntime {
 					);
 				}
 				if (malformedArgumentsOnlyResponse) {
-					const correction = malformedToolCallSelfCorrection(sanitized.dropped);
+					const correction = malformedToolCallSelfCorrection(malformedArgumentsOnlyResponse);
 					this.appendEvent(runId, 'assistant_message', {
 						content: correction,
 						status: 'complete',
