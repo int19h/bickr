@@ -1366,6 +1366,8 @@ CREATE TABLE IF NOT EXISTS loop_messages (
 );
 CREATE INDEX IF NOT EXISTS loop_messages_active ON loop_messages (compacted_by, position, seq);
 CREATE INDEX IF NOT EXISTS loop_messages_run ON loop_messages (run_id, seq);
+-- Owner-visible non-history diagnostics are physically capped by RuntimeMessageStore at append time.
+CREATE INDEX IF NOT EXISTS loop_messages_diagnostic_retention ON loop_messages (origin, seq DESC);
 CREATE TABLE IF NOT EXISTS loop_message_logs (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	message_seq INTEGER NOT NULL,
@@ -3574,7 +3576,11 @@ export class BotRuntime {
 	}
 
 	private runtimeMessageStore(): RuntimeMessageStore {
-		return new RuntimeMessageStore(this.state.storage, (message) => this.broadcastLoopMessage(message));
+		return new RuntimeMessageStore(
+			this.state.storage,
+			(message) => this.broadcastLoopMessage(message),
+			() => this.broadcastControl({ type: 'loop_messages_reset' }),
+		);
 	}
 
 	private appendLoopMessage(
