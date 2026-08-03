@@ -74,9 +74,38 @@ export function LoopMessageReadableView({
 			{message.reasoning && <ReadableReasoningBlock label="Reasoning" text={message.reasoning} />}
 			{message.reasoning_content && <ReadableReasoningBlock label="Reasoning" text={message.reasoning_content} />}
 			{message.reasoning_details && <ReadableReasoningDetails details={message.reasoning_details} />}
-			{toolCalls.map((item, index) => (
-				<ReadableToolCall context={toolCallsById?.get(item.id)} key={`${item.id}-${index}`} toolCall={item} />
-			))}
+			{origin === "dropped_provider_response" ?
+				<DroppedProviderOutput toolCalls={toolCalls} />
+			: toolCalls.map((item, index) => (
+					<ReadableToolCall context={toolCallsById?.get(item.id)} key={`${item.id}-${index}`} toolCall={item} />
+				))}
+		</div>
+	);
+}
+
+function DroppedProviderOutput({ toolCalls }: { toolCalls: LoopToolCall[] }) {
+	return (
+		<div className="tool-block readable invalid-provider-output">
+			<span>Invalid provider output — dropped without execution</span>
+			<div className="invalid-provider-calls">
+				{toolCalls.map((toolCall, index) => (
+					<div className="invalid-provider-call" key={`${toolCall.id}-${index}`}>
+						<div>
+							<span>Call ID</span>
+							<code>{toolCall.id || "missing"}</code>
+						</div>
+						<div>
+							<span>Function</span>
+							<code>{toolCall.function.name || "missing"}</code>
+						</div>
+						<div className="invalid-provider-arguments">
+							<span>Raw arguments</span>
+							<pre>{toolCall.function.arguments}</pre>
+						</div>
+					</div>
+				))}
+				{toolCalls.length === 0 && <div className="tool-text">The provider output was invalid and was not executed.</div>}
+			</div>
 		</div>
 	);
 }

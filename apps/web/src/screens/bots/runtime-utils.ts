@@ -51,7 +51,9 @@ export function upsertLoopMessage(messages: BotLoopMessage[], message: BotLoopMe
 export function mergeLoopMessages(current: BotLoopMessage[], fetched: BotLoopMessage[]): BotLoopMessage[] {
 	const retainedCurrent = removeLiveProviderLoopMessagesForFinalizedMessages(
 		current.filter(isLiveProviderLoopMessage),
-		fetched.filter((message) => message.origin === "provider_response"),
+		fetched.filter((message) =>
+			message.origin === "provider_response" || message.origin === "dropped_provider_response",
+		),
 	);
 	const bySeq = new Map(retainedCurrent.map((message) => [loopMessageKey(message), message]));
 	for (const message of fetched) {
@@ -69,7 +71,11 @@ export function loopMessageKey(message: BotLoopMessage): string {
 }
 
 export function loopMessageActivityKind(message: BotLoopMessage): "input" | "assistant" | "tool" | "error" {
-	if (message.origin === "tool_failure" || message.origin === "runtime_error") {
+	if (
+		message.origin === "tool_failure" ||
+		message.origin === "runtime_error" ||
+		message.origin === "dropped_provider_response"
+	) {
 		return "error";
 	}
 	if (message.role === "tool") {
@@ -90,6 +96,9 @@ export function loopMessageTitle(message: BotLoopMessage): string {
 	}
 	if (message.origin === "runtime_error") {
 		return "Runtime error";
+	}
+	if (message.origin === "dropped_provider_response") {
+		return "Invalid provider output";
 	}
 	if (message.origin === "injection") {
 		return "Injected thought";
@@ -121,6 +130,8 @@ export function loopMessageOriginLabel(origin: BotLoopMessage["origin"]): string
 			return "synthetic context";
 		case "provider_response":
 			return "provider response";
+		case "dropped_provider_response":
+			return "invalid / dropped provider output";
 		case "self_correction":
 			return "self-correction";
 		case "tool_result":

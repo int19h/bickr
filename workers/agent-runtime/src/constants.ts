@@ -1,4 +1,8 @@
-import { defaultProviderBaseUrl, defaultProviderModel } from '@bickr/shared/model';
+import {
+	defaultProviderBaseUrl,
+	defaultProviderModel,
+	type BotLoopMessageOrigin,
+} from '@bickr/shared/model';
 
 export const providerContextCompletionReserveTokens = 5_000;
 
@@ -87,6 +91,23 @@ export const providerTokenCalibrationRetentionCount = 100;
 export const loopMessageLogRetentionCount = 50;
 
 export const loopMessageLogChunkLength = 250_000;
+
+/**
+ * Owner-visible Loop diagnostics never contribute to provider history, so
+ * compaction cannot bound them. Retain the newest rows of each diagnostic
+ * origin and physically delete older rows plus their logs at the append path.
+ * Keeping runtime_error under the same policy prevents a repeatedly failing
+ * visit from retaining one unbounded legacy diagnostic beside the new dropped
+ * provider responses.
+ */
+export const runtimeDiagnosticLoopMessageRetentionCount = 32;
+
+export const runtimeDiagnosticLoopMessageOrigins = [
+	'dropped_provider_response',
+	'runtime_error',
+] as const satisfies readonly BotLoopMessageOrigin[];
+
+export type RuntimeDiagnosticLoopMessageOrigin = (typeof runtimeDiagnosticLoopMessageOrigins)[number];
 
 export const loopMessagePageIndexLimit = 100;
 

@@ -134,8 +134,10 @@ import {
 	localizedTextString,
 } from '@bickr/shared/model';
 import {
+	bickrFunctionToolArgumentExample,
 	mutableToolNames,
 	openRouterServerToolSelection,
+	providerTranslationToolDefinitions,
 	standardPrompt,
 	toolDefinitionsForProviderRound,
 	type ProviderToolDefinition,
@@ -603,6 +605,65 @@ export async function releaseRuntimeRun(
 
 const metaCompactionToolMisuseSelfCorrection = `${providerCompactionToolName} cannot be used at this time, so I need to use another Bickr control or continue normally.`;
 
+type MalformedArgumentsDroppedProviderToolCall = DroppedProviderToolCall & {
+	reason: 'invalid_arguments_json' | 'arguments_not_json_object';
+};
+
+type NonEmptyMalformedArgumentsDroppedProviderToolCalls = readonly [
+	MalformedArgumentsDroppedProviderToolCall,
+	...MalformedArgumentsDroppedProviderToolCall[],
+];
+
+function isMalformedArgumentsDroppedProviderToolCall(
+	call: DroppedProviderToolCall,
+): call is MalformedArgumentsDroppedProviderToolCall {
+	return call.reason === 'invalid_arguments_json' || call.reason === 'arguments_not_json_object';
+}
+
+function allToolCallsHaveMalformedArguments(
+	dropped: readonly DroppedProviderToolCall[],
+	originalToolCallCount: number,
+): NonEmptyMalformedArgumentsDroppedProviderToolCalls | null {
+	if (dropped.length === 0 || dropped.length !== originalToolCallCount) {
+		return null;
+	}
+	const malformed: MalformedArgumentsDroppedProviderToolCall[] = [];
+	for (const call of dropped) {
+		if (!isMalformedArgumentsDroppedProviderToolCall(call)) {
+			return null;
+		}
+		malformed.push(call);
+	}
+	const first = malformed[0];
+	return first ? [first, ...malformed.slice(1)] : null;
+}
+
+export function malformedToolCallSelfCorrection(
+	dropped: NonEmptyMalformedArgumentsDroppedProviderToolCalls,
+): string {
+	const canonicalNames: string[] = [];
+	for (const call of dropped) {
+		const name = canonicalToolName(call.name);
+		if (name && !canonicalNames.includes(name)) {
+			canonicalNames.push(name);
+		}
+	}
+	const displayedNames = canonicalNames.slice(0, 2).map((name) => safeContextText(name, 80));
+	const omittedNameCount = Math.max(0, canonicalNames.length - displayedNames.length);
+	const nameList = [
+		...displayedNames,
+		...(omittedNameCount > 0 ? [`${omittedNameCount} more`] : []),
+	].join(', ');
+	const subject = dropped.length === 1
+		? `${displayedNames[0] ? `the ${displayedNames[0]}` : 'that'} Bickr control`
+		: `${dropped.length} Bickr controls${nameList ? ` (${nameList})` : ''}`;
+	const exampleName = canonicalNames.find((name) => bickrFunctionToolArgumentExample(name) !== undefined);
+	const example = exampleName ? bickrFunctionToolArgumentExample(exampleName) : undefined;
+	return `I formatted ${subject} incorrectly. I need to retry with valid JSON object arguments, with every string literal and any authored prose properly quoted and escaped.${
+		exampleName && example ? ` For ${safeContextText(exampleName, 80)}, I should use arguments shaped like ${example}.` : ''
+	}`;
+}
+
 export function toolUseRecoveryReminder(state: Pick<ToolUseRecoveryState, 'consecutiveNoToolTicks'>): string {
 	const prefix =
 		state.consecutiveNoToolTicks > 1
@@ -1001,34 +1062,15 @@ export function providerTokenProbeRequest(
 	};
 }
 
-function providerTranslationTools(): [ProviderToolDefinition] {
-	return [
-		{
-			type: 'function',
-			function: {
-				name: providerTranslationToolName,
-				description: 'Save the translated text.',
-				parameters: {
-					type: 'object',
-					properties: {
-						translation: { type: 'string' },
-					},
-					required: ['translation'],
-					additionalProperties: false,
-				},
-			},
-		},
-	];
-}
-
 export function providerTranslationRequest(settings: TranslationProviderSettings, text: string): ProviderTranslationRequest {
 	const toolCalls = effectiveStructuredToolCallsForModel(settings.model, settingsUseOpenRouter(settings), settings.toolCalls ?? 'require');
 	const toolChoice = providerToolChoiceForMode(toolCalls);
 	const reasoning = providerReasoningForSettings(settings);
+	const tools = providerTranslationToolDefinitions();
 	return {
 		model: settings.model,
 		messages: [
-			{ role: 'system', content: appendToolRequirementInstruction(settings.prompt, providerTranslationTools()) },
+			{ role: 'system', content: appendToolRequirementInstruction(settings.prompt, tools) },
 			{
 				role: 'user',
 				content: `Translate the following text. You must respond by calling the ${providerTranslationToolName} tool with the translated text in the translation argument. Do not reply as plain text.\n\nText:\n${text}`,
@@ -1036,7 +1078,7 @@ export function providerTranslationRequest(settings: TranslationProviderSettings
 		],
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		stream: false,
-		tools: providerTranslationTools(),
+		tools,
 		...(toolChoice ? { tool_choice: toolChoice } : {}),
 		parallel_tool_calls: false,
 		max_completion_tokens: providerTranslationMaxCompletionTokens,
@@ -1324,6 +1366,8 @@ CREATE TABLE IF NOT EXISTS loop_messages (
 );
 CREATE INDEX IF NOT EXISTS loop_messages_active ON loop_messages (compacted_by, position, seq);
 CREATE INDEX IF NOT EXISTS loop_messages_run ON loop_messages (run_id, seq);
+-- Owner-visible non-history diagnostics are physically capped by RuntimeMessageStore at append time.
+CREATE INDEX IF NOT EXISTS loop_messages_diagnostic_retention ON loop_messages (origin, seq DESC);
 CREATE TABLE IF NOT EXISTS loop_message_logs (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	message_seq INTEGER NOT NULL,
@@ -2537,7 +2581,7 @@ export class BotRuntime {
 			let responseStatus: ProviderMessageStatus = 'complete';
 			let interruptedError: ProviderResponseInterruptedError | null = null;
 			let requestEvent: BotRuntimeEvent;
-			let malformedOnlyRetried = false;
+			let allToolCallsDroppedRetried = false;
 			for (;;) {
 				const budgetCheck = await this.ensureProviderPromptWithinBudget(bot, settings, runId, runContext.signal, providerTools);
 				providerTools = budgetCheck.providerTools;
@@ -2592,16 +2636,22 @@ export class BotRuntime {
 						throw error;
 					}
 				}
+				const failedResponse = response;
 				const sanitized = sanitizeProviderResponseToolCalls(response);
 				response = sanitized.response;
-				const malformedOnlyResponse =
-					responseStatus === 'complete' && sanitized.originalToolCallCount > 0 && response.toolCalls.length === 0;
+				const allToolCallsDroppedResponse =
+					responseStatus === 'complete' &&
+					sanitized.originalToolCallCount > 0 &&
+					response.toolCalls.length === 0;
+				const malformedArgumentsOnlyResponse = allToolCallsDroppedResponse
+					? allToolCallsHaveMalformedArguments(sanitized.dropped, sanitized.originalToolCallCount)
+					: null;
 				await this.recordDroppedProviderToolCalls(
 					runId,
 					requestEvent.seq,
 					sanitized.dropped,
 					'generated_response',
-					malformedOnlyResponse && !malformedOnlyRetried,
+					allToolCallsDroppedResponse && !allToolCallsDroppedRetried,
 				);
 				this.recordRepairedProviderToolCalls(runId, requestEvent.seq, sanitized.repaired);
 				if (response.usage) {
@@ -2617,13 +2667,31 @@ export class BotRuntime {
 						usage: response.usage,
 					});
 				}
-				if (!malformedOnlyResponse) {
+				if (!allToolCallsDroppedResponse) {
 					break;
 				}
-				if (malformedOnlyRetried) {
-					throw new Error('Inference provider returned only malformed page-control requests after retry.');
+				this.appendDroppedProviderResponseAttempt(
+					runId,
+					failedResponse,
+					requestEvent.seq,
+					sanitized.dropped,
+				);
+				if (allToolCallsDroppedRetried) {
+					throw new Error(
+						malformedArgumentsOnlyResponse
+							? 'Inference provider returned only malformed page-control requests after retry.'
+							: 'Inference provider returned only invalid page-control requests after retry.',
+					);
 				}
-				malformedOnlyRetried = true;
+				if (malformedArgumentsOnlyResponse) {
+					const correction = malformedToolCallSelfCorrection(malformedArgumentsOnlyResponse);
+					this.appendEvent(runId, 'assistant_message', {
+						content: correction,
+						status: 'complete',
+					});
+					this.appendLoopMessage(runId, { role: 'assistant', content: correction }, 'self_correction');
+				}
+				allToolCallsDroppedRetried = true;
 			}
 			await this.appendProviderMessages(runId, response, responseStatus, requestEvent.seq);
 			const responseGeneratedTokens = Math.max(0, Math.floor(response.usage?.completionTokens ?? 0));
@@ -3357,6 +3425,34 @@ export class BotRuntime {
 		}
 	}
 
+	private appendDroppedProviderResponseAttempt(
+		runId: string,
+		response: ProviderResponse,
+		streamSeq: number,
+		dropped: readonly DroppedProviderToolCall[],
+	): void {
+		const message = providerResponseMessageForHistory(response);
+		if (!message) {
+			throw new Error('Malformed provider response did not contain a displayable assistant message.');
+		}
+		this.appendLoopMessageGroup([
+			{
+				runId,
+				message,
+				origin: 'dropped_provider_response',
+				status: 'invalid',
+				options: { streamSeq },
+				extraLogs: [
+					...(response.requestBody ? [{ kind: 'provider_request' as const, text: response.requestBody }] : []),
+					{
+						kind: 'provider_response',
+						text: JSON.stringify(providerResponseLogPayload(response, 'invalid', dropped)),
+					},
+				],
+			},
+		]);
+	}
+
 	private async recordDroppedProviderToolCalls(
 		runId: string,
 		streamSeq: number | null,
@@ -3480,7 +3576,11 @@ export class BotRuntime {
 	}
 
 	private runtimeMessageStore(): RuntimeMessageStore {
-		return new RuntimeMessageStore(this.state.storage, (message) => this.broadcastLoopMessage(message));
+		return new RuntimeMessageStore(
+			this.state.storage,
+			(message) => this.broadcastLoopMessage(message),
+			() => this.broadcastControl({ type: 'loop_messages_reset' }),
+		);
 	}
 
 	private appendLoopMessage(
@@ -7544,12 +7644,33 @@ function providerErrorStatusValue(value: unknown): number | undefined {
 	return undefined;
 }
 
-function providerResponseLogPayload(response: ProviderResponse, status: BotLoopMessageStatus): Record<string, unknown> {
+function providerResponseLogPayload(
+	response: ProviderResponse,
+	status: BotLoopMessageStatus,
+	dropped: readonly DroppedProviderToolCall[] = [],
+): Record<string, unknown> {
 	return {
 		status,
 		...(response.responseId ? { responseId: response.responseId } : {}),
 		...(response.responseModel ? { responseModel: response.responseModel } : {}),
-		...(response.skippedRawResponse ? { rawResponse: response.skippedRawResponse } : {}),
+		...(status === 'invalid' && response.responseProviderName
+			? { responseProviderName: response.responseProviderName }
+			: {}),
+		...(status === 'invalid' && response.rawResponse
+			? { rawResponse: response.rawResponse }
+			: response.skippedRawResponse ? { rawResponse: response.skippedRawResponse } : {}),
+		...(status === 'invalid' && response.skippedRawResponse
+			? { skippedRawResponse: response.skippedRawResponse }
+			: {}),
+		...(dropped.length > 0
+			? {
+					droppedToolCalls: dropped.map((call) => ({
+						id: call.id,
+						name: call.name,
+						reason: call.reason,
+					})),
+				}
+			: {}),
 		message: {
 			role: 'assistant',
 			content: response.content || null,

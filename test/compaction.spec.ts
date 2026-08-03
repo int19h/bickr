@@ -321,7 +321,7 @@ describe("Compaction", () => {
 			const calibration = { tokensPerCharacter: 0.325, sampleCount: 50 };
 			const tools = toolDefinitionsForProviderRound();
 			const bot = fakeBotDocument({
-				contextWindowTokens: 20_000,
+				contextWindowTokens: 20_500,
 				compactionMaxCharacters: 20_000,
 				prompt: "Long persona. ".repeat(900),
 			});
@@ -1104,7 +1104,7 @@ describe("Compaction", () => {
 			}));
 		});
 
-		it("marks runtime diagnostics in the compacted ledger span while sending provider-visible synthetic context", async () => {
+		it("uses the real compaction ledger to sweep older non-history diagnostics while preserving newer ones", async () => {
 			const rows: LoopMessageRowForTest[] = [
 				loopMessageRowForTest(1, "run-ledger-compact", "Provider-visible old context."),
 				{
@@ -1123,14 +1123,46 @@ describe("Compaction", () => {
 					),
 					origin: "runtime_error" as BotLoopMessage["origin"],
 				},
-				loopMessageRowForTest(4, "run-ledger-compact", "Provider-visible newer context."),
 				{
 					...loopMessageRowForMessage(
-						5,
+						4,
+						{
+							role: "assistant",
+							content: null,
+							tool_calls: [{
+								id: "call-dropped-old",
+								type: "function",
+								function: { name: "read_thread", arguments: '{"threadRef":' },
+							}],
+						},
+						"dropped_provider_response",
+					),
+					origin: "dropped_provider_response" as BotLoopMessage["origin"],
+				},
+				loopMessageRowForTest(5, "run-ledger-compact", "Provider-visible newer context."),
+				{
+					...loopMessageRowForMessage(
+						6,
 						{ role: "user", content: runtimeErrorLoopMessageContent("Inference request failed with status 404.") },
 						"runtime_error",
 					),
 					origin: "runtime_error" as BotLoopMessage["origin"],
+				},
+				{
+					...loopMessageRowForMessage(
+						7,
+						{
+							role: "assistant",
+							content: null,
+							tool_calls: [{
+								id: "call-dropped-new",
+								type: "function",
+								function: { name: "read_thread", arguments: "[]" },
+							}],
+						},
+						"dropped_provider_response",
+					),
+					origin: "dropped_provider_response" as BotLoopMessage["origin"],
 				},
 			];
 			const appendEvent = vi.fn((runId: string, type: string, payload: unknown) => ({
@@ -1204,7 +1236,7 @@ describe("Compaction", () => {
 				{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-ledger-compact",
 				new AbortController().signal,
-				[rows[0], rows[1], rows[3]],
+				[rows[0], rows[1], rows[4]],
 				"auto",
 				{ estimatedContextTokens: 10_000, threshold: 80 },
 			);
@@ -1215,7 +1247,9 @@ describe("Compaction", () => {
 			expect(providerText).toContain(defaultReasoningPrefill("budget-bot"));
 			expect(providerText).toContain("Provider-visible newer context.");
 			expect(providerText).not.toContain("Inference request failed with status 400");
-			expect(rows.map((row) => row.compacted_by)).toEqual([102, 102, 102, 102, null]);
+			expect(providerText).not.toContain("call-dropped-old");
+			expect(providerText).not.toContain("call-dropped-new");
+			expect(rows.map((row) => row.compacted_by)).toEqual([102, 102, 102, 102, 102, null, null]);
 			expect(recordInferenceSubmission).toHaveBeenCalledWith(expect.objectContaining({
 				messages: providerMessages,
 			}));

@@ -333,7 +333,7 @@ export function loopMessageContributesToProviderHistory(
 	origin: BotLoopMessageOrigin,
 	message: ChatMessage,
 ): boolean {
-	if (origin === 'runtime_error') {
+	if (origin === 'runtime_error' || origin === 'dropped_provider_response') {
 		return false;
 	}
 	return origin !== 'provider_response' || !isEmptyProviderAssistantMessage(message);

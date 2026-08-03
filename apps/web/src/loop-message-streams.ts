@@ -43,7 +43,10 @@ export function removeLiveProviderLoopMessagesForRun(messages: BotLoopMessage[],
 }
 
 export function removeLiveProviderLoopMessagesForFinalizedMessage(messages: BotLoopMessage[], finalized: BotLoopMessage): BotLoopMessage[] {
-	if (finalized.origin !== "provider_response" || finalized.streamSeq === undefined) {
+	if (
+		(finalized.origin !== "provider_response" && finalized.origin !== "dropped_provider_response") ||
+		finalized.streamSeq === undefined
+	) {
 		return messages;
 	}
 	return messages.filter((message) =>

@@ -16,6 +16,9 @@ import {
 	loopMessageLogChunkLength,
 	loopMessageLogRetentionCount,
 	loopMessagePageIndexLimit,
+	runtimeDiagnosticLoopMessageOrigins,
+	runtimeDiagnosticLoopMessageRetentionCount,
+	type RuntimeDiagnosticLoopMessageOrigin,
 } from '../constants';
 import type {
 	ChatMessage,
@@ -32,13 +35,16 @@ export type RuntimeStorage = Pick<DurableObjectStorage, 'sql' | 'transactionSync
 export class RuntimeMessageStore {
 	private readonly storage: RuntimeStorage;
 	private readonly broadcastLoopMessage: (message: BotLoopMessage) => void;
+	private readonly broadcastLoopMessagesReset: () => void;
 
 	constructor(
 		storage: RuntimeStorage,
 		broadcastLoopMessage: (message: BotLoopMessage) => void = () => {},
+		broadcastLoopMessagesReset: () => void = () => {},
 	) {
 		this.storage = storage;
 		this.broadcastLoopMessage = broadcastLoopMessage;
+		this.broadcastLoopMessagesReset = broadcastLoopMessagesReset;
 	}
 
 	appendLoopMessage(
@@ -48,33 +54,23 @@ export class RuntimeMessageStore {
 		status: BotLoopMessageStatus = 'complete',
 		options: { streamSeq?: number; displayEventSeq?: number } = {},
 	): BotLoopMessage {
-		const inserted = this.insertLoopMessage({
+		const inserted = this.appendLoopMessageGroup([{
 			runId,
 			message,
 			origin,
 			status,
-			streamSeq: options.streamSeq,
-			displayEventSeq: options.displayEventSeq,
-			broadcast: true,
-		});
-		this.recordLoopMessageLog(inserted.seq, 'message', JSON.stringify(message));
+			options,
+		}])[0];
+		if (!inserted) {
+			throw new Error('Loop message append did not insert its required row.');
+		}
 		return inserted;
 	}
 
 	appendLoopMessageGroup(entries: LoopMessageGroupEntry[]): BotLoopMessage[] {
-		if (typeof this.storage.transactionSync !== 'function') {
-			// Constructor-free unit harnesses can provide only the SQL surface;
-			// production Durable Object storage always takes the transaction path.
-			return entries.map((entry) => {
-				const inserted = this.appendLoopMessage(entry.runId, entry.message, entry.origin, entry.status, entry.options);
-				for (const log of entry.extraLogs ?? []) {
-					this.recordLoopMessageLog(inserted.seq, log.kind, log.text);
-				}
-				return inserted;
-			});
-		}
 		const inserted: BotLoopMessage[] = [];
-		this.storage.transactionSync(() => {
+		let prunedDiagnosticCount = 0;
+		const appendEntries = (): void => {
 			for (const entry of entries) {
 				const loopMessage = this.insertLoopMessage({
 					runId: entry.runId,
@@ -91,9 +87,22 @@ export class RuntimeMessageStore {
 				}
 				inserted.push(loopMessage);
 			}
-		});
+			if (entries.some((entry) => isRuntimeDiagnosticLoopMessageOrigin(entry.origin))) {
+				prunedDiagnosticCount = this.pruneRuntimeDiagnosticLoopMessages();
+			}
+		};
+		if (typeof this.storage.transactionSync === 'function') {
+			this.storage.transactionSync(appendEntries);
+		} else {
+			// Constructor-free unit harnesses can provide only the SQL surface;
+			// production Durable Object storage always takes the transaction path.
+			appendEntries();
+		}
 		for (const loopMessage of inserted) {
 			this.broadcastLoopMessage(loopMessage);
+		}
+		if (prunedDiagnosticCount > 0) {
+			this.broadcastLoopMessagesReset();
 		}
 		return inserted;
 	}
@@ -589,6 +598,63 @@ export class RuntimeMessageStore {
 		}
 	}
 
+	private pruneRuntimeDiagnosticLoopMessages(): number {
+		let deletedCount = 0;
+		for (const origin of runtimeDiagnosticLoopMessageOrigins) {
+			deletedCount += this.physicallyDeleteExpiredRuntimeDiagnosticLoopMessages(origin);
+		}
+		return deletedCount;
+	}
+
+	private physicallyDeleteExpiredRuntimeDiagnosticLoopMessages(origin: RuntimeDiagnosticLoopMessageOrigin): number {
+		const expiredMessageSeqsSql = `SELECT seq
+			FROM loop_messages
+			WHERE origin = ?
+			ORDER BY seq DESC
+			LIMIT -1 OFFSET ?`;
+		const queryParameters = [origin, runtimeDiagnosticLoopMessageRetentionCount] as const;
+		const expiredCount = this.storage.sql
+			.exec<{ count: number }>(`SELECT COUNT(*) AS count FROM (${expiredMessageSeqsSql})`, ...queryParameters)
+			.one().count;
+		if (expiredCount === 0) {
+			return 0;
+		}
+		const survivingDependentLogIds = this.storage.sql
+			.exec<{ id: number }>(
+				`SELECT dependent.id
+				 FROM loop_message_logs dependent
+				 JOIN loop_message_logs expired_base ON expired_base.id = dependent.base_log_id
+				 WHERE expired_base.message_seq IN (${expiredMessageSeqsSql})
+				   AND dependent.message_seq NOT IN (${expiredMessageSeqsSql})
+				 ORDER BY dependent.id ASC`,
+				...queryParameters,
+				...queryParameters,
+			)
+			.toArray()
+			.map((row) => row.id);
+		for (const logId of survivingDependentLogIds) {
+			// Delta logs may cross message ownership. Materialize every surviving
+			// direct dependent before its expired base and chunks are removed.
+			this.materializeLoopMessageLog(logId);
+		}
+		this.storage.sql.exec(
+			`DELETE FROM loop_message_log_chunks
+			 WHERE log_id IN (
+				SELECT id FROM loop_message_logs WHERE message_seq IN (${expiredMessageSeqsSql})
+			 )`,
+			...queryParameters,
+		);
+		this.storage.sql.exec(
+			`DELETE FROM loop_message_logs WHERE message_seq IN (${expiredMessageSeqsSql})`,
+			...queryParameters,
+		);
+		this.storage.sql.exec(
+			`DELETE FROM loop_messages WHERE seq IN (${expiredMessageSeqsSql})`,
+			...queryParameters,
+		);
+		return expiredCount;
+	}
+
 	private materializeLoopMessageLog(logId: number): void {
 		const text = this.reconstructLoopMessageLogText(logId);
 		const chunks = chunkText(text, loopMessageLogChunkLength);
@@ -610,6 +676,12 @@ export class RuntimeMessageStore {
 			);
 		}
 	}
+}
+
+function isRuntimeDiagnosticLoopMessageOrigin(
+	origin: LoopMessageGroupEntry['origin'],
+): origin is RuntimeDiagnosticLoopMessageOrigin {
+	return runtimeDiagnosticLoopMessageOrigins.some((diagnosticOrigin) => diagnosticOrigin === origin);
 }
 
 export function loopMessageFromRow(row: LoopMessageRow): BotLoopMessage {

@@ -44,6 +44,22 @@ import type {
 	ProviderToolDefinition,
 } from "./helpers/index-harness";
 import type { RuntimeErrorCause } from "@bickr/shared/runtime-errors";
+import { loopMessageContributesToProviderHistory } from "../workers/agent-runtime/src/provider/sanitize";
+import { malformedToolCallSelfCorrection } from "../workers/agent-runtime/src/runtime/bot-runtime";
+
+type CapturedLoopMessage = {
+	message: BotInferenceSubmissionMessage;
+	origin: BotLoopMessage["origin"];
+	status: NonNullable<BotLoopMessage["status"]>;
+};
+
+function providerHistoryFromCapturedLoopMessages(
+	messages: readonly CapturedLoopMessage[],
+): BotInferenceSubmissionMessage[] {
+	return messages
+		.filter(({ message, origin }) => loopMessageContributesToProviderHistory(origin, message))
+		.map(({ message }) => message);
+}
 
 function legacyLoopHistoryRuntime(rows: LoopMessageRowForTest[]) {
 	let nextSeq = Math.max(0, ...rows.map((row) => row.seq)) + 1;
@@ -571,14 +587,36 @@ describe("Tick limits and recovery", () => {
 			)).toBe(false);
 		});
 
-		it("retries once when a generated response contains only malformed tool calls", async () => {
+	it("bounds malformed-call corrections while keeping a canonical example", () => {
+		const correction = malformedToolCallSelfCorrection([
+			{ id: "call-1", name: "read_thread", reason: "invalid_arguments_json", argumentsPreview: "{" },
+			{ id: "call-2", name: "reply_to_comment", reason: "arguments_not_json_object", argumentsPreview: "[]" },
+			{ id: "call-3", name: "vote", reason: "invalid_arguments_json", argumentsPreview: "{" },
+			{ id: "call-4", name: "create_thread", reason: "invalid_arguments_json", argumentsPreview: "{" },
+		]);
+
+		expect(correction).toContain("4 Bickr controls (read_thread, reply_to_comment, 2 more)");
+		expect(correction).toContain('For read_thread, I should use arguments shaped like {"threadRef":"t/abc"}.');
+		expect(correction).not.toContain("vote");
+		expect(correction).not.toContain("create_thread");
+		expect(correction.length).toBeLessThan(500);
+	});
+
+	it("retries once when a generated response contains only malformed tool calls", async () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
-		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
-		const submissions: Array<Array<Record<string, unknown>>> = [];
+		const appendedLoopMessages: CapturedLoopMessage[] = [];
+		const retainedLogs: Array<{ messageSeq: number; kind: BotLoopMessageLog["kind"]; text: string }> = [];
+		const submissions: BotInferenceSubmissionMessage[][] = [];
+		const completeRawArguments = `{"threadRef":"${"x".repeat(1_000)}`;
 		const callProvider = vi.fn()
-			.mockResolvedValueOnce(providerResponseWithRawToolCalls([
-				{ id: "call-bad", name: "read_thread", arguments: "{\"threadId\":" },
-			]))
+			.mockResolvedValueOnce({
+				...providerResponseWithRawToolCalls([
+					{ id: "call-bad-json", name: "read_thread", arguments: completeRawArguments },
+					{ id: "call-bad-object", name: "reply_to_comment", arguments: "[]" },
+				]),
+				requestBody: "complete failed request body",
+				rawResponse: "bounded raw SSE response preview",
+			})
 			.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off", "log_off", { reason: "clean retry" }));
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
@@ -587,16 +625,18 @@ describe("Tick limits and recovery", () => {
 			},
 			appendLoopMessage: (
 				_runId: string,
-				message: Record<string, unknown>,
-				origin: string,
+				message: BotInferenceSubmissionMessage,
+				origin: BotLoopMessage["origin"],
+				status: NonNullable<BotLoopMessage["status"]> = "complete",
 			) => {
-				appendedLoopMessages.push({ message, origin });
+				appendedLoopMessages.push({ message, origin, status });
 				return {
 					seq: appendedLoopMessages.length,
 					runId: "run-malformed-retry",
 					role: message.role,
 					message,
 					origin,
+					status,
 					tokenEstimate: 0,
 					createdAt: new Date().toISOString(),
 				};
@@ -607,17 +647,22 @@ describe("Tick limits and recovery", () => {
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
-				requestMessages: [{ role: "assistant", content: "I am ready." }],
+				requestMessages: [
+					{ role: "assistant", content: "I am ready." },
+					...providerHistoryFromCapturedLoopMessages(appendedLoopMessages),
+				],
 			}),
 			executeTool: async (_bot: unknown, _runId: string, name: string, _args: Record<string, unknown>) => ({
 				name,
 				result: { ok: true },
 				providerResult: { ok: true },
 			}),
-			recordInferenceSubmission: (input: { messages: Array<Record<string, unknown>> }) => {
+			recordInferenceSubmission: (input: { messages: BotInferenceSubmissionMessage[] }) => {
 				submissions.push(input.messages);
 			},
-			recordLoopMessageLog: () => {},
+			recordLoopMessageLog: (messageSeq: number, kind: BotLoopMessageLog["kind"], text: string) => {
+				retainedLogs.push({ messageSeq, kind, text });
+			},
 			recordProviderUsage: () => {},
 			successfulMutatingToolCallSinceLastLogOff: () => true,
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
@@ -649,32 +694,96 @@ describe("Tick limits and recovery", () => {
 		expect(callProvider).toHaveBeenCalledTimes(2);
 		expect(submissions).toHaveLength(2);
 		expect(appendedLoopMessages.filter((message) => message.origin === "provider_response")).toHaveLength(1);
-		expect(JSON.stringify(appendedLoopMessages)).not.toContain("call-bad");
+		const [failedAttempt] = appendedLoopMessages.filter((message) => message.origin === "dropped_provider_response");
+		expect(failedAttempt).toMatchObject({ status: "invalid" });
+		expect(failedAttempt?.message.tool_calls).toEqual([
+			expect.objectContaining({
+				id: "call-bad-json",
+				function: expect.objectContaining({ name: "read_thread", arguments: completeRawArguments }),
+			}),
+			expect.objectContaining({
+				id: "call-bad-object",
+				function: expect.objectContaining({ name: "reply_to_comment", arguments: "[]" }),
+			}),
+		]);
+		const correction = appendedLoopMessages.find((message) => message.origin === "self_correction");
+		expect(correction?.message.content).toContain("I formatted 2 Bickr controls (read_thread, reply_to_comment) incorrectly.");
+		expect(correction?.message.content).toContain('For read_thread, I should use arguments shaped like {"threadRef":"t/abc"}.');
+		expect(submissions[1]).toEqual(expect.arrayContaining([
+			expect.objectContaining({ role: "assistant", content: correction?.message.content }),
+		]));
+		expect(JSON.stringify(submissions[1])).not.toContain("call-bad-json");
+		expect(JSON.stringify(submissions[1])).not.toContain("call-bad-object");
+		const providerResponseLog = retainedLogs.find((log) => log.kind === "provider_response");
+		const loggedResponse = JSON.parse(providerResponseLog?.text ?? "{}") as Record<string, unknown>;
+		expect(providerResponseLog?.messageSeq).toBe(1);
+		expect(loggedResponse).toMatchObject({
+			status: "invalid",
+			rawResponse: "bounded raw SSE response preview",
+			droppedToolCalls: [
+				{ id: "call-bad-json", name: "read_thread", reason: "invalid_arguments_json" },
+				{ id: "call-bad-object", name: "reply_to_comment", reason: "arguments_not_json_object" },
+			],
+		});
+		const loggedMessage = loggedResponse.message as BotInferenceSubmissionMessage | undefined;
+		expect(loggedMessage?.tool_calls?.[0]?.function.arguments).toBe(completeRawArguments);
+		expect(retainedLogs).toContainEqual(expect.objectContaining({ kind: "provider_request", text: "complete failed request body" }));
 		expect(events.filter((event) => event.type === "provider_tool_call_dropped")).toEqual([
-			expect.objectContaining({ payload: expect.objectContaining({ count: 1, retrying: true }) }),
+			expect.objectContaining({
+				payload: expect.objectContaining({
+					count: 2,
+					reason: "invalid_arguments_json,arguments_not_json_object",
+					retrying: true,
+				}),
+			}),
 		]);
 	});
 
-	it("fails clearly when the malformed-only retry also returns only malformed tool calls", async () => {
-		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+	it.each([
+		{
+			label: "missing call ID",
+			toolCall: { id: "", name: "read_thread", arguments: '{"threadRef":"t/abc"}' },
+			expectedDrop: { id: "", name: "read_thread", reason: "missing_tool_call_id" },
+		},
+		{
+			label: "missing function name",
+			toolCall: { id: "call-missing-name", name: "", arguments: "{}" },
+			expectedDrop: { id: "call-missing-name", name: "", reason: "missing_function_name" },
+		},
+	])("preserves the all-dropped retry for a $label without adding a JSON correction", async ({
+		expectedDrop,
+		toolCall,
+	}) => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const appendedLoopMessages: CapturedLoopMessage[] = [];
+		const retainedLogs: Array<{ kind: BotLoopMessageLog["kind"]; text: string }> = [];
+		const submissions: BotInferenceSubmissionMessage[][] = [];
 		const callProvider = vi.fn()
 			.mockResolvedValueOnce(providerResponseWithRawToolCalls([
-				{ id: "call-bad-1", name: "read_thread", arguments: "{\"threadId\":" },
+				toolCall,
 			]))
 			.mockResolvedValueOnce(providerResponseWithRawToolCalls([
 				{ id: "call-bad-2", name: "read_thread", arguments: "[]" },
 			]));
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
-				runtimeEvent(type === "provider_request" ? callProvider.mock.calls.length + 1 : callProvider.mock.calls.length + 100, runId, type as BotRuntimeEvent["type"], payload),
-			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
-				appendedLoopMessages.push({ message, origin });
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
+			},
+			appendLoopMessage: (
+				_runId: string,
+				message: BotInferenceSubmissionMessage,
+				origin: BotLoopMessage["origin"],
+				status: NonNullable<BotLoopMessage["status"]> = "complete",
+			) => {
+				appendedLoopMessages.push({ message, origin, status });
 				return {
 					seq: appendedLoopMessages.length,
 					runId: "run-malformed-fails",
 					role: message.role,
 					message,
 					origin,
+					status,
 					tokenEstimate: 0,
 					createdAt: new Date().toISOString(),
 				};
@@ -685,10 +794,17 @@ describe("Tick limits and recovery", () => {
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(),
 				promptTokens: 100,
-				requestMessages: [{ role: "assistant", content: "I am ready." }],
+				requestMessages: [
+					{ role: "assistant", content: "I am ready." },
+					...providerHistoryFromCapturedLoopMessages(appendedLoopMessages),
+				],
 			}),
-			recordInferenceSubmission: () => {},
-			recordLoopMessageLog: () => {},
+			recordInferenceSubmission: (input: { messages: BotInferenceSubmissionMessage[] }) => {
+				submissions.push(input.messages);
+			},
+			recordLoopMessageLog: (_messageSeq: number, kind: BotLoopMessageLog["kind"], text: string) => {
+				retainedLogs.push({ kind, text });
+			},
 			recordProviderUsage: () => {},
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
@@ -717,7 +833,32 @@ describe("Tick limits and recovery", () => {
 		).rejects.toThrow("Inference provider returned only malformed page-control requests after retry.");
 
 		expect(callProvider).toHaveBeenCalledTimes(2);
-		expect(appendedLoopMessages).toEqual([]);
+		expect(submissions).toHaveLength(2);
+		expect(submissions[1]).toEqual([{ role: "assistant", content: "I am ready." }]);
+		expect(appendedLoopMessages.filter((message) => message.origin === "dropped_provider_response")).toHaveLength(2);
+		expect(appendedLoopMessages.filter((message) => message.origin === "self_correction")).toHaveLength(0);
+		expect(appendedLoopMessages.filter((message) => message.origin === "provider_response")).toHaveLength(0);
+		const [firstDroppedLog] = retainedLogs
+			.filter((log) => log.kind === "provider_response")
+			.map((log) => JSON.parse(log.text) as Record<string, unknown>);
+		expect(firstDroppedLog).toMatchObject({
+			status: "invalid",
+			droppedToolCalls: [expectedDrop],
+		});
+		expect(events.filter((event) => event.type === "provider_tool_call_dropped")).toEqual([
+			expect.objectContaining({
+				payload: expect.objectContaining({
+					reason: expectedDrop.reason,
+					retrying: true,
+				}),
+			}),
+			expect.objectContaining({
+				payload: expect.objectContaining({
+					reason: "arguments_not_json_object",
+					retrying: false,
+				}),
+			}),
+		]);
 	});
 
 	it("railroads no-tool responses by preserving them and injecting a correction", async () => {

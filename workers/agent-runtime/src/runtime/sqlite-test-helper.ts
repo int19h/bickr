@@ -50,6 +50,8 @@ export function createRuntimeTestStorage(): RuntimeTestStorage {
 			text TEXT NOT NULL,
 			PRIMARY KEY (log_id, chunk_index)
 		);
+		CREATE INDEX loop_messages_diagnostic_retention
+			ON loop_messages (origin, seq DESC);
 	`);
 
 	const sql = {

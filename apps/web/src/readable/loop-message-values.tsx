@@ -275,6 +275,9 @@ export function jsonStringRoute(
 export function loopToolCallsById(messages: BotLoopMessage[]): Map<string, LoopToolCallContext> {
 	const byId = new Map<string, LoopToolCallContext>();
 	for (const message of messages) {
+		if (message.origin === "dropped_provider_response") {
+			continue;
+		}
 		for (const toolCall of message.message.tool_calls ?? []) {
 			byId.set(toolCall.id, {
 				id: toolCall.id,

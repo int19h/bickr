@@ -99,6 +99,11 @@ describe('Provider requests', () => {
 		});
 		expect(loopMessageContributesToProviderHistory("provider_response", { role: "assistant", content: null })).toBe(false);
 		expect(loopMessageContributesToProviderHistory("provider_response", { role: "assistant", content: "" })).toBe(false);
+		expect(loopMessageContributesToProviderHistory("dropped_provider_response", {
+			role: "assistant",
+			content: "This text and its invalid call are display-only.",
+			tool_calls: [rawToolCall("call-invalid-history", "read_thread", '{"threadRef":')],
+		})).toBe(false);
 		expect(loopMessageContributesToProviderHistory("runtime_error", { role: "user", content: "Bickr Terminal reported an error." })).toBe(false);
 		expect(loopMessageContributesToProviderHistory("synthetic_context", { role: "assistant", content: null })).toBe(true);
 	});

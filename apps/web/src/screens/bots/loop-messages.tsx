@@ -78,7 +78,10 @@ export function LoopMessageRow({
 	onViewLogs: () => void;
 	toolCallsById: ReadonlyMap<string, LoopToolCallContext>;
 }) {
-	const status = message.status === "interrupted" ? "interrupted" : null;
+	const status =
+		message.status === "interrupted" ? "interrupted"
+		: message.status === "invalid" ? "invalid / dropped"
+		: null;
 	const toolCallContext = message.message.tool_call_id ? toolCallsById.get(message.message.tool_call_id) : undefined;
 	const isLive = isLiveProviderLoopMessage(message);
 	return (
