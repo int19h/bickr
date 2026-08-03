@@ -321,7 +321,7 @@ describe("Compaction", () => {
 			const calibration = { tokensPerCharacter: 0.325, sampleCount: 50 };
 			const tools = toolDefinitionsForProviderRound();
 			const bot = fakeBotDocument({
-				contextWindowTokens: 20_000,
+				contextWindowTokens: 20_500,
 				compactionMaxCharacters: 20_000,
 				prompt: "Long persona. ".repeat(900),
 			});

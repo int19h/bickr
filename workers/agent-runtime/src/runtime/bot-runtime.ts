@@ -134,8 +134,10 @@ import {
 	localizedTextString,
 } from '@bickr/shared/model';
 import {
+	bickrFunctionToolArgumentExample,
 	mutableToolNames,
 	openRouterServerToolSelection,
+	providerTranslationToolDefinitions,
 	standardPrompt,
 	toolDefinitionsForProviderRound,
 	type ProviderToolDefinition,
@@ -603,6 +605,33 @@ export async function releaseRuntimeRun(
 
 const metaCompactionToolMisuseSelfCorrection = `${providerCompactionToolName} cannot be used at this time, so I need to use another Bickr control or continue normally.`;
 
+export function malformedToolCallSelfCorrection(dropped: readonly DroppedProviderToolCall[]): string {
+	const malformed = dropped.filter((call) =>
+		call.reason === 'invalid_arguments_json' || call.reason === 'arguments_not_json_object',
+	);
+	const canonicalNames: string[] = [];
+	for (const call of malformed) {
+		const name = canonicalToolName(call.name);
+		if (name && !canonicalNames.includes(name)) {
+			canonicalNames.push(name);
+		}
+	}
+	const displayedNames = canonicalNames.slice(0, 2).map((name) => safeContextText(name, 80));
+	const omittedNameCount = Math.max(0, canonicalNames.length - displayedNames.length);
+	const nameList = [
+		...displayedNames,
+		...(omittedNameCount > 0 ? [`${omittedNameCount} more`] : []),
+	].join(', ');
+	const subject = malformed.length === 1
+		? `${displayedNames[0] ? `the ${displayedNames[0]}` : 'that'} Bickr control`
+		: `${malformed.length} Bickr controls${nameList ? ` (${nameList})` : ''}`;
+	const exampleName = canonicalNames.find((name) => bickrFunctionToolArgumentExample(name) !== undefined);
+	const example = exampleName ? bickrFunctionToolArgumentExample(exampleName) : undefined;
+	return `I formatted ${subject} incorrectly. I need to retry with valid JSON object arguments, with every string literal and any authored prose properly quoted and escaped.${
+		exampleName && example ? ` For ${safeContextText(exampleName, 80)}, I should use arguments shaped like ${example}.` : ''
+	}`;
+}
+
 export function toolUseRecoveryReminder(state: Pick<ToolUseRecoveryState, 'consecutiveNoToolTicks'>): string {
 	const prefix =
 		state.consecutiveNoToolTicks > 1
@@ -1001,34 +1030,15 @@ export function providerTokenProbeRequest(
 	};
 }
 
-function providerTranslationTools(): [ProviderToolDefinition] {
-	return [
-		{
-			type: 'function',
-			function: {
-				name: providerTranslationToolName,
-				description: 'Save the translated text.',
-				parameters: {
-					type: 'object',
-					properties: {
-						translation: { type: 'string' },
-					},
-					required: ['translation'],
-					additionalProperties: false,
-				},
-			},
-		},
-	];
-}
-
 export function providerTranslationRequest(settings: TranslationProviderSettings, text: string): ProviderTranslationRequest {
 	const toolCalls = effectiveStructuredToolCallsForModel(settings.model, settingsUseOpenRouter(settings), settings.toolCalls ?? 'require');
 	const toolChoice = providerToolChoiceForMode(toolCalls);
 	const reasoning = providerReasoningForSettings(settings);
+	const tools = providerTranslationToolDefinitions();
 	return {
 		model: settings.model,
 		messages: [
-			{ role: 'system', content: appendToolRequirementInstruction(settings.prompt, providerTranslationTools()) },
+			{ role: 'system', content: appendToolRequirementInstruction(settings.prompt, tools) },
 			{
 				role: 'user',
 				content: `Translate the following text. You must respond by calling the ${providerTranslationToolName} tool with the translated text in the translation argument. Do not reply as plain text.\n\nText:\n${text}`,
@@ -1036,7 +1046,7 @@ export function providerTranslationRequest(settings: TranslationProviderSettings
 		],
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		stream: false,
-		tools: providerTranslationTools(),
+		tools,
 		...(toolChoice ? { tool_choice: toolChoice } : {}),
 		parallel_tool_calls: false,
 		max_completion_tokens: providerTranslationMaxCompletionTokens,
@@ -2592,10 +2602,17 @@ export class BotRuntime {
 						throw error;
 					}
 				}
+				const failedResponse = response;
 				const sanitized = sanitizeProviderResponseToolCalls(response);
 				response = sanitized.response;
 				const malformedOnlyResponse =
-					responseStatus === 'complete' && sanitized.originalToolCallCount > 0 && response.toolCalls.length === 0;
+					responseStatus === 'complete' &&
+					sanitized.originalToolCallCount > 0 &&
+					response.toolCalls.length === 0 &&
+					sanitized.dropped.length === sanitized.originalToolCallCount &&
+					sanitized.dropped.every((call) =>
+						call.reason === 'invalid_arguments_json' || call.reason === 'arguments_not_json_object',
+					);
 				await this.recordDroppedProviderToolCalls(
 					runId,
 					requestEvent.seq,
@@ -2620,9 +2637,21 @@ export class BotRuntime {
 				if (!malformedOnlyResponse) {
 					break;
 				}
+				this.appendMalformedProviderResponseAttempt(
+					runId,
+					failedResponse,
+					requestEvent.seq,
+					sanitized.dropped,
+				);
 				if (malformedOnlyRetried) {
 					throw new Error('Inference provider returned only malformed page-control requests after retry.');
 				}
+				const correction = malformedToolCallSelfCorrection(sanitized.dropped);
+				this.appendEvent(runId, 'assistant_message', {
+					content: correction,
+					status: 'complete',
+				});
+				this.appendLoopMessage(runId, { role: 'assistant', content: correction }, 'self_correction');
 				malformedOnlyRetried = true;
 			}
 			await this.appendProviderMessages(runId, response, responseStatus, requestEvent.seq);
@@ -3355,6 +3384,34 @@ export class BotRuntime {
 				streamSeq,
 			});
 		}
+	}
+
+	private appendMalformedProviderResponseAttempt(
+		runId: string,
+		response: ProviderResponse,
+		streamSeq: number,
+		dropped: readonly DroppedProviderToolCall[],
+	): void {
+		const message = providerResponseMessageForHistory(response);
+		if (!message) {
+			throw new Error('Malformed provider response did not contain a displayable assistant message.');
+		}
+		this.appendLoopMessageGroup([
+			{
+				runId,
+				message,
+				origin: 'dropped_provider_response',
+				status: 'invalid',
+				options: { streamSeq },
+				extraLogs: [
+					...(response.requestBody ? [{ kind: 'provider_request' as const, text: response.requestBody }] : []),
+					{
+						kind: 'provider_response',
+						text: JSON.stringify(providerResponseLogPayload(response, 'invalid', dropped)),
+					},
+				],
+			},
+		]);
 	}
 
 	private async recordDroppedProviderToolCalls(
@@ -7544,12 +7601,33 @@ function providerErrorStatusValue(value: unknown): number | undefined {
 	return undefined;
 }
 
-function providerResponseLogPayload(response: ProviderResponse, status: BotLoopMessageStatus): Record<string, unknown> {
+function providerResponseLogPayload(
+	response: ProviderResponse,
+	status: BotLoopMessageStatus,
+	dropped: readonly DroppedProviderToolCall[] = [],
+): Record<string, unknown> {
 	return {
 		status,
 		...(response.responseId ? { responseId: response.responseId } : {}),
 		...(response.responseModel ? { responseModel: response.responseModel } : {}),
-		...(response.skippedRawResponse ? { rawResponse: response.skippedRawResponse } : {}),
+		...(status === 'invalid' && response.responseProviderName
+			? { responseProviderName: response.responseProviderName }
+			: {}),
+		...(status === 'invalid' && response.rawResponse
+			? { rawResponse: response.rawResponse }
+			: response.skippedRawResponse ? { rawResponse: response.skippedRawResponse } : {}),
+		...(status === 'invalid' && response.skippedRawResponse
+			? { skippedRawResponse: response.skippedRawResponse }
+			: {}),
+		...(dropped.length > 0
+			? {
+					droppedToolCalls: dropped.map((call) => ({
+						id: call.id,
+						name: call.name,
+						reason: call.reason,
+					})),
+				}
+			: {}),
 		message: {
 			role: 'assistant',
 			content: response.content || null,

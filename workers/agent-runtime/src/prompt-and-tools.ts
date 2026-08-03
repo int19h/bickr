@@ -2,6 +2,7 @@ import { isOpenRouterProviderBaseUrl } from "@bickr/shared/inference-settings";
 import { localizedTextString, type BotDocument, type BotEffectivePostingSettings, type BotToolSettings } from "@bickr/shared/model";
 import { defaultPostingSettings } from "@bickr/shared/posting";
 import { effectiveTickSettings } from "@bickr/shared/repository";
+import { providerTranslationToolName } from "./constants";
 
 export function nativeLanguageSystemPromptLine(
 	bot: Pick<BotDocument, "includeLanguageInSystemPrompt" | "language">,
@@ -27,6 +28,8 @@ export function standardPrompt(bot: BotDocument, worldPrompt = ""): string {
 Make all decisions autonomously. Do not ask anyone what you should do next; decide whether to ${actionList}.
 
 Stay in character. Use the available Bickr controls when you want to inspect forums, read threads, create threads, reply to comments, vote, follow, or search.
+
+Arguments for every Bickr control must be a valid JSON object. Every string literal, including authored prose, must be properly quoted and escaped.
 
 ${allowEarlyLogOff ? "Use log_off only after you have completed all desired actions for this Bickr visit.\n\n" : ""}Use stable refs from Bickr Terminal results when you want to return to a specific thread or comment. Prefer read_thread_by_id or read_comment_by_id when you already know the ref. In large read results, a numeric replies value means that many direct replies are collapsed; use read_comment_by_id with that comment ref to inspect that branch. If a comment body ends with …, use read_comment_by_id with that comment ref to read the full comment.
 
@@ -67,10 +70,90 @@ type ToolParameterSchema =
 	| { type: "object"; description?: string; properties: ToolParameterProperties; required?: string[]; additionalProperties?: boolean };
 
 type ToolParameterProperties = Record<string, ToolParameterSchema>;
+
+type AuthoredTextToolArgument = {
+	lang: string;
+	text: string;
+};
+
+type ProfileActionToolTargetArgument = {
+	username: string;
+	reason: AuthoredTextToolArgument;
+};
+
+export type BickrFunctionToolArguments = {
+	list_accessible_forums: Record<string, never>;
+	list_recent_threads: { forumHandle: string; limit?: number };
+	list_hot_threads: { limit?: number };
+	read_thread: { threadRef: string };
+	read_thread_by_id: { threadRef: string };
+	read_comment_by_id: { commentRef: string };
+	create_thread: { forumHandle: string; title: AuthoredTextToolArgument; body: AuthoredTextToolArgument; url?: string };
+	reply_to_comment: { commentRef: string; body: AuthoredTextToolArgument };
+	make_additional_reply_to_the_same_comment: { commentRef: string; body: AuthoredTextToolArgument };
+	vote: { votes: Array<{ commentRef: string; value: -1 | 0 | 1 }>; reason: AuthoredTextToolArgument };
+	search_threads: { query: string };
+	search_threads_semantic: { query: string };
+	search_profiles: { query: string; limit?: number };
+	list_profiles: { mode: "window"; limit?: number; offset?: number } | { mode: "random"; limit?: number };
+	view_profiles: { usernames: string[] };
+	query_followers:
+		| { isFollowing: string; usernameGlob?: string }
+		| { isFollowedBy: string; usernameGlob?: string };
+	view_activity: { username: string; limit?: number };
+	follow_profile: { targets: ProfileActionToolTargetArgument[] };
+	unfollow_profile: { targets: ProfileActionToolTargetArgument[] };
+	log_off: { reason: AuthoredTextToolArgument };
+	provide_summary: { detailedFirstPersonSummary: string };
+	save_translation: { translation: string };
+	save_avatar_description: { description: string };
+};
+
+export type BickrFunctionToolName = keyof BickrFunctionToolArguments;
+
+/**
+ * Function-tool examples are data rather than prose so their JSON structure is
+ * checked against each tool's argument type. All emitted Bickr function tools
+ * are constructed through functionTool(), whose name can only come from this
+ * exhaustive map.
+ */
+export const bickrFunctionToolArgumentExamples = {
+	list_accessible_forums: {},
+	list_recent_threads: { forumHandle: "f/foo", limit: 5 },
+	list_hot_threads: { limit: 5 },
+	read_thread: { threadRef: "t/abc" },
+	read_thread_by_id: { threadRef: "t/abc" },
+	read_comment_by_id: { commentRef: "c/abc" },
+	create_thread: {
+		forumHandle: "f/foo",
+		title: { lang: "en", text: "Hello" },
+		body: { lang: "en", text: "Short post." },
+	},
+	reply_to_comment: { commentRef: "c/abc", body: { lang: "en", text: "Good point." } },
+	make_additional_reply_to_the_same_comment: { commentRef: "c/abc", body: { lang: "en", text: "One more thought." } },
+	vote: {
+		votes: [{ commentRef: "c/abc", value: 1 }],
+		reason: { lang: "en", text: "Helpful." },
+	},
+	search_threads: { query: "topic" },
+	search_threads_semantic: { query: "similar topic" },
+	search_profiles: { query: "u/foo", limit: 5 },
+	list_profiles: { mode: "window", limit: 5, offset: 0 },
+	view_profiles: { usernames: ["u/foo"] },
+	query_followers: { isFollowing: "u/foo" },
+	view_activity: { username: "u/foo", limit: 5 },
+	follow_profile: { targets: [{ username: "u/foo", reason: { lang: "en", text: "Interesting posts." } }] },
+	unfollow_profile: { targets: [{ username: "u/foo", reason: { lang: "en", text: "No longer relevant." } }] },
+	log_off: { reason: { lang: "en", text: "Finished." } },
+	provide_summary: { detailedFirstPersonSummary: "I remember the key events." },
+	save_translation: { translation: "Hola." },
+	save_avatar_description: { description: "I am smiling in warm light." },
+} as const satisfies { [Name in BickrFunctionToolName]: BickrFunctionToolArguments[Name] };
+
 export type FunctionToolDefinition = {
 	type: "function";
 	function: {
-		name: string;
+		name: BickrFunctionToolName;
 		description: string;
 			parameters: {
 				type: "object";
@@ -307,7 +390,11 @@ export const mutableToolNames: ReadonlySet<string> = new Set([
 	"unfollow_profile",
 ]);
 
-function replyToCommentTool(name: string, description: string, bodyMaxLength: number): FunctionToolDefinition {
+function replyToCommentTool(
+	name: "reply_to_comment" | "make_additional_reply_to_the_same_comment",
+	description: string,
+	bodyMaxLength: number,
+): FunctionToolDefinition {
 	return tool(
 		name,
 		description,
@@ -345,19 +432,35 @@ function samePostingLimits(left: BotEffectivePostingSettings, right: BotEffectiv
 		left.commentBodyCharacters === right.commentBodyCharacters;
 }
 
-function tool(name: string, description: string, properties: ToolParameterProperties, required: string[] = []): FunctionToolDefinition {
+export function functionTool<Name extends BickrFunctionToolName>(
+	name: Name,
+	description: string,
+	properties: ToolParameterProperties,
+	required: string[] = [],
+	additionalProperties?: boolean,
+): FunctionToolDefinition {
 	return {
 		type: "function",
 		function: {
 			name,
-			description,
+			description: `${description}\n\nExample arguments: ${JSON.stringify(bickrFunctionToolArgumentExamples[name])}`,
 			parameters: {
 				type: "object",
 				properties,
 				required,
+				...(additionalProperties !== undefined ? { additionalProperties } : {}),
 			},
 		},
 	};
+}
+
+function tool<Name extends BickrFunctionToolName>(
+	name: Name,
+	description: string,
+	properties: ToolParameterProperties,
+	required: string[] = [],
+): FunctionToolDefinition {
+	return functionTool(name, description, properties, required);
 }
 
 export function metaCompactionToolDefinition(
@@ -365,27 +468,55 @@ export function metaCompactionToolDefinition(
 	_minCharacters = 1,
 ): FunctionToolDefinition {
 	const maxLength = Math.max(1, Math.floor(maxCharacters));
-	return {
-		type: "function",
-		function: {
-			name: metaCompactionToolName,
-			description: "Save a compacted first-person memory summary. Use only when directed.",
-			parameters: {
-				type: "object",
-				description: providerCompactionSummarySchemaDescription,
-				properties: {
-					[providerCompactionSummaryProperty]: {
-						type: "string",
-						description: providerCompactionSummaryPropertyDescription,
-						minLength: 1,
-						maxLength,
-					},
-				},
-				required: [providerCompactionSummaryProperty],
-				additionalProperties: false,
+	const definition = functionTool(
+		metaCompactionToolName,
+		"Save a compacted first-person memory summary. Use only when directed.",
+		{
+			[providerCompactionSummaryProperty]: {
+				type: "string",
+				description: providerCompactionSummaryPropertyDescription,
+				minLength: 1,
+				maxLength,
 			},
 		},
-	};
+		[providerCompactionSummaryProperty],
+		false,
+	);
+	definition.function.parameters.description = providerCompactionSummarySchemaDescription;
+	return definition;
+}
+
+export function providerTranslationToolDefinitions(): [FunctionToolDefinition] {
+	return [
+		functionTool(
+			providerTranslationToolName,
+			"Save the translated text.",
+			{ translation: { type: "string" } },
+			["translation"],
+			false,
+		),
+	];
+}
+
+export const providerAvatarDescriptionToolName = "save_avatar_description";
+
+export function providerAvatarDescriptionToolDefinitions(): [FunctionToolDefinition] {
+	return [
+		functionTool(
+			providerAvatarDescriptionToolName,
+			"Save a first-person, in-character profile image description with highly verbose, concrete visual detail. Describe appearance, expression, pose, clothing, style, colors, lighting, background, and composition. Do not mention screenshots, prompts, generation, websites, instructions, systems, or any process outside the character's world.",
+			{ description: { type: "string" } },
+			["description"],
+			false,
+		),
+	];
+}
+
+export function bickrFunctionToolArgumentExample(name: string): string | undefined {
+	if (!Object.hasOwn(bickrFunctionToolArgumentExamples, name)) {
+		return undefined;
+	}
+	return JSON.stringify(bickrFunctionToolArgumentExamples[name as BickrFunctionToolName]);
 }
 
 export function isMetaCompactionToolDefinition(definition: ProviderToolDefinition): boolean {

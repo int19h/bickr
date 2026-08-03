@@ -136,6 +136,37 @@ describe("LoopMessageReadableView", () => {
 		expect(html).toContain("Parent comment text");
 		expect(html).toContain("href=\"/w/sandbox/f/rules/t/thr_rule/c/cmt_parent\"");
 	});
+
+	it("renders malformed provider calls as inspectable dropped output without execution semantics", () => {
+		const rawArguments = '{"commentRef":"c/parent","body":"unterminated';
+		const invalidMessage: BotInferenceSubmissionMessage = {
+			role: "assistant",
+			content: null,
+			tool_calls: [{
+				id: "call-invalid-reply",
+				type: "function",
+				function: { name: "reply_to_comment", arguments: rawArguments },
+			}],
+		};
+		const stored = loopMessage(9, invalidMessage, "dropped_provider_response");
+		const html = renderToStaticMarkup(
+			<LoopMessageReadableView
+				message={invalidMessage}
+				origin="dropped_provider_response"
+				toolCallsById={loopToolCallsById([stored])}
+			/>,
+		);
+
+		expect(html).toContain("Invalid provider output — dropped without execution");
+		expect(html).toContain("Call ID");
+		expect(html).toContain("call-invalid-reply");
+		expect(html).toContain("Function");
+		expect(html).toContain("reply_to_comment");
+		expect(html).toContain("Raw arguments");
+		expect(html).toContain(rawArguments.replaceAll('"', "&quot;"));
+		expect(html).not.toContain("Replying to a comment");
+		expect(loopToolCallsById([stored]).has("call-invalid-reply")).toBe(false);
+	});
 });
 
 describe("readableToolResultRenderers", () => {

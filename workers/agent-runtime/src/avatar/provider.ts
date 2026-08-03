@@ -27,7 +27,11 @@ import {
 	type ProviderReasoningConfig,
 	type ProviderSingleStringResponseSpec,
 } from '../compaction/engine';
-import { standardPrompt, type ProviderToolDefinition } from '../prompt-and-tools';
+import {
+	providerAvatarDescriptionToolDefinitions,
+	providerAvatarDescriptionToolName,
+	standardPrompt,
+} from '../prompt-and-tools';
 import { providerMessageTextContent, type ProviderSettings } from '../provider-requests';
 import type { AvatarGenerationDisplayMessage, AvatarGenerationStreamSink, AvatarProvider } from './service';
 import type { ImageGenerationProviderSettings } from './target';
@@ -926,8 +930,6 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		return urls;
 	}
 
-	const providerAvatarDescriptionToolName = 'save_avatar_description';
-
 	function providerAvatarDescriptionSpec(): ProviderSingleStringResponseSpec {
 		return {
 			kind: 'avatar_description',
@@ -936,27 +938,6 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 			maxCharacters: 8_000,
 			toolName: providerAvatarDescriptionToolName,
 		};
-	}
-
-	function providerAvatarDescriptionTools(): [ProviderToolDefinition] {
-		return [
-			{
-				type: 'function',
-				function: {
-					name: providerAvatarDescriptionToolName,
-					description:
-						"Save a first-person, in-character profile image description with highly verbose, concrete visual detail. Describe appearance, expression, pose, clothing, style, colors, lighting, background, and composition. Do not mention screenshots, prompts, generation, websites, instructions, systems, or any process outside the character's world.",
-					parameters: {
-						type: 'object',
-						properties: {
-							description: { type: 'string' },
-						},
-						required: ['description'],
-						additionalProperties: false,
-					},
-				},
-			},
-		];
 	}
 
 	function providerAvatarDescriptionResponseFormat(mode: ProviderCompactionMode): ProviderJsonSchemaResponseFormat | undefined {
@@ -1007,7 +988,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		if (settings.apiKey) {
 			headers.authorization = `Bearer ${settings.apiKey}`;
 		}
-		const tools = mode === 'structured_output' ? [] : providerAvatarDescriptionTools();
+		const tools = mode === 'structured_output' ? [] : providerAvatarDescriptionToolDefinitions();
 		const requestedToolCalls = settings.toolCalls === 'railroad' ? 'railroad' : 'require';
 		const toolCalls = effectiveStructuredToolCallsForModel(settings.model, settingsUseOpenRouter(settings), requestedToolCalls);
 		const toolChoice = mode === 'structured_output' ? undefined : providerToolChoiceForMode(toolCalls);

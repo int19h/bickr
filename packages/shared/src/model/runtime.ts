@@ -95,6 +95,7 @@ export type BotLoopMessageOrigin =
 	| "reminder"
 	| "synthetic_context"
 	| "provider_response"
+	| "dropped_provider_response"
 	| "self_correction"
 	| "tool_result"
 	| "tool_failure"
@@ -103,7 +104,7 @@ export type BotLoopMessageOrigin =
 	| "legacy_migration"
 	| "local_simulation";
 
-export type BotLoopMessageStatus = "complete" | "interrupted";
+export type BotLoopMessageStatus = "complete" | "interrupted" | "invalid";
 
 export type BotLoopMessageDisplay = {
 	kind: "tool_result";

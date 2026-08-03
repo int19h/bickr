@@ -47,6 +47,20 @@ describe("loop message live provider streams", () => {
 		expect(retained[0]?.streamSeq).toBe(40);
 	});
 
+	it("removes the live row when a streamed response is finalized as invalid and dropped", () => {
+		const streamed = upsertLiveProviderLoopMessage(
+			[],
+			event(30.000001, "provider_delta", { kind: "reasoning", streamSeq: 30, text: "Malformed attempt." }),
+		);
+		const dropped: BotLoopMessage = {
+			...finalizedProviderMessage(30),
+			origin: "dropped_provider_response",
+			status: "invalid",
+		};
+
+		expect(removeLiveProviderLoopMessagesForFinalizedMessage(streamed, dropped)).toEqual([]);
+	});
+
 	it("removes matching live rows when reconciling multiple finalized messages", () => {
 		const streamed = [
 			event(30.000001, "provider_delta", { kind: "content", streamSeq: 30, text: "First" }),

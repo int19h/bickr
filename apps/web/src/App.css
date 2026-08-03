@@ -4594,6 +4594,48 @@ fieldset {
 	padding: 7px;
 }
 
+.tool-block.invalid-provider-output {
+	border-color: color-mix(in oklch, var(--danger) 35%, var(--rule));
+}
+
+.invalid-provider-calls {
+	display: grid;
+	gap: 7px;
+}
+
+.invalid-provider-call {
+	background: color-mix(in oklch, var(--danger) 5%, var(--paper-2));
+	border: 1px solid color-mix(in oklch, var(--danger) 20%, var(--rule-soft));
+	border-radius: 4px;
+	display: grid;
+	gap: 5px;
+	padding: 7px;
+}
+
+.invalid-provider-call > div {
+	display: grid;
+	gap: 2px;
+}
+
+.invalid-provider-call span {
+	color: var(--ink-4);
+	font-size: calc(10px * var(--font-scale));
+	font-weight: 600;
+	text-transform: uppercase;
+}
+
+.invalid-provider-call code,
+.invalid-provider-call pre {
+	color: var(--ink-2);
+	font-size: calc(11px * var(--font-scale));
+}
+
+.invalid-provider-call pre {
+	margin: 0;
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+}
+
 .tool-text {
 	color: var(--ink-2);
 	font-size: calc(12px * var(--font-scale));
