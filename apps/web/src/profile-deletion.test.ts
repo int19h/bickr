@@ -6,7 +6,7 @@ describe("account deletion client state", () => {
 	it.each<AccountDeletionResult>([
 		{
 			kind: "account_delete_pending",
-			deleted: { worlds: 9, forums: 9, bots: 9 },
+			planned: { worlds: 9, forums: 9, bots: 9 },
 		},
 		{
 			kind: "account_delete_complete",

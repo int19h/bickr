@@ -330,7 +330,7 @@ async function resumeAccountDeleteChildOperations(
 async function continueAccountDeletion(
 	context: LifecycleRuntimeContext,
 	operation: AccountDeleteLifecycleOperation,
-	deleted: AccountDeleteLifecycleRequest["plannedCounts"],
+	planned: AccountDeleteLifecycleRequest["plannedCounts"],
 ): Promise<AccountDeletionResult> {
 	await recordAccountDeleteChildrenContinuation(
 		context.env.BICKR_D1,
@@ -338,13 +338,13 @@ async function continueAccountDeletion(
 		new Date().toISOString(),
 	);
 	await bestEffortAccountDeleteAlarm(context);
-	return { kind: "account_delete_pending", deleted };
+	return { kind: "account_delete_pending", planned };
 }
 
 async function recordAccountDeleteFailure(
 	context: LifecycleRuntimeContext,
 	operation: AccountDeleteLifecycleOperation,
-	deleted: AccountDeleteLifecycleRequest["plannedCounts"],
+	planned: AccountDeleteLifecycleRequest["plannedCounts"],
 	error: unknown,
 ): Promise<AccountDeletionResult> {
 	const currentOperation = await lifecycleOperationById(context.env.BICKR_D1, operation.operationId);
@@ -353,7 +353,7 @@ async function recordAccountDeleteFailure(
 		if (!current?.deletedAt) {
 			throw new RepositoryError("server_error", "Deleted account document is missing.", 500);
 		}
-		return { kind: "account_delete_complete", profile: publicUser(current), deleted };
+		return { kind: "account_delete_complete", profile: publicUser(current), deleted: planned };
 	}
 	const failure = classifyLifecycleFailure(error);
 	// Once cascade execution starts, a child coordinator or the account writer
@@ -365,7 +365,7 @@ async function recordAccountDeleteFailure(
 		retryable: true,
 	}, new Date().toISOString());
 	await bestEffortAccountDeleteAlarm(context);
-	return { kind: "account_delete_pending", deleted };
+	return { kind: "account_delete_pending", planned };
 }
 
 async function bestEffortAccountDeleteAlarm(context: LifecycleRuntimeContext): Promise<void> {

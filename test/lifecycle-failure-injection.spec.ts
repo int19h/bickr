@@ -320,10 +320,11 @@ describe("lifecycle failure injection", () => {
 		const firstResponse = await coordinatorResponse(user.id, "/profile", "DELETE", { confirmCascade: true }, key, injector);
 		expect(firstResponse.status).toBe(point === "account.delete.finish.d1" ? 200 : 202);
 		const first = await firstResponse.json() as Record<string, unknown>;
-		expect(first).toMatchObject({
-			ok: true,
-			data: { kind: point === "account.delete.finish.d1" ? "account_delete_complete" : "account_delete_pending" },
-		});
+		if (point === "account.delete.finish.d1") {
+			expect(first).toMatchObject({ ok: true, data: { kind: "account_delete_complete", deleted: expect.any(Object) } });
+		} else {
+			expectPendingAccountDeletion(first);
+		}
 		const result = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, key, injector);
 		expect(result).toMatchObject({ ok: true, data: { kind: "account_delete_complete" } });
 		expect((await testEnv.BICKR_D1.prepare(`SELECT deleted_at AS deletedAt FROM users_index WHERE user_id = ?`).bind(user.id).first<{ deletedAt: string | null }>())?.deletedAt).not.toBeNull();
@@ -363,7 +364,7 @@ describe("lifecycle failure injection", () => {
 		const firstResponse = await coordinatorResponse(user.id, "/profile", "DELETE", { confirmCascade: true }, key, injector);
 		expect(firstResponse.status).toBe(202);
 		const first = await firstResponse.json() as Record<string, unknown>;
-		expect(first).toMatchObject({ ok: true, data: { kind: "account_delete_pending" } });
+		expectPendingAccountDeletion(first);
 		expect(await lifecycleOperationState(user.id, key)).toMatchObject({
 			phase: "deleting",
 			retryCount: 1,
@@ -388,7 +389,7 @@ describe("lifecycle failure injection", () => {
 		const injector = new FailOnce(point, false);
 
 		const first = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, key, injector);
-		expect(first).toMatchObject({ ok: true, data: { kind: "account_delete_pending" } });
+		expectPendingAccountDeletion(first);
 		expect(await activeProjectionCount("users_index", "user_id", user.id)).toBe(0);
 		expect(await lifecycleOperationState(user.id, key)).toMatchObject({
 			phase: "deleting",
@@ -453,7 +454,7 @@ describe("lifecycle failure injection", () => {
 			undefined,
 			lifecycleTestStorage(setAlarm),
 		);
-		expect(continuation).toMatchObject({ ok: true, data: { kind: "account_delete_pending" } });
+		expectPendingAccountDeletion(continuation);
 		expect(setAlarm).toHaveBeenCalledTimes(1);
 		expect(await lifecycleOperationState(user.id, key)).toMatchObject({
 			phase: "deleting",
@@ -505,7 +506,7 @@ describe("lifecycle failure injection", () => {
 		);
 		expect(firstResponse.status).toBe(202);
 		const first = await firstResponse.json() as Record<string, unknown>;
-		expect(first).toMatchObject({ ok: true, data: { kind: "account_delete_pending" } });
+		expectPendingAccountDeletion(first);
 		expect(setAlarm).toHaveBeenCalledTimes(1);
 		expect(warn).toHaveBeenCalledWith("account deletion local alarm scheduling failed", expect.any(Error));
 		warn.mockRestore();
@@ -816,6 +817,21 @@ class FailOnce implements LifecycleFailureInjector {
 			retryable: this.retryable,
 		});
 	}
+}
+
+function expectPendingAccountDeletion(result: unknown): void {
+	expect(result).toMatchObject({
+		ok: true,
+		data: {
+			kind: "account_delete_pending",
+			planned: {
+				worlds: expect.any(Number),
+				forums: expect.any(Number),
+				bots: expect.any(Number),
+			},
+		},
+	});
+	expect(result).not.toHaveProperty("data.deleted");
 }
 
 async function failOnceThenRetry(

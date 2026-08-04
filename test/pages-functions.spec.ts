@@ -2506,13 +2506,15 @@ describe("Pages functions", () => {
 		const response = await deleteProfileRoute(deleteContext);
 		expect(response.status, await response.clone().text()).toBe(202);
 		expect(response.headers.getSetCookie().join(";")).toContain("Max-Age=0");
-		expect(await response.json()).toMatchObject({
+		const payload = await response.json();
+		expect(payload).toMatchObject({
 			ok: true,
 			data: {
 				kind: "account_delete_pending",
-				deleted: { worlds: 1, bots: 9 },
+				planned: { worlds: 1, bots: 9 },
 			},
 		});
+		expect(payload).not.toHaveProperty("data.deleted");
 		const staleSession = await session(
 			contextFor<typeof session>(new Request("http://example.com/api/session", { headers: { cookie } })),
 		);
@@ -2575,10 +2577,15 @@ describe("Pages functions", () => {
 
 		expect(response.status, await response.clone().text()).toBe(202);
 		expect(response.headers.getSetCookie().join(";")).toContain("Max-Age=0");
-		expect(await response.json()).toMatchObject({
+		const payload = await response.json();
+		expect(payload).toMatchObject({
 			ok: true,
-			data: { kind: "account_delete_pending" },
+			data: {
+				kind: "account_delete_pending",
+				planned: { worlds: 1, bots: 1 },
+			},
 		});
+		expect(payload).not.toHaveProperty("data.deleted");
 		const staleSession = await session(
 			contextFor<typeof session>(new Request("http://example.com/api/session", { headers: { cookie } })),
 		);
@@ -2599,15 +2606,26 @@ describe("Pages functions", () => {
 		expect(recoveryResponse.status, await recoveryResponse.clone().text()).toBe(200);
 		expect(await testEnv.BICKR_D1.prepare(
 			`SELECT
-				(SELECT lifecycle_state FROM users_index WHERE user_id = ?) AS accountState,
+				(SELECT phase
+				 FROM entity_lifecycle_operations
+				 WHERE owner_user_id = ? AND entity_kind = 'account' AND action = 'delete'
+				 ORDER BY created_at DESC, operation_id DESC LIMIT 1) AS parentPhase,
+				(SELECT COUNT(*) FROM entity_lifecycle_operations
+				 WHERE owner_user_id = ? AND phase NOT IN ('terminal', 'terminal_failed')) AS nonterminalCount,
+				(SELECT COUNT(*) FROM entity_lifecycle_recovery_owners
+				 WHERE owner_user_id = ?) AS recoveryCount,
 				(SELECT deleted_at FROM users_index WHERE user_id = ?) AS accountDeletedAt,
 				(SELECT deleted_at FROM bots_index WHERE bot_id = ?) AS botDeletedAt`,
-		).bind(userId, userId, bot.id).first<{
-			accountState: string;
+		).bind(userId, userId, userId, userId, bot.id).first<{
+			parentPhase: string;
+			nonterminalCount: number;
+			recoveryCount: number;
 			accountDeletedAt: string | null;
 			botDeletedAt: string | null;
 		}>()).toMatchObject({
-			accountState: "deleting",
+			parentPhase: "terminal",
+			nonterminalCount: 0,
+			recoveryCount: 0,
 			accountDeletedAt: expect.any(String),
 			botDeletedAt: expect.any(String),
 		});

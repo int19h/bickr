@@ -392,7 +392,7 @@ export type HumanOwnedTotals = {
 export type AccountDeletionResult =
 	| {
 			kind: "account_delete_pending";
-			deleted: HumanOwnedTotals;
+			planned: HumanOwnedTotals;
 	  }
 	| {
 			kind: "account_delete_complete";

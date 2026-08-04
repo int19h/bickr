@@ -127,7 +127,9 @@ typed failure code.
 
 The internal delete route reports `account_delete_pending` with HTTP 202 while
 bounded continuation remains, and `account_delete_complete` with HTTP 200 only
-after the terminal batch. Both are successful typed outcomes. The Pages
+after the terminal batch. The pending variant reports only `planned` counts;
+only the completed variant labels those counts as `deleted`. Both are
+successful typed outcomes. The Pages
 adapter clears the session cookie for either outcome and the web client clears
 its authenticated state immediately; scheduled recovery or an owner alarm
 continues a pending deletion independently of that browser request.
