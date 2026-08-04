@@ -2,14 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import { clearKv, execD1Statements, resetD1Schema } from "./helpers/d1-schema";
 import migrationSql from "../migrations/0031_tombstone_deleted_handles.sql?raw";
-import { deleteForum, deleteWorld } from "../packages/shared/src/governance";
+import { deleteForum } from "../packages/shared/src/governance";
+import {
+	createForum,
+} from "../packages/shared/src/repository";
 import {
 	createBot,
-	createForum,
 	createWorld,
 	deleteBot,
+	deleteWorld,
 	upsertProviderUser,
-} from "../packages/shared/src/repository";
+} from "./helpers/coordinator-mutations";
 import {
 	localizedText,
 	schemaVersion,
@@ -131,6 +134,10 @@ describe("soft-deleted handle reuse", () => {
 			.run();
 
 		await execD1Statements(testEnv.BICKR_D1, migrationSql);
+		await testEnv.BICKR_D1.batch([
+			activeClaim("world_handle", "global", "taken-world", "world", "wld_active-fixture-world", ownerId),
+			activeClaim("bot_handle", "wld_123456789012345678901234567890", "taken-bot", "bot", "bot_active-fixture-bot", ownerId),
+		]);
 
 		await testEnv.BICKR_D1
 			.prepare(
@@ -298,14 +305,14 @@ async function seedOwner(): Promise<void> {
 		updatedAt: now,
 	};
 	await testEnv.BICKR_KV.put(kvKeys.user(user.id), JSON.stringify(user));
-	await testEnv.BICKR_D1
-		.prepare(
+	await testEnv.BICKR_D1.batch([
+		activeClaim("user_handle", "global", user.handle, "account", user.id, user.id),
+		testEnv.BICKR_D1.prepare(
 			`INSERT INTO users_index (
 				user_id, handle, language, ui_locale, display_name, display_name_lang,
 				avatar_url, avatar_crop, profile_completed_at, created_at, updated_at, deleted_at
 			) VALUES (?, ?, ?, NULL, ?, ?, NULL, NULL, NULL, ?, ?, NULL)`,
-		)
-		.bind(
+		).bind(
 			user.id,
 			user.handle,
 			user.language,
@@ -313,15 +320,16 @@ async function seedOwner(): Promise<void> {
 			user.displayName.lang,
 			user.createdAt,
 			user.updatedAt,
-		)
-		.run();
+		),
+	]);
 }
 
 async function insertUserHandles(handles: string[]): Promise<void> {
 	if (handles.length === 0) {
 		return;
 	}
-	await testEnv.BICKR_D1.batch(handles.map((handle, index) =>
+	await testEnv.BICKR_D1.batch(handles.flatMap((handle, index) => [
+		activeClaim("user_handle", "global", handle, "account", `usr_existing_${index}`, `usr_existing_${index}`),
 		testEnv.BICKR_D1
 			.prepare(
 				`INSERT INTO users_index (
@@ -330,7 +338,23 @@ async function insertUserHandles(handles: string[]): Promise<void> {
 				) VALUES (?, ?, ?, NULL, ?, ?, NULL, NULL, NULL, ?, ?, NULL)`,
 			)
 			.bind(`usr_existing_${index}`, handle, testLanguage, handle, testLanguage, now, now),
-	));
+	]));
+}
+
+function activeClaim(
+	kind: "user_handle" | "world_handle" | "bot_handle",
+	scope: string,
+	value: string,
+	entityKind: "account" | "world" | "bot",
+	entityId: string,
+	ownerUserId: string,
+) {
+	return testEnv.BICKR_D1.prepare(
+		`INSERT INTO entity_lifecycle_identity_claims (
+			key_kind, key_scope, key_value, entity_kind, entity_id,
+			owner_user_id, claim_state, operation_id, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?)`,
+	).bind(kind, scope, value, entityKind, entityId, ownerUserId, now, now);
 }
 
 async function insertForumHandles(world: Pick<WorldDocument, "id" | "handle">, handles: string[]): Promise<void> {

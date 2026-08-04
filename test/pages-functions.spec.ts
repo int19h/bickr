@@ -126,8 +126,8 @@ describe("Pages functions", () => {
 			app: "Bickr",
 			bindings: {
 				agentRuntime: true,
-				botRuntime: false,
-				forumCoordinator: false,
+				botRuntime: true,
+				forumCoordinator: true,
 				forumCoordinatorService: true,
 			},
 			maintenance: {
@@ -2311,7 +2311,7 @@ describe("Pages functions", () => {
 		};
 		expect(payload.data.profile.user).toMatchObject({
 			handle: "profile-owner",
-			displayName: unspecifiedLt("Profile Owner"),
+			displayName: lt("Profile Owner"),
 		});
 		expect(payload.data.profile.user).not.toHaveProperty("authIdentities");
 		expect(payload.data.profile.user).not.toHaveProperty("inferenceSettings");
@@ -2421,19 +2421,34 @@ describe("Pages functions", () => {
 		);
 		expect(deletedProfileResponse.status).toBe(404);
 
-		const replacementCookie = await authCookieFor({
-			subject: "delete-profile-subject",
-			login: "delete-profile",
-			displayName: "Delete Profile Again",
-		});
+		const replacementLogin = await testLogin(contextFor<typeof testLogin>(
+			jsonRequest(
+				"http://127.0.0.1/api/__test__/login",
+				"POST",
+				{
+					subject: "delete-profile-subject",
+					login: "delete-profile",
+					handle: "delete-profile",
+					displayName: "Delete Profile Again",
+				},
+				undefined,
+				{ "x-test-auth-secret": "local-secret" },
+			),
+			{},
+			{ TEST_AUTH_SECRET: "local-secret" },
+		));
+		expect(replacementLogin.status, await replacementLogin.clone().text()).toBe(201);
+		const replacementCookie = replacementLogin.headers.getSetCookie()
+			.find((cookie) => cookie.startsWith(`${sessionCookieName}=`));
+		expect(replacementCookie).toBeDefined();
 		const replacementSession = await session(
-			contextFor<typeof session>(new Request("http://example.com/api/session", { headers: { cookie: replacementCookie } })),
+			contextFor<typeof session>(new Request("http://example.com/api/session", { headers: { cookie: replacementCookie! } })),
 		);
 		expect(await replacementSession.json()).toMatchObject({
 			ok: true,
 			data: {
 				authenticated: true,
-				user: { handle: "delete-profile", displayName: unspecifiedLt("Delete Profile Again") },
+				user: { handle: "delete-profile", displayName: lt("Delete Profile Again") },
 			},
 		});
 	});
@@ -2565,7 +2580,7 @@ describe("Pages functions", () => {
 		expect(createResponse.status).toBe(201);
 		const created = (await createResponse.json()) as { data: { bot: BotBody } };
 		expect(created.data.bot.handle).toBe("release-sage");
-		expect(created.data.bot.owner).toMatchObject({ handle: "octocat", displayName: unspecifiedLt("Octo Cat") });
+		expect(created.data.bot.owner).toMatchObject({ handle: "octocat", displayName: lt("Octo Cat") });
 		expect(created.data.bot.inferenceSettings).toMatchObject({
 			openRouterApiKeySet: true,
 			model: "openrouter/auto",
@@ -2678,7 +2693,7 @@ describe("Pages functions", () => {
 		expect(worldBotsPayload.data.bots.find((bot) => bot.handle === "release-sage")?.prompt).toBeUndefined();
 		expect(worldBotsPayload.data.bots.find((bot) => bot.handle === "release-sage")?.owner).toMatchObject({
 			handle: "octocat",
-			displayName: unspecifiedLt("Octo Cat"),
+			displayName: lt("Octo Cat"),
 		});
 
 		const clearedToolSettingsResponse = await patchBot(

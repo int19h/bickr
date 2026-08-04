@@ -161,17 +161,16 @@ import { pruneStreamEventsForPersistentEvents } from "../../apps/web/src/runtime
 import { parsePathname, routePath } from "../../apps/web/src/routes";
 import {
 	botById,
-	backfillInferredCloneSources,
 	createSession,
 	listForums,
 	listUserBots,
 	rawBotById,
-	updateBotAvatar,
-	updateUserAvatar,
-	updateUserProfile,
-	upsertProviderUser,
 	userById,
 } from "../../packages/shared/src/repository";
+import {
+	updateUserProfile,
+	upsertProviderUser,
+} from "./coordinator-mutations";
 import { storeAvatarImage } from "../../packages/shared/src/avatar-storage";
 import {
 	botActivityFeedByHandle,
@@ -235,6 +234,7 @@ import {
 	type SpotlightIncludedContent,
 	type SpotlightSyntheticContext,
 	type ThreadDocument,
+	type UserDocument,
 	type UserProfile,
 	type WorldDocument,
 	type WorldSummary,
@@ -280,7 +280,6 @@ export {
 	agentRuntimeWorker,
 	applyUserAvatarRoute,
 	applyWorldAvatarRoute,
-	backfillInferredCloneSources,
 	beforeEach,
 	bootstrap,
 	botActivity,
@@ -706,6 +705,89 @@ export type SpotlightSendPayload = {
 	};
 };
 
+type TestCoordinatorHandler = (name: string, request: Request) => Promise<Response>;
+
+function testCoordinatorNamespace(handler: TestCoordinatorHandler): DurableObjectNamespace {
+	return {
+		idFromName: (name: string) => ({
+			name,
+			toString: () => name,
+		}) as unknown as DurableObjectId,
+		get: (id: DurableObjectId) => ({
+			fetch: (request: Request) => handler((id as DurableObjectId & { name?: string }).name ?? id.toString(), request),
+		}) as unknown as DurableObjectStub,
+	} as unknown as DurableObjectNamespace;
+}
+
+function testServiceBindings(env: Partial<AppEnv>): Pick<
+	AppEnv,
+	"AGENT_RUNTIME" | "BOT_RUNTIME" | "FORUM_COORDINATOR" | "FORUM_COORDINATOR_SERVICE" | "USER_BOTS" | "WORLD_COORDINATOR"
+> {
+	const internalServiceSecret = "test-internal-service-secret";
+	const forumQueues = new Map<string, ExclusiveOperationQueue>();
+	const forumRouteEnv = () => ({
+		...env,
+		INTERNAL_SERVICE_SECRET: env.INTERNAL_SERVICE_SECRET ?? internalServiceSecret,
+	}) as ForumCoordinatorEnv;
+	const coordinatorContext = (name: string) => ({
+		objectId: name,
+		queue: forumQueues.get(name) ?? (() => {
+			const queue = new ExclusiveOperationQueue();
+			forumQueues.set(name, queue);
+			return queue;
+		})(),
+	});
+	const worldCoordinator = testCoordinatorNamespace((name, request) =>
+		handleForumCoordinatorRequest(request, forumRouteEnv(), coordinatorContext(name)));
+	const forumCoordinator = testCoordinatorNamespace((name, request) =>
+		handleForumCoordinatorRequest(request, forumRouteEnv(), coordinatorContext(name)));
+	const forumCoordinatorService = {
+		fetch: (request: Request) => forumCoordinatorWorker.fetch(
+			request as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[0],
+			{
+				...forumRouteEnv(),
+				FORUM_COORDINATOR: env.FORUM_COORDINATOR ?? forumCoordinator,
+				WORLD_COORDINATOR: env.WORLD_COORDINATOR ?? worldCoordinator,
+			} as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[1],
+		),
+	} as unknown as Fetcher;
+
+	const userQueues = new Map<string, ExclusiveOperationQueue>();
+	let userBots: DurableObjectNamespace;
+	let botRuntime: DurableObjectNamespace;
+	const agentWorkerEnv = () => ({
+		...env,
+		BOT_RUNTIME: env.BOT_RUNTIME ?? botRuntime,
+		FORUM_COORDINATOR_SERVICE: env.FORUM_COORDINATOR_SERVICE ?? forumCoordinatorService,
+		INTERNAL_SERVICE_SECRET: env.INTERNAL_SERVICE_SECRET ?? internalServiceSecret,
+		USER_BOTS: env.USER_BOTS ?? userBots,
+	}) as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1];
+	userBots = testCoordinatorNamespace((name, request) => handleAgentRuntimeRequest(request, agentWorkerEnv(), {
+		objectId: name,
+		ownerUserId: name,
+		queue: userQueues.get(name) ?? (() => {
+			const queue = new ExclusiveOperationQueue();
+			userQueues.set(name, queue);
+			return queue;
+		})(),
+	}));
+	botRuntime = testCoordinatorNamespace((_name, request) => handleAgentRuntimeRequest(request, agentWorkerEnv()));
+	const agentRuntime = {
+		fetch: (request: Request) => agentRuntimeWorker.fetch(
+			request as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
+			agentWorkerEnv(),
+		),
+	} as unknown as Fetcher;
+	return {
+		AGENT_RUNTIME: agentRuntime,
+		BOT_RUNTIME: botRuntime,
+		FORUM_COORDINATOR: forumCoordinator,
+		FORUM_COORDINATOR_SERVICE: forumCoordinatorService,
+		USER_BOTS: userBots,
+		WORLD_COORDINATOR: worldCoordinator,
+	};
+}
+
 export function contextFor<F extends PagesFunction<AppEnv>>(
 	request: Request,
 	params: RouteParams = {},
@@ -717,38 +799,15 @@ export function contextFor<F extends PagesFunction<AppEnv>>(
 		} as unknown as Fetcher,
 		BICKR_D1: testEnv.BICKR_D1,
 		BICKR_KV: testEnv.BICKR_KV,
-		AGENT_RUNTIME: {
-			fetch: async (serviceRequest: Request) => {
-				if (new URL(serviceRequest.url).pathname === "/health") {
-					return Response.json({ ok: true, runtime: "agent-runtime-worker" });
-				}
-				return handleAgentRuntimeRequest(serviceRequest, {
-					BICKR_D1: testEnv.BICKR_D1,
-					BICKR_KV: testEnv.BICKR_KV,
-					INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
-					FORUM_COORDINATOR_SERVICE: {
-						fetch: (coordinatorRequest: Request) => handleForumCoordinatorRequest(coordinatorRequest, {
-							BICKR_D1: testEnv.BICKR_D1,
-							BICKR_KV: testEnv.BICKR_KV,
-						}),
-					} as unknown as Fetcher,
-				});
-			},
-		} as unknown as Fetcher,
 		INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
-		FORUM_COORDINATOR_SERVICE: {
-			fetch: async (serviceRequest: Request) => {
-				if (new URL(serviceRequest.url).pathname === "/health") {
-					return Response.json({ ok: true, runtime: "forum-coordinator-worker" });
-				}
-				return handleForumCoordinatorRequest(serviceRequest, {
-					BICKR_D1: testEnv.BICKR_D1,
-					BICKR_KV: testEnv.BICKR_KV,
-				});
-			},
-		} as unknown as Fetcher,
 		...envOverrides,
 	};
+	const bindings = testServiceBindings(appEnv);
+	for (const [name, binding] of Object.entries(bindings)) {
+		if (appEnv[name as keyof AppEnv] === undefined) {
+			(appEnv as Record<string, unknown>)[name] = binding;
+		}
+	}
 
 	return {
 		data: {},
@@ -816,6 +875,44 @@ export async function setBotAvatarForTest(bot: Pick<BotBody, "id">, avatarUrl: s
 	await testEnv.BICKR_KV.put(`v1:bot:${bot.id}`, JSON.stringify({ ...stored, avatar, updatedAt: now }));
 	await testEnv.BICKR_D1.prepare(`UPDATE bots_index SET avatar_url = ?, updated_at = ? WHERE bot_id = ?`)
 		.bind(avatarUrl, now, bot.id)
+		.run();
+}
+
+// These fixture writers deliberately live in the test harness rather than
+// importing the production coordinator capability. Tests that exercise the
+// mutation itself use Pages/Agent routes; these helpers only establish a
+// precondition while keeping the production writer boundary closed.
+async function updateBotAvatar(
+	kv: typeof testEnv.BICKR_KV,
+	db: typeof testEnv.BICKR_D1,
+	botId: string,
+	_userId: string,
+	avatar: AvatarImage,
+	now = new Date().toISOString(),
+): Promise<void> {
+	const stored = await kv.get(kvKeys.bot(botId), { type: "json" }) as BotDocument | null;
+	if (!stored) throw new Error(`Bot ${botId} not found.`);
+	const updated = { ...stored, avatar, revision: stored.revision + 1, updatedAt: now };
+	await kv.put(kvKeys.bot(botId), JSON.stringify(updated));
+	await db.prepare(`UPDATE bots_index SET avatar_url = ?, avatar_crop = ?, updated_at = ? WHERE bot_id = ?`)
+		.bind(avatar.url, avatar.crop ? JSON.stringify(avatar.crop) : null, now, botId)
+		.run();
+}
+
+async function updateUserAvatar(
+	kv: typeof testEnv.BICKR_KV,
+	db: typeof testEnv.BICKR_D1,
+	userId: string,
+	avatar: AvatarImage | undefined,
+	now = new Date().toISOString(),
+): Promise<void> {
+	const stored = await kv.get(kvKeys.user(userId), { type: "json" }) as UserDocument | null;
+	if (!stored) throw new Error(`User ${userId} not found.`);
+	const { avatar: _avatar, ...withoutAvatar } = stored;
+	const updated = { ...withoutAvatar, ...(avatar ? { avatar } : {}), revision: stored.revision + 1, updatedAt: now };
+	await kv.put(kvKeys.user(userId), JSON.stringify(updated));
+	await db.prepare(`UPDATE users_index SET avatar_url = ?, avatar_crop = ?, updated_at = ? WHERE user_id = ?`)
+		.bind(avatar?.url ?? null, avatar?.crop ? JSON.stringify(avatar.crop) : null, now, userId)
 		.run();
 }
 
@@ -1083,7 +1180,8 @@ export async function authCookieFor(profile: { subject: string; login: string; d
 	});
 	await updateUserProfile(testEnv.BICKR_KV, testEnv.BICKR_D1, user.id, {
 		handle: user.handle,
-		displayName: user.displayName,
+		language: testLanguage,
+		displayName: localizedText(user.displayName.text, testLanguage),
 	});
 	const created = await createSession(testEnv.BICKR_KV, user.id);
 	return `${sessionCookieName}=${encodeURIComponent(created.cookieValue)}`;

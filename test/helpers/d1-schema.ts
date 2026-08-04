@@ -37,6 +37,7 @@ import migration0035 from "../../migrations/0035_query_time_thread_hot_score.sql
 import migration0036 from "../../migrations/0036_thread_comment_limits.sql?raw";
 import migration0037 from "../../migrations/0037_world_recurring_prompt.sql?raw";
 import migration0038 from "../../migrations/0038_maintenance_control.sql?raw";
+import migration0039 from "../../migrations/0039_entity_lifecycle.sql?raw";
 
 const migrationSql = [
 	migration0001,
@@ -78,6 +79,7 @@ const migrationSql = [
 	migration0036,
 	migration0037,
 	migration0038,
+	migration0039,
 ];
 
 type D1SchemaRow = {
@@ -99,12 +101,26 @@ export async function applyD1Migrations(db: D1Database): Promise<void> {
 
 export async function execD1Statements(db: D1Database, sql: string): Promise<void> {
 	const withoutLineComments = sql.replace(/^\s*--.*$/gm, "");
-	for (const statement of withoutLineComments.split(";")) {
+	for (const statement of splitD1Statements(withoutLineComments)) {
 		const trimmed = statement.trim();
 		if (trimmed.length > 0) {
 			await db.prepare(trimmed).run();
 		}
 	}
+}
+
+function splitD1Statements(sql: string): string[] {
+	const statements: string[] = [];
+	const triggerPattern = /CREATE\s+TRIGGER\b[\s\S]*?\bEND\s*;/giu;
+	let cursor = 0;
+	for (const match of sql.matchAll(triggerPattern)) {
+		const start = match.index;
+		statements.push(...sql.slice(cursor, start).split(";"));
+		statements.push((match[0] ?? "").replace(/;\s*$/u, ""));
+		cursor = start + (match[0]?.length ?? 0);
+	}
+	statements.push(...sql.slice(cursor).split(";"));
+	return statements;
 }
 
 export async function clearKv(kv: KVNamespace): Promise<void> {

@@ -47,18 +47,12 @@ describe("rename convergence tasks", () => {
 		const search = fakeSearchBindings();
 		const storage = memoryDurableStorage();
 		const env = forumEnv(search.env);
-		const request = jsonRequest(
-			"https://internal.bickr/worlds/patch-notes",
-			"PATCH",
+		const response = await updateWorldThroughUserCoordinator(
+			userId,
 			{ handle: "release-notes" },
-			undefined,
-			{
-				[internalServiceAuthHeader]: internalSecret,
-				"x-bickr-user-id": userId,
-			},
+			env,
+			storage.storage,
 		);
-
-		const response = await handleForumCoordinatorRequest(request, env, coordinatorContext(storage.storage));
 		expect(response.status, await response.clone().text()).toBe(200);
 		expect(storage.values.get("object-index-convergence-task")).toMatchObject({
 			scope: { kind: "world" },
@@ -132,19 +126,11 @@ describe("rename convergence tasks", () => {
 		const storage = memoryDurableStorage();
 		const search = fakeSearchBindings();
 		const env = forumEnv(search.env);
-		const response = await handleForumCoordinatorRequest(
-			jsonRequest(
-				"https://internal.bickr/worlds/patch-notes",
-				"PATCH",
-				{ handle: "failure-recovered" },
-				undefined,
-				{
-					[internalServiceAuthHeader]: internalSecret,
-					"x-bickr-user-id": await userIdForHandle("octocat"),
-				},
-			),
+		const response = await updateWorldThroughUserCoordinator(
+			await userIdForHandle("octocat"),
+			{ handle: "failure-recovered" },
 			env,
-			coordinatorContext(storage.storage),
+			storage.storage,
 		);
 		expect(response.status).toBe(200);
 
@@ -266,6 +252,36 @@ function coordinatorContext(storage: DurableObjectStorage) {
 		queue: new ExclusiveOperationQueue(),
 		storage,
 	};
+}
+
+async function updateWorldThroughUserCoordinator(
+	userId: string,
+	input: { handle: string },
+	env: Parameters<typeof handleForumCoordinatorRequest>[1],
+	worldStorage: DurableObjectStorage,
+): Promise<Response> {
+	const forumService = {
+		fetch: (request: Request) => handleForumCoordinatorRequest(request, env, coordinatorContext(worldStorage)),
+	} as unknown as Fetcher;
+	return handleAgentRuntimeRequest(
+		jsonRequest(
+			`https://internal.bickr/users/${encodeURIComponent(userId)}/worlds/patch-notes`,
+			"PATCH",
+			input,
+			undefined,
+			{ "x-bickr-user-id": userId },
+		),
+		{
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+			FORUM_COORDINATOR_SERVICE: forumService,
+		} as Parameters<typeof handleAgentRuntimeRequest>[1],
+		{
+			objectId: userId,
+			ownerUserId: userId,
+			queue: new ExclusiveOperationQueue(),
+		},
+	);
 }
 
 async function threadDocument(threadId: string): Promise<ThreadDocument> {
