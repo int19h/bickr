@@ -10,6 +10,7 @@ import {
 } from '@bickr/shared/avatar-storage';
 import {
 	cleanupTerminalLifecycleOperations,
+	lifecycleIdempotencyKey,
 	nextDueLifecycleOperation,
 	nextLifecycleAlarmAt,
 } from '@bickr/shared/entity-lifecycle';
@@ -106,11 +107,16 @@ import type {
 } from './lifecycle/types';
 import {
 	providerProfileFromUnknown,
-	reserveAccountBootstrap,
 	reserveAccountDelete,
+	resumeReservedAccountBootstrapOperation,
 	runAccountBootstrapOperation,
 	runAccountDeleteOperation,
 } from './lifecycle/account';
+import {
+	accountBootstrapOperationHeader,
+	reservedAccountBootstrapOperation,
+	reserveOrJoinAccountBootstrap,
+} from './lifecycle/account-bootstrap-reservation';
 import {
 	reserveBotCreate,
 	reserveBotDelete,
@@ -132,8 +138,6 @@ import { authProviders, type AuthProvider, type AvatarCrop, type AvatarImage, ty
 const {
 	deleteBotAvatar,
 	linkProviderIdentity,
-	providerBootstrapClaim,
-	providerIdentityUserId,
 	refreshLinkedCloneIndexes,
 	refreshProviderIdentity,
 	relinkBotClone,
@@ -336,15 +340,19 @@ export const agentRuntimeRouteTable = [
 				throw new RepositoryError('forbidden', 'Account bootstrap was dispatched to the wrong coordinator.', 403);
 			}
 			const profile = providerProfileFromUnknown(await readJsonBody(context.request));
-			const existingUserId = await providerIdentityUserId(context.env.BICKR_D1, profile.provider, profile.subject);
-			if (existingUserId) {
-				if (existingUserId !== userId) {
+			const operationId = context.request.headers.get(accountBootstrapOperationHeader)?.trim();
+			if (operationId) {
+				const operation = await reservedAccountBootstrapOperation(context.env.BICKR_D1, {
+					operationId,
+					profile,
+					userId,
+				});
+				await resumeReservedAccountBootstrapOperation(context, operation);
+			} else {
+				const existing = await refreshProviderIdentity(context.env.BICKR_KV, context.env.BICKR_D1, profile);
+				if (existing.id !== userId) {
 					throw new RepositoryError('conflict', 'Provider identity belongs to another account.', 409);
 				}
-				await refreshProviderIdentity(context.env.BICKR_KV, context.env.BICKR_D1, profile);
-			} else {
-				const operation = await reserveAccountBootstrap(context, userId, profile);
-				await runAccountBootstrapOperation(context, operation);
 			}
 			const user = await userById(context.env.BICKR_KV, userId);
 			const result = {
@@ -1356,8 +1364,8 @@ export async function runUserBotsConvergenceAlarm(
 	}
 }
 
- export default {
-	async fetch(request, env) {
+export async function handleAgentRuntimeWorkerRequest(request: Request, env: Env): Promise<Response> {
+	try {
 		const url = new URL(request.url);
 		if (!isTrustedInternalServiceRequest(request, env.INTERNAL_SERVICE_SECRET)) {
 			return agentRuntimeNotFoundResponse();
@@ -1377,23 +1385,25 @@ export async function runUserBotsConvergenceAlarm(
 		if (resolved.route.dispatch === 'account-bootstrap') {
 			const body = await readJsonBody(request.clone());
 			const profile = providerProfileFromUnknown(body);
-			const existingUserId = await providerIdentityUserId(env.BICKR_D1, profile.provider, profile.subject);
-			const pendingClaim = existingUserId ? null : await providerBootstrapClaim(env.BICKR_D1, profile.provider, profile.subject);
-			if (pendingClaim?.kind === 'active_without_projection') {
-				throw new RepositoryError('conflict', 'Provider identity is currently being deleted.', 409);
-			}
-			const userId = existingUserId ?? pendingClaim?.userId ?? makeId('usr');
-			const forwardedUrl = internalServiceUrl(`/users/${encodeURIComponent(userId)}/account/bootstrap`);
+			const reservation = await reserveOrJoinAccountBootstrap(env.BICKR_D1, {
+				candidateUserId: makeId('usr'),
+				idempotencyKey: lifecycleIdempotencyKey(request),
+				profile,
+				now: new Date().toISOString(),
+			});
+			const forwardedUrl = internalServiceUrl(`/users/${encodeURIComponent(reservation.userId)}/account/bootstrap`);
 			const headers = new Headers(request.headers);
-			if (!headers.has('idempotency-key')) {
-				headers.set('idempotency-key', pendingClaim?.kind === 'pending' ? pendingClaim.idempotencyKey : makeId('opn'));
+			headers.delete(accountBootstrapOperationHeader);
+			if (reservation.kind === 'pending') {
+				headers.set(accountBootstrapOperationHeader, reservation.operation.operationId);
+				headers.set('idempotency-key', reservation.operation.idempotencyKey);
 			}
 			headers.set('content-type', 'application/json');
-			const objectId = env.USER_BOTS.idFromName(userId);
+			const objectId = env.USER_BOTS.idFromName(reservation.userId);
 			return env.USER_BOTS.get(objectId).fetch(new Request(forwardedUrl, {
 				method: 'POST',
 				headers,
-				body: JSON.stringify(body),
+				body: JSON.stringify(reservation.profile),
 			}));
 		}
 		if (resolved.route.dispatch === 'user-coordinator') {
@@ -1404,6 +1414,14 @@ export async function runUserBotsConvergenceAlarm(
 		const botId = resolved.match[1] ?? 'unknown';
 		const objectId = env.BOT_RUNTIME.idFromName(botId);
 		return env.BOT_RUNTIME.get(objectId).fetch(request);
+	} catch (error) {
+		return errorResponse(error);
+	}
+}
+
+ export default {
+	async fetch(request, env) {
+		return handleAgentRuntimeWorkerRequest(request, env);
 	},
 
 	async scheduled(event, env, ctx) {

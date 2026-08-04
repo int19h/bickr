@@ -260,7 +260,7 @@ async function worldDocumentForDeletion(
 	return normalized;
 }
 
-export async function updateForum(
+async function updateForum(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	worldHandle: string,
@@ -338,7 +338,7 @@ export async function updateForum(
 	return forumSummary(updated);
 }
 
-export async function deleteForum(
+async function deleteForum(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	worldHandle: string,
@@ -352,7 +352,7 @@ export async function deleteForum(
 	return forumSummary(deleted);
 }
 
-export async function deleteForumForWorld(
+async function deleteForumForWorld(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	worldId: string,
@@ -599,7 +599,10 @@ function forumSummary(forum: ForumDocument): ForumSummary {
 }
 
 export const coordinatorGovernanceMutations = Object.freeze({
+	deleteForum,
+	deleteForumForWorld,
 	deleteWorld,
+	updateForum,
 	updateWorld,
 	updateWorldAvatar,
 });

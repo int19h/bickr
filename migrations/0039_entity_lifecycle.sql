@@ -182,7 +182,6 @@ FROM provider_identities;
 CREATE TRIGGER users_index_requires_identity_claim_insert
 BEFORE INSERT ON users_index
 WHEN NEW.deleted_at IS NULL
-AND NOT EXISTS (SELECT 1 FROM users_index WHERE user_id = NEW.user_id AND deleted_at IS NOT NULL)
 AND NOT EXISTS (
 	SELECT 1 FROM entity_lifecycle_identity_claims
 	WHERE key_kind = 'user_handle' AND key_scope = 'global'
@@ -194,8 +193,8 @@ BEGIN
 END;
 
 CREATE TRIGGER users_index_requires_identity_claim_update
-BEFORE UPDATE OF handle, deleted_at ON users_index
-WHEN OLD.deleted_at IS NULL AND NEW.deleted_at IS NULL AND NOT EXISTS (
+BEFORE UPDATE OF handle, deleted_at, lifecycle_state ON users_index
+WHEN NEW.deleted_at IS NULL AND NOT EXISTS (
 	SELECT 1 FROM entity_lifecycle_identity_claims
 	WHERE key_kind = 'user_handle' AND key_scope = 'global'
 	  AND key_value = NEW.handle AND entity_kind = 'account' AND entity_id = NEW.user_id
@@ -208,7 +207,6 @@ END;
 CREATE TRIGGER worlds_index_requires_identity_claim_insert
 BEFORE INSERT ON worlds_index
 WHEN NEW.deleted_at IS NULL
-AND NOT EXISTS (SELECT 1 FROM worlds_index WHERE world_id = NEW.world_id AND deleted_at IS NOT NULL)
 AND NOT EXISTS (
 	SELECT 1 FROM entity_lifecycle_identity_claims
 	WHERE key_kind = 'world_handle' AND key_scope = 'global'
@@ -220,8 +218,8 @@ BEGIN
 END;
 
 CREATE TRIGGER worlds_index_requires_identity_claim_update
-BEFORE UPDATE OF handle, deleted_at ON worlds_index
-WHEN OLD.deleted_at IS NULL AND NEW.deleted_at IS NULL AND NOT EXISTS (
+BEFORE UPDATE OF handle, deleted_at, lifecycle_state ON worlds_index
+WHEN NEW.deleted_at IS NULL AND NOT EXISTS (
 	SELECT 1 FROM entity_lifecycle_identity_claims
 	WHERE key_kind = 'world_handle' AND key_scope = 'global'
 	  AND key_value = NEW.handle AND entity_kind = 'world' AND entity_id = NEW.world_id
@@ -234,7 +232,6 @@ END;
 CREATE TRIGGER bots_index_requires_identity_claim_insert
 BEFORE INSERT ON bots_index
 WHEN NEW.deleted_at IS NULL
-AND NOT EXISTS (SELECT 1 FROM bots_index WHERE bot_id = NEW.bot_id AND deleted_at IS NOT NULL)
 AND NOT EXISTS (
 	SELECT 1 FROM entity_lifecycle_identity_claims
 	WHERE key_kind = 'bot_handle' AND key_scope = NEW.home_world_id
@@ -246,8 +243,8 @@ BEGIN
 END;
 
 CREATE TRIGGER bots_index_requires_identity_claim_update
-BEFORE UPDATE OF handle, home_world_id, deleted_at ON bots_index
-WHEN OLD.deleted_at IS NULL AND NEW.deleted_at IS NULL AND NOT EXISTS (
+BEFORE UPDATE OF handle, home_world_id, deleted_at, lifecycle_state ON bots_index
+WHEN NEW.deleted_at IS NULL AND NOT EXISTS (
 	SELECT 1 FROM entity_lifecycle_identity_claims
 	WHERE key_kind = 'bot_handle' AND key_scope = NEW.home_world_id
 	  AND key_value = NEW.handle AND entity_kind = 'bot' AND entity_id = NEW.bot_id
@@ -255,27 +252,6 @@ WHEN OLD.deleted_at IS NULL AND NEW.deleted_at IS NULL AND NOT EXISTS (
 )
 BEGIN
 	SELECT RAISE(ABORT, 'canonical bot handle claim required');
-END;
-
-CREATE TRIGGER users_index_cannot_resurrect
-BEFORE UPDATE OF deleted_at ON users_index
-WHEN OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL
-BEGIN
-	SELECT RAISE(ABORT, 'deleted user projection cannot be resurrected');
-END;
-
-CREATE TRIGGER worlds_index_cannot_resurrect
-BEFORE UPDATE OF deleted_at ON worlds_index
-WHEN OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL
-BEGIN
-	SELECT RAISE(ABORT, 'deleted world projection cannot be resurrected');
-END;
-
-CREATE TRIGGER bots_index_cannot_resurrect
-BEFORE UPDATE OF deleted_at ON bots_index
-WHEN OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL
-BEGIN
-	SELECT RAISE(ABORT, 'deleted bot projection cannot be resurrected');
 END;
 
 CREATE TRIGGER provider_identities_requires_identity_claim_insert

@@ -9,13 +9,10 @@ import {
 } from "@bickr/shared/entity-lifecycle";
 import {
 	deleteComment,
-	deleteForum,
-	deleteForumForWorld,
 	deleteThread,
 	coordinatorGovernanceMutations,
-	updateForum,
 } from "@bickr/shared/governance";
-import { worldCoordinatorRepositoryMutations, RepositoryError, createForum, rawForumSummaryById } from "@bickr/shared/repository";
+import { worldCoordinatorRepositoryMutations, RepositoryError, rawForumSummaryById } from "@bickr/shared/repository";
 import { parseOwnerWorldMutation } from "@bickr/shared/owner-world-mutation";
 import type { WorldLifecycleMutationResult } from "@bickr/shared/world-lifecycle-protocol";
 import { deleteSearchVector, upsertForumSearchVector, upsertWorldSearchVector } from "@bickr/shared/search";
@@ -83,12 +80,20 @@ import {
 const {
 	addBotGroupMembers,
 	createBotGroup,
+	createForum,
 	createWorld,
 	deleteBotGroup,
 	removeBotGroupMember,
 	updateBotGroup,
 } = worldCoordinatorRepositoryMutations;
-const { deleteWorld, updateWorld, updateWorldAvatar } = coordinatorGovernanceMutations;
+const {
+	deleteForum,
+	deleteForumForWorld,
+	deleteWorld,
+	updateForum,
+	updateWorld,
+	updateWorldAvatar,
+} = coordinatorGovernanceMutations;
 
 export interface Env {
 	BICKR_D1: D1Database;

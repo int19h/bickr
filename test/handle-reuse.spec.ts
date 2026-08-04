@@ -2,10 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import { clearKv, execD1Statements, resetD1Schema } from "./helpers/d1-schema";
 import migrationSql from "../migrations/0031_tombstone_deleted_handles.sql?raw";
-import { deleteForum } from "../packages/shared/src/governance";
-import {
-	createForum,
-} from "../packages/shared/src/repository";
+import { ExclusiveOperationQueue } from "../packages/shared/src/exclusive-operation-queue";
+import { handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
 import {
 	createBot,
 	createWorld,
@@ -88,7 +86,7 @@ describe("soft-deleted handle reuse", () => {
 		const world = await createTestWorld("reuse-forums");
 		const original = await createTestForum(world.handle, "same-forum");
 
-		await deleteForum(testEnv.BICKR_KV, testEnv.BICKR_D1, world.handle, original.handle, ownerId, now);
+		await forumCoordinatorMutation(world.id, `/worlds/${world.handle}/forums/${original.handle}`, "DELETE");
 		const deleted = await readForumDocument(original.id);
 		expect(deleted.handle).toBe(tombstoneHandle(original.id));
 		expect(deleted.handleAtDeletion).toBe("same-forum");
@@ -261,18 +259,37 @@ async function createTestWorld(handle: string) {
 }
 
 async function createTestForum(worldHandle: string, handle: string) {
-	return createForum(
-		testEnv.BICKR_KV,
-		testEnv.BICKR_D1,
-		worldHandle,
-		{
+	const world = await testEnv.BICKR_D1.prepare(
+		"SELECT world_id AS id FROM worlds_index WHERE handle = ? AND lifecycle_state = 'active'",
+	).bind(worldHandle).first<{ id: string }>();
+	if (!world) throw new Error("Expected active test world.");
+	const data = await forumCoordinatorMutation(world.id, `/worlds/${worldHandle}/forums`, "POST", {
 			handle,
 			language: testLanguage,
 			description: lt(`${handle} discussion`),
-		},
-		ownerId,
-		now,
-	);
+	});
+	return data.forum as { id: string; handle: string };
+}
+
+async function forumCoordinatorMutation(
+	worldId: string,
+	path: string,
+	method: "POST" | "DELETE",
+	body?: unknown,
+): Promise<Record<string, unknown>> {
+	const headers = new Headers({ "x-bickr-user-id": ownerId });
+	if (body !== undefined) headers.set("content-type", "application/json");
+	const response = await handleForumCoordinatorRequest(new Request(`https://internal.bickr${path}`, {
+		method,
+		headers,
+		...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+	}), testEnv, {
+		objectId: worldId,
+		queue: new ExclusiveOperationQueue(),
+	});
+	const payload = await response.json() as { ok: boolean; data?: Record<string, unknown>; message?: string };
+	if (!response.ok || !payload.ok || !payload.data) throw new Error(payload.message ?? "Forum coordinator mutation failed.");
+	return payload.data;
 }
 
 async function createTestBot(worldHandle: string, handle: string) {

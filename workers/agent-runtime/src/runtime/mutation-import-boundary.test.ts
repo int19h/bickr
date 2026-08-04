@@ -2,36 +2,37 @@ import { readdirSync, readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const repositoryMutationNames = [
-	"addBotGroupMembers",
-	"createBot",
-	"createBotGroup",
-	"createWorld",
-	"deleteBot",
-	"deleteBotAvatar",
-	"deleteBotGroup",
-	"linkProviderIdentity",
-	"materializePendingBotAvatar",
-	"prepareProviderUserBootstrap",
-	"providerIdentityUserId",
-	"providerUserBootstrapActivationStatements",
-	"refreshLinkedCloneIndexes",
-	"refreshProviderIdentity",
-	"removeBotGroupMember",
-	"relinkBotClone",
-	"softDeleteUserProfile",
-	"spreadUserBotTicks",
-	"unlinkBotClone",
-	"unlinkProviderIdentity",
-	"updateBot",
-	"updateBotAvatar",
-	"updateBotGroup",
-	"updateUserAvatar",
-	"updateUserProfile",
-	"upsertProviderUser",
+const repositoryCapabilities = [
+	"accountBootstrapReservationRepositoryMutations",
+	"userCoordinatorRepositoryMutations",
+	"worldCoordinatorRepositoryMutations",
 ] as const;
 
-const governanceMutationNames = ["deleteWorld", "updateWorld", "updateWorldAvatar"] as const;
+const requiredRepositoryMutationNames = [
+	"createBot",
+	"createForum",
+	"createWorld",
+	"deleteBot",
+	"prepareProviderUserBootstrap",
+	"providerBootstrapClaim",
+	"updateBot",
+	"updateUserProfile",
+] as const;
+
+const requiredGovernanceMutationNames = [
+	"deleteForum",
+	"deleteForumForWorld",
+	"deleteWorld",
+	"updateForum",
+	"updateWorld",
+] as const;
+
+// These historical side-door names remain protected even though the current
+// repository intentionally has no capability member with that name.
+const retiredRepositoryMutationNames = [
+	"providerIdentityUserId",
+	"upsertProviderUser",
+] as const;
 
 const userCoordinatorModules = new Set([
 	"workers/agent-runtime/src/routes.ts",
@@ -39,15 +40,28 @@ const userCoordinatorModules = new Set([
 	"workers/agent-runtime/src/lifecycle/bot.ts",
 ]);
 const worldCoordinatorModule = "workers/forum-coordinator/src/index.ts";
+const accountBootstrapReservationModule = "workers/agent-runtime/src/lifecycle/account-bootstrap-reservation.ts";
 
 describe("serialized entity mutation import boundary", () => {
 	it("allows coordinator mutation capabilities only at the narrow serialized writer modules", () => {
+		const repositorySource = readFileSync(resolve(process.cwd(), "packages/shared/src/repository.ts"), "utf8");
+		const governanceSource = readFileSync(resolve(process.cwd(), "packages/shared/src/governance.ts"), "utf8");
+		const repositoryMutationNames = new Set([
+			...repositoryCapabilities.flatMap((capability) => capabilityMembers(repositorySource, capability)),
+			...retiredRepositoryMutationNames,
+		]);
+		const governanceMutationNames = new Set(capabilityMembers(governanceSource, "coordinatorGovernanceMutations"));
+		for (const required of requiredRepositoryMutationNames) expect(repositoryMutationNames.has(required)).toBe(true);
+		for (const required of requiredGovernanceMutationNames) expect(governanceMutationNames.has(required)).toBe(true);
 		const violations: string[] = [];
 		for (const filename of typescriptFiles(resolve(process.cwd()))) {
 			const path = relative(process.cwd(), filename).replaceAll("\\", "/");
 			const source = readFileSync(filename, "utf8");
 			if (namedImport(source, "userCoordinatorRepositoryMutations", /(?:@bickr\/shared\/repository|packages\/shared\/src\/repository)/u) && !userCoordinatorModules.has(path)) {
 				violations.push(`${path}: imports the user-coordinator mutation capability`);
+			}
+			if (namedImport(source, "accountBootstrapReservationRepositoryMutations", /(?:@bickr\/shared\/repository|packages\/shared\/src\/repository)/u) && path !== accountBootstrapReservationModule) {
+				violations.push(`${path}: imports the pre-dispatch account-bootstrap reservation capability`);
 			}
 			if (namedImport(source, "worldCoordinatorRepositoryMutations", /(?:@bickr\/shared\/repository|packages\/shared\/src\/repository)/u) && path !== worldCoordinatorModule) {
 				violations.push(`${path}: imports the world-coordinator repository mutation capability`);
@@ -57,6 +71,12 @@ describe("serialized entity mutation import boundary", () => {
 			}
 			if (namedImport(source, "coordinatorRepositoryMutations", /(?:@bickr\/shared\/repository|packages\/shared\/src\/repository)/u)) {
 				violations.push(`${path}: imports the retired monolithic coordinator capability`);
+			}
+			if (namespaceImport(source, /(?:@bickr\/shared\/repository|packages\/shared\/src\/repository)/u)) {
+				violations.push(`${path}: namespace-imports the repository and can bypass mutation capabilities`);
+			}
+			if (namespaceImport(source, /(?:@bickr\/shared\/governance|packages\/shared\/src\/governance)/u)) {
+				violations.push(`${path}: namespace-imports governance and can bypass mutation capabilities`);
 			}
 			for (const name of repositoryMutationNames) {
 				if (path === "packages/shared/src/repository.ts" && exportedFunction(source, name)) {
@@ -95,6 +115,22 @@ function namedImport(source: string, name: string, modulePattern: RegExp): boole
 		}
 	}
 	return false;
+}
+
+function namespaceImport(source: string, modulePattern: RegExp): boolean {
+	for (const match of source.matchAll(/import\s+\*\s+as\s+\w+\s+from\s+["']([^"']+)["']/gu)) {
+		if (modulePattern.test(match[1] ?? "")) return true;
+	}
+	return false;
+}
+
+function capabilityMembers(source: string, name: string): string[] {
+	const match = new RegExp(`export\\s+const\\s+${name}\\s*=\\s*Object\\.freeze\\(\\{([\\s\\S]*?)\\n\\}\\);`, "u").exec(source);
+	expect(match, `Missing mutation capability ${name}`).not.toBeNull();
+	return (match?.[1] ?? "")
+		.split(",")
+		.map((entry) => entry.trim())
+		.filter(Boolean);
 }
 
 function typescriptFiles(directory: string): string[] {

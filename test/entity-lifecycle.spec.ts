@@ -100,6 +100,50 @@ describe("entity lifecycle foundation", () => {
 		expect(await testEnv.BICKR_D1.prepare(`SELECT user_id FROM users_index WHERE user_id = ?`).bind(user.id).first()).toBeNull();
 	});
 
+	it("keeps a claimed same-id tombstone recreation pending across a crash before activation", async () => {
+		const user = testUser("usr_same_id_recreate", "same-id-recreated");
+		await userIndexProjectionStatement(testEnv.BICKR_D1, {
+			...user,
+			handle: `deleted-${user.id}`,
+			deletedAt: now,
+		}).run();
+
+		await expect(userIndexProjectionStatement(testEnv.BICKR_D1, user).run()).rejects.toThrow();
+		const reserved = await reserveCreateLifecycle(testEnv.BICKR_D1, {
+			ownerUserId: user.id,
+			idempotencyKey: "same-id-recreate",
+			requestHash: await hashLifecycleRequest({ kind: "account_create", handle: user.handle }),
+			requestJson: "{}",
+			entityKind: "account",
+			entityId: user.id,
+			reservations: [{ kind: "user_handle", scope: "global", value: user.handle }],
+			now,
+		});
+		const pendingProjection = userIndexProjectionStatement(testEnv.BICKR_D1, user, { lifecycleState: "pending" });
+		await pendingProjection.run();
+
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT lifecycle_state AS lifecycleState, deleted_at AS deletedAt
+			 FROM users_index WHERE user_id = ?`,
+		).bind(user.id).first()).toEqual({ lifecycleState: "pending", deletedAt: null });
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT user_id FROM users_index
+			 WHERE user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'`,
+		).bind(user.id).first()).toBeNull();
+		await expect(testEnv.BICKR_D1.prepare(
+			`UPDATE users_index SET lifecycle_state = 'active' WHERE user_id = ?`,
+		).bind(user.id).run()).rejects.toThrow();
+
+		await activateLifecycleEntity(testEnv.BICKR_D1, reserved.operation, {
+			kind: "legacy_compatible",
+			projectionStatements: [userIndexProjectionStatement(testEnv.BICKR_D1, user, { lifecycleState: "pending" })],
+		}, now);
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT lifecycle_state AS lifecycleState, deleted_at AS deletedAt
+			 FROM users_index WHERE user_id = ?`,
+		).bind(user.id).first()).toEqual({ lifecycleState: "active", deletedAt: null });
+	});
+
 	it("releases terminally compensated unique identities and deletes terminal history in bounded batches", async () => {
 		const first = await reserveCreateLifecycle(testEnv.BICKR_D1, {
 			ownerUserId: "usr_owner",

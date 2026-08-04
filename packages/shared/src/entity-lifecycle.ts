@@ -510,6 +510,13 @@ export async function activateLifecycleEntity(
 	const results = await db.batch([
 		...projectionStatements,
 		...extensionStatements,
+		db
+			.prepare(
+				`UPDATE entity_lifecycle_identity_claims
+				 SET claim_state = 'active', operation_id = NULL, updated_at = ?
+				 WHERE operation_id = ? AND claim_state = 'pending'`,
+			)
+			.bind(now, operation.operationId),
 		lifecycleIndexStateStatement(db, operation.entityKind, operation.entityId, "active"),
 		db
 			.prepare(
@@ -519,13 +526,6 @@ export async function activateLifecycleEntity(
 				   AND phase IN ('pending', 'materializing')`,
 			)
 			.bind(now, operation.entityKind, operation.entityId, operation.operationId),
-		db
-			.prepare(
-				`UPDATE entity_lifecycle_identity_claims
-				 SET claim_state = 'active', operation_id = NULL, updated_at = ?
-				 WHERE operation_id = ? AND claim_state = 'pending'`,
-			)
-			.bind(now, operation.operationId),
 		db.prepare(`DELETE FROM entity_lifecycle_secrets WHERE operation_id = ?`).bind(operation.operationId),
 		db
 			.prepare(
@@ -538,7 +538,7 @@ export async function activateLifecycleEntity(
 			)
 			.bind(now, now, cleanupAt, operation.operationId),
 	]);
-	const indexResult = results[projectionStatements.length + extensionStatements.length];
+	const indexResult = results[projectionStatements.length + extensionStatements.length + 1];
 	if ((indexResult?.meta?.changes ?? 0) !== 1) {
 		throw new RepositoryError("server_error", "Lifecycle activation could not expose the entity.", 500);
 	}

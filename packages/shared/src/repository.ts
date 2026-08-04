@@ -636,17 +636,9 @@ async function providerIdentityBySubject(
 		.first<ProviderIdentityRow>();
 }
 
-async function providerIdentityUserId(
-	db: D1DatabaseLike,
-	provider: AuthProvider,
-	subject: string,
-): Promise<string | null> {
-	const identity = await providerIdentityBySubject(db, provider, subject.trim());
-	return identity?.userId ?? null;
-}
-
 type ProviderBootstrapClaim =
-	| { kind: "pending"; userId: string; idempotencyKey: string }
+	| { kind: "pending"; userId: string; operationId: string }
+	| { kind: "active"; userId: string }
 	| { kind: "active_without_projection"; userId: string };
 
 async function providerBootstrapClaim(
@@ -658,21 +650,38 @@ async function providerBootstrapClaim(
 		`SELECT
 			claims.entity_id AS userId,
 			claims.claim_state AS claimState,
-			operations.idempotency_key AS idempotencyKey
+			claims.operation_id AS operationId,
+			identities.user_id AS identityUserId,
+			users.lifecycle_state AS lifecycleState,
+			users.deleted_at AS deletedAt
 		 FROM entity_lifecycle_identity_claims claims
-		 LEFT JOIN entity_lifecycle_operations operations
-			ON operations.operation_id = claims.operation_id
+		 LEFT JOIN provider_identities identities
+			ON identities.provider = claims.key_scope
+		   AND identities.provider_subject = claims.key_value
+		 LEFT JOIN users_index users
+			ON users.user_id = claims.entity_id
 		 WHERE claims.key_kind = 'provider_subject'
 		   AND claims.key_scope = ? AND claims.key_value = ?
 		 LIMIT 1`,
 	).bind(provider, subject.trim()).first<{
 		userId: string;
 		claimState: "pending" | "active";
-		idempotencyKey: string | null;
+		operationId: string | null;
+		identityUserId: string | null;
+		lifecycleState: "pending" | "active" | "deleting" | null;
+		deletedAt: string | null;
 	}>();
 	if (!claim) return null;
-	if (claim.claimState === "pending" && claim.idempotencyKey) {
-		return { kind: "pending", userId: claim.userId, idempotencyKey: claim.idempotencyKey };
+	if (claim.claimState === "pending" && claim.operationId) {
+		return { kind: "pending", userId: claim.userId, operationId: claim.operationId };
+	}
+	if (
+		claim.claimState === "active" &&
+		claim.identityUserId === claim.userId &&
+		claim.lifecycleState === "active" &&
+		claim.deletedAt === null
+	) {
+		return { kind: "active", userId: claim.userId };
 	}
 	return { kind: "active_without_projection", userId: claim.userId };
 }
@@ -1279,7 +1288,7 @@ export async function listForums(db: D1DatabaseLike, worldHandle: string): Promi
 	return (result.results ?? []).map(forumSummaryFromIndexRow);
 }
 
-export async function createForum(
+async function createForum(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	worldHandle: string,
@@ -3478,7 +3487,9 @@ export function userIndexProjectionStatement(
 				avatar_crop = excluded.avatar_crop,
 				profile_completed_at = excluded.profile_completed_at,
 				updated_at = excluded.updated_at,
-				deleted_at = excluded.deleted_at`,
+				deleted_at = excluded.deleted_at,
+				lifecycle_state = excluded.lifecycle_state
+			WHERE users_index.deleted_at IS NULL OR excluded.lifecycle_state = 'pending'`,
 		)
 		.bind(
 			normalized.id,
@@ -3541,8 +3552,9 @@ function normalizedWorldIndexProjectionStatement(
 				posting_comment_body_characters = excluded.posting_comment_body_characters,
 				thread_comment_limit = excluded.thread_comment_limit,
 				updated_at = excluded.updated_at,
-				deleted_at = excluded.deleted_at
-			WHERE worlds_index.deleted_at IS NULL`,
+				deleted_at = excluded.deleted_at,
+				lifecycle_state = excluded.lifecycle_state
+			WHERE worlds_index.deleted_at IS NULL OR excluded.lifecycle_state = 'pending'`,
 		)
 		.bind(
 			world.id,
@@ -3584,7 +3596,7 @@ export async function upsertWorldIndexProjection(
 	if (options.lifecycleState === "pending") {
 		await statement.run();
 	} else {
-		await writeLegacyIndexProjection(db, {
+		const applied = await writeLegacyIndexProjection(db, {
 			claim: {
 				kind: "world_handle",
 				scope: "global",
@@ -3597,6 +3609,7 @@ export async function upsertWorldIndexProjection(
 			now: normalized.updatedAt,
 			projection: statement,
 		});
+		if (!applied) return normalized;
 	}
 	await upsertWorldSearchIndex(db, normalized);
 	return normalized;
@@ -3655,7 +3668,7 @@ export async function upsertBotIndexProjection(
 	if (options.lifecycleState === "pending") {
 		await upsertBotIndex(db, effective, options);
 	} else {
-		await writeLegacyIndexProjection(db, {
+		const applied = await writeLegacyIndexProjection(db, {
 			claim: {
 				kind: "bot_handle",
 				scope: effective.homeWorldId,
@@ -3668,6 +3681,7 @@ export async function upsertBotIndexProjection(
 			now: effective.updatedAt,
 			projection: botIndexProjectionStatement(db, effective, options),
 		});
+		if (!applied) return effective;
 	}
 	await upsertBotSearchIndex(db, effective);
 	return effective;
@@ -3704,7 +3718,9 @@ function botIndexProjectionStatement(
 				avatar_url = excluded.avatar_url,
 				avatar_crop = excluded.avatar_crop,
 				updated_at = excluded.updated_at,
-				deleted_at = excluded.deleted_at`,
+				deleted_at = excluded.deleted_at,
+				lifecycle_state = excluded.lifecycle_state
+			WHERE bots_index.deleted_at IS NULL OR excluded.lifecycle_state = 'pending'`,
 		)
 		.bind(
 			bot.id,
@@ -5001,7 +5017,10 @@ async function writeLegacyIndexProjection(
 		now: string;
 		projection: D1PreparedStatementLike;
 	},
-): Promise<void> {
+): Promise<boolean> {
+	if (!input.deleted && await legacyProjectionIsTombstoned(db, input.claim)) {
+		return false;
+	}
 	const previous = await db.prepare(
 		`SELECT key_scope AS scope, key_value AS value
 		 FROM entity_lifecycle_identity_claims
@@ -5011,7 +5030,7 @@ async function writeLegacyIndexProjection(
 		.first<{ scope: string; value: string }>();
 	const statements: D1PreparedStatementLike[] = [];
 	if (!input.deleted) {
-		statements.push(activeIdentityClaimStatement(db, {
+		statements.push(activeIdentityClaimUnlessTombstonedStatement(db, {
 			...input.claim,
 			ownerUserId: input.ownerUserId,
 			now: input.now,
@@ -5029,6 +5048,9 @@ async function writeLegacyIndexProjection(
 		await db.batch(statements);
 	} catch (error) {
 		if (input.deleted) throw error;
+		if (await legacyProjectionIsTombstoned(db, input.claim)) {
+			return false;
+		}
 		throw await identityClaimConflict(
 			db,
 			input.claim,
@@ -5036,6 +5058,60 @@ async function writeLegacyIndexProjection(
 			"The legacy index repair conflicts with a canonical entity identity.",
 		);
 	}
+	return true;
+}
+
+async function legacyProjectionIsTombstoned(
+	db: D1DatabaseLike,
+	claim: IdentityClaimInput,
+): Promise<boolean> {
+	const query = (() => {
+		switch (claim.entityKind) {
+			case "account": return "SELECT user_id AS id FROM users_index WHERE user_id = ? AND deleted_at IS NOT NULL LIMIT 1";
+			case "world": return "SELECT world_id AS id FROM worlds_index WHERE world_id = ? AND deleted_at IS NOT NULL LIMIT 1";
+			case "bot": return "SELECT bot_id AS id FROM bots_index WHERE bot_id = ? AND deleted_at IS NOT NULL LIMIT 1";
+		}
+	})();
+	return Boolean(await db.prepare(query).bind(claim.entityId).first<{ id: string }>());
+}
+
+function activeIdentityClaimUnlessTombstonedStatement(
+	db: D1DatabaseLike,
+	input: IdentityClaimInput & { ownerUserId: string; now: string },
+): D1PreparedStatementLike {
+	const tombstoneGuard = (() => {
+		switch (input.entityKind) {
+			case "account": return "SELECT 1 FROM users_index WHERE user_id = ? AND deleted_at IS NOT NULL";
+			case "world": return "SELECT 1 FROM worlds_index WHERE world_id = ? AND deleted_at IS NOT NULL";
+			case "bot": return "SELECT 1 FROM bots_index WHERE bot_id = ? AND deleted_at IS NOT NULL";
+		}
+	})();
+	// The indexed guard closes the read/batch race: if deletion commits after
+	// the adapter's preflight, the claim insert is skipped and the guarded
+	// projection fails atomically instead of leaving an orphan active claim.
+	return db.prepare(
+		`INSERT INTO entity_lifecycle_identity_claims (
+			key_kind, key_scope, key_value, entity_kind, entity_id,
+			owner_user_id, claim_state, operation_id, created_at, updated_at
+		)
+		SELECT ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?
+		WHERE NOT EXISTS (${tombstoneGuard})
+		ON CONFLICT(key_kind, key_scope, key_value) DO UPDATE SET
+			updated_at = excluded.updated_at
+		WHERE entity_lifecycle_identity_claims.entity_kind = excluded.entity_kind
+		  AND entity_lifecycle_identity_claims.entity_id = excluded.entity_id
+		  AND entity_lifecycle_identity_claims.claim_state = 'active'`,
+	).bind(
+		input.kind,
+		input.scope,
+		input.value,
+		input.entityKind,
+		input.entityId,
+		input.ownerUserId,
+		input.now,
+		input.now,
+		input.entityId,
+	);
 }
 
 function activeIdentityClaimStatement(
@@ -5103,10 +5179,19 @@ async function identityClaimConflict(
 export const worldCoordinatorRepositoryMutations = Object.freeze({
 	addBotGroupMembers,
 	createBotGroup,
+	createForum,
 	createWorld,
 	deleteBotGroup,
 	removeBotGroupMember,
 	updateBotGroup,
+});
+
+// This capability is intentionally separate from the user coordinator. The
+// default Worker must commit or join the canonical provider-subject claim
+// before it can know which named UserBotsCoordinator owns the operation.
+export const accountBootstrapReservationRepositoryMutations = Object.freeze({
+	prepareProviderUserBootstrap,
+	providerBootstrapClaim,
 });
 
 export const userCoordinatorRepositoryMutations = Object.freeze({
@@ -5115,9 +5200,6 @@ export const userCoordinatorRepositoryMutations = Object.freeze({
 	deleteBotAvatar,
 	linkProviderIdentity,
 	materializePendingBotAvatar,
-	prepareProviderUserBootstrap,
-	providerBootstrapClaim,
-	providerIdentityUserId,
 	providerUserBootstrapActivationStatements,
 	refreshLinkedCloneIndexes,
 	refreshProviderIdentity,

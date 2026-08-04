@@ -1,5 +1,5 @@
 import { ExclusiveOperationQueue } from "@bickr/shared/exclusive-operation-queue";
-import { makeId } from "@bickr/shared/ids";
+import { addInternalServiceAuthHeader, internalServiceUrl } from "@bickr/shared/internal-service";
 import type {
 	BotSummary,
 	CreateBotInput,
@@ -13,7 +13,7 @@ import type {
 } from "@bickr/shared/model";
 import { RepositoryError, type ProviderUserProfile } from "@bickr/shared/repository";
 import type { D1DatabaseLike, KVNamespaceLike } from "@bickr/shared/storage";
-import { handleAgentRuntimeRequest } from "../../workers/agent-runtime/src/routes";
+import agentRuntimeWorker, { handleAgentRuntimeRequest } from "../../workers/agent-runtime/src/routes";
 import { handleForumCoordinatorRequest } from "../../workers/forum-coordinator/src/index";
 
 type MutationEnv = {
@@ -27,17 +27,58 @@ export async function upsertProviderUser(
 	profile: ProviderUserProfile,
 	_legacyNow?: string,
 ): Promise<UserDocument> {
-	const existing = await db.prepare(
-		`SELECT user_id AS userId
-		 FROM provider_identities
-		 WHERE provider = ? AND provider_subject = ?
-		 LIMIT 1`,
-	).bind(profile.provider, profile.subject).first<{ userId: string }>();
-	const userId = existing?.userId ?? makeId("usr");
-	const data = await userCoordinatorMutation({ BICKR_D1: db, BICKR_KV: kv }, userId, "/account/bootstrap", "POST", profile, {
+	const data = await accountBootstrapMutation({ BICKR_D1: db, BICKR_KV: kv }, profile);
+	return requiredObject<UserDocument>(data.user, "user");
+}
+
+async function accountBootstrapMutation(
+	env: MutationEnv,
+	profile: ProviderUserProfile,
+): Promise<Record<string, unknown>> {
+	const internalSecret = "test-coordinator-internal-secret";
+	const queues = new Map<string, ExclusiveOperationQueue>();
+	let workerEnv: Record<string, unknown>;
+	const forumService = {
+		fetch: (request: Request) => handleForumCoordinatorRequest(request, env as never, {
+			objectId: "test-world-coordinator",
+			queue: new ExclusiveOperationQueue(),
+		}),
+	};
+	const userBots = {
+		idFromName: (name: string) => name,
+		get: (userId: string) => ({
+			fetch: (request: Request) => handleAgentRuntimeRequest(request, workerEnv as never, {
+				objectId: userId,
+				ownerUserId: userId,
+				queue: queues.get(userId) ?? (() => {
+					const queue = new ExclusiveOperationQueue();
+					queues.set(userId, queue);
+					return queue;
+				})(),
+			}),
+		}),
+	};
+	workerEnv = {
+		...env,
+		FORUM_COORDINATOR_SERVICE: forumService,
+		INTERNAL_SERVICE_SECRET: internalSecret,
+		USER_BOTS: userBots,
+		BOT_RUNTIME: {
+			idFromName: (name: string) => name,
+			get: () => ({ fetch: () => Promise.resolve(new Response(null, { status: 404 })) }),
+		},
+	};
+	const headers = new Headers({
+		"content-type": "application/json",
 		"idempotency-key": `test-account:${crypto.randomUUID()}`,
 	});
-	return requiredObject<UserDocument>(data.user, "user");
+	addInternalServiceAuthHeader(headers, internalSecret);
+	const response = await agentRuntimeWorker.fetch(new Request(internalServiceUrl("/accounts/bootstrap"), {
+		method: "POST",
+		headers,
+		body: JSON.stringify(profile),
+	}) as never, workerEnv as never);
+	return coordinatorPayload(response);
 }
 
 export async function updateUserProfile(
@@ -182,6 +223,10 @@ export async function userCoordinatorMutation(
 		ownerUserId: userId,
 		queue: new ExclusiveOperationQueue(),
 	});
+	return coordinatorPayload(response);
+}
+
+async function coordinatorPayload(response: Response): Promise<Record<string, unknown>> {
 	const payload: unknown = await response.json();
 	const record = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
 	if (!response.ok || record.ok !== true) {

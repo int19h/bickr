@@ -11,6 +11,10 @@ import { localizedText } from "@bickr/shared/model";
 import { listUserBots, listWorlds, rawBotById } from "@bickr/shared/repository";
 import { parseLanguageTag } from "@bickr/shared/validation";
 import { handleAgentRuntimeRequest } from "../workers/agent-runtime/src/routes";
+import {
+	accountBootstrapOperationHeader,
+	reserveOrJoinAccountBootstrap,
+} from "../workers/agent-runtime/src/lifecycle/account-bootstrap-reservation";
 import { handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
 import { clearKv, resetD1Schema } from "./helpers/d1-schema";
 import { createBot, createWorld, upsertProviderUser } from "./helpers/coordinator-mutations";
@@ -59,6 +63,18 @@ describe("lifecycle failure injection", () => {
 		expect(await activeProjectionCount("users_index", "user_id", userId)).toBe(1);
 	});
 
+	it("does not expose a materialized account before its activation batch", async () => {
+		const profile = { provider: "github" as const, subject: "pending-account-visibility", login: "pending-account-visibility" };
+		const userId = await deterministicId("usr", `provider:${profile.provider}:${profile.subject}`);
+		const injector = new FailOnce("account.activate.d1");
+		const first = await coordinatorRequest(userId, "/account/bootstrap", "POST", profile, "pending-account-key", injector);
+		expect(first.ok).toBe(false);
+		expect(await activeProjectionCount("users_index", "user_id", userId)).toBe(0);
+		const second = await coordinatorRequest(userId, "/account/bootstrap", "POST", profile, "pending-account-key", injector);
+		expect(second, JSON.stringify(second)).toMatchObject({ ok: true });
+		expect(await activeProjectionCount("users_index", "user_id", userId)).toBe(1);
+	});
+
 	it.each(worldCreatePoints)("converges world create without duplicate world or intro forum after %s", async (point) => {
 		const user = await seedAccount(`world-${point}`);
 		const handle = testHandle(`world-${point.replaceAll(".", "-")}`);
@@ -73,7 +89,7 @@ describe("lifecycle failure injection", () => {
 	it("does not expose a materialized world before its activation batch", async () => {
 		const user = await seedAccount("pending-world-visibility");
 		const handle = "pending-world-visibility";
-		const injector = new FailOnce("world.materialize.search");
+		const injector = new FailOnce("world.activate.d1");
 		const first = await coordinatorRequest(user.id, "/worlds", "POST", worldInput(handle), "pending-world-key", injector);
 		expect(first.ok).toBe(false);
 		expect((await listWorlds(testEnv.BICKR_D1)).some((world) => world.handle === handle)).toBe(false);
@@ -111,6 +127,19 @@ describe("lifecycle failure injection", () => {
 		const row = await testEnv.BICKR_D1.prepare(`SELECT bot_id AS id FROM bots_index WHERE home_world_id = ? AND handle = ? AND lifecycle_state = 'active'`).bind(world.id, input.handle).first<{ id: string }>();
 		expect(row).not.toBeNull();
 		expect((await testEnv.BICKR_D1.prepare(`SELECT COUNT(*) AS count FROM forums_index WHERE personal_bot_id = ?`).bind(row?.id).first<{ count: number }>())?.count).toBe(1);
+	});
+
+	it("does not expose a materialized participant before its activation batch", async () => {
+		const user = await seedAccount("pending-bot-visibility");
+		const world = await createWorld(testEnv.BICKR_KV, testEnv.BICKR_D1, worldInput("pending-bot-home"), user.id);
+		const input = botInput("pending-bot-visibility");
+		const injector = new FailOnce("bot.activate.d1");
+		const first = await coordinatorRequest(user.id, `/worlds/${world.handle}/bots`, "POST", input, "pending-bot-key", injector);
+		expect(first.ok).toBe(false);
+		expect((await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, user.id)).some((bot) => bot.handle === input.handle)).toBe(false);
+		const second = await coordinatorRequest(user.id, `/worlds/${world.handle}/bots`, "POST", input, "pending-bot-key", injector);
+		expect(second, JSON.stringify(second)).toMatchObject({ ok: true });
+		expect((await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, user.id)).filter((bot) => bot.handle === input.handle)).toHaveLength(1);
 	});
 
 	it("preserves participant and personal-forum timestamps, revisions, and identities across materialization retry", async () => {
@@ -433,10 +462,24 @@ async function coordinatorRequest(
 			failureInjector: injector,
 		}),
 	};
+	const headers = new Headers({ "content-type": "application/json", "x-bickr-user-id": userId, "idempotency-key": key });
+	let requestBody = body;
+	if (path === "/account/bootstrap") {
+		const reservation = await reserveOrJoinAccountBootstrap(testEnv.BICKR_D1, {
+			candidateUserId: userId,
+			idempotencyKey: key,
+			profile: body as { provider: "github" | "google"; subject: string; login: string },
+			now: new Date().toISOString(),
+		});
+		if (reservation.kind === "pending") {
+			headers.set(accountBootstrapOperationHeader, reservation.operation.operationId);
+		}
+		requestBody = reservation.profile;
+	}
 	const response = await handleAgentRuntimeRequest(new Request(`https://agent.internal/users/${encodeURIComponent(userId)}${path}`, {
 		method,
-		headers: { "content-type": "application/json", "x-bickr-user-id": userId, "idempotency-key": key },
-		...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+		headers,
+		...(requestBody !== undefined ? { body: JSON.stringify(requestBody) } : {}),
 	}), {
 		...testEnv,
 		BICKR_D1: testEnv.BICKR_D1,

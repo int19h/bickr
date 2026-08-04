@@ -12,7 +12,6 @@ import {
 	lifecycleOperationById,
 	markLifecycleMaterializing,
 	recordRetryableLifecycleFailure,
-	reserveCreateLifecycle,
 	serializedLifecycleRequest,
 	type LifecycleOperation,
 } from "@bickr/shared/entity-lifecycle";
@@ -24,7 +23,6 @@ import {
 	publicUser,
 	RepositoryError,
 	userCoordinatorRepositoryMutations,
-	type ProviderUserBootstrap,
 	type ProviderUserProfile,
 } from "@bickr/shared/repository";
 import { deleteKey, kvKeys, readJson, writeJson } from "@bickr/shared/storage";
@@ -33,17 +31,14 @@ import { requestCoordinatorGovernanceDeletion, scheduleUserLifecycleAlarm } from
 import { reserveBotDelete, runBotDeleteOperation } from "./bot";
 import type { AgentRuntimeRouteContext, AgentRuntimeRouteEnv, LifecycleRuntimeContext } from "./types";
 import { reserveWorldDelete, runWorldDeleteOperation } from "./world";
+import {
+	parseAccountBootstrapLifecycleRequest,
+} from "./account-bootstrap-reservation";
 
 const {
-	prepareProviderUserBootstrap,
 	providerUserBootstrapActivationStatements,
 	softDeleteUserProfile,
 } = userCoordinatorRepositoryMutations;
-
-type AccountBootstrapLifecycleRequest = {
-	kind: "account_create";
-	bootstrap: ProviderUserBootstrap;
-};
 
 type AccountDeleteLifecycleRequest = {
 	kind: "account_delete";
@@ -55,28 +50,15 @@ export type AccountDeleteResult = {
 	deleted: { worlds: number; forums: number; bots: number };
 };
 
-export async function reserveAccountBootstrap(
-	context: AgentRuntimeRouteContext,
-	userId: string,
-	profile: ProviderUserProfile,
-): Promise<LifecycleOperation> {
-	const now = new Date().toISOString();
-	const bootstrap = await prepareProviderUserBootstrap(context.env.BICKR_D1, profile, userId, now);
-	const requestHash = await hashLifecycleRequest({ kind: "account_create", profile: bootstrap.profile });
-	const request: AccountBootstrapLifecycleRequest = { kind: "account_create", bootstrap };
-	const reserved = await reserveCreateLifecycle(context.env.BICKR_D1, {
-		ownerUserId: userId,
-		idempotencyKey: lifecycleIdempotencyKey(context.request),
-		requestHash,
-		requestJson: serializedLifecycleRequest(request),
-		entityKind: "account",
-		entityId: userId,
-		reservations: [
-			{ kind: "provider_subject", scope: bootstrap.profile.provider, value: bootstrap.profile.subject },
-			{ kind: "user_handle", scope: "global", value: bootstrap.user.handle },
-		],
-		now,
-	});
+export async function resumeReservedAccountBootstrapOperation(
+	context: LifecycleRuntimeContext,
+	initialOperation: LifecycleOperation,
+): Promise<void> {
+	const operation = await lifecycleOperationById(context.env.BICKR_D1, initialOperation.operationId) ?? initialOperation;
+	if (operation.phase !== "pending") {
+		await runAccountBootstrapOperation(context, operation);
+		return;
+	}
 	try {
 		await lifecycleCheckpoint(context.coordinator.failureInjector, "account.reserve.d1");
 	} catch (error) {
@@ -84,7 +66,7 @@ export async function reserveAccountBootstrap(
 		if (failure.retryable) {
 			await scheduleUserLifecycleAlarm(context.coordinator);
 		} else {
-			const compensating = await beginLifecycleCompensation(context.env.BICKR_D1, reserved.operation, failure, new Date().toISOString());
+			const compensating = await beginLifecycleCompensation(context.env.BICKR_D1, operation, failure, new Date().toISOString());
 			try {
 				await compensateAccountBootstrap(context, compensating);
 			} catch (compensationError) {
@@ -94,7 +76,7 @@ export async function reserveAccountBootstrap(
 		}
 		throw error;
 	}
-	return reserved.operation;
+	await runAccountBootstrapOperation(context, operation);
 }
 
 export async function runAccountBootstrapOperation(
@@ -267,18 +249,6 @@ function lifecycleChildContext(context: LifecycleRuntimeContext, idempotencyKey:
 		objectId: context.coordinator.objectId,
 		match: [] as unknown as RegExpExecArray,
 	};
-}
-
-function parseAccountBootstrapLifecycleRequest(serialized: string): AccountBootstrapLifecycleRequest {
-	const value: unknown = JSON.parse(serialized);
-	if (!value || typeof value !== "object" || Array.isArray(value)) {
-		throw new RepositoryError("server_error", "Account lifecycle request is invalid.", 500);
-	}
-	const request = value as Partial<AccountBootstrapLifecycleRequest>;
-	if (request.kind !== "account_create" || !request.bootstrap) {
-		throw new RepositoryError("server_error", "Account lifecycle request is invalid.", 500);
-	}
-	return request as AccountBootstrapLifecycleRequest;
 }
 
 function parseAccountDeleteLifecycleRequest(serialized: string): AccountDeleteLifecycleRequest {

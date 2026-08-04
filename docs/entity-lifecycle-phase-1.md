@@ -6,7 +6,7 @@ Phase 1 of issue #140 makes `UserBotsCoordinator` the serialized writer for acco
 
 World lifecycle and owner-mutation requests are dispatched to `WorldCoordinator.idFromName(worldId)`. Handles are data, never coordinator identity.
 
-Repository entity writers are private. `userCoordinatorRepositoryMutations`,
+Repository entity writers are private. `accountBootstrapReservationRepositoryMutations`, `userCoordinatorRepositoryMutations`,
 `worldCoordinatorRepositoryMutations`, and `coordinatorGovernanceMutations`
 are separate narrow capabilities, and a static import-boundary test limits each
 capability to its corresponding coordinator implementation. Pages, MCP, CLI,
@@ -14,6 +14,17 @@ tests, runtimes, and repository consumers cannot import individual writers.
 Account, world, and participant lifecycle orchestration and persisted-request
 parsing live in separate `workers/agent-runtime/src/lifecycle/` modules; the
 route module is limited to route composition and pre-existing request handlers.
+
+Account bootstrap has one intentional pre-coordinator D1 capability because a
+new provider subject has no user coordinator identity yet. The default Worker
+atomically creates or joins the provider-subject claim, stable user ID, and
+pending lifecycle operation before calling `USER_BOTS.idFromName(userId)`.
+Every concurrent or retried login for that pending subject dispatches the same
+stored operation to the same named coordinator. The coordinator validates the
+operation ID and canonical request hash, then resumes materialization; it
+cannot allocate or reserve a new account through its internal route. Active
+claims are dispatchable only when provider identity and the active user
+projection agree, so a login racing account deletion receives a typed conflict.
 
 ## Lifecycle storage and retention
 
@@ -29,7 +40,10 @@ terminal compensation hard-delete it. Active rename/provider-link writers
 acquire the replacement claim and update the legacy projection in one D1
 batch, so two coordinator instances cannot pass independent availability
 checks and steal the same identity. Projection triggers reject writers that do
-not hold the matching canonical claim.
+not hold the matching canonical claim. The trigger also covers
+`lifecycle_state` changes: a same-ID tombstone recreation can only be written
+as pending with its pending claim, and activation promotes that claim before
+exposing the projection as active in the same D1 batch.
 
 Participant create request JSON is credential-free by construction. A supplied
 OpenRouter key is held in the typed `entity_lifecycle_secrets` bridge only for

@@ -623,14 +623,13 @@ describe("Pages functions", () => {
 			 WHERE world_id = ?`,
 		).bind(tombstonedHandle, deletedAt, summary.id).run();
 
-		const result = await worldIndexProjectionStatement(testEnv.BICKR_D1, {
+		await expect(worldIndexProjectionStatement(testEnv.BICKR_D1, {
 			...stored,
 			handle: "must-not-resurrect",
 			recurringPromptEnabled: true,
 			recurringPrompt: lt("I must not restore a deleted world."),
-		}).run();
+		}).run()).rejects.toThrow();
 
-		expect(result.meta?.changes ?? 0).toBe(0);
 		expect(await testEnv.BICKR_D1.prepare(
 			`SELECT handle, deleted_at AS deletedAt
 			 FROM worlds_index
