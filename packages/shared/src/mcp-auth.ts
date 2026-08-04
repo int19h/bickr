@@ -5,6 +5,9 @@ import { deleteKey, kvKeys, readJson, type KVNamespaceLike, writeJson } from "./
 export const mcpScopes = ["bickr.read", "bickr.write", "bickr.runtime"] as const;
 export type McpScope = (typeof mcpScopes)[number];
 
+declare const redirectUriCspSourceBrand: unique symbol;
+export type RedirectUriCspSource = string & { readonly [redirectUriCspSourceBrand]: true };
+
 export type McpClientDocument = {
 	id: string;
 	type: "mcpClient";
@@ -168,6 +171,11 @@ export async function createMcpAuthorizationCode(
 		expiresAt,
 	};
 	await writeJson(kv, kvKeys.mcpAuthorizationCode(codeHash), document, { expirationTtl: authorizationCodeTtlSeconds });
+	console.info({
+		event: "mcp_oauth_authorization_code_issued",
+		codeDocumentId: document.id,
+		clientId: document.clientId,
+	});
 	return { code, document };
 }
 
@@ -204,7 +212,13 @@ export async function exchangeMcpAuthorizationCode(
 		resource: code.resource,
 		scopes: code.scopes,
 	}, now);
-	return issueMcpTokenSet(kv, grant, now);
+	const tokenSet = await issueMcpTokenSet(kv, grant, now);
+	console.info({
+		event: "mcp_oauth_authorization_code_redeemed",
+		codeDocumentId: code.id,
+		clientId: code.clientId,
+	});
+	return tokenSet;
 }
 
 export async function refreshMcpTokenSet(
@@ -375,24 +389,64 @@ function normalizedRedirectUris(values: readonly string[]): string[] {
 		throw new McpOAuthError("invalid_client_metadata", "MCP client must register one to twenty redirect URIs.");
 	}
 	for (const uri of uris) {
-		let parsed: URL;
-		try {
-			parsed = new URL(uri);
-		} catch {
-			throw new McpOAuthError("invalid_client_metadata", "Redirect URIs must be absolute URLs.");
-		}
-		if (parsed.hash) {
-			throw new McpOAuthError("invalid_client_metadata", "Redirect URIs must not include fragments.");
-		}
-		if (parsed.protocol !== "https:" && !isLocalhostHttpUri(parsed)) {
-			throw new McpOAuthError("invalid_client_metadata", "Redirect URIs must use HTTPS or localhost HTTP.");
+		const result = redirectUriCspSourceResult(uri);
+		switch (result.kind) {
+			case "valid":
+				break;
+			case "invalid_url":
+				throw new McpOAuthError("invalid_client_metadata", "Redirect URIs must be absolute URLs.");
+			case "fragment":
+				throw new McpOAuthError("invalid_client_metadata", "Redirect URIs must not include fragments.");
+			case "unsupported_origin":
+				throw new McpOAuthError("invalid_client_metadata", "Redirect URIs must use HTTPS or localhost HTTP.");
+			case "ipv6_literal":
+				throw new McpOAuthError(
+					"invalid_client_metadata",
+					"IPv6 literal redirect hosts are unsupported because Content Security Policy cannot express them.",
+				);
 		}
 	}
 	return uris;
 }
 
-function isLocalhostHttpUri(url: URL): boolean {
-	return url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1");
+type RedirectUriCspSourceResult =
+	| { kind: "valid"; source: RedirectUriCspSource }
+	| { kind: "invalid_url" }
+	| { kind: "fragment" }
+	| { kind: "unsupported_origin" }
+	| { kind: "ipv6_literal" };
+
+export function redirectUriCspSource(uri: string): RedirectUriCspSource | null {
+	const result = redirectUriCspSourceResult(uri);
+	return result.kind === "valid" ? result.source : null;
+}
+
+function redirectUriCspSourceResult(uri: string): RedirectUriCspSourceResult {
+	let url: URL;
+	try {
+		url = new URL(uri);
+	} catch {
+		return { kind: "invalid_url" };
+	}
+	if (url.hash) {
+		return { kind: "fragment" };
+	}
+	// CSP3 host-source grammar cannot represent bracketed IPv6 literals. The
+	// old ::1 comparison was unreachable because WHATWG hostname includes the
+	// brackets; reject all IPv6 literal origins instead of registering a callback
+	// that the consent page could never authorize.
+	if (/[\[\]:]/.test(url.hostname)) {
+		return { kind: "ipv6_literal" };
+	}
+	const isHttps = url.protocol === "https:";
+	const isLoopbackHttp = url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+	if (!isHttps && !isLoopbackHttp) {
+		return { kind: "unsupported_origin" };
+	}
+	// The origin is the intentional CSP granularity. URL serialization drops
+	// userinfo and path/query delimiters, normalizes IDNs, and preserves an exact
+	// non-default port without splicing any request text into a response header.
+	return { kind: "valid", source: url.origin as RedirectUriCspSource };
 }
 
 function normalizedResource(value: string): string {
