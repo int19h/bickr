@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { CompactionAttemptPlan, type CompactionAttemptPlanConfig } from './plan';
 
 const config = {
-	initialReasoningMode: 'none',
+	initialReasoning: {
+		runtimeFallback: { kind: 'unknown_model', selection: { kind: 'model_default', effort: 'minimal' } },
+		selection: { kind: 'reasoning_disabled' },
+		source: 'custom_provider',
+	},
 	maxProviderAttempts: 3,
 	maxSchemaRepairAttempts: 2,
 } as const satisfies CompactionAttemptPlanConfig;
@@ -16,7 +20,11 @@ describe('CompactionAttemptPlan', () => {
 			isolatedReductionRepairAttempts: 0,
 			messageSet: { kind: 'initial' },
 			providerAttempt: 1,
-			reasoningMode: 'none',
+			reasoning: {
+				runtimeFallback: { kind: 'unknown_model' },
+				selection: { kind: 'reasoning_disabled' },
+				source: 'custom_provider',
+			},
 			schemaAttempt: 0,
 			toolSet: 'base',
 		});
@@ -37,7 +45,7 @@ describe('CompactionAttemptPlan', () => {
 		});
 	});
 
-	it('retries reasoning rejection once with minimal reasoning', () => {
+	it('retries reasoning rejection once with the model-default selection', () => {
 		const plan = CompactionAttemptPlan.start(config).transition({
 			kind: 'reasoning_rejected',
 			cause: { kind: 'provider_request', status: 400 },
@@ -47,12 +55,20 @@ describe('CompactionAttemptPlan', () => {
 		expect(plan.request()).toMatchObject({
 			calibrationAttempt: 2,
 			providerAttempt: 2,
-			reasoningMode: 'minimal',
+			reasoning: {
+				runtimeFallback: { kind: 'none' },
+				selection: { kind: 'model_default', effort: 'minimal' },
+				source: 'runtime_fallback',
+			},
 			retry: {
 				attempt: 2,
 				delayMs: 0,
 				maxAttempts: 3,
-				reason: 'provider rejected compaction reasoning=none; retrying with minimal',
+				reason: {
+					kind: 'reasoning_fallback',
+					from: { kind: 'reasoning_disabled' },
+					to: { kind: 'model_default', effort: 'minimal' },
+				},
 			},
 		});
 	});
@@ -66,12 +82,14 @@ describe('CompactionAttemptPlan', () => {
 
 		expect(plan.request()).toMatchObject({
 			providerAttempt: 2,
-			reasoningMode: 'minimal',
+			reasoning: expect.objectContaining({
+				selection: { kind: 'model_default', effort: 'minimal' },
+			}),
 			retry: expect.objectContaining({ delayMs: 0 }),
 		});
 	});
 
-	it('does not keep retrying reasoning fallback once minimal reasoning is active', () => {
+	it('does not keep retrying reasoning fallback once model-default reasoning is active', () => {
 		const plan = CompactionAttemptPlan.start(config)
 			.transition({
 				kind: 'reasoning_rejected',
@@ -106,7 +124,7 @@ describe('CompactionAttemptPlan', () => {
 				attempt: 2,
 				delayMs: 6000,
 				maxAttempts: 3,
-				reason: '503:overloaded',
+				reason: { kind: 'provider', detail: '503:overloaded' },
 			},
 		});
 
@@ -157,8 +175,57 @@ describe('CompactionAttemptPlan', () => {
 			settingsPatch: { providerRouting },
 			retry: expect.objectContaining({
 				delayMs: 0,
-				reason: '429:rate_limit; ignoring upstream provider slow-provider',
+				reason: { kind: 'provider', detail: '429:rate_limit; ignoring upstream provider slow-provider' },
 			}),
+		});
+	});
+
+	it('preserves an explicit selection through routing, schema, shortening, and isolated repairs', () => {
+		const explicitReasoning = {
+			runtimeFallback: { kind: 'none' },
+			selection: { kind: 'explicit_effort', effort: 'low' },
+			source: 'openrouter_semantic_override',
+		} as const;
+		let plan = CompactionAttemptPlan.start({
+			...config,
+			initialReasoning: explicitReasoning,
+			maxProviderAttempts: 5,
+			maxSchemaRepairAttempts: 5,
+		});
+		const expectExplicitReasoning = () => expect(plan.request().reasoning).toEqual(explicitReasoning);
+
+		expectExplicitReasoning();
+		plan = plan.transition({
+			kind: 'transport_error',
+			cause: { kind: 'provider_request', status: 429 },
+			retry: { kind: 'upstream_provider_ignored', providerRouting: { ignore: ['slow-provider'] }, reason: 'ignore route' },
+		});
+		expectExplicitReasoning();
+		plan = plan.transition({
+			kind: 'schema_invalid',
+			cause: { kind: 'provider_structured_output_validation', outputKind: 'compaction', repairMessage: 'bad JSON' },
+			previousMessages: [{ role: 'user', content: 'Compact this.' }],
+			repairMessages: [{ role: 'assistant', content: 'Actually, I must reply with JSON.' }],
+		});
+		expectExplicitReasoning();
+		plan = plan.transition({
+			kind: 'schema_invalid',
+			cause: { kind: 'provider_structured_output_validation', outputKind: 'compaction', repairMessage: 'too long' },
+			outputText: 'A long prior summary.',
+			previousMessages: [],
+			repairMessages: [],
+		});
+		expectExplicitReasoning();
+		plan = plan.transition({
+			kind: 'success_but_not_shorter',
+			cause: { kind: 'provider_structured_output_validation', outputKind: 'compaction', repairMessage: 'not shorter' },
+			canIsolate: true,
+			outputText: 'Still too much retained context.',
+		});
+		expectExplicitReasoning();
+		expect(plan.request()).toMatchObject({
+			messageSet: { kind: 'isolated_reduction_repair' },
+			toolSet: 'isolated_reduction_repair',
 		});
 	});
 

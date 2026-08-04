@@ -68,7 +68,7 @@ import {
 } from '@bickr/shared/validation';
 import {
 	classifyUnknownModelCompactionReasoningFailure,
-	compactionReasoningNonePolicyForModel,
+	compactionReasoningPolicyForModel,
 	effectiveCompactionModeForModel,
 	effectiveReasoningEffortForModel,
 	effectiveContextWindowForModel,
@@ -76,6 +76,7 @@ import {
 	effectiveSupportsPrefillForModel,
 	effectiveToolCallsForModel,
 	modelSupportsPromptCacheControl,
+	type CompactionReasoningPolicy,
 } from '@bickr/shared/openrouter-model-capabilities';
 import {
 	botFacingRuntimeErrorMessage,
@@ -223,10 +224,11 @@ import {
 	defaultProviderCompactionSummaryLimits,
 	isNonReducingCompactionValidationError,
 	isTranscriptLikeCompactionValidationError,
+	providerAvatarDescriptionReasoningForSettings,
 	providerCompactionMessages,
 	providerCompactionMessagesForAttempt,
 	providerCompactionMode,
-	providerCompactionReasoningForSettings,
+	providerCompactionReasoningForSelection,
 	providerCompactionResponseFormat,
 	providerCompactionTemperature,
 	providerCompactionToolName,
@@ -240,7 +242,6 @@ import {
 	structuredOutputRepairMessages,
 	toolRequirementSelfCorrection,
 	type ProviderCompactionMode,
-	type ProviderCompactionReasoningMode,
 	type ProviderJsonSchemaResponseFormat,
 	type ProviderReasoningConfig,
 } from '../compaction/engine';
@@ -270,7 +271,9 @@ import {
 } from '../compaction/selection';
 import {
 	CompactionAttemptPlan,
+	type CompactionAttemptReasoningState,
 	type CompactionAttemptRequestState,
+	type CompactionAttemptRetryReason,
 	type CompactionAttemptTransitionInput,
 } from '../compaction/plan';
 import {
@@ -711,6 +714,61 @@ function effectiveContextWindowTokensForModel(settings: Pick<ProviderSettings, '
 	return effectiveContextWindowForModel(contextWindowTokens, settings.model, settingsUseOpenRouter(settings));
 }
 
+function compactionAttemptReasoningStateFromPolicy(policy: CompactionReasoningPolicy): CompactionAttemptReasoningState {
+	return {
+		runtimeFallback: policy.runtimeFallback,
+		selection: policy.selection,
+		source: policy.source,
+	};
+}
+
+type CachedCompactionReasoningFallback =
+	| { kind: 'absent' }
+	| { kind: 'matched'; reasoning: CompactionAttemptReasoningState }
+	| { kind: 'stale' };
+
+function cachedCompactionReasoningFallback(
+	stored: Record<string, unknown> | undefined,
+	model: string,
+	policy: CompactionReasoningPolicy,
+): CachedCompactionReasoningFallback {
+	if (!stored) {
+		return { kind: 'absent' };
+	}
+	// The persisted discriminator intentionally remains "minimal" for on-disk
+	// compatibility. This storage boundary maps it to the generalized
+	// model-default selection; no other code interprets the legacy name.
+	if (stored.model === model && stored.mode === 'minimal') {
+		return {
+			kind: 'matched',
+			reasoning: {
+				runtimeFallback: { kind: 'none' },
+				selection: policy.modelDefaultSelection,
+				source: 'runtime_fallback',
+			},
+		};
+	}
+	return { kind: 'stale' };
+}
+
+function compactionAttemptRetryReasonEvent(reason: CompactionAttemptRetryReason | null): {
+	reasoningFallback?: Pick<Extract<CompactionAttemptRetryReason, { kind: 'reasoning_fallback' }>, 'from' | 'to'>;
+	text: string | null;
+} {
+	if (!reason) {
+		return { text: null };
+	}
+	switch (reason.kind) {
+		case 'provider':
+			return { text: reason.detail };
+		case 'reasoning_fallback':
+			return {
+				reasoningFallback: { from: reason.from, to: reason.to },
+				text: `provider rejected compaction reasoning=none; retrying with ${reason.to.effort ?? 'model default'}`,
+			};
+	}
+}
+
 function providerPromptCacheControl(
 	settings: Pick<ProviderSettings, 'baseUrl' | 'model' | 'promptCacheMode'>,
 ): ProviderPromptCacheControl | undefined {
@@ -725,14 +783,6 @@ function providerPromptCacheControl(
 
 function providerPromptCacheSessionId(botId: string): string {
 	return `bot:${botId}`;
-}
-
-function providerNoReasoningModeForSettings(
-	settings: Pick<ProviderSettings, 'baseUrl' | 'model' | 'providerRouting'> | { baseUrl?: string; model: string; providerRouting?: JsonObject },
-): ProviderCompactionReasoningMode {
-	return compactionReasoningNonePolicyForModel(settings.model, settingsUseOpenRouter(settings), settings.providerRouting).supported
-		? 'none'
-		: 'minimal';
 }
 
 function providerToolCallsForSettings(
@@ -1673,20 +1723,31 @@ export class BotRuntime {
 		return typeof storage?.transactionSync === 'function' ? storage.transactionSync(closure) : closure();
 	}
 
-	private compactionReasoningModeForSettings(settings: Pick<ProviderSettings, 'baseUrl' | 'model' | 'providerRouting'>): ProviderCompactionReasoningMode {
-		if (providerNoReasoningModeForSettings(settings) === 'minimal') {
+	private compactionReasoningForSettings(
+		settings: Pick<ProviderSettings, 'baseUrl' | 'model' | 'providerRouting'>,
+	): CompactionAttemptReasoningState {
+		const policy = compactionReasoningPolicyForModel(
+			settings.model,
+			settingsUseOpenRouter(settings),
+			settings.providerRouting,
+		);
+		const staticReasoning = compactionAttemptReasoningStateFromPolicy(policy);
+		if (policy.selection.kind !== 'reasoning_disabled') {
 			this.deleteRuntimeState(compactionReasoningFallbackStateKey);
-			return 'minimal';
+			return staticReasoning;
 		}
-		const state = this.runtimeStateRecord(compactionReasoningFallbackStateKey);
-		if (!state) {
-			return 'none';
+		const cachedFallback = cachedCompactionReasoningFallback(
+			this.runtimeStateRecord(compactionReasoningFallbackStateKey),
+			settings.model,
+			policy,
+		);
+		if (cachedFallback.kind === 'matched') {
+			return cachedFallback.reasoning;
 		}
-		if (state.model === settings.model && state.mode === 'minimal') {
-			return 'minimal';
+		if (cachedFallback.kind === 'stale') {
+			this.deleteRuntimeState(compactionReasoningFallbackStateKey);
 		}
-		this.deleteRuntimeState(compactionReasoningFallbackStateKey);
-		return 'none';
+		return staticReasoning;
 	}
 
 	private rememberCompactionNoReasoningRejection(settings: Pick<ProviderSettings, 'model'>, reason: string): void {
@@ -3167,8 +3228,11 @@ export class BotRuntime {
 		if (input.error instanceof ProviderCompactionOutputLimitError) {
 			return { kind: 'output_limit', cause };
 		}
-		const reasoningFailure = this.unknownModelCompactionReasoningFailure(input.requestSettings, input.error, input.request);
-		if (input.attemptState.reasoningMode === 'none' && reasoningFailure) {
+		const reasoningFailure = input.attemptState.reasoning.selection.kind === 'reasoning_disabled' &&
+			input.attemptState.reasoning.runtimeFallback.kind === 'unknown_model'
+			? this.unknownModelCompactionReasoningFailure(input.error, input.request)
+			: null;
+		if (reasoningFailure) {
 			const reason = runtimeErrorText(input.error);
 			this.rememberCompactionNoReasoningRejection(input.requestSettings, reason);
 			return { kind: reasoningFailure.kind, cause, reason };
@@ -3239,19 +3303,10 @@ export class BotRuntime {
 	}
 
 	private unknownModelCompactionReasoningFailure(
-		settings: ProviderSettings,
 		error: unknown,
 		request: ProviderCompactionRequest,
 	): ReturnType<typeof classifyUnknownModelCompactionReasoningFailure> {
 		if (!(error instanceof ProviderRequestError)) {
-			return null;
-		}
-		const policy = compactionReasoningNonePolicyForModel(
-			settings.model,
-			settingsUseOpenRouter(settings),
-			settings.providerRouting,
-		);
-		if (policy.runtimeFallback !== 'unknown_model') {
 			return null;
 		}
 		return classifyUnknownModelCompactionReasoningFailure({
@@ -3274,6 +3329,7 @@ export class BotRuntime {
 		requestSeq = 0,
 		createdAt = new Date().toISOString(),
 		bot?: BotDocument,
+		initialReasoning?: CompactionAttemptReasoningState,
 	): Promise<
 		Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse'> & {
 			content: string;
@@ -3283,7 +3339,7 @@ export class BotRuntime {
 		const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, mode);
 		let requestSettings = settings;
 		let plan = CompactionAttemptPlan.start({
-			initialReasoningMode: this.compactionReasoningModeForSettings(settings),
+			initialReasoning: initialReasoning ?? this.compactionReasoningForSettings(settings),
 			maxProviderAttempts: providerMaxAttempts,
 			maxSchemaRepairAttempts: providerStructuredOutputRepairAttempts,
 		});
@@ -3294,25 +3350,34 @@ export class BotRuntime {
 				requestSettings = { ...requestSettings, ...attemptState.settingsPatch };
 			}
 			if (attemptState.retry) {
+				const retryReason = compactionAttemptRetryReasonEvent(attemptState.retry.reason);
 				this.appendEvent(runId, 'provider_retry', {
 					attempt: attemptState.retry.attempt,
 					maxAttempts: attemptState.retry.maxAttempts,
 					delayMs: attemptState.retry.delayMs,
-					reason: attemptState.retry.reason,
+					reason: retryReason.text,
+					...(retryReason.reasoningFallback ? { compactionReasoningFallback: retryReason.reasoningFallback } : {}),
 				});
 				if (attemptState.retry.delayMs > 0) {
 					await sleep(attemptState.retry.delayMs, signal);
 				}
 			}
 			const requestProviderTools = providerCompactionToolsForAttempt(limits, effectiveProviderTools, mode, attemptState.toolSet);
-			const requestMessages = providerCompactionMessagesForAttempt(bot, messages, limits, mode, attemptState.messageSet);
+			const requestMessages = providerCompactionMessagesForAttempt(
+				bot,
+				messages,
+				limits,
+				mode,
+				attemptState.messageSet,
+				attemptState.reasoning.selection,
+			);
 			const request = providerCompactionRequest(
 				requestSettings,
 				requestMessages,
 				limits,
 				requestProviderTools,
 				mode,
-				providerCompactionReasoningForSettings(requestSettings, attemptState.reasoningMode),
+				providerCompactionReasoningForSelection(attemptState.reasoning.selection),
 			);
 			const body = stringifyProviderRequest(request);
 			try {
@@ -5934,6 +5999,7 @@ export class BotRuntime {
 				effectiveTickSettings(bot.tickSettings).contextWindowTokens,
 			);
 			const compactionMode = providerCompactionMode(settings);
+			const compactionReasoning = this.compactionReasoningForSettings(settings);
 			ledgerRows = this.compactionLedgerRows(providerRows);
 			recentActivity = providerRows.map((message) => truncateForContext(loopMessageContextLine(message), 1_200)).join('\n');
 			compactedMessages = providerRows.map((row) => loopMessageChatMessageFromRow(row));
@@ -5947,7 +6013,14 @@ export class BotRuntime {
 				requestContextWindowTokens,
 			);
 			const compactionTools = providerCompactionToolsForMode(baseLimits, providerTools, compactionMode);
-			const compactionMessages = providerCompactionMessages(bot, compactedMessages, baseLimits, compactionTools, compactionMode);
+			const compactionMessages = providerCompactionMessages(
+				bot,
+				compactedMessages,
+				baseLimits,
+				compactionTools,
+				compactionMode,
+				compactionReasoning.selection,
+			);
 			const compactionResponseFormat = providerCompactionResponseFormat(baseLimits.maxLength, compactionMode);
 			const overBudgetFallback = metrics.compactionOverBudgetFallback === true;
 			compactionLimits = {
@@ -6013,6 +6086,7 @@ export class BotRuntime {
 							summaryEvent.seq,
 							summaryEvent.createdAt,
 							bot,
+							compactionReasoning,
 						)
 					: {
 							content: deterministicCompactionSummary('', recentActivity),
@@ -7421,7 +7495,7 @@ const avatarProviderRuntime = {
 		error instanceof ProviderStructuredOutputValidationError,
 	sanitizeMessages: sanitizeProviderMessagesForRequest,
 	reasoningForSettings: providerReasoningForSettings,
-	noReasoningModeForSettings: providerNoReasoningModeForSettings,
+	structuredOutputReasoningForSettings: providerAvatarDescriptionReasoningForSettings,
 	readSse,
 	streamErrorFromChunk: providerStreamErrorFromChunk,
 	usageFromValue: providerUsageFromValue,

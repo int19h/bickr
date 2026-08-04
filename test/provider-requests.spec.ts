@@ -3,7 +3,7 @@ import {
 	botById,
 	BotRuntime,
 	capableOpenRouterModel,
-	compactionReasoningNonePolicyForModel,
+	compactionReasoningPolicyForModel,
 	contextFor,
 	createBotForTest,
 	createBotInWorld,
@@ -39,7 +39,6 @@ import {
 	memoryExistingLoopMessageSchemaSql,
 	memoryLoopMessageInsertSql,
 	metaCompactionToolName,
-	modelSupportsCompactionReasoningNone,
 	modelSupportsPrefill,
 	modelSupportsPromptCacheControl,
 	modelSupportsRequiredToolCalls,
@@ -1689,7 +1688,7 @@ describe("Provider requests", () => {
 			prefill: true,
 			structuredOutputs: true,
 			structuredOutputCompaction: true,
-			compactionReasoningNone: true,
+			compactionReasoningFloor: { kind: "reasoning_disabled" },
 			requiredToolCalls: true,
 			disabledReasoning: true,
 			defaultCompactionMode: "structured_output",
@@ -1699,20 +1698,32 @@ describe("Provider requests", () => {
 		expect(modelSupportsPrefill(capableOpenRouterModel, true)).toBe(true);
 		expect(modelSupportsRequiredToolCalls(capableOpenRouterModel, true)).toBe(true);
 		expect(modelSupportsStructuredOutputs(capableOpenRouterModel, true)).toBe(true);
-		expect(modelSupportsCompactionReasoningNone(capableOpenRouterModel, true)).toBe(true);
+		expect(compactionReasoningPolicyForModel(capableOpenRouterModel, true)).toMatchObject({
+			floor: { kind: "reasoning_disabled" },
+			runtimeFallback: { kind: "none" },
+			selection: { kind: "reasoning_disabled" },
+			source: "openrouter_generated",
+		});
 		expect(effectiveReasoningEffortForModel(capableOpenRouterModel, true, "none")).toBe("none");
 
 		const unknown = openRouterModelPolicy("unknown/provider-model");
 		expect(unknown).toMatchObject({
 			prefill: false,
 			structuredOutputs: false,
-			compactionReasoningNone: false,
+			compactionReasoningFloor: { kind: "model_default" },
 			requiredToolCalls: false,
 			disabledReasoning: false,
 			defaultCompactionMode: "tool_call_cache_friendly",
 			defaultToolCalls: "railroad",
 		});
 		expect(unknown.defaultReasoningEffort).toBeUndefined();
+		expect(compactionReasoningPolicyForModel("unknown/provider-model", true)).toMatchObject({
+			floor: { kind: "model_default" },
+			modelDefaultSelection: { kind: "model_default" },
+			runtimeFallback: { kind: "none" },
+			selection: { kind: "model_default" },
+			source: "openrouter_unknown",
+		});
 		expect(effectiveReasoningEffortForModel("unknown/provider-model", true, undefined)).toBeUndefined();
 		expect(effectiveReasoningEffortForModel("unknown/provider-model", true, "none")).toBe("minimal");
 
@@ -1721,13 +1732,17 @@ describe("Provider requests", () => {
 			prefill: false,
 			structuredOutputs: false,
 			structuredOutputCompaction: false,
-			compactionReasoningNone: false,
+			compactionReasoningFloor: { kind: "model_default" },
 			requiredToolCalls: false,
 			disabledReasoning: false,
 			defaultCompactionMode: "tool_call_cache_friendly",
 			defaultToolCalls: "railroad",
 		});
 		expect(free.defaultReasoningEffort).toBeUndefined();
+		expect(compactionReasoningPolicyForModel(openRouterFreeModel, true)).toMatchObject({
+			selection: { kind: "model_default" },
+			source: "openrouter_manual",
+		});
 		expect(effectiveCompactionModeForModel(openRouterFreeModel, true, "structured_output")).toBe("tool_call_cache_friendly");
 		expect(effectiveSupportsPrefillForModel(openRouterFreeModel, true, true)).toBe(false);
 		expect(effectiveStructuredToolCallsForModel(openRouterFreeModel, true, "require")).toBe("railroad");
@@ -1741,20 +1756,24 @@ describe("Provider requests", () => {
 		expect(xiaomiFp8).toMatchObject({
 			structuredOutputs: true,
 			structuredOutputCompaction: false,
-			compactionReasoningNone: false,
+			compactionReasoningFloor: { kind: "model_default" },
 			requiredToolCalls: true,
 			defaultCompactionMode: "tool_call_cache_friendly",
 			defaultToolCalls: "require",
 		});
-		expect(compactionReasoningNonePolicyForModel("xiaomi/mimo-v2.5", true, xiaomiFp8Routing)).toMatchObject({
+		expect(compactionReasoningPolicyForModel("xiaomi/mimo-v2.5", true, xiaomiFp8Routing)).toMatchObject({
+			floor: { kind: "model_default" },
 			knownFailure: "server_tool_crash",
-			runtimeFallback: "none",
+			runtimeFallback: { kind: "none" },
+			selection: { kind: "model_default", effort: "minimal" },
 			source: "openrouter_generated",
-			supported: false,
 		});
 		expect(modelSupportsStructuredOutputs("xiaomi/mimo-v2.5", true, xiaomiFp8Routing)).toBe(true);
 		expect(modelSupportsStructuredCompaction("xiaomi/mimo-v2.5", true, xiaomiFp8Routing)).toBe(false);
-		expect(modelSupportsCompactionReasoningNone("xiaomi/mimo-v2.5", true, xiaomiFp8Routing)).toBe(false);
+		expect(compactionReasoningPolicyForModel("xiaomi/mimo-v2.5", true)).toMatchObject({
+			floor: { kind: "reasoning_disabled" },
+			selection: { kind: "reasoning_disabled" },
+		});
 		expect(effectiveCompactionModeForModel("xiaomi/mimo-v2.5", true, "structured_output", xiaomiFp8Routing)).toBe(
 			"tool_call_cache_friendly",
 		);
@@ -1764,10 +1783,15 @@ describe("Provider requests", () => {
 		expect(effectiveReasoningEffortForModel("local/model", false, undefined)).toBe("minimal");
 		expect(effectiveSupportsPrefillForModel("local/model", false, undefined)).toBe(true);
 		expect(effectiveToolCallsForModel("local/model", false, undefined)).toBe("require");
-		expect(compactionReasoningNonePolicyForModel("local/model", false)).toMatchObject({
-			runtimeFallback: "unknown_model",
+		expect(compactionReasoningPolicyForModel("local/model", false)).toMatchObject({
+			floor: { kind: "reasoning_disabled" },
+			modelDefaultSelection: { kind: "model_default", effort: "minimal" },
+			runtimeFallback: {
+				kind: "unknown_model",
+				selection: { kind: "model_default", effort: "minimal" },
+			},
+			selection: { kind: "reasoning_disabled" },
 			source: "custom_provider",
-			supported: true,
 		});
 	});
 
