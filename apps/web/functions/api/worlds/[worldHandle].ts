@@ -8,8 +8,8 @@ export const onRequestPatch: PagesFunction<AppEnv, "worldHandle"> = async ({ env
 		const user = await requireCompleteUser(env, request);
 		const worldHandle = normalizeHandleParam(params.worldHandle, "World handle");
 		const body = await request.text();
-		return env.FORUM_COORDINATOR_SERVICE.fetch(
-			serviceRequest(env, request, `/worlds/${encodeURIComponent(worldHandle)}`, user.id, body),
+		return env.AGENT_RUNTIME.fetch(
+			serviceRequest(env, request, `/users/${encodeURIComponent(user.id)}/worlds/${encodeURIComponent(worldHandle)}`, user.id, body),
 		);
 	} catch (error) {
 		return pageErrorResponse(error);
@@ -20,8 +20,8 @@ export const onRequestDelete: PagesFunction<AppEnv, "worldHandle"> = async ({ en
 	try {
 		const user = await requireCompleteUser(env, request);
 		const worldHandle = normalizeHandleParam(params.worldHandle, "World handle");
-		return env.FORUM_COORDINATOR_SERVICE.fetch(
-			serviceRequest(env, request, `/worlds/${encodeURIComponent(worldHandle)}`, user.id),
+		return env.AGENT_RUNTIME.fetch(
+			serviceRequest(env, request, `/users/${encodeURIComponent(user.id)}/worlds/${encodeURIComponent(worldHandle)}`, user.id),
 		);
 	} catch (error) {
 		return pageErrorResponse(error);

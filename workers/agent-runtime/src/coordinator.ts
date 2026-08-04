@@ -21,6 +21,7 @@ export class UserBotsCoordinator {
 		}
 		return handleAgentRuntimeRequest(request, this.env, {
 			objectId: this.state.id.toString(),
+			ownerUserId: this.state.id.name,
 			queue: this.queue,
 			storage: this.state.storage,
 		});
@@ -32,6 +33,7 @@ export class UserBotsCoordinator {
 		}
 		await runUserBotsConvergenceAlarm(this.env, {
 			objectId: this.state.id.toString(),
+			ownerUserId: this.state.id.name,
 			queue: this.queue,
 			storage: this.state.storage,
 		}, alarmInfo);

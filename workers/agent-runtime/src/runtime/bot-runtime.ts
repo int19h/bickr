@@ -28,7 +28,6 @@ import {
 	mergeTickSettings,
 	mergeToolSettings,
 	RepositoryError,
-	updateBot,
 	userById,
 } from '@bickr/shared/repository';
 import { effectivePostingSettings, mergePostingSettings } from '@bickr/shared/posting';
@@ -6726,20 +6725,25 @@ export class BotRuntime {
 	}
 
 	private async pauseBotAfterPersistentCompactionFailure(bot: BotDocument, message: string, now: string): Promise<void> {
-		try {
-			await updateBot(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, bot.ownerUserId, { tickSettings: { enabled: false } }, now);
-		} catch (error) {
-			console.warn('failed to persist participant pause after compaction reduction failure', bot.id, error);
-			await this.env.BICKR_D1.prepare(
-				`UPDATE bot_runtime_index
-				 SET enabled = 0,
-				     next_due_at = NULL,
-				     last_error = ?,
-				     updated_at = ?
-				 WHERE bot_id = ?`,
-			)
-				.bind(message, now, bot.id)
-				.run();
+		const headers = new Headers({
+			'content-type': 'application/json',
+			'idempotency-key': `runtime-pause:${bot.id}:${now}`,
+			'x-bickr-user-id': bot.ownerUserId,
+			'x-bickr-scheduler': '1',
+		});
+		addInternalServiceAuthHeader(headers, this.env.INTERNAL_SERVICE_SECRET);
+		const coordinatorId = this.env.USER_BOTS.idFromName(bot.ownerUserId);
+		const response = await this.env.USER_BOTS.get(coordinatorId).fetch(new Request(
+			internalServiceUrl(`/users/${encodeURIComponent(bot.ownerUserId)}/bots/${encodeURIComponent(bot.id)}`),
+			{
+				method: 'PATCH',
+				headers,
+				body: JSON.stringify({ tickSettings: { enabled: false } }),
+			},
+		));
+		if (!response.ok) {
+			console.warn('failed to persist participant pause after compaction reduction failure', bot.id, message, response.status);
+			throw new RepositoryError('server_error', 'Participant pause coordinator request failed.', response.status || 500);
 		}
 	}
 
@@ -6767,7 +6771,7 @@ export class BotRuntime {
 			throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
 		}
 		const row = await this.env.BICKR_D1.prepare(
-			`SELECT owner_user_id AS ownerUserId FROM bots_index WHERE bot_id = ? AND deleted_at IS NULL`,
+			`SELECT owner_user_id AS ownerUserId FROM bots_index WHERE bot_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'`,
 		)
 			.bind(botId)
 			.first<{ ownerUserId: string }>();

@@ -2,15 +2,22 @@ import { fail, ok, readJsonBody } from "@bickr/shared/api";
 import { isD1UniqueConstraintError } from "@bickr/shared/d1-errors";
 import { ExclusiveOperationQueue } from "@bickr/shared/exclusive-operation-queue";
 import {
+	InjectedLifecycleFailure,
+	lifecycleCheckpoint,
+	serializedInjectedLifecycleFailure,
+	type LifecycleFailureInjector,
+} from "@bickr/shared/entity-lifecycle";
+import {
 	deleteComment,
 	deleteForum,
 	deleteForumForWorld,
 	deleteThread,
-	deleteWorld,
+	coordinatorGovernanceMutations,
 	updateForum,
-	updateWorld,
 } from "@bickr/shared/governance";
-import { RepositoryError, createForum, createWorld, listForums } from "@bickr/shared/repository";
+import { worldCoordinatorRepositoryMutations, RepositoryError, createForum, rawForumSummaryById } from "@bickr/shared/repository";
+import { parseOwnerWorldMutation } from "@bickr/shared/owner-world-mutation";
+import type { WorldLifecycleMutationResult } from "@bickr/shared/world-lifecycle-protocol";
 import { deleteSearchVector, upsertForumSearchVector, upsertWorldSearchVector } from "@bickr/shared/search";
 import {
 	createComment,
@@ -24,7 +31,7 @@ import {
 	softDeleteThreadForForum,
 } from "@bickr/shared/social";
 import { pruneBotInferenceUsage } from "@bickr/shared/token-spend";
-import { type ThreadDocument } from "@bickr/shared/model";
+import { type ThreadDocument, type WorldDocument } from "@bickr/shared/model";
 import {
 	addInternalServiceAuthHeader,
 	type InternalServiceAuthEnv,
@@ -65,13 +72,23 @@ import {
 	personalForumDescriptionSweepMaxWritesPerRun,
 	resyncPersonalForumDescriptions,
 } from "@bickr/shared/personal-forum-description-sweep";
-import { kvKeys, readJson, writeJson } from "@bickr/shared/storage";
+import { deleteKey, kvKeys, readJson, writeJson } from "@bickr/shared/storage";
 import {
 	type ForumThreadDeletionRequest,
 	runForumThreadDeletionSweep,
 	runWorldForumDeletionSweep,
 	type WorldForumDeletionRequest,
 } from "@bickr/shared/governance-deletion-sweep";
+
+const {
+	addBotGroupMembers,
+	createBotGroup,
+	createWorld,
+	deleteBotGroup,
+	removeBotGroupMember,
+	updateBotGroup,
+} = worldCoordinatorRepositoryMutations;
+const { deleteWorld, updateWorld, updateWorldAvatar } = coordinatorGovernanceMutations;
 
 export interface Env {
 	BICKR_D1: D1Database;
@@ -91,6 +108,7 @@ type CoordinatorContext = {
 	objectId: string;
 	queue?: ExclusiveOperationQueue;
 	storage?: DurableObjectStorage;
+	failureInjector?: LifecycleFailureInjector;
 };
 
 type ThreadFreshCacheEntry = {
@@ -222,6 +240,14 @@ async function handleForumCoordinatorRequestExclusive(
 
 		return fail("not_found", "Forum coordinator route not found.", 404);
 	} catch (error) {
+		if (error instanceof InjectedLifecycleFailure && new URL(request.url).pathname.startsWith("/lifecycle/worlds/")) {
+			return Response.json({
+				ok: false,
+				error: "server_error",
+				message: "Injected world lifecycle failure.",
+				lifecycleFailure: serializedInjectedLifecycleFailure(error),
+			}, { status: error.failure.retryable ? 503 : 422 });
+		}
 		return errorResponse(error);
 	}
 }
@@ -232,13 +258,190 @@ async function handleWorldCoordinatorMutation(
 	coordinator: CoordinatorContext,
 	url: URL,
 ): Promise<Response | null> {
-	if (request.method === "POST" && url.pathname === "/worlds") {
+	if ((url.pathname.startsWith("/lifecycle/worlds/") || url.pathname.startsWith("/owner/worlds/") || /^\/worlds\/[^/]+$/.test(url.pathname)) && request.headers.get("x-bickr-user-coordinator") !== "1") {
+		throw new RepositoryError("forbidden", "Owner world mutations must enter through the user coordinator.", 403);
+	}
+	const lifecycleMaterializeMatch = /^\/lifecycle\/worlds\/([^/]+)\/materialize$/.exec(url.pathname);
+	if (request.method === "POST" && lifecycleMaterializeMatch) {
+		const worldId = decodeURIComponent(lifecycleMaterializeMatch[1] ?? "");
 		const userId = requireUserHeader(request);
-		const input = parseCreateWorldInput(await readJsonBody(request));
-		const world = await createWorld(env.BICKR_KV, env.BICKR_D1, input, userId);
+		const body = await readJsonBody(request);
+		if (!body || typeof body !== "object" || Array.isArray(body)) {
+			throw new InputError("World lifecycle input must be an object.");
+		}
+		const record = body as Record<string, unknown>;
+		if (record.kind !== "world_materialize" || record.userId !== userId || typeof record.introForumId !== "string" || typeof record.createdAt !== "string") {
+			throw new InputError("World lifecycle identity is invalid.");
+		}
+		const input = parseCreateWorldInput(record.input);
+		const world = await createWorld(env.BICKR_KV, env.BICKR_D1, input, userId, {
+			now: record.createdAt,
+			worldId,
+			introForumId: record.introForumId,
+			lifecycleState: "pending",
+			checkpoint: (point) => lifecycleCheckpoint(coordinator.failureInjector, point),
+		});
 		await upsertWorldSearchVector(env, world);
-		await Promise.all((await listForums(env.BICKR_D1, world.handle)).map((forum) => upsertForumSearchVector(env, forum)));
-		return ok({ world, coordinator: coordinator.objectId }, { status: 201 });
+		await upsertForumSearchVector(env, await rawForumSummaryById(env.BICKR_KV, env.BICKR_D1, record.introForumId));
+		await lifecycleCheckpoint(coordinator.failureInjector, "world.materialize.search");
+		const result = { kind: "world_materialized", world } satisfies WorldLifecycleMutationResult;
+		return ok({ ...result, coordinator: coordinator.objectId }, { status: 201 });
+	}
+
+	const lifecycleCompensateMatch = /^\/lifecycle\/worlds\/([^/]+)\/compensate$/.exec(url.pathname);
+	if (request.method === "POST" && lifecycleCompensateMatch) {
+		const worldId = decodeURIComponent(lifecycleCompensateMatch[1] ?? "");
+		const body = await readJsonBody(request);
+		if (!body || typeof body !== "object" || Array.isArray(body) || (body as { kind?: unknown }).kind !== "world_compensate" || typeof (body as { introForumId?: unknown }).introForumId !== "string") {
+			throw new InputError("World compensation identity is invalid.");
+		}
+		const introForumId = (body as { introForumId: string }).introForumId;
+		await deleteSearchVector(env, "forum", introForumId);
+		await deleteSearchVector(env, "world", worldId);
+		await deleteKey(env.BICKR_KV, kvKeys.forum(introForumId));
+		await deleteKey(env.BICKR_KV, kvKeys.world(worldId));
+		await env.BICKR_D1.batch([
+			env.BICKR_D1.prepare(`DELETE FROM search_entities_fts WHERE entity_type = 'forum' AND entity_id = ?`).bind(introForumId),
+			env.BICKR_D1.prepare(`DELETE FROM objects_index WHERE object_id = ?`).bind(introForumId),
+			env.BICKR_D1.prepare(`DELETE FROM forums_index WHERE forum_id = ? AND world_id = ?`).bind(introForumId, worldId),
+			env.BICKR_D1.prepare(`DELETE FROM search_entities_fts WHERE entity_type = 'world' AND entity_id = ?`).bind(worldId),
+			env.BICKR_D1.prepare(`DELETE FROM objects_index WHERE object_id = ?`).bind(worldId),
+			env.BICKR_D1.prepare(`DELETE FROM worlds_index WHERE world_id = ? AND lifecycle_state != 'active'`).bind(worldId),
+		]);
+		const result = { kind: "world_compensated" } satisfies WorldLifecycleMutationResult;
+		return ok({ ...result, coordinator: coordinator.objectId });
+	}
+
+	const lifecycleDeleteMatch = /^\/lifecycle\/worlds\/([^/]+)\/delete$/.exec(url.pathname);
+	if (request.method === "POST" && lifecycleDeleteMatch) {
+		const worldId = decodeURIComponent(lifecycleDeleteMatch[1] ?? "");
+		const userId = requireUserHeader(request);
+		const body = await readJsonBody(request);
+		if (!body || typeof body !== "object" || Array.isArray(body) || (body as { kind?: unknown }).kind !== "world_delete" || typeof (body as { worldHandle?: unknown }).worldHandle !== "string") {
+			throw new InputError("World deletion identity is invalid.");
+		}
+		const world = await readJson<WorldDocument>(env.BICKR_KV, kvKeys.world(worldId));
+		if (!world) {
+			throw new RepositoryError("not_found", "World not found.", 404);
+		}
+		if ((world.handleAtDeletion ?? world.handle) !== (body as { worldHandle: string }).worldHandle) {
+			throw new RepositoryError("conflict", "World deletion identity changed before materialization.", 409);
+		}
+		const deletedAt = world.deletedAt ?? new Date().toISOString();
+		const deleted = await deleteWorld(env.BICKR_KV, env.BICKR_D1, (body as { worldHandle: string }).worldHandle, userId, {
+			now: deletedAt,
+			worldId,
+			checkpoint: (point) => lifecycleCheckpoint(coordinator.failureInjector, point),
+		});
+		await deleteSearchVector(env, "world", worldId);
+		await startGovernanceDeletionTask(env, coordinator, {
+			kind: "world_forums",
+			deletedAt,
+			worldId,
+		});
+		await lifecycleCheckpoint(coordinator.failureInjector, "world.delete.forum_search");
+		const result = { kind: "world_deleted", world: deleted } satisfies WorldLifecycleMutationResult;
+		return ok({ ...result, coordinator: coordinator.objectId });
+	}
+
+	const ownerMutationMatch = /^\/owner\/worlds\/([^/]+)\/mutate$/.exec(url.pathname);
+	if (request.method === "POST" && ownerMutationMatch) {
+		const worldId = decodeURIComponent(ownerMutationMatch[1] ?? "");
+		const userId = requireUserHeader(request);
+		const mutation = parseOwnerWorldMutation(await readJsonBody(request));
+		const world = await env.BICKR_D1
+			.prepare(
+				`SELECT handle, created_by_user_id AS ownerUserId
+				 FROM worlds_index
+				 WHERE world_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
+				 LIMIT 1`,
+			)
+			.bind(worldId)
+			.first<{ handle: string; ownerUserId: string }>();
+		if (!world) {
+			throw new RepositoryError("not_found", "World not found.", 404);
+		}
+		// Existing group mutation endpoints intentionally hide group existence
+		// from non-owners with a 404. Let their owner-scoped repository queries
+		// preserve that public contract after the serialized coordinator hop.
+		const hidesMissingGroup =
+			mutation.kind === "bot_group_update" ||
+			mutation.kind === "bot_group_delete" ||
+			mutation.kind === "bot_group_members_add" ||
+			mutation.kind === "bot_group_member_remove";
+		if (world.ownerUserId !== userId && !hidesMissingGroup) {
+			throw new RepositoryError("forbidden", "Only the world owner can change world settings.", 403);
+		}
+		let repositoryWorldHandle = mutation.worldHandle;
+		if (world.handle !== mutation.worldHandle) {
+			const staleDocument = mutation.kind === "world_update" && mutation.input.handle === world.handle
+				? await readJson<WorldDocument>(env.BICKR_KV, kvKeys.world(worldId))
+				: null;
+			if (!staleDocument || staleDocument.deletedAt || staleDocument.handle !== mutation.worldHandle) {
+				throw new RepositoryError("conflict", "World mutation identity does not match its coordinator.", 409);
+			}
+			// D1 committed the rename but KV did not. The stable world-id route,
+			// requested new handle, and stale document together identify the one
+			// replay that may resume without weakening coordinator ownership.
+			repositoryWorldHandle = world.handle;
+		}
+		switch (mutation.kind) {
+			case "world_update": {
+				const updatedAt = new Date().toISOString();
+				const updated = await updateWorld(env.BICKR_KV, env.BICKR_D1, repositoryWorldHandle, userId, mutation.input, updatedAt);
+				await upsertWorldSearchVector(env, updated);
+				if (mutation.input.handle && mutation.input.handle !== mutation.worldHandle) {
+					await startObjectIndexConvergenceTask(env, coordinator, {
+						kind: "object_index_convergence",
+						scope: { kind: "world", worldId: updated.id },
+						updatedAt,
+					});
+				}
+				return ok({ result: { kind: "world_updated", world: updated }, coordinator: coordinator.objectId });
+			}
+			case "avatar_update":
+				return ok({ result: {
+					kind: "world_updated",
+					world: await updateWorldAvatar(env.BICKR_KV, env.BICKR_D1, mutation.worldHandle, userId, mutation.avatar),
+				},
+					coordinator: coordinator.objectId,
+				});
+			case "bot_group_create":
+				return ok({ result: {
+					kind: "bot_group_created",
+					group: await createBotGroup(env.BICKR_KV, env.BICKR_D1, mutation.worldHandle, userId, mutation.input),
+				},
+					coordinator: coordinator.objectId,
+				}, { status: 201 });
+			case "bot_group_update":
+				return ok({ result: {
+					kind: "bot_group_updated",
+					group: await updateBotGroup(env.BICKR_KV, env.BICKR_D1, mutation.worldHandle, userId, mutation.groupId, mutation.input),
+				},
+					coordinator: coordinator.objectId,
+				});
+			case "bot_group_delete":
+				return ok({ result: {
+					kind: "bot_group_deleted",
+					group: await deleteBotGroup(env.BICKR_KV, env.BICKR_D1, mutation.worldHandle, userId, mutation.groupId),
+				},
+					coordinator: coordinator.objectId,
+				});
+			case "bot_group_members_add":
+				return ok({ result: {
+					kind: "bot_group_updated",
+					group: await addBotGroupMembers(env.BICKR_KV, env.BICKR_D1, mutation.worldHandle, userId, mutation.groupId, mutation.input),
+				},
+					coordinator: coordinator.objectId,
+				});
+			case "bot_group_member_remove":
+				return ok({ result: {
+					kind: "bot_group_updated",
+					group: await removeBotGroupMember(env.BICKR_KV, env.BICKR_D1, mutation.worldHandle, userId, mutation.groupId, mutation.botId),
+				},
+					coordinator: coordinator.objectId,
+				});
+		}
 	}
 
 	const worldMatch = /^\/worlds\/([^/]+)$/.exec(url.pathname);
@@ -1001,13 +1204,18 @@ async function normalizeThreadThroughCoordinator(
 }
 
 async function routeWorldCoordinatorRequest(request: Request, env: Env, url: URL): Promise<Response | null> {
-	if (request.method === "POST" && url.pathname === "/worlds") {
-		const body = await readJsonBody(request.clone());
-		const input = parseCreateWorldInput(body);
-		const objectId = env.WORLD_COORDINATOR.idFromName(input.handle);
-		return env.WORLD_COORDINATOR.get(objectId).fetch(jsonRequest(env, url, request, body));
+	const lifecycleMatch = /^\/lifecycle\/worlds\/([^/]+)\/(?:materialize|compensate|delete)$/.exec(url.pathname);
+	if (lifecycleMatch && request.method === "POST") {
+		const worldId = decodeURIComponent(lifecycleMatch[1] ?? "");
+		const objectId = env.WORLD_COORDINATOR.idFromName(worldId);
+		return env.WORLD_COORDINATOR.get(objectId).fetch(request);
 	}
-
+	const ownerMutationMatch = /^\/owner\/worlds\/([^/]+)\/mutate$/.exec(url.pathname);
+	if (ownerMutationMatch && request.method === "POST") {
+		const worldId = decodeURIComponent(ownerMutationMatch[1] ?? "");
+		const objectId = env.WORLD_COORDINATOR.idFromName(worldId);
+		return env.WORLD_COORDINATOR.get(objectId).fetch(request);
+	}
 	const worldManageMatch = /^\/worlds\/([^/]+)$/.exec(url.pathname);
 	if (!worldManageMatch || (request.method !== "PATCH" && request.method !== "DELETE")) {
 		return null;
@@ -1016,7 +1224,7 @@ async function routeWorldCoordinatorRequest(request: Request, env: Env, url: URL
 	const row = await env.BICKR_D1.prepare(
 		`SELECT world_id AS worldId
 		 FROM worlds_index
-		 WHERE handle = ? AND deleted_at IS NULL`,
+		 WHERE handle = ? AND deleted_at IS NULL AND lifecycle_state = 'active'`,
 	)
 		.bind(worldHandle)
 		.first<{ worldId: string }>();
@@ -1033,7 +1241,7 @@ async function routeForumCoordinatorRequest(request: Request, env: Env, url: URL
 		const row = await env.BICKR_D1.prepare(
 			`SELECT world_id AS worldId
 			 FROM worlds_index
-			 WHERE handle = ? AND deleted_at IS NULL`,
+			 WHERE handle = ? AND deleted_at IS NULL AND lifecycle_state = 'active'`,
 		)
 			.bind(worldHandle)
 			.first<{ worldId: string }>();

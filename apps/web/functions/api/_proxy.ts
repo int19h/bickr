@@ -6,6 +6,7 @@ import {
 
 const forwardedServiceRequestHeaders = [
 	"accept",
+	"idempotency-key",
 	"upgrade",
 	"connection",
 	"sec-websocket-key",
@@ -53,6 +54,27 @@ export async function forwardServiceJsonRequest(
 ): Promise<Response> {
 	const body = await request.text();
 	return service.fetch(serviceRequest(env, request, path, userId, body));
+}
+
+export function streamingServiceRequest(
+	env: InternalServiceAuthEnv,
+	request: Request,
+	path: string,
+	userId: string,
+): Request {
+	const headers = new Headers();
+	for (const name of [...forwardedServiceRequestHeaders, "content-type"]) {
+		const value = request.headers.get(name);
+		if (value !== null) headers.set(name, value);
+	}
+	headers.set("x-bickr-user-id", userId);
+	addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
+	return new Request(internalServiceUrl(path), {
+		method: request.method,
+		headers,
+		body: request.body,
+		signal: request.signal,
+	});
 }
 
 const serviceFetchTimeoutMs = 30_000;

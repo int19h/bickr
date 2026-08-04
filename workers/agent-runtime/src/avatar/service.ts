@@ -12,10 +12,7 @@ import {
 	botById,
 	RepositoryError,
 	userById,
-	updateBotAvatar,
-	updateUserAvatar,
 } from '@bickr/shared/repository';
-import { updateWorldAvatar } from '@bickr/shared/governance';
 import {
 	type AvatarImage,
 	type BotDocument,
@@ -344,6 +341,7 @@ export async function applyGeneratedAvatarForBot(
 	userId: string,
 	botId: string,
 	candidate: AvatarImage,
+	persist: (botId: string, avatar: AvatarImage) => Promise<BotSummary>,
 ): Promise<BotSummary> {
 	const bot = await botById(env.BICKR_KV, env.BICKR_D1, botId);
 	if (bot.ownerUserId !== userId) {
@@ -356,7 +354,7 @@ export async function applyGeneratedAvatarForBot(
 		publicBaseUrl: normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL),
 		source: candidate.source,
 	});
-	const updated = await updateBotAvatar(env.BICKR_KV, env.BICKR_D1, bot.id, userId, avatar);
+	const updated = await persist(bot.id, avatar);
 	await deleteAvatarCandidate(env, candidate.key);
 	return updated;
 }
@@ -365,6 +363,7 @@ export async function applyGeneratedAvatarForUser(
 	env: AvatarEnvironment,
 	userId: string,
 	candidate: AvatarImage,
+	persist: (userId: string, avatar: AvatarImage) => Promise<UserProfile>,
 ): Promise<UserProfile> {
 	const user = await userById(env.BICKR_KV, userId);
 	const expectedPrefix = `users/${encodeURIComponent(user.id)}/avatar-candidates/`;
@@ -378,7 +377,7 @@ export async function applyGeneratedAvatarForUser(
 		publicBaseUrl: normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL),
 		source: candidate.source,
 	});
-	const profile = await updateUserAvatar(env.BICKR_KV, env.BICKR_D1, user.id, avatar);
+	const profile = await persist(user.id, avatar);
 	await deleteAvatarCandidate(env, candidate.key);
 	return profile;
 }
@@ -388,6 +387,7 @@ export async function applyGeneratedAvatarForWorld(
 	userId: string,
 	worldHandle: string,
 	candidate: AvatarImage,
+	persist: (world: WorldDocument, avatar: AvatarImage) => Promise<WorldSummary>,
 ): Promise<WorldSummary> {
 	const world = await worldDocumentForAvatar(env, worldHandle, userId, 'update');
 	const avatar = await promoteAvatarCandidate(requireAvatarBucket(env), {
@@ -397,7 +397,7 @@ export async function applyGeneratedAvatarForWorld(
 		publicBaseUrl: normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL),
 		source: candidate.source,
 	});
-	const updated = await updateWorldAvatar(env.BICKR_KV, env.BICKR_D1, world.handle, userId, avatar);
+	const updated = await persist(world, avatar);
 	await deleteAvatarCandidate(env, candidate.key);
 	return updated;
 }

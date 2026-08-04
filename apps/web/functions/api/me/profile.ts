@@ -1,5 +1,5 @@
 import { ok, readJsonBody } from "@bickr/shared/api";
-import { listUserAuthIdentities, updateUserProfile, userProfile } from "@bickr/shared/repository";
+import { listUserAuthIdentities, userProfile } from "@bickr/shared/repository";
 import { InputError, parseUpdateUserProfileInput } from "@bickr/shared/validation";
 import { clearCookieHeader, type AppEnv, requireUser, sessionCookieName } from "../_auth";
 import { pageErrorResponse } from "../_errors";
@@ -19,8 +19,13 @@ export const onRequestPatch: PagesFunction<AppEnv> = async ({ env, request }) =>
 	try {
 		const user = await requireUser(env, request);
 		const input = parseUpdateUserProfileInput(await request.json());
-		const profile = await updateUserProfile(env.BICKR_KV, env.BICKR_D1, user.id, input);
-		return ok({ profile });
+		return env.AGENT_RUNTIME.fetch(serviceRequest(
+			env,
+			request,
+			`/users/${encodeURIComponent(user.id)}/profile`,
+			user.id,
+			JSON.stringify(input),
+		));
 	} catch (error) {
 		return pageErrorResponse(error);
 	}

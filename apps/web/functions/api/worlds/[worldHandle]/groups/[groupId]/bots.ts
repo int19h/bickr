@@ -1,8 +1,7 @@
-import { ok, readJsonBody } from "@bickr/shared/api";
-import { addBotGroupMembers } from "@bickr/shared/repository";
-import { normalizeHandleParam, parseAddBotGroupMembersInput } from "@bickr/shared/validation";
+import { normalizeHandleParam } from "@bickr/shared/validation";
 import { type AppEnv, requireCompleteUser } from "../../../../_auth";
 import { pageErrorResponse } from "../../../../_errors";
+import { serviceRequest } from "../../../../_proxy";
 
 export const onRequestPost: PagesFunction<AppEnv, "worldHandle" | "groupId"> = async ({
 	env,
@@ -13,8 +12,7 @@ export const onRequestPost: PagesFunction<AppEnv, "worldHandle" | "groupId"> = a
 		const user = await requireCompleteUser(env, request);
 		const worldHandle = normalizeHandleParam(params.worldHandle, "World handle");
 		const groupId = singleParam(params.groupId);
-		const input = parseAddBotGroupMembersInput(await readJsonBody(request));
-		return ok({ group: await addBotGroupMembers(env.BICKR_KV, env.BICKR_D1, worldHandle, user.id, groupId, input) });
+		return env.AGENT_RUNTIME.fetch(serviceRequest(env, request, `/users/${encodeURIComponent(user.id)}/worlds/${encodeURIComponent(worldHandle)}/groups/${encodeURIComponent(groupId)}/bots`, user.id, await request.text()));
 	} catch (error) {
 		return pageErrorResponse(error);
 	}

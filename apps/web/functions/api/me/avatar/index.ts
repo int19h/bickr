@@ -1,104 +1,20 @@
-import { ok, readJsonBody } from "@bickr/shared/api";
-import {
-	fetchRemoteAvatarBytes,
-	normalizeAvatarPublicBaseUrl,
-	storeAvatarImage,
-	validateAvatarFile,
-	type AvatarContentType,
-	type R2BucketLike,
-} from "@bickr/shared/avatar-storage";
-import { updateUserAvatar } from "@bickr/shared/repository";
-import { InputError, requiredText } from "@bickr/shared/validation";
 import { type AppEnv, requireUser } from "../../_auth";
 import { pageErrorResponse } from "../../_errors";
+import { streamingServiceRequest } from "../../_proxy";
 
-export const onRequestPut: PagesFunction<AppEnv> = async ({ env, request }) => {
+async function avatarMutation(env: AppEnv, request: Request): Promise<Response> {
 	try {
 		const user = await requireUser(env, request);
-		const now = new Date().toISOString();
-		const uploaded = await avatarUploadBytes(request);
-		const avatar = await storeAvatarImage(requireAvatarBucket(env), {
-			target: "user",
-			userId: user.id,
-			bytes: uploaded.bytes,
-			contentType: uploaded.contentType,
-			publicBaseUrl: normalizeAvatarPublicBaseUrl(env.BICKR_R2_PUBLIC_BASE_URL),
-			source:
-				uploaded.kind === "file" ?
-					{
-						type: "upload",
-						uploadedAt: now,
-						...(uploaded.originalFilename ? { originalFilename: uploaded.originalFilename } : {}),
-					}
-				:	{
-						type: "remote_url",
-						sourceUrl: uploaded.sourceUrl,
-						importedAt: now,
-					},
-			now,
-		});
-		const profile = await updateUserAvatar(env.BICKR_KV, env.BICKR_D1, user.id, avatar, now);
-		return ok({ profile });
+		return env.AGENT_RUNTIME.fetch(streamingServiceRequest(
+			env,
+			request,
+			`/users/${encodeURIComponent(user.id)}/avatar`,
+			user.id,
+		));
 	} catch (error) {
 		return pageErrorResponse(error);
 	}
-};
-
-export const onRequestDelete: PagesFunction<AppEnv> = async ({ env, request }) => {
-	try {
-		const user = await requireUser(env, request);
-		const profile = await updateUserAvatar(env.BICKR_KV, env.BICKR_D1, user.id, undefined);
-		return ok({ profile });
-	} catch (error) {
-		return pageErrorResponse(error);
-	}
-};
-
-type UploadBytes =
-	| {
-			kind: "file";
-			bytes: Uint8Array;
-			contentType: AvatarContentType;
-			originalFilename?: string;
-	  }
-	| {
-			kind: "url";
-			bytes: Uint8Array;
-			contentType: AvatarContentType;
-			sourceUrl: string;
-	  };
-
-async function avatarUploadBytes(request: Request): Promise<UploadBytes> {
-	const contentType = request.headers.get("content-type") ?? "";
-	if (contentType.toLowerCase().includes("multipart/form-data")) {
-		const form = await request.formData();
-		const file = form.get("file");
-		if (!(file instanceof File)) {
-			throw new InputError("Avatar upload must include a file.");
-		}
-		const validated = await validateAvatarFile(file);
-		return {
-			kind: "file",
-			bytes: validated.bytes,
-			contentType: validated.contentType,
-			...(file.name ? { originalFilename: file.name } : {}),
-		};
-	}
-	const body = await readJsonBody(request);
-	const record = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
-	const sourceUrl = requiredText(record.url, "Avatar URL", 1_000);
-	const validated = await fetchRemoteAvatarBytes(sourceUrl);
-	return {
-		kind: "url",
-		bytes: validated.bytes,
-		contentType: validated.contentType,
-		sourceUrl,
-	};
 }
 
-function requireAvatarBucket(env: AppEnv): R2BucketLike {
-	if (!env.BICKR_R2) {
-		throw new InputError("BICKR_R2 must be configured before storing avatars.");
-	}
-	return env.BICKR_R2 as R2BucketLike;
-}
+export const onRequestPut: PagesFunction<AppEnv> = ({ env, request }) => avatarMutation(env, request);
+export const onRequestDelete: PagesFunction<AppEnv> = ({ env, request }) => avatarMutation(env, request);

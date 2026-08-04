@@ -1,13 +1,14 @@
 import * as oauth from "oauth4webapi";
 import { fail } from "@bickr/shared/api";
 import { sha256Hex } from "@bickr/shared/ids";
+import { parseAccountMutationResult } from "@bickr/shared/account-mutation-protocol";
 import { type AuthProvider } from "@bickr/shared/model";
 import {
 	createSession,
-	linkProviderIdentity,
-	upsertProviderUser,
+	RepositoryError,
 	type ProviderUserProfile,
 } from "@bickr/shared/repository";
+import { type UserDocument } from "@bickr/shared/model";
 import { deleteKey, kvKeys, readJson, writeJson } from "@bickr/shared/storage";
 import {
 	appendSetCookie,
@@ -18,6 +19,7 @@ import {
 	sessionCookieName,
 	type AppEnv,
 } from "../_auth";
+import { fetchServiceJson, serviceRequest } from "../_proxy";
 
 type OAuthStartConfig = {
 	authorizationEndpoint: string;
@@ -128,13 +130,81 @@ export async function completeProviderSession(
 ): Promise<ProviderSessionResult> {
 	const existingUser = await currentUser(env, request);
 	if (existingUser) {
-		await linkProviderIdentity(env.BICKR_KV, env.BICKR_D1, existingUser.id, profile);
+		await requestProviderIdentityLink(env, request, existingUser.id, profile);
 		return {};
 	}
 
-	const user = await upsertProviderUser(env.BICKR_KV, env.BICKR_D1, profile);
+	const user = await requestAccountBootstrap(env, request, profile);
 	const session = await createSession(env.BICKR_KV, user.id);
 	return { sessionCookieValue: session.cookieValue };
+}
+
+async function requestAccountBootstrap(
+	env: AppEnv,
+	request: Request,
+	profile: ProviderUserProfile,
+): Promise<UserDocument> {
+	const { response, payload } = await fetchServiceJson(
+		env.AGENT_RUNTIME,
+		serviceRequest(env, new Request(request, { method: "POST" }), "/accounts/bootstrap", "bootstrap", JSON.stringify(profile)),
+	);
+	return providerMutationUser(response, payload, "account_bootstrapped");
+}
+
+async function requestProviderIdentityLink(
+	env: AppEnv,
+	request: Request,
+	userId: string,
+	profile: ProviderUserProfile,
+): Promise<void> {
+	const { response, payload } = await fetchServiceJson(
+		env.AGENT_RUNTIME,
+		serviceRequest(
+			env,
+			new Request(request, { method: "POST" }),
+			`/users/${encodeURIComponent(userId)}/auth/identities`,
+			userId,
+			JSON.stringify(profile),
+		),
+	);
+	providerMutationUser(response, payload, "provider_identity_linked");
+}
+
+function providerMutationUser(response: Response, payload: unknown, expectedKind: "account_bootstrapped"): UserDocument;
+function providerMutationUser(response: Response, payload: unknown, expectedKind: "provider_identity_linked"): undefined;
+function providerMutationUser(
+	response: Response,
+	payload: unknown,
+	expectedKind: "account_bootstrapped" | "provider_identity_linked",
+): UserDocument | undefined {
+	const record = payload && typeof payload === "object" && !Array.isArray(payload)
+		? payload as Record<string, unknown>
+		: {};
+	const data = record.data && typeof record.data === "object" && !Array.isArray(record.data)
+		? record.data as Record<string, unknown>
+		: {};
+	if (!response.ok) {
+		const code = typeof record.error === "string" && ["bad_request", "conflict", "forbidden", "not_found", "server_error", "unauthorized"].includes(record.error)
+			? record.error as RepositoryError["code"]
+			: "server_error";
+		throw new RepositoryError(code, typeof record.message === "string" ? record.message : "Account coordinator request failed.", response.status || 500);
+	}
+	const result = parseAccountMutationResult(data);
+	switch (result.kind) {
+		case "account_bootstrapped":
+			if (expectedKind !== result.kind) throw wrongAccountMutationKind();
+			return result.user;
+		case "provider_identity_linked":
+			if (expectedKind !== result.kind) throw wrongAccountMutationKind();
+			return undefined;
+		case "profile_updated":
+		case "provider_identity_unlinked":
+			throw wrongAccountMutationKind();
+	}
+}
+
+function wrongAccountMutationKind(): RepositoryError {
+	return new RepositoryError("server_error", "Account coordinator returned the wrong mutation result.", 500);
 }
 
 export function oauthSuccessRedirect(

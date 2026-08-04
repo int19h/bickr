@@ -334,10 +334,10 @@ async function worldMetadataByHandle(db: D1Database, handle: string): Promise<Wo
 			 LEFT JOIN (
 				SELECT home_world_id AS world_id, COUNT(*) AS botCount
 				FROM bots_index
-				WHERE deleted_at IS NULL
+				WHERE deleted_at IS NULL AND lifecycle_state = 'active'
 				GROUP BY home_world_id
 			 ) bot_counts ON bot_counts.world_id = w.world_id
-			 WHERE w.handle = ? AND w.deleted_at IS NULL`,
+			 WHERE w.handle = ? AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'`,
 		)
 		.bind(handle)
 		.first<WorldMetadataRow>();
@@ -358,7 +358,7 @@ async function forumMetadataByHandle(db: D1Database, worldHandle: string, forumH
 				f.description,
 				f.personal_bot_id AS personalBotId
 			 FROM forums_index f
-			 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
+			 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
 			 WHERE f.world_handle = ? AND f.handle = ? AND f.deleted_at IS NULL`,
 		)
 		.bind(worldHandle, forumHandle)
@@ -371,7 +371,7 @@ async function forumMetadataByHandle(db: D1Database, worldHandle: string, forumH
 
 async function botAvatarUrl(db: D1Database, botId: string): Promise<string | undefined> {
 	const row = await db
-		.prepare(`SELECT avatar_url AS avatarUrl FROM bots_index WHERE bot_id = ? AND deleted_at IS NULL`)
+		.prepare(`SELECT avatar_url AS avatarUrl FROM bots_index WHERE bot_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'`)
 		.bind(botId)
 		.first<{ avatarUrl: string | null }>();
 	return row?.avatarUrl ?? undefined;
