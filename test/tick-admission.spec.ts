@@ -370,7 +370,14 @@ async function seedBotDocuments(): Promise<void> {
 	};
 	await testEnv.BICKR_KV.put(kvKeys.user(ownerId), JSON.stringify(user));
 	await testEnv.BICKR_KV.put(kvKeys.bot(botId), JSON.stringify(bot));
-	await testEnv.BICKR_D1.prepare(
+	await testEnv.BICKR_D1.batch([
+		testEnv.BICKR_D1.prepare(
+			`INSERT INTO entity_lifecycle_identity_claims (
+				key_kind, key_scope, key_value, entity_kind, entity_id,
+				owner_user_id, claim_state, operation_id, created_at, updated_at
+			) VALUES ('bot_handle', ?, ?, 'bot', ?, ?, 'active', NULL, ?, ?)`,
+		).bind(bot.homeWorldId, bot.handle, bot.id, bot.ownerUserId, now, now),
+		testEnv.BICKR_D1.prepare(
 		`INSERT INTO bots_index (
 			bot_id, home_world_id, home_world_handle, handle, language, display_name, display_name_lang,
 			owner_user_id, include_language_in_system_prompt, short_bio, short_bio_lang, avatar_url, avatar_crop,
@@ -390,8 +397,8 @@ async function seedBotDocuments(): Promise<void> {
 			bot.shortBio.lang,
 			bot.createdAt,
 			bot.updatedAt,
-		)
-		.run();
+		),
+	]);
 }
 
 async function seedBotRuntimeRow(input: {

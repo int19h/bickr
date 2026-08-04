@@ -209,7 +209,7 @@ async function resolveExplicitBot(
 	const row = await env.BICKR_D1.prepare(
 		`SELECT bot_id AS id, owner_user_id AS ownerUserId
 		 FROM bots_index
-		 WHERE home_world_handle = ? AND handle = ? AND deleted_at IS NULL
+		 WHERE home_world_handle = ? AND handle = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
 		 LIMIT 1`,
 	)
 		.bind(worldHandle, botHandle)
@@ -236,7 +236,7 @@ async function resolveShortBot(
 	const result = await env.BICKR_D1.prepare(
 		`SELECT bot_id AS id, owner_user_id AS ownerUserId, home_world_handle AS worldHandle, handle
 		 FROM bots_index
-		 WHERE handle = ? AND deleted_at IS NULL
+		 WHERE handle = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
 		 ORDER BY home_world_handle ASC`,
 	)
 		.bind(botHandle)
@@ -271,7 +271,7 @@ async function resolveBotId(
 	const row = await env.BICKR_D1.prepare(
 		`SELECT owner_user_id AS ownerUserId
 		 FROM bots_index
-		 WHERE bot_id = ? AND deleted_at IS NULL
+		 WHERE bot_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
 		 LIMIT 1`,
 	)
 		.bind(botId)

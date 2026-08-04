@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { deleteForumForWorld } from "@bickr/shared/governance";
 import { runForumThreadDeletionSweep } from "@bickr/shared/governance-deletion-sweep";
 import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
 import { type ForumDocument, type ThreadDocument } from "@bickr/shared/model";
@@ -117,13 +116,7 @@ describe("coordinator-routed governance deletion", () => {
 		await threadPutStarted.promise;
 
 		const deletedAt = "2026-07-11T20:00:00.000Z";
-		await deleteForumForWorld(
-			testEnv.BICKR_KV,
-			testEnv.BICKR_D1,
-			forumDocument.worldId,
-			forum.id,
-			deletedAt,
-		);
+		await softDeleteForumForWorld(forumDocument.worldId, forum.id, deletedAt, routedKv);
 		const sweepPromise = runForumThreadDeletionSweep({
 			BICKR_D1: testEnv.BICKR_D1,
 			BICKR_KV: testEnv.BICKR_KV,
@@ -163,13 +156,7 @@ describe("coordinator-routed governance deletion", () => {
 		}
 		const forumDocument = await requiredForumDocument(forum.id);
 		const deletedAt = "2026-07-11T21:00:00.000Z";
-		await deleteForumForWorld(
-			testEnv.BICKR_KV,
-			testEnv.BICKR_D1,
-			forumDocument.worldId,
-			forum.id,
-			deletedAt,
-		);
+		await softDeleteForumForWorld(forumDocument.worldId, forum.id, deletedAt);
 
 		const contexts = new Map<string, ReturnType<typeof coordinatorContext>>();
 		const run = () => runForumThreadDeletionSweep({
@@ -209,9 +196,7 @@ describe("coordinator-routed governance deletion", () => {
 		const author = await createBotForTest(cookie, "deletion-liveness-author");
 		const thread = await createThreadForTest(forum.id, author.id, "Gone forum", "Root body.");
 		const forumDocument = await requiredForumDocument(forum.id);
-		await deleteForumForWorld(
-			testEnv.BICKR_KV,
-			testEnv.BICKR_D1,
+		await softDeleteForumForWorld(
 			forumDocument.worldId,
 			forum.id,
 			"2026-07-11T22:00:00.000Z",
@@ -269,6 +254,28 @@ function internalDeletionRequest(threadId: string, body: unknown): Request {
 		},
 		body: JSON.stringify(body),
 	});
+}
+
+async function softDeleteForumForWorld(
+	worldId: string,
+	forumId: string,
+	deletedAt: string,
+	kv: KVNamespace = testEnv.BICKR_KV,
+): Promise<void> {
+	const request = new Request(`https://internal.bickr/forums/${encodeURIComponent(forumId)}/soft-delete`, {
+		method: "POST",
+		headers: {
+			"content-type": "application/json",
+			[internalServiceAuthHeader]: "test-internal-service-secret",
+		},
+		body: JSON.stringify({ worldId, forumId, deletedAt }),
+	});
+	const response = await handleForumCoordinatorRequest(request, coordinatorEnv(kv), {
+		objectId: forumId,
+		queue: new ExclusiveOperationQueue(),
+		storage: memoryDurableStorage().storage,
+	});
+	expect(response.status).toBe(200);
 }
 
 async function requiredForumDocument(forumId: string): Promise<ForumDocument> {

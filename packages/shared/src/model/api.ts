@@ -389,6 +389,17 @@ export type HumanOwnedTotals = {
 	bots: number;
 };
 
+export type AccountDeletionResult =
+	| {
+			kind: "account_delete_pending";
+			planned: HumanOwnedTotals;
+	  }
+	| {
+			kind: "account_delete_complete";
+			profile: PublicUser;
+			deleted: HumanOwnedTotals;
+	  };
+
 export type HumanOwnedForumGroup = {
 	world: WorldSummary;
 	forums: ForumSummary[];

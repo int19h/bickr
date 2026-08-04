@@ -1,3 +1,4 @@
+import { parseAccountMutationResult } from "@bickr/shared/account-mutation-protocol";
 import {
 	resolveBotProviderSettings,
 	type BotProviderSettingSource,
@@ -11,12 +12,6 @@ import {
 	internalServiceUrl,
 } from "@bickr/shared/internal-service";
 import {
-	fetchRemoteAvatarBytes,
-	normalizeAvatarPublicBaseUrl,
-	storeAvatarImage,
-	type R2BucketLike,
-} from "@bickr/shared/avatar-storage";
-import {
 	authForMcpAccessToken,
 	mcpScopeString,
 	type McpAuthContext,
@@ -25,8 +20,6 @@ import {
 import { requireMaintenanceDisabled } from "@bickr/shared/maintenance";
 import {
 	avatarImageGenerationSettingsWithDefaults,
-	type AvatarCrop,
-	type AvatarImage,
 	type BotDocument,
 	type BotGroupSummary,
 	type BotImageGenerationSettings,
@@ -45,11 +38,7 @@ import {
 import { defaultPostingSettings } from "@bickr/shared/posting";
 import { defaultThreadCommentLimit } from "@bickr/shared/thread-policy";
 import {
-	addBotGroupMembers,
 	botById,
-	createBotGroup,
-	deleteBotGroup,
-	deleteBotAvatar,
 	listBotGroups,
 	listForums,
 	listOwnedWorlds,
@@ -58,14 +47,8 @@ import {
 	listWorldBots,
 	listWorlds,
 	rawBotById,
-	removeBotGroupMember,
-	RepositoryError,
 	isBotDocument,
 	publicBotSummary,
-	refreshLinkedCloneIndexes,
-	updateBotGroup,
-	updateBotAvatar,
-	updateUserProfile,
 	userProfile,
 	worldByHandle,
 } from "@bickr/shared/repository";
@@ -89,8 +72,6 @@ import {
 import {
 	asRecord,
 	InputError,
-	parseCreateBotGroupInput,
-	parseUpdateBotGroupInput,
 	parseUpdateUserProfileInput,
 } from "@bickr/shared/validation";
 import { type AppEnv, bearerToken } from "./api/_auth";
@@ -174,6 +155,7 @@ type ToolContext = {
 	auth: McpAuthContext;
 	providerEnvironment?: Promise<ProviderEnvironmentSettings>;
 	optionalProviderEnvironment?: Promise<ProviderEnvironmentSettings | undefined>;
+	mutationOperationId?: string;
 };
 
 class InsufficientScopeError extends Error {
@@ -325,7 +307,7 @@ async function callMutationTool(
 		for (const operation of operations) {
 			let payload: unknown;
 			try {
-				payload = await tool.executeOperation(ctx, operation.arguments);
+				payload = await tool.executeOperation({ ...ctx, mutationOperationId: operation.operationId }, operation.arguments);
 			} catch (error) {
 				// An exception can happen after a downstream service committed but before its
 				// response was observed (for example, a timeout). Never call that "failed":
@@ -400,9 +382,28 @@ const mcpTools: McpTool[] = [
 		displayName: localizedTextSchema("Profile display name. lang must match the selected profile language."),
 		uiLocale: uiLocaleSchema("UI language preference."),
 		inferenceSettings: inferenceSettingsSchema("Optional profile inference settings patch. Localized prompt fields must use { lang, text }."),
-	}), async ({ env, auth }, args) => {
-		const profile = await updateUserProfile(env.BICKR_KV, env.BICKR_D1, auth.user.id, parseUpdateUserProfileInput(mcpEntityLanguageBody(args)));
-		return { profile: { ...profile, lang: profile.language } };
+	}), async (ctx, args) => {
+		const payload = await servicePayload(
+			ctx.env.AGENT_RUNTIME,
+			ctx.env,
+			ctx.request,
+			`/users/${encodeURIComponent(ctx.auth.user.id)}/profile`,
+			"PATCH",
+			ctx.auth.user.id,
+			parseUpdateUserProfileInput(mcpEntityLanguageBody(args)),
+			ctx.mutationOperationId ? { "idempotency-key": `mcp:${ctx.auth.user.id}:${ctx.mutationOperationId}` } : {},
+		);
+		if (isApiFailure(payload)) return payload;
+		const envelope = recordValue(payload, "Profile mutation envelope");
+		const result = parseAccountMutationResult(envelope.ok === true ? envelope.data : envelope);
+		switch (result.kind) {
+			case "profile_updated":
+				return { profile: { ...result.profile, lang: result.profile.language } };
+			case "account_bootstrapped":
+			case "provider_identity_linked":
+			case "provider_identity_unlinked":
+				throw new Error("Profile coordinator returned the wrong mutation result.");
+		}
 	}),
 	readTool("list_worlds", "List worlds", "List public Bickr worlds.", {}, async ({ env }) => ({
 		worlds: await listWorlds(env.BICKR_D1),
@@ -417,7 +418,7 @@ const mcpTools: McpTool[] = [
 		description: localizedTextSchema("World description. lang must match the selected world language."),
 		initialBotNotification: localizedTextSchema("Initial notification for bots created in this world. lang must match the selected world language."),
 		threadSettings: threadSettingsSchema("Optional thread policy. The smaller global, world, or forum comment limit wins."),
-	}), ["handle", "lang", "name", "description"], "write", "forum", "POST", () => "/worlds", mcpEntityLanguageBody, "world"),
+	}), ["handle", "lang", "name", "description"], "write", "agent", "POST", (_args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/worlds`, mcpEntityLanguageBody, "world"),
 	serviceTool("update_world", "Update world", "Update a Bickr world owned by the signed-in human user.", bodySchema({
 		worldHandle: stringSchema("Current world handle."),
 		handle: stringSchema("New world handle."),
@@ -426,10 +427,10 @@ const mcpTools: McpTool[] = [
 		description: localizedTextSchema("World description. lang must match the selected world language."),
 		initialBotNotification: localizedTextSchema("Initial notification for new bots. lang must match the selected world language."),
 		threadSettings: threadSettingsSchema("Optional thread policy patch. Set commentLimit to null to restore the global default."),
-	}), ["worldHandle"], "write", "forum", "PATCH", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}`, withoutMcpKeys("worldHandle"), "world"),
+	}), ["worldHandle"], "write", "agent", "PATCH", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}`, withoutMcpKeys("worldHandle"), "world"),
 	serviceTool("delete_world", "Delete world", "Delete a Bickr world owned by the signed-in human user.", bodySchema({
 		worldHandle: stringSchema("World handle."),
-	}), ["worldHandle"], "destructive", "forum", "DELETE", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}`),
+	}), ["worldHandle"], "destructive", "agent", "DELETE", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}`),
 	readTool("list_forums", "List forums", "List forums in a Bickr world.", {
 		worldHandle: stringSchema("World handle."),
 	}, async ({ env }, args) => ({ forums: await listForums(env.BICKR_D1, text(args.worldHandle, "World handle")) }), "forums"),
@@ -587,46 +588,36 @@ const mcpTools: McpTool[] = [
 	serviceTool("delete_bot", "Delete bot", "Delete a Bickr bot owned by the signed-in human user.", bodySchema({
 		botId: stringSchema("Bot ID."),
 	}), ["botId"], "destructive", "agent", "DELETE", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}`, undefined, "bot"),
-	writeTool("set_bot_avatar_url", "Set bot avatar URL", "Replace a bot avatar from a remote image URL.", withRequired(bodySchema({
+	serviceTool("set_bot_avatar_url", "Set bot avatar URL", "Replace a bot avatar from a remote image URL.", bodySchema({
 		botId: stringSchema("Bot ID."),
 		url: stringSchema("Remote avatar image URL."),
-	}), ["botId", "url"]), setBotAvatarUrl, false, "bot"),
-	writeTool("clear_bot_avatar", "Clear bot avatar", "Remove a bot avatar.", withRequired(bodySchema({
+	}), ["botId", "url"], "write", "agent", "PUT", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/avatar`, withoutMcpKeys("botId"), "bot"),
+	serviceTool("clear_bot_avatar", "Clear bot avatar", "Remove a bot avatar.", bodySchema({
 		botId: stringSchema("Bot ID."),
-	}), ["botId"]), clearBotAvatar, true, "bot"),
-	writeTool("update_bot_avatar_crop", "Update bot avatar crop", "Update or clear a bot avatar crop.", withRequired(bodySchema({
+	}), ["botId"], "destructive", "agent", "DELETE", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/avatar`, undefined, "bot"),
+	serviceTool("update_bot_avatar_crop", "Update bot avatar crop", "Update or clear a bot avatar crop.", bodySchema({
 		botId: stringSchema("Bot ID."),
 		crop: objectSchema("Avatar crop object, or null to clear."),
-	}), ["botId", "crop"]), updateBotAvatarCrop, false, "bot"),
+	}), ["botId", "crop"], "write", "agent", "PATCH", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/avatar/crop`, withoutMcpKeys("botId"), "bot"),
 	serviceTool("unlink_bot_clone", "Unlink bot clone", "Unlink a cloned bot from its source.", bodySchema({ botId: stringSchema("Bot ID.") }), ["botId"], "write", "agent", "POST", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/clone/unlink`, undefined, "bot"),
 	serviceTool("relink_bot_clone", "Relink bot clone", "Relink a cloned bot to its source.", bodySchema({ botId: stringSchema("Bot ID.") }), ["botId"], "write", "agent", "POST", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/clone/relink`, undefined, "bot"),
 	readTool("list_groups", "List bot groups", "List bot groups owned by the signed-in human user in a world.", { worldHandle: stringSchema("World handle.") }, async ({ env, auth }, args) => ({
 		groups: await listBotGroups(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id),
 	}), "groups"),
-	writeTool("create_group", "Create bot group", "Create a Bickr bot group.", withRequired(bodySchema({
+	serviceTool("create_group", "Create bot group", "Create a Bickr bot group.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		lang: requiredLanguageSchema("Selected group language. Use a BCP 47 tag such as \"en\", \"ja\", \"zh-Hant\", or \"ar\"."),
 		customTitle: nullableLocalizedTextSchema("Optional group title. lang must match the selected group language, or null to use member handles."),
-	}), ["worldHandle", "lang"]), async ({ env, auth }, args) => ({
-		group: await createBotGroup(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id, parseCreateBotGroupInput(withoutMcpKeys("worldHandle")(args))),
-	}), false, "group"),
-	writeTool("update_group", "Update bot group", "Update a Bickr bot group.", withRequired(bodySchema({
+	}), ["worldHandle", "lang"], "write", "agent", "POST", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/groups`, withoutMcpKeys("worldHandle"), "group"),
+	serviceTool("update_group", "Update bot group", "Update a Bickr bot group.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		groupId: stringSchema("Group ID."),
 		lang: requiredLanguageSchema("Selected group language. Use a BCP 47 tag such as \"en\", \"ja\", \"zh-Hant\", or \"ar\"."),
 		customTitle: nullableLocalizedTextSchema("Group title, or null to clear. lang must match the selected group language."),
-	}), ["worldHandle", "groupId", "lang", "customTitle"]), async ({ env, auth }, args) => ({
-		group: await updateBotGroup(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id, text(args.groupId, "Group ID"), parseUpdateBotGroupInput(withoutMcpKeys("worldHandle", "groupId")(args))),
-	}), false, "group"),
-	writeTool("add_group_bots", "Add bots to group", "Add bots to a Bickr bot group.", bodySchema({ worldHandle: stringSchema("World handle."), groupId: stringSchema("Group ID."), botIds: arraySchema("Bot IDs.") }), async ({ env, auth }, args) => ({
-		group: await addBotGroupMembers(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id, text(args.groupId, "Group ID"), { botIds: stringArray(args.botIds, "Bot IDs") }),
-	}), false, "group"),
-	writeTool("remove_group_bot", "Remove bot from group", "Remove one bot from a Bickr bot group.", bodySchema({ worldHandle: stringSchema("World handle."), groupId: stringSchema("Group ID."), botId: stringSchema("Bot ID.") }), async ({ env, auth }, args) => ({
-		group: await removeBotGroupMember(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id, text(args.groupId, "Group ID"), text(args.botId, "Bot ID")),
-	}), true, "group"),
-	writeTool("delete_group", "Delete bot group", "Delete a Bickr bot group.", bodySchema({ worldHandle: stringSchema("World handle."), groupId: stringSchema("Group ID.") }), async ({ env, auth }, args) => ({
-		group: await deleteBotGroup(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id, text(args.groupId, "Group ID")),
-	}), true, "group"),
+	}), ["worldHandle", "groupId", "lang", "customTitle"], "write", "agent", "PATCH", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/groups/${encodeURIComponent(text(args.groupId, "Group ID"))}`, withoutMcpKeys("worldHandle", "groupId"), "group"),
+	serviceTool("add_group_bots", "Add bots to group", "Add bots to a Bickr bot group.", bodySchema({ worldHandle: stringSchema("World handle."), groupId: stringSchema("Group ID."), botIds: arraySchema("Bot IDs.") }), ["worldHandle", "groupId", "botIds"], "write", "agent", "POST", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/groups/${encodeURIComponent(text(args.groupId, "Group ID"))}/bots`, withoutMcpKeys("worldHandle", "groupId"), "group"),
+	serviceTool("remove_group_bot", "Remove bot from group", "Remove one bot from a Bickr bot group.", bodySchema({ worldHandle: stringSchema("World handle."), groupId: stringSchema("Group ID."), botId: stringSchema("Bot ID.") }), ["worldHandle", "groupId", "botId"], "destructive", "agent", "DELETE", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/groups/${encodeURIComponent(text(args.groupId, "Group ID"))}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}`, undefined, "group"),
+	serviceTool("delete_group", "Delete bot group", "Delete a Bickr bot group.", bodySchema({ worldHandle: stringSchema("World handle."), groupId: stringSchema("Group ID.") }), ["worldHandle", "groupId"], "destructive", "agent", "DELETE", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/groups/${encodeURIComponent(text(args.groupId, "Group ID"))}`, undefined, "group"),
 	readTool("search", "Search Bickr", "Search Bickr worlds, forums, threads, comments, and bots.", {
 		query: stringSchema("Search query."),
 		world: stringSchema("Optional world handle."),
@@ -869,6 +860,7 @@ function serviceTool(
 			method,
 			ctx.auth.user.id,
 			body?.(args),
+			ctx.mutationOperationId ? { "idempotency-key": `mcp:${ctx.auth.user.id}:${ctx.mutationOperationId}` } : {},
 		);
 	}, kind === "destructive", resultKind, legacyArguments);
 	return tool;
@@ -950,115 +942,6 @@ function legacyVoteArguments(args: Record<string, unknown>): Record<string, unkn
 		targetType: threadId ? "thread" : "comment",
 		targetId: threadId ?? commentId,
 	};
-}
-
-async function requireOwnedRawBot(ctx: ToolContext, botId: string): Promise<BotDocument> {
-	const bot = await rawBotById(ctx.env.BICKR_KV, ctx.env.BICKR_D1, botId);
-	if (bot.ownerUserId !== ctx.auth.user.id) {
-		throw new RepositoryError("forbidden", "You can only update avatars for bots you own.", 403);
-	}
-	return bot;
-}
-
-async function setBotAvatarUrl(ctx: ToolContext, args: Record<string, unknown>): Promise<unknown> {
-	const bot = await requireOwnedRawBot(ctx, text(args.botId, "Bot ID"));
-	const sourceUrl = text(args.url, "Avatar URL");
-	const now = new Date().toISOString();
-	const validated = await fetchRemoteAvatarBytes(sourceUrl);
-	const avatar = await storeAvatarImage(requireAvatarBucket(ctx.env), {
-		botId: bot.id,
-		worldId: bot.homeWorldId,
-		bytes: validated.bytes,
-		contentType: validated.contentType,
-		publicBaseUrl: normalizeAvatarPublicBaseUrl(ctx.env.BICKR_R2_PUBLIC_BASE_URL),
-		source: {
-			type: "remote_url",
-			sourceUrl,
-			importedAt: now,
-		},
-		now,
-	});
-	const updated = await updateBotAvatar(ctx.env.BICKR_KV, ctx.env.BICKR_D1, bot.id, ctx.auth.user.id, avatar, now);
-	const affectedBots = await refreshLinkedCloneIndexes(ctx.env.BICKR_KV, ctx.env.BICKR_D1, updated.id);
-	return { bot: updated, affectedBots };
-}
-
-async function clearBotAvatar(ctx: ToolContext, args: Record<string, unknown>): Promise<unknown> {
-	const bot = await requireOwnedRawBot(ctx, text(args.botId, "Bot ID"));
-	const updated = await deleteBotAvatar(ctx.env.BICKR_KV, ctx.env.BICKR_D1, bot.id, ctx.auth.user.id);
-	const affectedBots = await refreshLinkedCloneIndexes(ctx.env.BICKR_KV, ctx.env.BICKR_D1, updated.id);
-	return { bot: updated, affectedBots };
-}
-
-async function updateBotAvatarCrop(ctx: ToolContext, args: Record<string, unknown>): Promise<unknown> {
-	const bot = await requireOwnedRawBot(ctx, text(args.botId, "Bot ID"));
-	if (!bot.avatar) {
-		throw new InputError("This bot does not have an avatar to crop.");
-	}
-	if (!("crop" in args)) {
-		throw new InputError("Avatar crop is required.");
-	}
-	const crop = args.crop === null ? null : parseAvatarCrop(args.crop, bot.avatar);
-	const now = new Date().toISOString();
-	const avatar: AvatarImage = crop ?
-		{ ...bot.avatar, crop, updatedAt: now }
-	:	withoutAvatarCrop({ ...bot.avatar, updatedAt: now });
-	const updated = await updateBotAvatar(ctx.env.BICKR_KV, ctx.env.BICKR_D1, bot.id, ctx.auth.user.id, avatar, now);
-	const affectedBots = await refreshLinkedCloneIndexes(ctx.env.BICKR_KV, ctx.env.BICKR_D1, updated.id);
-	return { bot: updated, affectedBots };
-}
-
-function requireAvatarBucket(env: AppEnv): R2BucketLike {
-	if (!env.BICKR_R2) {
-		throw new InputError("BICKR_R2 must be configured before storing avatars.");
-	}
-	return env.BICKR_R2 as R2BucketLike;
-}
-
-const maxCropDimension = 100_000;
-
-function parseAvatarCrop(value: unknown, avatar: AvatarImage): AvatarCrop {
-	const record = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-	const crop = {
-		x: record.x,
-		y: record.y,
-		size: record.size,
-		imageWidth: record.imageWidth,
-		imageHeight: record.imageHeight,
-	};
-	if (!Object.values(crop).every((part) => Number.isInteger(part))) {
-		throw new InputError("Avatar crop must use integer pixel coordinates.");
-	}
-	const parsed = crop as AvatarCrop;
-	if (
-		parsed.imageWidth <= 0 ||
-		parsed.imageHeight <= 0 ||
-		parsed.imageWidth > maxCropDimension ||
-		parsed.imageHeight > maxCropDimension
-	) {
-		throw new InputError("Avatar crop image dimensions are invalid.");
-	}
-	if (parsed.x < 0 || parsed.y < 0 || parsed.size <= 0 || parsed.size > maxCropDimension) {
-		throw new InputError("Avatar crop square is invalid.");
-	}
-	if (parsed.x + parsed.size > parsed.imageWidth || parsed.y + parsed.size > parsed.imageHeight) {
-		throw new InputError("Avatar crop square must be inside the image.");
-	}
-	if (
-		avatar.width !== undefined &&
-		avatar.height !== undefined &&
-		Number.isInteger(avatar.width) &&
-		Number.isInteger(avatar.height) &&
-		(Math.round(avatar.width) !== parsed.imageWidth || Math.round(avatar.height) !== parsed.imageHeight)
-	) {
-		throw new InputError("Avatar crop dimensions do not match the current avatar.");
-	}
-	return parsed;
-}
-
-function withoutAvatarCrop(avatar: AvatarImage): AvatarImage {
-	const { crop: _crop, ...rest } = avatar;
-	return rest;
 }
 
 async function servicePayload(
@@ -2042,13 +1925,6 @@ function recordValue(value: unknown, label: string): Record<string, unknown> {
 		throw new Error(`${label} must be a JSON object.`);
 	}
 	return value as Record<string, unknown>;
-}
-
-function stringArray(value: unknown, label: string): string[] {
-	if (!Array.isArray(value) || !value.every((item) => typeof item === "string" && item.trim())) {
-		throw new Error(`${label} must be an array of strings.`);
-	}
-	return value.map((item) => item.trim());
 }
 
 function mcpEntityLanguageBody(args: Record<string, unknown>): Record<string, unknown> {

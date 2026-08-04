@@ -204,7 +204,7 @@ async function botProfilesByIds(db: D1DatabaseLike, ids: string[]): Promise<BotP
 				created_at AS createdAt,
 				updated_at AS updatedAt
 			 FROM bots_index
-			 WHERE bot_id IN (${placeholders}) AND deleted_at IS NULL
+			 WHERE bot_id IN (${placeholders}) AND deleted_at IS NULL AND lifecycle_state = 'active'
 			 ORDER BY home_world_handle ASC, handle ASC`,
 		)
 			.bind(...batch)

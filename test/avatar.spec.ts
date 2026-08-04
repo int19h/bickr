@@ -5,7 +5,6 @@ import {
 	authCookie,
 	authCookieFor,
 	avatarDataUrl,
-	backfillInferredCloneSources,
 	base64String,
 	botById,
 	botPublicProfileByHandle,
@@ -1075,37 +1074,6 @@ describe("Avatar", () => {
 		const deletePayload = (await deleteAvatarResponse.json()) as { data: { bot: BotBody } };
 		expect(deletePayload.data.bot.avatarUrl).toBe(sourceAvatar.url);
 		expect((await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, clone.id)).avatar).toBeUndefined();
-	});
-
-	it("backfills inferred same-owner same-handle clone sources and preserves differing overrides", async () => {
-		const cookie = await authCookie();
-		await seedWorld(cookie);
-		const source = await createBotForTest(cookie, "duplicate");
-		await createWorldForTest(cookie, "duplicate-world", "Duplicate World");
-		const duplicate = await createBotInWorld(cookie, "duplicate-world", {
-			handle: "duplicate",
-			displayName: source.displayName,
-			shortBio: "Different short bio",
-			prompt: source.prompt,
-		});
-
-		const result = await backfillInferredCloneSources(testEnv.BICKR_KV, testEnv.BICKR_D1, "2026-05-14T00:00:00.000Z");
-		expect(result).toMatchObject({ groups: 1, clonesLinked: 1, clonesSkipped: 0 });
-		const rawDuplicate = await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, duplicate.id);
-		expect(rawDuplicate.includeLanguageInSystemPrompt).toBe(null);
-		expect(rawDuplicate.displayName).toStrictEqual(lt(""));
-		expect(rawDuplicate.shortBio).toStrictEqual(lt("Different short bio"));
-		expect(rawDuplicate.prompt).toStrictEqual(lt(""));
-		const effectiveDuplicate = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, duplicate.id);
-		expect(effectiveDuplicate.includeLanguageInSystemPrompt).toBe(source.includeLanguageInSystemPrompt);
-		expect(effectiveDuplicate.displayName).toStrictEqual(source.displayName);
-		expect(effectiveDuplicate.shortBio).toStrictEqual(lt("Different short bio"));
-		expect(effectiveDuplicate.prompt).toStrictEqual(source.prompt);
-		expect(effectiveDuplicate.cloneSource).toMatchObject({
-			sourceBotId: source.id,
-			sourceHandle: source.handle,
-			linked: true,
-		});
 	});
 
 	it("rejects SVG remote avatar imports with a clear message", async () => {

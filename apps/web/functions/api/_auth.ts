@@ -37,7 +37,7 @@ export async function currentUser(env: AppEnv, request: Request): Promise<UserDo
 
 export async function currentAuth(env: AppEnv, request: Request): Promise<AuthContext | null> {
 	const sessionToken = cookieValue(request, sessionCookieName);
-	const sessionUser = await userForSessionToken(env.BICKR_KV, sessionToken);
+	const sessionUser = await userForSessionToken(env.BICKR_KV, sessionToken, env.BICKR_D1);
 	if (sessionUser && sessionToken) {
 		return { kind: "cookie", token: sessionToken, user: sessionUser };
 	}
@@ -45,7 +45,7 @@ export async function currentAuth(env: AppEnv, request: Request): Promise<AuthCo
 	if (!token) {
 		return null;
 	}
-	const user = await userForCliToken(env.BICKR_KV, token);
+	const user = await userForCliToken(env.BICKR_KV, token, env.BICKR_D1);
 	return user ? { kind: "bearer", token, user } : null;
 }
 

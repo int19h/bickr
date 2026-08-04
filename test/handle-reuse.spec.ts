@@ -2,14 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import { clearKv, execD1Statements, resetD1Schema } from "./helpers/d1-schema";
 import migrationSql from "../migrations/0031_tombstone_deleted_handles.sql?raw";
-import { deleteForum, deleteWorld } from "../packages/shared/src/governance";
+import { ExclusiveOperationQueue } from "../packages/shared/src/exclusive-operation-queue";
+import { handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
 import {
 	createBot,
-	createForum,
 	createWorld,
 	deleteBot,
+	deleteWorld,
 	upsertProviderUser,
-} from "../packages/shared/src/repository";
+} from "./helpers/coordinator-mutations";
 import {
 	localizedText,
 	schemaVersion,
@@ -85,7 +86,7 @@ describe("soft-deleted handle reuse", () => {
 		const world = await createTestWorld("reuse-forums");
 		const original = await createTestForum(world.handle, "same-forum");
 
-		await deleteForum(testEnv.BICKR_KV, testEnv.BICKR_D1, world.handle, original.handle, ownerId, now);
+		await forumCoordinatorMutation(world.id, `/worlds/${world.handle}/forums/${original.handle}`, "DELETE");
 		const deleted = await readForumDocument(original.id);
 		expect(deleted.handle).toBe(tombstoneHandle(original.id));
 		expect(deleted.handleAtDeletion).toBe("same-forum");
@@ -131,6 +132,10 @@ describe("soft-deleted handle reuse", () => {
 			.run();
 
 		await execD1Statements(testEnv.BICKR_D1, migrationSql);
+		await testEnv.BICKR_D1.batch([
+			activeClaim("world_handle", "global", "taken-world", "world", "wld_active-fixture-world", ownerId),
+			activeClaim("bot_handle", "wld_123456789012345678901234567890", "taken-bot", "bot", "bot_active-fixture-bot", ownerId),
+		]);
 
 		await testEnv.BICKR_D1
 			.prepare(
@@ -254,18 +259,37 @@ async function createTestWorld(handle: string) {
 }
 
 async function createTestForum(worldHandle: string, handle: string) {
-	return createForum(
-		testEnv.BICKR_KV,
-		testEnv.BICKR_D1,
-		worldHandle,
-		{
+	const world = await testEnv.BICKR_D1.prepare(
+		"SELECT world_id AS id FROM worlds_index WHERE handle = ? AND lifecycle_state = 'active'",
+	).bind(worldHandle).first<{ id: string }>();
+	if (!world) throw new Error("Expected active test world.");
+	const data = await forumCoordinatorMutation(world.id, `/worlds/${worldHandle}/forums`, "POST", {
 			handle,
 			language: testLanguage,
 			description: lt(`${handle} discussion`),
-		},
-		ownerId,
-		now,
-	);
+	});
+	return data.forum as { id: string; handle: string };
+}
+
+async function forumCoordinatorMutation(
+	worldId: string,
+	path: string,
+	method: "POST" | "DELETE",
+	body?: unknown,
+): Promise<Record<string, unknown>> {
+	const headers = new Headers({ "x-bickr-user-id": ownerId });
+	if (body !== undefined) headers.set("content-type", "application/json");
+	const response = await handleForumCoordinatorRequest(new Request(`https://internal.bickr${path}`, {
+		method,
+		headers,
+		...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+	}), testEnv, {
+		objectId: worldId,
+		queue: new ExclusiveOperationQueue(),
+	});
+	const payload = await response.json() as { ok: boolean; data?: Record<string, unknown>; message?: string };
+	if (!response.ok || !payload.ok || !payload.data) throw new Error(payload.message ?? "Forum coordinator mutation failed.");
+	return payload.data;
 }
 
 async function createTestBot(worldHandle: string, handle: string) {
@@ -298,14 +322,14 @@ async function seedOwner(): Promise<void> {
 		updatedAt: now,
 	};
 	await testEnv.BICKR_KV.put(kvKeys.user(user.id), JSON.stringify(user));
-	await testEnv.BICKR_D1
-		.prepare(
+	await testEnv.BICKR_D1.batch([
+		activeClaim("user_handle", "global", user.handle, "account", user.id, user.id),
+		testEnv.BICKR_D1.prepare(
 			`INSERT INTO users_index (
 				user_id, handle, language, ui_locale, display_name, display_name_lang,
 				avatar_url, avatar_crop, profile_completed_at, created_at, updated_at, deleted_at
 			) VALUES (?, ?, ?, NULL, ?, ?, NULL, NULL, NULL, ?, ?, NULL)`,
-		)
-		.bind(
+		).bind(
 			user.id,
 			user.handle,
 			user.language,
@@ -313,15 +337,16 @@ async function seedOwner(): Promise<void> {
 			user.displayName.lang,
 			user.createdAt,
 			user.updatedAt,
-		)
-		.run();
+		),
+	]);
 }
 
 async function insertUserHandles(handles: string[]): Promise<void> {
 	if (handles.length === 0) {
 		return;
 	}
-	await testEnv.BICKR_D1.batch(handles.map((handle, index) =>
+	await testEnv.BICKR_D1.batch(handles.flatMap((handle, index) => [
+		activeClaim("user_handle", "global", handle, "account", `usr_existing_${index}`, `usr_existing_${index}`),
 		testEnv.BICKR_D1
 			.prepare(
 				`INSERT INTO users_index (
@@ -330,7 +355,23 @@ async function insertUserHandles(handles: string[]): Promise<void> {
 				) VALUES (?, ?, ?, NULL, ?, ?, NULL, NULL, NULL, ?, ?, NULL)`,
 			)
 			.bind(`usr_existing_${index}`, handle, testLanguage, handle, testLanguage, now, now),
-	));
+	]));
+}
+
+function activeClaim(
+	kind: "user_handle" | "world_handle" | "bot_handle",
+	scope: string,
+	value: string,
+	entityKind: "account" | "world" | "bot",
+	entityId: string,
+	ownerUserId: string,
+) {
+	return testEnv.BICKR_D1.prepare(
+		`INSERT INTO entity_lifecycle_identity_claims (
+			key_kind, key_scope, key_value, entity_kind, entity_id,
+			owner_user_id, claim_state, operation_id, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?)`,
+	).bind(kind, scope, value, entityKind, entityId, ownerUserId, now, now);
 }
 
 async function insertForumHandles(world: Pick<WorldDocument, "id" | "handle">, handles: string[]): Promise<void> {

@@ -37,6 +37,9 @@ import migration0035 from "../../migrations/0035_query_time_thread_hot_score.sql
 import migration0036 from "../../migrations/0036_thread_comment_limits.sql?raw";
 import migration0037 from "../../migrations/0037_world_recurring_prompt.sql?raw";
 import migration0038 from "../../migrations/0038_maintenance_control.sql?raw";
+import migration0039 from "../../migrations/0039_entity_lifecycle.sql?raw";
+import migration0040 from "../../migrations/0040_entity_lifecycle_recovery.sql?raw";
+import migration0041 from "../../migrations/0041_bot_group_members_bot.sql?raw";
 
 const migrationSql = [
 	migration0001,
@@ -78,6 +81,9 @@ const migrationSql = [
 	migration0036,
 	migration0037,
 	migration0038,
+	migration0039,
+	migration0040,
+	migration0041,
 ];
 
 type D1SchemaRow = {
@@ -97,14 +103,107 @@ export async function applyD1Migrations(db: D1Database): Promise<void> {
 	}
 }
 
+export async function applyD1LifecycleRecoveryMigration(db: D1Database): Promise<void> {
+	await execD1Statements(db, migration0040);
+}
+
 export async function execD1Statements(db: D1Database, sql: string): Promise<void> {
-	const withoutLineComments = sql.replace(/^\s*--.*$/gm, "");
-	for (const statement of withoutLineComments.split(";")) {
-		const trimmed = statement.trim();
-		if (trimmed.length > 0) {
-			await db.prepare(trimmed).run();
+	for (const statement of splitD1Statements(sql)) {
+		if (statement.trim()) await db.prepare(statement).run();
+	}
+}
+
+// D1Database.exec currently splits on newlines, so it cannot execute the
+// repository's formatted multi-line CREATE statements. This lexer splits only
+// at statement-level semicolons and tracks BEGIN/CASE ... END inside triggers;
+// it does not guess trigger bodies with a regex.
+function splitD1Statements(sql: string): string[] {
+	const statements: string[] = [];
+	let start = 0;
+	let wordStart = -1;
+	let quote: "'" | '"' | "`" | "]" | null = null;
+	let lineComment = false;
+	let blockComment = false;
+	let trigger = false;
+	const triggerBlocks: Array<"begin" | "case"> = [];
+	const leadingTokens: string[] = [];
+
+	const flushWord = (end: number): void => {
+		if (wordStart < 0) return;
+		const token = sql.slice(wordStart, end).toUpperCase();
+		wordStart = -1;
+		if (!trigger && leadingTokens.length < 3) {
+			leadingTokens.push(token);
+			trigger = leadingTokens[0] === "CREATE" && (
+				leadingTokens[1] === "TRIGGER" ||
+				(["TEMP", "TEMPORARY"].includes(leadingTokens[1] ?? "") && leadingTokens[2] === "TRIGGER")
+			);
+		}
+		if (!trigger) return;
+		if (token === "BEGIN") triggerBlocks.push("begin");
+		else if (token === "CASE") triggerBlocks.push("case");
+		else if (token === "END") triggerBlocks.pop();
+	};
+
+	const resetStatement = (nextStart: number): void => {
+		start = nextStart;
+		trigger = false;
+		triggerBlocks.length = 0;
+		leadingTokens.length = 0;
+	};
+
+	for (let index = 0; index < sql.length; index += 1) {
+		const character = sql[index] ?? "";
+		const next = sql[index + 1] ?? "";
+		if (lineComment) {
+			if (character === "\n") lineComment = false;
+			continue;
+		}
+		if (blockComment) {
+			if (character === "*" && next === "/") {
+				blockComment = false;
+				index += 1;
+			}
+			continue;
+		}
+		if (quote) {
+			if (quote === "]" && character === "]") quote = null;
+			else if (quote !== "]" && character === quote) {
+				if (next === quote) index += 1;
+				else quote = null;
+			}
+			continue;
+		}
+		if (character === "-" && next === "-") {
+			flushWord(index);
+			lineComment = true;
+			index += 1;
+			continue;
+		}
+		if (character === "/" && next === "*") {
+			flushWord(index);
+			blockComment = true;
+			index += 1;
+			continue;
+		}
+		if (character === "'" || character === '"' || character === "`" || character === "[") {
+			flushWord(index);
+			quote = character === "[" ? "]" : character;
+			continue;
+		}
+		if (/[A-Za-z_]/u.test(character)) {
+			if (wordStart < 0) wordStart = index;
+			continue;
+		}
+		flushWord(index);
+		if (character === ";" && (!trigger || triggerBlocks.length === 0)) {
+			statements.push(sql.slice(start, index));
+			resetStatement(index + 1);
 		}
 	}
+	flushWord(sql.length);
+	statements.push(sql.slice(start));
+	return statements;
 }
 
 export async function clearKv(kv: KVNamespace): Promise<void> {

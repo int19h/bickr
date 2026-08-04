@@ -1,15 +1,19 @@
 import { authProviders, type AuthProvider } from "@bickr/shared/model";
-import { ok } from "@bickr/shared/api";
-import { RepositoryError, unlinkProviderIdentity, userProfile } from "@bickr/shared/repository";
+import { RepositoryError } from "@bickr/shared/repository";
 import { type AppEnv, requireUser } from "../../../_auth";
 import { pageErrorResponse } from "../../../_errors";
+import { serviceRequest } from "../../../_proxy";
 
 export const onRequestDelete: PagesFunction<AppEnv, "provider"> = async ({ env, params, request }) => {
 	try {
 		const provider = authProviderFromParam(Array.isArray(params.provider) ? params.provider[0] : params.provider);
 		const user = await requireUser(env, request);
-		const authIdentities = await unlinkProviderIdentity(env.BICKR_D1, user.id, provider);
-		return ok({ profile: userProfile(user, authIdentities) });
+		return env.AGENT_RUNTIME.fetch(serviceRequest(
+			env,
+			request,
+			`/users/${encodeURIComponent(user.id)}/auth/identities/${encodeURIComponent(provider)}`,
+			user.id,
+		));
 	} catch (error) {
 		return pageErrorResponse(error);
 	}

@@ -1,7 +1,19 @@
 import { fail, ok, readJsonBody } from '@bickr/shared/api';
-import { copyAvatarImage, fetchRemoteAvatarBytes, normalizeAvatarPublicBaseUrl, storeAvatarImage } from '@bickr/shared/avatar-storage';
-import { ExclusiveOperationQueue } from '@bickr/shared/exclusive-operation-queue';
-import { updateWorld } from '@bickr/shared/governance';
+import type { AccountMutationResult } from '@bickr/shared/account-mutation-protocol';
+import {
+	copyAvatarImage,
+	fetchRemoteAvatarBytes,
+	normalizeAvatarPublicBaseUrl,
+	storeAvatarImage,
+	validateAvatarFile,
+	type AvatarContentType,
+} from '@bickr/shared/avatar-storage';
+import {
+	cleanupTerminalLifecycleOperations,
+	lifecycleIdempotencyKey,
+	nextLifecycleAlarmAt,
+} from '@bickr/shared/entity-lifecycle';
+import { makeId } from '@bickr/shared/ids';
 import { json } from '@bickr/shared/http';
 import { type ObjectIndexConvergenceTask, runObjectIndexConvergenceBatch } from '@bickr/shared/index-repair';
 import { providerEnvironmentSettingsFromBindings } from '@bickr/shared/inference-settings';
@@ -9,23 +21,19 @@ import { addInternalServiceAuthHeader, internalServiceUrl, isTrustedInternalServ
 import { mutationMaintenanceResponse, readMaintenanceState } from '@bickr/shared/maintenance';
 import {
 	botById,
-	createBot,
-	deleteBot,
+	botSummaryById,
+	userCoordinatorRepositoryMutations,
 	humanProfileDeleteEligibility,
-	listOwnedForumsOutsideOwnedWorlds,
 	listOwnedWorlds,
 	listUserBots,
+	listUserAuthIdentities,
+	publicBotSummary,
 	rawBotById,
-	refreshLinkedCloneIndexes,
-	relinkBotClone,
 	RepositoryError,
-	softDeleteUserProfile,
-	spreadUserBotTicks,
-	unlinkBotClone,
-	updateBot,
-	updateBotAvatar,
-	updateUserProfile,
 	userById,
+	userProfile,
+	worldByHandle,
+	worldSummaryFromDocument,
 } from '@bickr/shared/repository';
 import {
 	boundedSearchPage,
@@ -45,9 +53,14 @@ import {
 	InputError,
 	normalizeHandle,
 	parseCreateBotInput,
+	parseCreateBotGroupInput,
+	parseCreateWorldInput,
+	parseAddBotGroupMembersInput,
 	parseUpdateBotInput,
+	parseUpdateBotGroupInput,
 	parseUpdateUserProfileInput,
 	parseUpdateWorldInput,
+	requiredText,
 } from '@bickr/shared/validation';
 import {
 	applyGeneratedAvatarForBot,
@@ -68,10 +81,8 @@ import { RuntimeOperationTimeoutError } from './errors';
 import { withAbortableTimeout } from './provider/sse';
 import {
 	agentRuntimeNotFoundResponse,
-	apiErrorPayload,
 	avatarPromptSettingsRuntime,
 	avatarProvider,
-	deleteBotVector,
 	effectiveAvatarSettingsLanguageForBot,
 	effectiveAvatarSettingsLanguageForUser,
 	effectiveAvatarSettingsLanguageForWorld,
@@ -79,52 +90,75 @@ import {
 	errorResponse,
 	parseTranslationInput,
 	readOptionalJsonBody,
-	repositoryErrorCode,
 	requireAuthenticatedServiceRequest,
 	requireAvatarBucket,
 	requireSchedulerServiceRequest,
 	requireUserMatch,
 	runtimeRecord,
-	sortBotsForCascadeDelete,
 	translateForUser,
 	upsertBotVector,
 } from './runtime/bot-runtime';
 import type { Env } from './types';
+import type {
+	AgentRuntimeRouteContext,
+	AgentRuntimeRouteEnv,
+	UserBotsCoordinatorContext,
+} from './lifecycle/types';
+import {
+	providerProfileFromUnknown,
+	reserveAccountDelete,
+	resumeReservedAccountBootstrapOperation,
+	runAccountDeleteOperation,
+} from './lifecycle/account';
+import {
+	accountBootstrapOperationHeader,
+	reservedAccountBootstrapOperation,
+	reserveOrJoinAccountBootstrap,
+} from './lifecycle/account-bootstrap-reservation';
+import {
+	reserveBotCreate,
+	reserveBotDelete,
+	runBotCreateOperation,
+	runBotDeleteOperation,
+} from './lifecycle/bot';
+import {
+	requestOwnerWorldMutation,
+	requiredBotGroupMutationResult,
+	requiredWorldMutationResult,
+	reserveWorldCreate,
+	reserveWorldDelete,
+	runWorldCreateOperation,
+	runWorldDeleteOperation,
+} from './lifecycle/world';
+import {
+	armNextUserLifecycleAlarm,
+	lifecycleRecoveryWakeRequestFromUnknown,
+	recoverDueLifecycleOwners,
+	resumeDueUserLifecycleOperation,
+} from './lifecycle/recovery';
+import { kvKeys, readJson } from '@bickr/shared/storage';
+import { authProviders, type AuthProvider, type AvatarCrop, type AvatarImage, type BotDocument, type WorldDocument } from '@bickr/shared/model';
 
-export type UserBotsCoordinatorContext = {
-	objectId: string;
-	queue?: ExclusiveOperationQueue;
-	storage?: DurableObjectStorage;
-};
-
-type AgentRuntimeRouteEnv = Pick<
-	Env,
-	| 'BICKR_D1'
-	| 'BICKR_KV'
-	| 'BICKR_R2'
-	| 'BICKR_R2_PUBLIC_BASE_URL'
-	| 'AI'
-	| 'BICKR_SEARCH_VECTORIZE'
-	| 'OPENROUTER_API_KEY'
-	| 'OPENROUTER_BASE_URL'
-	| 'OPENROUTER_MODEL'
-> &
-	Partial<Pick<Env, 'FORUM_COORDINATOR_SERVICE' | 'INTERNAL_SERVICE_SECRET'>>;
-
-type AgentRuntimeRouteContext = {
-	request: Request;
-	env: AgentRuntimeRouteEnv;
-	url: URL;
-	coordinator: UserBotsCoordinatorContext;
-	objectId: string;
-	match: RegExpExecArray;
-};
+const {
+	deleteBotAvatar,
+	linkProviderIdentity,
+	refreshLinkedCloneIndexes,
+	refreshProviderIdentity,
+	relinkBotClone,
+	spreadUserBotTicks,
+	unlinkBotClone,
+	unlinkProviderIdentity,
+	updateBot,
+	updateBotAvatar,
+	updateUserAvatar,
+	updateUserProfile,
+} = userCoordinatorRepositoryMutations;
 
 type AgentRuntimeRouteHandler = (context: AgentRuntimeRouteContext) => Promise<Response>;
 
 type AgentRuntimeHandlerRoute = {
 	id: string;
-	method: 'GET' | 'POST' | 'PATCH' | 'DELETE' | '*';
+	method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | '*';
 	pattern: RegExp;
 	dispatch: 'direct' | 'user-coordinator';
 	handler: AgentRuntimeRouteHandler;
@@ -137,11 +171,222 @@ type BotRuntimeDispatchRoute = {
 	dispatch: 'bot-runtime';
 };
 
-type AgentRuntimeRoute = AgentRuntimeHandlerRoute | BotRuntimeDispatchRoute;
+type AccountBootstrapDispatchRoute = {
+	id: 'account-bootstrap-dispatch';
+	method: 'POST';
+	pattern: RegExp;
+	dispatch: 'account-bootstrap';
+};
+
+type AgentRuntimeRoute = AgentRuntimeHandlerRoute | BotRuntimeDispatchRoute | AccountBootstrapDispatchRoute;
 
 const userBotPattern = /^\/users\/([^/]+)\/bots\/([^/]+)$/;
 
+async function worldForUpdateMutation(
+	context: AgentRuntimeRouteContext,
+	requestedHandle: string,
+	nextHandle: string | undefined,
+): Promise<{ id: string; handle: string }> {
+	try {
+		return await worldByHandle(context.env.BICKR_D1, requestedHandle);
+	} catch (error) {
+		if (!(error instanceof RepositoryError) || error.code !== 'not_found' || !nextHandle || nextHandle === requestedHandle) {
+			throw error;
+		}
+		const candidate = await worldByHandle(context.env.BICKR_D1, nextHandle);
+		const document = await readJson<WorldDocument>(context.env.BICKR_KV, kvKeys.world(candidate.id));
+		if (!document || document.deletedAt || document.handle !== requestedHandle) {
+			throw error;
+		}
+		// The world projection and canonical claim commit atomically before KV.
+		// A failed KV write therefore leaves a narrowly recognizable replay:
+		// D1 has the requested new handle while the stable-id document still has
+		// the route's old handle. Dispatch that replay to the same world DO.
+		return candidate;
+	}
+}
+
 export const agentRuntimeRouteTable = [
+	{
+		id: 'account-bootstrap-dispatch',
+		method: 'POST',
+		pattern: /^\/accounts\/bootstrap$/,
+		dispatch: 'account-bootstrap',
+	},
+	{
+		id: 'lifecycle-recovery',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/lifecycle\/recover$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) {
+				throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			}
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			requireSchedulerServiceRequest(context.request);
+			if (context.coordinator.ownerUserId !== userId) {
+				throw new RepositoryError('forbidden', 'Lifecycle recovery was dispatched to the wrong coordinator.', 403);
+			}
+			const wake = lifecycleRecoveryWakeRequestFromUnknown(await readJsonBody(context.request));
+			const result = await resumeDueUserLifecycleOperation(context, wake.scheduledAt);
+			await armNextUserLifecycleAlarm(context.env.BICKR_D1, context.coordinator);
+			return ok(result);
+		},
+	},
+	{
+		id: 'user-avatar-upload',
+		method: 'PUT',
+		pattern: /^\/users\/([^/]+)\/avatar$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const avatar = await storedAvatarFromRequest(context, { kind: 'user', userId });
+			return ok({ profile: await updateUserAvatar(context.env.BICKR_KV, context.env.BICKR_D1, userId, avatar), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'user-avatar-delete',
+		method: 'DELETE',
+		pattern: /^\/users\/([^/]+)\/avatar$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			return ok({ profile: await updateUserAvatar(context.env.BICKR_KV, context.env.BICKR_D1, userId, undefined), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'user-avatar-crop',
+		method: 'PATCH',
+		pattern: /^\/users\/([^/]+)\/avatar\/crop$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const user = await userById(context.env.BICKR_KV, userId);
+			const avatar = await croppedAvatarFromRequest(context.request, user.avatar, 'Your profile does not have an avatar to crop.');
+			return ok({ profile: await updateUserAvatar(context.env.BICKR_KV, context.env.BICKR_D1, userId, avatar), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'bot-avatar-upload',
+		method: 'PUT',
+		pattern: /^\/users\/([^/]+)\/bots\/([^/]+)\/avatar$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const botId = decodeURIComponent(context.match[2] ?? '');
+			const bot = await botById(context.env.BICKR_KV, context.env.BICKR_D1, botId);
+			if (bot.ownerUserId !== userId) throw new RepositoryError('forbidden', "Only this participant's owner can update its avatar.", 403);
+			const avatar = await storedAvatarFromRequest(context, { kind: 'bot', botId, worldId: bot.homeWorldId });
+			const updated = await updateBotAvatar(context.env.BICKR_KV, context.env.BICKR_D1, botId, userId, avatar);
+			return ok({ bot: updated, affectedBots: await refreshLinkedCloneIndexes(context.env.BICKR_KV, context.env.BICKR_D1, botId), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'bot-avatar-delete',
+		method: 'DELETE',
+		pattern: /^\/users\/([^/]+)\/bots\/([^/]+)\/avatar$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const botId = decodeURIComponent(context.match[2] ?? '');
+			const updated = await deleteBotAvatar(context.env.BICKR_KV, context.env.BICKR_D1, botId, userId);
+			return ok({ bot: updated, affectedBots: await refreshLinkedCloneIndexes(context.env.BICKR_KV, context.env.BICKR_D1, botId), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'bot-avatar-crop',
+		method: 'PATCH',
+		pattern: /^\/users\/([^/]+)\/bots\/([^/]+)\/avatar\/crop$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const botId = decodeURIComponent(context.match[2] ?? '');
+			const bot = await rawBotById(context.env.BICKR_KV, context.env.BICKR_D1, botId);
+			if (bot.ownerUserId !== userId) throw new RepositoryError('forbidden', "Only this participant's owner can crop its avatar.", 403);
+			const avatar = await croppedAvatarFromRequest(context.request, bot.avatar, 'This participant does not have an avatar to crop.');
+			const updated = await updateBotAvatar(context.env.BICKR_KV, context.env.BICKR_D1, botId, userId, avatar);
+			return ok({ bot: updated, affectedBots: await refreshLinkedCloneIndexes(context.env.BICKR_KV, context.env.BICKR_D1, botId), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'world-avatar-upload',
+		method: 'PUT',
+		pattern: /^\/users\/([^/]+)\/worlds\/([^/]+)\/avatar$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const worldHandle = normalizeHandle(decodeURIComponent(context.match[2] ?? ''));
+			const worldRef = await worldByHandle(context.env.BICKR_D1, worldHandle);
+			const world = await readJson<WorldDocument>(context.env.BICKR_KV, kvKeys.world(worldRef.id));
+			if (!world || world.createdByUserId !== userId) throw new RepositoryError('forbidden', "Only this world's owner can update its avatar.", 403);
+			const avatar = await storedAvatarFromRequest(context, { kind: 'world', worldId: world.id });
+			const result = await requestOwnerWorldMutation(context, world.id, userId, { kind: 'avatar_update', worldHandle, avatar });
+			return ok({ world: requiredWorldMutationResult(result), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'world-avatar-delete',
+		method: 'DELETE',
+		pattern: /^\/users\/([^/]+)\/worlds\/([^/]+)\/avatar$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const worldHandle = normalizeHandle(decodeURIComponent(context.match[2] ?? ''));
+			const world = await worldByHandle(context.env.BICKR_D1, worldHandle);
+			const result = await requestOwnerWorldMutation(context, world.id, userId, { kind: 'avatar_update', worldHandle });
+			return ok({ world: requiredWorldMutationResult(result), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'world-avatar-crop',
+		method: 'PATCH',
+		pattern: /^\/users\/([^/]+)\/worlds\/([^/]+)\/avatar\/crop$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const worldHandle = normalizeHandle(decodeURIComponent(context.match[2] ?? ''));
+			const worldRef = await worldByHandle(context.env.BICKR_D1, worldHandle);
+			const world = await readJson<WorldDocument>(context.env.BICKR_KV, kvKeys.world(worldRef.id));
+			if (!world || world.createdByUserId !== userId) throw new RepositoryError('forbidden', "Only this world's owner can crop its avatar.", 403);
+			const avatar = await croppedAvatarFromRequest(context.request, world.avatar, 'This world does not have an avatar to crop.');
+			const result = await requestOwnerWorldMutation(context, world.id, userId, { kind: 'avatar_update', worldHandle, avatar });
+			return ok({ world: requiredWorldMutationResult(result), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'account-bootstrap',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/account\/bootstrap$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = decodeURIComponent(context.match[1] ?? '');
+			if (!userId || context.coordinator.ownerUserId && context.coordinator.ownerUserId !== userId) {
+				throw new RepositoryError('forbidden', 'Account bootstrap was dispatched to the wrong coordinator.', 403);
+			}
+			const profile = providerProfileFromUnknown(await readJsonBody(context.request));
+			const operationId = context.request.headers.get(accountBootstrapOperationHeader)?.trim();
+			if (operationId) {
+				const reserved = await reservedAccountBootstrapOperation(context.env.BICKR_D1, {
+					operationId,
+					profile,
+					userId,
+				});
+				await resumeReservedAccountBootstrapOperation(context, reserved.operation, reserved.profile);
+			} else {
+				const existing = await refreshProviderIdentity(context.env.BICKR_KV, context.env.BICKR_D1, profile);
+				if (existing.id !== userId) {
+					throw new RepositoryError('conflict', 'Provider identity belongs to another account.', 409);
+				}
+			}
+			const user = await userById(context.env.BICKR_KV, userId);
+			const result = {
+				kind: 'account_bootstrapped',
+				profile: userProfile(user, await listUserAuthIdentities(context.env.BICKR_D1, user.id)),
+				user,
+			} satisfies AccountMutationResult;
+			return ok({ ...result, coordinator: context.objectId }, { status: 201 });
+		},
+	},
 	{
 		id: 'health',
 		method: '*',
@@ -177,6 +422,48 @@ export const agentRuntimeRouteTable = [
 			const input = parseTranslationInput(await readJsonBody(context.request));
 			const translation = await translateForUser(context.env, userId, input.text);
 			return ok({ translation, coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'update-profile',
+		method: 'PATCH',
+		pattern: /^\/users\/([^/]+)\/profile$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const input = parseUpdateUserProfileInput(await readJsonBody(context.request));
+			const profile = await updateUserProfile(context.env.BICKR_KV, context.env.BICKR_D1, userId, input);
+			const result = { kind: 'profile_updated', profile } satisfies AccountMutationResult;
+			return ok({ ...result, coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'link-provider-identity',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/auth\/identities$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const profile = providerProfileFromUnknown(await readJsonBody(context.request));
+			const user = await linkProviderIdentity(context.env.BICKR_KV, context.env.BICKR_D1, userId, profile);
+			const result = { kind: 'provider_identity_linked', profile: userProfile(user, await listUserAuthIdentities(context.env.BICKR_D1, userId)) } satisfies AccountMutationResult;
+			return ok({ ...result, coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'unlink-provider-identity',
+		method: 'DELETE',
+		pattern: /^\/users\/([^/]+)\/auth\/identities\/([^/]+)$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const providerValue = decodeURIComponent(context.match[2] ?? '');
+			if (!(authProviders as readonly string[]).includes(providerValue)) {
+				throw new RepositoryError('not_found', 'Sign-in provider not found.', 404);
+			}
+			const identities = await unlinkProviderIdentity(context.env.BICKR_D1, userId, providerValue as AuthProvider);
+			const result = { kind: 'provider_identity_unlinked', profile: userProfile(await userById(context.env.BICKR_KV, userId), identities) } satisfies AccountMutationResult;
+			return ok({ ...result, coordinator: context.objectId });
 		},
 	},
 	{
@@ -323,7 +610,17 @@ export const agentRuntimeRouteTable = [
 							language: effectiveAvatarSettingsLanguageForUser(await userById(context.env.BICKR_KV, userId)),
 							inferenceSettings: { imageGeneration: body.settings },
 						});
-			let profile = await applyGeneratedAvatarForUser(context.env, userId, parseAvatarCandidateValue(body.candidate));
+			let profile = await applyGeneratedAvatarForUser(
+				context.env,
+				userId,
+				parseAvatarCandidateValue(body.candidate),
+				(targetUserId, avatar) => updateUserAvatar(
+					context.env.BICKR_KV,
+					context.env.BICKR_D1,
+					targetUserId,
+					avatar,
+				),
+			);
 			if (settingsInput?.inferenceSettings !== undefined) {
 				profile = await updateUserProfile(context.env.BICKR_KV, context.env.BICKR_D1, userId, {
 					inferenceSettings: settingsInput.inferenceSettings,
@@ -341,38 +638,148 @@ export const agentRuntimeRouteTable = [
 			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
 			const worldHandle = normalizeHandle(decodeURIComponent(context.match[2] ?? ''));
 			const input = parseCreateBotInput(await readJsonBody(context.request));
-			const cloneSourceBot = input.cloneSourceBotId
-				? await rawBotById(context.env.BICKR_KV, context.env.BICKR_D1, input.cloneSourceBotId)
-				: null;
-			if (cloneSourceBot && cloneSourceBot.ownerUserId !== userId) {
-				throw new RepositoryError('forbidden', 'You can only clone your own participants.', 403);
-			}
 			if (input.importSource?.sourceAvatarUrl) {
 				requireAvatarBucket(context.env);
 				normalizeAvatarPublicBaseUrl(context.env.BICKR_R2_PUBLIC_BASE_URL);
 			}
-			const chirperAvatar = input.importSource?.sourceAvatarUrl ? await fetchRemoteAvatarBytes(input.importSource.sourceAvatarUrl) : null;
-			let bot = await createBot(context.env.BICKR_KV, context.env.BICKR_D1, worldHandle, input, userId, {
-				cloneSource: cloneSourceBot ?? undefined,
-			});
-			if (chirperAvatar && input.importSource?.sourceAvatarUrl) {
-				const avatar = await storeAvatarImage(requireAvatarBucket(context.env), {
-					botId: bot.id,
-					worldId: bot.homeWorldId,
-					bytes: chirperAvatar.bytes,
-					contentType: chirperAvatar.contentType,
-					publicBaseUrl: normalizeAvatarPublicBaseUrl(context.env.BICKR_R2_PUBLIC_BASE_URL),
-					source: {
-						type: 'chirper',
-						sourceUrl: input.importSource.sourceAvatarUrl,
-						originalHandle: input.importSource.originalHandle,
-						importedAt: input.importSource.importedAt,
-					},
-				});
-				bot = await updateBotAvatar(context.env.BICKR_KV, context.env.BICKR_D1, bot.id, userId, avatar);
-			}
-			await upsertBotVector(context.env, bot);
+			const operation = await reserveBotCreate(context, userId, worldHandle, input);
+			await runBotCreateOperation(context, operation);
+			const bot = await botSummaryById(context.env.BICKR_KV, context.env.BICKR_D1, operation.entityId);
 			return ok({ bot, coordinator: context.objectId }, { status: 201 });
+		},
+	},
+	{
+		id: 'create-world',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/worlds$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const input = parseCreateWorldInput(await readJsonBody(context.request));
+			const operation = await reserveWorldCreate(context, userId, input);
+			await runWorldCreateOperation(context, operation);
+			const world = (await listOwnedWorlds(context.env.BICKR_D1, userId)).find((candidate) => candidate.id === operation.entityId);
+			if (!world) {
+				throw new RepositoryError('server_error', 'Activated world projection is missing.', 500);
+			}
+			return ok({ world, coordinator: context.objectId }, { status: 201 });
+		},
+	},
+	{
+		id: 'update-world',
+		method: 'PATCH',
+		pattern: /^\/users\/([^/]+)\/worlds\/([^/]+)$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const worldHandle = normalizeHandle(decodeURIComponent(context.match[2] ?? ''));
+			const input = parseUpdateWorldInput(await readJsonBody(context.request));
+			const world = await worldForUpdateMutation(context, worldHandle, input.handle);
+			const result = await requestOwnerWorldMutation(context, world.id, userId, { kind: 'world_update', worldHandle, input });
+			return ok({ world: requiredWorldMutationResult(result), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'delete-world',
+		method: 'DELETE',
+		pattern: /^\/users\/([^/]+)\/worlds\/([^/]+)$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const worldHandle = normalizeHandle(decodeURIComponent(context.match[2] ?? ''));
+			const operation = await reserveWorldDelete(context, userId, worldHandle);
+			await runWorldDeleteOperation(context, operation);
+			const deleted = await readJson<WorldDocument>(context.env.BICKR_KV, kvKeys.world(operation.entityId));
+			if (!deleted?.deletedAt) {
+				throw new RepositoryError('server_error', 'Deleted world document is missing.', 500);
+			}
+			return ok({ world: worldSummaryFromDocument(deleted), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'create-bot-group',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/worlds\/([^/]+)\/groups$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const worldHandle = normalizeHandle(decodeURIComponent(context.match[2] ?? ''));
+			const world = await worldByHandle(context.env.BICKR_D1, worldHandle);
+			const result = await requestOwnerWorldMutation(context, world.id, userId, {
+				kind: 'bot_group_create',
+				worldHandle,
+				input: parseCreateBotGroupInput(await readJsonBody(context.request)),
+			});
+			return ok({ group: requiredBotGroupMutationResult(result, 'bot_group_created'), coordinator: context.objectId }, { status: 201 });
+		},
+	},
+	{
+		id: 'update-bot-group',
+		method: 'PATCH',
+		pattern: /^\/users\/([^/]+)\/worlds\/([^/]+)\/groups\/([^/]+)$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const worldHandle = normalizeHandle(decodeURIComponent(context.match[2] ?? ''));
+			const world = await worldByHandle(context.env.BICKR_D1, worldHandle);
+			const result = await requestOwnerWorldMutation(context, world.id, userId, {
+				kind: 'bot_group_update',
+				worldHandle,
+				groupId: decodeURIComponent(context.match[3] ?? ''),
+				input: parseUpdateBotGroupInput(await readJsonBody(context.request)),
+			});
+			return ok({ group: requiredBotGroupMutationResult(result, 'bot_group_updated'), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'delete-bot-group',
+		method: 'DELETE',
+		pattern: /^\/users\/([^/]+)\/worlds\/([^/]+)\/groups\/([^/]+)$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const worldHandle = normalizeHandle(decodeURIComponent(context.match[2] ?? ''));
+			const world = await worldByHandle(context.env.BICKR_D1, worldHandle);
+			const result = await requestOwnerWorldMutation(context, world.id, userId, {
+				kind: 'bot_group_delete', worldHandle, groupId: decodeURIComponent(context.match[3] ?? ''),
+			});
+			return ok({ group: requiredBotGroupMutationResult(result, 'bot_group_deleted'), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'add-bot-group-members',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/worlds\/([^/]+)\/groups\/([^/]+)\/bots$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const worldHandle = normalizeHandle(decodeURIComponent(context.match[2] ?? ''));
+			const world = await worldByHandle(context.env.BICKR_D1, worldHandle);
+			const result = await requestOwnerWorldMutation(context, world.id, userId, {
+				kind: 'bot_group_members_add',
+				worldHandle,
+				groupId: decodeURIComponent(context.match[3] ?? ''),
+				input: parseAddBotGroupMembersInput(await readJsonBody(context.request)),
+			});
+			return ok({ group: requiredBotGroupMutationResult(result, 'bot_group_updated'), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'remove-bot-group-member',
+		method: 'DELETE',
+		pattern: /^\/users\/([^/]+)\/worlds\/([^/]+)\/groups\/([^/]+)\/bots\/([^/]+)$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const worldHandle = normalizeHandle(decodeURIComponent(context.match[2] ?? ''));
+			const world = await worldByHandle(context.env.BICKR_D1, worldHandle);
+			const result = await requestOwnerWorldMutation(context, world.id, userId, {
+				kind: 'bot_group_member_remove',
+				worldHandle,
+				groupId: decodeURIComponent(context.match[3] ?? ''),
+				botId: decodeURIComponent(context.match[4] ?? ''),
+			});
+			return ok({ group: requiredBotGroupMutationResult(result, 'bot_group_updated'), coordinator: context.objectId });
 		},
 	},
 	{
@@ -518,7 +925,19 @@ export const agentRuntimeRouteTable = [
 							language: effectiveAvatarSettingsLanguageForBot(targetBot),
 							inferenceSettings: { imageGeneration: body.settings },
 						});
-			let bot = await applyGeneratedAvatarForBot(context.env, userId, botId, parseAvatarCandidateValue(body.candidate));
+			let bot = await applyGeneratedAvatarForBot(
+				context.env,
+				userId,
+				botId,
+				parseAvatarCandidateValue(body.candidate),
+				(targetBotId, avatar) => updateBotAvatar(
+					context.env.BICKR_KV,
+					context.env.BICKR_D1,
+					targetBotId,
+					userId,
+					avatar,
+				),
+			);
 			if (settingsInput?.inferenceSettings !== undefined) {
 				bot = await updateBot(context.env.BICKR_KV, context.env.BICKR_D1, bot.id, userId, {
 					inferenceSettings: settingsInput.inferenceSettings,
@@ -608,11 +1027,23 @@ export const agentRuntimeRouteTable = [
 							language: effectiveAvatarSettingsLanguageForWorld(targetWorld),
 							imageGeneration: body.settings,
 						});
-			let world = await applyGeneratedAvatarForWorld(context.env, userId, worldHandle, parseAvatarCandidateValue(body.candidate));
+			let world = await applyGeneratedAvatarForWorld(
+				context.env,
+				userId,
+				worldHandle,
+				parseAvatarCandidateValue(body.candidate),
+				async (target, avatar) => requiredWorldMutationResult(await requestOwnerWorldMutation(context, target.id, userId, {
+					kind: 'avatar_update',
+					worldHandle: target.handle,
+					avatar,
+				})),
+			);
 			if (settingsInput?.imageGeneration !== undefined) {
-				world = await updateWorld(context.env.BICKR_KV, context.env.BICKR_D1, world.handle, userId, {
-					imageGeneration: settingsInput.imageGeneration,
-				});
+				world = requiredWorldMutationResult(await requestOwnerWorldMutation(context, targetWorld.id, userId, {
+					kind: 'world_update',
+					worldHandle: world.handle,
+					input: { imageGeneration: settingsInput.imageGeneration },
+				}));
 			}
 			return ok({ world, coordinator: context.objectId });
 		},
@@ -625,9 +1056,13 @@ export const agentRuntimeRouteTable = [
 		handler: async (context) => {
 			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
 			const botId = decodeURIComponent(context.match[2] ?? '');
-			const bot = await deleteBot(context.env.BICKR_KV, context.env.BICKR_D1, botId, userId);
-			await deleteBotVector(context.env, bot.id);
-			return ok({ bot, coordinator: context.objectId });
+			const operation = await reserveBotDelete(context, userId, botId);
+			await runBotDeleteOperation(context, operation);
+			const deleted = await readJson<BotDocument>(context.env.BICKR_KV, kvKeys.bot(botId));
+			if (!deleted?.deletedAt) {
+				throw new RepositoryError('server_error', 'Deleted participant document is missing.', 500);
+			}
+			return ok({ bot: publicBotSummary(deleted, { includeToolSettings: true, nextDueAt: null }), coordinator: context.objectId });
 		},
 	},
 	{
@@ -650,36 +1085,12 @@ export const agentRuntimeRouteTable = [
 					{ profileDeleteBlockers: eligibility.blockers },
 				);
 			}
-			const now = new Date().toISOString();
-			const [ownedBots, ownedForumsOutsideOwnedWorlds, ownedWorlds] = await Promise.all([
-				listUserBots(context.env.BICKR_KV, context.env.BICKR_D1, userId),
-				listOwnedForumsOutsideOwnedWorlds(context.env.BICKR_D1, userId),
-				listOwnedWorlds(context.env.BICKR_D1, userId),
-			]);
-			for (const bot of sortBotsForCascadeDelete(ownedBots)) {
-				const deleted = await deleteBot(context.env.BICKR_KV, context.env.BICKR_D1, bot.id, userId, { now, allowLinkedCloneDelete: true });
-				await deleteBotVector(context.env, deleted.id);
-			}
-			for (const forum of ownedForumsOutsideOwnedWorlds) {
-				await requestCoordinatorGovernanceDeletion(
-					context.env,
-					`/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}`,
-					userId,
-				);
-			}
-			for (const world of ownedWorlds) {
-				await requestCoordinatorGovernanceDeletion(context.env, `/worlds/${encodeURIComponent(world.handle)}`, userId);
-			}
-			const deletedProfile = await softDeleteUserProfile(context.env.BICKR_KV, context.env.BICKR_D1, userId, now);
+			const operation = await reserveAccountDelete(context, userId);
+			const result = await runAccountDeleteOperation(context, operation);
 			return ok({
-				profile: deletedProfile,
-				deleted: {
-					worlds: ownedWorlds.length,
-					forums: ownedForumsOutsideOwnedWorlds.length,
-					bots: ownedBots.length,
-				},
+				...result,
 				coordinator: context.objectId,
-			});
+			}, { status: result.kind === 'account_delete_pending' ? 202 : 200 });
 		},
 	},
 	{
@@ -730,6 +1141,98 @@ export function matchAgentRuntimeRoute(pathname: string, method: string): AgentR
 // to the newest canonical D1 values.
 const userBotsConvergenceTaskStorageKey = 'object-index-convergence-task';
 const userBotsConvergenceAlarmDelayMs = 1_000;
+
+// Lifecycle orchestration and persisted-request parsing live in focused subsystem modules.
+
+type AvatarStorageTarget =
+	| { kind: 'user'; userId: string }
+	| { kind: 'bot'; botId: string; worldId: string }
+	| { kind: 'world'; worldId: string };
+
+async function storedAvatarFromRequest(
+	context: AgentRuntimeRouteContext,
+	target: AvatarStorageTarget,
+): Promise<AvatarImage> {
+	const now = new Date().toISOString();
+	const upload = await avatarUploadBytes(context.request);
+	return storeAvatarImage(requireAvatarBucket(context.env), {
+		...(target.kind === 'user' ? { target: 'user' as const, userId: target.userId }
+			: target.kind === 'world' ? { target: 'world' as const, worldId: target.worldId }
+			: { botId: target.botId, worldId: target.worldId }),
+		bytes: upload.bytes,
+		contentType: upload.contentType,
+		publicBaseUrl: normalizeAvatarPublicBaseUrl(context.env.BICKR_R2_PUBLIC_BASE_URL),
+		source: upload.kind === 'file'
+			? { type: 'upload', uploadedAt: now, ...(upload.originalFilename ? { originalFilename: upload.originalFilename } : {}) }
+			: { type: 'remote_url', sourceUrl: upload.sourceUrl, importedAt: now },
+		now,
+	});
+}
+
+type AvatarUploadBytes =
+	| { kind: 'file'; bytes: Uint8Array; contentType: AvatarContentType; originalFilename?: string }
+	| { kind: 'url'; bytes: Uint8Array; contentType: AvatarContentType; sourceUrl: string };
+
+async function avatarUploadBytes(request: Request): Promise<AvatarUploadBytes> {
+	const contentType = request.headers.get('content-type') ?? '';
+	if (contentType.toLowerCase().includes('multipart/form-data')) {
+		const file = (await request.formData()).get('file');
+		if (!(file instanceof File)) throw new InputError('Avatar upload must include a file.');
+		const validated = await validateAvatarFile(file);
+		return {
+			kind: 'file',
+			bytes: validated.bytes,
+			contentType: validated.contentType,
+			...(file.name ? { originalFilename: file.name } : {}),
+		};
+	}
+	const body = runtimeRecord(await readJsonBody(request));
+	const sourceUrl = requiredText(body.url, 'Avatar URL', 1_000);
+	const validated = await fetchRemoteAvatarBytes(sourceUrl);
+	return { kind: 'url', bytes: validated.bytes, contentType: validated.contentType, sourceUrl };
+}
+
+async function croppedAvatarFromRequest(
+	request: Request,
+	current: AvatarImage | undefined,
+	missingMessage: string,
+): Promise<AvatarImage> {
+	if (!current) throw new InputError(missingMessage);
+	const body = runtimeRecord(await readJsonBody(request));
+	if (!('crop' in body)) throw new InputError('Avatar crop is required.');
+	const now = new Date().toISOString();
+	if (body.crop === null) {
+		const { crop: _crop, ...avatar } = current;
+		return { ...avatar, updatedAt: now };
+	}
+	return { ...current, crop: parseAvatarCrop(body.crop, current), updatedAt: now };
+}
+
+function parseAvatarCrop(value: unknown, avatar: AvatarImage): AvatarCrop {
+	const record = runtimeRecord(value);
+	const crop = {
+		x: record.x,
+		y: record.y,
+		size: record.size,
+		imageWidth: record.imageWidth,
+		imageHeight: record.imageHeight,
+	};
+	if (!Object.values(crop).every((part) => Number.isInteger(part))) {
+		throw new InputError('Avatar crop must use integer pixel coordinates.');
+	}
+	const parsed = crop as AvatarCrop;
+	const max = 100_000;
+	if (parsed.imageWidth <= 0 || parsed.imageHeight <= 0 || parsed.imageWidth > max || parsed.imageHeight > max) {
+		throw new InputError('Avatar crop image dimensions are invalid.');
+	}
+	if (parsed.x < 0 || parsed.y < 0 || parsed.size <= 0 || parsed.size > max || parsed.x + parsed.size > parsed.imageWidth || parsed.y + parsed.size > parsed.imageHeight) {
+		throw new InputError('Avatar crop square must be inside the image.');
+	}
+	if (avatar.width !== undefined && avatar.height !== undefined && Number.isInteger(avatar.width) && Number.isInteger(avatar.height) && (Math.round(avatar.width) !== parsed.imageWidth || Math.round(avatar.height) !== parsed.imageHeight)) {
+		throw new InputError('Avatar crop dimensions do not match the current avatar.');
+	}
+	return parsed;
+}
 
 export async function handleAgentRuntimeRequest(
 	request: Request,
@@ -824,10 +1327,20 @@ export async function runUserBotsConvergenceAlarm(
 	alarmInfo?: AlarmInvocationInfo,
 ): Promise<void> {
 	const operation = async () => {
+		if (coordinator.ownerUserId) {
+			await resumeDueUserLifecycleOperation({ env, coordinator }, new Date().toISOString());
+		}
 		await runPendingUserBotsConvergenceTask(env, coordinator);
 		const pending = await coordinator.storage?.get(userBotsConvergenceTaskStorageKey);
-		if (pending) {
-			await coordinator.storage?.setAlarm(Date.now() + userBotsConvergenceAlarmDelayMs);
+		const lifecycleAlarmAt = coordinator.ownerUserId
+			? await nextLifecycleAlarmAt(env.BICKR_D1, coordinator.ownerUserId)
+			: null;
+		if (pending || lifecycleAlarmAt) {
+			const lifecycleAlarmMs = lifecycleAlarmAt ? Date.parse(lifecycleAlarmAt) : Number.POSITIVE_INFINITY;
+			await coordinator.storage?.setAlarm(Math.max(Date.now() + 1, Math.min(
+				Date.now() + userBotsConvergenceAlarmDelayMs,
+				lifecycleAlarmMs,
+			)));
 		} else {
 			await coordinator.storage?.deleteAlarm();
 		}
@@ -849,35 +1362,8 @@ export async function runUserBotsConvergenceAlarm(
 	}
 }
 
-async function requestCoordinatorGovernanceDeletion(
-	env: Partial<Pick<Env, 'FORUM_COORDINATOR_SERVICE' | 'INTERNAL_SERVICE_SECRET'>>,
-	path: string,
-	userId: string,
-): Promise<void> {
-	if (!env.FORUM_COORDINATOR_SERVICE) {
-		throw new RepositoryError('server_error', 'Forum coordinator service is unavailable.', 500);
-	}
-	const headers = new Headers({ 'x-bickr-user-id': userId });
-	addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
-	const response = await env.FORUM_COORDINATOR_SERVICE.fetch(
-		new Request(internalServiceUrl(path), {
-			method: 'DELETE',
-			headers,
-		}),
-	);
-	if (response.ok) {
-		return;
-	}
-	const payload = runtimeRecord(await response.json());
-	const apiError = apiErrorPayload(payload);
-	if (apiError) {
-		throw new RepositoryError(repositoryErrorCode(apiError.error), apiError.message, response.status || 500, apiError.details);
-	}
-	throw new RepositoryError('server_error', 'Governance deletion coordinator request failed.', response.status || 500);
-}
-
-export default {
-	async fetch(request, env) {
+export async function handleAgentRuntimeWorkerRequest(request: Request, env: Env): Promise<Response> {
+	try {
 		const url = new URL(request.url);
 		if (!isTrustedInternalServiceRequest(request, env.INTERNAL_SERVICE_SECRET)) {
 			return agentRuntimeNotFoundResponse();
@@ -892,16 +1378,48 @@ export default {
 			return agentRuntimeNotFoundResponse();
 		}
 		if (resolved.route.dispatch === 'direct') {
-			return handleAgentRuntimeRequest(request, env);
+			return await handleAgentRuntimeRequest(request, env);
+		}
+		if (resolved.route.dispatch === 'account-bootstrap') {
+			const body = await readJsonBody(request.clone());
+			const profile = providerProfileFromUnknown(body);
+			const reservation = await reserveOrJoinAccountBootstrap(env.BICKR_D1, {
+				candidateUserId: makeId('usr'),
+				idempotencyKey: lifecycleIdempotencyKey(request),
+				profile,
+				now: new Date().toISOString(),
+			});
+			const forwardedUrl = internalServiceUrl(`/users/${encodeURIComponent(reservation.userId)}/account/bootstrap`);
+			const headers = new Headers(request.headers);
+			headers.delete(accountBootstrapOperationHeader);
+			if (reservation.kind === 'pending') {
+				headers.set(accountBootstrapOperationHeader, reservation.operation.operationId);
+				headers.set('idempotency-key', reservation.operation.idempotencyKey);
+			}
+			headers.set('content-type', 'application/json');
+			const objectId = env.USER_BOTS.idFromName(reservation.userId);
+			return await env.USER_BOTS.get(objectId).fetch(new Request(forwardedUrl, {
+				method: 'POST',
+				headers,
+				body: JSON.stringify(reservation.profile),
+			}));
 		}
 		if (resolved.route.dispatch === 'user-coordinator') {
 			const userId = decodeURIComponent(resolved.match[1] ?? '');
 			const objectId = env.USER_BOTS.idFromName(userId);
-			return env.USER_BOTS.get(objectId).fetch(request);
+			return await env.USER_BOTS.get(objectId).fetch(request);
 		}
 		const botId = resolved.match[1] ?? 'unknown';
 		const objectId = env.BOT_RUNTIME.idFromName(botId);
-		return env.BOT_RUNTIME.get(objectId).fetch(request);
+		return await env.BOT_RUNTIME.get(objectId).fetch(request);
+	} catch (error) {
+		return errorResponse(error);
+	}
+}
+
+export default {
+	async fetch(request, env) {
+		return handleAgentRuntimeWorkerRequest(request, env);
 	},
 
 	async scheduled(event, env, ctx) {
@@ -917,6 +1435,12 @@ async function runScheduledAgentRuntimeTasks(env: Env, scheduledTime: number): P
 	}
 	await Promise.all([
 		dispatchDueBots(env, scheduledTime),
+		recoverDueLifecycleOwners(env, scheduledTime).catch((error) => {
+			console.warn('lifecycle recovery dispatch failed', error);
+		}),
+		cleanupTerminalLifecycleOperations(env.BICKR_D1, new Date(scheduledTime).toISOString(), 100).catch((error) => {
+			console.warn('terminal lifecycle cleanup failed', error);
+		}),
 		refreshGlobalInferenceCostStatsCacheIfStale(env.BICKR_D1, new Date(scheduledTime)).catch((error) => {
 			console.warn('global inference cost stats refresh failed', error);
 		}),
@@ -938,13 +1462,17 @@ export async function dispatchDueBots(
 	while (dispatched < maxDispatches) {
 		const limit = Math.min(batchSize, maxDispatches - dispatched);
 		const result = await env.BICKR_D1.prepare(
-			`SELECT bot_id AS botId
-			 FROM bot_runtime_index
-			 WHERE enabled = 1
-			   AND next_due_at IS NOT NULL
-			   AND next_due_at <= ?
-			   AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
-			 ORDER BY next_due_at ASC
+			`SELECT runtime.bot_id AS botId
+			 FROM bot_runtime_index runtime
+			 JOIN bots_index bots
+			   ON bots.bot_id = runtime.bot_id
+			  AND bots.deleted_at IS NULL
+			  AND bots.lifecycle_state = 'active'
+			 WHERE runtime.enabled = 1
+			   AND runtime.next_due_at IS NOT NULL
+			   AND runtime.next_due_at <= ?
+			   AND (runtime.lease_expires_at IS NULL OR runtime.lease_expires_at <= ?)
+			 ORDER BY runtime.next_due_at ASC
 			 LIMIT ?`,
 		)
 			.bind(now, now, limit)

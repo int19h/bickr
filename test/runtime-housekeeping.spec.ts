@@ -379,7 +379,7 @@ describe("runtime housekeeping", () => {
 		expect(result).toEqual({ dispatched: 25, budgetExhausted: true });
 		expect(started).toHaveLength(25);
 		expect(prepareCalls).toHaveLength(2);
-		expect(prepareCalls[0]?.sql).toContain("ORDER BY next_due_at ASC");
+		expect(prepareCalls[0]?.sql).toContain("ORDER BY runtime.next_due_at ASC");
 		expect(prepareCalls.map((call) => call.params[2])).toEqual([20, 5]);
 	});
 });

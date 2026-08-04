@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./account-mutation-protocol": "./src/account-mutation-protocol.ts",
 		"./api": "./src/api.ts",
 		"./avatar-prompts": "./src/avatar-prompts.ts",
 		"./avatar-storage": "./src/avatar-storage.ts",
@@ -11,6 +12,7 @@
 		"./cloudflare": "./src/cloudflare.ts",
 		"./d1-errors": "./src/d1-errors.ts",
 		"./exclusive-operation-queue": "./src/exclusive-operation-queue.ts",
+		"./entity-lifecycle": "./src/entity-lifecycle.ts",
 		"./governance": "./src/governance.ts",
 		"./governance-deletion-sweep": "./src/governance-deletion-sweep.ts",
 		"./handles": "./src/handles.ts",
@@ -25,6 +27,7 @@
 		"./mcp-auth": "./src/mcp-auth.ts",
 		"./model": "./src/model.ts",
 		"./openrouter-model-capabilities": "./src/openrouter-model-capabilities.ts",
+		"./owner-world-mutation": "./src/owner-world-mutation.ts",
 		"./personal-forum-description-sweep": "./src/personal-forum-description-sweep.ts",
 		"./personal-forums": "./src/personal-forums.ts",
 		"./posting": "./src/posting.ts",
@@ -39,6 +42,7 @@
 		"./token-spend": "./src/token-spend.ts",
 		"./tool-results": "./src/tool-results.ts",
 		"./validation": "./src/validation.ts",
+		"./world-lifecycle-protocol": "./src/world-lifecycle-protocol.ts",
 		"./http": "./src/http.ts"
 	}
 }

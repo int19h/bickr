@@ -122,7 +122,17 @@ export async function putObjectIndex(
 	indexVersion: number,
 	worldId?: string,
 ): Promise<void> {
-	await db
+	await objectIndexProjectionStatement(db, document, objectType, indexVersion, worldId).run();
+}
+
+export function objectIndexProjectionStatement(
+	db: D1DatabaseLike,
+	document: EntityDocument,
+	objectType: IndexedEntityType,
+	indexVersion: number,
+	worldId?: string,
+): D1PreparedStatementLike {
+	return db
 		.prepare(
 			`INSERT INTO objects_index (
 				object_id, object_type, world_id, revision, index_version, updated_at, deleted_at
@@ -143,6 +153,5 @@ export async function putObjectIndex(
 			indexVersion,
 			document.updatedAt,
 			document.deletedAt ?? null,
-		)
-		.run();
+		);
 }

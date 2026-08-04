@@ -1,8 +1,7 @@
-import { ok } from "@bickr/shared/api";
-import { removeBotGroupMember } from "@bickr/shared/repository";
 import { normalizeHandleParam } from "@bickr/shared/validation";
 import { type AppEnv, requireCompleteUser } from "../../../../../_auth";
 import { pageErrorResponse } from "../../../../../_errors";
+import { serviceRequest } from "../../../../../_proxy";
 
 export const onRequestDelete: PagesFunction<AppEnv, "worldHandle" | "groupId" | "botId"> = async ({
 	env,
@@ -14,7 +13,7 @@ export const onRequestDelete: PagesFunction<AppEnv, "worldHandle" | "groupId" | 
 		const worldHandle = normalizeHandleParam(params.worldHandle, "World handle");
 		const groupId = singleParam(params.groupId);
 		const botId = singleParam(params.botId);
-		return ok({ group: await removeBotGroupMember(env.BICKR_KV, env.BICKR_D1, worldHandle, user.id, groupId, botId) });
+		return env.AGENT_RUNTIME.fetch(serviceRequest(env, request, `/users/${encodeURIComponent(user.id)}/worlds/${encodeURIComponent(worldHandle)}/groups/${encodeURIComponent(groupId)}/bots/${encodeURIComponent(botId)}`, user.id));
 	} catch (error) {
 		return pageErrorResponse(error);
 	}
