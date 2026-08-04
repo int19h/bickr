@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import {
 	hashLifecycleRequest,
-	reserveCreateLifecycle,
+	reserveAccountCreateLifecycle,
+	reserveBotCreateLifecycle,
+	reserveOwnedCreateLifecycle,
 	type LifecycleEntityKind,
 	type LifecycleReservation,
 } from "@bickr/shared/entity-lifecycle";
@@ -201,7 +203,7 @@ async function reserveClaim(
 	reservation: LifecycleReservation,
 ): Promise<void> {
 	const request = { kind: "identity_claim_test", entityKind, entityId, reservation };
-	await reserveCreateLifecycle(testEnv.BICKR_D1, {
+	const input = {
 		ownerUserId,
 		idempotencyKey: `claim:${entityId}`,
 		requestHash: await hashLifecycleRequest(request),
@@ -210,7 +212,22 @@ async function reserveClaim(
 		entityId,
 		reservations: [reservation],
 		now: new Date().toISOString(),
-	});
+	};
+	switch (entityKind) {
+		case "account":
+			await reserveAccountCreateLifecycle(testEnv.BICKR_D1, { ...input, entityKind });
+			return;
+		case "world":
+			await reserveOwnedCreateLifecycle(testEnv.BICKR_D1, { ...input, entityKind });
+			return;
+		case "bot":
+			if (reservation.kind !== "bot_handle") throw new Error("Bot claim test requires a world-scoped handle.");
+			await reserveBotCreateLifecycle(testEnv.BICKR_D1, {
+				...input,
+				entityKind,
+				worldId: reservation.scope,
+			});
+	}
 }
 
 async function expectExactlyOneClaimant(promises: readonly Promise<unknown>[]): Promise<void> {

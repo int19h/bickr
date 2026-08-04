@@ -57,6 +57,7 @@ export type LifecycleOperation = {
 	idempotencyKey: string;
 	requestHash: string;
 	requestJson: string | null;
+	terminalResultJson: string | null;
 	entityKind: LifecycleEntityKind;
 	entityId: string;
 	action: LifecycleAction;
@@ -77,6 +78,15 @@ export type AccountDeleteLifecycleOperation = LifecycleOperation & {
 	action: "delete";
 };
 
+export type AccountDeleteTerminalResult = {
+	kind: "account_delete_complete";
+	deleted: {
+		worlds: number;
+		forums: number;
+		bots: number;
+	};
+};
+
 export type LifecycleRecoveryOwnerLease = {
 	ownerUserId: string;
 	dueAt: string;
@@ -90,6 +100,7 @@ type LifecycleOperationRow = {
 	idempotencyKey: string;
 	requestHash: string;
 	requestJson: string | null;
+	terminalResultJson: string | null;
 	entityKind: LifecycleEntityKind;
 	entityId: string;
 	action: LifecycleAction;
@@ -309,24 +320,39 @@ type CreateLifecycleReservationInput = {
 	now: string;
 };
 
-export async function reserveCreateLifecycle(
+export async function reserveAccountCreateLifecycle(
 	db: D1DatabaseLike,
-	input: CreateLifecycleReservationInput,
+	input: CreateLifecycleReservationInput & { entityKind: "account" },
 ): Promise<{ operation: LifecycleOperation; created: boolean }> {
-	return reserveCreateLifecycleInternal(db, input, false);
+	return reserveCreateLifecycleInternal(db, input, { kind: "none" });
 }
 
 export async function reserveOwnedCreateLifecycle(
 	db: D1DatabaseLike,
-	input: CreateLifecycleReservationInput & { entityKind: "world" | "bot" },
+	input: CreateLifecycleReservationInput & { entityKind: "world" },
 ): Promise<{ operation: LifecycleOperation; created: boolean }> {
-	return reserveCreateLifecycleInternal(db, input, true);
+	return reserveCreateLifecycleInternal(db, input, { kind: "active_owner" });
 }
+
+export async function reserveBotCreateLifecycle(
+	db: D1DatabaseLike,
+	input: CreateLifecycleReservationInput & { entityKind: "bot"; worldId: string },
+): Promise<{ operation: LifecycleOperation; created: boolean }> {
+	return reserveCreateLifecycleInternal(db, input, {
+		kind: "active_bot_world",
+		worldId: input.worldId,
+	});
+}
+
+type CreateLifecycleGuard =
+	| { kind: "none" }
+	| { kind: "active_owner" }
+	| { kind: "active_bot_world"; worldId: string };
 
 async function reserveCreateLifecycleInternal(
 	db: D1DatabaseLike,
 	input: CreateLifecycleReservationInput,
-	requireActiveOwner: boolean,
+	guard: CreateLifecycleGuard,
 ): Promise<{ operation: LifecycleOperation; created: boolean }> {
 	const existing = await lifecycleOperationByKey(db, input.ownerUserId, input.idempotencyKey);
 	if (existing) {
@@ -335,6 +361,33 @@ async function reserveCreateLifecycleInternal(
 	}
 
 	const operationId = makeId("opn");
+	const ownerGuard = guard.kind === "none" ? "" : `
+				AND EXISTS (
+					SELECT 1 FROM users_index
+					WHERE user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
+				)`;
+	const botWorldGuard = guard.kind !== "active_bot_world" ? "" : `
+				AND EXISTS (
+					SELECT 1
+					FROM worlds_index worlds
+					JOIN users_index world_owners ON world_owners.user_id = worlds.created_by_user_id
+					WHERE worlds.world_id = ?
+					  AND worlds.deleted_at IS NULL AND worlds.lifecycle_state = 'active'
+					  AND world_owners.deleted_at IS NULL AND world_owners.lifecycle_state = 'active'
+				)`;
+	const operationBinds: unknown[] = [
+		operationId,
+		input.ownerUserId,
+		input.idempotencyKey,
+		input.requestHash,
+		input.requestJson,
+		input.entityKind,
+		input.entityId,
+		input.now,
+		input.now,
+	];
+	if (guard.kind !== "none") operationBinds.push(input.ownerUserId);
+	if (guard.kind === "active_bot_world") operationBinds.push(guard.worldId);
 	const statements = [
 		db
 			.prepare(
@@ -345,24 +398,9 @@ async function reserveCreateLifecycleInternal(
 					terminal_at, terminal_cleanup_at
 				)
 				SELECT ?, ?, ?, ?, ?, ?, ?, 'create', 'pending', 1, 0, NULL, NULL, NULL, ?, ?, NULL, NULL
-				WHERE ? = 0 OR EXISTS (
-					SELECT 1 FROM users_index
-					WHERE user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
-				)`,
+				WHERE 1 = 1${ownerGuard}${botWorldGuard}`,
 			)
-			.bind(
-				operationId,
-				input.ownerUserId,
-				input.idempotencyKey,
-				input.requestHash,
-				input.requestJson,
-				input.entityKind,
-				input.entityId,
-				input.now,
-				input.now,
-				requireActiveOwner ? 1 : 0,
-				input.ownerUserId,
-			),
+			.bind(...operationBinds),
 		db
 			.prepare(
 				`INSERT INTO entity_lifecycle_entities (
@@ -430,7 +468,10 @@ async function reserveCreateLifecycleInternal(
 	}
 	const operation = await lifecycleOperationById(db, operationId);
 	if (!operation) {
-		if (requireActiveOwner) {
+		if (guard.kind === "active_bot_world") {
+			throw new RepositoryError("not_found", "The owner account or target world is not active.", 404);
+		}
+		if (guard.kind === "active_owner") {
 			throw new RepositoryError("not_found", "The owner account is not active.", 404);
 		}
 		throw new RepositoryError("server_error", "Lifecycle reservation was not persisted.", 500);
@@ -450,9 +491,19 @@ type DeleteLifecycleReservationInput = {
 
 export async function beginDeleteLifecycle(
 	db: D1DatabaseLike,
-	input: DeleteLifecycleReservationInput,
+	input: DeleteLifecycleReservationInput & { entityKind: "bot" },
 ): Promise<{ operation: LifecycleOperation; created: boolean }> {
-	return beginDeleteLifecycleInternal(db, input, false);
+	return beginDeleteLifecycleInternal(db, input, { kind: "entity" });
+}
+
+export async function beginWorldDeleteLifecycle(
+	db: D1DatabaseLike,
+	input: Omit<DeleteLifecycleReservationInput, "entityKind">,
+): Promise<{ operation: LifecycleOperation; created: boolean }> {
+	return beginDeleteLifecycleInternal(db, {
+		...input,
+		entityKind: "world",
+	}, { kind: "world_without_bots" });
 }
 
 export async function beginAccountDeleteLifecycle(
@@ -463,13 +514,18 @@ export async function beginAccountDeleteLifecycle(
 		...input,
 		entityKind: "account",
 		entityId: input.ownerUserId,
-	}, true);
+	}, { kind: "account_without_foreign_bots" });
 }
+
+type DeleteLifecycleGuard =
+	| { kind: "entity" }
+	| { kind: "world_without_bots" }
+	| { kind: "account_without_foreign_bots" };
 
 async function beginDeleteLifecycleInternal(
 	db: D1DatabaseLike,
 	input: DeleteLifecycleReservationInput,
-	requireNoPriorOwnerOperation: boolean,
+	guard: DeleteLifecycleGuard,
 ): Promise<{ operation: LifecycleOperation; created: boolean }> {
 	const existing = await lifecycleOperationByKey(db, input.ownerUserId, input.idempotencyKey);
 	if (existing) {
@@ -485,8 +541,53 @@ async function beginDeleteLifecycleInternal(
 		input.entityKind,
 		input.entityId,
 		"deleting",
-		requireNoPriorOwnerOperation ? operationId : undefined,
+		operationId,
 	);
+	const entityActiveGuard = lifecycleIndexActiveSql(input.entityKind);
+	const accountGuard = guard.kind !== "account_without_foreign_bots" ? "" : `
+					AND NOT EXISTS (
+						SELECT 1
+						FROM worlds_index AS worlds INDEXED BY worlds_index_owner_public_lifecycle
+						WHERE worlds.created_by_user_id = ?
+						  AND EXISTS (
+							SELECT 1
+							FROM entity_lifecycle_identity_claims AS claims
+							     INDEXED BY entity_lifecycle_identity_claims_scope_owner
+							WHERE claims.key_kind = 'bot_handle'
+							  AND claims.key_scope = worlds.world_id
+							  AND claims.owner_user_id <> ?
+							LIMIT 1
+						  )
+						LIMIT 1
+					)`;
+	const worldGuard = guard.kind !== "world_without_bots" ? "" : `
+					AND NOT EXISTS (
+						SELECT 1 FROM entity_lifecycle_identity_claims
+						     INDEXED BY entity_lifecycle_identity_claims_scope_owner
+						WHERE key_kind = 'bot_handle' AND key_scope = ?
+						LIMIT 1
+					)`;
+	const ownerOperationGuard = guard.kind !== "account_without_foreign_bots" ? "" : `
+					AND NOT EXISTS (
+						SELECT 1 FROM entity_lifecycle_operations
+						WHERE owner_user_id = ? AND phase NOT IN ('terminal', 'terminal_failed')
+					)`;
+	const operationBinds: unknown[] = [
+		operationId,
+		input.ownerUserId,
+		input.idempotencyKey,
+		input.requestHash,
+		input.requestJson,
+		input.entityKind,
+		input.entityId,
+		input.now,
+		input.now,
+		input.entityId,
+	];
+	if (guard.kind === "account_without_foreign_bots") {
+		operationBinds.push(input.ownerUserId, input.ownerUserId, input.ownerUserId);
+	}
+	if (guard.kind === "world_without_bots") operationBinds.push(input.entityId);
 	try {
 		const results = await db.batch([
 			db
@@ -498,31 +599,9 @@ async function beginDeleteLifecycleInternal(
 						terminal_at, terminal_cleanup_at
 					)
 					SELECT ?, ?, ?, ?, ?, ?, ?, 'delete', 'deleting', 1, 0, NULL, NULL, NULL, ?, ?, NULL, NULL
-					WHERE ? = 0 OR (
-						EXISTS (
-							SELECT 1 FROM users_index
-							WHERE user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
-						)
-						AND NOT EXISTS (
-							SELECT 1 FROM entity_lifecycle_operations
-							WHERE owner_user_id = ? AND phase NOT IN ('terminal', 'terminal_failed')
-						)
-					)`,
+					WHERE ${entityActiveGuard}${ownerOperationGuard}${accountGuard}${worldGuard}`,
 				)
-				.bind(
-					operationId,
-					input.ownerUserId,
-					input.idempotencyKey,
-					input.requestHash,
-					input.requestJson,
-					input.entityKind,
-					input.entityId,
-					input.now,
-					input.now,
-					requireNoPriorOwnerOperation ? 1 : 0,
-					input.ownerUserId,
-					input.ownerUserId,
-				),
+				.bind(...operationBinds),
 			db
 				.prepare(
 					`INSERT INTO entity_lifecycle_entities (
@@ -555,15 +634,22 @@ async function beginDeleteLifecycleInternal(
 				),
 			indexStatement,
 		]);
-		if (requireNoPriorOwnerOperation && !await lifecycleOperationById(db, operationId)) {
-			throw new RepositoryError(
-				"conflict",
-				"Account deletion is waiting for earlier lifecycle work to finish.",
-				409,
-			);
+		if (!await lifecycleOperationById(db, operationId)) {
+			switch (guard.kind) {
+				case "account_without_foreign_bots":
+					throw new RepositoryError(
+						"conflict",
+						"Account deletion is blocked by lifecycle work or participants owned by another account.",
+						409,
+					);
+				case "world_without_bots":
+					throw new RepositoryError("conflict", "World deletion is blocked by a participant reservation.", 409);
+				case "entity":
+					throw new RepositoryError("not_found", `${lifecycleEntityLabel(input.entityKind)} not found.`, 404);
+			}
 		}
 		if ((results.at(-1)?.meta?.changes ?? 0) !== 1) {
-			throw new RepositoryError("not_found", `${lifecycleEntityLabel(input.entityKind)} not found.`, 404);
+			throw new RepositoryError("server_error", "Lifecycle deletion could not hide its active projection.", 500);
 		}
 	} catch (error) {
 		if (error instanceof RepositoryError || !isD1UniqueConstraintError(error)) {
@@ -671,6 +757,35 @@ export async function finalizeLifecycleDeletion(
 	transition: LifecycleDeletionTransition,
 	now: string,
 ): Promise<void> {
+	if (operation.entityKind === "account") {
+		throw new RepositoryError("server_error", "Account deletion requires a typed terminal result.", 500);
+	}
+	return finalizeLifecycleDeletionInternal(db, operation, transition, null, now);
+}
+
+export async function finalizeAccountLifecycleDeletion(
+	db: D1DatabaseLike,
+	operation: AccountDeleteLifecycleOperation,
+	transition: LifecycleDeletionTransition,
+	result: AccountDeleteTerminalResult,
+	now: string,
+): Promise<void> {
+	return finalizeLifecycleDeletionInternal(
+		db,
+		operation,
+		transition,
+		serializedLifecycleRequest(normalizedAccountDeleteTerminalResult(result)),
+		now,
+	);
+}
+
+async function finalizeLifecycleDeletionInternal(
+	db: D1DatabaseLike,
+	operation: LifecycleOperation,
+	transition: LifecycleDeletionTransition,
+	terminalResultJson: string | null,
+	now: string,
+): Promise<void> {
 	if (operation.phase === "terminal") {
 		return;
 	}
@@ -691,13 +806,61 @@ export async function finalizeLifecycleDeletion(
 			.prepare(
 				`UPDATE entity_lifecycle_operations
 				 SET phase = 'terminal', revision = revision + 1, request_json = NULL,
+				     terminal_result_json = ?,
 				     next_retry_at = NULL, failure_category = NULL, failure_code = NULL,
 				     updated_at = ?, terminal_at = ?, terminal_cleanup_at = ?
 				 WHERE operation_id = ? AND action = 'delete'
 				   AND phase IN ('deleting', 'compensating')`,
 			)
-			.bind(now, now, terminalCleanupAt(now), operation.operationId),
+			.bind(terminalResultJson, now, now, terminalCleanupAt(now), operation.operationId),
 	]);
+}
+
+export function requiredAccountDeleteTerminalResult(
+	operation: AccountDeleteLifecycleOperation,
+): AccountDeleteTerminalResult {
+	if (operation.phase !== "terminal" || !operation.terminalResultJson) {
+		throw new RepositoryError("server_error", "Completed account deletion result is missing.", 500);
+	}
+	let value: unknown;
+	try {
+		value = JSON.parse(operation.terminalResultJson);
+	} catch {
+		throw new RepositoryError("server_error", "Completed account deletion result is invalid.", 500);
+	}
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		throw new RepositoryError("server_error", "Completed account deletion result is invalid.", 500);
+	}
+	return normalizedAccountDeleteTerminalResult(value as Partial<AccountDeleteTerminalResult>);
+}
+
+function normalizedAccountDeleteTerminalResult(
+	result: Partial<AccountDeleteTerminalResult>,
+): AccountDeleteTerminalResult {
+	const deleted = result.deleted;
+	if (
+		result.kind !== "account_delete_complete" ||
+		!deleted ||
+		typeof deleted !== "object" ||
+		Array.isArray(deleted) ||
+		!isNonnegativeSafeInteger(deleted.worlds) ||
+		!isNonnegativeSafeInteger(deleted.forums) ||
+		!isNonnegativeSafeInteger(deleted.bots)
+	) {
+		throw new RepositoryError("server_error", "Completed account deletion result is invalid.", 500);
+	}
+	return {
+		kind: "account_delete_complete",
+		deleted: {
+			worlds: deleted.worlds,
+			forums: deleted.forums,
+			bots: deleted.bots,
+		},
+	};
+}
+
+function isNonnegativeSafeInteger(value: unknown): value is number {
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 export async function abortLifecycleDeletion(
@@ -1218,6 +1381,26 @@ function lifecycleIndexStateStatement(
 	}
 }
 
+function lifecycleIndexActiveSql(entityKind: LifecycleEntityKind): string {
+	switch (entityKind) {
+		case "account":
+			return `EXISTS (
+						SELECT 1 FROM users_index
+						WHERE user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
+					)`;
+		case "world":
+			return `EXISTS (
+						SELECT 1 FROM worlds_index
+						WHERE world_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
+					)`;
+		case "bot":
+			return `EXISTS (
+						SELECT 1 FROM bots_index
+						WHERE bot_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
+					)`;
+	}
+}
+
 async function lifecycleIndexEntityIsActive(
 	db: D1DatabaseLike,
 	entityKind: LifecycleEntityKind,
@@ -1243,6 +1426,7 @@ function lifecycleOperationSelect(): string {
 		idempotency_key AS idempotencyKey,
 		request_hash AS requestHash,
 		request_json AS requestJson,
+		terminal_result_json AS terminalResultJson,
 		entity_kind AS entityKind,
 		entity_id AS entityId,
 		action,

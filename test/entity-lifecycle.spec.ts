@@ -3,7 +3,7 @@ import { env as testEnv } from "cloudflare:test";
 import {
 	activateLifecycleEntity,
 	abortLifecycleDeletion,
-	beginDeleteLifecycle,
+	beginAccountDeleteLifecycle,
 	beginLifecycleCompensation,
 	claimDueLifecycleRecoveryOwners,
 	cleanupTerminalLifecycleOperations,
@@ -14,7 +14,8 @@ import {
 	recordAccountDeleteChildrenContinuation,
 	recordAccountDeleteConvergenceFailure,
 	requiredAccountDeleteLifecycleOperation,
-	reserveCreateLifecycle,
+	reserveAccountCreateLifecycle,
+	reserveOwnedCreateLifecycle,
 	serializedLifecycleRequest,
 	type LifecycleOperation,
 } from "@bickr/shared/entity-lifecycle";
@@ -38,7 +39,7 @@ describe("entity lifecycle foundation", () => {
 		const user = testUser("usr_lifecycle", "lifecycle-user");
 		const request = { kind: "account_create", subject: "provider-subject" };
 		const requestHash = await hashLifecycleRequest(request);
-		const reserved = await reserveCreateLifecycle(testEnv.BICKR_D1, {
+		const reserved = await reserveAccountCreateLifecycle(testEnv.BICKR_D1, {
 			ownerUserId: user.id,
 			idempotencyKey: "account-key",
 			requestHash,
@@ -52,7 +53,7 @@ describe("entity lifecycle foundation", () => {
 			now,
 		});
 		expect(reserved.created).toBe(true);
-		expect((await reserveCreateLifecycle(testEnv.BICKR_D1, {
+		expect((await reserveAccountCreateLifecycle(testEnv.BICKR_D1, {
 			ownerUserId: user.id,
 			idempotencyKey: "account-key",
 			requestHash,
@@ -63,7 +64,7 @@ describe("entity lifecycle foundation", () => {
 			now,
 		})).operation.operationId).toBe(reserved.operation.operationId);
 
-		await expect(reserveCreateLifecycle(testEnv.BICKR_D1, {
+		await expect(reserveAccountCreateLifecycle(testEnv.BICKR_D1, {
 			ownerUserId: user.id,
 			idempotencyKey: "account-key",
 			requestHash: await hashLifecycleRequest({ ...request, subject: "different" }),
@@ -91,7 +92,7 @@ describe("entity lifecycle foundation", () => {
 
 	it("makes graph-mode activation require the typed fixed-configuration extension payload", async () => {
 		const user = testUser("usr_graph_gate", "graph-gate");
-		const reserved = await reserveCreateLifecycle(testEnv.BICKR_D1, {
+		const reserved = await reserveAccountCreateLifecycle(testEnv.BICKR_D1, {
 			ownerUserId: user.id,
 			idempotencyKey: "graph-key",
 			requestHash: await hashLifecycleRequest({ kind: "account_create" }),
@@ -121,7 +122,7 @@ describe("entity lifecycle foundation", () => {
 		}).run();
 
 		await expect(userIndexProjectionStatement(testEnv.BICKR_D1, user).run()).rejects.toThrow();
-		const reserved = await reserveCreateLifecycle(testEnv.BICKR_D1, {
+		const reserved = await reserveAccountCreateLifecycle(testEnv.BICKR_D1, {
 			ownerUserId: user.id,
 			idempotencyKey: "same-id-recreate",
 			requestHash: await hashLifecycleRequest({ kind: "account_create", handle: user.handle }),
@@ -157,7 +158,8 @@ describe("entity lifecycle foundation", () => {
 	});
 
 	it("releases terminally compensated unique identities and deletes terminal history in bounded batches", async () => {
-		const first = await reserveCreateLifecycle(testEnv.BICKR_D1, {
+		await seedLifecycleOwner("usr_owner", "lifecycle-owner");
+		const first = await reserveOwnedCreateLifecycle(testEnv.BICKR_D1, {
 			ownerUserId: "usr_owner",
 			idempotencyKey: "world-first",
 			requestHash: await hashLifecycleRequest({ handle: "reusable" }),
@@ -173,7 +175,7 @@ describe("entity lifecycle foundation", () => {
 			retryable: false,
 		}, now);
 		await finalizeLifecycleCompensation(testEnv.BICKR_D1, compensating, [], now);
-		const second = await reserveCreateLifecycle(testEnv.BICKR_D1, {
+		const second = await reserveOwnedCreateLifecycle(testEnv.BICKR_D1, {
 			ownerUserId: "usr_owner",
 			idempotencyKey: "world-second",
 			requestHash: await hashLifecycleRequest({ handle: "reusable" }),
@@ -189,7 +191,8 @@ describe("entity lifecycle foundation", () => {
 	});
 
 	it("maintains one indexed recovery lease per nonterminal owner in the operation transaction", async () => {
-		const reserved = await reserveCreateLifecycle(testEnv.BICKR_D1, {
+		await seedLifecycleOwner("usr_recovery_owner", "recovery-owner");
+		const reserved = await reserveOwnedCreateLifecycle(testEnv.BICKR_D1, {
 			ownerUserId: "usr_recovery_owner",
 			idempotencyKey: "recovery-world",
 			requestHash: await hashLifecycleRequest({ handle: "recovery-world" }),
@@ -274,8 +277,58 @@ describe("entity lifecycle foundation", () => {
 		expect(await recoveryOwner("usr_recovery_owner")).toBeNull();
 	});
 
+	it("uses indexed existence plans for account, world, and participant reservation ordering", async () => {
+		const accountPlan = await testEnv.BICKR_D1.prepare(
+			`EXPLAIN QUERY PLAN
+			 SELECT 1
+			 FROM worlds_index AS worlds INDEXED BY worlds_index_owner_public_lifecycle
+			 WHERE worlds.created_by_user_id = ?
+			   AND EXISTS (
+				SELECT 1
+				FROM entity_lifecycle_identity_claims AS claims
+				     INDEXED BY entity_lifecycle_identity_claims_scope_owner
+				WHERE claims.key_kind = 'bot_handle'
+				  AND claims.key_scope = worlds.world_id
+				  AND claims.owner_user_id <> ?
+				LIMIT 1
+			   )
+			 LIMIT 1`,
+		).bind("usr_owner", "usr_owner").all<{ detail: string }>();
+		const accountDetails = (accountPlan.results ?? []).map((row) => row.detail);
+		expect(accountDetails.some((detail) => detail.includes("worlds_index_owner_public_lifecycle"))).toBe(true);
+		expect(accountDetails.some((detail) => detail.includes("entity_lifecycle_identity_claims_scope_owner"))).toBe(true);
+		expect(accountDetails.some((detail) =>
+			detail.includes("key_kind=? AND key_scope=?"),
+		)).toBe(true);
+
+		const worldPlan = await testEnv.BICKR_D1.prepare(
+			`EXPLAIN QUERY PLAN
+			 SELECT 1
+			 FROM entity_lifecycle_identity_claims
+			      INDEXED BY entity_lifecycle_identity_claims_scope_owner
+			 WHERE key_kind = 'bot_handle' AND key_scope = ?
+			 LIMIT 1`,
+		).bind("wld_target").all<{ detail: string }>();
+		expect((worldPlan.results ?? []).some((row) =>
+			row.detail.includes("entity_lifecycle_identity_claims_scope_owner"),
+		)).toBe(true);
+
+		const participantPlan = await testEnv.BICKR_D1.prepare(
+			`EXPLAIN QUERY PLAN
+			 SELECT 1
+			 FROM worlds_index worlds
+			 JOIN users_index world_owners ON world_owners.user_id = worlds.created_by_user_id
+			 WHERE worlds.world_id = ?
+			   AND worlds.deleted_at IS NULL AND worlds.lifecycle_state = 'active'
+			   AND world_owners.deleted_at IS NULL AND world_owners.lifecycle_state = 'active'`,
+		).bind("wld_target").all<{ detail: string }>();
+		const participantDetails = (participantPlan.results ?? []).map((row) => row.detail);
+		expect(participantDetails.some((detail) => detail.includes("sqlite_autoindex_worlds_index_1"))).toBe(true);
+		expect(participantDetails.some((detail) => detail.includes("sqlite_autoindex_users_index_1"))).toBe(true);
+	});
+
 	it("does not move an entity when compensation receives a stale terminal operation", async () => {
-		const reserved = await reserveCreateLifecycle(testEnv.BICKR_D1, {
+		const reserved = await reserveAccountCreateLifecycle(testEnv.BICKR_D1, {
 			ownerUserId: "usr_stale_compensation",
 			idempotencyKey: "stale-compensation",
 			requestHash: await hashLifecycleRequest({ handle: "stale-compensation" }),
@@ -305,6 +358,7 @@ describe("entity lifecycle foundation", () => {
 	});
 
 	it("backfills recovery owners for nonterminal operations committed before migration 0040", async () => {
+		await seedLifecycleOwner("usr_pre_recovery_migration", "pre-recovery-owner");
 		await testEnv.BICKR_D1.batch([
 			testEnv.BICKR_D1.prepare("DROP TRIGGER entity_lifecycle_recovery_after_insert"),
 			testEnv.BICKR_D1.prepare("DROP TRIGGER entity_lifecycle_recovery_after_update"),
@@ -314,7 +368,7 @@ describe("entity lifecycle foundation", () => {
 			testEnv.BICKR_D1.prepare("DROP INDEX bots_index_owner_public_handle"),
 			testEnv.BICKR_D1.prepare("DROP TABLE entity_lifecycle_recovery_owners"),
 		]);
-		await reserveCreateLifecycle(testEnv.BICKR_D1, {
+		await reserveOwnedCreateLifecycle(testEnv.BICKR_D1, {
 			ownerUserId: "usr_pre_recovery_migration",
 			idempotencyKey: "pre-recovery-migration",
 			requestHash: await hashLifecycleRequest({ handle: "pre-recovery-migration" }),
@@ -343,7 +397,7 @@ describe("entity lifecycle foundation", () => {
 			 ) VALUES ('user_handle', 'global', ?, 'account', ?, ?, 'active', NULL, ?, ?)`,
 		).bind(user.handle, user.id, user.id, now, now).run();
 		await userIndexProjectionStatement(testEnv.BICKR_D1, user).run();
-		const started = await beginDeleteLifecycle(testEnv.BICKR_D1, {
+		const started = await beginAccountDeleteLifecycle(testEnv.BICKR_D1, {
 			ownerUserId: user.id,
 			idempotencyKey: "account-delete-continuation",
 			requestHash: await hashLifecycleRequest({ kind: "account_delete", userId: user.id }),
@@ -352,8 +406,6 @@ describe("entity lifecycle foundation", () => {
 				userId: user.id,
 				plannedCounts: { worlds: 0, forums: 0, bots: 0 },
 			}),
-			entityKind: "account",
-			entityId: user.id,
 			now,
 		});
 		const accountOperation = requiredAccountDeleteLifecycleOperation(started.operation);
@@ -386,13 +438,11 @@ describe("entity lifecycle foundation", () => {
 			 ) VALUES ('user_handle', 'global', ?, 'account', ?, ?, 'active', NULL, ?, ?)`,
 		).bind(user.handle, user.id, user.id, now, now).run();
 		await userIndexProjectionStatement(testEnv.BICKR_D1, user).run();
-		const started = await beginDeleteLifecycle(testEnv.BICKR_D1, {
+		const started = await beginAccountDeleteLifecycle(testEnv.BICKR_D1, {
 			ownerUserId: user.id,
 			idempotencyKey: "account-convergence",
 			requestHash: await hashLifecycleRequest({ kind: "account_delete", userId: user.id }),
 			requestJson: "{}",
-			entityKind: "account",
-			entityId: user.id,
 			now,
 		});
 		let operation = requiredAccountDeleteLifecycleOperation(started.operation);
@@ -441,6 +491,16 @@ async function lifecyclePair(operationId: string, entityId: string) {
 		entityPhase: string;
 		entityRevision: number;
 	}>();
+}
+
+async function seedLifecycleOwner(userId: string, handle: string): Promise<void> {
+	await testEnv.BICKR_D1.prepare(
+		`INSERT INTO entity_lifecycle_identity_claims (
+			key_kind, key_scope, key_value, entity_kind, entity_id, owner_user_id,
+			claim_state, operation_id, created_at, updated_at
+		 ) VALUES ('user_handle', 'global', ?, 'account', ?, ?, 'active', NULL, ?, ?)`,
+	).bind(handle, userId, userId, now, now).run();
+	await userIndexProjectionStatement(testEnv.BICKR_D1, testUser(userId, handle)).run();
 }
 
 function testUser(id: string, handle: string): UserDocument {

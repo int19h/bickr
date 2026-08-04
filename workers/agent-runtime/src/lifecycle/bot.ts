@@ -20,7 +20,7 @@ import {
 	lifecycleSecretValue,
 	markLifecycleMaterializing,
 	recordRetryableLifecycleFailure,
-	reserveOwnedCreateLifecycle,
+	reserveBotCreateLifecycle,
 	serializedLifecycleRequest,
 	type LifecycleFailurePoint,
 	type LifecycleOperation,
@@ -86,13 +86,14 @@ export async function reserveBotCreate(
 		createdAt,
 		input: credentialFreeInput,
 	};
-	const reserved = await reserveOwnedCreateLifecycle(context.env.BICKR_D1, {
+	const reserved = await reserveBotCreateLifecycle(context.env.BICKR_D1, {
 		ownerUserId: userId,
 		idempotencyKey: lifecycleIdempotencyKey(context.request),
 		requestHash,
 		requestJson: serializedLifecycleRequest(request),
 		entityKind: "bot",
 		entityId: request.botId,
+		worldId: request.worldId,
 		reservations: [{ kind: "bot_handle", scope: world.id, value: input.handle }],
 		...(typeof credential === "string" ? {
 			secrets: [{ kind: "bot_openrouter_api_key" as const, value: credential }],

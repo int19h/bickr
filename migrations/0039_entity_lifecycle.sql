@@ -61,13 +61,17 @@ CREATE INDEX entity_lifecycle_entities_owner_phase
 -- Nonterminal operations are retained until they converge. Terminal and
 -- terminal-failed rows retain only secret-free request identity/failure data
 -- for 30 days, then bounded cleanup deletes them through terminal_cleanup_at.
--- request_json is cleared before either terminal state is committed.
+-- request_json is cleared before either terminal state is committed. The only
+-- retained terminal result is the typed account-deletion count summary: it is
+-- needed for stable idempotent responses, contains no profile/provider data or
+-- credentials, and is deleted with the same 30-day operation history.
 CREATE TABLE entity_lifecycle_operations (
 	operation_id TEXT PRIMARY KEY,
 	owner_user_id TEXT NOT NULL,
 	idempotency_key TEXT NOT NULL,
 	request_hash TEXT NOT NULL,
 	request_json TEXT,
+	terminal_result_json TEXT,
 	entity_kind TEXT NOT NULL CHECK (entity_kind IN ('account', 'world', 'bot')),
 	entity_id TEXT NOT NULL,
 	action TEXT NOT NULL CHECK (action IN ('create', 'delete')),
@@ -88,6 +92,11 @@ CREATE TABLE entity_lifecycle_operations (
 	updated_at TEXT NOT NULL,
 	terminal_at TEXT,
 	terminal_cleanup_at TEXT,
+	CHECK (
+		terminal_result_json IS NULL OR (
+			entity_kind = 'account' AND action = 'delete' AND phase = 'terminal'
+		)
+	),
 	UNIQUE (owner_user_id, idempotency_key)
 );
 
@@ -140,6 +149,12 @@ CREATE TABLE entity_lifecycle_identity_claims (
 
 CREATE INDEX entity_lifecycle_identity_claims_entity
 	ON entity_lifecycle_identity_claims (entity_kind, entity_id, key_kind);
+
+-- Bot/world/account reservation guards start with kind+world scope and then
+-- inspect ownership. This covering index keeps those atomic NOT EXISTS checks
+-- out of the append-only operation history and avoids an all-claims scan.
+CREATE INDEX entity_lifecycle_identity_claims_scope_owner
+	ON entity_lifecycle_identity_claims (key_kind, key_scope, owner_user_id, entity_id);
 
 INSERT INTO entity_lifecycle_identity_claims (
 	key_kind, key_scope, key_value, entity_kind, entity_id, owner_user_id,

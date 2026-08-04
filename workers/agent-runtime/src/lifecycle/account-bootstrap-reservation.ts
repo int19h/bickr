@@ -1,7 +1,7 @@
 import {
 	hashLifecycleRequest,
 	lifecycleOperationById,
-	reserveCreateLifecycle,
+	reserveAccountCreateLifecycle,
 	serializedLifecycleRequest,
 	type LifecycleOperation,
 } from "@bickr/shared/entity-lifecycle";
@@ -79,7 +79,7 @@ export async function reserveOrJoinAccountBootstrap(
 		const request: AccountBootstrapLifecycleRequest = { kind: "account_create", bootstrap };
 
 		try {
-			const reserved = await reserveCreateLifecycle(db, {
+			const reserved = await reserveAccountCreateLifecycle(db, {
 				ownerUserId: input.candidateUserId,
 				idempotencyKey: input.idempotencyKey,
 				requestHash,

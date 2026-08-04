@@ -63,7 +63,7 @@ deleting an expired terminal row cannot shorten or clear an active lease for
 the same owner's unrelated nonterminal work. Genuine nonterminal changes still
 rederive the projection in the same transaction.
 
-Canonical entity state and unique-key reservations live only for the active or incomplete entity lifetime. Successful terminal and terminal-failed operation rows retain secret-free request identity and failure metadata for 30 days. The agent-runtime scheduled handler deletes at most 100 expired rows per run through the partial `terminal_cleanup_at` index. No lifecycle query repairs canonical state from KV or index shape.
+Canonical entity state and unique-key reservations live only for the active or incomplete entity lifetime. Successful terminal and terminal-failed operation rows retain secret-free request identity and failure metadata for 30 days. Completed account deletions additionally retain one typed count-only `account_delete_complete` result for those same 30 days, so an idempotent replay returns the exact durable `deleted` summary after `request_json` is erased. That result cannot store profile, provider, credential, world, or participant request data; a table constraint limits it to terminal account-delete rows. The agent-runtime scheduled handler deletes at most 100 expired rows per run through the partial `terminal_cleanup_at` index. No lifecycle query repairs canonical state from KV or index shape.
 
 `entity_lifecycle_identity_claims` is the single D1 uniqueness namespace for
 pending and active provider subjects, user handles, world handles, and
@@ -96,12 +96,19 @@ Account deletion may abort a terminal failure only at its initial D1 hide
 checkpoint, before any child coordinator or account-storage effect is invoked.
 The hide reservation is also an atomic owner-ordering barrier: it refuses to
 start while that owner has an earlier nonterminal create or delete operation,
-using the existing owner/phase index. Conversely, a world, participant,
-or clone create reservation requires an active account projection in its D1
-reservation transaction. Materialization revalidates that active projection,
-so a stale operation cannot recreate KV material after account deletion has
-won the ordering race; the normal terminal compensation path removes its
-pending claim and partial external material.
+using the existing owner/phase index. It also joins owned worlds to canonical
+world-scoped participant claims and refuses the hide while any pending, active,
+or deleting foreign-owned participant claim remains. A direct world hide
+similarly requires that no participant claim remains in that world. Conversely,
+participant and clone reservation atomically require the participant owner,
+target world, and target world's owning account to remain active while the
+operation and pending claim are inserted. Every delete projection hide is
+conditioned on that operation insert in the same D1 batch. The world-scope
+claim index and owned-world index make these set-oriented guards bounded by an
+indexed existence lookup. Thus whichever reservation wins commits the only
+legal ordering: a participant claim keeps account/world deletion uncommitted,
+while a committed delete hide prevents any later participant operation or
+claim even if its earlier eligibility/world read was stale.
 After cascade execution starts, every failure keeps the parent hidden and is
 recorded as convergence-required retryable while preserving the originating
 typed failure code. Each parent attempt spends one configured fixed budget
@@ -131,7 +138,9 @@ after the terminal batch. The pending variant reports only `planned` counts;
 only the completed variant labels those counts as `deleted`. Both are
 successful typed outcomes. The Pages
 adapter clears the session cookie for either outcome and the web client clears
-its authenticated state immediately; scheduled recovery or an owner alarm
+its authenticated state immediately. It reports `Profile deletion accepted.`
+for pending convergence and `Deleted profile.` only for the completed result;
+scheduled recovery or an owner alarm
 continues a pending deletion independently of that browser request.
 
 Legacy rows receive `lifecycle_state = 'active'` in the migration. New rows are inserted as pending and become publicly visible only in the D1 activation batch. A deletion changes visibility to deleting in the same batch that creates the delete operation. Public/authentication/search/runtime readers require active projections.
@@ -148,7 +157,7 @@ existing machine rather than add a rename-specific lifecycle machine.
 
 ## Phase 3 extension point
 
-`activateLifecycleEntity` and `finalizeLifecycleDeletion` are the only activation and deletion transactions. Phase 3 must switch `entity_lifecycle_control.activation_mode` under maintenance and pass an `inference_graph` transition to those existing functions:
+`activateLifecycleEntity` and the typed `finalizeLifecycleDeletion` transaction family (including `finalizeAccountLifecycleDeletion`, which also writes the count-only terminal result) are the only activation and deletion transactions. Phase 3 must switch `entity_lifecycle_control.activation_mode` under maintenance and pass an `inference_graph` transition to those existing functions:
 
 - account activation supplies the Account-default insert and default-translation-reference insert;
 - world and participant activation supplies the fixed-configuration insert;

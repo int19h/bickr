@@ -1,7 +1,7 @@
 import {
 	abortLifecycleDeletion,
 	activateLifecycleEntity,
-	beginDeleteLifecycle,
+	beginWorldDeleteLifecycle,
 	beginLifecycleCompensation,
 	classifyLifecycleFailure,
 	finalizeLifecycleCompensation,
@@ -244,12 +244,11 @@ export async function reserveWorldDelete(
 	const existing = await lifecycleOperationByKey(context.env.BICKR_D1, userId, idempotencyKey);
 	if (existing) {
 		const request: WorldDeleteLifecycleRequest = { kind: "world_delete", userId, worldId: existing.entityId, worldHandle };
-		return (await beginDeleteLifecycle(context.env.BICKR_D1, {
+		return (await beginWorldDeleteLifecycle(context.env.BICKR_D1, {
 			ownerUserId: userId,
 			idempotencyKey,
 			requestHash: await hashLifecycleRequest(request),
 			requestJson: serializedLifecycleRequest(request),
-			entityKind: "world",
 			entityId: existing.entityId,
 			now: new Date().toISOString(),
 		})).operation;
@@ -267,12 +266,11 @@ export async function reserveWorldDelete(
 	).bind(row.worldId).first<{ count: number }>();
 	if ((bots?.count ?? 0) > 0) throw new RepositoryError("forbidden", "Worlds can only be deleted after all bots in them are deleted.", 403);
 	const request: WorldDeleteLifecycleRequest = { kind: "world_delete", userId, worldId: row.worldId, worldHandle };
-	const started = await beginDeleteLifecycle(context.env.BICKR_D1, {
+	const started = await beginWorldDeleteLifecycle(context.env.BICKR_D1, {
 		ownerUserId: userId,
 		idempotencyKey,
 		requestHash: await hashLifecycleRequest(request),
 		requestJson: serializedLifecycleRequest(request),
-		entityKind: "world",
 		entityId: row.worldId,
 		now: new Date().toISOString(),
 	});

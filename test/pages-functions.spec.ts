@@ -2529,9 +2529,26 @@ describe("Pages functions", () => {
 		const recoveryResponse = await recoverUserLifecycle(deleteContext.env.USER_BOTS, userId);
 		expect(recoveryResponse.status, await recoveryResponse.clone().text()).toBe(200);
 		expect(await testEnv.BICKR_D1.prepare(
-			"SELECT deleted_at AS deletedAt FROM users_index WHERE user_id = ?",
-		).bind(userId).first<{ deletedAt: string | null }>()).toEqual({
-			deletedAt: expect.any(String),
+			`SELECT
+				(SELECT phase
+				 FROM entity_lifecycle_operations
+				 WHERE owner_user_id = ? AND entity_kind = 'account' AND action = 'delete'
+				 ORDER BY created_at DESC, operation_id DESC LIMIT 1) AS parentPhase,
+				(SELECT COUNT(*) FROM entity_lifecycle_operations
+				 WHERE owner_user_id = ? AND phase NOT IN ('terminal', 'terminal_failed')) AS nonterminalCount,
+				(SELECT COUNT(*) FROM entity_lifecycle_recovery_owners
+				 WHERE owner_user_id = ?) AS recoveryCount,
+				(SELECT deleted_at FROM users_index WHERE user_id = ?) AS accountDeletedAt`,
+		).bind(userId, userId, userId, userId).first<{
+			parentPhase: string;
+			nonterminalCount: number;
+			recoveryCount: number;
+			accountDeletedAt: string | null;
+		}>()).toEqual({
+			parentPhase: "terminal",
+			nonterminalCount: 0,
+			recoveryCount: 0,
+			accountDeletedAt: expect.any(String),
 		});
 	});
 

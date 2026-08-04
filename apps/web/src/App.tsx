@@ -1798,7 +1798,7 @@ function App() {
 				method: "DELETE",
 				body: { confirmCascade: true },
 			}));
-			applyAccountDeletionResult(result.data, () => {
+			return applyAccountDeletionResult(result.data, () => {
 				setSession({ authenticated: false, user: null });
 				setUserProfile(null);
 				setBots([]);
@@ -1813,7 +1813,6 @@ function App() {
 				setCreateBotWorldHandle(null);
 				navigate({ route: "worlds" });
 			});
-			return "Deleted profile.";
 		});
 	}
 

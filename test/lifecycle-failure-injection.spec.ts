@@ -3,6 +3,11 @@ import { env as testEnv } from "cloudflare:test";
 import { ExclusiveOperationQueue } from "@bickr/shared/exclusive-operation-queue";
 import {
 	InjectedLifecycleFailure,
+	hashLifecycleRequest,
+	lifecycleOperationByKey,
+	markLifecycleMaterializing,
+	reserveBotCreateLifecycle,
+	serializedLifecycleRequest,
 	type LifecycleFailurePoint,
 	type LifecycleFailureInjector,
 } from "@bickr/shared/entity-lifecycle";
@@ -10,6 +15,7 @@ import { deterministicId } from "@bickr/shared/ids";
 import { localizedText, type BotDocument, type UserDocument } from "@bickr/shared/model";
 import {
 	boundedAccountDeletionTargets,
+	humanProfileDeleteEligibility,
 	listUserBots,
 	listWorlds,
 	rawBotById,
@@ -20,8 +26,16 @@ import {
 	accountBootstrapOperationHeader,
 	reserveOrJoinAccountBootstrap,
 } from "../workers/agent-runtime/src/lifecycle/account-bootstrap-reservation";
-import { accountDeleteChildOperationsPerAttempt } from "../workers/agent-runtime/src/lifecycle/account";
-import type { UserBotsCoordinatorStorage } from "../workers/agent-runtime/src/lifecycle/types";
+import {
+	accountDeleteChildOperationsPerAttempt,
+	reserveAccountDelete,
+} from "../workers/agent-runtime/src/lifecycle/account";
+import { reserveBotCreate } from "../workers/agent-runtime/src/lifecycle/bot";
+import { reserveWorldDelete } from "../workers/agent-runtime/src/lifecycle/world";
+import type {
+	LifecycleReservationContext,
+	UserBotsCoordinatorStorage,
+} from "../workers/agent-runtime/src/lifecycle/types";
 import { handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
 import { clearKv, resetD1Schema } from "./helpers/d1-schema";
 import { createBot, createWorld, upsertProviderUser } from "./helpers/coordinator-mutations";
@@ -328,6 +342,385 @@ describe("lifecycle failure injection", () => {
 		const result = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, key, injector);
 		expect(result).toMatchObject({ ok: true, data: { kind: "account_delete_complete" } });
 		expect((await testEnv.BICKR_D1.prepare(`SELECT deleted_at AS deletedAt FROM users_index WHERE user_id = ?`).bind(user.id).first<{ deletedAt: string | null }>())?.deletedAt).not.toBeNull();
+	});
+
+	it("replays the durable completed account-deletion result without changing its shape or counts", async () => {
+		const user = await seedAccount("account-delete-terminal-result");
+		const world = await createWorld(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			worldInput("terminal-result-world"),
+			user.id,
+		);
+		await createBot(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			world.handle,
+			botInput("terminal-result-bot"),
+			user.id,
+		);
+		const key = "account-delete-terminal-result";
+		const first = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, key);
+		const replay = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, key);
+		const firstData = first.data as Record<string, unknown>;
+		const replayData = replay.data as Record<string, unknown>;
+
+		expect(firstData).toMatchObject({
+			kind: "account_delete_complete",
+			deleted: { worlds: 1, forums: 0, bots: 1 },
+		});
+		expect(replayData.kind).toBe("account_delete_complete");
+		expect(JSON.stringify(replayData.deleted)).toBe(JSON.stringify(firstData.deleted));
+		expect(replayData).not.toHaveProperty("planned");
+		const retained = await testEnv.BICKR_D1.prepare(
+			`SELECT request_json AS requestJson, terminal_result_json AS terminalResultJson
+			 FROM entity_lifecycle_operations
+			 WHERE owner_user_id = ? AND idempotency_key = ?`,
+		).bind(user.id, key).first<{ requestJson: string | null; terminalResultJson: string | null }>();
+		expect(retained?.requestJson).toBeNull();
+		expect(JSON.parse(retained?.terminalResultJson ?? "null")).toEqual({
+			kind: "account_delete_complete",
+			deleted: { worlds: 1, forums: 0, bots: 1 },
+		});
+	});
+
+	it.each([
+		{ label: "participant", clone: false },
+		{ label: "clone", clone: true },
+	])("keeps an account active when a foreign pending $label reservation wins first", async ({ label, clone }) => {
+		const worldOwner = await seedAccount(`account-race-owner-${label}`);
+		const participantOwner = await seedAccount(`account-race-guest-${label}`);
+		const world = await createWorld(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			worldInput(`account-race-world-${label}`),
+			worldOwner.id,
+		);
+		const source = clone ? await createCloneSource(participantOwner.id, label) : null;
+		const handle = `account-race-${label}`;
+		const input = botInput(handle, source?.id);
+		const createKey = `account-race-create-${label}`;
+		const injector = new FailOnce(clone ? "clone.reserve.d1" : "bot.reserve.d1");
+		expect(await coordinatorRequest(
+			participantOwner.id,
+			`/worlds/${world.handle}/bots`,
+			"POST",
+			input,
+			createKey,
+			injector,
+		)).toMatchObject({ ok: false });
+		expect(await humanProfileDeleteEligibility(testEnv.BICKR_D1, worldOwner.id)).toEqual({
+			canDelete: true,
+			blockers: [],
+		});
+
+		const deleteKey = `account-race-delete-${label}`;
+		expect(await coordinatorRequest(
+			worldOwner.id,
+			"/profile",
+			"DELETE",
+			{ confirmCascade: true },
+			deleteKey,
+		)).toMatchObject({ ok: false, error: "conflict" });
+		expect(await activeProjectionCount("users_index", "user_id", worldOwner.id)).toBe(1);
+		expect(await lifecycleOperationByKey(testEnv.BICKR_D1, worldOwner.id, deleteKey)).toBeNull();
+
+		expect(await coordinatorRequest(
+			participantOwner.id,
+			`/worlds/${world.handle}/bots`,
+			"POST",
+			input,
+			createKey,
+			injector,
+		)).toMatchObject({ ok: true });
+		const participant = (await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, participantOwner.id))
+			.find((candidate) => candidate.handle === handle);
+		expect(participant).toBeDefined();
+		expect(await coordinatorRequest(
+			participantOwner.id,
+			`/bots/${participant!.id}`,
+			"DELETE",
+			undefined,
+			`account-race-cleanup-${label}`,
+		)).toMatchObject({ ok: true });
+		expect(await coordinatorRequest(
+			worldOwner.id,
+			"/profile",
+			"DELETE",
+			{ confirmCascade: true },
+			`${deleteKey}-retry`,
+		)).toMatchObject({ ok: true, data: { kind: "account_delete_complete" } });
+		expect(await botClaimCount(world.id, handle)).toBe(0);
+	});
+
+	it.each([
+		{ label: "participant", clone: false },
+		{ label: "clone", clone: true },
+	])("rejects a foreign $label reservation after the account deletion hide wins", async ({ label, clone }) => {
+		const worldOwner = await seedAccount(`account-first-owner-${label}`);
+		const participantOwner = await seedAccount(`account-first-guest-${label}`);
+		const world = await createWorld(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			worldInput(`account-first-world-${label}`),
+			worldOwner.id,
+		);
+		const source = clone ? await createCloneSource(participantOwner.id, `account-first-${label}`) : null;
+		const deleteKey = `account-first-delete-${label}`;
+		await reserveAccountDelete(
+			reservationContext(worldOwner.id, "/profile", "DELETE", deleteKey),
+			worldOwner.id,
+		);
+		const handle = `account-first-${label}`;
+		const createKey = `account-first-create-${label}`;
+
+		await expect(reserveBotCreate(
+			reservationContext(
+				participantOwner.id,
+				`/worlds/${world.handle}/bots`,
+				"POST",
+				createKey,
+			),
+			participantOwner.id,
+			world.handle,
+			botInput(handle, source?.id),
+		)).rejects.toMatchObject({ code: "not_found", status: 404 });
+		expect(await lifecycleOperationByKey(testEnv.BICKR_D1, participantOwner.id, createKey)).toBeNull();
+		expect(await botClaimCount(world.id, handle)).toBe(0);
+		expect(await activeProjectionCount("users_index", "user_id", worldOwner.id)).toBe(0);
+		expect(await coordinatorRequest(
+			worldOwner.id,
+			"/profile",
+			"DELETE",
+			{ confirmCascade: true },
+			deleteKey,
+		)).toMatchObject({ ok: true, data: { kind: "account_delete_complete" } });
+	});
+
+	it("rejects an account hide when its previously clean eligibility read becomes stale", async () => {
+		const worldOwner = await seedAccount("account-stale-owner");
+		const participantOwner = await seedAccount("account-stale-guest");
+		const world = await createWorld(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			worldInput("account-stale-world"),
+			worldOwner.id,
+		);
+		expect(await humanProfileDeleteEligibility(testEnv.BICKR_D1, worldOwner.id)).toEqual({
+			canDelete: true,
+			blockers: [],
+		});
+		const input = botInput("account-stale-bot");
+		const createKey = "account-stale-create";
+		const injector = new FailOnce("bot.reserve.d1");
+		expect(await coordinatorRequest(
+			participantOwner.id,
+			`/worlds/${world.handle}/bots`,
+			"POST",
+			input,
+			createKey,
+			injector,
+		)).toMatchObject({ ok: false });
+		expect(await lifecycleOperationByKey(testEnv.BICKR_D1, participantOwner.id, createKey))
+			.toMatchObject({ phase: "pending" });
+
+		await expect(reserveAccountDelete(
+			reservationContext(worldOwner.id, "/profile", "DELETE", "account-stale-delete"),
+			worldOwner.id,
+		)).rejects.toMatchObject({ code: "conflict", status: 409 });
+		expect(await activeProjectionCount("users_index", "user_id", worldOwner.id)).toBe(1);
+		expect(await lifecycleOperationByKey(testEnv.BICKR_D1, worldOwner.id, "account-stale-delete")).toBeNull();
+		expect(await coordinatorRequest(
+			participantOwner.id,
+			`/worlds/${world.handle}/bots`,
+			"POST",
+			input,
+			createKey,
+			injector,
+		)).toMatchObject({ ok: true });
+		const participant = (await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, participantOwner.id))
+			.find((candidate) => candidate.handle === input.handle);
+		if (!participant) throw new Error("Activated stale-read participant is missing.");
+		await coordinatorRequest(
+			participantOwner.id,
+			`/bots/${participant.id}`,
+			"DELETE",
+			undefined,
+			"account-stale-cleanup",
+		);
+		expect(await coordinatorRequest(
+			worldOwner.id,
+			"/profile",
+			"DELETE",
+			{ confirmCascade: true },
+			"account-stale-delete-retry",
+		)).toMatchObject({ ok: true, data: { kind: "account_delete_complete" } });
+	});
+
+	it.each(["pending", "materializing"] as const)(
+		"keeps a world active when a foreign %s participant reservation wins first",
+		async (phase) => {
+			const worldOwner = await seedAccount(`world-race-owner-${phase}`);
+			const participantOwner = await seedAccount(`world-race-guest-${phase}`);
+			const world = await createWorld(
+				testEnv.BICKR_KV,
+				testEnv.BICKR_D1,
+				worldInput(`world-race-${phase}`),
+				worldOwner.id,
+			);
+			const handle = `world-race-bot-${phase}`;
+			const input = botInput(handle);
+			const createKey = `world-race-create-${phase}`;
+			const injector = new FailOnce("bot.reserve.d1");
+			expect(await coordinatorRequest(
+				participantOwner.id,
+				`/worlds/${world.handle}/bots`,
+				"POST",
+				input,
+				createKey,
+				injector,
+			)).toMatchObject({ ok: false });
+			const operation = await lifecycleOperationByKey(testEnv.BICKR_D1, participantOwner.id, createKey);
+			if (!operation) throw new Error("Pending participant reservation is missing.");
+			expect(operation.phase).toBe("pending");
+			if (phase === "materializing") {
+				await markLifecycleMaterializing(testEnv.BICKR_D1, operation, new Date().toISOString());
+			}
+
+			await expect(reserveWorldDelete(
+				reservationContext(worldOwner.id, `/worlds/${world.handle}`, "DELETE", `world-race-delete-${phase}`),
+				worldOwner.id,
+				world.handle,
+			)).rejects.toMatchObject({ code: "conflict", status: 409 });
+			expect(await activeProjectionCount("worlds_index", "world_id", world.id)).toBe(1);
+			expect(await lifecycleOperationByKey(
+				testEnv.BICKR_D1,
+				worldOwner.id,
+				`world-race-delete-${phase}`,
+			)).toBeNull();
+			expect(await coordinatorRequest(
+				participantOwner.id,
+				`/worlds/${world.handle}/bots`,
+				"POST",
+				input,
+				createKey,
+				injector,
+			)).toMatchObject({ ok: true });
+			const participant = (await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, participantOwner.id))
+				.find((candidate) => candidate.handle === handle);
+			if (!participant) throw new Error("Activated participant is missing.");
+			expect(await coordinatorRequest(
+				participantOwner.id,
+				`/bots/${participant.id}`,
+				"DELETE",
+				undefined,
+				`world-race-cleanup-${phase}`,
+			)).toMatchObject({ ok: true });
+			expect(await coordinatorRequest(
+				worldOwner.id,
+				`/worlds/${world.handle}`,
+				"DELETE",
+				undefined,
+				`world-race-delete-${phase}-retry`,
+			)).toMatchObject({ ok: true });
+			expect(await botClaimCount(world.id, handle)).toBe(0);
+		},
+	);
+
+	it("rejects a stale participant reservation after the world deletion hide wins", async () => {
+		const worldOwner = await seedAccount("world-first-owner");
+		const participantOwner = await seedAccount("world-first-guest");
+		const world = await createWorld(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			worldInput("world-first-race"),
+			worldOwner.id,
+		);
+		const deleteKey = "world-first-delete";
+		await reserveWorldDelete(
+			reservationContext(worldOwner.id, `/worlds/${world.handle}`, "DELETE", deleteKey),
+			worldOwner.id,
+			world.handle,
+		);
+		const createKey = "world-first-create";
+		const participantId = "bot_world_first_race";
+		const input = botInput("world-first-bot");
+		const request = {
+			kind: "bot_create" as const,
+			userId: participantOwner.id,
+			worldId: world.id,
+			worldHandle: world.handle,
+			input,
+		};
+
+		await expect(reserveBotCreateLifecycle(testEnv.BICKR_D1, {
+			ownerUserId: participantOwner.id,
+			idempotencyKey: createKey,
+			requestHash: await hashLifecycleRequest(request),
+			requestJson: serializedLifecycleRequest(request),
+			entityKind: "bot",
+			entityId: participantId,
+			worldId: world.id,
+			reservations: [{ kind: "bot_handle", scope: world.id, value: input.handle }],
+			now: new Date().toISOString(),
+		})).rejects.toMatchObject({ code: "not_found", status: 404 });
+		expect(await lifecycleOperationByKey(testEnv.BICKR_D1, participantOwner.id, createKey)).toBeNull();
+		expect(await botClaimCount(world.id, "world-first-bot")).toBe(0);
+		expect(await coordinatorRequest(
+			worldOwner.id,
+			`/worlds/${world.handle}`,
+			"DELETE",
+			undefined,
+			deleteKey,
+		)).toMatchObject({ ok: true });
+	});
+
+	it("keeps the same-owner operation gate authoritative while an owned participant is pending", async () => {
+		const owner = await seedAccount("same-owner-race");
+		const world = await createWorld(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			worldInput("same-owner-race-world"),
+			owner.id,
+		);
+		const input = botInput("same-owner-race-bot");
+		const createKey = "same-owner-race-create";
+		const injector = new FailOnce("bot.reserve.d1");
+		expect(await coordinatorRequest(
+			owner.id,
+			`/worlds/${world.handle}/bots`,
+			"POST",
+			input,
+			createKey,
+			injector,
+		)).toMatchObject({ ok: false });
+		expect(await lifecycleOperationByKey(testEnv.BICKR_D1, owner.id, createKey))
+			.toMatchObject({ phase: "pending" });
+		const deleteKey = "same-owner-race-delete";
+		expect(await coordinatorRequest(
+			owner.id,
+			"/profile",
+			"DELETE",
+			{ confirmCascade: true },
+			deleteKey,
+		)).toMatchObject({ ok: false, error: "conflict" });
+		expect(await activeProjectionCount("users_index", "user_id", owner.id)).toBe(1);
+		expect(await coordinatorRequest(
+			owner.id,
+			`/worlds/${world.handle}/bots`,
+			"POST",
+			input,
+			createKey,
+			injector,
+		)).toMatchObject({ ok: true });
+		expect(await coordinatorRequest(
+			owner.id,
+			"/profile",
+			"DELETE",
+			{ confirmCascade: true },
+			`${deleteKey}-retry`,
+		)).toMatchObject({ ok: true, data: { kind: "account_delete_complete" } });
+		expect(await botClaimCount(world.id, input.handle)).toBe(0);
 	});
 
 	it("safely aborts terminal account deletion before cascade dispatch and preserves owned children", async () => {
@@ -932,6 +1325,51 @@ async function seedAccount(suffix: string) {
 		subject: `seed-${suffix}`,
 		login: `seed-${suffix}`.replaceAll(".", "-").slice(0, 60),
 	});
+}
+
+async function createCloneSource(ownerUserId: string, suffix: string) {
+	const world = await createWorld(
+		testEnv.BICKR_KV,
+		testEnv.BICKR_D1,
+		worldInput(testHandle(`clone-source-world-${suffix}`)),
+		ownerUserId,
+	);
+	return createBot(
+		testEnv.BICKR_KV,
+		testEnv.BICKR_D1,
+		world.handle,
+		botInput(testHandle(`clone-source-${suffix}`)),
+		ownerUserId,
+	);
+}
+
+function reservationContext(
+	userId: string,
+	path: string,
+	method: string,
+	idempotencyKey: string,
+): LifecycleReservationContext {
+	return {
+		request: new Request(`https://agent.internal/users/${encodeURIComponent(userId)}${path}`, {
+			method,
+			headers: { "idempotency-key": idempotencyKey, "x-bickr-user-id": userId },
+		}),
+		env: testEnv,
+		coordinator: {
+			objectId: userId,
+			ownerUserId: userId,
+			queue: new ExclusiveOperationQueue(),
+		},
+	};
+}
+
+async function botClaimCount(worldId: string, handle: string): Promise<number> {
+	const row = await testEnv.BICKR_D1.prepare(
+		`SELECT COUNT(*) AS count
+		 FROM entity_lifecycle_identity_claims
+		 WHERE key_kind = 'bot_handle' AND key_scope = ? AND key_value = ?`,
+	).bind(worldId, handle).first<{ count: number }>();
+	return row?.count ?? 0;
 }
 
 async function createForumForOwner(userId: string, worldHandle: string, handle: string): Promise<{ id: string; handle: string }> {

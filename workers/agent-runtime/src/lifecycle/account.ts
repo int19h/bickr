@@ -4,8 +4,8 @@ import {
 	beginAccountDeleteLifecycle,
 	beginLifecycleCompensation,
 	classifyLifecycleFailure,
+	finalizeAccountLifecycleDeletion,
 	finalizeLifecycleCompensation,
-	finalizeLifecycleDeletion,
 	hashLifecycleRequest,
 	lifecycleCheckpoint,
 	lifecycleIdempotencyKey,
@@ -17,8 +17,10 @@ import {
 	recordAccountDeleteConvergenceFailure as persistAccountDeleteConvergenceFailure,
 	recordRetryableLifecycleFailure,
 	requiredAccountDeleteLifecycleOperation,
+	requiredAccountDeleteTerminalResult,
 	serializedLifecycleRequest,
 	type AccountDeleteLifecycleOperation,
+	type AccountDeleteTerminalResult,
 	type LifecycleOperation,
 } from "@bickr/shared/entity-lifecycle";
 import {
@@ -211,14 +213,8 @@ export async function runAccountDeleteOperation(
 	let operation = requiredAccountDeleteLifecycleOperation(
 		await lifecycleOperationById(context.env.BICKR_D1, initialOperation.operationId) ?? initialOperation,
 	);
-	const current = await readJson<UserDocument>(context.env.BICKR_KV, kvKeys.user(operation.entityId));
 	if (operation.phase === "terminal") {
-		if (!current?.deletedAt) throw new RepositoryError("server_error", "Deleted account document is missing.", 500);
-		return {
-			kind: "account_delete_complete",
-			profile: publicUser(current),
-			deleted: { worlds: 0, forums: 0, bots: 0 },
-		};
+		return completedAccountDeletionResult(context, operation);
 	}
 	if (operation.phase === "terminal_failed") {
 		throw new RepositoryError("conflict", "Account deletion previously failed terminally.", 409);
@@ -281,13 +277,22 @@ export async function runAccountDeleteOperation(
 		});
 		const deleted = await readJson<UserDocument>(context.env.BICKR_KV, kvKeys.user(request.userId));
 		if (!deleted?.deletedAt) throw new RepositoryError("server_error", "Account deletion did not persist its document.", 500);
-		await finalizeLifecycleDeletion(context.env.BICKR_D1, operation, { kind: "legacy_compatible" }, new Date().toISOString());
-		await lifecycleCheckpoint(context.coordinator.failureInjector, "account.delete.finish.d1");
-		return {
+		const terminalResult: AccountDeleteTerminalResult = {
 			kind: "account_delete_complete",
-			profile: publicUser(deleted),
 			deleted: request.plannedCounts,
 		};
+		await finalizeAccountLifecycleDeletion(
+			context.env.BICKR_D1,
+			operation,
+			{ kind: "legacy_compatible" },
+			terminalResult,
+			new Date().toISOString(),
+		);
+		await lifecycleCheckpoint(context.coordinator.failureInjector, "account.delete.finish.d1");
+		operation = requiredAccountDeleteLifecycleOperation(
+			await lifecycleOperationById(context.env.BICKR_D1, operation.operationId) ?? operation,
+		);
+		return completedAccountDeletionResult(context, operation, deleted);
 	} catch (error) {
 		return recordAccountDeleteFailure(context, operation, request.plannedCounts, error);
 	}
@@ -349,11 +354,10 @@ async function recordAccountDeleteFailure(
 ): Promise<AccountDeletionResult> {
 	const currentOperation = await lifecycleOperationById(context.env.BICKR_D1, operation.operationId);
 	if (currentOperation?.phase === "terminal") {
-		const current = await readJson<UserDocument>(context.env.BICKR_KV, kvKeys.user(operation.entityId));
-		if (!current?.deletedAt) {
-			throw new RepositoryError("server_error", "Deleted account document is missing.", 500);
-		}
-		return { kind: "account_delete_complete", profile: publicUser(current), deleted: planned };
+		return completedAccountDeletionResult(
+			context,
+			requiredAccountDeleteLifecycleOperation(currentOperation),
+		);
 	}
 	const failure = classifyLifecycleFailure(error);
 	// Once cascade execution starts, a child coordinator or the account writer
@@ -366,6 +370,23 @@ async function recordAccountDeleteFailure(
 	}, new Date().toISOString());
 	await bestEffortAccountDeleteAlarm(context);
 	return { kind: "account_delete_pending", planned };
+}
+
+async function completedAccountDeletionResult(
+	context: LifecycleRuntimeContext,
+	operation: AccountDeleteLifecycleOperation,
+	current?: UserDocument,
+): Promise<AccountDeletionResult> {
+	const terminal = requiredAccountDeleteTerminalResult(operation);
+	const deleted = current ?? await readJson<UserDocument>(context.env.BICKR_KV, kvKeys.user(operation.entityId));
+	if (!deleted?.deletedAt) {
+		throw new RepositoryError("server_error", "Deleted account document is missing.", 500);
+	}
+	return {
+		kind: terminal.kind,
+		profile: publicUser(deleted),
+		deleted: terminal.deleted,
+	};
 }
 
 async function bestEffortAccountDeleteAlarm(context: LifecycleRuntimeContext): Promise<void> {
