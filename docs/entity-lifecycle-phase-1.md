@@ -11,6 +11,12 @@ Repository entity writers are private. `accountBootstrapReservationRepositoryMut
 are separate narrow capabilities, and a static import-boundary test limits each
 capability to its corresponding coordinator implementation. Pages, MCP, CLI,
 tests, runtimes, and repository consumers cannot import individual writers.
+The boundary test follows writer authority through local aliases, default and
+named exports, namespace/destructuring aliases, `export *` barrels, dynamic
+imports, and downstream modules across the supported TypeScript and JavaScript
+module extensions. Its fixed expected writer inventory is independent of the
+capability objects, so deleting a capability member cannot turn that writer
+into an ungoverned export.
 Account, world, and participant lifecycle orchestration and persisted-request
 parsing live in separate `workers/agent-runtime/src/lifecycle/` modules; the
 route module is limited to route composition and pre-existing request handlers.
@@ -52,6 +58,10 @@ write clears the lease; process death after claiming is recovered when the
 lease expires. Maintenance mode claims and dispatches nothing, while the
 coordinator boundary independently rechecks maintenance and internal service
 authentication.
+Terminal-history cleanup is deliberately excluded from the recovery trigger:
+deleting an expired terminal row cannot shorten or clear an active lease for
+the same owner's unrelated nonterminal work. Genuine nonterminal changes still
+rederive the projection in the same transaction.
 
 Canonical entity state and unique-key reservations live only for the active or incomplete entity lifetime. Successful terminal and terminal-failed operation rows retain secret-free request identity and failure metadata for 30 days. The agent-runtime scheduled handler deletes at most 100 expired rows per run through the partial `terminal_cleanup_at` index. No lifecycle query repairs canonical state from KV or index shape.
 
@@ -84,6 +94,14 @@ has been stored.
 
 Account deletion may abort a terminal failure only at its initial D1 hide
 checkpoint, before any child coordinator or account-storage effect is invoked.
+The hide reservation is also an atomic owner-ordering barrier: it refuses to
+start while that owner has an earlier nonterminal create or delete operation,
+using the existing owner/phase index. Conversely, a world, participant,
+or clone create reservation requires an active account projection in its D1
+reservation transaction. Materialization revalidates that active projection,
+so a stale operation cannot recreate KV material after account deletion has
+won the ordering race; the normal terminal compensation path removes its
+pending claim and partial external material.
 After cascade execution starts, every failure keeps the parent hidden and is
 recorded as convergence-required retryable while preserving the originating
 typed failure code. Each parent attempt spends one configured fixed budget
@@ -106,6 +124,13 @@ Account deletion convergence has no retry-exhaustion compensation transition:
 after cascade execution begins, an irreversible child side effect may already
 exist, so retries remain deleting until they converge and retain the original
 typed failure code.
+
+The internal delete route reports `account_delete_pending` with HTTP 202 while
+bounded continuation remains, and `account_delete_complete` with HTTP 200 only
+after the terminal batch. Both are successful typed outcomes. The Pages
+adapter clears the session cookie for either outcome and the web client clears
+its authenticated state immediately; scheduled recovery or an owner alarm
+continues a pending deletion independently of that browser request.
 
 Legacy rows receive `lifecycle_state = 'active'` in the migration. New rows are inserted as pending and become publicly visible only in the D1 activation batch. A deletion changes visibility to deleting in the same batch that creates the delete operation. Public/authentication/search/runtime readers require active projections.
 

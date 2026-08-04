@@ -14,7 +14,7 @@ import {
 	lifecycleOperationByKey,
 	markLifecycleMaterializing,
 	recordRetryableLifecycleFailure,
-	reserveCreateLifecycle,
+	reserveOwnedCreateLifecycle,
 	serializedLifecycleRequest,
 	type LifecycleOperation,
 } from "@bickr/shared/entity-lifecycle";
@@ -34,7 +34,7 @@ import {
 import { kvKeys, readJson } from "@bickr/shared/storage";
 import { apiErrorPayload, repositoryErrorCode } from "../runtime/bot-runtime";
 import { scheduleUserLifecycleAlarm } from "./common";
-import type { AgentRuntimeRouteContext, AgentRuntimeRouteEnv, LifecycleRuntimeContext } from "./types";
+import type { AgentRuntimeRouteEnv, LifecycleReservationContext, LifecycleRuntimeContext } from "./types";
 
 type WorldCreateLifecycleRequest = {
 	kind: "world_create";
@@ -53,7 +53,7 @@ type WorldDeleteLifecycleRequest = {
 };
 
 export async function reserveWorldCreate(
-	context: AgentRuntimeRouteContext,
+	context: LifecycleReservationContext,
 	userId: string,
 	input: CreateWorldInput,
 ): Promise<LifecycleOperation> {
@@ -68,7 +68,7 @@ export async function reserveWorldCreate(
 		createdAt: now,
 		input,
 	};
-	const reserved = await reserveCreateLifecycle(context.env.BICKR_D1, {
+	const reserved = await reserveOwnedCreateLifecycle(context.env.BICKR_D1, {
 		ownerUserId: userId,
 		idempotencyKey: lifecycleIdempotencyKey(context.request),
 		requestHash,
@@ -236,7 +236,7 @@ export function requiredBotGroupMutationResult(
 }
 
 export async function reserveWorldDelete(
-	context: AgentRuntimeRouteContext,
+	context: LifecycleReservationContext,
 	userId: string,
 	worldHandle: string,
 ): Promise<LifecycleOperation> {

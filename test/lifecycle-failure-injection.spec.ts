@@ -123,6 +123,93 @@ describe("lifecycle failure injection", () => {
 		expect(await testEnv.BICKR_KV.get(`v1:forum:${request.introForumId}`, { type: "json" })).toEqual(beforeForum);
 	});
 
+	it("keeps an account active until an earlier hard-interrupted world create converges", async () => {
+		const user = await seedAccount("world-before-account-delete");
+		const worldKey = "world-before-account-delete";
+		const worldInjector = new FailOnce("world.reserve.d1");
+		const interrupted = await coordinatorRequest(
+			user.id,
+			"/worlds",
+			"POST",
+			worldInput("world-before-account-delete"),
+			worldKey,
+			worldInjector,
+		);
+		expect(interrupted.ok).toBe(false);
+
+		const blockedDelete = await coordinatorRequest(
+			user.id,
+			"/profile",
+			"DELETE",
+			{ confirmCascade: true },
+			"blocked-by-world-create",
+		);
+		expect(blockedDelete).toMatchObject({ ok: false, error: "conflict" });
+		expect(await activeProjectionCount("users_index", "user_id", user.id)).toBe(1);
+		expect(await lifecycleOperationState(user.id, "blocked-by-world-create")).toBeNull();
+
+		const resumedWorld = await coordinatorRequest(
+			user.id,
+			"/worlds",
+			"POST",
+			worldInput("world-before-account-delete"),
+			worldKey,
+			worldInjector,
+		);
+		expect(resumedWorld).toMatchObject({ ok: true });
+		const deleted = await coordinatorRequest(
+			user.id,
+			"/profile",
+			"DELETE",
+			{ confirmCascade: true },
+			"delete-after-world-create",
+		);
+		expect(deleted).toMatchObject({ ok: true, data: { kind: "account_delete_complete" } });
+		expect(await activeProjectionCount("worlds_index", "created_by_user_id", user.id)).toBe(0);
+		expect(await activeProjectionCount("users_index", "user_id", user.id)).toBe(0);
+	});
+
+	it("compensates a stale materialized world create when its owner projection is no longer active", async () => {
+		const user = await seedAccount("stale-world-owner");
+		const key = "stale-world-owner-create";
+		const injector = new FailOnce("world.activate.d1");
+		const first = await coordinatorRequest(
+			user.id,
+			"/worlds",
+			"POST",
+			worldInput("stale-world-owner"),
+			key,
+			injector,
+		);
+		expect(first.ok).toBe(false);
+		const request = await lifecycleRequestByKey(user.id, key) as { worldId: string; introForumId: string };
+		await testEnv.BICKR_D1.prepare(
+			"UPDATE users_index SET lifecycle_state = 'deleting' WHERE user_id = ?",
+		).bind(user.id).run();
+
+		const staleResume = await coordinatorRequest(
+			user.id,
+			"/worlds",
+			"POST",
+			worldInput("stale-world-owner"),
+			key,
+			injector,
+		);
+		expect(staleResume).toMatchObject({ ok: false, error: "not_found" });
+		expect(await lifecycleOperationState(user.id, key)).toMatchObject({ phase: "terminal_failed" });
+		expect(await testEnv.BICKR_KV.get(`v1:world:${request.worldId}`)).toBeNull();
+		expect(await testEnv.BICKR_KV.get(`v1:forum:${request.introForumId}`)).toBeNull();
+		expect((await testEnv.BICKR_D1.prepare(
+			"SELECT COUNT(*) AS count FROM worlds_index WHERE world_id = ?",
+		).bind(request.worldId).first<{ count: number }>())?.count).toBe(0);
+		expect((await testEnv.BICKR_D1.prepare(
+			"SELECT COUNT(*) AS count FROM forums_index WHERE forum_id = ?",
+		).bind(request.introForumId).first<{ count: number }>())?.count).toBe(0);
+		expect((await testEnv.BICKR_D1.prepare(
+			"SELECT COUNT(*) AS count FROM entity_lifecycle_identity_claims WHERE entity_kind = 'world' AND entity_id = ?",
+		).bind(request.worldId).first<{ count: number }>())?.count).toBe(0);
+	});
+
 	it.each([...botCreatePoints, ...cloneCreatePoints])("converges participant create without duplicate entity or personal forum after %s", async (point) => {
 		const user = await seedAccount(`bot-${point}`);
 		const world = await createWorld(testEnv.BICKR_KV, testEnv.BICKR_D1, worldInput(testHandle(`home-${point.replaceAll(".", "-")}`)), user.id);
@@ -168,6 +255,44 @@ describe("lifecycle failure injection", () => {
 		expect(await testEnv.BICKR_KV.get(`v1:forum:${request.personalForumId}`, { type: "json" })).toEqual(beforeForum);
 	});
 
+	it.each([
+		{ kind: "bot", clone: false },
+		{ kind: "clone", clone: true },
+	])("orders account deletion behind an earlier hard-interrupted $kind create", async ({ kind, clone }) => {
+		const user = await seedAccount(`bot-before-account-delete-${clone}`);
+		const world = await createWorld(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			worldInput(`bot-before-delete-home-${clone}`),
+			user.id,
+		);
+		const source = clone
+			? await createBot(testEnv.BICKR_KV, testEnv.BICKR_D1, world.handle, botInput("bot-before-delete-source"), user.id)
+			: null;
+		const key = `${kind}-before-account-delete`;
+		const injector = new FailOnce(clone ? "clone.reserve.d1" : "bot.reserve.d1");
+		const interrupted = await coordinatorRequest(
+			user.id,
+			`/worlds/${world.handle}/bots`,
+			"POST",
+			botInput(`${kind}-before-account-delete`, source?.id),
+			key,
+			injector,
+		);
+		expect(interrupted.ok).toBe(false);
+
+		const blockedDelete = await coordinatorRequest(
+			user.id,
+			"/profile",
+			"DELETE",
+			{ confirmCascade: true },
+			`blocked-by-${kind}-create`,
+		);
+		expect(blockedDelete).toMatchObject({ ok: false, error: "conflict" });
+		expect(await activeProjectionCount("users_index", "user_id", user.id)).toBe(1);
+		expect(await lifecycleOperationState(user.id, `blocked-by-${kind}-create`)).toBeNull();
+	});
+
 	it.each(worldDeletePoints)("converges world deletion and never leaks the deleting world after %s", async (point) => {
 		const user = await seedAccount(`world-delete-${point}`);
 		const world = await createWorld(testEnv.BICKR_KV, testEnv.BICKR_D1, worldInput(testHandle(`world-delete-${point.replaceAll(".", "-")}`)), user.id);
@@ -176,15 +301,31 @@ describe("lifecycle failure injection", () => {
 		expect((await listWorlds(testEnv.BICKR_D1)).some((candidate) => candidate.id === world.id)).toBe(false);
 	});
 
+	it("converges account deletion after a retryable pre-cascade interruption", async () => {
+		const point = "account.delete.hide.d1" satisfies LifecycleFailurePoint;
+		const user = await seedAccount(`account-delete-${point}`);
+		const result = await failOnceThenRetry(user.id, "/profile", "DELETE", { confirmCascade: true }, `account-delete-${point}`, point);
+		expect(result).toMatchObject({ ok: true, data: { kind: "account_delete_complete" } });
+		expect((await testEnv.BICKR_D1.prepare(`SELECT deleted_at AS deletedAt FROM users_index WHERE user_id = ?`).bind(user.id).first<{ deletedAt: string | null }>())?.deletedAt).not.toBeNull();
+	});
+
 	it.each([
-		"account.delete.hide.d1",
 		"account.delete.kv",
 		"account.delete.indexes.d1",
 		"account.delete.finish.d1",
-	] satisfies LifecycleFailurePoint[])("converges account deletion after %s", async (point) => {
+	] satisfies LifecycleFailurePoint[])("accepts and converges account deletion after %s", async (point) => {
 		const user = await seedAccount(`account-delete-${point}`);
-		const result = await failOnceThenRetry(user.id, "/profile", "DELETE", { confirmCascade: true }, `account-delete-${point}`, point);
-		expect(result.ok).toBe(true);
+		const key = `account-delete-${point}`;
+		const injector = new FailOnce(point);
+		const firstResponse = await coordinatorResponse(user.id, "/profile", "DELETE", { confirmCascade: true }, key, injector);
+		expect(firstResponse.status).toBe(point === "account.delete.finish.d1" ? 200 : 202);
+		const first = await firstResponse.json() as Record<string, unknown>;
+		expect(first).toMatchObject({
+			ok: true,
+			data: { kind: point === "account.delete.finish.d1" ? "account_delete_complete" : "account_delete_pending" },
+		});
+		const result = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, key, injector);
+		expect(result).toMatchObject({ ok: true, data: { kind: "account_delete_complete" } });
 		expect((await testEnv.BICKR_D1.prepare(`SELECT deleted_at AS deletedAt FROM users_index WHERE user_id = ?`).bind(user.id).first<{ deletedAt: string | null }>())?.deletedAt).not.toBeNull();
 	});
 
@@ -219,8 +360,10 @@ describe("lifecycle failure injection", () => {
 		const user = await seedAccount("account-terminal-after-kv");
 		const key = "account-terminal-after-kv";
 		const injector = new FailOnce(point, false);
-		const first = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, key, injector);
-		expect(first.ok).toBe(false);
+		const firstResponse = await coordinatorResponse(user.id, "/profile", "DELETE", { confirmCascade: true }, key, injector);
+		expect(firstResponse.status).toBe(202);
+		const first = await firstResponse.json() as Record<string, unknown>;
+		expect(first).toMatchObject({ ok: true, data: { kind: "account_delete_pending" } });
 		expect(await lifecycleOperationState(user.id, key)).toMatchObject({
 			phase: "deleting",
 			retryCount: 1,
@@ -230,7 +373,7 @@ describe("lifecycle failure injection", () => {
 		const stored = await testEnv.BICKR_KV.get<UserDocument>(`v1:user:${user.id}`, { type: "json" });
 		expect(stored?.deletedAt).toEqual(expect.any(String));
 		const retried = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, key, injector);
-		expect(retried.ok).toBe(true);
+		expect(retried).toMatchObject({ ok: true, data: { kind: "account_delete_complete" } });
 		expect(await lifecycleOperationState(user.id, key)).toMatchObject({ phase: "terminal", retryCount: 1 });
 		expect(await activeProjectionCount("users_index", "user_id", user.id)).toBe(0);
 		expect(await nonterminalAccountChildOperationCount(user.id, key)).toBe(0);
@@ -245,7 +388,7 @@ describe("lifecycle failure injection", () => {
 		const injector = new FailOnce(point, false);
 
 		const first = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, key, injector);
-		expect(first.ok).toBe(false);
+		expect(first).toMatchObject({ ok: true, data: { kind: "account_delete_pending" } });
 		expect(await activeProjectionCount("users_index", "user_id", user.id)).toBe(0);
 		expect(await lifecycleOperationState(user.id, key)).toMatchObject({
 			phase: "deleting",
@@ -257,7 +400,7 @@ describe("lifecycle failure injection", () => {
 		expect(childTombstone?.deletedAt).toEqual(expect.any(String));
 
 		const retried = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, key, injector);
-		expect(retried.ok).toBe(true);
+		expect(retried).toMatchObject({ ok: true, data: { kind: "account_delete_complete" } });
 		expect(await lifecycleOperationState(user.id, key)).toMatchObject({ phase: "terminal", retryCount: 1 });
 		expect(await activeProjectionCount("users_index", "user_id", user.id)).toBe(0);
 		expect(await nonterminalAccountChildOperationCount(user.id, key)).toBe(0);
@@ -310,7 +453,7 @@ describe("lifecycle failure injection", () => {
 			undefined,
 			lifecycleTestStorage(setAlarm),
 		);
-		expect(continuation.ok).toBe(false);
+		expect(continuation).toMatchObject({ ok: true, data: { kind: "account_delete_pending" } });
 		expect(setAlarm).toHaveBeenCalledTimes(1);
 		expect(await lifecycleOperationState(user.id, key)).toMatchObject({
 			phase: "deleting",
@@ -325,7 +468,7 @@ describe("lifecycle failure injection", () => {
 		expect(await activeProjectionCount("users_index", "user_id", user.id)).toBe(0);
 
 		const converged = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, key);
-		expect(converged.ok).toBe(true);
+		expect(converged).toMatchObject({ ok: true, data: { kind: "account_delete_complete" } });
 		expect(await lifecycleOperationState(user.id, key)).toMatchObject({ phase: "terminal", retryCount: 0 });
 		expect(await accountChildOperationCounts(user.id, parentOperationId, "bot")).toEqual({
 			terminal: accountDeleteChildOperationsPerAttempt + 1,
@@ -347,8 +490,11 @@ describe("lifecycle failure injection", () => {
 			);
 		}
 		const key = "account-bounded-active-planning";
-		const setAlarm = vi.fn(async () => undefined);
-		const first = await coordinatorRequest(
+		const setAlarm = vi.fn(async () => {
+			throw new Error("local alarm unavailable");
+		});
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		const firstResponse = await coordinatorResponse(
 			user.id,
 			"/profile",
 			"DELETE",
@@ -357,8 +503,12 @@ describe("lifecycle failure injection", () => {
 			undefined,
 			lifecycleTestStorage(setAlarm),
 		);
-		expect(first).toMatchObject({ ok: false, error: "server_error" });
+		expect(firstResponse.status).toBe(202);
+		const first = await firstResponse.json() as Record<string, unknown>;
+		expect(first).toMatchObject({ ok: true, data: { kind: "account_delete_pending" } });
 		expect(setAlarm).toHaveBeenCalledTimes(1);
+		expect(warn).toHaveBeenCalledWith("account deletion local alarm scheduling failed", expect.any(Error));
+		warn.mockRestore();
 		const parentOperationId = await lifecycleOperationId(user.id, key);
 		expect(await accountChildOperationCounts(user.id, parentOperationId, "bot")).toEqual({
 			terminal: accountDeleteChildOperationsPerAttempt,
@@ -372,7 +522,7 @@ describe("lifecycle failure injection", () => {
 		expect(await activeProjectionCount("bots_index", "owner_user_id", user.id)).toBe(1);
 
 		const converged = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, key);
-		expect(converged.ok).toBe(true);
+		expect(converged).toMatchObject({ ok: true, data: { kind: "account_delete_complete" } });
 		expect(await accountChildOperationCounts(user.id, parentOperationId, "bot")).toEqual({
 			terminal: accountDeleteChildOperationsPerAttempt + 1,
 			nonterminal: 0,
@@ -691,6 +841,19 @@ async function coordinatorRequest(
 	injector?: LifecycleFailureInjector,
 	storage?: UserBotsCoordinatorStorage,
 ): Promise<Record<string, unknown>> {
+	const response = await coordinatorResponse(userId, path, method, body, key, injector, storage);
+	return await response.json() as Record<string, unknown>;
+}
+
+async function coordinatorResponse(
+	userId: string,
+	path: string,
+	method: string,
+	body: unknown,
+	key: string,
+	injector?: LifecycleFailureInjector,
+	storage?: UserBotsCoordinatorStorage,
+): Promise<Response> {
 	const forumService = {
 		fetch: (request: Request) => handleForumCoordinatorRequest(request, testEnv, {
 			objectId: "failure-world-coordinator",
@@ -712,7 +875,7 @@ async function coordinatorRequest(
 		}
 		requestBody = reservation.profile;
 	}
-	const response = await handleAgentRuntimeRequest(new Request(`https://agent.internal/users/${encodeURIComponent(userId)}${path}`, {
+	return handleAgentRuntimeRequest(new Request(`https://agent.internal/users/${encodeURIComponent(userId)}${path}`, {
 		method,
 		headers,
 		...(requestBody !== undefined ? { body: JSON.stringify(requestBody) } : {}),
@@ -730,7 +893,6 @@ async function coordinatorRequest(
 		failureInjector: injector,
 		storage,
 	});
-	return await response.json() as Record<string, unknown>;
 }
 
 function lifecycleTestStorage(

@@ -20,7 +20,7 @@ import {
 	lifecycleSecretValue,
 	markLifecycleMaterializing,
 	recordRetryableLifecycleFailure,
-	reserveCreateLifecycle,
+	reserveOwnedCreateLifecycle,
 	serializedLifecycleRequest,
 	type LifecycleFailurePoint,
 	type LifecycleOperation,
@@ -37,7 +37,7 @@ import {
 import { deleteKey, kvKeys, readJson } from "@bickr/shared/storage";
 import { deleteBotVector, requireAvatarBucket, upsertBotVector } from "../runtime/bot-runtime";
 import { scheduleUserLifecycleAlarm } from "./common";
-import type { AgentRuntimeRouteContext, AgentRuntimeRouteEnv, LifecycleRuntimeContext } from "./types";
+import type { AgentRuntimeRouteEnv, LifecycleReservationContext, LifecycleRuntimeContext } from "./types";
 
 const { createBot, deleteBot, materializePendingBotAvatar } = userCoordinatorRepositoryMutations;
 
@@ -64,7 +64,7 @@ type BotDeleteLifecycleRequest = {
 };
 
 export async function reserveBotCreate(
-	context: AgentRuntimeRouteContext,
+	context: LifecycleReservationContext,
 	userId: string,
 	worldHandle: string,
 	input: CreateBotInput,
@@ -86,7 +86,7 @@ export async function reserveBotCreate(
 		createdAt,
 		input: credentialFreeInput,
 	};
-	const reserved = await reserveCreateLifecycle(context.env.BICKR_D1, {
+	const reserved = await reserveOwnedCreateLifecycle(context.env.BICKR_D1, {
 		ownerUserId: userId,
 		idempotencyKey: lifecycleIdempotencyKey(context.request),
 		requestHash,
@@ -290,7 +290,7 @@ async function compensateBotCreate(
 }
 
 export async function reserveBotDelete(
-	context: AgentRuntimeRouteContext,
+	context: LifecycleReservationContext,
 	userId: string,
 	botId: string,
 	options: { allowLinkedCloneDelete?: boolean } = {},

@@ -44,6 +44,11 @@ export type AgentRuntimeRouteContext = {
 	match: RegExpExecArray;
 };
 
+export type LifecycleReservationContext = Pick<
+	AgentRuntimeRouteContext,
+	"request" | "env" | "coordinator"
+>;
+
 export type LifecycleRuntimeContext = {
 	env: AgentRuntimeRouteEnv;
 	coordinator: UserBotsCoordinatorContext;

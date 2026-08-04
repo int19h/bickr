@@ -7,6 +7,7 @@ import {
 	type BotGroupSummary,
 	type BotSummary,
 	type BotTickSpreadResult,
+	type AccountDeletionResult,
 	type CommentDocument,
 	type CreateForumInput,
 	type CreateWorldInput,
@@ -15,7 +16,6 @@ import {
 	type HumanNotificationListScope,
 	type HumanNotificationReadScope,
 	type HumanNotificationSummary,
-	type HumanOwnedTotals,
 	type HumanSubscription,
 	type HumanSubscriptionScope,
 	type HumanSubscriptionTreeResponse,
@@ -41,6 +41,7 @@ import {
 	useState,
 } from "react";
 import { api } from "./api";
+import { applyAccountDeletionResult } from "./profile-deletion";
 import {
 	adjustWorldCounts,
 	botGroupWithBots,
@@ -1793,23 +1794,25 @@ function App() {
 
 	async function deleteProfile(): Promise<boolean> {
 		return submit(async () => {
-			await runApiAction(throwApiError, () => api<{ deleted: HumanOwnedTotals }>("/api/me/profile", {
+			const result = await runApiAction(throwApiError, () => api<AccountDeletionResult>("/api/me/profile", {
 				method: "DELETE",
 				body: { confirmCascade: true },
 			}));
-			setSession({ authenticated: false, user: null });
-			setUserProfile(null);
-			setBots([]);
-			setBotsByWorld({});
-			setBotGroupsByWorld({});
-			setForumsByWorld({});
-			setThreadsByForum({});
-			setThreadDocuments({});
-			setSubscriptions([]);
-			setSubscriptionTreeResponse(null);
-			setHumanNotifications({ unreadCount: 0, notifications: [] });
-			setCreateBotWorldHandle(null);
-			navigate({ route: "worlds" });
+			applyAccountDeletionResult(result.data, () => {
+				setSession({ authenticated: false, user: null });
+				setUserProfile(null);
+				setBots([]);
+				setBotsByWorld({});
+				setBotGroupsByWorld({});
+				setForumsByWorld({});
+				setThreadsByForum({});
+				setThreadDocuments({});
+				setSubscriptions([]);
+				setSubscriptionTreeResponse(null);
+				setHumanNotifications({ unreadCount: 0, notifications: [] });
+				setCreateBotWorldHandle(null);
+				navigate({ route: "worlds" });
+			});
 			return "Deleted profile.";
 		});
 	}

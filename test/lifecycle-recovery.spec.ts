@@ -2,6 +2,7 @@ import { env as testEnv } from "cloudflare:test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExclusiveOperationQueue } from "@bickr/shared/exclusive-operation-queue";
 import {
+	cleanupTerminalLifecycleOperations,
 	lifecycleRecoveryLeaseMs,
 	lifecycleOperationById,
 	markLifecycleMaterializing,
@@ -199,6 +200,19 @@ describe("hard-interruption lifecycle recovery", () => {
 	it("leases a poisoned owner so a later due owner is not starved", async () => {
 		const poison = await pendingAccount("usr_a_poison", "poison-subject");
 		const healthy = await pendingAccount("usr_b_healthy", "healthy-subject");
+		await testEnv.BICKR_D1.prepare(
+			`INSERT INTO entity_lifecycle_operations (
+				operation_id, owner_user_id, idempotency_key, request_hash, request_json,
+				entity_kind, entity_id, action, phase, revision, retry_count,
+				next_retry_at, failure_category, failure_code, created_at, updated_at,
+				terminal_at, terminal_cleanup_at
+			 ) VALUES (
+				'opn_poison_terminal_history', ?, 'poison-terminal-history', 'terminal-history', NULL,
+				'account', 'usr_poison_terminal_history', 'create', 'terminal', 2, 0,
+				NULL, NULL, NULL, '2026-06-01T00:00:00.000Z', '2026-06-01T00:00:01.000Z',
+				'2026-06-01T00:00:01.000Z', '2026-07-01T00:00:01.000Z'
+			 )`,
+		).bind(poison.userId).run();
 		const routeEnv = recoveryRouteEnv();
 		const poisonStorage = testUserStorage();
 		const healthyStorage = testUserStorage();
@@ -225,6 +239,17 @@ describe("hard-interruption lifecycle recovery", () => {
 		}, scheduledTime, { limit: 1, leaseMs: lifecycleRecoveryLeaseMs })).toEqual({
 			claimed: 1, dispatched: 0, failed: 1, maintenanceDeferred: false,
 		});
+		const poisonLease = await recoveryOwner(poison.userId);
+		expect(poisonLease).toMatchObject({
+			leaseToken: expect.any(String),
+			leaseExpiresAt: expect.any(String),
+		});
+		expect(await cleanupTerminalLifecycleOperations(
+			testEnv.BICKR_D1,
+			new Date(scheduledTime).toISOString(),
+			1,
+		)).toBe(1);
+		expect(await recoveryOwner(poison.userId)).toEqual(poisonLease);
 		expect(await recoverDueLifecycleOwners({
 			BICKR_D1: testEnv.BICKR_D1,
 			USER_BOTS: namespace,

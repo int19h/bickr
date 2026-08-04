@@ -934,6 +934,12 @@ async function activeAccountProjectionExists(db: D1DatabaseLike, userId: string)
 		.first<{ id: string }>());
 }
 
+async function assertActiveAccountOwner(db: D1DatabaseLike, userId: string): Promise<void> {
+	if (!await activeAccountProjectionExists(db, userId)) {
+		throw new RepositoryError("not_found", "User not found.", 404);
+	}
+}
+
 export async function deleteCliToken(kv: KVNamespaceLike, token: string | null | undefined): Promise<void> {
 	if (!token) {
 		return;
@@ -1231,6 +1237,8 @@ async function createWorld(
 ): Promise<WorldSummary> {
 	const createOptions = typeof options === "string" ? { now: options } : options;
 	const now = createOptions.now ?? new Date().toISOString();
+	await userById(kv, userId);
+	await assertActiveAccountOwner(db, userId);
 	const existing = await db
 		.prepare(`SELECT world_id AS id FROM worlds_index WHERE handle = ? AND deleted_at IS NULL`)
 		.bind(input.handle)
@@ -1520,6 +1528,7 @@ async function createBot(
 	}
 
 	const owner = await userById(kv, userId);
+	await assertActiveAccountOwner(db, userId);
 	const cloneSource = input.cloneSourceBotId ? createOptions.cloneSource ?? await rawBotById(kv, db, input.cloneSourceBotId) : null;
 	if (cloneSource && cloneSource.id !== input.cloneSourceBotId) {
 		throw new RepositoryError("bad_request", "Clone source does not match the requested source.", 400);

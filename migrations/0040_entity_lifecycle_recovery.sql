@@ -116,6 +116,11 @@ END;
 
 CREATE TRIGGER entity_lifecycle_recovery_after_delete
 AFTER DELETE ON entity_lifecycle_operations
+-- Bounded terminal-history cleanup must not refresh this projection: doing so
+-- would clear an active poison-owner lease even though canonical nonterminal
+-- state did not change. Deleting a genuinely nonterminal operation still
+-- re-derives or removes the owner row below.
+WHEN OLD.phase NOT IN ('terminal', 'terminal_failed')
 BEGIN
 	DELETE FROM entity_lifecycle_recovery_owners
 	WHERE owner_user_id = OLD.owner_user_id

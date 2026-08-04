@@ -1088,10 +1088,9 @@ export const agentRuntimeRouteTable = [
 			const operation = await reserveAccountDelete(context, userId);
 			const result = await runAccountDeleteOperation(context, operation);
 			return ok({
-				profile: result.profile,
-				deleted: result.deleted,
+				...result,
 				coordinator: context.objectId,
-			});
+			}, { status: result.kind === 'account_delete_pending' ? 202 : 200 });
 		},
 	},
 	{

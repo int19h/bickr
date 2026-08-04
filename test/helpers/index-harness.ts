@@ -156,6 +156,7 @@ import forumCoordinatorWorker, {
 	handleForumCoordinatorRequest,
 	type Env as ForumCoordinatorEnv,
 } from "../../workers/forum-coordinator/src/index";
+import type { LifecycleFailureInjector } from "../../packages/shared/src/entity-lifecycle";
 import { ExclusiveOperationQueue } from "../../packages/shared/src/exclusive-operation-queue";
 import { pruneStreamEventsForPersistentEvents } from "../../apps/web/src/runtime-streams";
 import { parsePathname, routePath } from "../../apps/web/src/routes";
@@ -719,7 +720,10 @@ function testCoordinatorNamespace(handler: TestCoordinatorHandler): DurableObjec
 	} as unknown as DurableObjectNamespace;
 }
 
-function testServiceBindings(env: Partial<AppEnv>): Pick<
+function testServiceBindings(
+	env: Partial<AppEnv>,
+	options: { failureInjector?: LifecycleFailureInjector } = {},
+): Pick<
 	AppEnv,
 	"AGENT_RUNTIME" | "BOT_RUNTIME" | "FORUM_COORDINATOR" | "FORUM_COORDINATOR_SERVICE" | "USER_BOTS" | "WORLD_COORDINATOR"
 > {
@@ -765,6 +769,7 @@ function testServiceBindings(env: Partial<AppEnv>): Pick<
 	userBots = testCoordinatorNamespace((name, request) => handleAgentRuntimeRequest(request, agentWorkerEnv(), {
 		objectId: name,
 		ownerUserId: name,
+		failureInjector: options.failureInjector,
 		queue: userQueues.get(name) ?? (() => {
 			const queue = new ExclusiveOperationQueue();
 			userQueues.set(name, queue);
@@ -792,6 +797,7 @@ export function contextFor<F extends PagesFunction<AppEnv>>(
 	request: Request,
 	params: RouteParams = {},
 	envOverrides: Partial<AppEnv> = {},
+	coordinatorOptions: { failureInjector?: LifecycleFailureInjector } = {},
 ): Parameters<F>[0] {
 	const appEnv: Partial<AppEnv> = {
 		ASSETS: {
@@ -802,7 +808,7 @@ export function contextFor<F extends PagesFunction<AppEnv>>(
 		INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
 		...envOverrides,
 	};
-	const bindings = testServiceBindings(appEnv);
+	const bindings = testServiceBindings(appEnv, coordinatorOptions);
 	for (const [name, binding] of Object.entries(bindings)) {
 		if (appEnv[name as keyof AppEnv] === undefined) {
 			(appEnv as Record<string, unknown>)[name] = binding;

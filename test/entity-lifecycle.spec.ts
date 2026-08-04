@@ -224,6 +224,16 @@ describe("entity lifecycle foundation", () => {
 		expect((ownerDuePlan.results ?? []).some((row) =>
 			row.detail.includes("entity_lifecycle_operations_owner_due"),
 		)).toBe(true);
+		const ownerNonterminalPlan = await testEnv.BICKR_D1.prepare(
+			`EXPLAIN QUERY PLAN
+			 SELECT 1
+			 FROM entity_lifecycle_operations
+			 WHERE owner_user_id = ? AND phase NOT IN ('terminal', 'terminal_failed')
+			 LIMIT 1`,
+		).bind("usr_recovery_owner").all<{ detail: string }>();
+		expect((ownerNonterminalPlan.results ?? []).some((row) =>
+			row.detail.includes("entity_lifecycle_operations_owner_phase"),
+		)).toBe(true);
 		const childPlan = await testEnv.BICKR_D1.prepare(
 			`EXPLAIN QUERY PLAN
 			 SELECT operation_id
@@ -262,6 +272,36 @@ describe("entity lifecycle foundation", () => {
 		}, "2026-08-04T00:00:02.000Z");
 		await finalizeLifecycleCompensation(testEnv.BICKR_D1, compensating, [], "2026-08-04T00:00:03.000Z");
 		expect(await recoveryOwner("usr_recovery_owner")).toBeNull();
+	});
+
+	it("does not move an entity when compensation receives a stale terminal operation", async () => {
+		const reserved = await reserveCreateLifecycle(testEnv.BICKR_D1, {
+			ownerUserId: "usr_stale_compensation",
+			idempotencyKey: "stale-compensation",
+			requestHash: await hashLifecycleRequest({ handle: "stale-compensation" }),
+			requestJson: "{}",
+			entityKind: "account",
+			entityId: "usr_stale_compensation",
+			reservations: [{ kind: "user_handle", scope: "global", value: "stale-compensation" }],
+			now,
+		});
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE entity_lifecycle_operations
+			 SET phase = 'terminal_failed', terminal_at = ?, terminal_cleanup_at = ?
+			 WHERE operation_id = ?`,
+		).bind(now, "2026-09-03T00:00:00.000Z", reserved.operation.operationId).run();
+
+		const current = await beginLifecycleCompensation(testEnv.BICKR_D1, reserved.operation, {
+			category: "validation",
+			code: "stale_input",
+			retryable: false,
+		}, "2026-08-04T00:00:01.000Z");
+
+		expect(current.phase).toBe("terminal_failed");
+		expect(await lifecyclePair(reserved.operation.operationId, reserved.operation.entityId)).toMatchObject({
+			operationPhase: "terminal_failed",
+			entityPhase: "pending",
+		});
 	});
 
 	it("backfills recovery owners for nonterminal operations committed before migration 0040", async () => {

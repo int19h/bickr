@@ -108,6 +108,10 @@ import type {
 	WorldSummary,
 } from "./helpers/index-harness";
 import type { ForumDocument } from "@bickr/shared/model";
+import {
+	InjectedLifecycleFailure,
+	type LifecycleFailureInjector,
+} from "@bickr/shared/entity-lifecycle";
 import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
 import { worldIndexProjectionStatement } from "@bickr/shared/repository";
 import { exportThreadRef } from "../apps/web/functions/api/cli/export/_export";
@@ -116,6 +120,29 @@ import {
 	listHumanSubscriptionTree,
 	upsertHumanSubscription,
 } from "@bickr/shared/social";
+
+async function recoverUserLifecycle(
+	namespace: DurableObjectNamespace,
+	userId: string,
+): Promise<Response> {
+	const headers = new Headers({
+		"content-type": "application/json",
+		"x-bickr-scheduler": "1",
+		"x-bickr-user-id": userId,
+		[internalServiceAuthHeader]: "test-internal-service-secret",
+	});
+	return namespace.get(namespace.idFromName(userId)).fetch(new Request(
+		`https://internal.bickr/users/${encodeURIComponent(userId)}/lifecycle/recover`,
+		{
+			method: "POST",
+			headers,
+			body: JSON.stringify({
+				kind: "lifecycle_recovery_wake",
+				scheduledAt: new Date(Date.now() + 60_000).toISOString(),
+			}),
+		},
+	));
+}
 
 describe("Pages functions", () => {
 	it("returns an API health payload", async () => {
@@ -2449,6 +2476,140 @@ describe("Pages functions", () => {
 				authenticated: true,
 				user: { handle: "delete-profile", displayName: lt("Delete Profile Again") },
 			},
+		});
+	});
+
+	it("accepts bounded profile deletion and clears the cookie while convergence remains pending", async () => {
+		const cookie = await authCookieFor({
+			subject: "bounded-delete-profile-subject",
+			login: "bounded-delete-profile",
+			displayName: "Bounded Delete Profile",
+		});
+		await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest("http://example.com/api/worlds", "POST", {
+					handle: "bounded-delete-world",
+					name: "Bounded Delete World",
+					description: "Requires more than one account-delete attempt.",
+				}, cookie),
+			),
+		);
+		for (let index = 0; index <= 8; index += 1) {
+			await createBotInWorld(cookie, "bounded-delete-world", {
+				handle: `bounded-delete-bot-${index}`,
+			});
+		}
+
+		const deleteContext = contextFor<typeof deleteProfileRoute>(
+			jsonRequest("http://example.com/api/me/profile", "DELETE", { confirmCascade: true }, cookie),
+		);
+		const response = await deleteProfileRoute(deleteContext);
+		expect(response.status, await response.clone().text()).toBe(202);
+		expect(response.headers.getSetCookie().join(";")).toContain("Max-Age=0");
+		expect(await response.json()).toMatchObject({
+			ok: true,
+			data: {
+				kind: "account_delete_pending",
+				deleted: { worlds: 1, bots: 9 },
+			},
+		});
+		const staleSession = await session(
+			contextFor<typeof session>(new Request("http://example.com/api/session", { headers: { cookie } })),
+		);
+		expect(await staleSession.json()).toMatchObject({
+			ok: true,
+			data: { authenticated: false, user: null },
+		});
+		const userId = await userIdForHandle("bounded-delete-profile");
+		expect(await testEnv.BICKR_D1.prepare(
+			"SELECT lifecycle_state AS lifecycleState FROM users_index WHERE user_id = ?",
+		).bind(userId).first<{ lifecycleState: string }>()).toEqual({ lifecycleState: "deleting" });
+		const recoveryResponse = await recoverUserLifecycle(deleteContext.env.USER_BOTS, userId);
+		expect(recoveryResponse.status, await recoveryResponse.clone().text()).toBe(200);
+		expect(await testEnv.BICKR_D1.prepare(
+			"SELECT deleted_at AS deletedAt FROM users_index WHERE user_id = ?",
+		).bind(userId).first<{ deletedAt: string | null }>()).toEqual({
+			deletedAt: expect.any(String),
+		});
+	});
+
+	it("accepts a caught post-hide child failure, clears the cookie, and later converges", async () => {
+		const cookie = await authCookieFor({
+			subject: "caught-delete-profile-subject",
+			login: "caught-delete-profile",
+			displayName: "Caught Delete Profile",
+		});
+		await createWorld(
+			contextFor<typeof createWorld>(
+				jsonRequest("http://example.com/api/worlds", "POST", {
+					handle: "caught-delete-world",
+					name: "Caught Delete World",
+					description: "Exercises accepted post-hide convergence.",
+				}, cookie),
+			),
+		);
+		const bot = await createBotInWorld(cookie, "caught-delete-world", {
+			handle: "caught-delete-bot",
+		});
+		const userId = await userIdForHandle("caught-delete-profile");
+		let injected = false;
+		const failureInjector: LifecycleFailureInjector = {
+			checkpoint(point) {
+				if (injected || point !== "bot.delete.kv") return;
+				injected = true;
+				throw new InjectedLifecycleFailure(point, {
+					category: "external_terminal",
+					code: "pages_post_hide_child_failure",
+					retryable: false,
+				});
+			},
+		};
+		const deleteContext = contextFor<typeof deleteProfileRoute>(
+			jsonRequest("http://example.com/api/me/profile", "DELETE", { confirmCascade: true }, cookie),
+			{},
+			{},
+			{ failureInjector },
+		);
+
+		const response = await deleteProfileRoute(deleteContext);
+
+		expect(response.status, await response.clone().text()).toBe(202);
+		expect(response.headers.getSetCookie().join(";")).toContain("Max-Age=0");
+		expect(await response.json()).toMatchObject({
+			ok: true,
+			data: { kind: "account_delete_pending" },
+		});
+		const staleSession = await session(
+			contextFor<typeof session>(new Request("http://example.com/api/session", { headers: { cookie } })),
+		);
+		expect(await staleSession.json()).toMatchObject({
+			ok: true,
+			data: { authenticated: false, user: null },
+		});
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT phase, failure_code AS failureCode
+			 FROM entity_lifecycle_operations
+			 WHERE owner_user_id = ? AND entity_kind = 'account' AND action = 'delete'`,
+		).bind(userId).first<{ phase: string; failureCode: string | null }>()).toEqual({
+			phase: "deleting",
+			failureCode: "pages_post_hide_child_failure",
+		});
+
+		const recoveryResponse = await recoverUserLifecycle(deleteContext.env.USER_BOTS, userId);
+		expect(recoveryResponse.status, await recoveryResponse.clone().text()).toBe(200);
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT
+				(SELECT lifecycle_state FROM users_index WHERE user_id = ?) AS accountState,
+				(SELECT deleted_at FROM users_index WHERE user_id = ?) AS accountDeletedAt,
+				(SELECT deleted_at FROM bots_index WHERE bot_id = ?) AS botDeletedAt`,
+		).bind(userId, userId, bot.id).first<{
+			accountState: string;
+			accountDeletedAt: string | null;
+			botDeletedAt: string | null;
+		}>()).toMatchObject({
+			accountState: "deleting",
+			accountDeletedAt: expect.any(String),
+			botDeletedAt: expect.any(String),
 		});
 	});
 

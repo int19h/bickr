@@ -110,6 +110,10 @@ export type LegacyLifecycleTransition = {
 	projectionStatements?: readonly D1PreparedStatementLike[];
 };
 
+export type LegacyLifecycleDeletionTransition = {
+	kind: "legacy_compatible";
+};
+
 export type InferenceGraphActivationTransition =
 	| {
 			kind: "inference_graph";
@@ -139,7 +143,7 @@ export type InferenceGraphDeletionTransition = {
 };
 
 export type LifecycleDeletionTransition =
-	| LegacyLifecycleTransition
+	| LegacyLifecycleDeletionTransition
 	| InferenceGraphDeletionTransition;
 
 export type LifecycleFailure = {
@@ -293,19 +297,36 @@ export function lifecycleIdempotencyKey(request: Request): string {
 	return makeId("opn");
 }
 
+type CreateLifecycleReservationInput = {
+	ownerUserId: string;
+	idempotencyKey: string;
+	requestHash: string;
+	requestJson: string;
+	entityKind: LifecycleEntityKind;
+	entityId: string;
+	reservations: readonly LifecycleReservation[];
+	secrets?: readonly LifecycleSecret[];
+	now: string;
+};
+
 export async function reserveCreateLifecycle(
 	db: D1DatabaseLike,
-	input: {
-		ownerUserId: string;
-		idempotencyKey: string;
-		requestHash: string;
-		requestJson: string;
-		entityKind: LifecycleEntityKind;
-		entityId: string;
-		reservations: readonly LifecycleReservation[];
-		secrets?: readonly LifecycleSecret[];
-		now: string;
-	},
+	input: CreateLifecycleReservationInput,
+): Promise<{ operation: LifecycleOperation; created: boolean }> {
+	return reserveCreateLifecycleInternal(db, input, false);
+}
+
+export async function reserveOwnedCreateLifecycle(
+	db: D1DatabaseLike,
+	input: CreateLifecycleReservationInput & { entityKind: "world" | "bot" },
+): Promise<{ operation: LifecycleOperation; created: boolean }> {
+	return reserveCreateLifecycleInternal(db, input, true);
+}
+
+async function reserveCreateLifecycleInternal(
+	db: D1DatabaseLike,
+	input: CreateLifecycleReservationInput,
+	requireActiveOwner: boolean,
 ): Promise<{ operation: LifecycleOperation; created: boolean }> {
 	const existing = await lifecycleOperationByKey(db, input.ownerUserId, input.idempotencyKey);
 	if (existing) {
@@ -322,7 +343,12 @@ export async function reserveCreateLifecycle(
 					entity_kind, entity_id, action, phase, revision, retry_count,
 					next_retry_at, failure_category, failure_code, created_at, updated_at,
 					terminal_at, terminal_cleanup_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, 'create', 'pending', 1, 0, NULL, NULL, NULL, ?, ?, NULL, NULL)`,
+				)
+				SELECT ?, ?, ?, ?, ?, ?, ?, 'create', 'pending', 1, 0, NULL, NULL, NULL, ?, ?, NULL, NULL
+				WHERE ? = 0 OR EXISTS (
+					SELECT 1 FROM users_index
+					WHERE user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
+				)`,
 			)
 			.bind(
 				operationId,
@@ -334,22 +360,32 @@ export async function reserveCreateLifecycle(
 				input.entityId,
 				input.now,
 				input.now,
+				requireActiveOwner ? 1 : 0,
+				input.ownerUserId,
 			),
 		db
 			.prepare(
 				`INSERT INTO entity_lifecycle_entities (
 					entity_kind, entity_id, owner_user_id, phase, revision,
 					active_operation_id, created_at, updated_at
-				) VALUES (?, ?, ?, 'pending', 1, ?, ?, ?)`,
+				)
+				SELECT ?, ?, ?, 'pending', 1, ?, ?, ?
+				WHERE EXISTS (
+					SELECT 1 FROM entity_lifecycle_operations WHERE operation_id = ?
+				)`,
 			)
-			.bind(input.entityKind, input.entityId, input.ownerUserId, operationId, input.now, input.now),
+			.bind(input.entityKind, input.entityId, input.ownerUserId, operationId, input.now, input.now, operationId),
 		...input.reservations.map((reservation) =>
 			db
 				.prepare(
 					`INSERT INTO entity_lifecycle_identity_claims (
 						key_kind, key_scope, key_value, entity_kind, entity_id,
 						owner_user_id, claim_state, operation_id, created_at, updated_at
-					) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+					)
+					SELECT ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?
+					WHERE EXISTS (
+						SELECT 1 FROM entity_lifecycle_operations WHERE operation_id = ?
+					)`,
 				)
 				.bind(
 					reservation.kind,
@@ -361,6 +397,7 @@ export async function reserveCreateLifecycle(
 					operationId,
 					input.now,
 					input.now,
+					operationId,
 				),
 		),
 		...(input.secrets ?? []).map((secret) =>
@@ -368,9 +405,13 @@ export async function reserveCreateLifecycle(
 				.prepare(
 					`INSERT INTO entity_lifecycle_secrets (
 						operation_id, secret_kind, secret_value, created_at
-					) VALUES (?, ?, ?, ?)`,
+					)
+					SELECT ?, ?, ?, ?
+					WHERE EXISTS (
+						SELECT 1 FROM entity_lifecycle_operations WHERE operation_id = ?
+					)`,
 				)
-				.bind(operationId, secret.kind, secret.value, input.now),
+				.bind(operationId, secret.kind, secret.value, input.now, operationId),
 		),
 	];
 
@@ -387,25 +428,48 @@ export async function reserveCreateLifecycle(
 		}
 		throw new RepositoryError("conflict", "That pending entity identity is already reserved.", 409);
 	}
-
 	const operation = await lifecycleOperationById(db, operationId);
 	if (!operation) {
+		if (requireActiveOwner) {
+			throw new RepositoryError("not_found", "The owner account is not active.", 404);
+		}
 		throw new RepositoryError("server_error", "Lifecycle reservation was not persisted.", 500);
 	}
 	return { operation, created: true };
 }
 
+type DeleteLifecycleReservationInput = {
+	ownerUserId: string;
+	idempotencyKey: string;
+	requestHash: string;
+	requestJson: string;
+	entityKind: LifecycleEntityKind;
+	entityId: string;
+	now: string;
+};
+
 export async function beginDeleteLifecycle(
 	db: D1DatabaseLike,
-	input: {
-		ownerUserId: string;
-		idempotencyKey: string;
-		requestHash: string;
-		requestJson: string;
-		entityKind: LifecycleEntityKind;
-		entityId: string;
-		now: string;
-	},
+	input: DeleteLifecycleReservationInput,
+): Promise<{ operation: LifecycleOperation; created: boolean }> {
+	return beginDeleteLifecycleInternal(db, input, false);
+}
+
+export async function beginAccountDeleteLifecycle(
+	db: D1DatabaseLike,
+	input: Omit<DeleteLifecycleReservationInput, "entityKind" | "entityId">,
+): Promise<{ operation: LifecycleOperation; created: boolean }> {
+	return beginDeleteLifecycleInternal(db, {
+		...input,
+		entityKind: "account",
+		entityId: input.ownerUserId,
+	}, true);
+}
+
+async function beginDeleteLifecycleInternal(
+	db: D1DatabaseLike,
+	input: DeleteLifecycleReservationInput,
+	requireNoPriorOwnerOperation: boolean,
 ): Promise<{ operation: LifecycleOperation; created: boolean }> {
 	const existing = await lifecycleOperationByKey(db, input.ownerUserId, input.idempotencyKey);
 	if (existing) {
@@ -416,7 +480,13 @@ export async function beginDeleteLifecycle(
 		throw new RepositoryError("not_found", `${lifecycleEntityLabel(input.entityKind)} not found.`, 404);
 	}
 	const operationId = makeId("opn");
-	const indexStatement = lifecycleIndexStateStatement(db, input.entityKind, input.entityId, "deleting");
+	const indexStatement = lifecycleIndexStateStatement(
+		db,
+		input.entityKind,
+		input.entityId,
+		"deleting",
+		requireNoPriorOwnerOperation ? operationId : undefined,
+	);
 	try {
 		const results = await db.batch([
 			db
@@ -426,7 +496,18 @@ export async function beginDeleteLifecycle(
 						entity_kind, entity_id, action, phase, revision, retry_count,
 						next_retry_at, failure_category, failure_code, created_at, updated_at,
 						terminal_at, terminal_cleanup_at
-					) VALUES (?, ?, ?, ?, ?, ?, ?, 'delete', 'deleting', 1, 0, NULL, NULL, NULL, ?, ?, NULL, NULL)`,
+					)
+					SELECT ?, ?, ?, ?, ?, ?, ?, 'delete', 'deleting', 1, 0, NULL, NULL, NULL, ?, ?, NULL, NULL
+					WHERE ? = 0 OR (
+						EXISTS (
+							SELECT 1 FROM users_index
+							WHERE user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
+						)
+						AND NOT EXISTS (
+							SELECT 1 FROM entity_lifecycle_operations
+							WHERE owner_user_id = ? AND phase NOT IN ('terminal', 'terminal_failed')
+						)
+					)`,
 				)
 				.bind(
 					operationId,
@@ -438,23 +519,49 @@ export async function beginDeleteLifecycle(
 					input.entityId,
 					input.now,
 					input.now,
+					requireNoPriorOwnerOperation ? 1 : 0,
+					input.ownerUserId,
+					input.ownerUserId,
 				),
 			db
 				.prepare(
 					`INSERT INTO entity_lifecycle_entities (
 						entity_kind, entity_id, owner_user_id, phase, revision,
 						active_operation_id, created_at, updated_at
-					) VALUES (?, ?, ?, 'deleting', 1, ?, ?, ?)
+					)
+					SELECT ?, ?, ?, 'deleting', 1, ?, ?, ?
+					WHERE EXISTS (
+						SELECT 1 FROM entity_lifecycle_operations WHERE operation_id = ?
+					)
 					ON CONFLICT(entity_kind, entity_id) DO UPDATE SET
 						phase = 'deleting',
 						revision = entity_lifecycle_entities.revision + 1,
 						active_operation_id = excluded.active_operation_id,
 						updated_at = excluded.updated_at
-					WHERE entity_lifecycle_entities.owner_user_id = excluded.owner_user_id`,
+					WHERE entity_lifecycle_entities.owner_user_id = excluded.owner_user_id
+					  AND EXISTS (
+						SELECT 1 FROM entity_lifecycle_operations WHERE operation_id = ?
+					  )`,
 				)
-				.bind(input.entityKind, input.entityId, input.ownerUserId, operationId, input.now, input.now),
+				.bind(
+					input.entityKind,
+					input.entityId,
+					input.ownerUserId,
+					operationId,
+					input.now,
+					input.now,
+					operationId,
+					operationId,
+				),
 			indexStatement,
 		]);
+		if (requireNoPriorOwnerOperation && !await lifecycleOperationById(db, operationId)) {
+			throw new RepositoryError(
+				"conflict",
+				"Account deletion is waiting for earlier lifecycle work to finish.",
+				409,
+			);
+		}
 		if ((results.at(-1)?.meta?.changes ?? 0) !== 1) {
 			throw new RepositoryError("not_found", `${lifecycleEntityLabel(input.entityKind)} not found.`, 404);
 		}
@@ -758,9 +865,20 @@ export async function beginLifecycleCompensation(
 			.prepare(
 				`UPDATE entity_lifecycle_entities
 				 SET phase = 'compensating', revision = revision + 1, updated_at = ?
-				 WHERE entity_kind = ? AND entity_id = ? AND active_operation_id = ?`,
+				 WHERE entity_kind = ? AND entity_id = ? AND active_operation_id = ?
+				   AND EXISTS (
+					SELECT 1 FROM entity_lifecycle_operations operations
+					WHERE operations.operation_id = ?
+					  AND operations.phase NOT IN ('terminal', 'terminal_failed')
+				   )`,
 			)
-			.bind(now, operation.entityKind, operation.entityId, operation.operationId),
+			.bind(
+				now,
+				operation.entityKind,
+				operation.entityId,
+				operation.operationId,
+				operation.operationId,
+			),
 	]);
 	return requiredLifecycleOperation(db, operation.operationId);
 }
@@ -1076,20 +1194,27 @@ function lifecycleIndexStateStatement(
 	entityKind: LifecycleEntityKind,
 	entityId: string,
 	state: "active" | "deleting",
+	requiredOperationId?: string,
 ): D1PreparedStatementLike {
+	const operationGuard = requiredOperationId
+		? ` AND EXISTS (SELECT 1 FROM entity_lifecycle_operations WHERE operation_id = ?)`
+		: "";
+	const bind = (statement: D1PreparedStatementLike): D1PreparedStatementLike => requiredOperationId
+		? statement.bind(state, entityId, requiredOperationId)
+		: statement.bind(state, entityId);
 	switch (entityKind) {
 		case "account":
-			return db
-				.prepare(`UPDATE users_index SET lifecycle_state = ? WHERE user_id = ? AND deleted_at IS NULL`)
-				.bind(state, entityId);
+			return bind(db.prepare(
+				`UPDATE users_index SET lifecycle_state = ? WHERE user_id = ? AND deleted_at IS NULL${operationGuard}`,
+			));
 		case "world":
-			return db
-				.prepare(`UPDATE worlds_index SET lifecycle_state = ? WHERE world_id = ? AND deleted_at IS NULL`)
-				.bind(state, entityId);
+			return bind(db.prepare(
+				`UPDATE worlds_index SET lifecycle_state = ? WHERE world_id = ? AND deleted_at IS NULL${operationGuard}`,
+			));
 		case "bot":
-			return db
-				.prepare(`UPDATE bots_index SET lifecycle_state = ? WHERE bot_id = ? AND deleted_at IS NULL`)
-				.bind(state, entityId);
+			return bind(db.prepare(
+				`UPDATE bots_index SET lifecycle_state = ? WHERE bot_id = ? AND deleted_at IS NULL${operationGuard}`,
+			));
 	}
 }
 
