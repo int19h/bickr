@@ -7,6 +7,7 @@ import {
 } from "@bickr/shared/entity-lifecycle";
 import {
 	accountBootstrapReservationRepositoryMutations,
+	type NormalizedProviderUserProfile,
 	RepositoryError,
 	type ProviderUserBootstrap,
 	type ProviderUserProfile,
@@ -14,9 +15,13 @@ import {
 import type { D1DatabaseLike } from "@bickr/shared/storage";
 
 const {
+	normalizeProviderUserProfile,
 	prepareProviderUserBootstrap,
 	providerBootstrapClaim,
 } = accountBootstrapReservationRepositoryMutations;
+
+const automaticHandleReservationAttempts = 8;
+const orderedHandleReservationAttempts = 3;
 
 export const accountBootstrapOperationHeader = "x-bickr-account-bootstrap-operation-id";
 
@@ -47,39 +52,55 @@ export async function reserveOrJoinAccountBootstrap(
 		now: string;
 	},
 ): Promise<AccountBootstrapDispatchReservation> {
-	const existing = await accountBootstrapDispatchReservation(db, input.profile);
+	const profile = normalizeProviderUserProfile(input.profile);
+	const requestHash = await accountBootstrapRequestHash(profile);
+	const existing = await accountBootstrapDispatchReservation(db, profile, requestHash);
 	if (existing) return existing;
 
-	const bootstrap = await prepareProviderUserBootstrap(db, input.profile, input.candidateUserId, input.now);
-	const requestHash = await accountBootstrapRequestHash(bootstrap.profile);
-	const request: AccountBootstrapLifecycleRequest = { kind: "account_create", bootstrap };
+	// The provider subject and automatically chosen handle are claimed in one D1
+	// batch. A conflict can therefore mean either another login won the provider
+	// subject or an unrelated login chose the same handle from an earlier read.
+	// Re-read the provider claim first, then bound handle retries and move to
+	// randomized candidates so synchronized callers cannot remain in lockstep.
+	for (let attempt = 0; attempt < automaticHandleReservationAttempts; attempt += 1) {
+		const handleStrategy = attempt < orderedHandleReservationAttempts ? "ordered" : "randomized";
+		const bootstrap = await prepareProviderUserBootstrap(
+			db,
+			profile,
+			input.candidateUserId,
+			input.now,
+			handleStrategy,
+		);
+		const request: AccountBootstrapLifecycleRequest = { kind: "account_create", bootstrap };
 
-	try {
-		const reserved = await reserveCreateLifecycle(db, {
-			ownerUserId: input.candidateUserId,
-			idempotencyKey: input.idempotencyKey,
-			requestHash,
-			requestJson: serializedLifecycleRequest(request),
-			entityKind: "account",
-			entityId: input.candidateUserId,
-			reservations: [
-				{ kind: "provider_subject", scope: bootstrap.profile.provider, value: bootstrap.profile.subject },
-				{ kind: "user_handle", scope: "global", value: bootstrap.user.handle },
-			],
-			now: input.now,
-		});
-		return {
-			kind: "pending",
-			userId: input.candidateUserId,
-			operation: reserved.operation,
-			profile: bootstrap.profile,
-		};
-	} catch (error) {
-		if (!(error instanceof RepositoryError) || error.code !== "conflict") throw error;
-		const raced = await accountBootstrapDispatchReservation(db, bootstrap.profile, requestHash);
-		if (raced) return raced;
-		throw error;
+		try {
+			const reserved = await reserveCreateLifecycle(db, {
+				ownerUserId: input.candidateUserId,
+				idempotencyKey: input.idempotencyKey,
+				requestHash,
+				requestJson: serializedLifecycleRequest(request),
+				entityKind: "account",
+				entityId: input.candidateUserId,
+				reservations: [
+					{ kind: "provider_subject", scope: profile.provider, value: profile.subject },
+					{ kind: "user_handle", scope: "global", value: bootstrap.user.handle },
+				],
+				now: input.now,
+			});
+			return {
+				kind: "pending",
+				userId: input.candidateUserId,
+				operation: reserved.operation,
+				profile,
+			};
+		} catch (error) {
+			if (!(error instanceof RepositoryError) || error.code !== "conflict") throw error;
+			const raced = await accountBootstrapDispatchReservation(db, profile, requestHash);
+			if (raced) return raced;
+		}
 	}
+
+	throw new RepositoryError("conflict", "Unable to reserve a unique account handle.", 409);
 }
 
 export async function reservedAccountBootstrapOperation(
@@ -90,6 +111,7 @@ export async function reservedAccountBootstrapOperation(
 		userId: string;
 	},
 ): Promise<LifecycleOperation> {
+	const profile = normalizeProviderUserProfile(input.profile);
 	const operation = await lifecycleOperationById(db, input.operationId);
 	if (!operation || operation.entityKind !== "account" || operation.action !== "create") {
 		throw new RepositoryError("conflict", "Account bootstrap reservation is not available.", 409);
@@ -97,7 +119,7 @@ export async function reservedAccountBootstrapOperation(
 	if (operation.entityId !== input.userId || operation.ownerUserId !== input.userId) {
 		throw new RepositoryError("forbidden", "Account bootstrap was dispatched to the wrong coordinator.", 403);
 	}
-	const requestHash = await accountBootstrapRequestHash(input.profile);
+	const requestHash = await accountBootstrapRequestHash(profile);
 	if (operation.requestHash !== requestHash) {
 		throw new RepositoryError("conflict", "Idempotency key was reused with different account input.", 409);
 	}
@@ -118,10 +140,10 @@ export function parseAccountBootstrapLifecycleRequest(serialized: string): Accou
 
 async function accountBootstrapDispatchReservation(
 	db: D1DatabaseLike,
-	profile: ProviderUserProfile,
+	profile: NormalizedProviderUserProfile,
 	expectedRequestHash?: string,
 ): Promise<AccountBootstrapDispatchReservation | null> {
-	const claim = await providerBootstrapClaim(db, profile.provider, profile.subject);
+	const claim = await providerBootstrapClaim(db, profile);
 	if (!claim) return null;
 	if (claim.kind === "active") {
 		return { kind: "active", userId: claim.userId, profile };
@@ -155,6 +177,6 @@ async function accountBootstrapDispatchReservation(
 	};
 }
 
-function accountBootstrapRequestHash(profile: ProviderUserProfile): Promise<string> {
+function accountBootstrapRequestHash(profile: NormalizedProviderUserProfile): Promise<string> {
 	return hashLifecycleRequest({ kind: "account_create", profile });
 }

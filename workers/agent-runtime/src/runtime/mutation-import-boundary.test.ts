@@ -8,23 +8,52 @@ const repositoryCapabilities = [
 	"worldCoordinatorRepositoryMutations",
 ] as const;
 
-const requiredRepositoryMutationNames = [
-	"createBot",
-	"createForum",
-	"createWorld",
-	"deleteBot",
-	"prepareProviderUserBootstrap",
-	"providerBootstrapClaim",
-	"updateBot",
-	"updateUserProfile",
-] as const;
+// This fixed inventory is deliberately independent of the parsed capability
+// objects. Removing a writer from a capability must fail even if a direct
+// export or import is introduced in the same change.
+const expectedRepositoryCapabilityMembers = {
+	accountBootstrapReservationRepositoryMutations: [
+		"normalizeProviderUserProfile",
+		"prepareProviderUserBootstrap",
+		"providerBootstrapClaim",
+	],
+	userCoordinatorRepositoryMutations: [
+		"createBot",
+		"deleteBot",
+		"deleteBotAvatar",
+		"linkProviderIdentity",
+		"materializePendingBotAvatar",
+		"providerUserBootstrapActivationStatements",
+		"refreshLinkedCloneIndexes",
+		"refreshProviderIdentity",
+		"relinkBotClone",
+		"softDeleteUserProfile",
+		"spreadUserBotTicks",
+		"unlinkProviderIdentity",
+		"unlinkBotClone",
+		"updateBot",
+		"updateBotAvatar",
+		"updateUserAvatar",
+		"updateUserProfile",
+	],
+	worldCoordinatorRepositoryMutations: [
+		"addBotGroupMembers",
+		"createBotGroup",
+		"createForum",
+		"createWorld",
+		"deleteBotGroup",
+		"removeBotGroupMember",
+		"updateBotGroup",
+	],
+} as const satisfies Record<(typeof repositoryCapabilities)[number], readonly string[]>;
 
-const requiredGovernanceMutationNames = [
+const expectedGovernanceMutationNames = [
 	"deleteForum",
 	"deleteForumForWorld",
 	"deleteWorld",
 	"updateForum",
 	"updateWorld",
+	"updateWorldAvatar",
 ] as const;
 
 // These historical side-door names remain protected even though the current
@@ -46,13 +75,18 @@ describe("serialized entity mutation import boundary", () => {
 	it("allows coordinator mutation capabilities only at the narrow serialized writer modules", () => {
 		const repositorySource = readFileSync(resolve(process.cwd(), "packages/shared/src/repository.ts"), "utf8");
 		const governanceSource = readFileSync(resolve(process.cwd(), "packages/shared/src/governance.ts"), "utf8");
+		for (const capability of repositoryCapabilities) {
+			expect(capabilityMembers(repositorySource, capability).sort()).toEqual(
+				[...expectedRepositoryCapabilityMembers[capability]].sort(),
+			);
+		}
+		const governanceCapabilityMembers = capabilityMembers(governanceSource, "coordinatorGovernanceMutations");
+		expect(governanceCapabilityMembers.sort()).toEqual([...expectedGovernanceMutationNames].sort());
 		const repositoryMutationNames = new Set([
-			...repositoryCapabilities.flatMap((capability) => capabilityMembers(repositorySource, capability)),
+			...repositoryCapabilities.flatMap((capability) => expectedRepositoryCapabilityMembers[capability]),
 			...retiredRepositoryMutationNames,
 		]);
-		const governanceMutationNames = new Set(capabilityMembers(governanceSource, "coordinatorGovernanceMutations"));
-		for (const required of requiredRepositoryMutationNames) expect(repositoryMutationNames.has(required)).toBe(true);
-		for (const required of requiredGovernanceMutationNames) expect(governanceMutationNames.has(required)).toBe(true);
+		const governanceMutationNames = new Set(expectedGovernanceMutationNames);
 		const violations: string[] = [];
 		for (const filename of typescriptFiles(resolve(process.cwd()))) {
 			const path = relative(process.cwd(), filename).replaceAll("\\", "/");

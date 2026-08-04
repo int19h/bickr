@@ -1211,7 +1211,7 @@ function parseAvatarCrop(value: unknown, avatar: AvatarImage): AvatarCrop {
 	return parsed;
 }
 
- export async function handleAgentRuntimeRequest(
+export async function handleAgentRuntimeRequest(
 	request: Request,
 	env: Pick<
 		Env,
@@ -1419,7 +1419,7 @@ export async function handleAgentRuntimeWorkerRequest(request: Request, env: Env
 	}
 }
 
- export default {
+export default {
 	async fetch(request, env) {
 		return handleAgentRuntimeWorkerRequest(request, env);
 	},

@@ -59,11 +59,66 @@ describe("default Worker account bootstrap dispatch", () => {
 
 		expect(firstUser.id).toBe(secondUser.id);
 		expect(harness.routedUserIds).toEqual([firstUser.id, firstUser.id]);
-		await expectOneActiveAccount(profile, firstUser.id);
+		await expectOneActiveAccount(profile, firstUser.id, firstUser.handle);
 		const operations = await testEnv.BICKR_D1.prepare(
 			"SELECT COUNT(*) AS count FROM entity_lifecycle_operations WHERE entity_kind = 'account' AND entity_id = ?",
 		).bind(firstUser.id).first<{ count: number }>();
 		expect(operations?.count).toBe(1);
+	});
+
+	it("canonicalizes provider fields before joining an exact pending retry", async () => {
+		const injector = new FailOnce("account.materialize.kv");
+		const harness = accountBootstrapHarness({ bootstrapFailureInjector: injector });
+		const profile: ProviderUserProfile = {
+			provider: "github",
+			subject: "  subject-normalized-retry  ",
+			login: "  login-normalized-retry  ",
+			displayName: "  Normalized Retry  ",
+			email: "  normalized@example.test  ",
+			avatarUrl: "  https://example.test/avatar.png  ",
+		};
+		const key = "normalized-bootstrap-retry";
+
+		const first = await harness.bootstrap(profile, key);
+		expect(first.status).toBe(500);
+		expect(await first.json()).toMatchObject({ ok: false, error: "server_error" });
+		expect(await providerClaim(profile)).toMatchObject({ claimState: "pending" });
+
+		const retried = await harness.bootstrap(profile, key);
+		const user = requiredUser(await successData(retried));
+		await expectOneActiveAccount(profile, user.id, user.handle);
+		const identity = await testEnv.BICKR_D1.prepare(
+			`SELECT provider_subject AS subject, provider_login AS login, email, avatar_url AS avatarUrl
+			 FROM provider_identities WHERE provider = 'github' AND user_id = ?`,
+		).bind(user.id).first<{ subject: string; login: string; email: string; avatarUrl: string }>();
+		expect(identity).toEqual({
+			subject: "subject-normalized-retry",
+			login: "login-normalized-retry",
+			email: "normalized@example.test",
+			avatarUrl: "https://example.test/avatar.png",
+		});
+	});
+
+	it("atomically retries an automatic handle collision for distinct provider subjects", async () => {
+		const db = synchronizeFirstTwoBatches(testEnv.BICKR_D1);
+		const harness = accountBootstrapHarness({ db });
+		const sharedLogin = "simultaneous-shared-login";
+		const firstProfile = { ...githubProfile("handle-race-a"), login: sharedLogin };
+		const secondProfile = { ...githubProfile("handle-race-b"), login: sharedLogin };
+
+		const [first, second] = await Promise.all([
+			harness.bootstrap(firstProfile, "handle-race-a"),
+			harness.bootstrap(secondProfile, "handle-race-b"),
+		]);
+		const [firstUser, secondUser] = await Promise.all([
+			successData(first).then(requiredUser),
+			successData(second).then(requiredUser),
+		]);
+
+		expect(firstUser.id).not.toBe(secondUser.id);
+		expect(firstUser.handle).not.toBe(secondUser.handle);
+		await expectOneActiveAccount(firstProfile, firstUser.id, firstUser.handle);
+		await expectOneActiveAccount(secondProfile, secondUser.id, secondUser.handle);
 	});
 
 	it("reuses the pending reservation across canonical errors and converges on retry", async () => {
@@ -86,7 +141,7 @@ describe("default Worker account bootstrap dispatch", () => {
 		const user = requiredUser(await successData(retried));
 		expect(user.id).toBe(pending?.userId);
 		expect(harness.routedUserIds).toEqual([user.id, user.id]);
-		await expectOneActiveAccount(profile, user.id);
+		await expectOneActiveAccount(profile, user.id, user.handle);
 	});
 
 	it("returns a typed deletion conflict and permits re-registration after claims are released", async () => {
@@ -125,16 +180,18 @@ describe("default Worker account bootstrap dispatch", () => {
 
 		const replacement = requiredUser(await successData(await harness.bootstrap(profile, "register-replacement")));
 		expect(replacement.id).not.toBe(original.id);
-		await expectOneActiveAccount(profile, replacement.id);
+		await expectOneActiveAccount(profile, replacement.id, replacement.handle);
 	});
 });
 
 type HarnessOptions = {
 	beforeUserFetch?: (userId: string) => Promise<void>;
 	bootstrapFailureInjector?: LifecycleFailureInjector;
+	db?: D1Database;
 };
 
 function accountBootstrapHarness(options: HarnessOptions = {}) {
+	const db = options.db ?? testEnv.BICKR_D1;
 	const queues = new Map<string, ExclusiveOperationQueue>();
 	const routedUserIds: string[] = [];
 	let workerEnv!: Env;
@@ -169,7 +226,7 @@ function accountBootstrapHarness(options: HarnessOptions = {}) {
 		get: () => ({ fetch: () => Promise.resolve(new Response(null, { status: 404 })) }) as unknown as DurableObjectStub,
 	} as unknown as DurableObjectNamespace;
 	workerEnv = {
-		BICKR_D1: testEnv.BICKR_D1,
+		BICKR_D1: db,
 		BICKR_KV: testEnv.BICKR_KV,
 		BICKR_R2: testEnv.BICKR_R2,
 		BICKR_R2_PUBLIC_BASE_URL: testEnv.BICKR_R2_PUBLIC_BASE_URL,
@@ -262,18 +319,61 @@ async function providerClaim(profile: ProviderUserProfile) {
 		`SELECT entity_id AS userId, claim_state AS claimState, operation_id AS operationId
 		 FROM entity_lifecycle_identity_claims
 		 WHERE key_kind = 'provider_subject' AND key_scope = ? AND key_value = ?`,
-	).bind(profile.provider, profile.subject).first<{
+	).bind(profile.provider, profile.subject.trim()).first<{
 		userId: string;
 		claimState: "pending" | "active";
 		operationId: string | null;
 	}>();
 }
 
-async function expectOneActiveAccount(profile: ProviderUserProfile, userId: string): Promise<void> {
-	const claim = await providerClaim(profile);
-	expect(claim).toEqual({ userId, claimState: "active", operationId: null });
+async function expectOneActiveAccount(profile: ProviderUserProfile, userId: string, handle: string): Promise<void> {
+	const providerClaims = await testEnv.BICKR_D1.prepare(
+		`SELECT entity_id AS userId, claim_state AS claimState, operation_id AS operationId
+		 FROM entity_lifecycle_identity_claims
+		 WHERE key_kind = 'provider_subject' AND key_scope = ? AND key_value = ?`,
+	).bind(profile.provider, profile.subject.trim()).all<{
+		userId: string;
+		claimState: "pending" | "active";
+		operationId: string | null;
+	}>();
+	expect(providerClaims.results).toEqual([{ userId, claimState: "active", operationId: null }]);
+	const handleClaims = await testEnv.BICKR_D1.prepare(
+		`SELECT entity_id AS userId, claim_state AS claimState, operation_id AS operationId
+		 FROM entity_lifecycle_identity_claims
+		 WHERE key_kind = 'user_handle' AND key_scope = 'global' AND key_value = ?`,
+	).bind(handle).all<{
+		userId: string;
+		claimState: "pending" | "active";
+		operationId: string | null;
+	}>();
+	expect(handleClaims.results).toEqual([{ userId, claimState: "active", operationId: null }]);
 	const projection = await testEnv.BICKR_D1.prepare(
 		"SELECT COUNT(*) AS count FROM users_index WHERE user_id = ? AND lifecycle_state = 'active' AND deleted_at IS NULL",
 	).bind(userId).first<{ count: number }>();
 	expect(projection?.count).toBe(1);
+}
+
+function synchronizeFirstTwoBatches(db: D1Database): D1Database {
+	let arrivals = 0;
+	let release!: () => void;
+	const bothArrived = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const batch = db.batch.bind(db);
+	return new Proxy(db, {
+		get(target, property) {
+			if (property === "batch") {
+				return async (...args: Parameters<D1Database["batch"]>) => {
+					if (arrivals < 2) {
+						arrivals += 1;
+						if (arrivals === 2) release();
+						await bothArrived;
+					}
+					return batch(...args);
+				};
+			}
+			const value = Reflect.get(target, property, target);
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+	});
 }

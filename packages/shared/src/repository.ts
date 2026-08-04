@@ -138,8 +138,14 @@ export type ProviderUserProfile = {
 	avatarUrl?: string;
 };
 
+declare const normalizedProviderUserProfile: unique symbol;
+
+export type NormalizedProviderUserProfile = ProviderUserProfile & {
+	readonly [normalizedProviderUserProfile]: true;
+};
+
 export type ProviderUserBootstrap = {
-	profile: ProviderUserProfile;
+	profile: NormalizedProviderUserProfile;
 	user: UserDocument;
 };
 
@@ -362,7 +368,7 @@ async function refreshProviderIdentity(
 	input: ProviderUserProfile,
 	now = new Date().toISOString(),
 ): Promise<UserDocument> {
-	const profile = normalizeProviderProfile(input);
+	const profile = normalizeProviderUserProfile(input);
 	const existingIdentity = await providerIdentityBySubject(db, profile.provider, profile.subject);
 	if (!existingIdentity) {
 		throw new RepositoryError(
@@ -381,13 +387,13 @@ async function refreshProviderIdentity(
 
 async function prepareProviderUserBootstrap(
 	db: D1DatabaseLike,
-	input: ProviderUserProfile,
+	profile: NormalizedProviderUserProfile,
 	userId: string,
 	now: string,
+	handleStrategy: "ordered" | "randomized" = "ordered",
 ): Promise<ProviderUserBootstrap> {
-	const profile = normalizeProviderProfile(input);
-	const handle = await uniqueUserHandle(db, profile.login);
-	const displayName = profile.displayName?.trim() || profile.login;
+	const handle = await uniqueUserHandle(db, profile.login, handleStrategy);
+	const displayName = profile.displayName ?? profile.login;
 	return {
 		profile,
 		user: {
@@ -437,7 +443,7 @@ async function linkProviderIdentity(
 	input: ProviderUserProfile,
 	now = new Date().toISOString(),
 ): Promise<UserDocument> {
-	const profile = normalizeProviderProfile(input);
+	const profile = normalizeProviderUserProfile(input);
 	const user = await userById(kv, userId);
 	const existingIdentity = await providerIdentityBySubject(db, profile.provider, profile.subject);
 	if (existingIdentity) {
@@ -580,7 +586,7 @@ export async function listUserAuthIdentities(
 	});
 }
 
-function normalizeProviderProfile(profile: ProviderUserProfile): ProviderUserProfile {
+function normalizeProviderUserProfile(profile: ProviderUserProfile): NormalizedProviderUserProfile {
 	const provider = authProviderFromString(profile.provider);
 	if (!provider) {
 		throw new RepositoryError("bad_request", "Auth provider is not supported.", 400);
@@ -602,7 +608,7 @@ function normalizeProviderProfile(profile: ProviderUserProfile): ProviderUserPro
 		...(displayName ? { displayName } : {}),
 		...(email ? { email } : {}),
 		...(avatarUrl ? { avatarUrl } : {}),
-	};
+	} as NormalizedProviderUserProfile;
 }
 
 function authProviderFromString(value: string): AuthProvider | null {
@@ -643,8 +649,7 @@ type ProviderBootstrapClaim =
 
 async function providerBootstrapClaim(
 	db: D1DatabaseLike,
-	provider: AuthProvider,
-	subject: string,
+	profile: NormalizedProviderUserProfile,
 ): Promise<ProviderBootstrapClaim | null> {
 	const claim = await db.prepare(
 		`SELECT
@@ -663,7 +668,7 @@ async function providerBootstrapClaim(
 		 WHERE claims.key_kind = 'provider_subject'
 		   AND claims.key_scope = ? AND claims.key_value = ?
 		 LIMIT 1`,
-	).bind(provider, subject.trim()).first<{
+	).bind(profile.provider, profile.subject).first<{
 		userId: string;
 		claimState: "pending" | "active";
 		operationId: string | null;
@@ -3780,8 +3785,17 @@ function botIndexUpdateStatement(db: D1DatabaseLike, bot: BotDocument): D1Prepar
 		);
 }
 
-async function uniqueUserHandle(db: D1DatabaseLike, preferred: string): Promise<string> {
+async function uniqueUserHandle(
+	db: D1DatabaseLike,
+	preferred: string,
+	strategy: "ordered" | "randomized",
+): Promise<string> {
 	const base = slugifyHandle(preferred, "user", 24);
+	if (strategy === "randomized") {
+		// The lifecycle reservation batch, not this advisory read path, is the
+		// authority for uniqueness. Its typed conflict drives another bounded try.
+		return `${base}-${randomToken(6)}`;
+	}
 	const existingHandles = await existingUserHandlesForBase(db, base);
 
 	for (let attempt = 0; attempt < 50; attempt += 1) {
@@ -5190,6 +5204,7 @@ export const worldCoordinatorRepositoryMutations = Object.freeze({
 // default Worker must commit or join the canonical provider-subject claim
 // before it can know which named UserBotsCoordinator owns the operation.
 export const accountBootstrapReservationRepositoryMutations = Object.freeze({
+	normalizeProviderUserProfile,
 	prepareProviderUserBootstrap,
 	providerBootstrapClaim,
 });
