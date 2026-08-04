@@ -3,42 +3,66 @@ import {
 	mcpScopeString,
 	normalizeMcpScopes,
 	readMcpClient,
+	redirectUriCspSource,
 	type McpScope,
+	type RedirectUriCspSource,
 } from "@bickr/shared/mcp-auth";
 import { InputError } from "@bickr/shared/validation";
 import { currentUser, requireCompleteUser, type AppEnv } from "../api/_auth";
+import {
+	markConsentPagePolicy,
+	type PagesSecurityData,
+} from "./_consent-csp";
 import { oauthErrorResponse } from "./register";
 
-export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
+export const onRequestGet: PagesFunction<AppEnv, never, PagesSecurityData> = async (context) => {
+	const { env, request } = context;
 	try {
 		const params = authorizationParams(new URL(request.url).searchParams, request);
 		const client = await readMcpClient(env.BICKR_KV, params.clientId);
-		if (!client || !client.redirectUris.includes(params.redirectUri)) {
-			return htmlPage("Bickr MCP Authorization", "<p>This MCP client is not registered correctly.</p>");
+		if (!client) {
+			return authorizePageResponse(context, { kind: "unknown_client", clientId: params.clientId });
+		}
+		const registeredRedirectUri = client.redirectUris.find((uri) => uri === params.redirectUri);
+		if (!registeredRedirectUri) {
+			return authorizePageResponse(context, { kind: "unregistered_redirect", clientId: client.id });
 		}
 		const user = await currentUser(env, request);
 		if (!user) {
-			return htmlPage("Bickr MCP Authorization", `
-				<p>Sign in to authorize <strong>${escapeHtml(client.clientName)}</strong> for Bickr.</p>
-				<p class="actions">
-					<a class="button" href="${escapeHtml(oauthStartUrl(request, "github"))}">Sign in with GitHub</a>
-					<a class="button secondary" href="${escapeHtml(oauthStartUrl(request, "google"))}">Sign in with Google</a>
-				</p>
-			`);
+			return authorizePageResponse(context, {
+				kind: "sign_in",
+				clientId: client.id,
+				clientName: client.clientName,
+			});
 		}
 		if (!user.profileCompletedAt) {
-			return htmlPage("Bickr MCP Authorization", `
-				<p>Complete your Bickr profile before authorizing this MCP client.</p>
-				<p class="actions"><a class="button" href="/me/profile">Complete profile</a></p>
-			`);
+			return authorizePageResponse(context, { kind: "incomplete_profile", clientId: client.id });
 		}
-		return htmlPage("Authorize Bickr MCP", consentForm(client.clientName, user.handle, params));
+		const callbackSource = redirectUriCspSource(registeredRedirectUri);
+		if (!callbackSource) {
+			// New registrations cannot reach this branch. Fail closed if stored data
+			// is ever corrupted or predates the shared registration invariant.
+			console.error({
+				event: "mcp_oauth_registered_redirect_not_csp_compatible",
+				clientId: client.id,
+			});
+			return authorizePageResponse(context, { kind: "invalid_registered_redirect", clientId: client.id });
+		}
+		return authorizePageResponse(context, {
+			kind: "consent",
+			clientId: client.id,
+			clientName: client.clientName,
+			userHandle: user.handle,
+			params,
+			callbackSource,
+		});
 	} catch (error) {
+		console.info({ event: "mcp_oauth_consent_outcome", outcome: "error" });
 		return oauthErrorResponse(error);
 	}
 };
 
-export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => {
+export const onRequestPost: PagesFunction<AppEnv, never, PagesSecurityData> = async ({ env, request }) => {
 	try {
 		const user = await requireCompleteUser(env, request);
 		const form = await request.formData();
@@ -54,7 +78,7 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 		});
 		const redirect = new URL(params.redirectUri);
 		redirect.searchParams.set("code", issued.code);
-		if (params.state) {
+		if (params.state !== undefined) {
 			redirect.searchParams.set("state", params.state);
 		}
 		return new Response(null, {
@@ -79,6 +103,71 @@ type AuthorizationParams = {
 	state?: string;
 };
 
+type AuthorizePage =
+	| { kind: "unknown_client"; clientId: string }
+	| { kind: "unregistered_redirect"; clientId: string }
+	| { kind: "invalid_registered_redirect"; clientId: string }
+	| { kind: "sign_in"; clientId: string; clientName: string }
+	| { kind: "incomplete_profile"; clientId: string }
+	| {
+		kind: "consent";
+		clientId: string;
+		clientName: string;
+		userHandle: string;
+		params: AuthorizationParams;
+		callbackSource: RedirectUriCspSource;
+	};
+
+function authorizePageResponse(
+	context: Parameters<typeof onRequestGet>[0],
+	page: AuthorizePage,
+): Response {
+	logAuthorizePageOutcome(page);
+	switch (page.kind) {
+		case "unknown_client":
+		case "unregistered_redirect":
+		case "invalid_registered_redirect":
+			return htmlPage(
+				"Bickr MCP Authorization",
+				"<p>This MCP client is not registered correctly.</p>",
+				400,
+			);
+		case "sign_in":
+			return htmlPage("Bickr MCP Authorization", `
+				<p>Sign in to authorize <strong>${escapeHtml(page.clientName)}</strong> for Bickr.</p>
+				<p class="actions">
+					<a class="button" href="${escapeHtml(oauthStartUrl(context.request, "github"))}">Sign in with GitHub</a>
+					<a class="button secondary" href="${escapeHtml(oauthStartUrl(context.request, "google"))}">Sign in with Google</a>
+				</p>
+			`);
+		case "incomplete_profile":
+			return htmlPage("Bickr MCP Authorization", `
+				<p>Complete your Bickr profile before authorizing this MCP client.</p>
+				<p class="actions"><a class="button" href="/me/profile">Complete profile</a></p>
+			`);
+		case "consent":
+			markConsentPagePolicy(context.data, page.callbackSource);
+			return htmlPage("Authorize Bickr MCP", consentForm(page.clientName, page.userHandle, page.params));
+	}
+}
+
+function logAuthorizePageOutcome(page: AuthorizePage): void {
+	if (page.kind === "consent") {
+		console.info({
+			event: "mcp_oauth_consent_outcome",
+			outcome: page.kind,
+			clientId: page.clientId,
+			callbackOrigin: page.callbackSource,
+		});
+		return;
+	}
+	console.info({
+		event: "mcp_oauth_consent_outcome",
+		outcome: page.kind,
+		clientId: page.clientId,
+	});
+}
+
 function authorizationParams(params: URLSearchParams, request: Request): AuthorizationParams {
 	if (params.get("response_type") !== "code") {
 		throw new InputError("MCP authorization requires response_type=code.");
@@ -88,7 +177,7 @@ function authorizationParams(params: URLSearchParams, request: Request): Authori
 	const resource = params.get("resource")?.trim() || new URL("/mcp", request.url).toString();
 	const codeChallenge = requiredParam(params, "code_challenge");
 	const codeChallengeMethod = requiredParam(params, "code_challenge_method");
-	const state = params.get("state")?.trim() || undefined;
+	const state = params.has("state") ? params.get("state") ?? "" : undefined;
 	return {
 		clientId,
 		redirectUri,
@@ -96,7 +185,7 @@ function authorizationParams(params: URLSearchParams, request: Request): Authori
 		scopes: normalizeMcpScopes(params.get("scope")),
 		codeChallenge,
 		codeChallengeMethod,
-		...(state ? { state } : {}),
+		...(state !== undefined ? { state } : {}),
 	};
 }
 
@@ -109,7 +198,7 @@ function consentForm(clientName: string, userHandle: string, params: Authorizati
 		scope: mcpScopeString(params.scopes),
 		code_challenge: params.codeChallenge,
 		code_challenge_method: params.codeChallengeMethod,
-		...(params.state ? { state: params.state } : {}),
+		...(params.state !== undefined ? { state: params.state } : {}),
 	};
 	return `
 		<p>Authorize <strong>${escapeHtml(clientName)}</strong> to use Bickr as <strong>hu/${escapeHtml(userHandle)}</strong>?</p>
@@ -158,7 +247,7 @@ function requiredParam(params: URLSearchParams, name: string): string {
 	return value;
 }
 
-function htmlPage(title: string, body: string): Response {
+function htmlPage(title: string, body: string, status = 200): Response {
 	return new Response(`<!doctype html>
 <html lang="en">
 <head>
@@ -177,6 +266,7 @@ function htmlPage(title: string, body: string): Response {
 </head>
 <body><main><h1>${escapeHtml(title)}</h1>${body}</main></body>
 </html>`, {
+		status,
 		headers: {
 			"cache-control": "no-store",
 			"content-type": "text/html; charset=utf-8",
