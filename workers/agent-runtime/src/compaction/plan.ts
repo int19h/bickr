@@ -1,7 +1,16 @@
 import type { JsonObject, BotInferenceSubmissionMessage } from '@bickr/shared/model';
+import type {
+	CompactionReasoningPolicy,
+	CompactionReasoningRuntimeFallback,
+	CompactionReasoningSelection,
+} from '@bickr/shared/openrouter-model-capabilities';
 import type { RuntimeErrorCause } from '@bickr/shared/runtime-errors';
 
-export type CompactionAttemptReasoningMode = 'none' | 'minimal';
+export type CompactionAttemptReasoningState = {
+	runtimeFallback: CompactionReasoningRuntimeFallback;
+	selection: CompactionReasoningSelection;
+	source: CompactionReasoningPolicy['source'] | 'runtime_fallback';
+};
 
 export type CompactionAttemptMessageSet =
 	| { kind: 'initial' }
@@ -22,8 +31,16 @@ export type CompactionAttemptRetryInstruction = {
 	attempt: number;
 	delayMs: number;
 	maxAttempts: number;
-	reason: string | null;
+	reason: CompactionAttemptRetryReason | null;
 };
+
+export type CompactionAttemptRetryReason =
+	| { kind: 'provider'; detail: string }
+	| {
+			kind: 'reasoning_fallback';
+			from: Extract<CompactionReasoningSelection, { kind: 'reasoning_disabled' }>;
+			to: Extract<CompactionReasoningSelection, { kind: 'model_default' }>;
+	  };
 
 export type CompactionAttemptSettingsPatch = {
 	providerRouting: JsonObject;
@@ -33,7 +50,7 @@ export type CompactionAttemptRequestState = CompactionAttemptCounters & {
 	kind: 'requesting';
 	messageSet: CompactionAttemptMessageSet;
 	previousRetryKey: string | null;
-	reasoningMode: CompactionAttemptReasoningMode;
+	reasoning: CompactionAttemptReasoningState;
 	retry?: CompactionAttemptRetryInstruction;
 	settingsPatch?: CompactionAttemptSettingsPatch;
 	toolSet: CompactionAttemptToolSet;
@@ -90,7 +107,7 @@ export type CompactionAttemptTransitionInput =
 	  };
 
 export type CompactionAttemptPlanConfig = {
-	initialReasoningMode: CompactionAttemptReasoningMode;
+	initialReasoning: CompactionAttemptReasoningState;
 	maxProviderAttempts: number;
 	maxSchemaRepairAttempts: number;
 };
@@ -98,7 +115,7 @@ export type CompactionAttemptPlanConfig = {
 type NextRequestInput = {
 	messageSet?: CompactionAttemptMessageSet;
 	previousRetryKey?: string | null;
-	reasoningMode?: CompactionAttemptReasoningMode;
+	reasoning?: CompactionAttemptReasoningState;
 	retry?: CompactionAttemptRetryInstruction;
 	settingsPatch?: CompactionAttemptSettingsPatch;
 	toolSet?: CompactionAttemptToolSet;
@@ -121,7 +138,7 @@ export class CompactionAttemptPlan {
 			messageSet: { kind: 'initial' },
 			previousRetryKey: null,
 			providerAttempt: 1,
-			reasoningMode: config.initialReasoningMode,
+			reasoning: config.initialReasoning,
 			schemaAttempt: 0,
 			toolSet: 'base',
 		});
@@ -159,7 +176,11 @@ export class CompactionAttemptPlan {
 	private reasoningFallback(
 		input: Extract<CompactionAttemptTransitionInput, { kind: 'reasoning_rejected' | 'server_tool_crash' }>,
 	): CompactionAttemptPlan {
-		if (this.state.kind !== 'requesting' || this.state.reasoningMode !== 'none') {
+		if (
+			this.state.kind !== 'requesting' ||
+			this.state.reasoning.selection.kind !== 'reasoning_disabled' ||
+			this.state.reasoning.runtimeFallback.kind !== 'unknown_model'
+		) {
 			return this.failed({
 				kind: input.kind,
 				cause: input.cause,
@@ -176,12 +197,20 @@ export class CompactionAttemptPlan {
 		return this.nextRequest({
 			previousRetryKey: null,
 			providerAttempt: this.state.providerAttempt + 1,
-			reasoningMode: 'minimal',
+			reasoning: {
+				runtimeFallback: { kind: 'none' },
+				selection: this.state.reasoning.runtimeFallback.selection,
+				source: 'runtime_fallback',
+			},
 			retry: {
 				attempt: this.state.providerAttempt + 1,
 				delayMs: 0,
 				maxAttempts: this.config.maxProviderAttempts,
-				reason: 'provider rejected compaction reasoning=none; retrying with minimal',
+				reason: {
+					kind: 'reasoning_fallback',
+					from: this.state.reasoning.selection,
+					to: this.state.reasoning.runtimeFallback.selection,
+				},
 			},
 		});
 	}
@@ -251,7 +280,7 @@ export class CompactionAttemptPlan {
 					attempt: this.state.providerAttempt + 1,
 					delayMs: input.retry.delayMs,
 					maxAttempts: this.config.maxProviderAttempts,
-					reason: input.retry.reason,
+					reason: { kind: 'provider', detail: input.retry.reason },
 				},
 			});
 		}
@@ -262,7 +291,7 @@ export class CompactionAttemptPlan {
 				attempt: this.state.providerAttempt + 1,
 				delayMs: 0,
 				maxAttempts: this.config.maxProviderAttempts,
-				reason: input.retry.reason,
+				reason: { kind: 'provider', detail: input.retry.reason },
 			},
 			settingsPatch: { providerRouting: input.retry.providerRouting },
 		});
@@ -279,7 +308,7 @@ export class CompactionAttemptPlan {
 			messageSet: input.messageSet ?? this.state.messageSet,
 			previousRetryKey: 'previousRetryKey' in input ? input.previousRetryKey ?? null : this.state.previousRetryKey,
 			providerAttempt: input.providerAttempt ?? this.state.providerAttempt,
-			reasoningMode: input.reasoningMode ?? this.state.reasoningMode,
+			reasoning: input.reasoning ?? this.state.reasoning,
 			schemaAttempt: input.schemaAttempt ?? this.state.schemaAttempt,
 			toolSet: input.toolSet ?? this.state.toolSet,
 			...(input.retry ? { retry: input.retry } : {}),

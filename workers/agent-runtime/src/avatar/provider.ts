@@ -17,12 +17,10 @@ import { InputError } from '@bickr/shared/validation';
 import {
 	appendToolRequirementInstruction,
 	providerCompactionMode,
-	providerCompactionReasoningForSettings,
 	providerSingleStringResponseFormat,
 	providerToolChoiceForMode,
 	settingsUseOpenRouter,
 	type ProviderCompactionMode,
-	type ProviderCompactionReasoningMode,
 	type ProviderJsonSchemaResponseFormat,
 	type ProviderReasoningConfig,
 	type ProviderSingleStringResponseSpec,
@@ -88,7 +86,7 @@ export type AvatarProviderRuntime = {
 	isStructuredOutputValidationError(error: unknown): error is ProviderStructuredOutputValidationError;
 	sanitizeMessages(messages: readonly ChatMessage[]): ChatMessage[];
 	reasoningForSettings(settings: Pick<ProviderSettings, 'model' | 'reasoningEffort'> & { baseUrl?: string }): ProviderReasoningConfig | undefined;
-	noReasoningModeForSettings(settings: Pick<ProviderSettings, 'baseUrl' | 'model'>): ProviderCompactionReasoningMode;
+	structuredOutputReasoningForSettings(settings: Pick<ProviderSettings, 'baseUrl' | 'model'>): ProviderReasoningConfig | undefined;
 	readSse(stream: ReadableStream<Uint8Array>, signal?: AbortSignal, idleTimeoutMs?: number): AsyncGenerator<{ data: string; raw: string }>;
 	streamErrorFromChunk(chunk: Record<string, unknown>): Error | null;
 	usageFromValue(value: unknown): ProviderUsage | undefined;
@@ -994,7 +992,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		const toolChoice = mode === 'structured_output' ? undefined : providerToolChoiceForMode(toolCalls);
 		const responseFormat = providerAvatarDescriptionResponseFormat(mode);
 		const reasoning = mode === 'structured_output'
-			? providerCompactionReasoningForSettings(settings, runtime.noReasoningModeForSettings(settings))
+			? runtime.structuredOutputReasoningForSettings(settings)
 			: runtime.reasoningForSettings(settings);
 		const finalInstruction =
 			mode === 'structured_output'

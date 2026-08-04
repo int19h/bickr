@@ -1,5 +1,6 @@
 import {
 	BotRuntime,
+	compactionReasoningPolicyForModel,
 	customProviderBaseUrl,
 	describe,
 	expect,
@@ -8,6 +9,7 @@ import {
 	lt,
 	metaCompactionToolName,
 	PersistentCompactionReductionFailureError,
+	providerAvatarDescriptionReasoningForSettings,
 	providerCompactionMessages,
 	providerCompactionRequest,
 	providerCompactionSummaryLimitsForChat,
@@ -113,6 +115,34 @@ describe("Structured output", () => {
 			expect(messages[3]?.content).toContain("4000 characters");
 			expect(messages[3]?.content).not.toMatch(/\bbot\b|\bAI\b|\bmodel\b|\bassistant\b|\bagent\b/i);
 			expect(messages).toHaveLength(4);
+		});
+
+		it("omits no-thinking compaction wording only for explicit reasoning efforts", () => {
+			const bot = fakeBotDocument({ handle: "release-sage" });
+			const compactedMessages = [{ role: "assistant" as const, content: "I remember a long release discussion." }];
+			const explicitMessages = providerCompactionMessages(
+				bot,
+				compactedMessages,
+				undefined,
+				undefined,
+				"structured_output",
+				compactionReasoningPolicyForModel("deepseek/deepseek-v4-flash-0731", true).selection,
+			);
+			const modelDefaultMessages = providerCompactionMessages(
+				bot,
+				compactedMessages,
+				undefined,
+				undefined,
+				"structured_output",
+				{ kind: "model_default", effort: "minimal" },
+			);
+
+			expect(explicitMessages.at(-1)?.content).not.toContain("Don't spend any time thinking about this");
+			expect(modelDefaultMessages.at(-1)?.content).toContain("Don't spend any time thinking about this");
+			expect(providerAvatarDescriptionReasoningForSettings({
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "deepseek/deepseek-v4-flash-0731",
+			})).toEqual({ effort: "none", exclude: false });
 		});
 
 		it("builds isolated tool-call provider compaction requests when selected", () => {
@@ -391,6 +421,10 @@ describe("Structured output", () => {
 					type: "provider_retry",
 					payload: expect.objectContaining({
 						attempt: 2,
+						compactionReasoningFallback: {
+							from: { kind: "reasoning_disabled" },
+							to: { kind: "model_default", effort: "minimal" },
+						},
 						delayMs: 0,
 						reason: "provider rejected compaction reasoning=none; retrying with minimal",
 					}),
@@ -512,6 +546,59 @@ describe("Structured output", () => {
 						reason: "provider rejected compaction reasoning=none; retrying with minimal",
 					}),
 				});
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("omits reasoning for unknown and free OpenRouter compaction requests", async () => {
+			const originalFetch = globalThis.fetch;
+			const validResponse = {
+				choices: [{
+					message: {
+						content: "",
+						tool_calls: [{
+							id: "call_conservative_compaction",
+							type: "function",
+							function: {
+								name: metaCompactionToolName,
+								arguments: JSON.stringify({ [providerCompactionSummaryProperty]: "I remember the important parts." }),
+							},
+						}],
+					},
+				}],
+			};
+			const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+				async () => Response.json(validResponse),
+			);
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				for (const model of ["unknown/provider-model", "openrouter/free"]) {
+					const response = await callProviderForCompaction(
+						{ baseUrl: "https://openrouter.ai/api/v1", model, temperature: 0.2 },
+						[{ role: "user", content: "Compact the retained activity." }],
+						`run-compaction-conservative-${model}`,
+						new AbortController().signal,
+						{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+						undefined,
+						"tool_call_cache_friendly",
+					);
+					expect(response.content).toBe("I remember the important parts.");
+				}
+
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+				for (const call of fetchMock.mock.calls) {
+					const body = JSON.parse(String(call[1]?.body)) as { reasoning?: unknown };
+					expect(body.reasoning).toBeUndefined();
+				}
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
 			}
@@ -695,7 +782,7 @@ describe("Structured output", () => {
 				const response = await callProviderForCompaction(
 					{
 						baseUrl: "https://openrouter.ai/api/v1",
-						model: "test-model",
+						model: "deepseek/deepseek-v4-flash-0731",
 						temperature: 0.2,
 						providerRouting: { order: ["openrouter/fallback"], ignore: ["A"] },
 					},
@@ -707,10 +794,12 @@ describe("Structured output", () => {
 
 				expect(response.content).toBe("I remember the important parts.");
 				expect(fetchMock).toHaveBeenCalledTimes(2);
-				const firstBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { provider?: Record<string, unknown> };
-				const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { provider?: Record<string, unknown> };
+				const firstBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { provider?: Record<string, unknown>; reasoning?: unknown };
+				const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { provider?: Record<string, unknown>; reasoning?: unknown };
 				expect(firstBody.provider).toEqual({ order: ["openrouter/fallback"], ignore: ["A"] });
 				expect(secondBody.provider).toEqual({ order: ["openrouter/fallback"], ignore: ["A", "DeepInfra"] });
+				expect(firstBody.reasoning).toEqual({ effort: "low", exclude: false });
+				expect(secondBody.reasoning).toEqual({ effort: "low", exclude: false });
 				expect(events).toContainEqual({
 					type: "provider_retry",
 					payload: expect.objectContaining({
@@ -935,7 +1024,11 @@ describe("Structured output", () => {
 				}).callProviderForCompaction.bind(runtime);
 
 				const rejection = await callProviderForCompaction(
-					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					{
+						baseUrl: "https://openrouter.ai/api/v1",
+						model: "deepseek/deepseek-v4-flash-0731",
+						temperature: 0.2,
+					},
 					[
 						{ role: "system", content: "System prompt." },
 						{ role: "assistant", content: "Old retained activity that should not be repeated in the retry." },
@@ -960,10 +1053,15 @@ describe("Structured output", () => {
 				expect(rejection).toMatchObject({ attempts: 4 });
 
 				expect(fetchMock).toHaveBeenCalledTimes(5);
-				const isolatedBodies = fetchMock.mock.calls.slice(1).map((call) => JSON.parse(String(call[1]?.body)) as {
+				const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)) as {
 					messages: BotInferenceSubmissionMessage[];
+					reasoning?: unknown;
 					tools?: ProviderToolDefinition[];
 				});
+				for (const body of bodies) {
+					expect(body.reasoning).toEqual({ effort: "low", exclude: false });
+				}
+				const isolatedBodies = bodies.slice(1);
 				expect(isolatedBodies).toHaveLength(4);
 				const finalRequest = JSON.parse(String((rejection as PersistentCompactionReductionFailureError).requestBody)) as {
 					messages: BotInferenceSubmissionMessage[];
@@ -980,6 +1078,7 @@ describe("Structured output", () => {
 					expect(body.tools).toBeUndefined();
 					expect(body.messages[0]?.content).toContain("META: Context compaction repair required.");
 					expect(body.messages[0]?.content).toContain("Verbatim copying from the input is absolutely prohibited");
+					expect(body.messages[0]?.content).not.toContain("Don't spend any time thinking about this");
 					expect(JSON.stringify(body.messages)).not.toContain("Old retained activity");
 				}
 			} finally {
@@ -1083,7 +1182,11 @@ describe("Structured output", () => {
 				}).callProviderForCompaction.bind(runtime);
 
 				const response = await callProviderForCompaction(
-					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					{
+						baseUrl: "https://openrouter.ai/api/v1",
+						model: "deepseek/deepseek-v4-flash-0731",
+						temperature: 0.2,
+					},
 					[{ role: "user", content: "Compact the retained activity." }],
 					"run-compaction-structured-tool-repair",
 					new AbortController().signal,
@@ -1091,7 +1194,14 @@ describe("Structured output", () => {
 
 				expect(response.content).toBe("I remember the important parts.");
 				expect(fetchMock).toHaveBeenCalledTimes(2);
-				const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
+				const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)) as {
+					messages: BotInferenceSubmissionMessage[];
+					reasoning?: unknown;
+				});
+				for (const body of bodies) {
+					expect(body.reasoning).toEqual({ effort: "low", exclude: false });
+				}
+				const retryBody = bodies[1]!;
 				const repairToolMessage = retryBody.messages.find((message) => message.role === "tool");
 				expect(repairToolMessage?.content).toContain("META: don't make any tool calls. You must reply with the structured detailed first-person summary strictly following the required JSON schema.");
 			} finally {
@@ -1227,14 +1337,7 @@ describe("Structured output", () => {
 				model: "test-model-concrete",
 				choices: [{
 					message: {
-						tool_calls: [{
-							id: "call_overlong_compaction",
-							type: "function",
-							function: {
-								name: metaCompactionToolName,
-								arguments: JSON.stringify({ [providerCompactionSummaryProperty]: overlongSummary }),
-							},
-						}],
+						content: JSON.stringify({ [providerCompactionSummaryProperty]: overlongSummary }),
 					},
 				}],
 				usage: { prompt_tokens: 60, completion_tokens: 20, total_tokens: 80 },
@@ -1244,14 +1347,7 @@ describe("Structured output", () => {
 				model: "test-model-concrete",
 				choices: [{
 					message: {
-						tool_calls: [{
-							id: "call_short_compaction",
-							type: "function",
-							function: {
-								name: metaCompactionToolName,
-								arguments: JSON.stringify({ [providerCompactionSummaryProperty]: "Short." }),
-							},
-						}],
+						content: JSON.stringify({ [providerCompactionSummaryProperty]: "Short." }),
 					},
 				}],
 				usage: { prompt_tokens: 30, completion_tokens: 6, total_tokens: 36 },
@@ -1272,7 +1368,11 @@ describe("Structured output", () => {
 				}).callProviderForCompaction.bind(runtime);
 
 				const response = await callProviderForCompaction(
-					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					{
+						baseUrl: "https://openrouter.ai/api/v1",
+						model: "deepseek/deepseek-v4-flash-0731",
+						temperature: 0.2,
+					},
 					[
 						{ role: "system", content: "System prompt." },
 						{ role: "assistant", content: "Old retained activity that should not be repeated in the shorten retry." },
@@ -1282,7 +1382,7 @@ describe("Structured output", () => {
 					new AbortController().signal,
 					{ minLength: 1, maxLength: 10, maxCompletionTokens: 100 },
 					undefined,
-					"tool_call",
+					"structured_output",
 				);
 
 				expect(response.content).toBe("Short.");
@@ -1296,7 +1396,14 @@ describe("Structured output", () => {
 					attempt: 2,
 					usage: expect.objectContaining({ promptTokens: 30 }),
 				}));
-				const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
+				const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)) as {
+					messages: BotInferenceSubmissionMessage[];
+					reasoning?: unknown;
+				});
+				for (const body of bodies) {
+					expect(body.reasoning).toEqual({ effort: "low", exclude: false });
+				}
+				const retryBody = bodies[1]!;
 				expect(retryBody.messages).toEqual([
 					{ role: "system", content: "System prompt." },
 					{ role: "user", content: "Bickr Terminal is ready for my next step." },
@@ -1307,6 +1414,7 @@ describe("Structured output", () => {
 					}),
 				]);
 				expect(retryBody.messages.at(-1)?.content).toContain("Verbatim copying from the input is absolutely prohibited");
+				expect(retryBody.messages.at(-1)?.content).not.toContain("Don't spend any time thinking about this");
 				expect(JSON.stringify(retryBody.messages)).not.toContain("Old retained activity");
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);

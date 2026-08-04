@@ -18,18 +18,36 @@ export type OpenRouterModelCapabilities = {
 };
 
 export type OpenRouterModelPolicy = OpenRouterModelCapabilities & {
-	compactionReasoningNone: boolean;
+	compactionReasoningFloor: CompactionReasoningFloor;
 	structuredOutputCompaction: boolean;
 	defaultCompactionMode: BotCompactionMode;
 	defaultReasoningEffort?: Exclude<BotInferenceReasoningEffort, "default">;
 	defaultToolCalls: BotInferenceToolCalls;
 };
 
-export type CompactionReasoningNonePolicy = {
+export type CompactionReasoningEffort = Exclude<BotInferenceReasoningEffort, "default" | "none">;
+
+export type CompactionReasoningFloor =
+	| { kind: "reasoning_disabled" }
+	| { kind: "model_default" }
+	| { kind: "explicit_effort"; effort: CompactionReasoningEffort };
+
+export type CompactionReasoningSelection =
+	| { kind: "reasoning_disabled" }
+	| { kind: "model_default"; effort?: Exclude<BotInferenceReasoningEffort, "default"> }
+	| { kind: "explicit_effort"; effort: CompactionReasoningEffort };
+
+export type CompactionReasoningRuntimeFallback =
+	| { kind: "none" }
+	| { kind: "unknown_model"; selection: Extract<CompactionReasoningSelection, { kind: "model_default" }> };
+
+export type CompactionReasoningPolicy = {
+	floor: CompactionReasoningFloor;
 	knownFailure?: "reasoning_rejected" | "server_tool_crash";
-	runtimeFallback: "none" | "unknown_model";
-	source: "custom_provider" | "openrouter_generated" | "openrouter_manual" | "openrouter_unknown";
-	supported: boolean;
+	modelDefaultSelection: Extract<CompactionReasoningSelection, { kind: "model_default" }>;
+	runtimeFallback: CompactionReasoningRuntimeFallback;
+	selection: CompactionReasoningSelection;
+	source: "custom_provider" | "openrouter_generated" | "openrouter_manual" | "openrouter_semantic_override" | "openrouter_unknown";
 };
 
 export type UnknownModelCompactionReasoningFailure =
@@ -48,7 +66,7 @@ const conservativeOpenRouterModelCapabilities = {
 
 const openRouterFreeModelPolicy = {
 	...conservativeOpenRouterModelCapabilities,
-	compactionReasoningNone: false,
+	compactionReasoningFloor: { kind: "model_default" },
 	structuredOutputCompaction: false,
 	defaultCompactionMode: "tool_call_cache_friendly",
 	defaultToolCalls: "railroad",
@@ -58,7 +76,7 @@ const permissiveCustomProviderPolicy = {
 	prefill: true,
 	structuredOutputs: true,
 	structuredOutputCompaction: true,
-	compactionReasoningNone: true,
+	compactionReasoningFloor: { kind: "reasoning_disabled" },
 	requiredToolCalls: true,
 	disabledReasoning: true,
 	cacheControl: false,
@@ -74,6 +92,17 @@ const manualOpenRouterModelPolicies: Readonly<Record<string, OpenRouterModelPoli
 	[openRouterFreeModel]: openRouterFreeModelPolicy,
 };
 
+// These exact-model overrides capture semantic compaction requirements that
+// request-shape probes cannot establish. DeepSeek V4 Flash intermittently
+// copied a retained summary verbatim with reasoning disabled, while the same
+// request reduced correctly at low. Remove this entry only after production
+// evidence establishes that disabled reasoning reliably reduces summaries.
+// Keep this sparse overlay separate from generated capabilities so refreshing
+// probes cannot erase it or shadow the generated model row.
+const semanticCompactionReasoningOverrides = new Map<string, CompactionReasoningFloor>([
+	["deepseek/deepseek-v4-flash-0731", { kind: "explicit_effort", effort: "low" }],
+]);
+
 const generatedOpenRouterModelCapabilities = new Map<string, OpenRouterModelCapabilities>(
 	generatedOpenRouterModelCapabilityEntries.map(([model, capabilities]) => [model, capabilities]),
 );
@@ -82,7 +111,7 @@ const generatedOpenRouterModelCapabilities = new Map<string, OpenRouterModelCapa
 // schema path can repeat the input instead of producing a reducing summary.
 // It can also mask compaction reasoning=none rejection as an internal server
 // error when OpenRouter server tools are present, so the compaction plan should
-// select minimal reasoning before constructing that request shape.
+// select the model default (currently minimal) before constructing that request.
 const xiaomiFp8ProviderRoute = "xiaomi/fp8";
 const providerSelectionRoutingKeys = ["only", "order"] as const;
 
@@ -108,10 +137,14 @@ export function openRouterModelPolicy(model: string | undefined, providerRouting
 		return openRouterFreeModelPolicy;
 	}
 	const structuredOutputCompaction = supportsStructuredOutputCompaction(normalized, capabilities, providerRouting);
-	const compactionReasoningNone = supportsCompactionReasoningNone(normalized, capabilities, providerRouting);
+	const compactionReasoningFloor = compactionReasoningFloorResolutionForGeneratedModel(
+		normalized,
+		capabilities,
+		providerRouting,
+	).floor;
 	return {
 		...capabilities,
-		compactionReasoningNone,
+		compactionReasoningFloor,
 		structuredOutputCompaction,
 		defaultCompactionMode: structuredOutputCompaction ? "structured_output" : "tool_call_cache_friendly",
 		defaultReasoningEffort: "minimal",
@@ -123,40 +156,54 @@ export function providerModelPolicy(model: string | undefined, openRouter: boole
 	return openRouter ? openRouterModelPolicy(model, providerRouting) : permissiveCustomProviderPolicy;
 }
 
-export function compactionReasoningNonePolicyForModel(
+export function compactionReasoningPolicyForModel(
 	model: string | undefined,
 	openRouter: boolean,
 	providerRouting?: JsonObject,
-): CompactionReasoningNonePolicy {
+): CompactionReasoningPolicy {
 	if (!openRouter) {
-		return {
+		return compactionReasoningPolicy({
+			floor: permissiveCustomProviderPolicy.compactionReasoningFloor,
+			modelDefaultEffort: permissiveCustomProviderPolicy.defaultReasoningEffort,
 			runtimeFallback: "unknown_model",
 			source: "custom_provider",
-			supported: permissiveCustomProviderPolicy.compactionReasoningNone,
-		};
+		});
 	}
 	const normalized = normalizedOpenRouterModelId(model);
 	if (!normalized) {
-		return { runtimeFallback: "none", source: "openrouter_manual", supported: openRouterFreeModelPolicy.compactionReasoningNone };
-	}
-	if (manualOpenRouterModelPolicies[normalized]) {
-		return {
+		return compactionReasoningPolicy({
+			floor: openRouterFreeModelPolicy.compactionReasoningFloor,
+			modelDefaultEffort: undefined,
 			runtimeFallback: "none",
 			source: "openrouter_manual",
-			supported: manualOpenRouterModelPolicies[normalized].compactionReasoningNone,
-		};
+		});
+	}
+	const manual = manualOpenRouterModelPolicies[normalized];
+	if (manual) {
+		return compactionReasoningPolicy({
+			floor: manual.compactionReasoningFloor,
+			modelDefaultEffort: manual.defaultReasoningEffort,
+			runtimeFallback: "none",
+			source: "openrouter_manual",
+		});
 	}
 	const capabilities = generatedOpenRouterModelCapabilities.get(normalized);
 	if (!capabilities) {
-		return { runtimeFallback: "none", source: "openrouter_unknown", supported: openRouterFreeModelPolicy.compactionReasoningNone };
+		return compactionReasoningPolicy({
+			floor: openRouterFreeModelPolicy.compactionReasoningFloor,
+			modelDefaultEffort: undefined,
+			runtimeFallback: "none",
+			source: "openrouter_unknown",
+		});
 	}
-	const knownFailure = compactionReasoningNoneKnownFailure(normalized, providerRouting);
-	return {
-		...(knownFailure ? { knownFailure } : {}),
+	const floorResolution = compactionReasoningFloorResolutionForGeneratedModel(normalized, capabilities, providerRouting);
+	return compactionReasoningPolicy({
+		floor: floorResolution.floor,
+		...(floorResolution.knownFailure ? { knownFailure: floorResolution.knownFailure } : {}),
+		modelDefaultEffort: "minimal",
 		runtimeFallback: "none",
-		source: "openrouter_generated",
-		supported: supportsCompactionReasoningNone(normalized, capabilities, providerRouting),
-	};
+		source: floorResolution.source,
+	});
 }
 
 export function effectiveReasoningEffortForModel(
@@ -221,10 +268,6 @@ export function modelSupportsReasoningNone(model: string | undefined, openRouter
 	return providerModelPolicy(model, openRouter, providerRouting).disabledReasoning;
 }
 
-export function modelSupportsCompactionReasoningNone(model: string | undefined, openRouter: boolean, providerRouting?: JsonObject): boolean {
-	return compactionReasoningNonePolicyForModel(model, openRouter, providerRouting).supported;
-}
-
 export function modelSupportsRequiredToolCalls(model: string | undefined, openRouter: boolean, providerRouting?: JsonObject): boolean {
 	return providerModelPolicy(model, openRouter, providerRouting).requiredToolCalls;
 }
@@ -287,25 +330,134 @@ function supportsStructuredOutputCompaction(
 	return true;
 }
 
-function supportsCompactionReasoningNone(
+function compactionReasoningFloorResolutionForGeneratedModel(
 	normalizedModel: string,
 	capabilities: OpenRouterModelCapabilities,
 	providerRouting: JsonObject | undefined,
-): boolean {
-	if (compactionReasoningNoneKnownFailure(normalizedModel, providerRouting)) {
-		return false;
-	}
-	return capabilities.disabledReasoning;
+): Pick<CompactionReasoningPolicy, "floor" | "knownFailure" | "source"> {
+	const generatedFloor = compactionReasoningFloorForCapabilities(capabilities);
+	const knownFailure = compactionReasoningKnownFailure(normalizedModel, providerRouting);
+	const routeFloor = knownFailure
+		? modelDefaultCompactionReasoningFloor
+		: generatedFloor;
+	const semanticOverride = semanticCompactionReasoningOverrides.get(normalizedModel);
+	return {
+		floor: semanticOverride ? strongerCompactionReasoningFloor(routeFloor, semanticOverride) : routeFloor,
+		...(knownFailure ? { knownFailure } : {}),
+		source: semanticOverride ? "openrouter_semantic_override" : "openrouter_generated",
+	};
 }
 
-function compactionReasoningNoneKnownFailure(
+function compactionReasoningKnownFailure(
 	normalizedModel: string,
 	providerRouting: JsonObject | undefined,
-): CompactionReasoningNonePolicy["knownFailure"] | undefined {
+): CompactionReasoningPolicy["knownFailure"] | undefined {
 	if (normalizedModel.startsWith("xiaomi/") && providerRoutingSelectsProvider(providerRouting, xiaomiFp8ProviderRoute)) {
 		return "server_tool_crash";
 	}
 	return undefined;
+}
+
+const reasoningDisabledCompactionReasoningFloor = { kind: "reasoning_disabled" } as const satisfies CompactionReasoningFloor;
+const modelDefaultCompactionReasoningFloor = { kind: "model_default" } as const satisfies CompactionReasoningFloor;
+
+function compactionReasoningFloorForCapabilities(capabilities: OpenRouterModelCapabilities): CompactionReasoningFloor {
+	return capabilities.disabledReasoning ? reasoningDisabledCompactionReasoningFloor : modelDefaultCompactionReasoningFloor;
+}
+
+function strongerCompactionReasoningFloor(
+	left: CompactionReasoningFloor,
+	right: CompactionReasoningFloor,
+): CompactionReasoningFloor {
+	if (left.kind === "explicit_effort" && right.kind === "explicit_effort") {
+		return compactionReasoningEffortRank(left.effort) >= compactionReasoningEffortRank(right.effort) ? left : right;
+	}
+	return compactionReasoningFloorRank(left) >= compactionReasoningFloorRank(right) ? left : right;
+}
+
+function compactionReasoningFloorRank(floor: CompactionReasoningFloor): number {
+	switch (floor.kind) {
+		case "reasoning_disabled":
+			return 0;
+		case "model_default":
+			return 1;
+		case "explicit_effort":
+			return 2;
+		default:
+			return unreachableCompactionReasoningValue(floor);
+	}
+}
+
+function compactionReasoningEffortRank(effort: CompactionReasoningEffort): number {
+	switch (effort) {
+		case "minimal":
+			return 0;
+		case "low":
+			return 1;
+		case "medium":
+			return 2;
+		case "high":
+			return 3;
+		case "xhigh":
+			return 4;
+		default:
+			return unreachableCompactionReasoningValue(effort);
+	}
+}
+
+function compactionReasoningSelection(
+	floor: CompactionReasoningFloor,
+	modelDefaultEffort: Exclude<BotInferenceReasoningEffort, "default"> | undefined,
+): CompactionReasoningSelection {
+	switch (floor.kind) {
+		case "reasoning_disabled":
+			return { kind: "reasoning_disabled" };
+		case "model_default":
+			return modelDefaultCompactionReasoningSelection(modelDefaultEffort);
+		case "explicit_effort": {
+			const effort = modelDefaultEffort && modelDefaultEffort !== "none" &&
+				compactionReasoningEffortRank(modelDefaultEffort) > compactionReasoningEffortRank(floor.effort)
+				? modelDefaultEffort
+				: floor.effort;
+			return { kind: "explicit_effort", effort };
+		}
+		default:
+			return unreachableCompactionReasoningValue(floor);
+	}
+}
+
+function compactionReasoningPolicy(input: {
+	floor: CompactionReasoningFloor;
+	knownFailure?: CompactionReasoningPolicy["knownFailure"];
+	modelDefaultEffort: Exclude<BotInferenceReasoningEffort, "default"> | undefined;
+	runtimeFallback: CompactionReasoningRuntimeFallback["kind"];
+	source: CompactionReasoningPolicy["source"];
+}): CompactionReasoningPolicy {
+	const modelDefaultSelection = modelDefaultCompactionReasoningSelection(input.modelDefaultEffort);
+	const selection = compactionReasoningSelection(input.floor, input.modelDefaultEffort);
+	return {
+		floor: input.floor,
+		...(input.knownFailure ? { knownFailure: input.knownFailure } : {}),
+		modelDefaultSelection,
+		runtimeFallback: input.runtimeFallback === "unknown_model"
+			? {
+					kind: "unknown_model",
+					selection: modelDefaultSelection,
+				}
+			: { kind: "none" },
+		selection,
+		source: input.source,
+	};
+}
+
+function modelDefaultCompactionReasoningSelection(
+	effort: Exclude<BotInferenceReasoningEffort, "default"> | undefined,
+): Extract<CompactionReasoningSelection, { kind: "model_default" }> {
+	return { kind: "model_default", ...(effort ? { effort } : {}) };
+}
+
+function unreachableCompactionReasoningValue(value: never): never {
+	throw new Error(`Unhandled compaction reasoning value: ${String(value)}`);
 }
 
 export function classifyUnknownModelCompactionReasoningFailure(input: {

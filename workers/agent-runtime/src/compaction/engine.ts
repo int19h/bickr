@@ -2,6 +2,8 @@ import {
 	effectiveCompactionModeForModel,
 	effectiveReasoningEffortForModel,
 	effectiveSupportsPrefillForModel,
+	modelSupportsReasoningNone,
+	type CompactionReasoningSelection,
 } from '@bickr/shared/openrouter-model-capabilities';
 import {
 	localizedTextString,
@@ -34,7 +36,6 @@ import type { CompactionAttemptMessageSet, CompactionAttemptToolSet } from './pl
 type ChatMessage = BotInferenceSubmissionMessage;
 
 export type ProviderCompactionMode = BotCompactionMode;
-export type ProviderCompactionReasoningMode = 'none' | 'minimal';
 
 export type ProviderReasoningConfig =
 	| { enabled: true; exclude: false }
@@ -87,7 +88,7 @@ type StructuredOutputRepairError = {
 };
 
 const providerCompactionNoReasoning = { effort: 'none', exclude: false } as const satisfies ProviderReasoningConfig;
-const providerCompactionMinimalReasoning = { effort: 'minimal', exclude: false } as const satisfies ProviderReasoningConfig;
+const providerCompactionReasoningDisabledSelection = { kind: 'reasoning_disabled' } as const satisfies CompactionReasoningSelection;
 export const providerCompactionTemperature = 0.2;
 export const providerCompactionToolName = metaCompactionToolName;
 export const providerRequiredToolChoice = 'required' as const;
@@ -112,18 +113,27 @@ export function settingsUseOpenRouter(settings: { baseUrl?: string }): boolean {
 	return settings.baseUrl !== undefined && isOpenRouterProviderBaseUrl(settings.baseUrl);
 }
 
-function providerCompactionReasoningForMode(mode: ProviderCompactionReasoningMode): ProviderReasoningConfig {
-	return mode === 'minimal' ? providerCompactionMinimalReasoning : providerCompactionNoReasoning;
+export function providerCompactionReasoningForSelection(
+	selection: CompactionReasoningSelection,
+): ProviderReasoningConfig | undefined {
+	switch (selection.kind) {
+		case 'reasoning_disabled':
+			return providerCompactionNoReasoning;
+		case 'model_default':
+			return selection.effort ? { effort: selection.effort, exclude: false } : undefined;
+		case 'explicit_effort':
+			return { effort: selection.effort, exclude: false };
+	}
 }
 
-export function providerCompactionReasoningForSettings(
+export function providerAvatarDescriptionReasoningForSettings(
 	settings: { baseUrl?: string; model: string },
-	mode: ProviderCompactionReasoningMode,
 ): ProviderReasoningConfig | undefined {
-	if (mode === 'none') {
-		return providerCompactionReasoningForMode(mode);
+	const openRouter = settingsUseOpenRouter(settings);
+	if (modelSupportsReasoningNone(settings.model, openRouter)) {
+		return providerCompactionNoReasoning;
 	}
-	const defaultEffort = effectiveReasoningEffortForModel(settings.model, settingsUseOpenRouter(settings), undefined);
+	const defaultEffort = effectiveReasoningEffortForModel(settings.model, openRouter, undefined);
 	return defaultEffort ? { effort: defaultEffort, exclude: false } : undefined;
 }
 
@@ -194,10 +204,14 @@ function providerCompactionSummaryInstruction(
 	bot: Pick<BotDocument, 'handle'>,
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
 	mode: ProviderCompactionMode,
+	reasoning: CompactionReasoningSelection,
 ): string {
 	const lengthInstruction = providerCompactionLengthInstruction(limits);
 	if (mode === 'structured_output') {
-		return `META: Context compaction required. Don't spend any time thinking about this; respond immediately with JSON summary. Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a detailed summary of only the recent events being compacted, excluding the system instructions and persona prompt, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" field; your response will become the long-term memory of these events, replacing them in context henceforth. Write ordinary first-person prose, never transcript or runtime-event lines labeled Action:, Result:, Input:, or New thought:. ${lengthInstruction}`;
+		const responseTiming = reasoning.kind === 'explicit_effort'
+			? ''
+			: " Don't spend any time thinking about this; respond immediately with JSON summary.";
+		return `META: Context compaction required.${responseTiming} Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a detailed summary of only the recent events being compacted, excluding the system instructions and persona prompt, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" field; your response will become the long-term memory of these events, replacing them in context henceforth. Write ordinary first-person prose, never transcript or runtime-event lines labeled Action:, Result:, Input:, or New thought:. ${lengthInstruction}`;
 	}
 	return `META: Context compaction required. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a detailed summary of only the recent events being compacted, excluding the system instructions and persona prompt, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" argument; your response will become the long-term memory of these events, replacing them in context henceforth. Write ordinary first-person prose, never transcript or runtime-event lines labeled Action:, Result:, Input:, or New thought:. ${lengthInstruction}`;
 }
@@ -205,10 +219,14 @@ function providerCompactionSummaryInstruction(
 function providerCompactionShortenInstruction(
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
 	mode: ProviderCompactionMode,
+	reasoning: CompactionReasoningSelection,
 ): string {
 	const lengthInstruction = providerCompactionLengthInstruction(limits);
 	if (mode === 'structured_output') {
-		return `META: The previous context compaction attempt produced a summary that was too long. Don't spend any time thinking about this; respond immediately with JSON summary. Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a shorter first-person memory summary in the "${providerCompactionSummaryProperty}" field. Verbatim copying from the input is absolutely prohibited: do not copy any sentence, phrase, paragraph, list item, or passage from the input. Restate the remembered facts in new wording and discard repeated boilerplate. ${lengthInstruction}`;
+		const responseTiming = reasoning.kind === 'explicit_effort'
+			? ''
+			: " Don't spend any time thinking about this; respond immediately with JSON summary.";
+		return `META: The previous context compaction attempt produced a summary that was too long.${responseTiming} Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a shorter first-person memory summary in the "${providerCompactionSummaryProperty}" field. Verbatim copying from the input is absolutely prohibited: do not copy any sentence, phrase, paragraph, list item, or passage from the input. Restate the remembered facts in new wording and discard repeated boilerplate. ${lengthInstruction}`;
 	}
 	return `META: The previous context compaction attempt produced a summary that was too long. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a shorter first-person memory summary in the "${providerCompactionSummaryProperty}" argument. Verbatim copying from the input is absolutely prohibited: do not copy any sentence, phrase, paragraph, list item, or passage from the input. Restate the remembered facts in new wording and discard repeated boilerplate. ${lengthInstruction}`;
 }
@@ -217,11 +235,14 @@ function providerCompactionIsolatedRepairSystemInstruction(
 	bot: Pick<BotDocument, 'displayName' | 'handle' | 'includeLanguageInSystemPrompt' | 'language' | 'prompt' | 'shortBio'>,
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
 	mode: ProviderCompactionMode,
+	reasoning: CompactionReasoningSelection,
 ): string {
 	const lengthInstruction = providerCompactionLengthInstruction(limits);
 	const responseInstruction =
 		mode === 'structured_output'
-			? `Don't spend any time thinking about this; respond immediately with JSON summary. Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put the replacement first-person memory summary in the "${providerCompactionSummaryProperty}" field.`
+			? reasoning.kind === 'explicit_effort'
+				? `Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put the replacement first-person memory summary in the "${providerCompactionSummaryProperty}" field.`
+				: `Don't spend any time thinking about this; respond immediately with JSON summary. Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put the replacement first-person memory summary in the "${providerCompactionSummaryProperty}" field.`
 			: `Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put the replacement first-person memory summary in the "${providerCompactionSummaryProperty}" argument.`;
 	return [
 		`META: Context compaction repair required. The previous compaction attempt did not reduce the context. ${responseInstruction} Summarize only the input summary being repaired, excluding the system instructions and persona prompt; your response will become the long-term memory of these events, replacing them in context henceforth. Verbatim copying from the input is absolutely prohibited: do not copy any sentence, phrase, paragraph, list item, or passage from the input. Restate the remembered facts in new wording and discard repeated boilerplate. ${lengthInstruction}`,
@@ -243,12 +264,13 @@ function providerCompactionShortenMessages(
 	previousSummary: string,
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
 	mode: ProviderCompactionMode = 'structured_output',
+	reasoning: CompactionReasoningSelection = providerCompactionReasoningDisabledSelection,
 ): ChatMessage[] {
 	const systemMessage = previousMessages.find((message) => message.role === 'system');
 	return [
 		...(systemMessage ? [systemMessage] : []),
 		{ role: 'assistant', content: previousSummary },
-		{ role: 'user', content: providerCompactionShortenInstruction(limits, mode) },
+		{ role: 'user', content: providerCompactionShortenInstruction(limits, mode, reasoning) },
 	];
 }
 
@@ -257,11 +279,12 @@ function providerCompactionIsolatedRepairMessages(
 	previousSummary: string,
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
 	mode: ProviderCompactionMode = 'structured_output',
+	reasoning: CompactionReasoningSelection = providerCompactionReasoningDisabledSelection,
 ): ChatMessage[] {
 	return [
 		{
 			role: 'system',
-			content: providerCompactionIsolatedRepairSystemInstruction(bot, limits, mode),
+			content: providerCompactionIsolatedRepairSystemInstruction(bot, limits, mode, reasoning),
 		},
 		{ role: 'assistant', content: previousSummary },
 		{ role: 'user', content: 'Produce the replacement memory summary now.' },
@@ -292,6 +315,7 @@ export function providerCompactionMessages(
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'> = defaultProviderCompactionSummaryLimits,
 	providerTools: ProviderToolDefinition[] = toolDefinitionsForProviderRound(limits.maxLength),
 	mode: ProviderCompactionMode = 'structured_output',
+	reasoning: CompactionReasoningSelection = providerCompactionReasoningDisabledSelection,
 ): ChatMessage[] {
 	const tools = providerCompactionToolsForMode(limits, providerTools, mode);
 	return [
@@ -302,7 +326,7 @@ export function providerCompactionMessages(
 		...compactedMessages,
 		{
 			role: 'user',
-			content: providerCompactionSummaryInstruction(bot, limits, mode),
+			content: providerCompactionSummaryInstruction(bot, limits, mode, reasoning),
 		},
 		...(mode === 'tool_call'
 			? [
@@ -321,6 +345,7 @@ export function providerCompactionMessagesForAttempt(
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
 	mode: ProviderCompactionMode,
 	messageSet: CompactionAttemptMessageSet,
+	reasoning: CompactionReasoningSelection,
 ): ChatMessage[] {
 	switch (messageSet.kind) {
 		case 'initial':
@@ -328,12 +353,12 @@ export function providerCompactionMessagesForAttempt(
 		case 'schema_repair':
 			return [...messageSet.messages];
 		case 'shorten_previous_summary':
-			return providerCompactionShortenMessages(initialMessages, messageSet.previousSummary, limits, mode);
+			return providerCompactionShortenMessages(initialMessages, messageSet.previousSummary, limits, mode, reasoning);
 		case 'isolated_reduction_repair':
 			if (!bot) {
 				throw new Error('Compaction isolated reduction repair requires participant context.');
 			}
-			return providerCompactionIsolatedRepairMessages(bot, messageSet.previousSummary, limits, mode);
+			return providerCompactionIsolatedRepairMessages(bot, messageSet.previousSummary, limits, mode, reasoning);
 	}
 }
 

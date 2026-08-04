@@ -133,6 +133,7 @@ import {
 	toolUseRecoveryReminder,
 } from "../../workers/agent-runtime/src/index";
 import {
+	providerAvatarDescriptionReasoningForSettings,
 	providerCompactionMessages,
 	providerCompactionSystemInstruction,
 } from "../../workers/agent-runtime/src/compaction/engine";
@@ -243,13 +244,12 @@ import {
 	defaultThreadBodyCharacters,
 } from "../../packages/shared/src/posting";
 import {
-	compactionReasoningNonePolicyForModel,
+	compactionReasoningPolicyForModel,
 	effectiveCompactionModeForModel,
 	effectiveReasoningEffortForModel,
 	effectiveStructuredToolCallsForModel,
 	effectiveSupportsPrefillForModel,
 	effectiveToolCallsForModel,
-	modelSupportsCompactionReasoningNone,
 	modelSupportsPrefill,
 	modelSupportsPromptCacheControl,
 	modelSupportsRequiredToolCalls,
@@ -297,7 +297,7 @@ export {
 	clearKv,
 	commentRefResolver,
 	commentVotes,
-	compactionReasoningNonePolicyForModel,
+	compactionReasoningPolicyForModel,
 	contextBudgetGetRoute,
 	contextBudgetRoute,
 	createBot,
@@ -378,7 +378,6 @@ export {
 	meBots,
 	metaCompactionToolName,
 	modelSupportsPrefill,
-	modelSupportsCompactionReasoningNone,
 	modelSupportsPromptCacheControl,
 	modelSupportsRequiredToolCalls,
 	modelSupportsStructuredCompaction,
@@ -405,6 +404,7 @@ export {
 	promptContextBudgetFromCounts,
 	promptUserAvatarRoute,
 	promptWorldAvatarRoute,
+	providerAvatarDescriptionReasoningForSettings,
 	providerChatCompletionRequest,
 	providerCompactionMessages,
 	providerCompactionRequest,
