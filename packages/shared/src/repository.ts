@@ -369,6 +369,15 @@ async function refreshProviderIdentity(
 	now = new Date().toISOString(),
 ): Promise<UserDocument> {
 	const profile = normalizeProviderUserProfile(input);
+	return refreshNormalizedProviderIdentity(kv, db, profile, now);
+}
+
+async function refreshNormalizedProviderIdentity(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	profile: NormalizedProviderUserProfile,
+	now = new Date().toISOString(),
+): Promise<UserDocument> {
 	const existingIdentity = await providerIdentityBySubject(db, profile.provider, profile.subject);
 	if (!existingIdentity) {
 		throw new RepositoryError(
@@ -1872,7 +1881,7 @@ async function deleteBot(
 
 	await writeJson(kv, kvKeys.bot(deleted.id), deleted);
 	await deleteOptions.checkpoint?.(`${deleteOptions.failurePrefix ?? "bot"}.delete.kv` as LifecycleFailurePoint);
-	await upsertBotIndex(db, deleted);
+	await upsertBotIndex(db, deleted, { lifecycleState: "deleting" });
 	await deleteBotGroupMembershipsForBot(db, deleted.id);
 	await disableBotRuntime(db, deleted.id, now);
 	await upsertBotSearchIndex(db, deleted);
@@ -3695,7 +3704,7 @@ export async function upsertBotIndexProjection(
 async function upsertBotIndex(
 	db: D1DatabaseLike,
 	bot: BotDocument,
-	options: { lifecycleState?: "active" | "pending" } = {},
+	options: { lifecycleState?: "active" | "pending" | "deleting" } = {},
 ): Promise<void> {
 	await botIndexProjectionStatement(db, bot, options).run();
 }
@@ -3703,7 +3712,7 @@ async function upsertBotIndex(
 function botIndexProjectionStatement(
 	db: D1DatabaseLike,
 	bot: BotDocument,
-	options: { lifecycleState?: "active" | "pending" } = {},
+	options: { lifecycleState?: "active" | "pending" | "deleting" } = {},
 ): D1PreparedStatementLike {
 	return db
 		.prepare(
@@ -5217,6 +5226,7 @@ export const userCoordinatorRepositoryMutations = Object.freeze({
 	materializePendingBotAvatar,
 	providerUserBootstrapActivationStatements,
 	refreshLinkedCloneIndexes,
+	refreshNormalizedProviderIdentity,
 	refreshProviderIdentity,
 	relinkBotClone,
 	softDeleteUserProfile,

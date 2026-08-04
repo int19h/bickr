@@ -7,6 +7,7 @@ import {
 } from "@bickr/shared/entity-lifecycle";
 import { ExclusiveOperationQueue } from "@bickr/shared/exclusive-operation-queue";
 import { addInternalServiceAuthHeader, internalServiceUrl } from "@bickr/shared/internal-service";
+import type { UserDocument } from "@bickr/shared/model";
 import type { ProviderUserProfile } from "@bickr/shared/repository";
 import agentRuntimeWorker, { handleAgentRuntimeRequest } from "../workers/agent-runtime/src/routes";
 import type { Env } from "../workers/agent-runtime/src/types";
@@ -99,6 +100,57 @@ describe("default Worker account bootstrap dispatch", () => {
 		});
 	});
 
+	it("refreshes mutable provider presentation after interruption before coordinator dispatch", async () => {
+		let interrupt = true;
+		const harness = accountBootstrapHarness({
+			beforeUserFetch: async () => {
+				if (!interrupt) return;
+				interrupt = false;
+				throw new Error("Injected failure before UserBotsCoordinator dispatch.");
+			},
+		});
+		const initial: ProviderUserProfile = {
+			provider: "github",
+			subject: "mutable-presentation-subject",
+			login: "initial-reserved-login",
+			displayName: "Initial Display",
+			email: "initial@example.test",
+			avatarUrl: "https://example.test/initial.png",
+		};
+		const latest: ProviderUserProfile = {
+			...initial,
+			login: "latest-provider-login",
+			displayName: "Latest Display",
+			email: "latest@example.test",
+			avatarUrl: "https://example.test/latest.png",
+		};
+		const key = "mutable-presentation-retry";
+
+		const first = await harness.bootstrap(initial, key);
+		expect(first.status).toBe(500);
+		expect(await first.json()).toMatchObject({ ok: false, error: "server_error" });
+		const pending = await providerClaim(initial);
+		expect(pending).toMatchObject({ claimState: "pending" });
+		expect(await testEnv.BICKR_KV.get(`v1:user:${pending?.userId}`)).toBeNull();
+
+		const retried = await harness.bootstrap(latest, key);
+		const user = requiredUser(await successData(retried));
+		expect(user.id).toBe(pending?.userId);
+		expect(user.handle).toBe("initial-reserved-login");
+		const stored = await testEnv.BICKR_KV.get<UserDocument>(`v1:user:${user.id}`, { type: "json" });
+		expect(stored?.displayName).toEqual({ text: "Latest Display", lang: null });
+		const identity = await testEnv.BICKR_D1.prepare(
+			`SELECT provider_login AS login, email, avatar_url AS avatarUrl
+			 FROM provider_identities WHERE provider = 'github' AND provider_subject = ?`,
+		).bind(latest.subject).first<{ login: string; email: string; avatarUrl: string }>();
+		expect(identity).toEqual({
+			login: "latest-provider-login",
+			email: "latest@example.test",
+			avatarUrl: "https://example.test/latest.png",
+		});
+		await expectOneActiveAccount(latest, user.id, user.handle);
+	});
+
 	it("atomically retries an automatic handle collision for distinct provider subjects", async () => {
 		const db = synchronizeFirstTwoBatches(testEnv.BICKR_D1);
 		const harness = accountBootstrapHarness({ db });
@@ -121,7 +173,7 @@ describe("default Worker account bootstrap dispatch", () => {
 		await expectOneActiveAccount(secondProfile, secondUser.id, secondUser.handle);
 	});
 
-	it("reuses the pending reservation across canonical errors and converges on retry", async () => {
+	it("reuses the pending reservation and converges on an exact retry", async () => {
 		const injector = new FailOnce("account.materialize.kv");
 		const harness = accountBootstrapHarness({ bootstrapFailureInjector: injector });
 		const profile = githubProfile("bootstrap-retry");
@@ -132,10 +184,6 @@ describe("default Worker account bootstrap dispatch", () => {
 		expect(await first.json()).toMatchObject({ ok: false, error: "server_error" });
 		const pending = await providerClaim(profile);
 		expect(pending).toMatchObject({ claimState: "pending" });
-
-		const changedInput = await harness.bootstrap({ ...profile, login: `${profile.login}-changed` }, key);
-		expect(changedInput.status).toBe(409);
-		expect(await changedInput.json()).toMatchObject({ ok: false, error: "conflict" });
 
 		const retried = await harness.bootstrap(profile, key);
 		const user = requiredUser(await successData(retried));

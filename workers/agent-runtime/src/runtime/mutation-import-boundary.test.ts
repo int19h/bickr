@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
+import * as ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const repositoryCapabilities = [
@@ -25,6 +26,7 @@ const expectedRepositoryCapabilityMembers = {
 		"materializePendingBotAvatar",
 		"providerUserBootstrapActivationStatements",
 		"refreshLinkedCloneIndexes",
+		"refreshNormalizedProviderIdentity",
 		"refreshProviderIdentity",
 		"relinkBotClone",
 		"softDeleteUserProfile",
@@ -112,6 +114,12 @@ describe("serialized entity mutation import boundary", () => {
 			if (namespaceImport(source, /(?:@bickr\/shared\/governance|packages\/shared\/src\/governance)/u)) {
 				violations.push(`${path}: namespace-imports governance and can bypass mutation capabilities`);
 			}
+			if (dynamicImport(source, /(?:@bickr\/shared\/repository|packages\/shared\/src\/repository)/u)) {
+				violations.push(`${path}: dynamically imports the repository and can bypass mutation capabilities`);
+			}
+			if (dynamicImport(source, /(?:@bickr\/shared\/governance|packages\/shared\/src\/governance)/u)) {
+				violations.push(`${path}: dynamically imports governance and can bypass mutation capabilities`);
+			}
 			for (const name of repositoryMutationNames) {
 				if (path === "packages/shared/src/repository.ts" && exportedFunction(source, name)) {
 					violations.push(`${path}: unrestricted repository mutation export ${name}`);
@@ -130,6 +138,13 @@ describe("serialized entity mutation import boundary", () => {
 			}
 		}
 		expect(violations).toEqual([]);
+	});
+
+	it("detects forbidden dynamic mutation-module imports", () => {
+		const repositoryImport = ['const load = () => import("@bickr/shared/repository");'].join("");
+		const governanceImport = ['const load = () => import("../../packages/shared/src/governance");'].join("");
+		expect(dynamicImport(repositoryImport, /(?:@bickr\/shared\/repository|packages\/shared\/src\/repository)/u)).toBe(true);
+		expect(dynamicImport(governanceImport, /(?:@bickr\/shared\/governance|packages\/shared\/src\/governance)/u)).toBe(true);
 	});
 });
 
@@ -156,6 +171,24 @@ function namespaceImport(source: string, modulePattern: RegExp): boolean {
 		if (modulePattern.test(match[1] ?? "")) return true;
 	}
 	return false;
+}
+
+function dynamicImport(source: string, modulePattern: RegExp): boolean {
+	const sourceFile = ts.createSourceFile("mutation-boundary.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+	let found = false;
+	const visit = (node: ts.Node): void => {
+		const argument = ts.isCallExpression(node) && node.arguments.length === 1 ? node.arguments[0] : undefined;
+		if (
+			ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+			argument && ts.isStringLiteralLike(argument) && modulePattern.test(argument.text)
+		) {
+			found = true;
+			return;
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(sourceFile);
+	return found;
 }
 
 function capabilityMembers(source: string, name: string): string[] {

@@ -342,12 +342,12 @@ export const agentRuntimeRouteTable = [
 			const profile = providerProfileFromUnknown(await readJsonBody(context.request));
 			const operationId = context.request.headers.get(accountBootstrapOperationHeader)?.trim();
 			if (operationId) {
-				const operation = await reservedAccountBootstrapOperation(context.env.BICKR_D1, {
+				const reserved = await reservedAccountBootstrapOperation(context.env.BICKR_D1, {
 					operationId,
 					profile,
 					userId,
 				});
-				await resumeReservedAccountBootstrapOperation(context, operation);
+				await resumeReservedAccountBootstrapOperation(context, reserved.operation, reserved.profile);
 			} else {
 				const existing = await refreshProviderIdentity(context.env.BICKR_KV, context.env.BICKR_D1, profile);
 				if (existing.id !== userId) {
@@ -1380,7 +1380,7 @@ export async function handleAgentRuntimeWorkerRequest(request: Request, env: Env
 			return agentRuntimeNotFoundResponse();
 		}
 		if (resolved.route.dispatch === 'direct') {
-			return handleAgentRuntimeRequest(request, env);
+			return await handleAgentRuntimeRequest(request, env);
 		}
 		if (resolved.route.dispatch === 'account-bootstrap') {
 			const body = await readJsonBody(request.clone());
@@ -1400,7 +1400,7 @@ export async function handleAgentRuntimeWorkerRequest(request: Request, env: Env
 			}
 			headers.set('content-type', 'application/json');
 			const objectId = env.USER_BOTS.idFromName(reservation.userId);
-			return env.USER_BOTS.get(objectId).fetch(new Request(forwardedUrl, {
+			return await env.USER_BOTS.get(objectId).fetch(new Request(forwardedUrl, {
 				method: 'POST',
 				headers,
 				body: JSON.stringify(reservation.profile),
@@ -1409,11 +1409,11 @@ export async function handleAgentRuntimeWorkerRequest(request: Request, env: Env
 		if (resolved.route.dispatch === 'user-coordinator') {
 			const userId = decodeURIComponent(resolved.match[1] ?? '');
 			const objectId = env.USER_BOTS.idFromName(userId);
-			return env.USER_BOTS.get(objectId).fetch(request);
+			return await env.USER_BOTS.get(objectId).fetch(request);
 		}
 		const botId = resolved.match[1] ?? 'unknown';
 		const objectId = env.BOT_RUNTIME.idFromName(botId);
-		return env.BOT_RUNTIME.get(objectId).fetch(request);
+		return await env.BOT_RUNTIME.get(objectId).fetch(request);
 	} catch (error) {
 		return errorResponse(error);
 	}

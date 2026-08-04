@@ -21,10 +21,15 @@ atomically creates or joins the provider-subject claim, stable user ID, and
 pending lifecycle operation before calling `USER_BOTS.idFromName(userId)`.
 Every concurrent or retried login for that pending subject dispatches the same
 stored operation to the same named coordinator. The coordinator validates the
-operation ID and canonical request hash, then resumes materialization; it
-cannot allocate or reserve a new account through its internal route. Active
-claims are dispatchable only when provider identity and the active user
-projection agree, so a login racing account deletion receives a typed conflict.
+operation ID and a canonical request hash containing only the normalized
+provider and subject, then resumes materialization; it cannot allocate or
+reserve a new account through its internal route. Provider login, display name,
+email, and avatar URL are deliberately excluded from reservation identity. A
+retry overlays their latest normalized values while preserving the reserved
+user ID, handle, and timestamps, and an already-activated concurrent replay
+refreshes its provider-identity projection. Active claims are dispatchable only
+when provider identity and the active user projection agree, so a login racing
+account deletion receives a typed conflict.
 
 ## Lifecycle storage and retention
 
@@ -58,6 +63,20 @@ values, so documents, forums, runtime rows, and revisions do not drift. Chirper
 avatar imports use a deterministic R2 key; a retry first resumes from that
 immutable object and never re-fetches a mutable remote URL after the snapshot
 has been stored.
+
+Account deletion may abort a terminal failure only at its initial D1 hide
+checkpoint, before any child coordinator or account-storage effect is invoked.
+After cascade execution starts, every failure keeps the parent hidden and is
+recorded as convergence-required retryable while preserving the originating
+typed failure code. Each parent attempt resumes at most the configured fixed
+number of nonterminal child delete operations before checking for another
+child. The prefix lookup is a bounded range scan on the existing unique
+`(owner_user_id, idempotency_key)` index. If any hidden child remains, the
+parent stays deleting with the typed `account_delete_children_remaining`
+continuation code, schedules its alarm, and returns without replanning active
+children or finalizing the account. A later attempt resumes the next bounded
+batch, so a child tombstone cannot be skipped merely because public readers
+correctly hide it and one Worker request never drains an unbounded backlog.
 
 Legacy rows receive `lifecycle_state = 'active'` in the migration. New rows are inserted as pending and become publicly visible only in the D1 activation batch. A deletion changes visibility to deleting in the same batch that creates the delete operation. Public/authentication/search/runtime readers require active projections.
 

@@ -34,14 +34,19 @@ export type AccountBootstrapDispatchReservation =
 	| {
 		kind: "active";
 		userId: string;
-		profile: ProviderUserProfile;
+		profile: NormalizedProviderUserProfile;
 	}
 	| {
 		kind: "pending";
 		userId: string;
 		operation: LifecycleOperation;
-		profile: ProviderUserProfile;
+		profile: NormalizedProviderUserProfile;
 	};
+
+export type ReservedAccountBootstrapOperation = {
+	operation: LifecycleOperation;
+	profile: NormalizedProviderUserProfile;
+};
 
 export async function reserveOrJoinAccountBootstrap(
 	db: D1DatabaseLike,
@@ -110,7 +115,7 @@ export async function reservedAccountBootstrapOperation(
 		profile: ProviderUserProfile;
 		userId: string;
 	},
-): Promise<LifecycleOperation> {
+): Promise<ReservedAccountBootstrapOperation> {
 	const profile = normalizeProviderUserProfile(input.profile);
 	const operation = await lifecycleOperationById(db, input.operationId);
 	if (!operation || operation.entityKind !== "account" || operation.action !== "create") {
@@ -123,7 +128,7 @@ export async function reservedAccountBootstrapOperation(
 	if (operation.requestHash !== requestHash) {
 		throw new RepositoryError("conflict", "Idempotency key was reused with different account input.", 409);
 	}
-	return operation;
+	return { operation, profile };
 }
 
 export function parseAccountBootstrapLifecycleRequest(serialized: string): AccountBootstrapLifecycleRequest {
@@ -168,15 +173,22 @@ async function accountBootstrapDispatchReservation(
 	if (!operation.requestJson) {
 		throw new RepositoryError("conflict", "Account bootstrap reservation is no longer pending.", 409);
 	}
-	const request = parseAccountBootstrapLifecycleRequest(operation.requestJson);
+	parseAccountBootstrapLifecycleRequest(operation.requestJson);
 	return {
 		kind: "pending",
 		userId: claim.userId,
 		operation,
-		profile: request.bootstrap.profile,
+		profile,
 	};
 }
 
 function accountBootstrapRequestHash(profile: NormalizedProviderUserProfile): Promise<string> {
-	return hashLifecycleRequest({ kind: "account_create", profile });
+	// Provider presentation changes independently of the stable login identity.
+	// Keeping it out of the reservation hash lets an interrupted first login
+	// resume with current provider data while retaining its allocated ID/handle.
+	return hashLifecycleRequest({
+		kind: "account_create",
+		provider: profile.provider,
+		subject: profile.subject,
+	});
 }

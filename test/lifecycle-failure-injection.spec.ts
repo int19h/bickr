@@ -7,7 +7,7 @@ import {
 	type LifecycleFailureInjector,
 } from "@bickr/shared/entity-lifecycle";
 import { deterministicId } from "@bickr/shared/ids";
-import { localizedText } from "@bickr/shared/model";
+import { localizedText, type BotDocument, type UserDocument } from "@bickr/shared/model";
 import { listUserBots, listWorlds, rawBotById } from "@bickr/shared/repository";
 import { parseLanguageTag } from "@bickr/shared/validation";
 import { handleAgentRuntimeRequest } from "../workers/agent-runtime/src/routes";
@@ -15,6 +15,7 @@ import {
 	accountBootstrapOperationHeader,
 	reserveOrJoinAccountBootstrap,
 } from "../workers/agent-runtime/src/lifecycle/account-bootstrap-reservation";
+import { accountDeleteChildOperationsPerAttempt } from "../workers/agent-runtime/src/lifecycle/account";
 import { handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
 import { clearKv, resetD1Schema } from "./helpers/d1-schema";
 import { createBot, createWorld, upsertProviderUser } from "./helpers/coordinator-mutations";
@@ -181,25 +182,150 @@ describe("lifecycle failure injection", () => {
 		expect((await testEnv.BICKR_D1.prepare(`SELECT deleted_at AS deletedAt FROM users_index WHERE user_id = ?`).bind(user.id).first<{ deletedAt: string | null }>())?.deletedAt).not.toBeNull();
 	});
 
-	it.each([
-		"account.delete.hide.d1",
-		"account.delete.kv",
-		"account.delete.indexes.d1",
-		"account.delete.finish.d1",
-	] satisfies LifecycleFailurePoint[])("handles terminal account deletion failure after %s without leaking a deleting account", async (point) => {
-		const user = await seedAccount(`account-terminal-delete-${point}`);
-		const firstKey = `account-terminal-delete-${point}`;
+	it("safely aborts terminal account deletion before cascade dispatch and preserves owned children", async () => {
+		const point = "account.delete.hide.d1" satisfies LifecycleFailurePoint;
+		const user = await seedAccount("account-terminal-before-cascade");
+		const world = await createWorld(testEnv.BICKR_KV, testEnv.BICKR_D1, worldInput("terminal-safe-child-world"), user.id);
+		const bot = await createBot(testEnv.BICKR_KV, testEnv.BICKR_D1, world.handle, botInput("terminal-safe-child-bot"), user.id);
+		const firstKey = "account-terminal-before-cascade";
 		const first = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, firstKey, new FailOnce(point, false));
 		expect(first.ok).toBe(false);
-		expect(await activeProjectionCount("users_index", "user_id", user.id)).toBe(point.endsWith("hide.d1") ? 1 : 0);
-		const claims = await testEnv.BICKR_D1.prepare(
-			`SELECT COUNT(*) AS count FROM entity_lifecycle_identity_claims
-			 WHERE entity_kind = 'account' AND entity_id = ?`,
-		).bind(user.id).first<{ count: number }>();
-		expect(claims?.count ?? 0).toBe(point.endsWith("finish.d1") ? 0 : 2);
-		const second = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, point.endsWith("hide.d1") ? `${firstKey}-replacement` : firstKey);
-		expect(second.ok).toBe(true);
+		expect(await activeProjectionCount("users_index", "user_id", user.id)).toBe(1);
+		expect(await lifecycleOperationState(user.id, firstKey)).toMatchObject({
+			phase: "terminal_failed",
+			retryCount: 0,
+			failureCategory: "external_terminal",
+			failureCode: `injected_${point}`,
+		});
+		const stored = await testEnv.BICKR_KV.get<UserDocument>(`v1:user:${user.id}`, { type: "json" });
+		expect(stored?.deletedAt).toBeUndefined();
+		expect((await listWorlds(testEnv.BICKR_D1)).some((candidate) => candidate.id === world.id)).toBe(true);
+		expect((await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, user.id)).some((candidate) => candidate.id === bot.id)).toBe(true);
+		const sameKey = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, firstKey);
+		expect(sameKey).toMatchObject({ ok: false, error: "conflict" });
+		const replacement = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, `${firstKey}-replacement`);
+		expect(replacement.ok).toBe(true);
 		expect(await activeProjectionCount("users_index", "user_id", user.id)).toBe(0);
+	});
+
+	it("records target-side terminal account deletion failure as convergence-required retry", async () => {
+		const point = "account.delete.kv" satisfies LifecycleFailurePoint;
+		const user = await seedAccount("account-terminal-after-kv");
+		const key = "account-terminal-after-kv";
+		const injector = new FailOnce(point, false);
+		const first = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, key, injector);
+		expect(first.ok).toBe(false);
+		expect(await lifecycleOperationState(user.id, key)).toMatchObject({
+			phase: "deleting",
+			retryCount: 1,
+			failureCategory: "external_retryable",
+			failureCode: `injected_${point}`,
+		});
+		const stored = await testEnv.BICKR_KV.get<UserDocument>(`v1:user:${user.id}`, { type: "json" });
+		expect(stored?.deletedAt).toEqual(expect.any(String));
+		const retried = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, key, injector);
+		expect(retried.ok).toBe(true);
+		expect(await lifecycleOperationState(user.id, key)).toMatchObject({ phase: "terminal", retryCount: 1 });
+		expect(await activeProjectionCount("users_index", "user_id", user.id)).toBe(0);
+		expect(await nonterminalAccountChildOperationCount(user.id, key)).toBe(0);
+	});
+
+	it("keeps the parent resumable after a terminal-typed child deletion side effect", async () => {
+		const point = "bot.delete.kv" satisfies LifecycleFailurePoint;
+		const user = await seedAccount("account-terminal-child-side-effect");
+		const world = await createWorld(testEnv.BICKR_KV, testEnv.BICKR_D1, worldInput("terminal-child-world"), user.id);
+		const bot = await createBot(testEnv.BICKR_KV, testEnv.BICKR_D1, world.handle, botInput("terminal-child-bot"), user.id);
+		const key = "account-terminal-child-side-effect";
+		const injector = new FailOnce(point, false);
+
+		const first = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, key, injector);
+		expect(first.ok).toBe(false);
+		expect(await activeProjectionCount("users_index", "user_id", user.id)).toBe(0);
+		expect(await lifecycleOperationState(user.id, key)).toMatchObject({
+			phase: "deleting",
+			retryCount: 1,
+			failureCategory: "external_retryable",
+			failureCode: `injected_${point}`,
+		});
+		const childTombstone = await testEnv.BICKR_KV.get<BotDocument>(`v1:bot:${bot.id}`, { type: "json" });
+		expect(childTombstone?.deletedAt).toEqual(expect.any(String));
+
+		const retried = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, key, injector);
+		expect(retried.ok).toBe(true);
+		expect(await lifecycleOperationState(user.id, key)).toMatchObject({ phase: "terminal", retryCount: 1 });
+		expect(await activeProjectionCount("users_index", "user_id", user.id)).toBe(0);
+		expect(await nonterminalAccountChildOperationCount(user.id, key)).toBe(0);
+	});
+
+	it("bounds hidden-child resumption per account deletion attempt and converges on later attempts", async () => {
+		const user = await seedAccount("account-bounded-child-resume");
+		const world = await createWorld(testEnv.BICKR_KV, testEnv.BICKR_D1, worldInput("bounded-child-resume-world"), user.id);
+		const bots: Array<{ id: string }> = [];
+		for (let index = 0; index <= accountDeleteChildOperationsPerAttempt; index += 1) {
+			bots.push(await createBot(
+				testEnv.BICKR_KV,
+				testEnv.BICKR_D1,
+				world.handle,
+				botInput(`bounded-child-${index}`),
+				user.id,
+			));
+		}
+		const key = "account-bounded-child-resume";
+		const hidden = await coordinatorRequest(
+			user.id,
+			"/profile",
+			"DELETE",
+			{ confirmCascade: true },
+			key,
+			new FailOnce("account.delete.hide.d1"),
+		);
+		expect(hidden.ok).toBe(false);
+		const parentOperationId = await lifecycleOperationId(user.id, key);
+		for (const bot of bots) {
+			const childKey = `account-delete:${parentOperationId}:attempt:0:bot:${bot.id}`;
+			const child = await coordinatorRequest(
+				user.id,
+				`/bots/${encodeURIComponent(bot.id)}`,
+				"DELETE",
+				undefined,
+				childKey,
+				new FailOnce("bot.delete.kv"),
+			);
+			expect(child.ok).toBe(false);
+		}
+
+		const setAlarm = vi.fn(async () => undefined);
+		const continuation = await coordinatorRequest(
+			user.id,
+			"/profile",
+			"DELETE",
+			{ confirmCascade: true },
+			key,
+			undefined,
+			{ setAlarm } as unknown as DurableObjectStorage,
+		);
+		expect(continuation.ok).toBe(false);
+		expect(setAlarm).toHaveBeenCalledTimes(1);
+		expect(await lifecycleOperationState(user.id, key)).toMatchObject({
+			phase: "deleting",
+			retryCount: 0,
+			failureCategory: "external_retryable",
+			failureCode: "account_delete_children_remaining",
+		});
+		expect(await accountChildOperationCounts(user.id, parentOperationId, "bot")).toEqual({
+			terminal: accountDeleteChildOperationsPerAttempt,
+			nonterminal: 1,
+		});
+		expect(await activeProjectionCount("users_index", "user_id", user.id)).toBe(0);
+
+		const converged = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, key);
+		expect(converged.ok).toBe(true);
+		expect(await lifecycleOperationState(user.id, key)).toMatchObject({ phase: "terminal", retryCount: 0 });
+		expect(await accountChildOperationCounts(user.id, parentOperationId, "bot")).toEqual({
+			terminal: accountDeleteChildOperationsPerAttempt + 1,
+			nonterminal: 0,
+		});
+		expect(await nonterminalAccountChildOperationCount(user.id, key)).toBe(0);
 	});
 
 	it("hides a participant as soon as deletion enters its serialized D1 transition", async () => {
@@ -212,6 +338,10 @@ describe("lifecycle failure injection", () => {
 		expect((await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, user.id)).some((candidate) => candidate.id === bot.id)).toBe(false);
 		const second = await coordinatorRequest(user.id, `/bots/${encodeURIComponent(bot.id)}`, "DELETE", undefined, "deleting-bot-key", injector);
 		expect(second.ok).toBe(true);
+		const tombstone = await testEnv.BICKR_D1.prepare(
+			"SELECT lifecycle_state AS lifecycleState, deleted_at AS deletedAt FROM bots_index WHERE bot_id = ?",
+		).bind(bot.id).first<{ lifecycleState: string; deletedAt: string | null }>();
+		expect(tombstone).toEqual({ lifecycleState: "deleting", deletedAt: expect.any(String) });
 	});
 
 	it.each([
@@ -454,6 +584,7 @@ async function coordinatorRequest(
 	body: unknown,
 	key: string,
 	injector?: LifecycleFailureInjector,
+	storage?: DurableObjectStorage,
 ): Promise<Record<string, unknown>> {
 	const forumService = {
 		fetch: (request: Request) => handleForumCoordinatorRequest(request, testEnv, {
@@ -492,6 +623,7 @@ async function coordinatorRequest(
 		ownerUserId: userId,
 		queue: new ExclusiveOperationQueue(),
 		failureInjector: injector,
+		storage,
 	});
 	return await response.json() as Record<string, unknown>;
 }
@@ -561,4 +693,62 @@ async function lifecycleRequestByKey(userId: string, key: string): Promise<Recor
 		.first<{ requestJson: string | null }>();
 	if (!row?.requestJson) throw new Error(`Lifecycle request ${key} not found.`);
 	return JSON.parse(row.requestJson) as Record<string, unknown>;
+}
+
+async function lifecycleOperationState(userId: string, key: string) {
+	return testEnv.BICKR_D1.prepare(
+		`SELECT phase, retry_count AS retryCount, failure_category AS failureCategory, failure_code AS failureCode
+		 FROM entity_lifecycle_operations WHERE owner_user_id = ? AND idempotency_key = ? LIMIT 1`,
+	).bind(userId, key).first<{
+		phase: string;
+		retryCount: number;
+		failureCategory: string | null;
+		failureCode: string | null;
+	}>();
+}
+
+async function lifecycleOperationId(userId: string, key: string): Promise<string> {
+	const row = await testEnv.BICKR_D1.prepare(
+		"SELECT operation_id AS operationId FROM entity_lifecycle_operations WHERE owner_user_id = ? AND idempotency_key = ? LIMIT 1",
+	).bind(userId, key).first<{ operationId: string }>();
+	if (!row) throw new Error(`Lifecycle operation ${key} not found.`);
+	return row.operationId;
+}
+
+async function accountChildOperationCounts(
+	userId: string,
+	parentOperationId: string,
+	entityKind: "bot" | "world",
+): Promise<{ terminal: number; nonterminal: number }> {
+	const row = await testEnv.BICKR_D1.prepare(
+		`SELECT
+			COALESCE(SUM(CASE WHEN phase IN ('terminal', 'terminal_failed') THEN 1 ELSE 0 END), 0) AS terminal,
+			COALESCE(SUM(CASE WHEN phase NOT IN ('terminal', 'terminal_failed') THEN 1 ELSE 0 END), 0) AS nonterminal
+		 FROM entity_lifecycle_operations
+		 WHERE owner_user_id = ? AND entity_kind = ?
+		   AND idempotency_key >= ? AND idempotency_key < ?`,
+	).bind(
+		userId,
+		entityKind,
+		`account-delete:${parentOperationId}:`,
+		`account-delete:${parentOperationId}:\uffff`,
+	).first<{ terminal: number; nonterminal: number }>();
+	return row ?? { terminal: 0, nonterminal: 0 };
+}
+
+async function nonterminalAccountChildOperationCount(userId: string, parentKey: string): Promise<number> {
+	const parent = await testEnv.BICKR_D1.prepare(
+		"SELECT operation_id AS operationId FROM entity_lifecycle_operations WHERE owner_user_id = ? AND idempotency_key = ?",
+	).bind(userId, parentKey).first<{ operationId: string }>();
+	if (!parent) throw new Error(`Parent lifecycle operation ${parentKey} not found.`);
+	const row = await testEnv.BICKR_D1.prepare(
+		`SELECT COUNT(*) AS count FROM entity_lifecycle_operations
+		 WHERE owner_user_id = ? AND idempotency_key >= ? AND idempotency_key < ?
+		   AND phase NOT IN ('terminal', 'terminal_failed')`,
+	).bind(
+		userId,
+		`account-delete:${parent.operationId}:`,
+		`account-delete:${parent.operationId}:\uffff`,
+	).first<{ count: number }>();
+	return row?.count ?? 0;
 }

@@ -134,6 +134,10 @@ export type LifecycleFailure = {
 	retryable: boolean;
 };
 
+export type LifecycleContinuation = {
+	kind: "account_delete_children_remaining";
+};
+
 export type LifecycleFailurePoint =
 	| "account.reserve.d1"
 	| "account.materialize.kv"
@@ -646,6 +650,37 @@ export async function recordRetryableLifecycleFailure(
 	return requiredLifecycleOperation(db, operation.operationId);
 }
 
+export async function recordLifecycleContinuation(
+	db: D1DatabaseLike,
+	operation: LifecycleOperation,
+	continuation: LifecycleContinuation,
+	now: string,
+): Promise<LifecycleOperation> {
+	if (operation.action !== "delete") {
+		throw new RepositoryError("server_error", "Only a deletion can record lifecycle continuation.", 500);
+	}
+	const nextRetryAt = new Date(Date.parse(now) + lifecycleRetryDelayMs).toISOString();
+	await db.batch([
+		db
+			.prepare(
+				`UPDATE entity_lifecycle_operations
+				 SET phase = 'deleting', revision = revision + 1, next_retry_at = ?,
+				     failure_category = 'external_retryable', failure_code = ?, updated_at = ?
+				 WHERE operation_id = ? AND action = 'delete'
+				   AND phase NOT IN ('terminal', 'terminal_failed')`,
+			)
+			.bind(nextRetryAt, continuation.kind, now, operation.operationId),
+		db
+			.prepare(
+				`UPDATE entity_lifecycle_entities
+				 SET phase = 'deleting', revision = revision + 1, updated_at = ?
+				 WHERE entity_kind = ? AND entity_id = ? AND active_operation_id = ?`,
+			)
+			.bind(now, operation.entityKind, operation.entityId, operation.operationId),
+	]);
+	return requiredLifecycleOperation(db, operation.operationId);
+}
+
 export async function beginLifecycleCompensation(
 	db: D1DatabaseLike,
 	operation: LifecycleOperation,
@@ -738,6 +773,27 @@ export async function lifecycleOperationByKey(
 		.prepare(`${lifecycleOperationSelect()} WHERE owner_user_id = ? AND idempotency_key = ? LIMIT 1`)
 		.bind(ownerUserId, idempotencyKey)
 		.first<LifecycleOperationRow>();
+}
+
+export async function nonterminalLifecycleDeleteOperationsByPrefix(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	idempotencyKeyPrefix: string,
+	limit = 100,
+): Promise<LifecycleOperation[]> {
+	const boundedLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
+	const result = await db
+		.prepare(
+			`${lifecycleOperationSelect()}
+			 WHERE owner_user_id = ? AND action = 'delete'
+			   AND phase NOT IN ('terminal', 'terminal_failed')
+			   AND idempotency_key >= ? AND idempotency_key < ?
+			 ORDER BY idempotency_key ASC
+			 LIMIT ?`,
+		)
+		.bind(ownerUserId, idempotencyKeyPrefix, `${idempotencyKeyPrefix}\uffff`, boundedLimit)
+		.all<LifecycleOperationRow>();
+	return result.results ?? [];
 }
 
 export async function nextDueLifecycleOperation(
