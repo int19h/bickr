@@ -29,6 +29,7 @@ import { deterministicId, makeId } from "@bickr/shared/ids";
 import type { BotDocument, BotSummary, CreateBotInput } from "@bickr/shared/model";
 import {
 	assertBotDeleteAllowed,
+	deleteBotGroupMembershipsByBotSql,
 	rawBotById,
 	RepositoryError,
 	userCoordinatorRepositoryMutations,
@@ -276,7 +277,7 @@ async function compensateBotCreate(
 	await deleteKey(context.env.BICKR_KV, kvKeys.bot(request.botId));
 	const db = context.env.BICKR_D1;
 	await finalizeLifecycleCompensation(db, operation, [
-		db.prepare("DELETE FROM bot_group_members WHERE bot_id = ?").bind(request.botId),
+		db.prepare(deleteBotGroupMembershipsByBotSql).bind(request.botId),
 		db.prepare("DELETE FROM human_subscriptions WHERE scope_type = 'bot' AND scope_id = ?").bind(request.botId),
 		db.prepare("DELETE FROM bot_clone_sources WHERE bot_id = ?").bind(request.botId),
 		db.prepare("DELETE FROM bot_imports WHERE bot_id = ?").bind(request.botId),

@@ -39,6 +39,7 @@ import migration0037 from "../../migrations/0037_world_recurring_prompt.sql?raw"
 import migration0038 from "../../migrations/0038_maintenance_control.sql?raw";
 import migration0039 from "../../migrations/0039_entity_lifecycle.sql?raw";
 import migration0040 from "../../migrations/0040_entity_lifecycle_recovery.sql?raw";
+import migration0041 from "../../migrations/0041_bot_group_members_bot.sql?raw";
 
 const migrationSql = [
 	migration0001,
@@ -82,6 +83,7 @@ const migrationSql = [
 	migration0038,
 	migration0039,
 	migration0040,
+	migration0041,
 ];
 
 type D1SchemaRow = {

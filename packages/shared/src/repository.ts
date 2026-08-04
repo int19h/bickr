@@ -2377,8 +2377,10 @@ async function removeBotGroupMember(
 	return botGroupSummaryForOwner(kv, db, world.id, userId, groupId);
 }
 
-export async function deleteBotGroupMembershipsForBot(db: D1DatabaseLike, botId: string): Promise<void> {
-	await db.prepare(`DELETE FROM bot_group_members WHERE bot_id = ?`).bind(botId).run();
+export const deleteBotGroupMembershipsByBotSql = "DELETE FROM bot_group_members WHERE bot_id = ?";
+
+async function deleteBotGroupMembershipsForBot(db: D1DatabaseLike, botId: string): Promise<void> {
+	await db.prepare(deleteBotGroupMembershipsByBotSql).bind(botId).run();
 }
 
 export async function softDeleteBotGroupsForWorld(

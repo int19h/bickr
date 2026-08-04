@@ -21,7 +21,10 @@ import {
 	type LifecycleOperation,
 } from "@bickr/shared/entity-lifecycle";
 import { localizedText, schemaVersion, type UserDocument } from "@bickr/shared/model";
-import { userIndexProjectionStatement } from "@bickr/shared/repository";
+import {
+	deleteBotGroupMembershipsByBotSql,
+	userIndexProjectionStatement,
+} from "@bickr/shared/repository";
 import {
 	applyD1LifecycleRecoveryMigration,
 	clearKv,
@@ -339,6 +342,18 @@ describe("entity lifecycle foundation", () => {
 		expect(details.some((detail) =>
 			detail.startsWith("SEARCH entity_lifecycle_identity_claims ") &&
 			detail.includes("entity_lifecycle_identity_claims_operation (operation_id=?)"),
+		)).toBe(true);
+	});
+
+	it("uses the by-participant index for exact membership cleanup", async () => {
+		const plan = await testEnv.BICKR_D1.prepare(
+			`EXPLAIN QUERY PLAN ${deleteBotGroupMembershipsByBotSql}`,
+		).bind("bot_plan_target").all<{ detail: string }>();
+		const details = (plan.results ?? []).map((row) => row.detail);
+		expect(details.some((detail) => /\bSCAN bot_group_members\b/u.test(detail))).toBe(false);
+		expect(details.some((detail) =>
+			detail.startsWith("SEARCH bot_group_members ") &&
+			detail.includes("bot_group_members_bot (bot_id=?)"),
 		)).toBe(true);
 	});
 
