@@ -1,4 +1,6 @@
 import { makeId, randomToken, sha256Hex } from "./ids";
+import { isD1UniqueConstraintError } from "./d1-errors";
+import type { LifecycleFailurePoint } from "./entity-lifecycle";
 import { objectIndexScopeStaleStatement } from "./object-index-scope";
 import { entityIndexVersions } from "./index-versions";
 import { tombstoneHandle } from "./handles";
@@ -98,6 +100,7 @@ import {
 	d1SafeBoundParameters,
 	deleteKey,
 	kvKeys,
+	objectIndexProjectionStatement,
 	putObjectIndex,
 	readJson,
 	writeJson,
@@ -133,6 +136,11 @@ export type ProviderUserProfile = {
 	displayName?: string;
 	email?: string;
 	avatarUrl?: string;
+};
+
+export type ProviderUserBootstrap = {
+	profile: ProviderUserProfile;
+	user: UserDocument;
 };
 
 type ProviderIdentityRow = {
@@ -325,22 +333,30 @@ function introForumDescriptionText(lang: LanguageTag | null): LocalizedText {
 
 export type CreateBotOptions = {
 	now?: string;
+	botId?: string;
+	personalForumId?: string;
+	lifecycleState?: "active" | "pending";
+	checkpoint?: (point: LifecycleFailurePoint) => Promise<void>;
 	prepareAvatar?: (bot: BotDocument) => Promise<AvatarImage | undefined>;
 	cloneSource?: BotDocument;
+};
+
+export type CreateWorldOptions = {
+	now?: string;
+	worldId?: string;
+	introForumId?: string;
+	lifecycleState?: "active" | "pending";
+	checkpoint?: (point: LifecycleFailurePoint) => Promise<void>;
 };
 
 export type DeleteBotOptions = {
 	now?: string;
 	allowLinkedCloneDelete?: boolean;
+	failurePrefix?: "bot" | "clone";
+	checkpoint?: (point: LifecycleFailurePoint) => Promise<void>;
 };
 
-export type CloneSourceBackfillResult = {
-	groups: number;
-	clonesLinked: number;
-	clonesSkipped: number;
-};
-
-export async function upsertProviderUser(
+async function refreshProviderIdentity(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	input: ProviderUserProfile,
@@ -348,58 +364,73 @@ export async function upsertProviderUser(
 ): Promise<UserDocument> {
 	const profile = normalizeProviderProfile(input);
 	const existingIdentity = await providerIdentityBySubject(db, profile.provider, profile.subject);
-
-	if (existingIdentity) {
-		const user = await readJson<UserDocument>(kv, kvKeys.user(existingIdentity.userId));
-		if (!user) {
-			throw new RepositoryError("server_error", "User document is missing.", 500);
-		}
-
-		await updateProviderIdentity(db, profile, now);
-
-		return normalizeUserDefaults(user);
+	if (!existingIdentity) {
+		throw new RepositoryError(
+			"not_found",
+			"Provider identity must be bootstrapped before it can be refreshed.",
+			404,
+		);
 	}
-
-	const userId = makeId("usr");
-	const handle = await uniqueUserHandle(db, profile.login);
-	const displayName = profile.displayName?.trim() || profile.login;
-	const user: UserDocument = {
-		id: userId,
-		type: "user",
-		schemaVersion,
-		revision: 1,
-		handle,
-		language: null,
-		displayName: localizedText(displayName, null),
-		createdAt: now,
-		updatedAt: now,
-	};
-
-	await writeJson(kv, kvKeys.user(userId), user);
-	await upsertUserIndexProjection(db, user);
-	await db
-		.prepare(
-			`INSERT INTO provider_identities (
-				provider, provider_subject, user_id, provider_login, email, avatar_url, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		)
-		.bind(
-			profile.provider,
-			profile.subject,
-			user.id,
-			profile.login,
-			profile.email ?? null,
-			profile.avatarUrl ?? null,
-			now,
-			now,
-		)
-		.run();
-	await putObjectIndex(db, user, "user", entityIndexVersions.user);
-
-	return user;
+	const user = await readJson<UserDocument>(kv, kvKeys.user(existingIdentity.userId));
+	if (!user || user.deletedAt || !await activeAccountProjectionExists(db, existingIdentity.userId)) {
+		throw new RepositoryError("server_error", "Active provider identity has no active user document.", 500);
+	}
+	await updateProviderIdentity(db, profile, now);
+	return normalizeUserDefaults(user);
 }
 
-export async function linkProviderIdentity(
+async function prepareProviderUserBootstrap(
+	db: D1DatabaseLike,
+	input: ProviderUserProfile,
+	userId: string,
+	now: string,
+): Promise<ProviderUserBootstrap> {
+	const profile = normalizeProviderProfile(input);
+	const handle = await uniqueUserHandle(db, profile.login);
+	const displayName = profile.displayName?.trim() || profile.login;
+	return {
+		profile,
+		user: {
+			id: userId,
+			type: "user",
+			schemaVersion,
+			revision: 1,
+			handle,
+			language: null,
+			displayName: localizedText(displayName, null),
+			createdAt: now,
+			updatedAt: now,
+		},
+	};
+}
+
+function providerUserBootstrapActivationStatements(
+	db: D1DatabaseLike,
+	bootstrap: ProviderUserBootstrap,
+): readonly D1PreparedStatementLike[] {
+	return [
+		userIndexProjectionStatement(db, bootstrap.user, { lifecycleState: "pending" }),
+		db
+			.prepare(
+				`INSERT INTO provider_identities (
+					provider, provider_subject, user_id, provider_login, email, avatar_url, created_at, updated_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			)
+			.bind(
+				bootstrap.profile.provider,
+				bootstrap.profile.subject,
+				bootstrap.user.id,
+				bootstrap.profile.login,
+				bootstrap.profile.email ?? null,
+				bootstrap.profile.avatarUrl ?? null,
+				bootstrap.user.createdAt,
+				bootstrap.user.updatedAt,
+			),
+		objectIndexProjectionStatement(db, bootstrap.user, "user", entityIndexVersions.user),
+	];
+}
+
+async function linkProviderIdentity(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	userId: string,
@@ -430,28 +461,43 @@ export async function linkProviderIdentity(
 		);
 	}
 
-	await db
-		.prepare(
-			`INSERT INTO provider_identities (
+	try {
+		await db.batch([
+			activeIdentityClaimStatement(db, {
+				kind: "provider_subject",
+				scope: profile.provider,
+				value: profile.subject,
+				entityKind: "account",
+				entityId: user.id,
+				ownerUserId: user.id,
+				now,
+			}),
+			db.prepare(
+				`INSERT INTO provider_identities (
 				provider, provider_subject, user_id, provider_login, email, avatar_url, created_at, updated_at
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		)
-		.bind(
-			profile.provider,
-			profile.subject,
-			user.id,
-			profile.login,
-			profile.email ?? null,
-			profile.avatarUrl ?? null,
-			now,
-			now,
-		)
-		.run();
+			).bind(
+				profile.provider,
+				profile.subject,
+				user.id,
+				profile.login,
+				profile.email ?? null,
+				profile.avatarUrl ?? null,
+				now,
+				now,
+			),
+		]);
+	} catch (error) {
+		throw await identityClaimConflict(db, {
+			kind: "provider_subject", scope: profile.provider, value: profile.subject,
+			entityKind: "account", entityId: user.id,
+		}, error, `That ${providerLabel(profile.provider)} account is already linked to another Bickr account.`);
+	}
 
 	return user;
 }
 
-export async function unlinkProviderIdentity(
+async function unlinkProviderIdentity(
 	db: D1DatabaseLike,
 	userId: string,
 	provider: AuthProvider,
@@ -464,8 +510,12 @@ export async function unlinkProviderIdentity(
 		throw new RepositoryError("conflict", "At least one sign-in method must remain linked.", 409);
 	}
 
-	const result = await db
-		.prepare(
+	const existingIdentity = await providerIdentityForUserProvider(db, userId, provider);
+	if (!existingIdentity) {
+		throw new RepositoryError("not_found", "Sign-in method is not linked to this account.", 404);
+	}
+	const [result] = await db.batch([
+		db.prepare(
 			`DELETE FROM provider_identities
 			 WHERE provider = ? AND user_id = ?
 			 AND EXISTS (
@@ -474,9 +524,15 @@ export async function unlinkProviderIdentity(
 				WHERE remaining.user_id = provider_identities.user_id
 					AND remaining.provider != provider_identities.provider
 			 )`,
-		)
-		.bind(provider, userId)
-		.run();
+		).bind(provider, userId),
+		releaseIdentityClaimStatement(db, {
+			kind: "provider_subject",
+			scope: provider,
+			value: existingIdentity.providerSubject,
+			entityKind: "account",
+			entityId: userId,
+		}),
+	]);
 	if ((result.meta?.changes ?? 0) < 1) {
 		throw new RepositoryError("conflict", "At least one sign-in method must remain linked.", 409);
 	}
@@ -580,6 +636,47 @@ async function providerIdentityBySubject(
 		.first<ProviderIdentityRow>();
 }
 
+async function providerIdentityUserId(
+	db: D1DatabaseLike,
+	provider: AuthProvider,
+	subject: string,
+): Promise<string | null> {
+	const identity = await providerIdentityBySubject(db, provider, subject.trim());
+	return identity?.userId ?? null;
+}
+
+type ProviderBootstrapClaim =
+	| { kind: "pending"; userId: string; idempotencyKey: string }
+	| { kind: "active_without_projection"; userId: string };
+
+async function providerBootstrapClaim(
+	db: D1DatabaseLike,
+	provider: AuthProvider,
+	subject: string,
+): Promise<ProviderBootstrapClaim | null> {
+	const claim = await db.prepare(
+		`SELECT
+			claims.entity_id AS userId,
+			claims.claim_state AS claimState,
+			operations.idempotency_key AS idempotencyKey
+		 FROM entity_lifecycle_identity_claims claims
+		 LEFT JOIN entity_lifecycle_operations operations
+			ON operations.operation_id = claims.operation_id
+		 WHERE claims.key_kind = 'provider_subject'
+		   AND claims.key_scope = ? AND claims.key_value = ?
+		 LIMIT 1`,
+	).bind(provider, subject.trim()).first<{
+		userId: string;
+		claimState: "pending" | "active";
+		idempotencyKey: string | null;
+	}>();
+	if (!claim) return null;
+	if (claim.claimState === "pending" && claim.idempotencyKey) {
+		return { kind: "pending", userId: claim.userId, idempotencyKey: claim.idempotencyKey };
+	}
+	return { kind: "active_without_projection", userId: claim.userId };
+}
+
 async function providerIdentityForUserProvider(
 	db: D1DatabaseLike,
 	userId: string,
@@ -652,7 +749,8 @@ export async function createSession(
 export async function userForSessionToken(
 	kv: KVNamespaceLike,
 	token: string | null | undefined,
-	now = new Date(),
+	dbOrNow?: D1DatabaseLike | Date,
+	now = dbOrNow instanceof Date ? dbOrNow : new Date(),
 ): Promise<UserDocument | null> {
 	if (!token) {
 		return null;
@@ -665,7 +763,13 @@ export async function userForSessionToken(
 	}
 
 	const user = await readJson<UserDocument>(kv, kvKeys.user(session.userId));
-	return user && !user.deletedAt ? user : null;
+	if (!user || user.deletedAt) {
+		return null;
+	}
+	if (dbOrNow && !(dbOrNow instanceof Date) && !await activeAccountProjectionExists(dbOrNow, user.id)) {
+		return null;
+	}
+	return user;
 }
 
 export async function createCliAuthRequest(
@@ -774,7 +878,8 @@ export async function pollCliAuthRequest(
 export async function userForCliToken(
 	kv: KVNamespaceLike,
 	token: string | null | undefined,
-	now = new Date(),
+	dbOrNow?: D1DatabaseLike | Date,
+	now = dbOrNow instanceof Date ? dbOrNow : new Date(),
 ): Promise<UserDocument | null> {
 	if (!token) {
 		return null;
@@ -785,7 +890,25 @@ export async function userForCliToken(
 		return null;
 	}
 	const user = await readJson<UserDocument>(kv, kvKeys.user(document.userId));
-	return user && !user.deletedAt ? user : null;
+	if (!user || user.deletedAt) {
+		return null;
+	}
+	if (dbOrNow && !(dbOrNow instanceof Date) && !await activeAccountProjectionExists(dbOrNow, user.id)) {
+		return null;
+	}
+	return user;
+}
+
+async function activeAccountProjectionExists(db: D1DatabaseLike, userId: string): Promise<boolean> {
+	return Boolean(await db
+		.prepare(
+			`SELECT user_id AS id
+			 FROM users_index
+			 WHERE user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
+			 LIMIT 1`,
+		)
+		.bind(userId)
+		.first<{ id: string }>());
 }
 
 export async function deleteCliToken(kv: KVNamespaceLike, token: string | null | undefined): Promise<void> {
@@ -872,7 +995,7 @@ async function publicUserByHandle(db: D1DatabaseLike, handle: string): Promise<P
 				created_at AS createdAt,
 				updated_at AS updatedAt
 			 FROM users_index
-			 WHERE handle = ? AND deleted_at IS NULL`,
+			 WHERE handle = ? AND deleted_at IS NULL AND lifecycle_state = 'active'`,
 		)
 		.bind(handle)
 		.first<PublicUserIndexRow>();
@@ -880,15 +1003,6 @@ async function publicUserByHandle(db: D1DatabaseLike, handle: string): Promise<P
 		throw new RepositoryError("not_found", "Profile not found.", 404);
 	}
 	return publicUserFromIndexRow(row);
-}
-
-async function publicUserById(db: D1DatabaseLike, userId: string): Promise<PublicUser> {
-	const users = await publicUsersByIds(db, [userId]);
-	const user = users.get(userId);
-	if (!user) {
-		throw new RepositoryError("not_found", "Profile not found.", 404);
-	}
-	return user;
 }
 
 async function publicUsersByIds(db: D1DatabaseLike, userIds: string[]): Promise<Map<string, PublicUser>> {
@@ -910,7 +1024,7 @@ async function publicUsersByIds(db: D1DatabaseLike, userIds: string[]): Promise<
 					created_at AS createdAt,
 					updated_at AS updatedAt
 				 FROM users_index
-				 WHERE user_id IN (${placeholders}) AND deleted_at IS NULL`,
+				 WHERE user_id IN (${placeholders}) AND deleted_at IS NULL AND lifecycle_state = 'active'`,
 			)
 			.bind(...batch)
 			.all<PublicUserIndexRow>();
@@ -937,7 +1051,7 @@ export function botPublicProfile(bot: BotDocument | BotSummary): BotPublicProfil
 	};
 }
 
-export async function updateUserProfile(
+async function updateUserProfile(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	userId: string,
@@ -946,15 +1060,6 @@ export async function updateUserProfile(
 ): Promise<UserProfile> {
 	const current = await userById(kv, userId);
 	const nextHandle = input.handle ?? current.handle;
-	if (nextHandle !== current.handle) {
-		const existing = await db
-			.prepare(`SELECT user_id AS id FROM users_index WHERE handle = ? AND deleted_at IS NULL`)
-			.bind(nextHandle)
-			.first<{ id: string }>();
-		if (existing && existing.id !== current.id) {
-			throw new RepositoryError("conflict", "A user with that handle already exists.", 409);
-		}
-	}
 
 	const inferenceSettings = mergeInferenceSettings(current.inferenceSettings, input.inferenceSettings);
 	enforceInferenceModelAccess(inferenceSettings);
@@ -971,8 +1076,7 @@ export async function updateUserProfile(
 		updatedAt: now,
 	};
 
-	await writeJson(kv, kvKeys.user(updated.id), updated);
-	await db
+	const projectionStatement = db
 		.prepare(
 			`UPDATE users_index
 			 SET handle = ?, display_name = ?, display_name_lang = ?, language = ?, ui_locale = ?,
@@ -990,14 +1094,44 @@ export async function updateUserProfile(
 			updated.profileCompletedAt ?? null,
 			now,
 			updated.id,
-		)
-		.run();
+		);
+	if (nextHandle !== current.handle) {
+		try {
+			await db.batch([
+				activeIdentityClaimStatement(db, {
+					kind: "user_handle",
+					scope: "global",
+					value: nextHandle,
+					entityKind: "account",
+					entityId: updated.id,
+					ownerUserId: updated.id,
+					now,
+				}),
+				projectionStatement,
+				releaseIdentityClaimStatement(db, {
+					kind: "user_handle",
+					scope: "global",
+					value: current.handle,
+					entityKind: "account",
+					entityId: updated.id,
+				}),
+			]);
+		} catch (error) {
+			throw await identityClaimConflict(db, {
+				kind: "user_handle", scope: "global", value: nextHandle,
+				entityKind: "account", entityId: updated.id,
+			}, error, "A user with that handle already exists.");
+		}
+	} else {
+		await projectionStatement.run();
+	}
+	await writeJson(kv, kvKeys.user(updated.id), updated);
 	await putObjectIndex(db, updated, "user", entityIndexVersions.user);
 
 	return userProfile(updated, await listUserAuthIdentities(db, updated.id));
 }
 
-export async function updateUserAvatar(
+async function updateUserAvatar(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	userId: string,
@@ -1042,10 +1176,10 @@ export async function listWorlds(db: D1DatabaseLike): Promise<WorldListSummary[]
 			 LEFT JOIN (
 				SELECT home_world_id AS world_id, COUNT(*) AS botCount
 				FROM bots_index
-				WHERE deleted_at IS NULL
+				WHERE deleted_at IS NULL AND lifecycle_state = 'active'
 				GROUP BY home_world_id
 			 ) bot_counts ON bot_counts.world_id = w.world_id
-			 WHERE w.deleted_at IS NULL
+			 WHERE w.deleted_at IS NULL AND w.lifecycle_state = 'active'
 			 ORDER BY w.updated_at DESC, w.handle ASC`,
 		)
 		.all<WorldSummaryIndexRow & Pick<WorldListSummary, "forumCount" | "botCount">>();
@@ -1065,25 +1199,27 @@ export function assertWorldRecurringPromptConfiguration(
 	}
 }
 
-export async function createWorld(
+async function createWorld(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	input: CreateWorldInput,
 	userId: string,
-	now = new Date().toISOString(),
+	options: CreateWorldOptions | string = {},
 ): Promise<WorldSummary> {
+	const createOptions = typeof options === "string" ? { now: options } : options;
+	const now = createOptions.now ?? new Date().toISOString();
 	const existing = await db
 		.prepare(`SELECT world_id AS id FROM worlds_index WHERE handle = ? AND deleted_at IS NULL`)
 		.bind(input.handle)
 		.first<{ id: string }>();
-	if (existing) {
+	if (existing && existing.id !== createOptions.worldId) {
 		throw new RepositoryError("conflict", "A world with that handle already exists.", 409);
 	}
 
 	const postingSettings = mergePostingSettings(undefined, input.postingSettings);
 	const threadSettings = mergeThreadSettings(undefined, input.threadSettings);
 	const world: WorldDocument = {
-		id: makeId("wld"),
+		id: createOptions.worldId ?? makeId("wld"),
 		type: "world",
 		schemaVersion,
 		revision: 1,
@@ -1106,9 +1242,12 @@ export async function createWorld(
 	assertWorldRecurringPromptConfiguration(world);
 
 	await writeJson(kv, kvKeys.world(world.id), world);
-	await upsertWorldIndexProjection(db, world);
+	await createOptions.checkpoint?.("world.materialize.kv");
+	await upsertWorldIndexProjection(db, world, { lifecycleState: createOptions.lifecycleState });
 	await putObjectIndex(db, world, "world", entityIndexVersions.world, world.id);
-	await createIntroForumForWorld(kv, db, world, userId, now);
+	await createOptions.checkpoint?.("world.materialize.indexes.d1");
+	await createIntroForumForWorld(kv, db, world, userId, now, createOptions.introForumId);
+	await createOptions.checkpoint?.("world.materialize.intro_forum");
 
 	return worldSummaryFromDocument(world);
 }
@@ -1207,7 +1346,7 @@ export async function listUserBots(
 			`WITH selected AS (
 				SELECT bot_id AS id, updated_at, handle
 				FROM bots_index
-				WHERE owner_user_id = ? AND deleted_at IS NULL
+				WHERE owner_user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
 			 ),
 			 activity AS (
 				SELECT threads.author_bot_id AS bot_id, threads.created_at AS active_at
@@ -1270,7 +1409,7 @@ type UserBotRuntimeSpreadRow = {
 	nextDueAt: string | null;
 };
 
-export async function spreadUserBotTicks(
+async function spreadUserBotTicks(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	userId: string,
@@ -1289,7 +1428,8 @@ export async function spreadUserBotTicks(
 			 JOIN bots_index bots ON bots.bot_id = runtime.bot_id
 			 WHERE runtime.owner_user_id = ?
 			   AND bots.owner_user_id = ?
-			   AND bots.deleted_at IS NULL`,
+			   AND bots.deleted_at IS NULL
+			   AND bots.lifecycle_state = 'active'`,
 		)
 		.bind(userId, userId)
 		.all<UserBotRuntimeSpreadRow>();
@@ -1333,7 +1473,7 @@ export async function spreadUserBotTicks(
 	};
 }
 
-export async function createBot(
+async function createBot(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	worldHandle: string,
@@ -1352,7 +1492,7 @@ export async function createBot(
 		)
 		.bind(world.id, input.handle)
 		.first<{ id: string }>();
-	if (existing) {
+	if (existing && existing.id !== createOptions.botId) {
 		throw new RepositoryError("conflict", "A bot with that handle already exists in this world.", 409);
 	}
 
@@ -1378,7 +1518,7 @@ export async function createBot(
 		:	input.includeLanguageInSystemPrompt === null ? false : input.includeLanguageInSystemPrompt ?? true;
 
 	let bot: BotDocument = {
-		id: makeId("bot"),
+		id: createOptions.botId ?? makeId("bot"),
 		type: "bot",
 		schemaVersion,
 		revision: 1,
@@ -1400,18 +1540,38 @@ export async function createBot(
 		createdAt: now,
 		updatedAt: now,
 	};
-	const preparedAvatar = await createOptions.prepareAvatar?.(bot);
-	if (preparedAvatar) {
-		bot = { ...bot, avatar: preparedAvatar };
+	const previouslyMaterialized = createOptions.botId
+		? await readJson<BotDocument>(kv, kvKeys.bot(createOptions.botId))
+		: null;
+	if (previouslyMaterialized) {
+		const existing = normalizeBotDefaults(previouslyMaterialized);
+		if (
+			existing.id !== bot.id ||
+			existing.homeWorldId !== bot.homeWorldId ||
+			existing.ownerUserId !== bot.ownerUserId ||
+			existing.handle !== bot.handle ||
+			existing.createdAt !== now
+		) {
+			throw new RepositoryError("conflict", "Participant materialization identity changed during retry.", 409);
+		}
+		bot = existing;
+	} else {
+		const preparedAvatar = await createOptions.prepareAvatar?.(bot);
+		if (preparedAvatar) {
+			bot = { ...bot, avatar: preparedAvatar };
+		}
 	}
 
+	const lifecyclePrefix = cloneSource ? "clone" : "bot";
 	await writeJson(kv, kvKeys.bot(bot.id), bot);
+	await createOptions.checkpoint?.(`${lifecyclePrefix}.materialize.kv` as LifecycleFailurePoint);
 	if (cloneSource) {
 		await insertBotCloneSource(db, bot, cloneSource, now);
 	}
 	const effectiveBot = cloneSource ? await effectiveBotDocument(kv, db, bot) : bot;
-	await upsertBotIndex(db, effectiveBot);
-	await createPersonalForumForBot(kv, db, effectiveBot, userId, now);
+	await upsertBotIndex(db, effectiveBot, { lifecycleState: createOptions.lifecycleState });
+	await createPersonalForumForBot(kv, db, effectiveBot, userId, now, createOptions.personalForumId);
+	await createOptions.checkpoint?.(`${lifecyclePrefix}.materialize.personal_forum` as LifecycleFailurePoint);
 	await upsertBotRuntimeIndex(db, bot, now);
 	await autoSubscribeUserToBot(db, userId, bot, now);
 	if (bot.importSource) {
@@ -1419,7 +1579,8 @@ export async function createBot(
 			.prepare(
 				`INSERT INTO bot_imports (
 					bot_id, world_id, owner_user_id, provider, external_handle, external_profile_url, imported_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(bot_id) DO NOTHING`,
 			)
 			.bind(
 				bot.id,
@@ -1434,6 +1595,7 @@ export async function createBot(
 	}
 	await upsertBotSearchIndex(db, effectiveBot);
 	await putObjectIndex(db, bot, "bot", entityIndexVersions.bot, bot.homeWorldId);
+	await createOptions.checkpoint?.(`${lifecyclePrefix}.materialize.indexes.d1` as LifecycleFailurePoint);
 
 	return publicBotSummary(effectiveBot, {
 		includeToolSettings: true,
@@ -1443,7 +1605,7 @@ export async function createBot(
 	});
 }
 
-export async function updateBot(
+async function updateBot(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	botId: string,
@@ -1457,9 +1619,6 @@ export async function updateBot(
 	const cloneSource = await cloneSourceByBotId(db, bot.id);
 	const canInheritProfile = Boolean(cloneSource?.linked);
 	const nextHandle = input.handle ?? bot.handle;
-	if (nextHandle !== bot.handle) {
-		await assertBotHandleAvailable(db, bot.homeWorldId, bot.id, nextHandle);
-	}
 	const inferenceSettings = mergeInferenceSettings(bot.inferenceSettings, input.inferenceSettings);
 	enforceInferenceModelAccess(inferenceSettings, owner.inferenceSettings);
 	const toolSettings = mergeToolSettings(bot.toolSettings, input.toolSettings);
@@ -1488,8 +1647,8 @@ export async function updateBot(
 	const effectiveUpdated = canInheritProfile ? await effectiveBotDocument(kv, db, updated) : updated;
 	const personalForumUpdate = await personalForumUpdateForBotProfile(kv, db, bot, effectiveUpdated, now);
 
-	if (personalForumUpdate) {
-		await db.batch([
+	const projectionStatements = personalForumUpdate
+		? [
 			botIndexUpdateStatement(db, effectiveUpdated),
 			db
 				.prepare(
@@ -1512,12 +1671,39 @@ export async function updateBot(
 				kind: "forum",
 				forumId: personalForumUpdate.updated.id,
 			}),
-		]);
-		await writeJson(kv, kvKeys.bot(updated.id), updated);
+		]
+		: [botIndexUpdateStatement(db, effectiveUpdated)];
+	if (nextHandle !== bot.handle) {
+		try {
+			await db.batch([
+				activeIdentityClaimStatement(db, {
+					kind: "bot_handle",
+					scope: bot.homeWorldId,
+					value: nextHandle,
+					entityKind: "bot",
+					entityId: bot.id,
+					ownerUserId: bot.ownerUserId,
+					now,
+				}),
+				...projectionStatements,
+				releaseIdentityClaimStatement(db, {
+					kind: "bot_handle",
+					scope: bot.homeWorldId,
+					value: bot.handle,
+					entityKind: "bot",
+					entityId: bot.id,
+				}),
+			]);
+		} catch (error) {
+			throw await identityClaimConflict(db, {
+				kind: "bot_handle", scope: bot.homeWorldId, value: nextHandle,
+				entityKind: "bot", entityId: bot.id,
+			}, error, "A bot with that handle already exists in this world.");
+		}
 	} else {
-		await writeJson(kv, kvKeys.bot(updated.id), updated);
-		await upsertBotIndex(db, effectiveUpdated);
+		await db.batch(projectionStatements);
 	}
+	await writeJson(kv, kvKeys.bot(updated.id), updated);
 	await upsertBotRuntimeIndex(db, updated, now, shouldRescheduleBotRuntime(bot.tickSettings, updated.tickSettings, input.tickSettings));
 	await upsertBotSearchIndex(db, effectiveUpdated);
 	await putObjectIndex(db, updated, "bot", entityIndexVersions.bot, updated.homeWorldId);
@@ -1530,7 +1716,7 @@ export async function updateBot(
 	});
 }
 
-export async function updateBotAvatar(
+async function updateBotAvatar(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	botId: string,
@@ -1539,6 +1725,54 @@ export async function updateBotAvatar(
 	now = new Date().toISOString(),
 ): Promise<BotSummary> {
 	const bot = await botForOwner(kv, db, botId, userId);
+	return updateBotAvatarDocument(kv, db, bot, avatar, now);
+}
+
+type PendingBotAvatarMaterialization = {
+	kind: "lifecycle_import_avatar";
+	botId: string;
+	ownerUserId: string;
+	operationId: string;
+	avatar: AvatarImage;
+	now: string;
+};
+
+async function materializePendingBotAvatar(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	input: PendingBotAvatarMaterialization,
+): Promise<BotSummary> {
+	const row = await db.prepare(
+		`SELECT bots.owner_user_id AS ownerUserId
+		 FROM bots_index bots
+		 JOIN entity_lifecycle_entities lifecycle
+		   ON lifecycle.entity_kind = 'bot' AND lifecycle.entity_id = bots.bot_id
+		 WHERE bots.bot_id = ? AND bots.lifecycle_state = 'pending' AND bots.deleted_at IS NULL
+		   AND lifecycle.owner_user_id = ? AND lifecycle.active_operation_id = ?
+		   AND lifecycle.phase IN ('pending', 'materializing')
+		 LIMIT 1`,
+	).bind(input.botId, input.ownerUserId, input.operationId).first<{ ownerUserId: string }>();
+	if (!row) {
+		throw new RepositoryError("not_found", "Pending participant materialization was not found.", 404);
+	}
+	const bot = await readJson<BotDocument>(kv, kvKeys.bot(input.botId));
+	if (!bot || bot.deletedAt || bot.ownerUserId !== row.ownerUserId) {
+		throw new RepositoryError("server_error", "Pending participant document is missing.", 500);
+	}
+	return updateBotAvatarDocument(kv, db, normalizeBotDefaults(bot), input.avatar, input.now, {
+		lifecycleState: "pending",
+	});
+}
+
+async function updateBotAvatarDocument(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	bot: BotDocument,
+	avatar: AvatarImage,
+	now: string,
+	options: { lifecycleState?: "active" | "pending" } = {},
+): Promise<BotSummary> {
+	const userId = bot.ownerUserId;
 	const owner = await userById(kv, userId);
 	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
 	const updated: BotDocument = {
@@ -1550,7 +1784,7 @@ export async function updateBotAvatar(
 
 	await writeJson(kv, kvKeys.bot(updated.id), updated);
 	const effectiveUpdated = await effectiveBotDocument(kv, db, updated);
-	await upsertBotIndex(db, effectiveUpdated);
+	await upsertBotIndex(db, effectiveUpdated, options);
 	await upsertBotSearchIndex(db, effectiveUpdated);
 	await putObjectIndex(db, updated, "bot", entityIndexVersions.bot, updated.homeWorldId);
 
@@ -1562,7 +1796,7 @@ export async function updateBotAvatar(
 	});
 }
 
-export async function deleteBotAvatar(
+async function deleteBotAvatar(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	botId: string,
@@ -1593,7 +1827,7 @@ export async function deleteBotAvatar(
 	});
 }
 
-export async function deleteBot(
+async function deleteBot(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	botId: string,
@@ -1602,7 +1836,7 @@ export async function deleteBot(
 ): Promise<BotSummary> {
 	const deleteOptions = typeof options === "string" ? { now: options } : options;
 	const now = deleteOptions.now ?? new Date().toISOString();
-	const bot = await botForOwner(kv, db, botId, userId);
+	const bot = await botDocumentForDeletion(kv, db, botId, userId);
 	if (!deleteOptions.allowLinkedCloneDelete && await hasLinkedCloneDescendants(db, bot.id)) {
 		throw new RepositoryError(
 			"conflict",
@@ -1610,10 +1844,10 @@ export async function deleteBot(
 			409,
 		);
 	}
-	const owner = await publicUserById(db, userId);
+	const owner = publicUser(await userById(kv, userId));
 	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
 	const tombstonedHandle = tombstoneHandle(bot.id);
-	const deleted: BotDocument = {
+	const deleted: BotDocument = bot.deletedAt ? bot : {
 		...bot,
 		handle: tombstonedHandle,
 		handleAtDeletion: bot.handleAtDeletion ?? bot.handle,
@@ -1623,16 +1857,66 @@ export async function deleteBot(
 	};
 
 	await writeJson(kv, kvKeys.bot(deleted.id), deleted);
+	await deleteOptions.checkpoint?.(`${deleteOptions.failurePrefix ?? "bot"}.delete.kv` as LifecycleFailurePoint);
 	await upsertBotIndex(db, deleted);
 	await deleteBotGroupMembershipsForBot(db, deleted.id);
 	await disableBotRuntime(db, deleted.id, now);
 	await upsertBotSearchIndex(db, deleted);
 	await putObjectIndex(db, deleted, "bot", entityIndexVersions.bot, deleted.homeWorldId);
+	await deleteOptions.checkpoint?.(`${deleteOptions.failurePrefix ?? "bot"}.delete.indexes.d1` as LifecycleFailurePoint);
 
 	return publicBotSummary(deleted, { includeToolSettings: true, nextDueAt: null, owner, worldPostingSettings });
 }
 
-export async function unlinkBotClone(
+async function botDocumentForDeletion(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	botId: string,
+	userId: string,
+): Promise<BotDocument> {
+	const row = await db
+		.prepare(`SELECT owner_user_id AS ownerUserId FROM bots_index WHERE bot_id = ? LIMIT 1`)
+		.bind(botId)
+		.first<{ ownerUserId: string }>();
+	if (!row) {
+		throw new RepositoryError("not_found", "Bot not found.", 404);
+	}
+	if (row.ownerUserId !== userId) {
+		throw new RepositoryError("forbidden", "You can only edit your own bots.", 403);
+	}
+	const bot = await readJson<BotDocument>(kv, kvKeys.bot(botId));
+	if (!bot) {
+		throw new RepositoryError("not_found", "Bot not found.", 404);
+	}
+	return normalizeBotDefaults(bot);
+}
+
+export async function assertBotDeleteAllowed(
+	db: D1DatabaseLike,
+	botId: string,
+	userId: string,
+	options: { allowLinkedCloneDelete?: boolean } = {},
+): Promise<void> {
+	const row = await db
+		.prepare(`SELECT owner_user_id AS ownerUserId FROM bots_index WHERE bot_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'`)
+		.bind(botId)
+		.first<{ ownerUserId: string }>();
+	if (!row) {
+		throw new RepositoryError("not_found", "Bot not found.", 404);
+	}
+	if (row.ownerUserId !== userId) {
+		throw new RepositoryError("forbidden", "You can only edit your own bots.", 403);
+	}
+	if (!options.allowLinkedCloneDelete && await hasLinkedCloneDescendants(db, botId)) {
+		throw new RepositoryError(
+			"conflict",
+			"Delete linked clones of this participant, or unlink them, before deleting the source participant.",
+			409,
+		);
+	}
+}
+
+async function unlinkBotClone(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	botId: string,
@@ -1695,7 +1979,7 @@ export async function unlinkBotClone(
 	});
 }
 
-export async function relinkBotClone(
+async function relinkBotClone(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	botId: string,
@@ -1758,81 +2042,6 @@ export async function relinkBotClone(
 	});
 }
 
-export async function backfillInferredCloneSources(
-	kv: KVNamespaceLike,
-	db: D1DatabaseLike,
-	now = new Date().toISOString(),
-): Promise<CloneSourceBackfillResult> {
-	const result = await db
-		.prepare(
-			`SELECT
-				bot_id AS id,
-				owner_user_id AS ownerUserId,
-				handle,
-				created_at AS createdAt
-			 FROM bots_index
-			 WHERE deleted_at IS NULL
-			 ORDER BY owner_user_id ASC, handle ASC, created_at ASC, bot_id ASC`,
-		)
-		.all<{ id: string; ownerUserId: string; handle: string; createdAt: string }>();
-	const groups = new Map<string, string[]>();
-	for (const row of result.results ?? []) {
-		const key = `${row.ownerUserId}\0${row.handle}`;
-		const group = groups.get(key) ?? [];
-		group.push(row.id);
-		groups.set(key, group);
-	}
-
-	let groupCount = 0;
-	let clonesLinked = 0;
-	let clonesSkipped = 0;
-	for (const botIds of groups.values()) {
-		if (botIds.length < 2) {
-			continue;
-		}
-		groupCount += 1;
-		const [sourceId, ...targetIds] = botIds;
-		const sourceRaw = await rawBotById(kv, db, sourceId);
-		const sourceEffective = await effectiveBotDocument(kv, db, sourceRaw);
-		for (const targetId of targetIds) {
-			if (await cloneSourceByBotId(db, targetId)) {
-				clonesSkipped += 1;
-				continue;
-			}
-			const targetRaw = await rawBotById(kv, db, targetId);
-			const targetIncludeLanguageInSystemPrompt = targetRaw.includeLanguageInSystemPrompt ?? false;
-			let updated: BotDocument = {
-				...targetRaw,
-				language: targetRaw.language === sourceEffective.language ? null : targetRaw.language,
-				includeLanguageInSystemPrompt:
-					targetIncludeLanguageInSystemPrompt === sourceEffective.includeLanguageInSystemPrompt ?
-						null
-					:	targetIncludeLanguageInSystemPrompt,
-				displayName: localizedTextEqual(targetRaw.displayName, sourceEffective.displayName) ? emptyLocalizedText(targetRaw.language) : targetRaw.displayName,
-				shortBio: localizedTextEqual(targetRaw.shortBio, sourceEffective.shortBio) ? emptyLocalizedText(targetRaw.language) : targetRaw.shortBio,
-				prompt: localizedTextEqual(targetRaw.prompt, sourceEffective.prompt) ? emptyLocalizedText(targetRaw.language) : targetRaw.prompt,
-				inferenceSettings: inferenceSettingsEqual(targetRaw.inferenceSettings, sourceEffective.inferenceSettings) ?
-					cloneInferenceSettings(undefined)
-				:	targetRaw.inferenceSettings,
-				revision: targetRaw.revision + 1,
-				updatedAt: now,
-			};
-			if (avatarEquivalentForRelink(targetRaw.avatar, sourceEffective.avatar)) {
-				const { avatar: _avatar, ...withoutAvatar } = updated;
-				updated = withoutAvatar;
-			}
-			await insertBotCloneSource(db, updated, sourceRaw, now);
-			await writeJson(kv, kvKeys.bot(updated.id), updated);
-			const effective = await effectiveBotDocument(kv, db, updated);
-			await upsertBotIndex(db, effective);
-			await upsertBotSearchIndex(db, effective);
-			await putObjectIndex(db, updated, "bot", entityIndexVersions.bot, updated.homeWorldId);
-			clonesLinked += 1;
-		}
-	}
-	return { groups: groupCount, clonesLinked, clonesSkipped };
-}
-
 export async function rawBotById(kv: KVNamespaceLike, db: D1DatabaseLike, botId: string): Promise<BotDocument> {
 	const row = await db
 		.prepare(`SELECT deleted_at AS deletedAt FROM bots_index WHERE bot_id = ?`)
@@ -1850,7 +2059,33 @@ export async function rawBotById(kv: KVNamespaceLike, db: D1DatabaseLike, botId:
 }
 
 export async function botById(kv: KVNamespaceLike, db: D1DatabaseLike, botId: string): Promise<BotDocument> {
+	const active = await db
+		.prepare(`SELECT bot_id AS id FROM bots_index WHERE bot_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'`)
+		.bind(botId)
+		.first<{ id: string }>();
+	if (!active) {
+		throw new RepositoryError("not_found", "Bot not found.", 404);
+	}
 	return effectiveBotDocument(kv, db, await rawBotById(kv, db, botId));
+}
+
+export async function botSummaryById(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	botId: string,
+): Promise<BotSummary> {
+	const bot = await botById(kv, db, botId);
+	const [owner, worldPostingSettings, nextDueAt] = await Promise.all([
+		userById(kv, bot.ownerUserId),
+		worldPostingSettingsById(db, bot.homeWorldId),
+		botRuntimeNextDueAt(db, bot.id),
+	]);
+	return publicBotSummary(bot, {
+		includeToolSettings: true,
+		nextDueAt,
+		owner: publicUser(owner),
+		worldPostingSettings,
+	});
 }
 
 export async function botByHandle(
@@ -1863,7 +2098,7 @@ export async function botByHandle(
 		.prepare(
 			`SELECT bot_id AS id
 			 FROM bots_index
-			 WHERE home_world_id = ? AND handle = ? AND deleted_at IS NULL`,
+			 WHERE home_world_id = ? AND handle = ? AND deleted_at IS NULL AND lifecycle_state = 'active'`,
 		)
 		.bind(worldId, handle)
 		.first<{ id: string }>();
@@ -1881,7 +2116,7 @@ export async function listWorldBots(
 			`WITH selected AS (
 				SELECT bot_id AS id, handle
 				FROM bots_index
-				WHERE home_world_id = ? AND deleted_at IS NULL
+				WHERE home_world_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
 			 ),
 			 activity AS (
 				SELECT threads.author_bot_id AS bot_id, threads.created_at AS active_at
@@ -1957,7 +2192,7 @@ export async function listBotGroups(
 	return botGroupSummariesForOwner(kv, db, world.id, userId);
 }
 
-export async function createBotGroup(
+async function createBotGroup(
 	_kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	worldHandle: string,
@@ -1966,6 +2201,19 @@ export async function createBotGroup(
 	now = new Date().toISOString(),
 ): Promise<BotGroupSummary> {
 	const world = await worldByHandle(db, worldHandle);
+	const ownership = await db
+		.prepare(
+			`SELECT world_id AS id
+			 FROM worlds_index
+			 WHERE world_id = ? AND created_by_user_id = ?
+			   AND deleted_at IS NULL AND lifecycle_state = 'active'
+			 LIMIT 1`,
+		)
+		.bind(world.id, userId)
+		.first<{ id: string }>();
+	if (!ownership) {
+		throw new RepositoryError("forbidden", "Only the world owner can create bot groups.", 403);
+	}
 	const group: BotGroupRow = {
 		id: makeId("grp"),
 		worldId: world.id,
@@ -1987,7 +2235,7 @@ export async function createBotGroup(
 	return botGroupSummary(group, []);
 }
 
-export async function updateBotGroup(
+async function updateBotGroup(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	worldHandle: string,
@@ -2008,7 +2256,7 @@ export async function updateBotGroup(
 	return botGroupSummaryForOwner(kv, db, world.id, userId, groupId);
 }
 
-export async function deleteBotGroup(
+async function deleteBotGroup(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	worldHandle: string,
@@ -2031,7 +2279,7 @@ export async function deleteBotGroup(
 	return group;
 }
 
-export async function addBotGroupMembers(
+async function addBotGroupMembers(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	worldHandle: string,
@@ -2046,7 +2294,7 @@ export async function addBotGroupMembers(
 		.prepare(
 			`SELECT bot_id AS id
 			 FROM bots_index
-			 WHERE home_world_id = ? AND deleted_at IS NULL AND bot_id IN (${placeholders})`,
+			 WHERE home_world_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active' AND bot_id IN (${placeholders})`,
 		)
 		.bind(world.id, ...input.botIds)
 		.all<{ id: string }>();
@@ -2060,7 +2308,7 @@ export async function addBotGroupMembers(
 				`INSERT OR IGNORE INTO bot_group_members (group_id, bot_id, world_id, added_at)
 				 SELECT ?, bot_id, ?, ?
 				 FROM bots_index
-				 WHERE home_world_id = ? AND deleted_at IS NULL AND bot_id IN (${placeholders})`,
+					 WHERE home_world_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active' AND bot_id IN (${placeholders})`,
 			)
 			.bind(groupId, world.id, now, world.id, ...input.botIds),
 		db
@@ -2074,7 +2322,7 @@ export async function addBotGroupMembers(
 	return botGroupSummaryForOwner(kv, db, world.id, userId, groupId);
 }
 
-export async function removeBotGroupMember(
+async function removeBotGroupMember(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	worldHandle: string,
@@ -2230,7 +2478,7 @@ async function botGroupMemberRows(
 		.prepare(
 			`SELECT m.group_id AS groupId, m.bot_id AS botId
 			 FROM bot_group_members m
-			 JOIN bots_index b ON b.bot_id = m.bot_id AND b.home_world_id = m.world_id AND b.deleted_at IS NULL
+			 JOIN bots_index b ON b.bot_id = m.bot_id AND b.home_world_id = m.world_id AND b.deleted_at IS NULL AND b.lifecycle_state = 'active'
 			 WHERE m.world_id = ? AND m.group_id IN (${placeholders})
 			 ORDER BY m.group_id ASC, lower(b.handle) ASC, b.handle ASC`,
 		)
@@ -2327,7 +2575,7 @@ export async function listOwnedWorlds(db: D1DatabaseLike, userId: string): Promi
 			`SELECT
 				${worldSummarySelectColumns()}
 			 FROM worlds_index
-			 WHERE created_by_user_id = ? AND deleted_at IS NULL
+			 WHERE created_by_user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
 			 ORDER BY lower(handle) ASC`,
 		)
 		.bind(userId)
@@ -2355,7 +2603,7 @@ export async function listOwnedForumsOutsideOwnedWorlds(
 				f.created_at AS createdAt,
 				f.updated_at AS updatedAt
 			 FROM forums_index f
-			 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
+			 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
 			 WHERE f.created_by_user_id = ?
 			   AND f.deleted_at IS NULL
 			   AND w.created_by_user_id != ?
@@ -2377,15 +2625,21 @@ export async function humanProfileDeleteEligibility(
 	};
 }
 
-export async function softDeleteUserProfile(
+async function softDeleteUserProfile(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	userId: string,
-	now = new Date().toISOString(),
+	options: { now?: string; checkpoint?: (point: LifecycleFailurePoint) => Promise<void> } | string = {},
 ): Promise<PublicUser> {
-	const current = await userById(kv, userId);
+	const deleteOptions = typeof options === "string" ? { now: options } : options;
+	const now = deleteOptions.now ?? new Date().toISOString();
+	const stored = await readJson<UserDocument>(kv, kvKeys.user(userId));
+	if (!stored) {
+		throw new RepositoryError("not_found", "User not found.", 404);
+	}
+	const current = normalizeUserDefaults(stored);
 	const tombstonedHandle = tombstoneHandle(current.id);
-	const deleted: UserDocument = {
+	const deleted: UserDocument = current.deletedAt ? current : {
 		...current,
 		handle: tombstonedHandle,
 		revision: current.revision + 1,
@@ -2393,17 +2647,19 @@ export async function softDeleteUserProfile(
 		deletedAt: now,
 	};
 	await writeJson(kv, kvKeys.user(deleted.id), deleted);
-	await softDeleteBotGroupsForOwner(db, deleted.id, now);
+	await deleteOptions.checkpoint?.("account.delete.kv");
+	await softDeleteBotGroupsForOwner(db, deleted.id, deleted.deletedAt);
 	await db
 		.prepare(
 			`UPDATE users_index
 			 SET handle = ?, updated_at = ?, deleted_at = ?
-			 WHERE user_id = ? AND deleted_at IS NULL`,
+			 WHERE user_id = ?`,
 		)
-		.bind(tombstonedHandle, now, now, deleted.id)
+		.bind(tombstonedHandle, deleted.updatedAt, deleted.deletedAt, deleted.id)
 		.run();
 	await db.prepare(`DELETE FROM provider_identities WHERE user_id = ?`).bind(deleted.id).run();
 	await putObjectIndex(db, deleted, "user", entityIndexVersions.user);
+	await deleteOptions.checkpoint?.("account.delete.indexes.d1");
 	return publicUser(deleted);
 }
 
@@ -2433,7 +2689,7 @@ async function listOwnedForumsByWorld(
 				f.created_at AS createdAt,
 				f.updated_at AS updatedAt
 			 FROM forums_index f
-			 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
+			 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
 			 WHERE f.created_by_user_id = ?
 			   AND f.deleted_at IS NULL
 			   AND f.personal_bot_id IS NULL
@@ -2507,7 +2763,7 @@ export async function worldSummariesByIds(
 				`SELECT
 					${worldSummarySelectColumns()}
 				 FROM worlds_index
-				 WHERE world_id IN (${placeholders}) AND deleted_at IS NULL`,
+				 WHERE world_id IN (${placeholders}) AND deleted_at IS NULL AND lifecycle_state = 'active'`,
 			)
 			.bind(...batch)
 			.all<WorldSummaryIndexRow>();
@@ -2550,7 +2806,7 @@ async function worldPostingSettingsByIds(
 					posting_thread_body_characters AS postingThreadBodyCharacters,
 					posting_comment_body_characters AS postingCommentBodyCharacters
 				 FROM worlds_index
-				 WHERE world_id IN (${placeholders}) AND deleted_at IS NULL`,
+				 WHERE world_id IN (${placeholders}) AND deleted_at IS NULL AND lifecycle_state = 'active'`,
 			)
 			.bind(...batch)
 			.all<{ id: string; postingThreadBodyCharacters: number | null; postingCommentBodyCharacters: number | null }>();
@@ -2660,10 +2916,11 @@ async function foreignBotBlockersForOwnedWorlds(
 				u.avatar_crop AS ownerAvatarCrop,
 				u.profile_completed_at AS ownerProfileCompletedAt
 			 FROM worlds_index w
-			 JOIN bots_index b ON b.home_world_id = w.world_id AND b.deleted_at IS NULL
-			 LEFT JOIN users_index u ON u.user_id = b.owner_user_id AND u.deleted_at IS NULL
+			 JOIN bots_index b ON b.home_world_id = w.world_id AND b.deleted_at IS NULL AND b.lifecycle_state = 'active'
+			 LEFT JOIN users_index u ON u.user_id = b.owner_user_id AND u.deleted_at IS NULL AND u.lifecycle_state = 'active'
 			 WHERE w.created_by_user_id = ?
 			   AND w.deleted_at IS NULL
+			   AND w.lifecycle_state = 'active'
 			   AND b.owner_user_id != ?
 			 ORDER BY lower(w.handle) ASC, lower(b.handle) ASC`,
 		)
@@ -2731,7 +2988,7 @@ export async function worldByHandle(
 				posting_comment_body_characters AS postingCommentBodyCharacters,
 				thread_comment_limit AS threadCommentLimit
 			 FROM worlds_index
-			 WHERE handle = ? AND deleted_at IS NULL`,
+			 WHERE handle = ? AND deleted_at IS NULL AND lifecycle_state = 'active'`,
 		)
 		.bind(worldHandle)
 		.first<{ id: string; handle: string; postingThreadBodyCharacters: number | null; postingCommentBodyCharacters: number | null; threadCommentLimit: number | null }>();
@@ -2757,7 +3014,7 @@ async function botForOwner(
 		.prepare(
 			`SELECT owner_user_id AS ownerUserId, deleted_at AS deletedAt
 			 FROM bots_index
-			 WHERE bot_id = ?`,
+			 WHERE bot_id = ? AND lifecycle_state = 'active'`,
 		)
 		.bind(botId)
 		.first<{ ownerUserId: string; deletedAt: string | null }>();
@@ -2779,25 +3036,6 @@ async function botForOwner(
 type PersonalForumUpdate = {
 	updated: ForumDocument;
 };
-
-async function assertBotHandleAvailable(
-	db: D1DatabaseLike,
-	worldId: string,
-	currentBotId: string,
-	handle: string,
-): Promise<void> {
-	const existing = await db
-		.prepare(
-			`SELECT bot_id AS id
-			 FROM bots_index
-			 WHERE home_world_id = ? AND handle = ? AND deleted_at IS NULL`,
-		)
-		.bind(worldId, handle)
-		.first<{ id: string }>();
-	if (existing && existing.id !== currentBotId) {
-		throw new RepositoryError("conflict", "A bot with that handle already exists in this world.", 409);
-	}
-}
 
 async function personalForumUpdateForBotProfile(
 	kv: KVNamespaceLike,
@@ -3055,7 +3293,8 @@ async function insertBotCloneSource(
 			`INSERT INTO bot_clone_sources (
 				bot_id, source_bot_id, source_world_id, source_world_handle, source_handle,
 				cloned_at, linked, unlinked_at, relinked_at
-			) VALUES (?, ?, ?, ?, ?, ?, 1, NULL, NULL)`,
+			) VALUES (?, ?, ?, ?, ?, ?, 1, NULL, NULL)
+			ON CONFLICT(bot_id) DO NOTHING`,
 		)
 		.bind(bot.id, source.id, source.homeWorldId, source.homeWorldHandle, source.handle, now)
 		.run();
@@ -3116,7 +3355,7 @@ async function hasLinkedCloneDescendants(db: D1DatabaseLike, sourceBotId: string
 		.prepare(
 			`SELECT c.bot_id AS id
 			 FROM bot_clone_sources c
-			 JOIN bots_index b ON b.bot_id = c.bot_id AND b.deleted_at IS NULL
+			 JOIN bots_index b ON b.bot_id = c.bot_id AND b.deleted_at IS NULL AND b.lifecycle_state = 'active'
 			 WHERE c.source_bot_id = ? AND c.linked = 1
 			 LIMIT 1`,
 		)
@@ -3130,7 +3369,7 @@ async function linkedCloneChildIds(db: D1DatabaseLike, sourceBotId: string): Pro
 		.prepare(
 			`SELECT c.bot_id AS id
 			 FROM bot_clone_sources c
-			 JOIN bots_index b ON b.bot_id = c.bot_id AND b.deleted_at IS NULL
+			 JOIN bots_index b ON b.bot_id = c.bot_id AND b.deleted_at IS NULL AND b.lifecycle_state = 'active'
 			 WHERE c.source_bot_id = ? AND c.linked = 1
 			 ORDER BY b.updated_at ASC, b.handle ASC`,
 		)
@@ -3139,7 +3378,7 @@ async function linkedCloneChildIds(db: D1DatabaseLike, sourceBotId: string): Pro
 	return (result.results ?? []).map((row) => row.id);
 }
 
-export async function refreshLinkedCloneIndexes(
+async function refreshLinkedCloneIndexes(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	sourceBotId: string,
@@ -3192,14 +3431,43 @@ async function assertNoCloneCycle(db: D1DatabaseLike, botId: string, sourceBotId
 export async function upsertUserIndexProjection(
 	db: D1DatabaseLike,
 	user: UserDocument,
+	options: { lifecycleState?: "active" | "pending" } = {},
 ): Promise<UserDocument> {
 	const normalized = normalizeUserDefaults(user);
-	await db
+	const statement = userIndexProjectionStatement(db, normalized, options);
+	if (options.lifecycleState === "pending") {
+		await statement.run();
+	} else {
+		await writeLegacyIndexProjection(db, {
+			claim: {
+				kind: "user_handle",
+				scope: "global",
+				value: normalized.handle,
+				entityKind: "account",
+				entityId: normalized.id,
+			},
+			ownerUserId: normalized.id,
+			deleted: Boolean(normalized.deletedAt),
+			now: normalized.updatedAt,
+			projection: statement,
+		});
+	}
+	return normalized;
+}
+
+export function userIndexProjectionStatement(
+	db: D1DatabaseLike,
+	user: UserDocument,
+	options: { lifecycleState?: "active" | "pending" } = {},
+): D1PreparedStatementLike {
+	const normalized = normalizeUserDefaults(user);
+	return db
 		.prepare(
 			`INSERT INTO users_index (
 				user_id, handle, display_name, display_name_lang, language, ui_locale,
-				avatar_url, avatar_crop, profile_completed_at, created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				avatar_url, avatar_crop, profile_completed_at, created_at, updated_at, deleted_at,
+				lifecycle_state
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(user_id) DO UPDATE SET
 				handle = excluded.handle,
 				display_name = excluded.display_name,
@@ -3225,21 +3493,22 @@ export async function upsertUserIndexProjection(
 			normalized.createdAt,
 			normalized.updatedAt,
 			normalized.deletedAt ?? null,
-		)
-		.run();
-	return normalized;
+			options.lifecycleState ?? "active",
+		);
 }
 
 export function worldIndexProjectionStatement(
 	db: D1DatabaseLike,
 	world: WorldDocument,
+	options: { lifecycleState?: "active" | "pending" } = {},
 ): D1PreparedStatementLike {
-	return normalizedWorldIndexProjectionStatement(db, normalizeWorldDefaults(world));
+	return normalizedWorldIndexProjectionStatement(db, normalizeWorldDefaults(world), options);
 }
 
 function normalizedWorldIndexProjectionStatement(
 	db: D1DatabaseLike,
 	world: WorldDocument,
+	options: { lifecycleState?: "active" | "pending" } = {},
 ): D1PreparedStatementLike {
 	return db
 		.prepare(
@@ -3248,8 +3517,8 @@ function normalizedWorldIndexProjectionStatement(
 				recurring_prompt_enabled, recurring_prompt, recurring_prompt_lang,
 				avatar_url, avatar_crop, image_generation, initial_bot_notification, initial_bot_notification_lang,
 				created_by_user_id, visibility, posting_thread_body_characters, posting_comment_body_characters,
-				thread_comment_limit, created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				thread_comment_limit, created_at, updated_at, deleted_at, lifecycle_state
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(world_id) DO UPDATE SET
 				handle = excluded.handle,
 				language = excluded.language,
@@ -3301,15 +3570,34 @@ function normalizedWorldIndexProjectionStatement(
 			world.createdAt,
 			world.updatedAt,
 			world.deletedAt ?? null,
+			options.lifecycleState ?? "active",
 		);
 }
 
 export async function upsertWorldIndexProjection(
 	db: D1DatabaseLike,
 	world: WorldDocument,
+	options: { lifecycleState?: "active" | "pending" } = {},
 ): Promise<WorldDocument> {
 	const normalized = normalizeWorldDefaults(world);
-	await normalizedWorldIndexProjectionStatement(db, normalized).run();
+	const statement = normalizedWorldIndexProjectionStatement(db, normalized, options);
+	if (options.lifecycleState === "pending") {
+		await statement.run();
+	} else {
+		await writeLegacyIndexProjection(db, {
+			claim: {
+				kind: "world_handle",
+				scope: "global",
+				value: normalized.handle,
+				entityKind: "world",
+				entityId: normalized.id,
+			},
+			ownerUserId: normalized.createdByUserId,
+			deleted: Boolean(normalized.deletedAt),
+			now: normalized.updatedAt,
+			projection: statement,
+		});
+	}
 	await upsertWorldSearchIndex(db, normalized);
 	return normalized;
 }
@@ -3361,20 +3649,49 @@ export async function upsertBotIndexProjection(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	bot: BotDocument,
+	options: { lifecycleState?: "active" | "pending" } = {},
 ): Promise<BotDocument> {
 	const effective = await effectiveBotDocument(kv, db, bot);
-	await upsertBotIndex(db, effective);
+	if (options.lifecycleState === "pending") {
+		await upsertBotIndex(db, effective, options);
+	} else {
+		await writeLegacyIndexProjection(db, {
+			claim: {
+				kind: "bot_handle",
+				scope: effective.homeWorldId,
+				value: effective.handle,
+				entityKind: "bot",
+				entityId: effective.id,
+			},
+			ownerUserId: effective.ownerUserId,
+			deleted: Boolean(effective.deletedAt),
+			now: effective.updatedAt,
+			projection: botIndexProjectionStatement(db, effective, options),
+		});
+	}
 	await upsertBotSearchIndex(db, effective);
 	return effective;
 }
 
-async function upsertBotIndex(db: D1DatabaseLike, bot: BotDocument): Promise<void> {
-	await db
+async function upsertBotIndex(
+	db: D1DatabaseLike,
+	bot: BotDocument,
+	options: { lifecycleState?: "active" | "pending" } = {},
+): Promise<void> {
+	await botIndexProjectionStatement(db, bot, options).run();
+}
+
+function botIndexProjectionStatement(
+	db: D1DatabaseLike,
+	bot: BotDocument,
+	options: { lifecycleState?: "active" | "pending" } = {},
+): D1PreparedStatementLike {
+	return db
 		.prepare(
 			`INSERT INTO bots_index (
 				bot_id, home_world_id, home_world_handle, handle, language, display_name, display_name_lang, owner_user_id,
-				include_language_in_system_prompt, short_bio, short_bio_lang, avatar_url, avatar_crop, import_provider, import_external_handle, created_at, updated_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				include_language_in_system_prompt, short_bio, short_bio_lang, avatar_url, avatar_crop, import_provider, import_external_handle, created_at, updated_at, deleted_at, lifecycle_state
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(bot_id) DO UPDATE SET
 				home_world_handle = excluded.home_world_handle,
 				handle = excluded.handle,
@@ -3408,8 +3725,8 @@ async function upsertBotIndex(db: D1DatabaseLike, bot: BotDocument): Promise<voi
 			bot.createdAt,
 			bot.updatedAt,
 			bot.deletedAt ?? null,
-		)
-		.run();
+			options.lifecycleState ?? "active",
+		);
 }
 
 function botIndexUpdateStatement(db: D1DatabaseLike, bot: BotDocument): D1PreparedStatementLike {
@@ -3464,9 +3781,10 @@ async function uniqueUserHandle(db: D1DatabaseLike, preferred: string): Promise<
 async function existingUserHandlesForBase(db: D1DatabaseLike, base: string): Promise<Set<string>> {
 	const result = await db
 		.prepare(
-			`SELECT handle
-			 FROM users_index
-			 WHERE handle = ? OR handle LIKE ? ESCAPE '\\'`,
+			`SELECT key_value AS handle
+			 FROM entity_lifecycle_identity_claims
+			 WHERE key_kind = 'user_handle' AND key_scope = 'global'
+			   AND (key_value = ? OR key_value LIKE ? ESCAPE '\\')`,
 		)
 		.bind(base, suffixedHandleLikePattern(base))
 		.all<ExistingHandleRow>();
@@ -3573,6 +3891,22 @@ function forumSummary(forum: ForumDocument): ForumSummary {
 		createdAt: forum.createdAt,
 		updatedAt: forum.updatedAt,
 	};
+}
+
+export async function rawForumSummaryById(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	forumId: string,
+): Promise<ForumSummary> {
+	const row = await db
+		.prepare(`SELECT forum_id AS id FROM forums_index WHERE forum_id = ? AND deleted_at IS NULL LIMIT 1`)
+		.bind(forumId)
+		.first<{ id: string }>();
+	const forum = row ? await readJson<ForumDocument>(kv, kvKeys.forum(row.id)) : null;
+	if (!forum || forum.deletedAt) {
+		throw new RepositoryError("not_found", "Forum not found.", 404);
+	}
+	return forumSummary(normalizeForumDefaults(forum));
 }
 
 function forumSummaryFromIndexRow(row: ForumSummaryIndexRow): ForumSummary {
@@ -3694,6 +4028,7 @@ async function createPersonalForumForBot(
 	bot: BotDocument,
 	userId: string,
 	now: string,
+	forumId?: string,
 ): Promise<void> {
 	const existing = await db
 		.prepare(`SELECT forum_id AS id FROM forums_index WHERE personal_bot_id = ? AND deleted_at IS NULL`)
@@ -3705,7 +4040,7 @@ async function createPersonalForumForBot(
 
 	const handle = await uniqueForumHandle(db, bot.homeWorldId, bot.handle);
 	const forum: ForumDocument = {
-		id: makeId("frm"),
+		id: forumId ?? makeId("frm"),
 		type: "forum",
 		schemaVersion,
 		revision: 1,
@@ -3731,6 +4066,7 @@ async function createIntroForumForWorld(
 	world: WorldDocument,
 	userId: string,
 	now: string,
+	forumId?: string,
 ): Promise<void> {
 	const existing = await db
 		.prepare(
@@ -3745,7 +4081,7 @@ async function createIntroForumForWorld(
 	}
 
 	const forum: ForumDocument = {
-		id: makeId("frm"),
+		id: forumId ?? makeId("frm"),
 		type: "forum",
 		schemaVersion,
 		revision: 1,
@@ -4647,3 +4983,151 @@ function assignLocalizedTextSetting<T extends { prompt?: LocalizedText }>(
 function hasInferenceText(value: string | LocalizedText | undefined): boolean {
 	return Boolean(localizedTextString(value).trim());
 }
+
+type IdentityClaimInput = {
+	kind: "provider_subject" | "user_handle" | "world_handle" | "bot_handle";
+	scope: string;
+	value: string;
+	entityKind: "account" | "world" | "bot";
+	entityId: string;
+};
+
+async function writeLegacyIndexProjection(
+	db: D1DatabaseLike,
+	input: {
+		claim: IdentityClaimInput;
+		ownerUserId: string;
+		deleted: boolean;
+		now: string;
+		projection: D1PreparedStatementLike;
+	},
+): Promise<void> {
+	const previous = await db.prepare(
+		`SELECT key_scope AS scope, key_value AS value
+		 FROM entity_lifecycle_identity_claims
+		 WHERE key_kind = ? AND entity_kind = ? AND entity_id = ? AND claim_state = 'active'
+		 LIMIT 1`,
+	).bind(input.claim.kind, input.claim.entityKind, input.claim.entityId)
+		.first<{ scope: string; value: string }>();
+	const statements: D1PreparedStatementLike[] = [];
+	if (!input.deleted) {
+		statements.push(activeIdentityClaimStatement(db, {
+			...input.claim,
+			ownerUserId: input.ownerUserId,
+			now: input.now,
+		}));
+	}
+	statements.push(input.projection);
+	if (previous && (input.deleted || previous.scope !== input.claim.scope || previous.value !== input.claim.value)) {
+		statements.push(releaseIdentityClaimStatement(db, {
+			...input.claim,
+			scope: previous.scope,
+			value: previous.value,
+		}));
+	}
+	try {
+		await db.batch(statements);
+	} catch (error) {
+		if (input.deleted) throw error;
+		throw await identityClaimConflict(
+			db,
+			input.claim,
+			error,
+			"The legacy index repair conflicts with a canonical entity identity.",
+		);
+	}
+}
+
+function activeIdentityClaimStatement(
+	db: D1DatabaseLike,
+	input: IdentityClaimInput & { ownerUserId: string; now: string },
+): D1PreparedStatementLike {
+	return db.prepare(
+		`INSERT INTO entity_lifecycle_identity_claims (
+			key_kind, key_scope, key_value, entity_kind, entity_id,
+			owner_user_id, claim_state, operation_id, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?)
+		ON CONFLICT(key_kind, key_scope, key_value) DO UPDATE SET
+			updated_at = excluded.updated_at
+		WHERE entity_lifecycle_identity_claims.entity_kind = excluded.entity_kind
+		  AND entity_lifecycle_identity_claims.entity_id = excluded.entity_id
+		  AND entity_lifecycle_identity_claims.claim_state = 'active'`,
+	).bind(
+		input.kind,
+		input.scope,
+		input.value,
+		input.entityKind,
+		input.entityId,
+		input.ownerUserId,
+		input.now,
+		input.now,
+	);
+}
+
+function releaseIdentityClaimStatement(
+	db: D1DatabaseLike,
+	input: IdentityClaimInput,
+): D1PreparedStatementLike {
+	return db.prepare(
+		`DELETE FROM entity_lifecycle_identity_claims
+		 WHERE key_kind = ? AND key_scope = ? AND key_value = ?
+		   AND entity_kind = ? AND entity_id = ?`,
+	).bind(input.kind, input.scope, input.value, input.entityKind, input.entityId);
+}
+
+async function identityClaimConflict(
+	db: D1DatabaseLike,
+	input: IdentityClaimInput,
+	error: unknown,
+	message: string,
+): Promise<unknown> {
+	if (isD1UniqueConstraintError(error)) {
+		return new RepositoryError("conflict", message, 409);
+	}
+	const claim = await db.prepare(
+		`SELECT entity_kind AS entityKind, entity_id AS entityId
+		 FROM entity_lifecycle_identity_claims
+		 WHERE key_kind = ? AND key_scope = ? AND key_value = ?
+		 LIMIT 1`,
+	).bind(input.kind, input.scope, input.value).first<{ entityKind: string; entityId: string }>();
+	if (claim && (claim.entityKind !== input.entityKind || claim.entityId !== input.entityId)) {
+		return new RepositoryError("conflict", message, 409);
+	}
+	return error;
+}
+
+// Entity mutations are exposed only through explicit coordinator capabilities.
+// Static import-boundary tests restrict these objects to the serialized route
+// and focused lifecycle implementations. Phase 3 must add its concrete
+// migration adapter path to the allowlist; there is intentionally no wildcard.
+export const worldCoordinatorRepositoryMutations = Object.freeze({
+	addBotGroupMembers,
+	createBotGroup,
+	createWorld,
+	deleteBotGroup,
+	removeBotGroupMember,
+	updateBotGroup,
+});
+
+export const userCoordinatorRepositoryMutations = Object.freeze({
+	createBot,
+	deleteBot,
+	deleteBotAvatar,
+	linkProviderIdentity,
+	materializePendingBotAvatar,
+	prepareProviderUserBootstrap,
+	providerBootstrapClaim,
+	providerIdentityUserId,
+	providerUserBootstrapActivationStatements,
+	refreshLinkedCloneIndexes,
+	refreshProviderIdentity,
+	relinkBotClone,
+	softDeleteUserProfile,
+	spreadUserBotTicks,
+	unlinkProviderIdentity,
+	unlinkBotClone,
+	updateBot,
+	updateBotAvatar,
+	updateUserAvatar,
+	updateUserProfile,
+});

@@ -10,6 +10,7 @@ import {
 	type WorldSummary,
 } from "./model";
 import { tombstoneHandle } from "./handles";
+import { isD1UniqueConstraintError } from "./d1-errors";
 import { objectIndexScopeStaleStatement } from "./object-index-scope";
 import { entityIndexVersions } from "./index-versions";
 import {
@@ -48,8 +49,15 @@ import {
 	readJson,
 	writeJson,
 } from "./storage";
+import type { LifecycleFailurePoint } from "./entity-lifecycle";
 
-export async function updateWorld(
+type DeleteWorldOptions = {
+	now?: string;
+	worldId?: string;
+	checkpoint?: (point: LifecycleFailurePoint) => Promise<void>;
+};
+
+async function updateWorld(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	worldHandle: string,
@@ -60,9 +68,6 @@ export async function updateWorld(
 	const world = await worldDocumentByHandle(kv, db, worldHandle);
 	assertWorldOwner(world, userId);
 	const nextHandle = input.handle ?? world.handle;
-	if (nextHandle !== world.handle) {
-		await assertWorldHandleAvailable(db, world.id, nextHandle);
-	}
 	const postingSettings = mergePostingSettings(world.postingSettings, input.postingSettings);
 	const threadSettings = mergeThreadSettings(world.threadSettings, input.threadSettings);
 	const imageGeneration = input.imageGeneration === undefined ?
@@ -80,38 +85,64 @@ export async function updateWorld(
 	};
 	assertWorldRecurringPromptConfiguration(updated);
 	if (nextHandle !== world.handle) {
-		const [projectionResult] = await db.batch([
-			worldIndexProjectionStatement(db, updated),
-			db
-				.prepare(
-					`UPDATE forums_index
+		const results = await (async () => {
+			try {
+				return await db.batch([
+				db.prepare(
+					`INSERT INTO entity_lifecycle_identity_claims (
+						key_kind, key_scope, key_value, entity_kind, entity_id,
+						owner_user_id, claim_state, operation_id, created_at, updated_at
+					) VALUES ('world_handle', 'global', ?, 'world', ?, ?, 'active', NULL, ?, ?)
+					ON CONFLICT(key_kind, key_scope, key_value) DO UPDATE SET
+						updated_at = excluded.updated_at
+					WHERE entity_lifecycle_identity_claims.entity_kind = 'world'
+					  AND entity_lifecycle_identity_claims.entity_id = excluded.entity_id
+					  AND entity_lifecycle_identity_claims.claim_state = 'active'`,
+				).bind(nextHandle, updated.id, updated.createdByUserId, now, now),
+					worldIndexProjectionStatement(db, updated),
+					db.prepare(
+						`UPDATE forums_index
 					 SET world_handle = ?, updated_at = ?
 					 WHERE world_id = ? AND deleted_at IS NULL
 					   AND EXISTS (SELECT 1 FROM worlds_index WHERE world_id = ? AND deleted_at IS NULL)`,
-				)
-				.bind(updated.handle, now, updated.id, updated.id),
-			db
-				.prepare(
-					`UPDATE bots_index
+					).bind(updated.handle, now, updated.id, updated.id),
+					db.prepare(
+						`UPDATE bots_index
 					 SET home_world_handle = ?, updated_at = ?
 					 WHERE home_world_id = ? AND deleted_at IS NULL
 					   AND EXISTS (SELECT 1 FROM worlds_index WHERE world_id = ? AND deleted_at IS NULL)`,
-				)
-				.bind(updated.handle, now, updated.id, updated.id),
-			db
-				.prepare(
-					`UPDATE threads_index
+					).bind(updated.handle, now, updated.id, updated.id),
+					db.prepare(
+						`UPDATE threads_index
 					 SET world_handle = ?
 					 WHERE world_id = ? AND deleted_at IS NULL
 					   AND EXISTS (SELECT 1 FROM worlds_index WHERE world_id = ? AND deleted_at IS NULL)`,
-				)
-				.bind(updated.handle, updated.id, updated.id),
-			objectIndexScopeStaleStatement(
-				db,
-				{ kind: "world", worldId: updated.id },
-				{ includeScopeRoot: false, requireLiveScopeRoot: true },
-			),
-		]);
+					).bind(updated.handle, updated.id, updated.id),
+					objectIndexScopeStaleStatement(
+						db,
+						{ kind: "world", worldId: updated.id },
+						{ includeScopeRoot: false, requireLiveScopeRoot: true },
+					),
+					db.prepare(
+						`DELETE FROM entity_lifecycle_identity_claims
+						 WHERE key_kind = 'world_handle' AND key_scope = 'global' AND key_value = ?
+						   AND entity_kind = 'world' AND entity_id = ?`,
+					).bind(world.handle, updated.id),
+				]);
+			} catch (error) {
+				const claim = await db.prepare(
+				`SELECT entity_kind AS entityKind, entity_id AS entityId
+				 FROM entity_lifecycle_identity_claims
+				 WHERE key_kind = 'world_handle' AND key_scope = 'global' AND key_value = ?
+				 LIMIT 1`,
+				).bind(nextHandle).first<{ entityKind: string; entityId: string }>();
+				if (isD1UniqueConstraintError(error) || claim && (claim.entityKind !== "world" || claim.entityId !== updated.id)) {
+					throw new RepositoryError("conflict", "A world with that handle already exists.", 409);
+				}
+				throw error;
+			}
+		})();
+		const projectionResult = results[1];
 		if ((projectionResult?.meta?.changes ?? 0) < 1) {
 			throw new RepositoryError("not_found", "World not found.", 404);
 		}
@@ -129,7 +160,7 @@ export async function updateWorld(
 	return worldSummaryFromDocument(updated);
 }
 
-export async function updateWorldAvatar(
+async function updateWorldAvatar(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	worldHandle: string,
@@ -160,14 +191,16 @@ export async function updateWorldAvatar(
 	return worldSummaryFromDocument(updated);
 }
 
-export async function deleteWorld(
+async function deleteWorld(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	worldHandle: string,
 	userId: string,
-	now = new Date().toISOString(),
+	options: DeleteWorldOptions | string = {},
 ): Promise<WorldSummary> {
-	const world = await worldDocumentByHandle(kv, db, worldHandle);
+	const deleteOptions = typeof options === "string" ? { now: options } : options;
+	const now = deleteOptions.now ?? new Date().toISOString();
+	const world = await worldDocumentForDeletion(kv, db, worldHandle, deleteOptions.worldId);
 	assertWorldOwner(world, userId);
 	const activeBots = await db
 		.prepare(
@@ -181,10 +214,8 @@ export async function deleteWorld(
 		throw new RepositoryError("forbidden", "Worlds can only be deleted after all bots in them are deleted.", 403);
 	}
 
-	await softDeleteBotGroupsForWorld(db, world.id, now);
-
 	const tombstonedHandle = tombstoneHandle(world.id);
-	const deleted: WorldDocument = {
+	const deleted: WorldDocument = world.deletedAt ? world : {
 		...world,
 		handle: tombstonedHandle,
 		handleAtDeletion: world.handleAtDeletion ?? world.handle,
@@ -192,14 +223,41 @@ export async function deleteWorld(
 		updatedAt: now,
 		deletedAt: now,
 	};
+	await softDeleteBotGroupsForWorld(db, world.id, deleted.deletedAt);
 	await writeJson(kv, kvKeys.world(deleted.id), deleted);
+	await deleteOptions.checkpoint?.("world.delete.kv");
 	await db
-		.prepare(`UPDATE worlds_index SET handle = ?, updated_at = ?, deleted_at = ? WHERE world_id = ? AND deleted_at IS NULL`)
-		.bind(tombstonedHandle, now, now, deleted.id)
+		.prepare(`UPDATE worlds_index SET handle = ?, updated_at = ?, deleted_at = ? WHERE world_id = ?`)
+		.bind(tombstonedHandle, deleted.updatedAt, deleted.deletedAt, deleted.id)
 		.run();
 	await upsertWorldSearchIndex(db, deleted);
 	await putObjectIndex(db, deleted, "world", entityIndexVersions.world, deleted.id);
+	await deleteOptions.checkpoint?.("world.delete.indexes.d1");
 	return worldSummaryFromDocument(deleted);
+}
+
+async function worldDocumentForDeletion(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldHandle: string,
+	worldId?: string,
+): Promise<WorldDocument> {
+	const row = await db
+		.prepare(`SELECT world_id AS id FROM worlds_index WHERE ${worldId ? "world_id" : "handle"} = ? LIMIT 1`)
+		.bind(worldId ?? worldHandle)
+		.first<{ id: string }>();
+	if (!row) {
+		throw new RepositoryError("not_found", "World not found.", 404);
+	}
+	const world = await readJson<WorldDocument>(kv, kvKeys.world(row.id));
+	if (!world) {
+		throw new RepositoryError("not_found", "World not found.", 404);
+	}
+	const normalized = normalizeWorldDefaults(world);
+	if ((normalized.handleAtDeletion ?? normalized.handle) !== worldHandle) {
+		throw new RepositoryError("conflict", "World deletion identity changed during retry.", 409);
+	}
+	return normalized;
 }
 
 export async function updateForum(
@@ -493,20 +551,6 @@ async function userOwnsWorld(
 	return Boolean(row);
 }
 
-async function assertWorldHandleAvailable(
-	db: D1DatabaseLike,
-	currentWorldId: string,
-	handle: string,
-): Promise<void> {
-	const existing = await db
-		.prepare(`SELECT world_id AS id FROM worlds_index WHERE handle = ? AND deleted_at IS NULL`)
-		.bind(handle)
-		.first<{ id: string }>();
-	if (existing && existing.id !== currentWorldId) {
-		throw new RepositoryError("conflict", "A world with that handle already exists.", 409);
-	}
-}
-
 async function assertForumHandleAvailable(
 	db: D1DatabaseLike,
 	worldId: string,
@@ -553,3 +597,9 @@ function forumSummary(forum: ForumDocument): ForumSummary {
 		updatedAt: forum.updatedAt,
 	};
 }
+
+export const coordinatorGovernanceMutations = Object.freeze({
+	deleteWorld,
+	updateWorld,
+	updateWorldAvatar,
+});

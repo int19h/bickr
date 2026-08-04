@@ -481,7 +481,7 @@ async function loadSearchVectorReindexChunk(
 				NULL AS shortBio,
 				NULL AS shortBioLang
 			 FROM worlds_index
-			 WHERE deleted_at IS NULL
+			 WHERE deleted_at IS NULL AND lifecycle_state = 'active'
 			 UNION ALL
 			 SELECT
 				'1:' || forum_id AS cursorKey,
@@ -499,8 +499,13 @@ async function loadSearchVectorReindexChunk(
 				NULL AS displayNameLang,
 				NULL AS shortBio,
 				NULL AS shortBioLang
-			 FROM forums_index
-			 WHERE deleted_at IS NULL
+				 FROM forums_index forums
+				 WHERE deleted_at IS NULL
+				   AND EXISTS (
+					SELECT 1 FROM worlds_index worlds
+					WHERE worlds.world_id = forums.world_id
+					  AND worlds.deleted_at IS NULL AND worlds.lifecycle_state = 'active'
+				   )
 			 UNION ALL
 			 SELECT
 				'2:' || bot_id AS cursorKey,
@@ -519,7 +524,7 @@ async function loadSearchVectorReindexChunk(
 				short_bio AS shortBio,
 				short_bio_lang AS shortBioLang
 			 FROM bots_index
-			 WHERE deleted_at IS NULL
+			 WHERE deleted_at IS NULL AND lifecycle_state = 'active'
 		 )
 		 WHERE cursorKey > ?
 		 ORDER BY cursorKey ASC
@@ -692,7 +697,7 @@ function searchRowsSql(input: {
 					lower(w.name) AS sortName
 				 FROM fts_matches fts
 				 JOIN worlds_index w ON fts.entity_type = 'world' AND fts.entity_id = w.world_id
-				 WHERE w.deleted_at IS NULL
+				 WHERE w.deleted_at IS NULL AND w.lifecycle_state = 'active'
 				 UNION ALL
 				SELECT
 					'forum' AS type,
@@ -725,7 +730,7 @@ function searchRowsSql(input: {
 					lower(f.description) AS sortName
 				 FROM fts_matches fts
 				 JOIN forums_index f ON fts.entity_type = 'forum' AND fts.entity_id = f.forum_id
-				 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
+				 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
 				 WHERE f.deleted_at IS NULL
 				   AND f.personal_bot_id IS NULL
 				 UNION ALL
@@ -761,8 +766,8 @@ function searchRowsSql(input: {
 					lower(b.display_name) AS sortName
 				 FROM fts_matches fts
 				 JOIN bots_index b ON fts.entity_type = 'bot' AND fts.entity_id = b.bot_id
-				 JOIN worlds_index w ON w.world_id = b.home_world_id AND w.deleted_at IS NULL
-				 WHERE b.deleted_at IS NULL
+				 JOIN worlds_index w ON w.world_id = b.home_world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
+				 WHERE b.deleted_at IS NULL AND b.lifecycle_state = 'active'
 			 )`
 		:	`candidates AS (
 				SELECT
@@ -797,7 +802,7 @@ function searchRowsSql(input: {
 					lower(w.handle) AS sortHandle,
 					lower(w.name) AS sortName
 				 FROM worlds_index w
-				 WHERE w.deleted_at IS NULL
+				 WHERE w.deleted_at IS NULL AND w.lifecycle_state = 'active'
 				 UNION ALL
 				SELECT
 					'forum' AS type,
@@ -830,7 +835,7 @@ function searchRowsSql(input: {
 					lower(f.handle) AS sortHandle,
 					lower(f.description) AS sortName
 				 FROM forums_index f
-				 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
+				 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
 				 WHERE f.deleted_at IS NULL
 				   AND f.personal_bot_id IS NULL
 				 UNION ALL
@@ -866,8 +871,8 @@ function searchRowsSql(input: {
 					lower(b.handle) AS sortHandle,
 					lower(b.display_name) AS sortName
 				 FROM bots_index b
-				 JOIN worlds_index w ON w.world_id = b.home_world_id AND w.deleted_at IS NULL
-				 WHERE b.deleted_at IS NULL
+				 JOIN worlds_index w ON w.world_id = b.home_world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
+				 WHERE b.deleted_at IS NULL AND b.lifecycle_state = 'active'
 			 )`;
 	return `WITH ${candidates},
 		filtered AS (
@@ -934,6 +939,7 @@ function appendSearchFilters(conditions: string[], binds: unknown[], options: Se
 			OR (type = 'world' AND EXISTS (
 				SELECT 1 FROM bots_index filter_bot
 				WHERE filter_bot.home_world_id = candidates.worldId
+				  AND filter_bot.lifecycle_state = 'active'
 				  AND filter_bot.handle = ?
 				  AND filter_bot.deleted_at IS NULL
 			))
@@ -973,6 +979,7 @@ function forumHasUsernameSql(forumIdExpression: string): string {
 		WHERE filter_thread.forum_id = ${forumIdExpression}
 		  AND filter_thread.deleted_at IS NULL
 		  AND filter_bot.deleted_at IS NULL
+		  AND filter_bot.lifecycle_state = 'active'
 		  AND filter_bot.handle = ?
 		UNION ALL
 		SELECT 1
@@ -981,6 +988,7 @@ function forumHasUsernameSql(forumIdExpression: string): string {
 		WHERE filter_comment.forum_id = ${forumIdExpression}
 		  AND filter_comment.deleted_at IS NULL
 		  AND filter_bot.deleted_at IS NULL
+		  AND filter_bot.lifecycle_state = 'active'
 		  AND filter_bot.handle = ?
 	)`;
 }
@@ -1048,6 +1056,7 @@ async function hydrateSemanticType(
 			conditions.push(`EXISTS (
 				SELECT 1 FROM bots_index filter_bot
 				WHERE filter_bot.home_world_id = w.world_id
+				  AND filter_bot.lifecycle_state = 'active'
 				  AND filter_bot.handle = ?
 				  AND filter_bot.deleted_at IS NULL
 			)`);
@@ -1086,7 +1095,7 @@ async function hydrateSemanticType(
 				0 AS total
 			 FROM worlds_index w
 			 WHERE w.world_id IN (${placeholders})
-			   AND w.deleted_at IS NULL${whereTail}`
+			   AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'${whereTail}`
 		: type === "forum" ?
 			`SELECT
 				'forum' AS type,
@@ -1113,7 +1122,7 @@ async function hydrateSemanticType(
 				0 AS score,
 				0 AS total
 			 FROM forums_index f
-			 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
+			 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
 			 WHERE f.forum_id IN (${placeholders})
 			   AND f.deleted_at IS NULL
 			   AND f.personal_bot_id IS NULL${whereTail}`
@@ -1142,9 +1151,9 @@ async function hydrateSemanticType(
 				0 AS score,
 				0 AS total
 			 FROM bots_index b
-			 JOIN worlds_index w ON w.world_id = b.home_world_id AND w.deleted_at IS NULL
+			 JOIN worlds_index w ON w.world_id = b.home_world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
 			 WHERE b.bot_id IN (${placeholders})
-			   AND b.deleted_at IS NULL${whereTail}`;
+			   AND b.deleted_at IS NULL AND b.lifecycle_state = 'active'${whereTail}`;
 	const result = await db.prepare(sql).bind(...ids, ...binds).all<SearchSqlRow>();
 	return result.results ?? [];
 }

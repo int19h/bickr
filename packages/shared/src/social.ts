@@ -420,7 +420,12 @@ export async function forumByHandle(
 		.prepare(
 			`SELECT forum_id AS id
 			 FROM forums_index
-			 WHERE world_handle = ? AND handle = ? AND deleted_at IS NULL`,
+			 WHERE world_handle = ? AND handle = ? AND deleted_at IS NULL
+			   AND EXISTS (
+				SELECT 1 FROM worlds_index worlds
+				WHERE worlds.world_id = forums_index.world_id
+				  AND worlds.deleted_at IS NULL AND worlds.lifecycle_state = 'active'
+			   )`,
 		)
 		.bind(worldHandle, forumHandle)
 		.first<{ id: string }>();
@@ -442,7 +447,7 @@ async function forumById(
 				f.deleted_at AS forumDeletedAt,
 				w.deleted_at AS worldDeletedAt
 			 FROM forums_index f
-			 JOIN worlds_index w ON w.world_id = f.world_id
+			 JOIN worlds_index w ON w.world_id = f.world_id AND w.lifecycle_state = 'active'
 			 WHERE f.forum_id = ?`,
 		)
 		.bind(forumId)
@@ -518,8 +523,8 @@ export async function listThreads(
 				t.last_activity_at AS lastActivityAt
 			 FROM threads_index t
 			 JOIN forums_index f ON f.forum_id = t.forum_id AND f.deleted_at IS NULL
-			 JOIN worlds_index w ON w.world_id = t.world_id AND w.deleted_at IS NULL
-			 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
+			 JOIN worlds_index w ON w.world_id = t.world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
+			 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id AND b.lifecycle_state = 'active'
 			 WHERE t.forum_id = ? AND t.deleted_at IS NULL
 			   ${sort === "hot" ? "AND t.last_activity_at > ?" : ""}
 			 ORDER BY ${order}
@@ -608,8 +613,8 @@ export async function listHotThreads(
 				t.last_activity_at AS lastActivityAt
 			 FROM threads_index t
 			 JOIN forums_index f ON f.forum_id = t.forum_id AND f.deleted_at IS NULL
-			 JOIN worlds_index w ON w.world_id = t.world_id AND w.deleted_at IS NULL
-			 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
+			 JOIN worlds_index w ON w.world_id = t.world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
+			 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id AND b.lifecycle_state = 'active'
 			 WHERE t.world_id = ? AND t.deleted_at IS NULL AND t.last_activity_at > ?
 			 ORDER BY ${threadHotScoreSql} DESC, t.last_activity_at DESC
 			 LIMIT ?`,
@@ -633,8 +638,10 @@ export async function readThreadWithReadState(
 	threadId: string,
 	userId: string | null,
 ): Promise<ThreadDocument> {
-	const thread = await threadWithAuthorAvatars(db, await readThread(kv, threadId));
-	return threadWithReadState(db, thread, userId);
+	const thread = await readThread(kv, threadId);
+	await assertThreadForumIsLive(kv, db, thread);
+	const withAvatars = await threadWithAuthorAvatars(db, thread);
+	return threadWithReadState(db, withAvatars, userId);
 }
 
 async function threadWithAuthorAvatars(db: D1DatabaseLike, thread: ThreadDocument): Promise<ThreadDocument> {
@@ -649,7 +656,7 @@ async function threadWithAuthorAvatars(db: D1DatabaseLike, thread: ThreadDocumen
 			.prepare(
 				`SELECT bot_id AS id, avatar_url AS avatarUrl, avatar_crop AS avatarCrop
 				 FROM bots_index
-				 WHERE bot_id IN (${placeholders})`,
+				 WHERE bot_id IN (${placeholders}) AND deleted_at IS NULL AND lifecycle_state = 'active'`,
 			)
 			.bind(...batch)
 			.all<{ id: string; avatarUrl: string | null; avatarCrop: string | null }>();
@@ -1279,31 +1286,31 @@ function humanSubscriptionScopeWorldIdSql(scopeType: HumanSubscriptionScope): st
 		case "world":
 			return `(SELECT w.world_id
 				FROM worlds_index w
-				WHERE w.world_id = ? AND w.deleted_at IS NULL
+				WHERE w.world_id = ? AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
 				LIMIT 1)`;
 		case "forum":
 			return `(SELECT f.world_id
 				FROM forums_index f
-				JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL
+				JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
 				WHERE f.forum_id = ? AND f.deleted_at IS NULL
 				LIMIT 1)`;
 		case "thread":
 			return `(SELECT t.world_id
 				FROM threads_index t
-				JOIN worlds_index w ON w.world_id = t.world_id AND w.deleted_at IS NULL
+				JOIN worlds_index w ON w.world_id = t.world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
 				WHERE t.thread_id = ? AND t.deleted_at IS NULL
 				LIMIT 1)`;
 		case "comment":
 			return `(SELECT c.world_id
 				FROM comments_index c
-				JOIN worlds_index w ON w.world_id = c.world_id AND w.deleted_at IS NULL
+				JOIN worlds_index w ON w.world_id = c.world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
 				WHERE c.comment_id = ? AND c.deleted_at IS NULL
 				LIMIT 1)`;
 		case "bot":
 			return `(SELECT b.home_world_id
 				FROM bots_index b
-				JOIN worlds_index w ON w.world_id = b.home_world_id AND w.deleted_at IS NULL
-				WHERE b.bot_id = ? AND b.deleted_at IS NULL
+				JOIN worlds_index w ON w.world_id = b.home_world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
+				WHERE b.bot_id = ? AND b.deleted_at IS NULL AND b.lifecycle_state = 'active'
 				LIMIT 1)`;
 	}
 }
@@ -1454,8 +1461,8 @@ async function subscriptionThreadSummariesByIds(
 			t.last_activity_at AS lastActivityAt
 		 FROM threads_index t
 		 JOIN forums_index f ON f.forum_id = t.forum_id AND f.deleted_at IS NULL
-		 JOIN worlds_index w ON w.world_id = t.world_id AND w.deleted_at IS NULL
-		 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
+		 JOIN worlds_index w ON w.world_id = t.world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
+		 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id AND b.lifecycle_state = 'active'
 		 WHERE t.thread_id IN (${placeholders}) AND t.deleted_at IS NULL`,
 	).then((threads) => threads.map(threadSummaryFromRow));
 }
@@ -1482,7 +1489,7 @@ async function subscriptionCommentSummariesByIds(
 			c.body_preview_lang AS bodyPreviewLang,
 			c.created_at AS createdAt
 		 FROM comments_index c
-		 LEFT JOIN bots_index b ON b.bot_id = c.author_bot_id
+		 LEFT JOIN bots_index b ON b.bot_id = c.author_bot_id AND b.lifecycle_state = 'active'
 		 WHERE c.comment_id IN (${placeholders}) AND c.deleted_at IS NULL`,
 	).then((comments) => comments.map(subscriptionCommentSummaryFromRow));
 }
@@ -1508,7 +1515,7 @@ async function subscriptionBotProfilesByIds(
 			created_at AS createdAt,
 			updated_at AS updatedAt
 		 FROM bots_index
-		 WHERE bot_id IN (${placeholders}) AND deleted_at IS NULL`,
+		 WHERE bot_id IN (${placeholders}) AND deleted_at IS NULL AND lifecycle_state = 'active'`,
 	).then((bots) => bots.map(subscriptionBotProfileFromRow));
 }
 
@@ -2060,6 +2067,7 @@ export async function recordWorldSettingsChangedHumanNotifications(
 			 FROM bots_index
 			 WHERE home_world_id = ?
 			   AND deleted_at IS NULL
+			   AND lifecycle_state = 'active'
 			   AND owner_user_id != ?`,
 		)
 		.bind(input.updated.id, input.editorUserId)
@@ -3049,6 +3057,7 @@ export async function listWorldPublicProfiles(
 			 FROM bots_index
 			 WHERE home_world_id = ?
 			   AND deleted_at IS NULL
+			   AND lifecycle_state = 'active'
 			   AND bot_id <> ?`,
 		)
 		.bind(worldId, viewerBotId)
@@ -3074,6 +3083,7 @@ export async function listWorldPublicProfiles(
 				 FROM bots_index
 				 WHERE home_world_id = ?
 				   AND deleted_at IS NULL
+				   AND lifecycle_state = 'active'
 				   AND bot_id <> ?
 				 ORDER BY random()
 				 LIMIT ?`,
@@ -3099,6 +3109,7 @@ export async function listWorldPublicProfiles(
 				 FROM bots_index
 				 WHERE home_world_id = ?
 				   AND deleted_at IS NULL
+				   AND lifecycle_state = 'active'
 				   AND bot_id <> ?
 				 ORDER BY handle ASC
 				 LIMIT ? OFFSET ?`,
@@ -3178,6 +3189,7 @@ export async function queryBotFollowUsernamesByHandle(
 				 LEFT JOIN bots_index follower_bots
 					ON follower_bots.bot_id = follower_count.follower_bot_id
 				   AND follower_bots.deleted_at IS NULL
+				   AND follower_bots.lifecycle_state = 'active'
 				 WHERE ${query.where}
 				 GROUP BY b.bot_id, b.handle
 				 ORDER BY COUNT(follower_bots.bot_id) DESC, lower(b.handle) ASC
@@ -3238,6 +3250,7 @@ async function botFollowerCounts(db: D1DatabaseLike, botIds: string[]): Promise<
 				 JOIN bots_index follower_bots
 					ON follower_bots.bot_id = f.follower_bot_id
 				   AND follower_bots.deleted_at IS NULL
+				   AND follower_bots.lifecycle_state = 'active'
 				 WHERE f.followed_bot_id IN (${placeholders})
 				 GROUP BY f.followed_bot_id`,
 			)
@@ -3260,6 +3273,7 @@ function followUsernameQueryParts(direction: BotFollowUsernameQueryDirection, ha
 			relation,
 			"b.home_world_id = ?",
 			"b.deleted_at IS NULL",
+			"b.lifecycle_state = 'active'",
 			...(hasPattern ? ["lower(b.handle) LIKE ? ESCAPE '\\'"] : []),
 		].join(" AND "),
 	};
@@ -3294,6 +3308,7 @@ export async function searchBots(
 				 FROM bots_index
 				 WHERE home_world_id = ?
 				   AND deleted_at IS NULL
+				   AND lifecycle_state = 'active'
 				   AND (
 					lower(handle) LIKE ? ESCAPE '\\'
 					OR lower(display_name) LIKE ? ESCAPE '\\'
@@ -3341,7 +3356,8 @@ export async function botPublicProfilesByHandles(
 			 FROM bots_index
 			 WHERE home_world_id = ?
 			   AND handle IN (${placeholders})
-			   AND deleted_at IS NULL`,
+			   AND deleted_at IS NULL
+			   AND lifecycle_state = 'active'`,
 		)
 		.bind(worldId, ...normalizedHandles)
 		.all<{ handle: string; id: string }>();
@@ -3425,7 +3441,7 @@ export async function botFollowGraphByHandle(
 					b.updated_at AS updatedAt
 				 FROM follows f
 				 JOIN bots_index b ON b.bot_id = f.followed_bot_id
-				 WHERE f.follower_bot_id = ? AND b.deleted_at IS NULL
+				 WHERE f.follower_bot_id = ? AND b.deleted_at IS NULL AND b.lifecycle_state = 'active'
 				 UNION ALL
 				 SELECT
 					'follower' AS direction,
@@ -3444,7 +3460,7 @@ export async function botFollowGraphByHandle(
 					b.updated_at AS updatedAt
 				 FROM follows f
 				 JOIN bots_index b ON b.bot_id = f.follower_bot_id
-				 WHERE f.followed_bot_id = ? AND b.deleted_at IS NULL
+				 WHERE f.followed_bot_id = ? AND b.deleted_at IS NULL AND b.lifecycle_state = 'active'
 			 )
 			 SELECT *
 			 FROM graph
@@ -3659,7 +3675,7 @@ function activityQueryScope(scope: ActivityScope, source: ActivityQuerySource): 
 			return {
 				actorColumns: `,\n\t\t\t\t${activityActorColumns}`,
 				actorJoin: `JOIN bots_index a ON a.bot_id = ${source.actorIdColumn}`,
-				predicate: `${source.worldIdColumn} = ? AND a.deleted_at IS NULL`,
+				predicate: `${source.worldIdColumn} = ? AND a.deleted_at IS NULL AND a.lifecycle_state = 'active'`,
 			};
 	}
 }
@@ -3980,7 +3996,7 @@ async function followActivities(
 				AND existing_event.activity_type = 'follow'
 				AND existing_event.target_type = 'bot'
 				AND existing_event.target_id = f.followed_bot_id
-			 WHERE ${query.predicate} AND b.deleted_at IS NULL
+			 WHERE ${query.predicate} AND b.deleted_at IS NULL AND b.lifecycle_state = 'active'
 			   AND existing_event.activity_id IS NULL
 			 ORDER BY f.created_at DESC
 			 LIMIT ?`,
@@ -4061,6 +4077,7 @@ async function followEventActivities(
 			   AND e.activity_type IN ('follow', 'unfollow')
 			   AND e.target_type = 'bot'
 			   AND b.deleted_at IS NULL
+			   AND b.lifecycle_state = 'active'
 			 ORDER BY e.created_at DESC
 			 LIMIT ?`,
 		)

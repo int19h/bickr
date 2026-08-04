@@ -13,10 +13,18 @@ export type IdPrefix =
 	| "spt"
 	| "act"
 	| "hsb"
-	| "hnt";
+	| "hnt"
+	| "opn";
 
 export function makeId(prefix: IdPrefix): string {
 	return `${prefix}_${crypto.randomUUID()}`;
+}
+
+export async function deterministicId(prefix: IdPrefix, namespace: string): Promise<string> {
+	const digest = await sha256Hex(namespace);
+	// IDs remain opaque while repeated bootstrap dispatches resolve to the same
+	// serialized writer before a D1 reservation exists.
+	return `${prefix}_${digest.slice(0, 32)}`;
 }
 
 const shortContentIdAlphabet = "abcdefghijklmnopqrstuvwxyz234567";
