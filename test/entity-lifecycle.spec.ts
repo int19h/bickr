@@ -17,6 +17,7 @@ import {
 	reserveAccountCreateLifecycle,
 	reserveOwnedCreateLifecycle,
 	serializedLifecycleRequest,
+	terminalLifecycleCleanupDeleteSql,
 	type LifecycleOperation,
 } from "@bickr/shared/entity-lifecycle";
 import { localizedText, schemaVersion, type UserDocument } from "@bickr/shared/model";
@@ -325,6 +326,20 @@ describe("entity lifecycle foundation", () => {
 		const participantDetails = (participantPlan.results ?? []).map((row) => row.detail);
 		expect(participantDetails.some((detail) => detail.includes("sqlite_autoindex_worlds_index_1"))).toBe(true);
 		expect(participantDetails.some((detail) => detail.includes("sqlite_autoindex_users_index_1"))).toBe(true);
+	});
+
+	it("uses the operation child-key index for terminal cleanup cascades", async () => {
+		const plan = await testEnv.BICKR_D1.prepare(
+			`EXPLAIN QUERY PLAN ${terminalLifecycleCleanupDeleteSql}`,
+		).bind("2026-09-04T00:00:00.000Z", 100).all<{ detail: string }>();
+		const details = (plan.results ?? []).map((row) => row.detail);
+		expect(details.some((detail) =>
+			/\bSCAN entity_lifecycle_identity_claims\b/u.test(detail),
+		)).toBe(false);
+		expect(details.some((detail) =>
+			detail.startsWith("SEARCH entity_lifecycle_identity_claims ") &&
+			detail.includes("entity_lifecycle_identity_claims_operation (operation_id=?)"),
+		)).toBe(true);
 	});
 
 	it("does not move an entity when compensation receives a stale terminal operation", async () => {

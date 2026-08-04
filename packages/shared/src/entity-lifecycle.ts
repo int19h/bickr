@@ -1214,6 +1214,17 @@ export async function claimDueLifecycleRecoveryOwners(
 	return result.results ?? [];
 }
 
+export const terminalLifecycleCleanupDeleteSql =
+	`DELETE FROM entity_lifecycle_operations
+	 WHERE operation_id IN (
+		SELECT operation_id
+		FROM entity_lifecycle_operations
+		WHERE terminal_cleanup_at IS NOT NULL AND terminal_cleanup_at <= ?
+		ORDER BY terminal_cleanup_at ASC, operation_id ASC
+		LIMIT ?
+	 )
+	 RETURNING operation_id AS operationId`;
+
 export async function cleanupTerminalLifecycleOperations(
 	db: D1DatabaseLike,
 	now: string,
@@ -1221,17 +1232,7 @@ export async function cleanupTerminalLifecycleOperations(
 ): Promise<number> {
 	const boundedLimit = Math.max(1, Math.min(500, Math.floor(limit)));
 	const result = await db
-		.prepare(
-			`DELETE FROM entity_lifecycle_operations
-			 WHERE operation_id IN (
-				SELECT operation_id
-				FROM entity_lifecycle_operations
-				WHERE terminal_cleanup_at IS NOT NULL AND terminal_cleanup_at <= ?
-				ORDER BY terminal_cleanup_at ASC, operation_id ASC
-				LIMIT ?
-			 )
-			 RETURNING operation_id AS operationId`,
-		)
+		.prepare(terminalLifecycleCleanupDeleteSql)
 		.bind(now, boundedLimit)
 		.all<{ operationId: string }>();
 	return result.results?.length ?? 0;

@@ -150,6 +150,12 @@ CREATE TABLE entity_lifecycle_identity_claims (
 CREATE INDEX entity_lifecycle_identity_claims_entity
 	ON entity_lifecycle_identity_claims (entity_kind, entity_id, key_kind);
 
+-- Terminal-operation retention cleanup deletes operation parents in bounded
+-- batches. Index the cascading child key so each parent delete finds only its
+-- pending claims instead of scanning the platform-wide identity namespace.
+CREATE INDEX entity_lifecycle_identity_claims_operation
+	ON entity_lifecycle_identity_claims (operation_id);
+
 -- Bot/world/account reservation guards start with kind+world scope and then
 -- inspect ownership. This covering index keeps those atomic NOT EXISTS checks
 -- out of the append-only operation history and avoids an all-claims scan.
