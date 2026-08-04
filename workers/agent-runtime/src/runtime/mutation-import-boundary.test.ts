@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import * as ts from "typescript";
 import { describe, expect, it } from "vitest";
 
@@ -58,8 +58,6 @@ const expectedGovernanceMutationNames = [
 	"updateWorldAvatar",
 ] as const;
 
-// These historical side-door names remain protected even though the current
-// repository intentionally has no capability member with that name.
 const retiredRepositoryMutationNames = [
 	"providerIdentityUserId",
 	"upsertProviderUser",
@@ -72,132 +70,297 @@ const userCoordinatorModules = new Set([
 ]);
 const worldCoordinatorModule = "workers/forum-coordinator/src/index.ts";
 const accountBootstrapReservationModule = "workers/agent-runtime/src/lifecycle/account-bootstrap-reservation.ts";
+const repositoryModule = "packages/shared/src/repository.ts";
+const governanceModule = "packages/shared/src/governance.ts";
 
 describe("serialized entity mutation import boundary", () => {
 	it("allows coordinator mutation capabilities only at the narrow serialized writer modules", () => {
-		const repositorySource = readFileSync(resolve(process.cwd(), "packages/shared/src/repository.ts"), "utf8");
-		const governanceSource = readFileSync(resolve(process.cwd(), "packages/shared/src/governance.ts"), "utf8");
+		const repositorySource = readFileSync(resolve(process.cwd(), repositoryModule), "utf8");
+		const governanceSource = readFileSync(resolve(process.cwd(), governanceModule), "utf8");
 		for (const capability of repositoryCapabilities) {
 			expect(capabilityMembers(repositorySource, capability).sort()).toEqual(
 				[...expectedRepositoryCapabilityMembers[capability]].sort(),
 			);
 		}
-		const governanceCapabilityMembers = capabilityMembers(governanceSource, "coordinatorGovernanceMutations");
-		expect(governanceCapabilityMembers.sort()).toEqual([...expectedGovernanceMutationNames].sort());
-		const repositoryMutationNames = new Set([
+		expect(capabilityMembers(governanceSource, "coordinatorGovernanceMutations").sort())
+			.toEqual([...expectedGovernanceMutationNames].sort());
+		const repositoryMutationNames = new Set<string>([
 			...repositoryCapabilities.flatMap((capability) => expectedRepositoryCapabilityMembers[capability]),
 			...retiredRepositoryMutationNames,
 		]);
-		const governanceMutationNames = new Set(expectedGovernanceMutationNames);
-		const violations: string[] = [];
-		for (const filename of typescriptFiles(resolve(process.cwd()))) {
-			const path = relative(process.cwd(), filename).replaceAll("\\", "/");
-			const source = readFileSync(filename, "utf8");
-			if (namedImport(source, "userCoordinatorRepositoryMutations", /(?:@bickr\/shared\/repository|packages\/shared\/src\/repository)/u) && !userCoordinatorModules.has(path)) {
-				violations.push(`${path}: imports the user-coordinator mutation capability`);
-			}
-			if (namedImport(source, "accountBootstrapReservationRepositoryMutations", /(?:@bickr\/shared\/repository|packages\/shared\/src\/repository)/u) && path !== accountBootstrapReservationModule) {
-				violations.push(`${path}: imports the pre-dispatch account-bootstrap reservation capability`);
-			}
-			if (namedImport(source, "worldCoordinatorRepositoryMutations", /(?:@bickr\/shared\/repository|packages\/shared\/src\/repository)/u) && path !== worldCoordinatorModule) {
-				violations.push(`${path}: imports the world-coordinator repository mutation capability`);
-			}
-			if (namedImport(source, "coordinatorGovernanceMutations", /(?:@bickr\/shared\/governance|packages\/shared\/src\/governance)/u) && path !== worldCoordinatorModule) {
-				violations.push(`${path}: imports the world-coordinator governance mutation capability`);
-			}
-			if (namedImport(source, "coordinatorRepositoryMutations", /(?:@bickr\/shared\/repository|packages\/shared\/src\/repository)/u)) {
-				violations.push(`${path}: imports the retired monolithic coordinator capability`);
-			}
-			if (namespaceImport(source, /(?:@bickr\/shared\/repository|packages\/shared\/src\/repository)/u)) {
-				violations.push(`${path}: namespace-imports the repository and can bypass mutation capabilities`);
-			}
-			if (namespaceImport(source, /(?:@bickr\/shared\/governance|packages\/shared\/src\/governance)/u)) {
-				violations.push(`${path}: namespace-imports governance and can bypass mutation capabilities`);
-			}
-			if (dynamicImport(source, /(?:@bickr\/shared\/repository|packages\/shared\/src\/repository)/u)) {
-				violations.push(`${path}: dynamically imports the repository and can bypass mutation capabilities`);
-			}
-			if (dynamicImport(source, /(?:@bickr\/shared\/governance|packages\/shared\/src\/governance)/u)) {
-				violations.push(`${path}: dynamically imports governance and can bypass mutation capabilities`);
-			}
-			for (const name of repositoryMutationNames) {
-				if (path === "packages/shared/src/repository.ts" && exportedFunction(source, name)) {
-					violations.push(`${path}: unrestricted repository mutation export ${name}`);
-				}
-				if (namedImport(source, name, /(?:@bickr\/shared\/repository|packages\/shared\/src\/repository)/u)) {
-					violations.push(`${path}: directly imports repository mutation ${name}`);
-				}
-			}
-			for (const name of governanceMutationNames) {
-				if (path === "packages/shared/src/governance.ts" && exportedFunction(source, name)) {
-					violations.push(`${path}: unrestricted governance mutation export ${name}`);
-				}
-				if (namedImport(source, name, /(?:@bickr\/shared\/governance|packages\/shared\/src\/governance)/u)) {
-					violations.push(`${path}: directly imports governance mutation ${name}`);
-				}
-			}
-		}
+		const governanceMutationNames = new Set<string>(expectedGovernanceMutationNames);
+		const violations = typescriptFiles(resolve(process.cwd())).flatMap((filename) =>
+			mutationBoundaryViolations(
+				filename,
+				readFileSync(filename, "utf8"),
+				repositoryMutationNames,
+				governanceMutationNames,
+			));
 		expect(violations).toEqual([]);
 	});
 
-	it("detects forbidden dynamic mutation-module imports", () => {
-		const repositoryImport = ['const load = () => import("@bickr/shared/repository");'].join("");
-		const governanceImport = ['const load = () => import("../../packages/shared/src/governance");'].join("");
-		expect(dynamicImport(repositoryImport, /(?:@bickr\/shared\/repository|packages\/shared\/src\/repository)/u)).toBe(true);
-		expect(dynamicImport(governanceImport, /(?:@bickr\/shared\/governance|packages\/shared\/src\/governance)/u)).toBe(true);
+	it("detects relative, dynamic, import-equals, default-export, re-export, and exported-const side doors", () => {
+		const repositoryNames = new Set<string>(["deleteBot", "createWorld"]);
+		const governanceNames = new Set<string>(["deleteWorld"]);
+		const sibling = resolve(process.cwd(), "packages/shared/src/social.ts");
+		const page = resolve(process.cwd(), "apps/web/functions/bypass.ts");
+		expect(mutationBoundaryViolations(
+			sibling,
+			'export { deleteBot } from "./repository";',
+			repositoryNames,
+			governanceNames,
+		)).toContain(`${relativePath(sibling)}: re-exports repository mutation deleteBot`);
+		expect(mutationBoundaryViolations(
+			page,
+			'const load = () => import("../../../packages/shared/src/governance");',
+			repositoryNames,
+			governanceNames,
+		)).toContain(`${relativePath(page)}: dynamically imports governance and can bypass mutation capabilities`);
+		expect(mutationBoundaryViolations(
+			page,
+			'import repository = require("../../../packages/shared/src/repository");',
+			repositoryNames,
+			governanceNames,
+		)).toContain(`${relativePath(page)}: import-equals repository and can bypass mutation capabilities`);
+		expect(mutationBoundaryViolations(
+			page,
+			"const moduleName = chooseModule(); const load = () => import(moduleName);",
+			repositoryNames,
+			governanceNames,
+		)).toContain(`${relativePath(page)}: uses a computed dynamic import that can bypass mutation capabilities`);
+		expect(mutationBoundaryViolations(
+			resolve(process.cwd(), repositoryModule),
+			"export const createWorld = async () => undefined;",
+			repositoryNames,
+			governanceNames,
+		)).toContain(`${repositoryModule}: unrestricted repository mutation export createWorld`);
+		expect(mutationBoundaryViolations(
+			resolve(process.cwd(), repositoryModule),
+			"const writers = { createWorld }; export default writers;",
+			repositoryNames,
+			governanceNames,
+		)).toContain(`${repositoryModule}: default-exports repository and can bypass mutation capabilities`);
 	});
 });
 
-function exportedFunction(source: string, name: string): boolean {
-	return new RegExp(`\\bexport\\s+(?:async\\s+)?function\\s+${name}\\b`, "u").test(source);
-}
-
-function namedImport(source: string, name: string, modulePattern: RegExp): boolean {
-	const imports = source.matchAll(/import\s*\{([\s\S]*?)\}\s*from\s*["']([^"']+)["']/gu);
-	for (const match of imports) {
-		if (!modulePattern.test(match[2] ?? "")) {
-			continue;
-		}
-		const imported = (match[1] ?? "").split(",").map((entry) => entry.trim().split(/\s+as\s+/u)[0]);
-		if (imported.includes(name)) {
-			return true;
+function capabilityMembers(source: string, name: string): string[] {
+	const sourceFile = ts.createSourceFile("capability.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+	for (const statement of sourceFile.statements) {
+		if (!ts.isVariableStatement(statement)) continue;
+		for (const declaration of statement.declarationList.declarations) {
+			if (!ts.isIdentifier(declaration.name) || declaration.name.text !== name || !declaration.initializer) continue;
+			const initializer = declaration.initializer;
+			if (!ts.isCallExpression(initializer) || initializer.arguments.length !== 1) continue;
+			const expression = initializer.expression;
+			if (!ts.isPropertyAccessExpression(expression) || expression.expression.getText() !== "Object" || expression.name.text !== "freeze") continue;
+			const object = initializer.arguments[0];
+			if (!object || !ts.isObjectLiteralExpression(object)) continue;
+			return object.properties
+				.map((property) => propertyName(property))
+				.filter((member): member is string => member !== null);
 		}
 	}
-	return false;
+	expect.fail(`Missing mutation capability ${name}`);
 }
 
-function namespaceImport(source: string, modulePattern: RegExp): boolean {
-	for (const match of source.matchAll(/import\s+\*\s+as\s+\w+\s+from\s+["']([^"']+)["']/gu)) {
-		if (modulePattern.test(match[1] ?? "")) return true;
+type MutationModuleKind = "repository" | "governance";
+
+function mutationBoundaryViolations(
+	filename: string,
+	source: string,
+	repositoryMutationNames: ReadonlySet<string>,
+	governanceMutationNames: ReadonlySet<string>,
+): string[] {
+	const path = relativePath(filename);
+	const sourceFile = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+	const violations: string[] = [];
+	for (const statement of sourceFile.statements) {
+		if (ts.isImportDeclaration(statement) && ts.isStringLiteralLike(statement.moduleSpecifier)) {
+			const kind = mutationModuleKind(filename, statement.moduleSpecifier.text);
+			if (kind && statement.importClause) {
+				const bindings = statement.importClause.namedBindings;
+				if (statement.importClause.name || bindings && ts.isNamespaceImport(bindings)) {
+					violations.push(`${path}: namespace-imports ${kind} and can bypass mutation capabilities`);
+				} else if (bindings && ts.isNamedImports(bindings)) {
+					for (const element of bindings.elements) {
+						checkImportedName(
+							violations,
+							path,
+							kind,
+							(element.propertyName ?? element.name).text,
+							repositoryMutationNames,
+							governanceMutationNames,
+						);
+					}
+				}
+			}
+		}
+		if (ts.isImportEqualsDeclaration(statement) && ts.isExternalModuleReference(statement.moduleReference)) {
+			const expression = statement.moduleReference.expression;
+			if (!expression || !ts.isStringLiteralLike(expression)) {
+				violations.push(`${path}: uses a computed import-equals that can bypass mutation capabilities`);
+			} else {
+				const kind = mutationModuleKind(filename, expression.text);
+				if (kind) violations.push(`${path}: import-equals ${kind} and can bypass mutation capabilities`);
+			}
+		}
+		if (ts.isExportDeclaration(statement)) {
+			const kind = statement.moduleSpecifier && ts.isStringLiteralLike(statement.moduleSpecifier)
+				? mutationModuleKind(filename, statement.moduleSpecifier.text)
+				: path === repositoryModule ? "repository" : path === governanceModule ? "governance" : null;
+			if (kind) inspectExportDeclaration(
+				violations,
+				path,
+				kind,
+				statement,
+				repositoryMutationNames,
+				governanceMutationNames,
+			);
+		}
+		if (path === repositoryModule || path === governanceModule) {
+			const kind = path === repositoryModule ? "repository" : "governance";
+			if (isDefaultOrAssignmentExport(statement)) {
+				violations.push(`${path}: default-exports ${kind} and can bypass mutation capabilities`);
+			}
+			const names = kind === "repository" ? repositoryMutationNames : governanceMutationNames;
+			for (const name of exportedDeclarationNames(statement)) {
+				if (names.has(name)) violations.push(`${path}: unrestricted ${kind} mutation export ${name}`);
+			}
+		}
 	}
-	return false;
-}
-
-function dynamicImport(source: string, modulePattern: RegExp): boolean {
-	const sourceFile = ts.createSourceFile("mutation-boundary.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-	let found = false;
 	const visit = (node: ts.Node): void => {
-		const argument = ts.isCallExpression(node) && node.arguments.length === 1 ? node.arguments[0] : undefined;
-		if (
-			ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword &&
-			argument && ts.isStringLiteralLike(argument) && modulePattern.test(argument.text)
-		) {
-			found = true;
-			return;
+		if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+			const argument = node.arguments.length === 1 ? node.arguments[0] : undefined;
+			if (!argument || !ts.isStringLiteralLike(argument)) {
+				violations.push(`${path}: uses a computed dynamic import that can bypass mutation capabilities`);
+			} else {
+				const kind = mutationModuleKind(filename, argument.text);
+				if (kind) violations.push(`${path}: dynamically imports ${kind} and can bypass mutation capabilities`);
+			}
+		}
+		if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "require") {
+			const argument = node.arguments.length === 1 ? node.arguments[0] : undefined;
+			if (!argument || !ts.isStringLiteralLike(argument)) {
+				violations.push(`${path}: uses a computed require that can bypass mutation capabilities`);
+			} else {
+				const kind = mutationModuleKind(filename, argument.text);
+				if (kind) violations.push(`${path}: requires ${kind} and can bypass mutation capabilities`);
+			}
 		}
 		ts.forEachChild(node, visit);
 	};
 	visit(sourceFile);
-	return found;
+	return [...new Set(violations)];
 }
 
-function capabilityMembers(source: string, name: string): string[] {
-	const match = new RegExp(`export\\s+const\\s+${name}\\s*=\\s*Object\\.freeze\\(\\{([\\s\\S]*?)\\n\\}\\);`, "u").exec(source);
-	expect(match, `Missing mutation capability ${name}`).not.toBeNull();
-	return (match?.[1] ?? "")
-		.split(",")
-		.map((entry) => entry.trim())
-		.filter(Boolean);
+function inspectExportDeclaration(
+	violations: string[],
+	path: string,
+	kind: MutationModuleKind,
+	statement: ts.ExportDeclaration,
+	repositoryMutationNames: ReadonlySet<string>,
+	governanceMutationNames: ReadonlySet<string>,
+): void {
+	if (!statement.exportClause || ts.isNamespaceExport(statement.exportClause)) {
+		violations.push(`${path}: namespace-re-exports ${kind} and can bypass mutation capabilities`);
+		return;
+	}
+	for (const element of statement.exportClause.elements) {
+		const exportedName = (element.propertyName ?? element.name).text;
+		if (exportedName === "default") {
+			violations.push(`${path}: default-re-exports ${kind} and can bypass mutation capabilities`);
+		}
+		const names = kind === "repository" ? repositoryMutationNames : governanceMutationNames;
+		if (names.has(exportedName)) violations.push(`${path}: re-exports ${kind} mutation ${exportedName}`);
+		checkImportedName(
+			violations,
+			path,
+			kind,
+			exportedName,
+			repositoryMutationNames,
+			governanceMutationNames,
+			true,
+		);
+	}
+}
+
+function isDefaultOrAssignmentExport(statement: ts.Statement): boolean {
+	if (ts.isExportAssignment(statement)) return true;
+	return ts.canHaveModifiers(statement) && Boolean(
+		ts.getModifiers(statement)?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword),
+	);
+}
+
+function checkImportedName(
+	violations: string[],
+	path: string,
+	kind: MutationModuleKind,
+	name: string,
+	repositoryMutationNames: ReadonlySet<string>,
+	governanceMutationNames: ReadonlySet<string>,
+	reexport = false,
+): void {
+	const verb = reexport ? "re-exports" : "imports";
+	if (kind === "repository") {
+		if (name === "userCoordinatorRepositoryMutations" && !userCoordinatorModules.has(path)) {
+			violations.push(`${path}: ${verb} the user-coordinator mutation capability`);
+		}
+		if (name === "accountBootstrapReservationRepositoryMutations" && path !== accountBootstrapReservationModule) {
+			violations.push(`${path}: ${verb} the pre-dispatch account-bootstrap reservation capability`);
+		}
+		if (name === "worldCoordinatorRepositoryMutations" && path !== worldCoordinatorModule) {
+			violations.push(`${path}: ${verb} the world-coordinator repository mutation capability`);
+		}
+		if (name === "coordinatorRepositoryMutations") {
+			violations.push(`${path}: ${verb} the retired monolithic coordinator capability`);
+		}
+		if (repositoryMutationNames.has(name)) {
+			violations.push(`${path}: directly ${verb} repository mutation ${name}`);
+		}
+	} else {
+		if (name === "coordinatorGovernanceMutations" && path !== worldCoordinatorModule) {
+			violations.push(`${path}: ${verb} the world-coordinator governance mutation capability`);
+		}
+		if (governanceMutationNames.has(name)) {
+			violations.push(`${path}: directly ${verb} governance mutation ${name}`);
+		}
+	}
+}
+
+function mutationModuleKind(filename: string, specifier: string): MutationModuleKind | null {
+	if (specifier === "@bickr/shared/repository") return "repository";
+	if (specifier === "@bickr/shared/governance") return "governance";
+	const resolved = specifier.startsWith(".")
+		? resolve(dirname(filename), specifier)
+		: resolve(process.cwd(), specifier);
+	const withoutExtension = resolved.replace(/\.(?:[cm]?[jt]s)$/u, "");
+	if (withoutExtension === resolve(process.cwd(), repositoryModule).replace(/\.ts$/u, "")) return "repository";
+	if (withoutExtension === resolve(process.cwd(), governanceModule).replace(/\.ts$/u, "")) return "governance";
+	return null;
+}
+
+function exportedDeclarationNames(statement: ts.Statement): string[] {
+	if (!ts.canHaveModifiers(statement) || !ts.getModifiers(statement)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) return [];
+	if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) {
+		return statement.name ? [statement.name.text] : [];
+	}
+	if (ts.isVariableStatement(statement)) {
+		return statement.declarationList.declarations.flatMap((declaration) =>
+			ts.isIdentifier(declaration.name) ? [declaration.name.text] : []);
+	}
+	return [];
+}
+
+function propertyName(property: ts.ObjectLiteralElementLike): string | null {
+	if (ts.isShorthandPropertyAssignment(property)) return property.name.text;
+	if (ts.isPropertyAssignment(property) || ts.isMethodDeclaration(property)) {
+		return ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name) ? property.name.text : null;
+	}
+	return null;
+}
+
+function relativePath(filename: string): string {
+	return relative(process.cwd(), filename).replaceAll("\\", "/");
 }
 
 function typescriptFiles(directory: string): string[] {

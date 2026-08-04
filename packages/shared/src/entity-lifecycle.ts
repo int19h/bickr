@@ -10,6 +10,8 @@ import type {
 export const lifecycleTerminalRetentionDays = 30;
 export const lifecycleRetryLimit = 8;
 export const lifecycleRetryDelayMs = 5_000;
+export const lifecycleRecoveryLeaseMs = 10 * 60_000;
+export const lifecycleRecoveryOwnerBatchLimit = 25;
 
 export type LifecycleEntityKind = "account" | "world" | "bot";
 export type LifecycleAction = "create" | "delete";
@@ -68,6 +70,18 @@ export type LifecycleOperation = {
 	updatedAt: string;
 	terminalAt: string | null;
 	terminalCleanupAt: string | null;
+};
+
+export type AccountDeleteLifecycleOperation = LifecycleOperation & {
+	entityKind: "account";
+	action: "delete";
+};
+
+export type LifecycleRecoveryOwnerLease = {
+	ownerUserId: string;
+	dueAt: string;
+	leaseToken: string;
+	leaseExpiresAt: string;
 };
 
 type LifecycleOperationRow = {
@@ -132,10 +146,6 @@ export type LifecycleFailure = {
 	category: LifecycleFailureCategory;
 	code: string;
 	retryable: boolean;
-};
-
-export type LifecycleContinuation = {
-	kind: "account_delete_children_remaining";
 };
 
 export type LifecycleFailurePoint =
@@ -650,35 +660,80 @@ export async function recordRetryableLifecycleFailure(
 	return requiredLifecycleOperation(db, operation.operationId);
 }
 
-export async function recordLifecycleContinuation(
-	db: D1DatabaseLike,
+export function requiredAccountDeleteLifecycleOperation(
 	operation: LifecycleOperation,
-	continuation: LifecycleContinuation,
-	now: string,
-): Promise<LifecycleOperation> {
-	if (operation.action !== "delete") {
-		throw new RepositoryError("server_error", "Only a deletion can record lifecycle continuation.", 500);
+): AccountDeleteLifecycleOperation {
+	if (operation.entityKind !== "account" || operation.action !== "delete") {
+		throw new RepositoryError(
+			"server_error",
+			"Account deletion progress requires an account delete operation.",
+			500,
+		);
 	}
+	return operation as AccountDeleteLifecycleOperation;
+}
+
+export async function recordAccountDeleteChildrenContinuation(
+	db: D1DatabaseLike,
+	operation: AccountDeleteLifecycleOperation,
+	now: string,
+): Promise<AccountDeleteLifecycleOperation> {
+	return recordAccountDeleteProgress(db, operation, {
+		code: "account_delete_children_remaining",
+		incrementRetryCount: false,
+	}, now);
+}
+
+export async function recordAccountDeleteConvergenceFailure(
+	db: D1DatabaseLike,
+	operation: AccountDeleteLifecycleOperation,
+	failure: LifecycleFailure,
+	now: string,
+): Promise<AccountDeleteLifecycleOperation> {
+	return recordAccountDeleteProgress(db, operation, {
+		code: failure.code,
+		incrementRetryCount: true,
+	}, now);
+}
+
+async function recordAccountDeleteProgress(
+	db: D1DatabaseLike,
+	operation: AccountDeleteLifecycleOperation,
+	progress: { code: string; incrementRetryCount: boolean },
+	now: string,
+): Promise<AccountDeleteLifecycleOperation> {
+	requiredAccountDeleteLifecycleOperation(operation);
 	const nextRetryAt = new Date(Date.parse(now) + lifecycleRetryDelayMs).toISOString();
 	await db.batch([
 		db
 			.prepare(
 				`UPDATE entity_lifecycle_operations
-				 SET phase = 'deleting', revision = revision + 1, next_retry_at = ?,
+				 SET phase = 'deleting', revision = revision + 1,
+				     retry_count = retry_count + ?, next_retry_at = ?,
 				     failure_category = 'external_retryable', failure_code = ?, updated_at = ?
-				 WHERE operation_id = ? AND action = 'delete'
+				 WHERE operation_id = ? AND entity_kind = 'account' AND action = 'delete'
 				   AND phase NOT IN ('terminal', 'terminal_failed')`,
 			)
-			.bind(nextRetryAt, continuation.kind, now, operation.operationId),
+			.bind(progress.incrementRetryCount ? 1 : 0, nextRetryAt, progress.code, now, operation.operationId),
 		db
 			.prepare(
 				`UPDATE entity_lifecycle_entities
 				 SET phase = 'deleting', revision = revision + 1, updated_at = ?
-				 WHERE entity_kind = ? AND entity_id = ? AND active_operation_id = ?`,
+				 WHERE entity_kind = 'account' AND entity_id = ? AND active_operation_id = ?
+				   AND EXISTS (
+					SELECT 1 FROM entity_lifecycle_operations operations
+					WHERE operations.operation_id = ?
+					  AND operations.entity_kind = 'account' AND operations.action = 'delete'
+					  AND operations.phase NOT IN ('terminal', 'terminal_failed')
+				   )`,
 			)
-			.bind(now, operation.entityKind, operation.entityId, operation.operationId),
+			.bind(now, operation.entityId, operation.operationId, operation.operationId),
 	]);
-	return requiredLifecycleOperation(db, operation.operationId);
+	const current = await requiredLifecycleOperation(db, operation.operationId);
+	if (current.phase === "terminal" || current.phase === "terminal_failed") {
+		throw new RepositoryError("conflict", "Account deletion is no longer resumable.", 409);
+	}
+	return requiredAccountDeleteLifecycleOperation(current);
 }
 
 export async function beginLifecycleCompensation(
@@ -831,6 +886,53 @@ export async function nextLifecycleAlarmAt(
 	return row?.alarmAt ?? null;
 }
 
+export async function claimDueLifecycleRecoveryOwners(
+	db: D1DatabaseLike,
+	input: {
+		now: string;
+		leaseToken: string;
+		leaseExpiresAt: string;
+		limit?: number;
+	},
+): Promise<LifecycleRecoveryOwnerLease[]> {
+	const limit = Math.max(1, Math.min(
+		lifecycleRecoveryOwnerBatchLimit,
+		Math.trunc(input.limit ?? lifecycleRecoveryOwnerBatchLimit),
+	));
+	const result = await db
+		.prepare(
+			`UPDATE entity_lifecycle_recovery_owners
+			 SET lease_token = ?, lease_expires_at = ?, updated_at = ?
+			 WHERE owner_user_id IN (
+				SELECT owner_user_id
+				FROM entity_lifecycle_recovery_owners
+				WHERE due_at <= ?
+				  AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
+				ORDER BY due_at ASC, owner_user_id ASC
+				LIMIT ?
+			 )
+			   AND due_at <= ?
+			   AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
+			 RETURNING
+				owner_user_id AS ownerUserId,
+				due_at AS dueAt,
+				lease_token AS leaseToken,
+				lease_expires_at AS leaseExpiresAt`,
+		)
+		.bind(
+			input.leaseToken,
+			input.leaseExpiresAt,
+			input.now,
+			input.now,
+			input.now,
+			limit,
+			input.now,
+			input.now,
+		)
+		.all<LifecycleRecoveryOwnerLease>();
+	return result.results ?? [];
+}
+
 export async function cleanupTerminalLifecycleOperations(
 	db: D1DatabaseLike,
 	now: string,
@@ -846,11 +948,12 @@ export async function cleanupTerminalLifecycleOperations(
 				WHERE terminal_cleanup_at IS NOT NULL AND terminal_cleanup_at <= ?
 				ORDER BY terminal_cleanup_at ASC, operation_id ASC
 				LIMIT ?
-			 )`,
+			 )
+			 RETURNING operation_id AS operationId`,
 		)
 		.bind(now, boundedLimit)
-		.run();
-	return result.meta?.changes ?? 0;
+		.all<{ operationId: string }>();
+	return result.results?.length ?? 0;
 }
 
 export function classifyLifecycleFailure(error: unknown): LifecycleFailure {

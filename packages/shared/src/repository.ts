@@ -2606,6 +2606,113 @@ export async function listOwnedWorlds(db: D1DatabaseLike, userId: string): Promi
 	return (result.results ?? []).map(worldSummaryFromIndexRow);
 }
 
+export type AccountDeletionTarget =
+	| { kind: "bot"; entityId: string }
+	| { kind: "forum"; entityId: string; worldHandle: string; handle: string }
+	| { kind: "world"; entityId: string; handle: string };
+
+export type AccountDeletionTargetCounts = {
+	bots: number;
+	forums: number;
+	worlds: number;
+};
+
+export async function boundedAccountDeletionTargets(
+	db: D1DatabaseLike,
+	userId: string,
+	limit: number,
+): Promise<AccountDeletionTarget[]> {
+	const boundedLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
+	const targets: AccountDeletionTarget[] = [];
+	const bots = await db
+		.prepare(
+			`SELECT bot_id AS entityId
+			 FROM bots_index
+			 WHERE owner_user_id = ? AND lifecycle_state = 'active' AND deleted_at IS NULL
+			 ORDER BY handle ASC, bot_id ASC
+			 LIMIT ?`,
+		)
+		.bind(userId, boundedLimit)
+		.all<{ entityId: string }>();
+	targets.push(...(bots.results ?? []).map(({ entityId }) => ({ kind: "bot" as const, entityId })));
+	if (targets.length === boundedLimit) return targets;
+
+	const forumLimit = boundedLimit - targets.length;
+	const forums = await db
+		.prepare(
+			`WITH candidate_forums AS MATERIALIZED (
+				SELECT forum.forum_id, forum.world_handle, forum.handle
+				FROM forums_index forum
+				JOIN worlds_index world
+				  ON world.world_id = forum.world_id
+				 AND world.lifecycle_state = 'active'
+				 AND world.deleted_at IS NULL
+				WHERE forum.created_by_user_id = ?
+				  AND forum.deleted_at IS NULL
+				  AND world.created_by_user_id != ?
+				ORDER BY forum.world_handle ASC, forum.handle ASC
+				LIMIT ?
+			 )
+			 SELECT
+				candidate.forum_id AS entityId,
+				candidate.world_handle AS worldHandle,
+				candidate.handle
+			 FROM candidate_forums candidate
+			 ORDER BY candidate.world_handle ASC, candidate.handle ASC`,
+		)
+		.bind(userId, userId, forumLimit)
+		.all<{ entityId: string; worldHandle: string; handle: string }>();
+	targets.push(...(forums.results ?? []).map(({ entityId, worldHandle, handle }) => ({
+		kind: "forum" as const,
+		entityId,
+		worldHandle,
+		handle,
+	})));
+	if (targets.length === boundedLimit) return targets;
+
+	const worlds = await db
+		.prepare(
+			`SELECT world_id AS entityId, handle
+			 FROM worlds_index
+			 WHERE created_by_user_id = ? AND lifecycle_state = 'active' AND deleted_at IS NULL
+			 ORDER BY handle ASC, world_id ASC
+			 LIMIT ?`,
+		)
+		.bind(userId, boundedLimit - targets.length)
+		.all<{ entityId: string; handle: string }>();
+	targets.push(...(worlds.results ?? []).map(({ entityId, handle }) => ({
+		kind: "world" as const,
+		entityId,
+		handle,
+	})));
+	return targets;
+}
+
+export async function accountDeletionTargetCounts(
+	db: D1DatabaseLike,
+	userId: string,
+): Promise<AccountDeletionTargetCounts> {
+	const row = await db
+		.prepare(
+			`SELECT
+				(SELECT COUNT(*) FROM bots_index
+				 WHERE owner_user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active') AS bots,
+				(SELECT COUNT(*)
+				 FROM forums_index f
+				 JOIN worlds_index w
+				   ON w.world_id = f.world_id
+				  AND w.deleted_at IS NULL
+				  AND w.lifecycle_state = 'active'
+				 WHERE f.created_by_user_id = ? AND f.deleted_at IS NULL AND w.created_by_user_id != ?) AS forums,
+				(SELECT COUNT(*) FROM worlds_index
+				 WHERE created_by_user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active') AS worlds`,
+		)
+		.bind(userId, userId, userId, userId)
+		.first<AccountDeletionTargetCounts>();
+	if (!row) throw new RepositoryError("server_error", "Account deletion target counts are unavailable.", 500);
+	return row;
+}
+
 export async function listOwnedForumsOutsideOwnedWorlds(
 	db: D1DatabaseLike,
 	userId: string,

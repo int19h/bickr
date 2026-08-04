@@ -8,7 +8,12 @@ import {
 } from "@bickr/shared/entity-lifecycle";
 import { deterministicId } from "@bickr/shared/ids";
 import { localizedText, type BotDocument, type UserDocument } from "@bickr/shared/model";
-import { listUserBots, listWorlds, rawBotById } from "@bickr/shared/repository";
+import {
+	boundedAccountDeletionTargets,
+	listUserBots,
+	listWorlds,
+	rawBotById,
+} from "@bickr/shared/repository";
 import { parseLanguageTag } from "@bickr/shared/validation";
 import { handleAgentRuntimeRequest } from "../workers/agent-runtime/src/routes";
 import {
@@ -16,6 +21,7 @@ import {
 	reserveOrJoinAccountBootstrap,
 } from "../workers/agent-runtime/src/lifecycle/account-bootstrap-reservation";
 import { accountDeleteChildOperationsPerAttempt } from "../workers/agent-runtime/src/lifecycle/account";
+import type { UserBotsCoordinatorStorage } from "../workers/agent-runtime/src/lifecycle/types";
 import { handleForumCoordinatorRequest } from "../workers/forum-coordinator/src/index";
 import { clearKv, resetD1Schema } from "./helpers/d1-schema";
 import { createBot, createWorld, upsertProviderUser } from "./helpers/coordinator-mutations";
@@ -302,7 +308,7 @@ describe("lifecycle failure injection", () => {
 			{ confirmCascade: true },
 			key,
 			undefined,
-			{ setAlarm } as unknown as DurableObjectStorage,
+			lifecycleTestStorage(setAlarm),
 		);
 		expect(continuation.ok).toBe(false);
 		expect(setAlarm).toHaveBeenCalledTimes(1);
@@ -326,6 +332,105 @@ describe("lifecycle failure injection", () => {
 			nonterminal: 0,
 		});
 		expect(await nonterminalAccountChildOperationCount(user.id, key)).toBe(0);
+	});
+
+	it("shares the per-attempt bound with first-time active child discovery", async () => {
+		const user = await seedAccount("account-bounded-active-planning");
+		const world = await createWorld(testEnv.BICKR_KV, testEnv.BICKR_D1, worldInput("bounded-active-world"), user.id);
+		for (let index = 0; index <= accountDeleteChildOperationsPerAttempt; index += 1) {
+			await createBot(
+				testEnv.BICKR_KV,
+				testEnv.BICKR_D1,
+				world.handle,
+				botInput(`bounded-active-${index}`),
+				user.id,
+			);
+		}
+		const key = "account-bounded-active-planning";
+		const setAlarm = vi.fn(async () => undefined);
+		const first = await coordinatorRequest(
+			user.id,
+			"/profile",
+			"DELETE",
+			{ confirmCascade: true },
+			key,
+			undefined,
+			lifecycleTestStorage(setAlarm),
+		);
+		expect(first).toMatchObject({ ok: false, error: "server_error" });
+		expect(setAlarm).toHaveBeenCalledTimes(1);
+		const parentOperationId = await lifecycleOperationId(user.id, key);
+		expect(await accountChildOperationCounts(user.id, parentOperationId, "bot")).toEqual({
+			terminal: accountDeleteChildOperationsPerAttempt,
+			nonterminal: 0,
+		});
+		expect(await lifecycleOperationState(user.id, key)).toMatchObject({
+			phase: "deleting",
+			retryCount: 0,
+			failureCode: "account_delete_children_remaining",
+		});
+		expect(await activeProjectionCount("bots_index", "owner_user_id", user.id)).toBe(1);
+
+		const converged = await coordinatorRequest(user.id, "/profile", "DELETE", { confirmCascade: true }, key);
+		expect(converged.ok).toBe(true);
+		expect(await accountChildOperationCounts(user.id, parentOperationId, "bot")).toEqual({
+			terminal: accountDeleteChildOperationsPerAttempt + 1,
+			nonterminal: 0,
+		});
+		expect(await activeProjectionCount("users_index", "user_id", user.id)).toBe(0);
+	});
+
+	it("finds an eligible external-world forum after more than one batch of earlier ineligible forums", async () => {
+		const owner = await seedAccount("account-forum-candidate-owner");
+		const other = await seedAccount("account-forum-candidate-other");
+		const ownedWorld = await createWorld(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			worldInput("a-owned-forum-world"),
+			owner.id,
+		);
+		const externalWorld = await createWorld(
+			testEnv.BICKR_KV,
+			testEnv.BICKR_D1,
+			worldInput("z-external-forum-world"),
+			other.id,
+		);
+		for (let index = 0; index <= accountDeleteChildOperationsPerAttempt; index += 1) {
+			await createForumForOwner(owner.id, ownedWorld.handle, `a-ineligible-${index}`);
+		}
+		const eligible = await createForumForOwner(owner.id, externalWorld.handle, "z-eligible-external");
+
+		const targets = await boundedAccountDeletionTargets(
+			testEnv.BICKR_D1,
+			owner.id,
+			accountDeleteChildOperationsPerAttempt,
+		);
+		expect(targets.length).toBeLessThanOrEqual(accountDeleteChildOperationsPerAttempt);
+		expect(targets).toContainEqual({
+			kind: "forum",
+			entityId: eligible.id,
+			worldHandle: externalWorld.handle,
+			handle: eligible.handle,
+		});
+	});
+
+	it("deletes linked clone sources without depending on bounded target order", async () => {
+		const user = await seedAccount("account-linked-clone-cascade");
+		const world = await createWorld(testEnv.BICKR_KV, testEnv.BICKR_D1, worldInput("linked-clone-cascade-world"), user.id);
+		const source = await createBot(testEnv.BICKR_KV, testEnv.BICKR_D1, world.handle, botInput("a-linked-source"), user.id);
+		const clone = await createBot(testEnv.BICKR_KV, testEnv.BICKR_D1, world.handle, botInput("z-linked-clone", source.id), user.id);
+		const result = await coordinatorRequest(
+			user.id,
+			"/profile",
+			"DELETE",
+			{ confirmCascade: true },
+			"account-linked-clone-cascade",
+		);
+		expect(result, JSON.stringify(result)).toMatchObject({ ok: true });
+		for (const bot of [source, clone]) {
+			expect(await testEnv.BICKR_KV.get<BotDocument>(`v1:bot:${bot.id}`, { type: "json" }))
+				.toMatchObject({ deletedAt: expect.any(String) });
+		}
 	});
 
 	it("hides a participant as soon as deletion enters its serialized D1 transition", async () => {
@@ -584,7 +689,7 @@ async function coordinatorRequest(
 	body: unknown,
 	key: string,
 	injector?: LifecycleFailureInjector,
-	storage?: DurableObjectStorage,
+	storage?: UserBotsCoordinatorStorage,
 ): Promise<Record<string, unknown>> {
 	const forumService = {
 		fetch: (request: Request) => handleForumCoordinatorRequest(request, testEnv, {
@@ -628,12 +733,48 @@ async function coordinatorRequest(
 	return await response.json() as Record<string, unknown>;
 }
 
+function lifecycleTestStorage(
+	setAlarm: UserBotsCoordinatorStorage["setAlarm"] = async () => undefined,
+): UserBotsCoordinatorStorage {
+	const values = new Map<string, unknown>();
+	return {
+		get: async <T>(key: string) => values.get(key) as T | undefined,
+		put: async (key, value) => {
+			values.set(key, value);
+		},
+		delete: async (key) => values.delete(key),
+		setAlarm,
+		deleteAlarm: async () => undefined,
+	};
+}
+
 async function seedAccount(suffix: string) {
 	return upsertProviderUser(testEnv.BICKR_KV, testEnv.BICKR_D1, {
 		provider: "github",
 		subject: `seed-${suffix}`,
 		login: `seed-${suffix}`.replaceAll(".", "-").slice(0, 60),
 	});
+}
+
+async function createForumForOwner(userId: string, worldHandle: string, handle: string): Promise<{ id: string; handle: string }> {
+	const response = await handleForumCoordinatorRequest(new Request(
+		`https://internal.bickr/worlds/${encodeURIComponent(worldHandle)}/forums`,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json", "x-bickr-user-id": userId },
+			body: JSON.stringify({ handle, language: "en", description: `Forum ${handle}` }),
+		},
+	), testEnv, {
+		objectId: `test-forum:${worldHandle}`,
+		queue: new ExclusiveOperationQueue(),
+	});
+	const payload = await response.json() as { data?: { forum?: { id?: unknown; handle?: unknown } } };
+	expect(response.status, JSON.stringify(payload)).toBe(201);
+	const forum = payload.data?.forum;
+	if (typeof forum?.id !== "string" || typeof forum.handle !== "string") {
+		throw new Error("Forum coordinator returned an invalid forum fixture.");
+	}
+	return { id: forum.id, handle: forum.handle };
 }
 
 function testHandle(value: string): string {

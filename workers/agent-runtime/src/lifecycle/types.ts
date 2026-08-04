@@ -2,11 +2,22 @@ import type { ExclusiveOperationQueue } from "@bickr/shared/exclusive-operation-
 import type { LifecycleFailureInjector } from "@bickr/shared/entity-lifecycle";
 import type { Env } from "../types";
 
+// UserBotsCoordinator lifecycle code needs only this storage surface. Keeping
+// it explicit lets recovery tests model the real alarm boundary without
+// pretending a partial object implements every DurableObjectStorage method.
+export type UserBotsCoordinatorStorage = {
+	get<T = unknown>(key: string): Promise<T | undefined>;
+	put<T>(key: string, value: T): Promise<void>;
+	delete(key: string): Promise<boolean>;
+	setAlarm(scheduledTime: number | Date): Promise<void>;
+	deleteAlarm(): Promise<void>;
+};
+
 export type UserBotsCoordinatorContext = {
 	objectId: string;
 	ownerUserId?: string;
 	queue?: ExclusiveOperationQueue;
-	storage?: DurableObjectStorage;
+	storage?: UserBotsCoordinatorStorage;
 	failureInjector?: LifecycleFailureInjector;
 };
 

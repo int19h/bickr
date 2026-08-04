@@ -3,6 +3,7 @@ import { agentRuntimeRouteTable, matchAgentRuntimeRoute } from './routes';
 
 const routeCases = [
 	{ method: 'POST', path: '/accounts/bootstrap', handlerId: 'account-bootstrap-dispatch' },
+	{ method: 'POST', path: '/users/user-1/lifecycle/recover', handlerId: 'lifecycle-recovery' },
 	{ method: 'PUT', path: '/users/user-1/avatar', handlerId: 'user-avatar-upload' },
 	{ method: 'DELETE', path: '/users/user-1/avatar', handlerId: 'user-avatar-delete' },
 	{ method: 'PATCH', path: '/users/user-1/avatar/crop', handlerId: 'user-avatar-crop' },

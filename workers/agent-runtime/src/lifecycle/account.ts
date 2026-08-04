@@ -10,18 +10,21 @@ import {
 	lifecycleCheckpoint,
 	lifecycleIdempotencyKey,
 	lifecycleOperationById,
+	lifecycleOperationByKey,
 	markLifecycleMaterializing,
 	nonterminalLifecycleDeleteOperationsByPrefix,
-	recordLifecycleContinuation,
+	recordAccountDeleteChildrenContinuation,
+	recordAccountDeleteConvergenceFailure as persistAccountDeleteConvergenceFailure,
 	recordRetryableLifecycleFailure,
+	requiredAccountDeleteLifecycleOperation,
 	serializedLifecycleRequest,
+	type AccountDeleteLifecycleOperation,
 	type LifecycleOperation,
 } from "@bickr/shared/entity-lifecycle";
 import { authProviders, localizedText, type AuthProvider, type UserDocument } from "@bickr/shared/model";
 import {
-	listOwnedForumsOutsideOwnedWorlds,
-	listOwnedWorlds,
-	listUserBots,
+	accountDeletionTargetCounts,
+	boundedAccountDeletionTargets,
 	publicUser,
 	RepositoryError,
 	userCoordinatorRepositoryMutations,
@@ -30,7 +33,6 @@ import {
 	type ProviderUserProfile,
 } from "@bickr/shared/repository";
 import { deleteKey, kvKeys, readJson, writeJson } from "@bickr/shared/storage";
-import { sortBotsForCascadeDelete } from "../runtime/bot-runtime";
 import { requestCoordinatorGovernanceDeletion, scheduleUserLifecycleAlarm } from "./common";
 import { reserveBotDelete, runBotDeleteOperation } from "./bot";
 import type { AgentRuntimeRouteContext, LifecycleRuntimeContext } from "./types";
@@ -48,12 +50,13 @@ const {
 export const accountDeleteChildOperationsPerAttempt = 8;
 
 type AccountDeleteChildResumeResult =
-	| { kind: "complete" }
+	| { kind: "complete"; processed: number }
 	| { kind: "continuation_required" };
 
 type AccountDeleteLifecycleRequest = {
 	kind: "account_delete";
 	userId: string;
+	plannedCounts: { worlds: number; forums: number; bots: number };
 };
 
 export type AccountDeleteResult = {
@@ -170,11 +173,22 @@ export async function reserveAccountDelete(
 	context: AgentRuntimeRouteContext,
 	userId: string,
 ): Promise<LifecycleOperation> {
-	const request: AccountDeleteLifecycleRequest = { kind: "account_delete", userId };
+	const idempotencyKey = lifecycleIdempotencyKey(context.request);
+	const requestIdentity = { kind: "account_delete", userId } as const;
+	const requestHash = await hashLifecycleRequest(requestIdentity);
+	const existing = await lifecycleOperationByKey(context.env.BICKR_D1, userId, idempotencyKey);
+	const counts = existing ? null : await accountDeletionTargetCounts(context.env.BICKR_D1, userId);
+	const request: AccountDeleteLifecycleRequest = existing?.requestJson
+		? parseAccountDeleteLifecycleRequest(existing.requestJson)
+		: {
+			kind: "account_delete",
+			userId,
+			plannedCounts: counts ?? { worlds: 0, forums: 0, bots: 0 },
+		};
 	const started = await beginDeleteLifecycle(context.env.BICKR_D1, {
 		ownerUserId: userId,
-		idempotencyKey: lifecycleIdempotencyKey(context.request),
-		requestHash: await hashLifecycleRequest(request),
+		idempotencyKey,
+		requestHash,
 		requestJson: serializedLifecycleRequest(request),
 		entityKind: "account",
 		entityId: userId,
@@ -195,7 +209,9 @@ export async function runAccountDeleteOperation(
 	context: LifecycleRuntimeContext,
 	initialOperation: LifecycleOperation,
 ): Promise<AccountDeleteResult> {
-	let operation = await lifecycleOperationById(context.env.BICKR_D1, initialOperation.operationId) ?? initialOperation;
+	let operation = requiredAccountDeleteLifecycleOperation(
+		await lifecycleOperationById(context.env.BICKR_D1, initialOperation.operationId) ?? initialOperation,
+	);
 	const current = await readJson<UserDocument>(context.env.BICKR_KV, kvKeys.user(operation.entityId));
 	if (operation.phase === "terminal") {
 		if (!current?.deletedAt) throw new RepositoryError("server_error", "Deleted account document is missing.", 500);
@@ -210,46 +226,51 @@ export async function runAccountDeleteOperation(
 	try {
 		childResume = await resumeAccountDeleteChildOperations(context, operation);
 	} catch (error) {
-		return recordAccountDeleteConvergenceFailure(context, operation, error);
+		return recordAccountDeleteFailure(context, operation, error);
 	}
 	if (childResume.kind === "continuation_required") {
-		operation = await recordLifecycleContinuation(
-			context.env.BICKR_D1,
-			operation,
-			{ kind: "account_delete_children_remaining" },
-			new Date().toISOString(),
-		);
-		await scheduleUserLifecycleAlarm(context.coordinator);
-		throw new RepositoryError("server_error", "Account deletion is continuing in a later attempt.", 503);
+		return continueAccountDeletion(context, operation);
 	}
 	try {
-		const [ownedBots, ownedForumsOutsideOwnedWorlds, ownedWorlds] = await Promise.all([
-			listUserBots(context.env.BICKR_KV, context.env.BICKR_D1, request.userId),
-			listOwnedForumsOutsideOwnedWorlds(context.env.BICKR_D1, request.userId),
-			listOwnedWorlds(context.env.BICKR_D1, request.userId),
-		]);
-		for (const bot of sortBotsForCascadeDelete(ownedBots)) {
-			const childContext = lifecycleChildContext(
-				context,
-				accountDeleteChildIdempotencyKey(operation, "bot", bot.id),
-			);
-			const child = await reserveBotDelete(childContext, request.userId, bot.id);
-			await runBotDeleteOperation(childContext, child);
+		const remainingBudget = accountDeleteChildOperationsPerAttempt - childResume.processed;
+		const targets = await boundedAccountDeletionTargets(
+			context.env.BICKR_D1,
+			request.userId,
+			Math.max(1, remainingBudget),
+		);
+		for (const target of targets.slice(0, remainingBudget)) {
+			switch (target.kind) {
+				case "bot": {
+					const childContext = lifecycleChildContext(
+						context,
+						accountDeleteChildIdempotencyKey(operation, "bot", target.entityId),
+					);
+					const child = await reserveBotDelete(childContext, request.userId, target.entityId, {
+						allowLinkedCloneDelete: true,
+					});
+					await runBotDeleteOperation(childContext, child);
+					break;
+				}
+				case "forum":
+					await requestCoordinatorGovernanceDeletion(
+						context.env,
+						`/worlds/${encodeURIComponent(target.worldHandle)}/forums/${encodeURIComponent(target.handle)}`,
+						request.userId,
+					);
+					break;
+				case "world": {
+					const childContext = lifecycleChildContext(
+						context,
+						accountDeleteChildIdempotencyKey(operation, "world", target.entityId),
+					);
+					const child = await reserveWorldDelete(childContext, request.userId, target.handle);
+					await runWorldDeleteOperation(childContext, child);
+					break;
+				}
+			}
 		}
-		for (const forum of ownedForumsOutsideOwnedWorlds) {
-			await requestCoordinatorGovernanceDeletion(
-				context.env,
-				`/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}`,
-				request.userId,
-			);
-		}
-		for (const world of ownedWorlds) {
-			const childContext = lifecycleChildContext(
-				context,
-				accountDeleteChildIdempotencyKey(operation, "world", world.id),
-			);
-			const child = await reserveWorldDelete(childContext, request.userId, world.handle);
-			await runWorldDeleteOperation(childContext, child);
+		if ((await boundedAccountDeletionTargets(context.env.BICKR_D1, request.userId, 1)).length > 0) {
+			return continueAccountDeletion(context, operation);
 		}
 		await softDeleteUserProfile(context.env.BICKR_KV, context.env.BICKR_D1, request.userId, {
 			now: new Date().toISOString(),
@@ -261,16 +282,16 @@ export async function runAccountDeleteOperation(
 		await lifecycleCheckpoint(context.coordinator.failureInjector, "account.delete.finish.d1");
 		return {
 			profile: publicUser(deleted),
-			deleted: { worlds: ownedWorlds.length, forums: ownedForumsOutsideOwnedWorlds.length, bots: ownedBots.length },
+			deleted: request.plannedCounts,
 		};
 	} catch (error) {
-		return recordAccountDeleteConvergenceFailure(context, operation, error);
+		return recordAccountDeleteFailure(context, operation, error);
 	}
 }
 
 async function resumeAccountDeleteChildOperations(
 	context: LifecycleRuntimeContext,
-	parent: LifecycleOperation,
+	parent: AccountDeleteLifecycleOperation,
 ): Promise<AccountDeleteChildResumeResult> {
 	const prefix = `account-delete:${parent.operationId}:`;
 	const children = await nonterminalLifecycleDeleteOperationsByPrefix(
@@ -298,20 +319,33 @@ async function resumeAccountDeleteChildOperations(
 		1,
 	);
 	return remaining.length === 0
-		? { kind: "complete" }
+		? { kind: "complete", processed: children.length }
 		: { kind: "continuation_required" };
 }
 
-async function recordAccountDeleteConvergenceFailure(
+async function continueAccountDeletion(
 	context: LifecycleRuntimeContext,
-	operation: LifecycleOperation,
+	operation: AccountDeleteLifecycleOperation,
+): Promise<never> {
+	await recordAccountDeleteChildrenContinuation(
+		context.env.BICKR_D1,
+		operation,
+		new Date().toISOString(),
+	);
+	await scheduleUserLifecycleAlarm(context.coordinator);
+	throw new RepositoryError("server_error", "Account deletion is continuing in a later attempt.", 503);
+}
+
+async function recordAccountDeleteFailure(
+	context: LifecycleRuntimeContext,
+	operation: AccountDeleteLifecycleOperation,
 	error: unknown,
 ): Promise<never> {
 	const failure = classifyLifecycleFailure(error);
 	// Once cascade execution starts, a child coordinator or the account writer
 	// may already have committed an irreversible side effect. Keep the parent
 	// hidden and resumable regardless of the originating failure's retry flag.
-	await recordRetryableLifecycleFailure(context.env.BICKR_D1, operation, {
+	await persistAccountDeleteConvergenceFailure(context.env.BICKR_D1, operation, {
 		category: "external_retryable",
 		code: failure.code,
 		retryable: true,
@@ -321,7 +355,7 @@ async function recordAccountDeleteConvergenceFailure(
 }
 
 function accountDeleteChildIdempotencyKey(
-	operation: LifecycleOperation,
+	operation: AccountDeleteLifecycleOperation,
 	kind: "bot" | "world",
 	entityId: string,
 ): string {
@@ -348,7 +382,16 @@ function parseAccountDeleteLifecycleRequest(serialized: string): AccountDeleteLi
 		throw new RepositoryError("server_error", "Account deletion request is invalid.", 500);
 	}
 	const request = value as Partial<AccountDeleteLifecycleRequest>;
-	if (request.kind !== "account_delete" || typeof request.userId !== "string") {
+	const plannedCounts = request.plannedCounts;
+	const countValues = plannedCounts && typeof plannedCounts === "object" && !Array.isArray(plannedCounts)
+		? [plannedCounts.worlds, plannedCounts.forums, plannedCounts.bots]
+		: [];
+	if (
+		request.kind !== "account_delete" ||
+		typeof request.userId !== "string" ||
+		countValues.length !== 3 ||
+		!countValues.every((count) => typeof count === "number" && Number.isSafeInteger(count) && count >= 0)
+	) {
 		throw new RepositoryError("server_error", "Account deletion request is invalid.", 500);
 	}
 	return request as AccountDeleteLifecycleRequest;

@@ -60,6 +60,7 @@ type BotDeleteLifecycleRequest = {
 	kind: "bot_delete" | "clone_delete";
 	userId: string;
 	botId: string;
+	allowLinkedCloneDelete: boolean;
 };
 
 export async function reserveBotCreate(
@@ -292,26 +293,35 @@ export async function reserveBotDelete(
 	context: AgentRuntimeRouteContext,
 	userId: string,
 	botId: string,
+	options: { allowLinkedCloneDelete?: boolean } = {},
 ): Promise<LifecycleOperation> {
 	const idempotencyKey = lifecycleIdempotencyKey(context.request);
 	const existing = await lifecycleOperationByKey(context.env.BICKR_D1, userId, idempotencyKey);
-	const requestHash = await hashLifecycleRequest({ kind: "participant_delete", userId, botId });
+	const allowLinkedCloneDelete = options.allowLinkedCloneDelete === true;
+	const requestHash = await hashLifecycleRequest({ kind: "participant_delete", userId, botId, allowLinkedCloneDelete });
 	if (existing) {
 		return (await beginDeleteLifecycle(context.env.BICKR_D1, {
 			ownerUserId: userId,
 			idempotencyKey,
 			requestHash,
-			requestJson: existing.requestJson ?? serializedLifecycleRequest({ kind: "bot_delete", userId, botId } satisfies BotDeleteLifecycleRequest),
+			requestJson: existing.requestJson ?? serializedLifecycleRequest({
+				kind: "bot_delete", userId, botId, allowLinkedCloneDelete,
+			} satisfies BotDeleteLifecycleRequest),
 			entityKind: "bot",
 			entityId: botId,
 			now: new Date().toISOString(),
 		})).operation;
 	}
-	await assertBotDeleteAllowed(context.env.BICKR_D1, botId, userId);
+	await assertBotDeleteAllowed(context.env.BICKR_D1, botId, userId, { allowLinkedCloneDelete });
 	const clone = Boolean(await context.env.BICKR_D1.prepare(
 		"SELECT bot_id AS id FROM bot_clone_sources WHERE bot_id = ? LIMIT 1",
 	).bind(botId).first<{ id: string }>());
-	const request: BotDeleteLifecycleRequest = { kind: clone ? "clone_delete" : "bot_delete", userId, botId };
+	const request: BotDeleteLifecycleRequest = {
+		kind: clone ? "clone_delete" : "bot_delete",
+		userId,
+		botId,
+		allowLinkedCloneDelete,
+	};
 	const started = await beginDeleteLifecycle(context.env.BICKR_D1, {
 		ownerUserId: userId,
 		idempotencyKey,
@@ -344,6 +354,7 @@ export async function runBotDeleteOperation(
 	const prefix = request.kind === "clone_delete" ? "clone" : "bot";
 	try {
 		await deleteBot(context.env.BICKR_KV, context.env.BICKR_D1, request.botId, request.userId, {
+			allowLinkedCloneDelete: request.allowLinkedCloneDelete,
 			failurePrefix: prefix,
 			checkpoint: (point) => lifecycleCheckpoint(context.coordinator.failureInjector, point),
 		});
@@ -419,7 +430,12 @@ function parseBotDeleteLifecycleRequest(serialized: string): BotDeleteLifecycleR
 	const value: unknown = JSON.parse(serialized);
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new RepositoryError("server_error", "Participant deletion request is invalid.", 500);
 	const request = value as Partial<BotDeleteLifecycleRequest>;
-	if ((request.kind !== "bot_delete" && request.kind !== "clone_delete") || typeof request.userId !== "string" || typeof request.botId !== "string") {
+	if (
+		(request.kind !== "bot_delete" && request.kind !== "clone_delete") ||
+		typeof request.userId !== "string" ||
+		typeof request.botId !== "string" ||
+		typeof request.allowLinkedCloneDelete !== "boolean"
+	) {
 		throw new RepositoryError("server_error", "Participant deletion request is invalid.", 500);
 	}
 	return request as BotDeleteLifecycleRequest;

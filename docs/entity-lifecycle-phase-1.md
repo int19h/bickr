@@ -35,6 +35,24 @@ account deletion receives a typed conflict.
 
 Migration `0039_entity_lifecycle.sql` adds pending/active/deleting visibility to the legacy entity indexes and one canonical lifecycle machine for accounts, worlds, and participants. An operation records its stable entity id, idempotency key, canonical request hash, revision, typed phase, retry schedule, and typed failure category before external materialization begins.
 
+Migration `0040_entity_lifecycle_recovery.sql` adds a derived, lifetime-bounded
+recovery projection with exactly one row per owner that has nonterminal work.
+Operation triggers update or remove that row in the same D1 transaction as
+every canonical phase write, selecting one owner's earliest operation through
+the partial `(owner_user_id, COALESCE(next_retry_at, updated_at), operation_id)`
+index with `LIMIT 1`. This is the write-ahead recovery guarantee for a
+Worker interruption between a D1 commit and Durable Object alarm storage,
+including the provider-subject reservation that exists before a user
+coordinator can be named. The five-minute agent-runtime cron atomically leases
+at most 25 due owners through the `(due_at, lease_expires_at, owner_user_id)`
+index and dispatches each stable owner ID to its `UserBotsCoordinator`. A failed
+owner retains its short lease while sibling owners continue, so poison work
+cannot permanently occupy the front of every bounded page. A subsequent phase
+write clears the lease; process death after claiming is recovered when the
+lease expires. Maintenance mode claims and dispatches nothing, while the
+coordinator boundary independently rechecks maintenance and internal service
+authentication.
+
 Canonical entity state and unique-key reservations live only for the active or incomplete entity lifetime. Successful terminal and terminal-failed operation rows retain secret-free request identity and failure metadata for 30 days. The agent-runtime scheduled handler deletes at most 100 expired rows per run through the partial `terminal_cleanup_at` index. No lifecycle query repairs canonical state from KV or index shape.
 
 `entity_lifecycle_identity_claims` is the single D1 uniqueness namespace for
@@ -68,17 +86,38 @@ Account deletion may abort a terminal failure only at its initial D1 hide
 checkpoint, before any child coordinator or account-storage effect is invoked.
 After cascade execution starts, every failure keeps the parent hidden and is
 recorded as convergence-required retryable while preserving the originating
-typed failure code. Each parent attempt resumes at most the configured fixed
-number of nonterminal child delete operations before checking for another
-child. The prefix lookup is a bounded range scan on the existing unique
-`(owner_user_id, idempotency_key)` index. If any hidden child remains, the
-parent stays deleting with the typed `account_delete_children_remaining`
+typed failure code. Each parent attempt spends one configured fixed budget
+across both resumed nonterminal child operations and newly discovered active
+bots, external-world forums, or worlds. New discovery is a set-oriented D1
+sequence under the shared child budget: participant and world lookups use
+dedicated owner/lifecycle/handle indexes, while the external-forum join sees
+only a materialized, indexed, limited candidate CTE. It never materializes an
+owner-wide list or performs an unbounded first-attempt fan-out. Account-cascade
+participant deletes explicitly allow linked clone removal, so a resumed source
+deletion does not depend on clone depth or child ID ordering. The prefix lookup
+is a bounded range scan on the existing unique `(owner_user_id,
+idempotency_key)` index. If any hidden child remains, the parent stays deleting
+with the typed `account_delete_children_remaining`
 continuation code, schedules its alarm, and returns without replanning active
 children or finalizing the account. A later attempt resumes the next bounded
 batch, so a child tombstone cannot be skipped merely because public readers
 correctly hide it and one Worker request never drains an unbounded backlog.
+Account deletion convergence has no retry-exhaustion compensation transition:
+after cascade execution begins, an irreversible child side effect may already
+exist, so retries remain deleting until they converge and retain the original
+typed failure code.
 
 Legacy rows receive `lifecycle_state = 'active'` in the migration. New rows are inserted as pending and become publicly visible only in the D1 activation batch. A deletion changes visibility to deleting in the same batch that creates the delete operation. Public/authentication/search/runtime readers require active projections.
+
+`worldForUpdateMutation` is a narrowly typed Phase 1 request-routing adapter,
+not a public reader or a repair writer. It recognizes only a replay where the
+atomic D1 handle claim/projection batch committed but the stable-ID KV write did
+not, and routes that same request to the already selected world coordinator.
+Its retirement point is the Phase 3 extension of this lifecycle operation row
+with a revisioned update action: persist the stable world ID, old/new handles,
+and document revision before the D1 claim batch, resume it through the same
+global recovery projection, then delete this adapter. Phase 3 must extend the
+existing machine rather than add a rename-specific lifecycle machine.
 
 ## Phase 3 extension point
 

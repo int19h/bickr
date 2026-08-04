@@ -11,7 +11,6 @@ import {
 import {
 	cleanupTerminalLifecycleOperations,
 	lifecycleIdempotencyKey,
-	nextDueLifecycleOperation,
 	nextLifecycleAlarmAt,
 } from '@bickr/shared/entity-lifecycle';
 import { makeId } from '@bickr/shared/ids';
@@ -109,7 +108,6 @@ import {
 	providerProfileFromUnknown,
 	reserveAccountDelete,
 	resumeReservedAccountBootstrapOperation,
-	runAccountBootstrapOperation,
 	runAccountDeleteOperation,
 } from './lifecycle/account';
 import {
@@ -132,6 +130,12 @@ import {
 	runWorldCreateOperation,
 	runWorldDeleteOperation,
 } from './lifecycle/world';
+import {
+	armNextUserLifecycleAlarm,
+	lifecycleRecoveryWakeRequestFromUnknown,
+	recoverDueLifecycleOwners,
+	resumeDueUserLifecycleOperation,
+} from './lifecycle/recovery';
 import { kvKeys, readJson } from '@bickr/shared/storage';
 import { authProviders, type AuthProvider, type AvatarCrop, type AvatarImage, type BotDocument, type WorldDocument } from '@bickr/shared/model';
 
@@ -208,6 +212,26 @@ export const agentRuntimeRouteTable = [
 		method: 'POST',
 		pattern: /^\/accounts\/bootstrap$/,
 		dispatch: 'account-bootstrap',
+	},
+	{
+		id: 'lifecycle-recovery',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/lifecycle\/recover$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) {
+				throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			}
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			requireSchedulerServiceRequest(context.request);
+			if (context.coordinator.ownerUserId !== userId) {
+				throw new RepositoryError('forbidden', 'Lifecycle recovery was dispatched to the wrong coordinator.', 403);
+			}
+			const wake = lifecycleRecoveryWakeRequestFromUnknown(await readJsonBody(context.request));
+			const result = await resumeDueUserLifecycleOperation(context, wake.scheduledAt);
+			await armNextUserLifecycleAlarm(context.env.BICKR_D1, context.coordinator);
+			return ok(result);
+		},
 	},
 	{
 		id: 'user-avatar-upload',
@@ -1305,32 +1329,7 @@ export async function runUserBotsConvergenceAlarm(
 ): Promise<void> {
 	const operation = async () => {
 		if (coordinator.ownerUserId) {
-			const lifecycle = await nextDueLifecycleOperation(env.BICKR_D1, coordinator.ownerUserId, new Date().toISOString());
-			if (lifecycle) {
-				switch (lifecycle.entityKind) {
-					case 'account':
-						if (lifecycle.action === 'create') {
-							await runAccountBootstrapOperation({ env, coordinator }, lifecycle);
-						} else {
-							await runAccountDeleteOperation({ env, coordinator }, lifecycle);
-						}
-						break;
-					case 'world':
-						if (lifecycle.action === 'create') {
-							await runWorldCreateOperation({ env, coordinator }, lifecycle);
-						} else {
-							await runWorldDeleteOperation({ env, coordinator }, lifecycle);
-						}
-						break;
-					case 'bot':
-						if (lifecycle.action === 'create') {
-							await runBotCreateOperation({ env, coordinator }, lifecycle);
-						} else {
-							await runBotDeleteOperation({ env, coordinator }, lifecycle);
-						}
-						break;
-				}
-			}
+			await resumeDueUserLifecycleOperation({ env, coordinator }, new Date().toISOString());
 		}
 		await runPendingUserBotsConvergenceTask(env, coordinator);
 		const pending = await coordinator.storage?.get(userBotsConvergenceTaskStorageKey);
@@ -1437,6 +1436,9 @@ async function runScheduledAgentRuntimeTasks(env: Env, scheduledTime: number): P
 	}
 	await Promise.all([
 		dispatchDueBots(env, scheduledTime),
+		recoverDueLifecycleOwners(env, scheduledTime).catch((error) => {
+			console.warn('lifecycle recovery dispatch failed', error);
+		}),
 		cleanupTerminalLifecycleOperations(env.BICKR_D1, new Date(scheduledTime).toISOString(), 100).catch((error) => {
 			console.warn('terminal lifecycle cleanup failed', error);
 		}),
