@@ -2015,6 +2015,22 @@ function parseAvatarCrop(value: unknown, avatar: AvatarImage): AvatarCrop {
 	return parsed;
 }
 
+/**
+ * The scheduler-authenticated inference graph operations are the maintenance
+ * work itself: every one of them requires maintenance mode inside its own
+ * handler, behind internal-service and scheduler auth. The agent Worker entry
+ * and the coordinator entry share this single classification so neither gate
+ * can reject a request the other is built to accept.
+ */
+function isInferenceGraphMaintenanceRequest(request: Request): boolean {
+	if (request.method !== 'POST') {
+		return false;
+	}
+	const pathname = new URL(request.url).pathname;
+	return /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate)$/.test(pathname) ||
+		/^\/inference-graph\/(?:cleanup|activate-lifecycle)$/.test(pathname);
+}
+
 export async function handleAgentRuntimeRequest(
 	request: Request,
 	env: Pick<
@@ -2032,13 +2048,11 @@ export async function handleAgentRuntimeRequest(
 		Partial<Pick<Env, 'FORUM_COORDINATOR_SERVICE' | 'INTERNAL_SERVICE_SECRET'>>,
 	context: UserBotsCoordinatorContext | string = 'direct',
 ): Promise<Response> {
-	const pathname = new URL(request.url).pathname;
-	// These internal scheduler operations require maintenance inside their own
-	// handlers. Let them reach that stricter gate while ordinary mutations keep
-	// the shared maintenance rejection behavior.
-	const maintenanceOperation = /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate)$/.test(pathname) ||
-		/^\/inference-graph\/(?:cleanup|activate-lifecycle)$/.test(pathname);
-	const maintenanceResponse = maintenanceOperation ? null : await mutationMaintenanceResponse(request, env.BICKR_D1, { allowRuntimeStop: true });
+	// Let the maintenance operations reach their own stricter gate while ordinary
+	// mutations keep the shared maintenance rejection behavior.
+	const maintenanceResponse = isInferenceGraphMaintenanceRequest(request)
+		? null
+		: await mutationMaintenanceResponse(request, env.BICKR_D1, { allowRuntimeStop: true });
 	if (maintenanceResponse) {
 		return maintenanceResponse;
 	}
@@ -2155,7 +2169,12 @@ export async function handleAgentRuntimeWorkerRequest(request: Request, env: Env
 		if (!isTrustedInternalServiceRequest(request, env.INTERNAL_SERVICE_SECRET)) {
 			return agentRuntimeNotFoundResponse();
 		}
-		const maintenanceResponse = await mutationMaintenanceResponse(request, env.BICKR_D1, { allowRuntimeStop: true });
+		// The same exemption the coordinator entry applies: without it the Worker
+		// edge would reject the maintenance operations before they can be routed
+		// to the handlers that require maintenance mode.
+		const maintenanceResponse = isInferenceGraphMaintenanceRequest(request)
+			? null
+			: await mutationMaintenanceResponse(request, env.BICKR_D1, { allowRuntimeStop: true });
 		if (maintenanceResponse) {
 			return maintenanceResponse;
 		}

@@ -6,9 +6,12 @@ import {
 	readMaintenanceState,
 	requireMaintenanceDisabled,
 } from '../packages/shared/src/maintenance';
-import { handleAgentRuntimeRequest } from '../workers/agent-runtime/src/routes';
+import { internalServiceUrl } from '../packages/shared/src/internal-service';
+import agentRuntimeWorker, { handleAgentRuntimeRequest } from '../workers/agent-runtime/src/routes';
 import { handleForumCoordinatorRequest } from '../workers/forum-coordinator/src/index';
 import { contextFor, describe, expect, it, jsonRequest, testEnv, testServiceProxy, vi } from './helpers/index-harness';
+
+const maintenanceOwnerId = 'usr_maintenance_gate';
 
 async function setMaintenance(enabled: boolean): Promise<void> {
 	const now = '2026-08-02T00:00:00.000Z';
@@ -135,6 +138,103 @@ describe('maintenance control', () => {
 
 		const agentRead = await handleAgentRuntimeRequest(new Request('https://internal.bickr/health'), agentEnv);
 		expect(agentRead.status).toBe(200);
+	});
+
+	it('routes scheduler inference graph maintenance operations through the agent worker entry', async () => {
+		await setMaintenance(true);
+		const dispatched: { method: string; path: string; userId: string }[] = [];
+		const userBots = {
+			idFromName(name: string): DurableObjectId {
+				return name as unknown as DurableObjectId;
+			},
+			get(objectId: DurableObjectId): Fetcher {
+				return {
+					fetch: async (request: Request) => {
+						dispatched.push({
+							method: request.method,
+							path: new URL(request.url).pathname,
+							userId: objectId as unknown as string,
+						});
+						return Response.json({ ok: true, data: { coordinator: objectId } });
+					},
+				} as unknown as Fetcher;
+			},
+		};
+		const workerEnv = {
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+			USER_BOTS: userBots,
+		} as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1];
+		const schedulerRequest = (path: string, body?: unknown) =>
+			new Request(internalServiceUrl(path), {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					'x-bickr-scheduler': '1',
+					'x-bickr-user-id': maintenanceOwnerId,
+				},
+				...(body === undefined ? {} : { body: JSON.stringify(body) }),
+			}) as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0];
+
+		for (const operation of ['migrate', 'rollback', 'reactivate']) {
+			const response = await agentRuntimeWorker.fetch(
+				schedulerRequest(`/users/${maintenanceOwnerId}/inference-graph/${operation}`),
+				workerEnv,
+			);
+			expect(response.status).toBe(200);
+		}
+		expect(dispatched).toEqual(['migrate', 'rollback', 'reactivate'].map((operation) => ({
+			method: 'POST',
+			path: `/users/${maintenanceOwnerId}/inference-graph/${operation}`,
+			userId: maintenanceOwnerId,
+		})));
+
+		// The fleet operations dispatch directly, so a maintenance-enabled worker
+		// entry must reach their handlers rather than the shared mutation gate.
+		const cleanup = await agentRuntimeWorker.fetch(schedulerRequest('/inference-graph/cleanup', { limit: 1 }), workerEnv);
+		expect(cleanup.status).toBe(200);
+		expect(await cleanup.json()).toMatchObject({ data: { cleanup: { convergence: 0, operations: 0, projections: 0 } } });
+		const activation = await agentRuntimeWorker.fetch(schedulerRequest('/inference-graph/activate-lifecycle'), workerEnv);
+		expect(activation.status).toBe(200);
+		expect(await activation.json()).toMatchObject({ data: { activationMode: 'inference_graph_required' } });
+
+		for (const path of [
+			`/users/${maintenanceOwnerId}/translate`,
+			'/bots/bot_1/tick',
+			// Only the five maintenance operations are exempt; a neighboring
+			// inference graph path keeps the shared maintenance rejection.
+			'/inference-graph/fleet-status',
+		]) {
+			const blocked = await agentRuntimeWorker.fetch(schedulerRequest(path), workerEnv);
+			expect(blocked.status).toBe(503);
+			expect(await blocked.json()).toMatchObject({ error: 'maintenance' });
+		}
+		expect(dispatched).toHaveLength(3);
+	});
+
+	it('gates the coordinator entry with the same maintenance operation classification', async () => {
+		await setMaintenance(true);
+		const agentEnv = { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV };
+		// Without scheduler auth each maintenance operation answers from its own
+		// handler, which only runs once the shared mutation gate has let it past.
+		for (const path of [
+			`/users/${maintenanceOwnerId}/inference-graph/migrate`,
+			`/users/${maintenanceOwnerId}/inference-graph/rollback`,
+			`/users/${maintenanceOwnerId}/inference-graph/reactivate`,
+			'/inference-graph/cleanup',
+			'/inference-graph/activate-lifecycle',
+		]) {
+			const response = await handleAgentRuntimeRequest(new Request(internalServiceUrl(path), { method: 'POST' }), agentEnv);
+			expect(response.status).toBe(401);
+			expect(await response.json()).toMatchObject({ error: 'unauthorized' });
+		}
+
+		const blocked = await handleAgentRuntimeRequest(
+			new Request(internalServiceUrl(`/users/${maintenanceOwnerId}/inference-graph/migration`), { method: 'POST' }),
+			agentEnv,
+		);
+		expect(blocked.status).toBe(503);
+		expect(await blocked.json()).toMatchObject({ error: 'maintenance' });
 	});
 
 	it('defers Durable Object alarms without consuming their pending task', async () => {
