@@ -64,18 +64,8 @@ describe("restartable inference graph migration", () => {
 		await seedBot(source);
 		await seedBot(clone);
 		await seedBot(localModelClone);
-		await testEnv.BICKR_D1.prepare(
-			`INSERT INTO bot_clone_sources (
-				bot_id, source_bot_id, source_world_id, source_world_handle,
-				source_handle, cloned_at, linked
-			) VALUES (?, ?, ?, 'migration-world', ?, ?, 1)`,
-		).bind(clone.id, source.id, worldId, source.handle, now).run();
-		await testEnv.BICKR_D1.prepare(
-			`INSERT INTO bot_clone_sources (
-				bot_id, source_bot_id, source_world_id, source_world_handle,
-				source_handle, cloned_at, linked
-			) VALUES (?, ?, ?, 'migration-world', ?, ?, 1)`,
-		).bind(localModelClone.id, source.id, worldId, source.handle, now).run();
+		await seedLinkedClone(clone, source);
+		await seedLinkedClone(localModelClone, source);
 
 		let result = await runInferenceGraphMigrationStep(testEnv, ownerId, now);
 		expect(result.cutoverVersion).toBe(0);
@@ -131,6 +121,125 @@ describe("restartable inference graph migration", () => {
 		expect(JSON.stringify(await inferenceGraphMigrationStatus(testEnv.BICKR_D1, ownerId))).not.toContain("secret");
 		expect(await inferenceGraphMigrationStatus(testEnv.BICKR_D1, ownerId)).toMatchObject({
 			audit: { hadDormantCloneInference: true },
+		});
+	});
+
+	it("preserves model-gated provider bundles and whole-object image inheritance for every bot shape", async () => {
+		const user = migrationUser();
+		user.inferenceSettings = {
+			...user.inferenceSettings,
+			providerRouting: { order: ["profile-provider"] },
+			temperature: 0.61,
+			topK: 70.5,
+			topP: 0.82,
+			imageGeneration: {
+				model: "owner/account-image",
+				providerRouting: { order: ["profile-image-provider"] },
+				aspectRatio: "4:3",
+				temperature: 0.62,
+				topK: 20.5,
+			},
+		};
+		await writeJson(testEnv.BICKR_KV, kvKeys.user(ownerId), user);
+
+		const partialWorld = { ...migrationWorld(), imageGeneration: { temperature: 0.44 } };
+		await worldIndexProjectionStatement(testEnv.BICKR_D1, partialWorld).run();
+		await writeJson(testEnv.BICKR_KV, kvKeys.world(worldId), partialWorld);
+
+		const source = migrationBot("bot_bundle_source", "bundle-source", {
+			model: "owner/source-model",
+			topK: 50.5,
+			imageGeneration: { model: "owner/source-image", topK: 40.5 },
+		});
+		const ordinaryPartialImage = migrationBot("bot_ordinary_partial_image", "ordinary-partial-image", {
+			imageGeneration: { temperature: 0.25 },
+		});
+		const ordinaryLocalModel = migrationBot("bot_ordinary_local_model", "ordinary-local-model", {
+			model: "owner/ordinary-local-model",
+		});
+		const dormantLinked = migrationBot("bot_linked_dormant", "linked-dormant", {
+			topK: 99.5,
+			imageGeneration: { model: "owner/dormant-image", temperature: 0.99 },
+		}, source);
+		const linkedLocalImage = migrationBot("bot_linked_local_image", "linked-local-image", {
+			model: "owner/linked-local-image-model",
+			imageGeneration: { temperature: 0.33 },
+		}, source);
+		const linkedOwnerImage = migrationBot("bot_linked_owner_image", "linked-owner-image", {
+			model: "owner/linked-owner-image-model",
+		}, source);
+		for (const bot of [
+			source,
+			ordinaryPartialImage,
+			ordinaryLocalModel,
+			dormantLinked,
+			linkedLocalImage,
+			linkedOwnerImage,
+		]) {
+			await seedBot(bot);
+		}
+		await seedLinkedClone(dormantLinked, source);
+		await seedLinkedClone(linkedLocalImage, source);
+		await seedLinkedClone(linkedOwnerImage, source);
+
+		let result = await runInferenceGraphMigrationStep(testEnv, ownerId, now);
+		for (let attempt = 0; attempt < 20 && !result.complete; attempt += 1) {
+			result = await runInferenceGraphMigrationStep(
+				testEnv,
+				ownerId,
+				new Date(Date.parse(now) + attempt + 1).toISOString(),
+			);
+		}
+		expect(result).toMatchObject({ complete: true, phase: "terminal" });
+
+		const worldOverrides = await configurationOverrides(await worldConfigurationId(worldId));
+		expect(worldOverrides).toMatchObject({
+			imageModel: { kind: "value", value: "google/gemini-3.1-flash-image" },
+			imageAspectRatio: { kind: "value", value: "21:9" },
+			imageSize: { kind: "value", value: "1K" },
+			imageTemperature: { kind: "value", value: 0.44 },
+			imageTopK: { kind: "explicit_none" },
+		});
+
+		const partialImageOverrides = await configurationOverrides(await botConfigurationId(ordinaryPartialImage.id));
+		expect(partialImageOverrides).toMatchObject({
+			imageModel: { kind: "value", value: "google/gemini-3.1-flash-image" },
+			imageAspectRatio: { kind: "value", value: "1:1" },
+			imageSize: { kind: "value", value: "1K" },
+			imageTemperature: { kind: "value", value: 0.25 },
+			imageTopK: { kind: "explicit_none" },
+		});
+
+		const ordinaryLocalOverrides = await configurationOverrides(await botConfigurationId(ordinaryLocalModel.id));
+		expect(ordinaryLocalOverrides).toMatchObject({
+			model: { kind: "value", value: "owner/ordinary-local-model" },
+			providerRouting: { kind: "explicit_none" },
+			temperature: { kind: "value", value: 1 },
+			topK: { kind: "explicit_none" },
+			topP: { kind: "explicit_none" },
+		});
+		expect(ordinaryLocalOverrides).not.toHaveProperty("imageModel");
+		expect(ordinaryLocalOverrides).not.toHaveProperty("imageTemperature");
+
+		expect(await configurationOverrides(await botConfigurationId(dormantLinked.id))).toEqual({});
+
+		const linkedLocalImageOverrides = await configurationOverrides(await botConfigurationId(linkedLocalImage.id));
+		expect(linkedLocalImageOverrides).toMatchObject({
+			imageModel: { kind: "value", value: "google/gemini-3.1-flash-image" },
+			imageAspectRatio: { kind: "value", value: "1:1" },
+			imageSize: { kind: "value", value: "1K" },
+			imageTemperature: { kind: "value", value: 0.33 },
+			imageTopK: { kind: "explicit_none" },
+		});
+
+		const linkedOwnerImageOverrides = await configurationOverrides(await botConfigurationId(linkedOwnerImage.id));
+		expect(linkedOwnerImageOverrides).toMatchObject({
+			imageModel: { kind: "value", value: "owner/account-image" },
+			imageProviderRouting: { kind: "value", value: { order: ["profile-image-provider"] } },
+			imageAspectRatio: { kind: "value", value: "4:3" },
+			imageSize: { kind: "explicit_none" },
+			imageTemperature: { kind: "value", value: 0.62 },
+			imageTopK: { kind: "value", value: 20.5 },
 		});
 	});
 
@@ -426,6 +535,15 @@ async function seedBot(bot: BotDocument): Promise<void> {
 	await writeJson(testEnv.BICKR_KV, kvKeys.bot(bot.id), bot);
 }
 
+async function seedLinkedClone(clone: BotDocument, source: BotDocument): Promise<void> {
+	await testEnv.BICKR_D1.prepare(
+		`INSERT INTO bot_clone_sources (
+			bot_id, source_bot_id, source_world_id, source_world_handle,
+			source_handle, cloned_at, linked
+		) VALUES (?, ?, ?, 'migration-world', ?, ?, 1)`,
+	).bind(clone.id, source.id, worldId, source.handle, now).run();
+}
+
 async function seedActiveClaim(
 	kind: "user_handle" | "world_handle" | "bot_handle",
 	scope: string,
@@ -531,6 +649,12 @@ async function configuration(id: string) {
 		`SELECT kind, parent_id AS parentId, overrides_json AS overridesJson, revision
 		 FROM inference_configurations WHERE configuration_id = ?`,
 	).bind(id).first<{ kind: string; parentId: string | null; overridesJson: string; revision: number }>();
+}
+
+async function configurationOverrides(id: string): Promise<Record<string, unknown>> {
+	const row = await configuration(id);
+	if (!row) throw new Error(`Expected inference configuration ${id}.`);
+	return JSON.parse(row.overridesJson) as Record<string, unknown>;
 }
 
 async function credential(id: string) {

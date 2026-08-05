@@ -351,13 +351,17 @@ type LegacyBotMigrationCredential =
 	| { mode: "value"; secret: string };
 
 /**
- * A linked legacy clone without a local model selected its source's complete
- * inference bundle, making every other local inference field dormant. A clone
- * with a local model selected its complete local bundle instead. The graph
- * retains the source parent edge, so the latter case needs explicit raw-layer
- * barriers at cutover to prevent source fields from becoming active. These are
- * provider-default/absence requests and stable product defaults, never values
- * produced by capability normalization.
+ * Legacy provider settings were model-gated whole bundles for every bot. Once a
+ * bot supplied a model, missing provider fields stopped inheriting from the
+ * profile. A linked clone adds one more distinction: without a local model its
+ * entire local bundle was dormant, while with a local model its fallbacks came
+ * from the owner rather than its source. The graph retains the source parent
+ * edge, so that second case also materializes owner-level provider fallbacks.
+ *
+ * Image settings had their own whole-object selection and were not model-gated.
+ * Keep that decision separate so an ordinary bot with no image object can still
+ * inherit Account default and a linked local-model clone cannot inherit image
+ * fields from its source.
  */
 function inferenceOverridesForLegacyBotMigration(
 	settings: BotInferenceSettings,
@@ -365,16 +369,21 @@ function inferenceOverridesForLegacyBotMigration(
 	environment: ReturnType<typeof providerEnvironmentSettingsFromBindings>,
 	linkedClone: boolean,
 ): InferenceConfigurationOverrides {
-	if (!linkedClone) return inferenceOverridesForLegacySettingsMigration(settings);
-	if (!settings.model?.trim()) return {};
+	if (linkedClone && !settings.model?.trim()) return {};
+	if (!settings.model?.trim()) return inferenceOverridesForLegacySettingsMigration(settings);
 
 	const overrides = inferenceOverridesFromLegacySettings(settings);
-	const legacyProvider = resolveBotProviderSettings(
-		{ inferenceSettings: settings },
-		{ inferenceSettings: ownerSettings },
-		environment,
-	).settings;
-	overrides.baseUrl = { kind: "value", value: legacyProvider.baseUrl || defaultProviderBaseUrl };
+	if (linkedClone) {
+		const legacyProvider = resolveBotProviderSettings(
+			{ inferenceSettings: settings },
+			{ inferenceSettings: ownerSettings },
+			environment,
+		).settings;
+		overrides.baseUrl = { kind: "value", value: legacyProvider.baseUrl || defaultProviderBaseUrl };
+	}
+
+	// These requests reproduce the raw input that the capability layer received
+	// after legacy model gating. They must not be replaced with capability output.
 	overrides.reasoning ??= { kind: "value", value: { kind: "provider_default" } };
 	overrides.toolCalls ??= { kind: "value", value: { kind: "provider_default" } };
 	overrides.compactionMode ??= { kind: "value", value: { kind: "provider_default" } };
@@ -388,11 +397,15 @@ function inferenceOverridesForLegacyBotMigration(
 		overrides[field] ??= { kind: "explicit_none" };
 	}
 
-	Object.assign(overrides, legacyImageMigrationOverrides(
-		settings.imageGeneration ?? ownerSettings?.imageGeneration,
-		"participant",
-		true,
-	));
+	if (linkedClone) {
+		Object.assign(overrides, legacyImageMigrationOverrides(
+			settings.imageGeneration ?? ownerSettings?.imageGeneration,
+			"participant",
+			true,
+		));
+	} else if (settings.imageGeneration) {
+		Object.assign(overrides, legacyImageMigrationOverrides(settings.imageGeneration, "participant"));
+	}
 	return overrides;
 }
 
@@ -1041,39 +1054,8 @@ function assertMigrationCredentialParity(
 function assertProviderParity(
 	legacy: ProviderSettings,
 	canonical: ProviderSettings,
-	explicit?: BotInferenceSettings,
 ): void {
-	const always = ["baseUrl", "model"] as const;
-	for (const field of always) if (parityJson(legacy[field]) !== parityJson(canonical[field])) migrationParityFailure();
-	if (Boolean(legacy.apiKey) !== Boolean(canonical.apiKey)) migrationParityFailure();
-	const explicitFields = {
-		providerRouting: "providerRouting",
-		reasoningEffort: "reasoningEffort",
-		toolCalls: "toolCalls",
-		compactionMode: "compactionMode",
-		promptCacheMode: "promptCacheMode",
-		supportsPrefill: "supportsPrefill",
-		topK: "topK",
-		topP: "topP",
-		minP: "minP",
-		frequencyPenalty: "frequencyPenalty",
-		presencePenalty: "presencePenalty",
-		repetitionPenalty: "repetitionPenalty",
-	} as const satisfies Partial<Record<keyof BotInferenceSettings, keyof ProviderSettings>>;
-	if (!explicit) {
-		for (const field of Object.values(explicitFields)) {
-			if (parityJson(legacy[field]) !== parityJson(canonical[field])) migrationParityFailure();
-		}
-		if (legacy.temperature !== canonical.temperature) migrationParityFailure();
-		return;
-	}
-	for (const [legacyField, providerField] of Object.entries(explicitFields) as [keyof typeof explicitFields, keyof ProviderSettings][]) {
-		if (explicit[legacyField] !== undefined && parityJson(legacy[providerField]) !== parityJson(canonical[providerField])) migrationParityFailure();
-	}
-	// The old 0.9 sentinel inherited profile temperature. Phase 3 deliberately
-	// retires that special case; every other explicit temperature must match.
-	if (explicit.temperature !== undefined && !(explicit.temperature === 0.9 && legacy.temperature !== canonical.temperature) &&
-		legacy.temperature !== canonical.temperature) migrationParityFailure();
+	assertParityEqual(providerParityEnvelope(legacy), providerParityEnvelope(canonical));
 }
 
 function migrationParityFailure(): never {
