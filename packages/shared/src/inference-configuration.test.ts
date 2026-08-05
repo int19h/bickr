@@ -1,0 +1,180 @@
+import { describe, expect, it } from "vitest";
+import {
+	applyInferenceOverridePatch,
+	inferenceResolutionFingerprint,
+	parseInferenceConfigurationOverrides,
+	resolveImageSettingsForTarget,
+	resolveInferenceConfiguration,
+	type InferenceConfigurationNode,
+	type InferenceConfigurationOverrides,
+} from "./inference-configuration";
+
+describe("canonical inference configuration resolution", () => {
+	it("resolves arbitrary-depth fields independently and preserves falsy, empty, and equal explicit values", () => {
+		const account = node("account", "account_default", null, {
+			temperature: value(0.7),
+			supportsPrefill: value(true),
+			providerRouting: value({ order: ["openai"] }),
+		});
+		const parent = node("parent", "custom", account.id, {
+			temperature: value(0),
+			supportsPrefill: value(false),
+			providerRouting: value({}),
+		});
+		const selected = node("selected", "custom", parent.id, {
+			// Equality does not collapse explicit intent back to inheritance.
+			temperature: value(0),
+		});
+		const resolution = resolveInferenceConfiguration([selected, parent, account]);
+
+		expect(resolution.raw.temperature).toMatchObject({
+			state: "value",
+			value: 0,
+			source: { kind: "configuration", configurationId: selected.id, depth: 0 },
+			override: { kind: "value", value: 0 },
+		});
+		expect(resolution.raw.supportsPrefill).toMatchObject({ state: "value", value: false });
+		expect(resolution.raw.providerRouting).toMatchObject({ state: "value", value: {} });
+		expect(resolution.effective.temperature).toBe(0);
+	});
+
+	it("keeps normal and compaction reasoning independent", () => {
+		const account = node("account", "account_default", null, {
+			reasoning: value({ kind: "explicit_effort", effort: "high" }),
+			compactionReasoning: value({ kind: "reasoning_disabled" }),
+		});
+		const selected = node("selected", "custom", account.id, {
+			reasoning: value({ kind: "reasoning_disabled" }),
+			compactionReasoning: value({ kind: "explicit_effort", effort: "low" }),
+			baseUrl: value("https://custom.example/v1"),
+			model: value("custom/reasoner"),
+		});
+		const resolution = resolveInferenceConfiguration([selected, account]);
+
+		expect(resolution.effective.reasoningEffort).toBe("none");
+		expect(resolution.effective.compactionReasoning).toMatchObject({
+			kind: "refused",
+			refusal: { kind: "support_unknown_for_required_effort", requiredEffort: "low" },
+			provenance: {
+				configuration: { kind: "explicit_effort", effort: "low" },
+			},
+		});
+	});
+
+	it("falls back from an unauthorized explicit model without mutating raw intent", () => {
+		const account = node("account", "account_default", null, {});
+		const selected = node("selected", "custom", account.id, {
+			model: value("openai/gpt-4.1"),
+		});
+		const resolution = resolveInferenceConfiguration([selected, account]);
+
+		expect(resolution.raw.model).toMatchObject({
+			state: "value",
+			value: "openai/gpt-4.1",
+			source: { kind: "configuration", configurationId: selected.id },
+		});
+		expect(resolution.effective.model).toBe("openrouter/free");
+		expect(resolution.providerAuthorizationAdjustment).toMatchObject({
+			kind: "model_fell_back",
+			requestedModel: "openai/gpt-4.1",
+			effectiveModel: "openrouter/free",
+			reason: "owner_provider_unavailable",
+		});
+	});
+
+	it("authorizes a stored model through inherited saved credentials without exposing their text", async () => {
+		const account = node("account", "account_default", null, {}, {
+			mode: "value",
+			secretVersion: 7,
+			secret: "sk-owner-secret",
+		});
+		const selected = node("selected", "custom", account.id, {
+			model: value("openai/gpt-4.1"),
+		});
+		const resolution = resolveInferenceConfiguration([selected, account]);
+
+		expect(resolution.effective.model).toBe("openai/gpt-4.1");
+		expect(resolution.effective.credential).toMatchObject({
+			kind: "available",
+			secretVersion: 7,
+			secret: "sk-owner-secret",
+		});
+		const fingerprint = await inferenceResolutionFingerprint(resolution);
+		expect(fingerprint).toMatch(/^[a-f0-9]{64}$/);
+		expect(fingerprint).not.toContain("sk-owner-secret");
+	});
+
+	it("keeps explicit image absence raw and applies target defaults only for ordinary absence", () => {
+		const account = node("account", "account_default", null, {});
+		const inherited = resolveInferenceConfiguration([account]);
+		expect(resolveImageSettingsForTarget(inherited.effective.image, "participant").aspectRatio).toBe("1:1");
+		expect(resolveImageSettingsForTarget(inherited.effective.image, "world").aspectRatio).toBe("21:9");
+
+		const selected = node("selected", "custom", account.id, {
+			imageAspectRatio: { kind: "explicit_none" },
+		});
+		const absent = resolveInferenceConfiguration([selected, account]);
+		expect(absent.raw.imageAspectRatio).toMatchObject({ state: "explicit_none" });
+		expect(resolveImageSettingsForTarget(absent.effective.image, "participant")).not.toHaveProperty("aspectRatio");
+		expect(resolveImageSettingsForTarget(absent.effective.image, "world")).not.toHaveProperty("aspectRatio");
+	});
+
+	it("validates the discriminated storage and update protocols exhaustively", () => {
+		expect(parseInferenceConfigurationOverrides(JSON.stringify({
+			supportsPrefill: { kind: "value", value: false },
+			topK: { kind: "value", value: 0 },
+			providerRouting: { kind: "value", value: {} },
+			imageModel: { kind: "explicit_none" },
+		}))).toEqual({
+			supportsPrefill: { kind: "value", value: false },
+			topK: { kind: "value", value: 0 },
+			providerRouting: { kind: "value", value: {} },
+			imageModel: { kind: "explicit_none" },
+		});
+		expect(() => parseInferenceConfigurationOverrides({
+			reasoning: { kind: "explicit_none" },
+		})).toThrow("Invalid override for inference field reasoning");
+		expect(() => parseInferenceConfigurationOverrides({ unknown: { kind: "value", value: 1 } }))
+			.toThrow("Unknown inference configuration field");
+		expect(applyInferenceOverridePatch({ temperature: value(0.2) }, {
+			temperature: { kind: "inherit" },
+			topP: value(0),
+		})).toEqual({ topP: value(0) });
+	});
+
+	it("rejects broken, cyclic, and non-Account-default path endings", () => {
+		const account = node("account", "account_default", null, {});
+		const selected = node("selected", "custom", "missing", {});
+		expect(() => resolveInferenceConfiguration([selected, account])).toThrow("broken parent edge");
+		const cycleStart = node("cycle-start", "custom", "cycle-parent", {});
+		const cycleParent = node("cycle-parent", "custom", cycleStart.id, {});
+		expect(() => resolveInferenceConfiguration([cycleStart, cycleParent, cycleStart])).toThrow("cycle");
+		expect(() => resolveInferenceConfiguration([selected])).toThrow("does not end at Account default");
+	});
+});
+
+function value<T>(input: T): { kind: "value"; value: T } {
+	return { kind: "value", value: input };
+}
+
+function node(
+	id: string,
+	kind: "account_default" | "custom",
+	parentId: string | null,
+	overrides: InferenceConfigurationOverrides,
+	credential: InferenceConfigurationNode["credential"] = { mode: "inherit", secretVersion: 0 },
+): InferenceConfigurationNode {
+	const common = {
+		id,
+		ownerUserId: "usr_owner",
+		parentId,
+		overrides,
+		revision: 1,
+		createdAt: "2026-08-04T00:00:00.000Z",
+		updatedAt: "2026-08-04T00:00:00.000Z",
+		credential,
+	};
+	return kind === "account_default"
+		? { ...common, kind }
+		: { ...common, kind, name: id, nameKey: id };
+}
