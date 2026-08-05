@@ -38,7 +38,7 @@ import {
 	accountDefaultConfigurationId,
 	botConfigurationId,
 	worldConfigurationId,
-} from "@bickr/shared/inference-configuration-owner";
+} from "@bickr/shared/inference-configuration-repository";
 import {
 	deleteBotGroupMembershipsByBotSql,
 	userIndexProjectionStatement,

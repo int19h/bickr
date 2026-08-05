@@ -27,7 +27,7 @@ import {
 	accountDefaultConfigurationId,
 	botConfigurationId,
 	worldConfigurationId,
-} from "./inference-configuration-owner";
+} from "./inference-configuration-repository";
 import { sha256Hex } from "./ids";
 import { readMaintenanceState } from "./maintenance";
 import {

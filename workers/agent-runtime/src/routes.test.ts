@@ -25,6 +25,7 @@ const routeCases = [
 	{ method: 'GET', path: '/users/user-1/inference-configurations/config-1/impact', handlerId: 'inference-configuration-impact' },
 	{ method: 'POST', path: '/users/user-1/inference-configurations/config-1/rename', handlerId: 'rename-inference-configuration' },
 	{ method: 'POST', path: '/users/user-1/inference-configurations/config-1/reparent', handlerId: 'reparent-inference-configuration' },
+	{ method: 'GET', path: '/users/user-1/inference-configurations/fixed/bot/bot-1', handlerId: 'get-fixed-inference-configuration' },
 	{ method: 'GET', path: '/users/user-1/inference-configurations/config-1', handlerId: 'get-inference-configuration' },
 	{ method: 'PATCH', path: '/users/user-1/inference-configurations/config-1', handlerId: 'update-inference-configuration' },
 	{ method: 'DELETE', path: '/users/user-1/inference-configurations/config-1', handlerId: 'delete-inference-configuration' },
@@ -84,6 +85,20 @@ describe('agent runtime route matching', () => {
 
 	it('has one path-and-method assertion for every declarative route entry', () => {
 		expect(routeCases.map(({ handlerId }) => handlerId)).toEqual(agentRuntimeRouteTable.map(({ id }) => id));
+	});
+
+	it('matches the fixed-entry lookup for every entity kind without shadowing a configuration id', () => {
+		for (const path of [
+			'/users/user-1/inference-configurations/fixed/account_default',
+			'/users/user-1/inference-configurations/fixed/world/world-1',
+			'/users/user-1/inference-configurations/fixed/bot/bot-1',
+		]) {
+			expect(matchAgentRuntimeRoute(path, 'GET')?.handlerId).toBe('get-fixed-inference-configuration');
+		}
+		expect(matchAgentRuntimeRoute('/users/user-1/inference-configurations/config-1', 'GET')?.handlerId)
+			.toBe('get-inference-configuration');
+		expect(matchAgentRuntimeRoute('/users/user-1/inference-configurations/config-1/children', 'GET')?.handlerId)
+			.toBe('inference-configuration-children');
 	});
 
 	it('does not match a route under the wrong method', () => {

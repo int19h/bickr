@@ -162,7 +162,7 @@ describe("AvatarTarget", () => {
 			imageTarget: "participant",
 		});
 		expect(userAvatarTarget(user()).generation).toMatchObject({
-			configuration: { kind: "account_default", ownerUserId: "usr_one" },
+			configuration: { kind: "account_default" },
 			imageTarget: "participant",
 			prompt: "A portrait.",
 		});

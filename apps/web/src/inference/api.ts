@@ -4,7 +4,6 @@ import type {
 	InferenceConfigurationOverrides,
 } from "@bickr/shared/inference-configuration";
 import {
-	fixedInferenceConfigurationId,
 	type CredentialUpdate,
 	type FixedInferenceConfigurationReference,
 	type InferenceConfigurationPage,
@@ -64,8 +63,16 @@ export function translationCandidatesPath(query: InferenceListQuery = {}): strin
 	return `${translationPath}/candidates${listSearch({}, query)}`;
 }
 
-export async function fixedConfigurationPath(reference: FixedInferenceConfigurationReference): Promise<string> {
-	return configurationPath(await fixedInferenceConfigurationId(reference));
+/**
+ * Addresses a fixed entry by the entity it belongs to. The server authorizes
+ * that entity against the owner and resolves the configuration; the browser
+ * never derives a configuration id.
+ */
+export function fixedConfigurationPath(reference: FixedInferenceConfigurationReference): string {
+	const suffix = reference.kind === "account_default"
+		? ""
+		: `/${encodeURIComponent(reference.kind === "world" ? reference.worldId : reference.botId)}`;
+	return `${configurationsPath}/fixed/${reference.kind}${suffix}`;
 }
 
 export async function loadConfiguration(configurationId: string): Promise<ApiResult<RedactedInferenceConfigurationDto>> {

@@ -177,6 +177,36 @@ describe("serialized entity mutation import boundary", () => {
 		expect(violations).toEqual([]);
 	});
 
+	it("keeps fixed-entry configuration addressing on the authenticated server side", () => {
+		// Browser code names the entity a settings screen already displays and
+		// lets the owner-authenticated lookup resolve it. Deriving the address in
+		// the browser would place an authorization decision on the client and
+		// bypass the entity-ownership check the lookup performs.
+		const derivationNames = [
+			"accountDefaultConfigurationId",
+			"worldConfigurationId",
+			"botConfigurationId",
+			"deterministicId",
+		];
+		const browserRoot = resolve(process.cwd(), "apps/web/src");
+		const violations = sourceModuleFiles(browserRoot).flatMap((filename) => {
+			const relativeFilename = relativePath(filename);
+			if (relativeFilename.includes(".test.")) return [];
+			const source = readFileSync(filename, "utf8");
+			const result: string[] = [];
+			for (const name of derivationNames) {
+				if (source.includes(name)) {
+					result.push(`${relativeFilename}: derives a fixed inference configuration address in browser code (${name})`);
+				}
+			}
+			if (/from\s*['"]@bickr\/shared\/inference-configuration-repository['"]/.test(source)) {
+				result.push(`${relativeFilename}: imports the secret-capable inference repository from browser code`);
+			}
+			return result;
+		});
+		expect(violations).toEqual([]);
+	});
+
 	it("detects relative, dynamic, import-equals, default-export, re-export, and exported-const side doors", () => {
 		const repositoryNames = new Set<string>(["deleteBot", "createWorld"]);
 		const governanceNames = new Set<string>(["deleteWorld"]);

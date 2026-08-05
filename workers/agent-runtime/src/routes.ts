@@ -51,17 +51,21 @@ import {
 	listInferenceLibrarySection,
 	listInferenceParentCandidates,
 	listInferenceTranslationCandidates,
+	ownedFixedInferenceConfigurationId,
+	parseFixedInferenceConfigurationReference,
 	parseInferenceConfigurationKinds,
 	parseInferenceLibrarySection,
 	readTranslationSelection,
 } from '@bickr/shared/inference-configuration-repository';
 import {
+	type CredentialUpdate,
+	type InferenceLibrarySection,
+} from "@bickr/shared/inference-configuration-owner";
+import {
 	accountDefaultConfigurationId,
 	botConfigurationId,
 	worldConfigurationId,
-	type CredentialUpdate,
-	type InferenceLibrarySection,
-} from '@bickr/shared/inference-configuration-owner';
+} from "@bickr/shared/inference-configuration-repository";
 import {
 	activateInferenceGraphLifecycle,
 	beginInferenceGraphCompatibilityWrite,
@@ -632,6 +636,30 @@ export const agentRuntimeRouteTable = [
 			});
 			return ok({ configuration: await inferenceConfigurationOwnerDto(
 				context.env.BICKR_D1, userId, configuration.id, await bickrInferenceDefaultsFromEnvironment(context.env),
+			), coordinator: context.objectId });
+		},
+	},
+	{
+		// Owner-authenticated lookup of the fixed entry belonging to one account,
+		// world, or participant. Ownership of the named entity is checked before
+		// its configuration address is derived, so a client never derives one and
+		// an unowned entity is an ordinary not-found.
+		id: 'get-fixed-inference-configuration',
+		method: 'GET',
+		pattern: /^\/users\/([^/]+)\/inference-configurations\/fixed\/([^/]+)\/?([^/]*)$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = await requireInferenceGraphOwner(context);
+			const reference = parseFixedInferenceConfigurationReference(
+				decodeURIComponent(context.match[2] ?? ''),
+				decodeURIComponent(context.match[3] ?? ''),
+			);
+			const configurationId = await ownedFixedInferenceConfigurationId(context.env.BICKR_D1, userId, reference);
+			return ok({ configuration: await inferenceConfigurationOwnerDto(
+				context.env.BICKR_D1,
+				userId,
+				configurationId,
+				await bickrInferenceDefaultsFromEnvironment(context.env),
 			), coordinator: context.objectId });
 		},
 	},

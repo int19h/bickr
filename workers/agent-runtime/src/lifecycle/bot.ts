@@ -34,7 +34,7 @@ import {
 import {
 	accountDefaultConfigurationId,
 	botConfigurationId,
-} from "@bickr/shared/inference-configuration-owner";
+} from "@bickr/shared/inference-configuration-repository";
 import { deterministicId, makeId } from "@bickr/shared/ids";
 import type { BotDocument, BotSummary, CreateBotInput } from "@bickr/shared/model";
 import {

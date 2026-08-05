@@ -147,7 +147,7 @@ export function userAvatarTarget(profile: UserAvatarTargetInput): AvatarTarget<U
 			clear: "/api/me/avatar",
 		},
 		generation: {
-			configuration: { kind: "account_default", ownerUserId: profile.id },
+			configuration: { kind: "account_default" },
 			imageTarget: "participant",
 			prompt: localizedTextString(profile.inferenceSettings?.imageGeneration?.prompt),
 			promptFillOptions: [{ ...currentAvatarPromptFill, visibleWhenUnavailable: false }],

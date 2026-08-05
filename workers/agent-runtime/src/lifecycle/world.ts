@@ -27,7 +27,7 @@ import {
 import {
 	accountDefaultConfigurationId,
 	worldConfigurationId,
-} from "@bickr/shared/inference-configuration-owner";
+} from "@bickr/shared/inference-configuration-repository";
 import { deterministicId, makeId } from "@bickr/shared/ids";
 import { addInternalServiceAuthHeader, internalServiceUrl } from "@bickr/shared/internal-service";
 import type { BotGroupSummary, CreateWorldInput, WorldDocument, WorldSummary } from "@bickr/shared/model";

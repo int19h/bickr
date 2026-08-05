@@ -33,7 +33,7 @@ import {
 } from "@bickr/shared/inference-configuration-repository";
 import {
 	accountDefaultConfigurationId,
-} from "@bickr/shared/inference-configuration-owner";
+} from "@bickr/shared/inference-configuration-repository";
 import {
 	authProviders,
 	localizedText,

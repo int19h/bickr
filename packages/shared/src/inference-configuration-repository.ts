@@ -1,11 +1,12 @@
 import { isD1UniqueConstraintError } from "./d1-errors";
 import { deterministicId, makeId } from "./ids";
 import {
-	accountDefaultConfigurationId,
+	fixedInferenceConfigurationKinds,
 	inferenceConfigurationFields,
 	inferenceLibrarySections,
 	redactedOwnerDtoBrand,
 	type CredentialUpdate,
+	type FixedInferenceConfigurationReference,
 	type InferenceBotHomeWorldGroup,
 	type InferenceConfigurationEntryIdentity,
 	type InferenceConfigurationIdentity,
@@ -1606,6 +1607,68 @@ function credentialStatement(
 		configurationId,
 		ownerUserId,
 	);
+}
+
+export async function accountDefaultConfigurationId(ownerUserId: string): Promise<string> {
+	return deterministicId("cfg", `inference:account:${ownerUserId}`);
+}
+
+export async function worldConfigurationId(worldId: string): Promise<string> {
+	return deterministicId("cfg", `inference:world:${worldId}`);
+}
+
+export async function botConfigurationId(botId: string): Promise<string> {
+	return deterministicId("cfg", `inference:bot:${botId}`);
+}
+
+/**
+ * Server-only resolution of an owner's fixed entry. Ownership of the named
+ * entity is verified against the active index rows before the address is
+ * derived, so a caller can only reach a configuration for an entity it owns and
+ * an unowned or unknown entity is an ordinary not-found.
+ */
+export async function ownedFixedInferenceConfigurationId(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	reference: FixedInferenceConfigurationReference,
+): Promise<string> {
+	switch (reference.kind) {
+		case "account_default":
+			return accountDefaultConfigurationId(ownerUserId);
+		case "world": {
+			const row = await db.prepare(
+				`SELECT world_id AS id FROM worlds_index
+				 WHERE world_id = ? AND created_by_user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active' LIMIT 1`,
+			).bind(reference.worldId, ownerUserId).first<{ id: string }>();
+			if (!row) throw new RepositoryError("not_found", "World not found.", 404);
+			return worldConfigurationId(row.id);
+		}
+		case "bot": {
+			const row = await db.prepare(
+				`SELECT bot_id AS id FROM bots_index
+				 WHERE bot_id = ? AND owner_user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active' LIMIT 1`,
+			).bind(reference.botId, ownerUserId).first<{ id: string }>();
+			if (!row) throw new RepositoryError("not_found", "Participant not found.", 404);
+			return botConfigurationId(row.id);
+		}
+	}
+}
+
+export function parseFixedInferenceConfigurationReference(
+	kind: string,
+	entityId: string,
+): FixedInferenceConfigurationReference {
+	switch (kind) {
+		case "account_default": return { kind: "account_default" };
+		case "world": return { kind: "world", worldId: entityId };
+		case "bot": return { kind: "bot", botId: entityId };
+		default:
+			throw new RepositoryError(
+				"bad_request",
+				`Unknown fixed inference configuration kind. Expected one of ${fixedInferenceConfigurationKinds.join(", ")}.`,
+				400,
+			);
+	}
 }
 
 export async function lifecycleUsesInferenceGraph(db: D1DatabaseLike): Promise<boolean> {

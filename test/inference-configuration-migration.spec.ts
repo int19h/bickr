@@ -23,7 +23,7 @@ import {
 	accountDefaultConfigurationId,
 	botConfigurationId,
 	worldConfigurationId,
-} from "@bickr/shared/inference-configuration-owner";
+} from "@bickr/shared/inference-configuration-repository";
 import { localizedText, schemaVersion, type BotDocument, type LanguageTag, type UserDocument, type WorldDocument } from "@bickr/shared/model";
 import { userIndexProjectionStatement, worldIndexProjectionStatement } from "@bickr/shared/repository";
 import { kvKeys, readJson, writeJson } from "@bickr/shared/storage";

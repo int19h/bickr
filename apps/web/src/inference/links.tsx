@@ -19,9 +19,9 @@ export type FixedConfigurationState = {
 
 /**
  * Loads the fixed configuration that belongs to one account, world, or
- * participant. The address is derived from the entity id through the shared
- * owner module, so a settings screen never has to search the library or join
- * unrelated APIs to find its own entry.
+ * participant. The screen names only the entity it already displays; the server
+ * authorizes that entity against the owner and answers with the configuration's
+ * own identity metadata, so no configuration address is derived here.
  */
 export function useFixedConfiguration(reference: FixedInferenceConfigurationReference | null): FixedConfigurationState {
 	const [state, setState] = useState<Omit<FixedConfigurationState, "reload">>({
@@ -40,16 +40,14 @@ export function useFixedConfiguration(reference: FixedInferenceConfigurationRefe
 		}
 		let cancelled = false;
 		setState((current) => ({ ...current, error: null, loading: true }));
-		void (async () => {
-			const path = await fixedConfigurationPath(reference);
-			const result = await api<{ configuration: RedactedInferenceConfigurationDto }>(path);
+		void api<{ configuration: RedactedInferenceConfigurationDto }>(fixedConfigurationPath(reference)).then((result) => {
 			if (cancelled) return;
 			setState(
 				result.ok
 					? { configuration: result.data.configuration, error: null, loading: false }
 					: { configuration: null, error: result, loading: false },
 			);
-		})();
+		});
 		return () => {
 			cancelled = true;
 		};
@@ -60,7 +58,7 @@ export function useFixedConfiguration(reference: FixedInferenceConfigurationRefe
 
 function referenceEntityId(reference: FixedInferenceConfigurationReference): string {
 	switch (reference.kind) {
-		case "account_default": return reference.ownerUserId;
+		case "account_default": return "";
 		case "world": return reference.worldId;
 		case "bot": return reference.botId;
 	}

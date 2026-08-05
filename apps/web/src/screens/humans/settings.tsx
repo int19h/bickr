@@ -109,7 +109,7 @@ export function ProfileScreen({
 	const dirty = profile ? profileDraftChanged(draft, profile) : true;
 	const valid = isValidHandle(draft.handle) && draft.displayName.trim().length > 0;
 	const canSave = (dirty || profileIncomplete) && valid && !busy && !loading;
-	const accountConfiguration = useFixedConfiguration({ kind: "account_default", ownerUserId: user.id });
+	const accountConfiguration = useFixedConfiguration({ kind: "account_default" });
 
 	async function save(): Promise<void> {
 		const language = languageInputValue(draft.language);

@@ -22,7 +22,7 @@ import {
 } from "@bickr/shared/inference-configuration-repository";
 import {
 	accountDefaultConfigurationId,
-} from "@bickr/shared/inference-configuration-owner";
+} from "@bickr/shared/inference-configuration-repository";
 import type { D1DatabaseLike } from "@bickr/shared/storage";
 import { resetD1Schema } from "./helpers/d1-schema";
 

@@ -6,7 +6,6 @@
  * so an owner UI can address and render configurations without pulling the
  * secret-capable loader/resolver modules into a browser bundle.
  */
-import { deterministicId } from "./ids";
 import type {
 	InferenceConfigurationField,
 	InferenceConfigurationKind,
@@ -22,36 +21,20 @@ import type { EffectiveImageSettings } from "./inference-configuration";
 
 export type { EffectiveImageSettings };
 
-export async function accountDefaultConfigurationId(ownerUserId: string): Promise<string> {
-	return deterministicId("cfg", `inference:account:${ownerUserId}`);
-}
-
-export async function worldConfigurationId(worldId: string): Promise<string> {
-	return deterministicId("cfg", `inference:world:${worldId}`);
-}
-
-export async function botConfigurationId(botId: string): Promise<string> {
-	return deterministicId("cfg", `inference:bot:${botId}`);
-}
-
 /**
- * Fixed entries are addressed by the entity they belong to, so an owner client
- * never has to search the library to find "this participant's configuration".
+ * Names which entity's fixed configuration a caller wants. It carries only the
+ * entity identity a settings screen already holds; resolving it to a
+ * configuration is an owner-authenticated server lookup, never a client-side
+ * address derivation.
  */
 export type FixedInferenceConfigurationReference =
-	| { kind: "account_default"; ownerUserId: string }
+	| { kind: "account_default" }
 	| { kind: "world"; worldId: string }
 	| { kind: "bot"; botId: string };
 
-export async function fixedInferenceConfigurationId(
-	reference: FixedInferenceConfigurationReference,
-): Promise<string> {
-	switch (reference.kind) {
-		case "account_default": return accountDefaultConfigurationId(reference.ownerUserId);
-		case "world": return worldConfigurationId(reference.worldId);
-		case "bot": return botConfigurationId(reference.botId);
-	}
-}
+export const fixedInferenceConfigurationKinds = ["account_default", "world", "bot"] as const;
+
+export type FixedInferenceConfigurationKind = typeof fixedInferenceConfigurationKinds[number];
 
 export const inferenceConfigurationFields = [
 	"baseUrl",

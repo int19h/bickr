@@ -19,7 +19,7 @@ import {
 	accountDefaultConfigurationId,
 	botConfigurationId,
 	worldConfigurationId,
-} from "./inference-configuration-owner";
+} from "./inference-configuration-repository";
 import {
 	isOpenRouterProviderBaseUrl,
 	providerEnvironmentSettingsFromBindings,
