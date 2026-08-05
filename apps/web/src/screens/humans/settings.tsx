@@ -1,5 +1,6 @@
 import {
 	authProviders,
+	defaultTranslationPrompt,
 	localizedText,
 	type AuthProvider,
 	type LinkedAuthIdentity,
@@ -7,7 +8,7 @@ import {
 	type UpdateUserProfileInput,
 	type UserProfile,
 } from "@bickr/shared/model";
-import { useContext, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { avatarImagePixels, cloudflareImageUrl } from "../../avatar-image-urls";
 import { AvatarCropModal } from "../../avatar/AvatarCropModal";
@@ -15,41 +16,53 @@ import { AvatarUploadModal } from "../../avatar/AvatarUploadModal";
 import { userAvatarTarget } from "../../avatar/target";
 import { languageDraftValue, languageInputValue, uiLocaleOptions, useUiText } from "../../components/ui-text";
 import { defaultLanguageTag } from "../../language";
-import { providerRoutingDraftError } from "../../settings-drafts/common";
-import {
-	inferenceDraftChanged,
-	inferenceDraftFromSettings,
-	inferenceInputFromDraft,
-	type InferenceDraft,
-} from "../../settings-drafts/inference-draft";
 import { runApiAction } from "../../use-api";
 import { Avatar, Confirm, FallbackImage, Field, Icon, ImageLightbox, ToastContext, textValue } from "../../ui";
 import { RuntimeRow, isValidHandle, slugify } from "../bots";
 import { authProviderLabel, authStartHref } from "../chrome";
-import {
-	AgenticLoopInferenceFields,
-	ImageGenerationInferenceFields,
-	InferenceProviderFields,
-	TranslationInferenceFields,
-} from "../../components/inference-fields";
+import { ConfigurationLinkCard, useFixedConfiguration } from "../../inference/links";
+import { TranslationConfigurationSelector } from "../../inference/translation-selector";
 import { LanguageField, textLang } from "../../components/form-fields";
 import { TimeAgoLabel } from "../../components/record-display";
 
 type UserMutationResponse = { profile: UserProfile };
 
-type ProfileDraft = {
+export type ProfileDraft = {
 	handle: string;
 	language: string;
 	uiLocale: string;
 	displayName: string;
-	inference: InferenceDraft;
+	/** Prompt-adjacent translation data stays here; inference does not. */
+	translationEnabled: boolean;
+	translationPrompt: string;
 };
+
+/**
+ * Merges a freshly loaded profile into the draft the owner is holding. A field
+ * the owner has edited is theirs until they save or discard it; every other
+ * field follows the server. Refreshing the translation annotation after a
+ * configuration selection must not cost an unsaved handle, name, language,
+ * translation toggle, or translation prompt.
+ */
+export function profileDraftAfterReload(draft: ProfileDraft, loaded: ProfileDraft, next: ProfileDraft): ProfileDraft {
+	return {
+		handle: draft.handle === loaded.handle ? next.handle : draft.handle,
+		language: draft.language === loaded.language ? next.language : draft.language,
+		uiLocale: draft.uiLocale === loaded.uiLocale ? next.uiLocale : draft.uiLocale,
+		displayName: draft.displayName === loaded.displayName ? next.displayName : draft.displayName,
+		translationEnabled:
+			draft.translationEnabled === loaded.translationEnabled ? next.translationEnabled : draft.translationEnabled,
+		translationPrompt:
+			draft.translationPrompt === loaded.translationPrompt ? next.translationPrompt : draft.translationPrompt,
+	};
+}
 
 export function ProfileScreen({
 	busy,
 	onAuthIdentityUnlink,
 	onAvatarUpdated,
 	onOpenAvatarGeneration,
+	onProfileLoaded,
 	onSave,
 	onSignOut,
 	user,
@@ -58,6 +71,8 @@ export function ProfileScreen({
 	onAuthIdentityUnlink: (provider: AuthProvider) => Promise<UserProfile | null>;
 	onAvatarUpdated: (profile: UserProfile) => void;
 	onOpenAvatarGeneration: () => void;
+	/** Carries the translation annotation to the app so its cache key follows. */
+	onProfileLoaded: (profile: UserProfile) => void;
 	onSave: (draft: UpdateUserProfileInput) => Promise<UserProfile | null>;
 	onSignOut: () => void;
 	user: PublicUser;
@@ -74,6 +89,32 @@ export function ProfileScreen({
 	const [profileAvatarFailed, setProfileAvatarFailed] = useState(false);
 	const toast = useContext(ToastContext);
 	const t = useUiText();
+
+	// Read by the reload below so it can tell an edited field from one that
+	// simply still matches what the server last sent.
+	const loadedProfileRef = useRef<UserProfile | null>(null);
+	useEffect(() => {
+		loadedProfileRef.current = profile;
+	});
+
+	/**
+	 * Rereads the profile so the account's translation annotation and
+	 * fingerprint follow a configuration selection. It refreshes the saved copy
+	 * and every clean draft field, and leaves unsaved edits alone.
+	 */
+	const reloadProfile = useCallback(async (): Promise<void> => {
+		const result = await api<{ profile: UserProfile }>("/api/me/profile");
+		if (!result.ok) {
+			setMessage(result.message);
+			return;
+		}
+		const loaded = loadedProfileRef.current;
+		const next = profileDraftFromProfile(result.data.profile);
+		setDraft((current) => (loaded ? profileDraftAfterReload(current, profileDraftFromProfile(loaded), next) : next));
+		setProfile(result.data.profile);
+		setMessage("");
+		onProfileLoaded(result.data.profile);
+	}, [onProfileLoaded]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -104,13 +145,9 @@ export function ProfileScreen({
 	const avatarProfile = profile ?? user;
 	const authIdentities = profile?.authIdentities ?? [];
 	const dirty = profile ? profileDraftChanged(draft, profile) : true;
-	const valid =
-		isValidHandle(draft.handle) &&
-		draft.displayName.trim().length > 0 &&
-		!providerRoutingDraftError(draft.inference.providerRouting) &&
-		!providerRoutingDraftError(draft.inference.imageGenerationProviderRouting) &&
-		!providerRoutingDraftError(draft.inference.translationProviderRouting);
+	const valid = isValidHandle(draft.handle) && draft.displayName.trim().length > 0;
 	const canSave = (dirty || profileIncomplete) && valid && !busy && !loading;
+	const accountConfiguration = useFixedConfiguration({ kind: "account_default" });
 
 	async function save(): Promise<void> {
 		const language = languageInputValue(draft.language);
@@ -119,7 +156,15 @@ export function ProfileScreen({
 			language,
 			uiLocale: draft.uiLocale === "system" ? "system" : languageInputValue(draft.uiLocale) ?? defaultLanguageTag,
 			displayName: localizedText(draft.displayName, language),
-			inferenceSettings: inferenceInputFromDraft(draft.inference, undefined, { includeImageGeneration: true, includeTranslation: true }, language),
+			// Only the prompt-owned translation fields travel with the profile; the
+			// reusable inference fields live in the graph and are never rewritten by
+			// an ordinary profile save.
+			inferenceSettings: {
+				translation: {
+					enabled: draft.translationEnabled,
+					prompt: draft.translationPrompt.trim() ? localizedText(draft.translationPrompt, language) : null,
+				},
+			},
 		});
 		if (saved) {
 			setProfile(saved);
@@ -294,46 +339,50 @@ export function ProfileScreen({
 							</div>
 						</section>
 
+					<ConfigurationLinkCard
+						description="Account default supplies provider, model, loop, compaction, and image inference for everything you own that does not override it."
+						returnTo={{ route: "profile" }}
+						state={accountConfiguration}
+						title="Account default configuration"
+					/>
+
 					<section className="section">
 						<div className="section-head">
-							<h2>Inference Provider</h2>
-							<span className="meta">credentials and endpoint</span>
+							<h2>Inline translations</h2>
+							<span className="meta">viewer feature</span>
 						</div>
-						<InferenceProviderFields
-							draft={draft.inference}
-							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
-							scope="profile"
-						/>
+						<div className="field-stack">
+							<label className="checkbox-line">
+								<input
+									checked={draft.translationEnabled}
+									onChange={(event) => setDraft((current) => ({ ...current, translationEnabled: event.target.checked }))}
+									type="checkbox"
+								/>
+								<span>Inline translations</span>
+							</label>
+							<Field help="Sent with the source text for each translation request." label="Translation prompt">
+								<textarea
+									className="textarea"
+									onChange={(event) => setDraft((current) => ({ ...current, translationPrompt: event.target.value }))}
+									placeholder={defaultTranslationPrompt}
+									rows={4}
+									value={draft.translationPrompt}
+								/>
+							</Field>
+						</div>
 					</section>
+
 					<section className="section">
 						<div className="section-head">
-							<h2>Inference: Agentic Loop</h2>
-							<span className="meta">used by participants without overrides</span>
+							<h2>Translation inference configuration</h2>
+							<span className="meta">Account default or a custom configuration</span>
 						</div>
-						<AgenticLoopInferenceFields
-							draft={draft.inference}
-							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
-							scope="profile"
-						/>
-					</section>
-					<section className="section">
-						<div className="section-head">
-							<h2>Inference: Image Generation</h2>
-							<span className="meta">avatar generation defaults</span>
-						</div>
-						<ImageGenerationInferenceFields
-							draft={draft.inference}
-							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
-						/>
-					</section>
-					<section className="section">
-						<div className="section-head">
-							<h2>Inference: Translation</h2>
-							<span className="meta">inline content translation</span>
-						</div>
-						<TranslationInferenceFields
-							draft={draft.inference}
-							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
+						<TranslationConfigurationSelector
+							onSelectionSaved={() => {
+								accountConfiguration.reload();
+								void reloadProfile();
+							}}
+							returnTo={{ route: "profile" }}
 						/>
 					</section>
 				</div>
@@ -356,7 +405,10 @@ export function ProfileScreen({
 									unlinkable={authIdentities.length > 1}
 								/>
 							))}
-							<RuntimeRow label="API key" value={draft.inference.openRouterApiKeySet ? "saved" : "not set"} />
+							<RuntimeRow
+								label="Inference"
+								value={accountConfiguration.configuration?.effectiveModel ?? "..."}
+							/>
 							<RuntimeRow label="Created" value={profile ? <TimeAgoLabel value={profile.createdAt} /> : "..."} />
 							<RuntimeRow label="Updated" value={profile ? <TimeAgoLabel value={profile.updatedAt} /> : "..."} />
 						</div>
@@ -451,7 +503,8 @@ function profileDraftFromUser(user: PublicUser): ProfileDraft {
 		language: languageDraftValue(user.language, textLang(user.displayName) ?? defaultLanguageTag),
 		uiLocale: user.uiLocale ?? "system",
 		displayName: textValue(user.displayName),
-		inference: inferenceDraftFromSettings({}),
+		translationEnabled: false,
+		translationPrompt: "",
 	};
 }
 
@@ -461,18 +514,21 @@ function profileDraftFromProfile(profile: UserProfile): ProfileDraft {
 		language: languageDraftValue(profile.language, textLang(profile.displayName) ?? defaultLanguageTag),
 		uiLocale: profile.uiLocale ?? "system",
 		displayName: textValue(profile.displayName),
-		inference: inferenceDraftFromSettings(profile.inferenceSettings),
+		translationEnabled: Boolean(profile.inferenceSettings.translation?.enabled),
+		translationPrompt: textValue(profile.inferenceSettings.translation?.prompt ?? ""),
 	};
 }
 
 function profileDraftChanged(draft: ProfileDraft, profile: UserProfile): boolean {
 	const language = languageInputValue(draft.language);
 	const uiLocale = draft.uiLocale === "system" ? "system" : languageInputValue(draft.uiLocale) ?? defaultLanguageTag;
+	const saved = profileDraftFromProfile(profile);
 	return (
 		draft.handle !== profile.handle ||
 		language !== profile.language ||
 		uiLocale !== (profile.uiLocale ?? "system") ||
 		draft.displayName !== textValue(profile.displayName) ||
-		inferenceDraftChanged(draft.inference, profile.inferenceSettings, { includeImageGeneration: true, includeTranslation: true })
+		draft.translationEnabled !== saved.translationEnabled ||
+		draft.translationPrompt !== saved.translationPrompt
 	);
 }

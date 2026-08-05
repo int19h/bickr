@@ -27,11 +27,13 @@ import {
 } from "@bickr/shared/entity-lifecycle";
 import { inferenceOverridesFromLegacySettings } from "@bickr/shared/inference-configuration-legacy";
 import {
-	accountDefaultConfigurationId,
-	botConfigurationId,
 	fixedConfigurationDeletionStatements,
 	insertFixedConfigurationStatement,
 	lifecycleUsesInferenceGraph,
+} from "@bickr/shared/inference-configuration-repository";
+import {
+	accountDefaultConfigurationId,
+	botConfigurationId,
 } from "@bickr/shared/inference-configuration-repository";
 import { deterministicId, makeId } from "@bickr/shared/ids";
 import type { BotDocument, BotSummary, CreateBotInput } from "@bickr/shared/model";

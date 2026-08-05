@@ -6,12 +6,14 @@ import {
 	translationToolCallStrategy,
 } from "@bickr/shared/inference-configuration-consumers";
 import {
-	accountDefaultConfigurationId,
-	botConfigurationId,
 	inferenceConfigurationMutations,
 	insertAccountDefaultConfigurationStatement,
 	insertFixedConfigurationStatement,
 	insertTranslationSelectionStatement,
+} from "@bickr/shared/inference-configuration-repository";
+import {
+	accountDefaultConfigurationId,
+	botConfigurationId,
 	worldConfigurationId,
 } from "@bickr/shared/inference-configuration-repository";
 import { localizedText, schemaVersion, type BotDocument, type LanguageTag, type UserDocument, type WorldDocument } from "@bickr/shared/model";

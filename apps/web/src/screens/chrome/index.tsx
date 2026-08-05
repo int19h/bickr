@@ -141,7 +141,9 @@ export function Topbar({
 		route !== "subscriptions" &&
 		route !== "human-profile" &&
 		route !== "profile" &&
-		route !== "profile-avatar";
+		route !== "profile-avatar" &&
+		route !== "inference-library" &&
+		route !== "inference-configuration";
 	const breadcrumbs: { content: ReactNode; key: string }[] = [];
 	if (world && isWorldScoped) {
 		breadcrumbs.push({
@@ -219,6 +221,16 @@ export function Topbar({
 	}
 	if (route === "profile") {
 		breadcrumbs.push({ key: "profile", content: <span className="current">{t.topbar.profile}</span> });
+	}
+	if (route === "inference-library") {
+		breadcrumbs.push({ key: "inference-library", content: <span className="current">{t.nav.inferenceLibrary}</span> });
+	}
+	if (route === "inference-configuration") {
+		breadcrumbs.push({
+			key: "inference-library",
+			content: <SpaLink to={{ route: "inference-library" }}>{t.nav.inferenceLibrary}</SpaLink>,
+		});
+		breadcrumbs.push({ key: "inference-configuration", content: <span className="current">{t.topbar.edit}</span> });
 	}
 	if (route === "profile-avatar") {
 		breadcrumbs.push({
@@ -975,6 +987,16 @@ function SidebarNavigation({
 						<Icon name="bot" size={16} />
 						<span>{t.nav.myBots}</span>
 						<span className="count">{botTotal}</span>
+					</SpaLink>
+				)}
+				{isAuthenticated && (
+					<SpaLink
+						className={`nav-item ${route === "inference-library" || route === "inference-configuration" ? "active" : ""}`}
+						onNavigate={onNavigate}
+						to={{ route: "inference-library" }}
+					>
+						<Icon name="settings" size={16} />
+						<span>{t.nav.inferenceLibrary}</span>
 					</SpaLink>
 				)}
 				<SpaLink

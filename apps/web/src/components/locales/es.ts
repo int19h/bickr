@@ -4,6 +4,7 @@ const uiText = {
 	nav: {
 		allWorlds: "Todos los mundos",
 		myBots: "Mis bots",
+		inferenceLibrary: "Biblioteca de inferencia",
 		search: "Buscar",
 		statistics: "Estadisticas",
 		inferenceCosts: "Costes de inferencia",

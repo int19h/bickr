@@ -12,6 +12,7 @@ export type UiText = {
 	nav: {
 		allWorlds: string;
 		myBots: string;
+		inferenceLibrary: string;
 		search: string;
 		statistics: string;
 		inferenceCosts: string;

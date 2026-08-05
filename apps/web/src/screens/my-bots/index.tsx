@@ -1,4 +1,4 @@
-import type { BotInferenceSettings, BotSummary, BotTickSpreadResult, BotTokenSpendSummary } from "@bickr/shared/model";
+import type { BotSummary, BotTickSpreadResult, BotTokenSpendSummary } from "@bickr/shared/model";
 import type { CSSProperties, ReactNode } from "react";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
@@ -17,7 +17,7 @@ import {
 	type MyBotsSortState,
 	type MyBotsSpendTotal,
 } from "../../my-bots-table";
-import { effectiveBotModel } from "../bots";
+import { useBotEffectiveModels } from "../../inference/bot-models";
 import { formatAverageDays, formatTokenCost, formatTokenCostParts } from "../bots/token-usage";
 import { formatFullDate } from "../chrome";
 import { BotProfileHoverLink } from "../search";
@@ -45,14 +45,12 @@ export function MyBotsScreen({
 	onDeleteBots,
 	onRunBotTicks,
 	onSpreadBotTicks,
-	ownerInferenceSettings,
 	worlds,
 }: {
 	bots: BotSummary[];
 	onDeleteBots: (bots: BotSummary[]) => Promise<{ deleted: BotSummary[]; failed: BotSummary[] }>;
 	onRunBotTicks: (bots: BotSummary[]) => Promise<void>;
 	onSpreadBotTicks: () => Promise<BotTickSpreadResult | null>;
-	ownerInferenceSettings: BotInferenceSettings | null;
 	worlds: WorldView[];
 }) {
 	const [botFilter, setBotFilter] = useState("");
@@ -64,6 +62,12 @@ export function MyBotsScreen({
 	const toast = useContext(ToastContext);
 	const spendFetchKey = useMemo(() => bots.map((bot) => bot.id).sort(compareHandles).join("\u0000"), [bots]);
 
+	// The current model is whatever the graph resolves for each participant, so
+	// it is read from the server for the owned set rather than reconstructed
+	// from each participant's stored settings.
+	const botIds = useMemo(() => bots.map((bot) => bot.id), [bots]);
+	const effectiveModels = useBotEffectiveModels(botIds);
+
 	const records = useMemo<MyBotTableRecord[]>(() => {
 		const worldsByHandle = new Map(worlds.map((world) => [world.handle, world]));
 		return bots.flatMap((bot) => {
@@ -73,14 +77,14 @@ export function MyBotsScreen({
 			}
 			return [{
 				bot,
-				effectiveModel: effectiveBotModel(bot, ownerInferenceSettings),
+				effectiveModel: effectiveModels.modelByBotId[bot.id] ?? "",
 				lastActiveSort: timestampSortValue(bot.lastActiveAt ?? bot.createdAt),
 				nextDueSort: bot.tickSettings.enabled ? timestampSortValue(bot.nextDueAt) : null,
 				spend: spendByBotId[bot.id],
 				world,
 			}];
 		});
-	}, [botFilter, bots, ownerInferenceSettings, spendByBotId, worlds]);
+	}, [botFilter, bots, effectiveModels.modelByBotId, spendByBotId, worlds]);
 
 	const groups = useMemo(() => {
 		const grouped = new Map<string, { rows: MyBotTableRecord[]; world: WorldView | null; worldHandle: string }>();
@@ -437,7 +441,13 @@ export function MyBotsScreen({
 																:	<span className="bot-status-label paused">Paused</span>}
 															</td>
 															<td className="bot-table-model-cell">
-																<ModelChip model={record.effectiveModel} />
+																{record.effectiveModel ?
+																	<ModelChip model={record.effectiveModel} />
+																: effectiveModels.loading ?
+																	<LoadingEllipsis />
+																:	<span className="muted" title={effectiveModels.error?.message ?? "This participant's configuration did not resolve a model."}>
+																		unresolved
+																	</span>}
 															</td>
 															<td className="bot-table-spend-cell" title={formatBotSpendTitle(record.spend)}>
 																{formatBotSpendValue(record.spend)}

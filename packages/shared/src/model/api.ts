@@ -807,9 +807,32 @@ export type ApiErrorDetails = {
 		forumHandle: string;
 		urlPath: string;
 	};
+	/**
+	 * Typed inference-graph conflict cause. Owner clients branch on this instead
+	 * of the human-facing message, which is composed per call site.
+	 */
+	inferenceGraphCause?: InferenceGraphErrorCause;
 	profileDeleteBlockers?: HumanProfileDeleteBlocker[];
 	references?: string[];
 };
+
+/**
+ * Typed inference-graph failure causes. They are attached at the throw site and
+ * echoed in owner error details; no consumer may branch on message text.
+ */
+export type InferenceGraphConflictCause =
+	| "stale_revision"
+	| "duplicate_name"
+	| "quota_exceeded"
+	| "self_parent"
+	| "descendant_parent"
+	| "cross_owner"
+	| "invalid_parent"
+	| "fixed_entry_requires_lifecycle"
+	| "account_default_required"
+	| "unexpected_unique_conflict";
+
+export type InferenceGraphErrorCause = InferenceGraphConflictCause | "corrupt_graph";
 
 export type ApiErrorPayload = {
 	ok: false;

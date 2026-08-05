@@ -27,14 +27,16 @@ import {
 import { localizedText, schemaVersion, type LanguageTag, type UserDocument, type WorldDocument } from "@bickr/shared/model";
 import type { D1DatabaseLike } from "@bickr/shared/storage";
 import {
-	accountDefaultConfigurationId,
-	botConfigurationId,
 	configurationCredentialValueStatement,
 	fixedConfigurationDeletionStatements,
 	inferenceConfigurationMutations,
 	insertAccountDefaultConfigurationStatement,
 	insertFixedConfigurationStatement,
 	insertTranslationSelectionStatement,
+} from "@bickr/shared/inference-configuration-repository";
+import {
+	accountDefaultConfigurationId,
+	botConfigurationId,
 	worldConfigurationId,
 } from "@bickr/shared/inference-configuration-repository";
 import {

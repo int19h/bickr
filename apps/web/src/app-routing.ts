@@ -115,6 +115,10 @@ export function clientRouteTitle({
 			return titleWithBickr(user ? `hu/${user.handle}: profile` : "Profile");
 		case "profile-avatar":
 			return titleWithBickr(user ? `hu/${user.handle}: avatar` : "Profile avatar");
+		case "inference-library":
+			return titleWithBickr("Inference library");
+		case "inference-configuration":
+			return titleWithBickr("Inference configuration");
 		case "human-profile":
 			return titleWithBickr(humanHandle ? `hu/${humanHandle}` : "Profile");
 		case "search": {

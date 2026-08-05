@@ -172,9 +172,9 @@ export function parseAvatarPromptInput(input: unknown): AvatarPromptInput {
 	}
 	const imageSettings = mode === 'current_avatar' ? record.settings : undefined;
 	const promptSettings = mode === 'description' || mode === 'members' ? record.settings : undefined;
-	if (mode === 'current_avatar' && imageSettings === undefined) {
-		throw new InputError('Choose an image generation model before filling from the current avatar.');
-	}
+	// An owner client carries no image settings: the target's configuration
+	// resolves them. A missing image model is still reported, by the resolution
+	// below, rather than by a precondition on a request field.
 	return {
 		mode,
 		...(prefill.trim() ? { prefill } : {}),

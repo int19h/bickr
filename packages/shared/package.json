@@ -22,6 +22,7 @@
 		"./inference-configuration-consumers": "./src/inference-configuration-consumers.ts",
 		"./inference-configuration-legacy": "./src/inference-configuration-legacy.ts",
 		"./inference-configuration-migration": "./src/inference-configuration-migration.ts",
+		"./inference-configuration-owner": "./src/inference-configuration-owner.ts",
 		"./inference-configuration-repository": "./src/inference-configuration-repository.ts",
 		"./index-versions": "./src/index-versions.ts",
 		"./index-repair": "./src/index-repair.ts",

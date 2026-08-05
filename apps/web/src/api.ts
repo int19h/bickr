@@ -1,5 +1,8 @@
+import type { ApiErrorDetails } from "@bickr/shared/model";
+
 export type ApiSuccess<T> = { ok: true; data: T };
-export type ApiFailure = { ok: false; error: string; message: string };
+/** `details` carries typed causes; owner screens branch on it, never on `message`. */
+export type ApiFailure = { ok: false; error: string; message: string; details?: ApiErrorDetails };
 export type ApiResult<T> = ApiSuccess<T> | ApiFailure;
 
 export async function api<T = unknown>(

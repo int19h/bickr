@@ -45,21 +45,28 @@ import {
 	inferenceConfigurationMutations,
 	inferenceConfigurationOwnerDto,
 	inferenceGraphReadVersion,
-	accountDefaultConfigurationId,
-	botConfigurationId,
 	loadInferenceConfigurationPath,
+	listBotEffectiveModels,
 	listImmediateInferenceChildren,
 	listInferenceConfigurations,
 	listInferenceLibrarySection,
 	listInferenceParentCandidates,
 	listInferenceTranslationCandidates,
+	ownedFixedInferenceConfigurationId,
+	parseFixedInferenceConfigurationReference,
 	parseInferenceConfigurationKinds,
 	parseInferenceLibrarySection,
 	readTranslationSelection,
-	worldConfigurationId,
+} from '@bickr/shared/inference-configuration-repository';
+import {
 	type CredentialUpdate,
 	type InferenceLibrarySection,
-} from '@bickr/shared/inference-configuration-repository';
+} from "@bickr/shared/inference-configuration-owner";
+import {
+	accountDefaultConfigurationId,
+	botConfigurationId,
+	worldConfigurationId,
+} from "@bickr/shared/inference-configuration-repository";
 import {
 	activateInferenceGraphLifecycle,
 	beginInferenceGraphCompatibilityWrite,
@@ -630,6 +637,55 @@ export const agentRuntimeRouteTable = [
 			});
 			return ok({ configuration: await inferenceConfigurationOwnerDto(
 				context.env.BICKR_D1, userId, configuration.id, await bickrInferenceDefaultsFromEnvironment(context.env),
+			), coordinator: context.objectId });
+		},
+	},
+	{
+		// Set-oriented canonical model labels for the participants an owner screen
+		// is already rendering. It answers with resolved model strings only, so an
+		// owner UI never reconstructs an effective model locally and never reads a
+		// configuration per row. Registered before the single-configuration route,
+		// whose pattern would otherwise claim this path segment.
+		id: 'inference-configuration-bot-effective-models',
+		method: 'GET',
+		pattern: /^\/users\/([^/]+)\/inference-configurations\/effective-models$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = await requireInferenceGraphOwner(context);
+			const botIds = (context.url.searchParams.get('botIds') ?? '')
+				.split(',')
+				.map((value) => value.trim())
+				.filter(Boolean);
+			return ok({
+				effectiveModels: await listBotEffectiveModels(context.env.BICKR_D1, userId, {
+					botIds,
+					defaults: await bickrInferenceDefaultsFromEnvironment(context.env),
+				}),
+				coordinator: context.objectId,
+			});
+		},
+	},
+	{
+		// Owner-authenticated lookup of the fixed entry belonging to one account,
+		// world, or participant. Ownership of the named entity is checked before
+		// its configuration address is derived, so a client never derives one and
+		// an unowned entity is an ordinary not-found.
+		id: 'get-fixed-inference-configuration',
+		method: 'GET',
+		pattern: /^\/users\/([^/]+)\/inference-configurations\/fixed\/([^/]+)\/?([^/]*)$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = await requireInferenceGraphOwner(context);
+			const reference = parseFixedInferenceConfigurationReference(
+				decodeURIComponent(context.match[2] ?? ''),
+				decodeURIComponent(context.match[3] ?? ''),
+			);
+			const configurationId = await ownedFixedInferenceConfigurationId(context.env.BICKR_D1, userId, reference);
+			return ok({ configuration: await inferenceConfigurationOwnerDto(
+				context.env.BICKR_D1,
+				userId,
+				configurationId,
+				await bickrInferenceDefaultsFromEnvironment(context.env),
 			), coordinator: context.objectId });
 		},
 	},

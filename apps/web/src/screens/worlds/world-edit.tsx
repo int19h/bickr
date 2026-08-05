@@ -17,6 +17,7 @@ import { AvatarCropModal } from "../../avatar/AvatarCropModal";
 import { AvatarUploadModal } from "../../avatar/AvatarUploadModal";
 import { worldAvatarTarget } from "../../avatar/target";
 import { Reference, type WorldView } from "../../components/content";
+import { ConfigurationLinkCard, useFixedConfiguration } from "../../inference/links";
 import { SpaLink } from "../../components/navigation";
 import { languageDraftValue, languageInputValue } from "../../components/ui-text";
 import { defaultLanguageTag } from "../../language";
@@ -72,6 +73,7 @@ export function WorldEditPage({
 	const [deleteAvatarConfirm, setDeleteAvatarConfirm] = useState(false);
 	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 	const toast = useContext(ToastContext);
+	const configuration = useFixedConfiguration(readonly ? null : { kind: "world", worldId: world.id });
 
 	useEffect(() => {
 		setHandle(world.handle);
@@ -158,7 +160,7 @@ export function WorldEditPage({
 	}
 
 	async function deleteAvatar(): Promise<void> {
-		const target = worldAvatarTarget(world, null);
+		const target = worldAvatarTarget(world);
 		const result = await runApiAction((message) => toast.push(message), () => api<WorldMutationResponse>(target.endpoints.clear, {
 			method: "DELETE",
 		}));
@@ -351,6 +353,15 @@ export function WorldEditPage({
 							</div>
 						</Field>
 					</section>
+
+					{!readonly && (
+						<ConfigurationLinkCard
+							description="World avatar generation resolves its non-prompt image fields from this configuration; the image prompt stays on the avatar screen."
+							returnTo={{ route: "world-edit", worldHandle: world.handle }}
+							state={configuration}
+							title="Inference configuration"
+						/>
+					)}
 				</div>
 			</div>
 
@@ -358,13 +369,13 @@ export function WorldEditPage({
 				onClose={() => setUploadOpen(false)}
 				onSaved={onWorldUpdated}
 				open={uploadOpen && !readonly}
-				target={worldAvatarTarget(world, null)}
+				target={worldAvatarTarget(world)}
 			/>
 			<AvatarCropModal
 				onClose={() => setCropOpen(false)}
 				onSaved={onWorldUpdated}
 				open={cropOpen && !readonly}
-				target={worldAvatarTarget(world, null)}
+				target={worldAvatarTarget(world)}
 			/>
 				<Confirm
 					body={<>This removes the avatar for <b>{textValue(world.name)}</b>.</>}

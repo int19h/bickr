@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import {
-	accountDefaultConfigurationId,
 	inferenceConfigurationMutations,
 	insertAccountDefaultConfigurationStatement,
 	insertFixedConfigurationStatement,
 	insertTranslationSelectionStatement,
+} from "@bickr/shared/inference-configuration-repository";
+import {
+	accountDefaultConfigurationId,
+	botConfigurationId,
+	worldConfigurationId,
 } from "@bickr/shared/inference-configuration-repository";
 import type { D1DatabaseLike } from "@bickr/shared/storage";
 import { resetD1Schema } from "./helpers/d1-schema";
@@ -15,7 +19,7 @@ const ownerId = "usr_route_owner";
 const worldId = "wld_route";
 const now = "2026-08-05T00:00:00.000Z";
 
-type RouteEnvelope = { ok: boolean; error?: string; data?: Record<string, unknown> };
+type RouteEnvelope = { ok: boolean; error?: string; details?: Record<string, unknown>; data?: Record<string, unknown> };
 
 beforeEach(async () => {
 	await resetD1Schema(testEnv.BICKR_D1);
@@ -131,6 +135,215 @@ describe("inference configuration runtime routes", () => {
 		expect(accepted.status).toBe(200);
 	});
 
+	it("echoes the typed graph cause in error details so clients never read the message", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const custom = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, { name: "Shared sampling", parentId: rootId }, now);
+
+		const stale = await routePayload(`/inference-configurations/${encodeURIComponent(custom.id)}`, {
+			method: "PATCH",
+			body: { expectedRevision: custom.revision + 5, overrides: { temperature: { kind: "value", value: 0 } } },
+		});
+		expect(stale.status).toBe(409);
+		expect(stale.body.error).toBe("conflict");
+		expect(stale.body.details).toEqual({ inferenceGraphCause: "stale_revision" });
+
+		const duplicate = await routePayload("/inference-configurations", {
+			method: "POST",
+			body: { name: "shared SAMPLING", parentId: rootId },
+		});
+		expect(duplicate.status).toBe(409);
+		expect(duplicate.body.details).toEqual({ inferenceGraphCause: "duplicate_name" });
+
+		const descendant = await routePayload(`/inference-configurations/${encodeURIComponent(rootId)}/reparent`, {
+			method: "POST",
+			body: { parentId: custom.id, expectedRevision: 1 },
+		});
+		expect(descendant.body.details).toEqual({ inferenceGraphCause: "account_default_required" });
+	});
+
+	it("returns named ancestry so an owner client can label provenance without walking the graph", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		await seedWorld(worldId, "route-world");
+		await seedBot("bot_named", worldId, "route-world", "route-named");
+		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "bot", configurationId: "cfg_named_bot", ownerUserId: ownerId, parentId: rootId, botId: "bot_named", now,
+			}),
+		]);
+		const child = await inferenceConfigurationMutations.createCustom(
+			testEnv.BICKR_D1,
+			ownerId,
+			{ name: "Child of participant", parentId: "cfg_named_bot" },
+			now,
+		);
+
+		const response = await routePayload(`/inference-configurations/${encodeURIComponent(child.id)}`);
+		expect(response.status).toBe(200);
+		const configuration = response.body.data?.configuration as {
+			path: { id: string; displayName: string; kind: string }[];
+		};
+		expect(configuration.path.map((entry) => entry.displayName)).toEqual([
+			"Child of participant",
+			"u/route-named",
+			"Account default",
+		]);
+		expect(configuration.path.map((entry) => entry.kind)).toEqual(["custom", "bot", "account_default"]);
+		expect(configuration.path[0]?.id).toBe(child.id);
+	});
+
+	it("resolves a fixed entry only for an entity the caller owns", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		await seedWorld(worldId, "route-world");
+		await seedBot("bot_owned", worldId, "route-world", "route-owned");
+		// Fixed entries live at the lifecycle-assigned address, which the route
+		// resolves for the caller.
+		const worldConfiguration = await worldConfigurationId(worldId);
+		const botConfiguration = await botConfigurationId("bot_owned");
+		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "world", configurationId: worldConfiguration, ownerUserId: ownerId, parentId: rootId, worldId, now,
+			}),
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "bot", configurationId: botConfiguration, ownerUserId: ownerId, parentId: rootId, botId: "bot_owned", now,
+			}),
+		]);
+
+		const account = await routePayload("/inference-configurations/fixed/account_default");
+		expect(account.status).toBe(200);
+		expect(account.body.data?.configuration).toMatchObject({ id: rootId, kind: "account_default", displayName: "Account default" });
+
+		const world = await routePayload(`/inference-configurations/fixed/world/${encodeURIComponent(worldId)}`);
+		expect(world.status).toBe(200);
+		expect(world.body.data?.configuration).toMatchObject({ id: worldConfiguration, kind: "world", displayName: "w/route-world" });
+
+		const bot = await routePayload("/inference-configurations/fixed/bot/bot_owned");
+		expect(bot.status).toBe(200);
+		expect(bot.body.data?.configuration).toMatchObject({ id: botConfiguration, kind: "bot", displayName: "u/route-owned" });
+	});
+
+	/**
+	 * Owner screens label a participant's current model from this one
+	 * set-oriented answer instead of reconstructing it from stored legacy
+	 * settings. Its path sits beside the single-configuration route, so the
+	 * ordering of the two patterns is part of the contract.
+	 */
+	it("answers canonical participant models for a set without colliding with a configuration id", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		await seedWorld(worldId, "route-world");
+		await seedBot("bot_models_a", worldId, "route-world", "route-model-a");
+		await seedBot("bot_models_b", worldId, "route-world", "route-model-b");
+		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "bot", configurationId: "cfg_models_a", ownerUserId: ownerId, parentId: rootId, botId: "bot_models_a", now,
+			}),
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "bot", configurationId: "cfg_models_b", ownerUserId: ownerId, parentId: rootId, botId: "bot_models_b", now,
+			}),
+		]);
+		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: rootId,
+			expectedRevision: 1,
+			credential: { mode: "value", secret: "route-owner-key" },
+		}, now);
+		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: "cfg_models_a",
+			expectedRevision: 1,
+			overrides: { model: { kind: "value", value: "route/alpha-model" } },
+		}, now);
+
+		const resolved = await routePayload("/inference-configurations/effective-models?botIds=bot_models_a,bot_models_b");
+		expect(resolved.status).toBe(200);
+		const models = (resolved.body.data?.effectiveModels as { models: { botId: string; effectiveModel: string }[] }).models;
+		expect(models.find((entry) => entry.botId === "bot_models_a")?.effectiveModel).toBe("route/alpha-model");
+		expect(models.find((entry) => entry.botId === "bot_models_b")?.effectiveModel).toBeTruthy();
+		// Resolved model labels only: no credential state, base URL, or overrides.
+		expect(JSON.stringify(resolved.body)).not.toContain("route-owner-key");
+		expect(Object.keys(models[0] ?? {})).toEqual(["botId", "effectiveModel"]);
+
+		// The single-configuration route still answers for a real id, and an
+		// unknown participant is absent rather than an error.
+		const single = await routePayload(`/inference-configurations/${encodeURIComponent("cfg_models_a")}`);
+		expect(single.status).toBe(200);
+		expect(single.body.data?.configuration).toMatchObject({ id: "cfg_models_a", kind: "bot" });
+		const unknown = await routePayload("/inference-configurations/effective-models?botIds=bot_missing");
+		expect(unknown.status).toBe(200);
+		expect((unknown.body.data?.effectiveModels as { models: unknown[] }).models).toEqual([]);
+	});
+
+	it("refuses a fixed entry for an unknown, foreign, or invalid entity", async () => {
+		// A world and a participant owned by somebody else, plus their fixed
+		// entries, are indistinguishable from entities that do not exist.
+		const foreignOwner = "usr_route_foreign";
+		const foreignRoot = await accountDefaultConfigurationId(foreignOwner);
+		await testEnv.BICKR_D1.batch([
+			claim("user_handle", "global", "route-foreign", "account", foreignOwner, foreignOwner),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO users_index (user_id, handle, display_name, created_at, updated_at, lifecycle_state)
+				 VALUES (?, 'route-foreign', 'Route Foreign', ?, ?, 'active')`,
+			).bind(foreignOwner, now, now),
+			claim("world_handle", "global", "foreign-world", "world", "wld_foreign", foreignOwner),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO worlds_index (
+					world_id, handle, name, description, created_by_user_id, visibility,
+					created_at, updated_at, lifecycle_state
+				) VALUES ('wld_foreign', 'foreign-world', 'foreign-world', '', ?, 'public', ?, ?, 'active')`,
+			).bind(foreignOwner, now, now),
+			claim("bot_handle", "wld_foreign", "foreign-bot", "bot", "bot_foreign", foreignOwner),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO bots_index (
+					bot_id, home_world_id, home_world_handle, handle, display_name,
+					owner_user_id, short_bio, created_at, updated_at, lifecycle_state
+				) VALUES ('bot_foreign', 'wld_foreign', 'foreign-world', 'foreign-bot', 'foreign-bot', ?, '', ?, ?, 'active')`,
+			).bind(foreignOwner, now, now),
+		]);
+		const foreignBotConfiguration = await botConfigurationId("bot_foreign");
+		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
+			insertAccountDefaultConfigurationStatement(testEnv.BICKR_D1, { configurationId: foreignRoot, ownerUserId: foreignOwner, now }),
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "bot", configurationId: foreignBotConfiguration, ownerUserId: foreignOwner, parentId: foreignRoot, botId: "bot_foreign", now,
+			}),
+		]);
+
+		for (const path of [
+			"/inference-configurations/fixed/bot/bot_foreign",
+			"/inference-configurations/fixed/world/wld_foreign",
+			"/inference-configurations/fixed/bot/bot_missing",
+			"/inference-configurations/fixed/world/wld_missing",
+		]) {
+			const response = await routePayload(path);
+			expect(response.status).toBe(404);
+			expect(response.body.error).toBe("not_found");
+			// The refusal never discloses that the entity or its configuration exists.
+			expect(JSON.stringify(response.body)).not.toContain(foreignBotConfiguration);
+			expect(JSON.stringify(response.body)).not.toContain("another owner");
+		}
+
+		const invalidKind = await routePayload("/inference-configurations/fixed/custom/cfg_one");
+		expect(invalidKind.status).toBe(400);
+		expect(invalidKind.body.error).toBe("bad_request");
+	});
+
+	it("offers only Account default and custom entries as translation candidates", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, { name: "Translation tuning", parentId: rootId }, now);
+		await seedWorld(worldId, "route-world");
+		await seedBot("bot_translation", worldId, "route-world", "route-translation");
+		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "world", configurationId: "cfg_translation_world", ownerUserId: ownerId, parentId: rootId, worldId, now,
+			}),
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "bot", configurationId: "cfg_translation_bot", ownerUserId: ownerId, parentId: rootId, botId: "bot_translation", now,
+			}),
+		]);
+
+		const candidates = await routePayload("/inference-translation/candidates");
+		expect(candidates.status).toBe(200);
+		const page = candidates.body.data?.candidates as { items: { displayName: string; kind: string }[] };
+		expect(page.items.map((item) => item.kind).sort()).toEqual(["account_default", "custom"]);
+		expect(page.items.map((item) => item.displayName).sort()).toEqual(["Account default", "Translation tuning"]);
+	});
+
 	it("wires q through parent candidates and children, and reports the unfiltered child total", async () => {
 		const rootId = await accountDefaultConfigurationId(ownerId);
 		const alpha = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, { name: "Alpha parent", parentId: rootId }, now);
@@ -200,6 +413,22 @@ async function routePayload(
 		{ objectId: "route-test-coordinator", ownerUserId: ownerId },
 	);
 	return { status: response.status, body: await response.json() as RouteEnvelope };
+}
+
+function claim(
+	keyKind: string,
+	keyScope: string,
+	keyValue: string,
+	entityKind: string,
+	entityId: string,
+	owner: string,
+) {
+	return testEnv.BICKR_D1.prepare(
+		`INSERT INTO entity_lifecycle_identity_claims (
+			key_kind, key_scope, key_value, entity_kind, entity_id, owner_user_id,
+			claim_state, operation_id, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?)`,
+	).bind(keyKind, keyScope, keyValue, entityKind, entityId, owner, now, now);
 }
 
 async function seedWorld(id: string, handle: string): Promise<void> {

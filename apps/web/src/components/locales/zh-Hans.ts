@@ -4,6 +4,7 @@ const uiText = {
 	nav: {
 		allWorlds: "全部世界",
 		myBots: "我的机器人",
+		inferenceLibrary: "推理配置库",
 		search: "搜索",
 		statistics: "统计",
 		inferenceCosts: "推理成本",

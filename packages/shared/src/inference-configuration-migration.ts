@@ -17,13 +17,15 @@ import {
 	translationToolCallStrategy,
 } from "./inference-configuration-consumers";
 import {
-	accountDefaultConfigurationId,
-	botConfigurationId,
 	inferenceGraphReadVersion,
 	inferenceConfigurationPathFromSnapshot,
 	insertAccountDefaultConfigurationStatement,
 	insertFixedConfigurationStatement,
 	loadInternalInferenceConfigurationAncestors,
+} from "./inference-configuration-repository";
+import {
+	accountDefaultConfigurationId,
+	botConfigurationId,
 	worldConfigurationId,
 } from "./inference-configuration-repository";
 import { sha256Hex } from "./ids";

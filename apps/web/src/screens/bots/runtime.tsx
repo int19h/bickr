@@ -1,5 +1,4 @@
 import type {
-	BotInferenceSettings,
 	BotLoopMessage,
 	BotLoopMessageLogsResponse,
 	BotLoopMessagePage,
@@ -23,7 +22,7 @@ import {
 } from "../../loop-message-streams";
 import { loopContinuationRowsForPage } from "../../loop-page-continuations";
 import { Avatar, Confirm, Icon, textValue } from "../../ui";
-import { effectiveBotModel } from "./bot-drafts";
+import { useBotEffectiveModels } from "../../inference/bot-models";
 import { loopToolCallsById } from "../../readable/loop-message-values";
 import { LoopContinuationRow, LoopMessageLogsModal, LoopMessagePager, LoopMessageRow } from "./loop-messages";
 import { RuntimeRow } from "./runtime-row";
@@ -54,13 +53,11 @@ export function BotLoopScreen({
 	bot,
 	busy,
 	onSave,
-	ownerInferenceSettings,
 	world,
 }: {
 	bot: BotSummary;
 	busy: boolean;
 	onSave: (botId: string, draft: UpdateBotInput) => Promise<boolean>;
-	ownerInferenceSettings: BotInferenceSettings | null;
 	world: WorldView;
 }) {
 	return (
@@ -93,7 +90,7 @@ export function BotLoopScreen({
 					</SpaLink>
 				</div>
 			</div>
-			<BotRuntimePanel bot={bot} busy={busy} onSave={onSave} ownerInferenceSettings={ownerInferenceSettings} />
+			<BotRuntimePanel bot={bot} busy={busy} onSave={onSave} />
 		</div>
 	);
 }
@@ -104,12 +101,10 @@ export function BotRuntimePanel({
 	bot,
 	busy,
 	onSave,
-	ownerInferenceSettings,
 }: {
 	bot: BotSummary;
 	busy: boolean;
 	onSave: (botId: string, draft: UpdateBotInput) => Promise<boolean>;
-	ownerInferenceSettings: BotInferenceSettings | null;
 }) {
 	const [status, setStatus] = useState<BotRuntimeStatus | null>(null);
 	const [events, setEvents] = useState<BotRuntimeEvent[]>([]);
@@ -135,7 +130,10 @@ export function BotRuntimePanel({
 	const runtimeEnabled = status?.enabled ?? bot.tickSettings.enabled;
 	const toolCallsById = useMemo(() => loopToolCallsById(loopMessages), [loopMessages]);
 	const currentLoopPage = loopMessagePage?.currentPage ?? 1;
-	const currentModel = effectiveBotModel(bot, ownerInferenceSettings);
+	// The model this participant actually runs is resolved by the server from
+	// its configuration, so the panel and the token-usage breakdown agree with
+	// the runtime instead of with a stale stored settings cascade.
+	const currentModel = useBotEffectiveModels([bot.id]).modelByBotId[bot.id] ?? "";
 
 	useEffect(() => {
 		let closed = false;

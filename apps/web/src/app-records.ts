@@ -1,4 +1,9 @@
 import { worldAvatarMembersPromptUserContent } from "@bickr/shared/avatar-prompts";
+import {
+	defaultProviderModel,
+	defaultTranslationPrompt,
+	localizedTextString,
+} from "@bickr/shared/model";
 import type {
 	AvatarCrop,
 	BotGroupSummary,
@@ -18,6 +23,34 @@ import { textValue } from "./ui";
 
 export function throwApiError(message: string): never {
 	throw new Error(message);
+}
+
+/**
+ * Translation view state for the whole app.
+ *
+ * The identity is the cache key input. It is the selected configuration plus
+ * the effective revision fingerprint the server computed, so a change to any
+ * inherited routing, reasoning, or sampling value invalidates cached
+ * translations even when the model and prompt are unchanged. Every screen that
+ * can move that result reloads the profile, so the identity cannot lag behind a
+ * selection change or a configuration edit until the next page load.
+ */
+export function translationContextValue(profile: UserProfile | null): {
+	enabled: boolean;
+	identity: string;
+	model: string;
+	prompt: string;
+} {
+	const translation = profile?.inferenceSettings.translation;
+	const annotation = profile?.translationInference;
+	return {
+		enabled: Boolean(translation?.enabled),
+		identity: annotation
+			? `${annotation.selectedConfigurationId}:${annotation.effectiveRevisionFingerprint}`
+			: defaultProviderModel,
+		model: annotation?.effectiveModel ?? defaultProviderModel,
+		prompt: localizedTextString(translation?.prompt).trim() || defaultTranslationPrompt,
+	};
 }
 export function worldAvatarMembersPromptSizeTitle(world: WorldSummary, members: BotSummary[] | null): string {
 	if (!members) {

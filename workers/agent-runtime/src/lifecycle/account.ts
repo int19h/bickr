@@ -26,11 +26,13 @@ import {
 import { inferenceOverridesFromLegacySettings } from "@bickr/shared/inference-configuration-legacy";
 import {
 	accountConfigurationDeletionStatements,
-	accountDefaultConfigurationId,
 	configurationCredentialValueStatement,
 	insertAccountDefaultConfigurationStatement,
 	insertTranslationSelectionStatement,
 	lifecycleUsesInferenceGraph,
+} from "@bickr/shared/inference-configuration-repository";
+import {
+	accountDefaultConfigurationId,
 } from "@bickr/shared/inference-configuration-repository";
 import {
 	authProviders,

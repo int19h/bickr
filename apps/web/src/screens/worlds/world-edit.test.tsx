@@ -66,3 +66,24 @@ describe("WorldEditPage recurring prompt", () => {
 		expect(worldRecurringPromptIsValid(true, "I remember the shared focus.")).toBe(true);
 	});
 });
+
+describe("WorldEditPage inference configuration", () => {
+	it("links the world's fixed configuration and keeps prompts and policy on this screen", () => {
+		const markup = render(world());
+
+		expect(markup).toContain("Inference configuration");
+		expect(markup).toContain("World avatar generation resolves its non-prompt image fields from this configuration");
+		// Prompts and non-inference world policy stay here.
+		expect(markup).toContain("A careful setting.");
+		expect(markup).toContain("Initial participant notification");
+		expect(markup).toContain("Thread comment limit");
+		// Reusable image inference is gone from the world editor.
+		expect(markup).not.toContain("Image size");
+		expect(markup).not.toContain("Aspect ratio");
+		expect(markup).not.toContain("Provider routing");
+	});
+
+	it("hides the owner-only configuration card in the read-only view", () => {
+		expect(render(world(), true)).not.toContain("Inference configuration");
+	});
+});

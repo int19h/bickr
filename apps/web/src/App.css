@@ -7825,3 +7825,182 @@ button.avatar-large-preview:not(:disabled),
 		width: auto;
 	}
 }
+
+/* Inference library and configuration editor */
+
+.inference-library-search {
+	margin-bottom: 16px;
+}
+
+.inference-subsection-title {
+	color: var(--ink-3);
+	font-size: calc(12px * var(--font-scale));
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	margin: 16px 0 8px;
+	text-transform: uppercase;
+}
+
+.inference-summary-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	list-style: none;
+	margin: 0 0 12px;
+	padding: 0;
+}
+
+.inference-summary-row {
+	background: var(--surface-2);
+	border: 1px solid var(--rule);
+	border-radius: 10px;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px 14px;
+	justify-content: space-between;
+	padding: 10px 12px;
+}
+
+.inference-summary-identity {
+	align-items: center;
+	display: flex;
+	gap: 8px;
+	min-width: 0;
+}
+
+.inference-summary-meta {
+	color: var(--ink-3);
+	display: flex;
+	flex-wrap: wrap;
+	font-size: calc(12px * var(--font-scale));
+	gap: 4px 14px;
+	min-width: 0;
+}
+
+.inference-kind-badge {
+	background: var(--surface-3);
+	border-radius: 999px;
+	color: var(--ink-3);
+	font-size: calc(11px * var(--font-scale));
+	padding: 1px 8px;
+	white-space: nowrap;
+}
+
+.inference-bot-group {
+	margin-bottom: 12px;
+}
+
+.inference-bot-group-head {
+	align-items: center;
+	background: none;
+	border: 0;
+	color: inherit;
+	cursor: pointer;
+	display: flex;
+	gap: 8px;
+	padding: 6px 0;
+	width: 100%;
+}
+
+.inference-bot-group-head[aria-expanded="true"] svg {
+	transform: rotate(90deg);
+}
+
+.inference-parent-picker {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.inference-parent-options {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.inference-selected-parent {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.inference-field-grid {
+	display: grid;
+	gap: 16px;
+	grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.inference-field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	min-width: 0;
+}
+
+.inference-field-head {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.inference-field-head label,
+.inference-field-label {
+	font-size: calc(12px * var(--font-scale));
+	font-weight: 600;
+}
+
+.inference-explicit-state {
+	max-width: 220px;
+}
+
+.inference-field-status {
+	margin: 0;
+}
+
+.inference-field-adjustment {
+	margin: 0;
+}
+
+.inference-secret-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.inference-image-previews,
+.inference-compaction-summary {
+	margin-bottom: 12px;
+}
+
+.inference-image-previews {
+	display: grid;
+	gap: 12px;
+	grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.inference-impact-warnings {
+	color: var(--ink-3);
+	font-size: calc(12px * var(--font-scale));
+	margin: 8px 0 0;
+	padding-left: 18px;
+}
+
+.inference-stale {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.inference-parent-fixed {
+	font-weight: 600;
+}
+
+.inference-link-card-body,
+.avatar-effective-image {
+	margin-top: 8px;
+}

@@ -1,34 +1,33 @@
 import {
-	avatarImageGenerationSettingsWithDefaults,
 	localizedTextLang,
-	worldAvatarImageGenerationSettingsWithDefaults,
+	localizedTextString,
 	type AvatarCrop,
 	type AvatarImage,
-	type BotInferenceSettings,
 	type BotSummary,
 	type LanguageTag,
 	type LocalizedText,
 	type UserProfile,
 	type WorldSummary,
 } from "@bickr/shared/model";
+import type { AvatarInferenceTarget } from "@bickr/shared/inference-configuration";
+import type { FixedInferenceConfigurationReference } from "@bickr/shared/inference-configuration-owner";
 
 import { defaultLanguageTag } from "../language";
 
 export type AvatarTargetKind = "bot" | "user" | "world";
 
 export type AvatarPromptFillMode = "persona" | "description" | "members" | "current_avatar";
-export type AvatarTextPromptFillMode = Extract<AvatarPromptFillMode, "description" | "members">;
 
-type AvatarPromptFillOptionBase = {
+/**
+ * Prompt fill runs on the target's own configuration, so no option carries a
+ * local parameter editor any more.
+ */
+export type AvatarPromptFillOption = {
 	idleLabel: string;
+	mode: AvatarPromptFillMode;
 	requirement: "none" | "current-avatar" | "members";
 	visibleWhenUnavailable: boolean;
 };
-
-export type AvatarPromptFillOption = AvatarPromptFillOptionBase & (
-	| { mode: Exclude<AvatarPromptFillMode, AvatarTextPromptFillMode>; settingsDialog: false }
-	| { mode: AvatarTextPromptFillMode; settingsDialog: true }
-);
 
 export type AvatarTargetOwner = {
 	avatar?: AvatarImage;
@@ -46,28 +45,24 @@ export type AvatarTargetEndpoints = {
 	crop: string;
 	generate: string;
 	prompt: string;
-	promptSettings: string | null;
 	upload: string;
 };
-
-export type AvatarGenerationSettingsSource = "participant-or-owner" | "profile" | "world-or-owner";
 
 export type AvatarTarget<TMutationResponse, TSaved> = {
 	endpoints: AvatarTargetEndpoints;
 	generation: {
-		defaultSettings: BotInferenceSettings;
-		hasOwnSettings: boolean;
+		/** The fixed configuration whose resolved image fields this target uses. */
+		configuration: FixedInferenceConfigurationReference;
+		imageTarget: AvatarInferenceTarget;
+		/** Entity-owned image prompt; prompts are never reusable inference. */
+		prompt: string;
 		promptFillOptions: readonly AvatarPromptFillOption[];
-		resetSettings: BotInferenceSettings;
-		settingsKey: string;
-		settingsSource: AvatarGenerationSettingsSource;
 	};
 	kind: AvatarTargetKind;
 	owner: AvatarTargetOwner;
 	readSaved(response: TMutationResponse): { affectedBots?: BotSummary[]; saved: TSaved };
 	uiText: {
 		cropEmpty: string;
-		discardedSettings: string;
 		handlePrefix: string;
 		promptId: string;
 	};
@@ -77,34 +72,14 @@ type BotMutationResponse = { bot: BotSummary; affectedBots?: BotSummary[] };
 type UserMutationResponse = { profile: UserProfile };
 type WorldMutationResponse = { world: WorldSummary };
 
-function defaultParticipantAvatarSettings(settings: BotInferenceSettings): BotInferenceSettings {
-	return {
-		...settings,
-		imageGeneration: avatarImageGenerationSettingsWithDefaults(settings.imageGeneration),
-	};
-}
-
-function defaultWorldAvatarSettings(settings: BotInferenceSettings): BotInferenceSettings {
-	return {
-		...settings,
-		imageGeneration: worldAvatarImageGenerationSettingsWithDefaults(settings.imageGeneration),
-	};
-}
-
 const currentAvatarPromptFill = {
 	idleLabel: "Fill from current avatar",
 	mode: "current_avatar",
 	requirement: "current-avatar",
-	settingsDialog: false,
 	visibleWhenUnavailable: true,
 } as const satisfies AvatarPromptFillOption;
 
-export function botAvatarTarget(
-	bot: BotSummary,
-	ownerInferenceSettings: BotInferenceSettings | null,
-): AvatarTarget<BotMutationResponse, BotSummary> {
-	const ownerSettings = ownerInferenceSettings ?? {};
-	const sourceSettings = bot.inferenceSettings.imageGeneration ? bot.inferenceSettings : ownerSettings;
+export function botAvatarTarget(bot: BotSummary): AvatarTarget<BotMutationResponse, BotSummary> {
 	return {
 		kind: "bot",
 		owner: {
@@ -123,29 +98,24 @@ export function botAvatarTarget(
 			generate: `/api/me/bots/${encodeURIComponent(bot.id)}/avatar/generate`,
 			apply: `/api/me/bots/${encodeURIComponent(bot.id)}/avatar/apply`,
 			clear: `/api/me/bots/${encodeURIComponent(bot.id)}/avatar`,
-			promptSettings: null,
 		},
 		generation: {
-			defaultSettings: defaultParticipantAvatarSettings(sourceSettings),
-			hasOwnSettings: Boolean(bot.inferenceSettings.imageGeneration),
+			configuration: { kind: "bot", botId: bot.id },
+			imageTarget: "participant",
+			prompt: localizedTextString(bot.inferenceSettings.imageGeneration?.prompt),
 			promptFillOptions: [
 				currentAvatarPromptFill,
 				{
 					idleLabel: "Fill from persona",
 					mode: "persona",
 					requirement: "none",
-					settingsDialog: false,
 					visibleWhenUnavailable: true,
 				},
 			],
-			resetSettings: defaultParticipantAvatarSettings(ownerSettings),
-			settingsKey: JSON.stringify(sourceSettings),
-			settingsSource: "participant-or-owner",
 		},
 		readSaved: (response) => ({ saved: response.bot, affectedBots: response.affectedBots }),
 		uiText: {
 			cropEmpty: "This participant does not have an avatar to crop.",
-			discardedSettings: "Participant image generation settings discarded.",
 			handlePrefix: "u/",
 			promptId: "avatar-generation-prompt",
 		},
@@ -157,7 +127,6 @@ type UserAvatarTargetInput = Pick<UserProfile, "avatar" | "avatarCrop" | "avatar
 	Partial<Pick<UserProfile, "inferenceSettings">>;
 
 export function userAvatarTarget(profile: UserAvatarTargetInput): AvatarTarget<UserMutationResponse, UserProfile> {
-	const inferenceSettings = profile.inferenceSettings ?? {};
 	return {
 		kind: "user",
 		owner: {
@@ -176,32 +145,23 @@ export function userAvatarTarget(profile: UserAvatarTargetInput): AvatarTarget<U
 			generate: "/api/me/avatar/generate",
 			apply: "/api/me/avatar/apply",
 			clear: "/api/me/avatar",
-			promptSettings: null,
 		},
 		generation: {
-			defaultSettings: defaultParticipantAvatarSettings(inferenceSettings),
-			hasOwnSettings: Boolean(inferenceSettings.imageGeneration),
+			configuration: { kind: "account_default" },
+			imageTarget: "participant",
+			prompt: localizedTextString(profile.inferenceSettings?.imageGeneration?.prompt),
 			promptFillOptions: [{ ...currentAvatarPromptFill, visibleWhenUnavailable: false }],
-			resetSettings: defaultParticipantAvatarSettings(inferenceSettings),
-			settingsKey: JSON.stringify(inferenceSettings),
-			settingsSource: "profile",
 		},
 		readSaved: (response) => ({ saved: response.profile }),
 		uiText: {
 			cropEmpty: "Your profile does not have an avatar to crop.",
-			discardedSettings: "Profile image generation settings discarded.",
 			handlePrefix: "hu/",
 			promptId: "user-avatar-generation-prompt",
 		},
 	};
 }
 
-export function worldAvatarTarget(
-	world: WorldSummary,
-	ownerInferenceSettings: BotInferenceSettings | null,
-): AvatarTarget<WorldMutationResponse, WorldSummary> {
-	const ownerSettings = ownerInferenceSettings ?? {};
-	const sourceSettings = world.imageGeneration ? { imageGeneration: world.imageGeneration } : ownerSettings;
+export function worldAvatarTarget(world: WorldSummary): AvatarTarget<WorldMutationResponse, WorldSummary> {
 	return {
 		kind: "world",
 		owner: {
@@ -220,36 +180,30 @@ export function worldAvatarTarget(
 			generate: `/api/worlds/${encodeURIComponent(world.handle)}/avatar/generate`,
 			apply: `/api/worlds/${encodeURIComponent(world.handle)}/avatar/apply`,
 			clear: `/api/worlds/${encodeURIComponent(world.handle)}/avatar`,
-			promptSettings: `/api/worlds/${encodeURIComponent(world.handle)}/avatar/prompt-settings`,
 		},
 		generation: {
-			defaultSettings: defaultWorldAvatarSettings(sourceSettings),
-			hasOwnSettings: Boolean(world.imageGeneration),
+			configuration: { kind: "world", worldId: world.id },
+			imageTarget: "world",
+			prompt: localizedTextString(world.imageGeneration?.prompt),
 			promptFillOptions: [
 				currentAvatarPromptFill,
 				{
 					idleLabel: "Fill from description",
 					mode: "description",
 					requirement: "none",
-					settingsDialog: true,
 					visibleWhenUnavailable: true,
 				},
 				{
 					idleLabel: "Fill from members",
 					mode: "members",
 					requirement: "members",
-					settingsDialog: true,
 					visibleWhenUnavailable: true,
 				},
 			],
-			resetSettings: defaultWorldAvatarSettings(ownerSettings),
-			settingsKey: JSON.stringify(sourceSettings),
-			settingsSource: "world-or-owner",
 		},
 		readSaved: (response) => ({ saved: response.world }),
 		uiText: {
 			cropEmpty: "This world does not have an avatar to crop.",
-			discardedSettings: "World image generation settings discarded.",
 			handlePrefix: "w/",
 			promptId: "world-avatar-generation-prompt",
 		},

@@ -4,7 +4,6 @@ import {
 	defaultReasoningPrefill,
 	localizedText,
 	type BotContextBudget,
-	type BotInferenceSettings,
 	type BotSummary,
 	type ForumSummary,
 	type LanguageTag,
@@ -13,26 +12,23 @@ import {
 import { effectivePostingSettings } from "@bickr/shared/posting";
 import { maxBotPromptLength, maxBotReasoningPrefillLength } from "@bickr/shared/validation";
 import { useContext, useEffect, useState } from "react";
+import { isOpenRouterProviderBaseUrl } from "@bickr/shared/inference-settings";
 import { api } from "../../api";
-import { AgenticLoopInferenceFields, InferenceProviderFields, OpenRouterServerToolFields } from "../../components/inference-fields";
+import { OpenRouterServerToolFields } from "../../components/openrouter-tool-fields";
+import { ConfigurationLinkCard, useFixedConfiguration } from "../../inference/links";
 import { LanguageField, RenameHandleModal, textLang } from "../../components/form-fields";
 import { TimeAgoLabel } from "../../components/record-display";
 import { BotSourceValue, Reference, type WorldView } from "../../components/content";
 import { languageInputValue, textLanguageDomProps } from "../../components/ui-text";
 import { defaultLanguageTag } from "../../language";
-import { providerRoutingDraftError } from "../../settings-drafts/common";
-import { inferenceDraftChanged, inferenceInputFromDraft } from "../../settings-drafts/inference-draft";
 import { toolInputFromDraft } from "../../tool-settings-draft";
 import { Avatar, Confirm, Field, Icon, ToastContext, textValue } from "../../ui";
 import {
 	botEditDraftFromBot,
 	botEditableInferenceSettings,
 	botPromptBudgetRequestKey,
-	cloneAwareInferenceFallbackForDraft,
-	cloneAwareInferenceInheritedSettingsForDraft,
 	effectiveIncludeLanguageInSystemPromptDraft,
 	includeLanguageInSystemPromptInputFromDraft,
-	isOpenRouterBaseUrlForTools,
 	parseBotEditDraft,
 	toolDraftChanged,
 	toolDraftValid,
@@ -52,31 +48,28 @@ export type PromptBudgetState =
 export function BotEdit({
 	bot,
 	busy,
-	modelSuggestions,
 	onBack,
 	onDelete,
 	onRelinkClone,
 	onSave,
 	onUnlinkClone,
-	ownerInferenceSettings,
 	personalForum,
 	personalForumsLoaded,
 	world,
 }: {
 	bot: BotSummary;
 	busy: boolean;
-	modelSuggestions: string[];
 	onBack: () => void;
 	onDelete: (bot: BotSummary) => Promise<boolean>;
 	onRelinkClone: (bot: BotSummary) => Promise<boolean>;
 	onSave: (botId: string, draft: UpdateBotInput) => Promise<boolean>;
 	onUnlinkClone: (bot: BotSummary) => Promise<boolean>;
-	ownerInferenceSettings: BotInferenceSettings | null;
 	personalForum: ForumSummary | null;
 	personalForumsLoaded: boolean;
 	world: WorldView | null;
 }) {
-	const [draft, setDraft] = useState<BotEditDraft>(() => botEditDraftFromBot(bot, ownerInferenceSettings));
+	const [draft, setDraft] = useState<BotEditDraft>(() => botEditDraftFromBot(bot));
+	const configuration = useFixedConfiguration({ kind: "bot", botId: bot.id });
 	const [confirm, setConfirm] = useState(false);
 	const [cloneLinkConfirm, setCloneLinkConfirm] = useState<"unlink" | "relink" | null>(null);
 	const [renameOpen, setRenameOpen] = useState(false);
@@ -84,7 +77,7 @@ export function BotEdit({
 	const toast = useContext(ToastContext);
 
 	useEffect(() => {
-		setDraft(botEditDraftFromBot(bot, ownerInferenceSettings));
+		setDraft(botEditDraftFromBot(bot));
 	}, [
 		bot.displayName,
 		bot.id,
@@ -92,7 +85,6 @@ export function BotEdit({
 		bot.inferenceSettings,
 		bot.language,
 		bot.localOverrides,
-		ownerInferenceSettings,
 		bot.prompt,
 		bot.shortBio,
 		bot.postingSettings.commentBodyCharacters,
@@ -125,8 +117,6 @@ export function BotEdit({
 	} = parsedDraft;
 	const inheritedPostingSettings = effectivePostingSettings(world?.postingSettings, undefined);
 	const resolvedContextWindowTokens = contextWindowTokens ?? bot.effectiveTickSettings.contextWindowTokens;
-	const providerRoutingError = providerRoutingDraftError(draft.inference.providerRouting);
-	const translationProviderRoutingError = providerRoutingDraftError(draft.inference.translationProviderRouting);
 	const linkedClone = Boolean(bot.cloneSource?.linked);
 	const savedLanguage = bot.localOverrides ? bot.localOverrides.language : bot.language;
 	const savedIncludeLanguageInSystemPrompt = linkedClone ?
@@ -146,8 +136,6 @@ export function BotEdit({
 	);
 	const editLanguage = effectiveDraftLanguage ?? bot.language ?? textLang(bot.displayName) ?? defaultLanguageTag;
 	const editTextProps = textLanguageDomProps(editLanguage);
-	const inferenceInheritedSettings = cloneAwareInferenceInheritedSettingsForDraft(bot, draft.inference, ownerInferenceSettings);
-	const inferenceInheritance = cloneAwareInferenceFallbackForDraft(bot, draft.inference, ownerInferenceSettings);
 	const promptBudgetRequestKey = botPromptBudgetRequestKey(
 		bot.id,
 		bot.handle,
@@ -160,7 +148,7 @@ export function BotEdit({
 			includeLanguageInSystemPrompt: effectiveDraftIncludeLanguageInSystemPrompt,
 			worldPrompt: textValue(world?.prompt),
 		},
-		inferenceInheritance,
+		configuration.configuration?.fingerprint ?? "",
 	);
 	const promptBudgetReady =
 		promptBudget.status === "ready" && promptBudget.requestKey === promptBudgetRequestKey ? promptBudget.budget : null;
@@ -185,10 +173,8 @@ export function BotEdit({
 		maxGeneratedTokensPerIteration !== (bot.tickSettings.maxGeneratedTokensPerIteration ?? null) ||
 		threadBodyCharacters !== (bot.postingSettings.threadBodyCharacters ?? null) ||
 		commentBodyCharacters !== (bot.postingSettings.commentBodyCharacters ?? null) ||
-		inferenceDraftChanged(draft.inference, savedInferenceSettings, {
-			includeReasoningPrefill: true,
-			inherited: inferenceInheritance,
-		}) ||
+		draft.recurringPromptEnabled !== (savedInferenceSettings.recurringPromptEnabled !== false) ||
+		draft.recurringPrompt !== textValue(savedInferenceSettings.recurringPrompt ?? "") ||
 		toolDraftChanged(draft.tools, bot.toolSettings);
 	const valid =
 		(linkedClone || draft.language.trim().length > 0) &&
@@ -196,9 +182,7 @@ export function BotEdit({
 		effectiveDraftShortBio.length > 0 &&
 		effectiveDraftPrompt.length > 0 &&
 		draft.prompt.length <= maxBotPromptLength &&
-		draft.inference.recurringPrompt.length <= maxBotReasoningPrefillLength &&
-		!providerRoutingError &&
-		!translationProviderRoutingError &&
+		draft.recurringPrompt.length <= maxBotReasoningPrefillLength &&
 		tickIntervalMinutes >= 1 &&
 		tickIntervalMinutes <= 1440 &&
 		(contextWindowTokens === null ||
@@ -244,7 +228,7 @@ export function BotEdit({
 	}, [bot.id, dirty, promptBudgetRequestKey]);
 
 	async function save(): Promise<void> {
-		const ok = await onSave(bot.id, updateBotInputFromEditDraft(draft, parsedDraft, inferenceInheritance, linkedClone));
+		const ok = await onSave(bot.id, updateBotInputFromEditDraft(draft, parsedDraft, linkedClone));
 		if (ok) {
 			toast.push(
 				<>
@@ -262,8 +246,7 @@ export function BotEdit({
 			(threadBodyCharacters !== null &&
 				(threadBodyCharacters < 1 || threadBodyCharacters > inheritedPostingSettings.threadBodyCharacters)) ||
 			(commentBodyCharacters !== null &&
-				(commentBodyCharacters < 1 || commentBodyCharacters > inheritedPostingSettings.commentBodyCharacters)) ||
-			providerRoutingDraftError(draft.inference.providerRouting)
+				(commentBodyCharacters < 1 || commentBodyCharacters > inheritedPostingSettings.commentBodyCharacters))
 		) {
 			return;
 		}
@@ -279,12 +262,8 @@ export function BotEdit({
 					displayName: effectiveDraftDisplayName,
 					prompt: effectiveDraftPrompt,
 					shortBio: effectiveDraftShortBio,
-					inferenceSettings: inferenceInputFromDraft(
-						draft.inference,
-						inferenceInheritance,
-						{ includeReasoningPrefill: true },
-						effectiveDraftLanguage ?? defaultLanguageTag,
-					),
+					// Provider and model inputs come from this participant's inference
+					// configuration on the server; the editor sends none.
 					toolSettings: toolInputFromDraft(draft.tools),
 					postingSettings: {
 						threadBodyCharacters,
@@ -306,10 +285,11 @@ export function BotEdit({
 		}
 	}
 
-	const openRouterServerToolsAvailable = isOpenRouterBaseUrlForTools(
-		draft.inference.baseUrl,
-		inferenceInheritance?.baseUrl,
-	);
+	// Server tools depend on the configuration's resolved endpoint, which only
+	// the server computes; the editor reads the effective value it returned.
+	const effectiveBaseUrl = configuration.configuration?.fields.baseUrl.effective;
+	const openRouterServerToolsAvailable =
+		typeof effectiveBaseUrl === "string" ? isOpenRouterProviderBaseUrl(effectiveBaseUrl) : true;
 	const personalForumRenames = personalForum?.handle === bot.handle;
 
 	return (
@@ -595,12 +575,9 @@ export function BotEdit({
 								label={
 									<span className="field-checkbox-label">
 										<input
-											checked={draft.inference.recurringPromptEnabled}
+											checked={draft.recurringPromptEnabled}
 											onChange={(event) =>
-												setDraft((current) => ({
-													...current,
-													inference: { ...current.inference, recurringPromptEnabled: event.target.checked },
-												}))
+												setDraft((current) => ({ ...current, recurringPromptEnabled: event.target.checked }))
 											}
 											type="checkbox"
 										/>
@@ -611,47 +588,23 @@ export function BotEdit({
 								<textarea
 									className="textarea recurring-prompt-editor"
 									{...editTextProps}
-									disabled={!draft.inference.recurringPromptEnabled}
+									disabled={!draft.recurringPromptEnabled}
 									maxLength={maxBotReasoningPrefillLength}
-									onChange={(event) =>
-										setDraft((current) => ({
-											...current,
-											inference: { ...current.inference, recurringPrompt: event.target.value },
-										}))
-									}
+									onChange={(event) => setDraft((current) => ({ ...current, recurringPrompt: event.target.value }))}
 									placeholder={defaultReasoningPrefill(bot.handle)}
 									rows={3}
-									value={draft.inference.recurringPrompt}
+									value={draft.recurringPrompt}
 								/>
 							</Field>
 						</div>
 					</section>
 
-					<section className="section">
-						<div className="section-head">
-							<h2>Inference Provider</h2>
-							<span className="meta">blank fields inherit profile defaults</span>
-						</div>
-						<InferenceProviderFields
-							draft={draft.inference}
-							inheritedSettings={inferenceInheritedSettings}
-							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
-							scope="bot"
-						/>
-					</section>
-					<section className="section">
-						<div className="section-head">
-							<h2>Inference: Agentic Loop</h2>
-							<span className="meta">blank fields inherit profile defaults</span>
-						</div>
-						<AgenticLoopInferenceFields
-							draft={draft.inference}
-							inheritedSettings={inferenceInheritedSettings}
-							modelSuggestions={modelSuggestions}
-							onChange={(inference) => setDraft((current) => ({ ...current, inference }))}
-							scope="bot"
-						/>
-					</section>
+					<ConfigurationLinkCard
+						description="Provider, model, loop, compaction, and image inference for this participant live in its inference configuration."
+						returnTo={{ route: "bot-edit", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
+						state={configuration}
+						title="Inference configuration"
+					/>
 
 					<section className="section">
 						<div className="section-head">

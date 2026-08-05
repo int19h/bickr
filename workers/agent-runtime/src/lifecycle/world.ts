@@ -20,10 +20,12 @@ import {
 } from "@bickr/shared/entity-lifecycle";
 import { inferenceOverridesFromLegacyImageSettings } from "@bickr/shared/inference-configuration-legacy";
 import {
-	accountDefaultConfigurationId,
 	fixedConfigurationDeletionStatements,
 	insertFixedConfigurationStatement,
 	lifecycleUsesInferenceGraph,
+} from "@bickr/shared/inference-configuration-repository";
+import {
+	accountDefaultConfigurationId,
 	worldConfigurationId,
 } from "@bickr/shared/inference-configuration-repository";
 import { deterministicId, makeId } from "@bickr/shared/ids";
