@@ -1765,7 +1765,7 @@ describe("Provider requests", () => {
 			floor: { kind: "model_default" },
 			knownFailure: "server_tool_crash",
 			runtimeFallback: { kind: "none" },
-			selection: { kind: "model_default", effort: "minimal" },
+			selection: { kind: "model_default" },
 			source: "openrouter_generated",
 		});
 		expect(modelSupportsStructuredOutputs("xiaomi/mimo-v2.5", true, xiaomiFp8Routing)).toBe(true);

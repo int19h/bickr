@@ -8,7 +8,7 @@ export default defineConfig({
 				test: {
 					name: "node",
 					environment: "node",
-					include: ["packages/cli/src/**/*.test.ts", "workers/agent-runtime/src/runtime/**/*.test.ts"],
+					include: ["packages/cli/src/**/*.test.ts", "scripts/**/*.test.mjs", "workers/agent-runtime/src/runtime/**/*.test.ts"],
 					exclude: [...configDefaults.exclude],
 				},
 			},
@@ -23,6 +23,7 @@ export default defineConfig({
 					exclude: [
 						...configDefaults.exclude,
 						"packages/cli/src/**/*.test.ts",
+						"scripts/**/*.test.mjs",
 						"workers/agent-runtime/src/runtime/**/*.test.ts",
 					],
 				},

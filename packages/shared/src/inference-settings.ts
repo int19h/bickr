@@ -11,6 +11,7 @@ import {
 	defaultTextGenerationTemperature,
 	legacyDefaultTextGenerationTemperature,
 	type BotCompactionMode,
+	type BotCompactionReasoningRequest,
 	type BotDocument,
 	type BotInferenceReasoningEffort,
 	type BotInferenceSettings,
@@ -53,6 +54,10 @@ export type ProviderSettings = {
 	baseUrl: string;
 	model: string;
 	compactionMode?: BotCompactionMode;
+	// This request is intentionally separate from reasoningEffort. Legacy
+	// settings leave it absent so the established compaction policy still owns
+	// the default until a configuration resolver supplies an explicit request.
+	compactionReasoning?: BotCompactionReasoningRequest;
 	promptCacheMode?: BotPromptCacheMode;
 	providerRouting?: JsonObject;
 	reasoningEffort?: Exclude<BotInferenceReasoningEffort, "default">;

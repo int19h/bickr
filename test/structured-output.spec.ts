@@ -117,7 +117,7 @@ describe("Structured output", () => {
 			expect(messages).toHaveLength(4);
 		});
 
-		it("omits no-thinking compaction wording only for explicit reasoning efforts", () => {
+		it("omits no-thinking compaction wording for every enabled reasoning selection", () => {
 			const bot = fakeBotDocument({ handle: "release-sage" });
 			const compactedMessages = [{ role: "assistant" as const, content: "I remember a long release discussion." }];
 			const explicitMessages = providerCompactionMessages(
@@ -138,7 +138,7 @@ describe("Structured output", () => {
 			);
 
 			expect(explicitMessages.at(-1)?.content).not.toContain("Don't spend any time thinking about this");
-			expect(modelDefaultMessages.at(-1)?.content).toContain("Don't spend any time thinking about this");
+			expect(modelDefaultMessages.at(-1)?.content).not.toContain("Don't spend any time thinking about this");
 			expect(providerAvatarDescriptionReasoningForSettings({
 				baseUrl: "https://openrouter.ai/api/v1",
 				model: "deepseek/deepseek-v4-flash-0731",
@@ -417,13 +417,19 @@ describe("Structured output", () => {
 					model: "openai/gpt-5.1-codex-mini",
 					mode: "minimal",
 				});
+				expect(Object.keys([...runtimeState.values()][0] as Record<string, unknown>).sort()).toEqual([
+					"mode",
+					"model",
+					"reason",
+					"updatedAt",
+				]);
 				expect(events).toContainEqual({
 					type: "provider_retry",
 					payload: expect.objectContaining({
 						attempt: 2,
 						compactionReasoningFallback: {
 							from: { kind: "reasoning_disabled" },
-							to: { kind: "model_default", effort: "minimal" },
+							to: { kind: "explicit_effort", effort: "minimal" },
 						},
 						delayMs: 0,
 						reason: "provider rejected compaction reasoning=none; retrying with minimal",
@@ -432,7 +438,11 @@ describe("Structured output", () => {
 
 				fetchMock.mockClear();
 				await callProviderForCompaction(
-					settings,
+					{
+						...settings,
+						reasoningEffort: "high",
+						compactionReasoning: { kind: "model_default" },
+					},
 					[{ role: "user", content: "Compact the retained activity again." }],
 					"run-compaction-cached-reasoning-fallback",
 					new AbortController().signal,
@@ -441,6 +451,7 @@ describe("Structured output", () => {
 				expect(fetchMock).toHaveBeenCalledTimes(1);
 				const cachedBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { reasoning?: unknown };
 				expect(cachedBody.reasoning).toEqual({ effort: "minimal", exclude: false });
+				expect(runtimeState.size).toBe(1);
 
 				fetchMock.mockClear();
 				await callProviderForCompaction(
@@ -551,7 +562,7 @@ describe("Structured output", () => {
 			}
 		});
 
-		it("omits reasoning for unknown and free OpenRouter compaction requests", async () => {
+		it("serializes explicit provider-default reasoning for unknown and free OpenRouter compaction requests", async () => {
 			const originalFetch = globalThis.fetch;
 			const validResponse = {
 				choices: [{
@@ -597,14 +608,14 @@ describe("Structured output", () => {
 				expect(fetchMock).toHaveBeenCalledTimes(2);
 				for (const call of fetchMock.mock.calls) {
 					const body = JSON.parse(String(call[1]?.body)) as { reasoning?: unknown };
-					expect(body.reasoning).toBeUndefined();
+					expect(body.reasoning).toEqual({ exclude: false });
 				}
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
 			}
 		});
 
-		it("starts Xiaomi FP8 routed compaction with minimal reasoning from the capability table", async () => {
+		it("starts Xiaomi FP8 routed compaction with provider-default reasoning from the capability table", async () => {
 			const originalFetch = globalThis.fetch;
 			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 			const validResponse = {
@@ -668,8 +679,52 @@ describe("Structured output", () => {
 				expect(fetchMock).toHaveBeenCalledTimes(1);
 				const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { reasoning?: unknown; provider?: unknown };
 				expect(body.provider).toEqual({ only: ["xiaomi/fp8"] });
-				expect(body.reasoning).toEqual({ effort: "minimal", exclude: false });
+				expect(body.reasoning).toEqual({ exclude: false });
 				expect(events.some((event) => event.type === "provider_retry")).toBe(false);
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("keeps configured compaction reasoning independent of ordinary-loop reasoning", async () => {
+			const originalFetch = globalThis.fetch;
+			const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>()
+				.mockResolvedValueOnce(Response.json({
+					choices: [{
+						message: {
+							content: JSON.stringify({
+								[providerCompactionSummaryProperty]: "I remember the important parts.",
+							}),
+						},
+					}],
+				}));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{
+						baseUrl: "https://openrouter.ai/api/v1",
+						model: "openai/gpt-5-mini",
+						reasoningEffort: "minimal",
+						compactionReasoning: { kind: "explicit_effort", effort: "high" },
+						temperature: 0.2,
+					},
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-independent-compaction-reasoning",
+					new AbortController().signal,
+					{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+				);
+
+				expect(response.content).toBe("I remember the important parts.");
+				const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { reasoning?: unknown };
+				expect(body.reasoning).toEqual({ effort: "high", exclude: false });
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
 			}
@@ -798,8 +853,8 @@ describe("Structured output", () => {
 				const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { provider?: Record<string, unknown>; reasoning?: unknown };
 				expect(firstBody.provider).toEqual({ order: ["openrouter/fallback"], ignore: ["A"] });
 				expect(secondBody.provider).toEqual({ order: ["openrouter/fallback"], ignore: ["A", "DeepInfra"] });
-				expect(firstBody.reasoning).toEqual({ effort: "low", exclude: false });
-				expect(secondBody.reasoning).toEqual({ effort: "low", exclude: false });
+				expect(firstBody.reasoning).toEqual({ effort: "high", exclude: false });
+				expect(secondBody.reasoning).toEqual({ effort: "high", exclude: false });
 				expect(events).toContainEqual({
 					type: "provider_retry",
 					payload: expect.objectContaining({
@@ -1059,7 +1114,7 @@ describe("Structured output", () => {
 					tools?: ProviderToolDefinition[];
 				});
 				for (const body of bodies) {
-					expect(body.reasoning).toEqual({ effort: "low", exclude: false });
+					expect(body.reasoning).toEqual({ effort: "high", exclude: false });
 				}
 				const isolatedBodies = bodies.slice(1);
 				expect(isolatedBodies).toHaveLength(4);
@@ -1199,7 +1254,7 @@ describe("Structured output", () => {
 					reasoning?: unknown;
 				});
 				for (const body of bodies) {
-					expect(body.reasoning).toEqual({ effort: "low", exclude: false });
+					expect(body.reasoning).toEqual({ effort: "high", exclude: false });
 				}
 				const retryBody = bodies[1]!;
 				const repairToolMessage = retryBody.messages.find((message) => message.role === "tool");
@@ -1401,7 +1456,7 @@ describe("Structured output", () => {
 					reasoning?: unknown;
 				});
 				for (const body of bodies) {
-					expect(body.reasoning).toEqual({ effort: "low", exclude: false });
+					expect(body.reasoning).toEqual({ effort: "high", exclude: false });
 				}
 				const retryBody = bodies[1]!;
 				expect(retryBody.messages).toEqual([

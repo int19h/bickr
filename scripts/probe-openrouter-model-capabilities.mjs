@@ -12,13 +12,23 @@ const openRouterModelsUrl = "https://openrouter.ai/api/v1/models";
 const openRouterChatCompletionsUrl = "https://openrouter.ai/api/v1/chat/completions";
 const probeMaxCompletionTokens = 256;
 const contextLengthCapabilityName = "contextLength";
-const capabilityNames = ["prefill", "structuredOutputs", "requiredToolCalls", "disabledReasoning", "cacheControl", contextLengthCapabilityName];
+const compactionReasoningCapabilityName = "compactionReasoning";
+const capabilityNames = [
+	"prefill",
+	"structuredOutputs",
+	"requiredToolCalls",
+	"disabledReasoning",
+	"cacheControl",
+	compactionReasoningCapabilityName,
+	contextLengthCapabilityName,
+];
 const capabilityCliNames = new Map([
 	["prefill", "prefill"],
 	["structuredOutputs", "structured-outputs"],
 	["requiredToolCalls", "required-tool-calls"],
 	["disabledReasoning", "disabled-reasoning"],
 	["cacheControl", "cache-control"],
+	[compactionReasoningCapabilityName, "compaction-reasoning"],
 	[contextLengthCapabilityName, "context-length"],
 ]);
 const capabilityNameAliases = new Map([
@@ -35,6 +45,9 @@ const capabilityNameAliases = new Map([
 	["cache-control", "cacheControl"],
 	["cache_control", "cacheControl"],
 	["cacheControl", "cacheControl"],
+	["compaction-reasoning", compactionReasoningCapabilityName],
+	["compaction_reasoning", compactionReasoningCapabilityName],
+	[compactionReasoningCapabilityName, compactionReasoningCapabilityName],
 	["context-length", contextLengthCapabilityName],
 	["context_length", contextLengthCapabilityName],
 	[contextLengthCapabilityName, contextLengthCapabilityName],
@@ -42,9 +55,21 @@ const capabilityNameAliases = new Map([
 const pinnedCapabilityEntries = new Map([
 	[
 		"openrouter/free",
-		{ prefill: false, structuredOutputs: false, requiredToolCalls: false, disabledReasoning: false, cacheControl: false },
+		{
+			prefill: false,
+			structuredOutputs: false,
+			requiredToolCalls: false,
+			disabledReasoning: false,
+			cacheControl: false,
+			compactionReasoning: {
+				support: { kind: "unknown" },
+				modelDefault: { kind: "provider_default" },
+			},
+		},
 	],
 ]);
+
+const compactionReasoningEfforts = new Set(["minimal", "low", "medium", "high", "xhigh"]);
 
 async function main() {
 	const args = parseArgs(process.argv.slice(2));
@@ -69,10 +94,15 @@ async function main() {
 	const modelsById = new Map(models.map((model) => [model.id, model]));
 	const currentIds = new Set(models.map((model) => model.id));
 	const requestedIds = modelFilter.length > 0 ? new Set(modelFilter) : currentIds;
+	const canCreateCompleteEntry = capabilityNames.every((capability) => capabilityFilter.has(capability));
 	const idsToProbe = models
 		.map((model) => model.id)
 		.filter((id) => requestedIds.has(id))
 		.filter((id) => !pinnedCapabilityEntries.has(id))
+		// A selective refresh has no observations for the other required
+		// dimensions. Defer new rows until a complete probe rather than
+		// manufacturing false capability values for them.
+		.filter((id) => existing.has(id) || canCreateCompleteEntry)
 		.filter((id) => {
 			const capabilities = existing.get(id);
 			if (onlyAffected) {
@@ -121,7 +151,7 @@ async function main() {
 			}
 			next.set(id, { ...capabilities, contextLength });
 		}
-		const written = [...next.entries()].filter(([id]) => mode !== "full" || currentIds.has(id));
+		const written = entriesForCurrentModels(next, currentIds);
 		await writeGeneratedTable(outputPath, written);
 		console.log(`Wrote ${written.length} capability entr${written.length === 1 ? "y" : "ies"} to ${path.relative(repoRoot, outputPath)}.`);
 	}
@@ -197,6 +227,12 @@ function capabilitiesNeedProbe(capabilities, capabilityFilter, onlyAffected) {
 		if (capabilities[capability] === undefined) {
 			return true;
 		}
+		if (capability === compactionReasoningCapabilityName) {
+			if (onlyAffected && capabilities.compactionReasoning.support?.kind === "unknown") {
+				return true;
+			}
+			continue;
+		}
 		if (onlyAffected && capabilities[capability] !== true) {
 			return true;
 		}
@@ -205,11 +241,15 @@ function capabilitiesNeedProbe(capabilities, capabilityFilter, onlyAffected) {
 }
 
 function shouldProbeCapability(capability, previous, capabilityFilter, mode, onlyAffected) {
+	if (!capabilityFilter.has(capability)) {
+		return false;
+	}
 	if (!previous) {
 		return true;
 	}
-	if (!capabilityFilter.has(capability)) {
-		return false;
+	if (capability === compactionReasoningCapabilityName) {
+		return mode === "full" || previous[capability] === undefined ||
+			(onlyAffected && previous.compactionReasoning.support?.kind === "unknown");
 	}
 	if (mode === "full" && !onlyAffected) {
 		return true;
@@ -227,6 +267,8 @@ function capabilitySummary(capabilities) {
 		`required_tools=${capabilities.requiredToolCalls}`,
 		`reasoning_none=${capabilities.disabledReasoning}`,
 		`cache_control=${capabilities.cacheControl}`,
+		`compaction_reasoning=${capabilities.compactionReasoning.support.kind}`,
+		`compaction_default=${capabilities.compactionReasoning.modelDefault.kind}`,
 		`context_length=${capabilities.contextLength}`,
 	].join(" ");
 }
@@ -293,7 +335,16 @@ async function fetchOpenRouterTextModels(apiKey) {
 			const id = stringValue(record.id);
 			const architecture = recordValue(record.architecture);
 			const outputModalities = stringArray(architecture.output_modalities);
-			return id && outputModalities.includes("text") ? { id, contextLength: modelContextLengthForModel(record) } : null;
+			return id && outputModalities.includes("text")
+				? {
+						id,
+						contextLength: modelContextLengthForModel(record),
+						reasoning: record.reasoning,
+						supportedParameters: Array.isArray(record.supported_parameters)
+							? stringArray(record.supported_parameters)
+							: undefined,
+					}
+				: null;
 		})
 		.filter(Boolean)
 		.sort((left, right) => left.id.localeCompare(right.id));
@@ -324,7 +375,42 @@ async function probeModel(model, apiKey, limiter, timeoutMs, previous, capabilit
 			shouldProbeCapability("cacheControl", previous, capabilityFilter, mode, onlyAffected)
 				? await probeCacheControlCapability(modelId, apiKey, limiter, timeoutMs)
 				: Boolean(previous?.cacheControl),
+		compactionReasoning:
+			shouldProbeCapability(compactionReasoningCapabilityName, previous, capabilityFilter, mode, onlyAffected)
+				? compactionReasoningCapabilitiesFromModelMetadata(model)
+				: previous?.compactionReasoning ?? compactionReasoningCapabilitiesFromModelMetadata(model),
 	};
+}
+
+export function compactionReasoningCapabilitiesFromModelMetadata(model) {
+	const reasoningValue = model?.reasoning;
+	const reasoning = recordValue(reasoningValue);
+	const supportedParametersObserved = Array.isArray(model?.supportedParameters);
+	const supportsReasoningParameter = stringArray(model?.supportedParameters).includes("reasoning");
+	const hasSupportedEfforts = Object.prototype.hasOwnProperty.call(reasoning, "supported_efforts");
+	const observedEfforts = reasoning.supported_efforts === null && hasSupportedEfforts
+		? [...compactionReasoningEfforts].sort((left, right) => left.localeCompare(right))
+		: Array.isArray(reasoning.supported_efforts)
+		? uniqueStrings(reasoning.supported_efforts)
+			.filter((effort) => compactionReasoningEfforts.has(effort))
+			.sort((left, right) => left.localeCompare(right))
+		: null;
+	const support = observedEfforts === null
+		? reasoningValue === null || reasoningValue === undefined
+			? !supportedParametersObserved || supportsReasoningParameter
+				? { kind: "unknown" }
+				: { kind: "unsupported" }
+			: { kind: "unknown" }
+		: observedEfforts.length > 0
+			? { kind: "known", efforts: observedEfforts }
+			: { kind: "unsupported" };
+	const defaultEffort = stringValue(reasoning.default_effort);
+	const modelDefault = defaultEffort && compactionReasoningEfforts.has(defaultEffort)
+		? { kind: "explicit_effort", effort: defaultEffort }
+		: Object.keys(reasoning).length > 0 || supportsReasoningParameter
+			? { kind: "provider_default" }
+			: { kind: "absent" };
+	return { support, modelDefault };
 }
 
 async function probeCacheControlCapability(model, apiKey, limiter, timeoutMs) {
@@ -533,15 +619,37 @@ async function runWithConcurrency(items, count, worker) {
 	}));
 }
 
-async function writeGeneratedTable(filePath, entries) {
-	const sorted = entries.sort(([left], [right]) => left.localeCompare(right));
+export function entriesForCurrentModels(entries, currentIds) {
+	return [...entries.entries()].filter(([id]) => currentIds.has(id));
+}
+
+export async function writeGeneratedTable(filePath, entries) {
+	await fs.writeFile(filePath, generatedTableText(entries));
+}
+
+export function generatedTableText(entries) {
+	const sorted = [...entries].sort(([left], [right]) => left.localeCompare(right));
 	const lines = [
+		"export type GeneratedCompactionReasoningEffort = \"minimal\" | \"low\" | \"medium\" | \"high\" | \"xhigh\";",
+		"",
+		"export type GeneratedCompactionReasoningCapabilities = {",
+		"\tsupport:",
+		"\t\t| { kind: \"known\"; efforts: readonly GeneratedCompactionReasoningEffort[] }",
+		"\t\t| { kind: \"unknown\" }",
+		"\t\t| { kind: \"unsupported\" };",
+		"\tmodelDefault:",
+		"\t\t| { kind: \"absent\" }",
+		"\t\t| { kind: \"provider_default\" }",
+		"\t\t| { kind: \"explicit_effort\"; effort: GeneratedCompactionReasoningEffort };",
+		"};",
+		"",
 		"export type GeneratedOpenRouterModelCapabilities = {",
 		"\tprefill: boolean;",
 		"\tstructuredOutputs: boolean;",
 		"\trequiredToolCalls: boolean;",
 		"\tdisabledReasoning: boolean;",
 		"\tcacheControl: boolean;",
+		"\tcompactionReasoning: GeneratedCompactionReasoningCapabilities;",
 		"\tcontextLength?: number;",
 		"};",
 		"",
@@ -552,7 +660,7 @@ async function writeGeneratedTable(filePath, entries) {
 		"];",
 		"",
 	];
-	await fs.writeFile(filePath, `${lines.join("\n")}`);
+	return lines.join("\n");
 }
 
 class RequestLimiter {
@@ -588,6 +696,10 @@ function stringArray(value) {
 	return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
 }
 
+function uniqueStrings(value) {
+	return [...new Set(stringArray(value).map((item) => item.trim().toLowerCase()).filter(Boolean))];
+}
+
 function modelContextLengthForModel(model) {
 	const contextLength = numberValue(model?.context_length ?? model?.contextLength);
 	return contextLength === undefined ? undefined : Math.max(1, Math.floor(contextLength));
@@ -598,4 +710,6 @@ function numberValue(value) {
 	return parsed;
 }
 
-await main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+	await main();
+}
