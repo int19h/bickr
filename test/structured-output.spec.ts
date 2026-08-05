@@ -26,6 +26,36 @@ import type {
 	BotInferenceSubmissionMessage,
 	ProviderToolDefinition,
 } from "./helpers/index-harness";
+import { compactionReasoningFallbackStateKey } from "../workers/agent-runtime/src/constants";
+import type { CompactionReasoningDiagnostic } from "../workers/agent-runtime/src/errors";
+
+type CompactionProviderResult = {
+	compactionReasoning: CompactionReasoningDiagnostic;
+	content: string;
+	requestBody?: string;
+};
+
+const customProviderInitialCompactionReasoningDiagnostic = {
+	selection: { kind: "reasoning_disabled" },
+	provenance: {
+		baselineSelection: { kind: "reasoning_disabled" },
+		configuration: null,
+		learnedFloor: null,
+		modelDefault: { kind: "explicit_effort", effort: "minimal" },
+		policySource: "custom_provider",
+		safetyFloor: { kind: "reasoning_disabled" },
+		support: "unknown",
+	},
+} as const satisfies CompactionReasoningDiagnostic;
+
+const customProviderRetryLearnedCompactionReasoningDiagnostic = {
+	...customProviderInitialCompactionReasoningDiagnostic,
+	selection: { kind: "explicit_effort", effort: "minimal" },
+	provenance: {
+		...customProviderInitialCompactionReasoningDiagnostic.provenance,
+		learnedFloor: { kind: "explicit_effort", effort: "minimal" },
+	},
+} as const satisfies CompactionReasoningDiagnostic;
 
 // TODO(#12): move next to module on extraction.
 describe("Structured output", () => {
@@ -117,7 +147,7 @@ describe("Structured output", () => {
 			expect(messages).toHaveLength(4);
 		});
 
-		it("omits no-thinking compaction wording only for explicit reasoning efforts", () => {
+		it("omits no-thinking compaction wording for every enabled reasoning selection", () => {
 			const bot = fakeBotDocument({ handle: "release-sage" });
 			const compactedMessages = [{ role: "assistant" as const, content: "I remember a long release discussion." }];
 			const explicitMessages = providerCompactionMessages(
@@ -138,7 +168,7 @@ describe("Structured output", () => {
 			);
 
 			expect(explicitMessages.at(-1)?.content).not.toContain("Don't spend any time thinking about this");
-			expect(modelDefaultMessages.at(-1)?.content).toContain("Don't spend any time thinking about this");
+			expect(modelDefaultMessages.at(-1)?.content).not.toContain("Don't spend any time thinking about this");
 			expect(providerAvatarDescriptionReasoningForSettings({
 				baseUrl: "https://openrouter.ai/api/v1",
 				model: "deepseek/deepseek-v4-flash-0731",
@@ -343,6 +373,70 @@ describe("Structured output", () => {
 			}
 		});
 
+		it("keeps a custom-provider learned floor local after switching the same model to OpenRouter", () => {
+			const model = "openai/gpt-4o";
+			const frozenRecord = {
+				model,
+				mode: "minimal",
+				reason: "provider rejected none",
+				updatedAt: "2026-08-04T00:00:00.000Z",
+			};
+			const runtimeState = new Map<string, unknown>([
+				[compactionReasoningFallbackStateKey, frozenRecord],
+			]);
+			const deleteRuntimeState = vi.fn((key: string) => runtimeState.delete(key));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				runtimeStateRecord: (key: string) => {
+					const value = runtimeState.get(key);
+					return value && typeof value === "object" && !Array.isArray(value)
+						? value as Record<string, unknown>
+						: undefined;
+				},
+				deleteRuntimeState,
+			});
+			const compactionReasoningForSettings = (BotRuntime.prototype as unknown as {
+				compactionReasoningForSettings: (settings: {
+					baseUrl: string;
+					model: string;
+				}) => CompactionReasoningDiagnostic & { runtimeFallback: unknown };
+			}).compactionReasoningForSettings.bind(runtime);
+
+			expect(compactionReasoningForSettings({
+				baseUrl: customProviderBaseUrl,
+				model,
+			})).toEqual({
+				selection: { kind: "explicit_effort", effort: "minimal" },
+				runtimeFallback: { kind: "none" },
+				provenance: {
+					baselineSelection: { kind: "reasoning_disabled" },
+					configuration: null,
+					learnedFloor: { kind: "explicit_effort", effort: "minimal" },
+					modelDefault: { kind: "explicit_effort", effort: "minimal" },
+					policySource: "custom_provider",
+					safetyFloor: { kind: "reasoning_disabled" },
+					support: "unknown",
+				},
+			});
+			expect(compactionReasoningForSettings({
+				baseUrl: "https://openrouter.ai/api/v1",
+				model,
+			})).toEqual({
+				selection: { kind: "reasoning_disabled" },
+				runtimeFallback: { kind: "none" },
+				provenance: {
+					baselineSelection: { kind: "reasoning_disabled" },
+					configuration: null,
+					learnedFloor: null,
+					modelDefault: { kind: "absent" },
+					policySource: "openrouter_generated",
+					safetyFloor: { kind: "reasoning_disabled" },
+					support: "unsupported",
+				},
+			});
+			expect(runtimeState.get(compactionReasoningFallbackStateKey)).toBe(frozenRecord);
+			expect(deleteRuntimeState).not.toHaveBeenCalled();
+		});
+
 		it("falls back to minimal compaction reasoning when a model rejects disabled reasoning", async () => {
 			const originalFetch = globalThis.fetch;
 			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
@@ -366,7 +460,7 @@ describe("Structured output", () => {
 			fetchMock.mockResolvedValueOnce(new Response(unsupportedBody, { status: 400 }));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-					const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 						appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 							events.push({ type, payload });
 							return {
@@ -391,7 +485,7 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+					callProviderForCompaction: (...args: unknown[]) => Promise<CompactionProviderResult>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const settings = {
@@ -413,17 +507,25 @@ describe("Structured output", () => {
 				const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { reasoning?: unknown };
 				expect(firstBody.reasoning).toEqual({ effort: "none", exclude: false });
 				expect(secondBody.reasoning).toEqual({ effort: "minimal", exclude: false });
+				expect(response.compactionReasoning).toMatchObject(customProviderRetryLearnedCompactionReasoningDiagnostic);
 				expect([...runtimeState.values()][0]).toMatchObject({
 					model: "openai/gpt-5.1-codex-mini",
 					mode: "minimal",
 				});
+				expect(Object.keys([...runtimeState.values()][0] as Record<string, unknown>).sort()).toEqual([
+					"mode",
+					"model",
+					"reason",
+					"updatedAt",
+				]);
 				expect(events).toContainEqual({
 					type: "provider_retry",
 					payload: expect.objectContaining({
 						attempt: 2,
+						compactionReasoning: customProviderRetryLearnedCompactionReasoningDiagnostic,
 						compactionReasoningFallback: {
 							from: { kind: "reasoning_disabled" },
-							to: { kind: "model_default", effort: "minimal" },
+							to: { kind: "explicit_effort", effort: "minimal" },
 						},
 						delayMs: 0,
 						reason: "provider rejected compaction reasoning=none; retrying with minimal",
@@ -432,7 +534,11 @@ describe("Structured output", () => {
 
 				fetchMock.mockClear();
 				await callProviderForCompaction(
-					settings,
+					{
+						...settings,
+						reasoningEffort: "high",
+						compactionReasoning: { kind: "model_default" },
+					},
 					[{ role: "user", content: "Compact the retained activity again." }],
 					"run-compaction-cached-reasoning-fallback",
 					new AbortController().signal,
@@ -441,6 +547,30 @@ describe("Structured output", () => {
 				expect(fetchMock).toHaveBeenCalledTimes(1);
 				const cachedBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { reasoning?: unknown };
 				expect(cachedBody.reasoning).toEqual({ effort: "minimal", exclude: false });
+				expect(runtimeState.size).toBe(1);
+
+				const fallbackStateKey = [...runtimeState.keys()][0];
+				if (!fallbackStateKey) {
+					throw new Error("Expected the frozen fallback state key.");
+				}
+				const unrecognizedSameModelState = {
+					model: settings.model,
+					mode: "model_default",
+					preserved: true,
+				};
+				runtimeState.set(fallbackStateKey, unrecognizedSameModelState);
+				fetchMock.mockClear();
+				await callProviderForCompaction(
+					settings,
+					[{ role: "user", content: "Compact with same-model unrecognized state." }],
+					"run-compaction-unrecognized-frozen-state",
+					new AbortController().signal,
+					{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+				);
+				expect(fetchMock).toHaveBeenCalledTimes(1);
+				const unrecognizedStateBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { reasoning?: unknown };
+				expect(unrecognizedStateBody.reasoning).toEqual({ effort: "none", exclude: false });
+				expect(runtimeState.get(fallbackStateKey)).toEqual(unrecognizedSameModelState);
 
 				fetchMock.mockClear();
 				await callProviderForCompaction(
@@ -455,7 +585,78 @@ describe("Structured output", () => {
 					expect(changedModelBody.model).toBe("google/gemini-3.1-flash-lite-preview");
 					expect(changedModelBody.reasoning).toEqual({ effort: "none", exclude: false });
 					expect(runtimeState.size).toBe(0);
-				} finally {
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("preserves retry-learned compaction reasoning on terminal provider failure", async () => {
+			const originalFetch = globalThis.fetch;
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const runtimeState = new Map<string, unknown>();
+			const unsupportedBody = JSON.stringify({
+				error: { message: "reasoning effort none is not supported for this model" },
+			});
+			const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>()
+				.mockResolvedValueOnce(new Response(unsupportedBody, { status: 400 }))
+				.mockResolvedValueOnce(new Response(unsupportedBody, { status: 400 }));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
+						events.push({ type, payload });
+						return {
+							seq: events.length,
+							runId: _runId,
+							type,
+							payload,
+							tokenEstimate: 0,
+							createdAt: new Date().toISOString(),
+						};
+					},
+					runtimeStateRecord: (key: string) => {
+						const value = runtimeState.get(key);
+						return value && typeof value === "object" && !Array.isArray(value)
+							? value as Record<string, unknown>
+							: undefined;
+					},
+					deleteRuntimeState: (key: string) => runtimeState.delete(key),
+					setRuntimeState: (key: string, value: unknown) => runtimeState.set(key, value),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<CompactionProviderResult>;
+				}).callProviderForCompaction.bind(runtime);
+
+				let thrown: unknown;
+				try {
+					await callProviderForCompaction(
+						{
+							baseUrl: customProviderBaseUrl,
+							model: "openai/gpt-5.1-codex-mini",
+							temperature: 0.2,
+						},
+						[{ role: "user", content: "Compact the retained activity." }],
+						"run-compaction-reasoning-fallback-failed",
+						new AbortController().signal,
+						{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+					);
+				} catch (error) {
+					thrown = error;
+				}
+
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+				expect(events).toContainEqual({
+					type: "provider_retry",
+					payload: expect.objectContaining({
+						compactionReasoning: customProviderRetryLearnedCompactionReasoningDiagnostic,
+					}),
+				});
+				expect(thrown).toMatchObject({
+					name: "ProviderCompactionRequestError",
+					compactionReasoning: customProviderRetryLearnedCompactionReasoningDiagnostic,
+				});
+			} finally {
 				vi.stubGlobal("fetch", originalFetch);
 			}
 		});
@@ -551,7 +752,7 @@ describe("Structured output", () => {
 			}
 		});
 
-		it("omits reasoning for unknown and free OpenRouter compaction requests", async () => {
+		it("serializes explicit provider-default reasoning for unknown and free OpenRouter compaction requests", async () => {
 			const originalFetch = globalThis.fetch;
 			const validResponse = {
 				choices: [{
@@ -597,14 +798,14 @@ describe("Structured output", () => {
 				expect(fetchMock).toHaveBeenCalledTimes(2);
 				for (const call of fetchMock.mock.calls) {
 					const body = JSON.parse(String(call[1]?.body)) as { reasoning?: unknown };
-					expect(body.reasoning).toBeUndefined();
+					expect(body.reasoning).toEqual({ exclude: false });
 				}
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
 			}
 		});
 
-		it("starts Xiaomi FP8 routed compaction with minimal reasoning from the capability table", async () => {
+		it("starts Xiaomi FP8 routed compaction with provider-default reasoning from the capability table", async () => {
 			const originalFetch = globalThis.fetch;
 			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 			const validResponse = {
@@ -668,8 +869,52 @@ describe("Structured output", () => {
 				expect(fetchMock).toHaveBeenCalledTimes(1);
 				const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { reasoning?: unknown; provider?: unknown };
 				expect(body.provider).toEqual({ only: ["xiaomi/fp8"] });
-				expect(body.reasoning).toEqual({ effort: "minimal", exclude: false });
+				expect(body.reasoning).toEqual({ exclude: false });
 				expect(events.some((event) => event.type === "provider_retry")).toBe(false);
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("keeps configured compaction reasoning independent of ordinary-loop reasoning", async () => {
+			const originalFetch = globalThis.fetch;
+			const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>()
+				.mockResolvedValueOnce(Response.json({
+					choices: [{
+						message: {
+							content: JSON.stringify({
+								[providerCompactionSummaryProperty]: "I remember the important parts.",
+							}),
+						},
+					}],
+				}));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string }>;
+				}).callProviderForCompaction.bind(runtime);
+
+				const response = await callProviderForCompaction(
+					{
+						baseUrl: "https://openrouter.ai/api/v1",
+						model: "openai/gpt-5-mini",
+						reasoningEffort: "minimal",
+						compactionReasoning: { kind: "explicit_effort", effort: "high" },
+						temperature: 0.2,
+					},
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-independent-compaction-reasoning",
+					new AbortController().signal,
+					{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+				);
+
+				expect(response.content).toBe("I remember the important parts.");
+				const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { reasoning?: unknown };
+				expect(body.reasoning).toEqual({ effort: "high", exclude: false });
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
 			}
@@ -798,8 +1043,8 @@ describe("Structured output", () => {
 				const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { provider?: Record<string, unknown>; reasoning?: unknown };
 				expect(firstBody.provider).toEqual({ order: ["openrouter/fallback"], ignore: ["A"] });
 				expect(secondBody.provider).toEqual({ order: ["openrouter/fallback"], ignore: ["A", "DeepInfra"] });
-				expect(firstBody.reasoning).toEqual({ effort: "low", exclude: false });
-				expect(secondBody.reasoning).toEqual({ effort: "low", exclude: false });
+				expect(firstBody.reasoning).toEqual({ effort: "high", exclude: false });
+				expect(secondBody.reasoning).toEqual({ effort: "high", exclude: false });
 				expect(events).toContainEqual({
 					type: "provider_retry",
 					payload: expect.objectContaining({
@@ -1059,7 +1304,7 @@ describe("Structured output", () => {
 					tools?: ProviderToolDefinition[];
 				});
 				for (const body of bodies) {
-					expect(body.reasoning).toEqual({ effort: "low", exclude: false });
+					expect(body.reasoning).toEqual({ effort: "high", exclude: false });
 				}
 				const isolatedBodies = bodies.slice(1);
 				expect(isolatedBodies).toHaveLength(4);
@@ -1199,7 +1444,7 @@ describe("Structured output", () => {
 					reasoning?: unknown;
 				});
 				for (const body of bodies) {
-					expect(body.reasoning).toEqual({ effort: "low", exclude: false });
+					expect(body.reasoning).toEqual({ effort: "high", exclude: false });
 				}
 				const retryBody = bodies[1]!;
 				const repairToolMessage = retryBody.messages.find((message) => message.role === "tool");
@@ -1292,7 +1537,7 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+					callProviderForCompaction: (...args: unknown[]) => Promise<CompactionProviderResult>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const response = await callProviderForCompaction(
@@ -1306,6 +1551,7 @@ describe("Structured output", () => {
 				);
 
 				expect(response.content).toBe("I remember the important parts.");
+				expect(response.compactionReasoning).toMatchObject(customProviderInitialCompactionReasoningDiagnostic);
 				expect(fetchMock).toHaveBeenCalledTimes(2);
 				const repairedBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
 				expect(repairedBody.messages).toEqual(expect.arrayContaining([
@@ -1401,7 +1647,7 @@ describe("Structured output", () => {
 					reasoning?: unknown;
 				});
 				for (const body of bodies) {
-					expect(body.reasoning).toEqual({ effort: "low", exclude: false });
+					expect(body.reasoning).toEqual({ effort: "high", exclude: false });
 				}
 				const retryBody = bodies[1]!;
 				expect(retryBody.messages).toEqual([

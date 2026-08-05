@@ -304,6 +304,11 @@ export type BotInferenceSettings = {
 };
 
 export type BotInferenceReasoningEffort = "default" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type BotCompactionReasoningEffort = Exclude<BotInferenceReasoningEffort, "default" | "none">;
+export type BotCompactionReasoningRequest =
+	| { kind: "reasoning_disabled" }
+	| { kind: "model_default" }
+	| { kind: "explicit_effort"; effort: BotCompactionReasoningEffort };
 export type BotInferenceToolCalls = "require" | "railroad" | "at_will";
 export type BotStructuredToolCalls = Exclude<BotInferenceToolCalls, "at_will">;
 export type BotCompactionMode = "structured_output" | "tool_call" | "tool_call_cache_friendly";

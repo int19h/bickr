@@ -1,6 +1,6 @@
 import type { JsonObject, BotInferenceSubmissionMessage } from '@bickr/shared/model';
 import type {
-	CompactionReasoningPolicy,
+	CompactionReasoningProvenance,
 	CompactionReasoningRuntimeFallback,
 	CompactionReasoningSelection,
 } from '@bickr/shared/openrouter-model-capabilities';
@@ -9,7 +9,7 @@ import type { RuntimeErrorCause } from '@bickr/shared/runtime-errors';
 export type CompactionAttemptReasoningState = {
 	runtimeFallback: CompactionReasoningRuntimeFallback;
 	selection: CompactionReasoningSelection;
-	source: CompactionReasoningPolicy['source'] | 'runtime_fallback';
+	provenance: CompactionReasoningProvenance;
 };
 
 export type CompactionAttemptMessageSet =
@@ -39,7 +39,7 @@ export type CompactionAttemptRetryReason =
 	| {
 			kind: 'reasoning_fallback';
 			from: Extract<CompactionReasoningSelection, { kind: 'reasoning_disabled' }>;
-			to: Extract<CompactionReasoningSelection, { kind: 'model_default' }>;
+			to: Exclude<CompactionReasoningSelection, { kind: 'reasoning_disabled' }>;
 	  };
 
 export type CompactionAttemptSettingsPatch = {
@@ -95,8 +95,8 @@ export type CompactionAttemptTransitionInput =
 			repairMessages: BotInferenceSubmissionMessage[];
 	  }
 	| { kind: 'output_limit'; cause: RuntimeErrorCause | string }
-	| { kind: 'reasoning_rejected'; cause: RuntimeErrorCause | string; reason: string }
-	| { kind: 'server_tool_crash'; cause: RuntimeErrorCause | string; reason: string }
+	| { kind: 'reasoning_rejected'; cause: RuntimeErrorCause | string; reason: string; reasoning: CompactionAttemptReasoningState }
+	| { kind: 'server_tool_crash'; cause: RuntimeErrorCause | string; reason: string; reasoning: CompactionAttemptReasoningState }
 	| { kind: 'success_but_not_shorter'; cause: RuntimeErrorCause | string; outputText: string; canIsolate: boolean }
 	| {
 			kind: 'transport_error';
@@ -179,7 +179,8 @@ export class CompactionAttemptPlan {
 		if (
 			this.state.kind !== 'requesting' ||
 			this.state.reasoning.selection.kind !== 'reasoning_disabled' ||
-			this.state.reasoning.runtimeFallback.kind !== 'unknown_model'
+			this.state.reasoning.runtimeFallback.kind !== 'unknown_model' ||
+			input.reasoning.selection.kind === 'reasoning_disabled'
 		) {
 			return this.failed({
 				kind: input.kind,
@@ -197,11 +198,7 @@ export class CompactionAttemptPlan {
 		return this.nextRequest({
 			previousRetryKey: null,
 			providerAttempt: this.state.providerAttempt + 1,
-			reasoning: {
-				runtimeFallback: { kind: 'none' },
-				selection: this.state.reasoning.runtimeFallback.selection,
-				source: 'runtime_fallback',
-			},
+			reasoning: input.reasoning,
 			retry: {
 				attempt: this.state.providerAttempt + 1,
 				delayMs: 0,
@@ -209,7 +206,7 @@ export class CompactionAttemptPlan {
 				reason: {
 					kind: 'reasoning_fallback',
 					from: this.state.reasoning.selection,
-					to: this.state.reasoning.runtimeFallback.selection,
+					to: input.reasoning.selection,
 				},
 			},
 		});

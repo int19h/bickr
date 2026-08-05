@@ -1,3 +1,8 @@
+import type {
+	CompactionReasoningProvenance,
+	CompactionReasoningRefusal,
+} from "./openrouter-model-capabilities";
+
 export type ProviderErrorCause = {
 	kind: "provider_error";
 	status: number;
@@ -8,6 +13,11 @@ export type ProviderErrorCause = {
 };
 
 export type RuntimeErrorCause =
+	| {
+			kind: "compaction_reasoning_refusal";
+			refusal: CompactionReasoningRefusal;
+			provenance: CompactionReasoningProvenance;
+	  }
 	| {
 			kind: "provider_request";
 			status: number;
@@ -66,6 +76,7 @@ export type RuntimeErrorCause =
 	  };
 
 const runtimeErrorCauseKinds = new Set<RuntimeErrorCause["kind"]>([
+	"compaction_reasoning_refusal",
 	"provider_request",
 	"provider_loop_request",
 	"provider_compaction_request",
@@ -101,6 +112,8 @@ export function ownerFacingRuntimeErrorMessage(error: RuntimeErrorCause | string
 		return error;
 	}
 	switch (error.kind) {
+		case "compaction_reasoning_refusal":
+			return compactionReasoningRefusalMessage(error.refusal);
 		case "provider_request":
 			return `Inference request failed with status ${error.status}${error.body ? `: ${error.body}` : "."}`;
 		case "provider_loop_request": {
@@ -149,6 +162,8 @@ export function botFacingRuntimeErrorMessage(error: RuntimeErrorCause | string |
 		return `Bickr Terminal reported an error during this visit: ${error}`;
 	}
 	switch (error.kind) {
+		case "compaction_reasoning_refusal":
+			return `Bickr Terminal could not select a supported context-compaction reasoning level: ${compactionReasoningRefusalMessage(error.refusal)}`;
 		case "provider_request":
 			return `Bickr Terminal request failed with status ${error.status} at the configured service${error.body ? `. Response: ${error.body}` : "."}`;
 		case "provider_loop_request": {
@@ -186,6 +201,21 @@ export function botFacingRuntimeErrorMessage(error: RuntimeErrorCause | string |
 			return `Bickr Terminal paused this participant because context compaction did not produce a shorter summary after ${error.attempts} attempts.`;
 		case "runtime_error":
 			return `Bickr Terminal reported an error during this visit: ${error.message}`;
+	}
+}
+
+export function compactionReasoningRefusalMessage(refusal: CompactionReasoningRefusal): string {
+	switch (refusal.kind) {
+		case "support_unknown_for_required_effort":
+			return `Compaction requires reasoning effort ${refusal.requiredEffort}, but provider support for that effort is unknown.`;
+		case "model_default_order_unknown_for_required_effort":
+			return `Compaction requires reasoning effort ${refusal.requiredEffort}, but the provider default has no known comparable effort.`;
+		case "no_supported_effort": {
+			const supported = refusal.supportedEfforts.length > 0
+				? ` Known supported efforts: ${refusal.supportedEfforts.join(", ")}.`
+				: " No supported compaction reasoning effort is known.";
+			return `Compaction requires reasoning effort ${refusal.required.effort}, but the provider has no supported selection at or above that requirement.${supported}`;
+		}
 	}
 }
 

@@ -1,5 +1,11 @@
 import type { BotInferenceSubmissionToolCall } from '@bickr/shared/model';
+import type {
+	CompactionReasoningProvenance,
+	CompactionReasoningRefusal,
+	CompactionReasoningSelection,
+} from '@bickr/shared/openrouter-model-capabilities';
 import {
+	compactionReasoningRefusalMessage,
 	isRuntimeErrorCause,
 	ownerFacingRuntimeErrorMessage,
 	type ProviderErrorCause,
@@ -58,6 +64,19 @@ export class RuntimeOperationTimeoutError extends Error {
 	}
 }
 
+export class CompactionReasoningRefusalError extends Error {
+	readonly kind = 'compaction_reasoning_refusal';
+	readonly refusal: CompactionReasoningRefusal;
+	readonly provenance: CompactionReasoningProvenance;
+
+	constructor(refusal: CompactionReasoningRefusal, provenance: CompactionReasoningProvenance) {
+		super(compactionReasoningRefusalMessage(refusal));
+		this.name = 'CompactionReasoningRefusalError';
+		this.refusal = refusal;
+		this.provenance = provenance;
+	}
+}
+
 export class ToolCallArgumentValidationError extends Error {
 	readonly code: string;
 
@@ -100,13 +119,20 @@ export class ProviderRequestError extends Error {
 
 export class ProviderCompactionRequestError extends Error {
 	readonly kind = 'provider_compaction_request';
+	readonly compactionReasoning: CompactionReasoningDiagnostic;
 	readonly originalError: unknown;
 	readonly requestBody: string;
 	readonly responseBody?: string;
 
-	constructor(originalError: unknown, requestBody: string, responseBody?: string) {
+	constructor(
+		originalError: unknown,
+		requestBody: string,
+		compactionReasoning: CompactionReasoningDiagnostic,
+		responseBody?: string,
+	) {
 		super(runtimeErrorText(originalError));
 		this.name = 'ProviderCompactionRequestError';
+		this.compactionReasoning = compactionReasoning;
 		this.originalError = originalError;
 		this.requestBody = requestBody;
 		this.responseBody = responseBody;
@@ -296,19 +322,31 @@ export class PromptContextCompactionLimitError extends Error {
 export class PersistentCompactionReductionFailureError extends Error {
 	readonly kind = 'persistent_compaction_reduction_failure';
 	readonly attempts: number;
+	readonly compactionReasoning: CompactionReasoningDiagnostic;
 	readonly requestBody: string;
 	readonly responseBody?: string;
 
-	constructor(attempts: number, requestBody: string, responseBody?: string) {
+	constructor(
+		attempts: number,
+		requestBody: string,
+		compactionReasoning: CompactionReasoningDiagnostic,
+		responseBody?: string,
+	) {
 		super(
 			`Context compaction isolated repair failed to produce a shorter summary after ${attempts} attempts. This participant has been paused so it does not keep retrying the same oversized context.`,
 		);
 		this.name = 'PersistentCompactionReductionFailureError';
 		this.attempts = attempts;
+		this.compactionReasoning = compactionReasoning;
 		this.requestBody = requestBody;
 		this.responseBody = responseBody;
 	}
 }
+
+export type CompactionReasoningDiagnostic = {
+	selection: CompactionReasoningSelection;
+	provenance: CompactionReasoningProvenance;
+};
 
 export class TickStoppedError extends Error {
 	constructor() {
@@ -330,6 +368,13 @@ export class ProviderResponseInterruptedError extends Error {
 }
 
 export function runtimeErrorCause(error: unknown): RuntimeErrorCause | string {
+	if (error instanceof CompactionReasoningRefusalError) {
+		return {
+			kind: error.kind,
+			refusal: error.refusal,
+			provenance: error.provenance,
+		};
+	}
 	if (error instanceof ProviderRequestError) {
 		return {
 			kind: error.kind,

@@ -5,11 +5,28 @@ const config = {
 	initialReasoning: {
 		runtimeFallback: { kind: 'unknown_model', selection: { kind: 'model_default', effort: 'minimal' } },
 		selection: { kind: 'reasoning_disabled' },
-		source: 'custom_provider',
+		provenance: {
+			configuration: null,
+			modelDefault: { kind: 'explicit_effort', effort: 'minimal' },
+			safetyFloor: { kind: 'reasoning_disabled' },
+			learnedFloor: null,
+			baselineSelection: { kind: 'reasoning_disabled' },
+			support: 'unknown',
+			policySource: 'custom_provider',
+		},
 	},
 	maxProviderAttempts: 3,
 	maxSchemaRepairAttempts: 2,
 } as const satisfies CompactionAttemptPlanConfig;
+
+const learnedMinimalReasoning = {
+	runtimeFallback: { kind: 'none' },
+	selection: { kind: 'explicit_effort', effort: 'minimal' },
+	provenance: {
+		...config.initialReasoning.provenance,
+		learnedFloor: { kind: 'explicit_effort', effort: 'minimal' },
+	},
+} as const;
 
 describe('CompactionAttemptPlan', () => {
 	it('starts with an initial request using the configured reasoning mode', () => {
@@ -23,7 +40,7 @@ describe('CompactionAttemptPlan', () => {
 			reasoning: {
 				runtimeFallback: { kind: 'unknown_model' },
 				selection: { kind: 'reasoning_disabled' },
-				source: 'custom_provider',
+				provenance: expect.objectContaining({ policySource: 'custom_provider' }),
 			},
 			schemaAttempt: 0,
 			toolSet: 'base',
@@ -45,11 +62,12 @@ describe('CompactionAttemptPlan', () => {
 		});
 	});
 
-	it('retries reasoning rejection once with the model-default selection', () => {
+	it('retries reasoning rejection once with the joined learned selection', () => {
 		const plan = CompactionAttemptPlan.start(config).transition({
 			kind: 'reasoning_rejected',
 			cause: { kind: 'provider_request', status: 400 },
 			reason: 'typed provider rejection',
+			reasoning: learnedMinimalReasoning,
 		});
 
 		expect(plan.request()).toMatchObject({
@@ -57,8 +75,10 @@ describe('CompactionAttemptPlan', () => {
 			providerAttempt: 2,
 			reasoning: {
 				runtimeFallback: { kind: 'none' },
-				selection: { kind: 'model_default', effort: 'minimal' },
-				source: 'runtime_fallback',
+				selection: { kind: 'explicit_effort', effort: 'minimal' },
+				provenance: expect.objectContaining({
+					learnedFloor: { kind: 'explicit_effort', effort: 'minimal' },
+				}),
 			},
 			retry: {
 				attempt: 2,
@@ -67,7 +87,7 @@ describe('CompactionAttemptPlan', () => {
 				reason: {
 					kind: 'reasoning_fallback',
 					from: { kind: 'reasoning_disabled' },
-					to: { kind: 'model_default', effort: 'minimal' },
+					to: { kind: 'explicit_effort', effort: 'minimal' },
 				},
 			},
 		});
@@ -78,12 +98,13 @@ describe('CompactionAttemptPlan', () => {
 			kind: 'server_tool_crash',
 			cause: { kind: 'provider_request', status: 500 },
 			reason: 'known compaction server-tool crash',
+			reasoning: learnedMinimalReasoning,
 		});
 
 		expect(plan.request()).toMatchObject({
 			providerAttempt: 2,
 			reasoning: expect.objectContaining({
-				selection: { kind: 'model_default', effort: 'minimal' },
+				selection: { kind: 'explicit_effort', effort: 'minimal' },
 			}),
 			retry: expect.objectContaining({ delayMs: 0 }),
 		});
@@ -95,11 +116,13 @@ describe('CompactionAttemptPlan', () => {
 				kind: 'reasoning_rejected',
 				cause: { kind: 'provider_request', status: 400 },
 				reason: 'typed provider rejection',
+				reasoning: learnedMinimalReasoning,
 			})
 			.transition({
 				kind: 'reasoning_rejected',
 				cause: { kind: 'provider_request', status: 400 },
 				reason: 'typed provider rejection',
+				reasoning: learnedMinimalReasoning,
 			});
 
 		expect(plan.state).toMatchObject({
@@ -184,7 +207,15 @@ describe('CompactionAttemptPlan', () => {
 		const explicitReasoning = {
 			runtimeFallback: { kind: 'none' },
 			selection: { kind: 'explicit_effort', effort: 'low' },
-			source: 'openrouter_semantic_override',
+			provenance: {
+				configuration: null,
+				modelDefault: { kind: 'explicit_effort', effort: 'low' },
+				safetyFloor: { kind: 'explicit_effort', effort: 'low' },
+				learnedFloor: null,
+				baselineSelection: { kind: 'explicit_effort', effort: 'low' },
+				support: 'known',
+				policySource: 'openrouter_semantic_override',
+			},
 		} as const;
 		let plan = CompactionAttemptPlan.start({
 			...config,

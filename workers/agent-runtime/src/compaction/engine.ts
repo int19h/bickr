@@ -38,7 +38,7 @@ type ChatMessage = BotInferenceSubmissionMessage;
 export type ProviderCompactionMode = BotCompactionMode;
 
 export type ProviderReasoningConfig =
-	| { enabled: true; exclude: false }
+	| { exclude: false }
 	| { effort: Exclude<BotInferenceReasoningEffort, 'default'>; exclude: false };
 
 export type ProviderJsonSchemaResponseFormat = {
@@ -115,12 +115,12 @@ export function settingsUseOpenRouter(settings: { baseUrl?: string }): boolean {
 
 export function providerCompactionReasoningForSelection(
 	selection: CompactionReasoningSelection,
-): ProviderReasoningConfig | undefined {
+): ProviderReasoningConfig {
 	switch (selection.kind) {
 		case 'reasoning_disabled':
 			return providerCompactionNoReasoning;
 		case 'model_default':
-			return selection.effort ? { effort: selection.effort, exclude: false } : undefined;
+			return selection.effort ? { effort: selection.effort, exclude: false } : { exclude: false };
 		case 'explicit_effort':
 			return { effort: selection.effort, exclude: false };
 	}
@@ -208,9 +208,9 @@ function providerCompactionSummaryInstruction(
 ): string {
 	const lengthInstruction = providerCompactionLengthInstruction(limits);
 	if (mode === 'structured_output') {
-		const responseTiming = reasoning.kind === 'explicit_effort'
-			? ''
-			: " Don't spend any time thinking about this; respond immediately with JSON summary.";
+		const responseTiming = reasoning.kind === 'reasoning_disabled'
+			? " Don't spend any time thinking about this; respond immediately with JSON summary."
+			: '';
 		return `META: Context compaction required.${responseTiming} Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a detailed summary of only the recent events being compacted, excluding the system instructions and persona prompt, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" field; your response will become the long-term memory of these events, replacing them in context henceforth. Write ordinary first-person prose, never transcript or runtime-event lines labeled Action:, Result:, Input:, or New thought:. ${lengthInstruction}`;
 	}
 	return `META: Context compaction required. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a detailed summary of only the recent events being compacted, excluding the system instructions and persona prompt, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" argument; your response will become the long-term memory of these events, replacing them in context henceforth. Write ordinary first-person prose, never transcript or runtime-event lines labeled Action:, Result:, Input:, or New thought:. ${lengthInstruction}`;
