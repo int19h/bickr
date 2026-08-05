@@ -90,13 +90,25 @@ describe('OpenRouter compaction reasoning metadata refresh', () => {
 
 	it('preserves provider-default ordering evidence without guessing', () => {
 		expect(compactionReasoningCapabilitiesFromModelMetadata({
-			reasoning: { default_effort: 'none' },
+			reasoning: { default_enabled: true, default_effort: 'none' },
 			supportedParameters: ['reasoning'],
 		})).toMatchObject({
 			modelDefault: { kind: 'provider_default', relativeOrder: 'below_minimal' },
 		});
 		expect(compactionReasoningCapabilitiesFromModelMetadata({
 			reasoning: { default_enabled: false },
+			supportedParameters: ['reasoning'],
+		})).toMatchObject({
+			modelDefault: { kind: 'provider_default', relativeOrder: 'below_minimal' },
+		});
+		expect(compactionReasoningCapabilitiesFromModelMetadata({
+			reasoning: { default_enabled: false, default_effort: 'medium' },
+			supportedParameters: ['reasoning'],
+		})).toMatchObject({
+			modelDefault: { kind: 'provider_default', relativeOrder: 'below_minimal' },
+		});
+		expect(compactionReasoningCapabilitiesFromModelMetadata({
+			reasoning: { default_enabled: false, default_effort: 'max' },
 			supportedParameters: ['reasoning'],
 		})).toMatchObject({
 			modelDefault: { kind: 'provider_default', relativeOrder: 'below_minimal' },

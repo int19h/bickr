@@ -391,8 +391,8 @@ export function compactionReasoningCapabilitiesFromModelMetadata(model) {
 	let support;
 	if (reasoning.supported_efforts === null && hasSupportedEfforts) {
 		// OpenRouter defines null as accepting every gateway effort value. Store
-		// the intersection with Phase 2's modelled ladder; see the models API docs:
-		// https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties
+		// the intersection with Phase 2's modelled ladder; see the reasoning guide:
+		// https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
 		support = { kind: "known", efforts: [...compactionReasoningEfforts].sort((left, right) => left.localeCompare(right)) };
 	} else if (Array.isArray(reasoning.supported_efforts)) {
 		const observedEffortValues = uniqueStrings(reasoning.supported_efforts);
@@ -417,12 +417,16 @@ export function compactionReasoningCapabilitiesFromModelMetadata(model) {
 		support = { kind: "unknown" };
 	}
 	const defaultEffort = stringValue(reasoning.default_effort);
-	const modelDefault = defaultEffort && compactionReasoningEfforts.has(defaultEffort)
-		? { kind: "explicit_effort", effort: defaultEffort }
-		: defaultEffort === "max"
-			? { kind: "provider_default", relativeOrder: "above_xhigh" }
-			: defaultEffort === "none" || (!defaultEffort && reasoning.default_enabled === false)
-				? { kind: "provider_default", relativeOrder: "below_minimal" }
+	// default_effort is only the preselection when reasoning is enabled;
+	// default_enabled is the on/off state when the caller has not selected one.
+	// Explicit off evidence must therefore win over every enabled effort hint:
+	// https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
+	const modelDefault = defaultEffort === "none" || reasoning.default_enabled === false
+		? { kind: "provider_default", relativeOrder: "below_minimal" }
+		: defaultEffort && compactionReasoningEfforts.has(defaultEffort)
+			? { kind: "explicit_effort", effort: defaultEffort }
+			: defaultEffort === "max"
+				? { kind: "provider_default", relativeOrder: "above_xhigh" }
 		: Object.keys(reasoning).length > 0 || supportsReasoningParameter
 			? { kind: "provider_default", relativeOrder: "unknown" }
 			: { kind: "absent" };

@@ -90,7 +90,7 @@ export type CompactionReasoningRefusal =
 	  }
 	| {
 			kind: "no_supported_effort";
-			required: Extract<CompactionReasoningSelection, { kind: "model_default" | "explicit_effort" }>;
+			required: Extract<CompactionReasoningSelection, { kind: "explicit_effort" }>;
 			supportedEfforts: readonly CompactionReasoningEffort[];
 	  };
 
@@ -314,17 +314,6 @@ export function resolveCompactionReasoningSelection(input: {
 		return selectedCompactionReasoningResolution(requiredSelection, input.policy.runtimeFallback, provenance);
 	}
 	if (requiredSelection.kind === "model_default") {
-		if (input.capabilities.modelDefault.kind === "absent") {
-			return {
-				kind: "refused",
-				refusal: {
-					kind: "no_supported_effort",
-					required: requiredSelection,
-					supportedEfforts: supportedCompactionReasoningEfforts(input.capabilities.support),
-				},
-				provenance,
-			};
-		}
 		return selectedCompactionReasoningResolution(requiredSelection, { kind: "none" }, provenance);
 	}
 
@@ -711,14 +700,6 @@ function selectedCompactionReasoningResolution(
 		runtimeFallback: selection.kind === "reasoning_disabled" ? runtimeFallback : { kind: "none" },
 		provenance,
 	};
-}
-
-function supportedCompactionReasoningEfforts(
-	support: CompactionReasoningEffortSupport,
-): readonly CompactionReasoningEffort[] {
-	return support.kind === "known" || support.kind === "partially_known"
-		? orderedCompactionReasoningEfforts(support.efforts)
-		: [];
 }
 
 function unknownCompactionReasoningSupportResolution(

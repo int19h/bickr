@@ -217,6 +217,75 @@ describe("canonical compaction reasoning resolution", () => {
 		});
 	});
 
+	it("does not raise a minimal request to an enabled-effort hint when the provider default is off", () => {
+		const model = "openai/gpt-5.4-mini";
+		const capabilities = compactionReasoningCapabilitiesForModel(model, true);
+		expect(capabilities).toMatchObject({
+			modelDefault: { kind: "provider_default", relativeOrder: "below_minimal" },
+		});
+
+		expect(resolveCompactionReasoningSelection({
+			policy: compactionReasoningPolicyForModel(model, true),
+			request: { kind: "explicit_effort", effort: "minimal" },
+			capabilities,
+		})).toMatchObject({
+			kind: "selected",
+			selection: { kind: "explicit_effort", effort: "low" },
+			provenance: {
+				configuration: { kind: "explicit_effort", effort: "minimal" },
+				modelDefault: { kind: "provider_default", relativeOrder: "below_minimal" },
+			},
+		});
+	});
+
+	it("serves an explicit provider-default request when registry default metadata is absent", () => {
+		for (const support of [{ kind: "unsupported" }, { kind: "unknown" }] as const) {
+			expect(resolveCompactionReasoningSelection({
+				policy: disabledBaselinePolicy(),
+				request: { kind: "model_default" },
+				capabilities: {
+					support,
+					modelDefault: { kind: "absent" },
+				},
+			})).toEqual({
+				kind: "selected",
+				selection: { kind: "model_default" },
+				runtimeFallback: { kind: "none" },
+				provenance: {
+					configuration: { kind: "model_default" },
+					modelDefault: { kind: "absent" },
+					safetyFloor: { kind: "reasoning_disabled" },
+					learnedFloor: null,
+					baselineSelection: { kind: "reasoning_disabled" },
+					support: support.kind,
+					policySource: "custom_provider",
+				},
+			});
+		}
+	});
+
+	it("preserves a shipped unsupported/absent model-default baseline without a request", () => {
+		const model = "arcee-ai/virtuoso-large";
+		const policy = compactionReasoningPolicyForModel(model, true);
+		expect(resolveCompactionReasoningSelection({
+			policy,
+			capabilities: compactionReasoningCapabilitiesForModel(model, true),
+		})).toEqual({
+			kind: "selected",
+			selection: { kind: "model_default" },
+			runtimeFallback: { kind: "none" },
+			provenance: {
+				configuration: null,
+				modelDefault: { kind: "absent" },
+				safetyFloor: { kind: "model_default" },
+				learnedFloor: null,
+				baselineSelection: { kind: "model_default" },
+				support: "unsupported",
+				policySource: "openrouter_generated",
+			},
+		});
+	});
+
 	it("refuses an explicit effort when a provider default has unknown relative order", () => {
 		const resolution = resolveCompactionReasoningSelection({
 			policy: disabledBaselinePolicy(),

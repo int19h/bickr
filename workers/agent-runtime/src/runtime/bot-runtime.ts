@@ -1733,6 +1733,7 @@ export class BotRuntime {
 		const frozenFallback = compactionReasoningLearnedFloorFromFrozenState(
 			this.runtimeStateRecord(compactionReasoningFallbackStateKey),
 			settings.model,
+			openRouter ? 'openrouter' : 'custom',
 		);
 		if (frozenFallback.kind === 'stale') {
 			this.deleteRuntimeState(compactionReasoningFallbackStateKey);

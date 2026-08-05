@@ -26,6 +26,7 @@ import type {
 	BotInferenceSubmissionMessage,
 	ProviderToolDefinition,
 } from "./helpers/index-harness";
+import { compactionReasoningFallbackStateKey } from "../workers/agent-runtime/src/constants";
 import type { CompactionReasoningDiagnostic } from "../workers/agent-runtime/src/errors";
 
 type CompactionProviderResult = {
@@ -370,6 +371,70 @@ describe("Structured output", () => {
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
 			}
+		});
+
+		it("keeps a custom-provider learned floor local after switching the same model to OpenRouter", () => {
+			const model = "openai/gpt-4o";
+			const frozenRecord = {
+				model,
+				mode: "minimal",
+				reason: "provider rejected none",
+				updatedAt: "2026-08-04T00:00:00.000Z",
+			};
+			const runtimeState = new Map<string, unknown>([
+				[compactionReasoningFallbackStateKey, frozenRecord],
+			]);
+			const deleteRuntimeState = vi.fn((key: string) => runtimeState.delete(key));
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				runtimeStateRecord: (key: string) => {
+					const value = runtimeState.get(key);
+					return value && typeof value === "object" && !Array.isArray(value)
+						? value as Record<string, unknown>
+						: undefined;
+				},
+				deleteRuntimeState,
+			});
+			const compactionReasoningForSettings = (BotRuntime.prototype as unknown as {
+				compactionReasoningForSettings: (settings: {
+					baseUrl: string;
+					model: string;
+				}) => CompactionReasoningDiagnostic & { runtimeFallback: unknown };
+			}).compactionReasoningForSettings.bind(runtime);
+
+			expect(compactionReasoningForSettings({
+				baseUrl: customProviderBaseUrl,
+				model,
+			})).toEqual({
+				selection: { kind: "explicit_effort", effort: "minimal" },
+				runtimeFallback: { kind: "none" },
+				provenance: {
+					baselineSelection: { kind: "reasoning_disabled" },
+					configuration: null,
+					learnedFloor: { kind: "explicit_effort", effort: "minimal" },
+					modelDefault: { kind: "explicit_effort", effort: "minimal" },
+					policySource: "custom_provider",
+					safetyFloor: { kind: "reasoning_disabled" },
+					support: "unknown",
+				},
+			});
+			expect(compactionReasoningForSettings({
+				baseUrl: "https://openrouter.ai/api/v1",
+				model,
+			})).toEqual({
+				selection: { kind: "reasoning_disabled" },
+				runtimeFallback: { kind: "none" },
+				provenance: {
+					baselineSelection: { kind: "reasoning_disabled" },
+					configuration: null,
+					learnedFloor: null,
+					modelDefault: { kind: "absent" },
+					policySource: "openrouter_generated",
+					safetyFloor: { kind: "reasoning_disabled" },
+					support: "unsupported",
+				},
+			});
+			expect(runtimeState.get(compactionReasoningFallbackStateKey)).toBe(frozenRecord);
+			expect(deleteRuntimeState).not.toHaveBeenCalled();
 		});
 
 		it("falls back to minimal compaction reasoning when a model rejects disabled reasoning", async () => {

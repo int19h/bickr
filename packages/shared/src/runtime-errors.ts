@@ -211,13 +211,10 @@ export function compactionReasoningRefusalMessage(refusal: CompactionReasoningRe
 		case "model_default_order_unknown_for_required_effort":
 			return `Compaction requires reasoning effort ${refusal.requiredEffort}, but the provider default has no known comparable effort.`;
 		case "no_supported_effort": {
-			const requirement = refusal.required.kind === "explicit_effort"
-				? `reasoning effort ${refusal.required.effort}`
-				: "model-default reasoning";
 			const supported = refusal.supportedEfforts.length > 0
 				? ` Known supported efforts: ${refusal.supportedEfforts.join(", ")}.`
 				: " No supported compaction reasoning effort is known.";
-			return `Compaction requires ${requirement}, but the provider has no supported selection at or above that requirement.${supported}`;
+			return `Compaction requires reasoning effort ${refusal.required.effort}, but the provider has no supported selection at or above that requirement.${supported}`;
 		}
 	}
 }
