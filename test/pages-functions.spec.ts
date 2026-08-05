@@ -115,6 +115,7 @@ import {
 import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
 import { worldIndexProjectionStatement } from "@bickr/shared/repository";
 import { exportThreadRef } from "../apps/web/functions/api/cli/export/_export";
+import { onRequest as inferenceConfigurationsProxy } from "../apps/web/functions/api/me/inference-configurations/[[path]]";
 import {
 	listHumanNotifications,
 	listHumanSubscriptionTree,
@@ -2277,6 +2278,38 @@ describe("Pages functions", () => {
 			),
 		);
 		expect(shortBotResponse.status).toBe(201);
+	});
+
+	it("passes inference library section, search, and cursor parameters through the me proxy", async () => {
+		const cookie = await authCookieFor({
+			subject: "inference-proxy-owner",
+			login: "inference-proxy-owner",
+			displayName: "Inference Proxy Owner",
+		});
+		const proxied: string[] = [];
+		const agentRuntime = {
+			fetch: async (request: Request) => {
+				proxied.push(request.url);
+				return Response.json({ ok: true, data: { configurations: { section: "bot", items: [], groups: [] } } });
+			},
+		} as unknown as Fetcher;
+
+		const listed = await inferenceConfigurationsProxy(contextFor<typeof inferenceConfigurationsProxy>(
+			new Request("http://example.com/api/me/inference-configurations?section=bot&q=alpha&limit=5", { headers: { cookie } }),
+			{ path: [] },
+			{ AGENT_RUNTIME: agentRuntime },
+		));
+		expect(listed.status).toBe(200);
+		const children = await inferenceConfigurationsProxy(contextFor<typeof inferenceConfigurationsProxy>(
+			new Request("http://example.com/api/me/inference-configurations/cfg_proxy/children?q=child&cursor=abc", { headers: { cookie } }),
+			{ path: ["cfg_proxy", "children"] },
+			{ AGENT_RUNTIME: agentRuntime },
+		));
+		expect(children.status).toBe(200);
+		expect(proxied.map((url) => new URL(url).pathname + new URL(url).search)).toEqual([
+			expect.stringContaining("/inference-configurations?section=bot&q=alpha&limit=5"),
+			expect.stringContaining("/inference-configurations/cfg_proxy/children?q=child&cursor=abc"),
+		]);
 	});
 
 	it("returns public human profile ownership grouped by world", async () => {

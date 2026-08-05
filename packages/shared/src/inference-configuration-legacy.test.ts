@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { localizedText, type LanguageTag } from "./model";
 import {
+	inferenceOverridePatchFromLegacyBotSettingsMask,
 	legacyImageCompatibilityFieldMask,
 	legacyInferenceCompatibilityFieldMask,
 	legacyInferenceCompatibilityFieldMaskIsEmpty,
@@ -50,5 +51,32 @@ describe("legacy inference compatibility intent", () => {
 			"imageFrequencyPenalty", "imagePresencePenalty", "imageRepetitionPenalty",
 		]);
 		expect(legacyImageCompatibilityFieldMask(null).fields).toEqual(account.fields);
+	});
+
+	it("resumes a linked local-model clone base URL at Account default instead of its source", () => {
+		const mask = legacyInferenceCompatibilityFieldMask({ model: "clone/model", baseUrl: null });
+		expect(mask.fields).toEqual(["baseUrl", "model"]);
+
+		expect(inferenceOverridePatchFromLegacyBotSettingsMask({ model: "clone/model" }, mask, { linkedClone: true }))
+			.toEqual({ baseUrl: { kind: "account_default" }, model: { kind: "value", value: "clone/model" } });
+		// An explicit local base URL stays an ordinary owner value.
+		expect(inferenceOverridePatchFromLegacyBotSettingsMask(
+			{ model: "clone/model", baseUrl: "https://clone.example/v1" },
+			mask,
+			{ linkedClone: true },
+		)).toEqual({
+			baseUrl: { kind: "value", value: "https://clone.example/v1" },
+			model: { kind: "value", value: "clone/model" },
+		});
+		// Without a local model the whole local bundle stayed dormant, and an
+		// ordinary participant has no source to bypass in the first place.
+		expect(inferenceOverridePatchFromLegacyBotSettingsMask({}, mask, { linkedClone: true }))
+			.toEqual({ baseUrl: { kind: "inherit" }, model: { kind: "inherit" } });
+		expect(inferenceOverridePatchFromLegacyBotSettingsMask({ model: "bot/model" }, mask, { linkedClone: false }))
+			.toEqual({ baseUrl: { kind: "inherit" }, model: { kind: "value", value: "bot/model" } });
+		// A write that never mentioned the base URL does not invent intent for it.
+		const modelOnly = legacyInferenceCompatibilityFieldMask({ model: "clone/model" });
+		expect(inferenceOverridePatchFromLegacyBotSettingsMask({ model: "clone/model" }, modelOnly, { linkedClone: true }))
+			.toEqual({ model: { kind: "value", value: "clone/model" } });
 	});
 });

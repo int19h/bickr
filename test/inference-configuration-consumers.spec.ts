@@ -141,6 +141,39 @@ describe("canonical inference consumers", () => {
 		})).toMatchObject({ model: "owner/account-image" });
 	});
 
+	it("keeps a Bickr target-default image model available while an owner-stored one still needs an owner provider", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const botConfiguration = await botConfigurationId(botId);
+		// Strip the owner provider so only the deployment supplies base URL and key.
+		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: rootId,
+			expectedRevision: 1,
+			overrides: { baseUrl: { kind: "inherit" }, model: { kind: "inherit" }, imageModel: { kind: "inherit" } },
+		}, now);
+		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: botConfiguration,
+			expectedRevision: 1,
+			overrides: { baseUrl: { kind: "account_default" }, imageModel: { kind: "target_default" } },
+		}, now);
+		await enableCutover();
+		const env = { ...testEnv, OPENROUTER_API_KEY: "deployment-only-secret" };
+
+		const targetDefaultTarget = await resolveAvatarTarget(env, { kind: "bot", userId: ownerId, botId }, "generate");
+		const targetDefaultSettings = effectiveProviderSettingsForAvatarImageGeneration(targetDefaultTarget, env);
+		// target_default names Bickr's own participant default, so it is not an
+		// owner-selected model and the deployment provider may still run it.
+		expect(targetDefaultSettings?.model).toBeTruthy();
+		expect(targetDefaultSettings?.apiKey).toBe("deployment-only-secret");
+
+		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: botConfiguration,
+			expectedRevision: 2,
+			overrides: { imageModel: { kind: "value", value: "owner/chosen-image" } },
+		}, now);
+		const ownerModelTarget = await resolveAvatarTarget(env, { kind: "bot", userId: ownerId, botId }, "generate");
+		expect(effectiveProviderSettingsForAvatarImageGeneration(ownerModelTarget, env)).toBeNull();
+	});
+
 	it("never forwards the deployment credential through owner provider settings or avatar targets", async () => {
 		await enableCutover();
 		const env = {

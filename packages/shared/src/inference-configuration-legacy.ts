@@ -190,6 +190,23 @@ export function inferenceOverridePatchFromLegacySettingsMask(
 	return replacementPatch(mask.fields, inferenceOverridesFromLegacySettings(settings));
 }
 
+/**
+ * Participant variant of the masked patch. A linked clone whose local model is
+ * set never inherited its source's provider fields, so an absent local base URL
+ * means "resume at Account default", not "continue through the source". This
+ * mirrors the credential intent the same write already stores and the barrier
+ * the migration applies to the whole local bundle.
+ */
+export function inferenceOverridePatchFromLegacyBotSettingsMask(
+	settings: Partial<BotInferenceSettings> | BotInferenceSettingsInput | null | undefined,
+	mask: LegacyInferenceCompatibilityFieldMask,
+	context: { linkedClone: boolean },
+): InferenceConfigurationOverridePatch {
+	const patch = inferenceOverridePatchFromLegacySettingsMask(settings, mask);
+	if (!context.linkedClone || !settings?.model?.trim() || !mask.fields.includes("baseUrl")) return patch;
+	return settings.baseUrl?.trim() ? patch : { ...patch, baseUrl: { kind: "account_default" } };
+}
+
 export function inferenceOverridePatchFromLegacyImageSettings(
 	settings: Partial<BotImageGenerationSettings> | BotImageGenerationSettingsInput | null | undefined,
 ): InferenceConfigurationOverridePatch {

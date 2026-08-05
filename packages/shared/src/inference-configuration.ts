@@ -100,10 +100,19 @@ type ValueOnlyField =
 
 type ImageTargetDefaultField = "imageModel" | "imageAspectRatio" | "imageSize";
 
+/**
+ * Only the base URL can resume raw resolution at Account default. A linked
+ * clone whose local model made its whole local bundle live never consulted its
+ * source's provider fields, so it must skip intervening parents without
+ * materializing (and thereby re-attributing) a resolved URL.
+ */
+type AccountDefaultResumableField = "baseUrl";
+
 export type StoredInferenceOverride<K extends InferenceConfigurationField> =
 	| { kind: "value"; value: InferenceConfigurationFieldValues[K] }
 	| (K extends ValueOnlyField ? never : { kind: "explicit_none" })
-	| (K extends ImageTargetDefaultField ? { kind: "target_default" } : never);
+	| (K extends ImageTargetDefaultField ? { kind: "target_default" } : never)
+	| (K extends AccountDefaultResumableField ? { kind: "account_default" } : never);
 
 export type InferenceOverrideUpdate<K extends InferenceConfigurationField> =
 	| { kind: "inherit" }
@@ -170,10 +179,15 @@ export type ResolvedRawInferenceFields = {
 	[K in InferenceConfigurationField]: ResolvedRawInferenceField<K>;
 };
 
+export type InferenceCredentialUnavailableReason =
+	| "missing_saved_secret"
+	| "no_credential"
+	| "deployment_credential_suppressed_for_owner_base_url";
+
 export type InferenceCredentialResolution =
 	| { kind: "available"; source: InferenceSource; secretVersion: number; secret?: string }
 	| { kind: "explicit_none"; source: InferenceSource }
-	| { kind: "unavailable"; source: InferenceSource | { kind: "bickr_default" }; reason: "missing_saved_secret" | "no_credential" | "deployment_credential_suppressed_for_owner_base_url" };
+	| { kind: "unavailable"; source: InferenceSource | { kind: "bickr_default" }; reason: InferenceCredentialUnavailableReason };
 
 export type InferenceProviderAuthorizationAdjustment =
 	| {
@@ -497,6 +511,24 @@ export function parseInferenceConfigurationOverridePatch(value: unknown): Infere
 	return result as InferenceConfigurationOverridePatch;
 }
 
+/**
+ * Account default has no ancestor to resume at, so it can never store the
+ * Account-default state. Every writer that persists overrides for a known
+ * configuration kind runs this check; the resolver rejects the same shape
+ * independently so a side-door write cannot produce a silently wrong path.
+ */
+export function assertInferenceOverridesAllowedForKind(
+	kind: InferenceConfigurationKind,
+	overrides: InferenceConfigurationOverrides | InferenceConfigurationOverridePatch,
+): void {
+	if (kind === "account_default" && overrides.baseUrl?.kind === "account_default") {
+		throw new InferenceConfigurationDataError(
+			"invalid_overrides",
+			"Account default cannot use the Account-default state for baseUrl.",
+		);
+	}
+}
+
 export function normalizedInferenceConfigurationName(name: string): { name: string; key: string } {
 	const normalizedName = name.normalize("NFKC").trim();
 	if (!normalizedName) {
@@ -673,6 +705,7 @@ const explicitNoneFields = new Set<InferenceConfigurationField>(
 const imageTargetDefaultFields = new Set<InferenceConfigurationField>([
 	"imageModel", "imageAspectRatio", "imageSize",
 ]);
+const accountDefaultResumableFields = new Set<InferenceConfigurationField>(["baseUrl"]);
 
 function resolveRawInferenceFields(
 	path: InferenceConfigurationPath,
@@ -688,7 +721,8 @@ function resolveRawInferenceFields(
 type AnyStoredInferenceOverride =
 	| { kind: "value"; value: InferenceConfigurationFieldValues[InferenceConfigurationField] }
 	| { kind: "explicit_none" }
-	| { kind: "target_default" };
+	| { kind: "target_default" }
+	| { kind: "account_default" };
 
 type AnyResolvedRawInferenceField =
 	| { state: "value"; value: InferenceConfigurationFieldValues[InferenceConfigurationField]; source: InferenceSource; override: AnyStoredInferenceOverride | null }
@@ -701,11 +735,32 @@ function resolveRawInferenceField(
 	field: InferenceConfigurationField,
 	defaultValue: InferenceConfigurationFieldValues[InferenceConfigurationField] | undefined,
 ): AnyResolvedRawInferenceField {
-	for (let depth = 0; depth < path.length; depth += 1) {
+	return resolveRawInferenceFieldFromDepth(path, field, defaultValue, 0);
+}
+
+function resolveRawInferenceFieldFromDepth(
+	path: InferenceConfigurationPath,
+	field: InferenceConfigurationField,
+	defaultValue: InferenceConfigurationFieldValues[InferenceConfigurationField] | undefined,
+	startDepth: number,
+): AnyResolvedRawInferenceField {
+	for (let depth = startDepth; depth < path.length; depth += 1) {
 		const entry = path[depth];
 		if (!entry) continue;
 		const override = entry.overrides[field];
 		if (!override) continue;
+		if (override.kind === "account_default") {
+			if (entry.kind === "account_default") {
+				throw new InferenceConfigurationDataError(
+					"invalid_path",
+					`Account default cannot use the Account-default state for ${field}.`,
+				);
+			}
+			// The jump only skips intervening parents. Whatever Account default or
+			// the Bickr default then supplies keeps its own provenance, so a hidden
+			// deployment value is never relabelled as owner-selected.
+			return resolveRawInferenceFieldFromDepth(path, field, defaultValue, path.length - 1);
+		}
 		const source = sourceForEntry(entry, depth);
 		if (override.kind === "explicit_none") {
 			return { state: "explicit_none", source, override };
@@ -899,6 +954,10 @@ function parseStoredOverride<K extends InferenceConfigurationField>(
 	if (value.kind === "target_default") {
 		if (!imageTargetDefaultFields.has(field) || Object.keys(value).length !== 1) throw invalidOverride(field);
 		return { kind: "target_default" } as StoredInferenceOverride<K>;
+	}
+	if (value.kind === "account_default") {
+		if (!accountDefaultResumableFields.has(field) || Object.keys(value).length !== 1) throw invalidOverride(field);
+		return { kind: "account_default" } as StoredInferenceOverride<K>;
 	}
 	if (value.kind !== "value" || Object.keys(value).some((key) => key !== "kind" && key !== "value")) {
 		throw invalidOverride(field);

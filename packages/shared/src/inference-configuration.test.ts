@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	applyInferenceOverridePatch,
+	assertInferenceOverridesAllowedForKind,
 	inferenceResolutionFingerprint,
 	parseInferenceConfigurationOverridePatch,
 	parseInferenceConfigurationOverrides,
@@ -270,6 +271,123 @@ describe("canonical inference configuration resolution", () => {
 		const cycleParent = node("cycle-parent", "custom", cycleStart.id, {});
 		expect(() => resolveInferenceConfiguration([cycleStart, cycleParent, cycleStart])).toThrow("cycle");
 		expect(() => resolveInferenceConfiguration([selected])).toThrow("does not end at Account default");
+	});
+
+	it("resumes the Account-default base URL at the root while keeping the real source provenance", () => {
+		const deploymentDefaults = {
+			fields: { baseUrl: "https://deployment.example/v1", model: "deployment/model", temperature: 1 },
+			credential: "deployment-secret",
+			credentialVersion: 1,
+		};
+		const account = node("account", "account_default", null, {});
+		const source = node("source", "custom", account.id, {
+			baseUrl: value("https://source.example/v1"),
+			model: value("source/model"),
+		}, { mode: "value", secretVersion: 1, secret: "source-secret" });
+		const clone = node("clone", "custom", source.id, {
+			baseUrl: { kind: "account_default" },
+			model: value("clone/model"),
+		}, { mode: "account_default", secretVersion: 0 });
+
+		const resolution = resolveInferenceConfiguration([clone, source, account], { defaults: deploymentDefaults });
+
+		// The jump skipped the source entirely and landed on the deployment
+		// default, which keeps Bickr provenance rather than becoming owner-chosen.
+		expect(resolution.raw.baseUrl).toMatchObject({
+			state: "value",
+			value: "https://deployment.example/v1",
+			source: { kind: "bickr_default" },
+			override: null,
+		});
+		expect(resolution.effective.credential).toMatchObject({
+			kind: "available",
+			source: { kind: "bickr_default" },
+			secret: "deployment-secret",
+		});
+		// A deployment-provenance provider cannot authorize an owner-chosen model.
+		expect(resolution.effective.model).toBe("deployment/model");
+		expect(resolution.providerAuthorizationAdjustment).toMatchObject({
+			kind: "model_fell_back",
+			requestedModel: "clone/model",
+			reason: "owner_provider_unavailable",
+		});
+	});
+
+	it("resumes at an Account-default base URL value and suppresses the deployment credential there", () => {
+		const deploymentDefaults = {
+			fields: { baseUrl: "https://deployment.example/v1", model: "deployment/model", temperature: 1 },
+			credential: "deployment-secret",
+			credentialVersion: 1,
+		};
+		const account = node("account", "account_default", null, { baseUrl: value("https://account.example/v1") });
+		const source = node("source", "custom", account.id, {
+			baseUrl: value("https://source.example/v1"),
+		}, { mode: "value", secretVersion: 1, secret: "source-secret" });
+		const clone = node("clone", "custom", source.id, {
+			baseUrl: { kind: "account_default" },
+			model: value("clone/model"),
+		}, { mode: "account_default", secretVersion: 0 });
+
+		const resolution = resolveInferenceConfiguration([clone, source, account], { defaults: deploymentDefaults });
+
+		expect(resolution.effective.baseUrl).toBe("https://account.example/v1");
+		expect(resolution.raw.baseUrl.source).toMatchObject({ kind: "account_default", configurationId: account.id });
+		expect(resolution.effective.credential).toMatchObject({
+			kind: "unavailable",
+			reason: "deployment_credential_suppressed_for_owner_base_url",
+		});
+		// The owner base URL authorizes the owner's own model even with no key.
+		expect(resolution.effective.model).toBe("clone/model");
+		expect(resolution.providerAuthorizationAdjustment).toBeNull();
+	});
+
+	it("decides provenance by source, not by base-URL string equality", () => {
+		const deploymentDefaults = {
+			fields: { baseUrl: "https://deployment.example/v1", model: "deployment/model", temperature: 1 },
+			credential: "deployment-secret",
+			credentialVersion: 1,
+		};
+		const account = node("account", "account_default", null, {});
+		// This entry stores exactly the deployment URL as an owner value.
+		const owner = node("owner", "custom", account.id, {
+			baseUrl: value("https://deployment.example/v1"),
+			model: value("owner/model"),
+		});
+		const resumed = node("resumed", "custom", owner.id, {
+			baseUrl: { kind: "account_default" },
+			model: value("owner/model"),
+		}, { mode: "account_default", secretVersion: 0 });
+
+		const ownerResolution = resolveInferenceConfiguration([owner, account], { defaults: deploymentDefaults });
+		const resumedResolution = resolveInferenceConfiguration([resumed, owner, account], { defaults: deploymentDefaults });
+
+		expect(ownerResolution.effective.baseUrl).toBe(resumedResolution.effective.baseUrl);
+		expect(ownerResolution.effective.credential).toMatchObject({
+			kind: "unavailable",
+			reason: "deployment_credential_suppressed_for_owner_base_url",
+		});
+		expect(resumedResolution.effective.credential).toMatchObject({ kind: "available", source: { kind: "bickr_default" } });
+	});
+
+	it("accepts the Account-default state only for base URL and never on Account default", () => {
+		expect(parseInferenceConfigurationOverrides(JSON.stringify({ baseUrl: { kind: "account_default" } })))
+			.toEqual({ baseUrl: { kind: "account_default" } });
+		expect(parseInferenceConfigurationOverridePatch({ baseUrl: { kind: "account_default" } }))
+			.toEqual({ baseUrl: { kind: "account_default" } });
+		expect(() => parseInferenceConfigurationOverrides(JSON.stringify({ model: { kind: "account_default" } })))
+			.toThrow("Invalid override for inference field model");
+		expect(() => parseInferenceConfigurationOverrides(JSON.stringify({ imageModel: { kind: "account_default" } })))
+			.toThrow("Invalid override for inference field imageModel");
+		expect(() => parseInferenceConfigurationOverrides(JSON.stringify({ baseUrl: { kind: "account_default", value: "x" } })))
+			.toThrow("Invalid override for inference field baseUrl");
+
+		const account = node("account", "account_default", null, { baseUrl: { kind: "account_default" } });
+		const selected = node("selected", "custom", account.id, {});
+		expect(() => resolveInferenceConfiguration([selected, account]))
+			.toThrow("Account default cannot use the Account-default state for baseUrl");
+		expect(() => assertInferenceOverridesAllowedForKind("account_default", { baseUrl: { kind: "account_default" } }))
+			.toThrow("Account default cannot use the Account-default state for baseUrl");
+		expect(() => assertInferenceOverridesAllowedForKind("custom", { baseUrl: { kind: "account_default" } })).not.toThrow();
 	});
 });
 

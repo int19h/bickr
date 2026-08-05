@@ -25,6 +25,7 @@ import {
 	type ProviderSettings,
 } from "./inference-settings";
 import type { TranslationInferenceAnnotation } from "./model";
+import { RepositoryError } from "./repository";
 import type { D1DatabaseLike } from "./storage";
 
 export type CanonicalInferenceConsumer = "account" | "bot" | "world" | "translation";
@@ -87,12 +88,15 @@ export async function canonicalTranslationInferenceAnnotation(
 		: await readTranslationSelection(db, ownerUserId);
 	const consumer = await resolvedConsumer(db, ownerUserId, selection.configurationId, "translation", env, version);
 	const selected = consumer.resolution.path[0];
+	// The selector accepts only Account default and custom entries, and both the
+	// repository writer and the migration enforce that. A world/participant
+	// entry here is a corrupt selection, not a label this annotation composes.
+	if (selected.kind !== "account_default" && selected.kind !== "custom") {
+		throw new RepositoryError("server_error", "Translation inference selection is not an Account default or custom configuration.", 500);
+	}
 	return {
 		selectedConfigurationId: selected.id,
-		selectedDisplayName: selected.kind === "account_default" ? "Account default"
-			: selected.kind === "custom" ? selected.name
-			: selected.kind === "world" ? `World ${selected.worldId}`
-			: `Participant ${selected.botId}`,
+		selectedDisplayName: selected.kind === "account_default" ? "Account default" : selected.name,
 		selectionRevision: selection.revision,
 		effectiveModel: consumer.resolution.effective.model,
 		effectiveRevisionFingerprint: consumer.fingerprint,
@@ -195,11 +199,16 @@ export function canonicalAvatarImageSettings(
 ): CanonicalAvatarImageSettings | null {
 	const image = resolveImageSettingsForTarget(consumer.resolution.effective.image, target);
 	if (!image.model) return null;
-	const modelSource = consumer.resolution.effective.image.model.source;
+	const rawModel = consumer.resolution.effective.image.model;
 	const credential = consumer.resolution.effective.credential;
 	const ownerProviderAvailable = consumer.resolution.raw.baseUrl.source.kind !== "bickr_default" ||
 		credential.kind === "available" && credential.source.kind !== "bickr_default";
-	if (modelSource.kind !== "bickr_default" && !ownerProviderAvailable) return null;
+	// Only an owner-stored model value is gated. target_default names Bickr's own
+	// per-target default, so the configuration that stores it is the location of
+	// the intent, not the origin of the model; treating it as owner-selected
+	// would refuse image generation that the same settings always allowed.
+	const ownerSelectedModel = rawModel.state === "value" && rawModel.source.kind !== "bickr_default";
+	if (ownerSelectedModel && !ownerProviderAvailable) return null;
 	const providerRouting = image.providerRouting && Object.keys(image.providerRouting).length > 0 &&
 		isOpenRouterProviderBaseUrl(consumer.providerSettings.baseUrl)
 		? image.providerRouting

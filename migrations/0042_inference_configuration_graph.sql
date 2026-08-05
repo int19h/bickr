@@ -137,6 +137,25 @@ BEGIN
 	SELECT RAISE(ABORT, 'account default cannot use account-default credential mode');
 END;
 
+-- The base URL has the same Account-default resume state, stored in the
+-- overrides document rather than the credential row. Account default cannot
+-- hold it for the same reason, so it gets the same declarative backstop.
+CREATE TRIGGER inference_configurations_account_default_base_url_insert
+BEFORE INSERT ON inference_configurations
+WHEN NEW.kind = 'account_default'
+	AND json_extract(NEW.overrides_json, '$.baseUrl.kind') = 'account_default'
+BEGIN
+	SELECT RAISE(ABORT, 'account default cannot use account-default base url state');
+END;
+
+CREATE TRIGGER inference_configurations_account_default_base_url_update
+BEFORE UPDATE OF overrides_json, kind ON inference_configurations
+WHEN NEW.kind = 'account_default'
+	AND json_extract(NEW.overrides_json, '$.baseUrl.kind') = 'account_default'
+BEGIN
+	SELECT RAISE(ABORT, 'account default cannot use account-default base url state');
+END;
+
 -- A fixed bot insert atomically transfers the Phase-1 nonterminal key bridge
 -- into its permanent configuration row. The lifecycle batch deletes the
 -- bridge only after this trigger has copied it, so a crash cannot lose the key.

@@ -744,9 +744,13 @@ async function inferenceCommand(ctx: CommandContext, args: string[]): Promise<vo
 	const options = parseCommandOptions(rest, commandBooleanFlags);
 	if (subcommand === "list") {
 		const params = new URLSearchParams();
+		const section = flagString(options.flags, "section");
+		const kind = flagString(options.flags, "kind");
 		const query = flagString(options.flags, "query");
 		const cursor = flagString(options.flags, "cursor");
 		const limit = flagString(options.flags, "limit");
+		if (section) params.set("section", section);
+		if (kind) params.set("kind", kind);
 		if (query) params.set("q", query);
 		if (cursor) params.set("cursor", cursor);
 		if (limit) params.set("limit", limit);
@@ -792,7 +796,7 @@ async function inferenceCommand(ctx: CommandContext, args: string[]): Promise<vo
 		const query = flagString(options.flags, "query");
 		if (cursor) params.set("cursor", cursor);
 		if (limit) params.set("limit", limit);
-		if (query && subcommand === "parent-candidates") params.set("q", query);
+		if (query) params.set("q", query);
 		await printGenericEnvelope(ctx, ctx.client.request(
 			`/me/inference-configurations/${encodeURIComponent(id)}/${subcommand}${params.size ? `?${params}` : ""}`,
 		));
@@ -1163,8 +1167,9 @@ Core commands:
   bickr bots list [w/world]
   bickr bots get u/name
   bickr bots bulk update w/world --model MODEL [--yes]
-	  bickr inference list [--query TEXT]
+	  bickr inference list [--section account|custom|world|bot] [--kind KINDS] [--query TEXT]
 	  bickr inference get cfg_ID
+	  bickr inference children cfg_ID [--query TEXT]
   bickr export thread w/world/f/forum/t/thread --format json
   bickr export forum w/world/f/forum --range 1-500 --format ndjson
   bickr api GET /session

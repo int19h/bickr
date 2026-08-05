@@ -13,7 +13,8 @@ import {
 	rollbackInferenceGraphCutover,
 	runInferenceGraphMigrationStep,
 } from "@bickr/shared/inference-configuration-migration";
-import { canonicalTranslationInferenceAnnotation } from "@bickr/shared/inference-configuration-consumers";
+import { canonicalBotInference, canonicalTranslationInferenceAnnotation } from "@bickr/shared/inference-configuration-consumers";
+import { providerEnvironmentSettingsFromBindings, resolveBotProviderSettings } from "@bickr/shared/inference-settings";
 import {
 	accountDefaultConfigurationId,
 	botConfigurationId,
@@ -23,7 +24,7 @@ import {
 } from "@bickr/shared/inference-configuration-repository";
 import { localizedText, schemaVersion, type BotDocument, type LanguageTag, type UserDocument, type WorldDocument } from "@bickr/shared/model";
 import { userIndexProjectionStatement, worldIndexProjectionStatement } from "@bickr/shared/repository";
-import { kvKeys, writeJson } from "@bickr/shared/storage";
+import { kvKeys, readJson, writeJson } from "@bickr/shared/storage";
 import { clearKv, resetD1Schema } from "./helpers/d1-schema";
 import { handleAgentRuntimeRequest } from "../workers/agent-runtime/src/routes";
 
@@ -89,7 +90,7 @@ describe("restartable inference graph migration", () => {
 		expect(localCloneConfiguration).toMatchObject({ kind: "bot", parentId: sourceConfigurationId });
 		expect(JSON.parse(localCloneConfiguration!.overridesJson)).toMatchObject({
 			model: { kind: "value", value: "owner/local-clone-model" },
-			baseUrl: { kind: "value", value: "https://openrouter.ai/api/v1" },
+			baseUrl: { kind: "account_default" },
 			providerRouting: { kind: "explicit_none" },
 			reasoning: { kind: "value", value: { kind: "provider_default" } },
 			topK: { kind: "explicit_none" },
@@ -549,6 +550,184 @@ describe("restartable inference graph migration", () => {
 		expect((await inferenceGraphReadVersion(testEnv.BICKR_D1, ownerId)).cutoverVersion).toBe(1);
 	});
 
+	it("resumes a linked local-model clone at Account default without copying a secret", async () => {
+		// The source has a custom base and key, the account has neither, and only
+		// the deployment supplies a base/key/model. Legacy resolution for a clone
+		// with its own model never consulted the source, and its own
+		// hasBotOrInheritedProvider gate excluded the deployment key, so the
+		// stored clone model fell back to the deployment model while still using
+		// the deployment key. The graph must reproduce both facts at cutover.
+		await seedOwnerInferenceSettings({ model: "owner/account-model" });
+		await seedWorldWithoutImageSettings();
+		const source = migrationBot("bot_m_source", "matrix-source", {
+			model: "source/model",
+			baseUrl: "https://source.example/v1",
+			openRouterApiKey: "source-only-secret",
+		});
+		const clone = migrationBot("bot_m_clone", "matrix-clone", { model: "clone/local-model" }, source);
+		await seedBot(source);
+		await seedBot(clone);
+		await seedLinkedClone(clone, source);
+
+		await migrateToCutover(deploymentEnv);
+
+		const cloneConfigurationId = await botConfigurationId(clone.id);
+		expect(await configurationOverrides(cloneConfigurationId)).toMatchObject({
+			model: { kind: "value", value: "clone/local-model" },
+			baseUrl: { kind: "account_default" },
+		});
+		expect(await credential(cloneConfigurationId)).toEqual({
+			mode: "account_default",
+			secretValue: null,
+			secretVersion: 0,
+		});
+		const secrets = await testEnv.BICKR_D1.prepare(
+			`SELECT configuration_id AS id FROM inference_configuration_credentials
+			 WHERE owner_user_id = ? AND secret_value IS NOT NULL`,
+		).bind(ownerId).all<{ id: string }>();
+		expect(secrets.results?.map((row) => row.id)).toEqual([await botConfigurationId(source.id)]);
+
+		const canonical = await canonicalBotInference(testEnv.BICKR_D1, ownerId, clone.id, deploymentEnv);
+		const legacy = resolveBotProviderSettings(
+			{ inferenceSettings: clone.inferenceSettings },
+			{ inferenceSettings: (await ownerDocument()).inferenceSettings },
+			providerEnvironmentSettingsFromBindings(deploymentEnv),
+		).settings;
+		// Deployment provenance survives the jump, so the deployment key is not
+		// suppressed and the owner-selected model is still not authorized by it.
+		expect(canonical?.resolution.raw.baseUrl.source).toEqual({ kind: "bickr_default" });
+		expect(canonical?.resolution.effective.credential).toMatchObject({
+			kind: "available",
+			source: { kind: "bickr_default" },
+		});
+		expect(canonical?.resolution.providerAuthorizationAdjustment).toMatchObject({
+			kind: "model_fell_back",
+			requestedModel: "clone/local-model",
+			reason: "owner_provider_unavailable",
+		});
+		expect(canonical?.providerSettings.model).toBe(legacy.model);
+		expect(canonical?.providerSettings.model).toBe("deployment/model");
+		expect(canonical?.providerSettings.baseUrl).toBe(legacy.baseUrl);
+		expect(Boolean(canonical?.providerSettings.apiKey)).toBe(Boolean(legacy.apiKey));
+		expect(canonical?.providerSettings.apiKey).toBe("deployment-secret");
+	});
+
+	const cloneProviderScenarios = [
+		{
+			name: "Account key with deployment base",
+			owner: { openRouterApiKey: "account-secret" },
+			clone: { model: "clone/local-model" },
+			baseUrlOverride: { kind: "account_default" },
+			credentialMode: "account_default",
+			expectedBaseUrl: "https://openrouter.ai/api/v1/chat/completions",
+			expectedModel: "clone/local-model",
+			expectedCredentialAvailable: true,
+		},
+		{
+			name: "Account custom base without an Account key",
+			owner: { baseUrl: "https://account.example/v1" },
+			clone: { model: "clone/local-model" },
+			baseUrlOverride: { kind: "account_default" },
+			credentialMode: "account_default",
+			expectedBaseUrl: "https://account.example/v1",
+			expectedModel: "clone/local-model",
+			expectedCredentialAvailable: false,
+		},
+		{
+			name: "Account custom base with an Account key",
+			owner: { baseUrl: "https://account.example/v1", openRouterApiKey: "account-secret" },
+			clone: { model: "clone/local-model" },
+			baseUrlOverride: { kind: "account_default" },
+			credentialMode: "account_default",
+			expectedBaseUrl: "https://account.example/v1",
+			expectedModel: "clone/local-model",
+			expectedCredentialAvailable: true,
+		},
+		{
+			name: "explicit clone base and key",
+			owner: {},
+			clone: { model: "clone/local-model", baseUrl: "https://clone.example/v1", openRouterApiKey: "clone-secret" },
+			baseUrlOverride: { kind: "value", value: "https://clone.example/v1" },
+			credentialMode: "value",
+			expectedBaseUrl: "https://clone.example/v1",
+			expectedModel: "clone/local-model",
+			expectedCredentialAvailable: true,
+		},
+	] as const;
+
+	for (const scenario of cloneProviderScenarios) {
+		it(`matches legacy linked local-model clone resolution for ${scenario.name}`, async () => {
+			await seedOwnerInferenceSettings(scenario.owner);
+			await seedWorldWithoutImageSettings();
+			const source = migrationBot("bot_m_source", "matrix-source", {
+				model: "source/model",
+				baseUrl: "https://source.example/v1",
+				openRouterApiKey: "source-only-secret",
+			});
+			const clone = migrationBot("bot_m_clone", "matrix-clone", { ...scenario.clone }, source);
+			await seedBot(source);
+			await seedBot(clone);
+			await seedLinkedClone(clone, source);
+
+			await migrateToCutover(deploymentEnv);
+
+			const cloneConfigurationId = await botConfigurationId(clone.id);
+			expect(await configurationOverrides(cloneConfigurationId)).toMatchObject({ baseUrl: scenario.baseUrlOverride });
+			expect((await credential(cloneConfigurationId))?.mode).toBe(scenario.credentialMode);
+			const canonical = await canonicalBotInference(testEnv.BICKR_D1, ownerId, clone.id, deploymentEnv);
+			const legacy = resolveBotProviderSettings(
+				{ inferenceSettings: clone.inferenceSettings },
+				{ inferenceSettings: (await ownerDocument()).inferenceSettings },
+				providerEnvironmentSettingsFromBindings(deploymentEnv),
+			).settings;
+			expect(canonical?.providerSettings.baseUrl).toBe(scenario.expectedBaseUrl);
+			expect(canonical?.providerSettings.baseUrl).toBe(legacy.baseUrl);
+			expect(canonical?.providerSettings.model).toBe(scenario.expectedModel);
+			expect(canonical?.providerSettings.model).toBe(legacy.model);
+			expect(canonical?.resolution.effective.credential.kind === "available")
+				.toBe(scenario.expectedCredentialAvailable);
+			expect(Boolean(canonical?.providerSettings.apiKey)).toBe(Boolean(legacy.apiKey));
+			// The source secret is never reachable from the clone, whatever the
+			// account or clone supplied.
+			expect(canonical?.providerSettings.apiKey).not.toBe("source-only-secret");
+		});
+	}
+
+	it("stores the Account-default base URL barrier from a legacy linked-clone compatibility write", async () => {
+		await seedOwnerInferenceSettings({ openRouterApiKey: "account-secret" });
+		await seedWorldWithoutImageSettings();
+		const source = migrationBot("bot_w_source", "writer-source", {
+			model: "source/model",
+			baseUrl: "https://source.example/v1",
+			openRouterApiKey: "source-only-secret",
+		});
+		const clone = migrationBot("bot_w_clone", "writer-clone", {}, source);
+		await seedBot(source);
+		await seedBot(clone);
+		await seedLinkedClone(clone, source);
+		await migrateToCutover(deploymentEnv);
+
+		const cloneConfigurationId = await botConfigurationId(clone.id);
+		expect(await configurationOverrides(cloneConfigurationId)).toEqual({});
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE maintenance_control SET enabled = 0, activated_at = NULL, updated_at = ? WHERE id = 1`,
+		).bind("2026-08-04T00:03:00.000Z").run();
+		const response = await handleAgentRuntimeRequest(new Request(
+			`https://agent.internal/users/${ownerId}/bots/${clone.id}`,
+			{
+				method: "PATCH",
+				headers: { "content-type": "application/json", "x-bickr-user-id": ownerId },
+				body: JSON.stringify({ inferenceSettings: { model: "clone/written-model", baseUrl: null } }),
+			},
+		), testEnv, { objectId: "user-coordinator-test", ownerUserId: ownerId });
+		expect(response.status).toBe(200);
+		expect(await configurationOverrides(cloneConfigurationId)).toMatchObject({
+			model: { kind: "value", value: "clone/written-model" },
+			baseUrl: { kind: "account_default" },
+		});
+		expect((await credential(cloneConfigurationId))?.mode).toBe("inherit");
+	});
+
 	it("refuses to start outside explicit maintenance", async () => {
 		await testEnv.BICKR_D1.prepare(
 			`UPDATE maintenance_control SET enabled = 0, activated_at = NULL, updated_at = ? WHERE id = 1`,
@@ -557,6 +736,46 @@ describe("restartable inference graph migration", () => {
 		expect(await inferenceGraphMigrationStatus(testEnv.BICKR_D1, ownerId)).toBeNull();
 	});
 });
+
+const deploymentEnv = {
+	OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1/chat/completions",
+	OPENROUTER_MODEL: "deployment/model",
+	OPENROUTER_API_KEY: "deployment-secret",
+} as const;
+
+async function migrateToCutover(env: Record<string, unknown>): Promise<void> {
+	const migrationEnv = { ...env, BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV } as never;
+	let result = await runInferenceGraphMigrationStep(migrationEnv, ownerId, now);
+	for (let attempt = 0; attempt < 15 && !result.complete; attempt += 1) {
+		result = await runInferenceGraphMigrationStep(
+			migrationEnv,
+			ownerId,
+			new Date(Date.parse(now) + attempt + 1).toISOString(),
+		);
+	}
+	expect(result).toMatchObject({ complete: true, phase: "terminal", writerVersion: 1, cutoverVersion: 1 });
+}
+
+async function ownerDocument(): Promise<UserDocument> {
+	const user = await readJson<UserDocument>(testEnv.BICKR_KV, kvKeys.user(ownerId));
+	if (!user) throw new Error("Expected a seeded migration owner document.");
+	return user;
+}
+
+async function seedOwnerInferenceSettings(inferenceSettings: UserDocument["inferenceSettings"]): Promise<void> {
+	await writeJson(testEnv.BICKR_KV, kvKeys.user(ownerId), { ...migrationUser(), inferenceSettings });
+}
+
+/**
+ * The matrix isolates base-URL and credential provenance, so its world carries
+ * no image settings; owner-selected image models have their own authorization
+ * rule that is exercised by the main migration fixture.
+ */
+async function seedWorldWithoutImageSettings(): Promise<void> {
+	const { imageGeneration: _imageGeneration, ...world } = migrationWorld();
+	await worldIndexProjectionStatement(testEnv.BICKR_D1, world).run();
+	await writeJson(testEnv.BICKR_KV, kvKeys.world(worldId), world);
+}
 
 async function seedBot(bot: BotDocument): Promise<void> {
 	await seedActiveClaim("bot_handle", worldId, bot.handle, "bot", bot.id, ownerId);

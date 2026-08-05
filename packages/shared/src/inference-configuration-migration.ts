@@ -30,7 +30,6 @@ import { sha256Hex } from "./ids";
 import { readMaintenanceState } from "./maintenance";
 import {
 	avatarImageGenerationSettingsWithDefaults,
-	defaultProviderBaseUrl,
 	defaultTextGenerationTemperature,
 	worldAvatarImageGenerationSettingsWithDefaults,
 	type BotDocument,
@@ -279,7 +278,6 @@ async function migrateBotBatch(env: InferenceGraphMigrationEnv, operation: Migra
 	const rows = result.results ?? [];
 	const documents = await Promise.all(rows.map((row) => readJson<BotDocument>(env.BICKR_KV, kvKeys.bot(row.botId))));
 	const user = await requiredMigrationUser(env, operation.ownerUserId);
-	const environment = providerEnvironmentSettingsFromBindings(env);
 	const rootId = await accountDefaultConfigurationId(operation.ownerUserId);
 	const statements: D1PreparedStatementLike[] = [];
 	for (let index = 0; index < rows.length; index += 1) {
@@ -302,7 +300,6 @@ async function migrateBotBatch(env: InferenceGraphMigrationEnv, operation: Migra
 			overrides: inferenceOverridesForLegacyBotMigration(
 				bot.inferenceSettings,
 				user.inferenceSettings,
-				environment,
 				Boolean(row.sourceBotId),
 			),
 		}));
@@ -365,7 +362,6 @@ type LegacyBotMigrationCredential =
 function inferenceOverridesForLegacyBotMigration(
 	settings: BotInferenceSettings,
 	ownerSettings: BotInferenceSettings | undefined,
-	environment: ReturnType<typeof providerEnvironmentSettingsFromBindings>,
 	linkedClone: boolean,
 ): InferenceConfigurationOverrides {
 	if (linkedClone && !settings.model?.trim()) return {};
@@ -373,12 +369,12 @@ function inferenceOverridesForLegacyBotMigration(
 
 	const overrides = inferenceOverridesFromLegacySettings(settings);
 	if (linkedClone) {
-		const legacyProvider = resolveBotProviderSettings(
-			{ inferenceSettings: settings },
-			{ inferenceSettings: ownerSettings },
-			environment,
-		).settings;
-		overrides.baseUrl = { kind: "value", value: legacyProvider.baseUrl || defaultProviderBaseUrl };
+		// Legacy fell back to the owner profile, never the source bot, once the
+		// clone had its own model. Storing the resolved Account/deployment URL as
+		// an owner value would re-attribute a hidden deployment default and then
+		// suppress its credential, so the barrier is the typed resume state.
+		const localBaseUrl = settings.baseUrl?.trim();
+		overrides.baseUrl = localBaseUrl ? { kind: "value", value: localBaseUrl } : { kind: "account_default" };
 	}
 
 	// These requests reproduce the raw input that the capability layer received
@@ -523,9 +519,8 @@ async function verifyAccountParity(env: InferenceGraphMigrationEnv, operation: M
 	const resolution = resolveInferenceConfiguration(inferenceConfigurationPathFromSnapshot(root, snapshot), { defaults });
 	const legacy = resolveBotProviderSettings({ inferenceSettings: {} }, user, providerEnvironmentSettingsFromBindings(env)).settings;
 	const canonical = providerSettingsFromResolution(resolution);
-	const policyLegacy = legacyProviderSettingsUnderGraphCredentialPolicy(legacy, resolution);
-	assertProviderParity(policyLegacy, canonical);
-	const legacyImage = legacyImageEnvelope(user.inferenceSettings?.imageGeneration, policyLegacy, "participant");
+	assertProviderParity(legacy, canonical);
+	const legacyImage = legacyImageEnvelope(user.inferenceSettings?.imageGeneration, legacy, "participant");
 	const canonicalImage = canonicalImageEnvelope(resolution, canonical, "participant");
 	assertParityEqual(legacyImage, canonicalImage);
 	await updateParityProgress(env.BICKR_D1, operation, {
@@ -573,7 +568,7 @@ async function verifyWorldParityBatch(env: InferenceGraphMigrationEnv, operation
 		const canonicalProvider = providerSettingsFromResolution(resolution);
 		const legacyImage = legacyImageEnvelope(
 			world.imageGeneration ?? user.inferenceSettings?.imageGeneration,
-			legacyProviderSettingsUnderGraphCredentialPolicy(accountProvider, resolution),
+			accountProvider,
 			"world",
 		);
 		const canonicalImage = canonicalImageEnvelope(resolution, canonicalProvider, "world");
@@ -697,7 +692,6 @@ async function verifyBotParityBatch(env: InferenceGraphMigrationEnv, operation: 
 		const expectedOverrides = inferenceOverridesForLegacyBotMigration(
 			bot.inferenceSettings,
 			user.inferenceSettings,
-			environment,
 			Boolean(row.sourceBotId),
 		);
 		assertSameOverrides(node, expectedOverrides);
@@ -709,11 +703,10 @@ async function verifyBotParityBatch(env: InferenceGraphMigrationEnv, operation: 
 		const legacy = resolveBotProviderSettings({ inferenceSettings: effectiveLegacySettings }, user, environment).settings;
 		const resolution = resolveInferenceConfiguration(inferenceConfigurationPathFromSnapshot(node, snapshot), { defaults });
 		const canonical = providerSettingsFromResolution(resolution);
-		const policyLegacy = legacyProviderSettingsUnderGraphCredentialPolicy(legacy, resolution);
-		assertProviderParity(policyLegacy, canonical);
+		assertProviderParity(legacy, canonical);
 		const legacyImage = legacyImageEnvelope(
 			effectiveLegacySettings.imageGeneration ?? user.inferenceSettings?.imageGeneration,
-			policyLegacy,
+			legacy,
 			"participant",
 		);
 		const canonicalImage = canonicalImageEnvelope(resolution, canonical, "participant");
@@ -768,10 +761,7 @@ async function verifyTranslationParity(env: InferenceGraphMigrationEnv, operatio
 	);
 	const canonical = providerSettingsFromResolution(resolution);
 	const legacy = resolveLegacyTranslationProviderSettings(user, providerEnvironmentSettingsFromBindings(env));
-	if (legacy) assertParityEqual(
-		translationParityEnvelope(legacyProviderSettingsUnderGraphCredentialPolicy(legacy, resolution)),
-		translationParityEnvelope(canonical),
-	);
+	if (legacy) assertParityEqual(translationParityEnvelope(legacy), translationParityEnvelope(canonical));
 	const invariants = await migrationInvariantCounts(env.BICKR_D1, operation.ownerUserId);
 	if (invariants.graphCount >= inferenceConfigurationCorruptionSentinel ||
 		invariants.graphCount !== invariants.reachableCount ||
@@ -869,16 +859,6 @@ function providerParityEnvelope(settings: ProviderSettings): Record<string, unkn
 		presencePenalty: settings.presencePenalty ?? null,
 		repetitionPenalty: settings.repetitionPenalty ?? null,
 	};
-}
-
-function legacyProviderSettingsUnderGraphCredentialPolicy(
-	settings: ProviderSettings,
-	resolution: InferenceResolution,
-): ProviderSettings {
-	if (resolution.effective.credential.kind === "available") return settings;
-	const withoutCredential = { ...settings };
-	delete withoutCredential.apiKey;
-	return withoutCredential;
 }
 
 function translationParityEnvelope(settings: ProviderSettings): Record<string, unknown> {
@@ -1053,6 +1033,13 @@ function assertMigrationCredentialParity(
 	}
 }
 
+/**
+ * Credential presence is compared directly. Legacy resolution already drops the
+ * deployment key whenever an owner base URL is in play, which is the same rule
+ * the graph expresses as deployment_credential_suppressed_for_owner_base_url,
+ * so a disagreement here is a real migration defect rather than a policy gap
+ * that parity may mask.
+ */
 function assertProviderParity(
 	legacy: ProviderSettings,
 	canonical: ProviderSettings,

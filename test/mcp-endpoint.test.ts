@@ -536,6 +536,47 @@ describe("MCP endpoint", () => {
 		]);
 	});
 
+	it("maps inference library section, kind, and search parameters onto the runtime service", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
+		const requestedPaths: string[] = [];
+		const agentRuntime = {
+			fetch: async (request: Request) => {
+				requestedPaths.push(new URL(request.url).pathname + new URL(request.url).search);
+				return Response.json({ ok: true, data: { configurations: { section: "bot", items: [], groups: [] } } });
+			},
+		};
+		const callRead = async (name: string, args: Record<string, unknown>) => callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: { name, arguments: args },
+		}, { AGENT_RUNTIME: agentRuntime, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
+
+		expect((await callRead("list_inference_configurations", {
+			section: "bot",
+			query: "home-world",
+			limit: 25,
+		})).status).toBe(200);
+		expect((await callRead("list_inference_configurations", { kind: "custom,world" })).status).toBe(200);
+		expect((await callRead("list_inference_configuration_children", {
+			configurationId: "cfg_children",
+			query: "child",
+			limit: 10,
+		})).status).toBe(200);
+		expect((await callRead("list_inference_parent_candidates", {
+			configurationId: "cfg_parent",
+			query: "alpha",
+		})).status).toBe(200);
+
+		expect(requestedPaths).toEqual([
+			"/users/usr_mcp/inference-configurations?section=bot&q=home-world&limit=25",
+			"/users/usr_mcp/inference-configurations?kind=custom%2Cworld",
+			"/users/usr_mcp/inference-configurations/cfg_children/children?q=child&limit=10",
+			"/users/usr_mcp/inference-configurations/cfg_parent/parent-candidates?q=alpha",
+		]);
+	});
+
 	it("continues a mutation batch after a definitive service failure", async () => {
 		const kv = new MapKV();
 		const accessToken = await issueAccessToken(kv, ["bickr.runtime"]);

@@ -79,6 +79,7 @@ const inferenceConfigurationMutationModules = new Set([
 	"test/inference-configuration-consumers.spec.ts",
 	"test/inference-configuration-migration.spec.ts",
 	"test/inference-configuration-repository.spec.ts",
+	"test/inference-configuration-routes.spec.ts",
 ]);
 
 describe("serialized entity mutation import boundary", () => {

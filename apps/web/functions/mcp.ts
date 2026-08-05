@@ -553,13 +553,15 @@ const mcpTools: McpTool[] = [
 			await optionalProviderEnvironmentForMcp(ctx),
 		),
 	}), "presented"),
-	readTool("list_inference_configurations", "List inference configurations", "List the signed-in account's reusable inference configurations with effective model and parent annotations.", {
-		query: stringSchema("Optional configuration-name prefix."),
-		cursor: stringSchema("Optional pagination cursor."),
+	readTool("list_inference_configurations", "List inference configurations", "List the signed-in account's reusable inference configurations with effective model, immediate-child count, redacted credential availability, and parent annotations. Sections paginate independently; the participant section is ordered by home world and carries per-world group counts.", {
+		section: stringSchema("Optional library section: account, custom, world, or bot."),
+		kind: stringSchema("Optional comma-separated kinds: account_default, world, bot, custom."),
+		query: stringSchema("Optional prefix matched against custom name, world handle, participant handle, and participant home-world handle."),
+		cursor: stringSchema("Optional pagination cursor. Cursors are bound to one sort order."),
 		limit: integerSchema("Optional page size."),
 	}, ({ env, request, auth }, args) => {
 		const params = new URLSearchParams();
-		for (const name of ["query", "cursor", "limit"]) {
+		for (const name of ["section", "kind", "query", "cursor", "limit"]) {
 			const value = valueString(args[name]);
 			if (value) params.set(name === "query" ? "q" : name, value);
 		}
@@ -599,7 +601,7 @@ const mcpTools: McpTool[] = [
 	}), ["configurationId", "parentId", "expectedRevision"], "write", "agent", "POST", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}/reparent`, withoutMcpKeys("configurationId")),
 	readTool("list_inference_parent_candidates", "List inference parent candidates", "List valid non-self, non-descendant parent candidates for a configuration.", {
 		configurationId: stringSchema("Configuration ID."),
-		query: stringSchema("Optional candidate-name prefix."),
+		query: stringSchema("Optional prefix matched against custom name, world handle, participant handle, and participant home-world handle."),
 		cursor: stringSchema("Optional pagination cursor."),
 		limit: integerSchema("Optional page size."),
 	}, ({ env, request, auth }, args) => {
@@ -612,15 +614,16 @@ const mcpTools: McpTool[] = [
 			`/users/${encodeURIComponent(auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}/parent-candidates${params.size ? `?${params}` : ""}`,
 			"GET", auth.user.id);
 	}),
-	readTool("list_inference_configuration_children", "List inference configuration children", "List a configuration's immediate children.", {
+	readTool("list_inference_configuration_children", "List inference configuration children", "List a configuration's immediate children, with the unfiltered immediate-child total alongside the matching page.", {
 		configurationId: stringSchema("Configuration ID."),
+		query: stringSchema("Optional prefix matched against custom name, world handle, participant handle, and participant home-world handle."),
 		cursor: stringSchema("Optional pagination cursor."),
 		limit: integerSchema("Optional page size."),
 	}, ({ env, request, auth }, args) => {
 		const params = new URLSearchParams();
-		for (const name of ["cursor", "limit"]) {
+		for (const name of ["query", "cursor", "limit"]) {
 			const value = valueString(args[name]);
-			if (value) params.set(name, value);
+			if (value) params.set(name === "query" ? "q" : name, value);
 		}
 		return servicePayload(env.AGENT_RUNTIME, env, request,
 			`/users/${encodeURIComponent(auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}/children${params.size ? `?${params}` : ""}`,

@@ -2,6 +2,7 @@ import { isD1UniqueConstraintError } from "./d1-errors";
 import { deterministicId, makeId } from "./ids";
 import {
 	applyInferenceOverridePatch,
+	assertInferenceOverridesAllowedForKind,
 	inferenceConfigurationCorruptionSentinel,
 	inferenceConfigurationFields,
 	inferenceConfigurationOwnerQuota,
@@ -22,6 +23,7 @@ import {
 	type InferenceFieldAdjustment,
 	type InferenceCredentialMode,
 	type InferenceCredentialResolution,
+	type InferenceCredentialUnavailableReason,
 	type InferenceOverrideUpdate,
 	type InferenceSource,
 	type BickrInferenceDefaults,
@@ -257,11 +259,17 @@ async function loadPath(
 
 function configurationNodeFromRow(row: ConfigurationPathRow, includeSecret: boolean): InferenceConfigurationNode {
 	const credential = credentialFromRow(row, includeSecret);
+	const overrides = parseInferenceConfigurationOverrides(row.overridesJson);
+	try {
+		assertInferenceOverridesAllowedForKind(row.kind, overrides);
+	} catch {
+		throw new InferenceGraphRepositoryError("corrupt_graph", `Inference configuration ${row.id} stores an override state its kind cannot hold.`);
+	}
 	const common = {
 		id: row.id,
 		ownerUserId: row.ownerUserId,
 		parentId: row.parentId,
-		overrides: parseInferenceConfigurationOverrides(row.overridesJson),
+		overrides,
 		revision: row.revision,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
@@ -436,9 +444,17 @@ type InferenceConfigurationSummaryBase = {
 	revision: number;
 	updatedAt: string;
 	credentialMode: InferenceCredentialMode;
+	/** Resolved availability only; never a secret or a secret-derived value. */
+	credentialAvailability: InferenceEffectiveCredentialAvailability;
+	immediateChildCount: number;
 	effectiveModel: string;
 	parent: ({ id: string; displayName: string; revision: number } & InferenceConfigurationEntryIdentity) | null;
 };
+
+export type InferenceEffectiveCredentialAvailability =
+	| { kind: "available"; source: InferenceSource }
+	| { kind: "explicit_none"; source: InferenceSource }
+	| { kind: "unavailable"; source: InferenceSource | { kind: "bickr_default" }; reason: InferenceCredentialUnavailableReason };
 
 export type InferenceConfigurationSummary = InferenceConfigurationSummaryBase & InferenceConfigurationEntryIdentity;
 
@@ -503,6 +519,7 @@ type SummaryRow = ConfigurationIdentityRow & {
 	revision: number;
 	updatedAt: string;
 	credentialMode: InferenceCredentialMode;
+	immediateChildCount: number;
 };
 
 type BoundedAncestorRow = ConfigurationPathRow & ConfigurationIdentityRow & { displayName: string };
@@ -510,6 +527,36 @@ type BoundedAncestorRow = ConfigurationPathRow & ConfigurationIdentityRow & { di
 export type InferenceConfigurationPage = {
 	items: InferenceConfigurationSummary[];
 	nextCursor?: string;
+};
+
+/**
+ * Library sections are paginated independently so an editor never has to read
+ * a whole owner library to render one column. Each section keeps its own sort
+ * order, and cursors are tagged with that order so a cursor can never be
+ * replayed against a different one.
+ */
+export const inferenceLibrarySections = ["account", "custom", "world", "bot"] as const;
+
+export type InferenceLibrarySection = typeof inferenceLibrarySections[number];
+
+const librarySectionKinds: Record<InferenceLibrarySection, InferenceConfigurationKind> = {
+	account: "account_default",
+	custom: "custom",
+	world: "world",
+	bot: "bot",
+};
+
+export type InferenceBotHomeWorldGroup = {
+	homeWorldId: string;
+	homeWorldHandle: string;
+	displayName: string;
+	botConfigurationCount: number;
+};
+
+export type InferenceLibraryPage = InferenceConfigurationPage & {
+	section: InferenceLibrarySection;
+	/** Non-empty only for the bot section, which groups by home world. */
+	groups: InferenceBotHomeWorldGroup[];
 };
 
 export type InferenceConfigurationListInput = {
@@ -520,51 +567,118 @@ export type InferenceConfigurationListInput = {
 	defaults?: BickrInferenceDefaults;
 };
 
+export type InferenceLibrarySectionInput = Omit<InferenceConfigurationListInput, "kinds"> & {
+	section: InferenceLibrarySection;
+};
+
+export function parseInferenceLibrarySection(value: string): InferenceLibrarySection {
+	const section = inferenceLibrarySections.find((candidate) => candidate === value);
+	if (!section) {
+		throw new RepositoryError(
+			"bad_request",
+			`Unknown inference library section. Expected one of ${inferenceLibrarySections.join(", ")}.`,
+			400,
+		);
+	}
+	return section;
+}
+
+export function parseInferenceConfigurationKinds(value: string): InferenceConfigurationKind[] {
+	const kinds = value.split(",").map((entry) => entry.trim()).filter(Boolean);
+	if (kinds.length === 0) throw new RepositoryError("bad_request", "At least one inference configuration kind is required.", 400);
+	return kinds.map((kind) => {
+		if (kind !== "account_default" && kind !== "world" && kind !== "bot" && kind !== "custom") {
+			throw new RepositoryError(
+				"bad_request",
+				"Unknown inference configuration kind. Expected one of account_default, world, bot, custom.",
+				400,
+			);
+		}
+		return kind;
+	});
+}
+
+// Display identity is the ordering key for every non-bot page. Bot pages sort
+// by home world first, so their key concatenates both handles behind a unit
+// separator that the validated handle charset cannot contain.
+const identitySortNameSql = `lower(CASE configuration.kind
+	WHEN 'account_default' THEN 'Account default'
+	WHEN 'world' THEN 'w/' || worlds.handle
+	WHEN 'bot' THEN 'u/' || bots.handle
+	ELSE configuration.custom_name
+END)`;
+
+const botHomeWorldSortNameSql = `lower(bots.home_world_handle) || char(31) || lower(bots.handle)`;
+
+const displayNameSql = `CASE configuration.kind
+	WHEN 'account_default' THEN 'Account default'
+	WHEN 'world' THEN 'w/' || worlds.handle
+	WHEN 'bot' THEN 'u/' || bots.handle
+	ELSE configuration.custom_name
+END`;
+
+const immediateChildCountSql = `(SELECT COUNT(*) FROM inference_configurations AS child
+	WHERE child.owner_user_id = configuration.owner_user_id
+		AND child.parent_id = configuration.configuration_id)`;
+
+function summaryColumnsSql(sortNameSql: string): string {
+	return `configuration.configuration_id AS id, configuration.kind,
+		configuration.parent_id AS parentId,
+		configuration.world_id AS worldId, worlds.handle AS worldHandle,
+		configuration.bot_id AS botId, bots.handle AS botHandle,
+		bots.home_world_id AS homeWorldId, bots.home_world_handle AS homeWorldHandle,
+		configuration.custom_name AS customName,
+		${displayNameSql} AS displayName,
+		${sortNameSql} AS sortName,
+		configuration.revision, configuration.updated_at AS updatedAt,
+		credentials.mode AS credentialMode,
+		${immediateChildCountSql} AS immediateChildCount`;
+}
+
+const summaryFromSql = `FROM inference_configurations AS configuration
+	JOIN inference_configuration_credentials AS credentials
+		ON credentials.configuration_id = configuration.configuration_id
+	LEFT JOIN worlds_index AS worlds ON worlds.world_id = configuration.world_id
+	LEFT JOIN bots_index AS bots ON bots.bot_id = configuration.bot_id`;
+
+/**
+ * One search predicate for every listing surface. Custom names use the indexed
+ * key range; fixed entries match their displayed identity, their own handle,
+ * and — for participants — their home-world handle.
+ */
+const searchPredicateSql = `(? = '' OR
+	(configuration.kind = 'custom' AND configuration.custom_name_key >= ? AND configuration.custom_name_key < ?)
+	OR (configuration.kind != 'custom' AND (
+		lower(CASE configuration.kind
+			WHEN 'account_default' THEN 'Account default'
+			WHEN 'world' THEN 'w/' || worlds.handle ELSE 'u/' || bots.handle END) LIKE ? ESCAPE '\\'
+		OR lower(CASE configuration.kind WHEN 'world' THEN worlds.handle WHEN 'bot' THEN bots.handle ELSE '' END) LIKE ? ESCAPE '\\'
+		OR lower(CASE configuration.kind WHEN 'bot' THEN bots.home_world_handle ELSE '' END) LIKE ? ESCAPE '\\')))`;
+
+function searchBindings(query: string): [string, string, string, string, string, string] {
+	const like = `${escapeLike(query)}%`;
+	return [query, query, prefixUpperBound(query), like, like, like];
+}
+
+function normalizedSearchKey(query: string | undefined): string {
+	return query ? normalizedInferenceConfigurationName(query).key : "";
+}
+
 export async function listInferenceConfigurations(
 	db: D1DatabaseLike,
 	ownerUserId: string,
 	input: InferenceConfigurationListInput = {},
 ): Promise<InferenceConfigurationPage> {
 	const limit = boundedPageSize(input.limit);
-	const cursor = decodeCursor(input.cursor);
-	const query = input.query ? normalizedInferenceConfigurationName(input.query).key : "";
+	const cursor = decodeCursor(input.cursor, "identity");
 	const kinds = input.kinds?.length ? [...new Set(input.kinds)] : ["account_default", "world", "bot", "custom"];
-	const kindPlaceholders = kinds.map(() => "?").join(", ");
 	const rows = await db.prepare(
 		`WITH summaries AS (
-			SELECT configuration.configuration_id AS id, configuration.kind,
-				configuration.parent_id AS parentId,
-				configuration.world_id AS worldId, worlds.handle AS worldHandle,
-				configuration.bot_id AS botId, bots.handle AS botHandle,
-				bots.home_world_id AS homeWorldId, bots.home_world_handle AS homeWorldHandle,
-				configuration.custom_name AS customName,
-				CASE configuration.kind
-					WHEN 'account_default' THEN 'Account default'
-					WHEN 'world' THEN 'w/' || worlds.handle
-					WHEN 'bot' THEN 'u/' || bots.handle
-					ELSE configuration.custom_name
-				END AS displayName,
-				lower(CASE configuration.kind
-					WHEN 'account_default' THEN 'Account default'
-					WHEN 'world' THEN 'w/' || worlds.handle
-					WHEN 'bot' THEN 'u/' || bots.handle
-					ELSE configuration.custom_name
-				END) AS sortName,
-				configuration.revision, configuration.updated_at AS updatedAt,
-				credentials.mode AS credentialMode
-			FROM inference_configurations AS configuration
-			JOIN inference_configuration_credentials AS credentials
-				ON credentials.configuration_id = configuration.configuration_id
-			LEFT JOIN worlds_index AS worlds ON worlds.world_id = configuration.world_id
-			LEFT JOIN bots_index AS bots ON bots.bot_id = configuration.bot_id
+			SELECT ${summaryColumnsSql(identitySortNameSql)}
+			${summaryFromSql}
 			WHERE configuration.owner_user_id = ?
-				AND configuration.kind IN (${kindPlaceholders})
-				AND (? = '' OR
-					(configuration.kind = 'custom' AND configuration.custom_name_key >= ? AND configuration.custom_name_key < ?)
-					OR (configuration.kind != 'custom' AND (lower(CASE configuration.kind
-						WHEN 'account_default' THEN 'Account default'
-						WHEN 'world' THEN 'w/' || worlds.handle ELSE 'u/' || bots.handle END) LIKE ? ESCAPE '\\'
-						OR lower(CASE configuration.kind WHEN 'world' THEN worlds.handle WHEN 'bot' THEN bots.handle ELSE '' END) LIKE ? ESCAPE '\\')))
+				AND configuration.kind IN (${kinds.map(() => "?").join(", ")})
+				AND ${searchPredicateSql}
 		)
 		SELECT * FROM summaries
 		WHERE sortName > ? OR (sortName = ? AND id > ?)
@@ -573,22 +687,105 @@ export async function listInferenceConfigurations(
 	).bind(
 		ownerUserId,
 		...kinds,
-		query,
-		query,
-		prefixUpperBound(query),
-		`${escapeLike(query)}%`,
-		`${escapeLike(query)}%`,
+		...searchBindings(normalizedSearchKey(input.query)),
 		cursor.sortName,
 		cursor.sortName,
 		cursor.id,
 		limit + 1,
 	).all<SummaryRow>();
-	const pageRows = (rows.results ?? []).slice(0, limit);
+	return summaryPage(db, ownerUserId, rows.results ?? [], limit, "identity", input.defaults);
+}
+
+export async function listInferenceLibrarySection(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	input: InferenceLibrarySectionInput,
+): Promise<InferenceLibraryPage> {
+	if (input.section !== "bot") {
+		const page = await listInferenceConfigurations(db, ownerUserId, {
+			...input,
+			kinds: [librarySectionKinds[input.section]],
+		});
+		return { ...page, section: input.section, groups: [] };
+	}
+	const limit = boundedPageSize(input.limit);
+	const cursor = decodeCursor(input.cursor, "bot_home_world");
+	const rows = await db.prepare(
+		`WITH summaries AS (
+			SELECT ${summaryColumnsSql(botHomeWorldSortNameSql)}
+			${summaryFromSql}
+			WHERE configuration.owner_user_id = ? AND configuration.kind = 'bot'
+				AND ${searchPredicateSql}
+		)
+		SELECT * FROM summaries
+		WHERE sortName > ? OR (sortName = ? AND id > ?)
+		ORDER BY sortName ASC, id ASC
+		LIMIT ?`,
+	).bind(
+		ownerUserId,
+		...searchBindings(normalizedSearchKey(input.query)),
+		cursor.sortName,
+		cursor.sortName,
+		cursor.id,
+		limit + 1,
+	).all<SummaryRow>();
+	const page = await summaryPage(db, ownerUserId, rows.results ?? [], limit, "bot_home_world", input.defaults);
+	return {
+		...page,
+		section: input.section,
+		groups: await botHomeWorldGroups(db, ownerUserId, page.items),
+	};
+}
+
+/**
+ * Total participant configurations per home world for exactly the worlds on the
+ * page. The seed is bounded by the page limit, so a page never triggers a
+ * per-row count query and never scans unrelated worlds.
+ */
+async function botHomeWorldGroups(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	items: readonly InferenceConfigurationSummary[],
+): Promise<InferenceBotHomeWorldGroup[]> {
+	const homeWorldIds = [...new Set(items.flatMap((item) => item.kind === "bot" ? [item.identity.homeWorldId] : []))];
+	if (homeWorldIds.length === 0) return [];
+	const result = await db.prepare(
+		`SELECT bots.home_world_id AS homeWorldId, bots.home_world_handle AS homeWorldHandle,
+			COUNT(*) AS botConfigurationCount
+		 FROM inference_configurations AS configuration
+		 JOIN bots_index AS bots ON bots.bot_id = configuration.bot_id
+		 WHERE configuration.owner_user_id = ? AND configuration.kind = 'bot'
+			AND bots.home_world_id IN (SELECT value FROM json_each(?))
+		 GROUP BY bots.home_world_id, bots.home_world_handle
+		 ORDER BY lower(bots.home_world_handle) ASC, bots.home_world_id ASC
+		 LIMIT ?`,
+	).bind(ownerUserId, JSON.stringify(homeWorldIds), maximumPageSize).all<{
+		homeWorldId: string;
+		homeWorldHandle: string;
+		botConfigurationCount: number;
+	}>();
+	return (result.results ?? []).map((row) => ({
+		homeWorldId: row.homeWorldId,
+		homeWorldHandle: row.homeWorldHandle,
+		displayName: `w/${row.homeWorldHandle}`,
+		botConfigurationCount: row.botConfigurationCount,
+	}));
+}
+
+async function summaryPage(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	rows: readonly SummaryRow[],
+	limit: number,
+	order: InferencePageOrder,
+	defaults?: BickrInferenceDefaults,
+): Promise<InferenceConfigurationPage> {
+	const pageRows = rows.slice(0, limit);
 	const ancestors = await loadBoundedInferenceAncestors(db, ownerUserId, pageRows.map((row) => row.id));
 	return {
-		items: summariesFromAncestors(pageRows, ancestors, input.defaults),
-		...(rows.results && rows.results.length > limit && pageRows.length > 0
-			? { nextCursor: encodeCursor(pageRows[pageRows.length - 1]!) }
+		items: summariesFromAncestors(pageRows, ancestors, defaults),
+		...(rows.length > limit && pageRows.length > 0
+			? { nextCursor: encodeCursor(order, pageRows[pageRows.length - 1]!) }
 			: {}),
 	};
 }
@@ -697,12 +894,7 @@ async function loadBoundedInferenceAncestors(
 			configuration.bot_id AS botId, bots.handle AS botHandle,
 			bots.home_world_id AS homeWorldId, bots.home_world_handle AS homeWorldHandle,
 			configuration.custom_name AS customName,
-			CASE configuration.kind
-				WHEN 'account_default' THEN 'Account default'
-				WHEN 'world' THEN 'w/' || worlds.handle
-				WHEN 'bot' THEN 'u/' || bots.handle
-				ELSE configuration.custom_name
-			END AS displayName
+			${displayNameSql} AS displayName
 		FROM ancestors
 		JOIN inference_configurations AS configuration
 			ON configuration.configuration_id = ancestors.id AND configuration.owner_user_id = ?
@@ -737,18 +929,21 @@ function boundedPageSize(limit: number | undefined): number {
 	return Math.min(limit, maximumPageSize);
 }
 
-type PageCursor = { sortName: string; id: string };
+/** Cursors are opaque but order-tagged: one sort order can never resume another. */
+type InferencePageOrder = "identity" | "bot_home_world" | "child_id";
 
-function encodeCursor(row: Pick<SummaryRow, "sortName" | "id">): string {
-	return btoa(JSON.stringify({ sortName: row.sortName, id: row.id } satisfies PageCursor));
+type PageCursor = { order: InferencePageOrder; sortName: string; id: string };
+
+function encodeCursor(order: InferencePageOrder, row: Pick<SummaryRow, "sortName" | "id">): string {
+	return btoa(JSON.stringify({ order, sortName: row.sortName, id: row.id } satisfies PageCursor));
 }
 
-function decodeCursor(cursor: string | undefined): PageCursor {
-	if (!cursor) return { sortName: "", id: "" };
+function decodeCursor(cursor: string | undefined, order: InferencePageOrder): PageCursor {
+	if (!cursor) return { order, sortName: "", id: "" };
 	try {
 		const value = JSON.parse(atob(cursor)) as unknown;
-		if (isRecord(value) && typeof value.sortName === "string" && typeof value.id === "string") {
-			return { sortName: value.sortName, id: value.id };
+		if (isRecord(value) && value.order === order && typeof value.sortName === "string" && typeof value.id === "string") {
+			return { order, sortName: value.sortName, id: value.id };
 		}
 	} catch {
 		// Parsing failures all map to one typed public input error.
@@ -786,8 +981,7 @@ export async function listInferenceParentCandidates(
 	const selected = await loadInferenceConfigurationPath(db, ownerUserId, configurationId);
 	if (selected[0].kind === "account_default") return { items: [] };
 	const limit = boundedPageSize(input.limit);
-	const cursor = decodeCursor(input.cursor);
-	const query = input.query ? normalizedInferenceConfigurationName(input.query).key : "";
+	const cursor = decodeCursor(input.cursor, "identity");
 	const rows = await db.prepare(
 		`WITH RECURSIVE descendants(id) AS (
 			SELECT configuration_id FROM inference_configurations
@@ -798,56 +992,21 @@ export async function listInferenceParentCandidates(
 			JOIN descendants ON child.parent_id = descendants.id
 			WHERE child.owner_user_id = ?
 		), summaries AS (
-			SELECT configuration.configuration_id AS id, configuration.kind,
-				configuration.parent_id AS parentId,
-				configuration.world_id AS worldId, worlds.handle AS worldHandle,
-				configuration.bot_id AS botId, bots.handle AS botHandle,
-				bots.home_world_id AS homeWorldId, bots.home_world_handle AS homeWorldHandle,
-				configuration.custom_name AS customName,
-				CASE configuration.kind
-					WHEN 'account_default' THEN 'Account default'
-					WHEN 'world' THEN 'w/' || worlds.handle
-					WHEN 'bot' THEN 'u/' || bots.handle
-					ELSE configuration.custom_name
-				END AS displayName,
-				lower(CASE configuration.kind
-					WHEN 'account_default' THEN 'Account default'
-					WHEN 'world' THEN 'w/' || worlds.handle
-					WHEN 'bot' THEN 'u/' || bots.handle
-					ELSE configuration.custom_name
-				END) AS sortName,
-				configuration.revision, configuration.updated_at AS updatedAt,
-				credentials.mode AS credentialMode
-			FROM inference_configurations AS configuration
-			JOIN inference_configuration_credentials AS credentials
-				ON credentials.configuration_id = configuration.configuration_id
-			LEFT JOIN worlds_index AS worlds ON worlds.world_id = configuration.world_id
-			LEFT JOIN bots_index AS bots ON bots.bot_id = configuration.bot_id
+			SELECT ${summaryColumnsSql(identitySortNameSql)}
+			${summaryFromSql}
 			WHERE configuration.owner_user_id = ?
 				AND NOT EXISTS (SELECT 1 FROM descendants WHERE descendants.id = configuration.configuration_id)
-				AND (? = '' OR
-					(configuration.kind = 'custom' AND configuration.custom_name_key >= ? AND configuration.custom_name_key < ?)
-					OR (configuration.kind != 'custom' AND (lower(CASE configuration.kind
-						WHEN 'account_default' THEN 'Account default'
-						WHEN 'world' THEN 'w/' || worlds.handle ELSE 'u/' || bots.handle END) LIKE ? ESCAPE '\\'
-						OR lower(CASE configuration.kind WHEN 'world' THEN worlds.handle WHEN 'bot' THEN bots.handle ELSE '' END) LIKE ? ESCAPE '\\')))
+				AND ${searchPredicateSql}
 		)
 		SELECT * FROM summaries
 		WHERE sortName > ? OR (sortName = ? AND id > ?)
 		ORDER BY sortName ASC, id ASC LIMIT ?`,
 	).bind(
 		configurationId, ownerUserId, ownerUserId, ownerUserId,
-		query, query, prefixUpperBound(query), `${escapeLike(query)}%`, `${escapeLike(query)}%`,
+		...searchBindings(normalizedSearchKey(input.query)),
 		cursor.sortName, cursor.sortName, cursor.id, limit + 1,
 	).all<SummaryRow>();
-	const pageRows = (rows.results ?? []).slice(0, limit);
-	const ancestors = await loadBoundedInferenceAncestors(db, ownerUserId, pageRows.map((row) => row.id));
-	return {
-		items: summariesFromAncestors(pageRows, ancestors, input.defaults),
-		...(rows.results && rows.results.length > limit && pageRows.length > 0
-			? { nextCursor: encodeCursor(pageRows[pageRows.length - 1]!) }
-			: {}),
-	};
+	return summaryPage(db, ownerUserId, rows.results ?? [], limit, "identity", input.defaults);
 }
 
 function summariesFromAncestors(
@@ -865,13 +1024,18 @@ function summariesFromAncestors(
 			botId: _botId, botHandle: _botHandle, homeWorldId: _homeWorldId,
 			homeWorldHandle: _homeWorldHandle, customName: _customName, ...summary
 		} = row;
+		// The page and its ancestors are already loaded, so the effective model
+		// and credential availability come from one in-memory resolution rather
+		// than a per-row read.
+		const resolution = resolveInferenceConfiguration(
+			pathFromSnapshot(node, byId),
+			{ ...(defaults ? { defaults } : {}) },
+		);
 		return {
 			...summary,
 			...entryIdentity(identities.get(row.id) ?? corruptIdentity(row.id)),
-			effectiveModel: resolveInferenceConfiguration(
-				pathFromSnapshot(node, byId),
-				{ ...(defaults ? { defaults } : {}) },
-			).effective.model,
+			effectiveModel: resolution.effective.model,
+			credentialAvailability: credentialAvailabilityFromResolution(resolution.effective.credential),
 			parent: parentNode ? {
 				id: parentNode.id,
 				displayName: displayNames.get(parentNode.id) ?? corruptParentDisplayName(parentNode.id),
@@ -882,62 +1046,57 @@ function summariesFromAncestors(
 	});
 }
 
+/**
+ * Availability is projected field by field so a future secret-bearing member of
+ * the internal resolution cannot reach a summary by being spread through.
+ */
+function credentialAvailabilityFromResolution(
+	credential: InferenceCredentialResolution,
+): InferenceEffectiveCredentialAvailability {
+	switch (credential.kind) {
+		case "available": return { kind: "available", source: credential.source };
+		case "explicit_none": return { kind: "explicit_none", source: credential.source };
+		case "unavailable": return { kind: "unavailable", source: credential.source, reason: credential.reason };
+	}
+}
+
+export type InferenceImmediateChildrenPage = InferenceConfigurationPage & {
+	/** Immediate children before `q` filtering, so a filtered page can say so. */
+	totalImmediateChildren: number;
+};
+
 export async function listImmediateInferenceChildren(
 	db: D1DatabaseLike,
 	ownerUserId: string,
 	parentId: string,
-	input: Omit<InferenceConfigurationListInput, "kinds" | "query"> = {},
-): Promise<InferenceConfigurationPage> {
+	input: Omit<InferenceConfigurationListInput, "kinds"> = {},
+): Promise<InferenceImmediateChildrenPage> {
 	await loadInferenceConfigurationPath(db, ownerUserId, parentId);
 	const limit = boundedPageSize(input.limit);
-	const cursor = decodeIdCursor(input.cursor);
+	const cursor = decodeCursor(input.cursor, "child_id");
 	const rows = await db.prepare(
-		`SELECT configuration.configuration_id AS id, configuration.kind,
-			configuration.parent_id AS parentId,
-			configuration.world_id AS worldId, worlds.handle AS worldHandle,
-			configuration.bot_id AS botId, bots.handle AS botHandle,
-			bots.home_world_id AS homeWorldId, bots.home_world_handle AS homeWorldHandle,
-			configuration.custom_name AS customName,
-			CASE configuration.kind WHEN 'world' THEN 'w/' || worlds.handle WHEN 'bot' THEN 'u/' || bots.handle ELSE configuration.custom_name END AS displayName,
-			configuration.revision, configuration.updated_at AS updatedAt,
-			credentials.mode AS credentialMode
-		FROM inference_configurations AS configuration
-		JOIN inference_configuration_credentials AS credentials ON credentials.configuration_id = configuration.configuration_id
-		LEFT JOIN worlds_index AS worlds ON worlds.world_id = configuration.world_id
-		LEFT JOIN bots_index AS bots ON bots.bot_id = configuration.bot_id
-		WHERE configuration.owner_user_id = ? AND configuration.parent_id = ? AND configuration.configuration_id > ?
+		`SELECT ${summaryColumnsSql("configuration.configuration_id")}
+		${summaryFromSql}
+		WHERE configuration.owner_user_id = ? AND configuration.parent_id = ?
+			AND configuration.configuration_id > ?
+			AND ${searchPredicateSql}
 		ORDER BY configuration.configuration_id ASC LIMIT ?`,
-	).bind(ownerUserId, parentId, cursor, limit + 1).all<Omit<SummaryRow, "sortName">>();
-	const page = (rows.results ?? []).slice(0, limit);
-	const ancestors = await loadBoundedInferenceAncestors(db, ownerUserId, page.map((row) => row.id));
-	const { byId, displayNames, identities } = ancestors;
-	return {
-		items: page.map((row) => {
-			const node = byId.get(row.id);
-			if (!node) throw new InferenceGraphRepositoryError("corrupt_graph", "Child entry is missing from the owner graph snapshot.");
-			const parent = node.parentId ? byId.get(node.parentId) : undefined;
-			const {
-				kind: _kind, worldId: _worldId, worldHandle: _worldHandle, botId: _botId,
-				botHandle: _botHandle, homeWorldId: _homeWorldId,
-				homeWorldHandle: _homeWorldHandle, customName: _customName, ...summary
-			} = row;
-			return {
-				...summary,
-				...entryIdentity(identities.get(row.id) ?? corruptIdentity(row.id)),
-				effectiveModel: resolveInferenceConfiguration(
-					pathFromSnapshot(node, byId),
-					{ ...(input.defaults ? { defaults: input.defaults } : {}) },
-				).effective.model,
-				parent: parent ? {
-					id: parent.id,
-					displayName: displayNames.get(parent.id) ?? corruptParentDisplayName(parent.id),
-					revision: parent.revision,
-					...entryIdentity(identities.get(parent.id) ?? corruptIdentity(parent.id)),
-				} : null,
-			};
-		}),
-		...(rows.results && rows.results.length > limit && page.length > 0 ? { nextCursor: btoa(page[page.length - 1]!.id) } : {}),
-	};
+	).bind(
+		ownerUserId, parentId, cursor.id,
+		...searchBindings(normalizedSearchKey(input.query)),
+		limit + 1,
+	).all<SummaryRow>();
+	const page = await summaryPage(db, ownerUserId, rows.results ?? [], limit, "child_id", input.defaults);
+	// One bounded indexed count, not a per-row query: the page may be filtered
+	// by `q`, so the caller still needs the unfiltered immediate-child total.
+	return { ...page, totalImmediateChildren: await immediateChildCount(db, ownerUserId, parentId) };
+}
+
+async function immediateChildCount(db: D1DatabaseLike, ownerUserId: string, parentId: string): Promise<number> {
+	const row = await db.prepare(
+		`SELECT COUNT(*) AS count FROM inference_configurations WHERE owner_user_id = ? AND parent_id = ?`,
+	).bind(ownerUserId, parentId).first<{ count: number }>();
+	return row?.count ?? 0;
 }
 
 function corruptParentDisplayName(configurationId: string): never {
@@ -952,17 +1111,6 @@ function corruptIdentity(configurationId: string): never {
 		"corrupt_graph",
 		`Inference configuration ${configurationId} is missing identity metadata.`,
 	);
-}
-
-function decodeIdCursor(cursor: string | undefined): string {
-	if (!cursor) return "";
-	try {
-		const value = atob(cursor);
-		if (value) return value;
-	} catch {
-		// Fall through to the typed public error.
-	}
-	throw new RepositoryError("bad_request", "Invalid inference configuration cursor.", 400);
 }
 
 export type InferenceImpactChangeCounts = {
@@ -1331,6 +1479,7 @@ async function updateConfiguration(
 	now = new Date().toISOString(),
 ): Promise<InferenceConfigurationNode> {
 	const current = (await loadInferenceConfigurationPath(db, ownerUserId, input.configurationId))[0];
+	if (input.overrides) assertInferenceOverridesAllowedForKind(current.kind, input.overrides);
 	const overrides = input.overrides ? applyInferenceOverridePatch(current.overrides, input.overrides) : current.overrides;
 	const statements = [db.prepare(
 		`UPDATE inference_configurations SET overrides_json = ?, revision = revision + 1, updated_at = ?
@@ -1637,6 +1786,7 @@ export function insertAccountDefaultConfigurationStatement(
 	db: D1DatabaseLike,
 	input: { configurationId: string; ownerUserId: string; now: string; overrides?: InferenceConfigurationOverrides },
 ): D1PreparedStatementLike {
+	if (input.overrides) assertInferenceOverridesAllowedForKind("account_default", input.overrides);
 	return db.prepare(
 		`INSERT INTO inference_configurations (
 			configuration_id, owner_user_id, kind, overrides_json, revision, created_at, updated_at
@@ -1719,10 +1869,21 @@ export async function fixedConfigurationDeletionStatements(
 export async function accountConfigurationDeletionStatements(
 	db: D1DatabaseLike,
 	ownerUserId: string,
+	now: string,
 ): Promise<readonly [D1PreparedStatementLike, ...D1PreparedStatementLike[]]> {
 	const rootId = await accountDefaultConfigurationId(ownerUserId);
 	return [
 		db.prepare(`DELETE FROM inference_translation_selections WHERE owner_user_id = ?`).bind(ownerUserId),
+		// The composite self-parent FK is ON DELETE RESTRICT and is checked
+		// immediately, so a chain such as root -> source bot -> linked clone would
+		// abort as soon as the parent row of a still-present child is deleted.
+		// Flattening every non-root row onto Account default first leaves no
+		// non-root parent edge, which makes the following bulk delete FK-safe
+		// regardless of the order SQLite happens to visit the rows in.
+		db.prepare(
+			`UPDATE inference_configurations SET parent_id = ?, revision = revision + 1, updated_at = ?
+			 WHERE owner_user_id = ? AND configuration_id != ? AND parent_id IS NOT ?`,
+		).bind(rootId, now, ownerUserId, rootId, rootId),
 		db.prepare(`DELETE FROM inference_configuration_credentials WHERE owner_user_id = ? AND configuration_id != ?`).bind(ownerUserId, rootId),
 		db.prepare(`DELETE FROM inference_configurations WHERE owner_user_id = ? AND configuration_id != ?`).bind(ownerUserId, rootId),
 		db.prepare(`DELETE FROM inference_configuration_credentials WHERE owner_user_id = ? AND configuration_id = ?`).bind(ownerUserId, rootId),

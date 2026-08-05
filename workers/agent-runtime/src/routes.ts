@@ -21,6 +21,7 @@ import {
 	InferenceConfigurationDataError,
 	parseInferenceConfigurationOverridePatch,
 	parseInferenceConfigurationOverrides,
+	type InferenceConfigurationKind,
 } from '@bickr/shared/inference-configuration';
 import {
 	bickrInferenceDefaultsFromEnvironment,
@@ -28,6 +29,7 @@ import {
 } from '@bickr/shared/inference-configuration-consumers';
 import {
 	inferenceOverridesFromLegacyTranslationSettings,
+	inferenceOverridePatchFromLegacyBotSettingsMask,
 	inferenceOverridePatchFromLegacyImageSettingsMask,
 	inferenceOverridePatchFromLegacySettingsMask,
 	inferenceOverridePatchFromLegacyTranslationSettingsMask,
@@ -47,11 +49,15 @@ import {
 	loadInferenceConfigurationPath,
 	listImmediateInferenceChildren,
 	listInferenceConfigurations,
+	listInferenceLibrarySection,
 	listInferenceParentCandidates,
 	listInferenceTranslationCandidates,
+	parseInferenceConfigurationKinds,
+	parseInferenceLibrarySection,
 	readTranslationSelection,
 	worldConfigurationId,
 	type CredentialUpdate,
+	type InferenceLibrarySection,
 } from '@bickr/shared/inference-configuration-repository';
 import {
 	activateInferenceGraphLifecycle,
@@ -507,12 +513,20 @@ export const agentRuntimeRouteTable = [
 		dispatch: 'user-coordinator',
 		handler: async (context) => {
 			const userId = await requireInferenceGraphOwner(context);
-			return ok({ configurations: await listInferenceConfigurations(context.env.BICKR_D1, userId, {
-				...(context.url.searchParams.get('cursor') ? { cursor: context.url.searchParams.get('cursor')! } : {}),
-				...(context.url.searchParams.get('q') ? { query: context.url.searchParams.get('q')! } : {}),
-				...(context.url.searchParams.get('limit') ? { limit: requiredPositiveInteger(context.url.searchParams.get('limit'), 'limit') } : {}),
+			const selection = inferenceLibrarySelection(context.url);
+			const input = {
+				...inferenceListingInput(context.url),
 				defaults: await bickrInferenceDefaultsFromEnvironment(context.env),
-			}), coordinator: context.objectId });
+			};
+			return ok({
+				configurations: selection.kind === 'section'
+					? await listInferenceLibrarySection(context.env.BICKR_D1, userId, { ...input, section: selection.section })
+					: await listInferenceConfigurations(context.env.BICKR_D1, userId, {
+						...input,
+						...(selection.kind === 'kinds' ? { kinds: selection.kinds } : {}),
+					}),
+				coordinator: context.objectId,
+			});
 		},
 	},
 	{
@@ -545,7 +559,7 @@ export const agentRuntimeRouteTable = [
 				context.env.BICKR_D1,
 				userId,
 				decodeURIComponent(context.match[2] ?? ''),
-				{ ...pageInput(context.url), defaults: await bickrInferenceDefaultsFromEnvironment(context.env) },
+				{ ...inferenceListingInput(context.url), defaults: await bickrInferenceDefaultsFromEnvironment(context.env) },
 			), coordinator: context.objectId });
 		},
 	},
@@ -560,7 +574,7 @@ export const agentRuntimeRouteTable = [
 				context.env.BICKR_D1,
 				userId,
 				decodeURIComponent(context.match[2] ?? ''),
-				{ ...pageInput(context.url), defaults: await bickrInferenceDefaultsFromEnvironment(context.env) },
+				{ ...inferenceListingInput(context.url), defaults: await bickrInferenceDefaultsFromEnvironment(context.env) },
 			), coordinator: context.objectId });
 		},
 	},
@@ -679,11 +693,7 @@ export const agentRuntimeRouteTable = [
 			return ok({ candidates: await listInferenceTranslationCandidates(
 				context.env.BICKR_D1,
 				userId,
-				{
-					...pageInput(context.url),
-					...(context.url.searchParams.get('q') ? { query: context.url.searchParams.get('q')! } : {}),
-					defaults: await bickrInferenceDefaultsFromEnvironment(context.env),
-				},
+				{ ...inferenceListingInput(context.url), defaults: await bickrInferenceDefaultsFromEnvironment(context.env) },
 			), coordinator: context.objectId });
 		},
 	},
@@ -1566,15 +1576,21 @@ async function projectLegacyInferenceCompatibilityWrite(
 				? await botConfigurationId(write.entityId)
 				: await worldConfigurationId(write.entityId);
 		const selected = (await loadInferenceConfigurationPath(context.env.BICKR_D1, ownerUserId, configurationId))[0];
+		// One bounded lookup answers both linked-clone barriers below: the local
+		// model made the whole local bundle live, so neither the base URL nor the
+		// credential may fall back through the source bot.
+		const linkedClone = write.kind === 'bot' && await isLinkedCloneBot(context.env.BICKR_D1, write.entityId);
 		const credential = write.kind !== 'world' && fieldMask.credential
-			? await legacyCompatibilityCredentialUpdate(context.env.BICKR_D1, write)
+			? legacyCompatibilityCredentialUpdate(write, linkedClone)
 			: undefined;
 		await updateInferenceConfiguration(context.env.BICKR_D1, ownerUserId, {
 			configurationId,
 			expectedRevision: selected.revision,
 			overrides: write.kind === 'world'
 				? inferenceOverridePatchFromLegacyImageSettingsMask(write.settings, fieldMask)
-				: inferenceOverridePatchFromLegacySettingsMask(write.settings, fieldMask),
+				: write.kind === 'bot'
+					? inferenceOverridePatchFromLegacyBotSettingsMask(write.settings, fieldMask, { linkedClone })
+					: inferenceOverridePatchFromLegacySettingsMask(write.settings, fieldMask),
 			...(credential ? { credential } : {}),
 		}, now);
 	}
@@ -1584,19 +1600,20 @@ async function projectLegacyInferenceCompatibilityWrite(
 	await completeInferenceGraphCompatibilityWrite(context.env.BICKR_D1, ownerUserId, now);
 }
 
-async function legacyCompatibilityCredentialUpdate(
-	db: Env['BICKR_D1'],
+async function isLinkedCloneBot(db: Env['BICKR_D1'], botId: string): Promise<boolean> {
+	const row = await db.prepare(
+		`SELECT linked FROM bot_clone_sources WHERE bot_id = ? LIMIT 1`,
+	).bind(botId).first<{ linked: number }>();
+	return row?.linked === 1;
+}
+
+function legacyCompatibilityCredentialUpdate(
 	write: Extract<LegacyInferenceCompatibilityWrite, { kind: 'account' | 'bot' }>,
-): Promise<CredentialUpdate> {
+	linkedClone: boolean,
+): CredentialUpdate {
 	const secret = write.settings.openRouterApiKey?.trim();
 	if (secret) return { mode: 'value', secret };
-	if (write.kind === 'bot' && write.settings.model?.trim()) {
-		const linked = await db.prepare(
-			`SELECT linked FROM bot_clone_sources WHERE bot_id = ? LIMIT 1`,
-		).bind(write.entityId).first<{ linked: number }>();
-		if (linked?.linked === 1) return { mode: 'account_default' };
-	}
-	return { mode: 'inherit' };
+	return linkedClone && write.settings.model?.trim() ? { mode: 'account_default' } : { mode: 'inherit' };
 }
 
 async function prepareLegacyInferenceCompatibilityWrite(
@@ -1744,6 +1761,28 @@ function pageInput(url: URL): { cursor?: string; limit?: number } {
 		...(cursor ? { cursor } : {}),
 		...(limit ? { limit: requiredPositiveInteger(limit, 'limit') } : {}),
 	};
+}
+
+/** Shared public parameters for every bounded inference listing surface. */
+export function inferenceListingInput(url: URL): { cursor?: string; limit?: number; query?: string } {
+	const query = url.searchParams.get('q');
+	return { ...pageInput(url), ...(query ? { query } : {}) };
+}
+
+/**
+ * Section and kind are mutually exclusive selections over the same library.
+ * Both are validated here so an unknown value is a typed 400 rather than an
+ * empty page that looks like an empty library.
+ */
+export function inferenceLibrarySelection(
+	url: URL,
+): { kind: 'section'; section: InferenceLibrarySection } | { kind: 'kinds'; kinds: InferenceConfigurationKind[] } | { kind: 'all' } {
+	const section = url.searchParams.get('section');
+	const kinds = url.searchParams.get('kind');
+	if (section && kinds) throw new InputError('Only one of section or kind may be requested.');
+	if (section) return { kind: 'section', section: parseInferenceLibrarySection(section) };
+	if (kinds) return { kind: 'kinds', kinds: parseInferenceConfigurationKinds(kinds) };
+	return { kind: 'all' };
 }
 
 function parseCredentialUpdate(value: unknown): CredentialUpdate {

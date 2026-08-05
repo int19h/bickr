@@ -328,7 +328,7 @@ export async function runAccountDeleteOperation(
 			graphDeletion ? {
 				kind: "inference_graph",
 				entityKind: "account",
-				configurationStatements: await accountConfigurationDeletionStatements(context.env.BICKR_D1, request.userId),
+				configurationStatements: await accountConfigurationDeletionStatements(context.env.BICKR_D1, request.userId, finalizedAt),
 			} : { kind: "legacy_compatible" },
 			terminalResult,
 			finalizedAt,

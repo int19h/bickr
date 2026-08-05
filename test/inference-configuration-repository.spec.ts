@@ -3,12 +3,15 @@ import { env as testEnv } from "cloudflare:test";
 import {
 	accountDefaultConfigurationId,
 	accountConfigurationDeletionStatements,
+	listInferenceLibrarySection,
+	parseInferenceConfigurationKinds,
+	parseInferenceLibrarySection,
+	insertFixedConfigurationStatement,
 	inferenceConfigurationDeleteImpact,
 	inferenceConfigurationParentImpact,
 	inferenceConfigurationMutations,
 	inferenceConfigurationOwnerDto,
 	insertAccountDefaultConfigurationStatement,
-	insertFixedConfigurationStatement,
 	insertTranslationSelectionStatement,
 	listImmediateInferenceChildren,
 	listInferenceConfigurations,
@@ -445,7 +448,7 @@ describe("inference configuration D1 repository", () => {
 			credential: { mode: "value", secret: "cleanup-secret" },
 		}, now);
 		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch(
-			[...await accountConfigurationDeletionStatements(testEnv.BICKR_D1, ownerId)],
+			[...await accountConfigurationDeletionStatements(testEnv.BICKR_D1, ownerId, now)],
 		);
 		expect(await testEnv.BICKR_D1.prepare(
 			`SELECT configuration_id FROM inference_configurations WHERE owner_user_id = ? LIMIT 1`,
@@ -456,6 +459,257 @@ describe("inference configuration D1 repository", () => {
 		expect(await testEnv.BICKR_D1.prepare(
 			`SELECT owner_user_id FROM inference_graph_users WHERE owner_user_id = ?`,
 		).bind(ownerId).first()).toBeNull();
+	});
+
+	it("reparents every non-root entry before deleting a multi-level account graph", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const worldId = "wld_cleanup";
+		await seedWorld(worldId, "cleanup-world");
+		await seedBotRow("bot_cleanup_source", worldId, "cleanup-world", "cleanup-source");
+		await seedBotRow("bot_cleanup_clone", worldId, "cleanup-world", "cleanup-clone");
+		const parent = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Cleanup parent",
+			parentId: rootId,
+			credential: { mode: "value", secret: "cleanup-parent-secret" },
+		}, now);
+		const child = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Cleanup child",
+			parentId: parent.id,
+			credential: { mode: "value", secret: "cleanup-child-secret" },
+		}, now);
+		await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Cleanup grandchild",
+			parentId: child.id,
+		}, now);
+		// A linked-clone-shaped bot edge: the clone's fixed entry is parented to
+		// its source's fixed entry, so the batch must survive deleting both.
+		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "bot", configurationId: "cfg_cleanup_source", ownerUserId: ownerId,
+				parentId: parent.id, botId: "bot_cleanup_source", now,
+			}),
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "bot", configurationId: "cfg_cleanup_clone", ownerUserId: ownerId,
+				parentId: "cfg_cleanup_source", botId: "bot_cleanup_clone", now,
+			}),
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "world", configurationId: "cfg_cleanup_world", ownerUserId: ownerId,
+				parentId: child.id, worldId, now,
+			}),
+		]);
+		expect((await testEnv.BICKR_D1.prepare(
+			`SELECT COUNT(*) AS count FROM inference_configurations WHERE owner_user_id = ?`,
+		).bind(ownerId).first<{ count: number }>())?.count).toBe(7);
+
+		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch(
+			[...await accountConfigurationDeletionStatements(testEnv.BICKR_D1, ownerId, now)],
+		);
+
+		expect((await testEnv.BICKR_D1.prepare(
+			`SELECT COUNT(*) AS count FROM inference_configurations WHERE owner_user_id = ?`,
+		).bind(ownerId).first<{ count: number }>())?.count).toBe(0);
+		expect((await testEnv.BICKR_D1.prepare(
+			`SELECT COUNT(*) AS count FROM inference_configuration_credentials WHERE owner_user_id = ?`,
+		).bind(ownerId).first<{ count: number }>())?.count).toBe(0);
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT owner_user_id FROM inference_translation_selections WHERE owner_user_id = ?`,
+		).bind(ownerId).first()).toBeNull();
+		// The lifecycle retries its finalization batch, so cleanup must converge.
+		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch(
+			[...await accountConfigurationDeletionStatements(testEnv.BICKR_D1, ownerId, now)],
+		);
+		expect((await testEnv.BICKR_D1.prepare(
+			`SELECT COUNT(*) AS count FROM inference_configurations WHERE owner_user_id = ?`,
+		).bind(ownerId).first<{ count: number }>())?.count).toBe(0);
+	});
+
+	it("paginates library sections independently and groups participant pages by home world", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, { name: "Zeta custom", parentId: rootId }, now);
+		await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, { name: "Alpha custom", parentId: rootId }, now);
+		for (const [index, handle] of ["scale-world-a", "scale-world-b", "scale-world-c"].entries()) {
+			await seedWorld(`wld_scale_${index}`, handle);
+			await insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "world", configurationId: `cfg_scale_world_${index}`, ownerUserId: ownerId,
+				parentId: rootId, worldId: `wld_scale_${index}`, now,
+			}).run();
+		}
+		await seedScaleBots(110, rootId);
+
+		const account = await listInferenceLibrarySection(testEnv.BICKR_D1, ownerId, { section: "account" });
+		expect(account.items.map((item) => item.displayName)).toEqual(["Account default"]);
+		expect(account.groups).toEqual([]);
+		const custom = await listInferenceLibrarySection(testEnv.BICKR_D1, ownerId, { section: "custom" });
+		expect(custom.items.map((item) => item.displayName)).toEqual(["Alpha custom", "Zeta custom"]);
+		const worlds = await listInferenceLibrarySection(testEnv.BICKR_D1, ownerId, { section: "world" });
+		expect(worlds.items.map((item) => item.displayName))
+			.toEqual(["w/scale-world-a", "w/scale-world-b", "w/scale-world-c"]);
+
+		const firstBots = await listInferenceLibrarySection(testEnv.BICKR_D1, ownerId, { section: "bot", limit: 100 });
+		expect(firstBots.items).toHaveLength(100);
+		expect(firstBots.nextCursor).toBeTruthy();
+		expect(firstBots.items.map((item) => item.kind === "bot" ? item.identity.homeWorldHandle : null))
+			.toEqual([
+				...Array<string>(37).fill("scale-world-a"),
+				...Array<string>(37).fill("scale-world-b"),
+				...Array<string>(26).fill("scale-world-c"),
+			]);
+		const worldAHandles = firstBots.items.slice(0, 37)
+			.map((item) => item.kind === "bot" ? item.identity.botHandle : "");
+		expect(worldAHandles).toEqual([...worldAHandles].sort());
+		expect(firstBots.groups).toEqual([
+			{ homeWorldId: "wld_scale_0", homeWorldHandle: "scale-world-a", displayName: "w/scale-world-a", botConfigurationCount: 37 },
+			{ homeWorldId: "wld_scale_1", homeWorldHandle: "scale-world-b", displayName: "w/scale-world-b", botConfigurationCount: 37 },
+			{ homeWorldId: "wld_scale_2", homeWorldHandle: "scale-world-c", displayName: "w/scale-world-c", botConfigurationCount: 36 },
+		]);
+
+		const secondBots = await listInferenceLibrarySection(testEnv.BICKR_D1, ownerId, {
+			section: "bot",
+			limit: 100,
+			cursor: firstBots.nextCursor,
+		});
+		expect(secondBots.items).toHaveLength(10);
+		expect(secondBots.nextCursor).toBeUndefined();
+		expect(secondBots.groups).toEqual([
+			{ homeWorldId: "wld_scale_2", homeWorldHandle: "scale-world-c", displayName: "w/scale-world-c", botConfigurationCount: 36 },
+		]);
+		expect(new Set([...firstBots.items, ...secondBots.items].map((item) => item.id)).size).toBe(110);
+	}, 30_000);
+
+	it("annotates every summary with immediate-child count and redacted credential availability", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const parent = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Summary parent",
+			parentId: rootId,
+			credential: { mode: "value", secret: "summary-secret" },
+			overrides: { baseUrl: { kind: "value", value: "https://summary.example/v1" } },
+		}, now);
+		await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, { name: "Summary child", parentId: parent.id }, now);
+		const suppressed = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Summary suppressed",
+			parentId: rootId,
+			credential: { mode: "none" },
+			overrides: { baseUrl: { kind: "value", value: "https://suppressed.example/v1" } },
+		}, now);
+
+		const page = await listInferenceConfigurations(testEnv.BICKR_D1, ownerId, {});
+		expect(JSON.stringify(page)).not.toContain("summary-secret");
+		const byId = new Map(page.items.map((item) => [item.id, item]));
+		expect(byId.get(rootId)).toMatchObject({ immediateChildCount: 2 });
+		expect(byId.get(parent.id)).toMatchObject({
+			immediateChildCount: 1,
+			credentialMode: "value",
+			credentialAvailability: { kind: "available", source: { kind: "configuration", configurationId: parent.id } },
+		});
+		expect(byId.get(suppressed.id)).toMatchObject({
+			immediateChildCount: 0,
+			credentialAvailability: { kind: "explicit_none" },
+		});
+		expect(byId.get(rootId)).toMatchObject({
+			credentialAvailability: { kind: "unavailable", source: { kind: "bickr_default" }, reason: "no_credential" },
+		});
+		expect(byId.get(parent.id)?.credentialAvailability).not.toHaveProperty("secretVersion");
+	});
+
+	it("searches custom name, world handle, participant handle, and participant home-world handle", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, { name: "Searchable custom", parentId: rootId }, now);
+		await seedWorld("wld_search", "searchable-world");
+		await seedWorld("wld_search_home", "hosting-world");
+		// The participant lives in a different world than the one with a
+		// configuration, so each search term has exactly one legitimate match.
+		await seedBotRow("bot_search", "wld_search_home", "hosting-world", "findable-bot");
+		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "world", configurationId: "cfg_search_world", ownerUserId: ownerId,
+				parentId: rootId, worldId: "wld_search", now,
+			}),
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "bot", configurationId: "cfg_search_bot", ownerUserId: ownerId,
+				parentId: rootId, botId: "bot_search", now,
+			}),
+		]);
+
+		const byCustomName = await listInferenceConfigurations(testEnv.BICKR_D1, ownerId, { query: "Searchable c" });
+		expect(byCustomName.items.map((item) => item.displayName)).toEqual(["Searchable custom"]);
+		const byWorldHandle = await listInferenceConfigurations(testEnv.BICKR_D1, ownerId, { query: "searchable-w" });
+		expect(byWorldHandle.items.map((item) => item.id)).toEqual(["cfg_search_world"]);
+		const byBotHandle = await listInferenceConfigurations(testEnv.BICKR_D1, ownerId, { query: "findable" });
+		expect(byBotHandle.items.map((item) => item.id)).toEqual(["cfg_search_bot"]);
+		// The home-world handle is the only term that reaches this participant,
+		// whose own handle and displayed identity do not match it.
+		const byHomeWorldHandle = await listInferenceConfigurations(testEnv.BICKR_D1, ownerId, { query: "hosting-w" });
+		expect(byHomeWorldHandle.items.map((item) => item.id)).toEqual(["cfg_search_bot"]);
+		const botsByHomeWorld = await listInferenceLibrarySection(testEnv.BICKR_D1, ownerId, {
+			section: "bot",
+			query: "hosting-world",
+		});
+		expect(botsByHomeWorld.items.map((item) => item.id)).toEqual(["cfg_search_bot"]);
+		expect(botsByHomeWorld.groups.map((group) => group.botConfigurationCount)).toEqual([1]);
+	});
+
+	it("returns the unfiltered immediate-child total alongside a filtered child page", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		for (const name of ["Child alpha", "Child beta", "Other child"]) {
+			await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, { name, parentId: rootId }, now);
+		}
+		const filtered = await listImmediateInferenceChildren(testEnv.BICKR_D1, ownerId, rootId, { query: "Child " });
+		expect(filtered.items.map((item) => item.displayName).sort()).toEqual(["Child alpha", "Child beta"]);
+		expect(filtered.totalImmediateChildren).toBe(3);
+		const firstPage = await listImmediateInferenceChildren(testEnv.BICKR_D1, ownerId, rootId, { limit: 2 });
+		expect(firstPage.items).toHaveLength(2);
+		expect(firstPage.totalImmediateChildren).toBe(3);
+		const secondPage = await listImmediateInferenceChildren(testEnv.BICKR_D1, ownerId, rootId, {
+			limit: 2,
+			cursor: firstPage.nextCursor,
+		});
+		expect(secondPage.items).toHaveLength(1);
+		expect(secondPage.totalImmediateChildren).toBe(3);
+	});
+
+	it("rejects unknown sections, unknown kinds, and cursors from another sort order", async () => {
+		expect(() => parseInferenceLibrarySection("participants")).toThrow(expect.objectContaining({ status: 400 }));
+		expect(parseInferenceLibrarySection("bot")).toBe("bot");
+		expect(() => parseInferenceConfigurationKinds("bot,participant")).toThrow(expect.objectContaining({ status: 400 }));
+		expect(() => parseInferenceConfigurationKinds("")).toThrow(expect.objectContaining({ status: 400 }));
+		expect(parseInferenceConfigurationKinds("bot, custom")).toEqual(["bot", "custom"]);
+
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		for (const name of ["Cursor alpha", "Cursor beta"]) {
+			await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, { name, parentId: rootId }, now);
+		}
+		const identityPage = await listInferenceConfigurations(testEnv.BICKR_D1, ownerId, { limit: 1 });
+		expect(identityPage.nextCursor).toBeTruthy();
+		await expect(listInferenceLibrarySection(testEnv.BICKR_D1, ownerId, {
+			section: "bot",
+			cursor: identityPage.nextCursor,
+		})).rejects.toMatchObject({ status: 400 });
+		await expect(listImmediateInferenceChildren(testEnv.BICKR_D1, ownerId, rootId, {
+			cursor: identityPage.nextCursor,
+		})).rejects.toMatchObject({ status: 400 });
+		await expect(listInferenceConfigurations(testEnv.BICKR_D1, ownerId, { cursor: "not-a-cursor" }))
+			.rejects.toMatchObject({ status: 400 });
+	});
+
+	it("refuses the Account-default base URL state on Account default in the writer and in D1", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const root = (await loadInferenceConfigurationPath(testEnv.BICKR_D1, ownerId, rootId))[0];
+		await expect(inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: rootId,
+			expectedRevision: root.revision,
+			overrides: { baseUrl: { kind: "account_default" } },
+		}, now)).rejects.toMatchObject({ kind: "invalid_overrides" });
+		await expect(testEnv.BICKR_D1.prepare(
+			`UPDATE inference_configurations SET overrides_json = ? WHERE configuration_id = ?`,
+		).bind(JSON.stringify({ baseUrl: { kind: "account_default" } }), rootId).run()).rejects.toThrow();
+		// A non-root entry may hold it, and the resolver resumes at Account default.
+		const child = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Account default base",
+			parentId: rootId,
+			overrides: { baseUrl: { kind: "account_default" } },
+		}, now);
+		expect((await loadInferenceConfigurationPath(testEnv.BICKR_D1, ownerId, child.id))[0].overrides)
+			.toMatchObject({ baseUrl: { kind: "account_default" } });
 	});
 
 	it("declares the quota, restrictive FKs, credential split, and bounded-retention indexes", async () => {
@@ -518,3 +772,80 @@ describe("inference configuration D1 repository", () => {
 			.rejects.toMatchObject({ causeKind: "corrupt_graph", status: 500 });
 	}, 30_000);
 });
+
+async function seedWorld(worldId: string, handle: string): Promise<void> {
+	await testEnv.BICKR_D1.batch([
+		testEnv.BICKR_D1.prepare(
+			`INSERT INTO entity_lifecycle_identity_claims (
+				key_kind, key_scope, key_value, entity_kind, entity_id, owner_user_id,
+				claim_state, operation_id, created_at, updated_at
+			) VALUES ('world_handle', 'global', ?, 'world', ?, ?, 'active', NULL, ?, ?)`,
+		).bind(handle, worldId, ownerId, now, now),
+		testEnv.BICKR_D1.prepare(
+			`INSERT INTO worlds_index (
+				world_id, handle, name, description, created_by_user_id, visibility,
+				created_at, updated_at, lifecycle_state
+			) VALUES (?, ?, ?, '', ?, 'public', ?, ?, 'active')`,
+		).bind(worldId, handle, handle, ownerId, now, now),
+	]);
+}
+
+async function seedBotRow(botId: string, worldId: string, worldHandle: string, handle: string): Promise<void> {
+	await testEnv.BICKR_D1.batch([
+		testEnv.BICKR_D1.prepare(
+			`INSERT INTO entity_lifecycle_identity_claims (
+				key_kind, key_scope, key_value, entity_kind, entity_id, owner_user_id,
+				claim_state, operation_id, created_at, updated_at
+			) VALUES ('bot_handle', ?, ?, 'bot', ?, ?, 'active', NULL, ?, ?)`,
+		).bind(worldId, handle, botId, ownerId, now, now),
+		testEnv.BICKR_D1.prepare(
+			`INSERT INTO bots_index (
+				bot_id, home_world_id, home_world_handle, handle, display_name,
+				owner_user_id, short_bio, created_at, updated_at, lifecycle_state
+			) VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, 'active')`,
+		).bind(botId, worldId, worldHandle, handle, handle, ownerId, now, now),
+	]);
+}
+
+/** Bulk fixture: participants spread round-robin across three seeded worlds. */
+async function seedScaleBots(count: number, rootId: string): Promise<void> {
+	const numbers = `WITH digits(value) AS (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)),
+		numbers(value) AS (
+			SELECT ones.value + 10 * tens.value + 100 * hundreds.value
+			FROM digits AS ones CROSS JOIN digits AS tens CROSS JOIN digits AS hundreds
+		)`;
+	await testEnv.BICKR_D1.prepare(
+		`${numbers}
+		INSERT INTO entity_lifecycle_identity_claims (
+			key_kind, key_scope, key_value, entity_kind, entity_id, owner_user_id,
+			claim_state, operation_id, created_at, updated_at
+		)
+		SELECT 'bot_handle', 'wld_scale_' || (value % 3), 'scale-bot-' || printf('%03d', value),
+			'bot', 'bot_scale_' || printf('%03d', value), ?, 'active', NULL, ?, ?
+		FROM numbers WHERE value < ? ORDER BY value`,
+	).bind(ownerId, now, now, count).run();
+	await testEnv.BICKR_D1.prepare(
+		`${numbers}
+		INSERT INTO bots_index (
+			bot_id, home_world_id, home_world_handle, handle, display_name,
+			owner_user_id, short_bio, created_at, updated_at, lifecycle_state
+		)
+		SELECT 'bot_scale_' || printf('%03d', value),
+			'wld_scale_' || (value % 3),
+			'scale-world-' || char(97 + value % 3),
+			'scale-bot-' || printf('%03d', value),
+			'scale-bot-' || printf('%03d', value),
+			?, '', ?, ?, 'active'
+		FROM numbers WHERE value < ? ORDER BY value`,
+	).bind(ownerId, now, now, count).run();
+	await testEnv.BICKR_D1.prepare(
+		`${numbers}
+		INSERT INTO inference_configurations (
+			configuration_id, owner_user_id, kind, parent_id, bot_id,
+			overrides_json, revision, created_at, updated_at
+		)
+		SELECT 'cfg_scale_bot_' || printf('%03d', value), ?, 'bot', ?,
+			'bot_scale_' || printf('%03d', value), '{}', 1, ?, ?
+		FROM numbers WHERE value < ? ORDER BY value`,
+	).bind(ownerId, rootId, now, now, count).run();
+}
