@@ -9,15 +9,17 @@ import {
 	type InferenceResolution,
 } from "./inference-configuration";
 import {
-	accountDefaultConfigurationId,
-	botConfigurationId,
 	inferenceGraphReadVersion,
 	loadInternalInferenceConfigurationPath,
 	loadInternalInferenceCompatibilityProjectionPath,
 	readCompatibilityProjectionTranslationSelection,
 	readTranslationSelection,
-	worldConfigurationId,
 } from "./inference-configuration-repository";
+import {
+	accountDefaultConfigurationId,
+	botConfigurationId,
+	worldConfigurationId,
+} from "./inference-configuration-owner";
 import {
 	isOpenRouterProviderBaseUrl,
 	providerEnvironmentSettingsFromBindings,

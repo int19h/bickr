@@ -389,13 +389,13 @@ export function BotProfileScreen({
 				onClose={() => setUploadOpen(false)}
 				onSaved={onAvatarUpdated}
 				open={uploadOpen}
-				target={botAvatarTarget(bot, ownerInferenceSettings)}
+				target={botAvatarTarget(bot)}
 			/>
 			<AvatarCropModal
 				onClose={() => setCropOpen(false)}
 				onSaved={onAvatarUpdated}
 				open={cropOpen}
-				target={botAvatarTarget(bot, ownerInferenceSettings)}
+				target={botAvatarTarget(bot)}
 			/>
 			<Confirm
 				body={

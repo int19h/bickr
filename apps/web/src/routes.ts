@@ -20,7 +20,9 @@ export type Route =
 	| "subscriptions"
 	| "human-profile"
 	| "profile"
-	| "profile-avatar";
+	| "profile-avatar"
+	| "inference-library"
+	| "inference-configuration";
 
 export type WorldTab = "forums" | "bots" | "groups" | "activity" | "notifications" | "lore";
 export type BotProfileTab = "activity" | "follows" | "notifications";
@@ -44,10 +46,30 @@ export type ParsedRoute = {
 	botHandle?: string;
 	botProfileTab?: BotProfileTab;
 	botActivityId?: string;
+	configurationId?: string;
 	humanHandle?: string;
+	returnTo?: InferenceReturnTarget;
 	search?: SearchRouteState;
 	worldTab?: WorldTab;
 };
+
+/**
+ * Screens that may hand the inference library a Back/Done target. The union is
+ * closed so a `from` query value can only reproduce an in-app owner screen; an
+ * unknown or external value degrades to the library itself.
+ */
+export type InferenceReturnTarget = ParsedRoute & {
+	route: "profile" | "profile-avatar" | "world-edit" | "world-avatar" | "bot-edit" | "bot-avatar";
+};
+
+const inferenceReturnTargetRoutes = [
+	"profile",
+	"profile-avatar",
+	"world-edit",
+	"world-avatar",
+	"bot-edit",
+	"bot-avatar",
+] as const satisfies readonly InferenceReturnTarget["route"][];
 
 export type PublicRouteNormalization = {
 	route: ParsedRoute;
@@ -85,6 +107,13 @@ export function parsePathname(pathname: string, search = ""): ParsedRoute {
 			return { route: "profile-avatar" };
 		}
 		return { route: "profile" };
+	}
+	if (parts[0] === "me" && parts[1] === "inference") {
+		const returnTo = inferenceReturnTargetFromSearch(search);
+		if (parts[2]) {
+			return { route: "inference-configuration", configurationId: parts[2], ...(returnTo ? { returnTo } : {}) };
+		}
+		return { route: "inference-library", ...(returnTo ? { returnTo } : {}) };
 	}
 	if (parts[0] === "search") {
 		return { route: "search", search: searchRouteStateFromSearch(search) };
@@ -184,7 +213,45 @@ export function routePath(parsed: ParsedRoute): string {
 			return "/me/profile";
 		case "profile-avatar":
 			return "/me/profile/avatar";
+		case "inference-library":
+			return withInferenceReturnTarget("/me/inference", parsed.returnTo);
+		case "inference-configuration":
+			return withInferenceReturnTarget(
+				`/me/inference/${encodeURIComponent(parsed.configurationId ?? "")}`,
+				parsed.returnTo,
+			);
 	}
+}
+
+/**
+ * Accepts only a target that parses back into one of the allowed owner screens
+ * and round-trips to the same path, so a crafted `from` value can never send an
+ * owner off-site or into an unrelated screen.
+ */
+export function inferenceReturnTargetFromPath(value: string): InferenceReturnTarget | null {
+	if (!value.startsWith("/") || value.startsWith("//")) {
+		return null;
+	}
+	const [pathname = "", query = ""] = value.split("?", 2);
+	const parsed = parsePathname(pathname, query ? `?${query}` : "");
+	if (!(inferenceReturnTargetRoutes as readonly string[]).includes(parsed.route)) {
+		return null;
+	}
+	const target = parsed as InferenceReturnTarget;
+	return routePath(target) === value ? target : null;
+}
+
+function inferenceReturnTargetFromSearch(search: string): InferenceReturnTarget | null {
+	const from = new URLSearchParams(search).get("from");
+	return from ? inferenceReturnTargetFromPath(from) : null;
+}
+
+function withInferenceReturnTarget(base: string, returnTo: ParsedRoute | undefined): string {
+	if (!returnTo) {
+		return base;
+	}
+	const params = new URLSearchParams({ from: routePath(returnTo) });
+	return `${base}?${params.toString()}`;
 }
 
 export function normalizeLoggedOutRoute(parsed: ParsedRoute): PublicRouteNormalization {
@@ -196,6 +263,8 @@ export function normalizeLoggedOutRoute(parsed: ParsedRoute): PublicRouteNormali
 		case "profile":
 		case "profile-avatar":
 		case "human-profile":
+		case "inference-library":
+		case "inference-configuration":
 			return {
 				route: { route: "worlds" },
 				status: "Sign in to access account pages.",

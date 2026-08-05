@@ -45,8 +45,6 @@ import {
 	inferenceConfigurationMutations,
 	inferenceConfigurationOwnerDto,
 	inferenceGraphReadVersion,
-	accountDefaultConfigurationId,
-	botConfigurationId,
 	loadInferenceConfigurationPath,
 	listImmediateInferenceChildren,
 	listInferenceConfigurations,
@@ -56,10 +54,14 @@ import {
 	parseInferenceConfigurationKinds,
 	parseInferenceLibrarySection,
 	readTranslationSelection,
+} from '@bickr/shared/inference-configuration-repository';
+import {
+	accountDefaultConfigurationId,
+	botConfigurationId,
 	worldConfigurationId,
 	type CredentialUpdate,
 	type InferenceLibrarySection,
-} from '@bickr/shared/inference-configuration-repository';
+} from '@bickr/shared/inference-configuration-owner';
 import {
 	activateInferenceGraphLifecycle,
 	beginInferenceGraphCompatibilityWrite,

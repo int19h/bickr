@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import {
-	accountDefaultConfigurationId,
 	inferenceConfigurationMutations,
 	insertAccountDefaultConfigurationStatement,
 	insertFixedConfigurationStatement,
 	insertTranslationSelectionStatement,
 } from "@bickr/shared/inference-configuration-repository";
+import {
+	accountDefaultConfigurationId,
+} from "@bickr/shared/inference-configuration-owner";
 import type { D1DatabaseLike } from "@bickr/shared/storage";
 import { resetD1Schema } from "./helpers/d1-schema";
 import { handleAgentRuntimeRequest } from "../workers/agent-runtime/src/routes";
@@ -15,7 +17,7 @@ const ownerId = "usr_route_owner";
 const worldId = "wld_route";
 const now = "2026-08-05T00:00:00.000Z";
 
-type RouteEnvelope = { ok: boolean; error?: string; data?: Record<string, unknown> };
+type RouteEnvelope = { ok: boolean; error?: string; details?: Record<string, unknown>; data?: Record<string, unknown> };
 
 beforeEach(async () => {
 	await resetD1Schema(testEnv.BICKR_D1);
@@ -129,6 +131,83 @@ describe("inference configuration runtime routes", () => {
 			body: { expectedRevision: 1, overrides: { baseUrl: { kind: "value", value: "https://account.example/v1" } } },
 		});
 		expect(accepted.status).toBe(200);
+	});
+
+	it("echoes the typed graph cause in error details so clients never read the message", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const custom = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, { name: "Shared sampling", parentId: rootId }, now);
+
+		const stale = await routePayload(`/inference-configurations/${encodeURIComponent(custom.id)}`, {
+			method: "PATCH",
+			body: { expectedRevision: custom.revision + 5, overrides: { temperature: { kind: "value", value: 0 } } },
+		});
+		expect(stale.status).toBe(409);
+		expect(stale.body.error).toBe("conflict");
+		expect(stale.body.details).toEqual({ inferenceGraphCause: "stale_revision" });
+
+		const duplicate = await routePayload("/inference-configurations", {
+			method: "POST",
+			body: { name: "shared SAMPLING", parentId: rootId },
+		});
+		expect(duplicate.status).toBe(409);
+		expect(duplicate.body.details).toEqual({ inferenceGraphCause: "duplicate_name" });
+
+		const descendant = await routePayload(`/inference-configurations/${encodeURIComponent(rootId)}/reparent`, {
+			method: "POST",
+			body: { parentId: custom.id, expectedRevision: 1 },
+		});
+		expect(descendant.body.details).toEqual({ inferenceGraphCause: "account_default_required" });
+	});
+
+	it("returns named ancestry so an owner client can label provenance without walking the graph", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		await seedWorld(worldId, "route-world");
+		await seedBot("bot_named", worldId, "route-world", "route-named");
+		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "bot", configurationId: "cfg_named_bot", ownerUserId: ownerId, parentId: rootId, botId: "bot_named", now,
+			}),
+		]);
+		const child = await inferenceConfigurationMutations.createCustom(
+			testEnv.BICKR_D1,
+			ownerId,
+			{ name: "Child of participant", parentId: "cfg_named_bot" },
+			now,
+		);
+
+		const response = await routePayload(`/inference-configurations/${encodeURIComponent(child.id)}`);
+		expect(response.status).toBe(200);
+		const configuration = response.body.data?.configuration as {
+			path: { id: string; displayName: string; kind: string }[];
+		};
+		expect(configuration.path.map((entry) => entry.displayName)).toEqual([
+			"Child of participant",
+			"u/route-named",
+			"Account default",
+		]);
+		expect(configuration.path.map((entry) => entry.kind)).toEqual(["custom", "bot", "account_default"]);
+		expect(configuration.path[0]?.id).toBe(child.id);
+	});
+
+	it("offers only Account default and custom entries as translation candidates", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, { name: "Translation tuning", parentId: rootId }, now);
+		await seedWorld(worldId, "route-world");
+		await seedBot("bot_translation", worldId, "route-world", "route-translation");
+		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "world", configurationId: "cfg_translation_world", ownerUserId: ownerId, parentId: rootId, worldId, now,
+			}),
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "bot", configurationId: "cfg_translation_bot", ownerUserId: ownerId, parentId: rootId, botId: "bot_translation", now,
+			}),
+		]);
+
+		const candidates = await routePayload("/inference-translation/candidates");
+		expect(candidates.status).toBe(200);
+		const page = candidates.body.data?.candidates as { items: { displayName: string; kind: string }[] };
+		expect(page.items.map((item) => item.kind).sort()).toEqual(["account_default", "custom"]);
+		expect(page.items.map((item) => item.displayName).sort()).toEqual(["Account default", "Translation tuning"]);
 	});
 
 	it("wires q through parent candidates and children, and reports the unfiltered child total", async () => {

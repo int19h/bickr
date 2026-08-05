@@ -103,6 +103,7 @@ import {
 	parsePathname,
 	routePath,
 	type BotProfileTab,
+	type InferenceReturnTarget,
 	type ParsedRoute,
 	type Route,
 	type SearchRouteState,
@@ -127,7 +128,6 @@ import type { SubscriptionTarget } from "./screens/subscriptions";
 import { WorldsScreen } from "./screens/worlds";
 import { WorldDetail } from "./screens/worlds/world-detail";
 import { WorldEditPage } from "./screens/worlds/world-edit";
-import { imageGenerationInputFromDraft } from "./settings-drafts/image-generation-draft";
 import {
 	Avatar,
 	EmptyState,
@@ -182,6 +182,12 @@ const InferenceCostStatisticsScreen = lazyWithRetry(() =>
 const SubscriptionsScreen = lazyWithRetry(() =>
 	import("./screens/subscriptions").then((module) => ({ default: module.SubscriptionsScreen })),
 );
+const InferenceLibraryScreen = lazyWithRetry(() =>
+	import("./inference/library").then((module) => ({ default: module.InferenceLibraryScreen })),
+);
+const InferenceConfigurationEditorScreen = lazyWithRetry(() =>
+	import("./inference/editor").then((module) => ({ default: module.InferenceConfigurationEditorScreen })),
+);
 
 type BeforeInstallPromptEvent = Event & {
 	platforms: string[];
@@ -217,6 +223,8 @@ function App() {
 	const [activeBotHandle, setActiveBotHandle] = useState<string | null>(initialRoute.botHandle ?? null);
 	const [activeBotProfileTab, setActiveBotProfileTab] = useState<BotProfileTab>(initialRoute.botProfileTab ?? "activity");
 	const [activeBotActivityId, setActiveBotActivityId] = useState<string | null>(initialRoute.botActivityId ?? null);
+	const [activeConfigurationId, setActiveConfigurationId] = useState<string | null>(initialRoute.configurationId ?? null);
+	const [activeReturnTo, setActiveReturnTo] = useState<InferenceReturnTarget | null>(initialRoute.returnTo ?? null);
 	const [activeHumanHandle, setActiveHumanHandle] = useState<string | null>(initialRoute.humanHandle ?? null);
 	const [activeSearch, setActiveSearch] = useState<SearchRouteState>(initialRoute.search ?? defaultSearchRouteState);
 	const [activeWorldTab, setActiveWorldTab] = useState<WorldTab>(initialRoute.worldTab ?? "forums");
@@ -474,16 +482,19 @@ function App() {
 	);
 	const translationContext = useMemo<TranslationContextValue>(() => {
 		const translation = userProfile?.inferenceSettings.translation;
-		const model =
-			translation?.model?.trim() ||
-			userProfile?.inferenceSettings.model?.trim() ||
-			defaultProviderModel;
+		const annotation = userProfile?.translationInference;
 		return {
 			enabled: Boolean(translation?.enabled),
-			model,
+			// The cache identity is the selected configuration's effective
+			// fingerprint, so a change to inherited routing, reasoning, or sampling
+			// invalidates cached translations even when model and prompt are equal.
+			identity: annotation
+				? `${annotation.selectedConfigurationId}:${annotation.effectiveRevisionFingerprint}`
+				: defaultProviderModel,
+			model: annotation?.effectiveModel ?? defaultProviderModel,
 			prompt: localizedTextString(translation?.prompt).trim() || defaultTranslationPrompt,
 		};
-	}, [userProfile?.inferenceSettings.model, userProfile?.inferenceSettings.translation]);
+	}, [userProfile?.inferenceSettings.translation, userProfile?.translationInference]);
 	const activeBotBlogForum =
 		activeBot ? activeForums.find((forum) => forum.personalBotId === activeBot.id) ?? null : null;
 	const documentTitle = useMemo(
@@ -523,16 +534,6 @@ function App() {
 			session.user,
 		],
 	);
-	const ownedBotModels = useMemo(() => {
-		const models = new Set<string>();
-		for (const bot of bots) {
-			const model = bot.inferenceSettings.model?.trim();
-			if (model) {
-				models.add(model);
-			}
-		}
-		return [...models].sort((left, right) => left.localeCompare(right));
-	}, [bots]);
 
 	useEffect(() => {
 		document.title = documentTitle;
@@ -560,6 +561,8 @@ function App() {
 		setActiveBotHandle(parsed.botHandle ?? null);
 		setActiveBotProfileTab(parsed.route === "bot-profile" ? parsed.botProfileTab ?? "activity" : "activity");
 		setActiveBotActivityId(parsed.route === "bot-profile" ? parsed.botActivityId ?? null : null);
+		setActiveConfigurationId(parsed.configurationId ?? null);
+		setActiveReturnTo(parsed.returnTo ?? null);
 		setActiveHumanHandle(parsed.humanHandle ?? null);
 		setActiveSearch(parsed.route === "search" ? parsed.search ?? defaultSearchRouteState : defaultSearchRouteState);
 		setActiveWorldTab(parsed.route === "world" ? parsed.worldTab ?? "forums" : "forums");
@@ -608,6 +611,14 @@ function App() {
 				return { route, worldHandle: activeWorldHandle ?? undefined, botHandle: activeBotHandle ?? undefined };
 			case "human-profile":
 				return { route, humanHandle: activeHumanHandle ?? undefined };
+			case "inference-library":
+				return { route, ...(activeReturnTo ? { returnTo: activeReturnTo } : {}) };
+			case "inference-configuration":
+				return {
+					route,
+					configurationId: activeConfigurationId ?? undefined,
+					...(activeReturnTo ? { returnTo: activeReturnTo } : {}),
+				};
 			case "search":
 				return { route, search: activeSearch };
 			case "thread-ref":
@@ -1693,7 +1704,7 @@ function App() {
 			return false;
 		}
 		return submit(async () => {
-			const target = botAvatarTarget(bot, userProfile?.inferenceSettings ?? null);
+			const target = botAvatarTarget(bot);
 			const result = await runApiAction(throwApiError, () => api<BotMutationResponse>(target.endpoints.clear, {
 				method: "DELETE",
 			}));
@@ -1758,7 +1769,14 @@ function App() {
 	}
 
 	function applySavedUserProfile(profile: UserProfile): void {
-		setUserProfile(profile);
+		// Entity PATCH responses carry no translation annotation, so the existing
+		// one is preserved rather than dropped; a real change reloads the profile.
+		setUserProfile((current) => ({
+			...profile,
+			...(profile.translationInference || !current?.translationInference
+				? {}
+				: { translationInference: current.translationInference }),
+		}));
 		setSession((current) => ({
 			...current,
 			user: publicUserFromProfile(profile),
@@ -2109,11 +2127,12 @@ function App() {
 									title: worldAvatarMembersPromptSizeTitle(activeWorld, botsByWorld[activeWorld.handle] ?? null),
 								}}
 								onBack={() => navigate({ route: "world-edit", worldHandle: activeWorld.handle })}
-								onDiscardSettings={() => updateWorld(activeWorld.handle, { imageGeneration: null })}
-								onSaveSettings={(draft, language) => updateWorld(activeWorld.handle, { imageGeneration: imageGenerationInputFromDraft(draft, undefined, language) })}
+								onSavePrompt={(prompt, language) =>
+									updateWorld(activeWorld.handle, { imageGeneration: { prompt: localizedText(prompt, language) } })
+								}
 								onSaved={applySavedWorld}
-								modelSuggestions={ownedBotModels}
-								target={worldAvatarTarget(activeWorld, userProfile?.inferenceSettings ?? null)}
+								returnTo={{ route: "world-avatar", worldHandle: activeWorld.handle }}
+								target={worldAvatarTarget(activeWorld)}
 							/>
 						:	<PermissionState title="Avatar generation is owner-only">
 								Only this world's owner can generate its avatar.
@@ -2199,10 +2218,14 @@ function App() {
 										botHandle: activeBot.handle,
 									})
 								}
-								onSaveSettings={(draft, language) => updateBot(activeBot.id, { inferenceSettings: { imageGeneration: imageGenerationInputFromDraft(draft, undefined, language) } })}
-								onDiscardSettings={() => updateBot(activeBot.id, { inferenceSettings: { imageGeneration: null } })}
+								onSavePrompt={(prompt, language) =>
+									updateBot(activeBot.id, {
+										inferenceSettings: { imageGeneration: { prompt: localizedText(prompt, language) } },
+									})
+								}
 								onSaved={applySavedBot}
-								target={botAvatarTarget(activeBot, userProfile?.inferenceSettings ?? null)}
+								returnTo={{ route: "bot-avatar", worldHandle: activeWorld.handle, botHandle: activeBot.handle }}
+								target={botAvatarTarget(activeBot)}
 							/>
 						:	<PermissionState title="Avatar generation is owner-only">
 								Only this participant's owner can generate its avatar.
@@ -2226,7 +2249,6 @@ function App() {
 							<BotEdit
 								bot={editingBot}
 								busy={busy}
-								modelSuggestions={ownedBotModels}
 								onBack={() =>
 									navigate({
 										route: "bot-profile",
@@ -2238,7 +2260,6 @@ function App() {
 								onRelinkClone={relinkBotClone}
 								onSave={updateBot}
 								onUnlinkClone={unlinkBotClone}
-								ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
 								personalForum={activeBotBlogForum}
 								personalForumsLoaded={editingWorld ? hasOwn(forumsByWorld, editingWorld.handle) : false}
 								world={editingWorld}
@@ -2290,6 +2311,23 @@ function App() {
 							/>
 						:	<LoginScreen embedded status="Sign in to manage subscriptions." />
 					)}
+					{route === "inference-library" && (
+						currentUser ?
+							<InferenceLibraryScreen
+								onNavigate={(next) => navigate(next)}
+								{...(activeReturnTo ? { returnTo: activeReturnTo } : {})}
+							/>
+						:	<LoginScreen embedded status="Sign in to manage inference configurations." />
+					)}
+					{route === "inference-configuration" && (
+						currentUser && activeConfigurationId ?
+							<InferenceConfigurationEditorScreen
+								configurationId={activeConfigurationId}
+								onNavigate={(next) => navigate(next)}
+								{...(activeReturnTo ? { returnTo: activeReturnTo } : {})}
+							/>
+						:	<LoginScreen embedded status="Sign in to manage inference configurations." />
+					)}
 					{route === "human-profile" && activeHumanHandle && (
 						currentUser ?
 							<HumanProfileScreen
@@ -2327,19 +2365,13 @@ function App() {
 								}
 								fallbackAvatar={<Avatar actor="user" colorSeed={userProfile.handle} name={userProfile.displayName} size="hero" />}
 								onBack={() => navigate({ route: "profile" })}
-								onDiscardSettings={async () => Boolean(await updateProfile({ inferenceSettings: { imageGeneration: null } }))}
-								onSaveSettings={async (draft, language) =>
+								onSavePrompt={async (prompt, language) =>
 									Boolean(await updateProfile({
-										inferenceSettings: {
-											imageGeneration: imageGenerationInputFromDraft(
-												draft,
-												undefined,
-												language,
-											),
-										},
+										inferenceSettings: { imageGeneration: { prompt: localizedText(prompt, language) } },
 									}))
 								}
 								onSaved={applySavedUserProfile}
+								returnTo={{ route: "profile-avatar" }}
 								target={userAvatarTarget(userProfile)}
 							/>
 						:	<EmptyState title="Loading profile">

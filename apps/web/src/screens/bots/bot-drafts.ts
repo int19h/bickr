@@ -16,23 +16,10 @@ import { textLang } from "../../components/form-fields";
 import { languageDraftValue, languageInputValue } from "../../components/ui-text";
 import { defaultLanguageTag } from "../../language";
 import {
-	effectiveInferenceDraftBaseUrl,
-	effectiveInferenceDraftModel,
 	effectiveInferenceSettingsModel,
 	inferenceInheritanceContext,
-	inferenceFallbackContextForDraft,
-	inferenceFallbackContextForSettings,
 	numericDraftValue,
-	providerRoutingDraftFingerprintValue,
 } from "../../settings-drafts/common";
-import {
-	inferenceDefaultsForDraft,
-	inferenceDraftFromSettings,
-	inferenceInputFromDraft,
-	normalizeInferenceDraftForCapabilities,
-	type InferenceDraft,
-	type InferenceModelUnlockContext,
-} from "../../settings-drafts/inference-draft";
 import { toolInputFromDraft, type BotToolDraft } from "../../tool-settings-draft";
 import { textValue } from "../../ui";
 import { secondsToMinutes } from "./runtime-utils";
@@ -58,7 +45,8 @@ export type BotEditDraft = {
 	displayName: string;
 	shortBio: string;
 	prompt: string;
-	inference: InferenceDraft;
+	recurringPromptEnabled: boolean;
+	recurringPrompt: string;
 	tools: BotToolDraft;
 	threadBodyCharacters: string;
 	commentBodyCharacters: string;
@@ -155,6 +143,12 @@ export function isOpenRouterBaseUrlForTools(draftBaseUrl: string, inheritedBaseU
 	return isOpenRouterProviderBaseUrl(draftBaseUrl.trim() || inheritedBaseUrl?.trim() || "https://openrouter.ai/api/v1");
 }
 
+/**
+ * Identity of everything a computed context budget depends on. Provider and
+ * model inputs now come from the participant's inference configuration, so its
+ * fingerprint stands in for them: a configuration edit invalidates the cached
+ * budget without the editor resolving any inference value itself.
+ */
 export function botPromptBudgetRequestKey(
 	botId: string,
 	botHandle: string,
@@ -166,7 +160,8 @@ export function botPromptBudgetRequestKey(
 		displayName: string;
 		language: string;
 		includeLanguageInSystemPrompt: boolean;
-		inference: InferenceDraft;
+		recurringPromptEnabled: boolean;
+		recurringPrompt: string;
 		prompt: string;
 		worldPrompt: string;
 		commentBodyCharacters: string;
@@ -174,18 +169,14 @@ export function botPromptBudgetRequestKey(
 		threadBodyCharacters: string;
 		tools: BotToolDraft;
 	},
-	inherited?: InferenceModelUnlockContext | null,
+	inferenceFingerprint: string,
 ): string {
-	const inference = normalizeInferenceDraftForCapabilities(draft.inference, inherited);
 	return JSON.stringify({
 		botId,
-		baseUrl: effectiveInferenceDraftBaseUrl(inference, inherited),
-		compactionMode: inference.compactionMode,
-		credential: inferenceDraftCredentialState(inference, inherited),
 		displayName: draft.displayName,
 		language: draft.language,
 		includeLanguageInSystemPrompt: draft.includeLanguageInSystemPrompt,
-		model: effectiveInferenceDraftModel(inference, inherited),
+		inferenceFingerprint,
 		prompt: draft.prompt,
 		worldPrompt: draft.worldPrompt,
 		allowEarlyLogOff: draft.allowEarlyLogOff,
@@ -193,38 +184,15 @@ export function botPromptBudgetRequestKey(
 		compactionSummaryPercent: draft.compactionSummaryPercent.trim(),
 		contextWindowTokens: draft.contextWindowTokens.trim(),
 		commentBodyCharacters: draft.commentBodyCharacters.trim(),
-		providerRouting: providerRoutingDraftFingerprintValue(inference.providerRouting, inherited?.providerRouting),
 		recurringPrompt:
-			inference.recurringPromptEnabled ?
-				inference.recurringPrompt.trim() ? inference.recurringPrompt : defaultReasoningPrefill(botHandle)
+			draft.recurringPromptEnabled ?
+				draft.recurringPrompt.trim() ? draft.recurringPrompt : defaultReasoningPrefill(botHandle)
 			:	null,
-		recurringPromptEnabled: inference.recurringPromptEnabled,
-		reasoningEffort: inference.reasoningEffort,
-		supportsPrefill: inference.supportsPrefill,
-		toolCalls: inference.toolCalls,
+		recurringPromptEnabled: draft.recurringPromptEnabled,
 		shortBio: draft.shortBio,
 		threadBodyCharacters: draft.threadBodyCharacters.trim(),
 		tools: toolInputFromDraft(draft.tools),
 	});
-}
-
-export function inferenceDraftCredentialState(
-	draft: InferenceDraft,
-	inherited?: InferenceModelUnlockContext | null,
-): string {
-	if (draft.openRouterApiKey.trim()) {
-		return "draft";
-	}
-	if (draft.clearOpenRouterApiKey) {
-		return "cleared";
-	}
-	if (draft.openRouterApiKeySet) {
-		return "saved";
-	}
-	if (inherited?.apiKeySet || inherited?.openRouterApiKeySet || inherited?.openRouterApiKey?.trim()) {
-		return "inherited";
-	}
-	return "none";
 }
 
 export function includeLanguageInSystemPromptDraftFromStored(
@@ -254,7 +222,7 @@ export function effectiveIncludeLanguageInSystemPromptDraft(
 	return value === "inherit" ? inheritedValue === true : value === "include";
 }
 
-export function botEditDraftFromBot(bot: BotSummary, ownerInferenceSettings: BotInferenceSettings | null): BotEditDraft {
+export function botEditDraftFromBot(bot: BotSummary): BotEditDraft {
 	const profileOverrides = bot.localOverrides;
 	const linkedClone = Boolean(bot.cloneSource?.linked);
 	const inferenceSettings = botEditableInferenceSettings(bot);
@@ -270,10 +238,8 @@ export function botEditDraftFromBot(bot: BotSummary, ownerInferenceSettings: Bot
 		displayName: textValue(profileOverrides?.displayName ?? bot.displayName),
 		shortBio: textValue(profileOverrides?.shortBio ?? bot.shortBio),
 		prompt: textValue(profileOverrides?.prompt ?? bot.prompt ?? ""),
-		inference: inferenceDraftFromSettings(
-			inferenceSettings,
-			cloneAwareInferenceFallbackForSettings(bot, inferenceSettings, ownerInferenceSettings),
-		),
+		recurringPromptEnabled: inferenceSettings.recurringPromptEnabled !== false,
+		recurringPrompt: textValue(inferenceSettings.recurringPrompt ?? ""),
 		tools: toolDraftFromSettings(bot.toolSettings),
 		threadBodyCharacters: optionalNumberDraftValue(bot.postingSettings.threadBodyCharacters),
 		commentBodyCharacters: optionalNumberDraftValue(bot.postingSettings.commentBodyCharacters),
@@ -307,7 +273,6 @@ export function parseBotEditDraft(draft: BotEditDraft): BotEditParsedDraft {
 export function updateBotInputFromEditDraft(
 	draft: BotEditDraft,
 	parsed: BotEditParsedDraft,
-	inferenceInheritance: InferenceModelUnlockContext | undefined,
 	linkedClone: boolean,
 ): UpdateBotInput {
 	const language = languageInputValue(draft.language) ?? (linkedClone ? null : defaultLanguageTag);
@@ -320,7 +285,13 @@ export function updateBotInputFromEditDraft(
 		displayName: localizedText(draft.displayName, language),
 		shortBio: localizedText(draft.shortBio, language),
 		prompt: localizedText(draft.prompt, language),
-		inferenceSettings: inferenceInputFromDraft(draft.inference, inferenceInheritance, { includeReasoningPrefill: true }, language),
+		// Only the participant-owned recurring prompt travels here. Reusable
+		// inference fields live in the configuration graph, and an empty legacy
+		// mask leaves every graph field untouched.
+		inferenceSettings: {
+			recurringPromptEnabled: draft.recurringPromptEnabled,
+			recurringPrompt: draft.recurringPrompt.trim() ? localizedText(draft.recurringPrompt, language) : null,
+		},
 		toolSettings: toolInputFromDraft(draft.tools),
 		postingSettings: {
 			threadBodyCharacters: parsed.threadBodyCharacters,
@@ -359,113 +330,6 @@ export function createBotInputFromDraft(draft: BotDraft): CreateBotInput {
 
 export function botEditableInferenceSettings(bot: BotSummary): BotInferenceSettings {
 	return bot.localOverrides?.inferenceSettings ?? bot.inferenceSettings;
-}
-
-export function inferenceSettingsWithProviderConnectionFallback(
-	settings: BotInferenceSettings,
-	fallback?: BotInferenceSettings | null,
-): BotInferenceSettings {
-	const next = { ...settings };
-	if (!inferenceSettingsHasProviderCredential(next)) {
-		if (fallback?.openRouterApiKey) {
-			next.openRouterApiKey = fallback.openRouterApiKey;
-		}
-		if (fallback?.openRouterApiKeySet) {
-			next.openRouterApiKeySet = fallback.openRouterApiKeySet;
-		}
-	}
-	if (!next.baseUrl?.trim() && fallback?.baseUrl?.trim()) {
-		next.baseUrl = fallback.baseUrl;
-	}
-	return next;
-}
-
-export function inferenceSettingsWithCascadeFallback(
-	settings: BotInferenceSettings | null | undefined,
-	fallback?: BotInferenceSettings | null,
-): BotInferenceSettings | null | undefined {
-	if (!settings) {
-		return fallback;
-	}
-	if (settings.model?.trim()) {
-		return inferenceSettingsWithProviderConnectionFallback(settings, fallback);
-	}
-	return inferenceSettingsWithProviderConnectionFallback({ ...(fallback ?? {}), ...settings }, fallback);
-}
-
-export function inferenceSettingsHasProviderCredential(settings: BotInferenceSettings): boolean {
-	return Boolean(settings.openRouterApiKeySet || settings.openRouterApiKey?.trim());
-}
-
-export function cloneAwareInferenceInheritedSettingsForSettings(
-	bot: BotSummary,
-	settings: Pick<BotInferenceSettings, "model">,
-	ownerInferenceSettings?: BotInferenceSettings | null,
-): BotInferenceSettings | null | undefined {
-	return bot.cloneSource?.linked && !settings.model?.trim() ?
-			inferenceSettingsWithCascadeFallback(bot.inferenceSettings, ownerInferenceSettings)
-		:	ownerInferenceSettings;
-}
-
-export function cloneAwareInferenceFallbackForSettings(
-	bot: BotSummary,
-	settings: Pick<BotInferenceSettings, "model">,
-	ownerInferenceSettings?: BotInferenceSettings | null,
-): InferenceModelUnlockContext | undefined {
-	return inferenceFallbackContextForSettings(
-		settings,
-		cloneAwareInferenceInheritedSettingsForSettings(bot, settings, ownerInferenceSettings),
-	);
-}
-
-export function cloneAwareInferenceInheritedSettingsForDraft(
-	bot: BotSummary,
-	draft: Pick<InferenceDraft, "model">,
-	ownerInferenceSettings?: BotInferenceSettings | null,
-): BotInferenceSettings | null | undefined {
-	return bot.cloneSource?.linked && !draft.model.trim() ?
-			inferenceSettingsWithCascadeFallback(bot.inferenceSettings, ownerInferenceSettings)
-		:	ownerInferenceSettings;
-}
-
-export function cloneAwareInferenceFallbackForDraft(
-	bot: BotSummary,
-	draft: Pick<InferenceDraft, "model">,
-	ownerInferenceSettings?: BotInferenceSettings | null,
-): InferenceModelUnlockContext | undefined {
-	return inferenceFallbackContextForDraft(
-		draft,
-		cloneAwareInferenceInheritedSettingsForDraft(bot, draft, ownerInferenceSettings),
-	);
-}
-
-export function rebaseInferenceDraftForFallbackChange(
-	previous: InferenceDraft,
-	next: InferenceDraft,
-	previousFallback: InferenceModelUnlockContext | undefined,
-	nextFallback: InferenceModelUnlockContext | undefined,
-): InferenceDraft {
-	const previousDefaults = inferenceDefaultsForDraft(previous, previousFallback);
-	const nextDefaults = inferenceDefaultsForDraft(next, nextFallback);
-	return {
-		...next,
-		compactionMode: next.compactionMode === previousDefaults.compactionMode ? nextDefaults.compactionMode : next.compactionMode,
-		supportsPrefill: next.supportsPrefill === previousDefaults.supportsPrefill ? nextDefaults.supportsPrefill : next.supportsPrefill,
-		reasoningEffort: next.reasoningEffort === previousDefaults.reasoningEffort ? nextDefaults.reasoningEffort : next.reasoningEffort,
-		toolCalls: next.toolCalls === previousDefaults.toolCalls ? nextDefaults.toolCalls : next.toolCalls,
-	};
-}
-
-export function effectiveNumberPlaceholder(value: number | undefined, fallback: number): string {
-	return String(value ?? fallback);
-}
-
-export function effectiveOptionalNumberPlaceholder(value: number | undefined): string {
-	return value === undefined ? "default" : String(value);
-}
-
-export function providerRoutingPlaceholderForInheritance(inherited?: InferenceModelUnlockContext | null): string {
-	return inherited?.providerRouting ? JSON.stringify(inherited.providerRouting, null, 2) : providerRoutingPlaceholder;
 }
 
 export function effectiveBotModel(bot: BotSummary, inherited?: BotInferenceSettings | null): string {

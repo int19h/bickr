@@ -2,13 +2,13 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
 	localizedTextString,
 	type AvatarImage,
-	type BotInferenceSettings,
-	type BotInferenceSettingsInput,
 	type BotSummary,
 	type LanguageTag,
 } from "@bickr/shared/model";
 
 import { api, apiResponseErrorMessage } from "../api";
+import { ConfigurationLinkCard, useFixedConfiguration } from "../inference/links";
+import type { InferenceReturnTarget } from "../routes";
 import {
 	applyAvatarGenerationStreamEvent,
 	readAvatarGenerationEventStream,
@@ -18,33 +18,13 @@ import { avatarPreviewUrl } from "../avatar-image-urls";
 import { normalizeReadableText } from "../reasoning-formatting";
 import { FallbackImage, ImageLightbox } from "../ui";
 import { runApiAction, useApiQuery } from "../use-api";
-import type { AvatarPromptFillMode, AvatarTarget, AvatarTextPromptFillMode } from "./target";
+import type { AvatarPromptFillMode, AvatarTarget } from "./target";
 
 export type OpenRouterImageModel = {
 	id: string;
 	inputModalities: string[];
 	name: string;
 	outputModalities: string[];
-};
-
-export type AvatarGenerationDraftAdapter<TDraft> = {
-	configError(draft: TDraft): string;
-	fromSettings(settings: BotInferenceSettings): TDraft;
-	imageGenerationInput(draft: TDraft, prompt: string, language: LanguageTag | null): BotInferenceSettingsInput["imageGeneration"];
-	model(draft: TDraft): string;
-	providerRoutingError(draft: TDraft): string;
-	renderAdvancedFields(draft: TDraft, onChange: (draft: TDraft) => void): ReactNode;
-	renderBasicFields(draft: TDraft, models: OpenRouterImageModel[], onChange: (draft: TDraft) => void): ReactNode;
-	withPrompt(draft: TDraft, prompt: string): TDraft;
-};
-
-type PromptFillSettingsModalProps = {
-	error: string;
-	initialSettings: BotInferenceSettings | null;
-	loading: boolean;
-	mode: AvatarTextPromptFillMode | null;
-	onClose: () => void;
-	onGenerate: (settings: BotInferenceSettingsInput) => void;
 };
 
 function throwApiError(message: string): never {
@@ -107,51 +87,43 @@ function AvatarGenerationChatLog({ entries }: { entries: AvatarGenerationChatEnt
 	);
 }
 
-export type AvatarGenerationScreenProps<TDraft, TMutationResponse, TSaved> = {
-	adapter: AvatarGenerationDraftAdapter<TDraft>;
+export type AvatarGenerationScreenProps<TMutationResponse, TSaved> = {
 	breadcrumb: ReactNode;
 	fallbackAvatar: ReactNode;
 	membersPrompt?: { available: boolean; title: string };
 	onBack: () => void;
-	onDiscardSettings: () => Promise<boolean>;
-	// Settings-only saves go to the entity PATCH endpoints, which validate
+	// Prompt-only saves go to the entity PATCH endpoints, which validate
 	// localized text against the language carried in the same request body —
 	// these saves carry none, so localized fields must be stamped null. Only
 	// the generation/apply payloads (validated by the avatar endpoints against
 	// the entity's effective language chain) use target.owner.language.
-	onSaveSettings: (draft: TDraft, language: LanguageTag | null) => Promise<boolean>;
+	onSavePrompt: (prompt: string, language: LanguageTag | null) => Promise<boolean>;
 	onSaved: (saved: TSaved, affectedBots?: BotSummary[]) => void;
-	renderPromptFillSettingsModal?: (props: PromptFillSettingsModalProps) => ReactNode;
+	returnTo: InferenceReturnTarget;
 	target: AvatarTarget<TMutationResponse, TSaved>;
 };
 
-export function AvatarGenerationScreen<TDraft, TMutationResponse, TSaved>({
-	adapter,
+export function AvatarGenerationScreen<TMutationResponse, TSaved>({
 	breadcrumb,
 	fallbackAvatar,
 	membersPrompt,
 	onBack,
-	onDiscardSettings,
-	onSaveSettings,
+	onSavePrompt,
 	onSaved,
-	renderPromptFillSettingsModal,
+	returnTo,
 	target,
-}: AvatarGenerationScreenProps<TDraft, TMutationResponse, TSaved>) {
-	const initialSettings = target.generation.defaultSettings;
-	const [draft, setDraft] = useState<TDraft>(() => adapter.fromSettings(initialSettings));
+}: AvatarGenerationScreenProps<TMutationResponse, TSaved>) {
+	// Image inference is not editable here: the canonical resolved settings for
+	// this target come from its configuration and are shown read-only.
+	const configuration = useFixedConfiguration(target.generation.configuration);
 	const modelsQuery = useApiQuery<{ models: OpenRouterImageModel[] }>("/api/openrouter/image-models", []);
-	const promptSettingsQuery = useApiQuery<{ settings: BotInferenceSettings }>(
-		target.endpoints.promptSettings,
-		[target.endpoints.promptSettings],
-	);
 	const models = modelsQuery.data?.models ?? [];
-	const [prompt, setPrompt] = useState(localizedTextString(initialSettings.imageGeneration?.prompt));
+	const [prompt, setPrompt] = useState(target.generation.prompt);
 	const [includeCurrentAvatar, setIncludeCurrentAvatar] = useState(Boolean(target.owner.avatarUrl));
 	const [candidate, setCandidate] = useState<AvatarImage | null>(null);
 	const [chatEntries, setChatEntries] = useState<AvatarGenerationChatEntry[]>([]);
 	const [generating, setGenerating] = useState(false);
 	const [activePromptFill, setActivePromptFill] = useState<AvatarPromptFillMode | null>(null);
-	const [pendingPromptFill, setPendingPromptFill] = useState<AvatarTextPromptFillMode | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [message, setMessage] = useState("");
 	const [error, setError] = useState("");
@@ -160,18 +132,17 @@ export function AvatarGenerationScreen<TDraft, TMutationResponse, TSaved>({
 	const generationAbortRef = useRef<AbortController | null>(null);
 	const promptFillAbortRef = useRef<AbortController | null>(null);
 	const language = target.owner.language;
+	const effectiveImage = configuration.configuration?.imagePreviews[target.generation.imageTarget];
 
 	useEffect(() => {
-		const effectiveSettings = target.generation.defaultSettings;
-		setDraft(adapter.fromSettings(effectiveSettings));
-		setPrompt(localizedTextString(effectiveSettings.imageGeneration?.prompt));
+		setPrompt(target.generation.prompt);
 		setIncludeCurrentAvatar(Boolean(target.owner.avatarUrl));
 		setCurrentAvatarFailed(false);
 		setCandidate(null);
 		setChatEntries([]);
 		setMessage("");
 		setError("");
-	}, [adapter, target.generation.settingsKey, target.owner.avatarUrl, target.owner.key]);
+	}, [target.generation.prompt, target.owner.avatarUrl, target.owner.key]);
 
 	useEffect(() => {
 		return () => {
@@ -180,7 +151,7 @@ export function AvatarGenerationScreen<TDraft, TMutationResponse, TSaved>({
 		};
 	}, []);
 
-	const selectedModel = models.find((model) => model.id === adapter.model(draft));
+	const selectedModel = models.find((model) => model.id === effectiveImage?.model);
 	const selectedSupportsImageInput = Boolean(selectedModel?.inputModalities.includes("image"));
 	const selectedSupportsTextOutput = Boolean(selectedModel?.outputModalities.includes("text"));
 	const currentAvatarAvailable = Boolean(target.owner.avatarUrl && !currentAvatarFailed);
@@ -192,28 +163,19 @@ export function AvatarGenerationScreen<TDraft, TMutationResponse, TSaved>({
 		setIncludeCurrentAvatar(true);
 	}, [currentAvatarAvailable, selectedSupportsImageInput]);
 
-	const model = adapter.model(draft);
+	const model = effectiveImage?.model ?? "";
 	const promptAllowed = prompt.trim().length > 0 || (includeCurrentAvatar && currentAvatarAvailable);
-	const imageProviderRoutingError = adapter.providerRoutingError(draft);
-	const imageConfigError = adapter.configError(draft);
-	const generationSettingsError = modelsQuery.error || imageProviderRoutingError || imageConfigError;
+	const generationSettingsError = modelsQuery.error;
 	const candidateCost = generatedAvatarCost(candidate);
 	const promptFillActive = activePromptFill !== null;
 	const currentAvatarPromptFillAvailable = Boolean(
 		!prompt.trim() &&
 		currentAvatarAvailable &&
-		model.trim() &&
+		model &&
 		selectedSupportsImageInput &&
-		selectedSupportsTextOutput &&
-		!imageProviderRoutingError &&
-		!imageConfigError,
+		selectedSupportsTextOutput,
 	);
-	const canGenerate = Boolean(model.trim()) &&
-		promptAllowed &&
-		!imageProviderRoutingError &&
-		!imageConfigError &&
-		!generating &&
-		!promptFillActive;
+	const canGenerate = Boolean(model) && promptAllowed && !generating && !promptFillActive;
 
 	function promptFillAvailable(mode: AvatarPromptFillMode): boolean {
 		const option = target.generation.promptFillOptions.find((item) => item.mode === mode);
@@ -226,23 +188,22 @@ export function AvatarGenerationScreen<TDraft, TMutationResponse, TSaved>({
 		return true;
 	}
 
-	async function fillPrompt(mode: AvatarPromptFillMode, promptSettings?: BotInferenceSettingsInput): Promise<void> {
+	async function fillPrompt(mode: AvatarPromptFillMode): Promise<void> {
 		const controller = new AbortController();
 		promptFillAbortRef.current = controller;
 		setActivePromptFill(mode);
-		setPendingPromptFill(null);
 		setChatEntries([]);
 		setError("");
 		setMessage("");
 		let streamError = "";
 		let finalPrompt = "";
 		try {
+			// No `settings` bundle: prompt fill resolves inference from the target's
+			// own configuration on the server.
 			const textMode = mode === "persona" || mode === "description" || mode === "members";
 			const body = {
 				mode,
 				...(textMode && prompt.trim() ? { prefill: prompt } : {}),
-				...(textMode && promptSettings ? { settings: promptSettings } : {}),
-				...(mode === "current_avatar" ? { settings: adapter.imageGenerationInput(draft, prompt, language) } : {}),
 			};
 			const response = await fetch(target.endpoints.prompt, {
 				method: "POST",
@@ -296,11 +257,7 @@ export function AvatarGenerationScreen<TDraft, TMutationResponse, TSaved>({
 			const response = await fetch(target.endpoints.generate, {
 				method: "POST",
 				headers: { accept: "text/event-stream", "content-type": "application/json" },
-				body: JSON.stringify({
-					prompt,
-					includeCurrentAvatar,
-					settings: adapter.imageGenerationInput(draft, prompt, language),
-				}),
+				body: JSON.stringify({ prompt, includeCurrentAvatar }),
 				signal: controller.signal,
 			});
 			if (!response.ok || !response.headers.get("content-type")?.includes("text/event-stream")) {
@@ -352,35 +309,24 @@ export function AvatarGenerationScreen<TDraft, TMutationResponse, TSaved>({
 				const promptToSave = candidate.source?.type === "generated" && candidate.source.prompt ? candidate.source.prompt : prompt;
 				const result = await runApiAction(throwApiError, () => api<TMutationResponse>(target.endpoints.apply, {
 					method: "POST",
-					body: {
-						candidate,
-						settings: adapter.imageGenerationInput(draft, promptToSave, language),
-					},
+					// Only the entity-owned image prompt is persisted with the avatar;
+					// reusable image inference stays in the configuration graph.
+					body: { candidate, settings: { prompt: { lang: language, text: promptToSave } } },
 				}));
 				const saved = target.readSaved(result.data);
 				onSaved(saved.saved, saved.affectedBots);
 				setCandidate(null);
 				setMessage("Avatar saved.");
 			} else {
-				const ok = await onSaveSettings(adapter.withPrompt(draft, prompt), null);
+				const ok = await onSavePrompt(prompt, null);
 				if (ok) {
-					setMessage("Image generation settings saved.");
+					setMessage("Image prompt saved.");
 				}
 			}
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : "Could not save avatar.");
 		} finally {
 			setSaving(false);
-		}
-	}
-
-	async function discard(): Promise<void> {
-		const ok = await onDiscardSettings();
-		if (ok) {
-			const effectiveSettings = target.generation.resetSettings;
-			setDraft(adapter.fromSettings(effectiveSettings));
-			setPrompt(localizedTextString(effectiveSettings.imageGeneration?.prompt));
-			setMessage(target.uiText.discardedSettings);
 		}
 	}
 
@@ -394,31 +340,46 @@ export function AvatarGenerationScreen<TDraft, TMutationResponse, TSaved>({
 				</div>
 				<div className="actions">
 					<button className="btn ghost" onClick={onBack} type="button">Back</button>
-					<button className="btn primary" disabled={saving || Boolean(imageProviderRoutingError) || Boolean(imageConfigError) || (!candidate && !model.trim())} onClick={() => void save()} type="button">
+					<button className="btn primary" disabled={saving || (!candidate && !model)} onClick={() => void save()} type="button">
 						{saving ? "Saving..." : "Save"}
 					</button>
 				</div>
 			</div>
+			<ConfigurationLinkCard
+				description={
+					target.generation.imageTarget === "world"
+						? "World avatars use this configuration's resolved image fields, with world image defaults applied after resolution."
+						: "This avatar uses the configuration's resolved image fields, with participant image defaults applied after resolution."
+				}
+				returnTo={returnTo}
+				state={configuration}
+				title="Image inference configuration"
+			/>
 			<section className="section">
 				<div className="section-head">
 					<h2>Image Generation</h2>
-					<button className="btn ghost compact" disabled={saving || !target.generation.hasOwnSettings} onClick={() => void discard()} type="button">Reset</button>
+					<span className="meta">resolved by the linked configuration</span>
 				</div>
 				{generationSettingsError && <div className="runtime-message error">{generationSettingsError}</div>}
-				{adapter.renderBasicFields(draft, models, setDraft)}
-				<details className="advanced-panel">
-					<summary>
-						<span className="advanced-panel-summary">
-							<span className="advanced-panel-chevron">
-								<svg fill="none" height={14} stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} viewBox="0 0 24 24" width={14}>
-									<path d="m9 6 6 6-6 6" />
-								</svg>
-							</span>
-							<span>Advanced generation parameters</span>
-						</span>
-					</summary>
-					<div className="advanced-panel-body">{adapter.renderAdvancedFields(draft, setDraft)}</div>
-				</details>
+				<div className="card runtime-card avatar-effective-image">
+					<div className="runtime-row">
+						<span className="label">Model</span>
+						<span className="value">{effectiveImage?.model ?? "no image model resolved"}</span>
+					</div>
+					<div className="runtime-row">
+						<span className="label">Aspect ratio</span>
+						<span className="value">{effectiveImage?.aspectRatio ?? "provider default"}</span>
+					</div>
+					<div className="runtime-row">
+						<span className="label">Image size</span>
+						<span className="value">{effectiveImage?.imageSize ?? "provider default"}</span>
+					</div>
+				</div>
+				{!model && !configuration.loading && (
+					<div className="runtime-message">
+						Choose an image model in the linked configuration before generating an avatar.
+					</div>
+				)}
 				<div className="field avatar-prompt-field">
 					<div className="avatar-prompt-head">
 						<label htmlFor={target.uiText.promptId}>Prompt</label>
@@ -434,15 +395,7 @@ export function AvatarGenerationScreen<TDraft, TMutationResponse, TSaved>({
 										className={`btn compact ${active ? "danger" : "ghost"}`}
 										disabled={active ? false : generating || promptFillActive || !available}
 										key={option.mode}
-										onClick={() => {
-											if (active) {
-												abortPromptFill();
-											} else if (option.settingsDialog) {
-												setPendingPromptFill(option.mode);
-											} else {
-												void fillPrompt(option.mode);
-											}
-										}}
+										onClick={() => (active ? abortPromptFill() : void fillPrompt(option.mode))}
 										title={option.requirement === "members" ? membersPrompt?.title : undefined}
 										type="button"
 									>
@@ -507,14 +460,6 @@ export function AvatarGenerationScreen<TDraft, TMutationResponse, TSaved>({
 				</div>
 			</section>
 			<AvatarGenerationChatLog entries={chatEntries} />
-			{renderPromptFillSettingsModal?.({
-				error: promptSettingsQuery.error,
-				initialSettings: promptSettingsQuery.data?.settings ?? null,
-				loading: promptSettingsQuery.loading,
-				mode: pendingPromptFill,
-				onClose: () => setPendingPromptFill(null),
-				onGenerate: (settings) => pendingPromptFill ? void fillPrompt(pendingPromptFill, settings) : undefined,
-			})}
 			<ImageLightbox onClose={() => setLightboxUrl(null)} title={localizedTextString(target.owner.displayName)} url={lightboxUrl} />
 		</div>
 	);

@@ -58,6 +58,13 @@ export type HoverTooltipContextValue = {
 
 export type TranslationContextValue = {
 	enabled: boolean;
+	/**
+	 * Opaque identity of the resolved translation inference. It covers the
+	 * selected configuration and its effective revision fingerprint, so cached
+	 * translations cannot survive an inherited routing, reasoning, or sampling
+	 * change that leaves the model and prompt untouched.
+	 */
+	identity: string;
 	model: string;
 	prompt: string;
 };
@@ -78,6 +85,7 @@ export const HoverTooltipContext = createContext<HoverTooltipContextValue>({
 });
 export const TranslationContext = createContext<TranslationContextValue>({
 	enabled: false,
+	identity: "",
 	model: "",
 	prompt: defaultTranslationPrompt,
 });
@@ -660,7 +668,7 @@ export function TranslatableText({
 	const sourceLang = typeof text === "string" ? null : localizedTextLang(text);
 	const cacheKey =
 		translationConfig.enabled && sourceText.trim() ?
-			translationCacheKey(sourceText, translationConfig.model, translationConfig.prompt)
+			translationCacheKey(sourceText, translationConfig.identity, translationConfig.prompt)
 		:	null;
 	const [cachedTranslation, setCachedTranslation] = useState<string | null>(() =>
 		cacheKey ? readTranslationCacheValue(cacheKey) : null,
@@ -984,8 +992,8 @@ function appendVerticalScriptText(
 	}
 }
 
-function translationCacheKey(text: string, model: string, prompt: string): string {
-	return `${translationCacheVersion}:${hash(`${model}\n${prompt}\n${text}`)}:${text.length}`;
+function translationCacheKey(text: string, identity: string, prompt: string): string {
+	return `${translationCacheVersion}:${hash(`${identity}\n${prompt}\n${text}`)}:${text.length}`;
 }
 
 function readTranslationCacheValue(key: string): string | null {

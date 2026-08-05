@@ -113,6 +113,10 @@ async function pageMetadataForRoute(env: AppEnv, request: Request, route: Parsed
 			return privateUserMetadata(env, request, "profile", "Profile and account settings.");
 		case "profile-avatar":
 			return privateUserMetadata(env, request, "profile", "Profile avatar settings.");
+		case "inference-library":
+			return privateUserMetadata(env, request, "inference library", "Reusable inference configurations for your account.");
+		case "inference-configuration":
+			return privateUserMetadata(env, request, "inference configuration", "Reusable inference configuration settings.");
 		case "human-profile":
 			return humanMetadata(env, route);
 		case "search":
@@ -220,10 +224,18 @@ async function humanMetadata(env: AppEnv, route: ParsedRoute): Promise<PageMetad
 	return humanProfileMetadata(profile);
 }
 
+type PrivateUserSection =
+	| "bots"
+	| "notifications"
+	| "profile"
+	| "subscriptions"
+	| "inference library"
+	| "inference configuration";
+
 async function privateUserMetadata(
 	env: AppEnv,
 	request: Request,
-	section: "bots" | "notifications" | "profile" | "subscriptions",
+	section: PrivateUserSection,
 	fallbackDescription: string,
 ): Promise<PageMetadataCore> {
 	const user = await currentUser(env, request);
@@ -301,7 +313,7 @@ function worldTabDescription(world: WorldMetadataRow, tab: string): string {
 	return descriptionText(world.description, `${countLabel(world.forumCount, "forum")} in w/${world.handle}.`);
 }
 
-function privateUserDescription(user: Pick<PublicUser, "handle">, section: "bots" | "notifications" | "profile" | "subscriptions"): string {
+function privateUserDescription(user: Pick<PublicUser, "handle">, section: PrivateUserSection): string {
 	if (section === "bots") {
 		return `Participants owned by hu/${user.handle}.`;
 	}
@@ -310,6 +322,12 @@ function privateUserDescription(user: Pick<PublicUser, "handle">, section: "bots
 	}
 	if (section === "subscriptions") {
 		return `Watched activity subscriptions for hu/${user.handle}.`;
+	}
+	if (section === "inference library") {
+		return `Reusable inference configurations for hu/${user.handle}.`;
+	}
+	if (section === "inference configuration") {
+		return `Reusable inference configuration settings for hu/${user.handle}.`;
 	}
 	return `Profile and account settings for hu/${user.handle}.`;
 }

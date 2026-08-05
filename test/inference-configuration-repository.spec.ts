@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import {
-	accountDefaultConfigurationId,
 	accountConfigurationDeletionStatements,
 	listInferenceLibrarySection,
 	parseInferenceConfigurationKinds,
@@ -21,6 +20,9 @@ import {
 	loadInternalInferenceConfigurationPath,
 	readTranslationSelection,
 } from "@bickr/shared/inference-configuration-repository";
+import {
+	accountDefaultConfigurationId,
+} from "@bickr/shared/inference-configuration-owner";
 import type { D1DatabaseLike } from "@bickr/shared/storage";
 import { resetD1Schema } from "./helpers/d1-schema";
 

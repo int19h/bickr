@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeLoggedOutRoute, parsePathname, routePath } from "./routes";
+import { inferenceReturnTargetFromPath, normalizeLoggedOutRoute, parsePathname, routePath } from "./routes";
 
 describe("routes", () => {
 	it("parses short comment routes without falling back to worlds", () => {
@@ -44,8 +44,51 @@ describe("routes", () => {
 		expect(routePath(avatarRoute)).toBe("/w/patch-notes/avatar");
 	});
 
+	it("parses the inference library and configuration routes", () => {
+		const library = parsePathname("/me/inference");
+		expect(library).toEqual({ route: "inference-library" });
+		expect(routePath(library)).toBe("/me/inference");
+
+		const editor = parsePathname("/me/inference/cfg_abc");
+		expect(editor).toEqual({ route: "inference-configuration", configurationId: "cfg_abc" });
+		expect(routePath(editor)).toBe("/me/inference/cfg_abc");
+	});
+
+	it("round-trips a safe return target and drops an unsafe one", () => {
+		const withReturn = parsePathname("/me/inference/cfg_abc", "?from=%2Fw%2Fpatch-notes%2Fedit");
+		expect(withReturn.returnTo).toEqual({ route: "world-edit", worldHandle: "patch-notes" });
+		expect(routePath(withReturn)).toBe("/me/inference/cfg_abc?from=%2Fw%2Fpatch-notes%2Fedit");
+
+		for (const unsafe of [
+			"https://evil.example/steal",
+			"//evil.example/steal",
+			"/w/patch-notes",
+			"/me/bots",
+			"javascript:alert(1)",
+			"",
+		]) {
+			expect(inferenceReturnTargetFromPath(unsafe)).toBeNull();
+		}
+		expect(parsePathname("/me/inference", "?from=https%3A%2F%2Fevil.example").returnTo).toBeUndefined();
+	});
+
+	it("accepts every owner screen that links into the library", () => {
+		for (const path of [
+			"/me/profile",
+			"/me/profile/avatar",
+			"/w/patch-notes/edit",
+			"/w/patch-notes/avatar",
+			"/w/patch-notes/u/release-sage/edit",
+			"/w/patch-notes/u/release-sage/avatar",
+		]) {
+			const target = inferenceReturnTargetFromPath(path);
+			expect(target).not.toBeNull();
+			expect(routePath(target!)).toBe(path);
+		}
+	});
+
 	it("normalizes logged-out account routes to the public worlds route", () => {
-		for (const pathname of ["/me/bots", "/me/notifications", "/me/subscriptions", "/statistics/inference-costs", "/me/profile", "/me/profile/avatar", "/hu/alice"]) {
+		for (const pathname of ["/me/bots", "/me/notifications", "/me/subscriptions", "/statistics/inference-costs", "/me/profile", "/me/profile/avatar", "/hu/alice", "/me/inference", "/me/inference/cfg_abc"]) {
 			const normalized = normalizeLoggedOutRoute(parsePathname(pathname));
 			expect(normalized.route).toEqual({ route: "worlds" });
 			expect(routePath(normalized.route)).toBe("/");

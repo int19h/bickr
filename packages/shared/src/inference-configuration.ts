@@ -25,6 +25,13 @@ import {
 	type BotPromptCacheMode,
 	type JsonObject,
 } from "./model";
+import {
+	inferenceConfigurationFields,
+	inferenceFieldOverrideStates,
+	numericInferenceFieldDomains,
+	type InferenceFieldOverrideStates,
+	type NumericInferenceConfigurationField,
+} from "./inference-configuration-owner";
 import { isOpenRouterProviderBaseUrl } from "./inference-settings";
 import { sha256Hex } from "./ids";
 
@@ -571,36 +578,6 @@ export async function inferenceResolutionFingerprint(
 	return sha256Hex(canonicalJson(fingerprintInput));
 }
 
-export const inferenceConfigurationFields = [
-	"baseUrl",
-	"model",
-	"providerRouting",
-	"reasoning",
-	"compactionReasoning",
-	"toolCalls",
-	"compactionMode",
-	"promptCacheMode",
-	"supportsPrefill",
-	"temperature",
-	"topK",
-	"topP",
-	"minP",
-	"frequencyPenalty",
-	"presencePenalty",
-	"repetitionPenalty",
-	"imageModel",
-	"imageProviderRouting",
-	"imageAspectRatio",
-	"imageSize",
-	"imageTemperature",
-	"imageTopK",
-	"imageTopP",
-	"imageMinP",
-	"imageFrequencyPenalty",
-	"imagePresencePenalty",
-	"imageRepetitionPenalty",
-] as const satisfies readonly InferenceConfigurationField[];
-
 export function inferenceFieldAnnotations(
 	selectedOverrides: InferenceConfigurationOverrides,
 	resolution: InferenceResolution,
@@ -696,16 +673,15 @@ function normalizedRawRequest(
 }
 
 const inferenceConfigurationFieldSet = new Set<string>(inferenceConfigurationFields);
-const valueOnlyFields = new Set<InferenceConfigurationField>([
-	"baseUrl", "model", "reasoning", "compactionReasoning", "toolCalls", "compactionMode", "promptCacheMode",
-]);
-const explicitNoneFields = new Set<InferenceConfigurationField>(
-	inferenceConfigurationFields.filter((field) => !valueOnlyFields.has(field)),
-);
-const imageTargetDefaultFields = new Set<InferenceConfigurationField>([
-	"imageModel", "imageAspectRatio", "imageSize",
-]);
-const accountDefaultResumableFields = new Set<InferenceConfigurationField>(["baseUrl"]);
+// The parser and every owner editor read the same capability table, so a state
+// an editor can offer is exactly a state this parser accepts.
+const explicitNoneFields = overrideStateFields("explicitNone");
+const imageTargetDefaultFields = overrideStateFields("targetDefault");
+const accountDefaultResumableFields = overrideStateFields("accountDefault");
+
+function overrideStateFields(state: keyof InferenceFieldOverrideStates): Set<InferenceConfigurationField> {
+	return new Set(inferenceConfigurationFields.filter((field) => inferenceFieldOverrideStates[field][state]));
+}
 
 function resolveRawInferenceFields(
 	path: InferenceConfigurationPath,
@@ -975,7 +951,7 @@ function parseFieldValue<K extends InferenceConfigurationField>(
 		return value.trim() as InferenceConfigurationFieldValues[K];
 	}
 	if (numberFields.has(field)) {
-		const domain = numericFieldDomains[field as NumericInferenceConfigurationField];
+		const domain = numericInferenceFieldDomains[field as NumericInferenceConfigurationField];
 		if (typeof value !== "number" || !Number.isFinite(value) || value < domain.min || value > domain.max ||
 			domain.integer && !Number.isSafeInteger(value)) {
 			throw invalidOverride(field);
@@ -1100,30 +1076,9 @@ function canonicalJsonValue(value: unknown): unknown {
 const stringFields = new Set<InferenceConfigurationField>([
 	"baseUrl", "model", "imageModel", "imageAspectRatio", "imageSize",
 ]);
-const numberFields = new Set<InferenceConfigurationField>([
-	"temperature", "topK", "topP", "minP", "frequencyPenalty", "presencePenalty", "repetitionPenalty",
-	"imageTemperature", "imageTopK", "imageTopP", "imageMinP", "imageFrequencyPenalty", "imagePresencePenalty", "imageRepetitionPenalty",
-]);
-type NumericInferenceConfigurationField =
-	| "temperature" | "topK" | "topP" | "minP" | "frequencyPenalty" | "presencePenalty" | "repetitionPenalty"
-	| "imageTemperature" | "imageTopK" | "imageTopP" | "imageMinP"
-	| "imageFrequencyPenalty" | "imagePresencePenalty" | "imageRepetitionPenalty";
-const numericFieldDomains: Record<NumericInferenceConfigurationField, { min: number; max: number; integer: boolean }> = {
-	temperature: { min: 0, max: 2, integer: false },
-	topK: { min: 0, max: 10_000, integer: false },
-	topP: { min: 0, max: 1, integer: false },
-	minP: { min: 0, max: 1, integer: false },
-	frequencyPenalty: { min: -2, max: 2, integer: false },
-	presencePenalty: { min: -2, max: 2, integer: false },
-	repetitionPenalty: { min: 0, max: 2, integer: false },
-	imageTemperature: { min: 0, max: 2, integer: false },
-	imageTopK: { min: 0, max: 10_000, integer: false },
-	imageTopP: { min: 0, max: 1, integer: false },
-	imageMinP: { min: 0, max: 1, integer: false },
-	imageFrequencyPenalty: { min: -2, max: 2, integer: false },
-	imagePresencePenalty: { min: -2, max: 2, integer: false },
-	imageRepetitionPenalty: { min: 0, max: 2, integer: false },
-};
+const numberFields = new Set<InferenceConfigurationField>(
+	Object.keys(numericInferenceFieldDomains) as NumericInferenceConfigurationField[],
+);
 const jsonFields = new Set<InferenceConfigurationField>(["providerRouting", "imageProviderRouting"]);
 const compactionEfforts = new Set<unknown>(["minimal", "low", "medium", "high", "xhigh"]);
 const toolCallStrategies = new Set<unknown>(["require", "railroad", "at_will"]);

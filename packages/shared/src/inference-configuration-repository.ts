@@ -1,11 +1,35 @@
 import { isD1UniqueConstraintError } from "./d1-errors";
 import { deterministicId, makeId } from "./ids";
 import {
+	accountDefaultConfigurationId,
+	inferenceConfigurationFields,
+	inferenceLibrarySections,
+	redactedOwnerDtoBrand,
+	type CredentialUpdate,
+	type InferenceBotHomeWorldGroup,
+	type InferenceConfigurationEntryIdentity,
+	type InferenceConfigurationIdentity,
+	type InferenceConfigurationPage,
+	type InferenceConfigurationSummary,
+	type InferenceDeleteImpact,
+	type InferenceEffectiveCredentialAvailability,
+	type InferenceImmediateChildrenPage,
+	type InferenceImpactChangeCounts,
+	type InferenceImpactWarning,
+	type InferenceLibraryPage,
+	type InferenceLibrarySection,
+	type InferenceParentImpact,
+	type ParentCandidatePage,
+	type RedactedInferenceConfigurationDto,
+	type RedactedInferenceCredentialResolution,
+	type RedactedInferenceFieldDtoMap,
+	type TranslationSelection,
+} from "./inference-configuration-owner";
+import {
 	applyInferenceOverridePatch,
 	assertInferenceOverridesAllowedForKind,
 	InferenceConfigurationDataError,
 	inferenceConfigurationCorruptionSentinel,
-	inferenceConfigurationFields,
 	inferenceConfigurationOwnerQuota,
 	inferenceFieldAnnotations,
 	inferenceResolutionFingerprint,
@@ -13,39 +37,23 @@ import {
 	parseInferenceConfigurationOverrides,
 	resolveInferenceConfiguration,
 	resolveImageSettingsForTarget,
-	type EffectiveImageSettings,
 	type InferenceConfigurationCredential,
-	type InferenceConfigurationField,
 	type InferenceConfigurationKind,
 	type InferenceConfigurationNode,
 	type InferenceConfigurationOverridePatch,
 	type InferenceConfigurationOverrides,
 	type InferenceConfigurationPath,
-	type InferenceFieldAdjustment,
 	type InferenceCredentialMode,
 	type InferenceCredentialResolution,
-	type InferenceCredentialUnavailableReason,
-	type InferenceOverrideUpdate,
 	type InferenceSource,
 	type BickrInferenceDefaults,
 } from "./inference-configuration";
+import type { InferenceGraphConflictCause } from "./model";
 import { RepositoryError } from "./repository";
 import type { D1DatabaseLike, D1PreparedStatementLike } from "./storage";
 
 const maximumPageSize = 100;
 const defaultPageSize = 50;
-
-export type InferenceGraphConflictCause =
-	| "stale_revision"
-	| "duplicate_name"
-	| "quota_exceeded"
-	| "self_parent"
-	| "descendant_parent"
-	| "cross_owner"
-	| "invalid_parent"
-	| "fixed_entry_requires_lifecycle"
-	| "account_default_required"
-	| "unexpected_unique_conflict";
 
 export class InferenceGraphRepositoryError extends RepositoryError {
 	readonly causeKind: InferenceGraphConflictCause | "corrupt_graph";
@@ -55,7 +63,14 @@ export class InferenceGraphRepositoryError extends RepositoryError {
 		message: string,
 		status: 400 | 409 | 500 = causeKind === "corrupt_graph" ? 500 : 409,
 	) {
-		super(status === 500 ? "server_error" : status === 400 ? "bad_request" : "conflict", message, status);
+		// The cause travels in typed error details so owner clients can branch on
+		// it instead of parsing the message, which is composed for humans.
+		super(
+			status === 500 ? "server_error" : status === 400 ? "bad_request" : "conflict",
+			message,
+			status,
+			{ inferenceGraphCause: causeKind },
+		);
 		this.name = "InferenceGraphRepositoryError";
 		this.causeKind = causeKind;
 	}
@@ -315,50 +330,6 @@ function corruptKind(row: ConfigurationPathRow): InferenceGraphRepositoryError {
 	return new InferenceGraphRepositoryError("corrupt_graph", `Inference configuration ${row.id} has an invalid stored kind shape.`);
 }
 
-const redactedOwnerDtoBrand: unique symbol = Symbol("redactedInferenceConfigurationOwnerDto");
-
-type RedactedInferenceConfigurationDtoBase = {
-	readonly [redactedOwnerDtoBrand]: true;
-	id: string;
-	parentId: string | null;
-	displayName: string;
-	revision: number;
-	overrides: InferenceConfigurationOverrides;
-	credential: {
-		mode: InferenceCredentialMode;
-		available: boolean;
-		secretVersion: number;
-		resolution: RedactedInferenceCredentialResolution;
-	};
-	effectiveModel: string;
-	imagePreviews: { participant: EffectiveImageSettings; world: EffectiveImageSettings };
-	fields: RedactedInferenceFieldDtoMap;
-	graphRevision: number;
-	fingerprint: string;
-};
-
-export type RedactedInferenceConfigurationDto = RedactedInferenceConfigurationDtoBase & InferenceConfigurationEntryIdentity;
-
-export type RedactedInferenceCredentialResolution =
-	| { kind: "available"; source: InferenceSource; secretVersion: number }
-	| Extract<InferenceCredentialResolution, { kind: "explicit_none" | "unavailable" }>;
-
-/**
- * This public shape is deliberately distinct from the internal resolution
- * types. Adding a secret-bearing member to the resolver cannot silently make
- * it serializable through an owner endpoint.
- */
-export type RedactedInferenceFieldDto<K extends InferenceConfigurationField> = {
-	override: InferenceOverrideUpdate<K>;
-	effective: unknown;
-	source: InferenceSource;
-	adjustment: InferenceFieldAdjustment;
-};
-
-export type RedactedInferenceFieldDtoMap = {
-	[K in InferenceConfigurationField]: RedactedInferenceFieldDto<K>;
-};
-
 export async function inferenceConfigurationOwnerDto(
 	db: D1DatabaseLike,
 	ownerUserId: string,
@@ -370,13 +341,22 @@ export async function inferenceConfigurationOwnerDto(
 	const resolution = resolveInferenceConfiguration(path, { ...(defaults ? { defaults } : {}) });
 	const internalAnnotations = inferenceFieldAnnotations(selected.overrides, resolution);
 	const control = await inferenceGraphReadVersion(db, ownerUserId);
-	const identity = await loadInferenceConfigurationIdentity(db, ownerUserId, selected.id);
+	// One bounded query names the whole ancestry. Owner clients label per-field
+	// provenance and the parent link from it instead of walking the graph.
+	const named = await loadBoundedInferenceAncestors(db, ownerUserId, [selected.id]);
+	const identity = named.identities.get(selected.id) ?? corruptIdentity(selected.id);
 	return {
 		[redactedOwnerDtoBrand]: true,
 		id: selected.id,
 		...entryIdentity(identity),
 		parentId: selected.parentId,
 		displayName: displayName(identity),
+		path: path.map((entry) => ({
+			id: entry.id,
+			displayName: named.displayNames.get(entry.id) ?? corruptParentDisplayName(entry.id),
+			revision: entry.revision,
+			...entryIdentity(named.identities.get(entry.id) ?? corruptIdentity(entry.id)),
+		})),
 		revision: selected.revision,
 		overrides: selected.overrides,
 		credential: {
@@ -412,19 +392,6 @@ function redactedCredentialResolution(
 		: credential;
 }
 
-export type InferenceConfigurationIdentity =
-	| { kind: "account_default" }
-	| { kind: "world"; worldId: string; worldHandle: string }
-	| { kind: "bot"; botId: string; botHandle: string; homeWorldId: string; homeWorldHandle: string }
-	| { kind: "custom"; name: string };
-
-export type InferenceConfigurationEntryIdentity = {
-	[K in InferenceConfigurationKind]: {
-		kind: K;
-		identity: Extract<InferenceConfigurationIdentity, { kind: K }>;
-	};
-}[InferenceConfigurationKind];
-
 function entryIdentity(identity: InferenceConfigurationIdentity): InferenceConfigurationEntryIdentity {
 	return { kind: identity.kind, identity } as InferenceConfigurationEntryIdentity;
 }
@@ -437,27 +404,6 @@ function displayName(identity: InferenceConfigurationIdentity): string {
 		case "custom": return identity.name;
 	}
 }
-
-type InferenceConfigurationSummaryBase = {
-	id: string;
-	parentId: string | null;
-	displayName: string;
-	revision: number;
-	updatedAt: string;
-	credentialMode: InferenceCredentialMode;
-	/** Resolved availability only; never a secret or a secret-derived value. */
-	credentialAvailability: InferenceEffectiveCredentialAvailability;
-	immediateChildCount: number;
-	effectiveModel: string;
-	parent: ({ id: string; displayName: string; revision: number } & InferenceConfigurationEntryIdentity) | null;
-};
-
-export type InferenceEffectiveCredentialAvailability =
-	| { kind: "available"; source: InferenceSource }
-	| { kind: "explicit_none"; source: InferenceSource }
-	| { kind: "unavailable"; source: InferenceSource | { kind: "bickr_default" }; reason: InferenceCredentialUnavailableReason };
-
-export type InferenceConfigurationSummary = InferenceConfigurationSummaryBase & InferenceConfigurationEntryIdentity;
 
 type ConfigurationIdentityRow = {
 	kind: InferenceConfigurationKind;
@@ -493,25 +439,6 @@ function identityFromRow(row: ConfigurationIdentityRow): InferenceConfigurationI
 	}
 }
 
-async function loadInferenceConfigurationIdentity(
-	db: D1DatabaseLike,
-	ownerUserId: string,
-	configurationId: string,
-): Promise<InferenceConfigurationIdentity> {
-	const row = await db.prepare(
-		`SELECT configuration.kind, configuration.world_id AS worldId, worlds.handle AS worldHandle,
-			configuration.bot_id AS botId, bots.handle AS botHandle,
-			bots.home_world_id AS homeWorldId, bots.home_world_handle AS homeWorldHandle,
-			configuration.custom_name AS customName
-		 FROM inference_configurations AS configuration
-		 LEFT JOIN worlds_index AS worlds ON worlds.world_id = configuration.world_id
-		 LEFT JOIN bots_index AS bots ON bots.bot_id = configuration.bot_id
-		 WHERE configuration.owner_user_id = ? AND configuration.configuration_id = ? LIMIT 1`,
-	).bind(ownerUserId, configurationId).first<ConfigurationIdentityRow>();
-	if (!row) throw new RepositoryError("not_found", "Inference configuration not found.", 404);
-	return identityFromRow(row);
-}
-
 type SummaryRow = ConfigurationIdentityRow & {
 	id: string;
 	parentId: string | null;
@@ -525,39 +452,11 @@ type SummaryRow = ConfigurationIdentityRow & {
 
 type BoundedAncestorRow = ConfigurationPathRow & ConfigurationIdentityRow & { displayName: string };
 
-export type InferenceConfigurationPage = {
-	items: InferenceConfigurationSummary[];
-	nextCursor?: string;
-};
-
-/**
- * Library sections are paginated independently so an editor never has to read
- * a whole owner library to render one column. Each section keeps its own sort
- * order, and cursors are tagged with that order so a cursor can never be
- * replayed against a different one.
- */
-export const inferenceLibrarySections = ["account", "custom", "world", "bot"] as const;
-
-export type InferenceLibrarySection = typeof inferenceLibrarySections[number];
-
 const librarySectionKinds: Record<InferenceLibrarySection, InferenceConfigurationKind> = {
 	account: "account_default",
 	custom: "custom",
 	world: "world",
 	bot: "bot",
-};
-
-export type InferenceBotHomeWorldGroup = {
-	homeWorldId: string;
-	homeWorldHandle: string;
-	displayName: string;
-	botConfigurationCount: number;
-};
-
-export type InferenceLibraryPage = InferenceConfigurationPage & {
-	section: InferenceLibrarySection;
-	/** Non-empty only for the bot section, which groups by home world. */
-	groups: InferenceBotHomeWorldGroup[];
 };
 
 export type InferenceConfigurationListInput = {
@@ -960,8 +859,6 @@ function escapeLike(value: string): string {
 	return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
 
-export type ParentCandidatePage = InferenceConfigurationPage;
-
 export async function listInferenceTranslationCandidates(
 	db: D1DatabaseLike,
 	ownerUserId: string,
@@ -1061,11 +958,6 @@ function credentialAvailabilityFromResolution(
 	}
 }
 
-export type InferenceImmediateChildrenPage = InferenceConfigurationPage & {
-	/** Immediate children before `q` filtering, so a filtered page can say so. */
-	totalImmediateChildren: number;
-};
-
 export async function listImmediateInferenceChildren(
 	db: D1DatabaseLike,
 	ownerUserId: string,
@@ -1113,43 +1005,6 @@ function corruptIdentity(configurationId: string): never {
 		`Inference configuration ${configurationId} is missing identity metadata.`,
 	);
 }
-
-export type InferenceImpactChangeCounts = {
-	effectiveModel: number;
-	effectiveBaseUrl: number;
-	credentialAvailability: number;
-	credentialSource: number;
-	providerAccess: number;
-};
-
-export type InferenceImpactWarning =
-	| { kind: "effective_model_changes"; configurations: number }
-	| { kind: "effective_base_url_changes"; configurations: number }
-	| { kind: "credential_availability_changes"; configurations: number }
-	| { kind: "credential_source_changes"; configurations: number }
-	| { kind: "provider_access_changes"; configurations: number };
-
-type InferenceDependentImpact = {
-	configurationId: string;
-	immediateDependentCount: number;
-	transitiveDependentCount: number;
-	affectedConfigurationCount: number;
-	changes: InferenceImpactChangeCounts;
-	warnings: InferenceImpactWarning[];
-};
-
-export type InferenceParentImpact = InferenceDependentImpact & {
-	kind: "reparent";
-	candidateParentId: string;
-};
-
-export type InferenceDeleteImpact = InferenceDependentImpact & {
-	kind: "delete";
-	parentId: string;
-	/** Compatibility alias for clients shipped with the first Phase-3 draft. */
-	immediateChildren: number;
-	resetsTranslationSelection: boolean;
-};
 
 export async function inferenceConfigurationParentImpact(
 	db: D1DatabaseLike,
@@ -1343,12 +1198,6 @@ function inferenceImpactWarnings(changes: InferenceImpactChangeCounts): Inferenc
 	return warnings;
 }
 
-export type CredentialUpdate =
-	| { mode: "inherit" }
-	| { mode: "account_default" }
-	| { mode: "none" }
-	| { mode: "value"; secret: string };
-
 export type CreateCustomInferenceConfigurationInput = {
 	name: string;
 	parentId: string;
@@ -1379,13 +1228,6 @@ export type DeleteInferenceConfigurationInput = {
 	configurationId: string;
 	expectedRevision: number;
 	defaults?: BickrInferenceDefaults;
-};
-
-export type TranslationSelection = {
-	ownerUserId: string;
-	configurationId: string;
-	revision: number;
-	updatedAt: string;
 };
 
 export type UpdateTranslationSelectionInput = {
@@ -1764,18 +1606,6 @@ function credentialStatement(
 		configurationId,
 		ownerUserId,
 	);
-}
-
-export async function accountDefaultConfigurationId(ownerUserId: string): Promise<string> {
-	return deterministicId("cfg", `inference:account:${ownerUserId}`);
-}
-
-export async function worldConfigurationId(worldId: string): Promise<string> {
-	return deterministicId("cfg", `inference:world:${worldId}`);
-}
-
-export async function botConfigurationId(botId: string): Promise<string> {
-	return deterministicId("cfg", `inference:bot:${botId}`);
 }
 
 export async function lifecycleUsesInferenceGraph(db: D1DatabaseLike): Promise<boolean> {

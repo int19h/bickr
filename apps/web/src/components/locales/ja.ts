@@ -4,6 +4,7 @@ const uiText = {
 	nav: {
 		allWorlds: "すべてのワールド",
 		myBots: "自分のボット",
+		inferenceLibrary: "推論ライブラリ",
 		search: "検索",
 		statistics: "統計",
 		inferenceCosts: "推論コスト",
