@@ -6,14 +6,15 @@ import type {
 	RedactedInferenceFieldDto,
 } from "@bickr/shared/inference-configuration-owner";
 import { CredentialField, InferenceField } from "./fields";
-import type { InferenceFieldDraft } from "./field-model";
+import { nextBooleanDraft, type InferenceFieldDraft } from "./field-model";
 
 /**
- * These assertions cover the rendered accessibility contract. The pointer and
- * keyboard cycle itself is the pure transition in `field-model.test.ts`: the
- * native checkbox turns both click and Space into the same change event, and
- * the browser maps the `indeterminate` property to the mixed state, so there is
- * no separate key handling in this component to exercise.
+ * These assertions cover the rendered accessibility contract and the rendered
+ * boolean cycle. The native checkbox turns both click and Space into the same
+ * change event, so one transition per step is the whole interaction; what the
+ * rendered test adds over the pure transition in `field-model.test.ts` is the
+ * rerender between steps, because the control re-derives its state from the
+ * draft it is handed on every render.
  */
 
 const path: InferenceConfigurationPathEntry[] = [
@@ -49,6 +50,13 @@ function render(
 	);
 }
 
+/** The single native checkbox a boolean field renders. */
+function checkboxMarkup(html: string): string {
+	const input = /<input[^>]*type="checkbox"[^>]*>/.exec(html)?.[0];
+	if (!input) throw new Error("The boolean field rendered no checkbox.");
+	return input;
+}
+
 describe("boolean inheritance control", () => {
 	it("uses one native checkbox with no redundant aria-checked and a visible inherit reset", () => {
 		const html = render("supportsPrefill", { mode: "inherit" }, dto({ effective: true }));
@@ -73,6 +81,49 @@ describe("boolean inheritance control", () => {
 		expect(render("supportsPrefill", { mode: "explicit", state: "value", text: "false" }, dto({ effective: false }))).not.toContain(
 			'class="btn ghost compact inference-inherit-reset" disabled=""',
 		);
+	});
+
+	/**
+	 * The rendered cycle, one rerender per click. `nextBooleanDraft` is exactly
+	 * what the rendered `onChange` hands to `props.onChange`, and each step is
+	 * re-rendered from the draft the editor would store, so a control that
+	 * rebuilt an ephemeral cycle marker per render would never reach step three.
+	 */
+	it("cycles the rendered checkbox from inherit through both explicit values and back", () => {
+		const inherited = dto({ effective: true });
+		const steps: { checkbox: string; inheritDisabled: boolean }[] = [];
+		let draft: InferenceFieldDraft = { mode: "inherit" };
+		for (let click = 0; click < 4; click += 1) {
+			const html = render("supportsPrefill", draft, inherited);
+			steps.push({
+				checkbox: checkboxMarkup(html),
+				inheritDisabled: html.includes('class="btn ghost compact inference-inherit-reset" disabled=""'),
+			});
+			draft = nextBooleanDraft(draft, inherited.effective === true);
+		}
+		// Inherit renders unchecked with the reset disabled; the DOM mixed state
+		// is the `indeterminate` property, which has no markup form.
+		expect(steps[0]?.inheritDisabled).toBe(true);
+		expect(steps[0]?.checkbox).not.toContain("checked");
+		// Click one: an explicit copy of the inherited value.
+		expect(steps[1]?.checkbox).toContain('checked=""');
+		expect(steps[1]?.inheritDisabled).toBe(false);
+		// Click two: the explicit opposite, still explicit.
+		expect(steps[2]?.checkbox).not.toContain("checked");
+		expect(steps[2]?.inheritDisabled).toBe(false);
+		// Click three: back to inherit.
+		expect(steps[3]?.inheritDisabled).toBe(true);
+		expect(draft).toEqual({ mode: "explicit", state: "value", text: "true" });
+	});
+
+	it("cycles a false inherited value through its own explicit copy first", () => {
+		const inherited = dto({ effective: false });
+		const first = nextBooleanDraft({ mode: "inherit" }, false);
+		expect(first).toEqual({ mode: "explicit", state: "value", text: "false" });
+		expect(checkboxMarkup(render("supportsPrefill", first, inherited))).not.toContain("checked");
+		const second = nextBooleanDraft(first, false);
+		expect(checkboxMarkup(render("supportsPrefill", second, inherited))).toContain('checked=""');
+		expect(nextBooleanDraft(second, false)).toEqual({ mode: "inherit" });
 	});
 });
 

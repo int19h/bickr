@@ -241,6 +241,26 @@ export type InferenceConfigurationPage = {
 };
 
 /**
+ * The canonical effective model of one owned participant, resolved by the
+ * server from the graph exactly as the runtime resolves it. It is the whole
+ * payload owner surfaces need to label a participant's current model, so no
+ * caller has to reconstruct one from a stored legacy settings cascade, and it
+ * carries nothing else about the configuration — no credential state, no base
+ * URL, no override map.
+ */
+export type InferenceBotEffectiveModel = { botId: string; effectiveModel: string };
+
+/**
+ * Answered for a bounded set of participants in one request. Owner screens hold
+ * the participants they render, so they ask for that set instead of reading a
+ * configuration per row.
+ */
+export type InferenceBotEffectiveModelSet = { models: InferenceBotEffectiveModel[] };
+
+/** One request resolves at most this many participants; clients chunk to it. */
+export const maximumInferenceBotEffectiveModelBatch = 100;
+
+/**
  * Library sections are paginated independently so an editor never has to read
  * a whole owner library to render one column. Each section keeps its own sort
  * order, and cursors are tagged with that order so a cursor can never be

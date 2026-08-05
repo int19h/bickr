@@ -46,6 +46,7 @@ import {
 	inferenceConfigurationOwnerDto,
 	inferenceGraphReadVersion,
 	loadInferenceConfigurationPath,
+	listBotEffectiveModels,
 	listImmediateInferenceChildren,
 	listInferenceConfigurations,
 	listInferenceLibrarySection,
@@ -637,6 +638,31 @@ export const agentRuntimeRouteTable = [
 			return ok({ configuration: await inferenceConfigurationOwnerDto(
 				context.env.BICKR_D1, userId, configuration.id, await bickrInferenceDefaultsFromEnvironment(context.env),
 			), coordinator: context.objectId });
+		},
+	},
+	{
+		// Set-oriented canonical model labels for the participants an owner screen
+		// is already rendering. It answers with resolved model strings only, so an
+		// owner UI never reconstructs an effective model locally and never reads a
+		// configuration per row. Registered before the single-configuration route,
+		// whose pattern would otherwise claim this path segment.
+		id: 'inference-configuration-bot-effective-models',
+		method: 'GET',
+		pattern: /^\/users\/([^/]+)\/inference-configurations\/effective-models$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = await requireInferenceGraphOwner(context);
+			const botIds = (context.url.searchParams.get('botIds') ?? '')
+				.split(',')
+				.map((value) => value.trim())
+				.filter(Boolean);
+			return ok({
+				effectiveModels: await listBotEffectiveModels(context.env.BICKR_D1, userId, {
+					botIds,
+					defaults: await bickrInferenceDefaultsFromEnvironment(context.env),
+				}),
+				coordinator: context.objectId,
+			});
 		},
 	},
 	{

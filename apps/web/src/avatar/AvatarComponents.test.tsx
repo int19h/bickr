@@ -244,4 +244,17 @@ describe("parameterized avatar components", () => {
 		const [, , generation] = renderFamilies(userAvatarTarget(user()));
 		expect(generation).toContain("A portrait.");
 	});
+
+	/**
+	 * The image prompt is owned by the entity, not by the linked configuration,
+	 * so writing it must not depend on that configuration resolving an image
+	 * model — which is exactly the state an owner is in before choosing one.
+	 * Generating still needs a resolved model.
+	 */
+	it("allows a prompt-only save when no image model resolves", () => {
+		const [, , generation] = renderFamilies(userAvatarTarget(user()));
+		expect(generation).toContain("no image model resolved");
+		expect(generation).toContain('<button class="btn primary" type="button">Save</button>');
+		expect(generation).toMatch(/generate-avatar-btn[^"]*" disabled=""/);
+	});
 });

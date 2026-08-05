@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it } from "vitest";
 import { localizedText, type LanguageTag, type PublicUser } from "@bickr/shared/model";
-import { ProfileScreen } from "./settings";
+import { ProfileScreen, profileDraftAfterReload, type ProfileDraft } from "./settings";
 import { TranslationConfigurationSelector } from "../../inference/translation-selector";
 
 const en = "en" as LanguageTag;
@@ -64,6 +64,43 @@ describe("ProfileScreen inference boundary", () => {
 		expect(markup).not.toContain("Inference: Translation");
 		expect(markup).not.toContain("Repetition penalty");
 		expect(markup).not.toContain("Top K");
+	});
+});
+
+/**
+ * Saving a translation configuration selection rereads the profile so the
+ * account's translation annotation and fingerprint follow it. That reread must
+ * not cost the owner an unsaved profile edit — including the translation toggle
+ * and prompt, which live on the profile rather than in the configuration graph.
+ */
+describe("profile refresh after a translation selection", () => {
+	const loaded: ProfileDraft = {
+		handle: "owner",
+		language: "en",
+		uiLocale: "system",
+		displayName: "Owner",
+		translationEnabled: false,
+		translationPrompt: "Saved prompt",
+	};
+
+	it("keeps every field the owner has edited", () => {
+		const draft: ProfileDraft = {
+			...loaded,
+			handle: "renamed-owner",
+			displayName: "Edited name",
+			translationEnabled: true,
+			translationPrompt: "Unsaved prompt",
+		};
+		expect(profileDraftAfterReload(draft, loaded, loaded)).toEqual(draft);
+	});
+
+	it("adopts the reloaded values for fields the owner has not touched", () => {
+		const next: ProfileDraft = { ...loaded, displayName: "Renamed elsewhere", translationPrompt: "Prompt from elsewhere" };
+		const draft: ProfileDraft = { ...loaded, translationPrompt: "Unsaved prompt" };
+		expect(profileDraftAfterReload(draft, loaded, next)).toEqual({
+			...next,
+			translationPrompt: "Unsaved prompt",
+		});
 	});
 });
 

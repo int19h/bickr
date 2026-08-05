@@ -9,7 +9,6 @@ export {
 	matchesBotActivityKind,
 } from "./activity-feed";
 export {
-	effectiveBotModel,
 	isValidHandle,
 	optionalNumberDraftValue,
 	slugify,

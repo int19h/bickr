@@ -4,7 +4,7 @@ import type {
 	InferenceBotHomeWorldGroup,
 	InferenceConfigurationSummary,
 } from "@bickr/shared/inference-configuration-owner";
-import { InferenceLibraryScreen, createErrorMessage, groupBotSummaries } from "./library";
+import { InferenceLibraryScreen, SelectedParentLine, createErrorMessage, groupBotSummaries } from "./library";
 import { librarySectionPath, parentCandidatesPath, translationCandidatesPath } from "./api";
 import { ConfigurationSummaryRow } from "./summary";
 
@@ -107,6 +107,31 @@ describe("typed create errors", () => {
 		expect(createErrorMessage(failure("quota_exceeded"))).toContain("configuration limit");
 		expect(createErrorMessage(failure("invalid_parent"))).toContain("no longer available");
 		expect(createErrorMessage({ ok: false, error: "server_error", message: "server prose" })).toBe("server prose");
+	});
+});
+
+/**
+ * The create form holds the entry the owner picked, not an id it looks up in
+ * whatever the parent search currently lists. Searching again after choosing a
+ * custom parent used to relabel the retained selection as Account default.
+ */
+describe("create form parent retention", () => {
+	it("names the retained parent and its kind, whatever the search is showing", () => {
+		const html = renderToStaticMarkup(<SelectedParentLine parent={summary({ displayName: "Shared sampling" })} />);
+		expect(html).toContain("Selected parent: Shared sampling");
+		expect(html).not.toContain("Account default");
+		expect(html).toContain("custom");
+	});
+
+	it("names Account default when that is what Start blank selected", () => {
+		const accountDefault = summary({
+			id: "cfg_root",
+			displayName: "Account default",
+			kind: "account_default",
+			identity: { kind: "account_default" },
+		});
+		expect(renderToStaticMarkup(<SelectedParentLine parent={accountDefault} />))
+			.toContain("Selected parent: Account default");
 	});
 });
 

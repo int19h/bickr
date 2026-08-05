@@ -4,9 +4,11 @@ import {
 	fixedInferenceConfigurationKinds,
 	inferenceConfigurationFields,
 	inferenceLibrarySections,
+	maximumInferenceBotEffectiveModelBatch,
 	redactedOwnerDtoBrand,
 	type CredentialUpdate,
 	type FixedInferenceConfigurationReference,
+	type InferenceBotEffectiveModelSet,
 	type InferenceBotHomeWorldGroup,
 	type InferenceConfigurationEntryIdentity,
 	type InferenceConfigurationIdentity,
@@ -595,6 +597,49 @@ export async function listInferenceConfigurations(
 		limit + 1,
 	).all<SummaryRow>();
 	return summaryPage(db, ownerUserId, rows.results ?? [], limit, "identity", input.defaults);
+}
+
+/**
+ * Canonical effective model for a bounded set of the owner's participants.
+ *
+ * Owner surfaces that only label a participant's current model — the bot table,
+ * the participant profile, the runtime panel — read it here instead of
+ * reconstructing one from a stored legacy settings cascade, which stops being
+ * the resolved answer as soon as the graph is edited. It costs two queries for
+ * the whole set: the participants' own configurations, then the one bounded
+ * ancestor load every listing surface uses, so a page of participants is never
+ * a read per row. Unowned or unknown participants are simply absent from the
+ * answer; they are never an error that would blank a whole table.
+ */
+export async function listBotEffectiveModels(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	input: { botIds: readonly string[]; defaults?: BickrInferenceDefaults },
+): Promise<InferenceBotEffectiveModelSet> {
+	const botIds = [...new Set(input.botIds)];
+	if (botIds.length === 0) return { models: [] };
+	if (botIds.length > maximumInferenceBotEffectiveModelBatch) {
+		throw new RepositoryError(
+			"bad_request",
+			`At most ${maximumInferenceBotEffectiveModelBatch} participants can be resolved in one request.`,
+			400,
+		);
+	}
+	const rows = await db.prepare(
+		`SELECT ${summaryColumnsSql(identitySortNameSql)}
+		${summaryFromSql}
+		WHERE configuration.owner_user_id = ? AND configuration.kind = 'bot'
+			AND configuration.bot_id IN (SELECT value FROM json_each(?))
+		ORDER BY configuration.configuration_id ASC
+		LIMIT ?`,
+	).bind(ownerUserId, JSON.stringify(botIds), maximumInferenceBotEffectiveModelBatch).all<SummaryRow>();
+	const pageRows = rows.results ?? [];
+	const ancestors = await loadBoundedInferenceAncestors(db, ownerUserId, pageRows.map((row) => row.id));
+	return {
+		models: summariesFromAncestors(pageRows, ancestors, input.defaults).flatMap((summary) =>
+			summary.kind === "bot" ? [{ botId: summary.identity.botId, effectiveModel: summary.effectiveModel }] : [],
+		),
+	};
 }
 
 export async function listInferenceLibrarySection(

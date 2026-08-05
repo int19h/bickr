@@ -104,8 +104,11 @@ function BooleanInferenceField(props: InferenceFieldProps) {
 	const inputId = useId();
 	const statusId = useId();
 	const [announcement, setAnnouncement] = useState("");
+	// Every render reads the cycle back from the draft it is rendering, so the
+	// checkbox is the same control after a rerender as it was before one.
 	const cycle = booleanCycleFromDraft(props.draft);
-	const setCheckbox = useControlledCheckbox(booleanCheckboxDomState(cycle));
+	const domState = booleanCheckboxDomState(cycle);
+	const setCheckbox = useControlledCheckbox(domState);
 	const label = inferenceFieldLabels[props.field];
 	const status = statusText(props);
 	const inheritedValue = props.dto.effective === true;
@@ -127,9 +130,13 @@ function BooleanInferenceField(props: InferenceFieldProps) {
 			labelRow={
 				<div className="inference-field-head">
 					{/* One native checkbox carries all three states; the browser maps
-					    `indeterminate` to mixed, so no redundant aria-checked is set. */}
+					    `indeterminate` to mixed, so no redundant aria-checked is set.
+					    `checked` is React-controlled from the draft; `indeterminate`
+					    has no attribute form and is applied by the same state on every
+					    render and ref update. */}
 					<input
 						aria-describedby={statusId}
+						checked={domState.checked}
 						id={inputId}
 						onChange={() => apply(nextBooleanCycleState(cycle, inheritedValue))}
 						ref={setCheckbox}

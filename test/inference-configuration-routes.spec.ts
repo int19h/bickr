@@ -221,6 +221,55 @@ describe("inference configuration runtime routes", () => {
 		expect(bot.body.data?.configuration).toMatchObject({ id: botConfiguration, kind: "bot", displayName: "u/route-owned" });
 	});
 
+	/**
+	 * Owner screens label a participant's current model from this one
+	 * set-oriented answer instead of reconstructing it from stored legacy
+	 * settings. Its path sits beside the single-configuration route, so the
+	 * ordering of the two patterns is part of the contract.
+	 */
+	it("answers canonical participant models for a set without colliding with a configuration id", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		await seedWorld(worldId, "route-world");
+		await seedBot("bot_models_a", worldId, "route-world", "route-model-a");
+		await seedBot("bot_models_b", worldId, "route-world", "route-model-b");
+		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "bot", configurationId: "cfg_models_a", ownerUserId: ownerId, parentId: rootId, botId: "bot_models_a", now,
+			}),
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "bot", configurationId: "cfg_models_b", ownerUserId: ownerId, parentId: rootId, botId: "bot_models_b", now,
+			}),
+		]);
+		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: rootId,
+			expectedRevision: 1,
+			credential: { mode: "value", secret: "route-owner-key" },
+		}, now);
+		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: "cfg_models_a",
+			expectedRevision: 1,
+			overrides: { model: { kind: "value", value: "route/alpha-model" } },
+		}, now);
+
+		const resolved = await routePayload("/inference-configurations/effective-models?botIds=bot_models_a,bot_models_b");
+		expect(resolved.status).toBe(200);
+		const models = (resolved.body.data?.effectiveModels as { models: { botId: string; effectiveModel: string }[] }).models;
+		expect(models.find((entry) => entry.botId === "bot_models_a")?.effectiveModel).toBe("route/alpha-model");
+		expect(models.find((entry) => entry.botId === "bot_models_b")?.effectiveModel).toBeTruthy();
+		// Resolved model labels only: no credential state, base URL, or overrides.
+		expect(JSON.stringify(resolved.body)).not.toContain("route-owner-key");
+		expect(Object.keys(models[0] ?? {})).toEqual(["botId", "effectiveModel"]);
+
+		// The single-configuration route still answers for a real id, and an
+		// unknown participant is absent rather than an error.
+		const single = await routePayload(`/inference-configurations/${encodeURIComponent("cfg_models_a")}`);
+		expect(single.status).toBe(200);
+		expect(single.body.data?.configuration).toMatchObject({ id: "cfg_models_a", kind: "bot" });
+		const unknown = await routePayload("/inference-configurations/effective-models?botIds=bot_missing");
+		expect(unknown.status).toBe(200);
+		expect((unknown.body.data?.effectiveModels as { models: unknown[] }).models).toEqual([]);
+	});
+
 	it("refuses a fixed entry for an unknown, foreign, or invalid entity", async () => {
 		// A world and a participant owned by somebody else, plus their fixed
 		// entries, are indistinguishable from entities that do not exist.

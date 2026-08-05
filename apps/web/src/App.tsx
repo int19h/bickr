@@ -1322,6 +1322,10 @@ function App() {
 			if (activeWorldHandle === world.handle) {
 				navigate({ route: "worlds" });
 			}
+			// Deleting a world removes its fixed configuration and every fixed
+			// configuration of the participants it took with it, so the account's
+			// translation annotation is reread for the repaired ancestry.
+			void loadUserProfile();
 			return `Deleted world ${world.handle}.`;
 		});
 	}
@@ -1871,6 +1875,11 @@ function App() {
 		if (activeBot && deletedIds.has(activeBot.id)) {
 			navigate({ route: "my-bots" });
 		}
+		// Every browser bot deletion — single, bulk, or a clone cascade — removes
+		// that participant's fixed configuration and reparents whatever inherited
+		// through it, which can move the selected translation configuration's
+		// effective result. The annotation is reread rather than left stale.
+		void loadUserProfile();
 	}
 
 	async function deleteBot(bot: BotSummary): Promise<boolean> {
@@ -2190,7 +2199,6 @@ function App() {
 							onDeleteAvatar={deleteBotAvatar}
 							onReference={openReference}
 							onToggleSubscription={toggleSubscription}
-							ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
 							subscribed={currentUser ? isSubscribed("bot", activeBot.id) : false}
 							targetActivityId={activeBotActivityId}
 							targetTab={activeBotProfileTab}
@@ -2236,7 +2244,6 @@ function App() {
 								bot={editingBot}
 								busy={busy}
 								onSave={updateBot}
-								ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
 								world={activeWorld}
 							/>
 						:	<PermissionState title="Loop is owner-only">
@@ -2274,7 +2281,6 @@ function App() {
 								onDeleteBots={deleteBots}
 								onRunBotTicks={(rows) => runBotTicks("selected bots", rows)}
 								onSpreadBotTicks={spreadBotTicks}
-								ownerInferenceSettings={userProfile?.inferenceSettings ?? null}
 								worlds={worldViews}
 							/>
 						:	<LoginScreen embedded status="Sign in to manage your bots." />

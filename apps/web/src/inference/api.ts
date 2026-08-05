@@ -6,6 +6,7 @@ import type {
 import {
 	type CredentialUpdate,
 	type FixedInferenceConfigurationReference,
+	type InferenceBotEffectiveModelSet,
 	type InferenceConfigurationPage,
 	type InferenceDeleteImpact,
 	type InferenceImmediateChildrenPage,
@@ -61,6 +62,25 @@ export function childrenPath(configurationId: string, query: InferenceListQuery 
 
 export function translationCandidatesPath(query: InferenceListQuery = {}): string {
 	return `${translationPath}/candidates${listSearch({}, query)}`;
+}
+
+/**
+ * Canonical model labels for the participants a screen already renders. The
+ * browser names participants it can see and the server answers with resolved
+ * model strings, so no owner surface reconstructs an effective model from a
+ * stored settings cascade and none of them reads a configuration per row.
+ */
+export function botEffectiveModelsPath(botIds: readonly string[]): string {
+	return `${configurationsPath}/effective-models?${new URLSearchParams({ botIds: botIds.join(",") }).toString()}`;
+}
+
+export async function loadBotEffectiveModels(
+	botIds: readonly string[],
+): Promise<ApiResult<InferenceBotEffectiveModelSet>> {
+	return unwrap(
+		await api<{ effectiveModels: InferenceBotEffectiveModelSet }>(botEffectiveModelsPath(botIds)),
+		"effectiveModels",
+	);
 }
 
 /**

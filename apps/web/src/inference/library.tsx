@@ -14,7 +14,7 @@ import {
 	librarySectionPath,
 	parentCandidatesPath,
 } from "./api";
-import { ConfigurationSummaryRow } from "./summary";
+import { ConfigurationSummaryRow, KindBadge } from "./summary";
 import { useConfigurationPage } from "./use-configuration-page";
 
 export function InferenceLibraryScreen({
@@ -299,10 +299,14 @@ function CreateConfigurationModal({
 	onCreated: (configurationId: string, name: string) => void;
 }) {
 	const [name, setName] = useState("");
-	const [parentId, setParentId] = useState(accountDefault.id);
+	// The chosen parent is retained as the entry itself, not as an id looked up
+	// in whatever the search happens to be showing: a later search that no
+	// longer lists it must not silently relabel the selection.
+	const [parent, setParent] = useState<InferenceConfigurationSummary>(accountDefault);
 	const [parentQuery, setParentQuery] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
+	const parentId = parent.id;
 
 	// Parent candidates for a new entry are every owner configuration: a new
 	// entry has no descendants to exclude.
@@ -327,9 +331,6 @@ function CreateConfigurationModal({
 		}
 		onCreated(result.data.id, result.data.displayName);
 	}
-
-	const selectedParent =
-		candidates.items.find((item) => item.id === parentId) ?? (parentId === accountDefault.id ? accountDefault : null);
 
 	return (
 		<Modal
@@ -370,7 +371,7 @@ function CreateConfigurationModal({
 						<button
 							aria-pressed={parentId === accountDefault.id}
 							className={`btn compact ${parentId === accountDefault.id ? "primary" : "ghost"}`}
-							onClick={() => setParentId(accountDefault.id)}
+							onClick={() => setParent(accountDefault)}
 							type="button"
 						>
 							Start blank (Account default)
@@ -394,7 +395,7 @@ function CreateConfigurationModal({
 										<button
 											aria-pressed={parentId === candidate.id}
 											className={`btn compact ${parentId === candidate.id ? "primary" : "ghost"}`}
-											onClick={() => setParentId(candidate.id)}
+											onClick={() => setParent(candidate)}
 											type="button"
 										>
 											{candidate.displayName}
@@ -409,11 +410,26 @@ function CreateConfigurationModal({
 							</button>
 						)}
 					</div>
-					<p className="help">Selected parent: {selectedParent?.displayName ?? "Account default"}</p>
+					<SelectedParentLine parent={parent} />
 				</div>
 				{error && <div className="runtime-message error">{error}</div>}
 			</div>
 		</Modal>
+	);
+}
+
+/**
+ * Names the entry the form is actually holding, whatever the parent search is
+ * showing right now. The selection is the entry itself, so a retained custom
+ * parent keeps its own name and kind instead of being relabelled as Account
+ * default once a search stops listing it.
+ */
+export function SelectedParentLine({ parent }: { parent: InferenceConfigurationSummary }) {
+	return (
+		<p className="help inference-selected-parent">
+			<span>Selected parent: {parent.displayName}</span>
+			<KindBadge kind={parent.kind} />
+		</p>
 	);
 }
 

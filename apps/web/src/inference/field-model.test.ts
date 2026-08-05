@@ -20,6 +20,7 @@ import {
 	inferenceFieldLabels,
 	modeCheckboxDomState,
 	nextBooleanCycleState,
+	nextBooleanDraft,
 	overrideFromDraft,
 	overridePatchFromDrafts,
 	sourceLabel,
@@ -56,34 +57,53 @@ describe("boolean inheritance cycle", () => {
 			seen.push(state);
 		}
 		expect(seen).toEqual([
-			{ mode: "explicit", value: true, flipped: false },
-			{ mode: "explicit", value: false, flipped: true },
+			{ mode: "explicit", value: true },
+			{ mode: "explicit", value: false },
 			{ mode: "inherit" },
-			{ mode: "explicit", value: true, flipped: false },
+			{ mode: "explicit", value: true },
+		]);
+	});
+
+	// The whole cycle position lives in the draft, so replaying it from a
+	// re-derived state — which is what every render does — cannot strand the
+	// control between the two explicit values.
+	it("cycles the same way when each step is re-derived from its draft", () => {
+		const seen: InferenceFieldDraft[] = [];
+		let draft: InferenceFieldDraft = { mode: "inherit" };
+		for (let step = 0; step < 4; step += 1) {
+			draft = nextBooleanDraft(draft, true);
+			seen.push(draft);
+		}
+		expect(seen).toEqual([
+			{ mode: "explicit", state: "value", text: "true" },
+			{ mode: "explicit", state: "value", text: "false" },
+			{ mode: "inherit" },
+			{ mode: "explicit", state: "value", text: "true" },
 		]);
 	});
 
 	it("seeds the explicit copy from a false inherited value", () => {
 		const first = nextBooleanCycleState({ mode: "inherit" }, false);
-		expect(first).toEqual({ mode: "explicit", value: false, flipped: false });
-		expect(nextBooleanCycleState(first, false)).toEqual({ mode: "explicit", value: true, flipped: true });
+		expect(first).toEqual({ mode: "explicit", value: false });
+		expect(nextBooleanCycleState(first, false)).toEqual({ mode: "explicit", value: true });
 	});
 
 	it("returns to inherit within the cycle from a loaded explicit value", () => {
 		const loaded = booleanCycleFromDraft({ mode: "explicit", state: "value", text: "false" });
-		expect(loaded).toEqual({ mode: "explicit", value: false, flipped: false });
-		const opposite = nextBooleanCycleState(loaded, true);
-		expect(opposite).toEqual({ mode: "explicit", value: true, flipped: true });
-		expect(nextBooleanCycleState(opposite, true)).toEqual({ mode: "inherit" });
+		expect(loaded).toEqual({ mode: "explicit", value: false });
+		// A stored value that already differs from the inherited one is the last
+		// step of the cycle, so the next click resumes inheritance.
+		expect(nextBooleanCycleState(loaded, true)).toEqual({ mode: "inherit" });
+		expect(nextBooleanCycleState(loaded, false)).toEqual({ mode: "explicit", value: true });
 	});
 
 	it("maps inherit to the DOM mixed state and explicit values to ordinary ones", () => {
 		expect(booleanCheckboxDomState({ mode: "inherit" })).toEqual({ checked: false, indeterminate: true });
-		expect(booleanCheckboxDomState({ mode: "explicit", value: false, flipped: true })).toEqual({
+		expect(booleanCheckboxDomState({ mode: "explicit", value: false })).toEqual({
 			checked: false,
 			indeterminate: false,
 		});
-		expect(booleanCheckboxDomState({ mode: "explicit", value: true, flipped: false })).toEqual({
+		expect(booleanCheckboxDomState({ mode: "explicit", value: true })).toEqual({
 			checked: true,
 			indeterminate: false,
 		});
@@ -93,7 +113,7 @@ describe("boolean inheritance cycle", () => {
 		const element = { checked: true, indeterminate: false };
 		applyCheckboxDomState(element, booleanCheckboxDomState({ mode: "inherit" }));
 		expect(element).toEqual({ checked: false, indeterminate: true });
-		applyCheckboxDomState(element, booleanCheckboxDomState({ mode: "explicit", value: false, flipped: true }));
+		applyCheckboxDomState(element, booleanCheckboxDomState({ mode: "explicit", value: false }));
 		expect(element).toEqual({ checked: false, indeterminate: false });
 		expect(() => applyCheckboxDomState(null, { checked: true, indeterminate: false })).not.toThrow();
 	});
@@ -111,7 +131,7 @@ describe("boolean inheritance cycle", () => {
 	});
 
 	it("round-trips explicit false through the draft protocol", () => {
-		const draft = draftFromBooleanCycleState({ mode: "explicit", value: false, flipped: true });
+		const draft = draftFromBooleanCycleState({ mode: "explicit", value: false });
 		expect(draft).toEqual({ mode: "explicit", state: "value", text: "false" });
 		expect(overrideFromDraft("supportsPrefill", draft, "Supports prefill")).toEqual({
 			ok: true,

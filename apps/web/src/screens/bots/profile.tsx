@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import type {
 	BotActivityFeed,
 	BotFollowGraph,
-	BotInferenceSettings,
 	BotPublicProfile,
 	BotSummary,
 	ForumSummary,
@@ -40,7 +39,8 @@ import type { BotActivityKindFilter } from "./activity-feed";
 import { BotPublicProfileCard, matchesBotProfileFilter } from "../humans/public-profile";
 import { NotificationsScreen, type LoadHumanNotifications } from "../notifications";
 import type { SubscriptionTarget } from "../subscriptions";
-import { effectiveBotModel } from "./bot-drafts";
+import { publishedBotModel } from "./bot-drafts";
+import { useBotEffectiveModels } from "../../inference/bot-models";
 import { RuntimeRow } from "./runtime-row";
 import { formatTickIntervalMinutes } from "./runtime-utils";
 import {
@@ -68,7 +68,6 @@ export function BotProfileScreen({
 	onDeleteAvatar,
 	onReference,
 	onToggleSubscription,
-	ownerInferenceSettings,
 	subscribed,
 	targetActivityId,
 	targetTab,
@@ -87,7 +86,6 @@ export function BotProfileScreen({
 	onDeleteAvatar: (bot: BotSummary) => Promise<boolean>;
 	onReference: OpenReference;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
-	ownerInferenceSettings: BotInferenceSettings | null;
 	subscribed: boolean;
 	targetActivityId: string | null;
 	targetTab: BotProfileTab;
@@ -109,7 +107,13 @@ export function BotProfileScreen({
 	const [deleteAvatarConfirm, setDeleteAvatarConfirm] = useState(false);
 	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 	const [profileAvatarFailed, setProfileAvatarFailed] = useState(false);
-	const effectiveModel = effectiveBotModel(bot, isOwner ? ownerInferenceSettings : null);
+	// Owners see the model the graph resolves for this participant. A visitor's
+	// public payload cannot resolve one, so it reports only what that payload
+	// itself publishes rather than a locally reconstructed cascade.
+	const ownedModels = useBotEffectiveModels(isOwner ? [bot.id] : []);
+	const effectiveModel =
+		isOwner ? ownedModels.modelByBotId[bot.id] ?? (ownedModels.loading ? "..." : "not resolved")
+		: publishedBotModel(bot);
 	const hasLocalAvatar = bot.localOverrides?.hasAvatar ?? Boolean(bot.avatarUrl);
 	const inheritingAvatar = Boolean(bot.cloneSource?.linked && bot.avatarUrl && !hasLocalAvatar);
 

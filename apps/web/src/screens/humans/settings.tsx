@@ -8,7 +8,7 @@ import {
 	type UpdateUserProfileInput,
 	type UserProfile,
 } from "@bickr/shared/model";
-import { useCallback, useContext, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { avatarImagePixels, cloudflareImageUrl } from "../../avatar-image-urls";
 import { AvatarCropModal } from "../../avatar/AvatarCropModal";
@@ -27,7 +27,7 @@ import { TimeAgoLabel } from "../../components/record-display";
 
 type UserMutationResponse = { profile: UserProfile };
 
-type ProfileDraft = {
+export type ProfileDraft = {
 	handle: string;
 	language: string;
 	uiLocale: string;
@@ -36,6 +36,26 @@ type ProfileDraft = {
 	translationEnabled: boolean;
 	translationPrompt: string;
 };
+
+/**
+ * Merges a freshly loaded profile into the draft the owner is holding. A field
+ * the owner has edited is theirs until they save or discard it; every other
+ * field follows the server. Refreshing the translation annotation after a
+ * configuration selection must not cost an unsaved handle, name, language,
+ * translation toggle, or translation prompt.
+ */
+export function profileDraftAfterReload(draft: ProfileDraft, loaded: ProfileDraft, next: ProfileDraft): ProfileDraft {
+	return {
+		handle: draft.handle === loaded.handle ? next.handle : draft.handle,
+		language: draft.language === loaded.language ? next.language : draft.language,
+		uiLocale: draft.uiLocale === loaded.uiLocale ? next.uiLocale : draft.uiLocale,
+		displayName: draft.displayName === loaded.displayName ? next.displayName : draft.displayName,
+		translationEnabled:
+			draft.translationEnabled === loaded.translationEnabled ? next.translationEnabled : draft.translationEnabled,
+		translationPrompt:
+			draft.translationPrompt === loaded.translationPrompt ? next.translationPrompt : draft.translationPrompt,
+	};
+}
 
 export function ProfileScreen({
 	busy,
@@ -70,16 +90,30 @@ export function ProfileScreen({
 	const toast = useContext(ToastContext);
 	const t = useUiText();
 
+	// Read by the reload below so it can tell an edited field from one that
+	// simply still matches what the server last sent.
+	const loadedProfileRef = useRef<UserProfile | null>(null);
+	useEffect(() => {
+		loadedProfileRef.current = profile;
+	});
+
+	/**
+	 * Rereads the profile so the account's translation annotation and
+	 * fingerprint follow a configuration selection. It refreshes the saved copy
+	 * and every clean draft field, and leaves unsaved edits alone.
+	 */
 	const reloadProfile = useCallback(async (): Promise<void> => {
 		const result = await api<{ profile: UserProfile }>("/api/me/profile");
-		if (result.ok) {
-			setProfile(result.data.profile);
-			setDraft(profileDraftFromProfile(result.data.profile));
-			setMessage("");
-			onProfileLoaded(result.data.profile);
-		} else {
+		if (!result.ok) {
 			setMessage(result.message);
+			return;
 		}
+		const loaded = loadedProfileRef.current;
+		const next = profileDraftFromProfile(result.data.profile);
+		setDraft((current) => (loaded ? profileDraftAfterReload(current, profileDraftFromProfile(loaded), next) : next));
+		setProfile(result.data.profile);
+		setMessage("");
+		onProfileLoaded(result.data.profile);
 	}, [onProfileLoaded]);
 
 	useEffect(() => {

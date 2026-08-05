@@ -5,6 +5,7 @@ import type {
 	InferenceConfigurationSummary,
 	InferenceDeleteImpact,
 	InferenceImpactWarning,
+	InferenceParentImpact,
 	RedactedInferenceConfigurationDto,
 } from "@bickr/shared/inference-configuration-owner";
 import {
@@ -12,9 +13,13 @@ import {
 	conflictingFieldLabels,
 	deleteImpactLines,
 	fieldSuggestions,
+	impactForSelection,
 	impactRequiresConfirmation,
 	impactWarningText,
 	orderedParentCandidates,
+	refreshDecision,
+	staleComparisonText,
+	staleConflict,
 } from "./editor";
 import {
 	compactionRequestedText,
@@ -33,6 +38,32 @@ function fieldMap(): RedactedInferenceConfigurationDto["fields"] {
 			adjustment: null,
 		}]),
 	) as RedactedInferenceConfigurationDto["fields"];
+}
+
+function customDto(overrides: Partial<RedactedInferenceConfigurationDto> = {}): RedactedInferenceConfigurationDto {
+	return {
+		id: "cfg_one",
+		parentId: "cfg_root",
+		displayName: "Shared sampling",
+		revision: 3,
+		kind: "custom",
+		identity: { kind: "custom", name: "Shared sampling" },
+		fields: fieldMap(),
+		...overrides,
+	} as RedactedInferenceConfigurationDto;
+}
+
+function parentImpact(candidateParentId: string): InferenceParentImpact {
+	return {
+		kind: "reparent",
+		candidateParentId,
+		configurationId: "cfg_one",
+		immediateDependentCount: 1,
+		transitiveDependentCount: 1,
+		affectedConfigurationCount: 1,
+		changes: { effectiveModel: 0, effectiveBaseUrl: 0, credentialAvailability: 0, credentialSource: 0, providerAccess: 0 },
+		warnings: [],
+	};
 }
 
 function impact(overrides: Partial<InferenceDeleteImpact> = {}): InferenceDeleteImpact {
@@ -123,6 +154,20 @@ describe("impact previews", () => {
 		expect(impactRequiresConfirmation([{ kind: "provider_access_changes", configurations: 1 }])).toBe(true);
 	});
 
+	/**
+	 * Impact answers are asynchronous, so one requested for an earlier candidate
+	 * can arrive after the owner has moved to another. It must not describe the
+	 * new selection, and — because the reparent button needs the selection's own
+	 * preview — it must not be able to confirm it either.
+	 */
+	it("shows an impact preview only for the candidate it was requested for", () => {
+		const answer = { candidateId: "cfg_first", impact: parentImpact("cfg_first") };
+		expect(impactForSelection(answer, "cfg_first")).toBe(answer.impact);
+		expect(impactForSelection(answer, "cfg_second")).toBeNull();
+		expect(impactForSelection(answer, null)).toBeNull();
+		expect(impactForSelection(null, "cfg_first")).toBeNull();
+	});
+
 	it("offers the current parent and Account default before searched results", () => {
 		const ordered = orderedParentCandidates(
 			[
@@ -166,6 +211,42 @@ describe("stale revision comparison", () => {
 		const drafts = draftMapFromFields(fieldMap());
 		expect(conflictingFieldLabels(drafts, server)).toEqual(["Model"]);
 		expect(conflictingFieldLabels(draftMapFromFields(server.fields), server)).toEqual([]);
+	});
+
+	it("names the unsaved rename beside the differing fields", () => {
+		const server = customDto({ revision: 7 });
+		server.fields.model = { override: { kind: "value", value: "anthropic/claude-opus-4" }, effective: "anthropic/claude-opus-4", source: { kind: "bickr_default" }, adjustment: null };
+		const conflict = staleConflict(server, draftMapFromFields(fieldMap()), "Renamed here");
+		expect(conflict.server.revision).toBe(7);
+		expect(staleComparisonText(conflict)).toBe("Differs from the saved copy: Model, Name.");
+	});
+
+	it("says only the revision moved when nothing differs", () => {
+		const server = customDto({ revision: 4 });
+		const conflict = staleConflict(server, draftMapFromFields(server.fields), "Shared sampling");
+		expect(conflict).toEqual({ fields: [], nameChanged: false, server });
+		expect(staleComparisonText(conflict)).toBe("Your edited fields match the saved copy; only the revision moved.");
+	});
+});
+
+/**
+ * A window refocus reloads the server copy, but it is not allowed to resolve a
+ * conflict for the owner: adopting a newer revision under dirty drafts would
+ * make the next save overwrite the other copy silently, and the typed
+ * stale-revision surface would never be reached.
+ */
+describe("refresh decision", () => {
+	it("adopts the server copy whenever no draft is held", () => {
+		expect(refreshDecision({ currentRevision: 3, nextRevision: 9, dirty: false })).toBe("adopt");
+		expect(refreshDecision({ currentRevision: 3, nextRevision: 3, dirty: false })).toBe("adopt");
+	});
+
+	it("keeps drafts while the revision the save expects is unchanged", () => {
+		expect(refreshDecision({ currentRevision: 3, nextRevision: 3, dirty: true })).toBe("keep_drafts");
+	});
+
+	it("surfaces a conflict when a newer revision arrives under dirty drafts", () => {
+		expect(refreshDecision({ currentRevision: 3, nextRevision: 4, dirty: true })).toBe("conflict");
 	});
 });
 

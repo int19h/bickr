@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { InferenceConfigurationField } from "@bickr/shared/inference-configuration";
 import type {
 	EffectiveImageSettings,
@@ -57,7 +57,27 @@ import { ConfigurationSummaryRow, KindBadge } from "./summary";
 import { useConfigurationPage } from "./use-configuration-page";
 import { createErrorMessage } from "./library";
 
-type StaleConflict = { fields: string[]; serverRevision: number };
+export type StaleConflict = {
+	fields: string[];
+	nameChanged: boolean;
+	/** The server copy, held for comparison only until the owner chooses. */
+	server: RedactedInferenceConfigurationDto;
+};
+
+/** What a reload may do to the drafts an owner is holding. */
+export type RefreshDecision = "adopt" | "keep_drafts" | "conflict";
+
+/**
+ * A reload never resolves a conflict on the owner's behalf. Clean drafts adopt
+ * the server copy; drafts held against the same revision keep their edits while
+ * the refreshed effective and inherited values are adopted around them; a
+ * newer revision under dirty drafts is a conflict the owner must resolve, so
+ * the loaded revision — the one a save is still expected against — stays put.
+ */
+export function refreshDecision(input: { currentRevision: number; nextRevision: number; dirty: boolean }): RefreshDecision {
+	if (!input.dirty) return "adopt";
+	return input.nextRevision === input.currentRevision ? "keep_drafts" : "conflict";
+}
 
 export function InferenceConfigurationEditorScreen({
 	configurationId,
@@ -93,24 +113,46 @@ export function InferenceConfigurationEditorScreen({
 	// completions: a custom value is still stored exactly as typed.
 	const imageModelsQuery = useApiQuery<{ models: { id: string; name?: string }[] }>("/api/openrouter/image-models", []);
 
-	const apply = useCallback((next: RedactedInferenceConfigurationDto, keepDrafts: boolean) => {
-		setDto(next);
-		setNameDraft(next.kind === "custom" ? next.identity.name : next.displayName);
-		if (!keepDrafts) {
-			setDrafts(draftMapFromFields(next.fields));
-			setStale(null);
-		}
-	}, []);
+	// Read by the focus listener, which must see the drafts as they are when the
+	// window comes back rather than the ones its subscription closed over.
+	const latest = useRef<{
+		dto: RedactedInferenceConfigurationDto | null;
+		drafts: InferenceFieldDraftMap | null;
+		nameDraft: string;
+	}>({ dto: null, drafts: null, nameDraft: "" });
+	useEffect(() => {
+		latest.current = { dto, drafts, nameDraft };
+	});
+
+	/**
+	 * `drafts` says whether the owner's field edits are replaced; `name` says the
+	 * same for an unsaved rename. A rename is only ever adopted from the response
+	 * that saved it, so no other refresh can drop what the owner is typing.
+	 */
+	const apply = useCallback(
+		(next: RedactedInferenceConfigurationDto, options: { drafts: "keep" | "reset"; name: "keep" | "adopt" }) => {
+			setDto(next);
+			if (options.name === "adopt") {
+				setNameDraft(next.kind === "custom" ? next.identity.name : next.displayName);
+			}
+			if (options.drafts === "reset") {
+				setDrafts(draftMapFromFields(next.fields));
+				setStale(null);
+			}
+		},
+		[],
+	);
 
 	const refresh = useCallback(
-		async (options: { keepDrafts?: boolean } = {}) => {
+		async () => {
 			const result = await loadConfiguration(configurationId);
 			if (!result.ok) {
 				setLoadError(result);
 				return null;
 			}
 			setLoadError(null);
-			apply(result.data, Boolean(options.keepDrafts));
+			apply(result.data, { drafts: "reset", name: "adopt" });
+			setError("");
 			return result.data;
 		},
 		[apply, configurationId],
@@ -126,14 +168,33 @@ export function InferenceConfigurationEditorScreen({
 	}, [refresh]);
 
 	// Navigation and successful saves already refresh; a refocus catches edits
-	// made in another tab without promising realtime cross-tab updates.
+	// made in another tab without promising realtime cross-tab updates. A failed
+	// refocus load is not allowed to replace an editor that holds unsaved edits.
+	const refreshOnFocus = useCallback(async () => {
+		const held = latest.current;
+		if (!held.dto || !held.drafts) return;
+		const result = await loadConfiguration(configurationId);
+		if (!result.ok) return;
+		const nameDirty = held.dto.kind === "custom" && held.nameDraft.trim() !== held.dto.identity.name;
+		const decision = refreshDecision({
+			currentRevision: held.dto.revision,
+			nextRevision: result.data.revision,
+			dirty: draftsChanged(held.drafts, held.dto.fields) || nameDirty,
+		});
+		if (decision === "conflict") {
+			setStale(staleConflict(result.data, held.drafts, held.nameDraft));
+			return;
+		}
+		apply(result.data, decision === "adopt" ? { drafts: "reset", name: "adopt" } : { drafts: "keep", name: "keep" });
+	}, [apply, configurationId]);
+
 	useEffect(() => {
 		function onFocus(): void {
-			void refresh({ keepDrafts: true });
+			void refreshOnFocus();
 		}
 		window.addEventListener("focus", onFocus);
 		return () => window.removeEventListener("focus", onFocus);
-	}, [refresh]);
+	}, [refreshOnFocus]);
 
 	if (loadError) {
 		return (
@@ -161,7 +222,12 @@ export function InferenceConfigurationEditorScreen({
 	const dirty = draftsChanged(drafts, dto.fields);
 	const nameDirty = isCustom && nameDraft.trim() !== dto.identity.name;
 
-	async function saveOverrides(): Promise<void> {
+	/**
+	 * The patch is always the difference between the drafts and the copy those
+	 * drafts were loaded from, so resolving a conflict by saving over a newer
+	 * revision still sends only the fields this owner actually edited.
+	 */
+	async function saveOverrides(expectedRevision?: number): Promise<void> {
 		if (!dto || !drafts) return;
 		const patch = overridePatchFromDrafts(drafts, dto.fields, inferenceFieldLabels);
 		if (!patch.ok) {
@@ -178,7 +244,7 @@ export function InferenceConfigurationEditorScreen({
 		setMessage("");
 		const result = await updateConfiguration({
 			configurationId: dto.id,
-			expectedRevision: dto.revision,
+			expectedRevision: expectedRevision ?? dto.revision,
 			overrides: patch.patch,
 		});
 		setBusy(false);
@@ -186,7 +252,7 @@ export function InferenceConfigurationEditorScreen({
 			await handleMutationFailure(result);
 			return;
 		}
-		apply(result.data, false);
+		apply(result.data, { drafts: "reset", name: nameDirty ? "keep" : "adopt" });
 		onInferenceChanged?.();
 		setMessage("Saved. Effective values below are recomputed from the server.");
 		toast.push("Saved inference configuration");
@@ -197,33 +263,53 @@ export function InferenceConfigurationEditorScreen({
 			setError(createErrorMessage(failure));
 			return;
 		}
-		// The draft is never discarded on a conflict: reload the server copy for
-		// comparison and let the owner decide.
+		// The draft is never discarded on a conflict, and the newer revision is
+		// not adopted either: adopting it would let the next save overwrite the
+		// other copy without the owner ever choosing to. The server copy is held
+		// beside the drafts for comparison until they do.
 		const fresh = await loadConfiguration(configurationId);
 		if (!fresh.ok) {
 			setError(failure.message);
 			return;
 		}
-		setDto(fresh.data);
-		setStale({ fields: conflictingFieldLabels(drafts, fresh.data), serverRevision: fresh.data.revision });
+		setStale(staleConflict(fresh.data, drafts, nameDraft));
 		setError("");
 	}
 
-	async function saveName(): Promise<void> {
+	/**
+	 * Explicit owner choice: keep these edits and write them over the newer copy.
+	 * Field edits go first; the response adopts the revision they were written
+	 * against, so an unsaved rename beside them is saved from the ordinary
+	 * Rename button afterwards rather than guessed at here.
+	 */
+	async function overwriteWithDrafts(): Promise<void> {
+		if (!stale) return;
+		const serverRevision = stale.server.revision;
+		setStale(null);
+		if (dirty) {
+			await saveOverrides(serverRevision);
+			return;
+		}
+		if (nameDirty) await saveName(serverRevision);
+	}
+
+	async function saveName(expectedRevision?: number): Promise<void> {
 		if (!dto || dto.kind !== "custom") return;
 		setBusy(true);
 		setError("");
 		const result = await renameConfiguration({
 			configurationId: dto.id,
 			name: nameDraft.trim(),
-			expectedRevision: dto.revision,
+			expectedRevision: expectedRevision ?? dto.revision,
 		});
 		setBusy(false);
 		if (!result.ok) {
 			await handleMutationFailure(result);
 			return;
 		}
-		apply(result.data, true);
+		// The saved name is the one the owner typed, so this is the only refresh
+		// allowed to replace the name draft.
+		apply(result.data, { drafts: "keep", name: "adopt" });
 		onInferenceChanged?.();
 		toast.push("Renamed configuration");
 	}
@@ -238,7 +324,7 @@ export function InferenceConfigurationEditorScreen({
 			await handleMutationFailure(result);
 			return;
 		}
-		apply(result.data, true);
+		apply(result.data, { drafts: "keep", name: "keep" });
 		onInferenceChanged?.();
 		setParentPickerOpen(false);
 		setMessage("Parent changed. Inherited values below are recomputed from the server.");
@@ -280,7 +366,7 @@ export function InferenceConfigurationEditorScreen({
 			await handleMutationFailure(result);
 			return;
 		}
-		apply(result.data, true);
+		apply(result.data, { drafts: "keep", name: "keep" });
 		onInferenceChanged?.();
 		toast.push("Updated provider credential");
 	}
@@ -314,17 +400,23 @@ export function InferenceConfigurationEditorScreen({
 			{stale && (
 				<div className="runtime-message error inference-stale">
 					<p>
-						This configuration changed elsewhere and is now at revision {stale.serverRevision}. Your edits are still
-						here and were not sent.
+						This configuration changed elsewhere and is now at revision {stale.server.revision}. Your edits are still
+						here and were not sent, and the values below are still the copy you loaded.
 					</p>
-					<p>
-						{stale.fields.length > 0
-							? `Differs from the saved copy: ${stale.fields.join(", ")}.`
-							: "Your edited fields match the saved copy; only the revision moved."}
-					</p>
-					<button className="btn compact" onClick={() => void refresh()} type="button">
-						Reload saved values (discards your edits)
-					</button>
+					<p>{staleComparisonText(stale)}</p>
+					<div className="inline-controls">
+						<button className="btn compact" onClick={() => void refresh()} type="button">
+							Reload saved values (discards your edits)
+						</button>
+						<button
+							className="btn compact"
+							disabled={busy || !(dirty || nameDirty)}
+							onClick={() => void overwriteWithDrafts()}
+							type="button"
+						>
+							Keep my edits and save over revision {stale.server.revision}
+						</button>
+					</div>
 				</div>
 			)}
 			{error && <div className="runtime-message error">{error}</div>}
@@ -553,6 +645,30 @@ export function deleteImpactLines(
 	];
 }
 
+/**
+ * The comparison an owner is shown before choosing. It names every field whose
+ * draft differs from the server copy, plus the name when an unsaved rename or a
+ * rename made elsewhere disagrees with it.
+ */
+export function staleConflict(
+	server: RedactedInferenceConfigurationDto,
+	drafts: InferenceFieldDraftMap | null,
+	nameDraft: string,
+): StaleConflict {
+	return {
+		fields: conflictingFieldLabels(drafts, server),
+		nameChanged: server.kind === "custom" && nameDraft.trim() !== server.identity.name,
+		server,
+	};
+}
+
+export function staleComparisonText(stale: Pick<StaleConflict, "fields" | "nameChanged">): string {
+	const differing = [...stale.fields, ...(stale.nameChanged ? ["Name"] : [])];
+	return differing.length > 0
+		? `Differs from the saved copy: ${differing.join(", ")}.`
+		: "Your edited fields match the saved copy; only the revision moved.";
+}
+
 export function conflictingFieldLabels(
 	drafts: InferenceFieldDraftMap | null,
 	server: RedactedInferenceConfigurationDto,
@@ -669,7 +785,7 @@ function ParentPickerModal({
 }) {
 	const [query, setQuery] = useState("");
 	const [candidateId, setCandidateId] = useState<string | null>(null);
-	const [impact, setImpact] = useState<InferenceParentImpact | null>(null);
+	const [answer, setAnswer] = useState<ParentImpactAnswer | null>(null);
 	const [impactError, setImpactError] = useState("");
 	const [loadingImpact, setLoadingImpact] = useState(false);
 	const [confirmed, setConfirmed] = useState(false);
@@ -687,15 +803,23 @@ function ParentPickerModal({
 	// account root are the entries an owner reaches for most often.
 	const ordered = useMemo(() => orderedParentCandidates(candidates.items, configuration.parentId), [candidates.items, configuration.parentId]);
 
+	// An impact preview belongs to the candidate it was requested for: a slower
+	// answer for an earlier candidate must never describe, or confirm, the
+	// current selection.
+	const selectedCandidateRef = useRef<string | null>(null);
+	const impact = impactForSelection(answer, candidateId);
+
 	async function selectCandidate(id: string): Promise<void> {
+		selectedCandidateRef.current = id;
 		setCandidateId(id);
-		setImpact(null);
+		setAnswer(null);
 		setConfirmed(false);
 		setImpactError("");
 		setLoadingImpact(true);
 		const result = await loadParentImpact(configuration.id, id);
+		if (selectedCandidateRef.current !== id) return;
 		setLoadingImpact(false);
-		if (result.ok) setImpact(result.data);
+		if (result.ok) setAnswer({ candidateId: id, impact: result.data });
 		else setImpactError(result.message);
 	}
 
@@ -774,6 +898,21 @@ function ParentPickerModal({
 			</div>
 		</Modal>
 	);
+}
+
+/** An impact preview, kept together with the candidate it was requested for. */
+export type ParentImpactAnswer = { candidateId: string; impact: InferenceParentImpact };
+
+/**
+ * Only the selected candidate's own preview is shown, and only that preview can
+ * enable the reparent. An answer that arrives for a candidate the owner has
+ * already moved off cannot describe or confirm the current selection.
+ */
+export function impactForSelection(
+	answer: ParentImpactAnswer | null,
+	candidateId: string | null,
+): InferenceParentImpact | null {
+	return answer && candidateId && answer.candidateId === candidateId ? answer.impact : null;
 }
 
 export function orderedParentCandidates(

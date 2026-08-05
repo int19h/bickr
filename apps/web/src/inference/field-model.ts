@@ -271,24 +271,34 @@ export function draftsChanged(drafts: InferenceFieldDraftMap, fields: RedactedIn
 }
 
 /**
- * Boolean cycle state. `flipped` records that the owner has already moved past
- * the seeded copy of the inherited value, so click and Space always advance
- * inherit -> inherited value -> opposite -> inherit from any starting point.
+ * Boolean cycle state, derived entirely from the draft the control renders.
+ *
+ * The position in the cycle is the relationship between the explicit value and
+ * the inherited one, so nothing about the cycle has to survive outside the
+ * draft: an explicit copy of the inherited value is the seeded step, and an
+ * explicit opposite is the step before returning to inherit. A remembered
+ * "already flipped" flag would be lost on the next render and strand the
+ * checkbox between the two explicit values.
  */
 export type BooleanCycleState =
 	| { mode: "inherit" }
-	| { mode: "explicit"; value: boolean; flipped: boolean };
+	| { mode: "explicit"; value: boolean };
 
 export function booleanCycleFromDraft(draft: InferenceFieldDraft): BooleanCycleState {
 	if (draft.mode === "inherit") return { mode: "inherit" };
 	if (draft.state !== "value") return { mode: "inherit" };
-	return { mode: "explicit", value: draft.text === "true", flipped: false };
+	return { mode: "explicit", value: draft.text === "true" };
 }
 
+/** inherit -> explicit inherited value -> explicit opposite -> inherit. */
 export function nextBooleanCycleState(current: BooleanCycleState, inheritedValue: boolean): BooleanCycleState {
-	if (current.mode === "inherit") return { mode: "explicit", value: inheritedValue, flipped: false };
-	if (!current.flipped) return { mode: "explicit", value: !current.value, flipped: true };
-	return { mode: "inherit" };
+	if (current.mode === "inherit") return { mode: "explicit", value: inheritedValue };
+	return current.value === inheritedValue ? { mode: "explicit", value: !inheritedValue } : { mode: "inherit" };
+}
+
+/** The draft one click/Space produces from the draft the control rendered. */
+export function nextBooleanDraft(draft: InferenceFieldDraft, inheritedValue: boolean): InferenceFieldDraft {
+	return draftFromBooleanCycleState(nextBooleanCycleState(booleanCycleFromDraft(draft), inheritedValue));
 }
 
 export function draftFromBooleanCycleState(state: BooleanCycleState): InferenceFieldDraft {

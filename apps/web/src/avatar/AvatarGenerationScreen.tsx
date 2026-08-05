@@ -340,7 +340,11 @@ export function AvatarGenerationScreen<TMutationResponse, TSaved>({
 				</div>
 				<div className="actions">
 					<button className="btn ghost" onClick={onBack} type="button">Back</button>
-					<button className="btn primary" disabled={saving || (!candidate && !model)} onClick={() => void save()} type="button">
+					{/* The image prompt belongs to this entity, not to the linked
+					    configuration, so it stays savable even when no image model
+					    resolves — that is exactly when an owner writes the prompt
+					    first and chooses a model afterwards. */}
+					<button className="btn primary" disabled={saving} onClick={() => void save()} type="button">
 						{saving ? "Saving..." : "Save"}
 					</button>
 				</div>
