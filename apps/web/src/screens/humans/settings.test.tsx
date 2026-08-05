@@ -30,6 +30,7 @@ function render(): string {
 			onAuthIdentityUnlink={async () => null}
 			onAvatarUpdated={() => undefined}
 			onOpenAvatarGeneration={() => undefined}
+			onProfileLoaded={() => undefined}
 			onSave={async () => null}
 			onSignOut={() => undefined}
 			user={user()}

@@ -61,10 +61,20 @@ type StaleConflict = { fields: string[]; serverRevision: number };
 
 export function InferenceConfigurationEditorScreen({
 	configurationId,
+	modelSuggestions = [],
+	onInferenceChanged,
 	onNavigate,
 	returnTo,
 }: {
 	configurationId: string;
+	/** Nonbinding completions from the models this owner's participants use. */
+	modelSuggestions?: readonly string[];
+	/**
+	 * Any successful mutation here can move the effective result of the
+	 * configuration translation selected, so the account's translation
+	 * annotation is refreshed rather than left to a later page load.
+	 */
+	onInferenceChanged?: () => void;
 	onNavigate: (route: ParsedRoute) => void;
 	returnTo?: InferenceReturnTarget;
 }) {
@@ -144,7 +154,7 @@ export function InferenceConfigurationEditorScreen({
 		);
 	}
 
-	const suggestions = fieldSuggestions(dto, imageModelsQuery.data?.models ?? []);
+	const suggestions = fieldSuggestions(dto, imageModelsQuery.data?.models ?? [], modelSuggestions);
 	const isAccountDefault = dto.kind === "account_default";
 	const isCustom = dto.kind === "custom";
 	const parentEntry = dto.path[1] ?? null;
@@ -177,6 +187,7 @@ export function InferenceConfigurationEditorScreen({
 			return;
 		}
 		apply(result.data, false);
+		onInferenceChanged?.();
 		setMessage("Saved. Effective values below are recomputed from the server.");
 		toast.push("Saved inference configuration");
 	}
@@ -213,6 +224,7 @@ export function InferenceConfigurationEditorScreen({
 			return;
 		}
 		apply(result.data, true);
+		onInferenceChanged?.();
 		toast.push("Renamed configuration");
 	}
 
@@ -227,6 +239,7 @@ export function InferenceConfigurationEditorScreen({
 			return;
 		}
 		apply(result.data, true);
+		onInferenceChanged?.();
 		setParentPickerOpen(false);
 		setMessage("Parent changed. Inherited values below are recomputed from the server.");
 		toast.push("Changed parent configuration");
@@ -242,6 +255,9 @@ export function InferenceConfigurationEditorScreen({
 			await handleMutationFailure(result);
 			return;
 		}
+		// Deleting the selected custom entry resets translation to Account default
+		// in the same transaction, so the annotation must be reread.
+		onInferenceChanged?.();
 		toast.push(`Deleted ${dto.displayName}`);
 		onNavigate({ route: "inference-library", ...(returnTo ? { returnTo } : {}) });
 	}
@@ -265,6 +281,7 @@ export function InferenceConfigurationEditorScreen({
 			return;
 		}
 		apply(result.data, true);
+		onInferenceChanged?.();
 		toast.push("Updated provider credential");
 	}
 
@@ -497,12 +514,16 @@ function fieldHelp(field: InferenceConfigurationField, isAccountDefault: boolean
  * Completions only. Image aspect ratios and sizes are model-specific, so they
  * follow the configuration's resolved image model rather than a fixed list.
  */
-function fieldSuggestions(
+export function fieldSuggestions(
 	dto: RedactedInferenceConfigurationDto,
 	imageModels: readonly { id: string; name?: string }[],
+	ownedModels: readonly string[] = [],
 ): Partial<Record<InferenceConfigurationField, InferenceFieldSuggestion[]>> {
 	const imageModel = dto.imagePreviews.participant.model ?? "";
 	return {
+		model: [...new Set([...ownedModels, dto.effectiveModel].filter(Boolean))]
+			.sort((left, right) => left.localeCompare(right))
+			.map((value) => ({ value })),
 		imageModel: imageModels.map((model) => ({ value: model.id, ...(model.name ? { label: `${model.name} (${model.id})` } : {}) })),
 		imageAspectRatio: openRouterSuggestedImageAspectRatios(imageModel).map((value) => ({ value })),
 		imageSize: openRouterSuggestedImageSizes(imageModel).map((value) => ({ value })),

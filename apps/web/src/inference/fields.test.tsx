@@ -127,6 +127,24 @@ describe("text and number inheritance controls", () => {
 		expect(root).not.toContain(">Use Account default<");
 	});
 
+	it("renders nonbinding completions without constraining the stored value", () => {
+		const html = renderToStaticMarkup(
+			<InferenceField
+				draft={{ mode: "explicit", state: "value", text: "custom/model" }}
+				dto={dto({ effective: "custom/model" })}
+				field="model"
+				isAccountDefault={false}
+				onChange={() => undefined}
+				path={path}
+				suggestions={[{ value: "anthropic/claude-opus-4" }, { value: "openrouter/free" }]}
+			/>,
+		);
+		expect(html).toMatch(/<input[^>]*list="([^"]+)"/);
+		expect(html).toContain('<option value="anthropic/claude-opus-4"');
+		// The typed value is still whatever the owner entered.
+		expect(html).toContain('value="custom/model"');
+	});
+
 	it("shows a capability adjustment beside the field", () => {
 		const html = render(
 			"toolCalls",

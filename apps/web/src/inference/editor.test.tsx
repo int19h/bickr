@@ -11,6 +11,7 @@ import {
 	InferenceConfigurationEditorScreen,
 	conflictingFieldLabels,
 	deleteImpactLines,
+	fieldSuggestions,
 	impactRequiresConfirmation,
 	impactWarningText,
 	orderedParentCandidates,
@@ -194,6 +195,31 @@ describe("compaction reasoning summary", () => {
 			},
 		} as RedactedInferenceConfigurationDto["fields"]["compactionReasoning"];
 		expect(compactionRequestedText({ fields } as RedactedInferenceConfigurationDto)).toBe("high");
+	});
+});
+
+describe("model completions", () => {
+	const dto = {
+		effectiveModel: "anthropic/claude-opus-4",
+		imagePreviews: { participant: { model: "google/gemini-image" }, world: { model: "google/gemini-image" } },
+	} as RedactedInferenceConfigurationDto;
+
+	// Nonbinding completions from the owner's existing participants, exactly the
+	// catalogue the previous participant editor offered.
+	it("offers the owner's participant models and the current effective model", () => {
+		const suggestions = fieldSuggestions(dto, [], ["z/model", "a/model", "z/model"]);
+		expect(suggestions.model?.map((item) => item.value)).toEqual([
+			"a/model",
+			"anthropic/claude-opus-4",
+			"z/model",
+		]);
+	});
+
+	it("labels image models and follows the resolved image model for ratios and sizes", () => {
+		const suggestions = fieldSuggestions(dto, [{ id: "img/one", name: "Image One" }]);
+		expect(suggestions.imageModel).toEqual([{ value: "img/one", label: "Image One (img/one)" }]);
+		expect(suggestions.imageAspectRatio?.length).toBeGreaterThan(0);
+		expect(suggestions.imageSize?.length).toBeGreaterThan(0);
 	});
 });
 

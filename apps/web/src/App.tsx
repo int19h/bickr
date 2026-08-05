@@ -1,8 +1,5 @@
 import {
-	defaultProviderModel,
-	defaultTranslationPrompt,
 	localizedText,
-	localizedTextString,
 	type AuthProvider,
 	type BotGroupSummary,
 	type BotSummary,
@@ -53,6 +50,7 @@ import {
 	routeWithRenamedWorld,
 	sortBotsForCascadeDelete,
 	throwApiError,
+	translationContextValue,
 	updateThreadDocumentAuthorAvatar,
 	updateThreadSummaryAuthorAvatar,
 	visibleForums,
@@ -480,23 +478,24 @@ function App() {
 		}),
 		[activeTooltipId],
 	);
-	const translationContext = useMemo<TranslationContextValue>(() => {
-		const translation = userProfile?.inferenceSettings.translation;
-		const annotation = userProfile?.translationInference;
-		return {
-			enabled: Boolean(translation?.enabled),
-			// The cache identity is the selected configuration's effective
-			// fingerprint, so a change to inherited routing, reasoning, or sampling
-			// invalidates cached translations even when model and prompt are equal.
-			identity: annotation
-				? `${annotation.selectedConfigurationId}:${annotation.effectiveRevisionFingerprint}`
-				: defaultProviderModel,
-			model: annotation?.effectiveModel ?? defaultProviderModel,
-			prompt: localizedTextString(translation?.prompt).trim() || defaultTranslationPrompt,
-		};
-	}, [userProfile?.inferenceSettings.translation, userProfile?.translationInference]);
+	const translationContext = useMemo<TranslationContextValue>(
+		() => translationContextValue(userProfile),
+		[userProfile],
+	);
 	const activeBotBlogForum =
 		activeBot ? activeForums.find((forum) => forum.personalBotId === activeBot.id) ?? null : null;
+	// Nonbinding completions for model fields, from the models this owner's
+	// participants already use.
+	const ownedBotModels = useMemo(() => {
+		const models = new Set<string>();
+		for (const bot of bots) {
+			const model = bot.inferenceSettings.model?.trim();
+			if (model) {
+				models.add(model);
+			}
+		}
+		return [...models].sort((left, right) => left.localeCompare(right));
+	}, [bots]);
 	const documentTitle = useMemo(
 		() =>
 			clientRouteTitle({
@@ -2323,6 +2322,8 @@ function App() {
 						currentUser && activeConfigurationId ?
 							<InferenceConfigurationEditorScreen
 								configurationId={activeConfigurationId}
+								modelSuggestions={ownedBotModels}
+								onInferenceChanged={() => void loadUserProfile()}
 								onNavigate={(next) => navigate(next)}
 								{...(activeReturnTo ? { returnTo: activeReturnTo } : {})}
 							/>
@@ -2345,6 +2346,7 @@ function App() {
 								onAuthIdentityUnlink={unlinkAuthIdentity}
 								onAvatarUpdated={applySavedUserProfile}
 								onOpenAvatarGeneration={() => navigate({ route: "profile-avatar" })}
+								onProfileLoaded={setUserProfile}
 								onSave={updateProfile}
 								onSignOut={() => void logout()}
 								user={currentUser}

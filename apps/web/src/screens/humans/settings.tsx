@@ -42,6 +42,7 @@ export function ProfileScreen({
 	onAuthIdentityUnlink,
 	onAvatarUpdated,
 	onOpenAvatarGeneration,
+	onProfileLoaded,
 	onSave,
 	onSignOut,
 	user,
@@ -50,6 +51,8 @@ export function ProfileScreen({
 	onAuthIdentityUnlink: (provider: AuthProvider) => Promise<UserProfile | null>;
 	onAvatarUpdated: (profile: UserProfile) => void;
 	onOpenAvatarGeneration: () => void;
+	/** Carries the translation annotation to the app so its cache key follows. */
+	onProfileLoaded: (profile: UserProfile) => void;
 	onSave: (draft: UpdateUserProfileInput) => Promise<UserProfile | null>;
 	onSignOut: () => void;
 	user: PublicUser;
@@ -73,10 +76,11 @@ export function ProfileScreen({
 			setProfile(result.data.profile);
 			setDraft(profileDraftFromProfile(result.data.profile));
 			setMessage("");
+			onProfileLoaded(result.data.profile);
 		} else {
 			setMessage(result.message);
 		}
-	}, []);
+	}, [onProfileLoaded]);
 
 	useEffect(() => {
 		let cancelled = false;
