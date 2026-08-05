@@ -435,10 +435,15 @@ function legacyBotMigrationCredential(
 	settings: BotInferenceSettings,
 	linkedClone: boolean,
 ): LegacyBotMigrationCredential {
+	// Dormancy is decided before the local key, because a linked clone without a
+	// local model read its source's whole bundle and never consulted its own key.
+	// Storing that key would bypass the source credential, and provider parity
+	// cannot catch it: the envelope compares only credential availability, which
+	// both sides satisfy.
+	if (linkedClone && !settings.model?.trim()) return { mode: "inherit" };
 	const ownSecret = settings.openRouterApiKey?.trim();
 	if (ownSecret) return { mode: "value", secret: ownSecret };
 	if (!linkedClone) return { mode: "inherit" };
-	if (!settings.model?.trim()) return { mode: "inherit" };
 	// Legacy local-model clones skipped their source's credential fallback. The
 	// typed jump preserves that behavior without copying an account/deployment key.
 	return { mode: "account_default" };

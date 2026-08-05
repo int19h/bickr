@@ -752,7 +752,13 @@ describe("restartable inference graph migration", () => {
 			baseUrl: "https://source.example/v1",
 			openRouterApiKey: "source-only-secret",
 		});
-		const clone = migrationBot("bot_w_clone", "writer-clone", { model: "clone/local-model" }, source);
+		// The clone holds a local key as well as a local model, so the transition
+		// has a secret to mishandle: its own key is another state that skips the
+		// source, and a dormant clone never consulted it.
+		const clone = migrationBot("bot_w_clone", "writer-clone", {
+			model: "clone/local-model",
+			openRouterApiKey: "clone-secret",
+		}, source);
 		await seedBot(source);
 		await seedBot(clone);
 		await seedLinkedClone(clone, source);
@@ -760,17 +766,22 @@ describe("restartable inference graph migration", () => {
 
 		const cloneConfigurationId = await botConfigurationId(clone.id);
 		expect(await configurationOverrides(cloneConfigurationId)).toMatchObject({ baseUrl: { kind: "account_default" } });
-		expect((await credential(cloneConfigurationId))?.mode).toBe("account_default");
+		expect((await credential(cloneConfigurationId))?.mode).toBe("value");
 		await leaveMaintenance();
 		expect(await patchBotInferenceSettings(clone.id, { model: null })).toBe(200);
+		expect(await storedBotInferenceSettings(clone.id)).toMatchObject({ openRouterApiKey: "clone-secret" });
 
-		// The clone is dormant again, so the states that bypassed the source must
-		// not survive the transition that ended the local bundle. An inherited
-		// field is stored as an absent key.
+		// The clone is dormant again, so none of the states that bypassed the
+		// source may survive the transition that ended the local bundle — including
+		// the retained local key. An inherited field is stored as an absent key.
 		const dormantOverrides = await configurationOverrides(cloneConfigurationId);
 		expect(dormantOverrides).not.toHaveProperty("model");
 		expect(dormantOverrides).not.toHaveProperty("baseUrl");
-		expect((await credential(cloneConfigurationId))?.mode).toBe("inherit");
+		expect(await credential(cloneConfigurationId)).toEqual({
+			mode: "inherit",
+			secretValue: null,
+			secretVersion: 0,
+		});
 
 		const canonical = await canonicalBotInference(testEnv.BICKR_D1, ownerId, clone.id, deploymentEnv);
 		// A dormant linked clone read its source's whole bundle, so the source
@@ -798,6 +809,13 @@ describe("restartable inference graph migration", () => {
 		await migrateToCutover(deploymentEnv);
 
 		const cloneConfigurationId = await botConfigurationId(clone.id);
+		// While dormant the clone read its source's whole bundle, so migration must
+		// not pin it to its own unused key either. Parity cannot see this on its
+		// own: providerParityEnvelope compares only credentialAvailable, and both
+		// sides have some key.
+		expect((await credential(cloneConfigurationId))?.mode).toBe("inherit");
+		expect((await canonicalBotInference(testEnv.BICKR_D1, ownerId, clone.id, deploymentEnv))?.providerSettings.apiKey)
+			.toBe("source-only-secret");
 		await leaveMaintenance();
 		expect(await patchBotInferenceSettings(clone.id, { model: "clone/written-model" })).toBe(200);
 

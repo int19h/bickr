@@ -1611,13 +1611,18 @@ async function isLinkedCloneBot(db: Env['BICKR_D1'], botId: string): Promise<boo
 	return row?.linked === 1;
 }
 
+/** Mirrors the migration's credential decision, dormancy check included. */
 function legacyCompatibilityCredentialUpdate(
 	write: Extract<LegacyInferenceCompatibilityWrite, { kind: 'account' | 'bot' }>,
 	linkedClone: boolean,
 ): CredentialUpdate {
+	const model = write.settings.model?.trim();
+	// A clone that just went dormant reads its source's whole bundle again, so a
+	// retained local key is as much a source bypass as the Account-default jump.
+	if (linkedClone && !model) return { mode: 'inherit' };
 	const secret = write.settings.openRouterApiKey?.trim();
 	if (secret) return { mode: 'value', secret };
-	return linkedClone && write.settings.model?.trim() ? { mode: 'account_default' } : { mode: 'inherit' };
+	return linkedClone && model ? { mode: 'account_default' } : { mode: 'inherit' };
 }
 
 async function prepareLegacyInferenceCompatibilityWrite(
