@@ -800,7 +800,12 @@ async function inferenceCommand(ctx: CommandContext, args: string[]): Promise<vo
 	}
 	if (subcommand === "impact") {
 		const id = requiredPosition(options.positionals, 0, "configuration id");
-		await printGenericEnvelope(ctx, ctx.client.request(`/me/inference-configurations/${encodeURIComponent(id)}/impact`));
+		const params = new URLSearchParams();
+		const parentId = flagString(options.flags, "parent");
+		if (parentId) params.set("parentId", parentId);
+		await printGenericEnvelope(ctx, ctx.client.request(
+			`/me/inference-configurations/${encodeURIComponent(id)}/impact${params.size ? `?${params}` : ""}`,
+		));
 		return;
 	}
 	if (subcommand === "delete") {

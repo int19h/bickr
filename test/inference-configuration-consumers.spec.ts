@@ -124,37 +124,45 @@ describe("canonical inference consumers", () => {
 		const accountTarget = await resolveAvatarTarget(testEnv, { kind: "user", userId: ownerId }, "generate");
 		const botTarget = await resolveAvatarTarget(testEnv, { kind: "bot", userId: ownerId, botId }, "generate");
 		const worldTarget = await resolveAvatarTarget(testEnv, { kind: "world", userId: ownerId, worldHandle: "consumer-world" }, "generate");
-		expect(effectiveProviderSettingsForAvatarImageGeneration(accountTarget, {})).toMatchObject({
+		expect(effectiveProviderSettingsForAvatarImageGeneration(accountTarget, {})).toEqual(expect.objectContaining({
 			model: "owner/account-image",
-			aspectRatio: "1:1",
-		});
+		}));
+		expect(effectiveProviderSettingsForAvatarImageGeneration(accountTarget, {})).not.toHaveProperty("aspectRatio");
 		expect(effectiveProviderSettingsForAvatarImageGeneration(botTarget, {})).toEqual(expect.objectContaining({
 			model: "owner/bot-image",
 		}));
 		expect(effectiveProviderSettingsForAvatarImageGeneration(botTarget, {})).not.toHaveProperty("aspectRatio");
-		expect(effectiveProviderSettingsForAvatarImageGeneration(worldTarget, {})).toMatchObject({
+		expect(effectiveProviderSettingsForAvatarImageGeneration(worldTarget, {})).toEqual(expect.objectContaining({
 			model: "owner/world-image",
-			aspectRatio: "21:9",
-		});
+		}));
+		expect(effectiveProviderSettingsForAvatarImageGeneration(worldTarget, {})).not.toHaveProperty("aspectRatio");
 		expect(effectiveProviderSettingsForAvatarImageGeneration(accountTarget, {}, {
 			model: "legacy/request-bypass",
 		})).toMatchObject({ model: "owner/account-image" });
 	});
 
-	it("does not authorize an owner image model through only the global credential", async () => {
+	it("never forwards the deployment credential through owner provider settings or avatar targets", async () => {
 		await enableCutover();
-		const rootId = await accountDefaultConfigurationId(ownerId);
-		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
-			configurationId: rootId,
-			expectedRevision: 1,
-			overrides: { baseUrl: { kind: "inherit" } },
-			credential: { mode: "none" },
-		});
-		const accountTarget = await resolveAvatarTarget({
+		const env = {
 			...testEnv,
 			OPENROUTER_API_KEY: "global-only-secret",
-		}, { kind: "user", userId: ownerId }, "generate");
-		expect(effectiveProviderSettingsForAvatarImageGeneration(accountTarget, {})).toBeNull();
+		};
+		const canonical = await canonicalBotInference(env.BICKR_D1, ownerId, botId, env);
+		expect(canonical?.providerSettings).not.toHaveProperty("apiKey");
+		expect(canonical?.resolution.effective.credential).toMatchObject({
+			kind: "unavailable",
+			reason: "deployment_credential_suppressed_for_owner_base_url",
+		});
+		expect(await canonicalTranslationInferenceAnnotation(env.BICKR_D1, ownerId, env))
+			.toMatchObject({ credentialAvailable: false });
+		const targets = [
+			await resolveAvatarTarget(env, { kind: "user", userId: ownerId }, "generate"),
+			await resolveAvatarTarget(env, { kind: "bot", userId: ownerId, botId }, "generate"),
+			await resolveAvatarTarget(env, { kind: "world", userId: ownerId, worldHandle: "consumer-world" }, "generate"),
+		];
+		for (const target of targets) {
+			expect(effectiveProviderSettingsForAvatarImageGeneration(target, env)).not.toHaveProperty("apiKey");
+		}
 	});
 });
 

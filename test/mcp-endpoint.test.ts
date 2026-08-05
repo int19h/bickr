@@ -206,6 +206,7 @@ describe("MCP endpoint", () => {
 			["list_inference_parent_candidates", "bickr.read", true, false, true],
 			["list_inference_configuration_children", "bickr.read", true, false, true],
 			["get_inference_configuration_delete_impact", "bickr.read", true, false, true],
+			["get_inference_configuration_parent_impact", "bickr.read", true, false, true],
 			["delete_inference_configuration", "bickr.write", false, true, false],
 			["get_translation_inference_selection", "bickr.read", true, false, true],
 			["list_translation_inference_candidates", "bickr.read", true, false, true],

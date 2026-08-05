@@ -4,9 +4,11 @@ import {
 	accountDefaultConfigurationId,
 	accountConfigurationDeletionStatements,
 	inferenceConfigurationDeleteImpact,
+	inferenceConfigurationParentImpact,
 	inferenceConfigurationMutations,
 	inferenceConfigurationOwnerDto,
 	insertAccountDefaultConfigurationStatement,
+	insertFixedConfigurationStatement,
 	insertTranslationSelectionStatement,
 	listImmediateInferenceChildren,
 	listInferenceConfigurations,
@@ -84,6 +86,61 @@ describe("inference configuration D1 repository", () => {
 			source: { configurationId: parent.id },
 		});
 		expect(Object.keys(dto.fields)).toHaveLength(27);
+		expect(dto.imagePreviews).toMatchObject({
+			participant: { aspectRatio: "1:1" },
+			world: { aspectRatio: "21:9" },
+		});
+	});
+
+	it("reports typed credential provenance without reporting deployment or saved secret text", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: rootId,
+			expectedRevision: 1,
+			overrides: { baseUrl: { kind: "value", value: "https://owner.example/v1" } },
+		}, now);
+		const deploymentDefaults = {
+			fields: { baseUrl: "https://deployment.example/v1", model: "deployment/model", temperature: 1 },
+			credential: "deployment-secret",
+			credentialVersion: 8,
+		};
+		const rootDto = await inferenceConfigurationOwnerDto(testEnv.BICKR_D1, ownerId, rootId, deploymentDefaults);
+		expect(rootDto.credential).toMatchObject({
+			mode: "inherit",
+			available: false,
+			resolution: {
+				kind: "unavailable",
+				source: { kind: "bickr_default" },
+				reason: "deployment_credential_suppressed_for_owner_base_url",
+			},
+		});
+		expect(JSON.stringify(rootDto)).not.toContain("deployment-secret");
+
+		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: rootId,
+			expectedRevision: 2,
+			credential: { mode: "value", secret: "account-saved-secret" },
+		}, now);
+		const parent = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Credential parent", parentId: rootId,
+			credential: { mode: "value", secret: "intervening-secret" },
+		}, now);
+		const child = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Credential child", parentId: parent.id,
+			credential: { mode: "account_default" },
+		}, now);
+		const childDto = await inferenceConfigurationOwnerDto(testEnv.BICKR_D1, ownerId, child.id, deploymentDefaults);
+		expect(childDto.credential).toMatchObject({
+			mode: "account_default",
+			available: true,
+			resolution: {
+				kind: "available",
+				source: { kind: "account_default", configurationId: rootId },
+				secretVersion: 1,
+			},
+		});
+		expect(JSON.stringify(childDto)).not.toContain("account-saved-secret");
+		expect(JSON.stringify(childDto)).not.toContain("intervening-secret");
 	});
 
 	it("enforces optimistic revision, normalized uniqueness, cycle rejection, and fixed-entry protections", async () => {
@@ -113,6 +170,158 @@ describe("inference configuration D1 repository", () => {
 		}, now)).rejects.toMatchObject({ causeKind: "stale_revision", status: 409 });
 		await expect(inferenceConfigurationDeleteImpact(testEnv.BICKR_D1, ownerId, rootId))
 			.rejects.toMatchObject({ causeKind: "fixed_entry_requires_lifecycle" });
+		await expect(inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: rootId,
+			expectedRevision: 1,
+			credential: { mode: "account_default" },
+		}, now)).rejects.toMatchObject({ code: "bad_request", status: 400 });
+		await expect(testEnv.BICKR_D1.prepare(
+			`UPDATE inference_configuration_credentials SET mode = 'account_default'
+			 WHERE configuration_id = ? AND owner_user_id = ?`,
+		).bind(rootId, ownerId).run()).rejects.toThrow();
+	});
+
+	it("returns fixed handle identities and bot home-world identity in editor, summary, and parent shapes", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const worldId = "wld_graph_identity";
+		const botId = "bot_graph_identity";
+		await testEnv.BICKR_D1.batch([
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO entity_lifecycle_identity_claims (
+					key_kind, key_scope, key_value, entity_kind, entity_id, owner_user_id,
+					claim_state, operation_id, created_at, updated_at
+				) VALUES ('world_handle', 'global', 'identity-world', 'world', ?, ?, 'active', NULL, ?, ?)`,
+			).bind(worldId, ownerId, now, now),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO entity_lifecycle_identity_claims (
+					key_kind, key_scope, key_value, entity_kind, entity_id, owner_user_id,
+					claim_state, operation_id, created_at, updated_at
+				) VALUES ('bot_handle', ?, 'identity-bot', 'bot', ?, ?, 'active', NULL, ?, ?)`,
+			).bind(worldId, botId, ownerId, now, now),
+		]);
+		await testEnv.BICKR_D1.batch([
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO worlds_index (
+					world_id, handle, name, description, created_by_user_id, visibility,
+					created_at, updated_at, lifecycle_state
+				) VALUES (?, 'identity-world', 'Renamable World', '', ?, 'public', ?, ?, 'active')`,
+			).bind(worldId, ownerId, now, now),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO bots_index (
+					bot_id, home_world_id, home_world_handle, handle, display_name,
+					owner_user_id, short_bio, created_at, updated_at, lifecycle_state
+				) VALUES (?, ?, 'identity-world', 'identity-bot', 'Renamable Bot', ?, '', ?, ?, 'active')`,
+			).bind(botId, worldId, ownerId, now, now),
+		]);
+		const worldConfigurationId = "cfg_graph_identity_world";
+		const botConfigurationId = "cfg_graph_identity_bot";
+		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "world", configurationId: worldConfigurationId, ownerUserId: ownerId,
+				parentId: rootId, worldId, overrides: {}, now,
+			}),
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "bot", configurationId: botConfigurationId, ownerUserId: ownerId,
+				parentId: worldConfigurationId, botId, overrides: {}, now,
+			}),
+		]);
+
+		const dto = await inferenceConfigurationOwnerDto(testEnv.BICKR_D1, ownerId, botConfigurationId);
+		expect(dto).toMatchObject({
+			displayName: "u/identity-bot",
+			identity: {
+				kind: "bot", botId, botHandle: "identity-bot",
+				homeWorldId: worldId, homeWorldHandle: "identity-world",
+			},
+		});
+		const page = await listInferenceConfigurations(testEnv.BICKR_D1, ownerId, { query: "identity" });
+		expect(page.items).toHaveLength(2);
+		expect(page.items.find((item) => item.kind === "bot")).toMatchObject({
+			displayName: "u/identity-bot",
+			parent: {
+				displayName: "w/identity-world",
+				identity: { kind: "world", worldId, worldHandle: "identity-world" },
+			},
+		});
+	});
+
+	it("previews bounded reparent and delete effects without secret material", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const source = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Source",
+			parentId: rootId,
+			overrides: {
+				baseUrl: { kind: "value", value: "https://source.example/v1" },
+				model: { kind: "value", value: "source/model" },
+			},
+			credential: { mode: "value", secret: "impact-source-secret" },
+		}, now);
+		const candidate = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Candidate",
+			parentId: rootId,
+			overrides: { model: { kind: "value", value: "candidate/model" } },
+			credential: { mode: "none" },
+		}, now);
+		const selected = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Selected", parentId: source.id,
+		}, now);
+		const child = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Child", parentId: selected.id,
+		}, now);
+		await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Grandchild", parentId: child.id,
+		}, now);
+		const defaults = {
+			fields: { baseUrl: "https://deployment.example/v1", model: "deployment/model", temperature: 1 },
+			credential: "deployment-secret",
+			credentialVersion: 1,
+		};
+		const parentImpact = await inferenceConfigurationParentImpact(
+			testEnv.BICKR_D1, ownerId, selected.id, candidate.id, defaults,
+		);
+		expect(parentImpact).toMatchObject({
+			kind: "reparent",
+			immediateDependentCount: 1,
+			transitiveDependentCount: 2,
+			affectedConfigurationCount: 3,
+			changes: {
+				effectiveModel: 3,
+				effectiveBaseUrl: 3,
+				credentialAvailability: 3,
+				credentialSource: 3,
+				providerAccess: 3,
+			},
+		});
+		expect(JSON.stringify(parentImpact)).not.toContain("secret");
+
+		const deleting = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Deleting",
+			parentId: source.id,
+			overrides: { model: { kind: "value", value: "deleting/model" } },
+			credential: { mode: "none" },
+		}, now);
+		const deletingChild = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Deleting child", parentId: deleting.id,
+		}, now);
+		await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Deleting grandchild", parentId: deletingChild.id,
+		}, now);
+		await inferenceConfigurationMutations.updateTranslationSelection(testEnv.BICKR_D1, ownerId, {
+			configurationId: deleting.id, expectedRevision: 1,
+		}, now);
+		const deleteImpact = await inferenceConfigurationDeleteImpact(
+			testEnv.BICKR_D1, ownerId, deleting.id, defaults,
+		);
+		expect(deleteImpact).toMatchObject({
+			kind: "delete",
+			immediateDependentCount: 1,
+			transitiveDependentCount: 2,
+			affectedConfigurationCount: 2,
+			resetsTranslationSelection: true,
+			changes: { effectiveModel: 2, credentialAvailability: 2, credentialSource: 2 },
+		});
+		expect(JSON.stringify(deleteImpact)).not.toContain("impact-source-secret");
+		expect(JSON.stringify(deleteImpact)).not.toContain("deployment-secret");
 	});
 
 	it("deletes a selected custom entry in one FK-safe batch without flattening children", async () => {

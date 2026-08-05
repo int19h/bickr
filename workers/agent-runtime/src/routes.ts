@@ -38,6 +38,7 @@ import {
 } from '@bickr/shared/inference-configuration-legacy';
 import {
 	inferenceConfigurationDeleteImpact,
+	inferenceConfigurationParentImpact,
 	inferenceConfigurationMutations,
 	inferenceConfigurationOwnerDto,
 	inferenceGraphReadVersion,
@@ -570,7 +571,15 @@ export const agentRuntimeRouteTable = [
 		dispatch: 'user-coordinator',
 		handler: async (context) => {
 			const userId = await requireInferenceGraphOwner(context);
-			return ok({ impact: await inferenceConfigurationDeleteImpact(context.env.BICKR_D1, userId, decodeURIComponent(context.match[2] ?? '')), coordinator: context.objectId });
+			const configurationId = decodeURIComponent(context.match[2] ?? '');
+			const candidateParentId = context.url.searchParams.get('parentId');
+			const defaults = await bickrInferenceDefaultsFromEnvironment(context.env);
+			return ok({
+				impact: candidateParentId
+					? await inferenceConfigurationParentImpact(context.env.BICKR_D1, userId, configurationId, candidateParentId, defaults)
+					: await inferenceConfigurationDeleteImpact(context.env.BICKR_D1, userId, configurationId, defaults),
+				coordinator: context.objectId,
+			});
 		},
 	},
 	{
@@ -655,6 +664,7 @@ export const agentRuntimeRouteTable = [
 			const impact = await deleteInferenceConfiguration(context.env.BICKR_D1, userId, {
 				configurationId: decodeURIComponent(context.match[2] ?? ''),
 				expectedRevision: requiredPositiveInteger(body.expectedRevision, 'expectedRevision'),
+				defaults: await bickrInferenceDefaultsFromEnvironment(context.env),
 			});
 			return ok({ impact, coordinator: context.objectId });
 		},
@@ -1556,23 +1566,37 @@ async function projectLegacyInferenceCompatibilityWrite(
 				? await botConfigurationId(write.entityId)
 				: await worldConfigurationId(write.entityId);
 		const selected = (await loadInferenceConfigurationPath(context.env.BICKR_D1, ownerUserId, configurationId))[0];
+		const credential = write.kind !== 'world' && fieldMask.credential
+			? await legacyCompatibilityCredentialUpdate(context.env.BICKR_D1, write)
+			: undefined;
 		await updateInferenceConfiguration(context.env.BICKR_D1, ownerUserId, {
 			configurationId,
 			expectedRevision: selected.revision,
 			overrides: write.kind === 'world'
 				? inferenceOverridePatchFromLegacyImageSettingsMask(write.settings, fieldMask)
 				: inferenceOverridePatchFromLegacySettingsMask(write.settings, fieldMask),
-			...(write.kind !== 'world' && fieldMask.credential ? {
-				credential: write.settings.openRouterApiKey?.trim()
-					? { mode: 'value' as const, secret: write.settings.openRouterApiKey.trim() }
-					: { mode: 'inherit' as const },
-			} : {}),
+			...(credential ? { credential } : {}),
 		}, now);
 	}
 	if (write.kind === 'account') {
 		await projectLegacyTranslationCompatibilityWrite(context, ownerUserId, write.settings, fieldMask);
 	}
 	await completeInferenceGraphCompatibilityWrite(context.env.BICKR_D1, ownerUserId, now);
+}
+
+async function legacyCompatibilityCredentialUpdate(
+	db: Env['BICKR_D1'],
+	write: Extract<LegacyInferenceCompatibilityWrite, { kind: 'account' | 'bot' }>,
+): Promise<CredentialUpdate> {
+	const secret = write.settings.openRouterApiKey?.trim();
+	if (secret) return { mode: 'value', secret };
+	if (write.kind === 'bot' && write.settings.model?.trim()) {
+		const linked = await db.prepare(
+			`SELECT linked FROM bot_clone_sources WHERE bot_id = ? LIMIT 1`,
+		).bind(write.entityId).first<{ linked: number }>();
+		if (linked?.linked === 1) return { mode: 'account_default' };
+	}
+	return { mode: 'inherit' };
 }
 
 async function prepareLegacyInferenceCompatibilityWrite(
@@ -1726,12 +1750,13 @@ function parseCredentialUpdate(value: unknown): CredentialUpdate {
 	const record = requiredRecord(value);
 	switch (record.mode) {
 		case 'inherit':
+		case 'account_default':
 		case 'none':
 			return { mode: record.mode };
 		case 'value':
 			return { mode: 'value', secret: requiredString(record.secret, 'credential.secret') };
 		default:
-			throw new InputError('credential.mode must be inherit, value, or none.');
+			throw new InputError('credential.mode must be inherit, account_default, value, or none.');
 	}
 }
 

@@ -94,7 +94,7 @@ END;
 CREATE TABLE inference_configuration_credentials (
 	configuration_id TEXT NOT NULL,
 	owner_user_id TEXT NOT NULL,
-	mode TEXT NOT NULL CHECK (mode IN ('inherit', 'value', 'none')),
+	mode TEXT NOT NULL CHECK (mode IN ('inherit', 'account_default', 'value', 'none')),
 	secret_value TEXT,
 	secret_version INTEGER NOT NULL DEFAULT 0 CHECK (secret_version >= 0),
 	created_at TEXT NOT NULL,
@@ -105,12 +105,37 @@ CREATE TABLE inference_configuration_credentials (
 		ON DELETE RESTRICT,
 	CHECK (
 		(mode = 'value' AND secret_value IS NOT NULL AND length(secret_value) > 0 AND secret_version > 0) OR
-		(mode IN ('inherit', 'none') AND secret_value IS NULL AND secret_version = 0)
+		(mode IN ('inherit', 'account_default', 'none') AND secret_value IS NULL AND secret_version = 0)
 	)
 );
 
 CREATE INDEX inference_configuration_credentials_owner
 	ON inference_configuration_credentials (owner_user_id, configuration_id);
+
+-- Non-root entries may deliberately skip intervening parents and resume
+-- credential resolution at Account default. Account default itself can never
+-- store that mode, which would otherwise be recursive/ambiguous.
+CREATE TRIGGER inference_configuration_account_default_credential_insert
+BEFORE INSERT ON inference_configuration_credentials
+WHEN NEW.mode = 'account_default' AND EXISTS (
+	SELECT 1 FROM inference_configurations
+	WHERE configuration_id = NEW.configuration_id
+		AND owner_user_id = NEW.owner_user_id AND kind = 'account_default'
+)
+BEGIN
+	SELECT RAISE(ABORT, 'account default cannot use account-default credential mode');
+END;
+
+CREATE TRIGGER inference_configuration_account_default_credential_update
+BEFORE UPDATE OF mode ON inference_configuration_credentials
+WHEN NEW.mode = 'account_default' AND EXISTS (
+	SELECT 1 FROM inference_configurations
+	WHERE configuration_id = NEW.configuration_id
+		AND owner_user_id = NEW.owner_user_id AND kind = 'account_default'
+)
+BEGIN
+	SELECT RAISE(ABORT, 'account default cannot use account-default credential mode');
+END;
 
 -- A fixed bot insert atomically transfers the Phase-1 nonterminal key bridge
 -- into its permanent configuration row. The lifecycle batch deletes the
@@ -263,14 +288,15 @@ CREATE TABLE inference_graph_legacy_projection_entries (
 	custom_name_key TEXT,
 	overrides_json TEXT NOT NULL CHECK (json_valid(overrides_json) AND json_type(overrides_json) = 'object'),
 	configuration_revision INTEGER NOT NULL CHECK (configuration_revision > 0),
-	credential_mode TEXT NOT NULL CHECK (credential_mode IN ('inherit', 'value', 'none')),
+	credential_mode TEXT NOT NULL CHECK (credential_mode IN ('inherit', 'account_default', 'value', 'none')),
 	credential_secret_version INTEGER NOT NULL CHECK (credential_secret_version >= 0),
 	PRIMARY KEY (owner_user_id, configuration_id),
 	FOREIGN KEY (owner_user_id) REFERENCES inference_graph_legacy_projections(owner_user_id) ON DELETE CASCADE,
 	FOREIGN KEY (parent_id, owner_user_id)
 		REFERENCES inference_graph_legacy_projection_entries(configuration_id, owner_user_id)
 		ON DELETE CASCADE,
-	CHECK (parent_id IS NULL OR parent_id != configuration_id)
+	CHECK (parent_id IS NULL OR parent_id != configuration_id),
+	CHECK (kind != 'account_default' OR credential_mode != 'account_default')
 );
 
 CREATE INDEX inference_graph_legacy_projection_parent

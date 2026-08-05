@@ -93,12 +93,12 @@ describe("restartable inference graph migration", () => {
 			providerRouting: { kind: "explicit_none" },
 			reasoning: { kind: "value", value: { kind: "provider_default" } },
 			topK: { kind: "explicit_none" },
-			imageModel: { kind: "value", value: "google/gemini-3.1-flash-image" },
+			imageModel: { kind: "target_default" },
 		});
 		expect(await credential(localCloneConfigurationId)).toEqual({
-			mode: "value",
-			secretValue: "account-secret",
-			secretVersion: 1,
+			mode: "account_default",
+			secretValue: null,
+			secretVersion: 0,
 		});
 		expect(await credential(sourceConfigurationId)).toEqual({ mode: "value", secretValue: "source-secret", secretVersion: 1 });
 
@@ -122,6 +122,40 @@ describe("restartable inference graph migration", () => {
 		expect(await inferenceGraphMigrationStatus(testEnv.BICKR_D1, ownerId)).toMatchObject({
 			audit: { hadDormantCloneInference: true },
 		});
+	});
+
+	it("uses Account-default credential intent for linked local models without copying a deployment secret", async () => {
+		const user = migrationUser();
+		delete user.inferenceSettings?.openRouterApiKey;
+		await writeJson(testEnv.BICKR_KV, kvKeys.user(ownerId), user);
+		const source = migrationBot("bot_global_source", "global-source", {
+			model: "owner/source-model",
+			openRouterApiKey: "source-secret",
+		});
+		const clone = migrationBot("bot_global_clone", "global-clone", {
+			model: "owner/local-model",
+		}, source);
+		await seedBot(source);
+		await seedBot(clone);
+		await seedLinkedClone(clone, source);
+		const migrationEnv = { ...testEnv, OPENROUTER_API_KEY: "deployment-secret" };
+		let result = await runInferenceGraphMigrationStep(migrationEnv, ownerId, now);
+		for (let attempt = 0; attempt < 15 && !result.complete; attempt += 1) {
+			result = await runInferenceGraphMigrationStep(
+				migrationEnv,
+				ownerId,
+				new Date(Date.parse(now) + attempt + 1).toISOString(),
+			);
+		}
+		expect(result).toMatchObject({ complete: true, phase: "terminal" });
+		const cloneConfigurationId = await botConfigurationId(clone.id);
+		expect(await credential(cloneConfigurationId)).toEqual({
+			mode: "account_default",
+			secretValue: null,
+			secretVersion: 0,
+		});
+		expect(JSON.stringify(await inferenceGraphMigrationStatus(testEnv.BICKR_D1, ownerId)))
+			.not.toContain("deployment-secret");
 	});
 
 	it("preserves model-gated provider bundles and whole-object image inheritance for every bot shape", async () => {
@@ -194,18 +228,18 @@ describe("restartable inference graph migration", () => {
 
 		const worldOverrides = await configurationOverrides(await worldConfigurationId(worldId));
 		expect(worldOverrides).toMatchObject({
-			imageModel: { kind: "value", value: "google/gemini-3.1-flash-image" },
-			imageAspectRatio: { kind: "value", value: "21:9" },
-			imageSize: { kind: "value", value: "1K" },
+			imageModel: { kind: "target_default" },
+			imageAspectRatio: { kind: "target_default" },
+			imageSize: { kind: "target_default" },
 			imageTemperature: { kind: "value", value: 0.44 },
 			imageTopK: { kind: "explicit_none" },
 		});
 
 		const partialImageOverrides = await configurationOverrides(await botConfigurationId(ordinaryPartialImage.id));
 		expect(partialImageOverrides).toMatchObject({
-			imageModel: { kind: "value", value: "google/gemini-3.1-flash-image" },
-			imageAspectRatio: { kind: "value", value: "1:1" },
-			imageSize: { kind: "value", value: "1K" },
+			imageModel: { kind: "target_default" },
+			imageAspectRatio: { kind: "target_default" },
+			imageSize: { kind: "target_default" },
 			imageTemperature: { kind: "value", value: 0.25 },
 			imageTopK: { kind: "explicit_none" },
 		});
@@ -225,9 +259,9 @@ describe("restartable inference graph migration", () => {
 
 		const linkedLocalImageOverrides = await configurationOverrides(await botConfigurationId(linkedLocalImage.id));
 		expect(linkedLocalImageOverrides).toMatchObject({
-			imageModel: { kind: "value", value: "google/gemini-3.1-flash-image" },
-			imageAspectRatio: { kind: "value", value: "1:1" },
-			imageSize: { kind: "value", value: "1K" },
+			imageModel: { kind: "target_default" },
+			imageAspectRatio: { kind: "target_default" },
+			imageSize: { kind: "target_default" },
 			imageTemperature: { kind: "value", value: 0.33 },
 			imageTopK: { kind: "explicit_none" },
 		});
@@ -237,7 +271,7 @@ describe("restartable inference graph migration", () => {
 			imageModel: { kind: "value", value: "owner/account-image" },
 			imageProviderRouting: { kind: "value", value: { order: ["profile-image-provider"] } },
 			imageAspectRatio: { kind: "value", value: "4:3" },
-			imageSize: { kind: "explicit_none" },
+			imageSize: { kind: "target_default" },
 			imageTemperature: { kind: "value", value: 0.62 },
 			imageTopK: { kind: "value", value: 20.5 },
 		});

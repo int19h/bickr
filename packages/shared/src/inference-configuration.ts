@@ -38,7 +38,7 @@ export const inferenceConfigurationOwnerQuota = 10_000;
 export const inferenceConfigurationCorruptionSentinel = inferenceConfigurationOwnerQuota + 1;
 
 export type InferenceConfigurationKind = "account_default" | "world" | "bot" | "custom";
-export type InferenceCredentialMode = "inherit" | "value" | "none";
+export type InferenceCredentialMode = "inherit" | "account_default" | "value" | "none";
 
 export type InferenceReasoningRequest =
 	| { kind: "provider_default" }
@@ -98,9 +98,12 @@ type ValueOnlyField =
 	| "compactionMode"
 	| "promptCacheMode";
 
+type ImageTargetDefaultField = "imageModel" | "imageAspectRatio" | "imageSize";
+
 export type StoredInferenceOverride<K extends InferenceConfigurationField> =
 	| { kind: "value"; value: InferenceConfigurationFieldValues[K] }
-	| (K extends ValueOnlyField ? never : { kind: "explicit_none" });
+	| (K extends ValueOnlyField ? never : { kind: "explicit_none" })
+	| (K extends ImageTargetDefaultField ? { kind: "target_default" } : never);
 
 export type InferenceOverrideUpdate<K extends InferenceConfigurationField> =
 	| { kind: "inherit" }
@@ -133,6 +136,7 @@ export type InferenceConfigurationNode =
 
 export type InferenceConfigurationCredential =
 	| { mode: "inherit"; secretVersion: 0 }
+	| { mode: "account_default"; secretVersion: 0 }
 	| { mode: "none"; secretVersion: 0 }
 	| { mode: "value"; secretVersion: number; secret?: string };
 
@@ -155,6 +159,11 @@ export type ResolvedRawInferenceField<K extends InferenceConfigurationField> =
 			source: InferenceSource;
 			override: Extract<StoredInferenceOverride<K>, { kind: "explicit_none" }>;
 	  }
+	| {
+			state: "target_default";
+			source: InferenceSource;
+			override: Extract<StoredInferenceOverride<K>, { kind: "target_default" }>;
+	  }
 	| { state: "absent"; source: { kind: "bickr_default" }; override: null };
 
 export type ResolvedRawInferenceFields = {
@@ -164,7 +173,7 @@ export type ResolvedRawInferenceFields = {
 export type InferenceCredentialResolution =
 	| { kind: "available"; source: InferenceSource; secretVersion: number; secret?: string }
 	| { kind: "explicit_none"; source: InferenceSource }
-	| { kind: "unavailable"; source: InferenceSource | { kind: "bickr_default" }; reason: "missing_saved_secret" | "no_credential" };
+	| { kind: "unavailable"; source: InferenceSource | { kind: "bickr_default" }; reason: "missing_saved_secret" | "no_credential" | "deployment_credential_suppressed_for_owner_base_url" };
 
 export type InferenceProviderAuthorizationAdjustment =
 	| {
@@ -277,7 +286,7 @@ export function resolveInferenceConfiguration(
 	const defaults = options.defaults ?? defaultBickrInferenceDefaults;
 	const raw = resolveRawInferenceFields(path, defaults.fields);
 	const baseUrl = requiredRawValue(raw.baseUrl, "base URL");
-	const credential = resolveCredential(path, defaults);
+	const credential = credentialAuthorizedForBaseUrl(raw.baseUrl, resolveCredential(path, defaults));
 	const authorization = authorizedModel(raw.model, raw.baseUrl, credential, defaults);
 	const effectiveModel = authorization.model;
 	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
@@ -413,8 +422,8 @@ export function resolveImageSettingsForTarget(
 	return {
 		...(image.model.state !== "explicit_none" && withDefaults.model ? { model: withDefaults.model } : {}),
 		...(withDefaults.providerRouting ? { providerRouting: withDefaults.providerRouting } : {}),
-		...(image.aspectRatio.state !== "explicit_none"
-			? { aspectRatio: withDefaults.aspectRatio ?? (target === "world" ? "21:9" : "1:1") }
+		...(image.aspectRatio.state !== "explicit_none" && withDefaults.aspectRatio
+			? { aspectRatio: withDefaults.aspectRatio }
 			: {}),
 		...(image.imageSize.state !== "explicit_none" && withDefaults.imageSize ? { imageSize: withDefaults.imageSize } : {}),
 		...(withDefaults.temperature !== undefined ? { temperature: withDefaults.temperature } : {}),
@@ -661,6 +670,9 @@ const valueOnlyFields = new Set<InferenceConfigurationField>([
 const explicitNoneFields = new Set<InferenceConfigurationField>(
 	inferenceConfigurationFields.filter((field) => !valueOnlyFields.has(field)),
 );
+const imageTargetDefaultFields = new Set<InferenceConfigurationField>([
+	"imageModel", "imageAspectRatio", "imageSize",
+]);
 
 function resolveRawInferenceFields(
 	path: InferenceConfigurationPath,
@@ -675,11 +687,13 @@ function resolveRawInferenceFields(
 
 type AnyStoredInferenceOverride =
 	| { kind: "value"; value: InferenceConfigurationFieldValues[InferenceConfigurationField] }
-	| { kind: "explicit_none" };
+	| { kind: "explicit_none" }
+	| { kind: "target_default" };
 
 type AnyResolvedRawInferenceField =
 	| { state: "value"; value: InferenceConfigurationFieldValues[InferenceConfigurationField]; source: InferenceSource; override: AnyStoredInferenceOverride | null }
 	| { state: "explicit_none"; source: InferenceSource; override: { kind: "explicit_none" } }
+	| { state: "target_default"; source: InferenceSource; override: { kind: "target_default" } }
 	| { state: "absent"; source: { kind: "bickr_default" }; override: null };
 
 function resolveRawInferenceField(
@@ -696,6 +710,9 @@ function resolveRawInferenceField(
 		if (override.kind === "explicit_none") {
 			return { state: "explicit_none", source, override };
 		}
+		if (override.kind === "target_default") {
+			return { state: "target_default", source, override };
+		}
 		return { state: "value", value: override.value, source, override };
 	}
 	return defaultValue === undefined
@@ -707,9 +724,23 @@ function resolveCredential(
 	path: InferenceConfigurationPath,
 	defaults: BickrInferenceDefaults,
 ): InferenceCredentialResolution {
-	for (let depth = 0; depth < path.length; depth += 1) {
+	return resolveCredentialFromDepth(path, defaults, 0);
+}
+
+function resolveCredentialFromDepth(
+	path: InferenceConfigurationPath,
+	defaults: BickrInferenceDefaults,
+	startDepth: number,
+): InferenceCredentialResolution {
+	for (let depth = startDepth; depth < path.length; depth += 1) {
 		const entry = path[depth];
 		if (!entry || entry.credential.mode === "inherit") continue;
+		if (entry.credential.mode === "account_default") {
+			if (entry.kind === "account_default") {
+				throw new InferenceConfigurationDataError("invalid_path", "Account default cannot use Account-default credential mode.");
+			}
+			return resolveCredentialFromDepth(path, defaults, path.length - 1);
+		}
 		const source = sourceForEntry(entry, depth);
 		if (entry.credential.mode === "none") {
 			return { kind: "explicit_none", source };
@@ -732,6 +763,23 @@ function resolveCredential(
 			...(defaults.credential ? { secret: defaults.credential } : {}),
 		}
 		: { kind: "unavailable", source: { kind: "bickr_default" }, reason: "no_credential" };
+}
+
+function credentialAuthorizedForBaseUrl(
+	baseUrl: ResolvedRawInferenceField<"baseUrl">,
+	credential: InferenceCredentialResolution,
+): InferenceCredentialResolution {
+	// Source provenance, not URL-string equality, defines the trust boundary.
+	// A deployment key must never be sent to a base URL selected by an owner.
+	if (baseUrl.source.kind !== "bickr_default" &&
+		credential.kind === "available" && credential.source.kind === "bickr_default") {
+		return {
+			kind: "unavailable",
+			source: credential.source,
+			reason: "deployment_credential_suppressed_for_owner_base_url",
+		};
+	}
+	return credential;
 }
 
 function authorizedModel(
@@ -847,6 +895,10 @@ function parseStoredOverride<K extends InferenceConfigurationField>(
 	if (value.kind === "explicit_none") {
 		if (!explicitNoneFields.has(field) || Object.keys(value).length !== 1) throw invalidOverride(field);
 		return { kind: "explicit_none" } as StoredInferenceOverride<K>;
+	}
+	if (value.kind === "target_default") {
+		if (!imageTargetDefaultFields.has(field) || Object.keys(value).length !== 1) throw invalidOverride(field);
+		return { kind: "target_default" } as StoredInferenceOverride<K>;
 	}
 	if (value.kind !== "value" || Object.keys(value).some((key) => key !== "kind" && key !== "value")) {
 		throw invalidOverride(field);

@@ -254,7 +254,7 @@ async function migrateWorldBatch(env: InferenceGraphMigrationEnv, operation: Mig
 			parentId: rootId,
 			worldId: row.worldId,
 			now,
-			overrides: legacyImageMigrationOverrides(storedImage, "world"),
+			overrides: legacyImageMigrationOverrides(storedImage),
 		}));
 	}
 	const cursor = rows.at(-1)?.worldId ?? operation.worldCursor;
@@ -308,16 +308,14 @@ async function migrateBotBatch(env: InferenceGraphMigrationEnv, operation: Migra
 		}));
 		const credential = legacyBotMigrationCredential(
 			bot.inferenceSettings,
-			user.inferenceSettings,
-			environment,
 			Boolean(row.sourceBotId),
 		);
 		if (credential.mode === "value") {
 			statements.push(valueCredentialStatement(
 				env.BICKR_D1, configurationId, operation.ownerUserId, credential.secret, now,
 			));
-		} else if (credential.mode === "none") {
-			statements.push(noneCredentialStatement(env.BICKR_D1, configurationId, operation.ownerUserId, now));
+		} else if (credential.mode === "account_default") {
+			statements.push(accountDefaultCredentialStatement(env.BICKR_D1, configurationId, operation.ownerUserId, now));
 		}
 	}
 	const cursor = rows.at(-1)?.botId ?? operation.botCursor;
@@ -347,7 +345,7 @@ async function migrateBotBatch(env: InferenceGraphMigrationEnv, operation: Migra
 
 type LegacyBotMigrationCredential =
 	| { mode: "inherit" }
-	| { mode: "none" }
+	| { mode: "account_default" }
 	| { mode: "value"; secret: string };
 
 /**
@@ -361,7 +359,8 @@ type LegacyBotMigrationCredential =
  * Image settings had their own whole-object selection and were not model-gated.
  * Keep that decision separate so an ordinary bot with no image object can still
  * inherit Account default and a linked local-model clone cannot inherit image
- * fields from its source.
+ * fields from its source. Whole-object barriers store target_default or
+ * explicit_none intent; they never store participant/world-expanded values.
  */
 function inferenceOverridesForLegacyBotMigration(
 	settings: BotInferenceSettings,
@@ -400,11 +399,10 @@ function inferenceOverridesForLegacyBotMigration(
 	if (linkedClone) {
 		Object.assign(overrides, legacyImageMigrationOverrides(
 			settings.imageGeneration ?? ownerSettings?.imageGeneration,
-			"participant",
 			true,
 		));
 	} else if (settings.imageGeneration) {
-		Object.assign(overrides, legacyImageMigrationOverrides(settings.imageGeneration, "participant"));
+		Object.assign(overrides, legacyImageMigrationOverrides(settings.imageGeneration));
 	}
 	return overrides;
 }
@@ -414,24 +412,22 @@ function inferenceOverridesForLegacySettingsMigration(
 ): InferenceConfigurationOverrides {
 	const overrides = inferenceOverridesFromLegacySettings(settings);
 	if (settings?.imageGeneration) {
-		Object.assign(overrides, legacyImageMigrationOverrides(settings.imageGeneration, "participant"));
+		Object.assign(overrides, legacyImageMigrationOverrides(settings.imageGeneration));
 	}
 	return overrides;
 }
 
 function legacyImageMigrationOverrides(
 	settings: BotImageGenerationSettings | undefined,
-	target: AvatarInferenceTarget,
-	materializeDefaults = false,
+	materializeWholeObject = false,
 ): InferenceConfigurationOverrides {
-	if (!settings && !materializeDefaults) return {};
-	const effective = target === "world"
-		? worldAvatarImageGenerationSettingsWithDefaults(settings)
-		: avatarImageGenerationSettingsWithDefaults(settings);
-	const overrides = inferenceOverridesFromLegacyImageSettings(effective);
+	if (!settings && !materializeWholeObject) return {};
+	const overrides = inferenceOverridesFromLegacyImageSettings(settings);
+	for (const field of ["imageModel", "imageAspectRatio", "imageSize"] as const) {
+		overrides[field] ??= { kind: "target_default" };
+	}
 	for (const field of [
-		"imageModel", "imageProviderRouting", "imageAspectRatio", "imageSize",
-		"imageTemperature", "imageTopK", "imageTopP", "imageMinP",
+		"imageProviderRouting", "imageTemperature", "imageTopK", "imageTopP", "imageMinP",
 		"imageFrequencyPenalty", "imagePresencePenalty", "imageRepetitionPenalty",
 	] as const) {
 		overrides[field] ??= { kind: "explicit_none" };
@@ -441,19 +437,15 @@ function legacyImageMigrationOverrides(
 
 function legacyBotMigrationCredential(
 	settings: BotInferenceSettings,
-	ownerSettings: BotInferenceSettings | undefined,
-	environment: ReturnType<typeof providerEnvironmentSettingsFromBindings>,
 	linkedClone: boolean,
 ): LegacyBotMigrationCredential {
 	const ownSecret = settings.openRouterApiKey?.trim();
-	if (!linkedClone) return ownSecret ? { mode: "value", secret: ownSecret } : { mode: "inherit" };
+	if (ownSecret) return { mode: "value", secret: ownSecret };
+	if (!linkedClone) return { mode: "inherit" };
 	if (!settings.model?.trim()) return { mode: "inherit" };
-	const effectiveSecret = resolveBotProviderSettings(
-		{ inferenceSettings: settings },
-		{ inferenceSettings: ownerSettings },
-		environment,
-	).settings.apiKey?.trim();
-	return effectiveSecret ? { mode: "value", secret: effectiveSecret } : { mode: "none" };
+	// Legacy local-model clones skipped their source's credential fallback. The
+	// typed jump preserves that behavior without copying an account/deployment key.
+	return { mode: "account_default" };
 }
 
 async function migrateTranslation(env: InferenceGraphMigrationEnv, ownerUserId: string, now: string): Promise<void> {
@@ -531,8 +523,9 @@ async function verifyAccountParity(env: InferenceGraphMigrationEnv, operation: M
 	const resolution = resolveInferenceConfiguration(inferenceConfigurationPathFromSnapshot(root, snapshot), { defaults });
 	const legacy = resolveBotProviderSettings({ inferenceSettings: {} }, user, providerEnvironmentSettingsFromBindings(env)).settings;
 	const canonical = providerSettingsFromResolution(resolution);
-	assertProviderParity(legacy, canonical);
-	const legacyImage = legacyImageEnvelope(user.inferenceSettings?.imageGeneration, legacy, "participant");
+	const policyLegacy = legacyProviderSettingsUnderGraphCredentialPolicy(legacy, resolution);
+	assertProviderParity(policyLegacy, canonical);
+	const legacyImage = legacyImageEnvelope(user.inferenceSettings?.imageGeneration, policyLegacy, "participant");
 	const canonicalImage = canonicalImageEnvelope(resolution, canonical, "participant");
 	assertParityEqual(legacyImage, canonicalImage);
 	await updateParityProgress(env.BICKR_D1, operation, {
@@ -573,17 +566,14 @@ async function verifyWorldParityBatch(env: InferenceGraphMigrationEnv, operation
 		if (!world || world.deletedAt || world.createdByUserId !== operation.ownerUserId ||
 			!node || node.kind !== "world" || node.worldId !== row.worldId || node.parentId !== rootId) migrationParityFailure();
 		const storedImage = parsedStoredObject(row.imageGenerationJson);
-		assertSameOverrides(node, legacyImageMigrationOverrides(
-			storedImage as BotImageGenerationSettings | undefined,
-			"world",
-		));
+		assertSameOverrides(node, legacyImageMigrationOverrides(storedImage as BotImageGenerationSettings | undefined));
 		assertCredentialParity(node, undefined);
 		if (parityJson(storedImage ?? null) !== parityJson(world.imageGeneration ?? null)) migrationParityFailure();
 		const resolution = resolveInferenceConfiguration(inferenceConfigurationPathFromSnapshot(node, snapshot), { defaults });
 		const canonicalProvider = providerSettingsFromResolution(resolution);
 		const legacyImage = legacyImageEnvelope(
 			world.imageGeneration ?? user.inferenceSettings?.imageGeneration,
-			accountProvider,
+			legacyProviderSettingsUnderGraphCredentialPolicy(accountProvider, resolution),
 			"world",
 		);
 		const canonicalImage = canonicalImageEnvelope(resolution, canonicalProvider, "world");
@@ -713,18 +703,17 @@ async function verifyBotParityBatch(env: InferenceGraphMigrationEnv, operation: 
 		assertSameOverrides(node, expectedOverrides);
 		assertMigrationCredentialParity(node, legacyBotMigrationCredential(
 			bot.inferenceSettings,
-			user.inferenceSettings,
-			environment,
 			Boolean(row.sourceBotId),
 		));
 		const effectiveLegacySettings = effectiveLegacyCloneInferenceSettings(row.botId, legacyClones);
 		const legacy = resolveBotProviderSettings({ inferenceSettings: effectiveLegacySettings }, user, environment).settings;
 		const resolution = resolveInferenceConfiguration(inferenceConfigurationPathFromSnapshot(node, snapshot), { defaults });
 		const canonical = providerSettingsFromResolution(resolution);
-		assertProviderParity(legacy, canonical);
+		const policyLegacy = legacyProviderSettingsUnderGraphCredentialPolicy(legacy, resolution);
+		assertProviderParity(policyLegacy, canonical);
 		const legacyImage = legacyImageEnvelope(
 			effectiveLegacySettings.imageGeneration ?? user.inferenceSettings?.imageGeneration,
-			legacy,
+			policyLegacy,
 			"participant",
 		);
 		const canonicalImage = canonicalImageEnvelope(resolution, canonical, "participant");
@@ -779,7 +768,10 @@ async function verifyTranslationParity(env: InferenceGraphMigrationEnv, operatio
 	);
 	const canonical = providerSettingsFromResolution(resolution);
 	const legacy = resolveLegacyTranslationProviderSettings(user, providerEnvironmentSettingsFromBindings(env));
-	if (legacy) assertParityEqual(translationParityEnvelope(legacy), translationParityEnvelope(canonical));
+	if (legacy) assertParityEqual(
+		translationParityEnvelope(legacyProviderSettingsUnderGraphCredentialPolicy(legacy, resolution)),
+		translationParityEnvelope(canonical),
+	);
 	const invariants = await migrationInvariantCounts(env.BICKR_D1, operation.ownerUserId);
 	if (invariants.graphCount >= inferenceConfigurationCorruptionSentinel ||
 		invariants.graphCount !== invariants.reachableCount ||
@@ -877,6 +869,16 @@ function providerParityEnvelope(settings: ProviderSettings): Record<string, unkn
 		presencePenalty: settings.presencePenalty ?? null,
 		repetitionPenalty: settings.repetitionPenalty ?? null,
 	};
+}
+
+function legacyProviderSettingsUnderGraphCredentialPolicy(
+	settings: ProviderSettings,
+	resolution: InferenceResolution,
+): ProviderSettings {
+	if (resolution.effective.credential.kind === "available") return settings;
+	const withoutCredential = { ...settings };
+	delete withoutCredential.apiKey;
+	return withoutCredential;
 }
 
 function translationParityEnvelope(settings: ProviderSettings): Record<string, unknown> {
@@ -1040,8 +1042,8 @@ function assertMigrationCredentialParity(
 		case "inherit":
 			if (node.credential.mode !== "inherit") migrationParityFailure();
 			return;
-		case "none":
-			if (node.credential.mode !== "none") migrationParityFailure();
+		case "account_default":
+			if (node.credential.mode !== "account_default") migrationParityFailure();
 			return;
 		case "value":
 			if (node.credential.mode !== "value" || node.credential.secret !== expected.secret || node.credential.secretVersion < 1) {
@@ -1647,7 +1649,7 @@ function valueCredentialStatement(
 	).bind(secret, now, configurationId, ownerUserId);
 }
 
-function noneCredentialStatement(
+function accountDefaultCredentialStatement(
 	db: D1DatabaseLike,
 	configurationId: string,
 	ownerUserId: string,
@@ -1655,7 +1657,7 @@ function noneCredentialStatement(
 ): D1PreparedStatementLike {
 	return db.prepare(
 		`UPDATE inference_configuration_credentials
-		 SET mode = 'none', secret_value = NULL, secret_version = 0, updated_at = ?
+		 SET mode = 'account_default', secret_value = NULL, secret_version = 0, updated_at = ?
 		 WHERE configuration_id = ? AND owner_user_id = ?`,
 	).bind(now, configurationId, ownerUserId);
 }

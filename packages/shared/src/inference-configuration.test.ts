@@ -129,6 +129,56 @@ describe("canonical inference configuration resolution", () => {
 		expect(fingerprint).not.toContain("sk-owner-secret");
 	});
 
+	it("suppresses the deployment credential for every owner-sourced base URL", async () => {
+		const account = node("account", "account_default", null, {
+			baseUrl: value("https://deployment.example/v1"),
+			model: value("owner/model"),
+		});
+		const resolution = resolveInferenceConfiguration([account], {
+			defaults: {
+				fields: { baseUrl: "https://deployment.example/v1", model: "deployment/model", temperature: 1 },
+				credential: "deployment-secret",
+				credentialVersion: 9,
+			},
+		});
+		expect(resolution.effective.credential).toEqual({
+			kind: "unavailable",
+			source: { kind: "bickr_default" },
+			reason: "deployment_credential_suppressed_for_owner_base_url",
+		});
+		expect(JSON.stringify(resolution)).not.toContain("deployment-secret");
+		const rotated = resolveInferenceConfiguration([account], {
+			defaults: {
+				fields: { baseUrl: "https://deployment.example/v1", model: "deployment/model", temperature: 1 },
+				credential: "rotated-deployment-secret",
+				credentialVersion: 10,
+			},
+		});
+		expect(await inferenceResolutionFingerprint(resolution))
+			.toBe(await inferenceResolutionFingerprint(rotated));
+	});
+
+	it("lets non-root entries bypass intervening credentials at Account default", () => {
+		const account = node("account", "account_default", null, {}, {
+			mode: "value", secretVersion: 3, secret: "account-secret",
+		});
+		const parent = node("parent", "custom", account.id, {}, {
+			mode: "value", secretVersion: 4, secret: "parent-secret",
+		});
+		const selected = node("selected", "custom", parent.id, {}, {
+			mode: "account_default", secretVersion: 0,
+		});
+		expect(resolveInferenceConfiguration([selected, parent, account]).effective.credential).toMatchObject({
+			kind: "available",
+			source: { kind: "account_default", configurationId: account.id },
+			secret: "account-secret",
+		});
+		const invalidRoot = node("invalid", "account_default", null, {}, {
+			mode: "account_default", secretVersion: 0,
+		});
+		expect(() => resolveInferenceConfiguration([invalidRoot])).toThrow("cannot use Account-default credential mode");
+	});
+
 	it("keeps explicit image absence raw and applies target defaults only for ordinary absence", () => {
 		const account = node("account", "account_default", null, {});
 		const inherited = resolveInferenceConfiguration([account]);
@@ -144,18 +194,50 @@ describe("canonical inference configuration resolution", () => {
 		expect(resolveImageSettingsForTarget(absent.effective.image, "world")).not.toHaveProperty("aspectRatio");
 	});
 
+	it("stores target-default image intent without baking in a reusable target", () => {
+		const account = node("account", "account_default", null, {});
+		const selected = node("selected", "custom", account.id, {
+			imageModel: { kind: "target_default" },
+			imageAspectRatio: { kind: "target_default" },
+			imageSize: { kind: "target_default" },
+			imageTemperature: value(0.44),
+			imageTopK: { kind: "explicit_none" },
+		});
+		const resolution = resolveInferenceConfiguration([selected, account]);
+		expect(resolution.raw.imageAspectRatio).toMatchObject({ state: "target_default" });
+		expect(resolveImageSettingsForTarget(resolution.effective.image, "participant")).toMatchObject({
+			model: "google/gemini-3.1-flash-image", aspectRatio: "1:1", imageSize: "1K", temperature: 0.44,
+		});
+		expect(resolveImageSettingsForTarget(resolution.effective.image, "world")).toMatchObject({
+			model: "google/gemini-3.1-flash-image", aspectRatio: "21:9", imageSize: "1K", temperature: 0.44,
+		});
+
+		const custom = node("custom", "custom", account.id, {
+			imageModel: value("owner/custom-image-model"),
+			imageAspectRatio: { kind: "target_default" },
+			imageSize: { kind: "target_default" },
+		});
+		const customPreview = resolveImageSettingsForTarget(
+			resolveInferenceConfiguration([custom, account]).effective.image,
+			"participant",
+		);
+		expect(customPreview).toEqual({ model: "owner/custom-image-model" });
+	});
+
 	it("validates the discriminated storage and update protocols exhaustively", () => {
 		expect(parseInferenceConfigurationOverrides(JSON.stringify({
 			supportsPrefill: { kind: "value", value: false },
 			topK: { kind: "value", value: 0 },
 			providerRouting: { kind: "value", value: {} },
-			imageModel: { kind: "explicit_none" },
+			imageModel: { kind: "target_default" },
 		}))).toEqual({
 			supportsPrefill: { kind: "value", value: false },
 			topK: { kind: "value", value: 0 },
 			providerRouting: { kind: "value", value: {} },
-			imageModel: { kind: "explicit_none" },
+			imageModel: { kind: "target_default" },
 		});
+		expect(() => parseInferenceConfigurationOverrides({ imageTemperature: { kind: "target_default" } }))
+			.toThrow("Invalid override for inference field imageTemperature");
 		expect(() => parseInferenceConfigurationOverrides({
 			reasoning: { kind: "explicit_none" },
 		})).toThrow("Invalid override for inference field reasoning");

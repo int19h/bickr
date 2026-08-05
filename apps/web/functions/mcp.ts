@@ -579,7 +579,7 @@ const mcpTools: McpTool[] = [
 		name: stringSchema("Configuration display name."),
 		parentId: stringSchema("Parent configuration ID."),
 		overrides: objectSchema("Typed per-field overrides."),
-		credential: objectSchema("Credential intent: inherit, none, or value with secret."),
+		credential: objectSchema("Credential intent: inherit, account_default, none, or value with secret."),
 	}), ["name", "parentId"], "write", "agent", "POST", (_args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/inference-configurations`),
 	serviceTool("update_inference_configuration", "Update inference configuration", "Update typed overrides or credential intent using an expected revision.", bodySchema({
 		configurationId: stringSchema("Configuration ID."),
@@ -633,6 +633,17 @@ const mcpTools: McpTool[] = [
 		`/users/${encodeURIComponent(auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}/impact`,
 		"GET", auth.user.id,
 	)),
+	readTool("get_inference_configuration_parent_impact", "Get inference configuration parent impact", "Preview bounded effective-setting changes for a candidate parent.", {
+		configurationId: stringSchema("Configuration ID."),
+		parentId: stringSchema("Candidate parent configuration ID."),
+	}, ({ env, request, auth }, args) => {
+		const params = new URLSearchParams({ parentId: text(args.parentId, "Parent configuration ID") });
+		return servicePayload(
+			env.AGENT_RUNTIME, env, request,
+			`/users/${encodeURIComponent(auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}/impact?${params}`,
+			"GET", auth.user.id,
+		);
+	}),
 	serviceTool("delete_inference_configuration", "Delete inference configuration", "Delete a custom configuration, reparenting its immediate children and resetting its translation consumer atomically when needed.", bodySchema({
 		configurationId: stringSchema("Configuration ID."),
 		expectedRevision: integerSchema("Expected configuration revision."),
