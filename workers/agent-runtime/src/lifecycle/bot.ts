@@ -25,6 +25,14 @@ import {
 	type LifecycleFailurePoint,
 	type LifecycleOperation,
 } from "@bickr/shared/entity-lifecycle";
+import { inferenceOverridesFromLegacySettings } from "@bickr/shared/inference-configuration-legacy";
+import {
+	accountDefaultConfigurationId,
+	botConfigurationId,
+	fixedConfigurationDeletionStatements,
+	insertFixedConfigurationStatement,
+	lifecycleUsesInferenceGraph,
+} from "@bickr/shared/inference-configuration-repository";
 import { deterministicId, makeId } from "@bickr/shared/ids";
 import type { BotDocument, BotSummary, CreateBotInput } from "@bickr/shared/model";
 import {
@@ -166,7 +174,27 @@ export async function runBotCreateOperation(
 		await upsertBotVector(context.env, bot);
 		await lifecycleCheckpoint(context.coordinator.failureInjector, `${lifecyclePrefix}.materialize.vector` as LifecycleFailurePoint);
 		await lifecycleCheckpoint(context.coordinator.failureInjector, `${lifecyclePrefix}.activate.d1` as LifecycleFailurePoint);
-		await activateLifecycleEntity(context.env.BICKR_D1, operation, { kind: "legacy_compatible" }, new Date().toISOString());
+		const activatedAt = new Date().toISOString();
+		if (await lifecycleUsesInferenceGraph(context.env.BICKR_D1)) {
+			const parentId = request.input.cloneSourceBotId
+				? await botConfigurationId(request.input.cloneSourceBotId)
+				: await accountDefaultConfigurationId(request.userId);
+			await activateLifecycleEntity(context.env.BICKR_D1, operation, {
+				kind: "inference_graph",
+				entityKind: "bot",
+				fixedConfigurationStatement: insertFixedConfigurationStatement(context.env.BICKR_D1, {
+					kind: "bot",
+					configurationId: await botConfigurationId(request.botId),
+					ownerUserId: request.userId,
+					parentId,
+					botId: request.botId,
+					now: activatedAt,
+					overrides: inferenceOverridesFromLegacySettings(request.input.inferenceSettings),
+				}),
+			}, activatedAt);
+		} else {
+			await activateLifecycleEntity(context.env.BICKR_D1, operation, { kind: "legacy_compatible" }, activatedAt);
+		}
 	} catch (error) {
 		const failure = classifyLifecycleFailure(error);
 		const failedAt = new Date().toISOString();
@@ -362,7 +390,18 @@ export async function runBotDeleteOperation(
 		});
 		await deleteBotVector(context.env, request.botId);
 		await lifecycleCheckpoint(context.coordinator.failureInjector, `${prefix}.delete.runtime_vector` as LifecycleFailurePoint);
-		await finalizeLifecycleDeletion(context.env.BICKR_D1, operation, { kind: "legacy_compatible" }, new Date().toISOString());
+		const finalizedAt = new Date().toISOString();
+		const graphDeletion = await lifecycleUsesInferenceGraph(context.env.BICKR_D1);
+		await finalizeLifecycleDeletion(context.env.BICKR_D1, operation, graphDeletion ? {
+			kind: "inference_graph",
+			entityKind: "bot",
+			configurationStatements: await fixedConfigurationDeletionStatements(context.env.BICKR_D1, {
+				ownerUserId: request.userId,
+				configurationId: await botConfigurationId(request.botId),
+				entityKind: "bot",
+				now: finalizedAt,
+			}),
+		} : { kind: "legacy_compatible" }, finalizedAt);
 		await lifecycleCheckpoint(context.coordinator.failureInjector, `${prefix}.delete.finish.d1` as LifecycleFailurePoint);
 	} catch (error) {
 		const deleted = await botDeletionHasStarted(context.env, request.botId);

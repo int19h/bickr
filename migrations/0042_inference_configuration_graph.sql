@@ -176,15 +176,20 @@ CREATE TABLE inference_graph_users (
 	owner_user_id TEXT PRIMARY KEY,
 	schema_version INTEGER NOT NULL DEFAULT 1 CHECK (schema_version = 1),
 	writer_version INTEGER NOT NULL DEFAULT 0 CHECK (writer_version IN (0, 1)),
-	cutover_version INTEGER NOT NULL DEFAULT 0 CHECK (cutover_version IN (0, 1)),
+	-- 0 reads legacy entity bundles, 1 reads the canonical graph, and 2 reads
+	-- the revision-matched compatibility projection during bounded rollback.
+	cutover_version INTEGER NOT NULL DEFAULT 0 CHECK (cutover_version IN (0, 1, 2)),
 	graph_revision INTEGER NOT NULL DEFAULT 0 CHECK (graph_revision >= 0),
 	legacy_projection_revision INTEGER NOT NULL DEFAULT 0 CHECK (legacy_projection_revision >= 0),
+	compatibility_translation_configuration_id TEXT,
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
 	verified_cutover_at TEXT,
 	CHECK ((cutover_version = 0 AND verified_cutover_at IS NULL) OR
-		(cutover_version = 1 AND writer_version = 1 AND verified_cutover_at IS NOT NULL)),
-	FOREIGN KEY (owner_user_id) REFERENCES users_index(user_id) ON DELETE RESTRICT
+		(cutover_version IN (1, 2) AND writer_version = 1 AND verified_cutover_at IS NOT NULL)),
+	FOREIGN KEY (owner_user_id) REFERENCES users_index(user_id) ON DELETE RESTRICT,
+	FOREIGN KEY (compatibility_translation_configuration_id)
+		REFERENCES inference_configurations(configuration_id) ON DELETE SET NULL
 );
 
 -- One versioned operation per owner is resumable until terminal. Terminal
@@ -200,6 +205,12 @@ CREATE TABLE inference_graph_migration_operations (
 	revision INTEGER NOT NULL CHECK (revision > 0),
 	world_cursor TEXT,
 	bot_cursor TEXT,
+	parity_stage TEXT NOT NULL DEFAULT 'account'
+		CHECK (parity_stage IN ('account', 'worlds', 'bots', 'translation', 'complete')),
+	parity_cursor TEXT,
+	parity_accumulator TEXT NOT NULL DEFAULT '',
+	parity_world_count INTEGER NOT NULL DEFAULT 0 CHECK (parity_world_count >= 0),
+	parity_bot_count INTEGER NOT NULL DEFAULT 0 CHECK (parity_bot_count >= 0),
 	migrated_translation_configuration_id TEXT,
 	audit_json TEXT NOT NULL DEFAULT '{}'
 		CHECK (json_valid(audit_json) AND json_type(audit_json) = 'object'),
@@ -230,13 +241,97 @@ CREATE INDEX inference_graph_migration_cleanup
 CREATE TABLE inference_graph_legacy_projections (
 	owner_user_id TEXT PRIMARY KEY,
 	graph_revision INTEGER NOT NULL CHECK (graph_revision >= 0),
-	projection_json TEXT NOT NULL
-		CHECK (json_valid(projection_json) AND json_type(projection_json) = 'object'),
+	translation_configuration_id TEXT NOT NULL,
+	translation_selection_revision INTEGER NOT NULL CHECK (translation_selection_revision > 0),
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
 	cleanup_at TEXT NOT NULL,
 	FOREIGN KEY (owner_user_id) REFERENCES inference_graph_users(owner_user_id) ON DELETE RESTRICT
 );
+
+-- Projection entries live only while their owner metadata row is inside the
+-- 30-day rollback window. One row per configuration avoids an owner-sized JSON
+-- blob and keeps compatibility path reads indexed and corruption-bounded.
+CREATE TABLE inference_graph_legacy_projection_entries (
+	owner_user_id TEXT NOT NULL,
+	configuration_id TEXT NOT NULL,
+	kind TEXT NOT NULL CHECK (kind IN ('account_default', 'world', 'bot', 'custom')),
+	parent_id TEXT,
+	world_id TEXT,
+	bot_id TEXT,
+	custom_name TEXT,
+	custom_name_key TEXT,
+	overrides_json TEXT NOT NULL CHECK (json_valid(overrides_json) AND json_type(overrides_json) = 'object'),
+	configuration_revision INTEGER NOT NULL CHECK (configuration_revision > 0),
+	credential_mode TEXT NOT NULL CHECK (credential_mode IN ('inherit', 'value', 'none')),
+	credential_secret_version INTEGER NOT NULL CHECK (credential_secret_version >= 0),
+	PRIMARY KEY (owner_user_id, configuration_id),
+	FOREIGN KEY (owner_user_id) REFERENCES inference_graph_legacy_projections(owner_user_id) ON DELETE CASCADE,
+	FOREIGN KEY (parent_id, owner_user_id)
+		REFERENCES inference_graph_legacy_projection_entries(configuration_id, owner_user_id)
+		ON DELETE CASCADE,
+	CHECK (parent_id IS NULL OR parent_id != configuration_id)
+);
+
+CREATE INDEX inference_graph_legacy_projection_parent
+	ON inference_graph_legacy_projection_entries (owner_user_id, parent_id, configuration_id);
+
+-- Projection rows mirror canonical raw graph state incrementally. They are
+-- resolved/flattened only by the compatibility reader, so an ancestor change
+-- never requires an owner-wide rewrite on the mutation hot path.
+CREATE TRIGGER inference_graph_projection_after_credential_insert
+AFTER INSERT ON inference_configuration_credentials
+WHEN EXISTS (
+	SELECT 1 FROM inference_graph_legacy_projections WHERE owner_user_id = NEW.owner_user_id
+)
+BEGIN
+	INSERT INTO inference_graph_legacy_projection_entries (
+		owner_user_id, configuration_id, kind, parent_id, world_id, bot_id,
+		custom_name, custom_name_key, overrides_json, configuration_revision,
+		credential_mode, credential_secret_version
+	)
+	SELECT configuration.owner_user_id, configuration.configuration_id,
+		configuration.kind, configuration.parent_id, configuration.world_id,
+		configuration.bot_id, configuration.custom_name, configuration.custom_name_key,
+		configuration.overrides_json, configuration.revision, NEW.mode, NEW.secret_version
+	FROM inference_configurations AS configuration
+	WHERE configuration.configuration_id = NEW.configuration_id
+		AND configuration.owner_user_id = NEW.owner_user_id;
+END;
+
+CREATE TRIGGER inference_graph_projection_after_configuration_update
+AFTER UPDATE ON inference_configurations
+BEGIN
+	UPDATE inference_graph_legacy_projection_entries
+	SET parent_id = NEW.parent_id, custom_name = NEW.custom_name,
+		custom_name_key = NEW.custom_name_key, overrides_json = NEW.overrides_json,
+		configuration_revision = NEW.revision
+	WHERE owner_user_id = NEW.owner_user_id AND configuration_id = NEW.configuration_id;
+END;
+
+CREATE TRIGGER inference_graph_projection_after_configuration_delete
+AFTER DELETE ON inference_configurations
+BEGIN
+	DELETE FROM inference_graph_legacy_projection_entries
+	WHERE owner_user_id = OLD.owner_user_id AND configuration_id = OLD.configuration_id;
+END;
+
+CREATE TRIGGER inference_graph_projection_after_credential_update
+AFTER UPDATE ON inference_configuration_credentials
+BEGIN
+	UPDATE inference_graph_legacy_projection_entries
+	SET credential_mode = NEW.mode, credential_secret_version = NEW.secret_version
+	WHERE owner_user_id = NEW.owner_user_id AND configuration_id = NEW.configuration_id;
+END;
+
+CREATE TRIGGER inference_graph_projection_after_translation_update
+AFTER UPDATE ON inference_translation_selections
+BEGIN
+	UPDATE inference_graph_legacy_projections
+	SET translation_configuration_id = NEW.configuration_id,
+		translation_selection_revision = NEW.revision, updated_at = NEW.updated_at
+	WHERE owner_user_id = NEW.owner_user_id;
+END;
 
 CREATE INDEX inference_graph_legacy_projection_cleanup
 	ON inference_graph_legacy_projections (cleanup_at, owner_user_id);
@@ -265,3 +360,130 @@ CREATE INDEX inference_graph_convergence_phase
 CREATE INDEX inference_graph_convergence_cleanup
 	ON inference_graph_convergence (terminal_cleanup_at, owner_user_id)
 	WHERE terminal_cleanup_at IS NOT NULL;
+
+-- New accounts created after graph-required lifecycle activation begin on the
+-- graph writer/read version immediately. Maintenance inserts for existing
+-- accounts have no nonterminal account-create operation and remain explicitly
+-- pre-cutover. Row presence is therefore never the read-mode signal.
+CREATE TRIGGER inference_graph_user_after_account_default
+AFTER INSERT ON inference_configurations
+WHEN NEW.kind = 'account_default'
+BEGIN
+	INSERT OR IGNORE INTO inference_graph_users (
+		owner_user_id, writer_version, cutover_version, graph_revision,
+		created_at, updated_at, verified_cutover_at
+	) VALUES (
+		NEW.owner_user_id,
+		CASE WHEN EXISTS (
+			SELECT 1 FROM entity_lifecycle_operations
+			WHERE entity_kind = 'account' AND entity_id = NEW.owner_user_id
+				AND owner_user_id = NEW.owner_user_id AND action = 'create'
+				AND phase IN ('pending', 'materializing')
+		) THEN 1 ELSE 0 END,
+		CASE WHEN EXISTS (
+			SELECT 1 FROM entity_lifecycle_operations
+			WHERE entity_kind = 'account' AND entity_id = NEW.owner_user_id
+				AND owner_user_id = NEW.owner_user_id AND action = 'create'
+				AND phase IN ('pending', 'materializing')
+		) THEN 1 ELSE 0 END,
+		1,
+		NEW.created_at,
+		NEW.updated_at,
+		CASE WHEN EXISTS (
+			SELECT 1 FROM entity_lifecycle_operations
+			WHERE entity_kind = 'account' AND entity_id = NEW.owner_user_id
+				AND owner_user_id = NEW.owner_user_id AND action = 'create'
+				AND phase IN ('pending', 'materializing')
+		) THEN NEW.updated_at ELSE NULL END
+	);
+END;
+
+-- Graph revisions are invalidation tokens, not event history. They advance at
+-- every canonical write, including lifecycle and migration writes, so there is
+-- no untracked writer that can leave cached annotations current by accident.
+CREATE TRIGGER inference_graph_revision_after_configuration_insert
+AFTER INSERT ON inference_configurations
+WHEN NEW.kind != 'account_default'
+BEGIN
+	UPDATE inference_graph_users
+	SET graph_revision = graph_revision + 1, updated_at = NEW.updated_at
+	WHERE owner_user_id = NEW.owner_user_id;
+	UPDATE inference_graph_legacy_projections
+	SET graph_revision = (SELECT graph_revision FROM inference_graph_users WHERE owner_user_id = NEW.owner_user_id),
+		updated_at = NEW.updated_at
+	WHERE owner_user_id = NEW.owner_user_id;
+	UPDATE inference_graph_convergence
+	SET d1_revision = (SELECT graph_revision FROM inference_graph_users WHERE owner_user_id = NEW.owner_user_id),
+		kv_revision = (SELECT graph_revision FROM inference_graph_users WHERE owner_user_id = NEW.owner_user_id),
+		updated_at = NEW.updated_at
+	WHERE owner_user_id = NEW.owner_user_id AND phase = 'terminal';
+END;
+
+CREATE TRIGGER inference_graph_revision_after_configuration_update
+AFTER UPDATE ON inference_configurations
+BEGIN
+	UPDATE inference_graph_users
+	SET graph_revision = graph_revision + 1, updated_at = NEW.updated_at
+	WHERE owner_user_id = NEW.owner_user_id;
+	UPDATE inference_graph_legacy_projections
+	SET graph_revision = (SELECT graph_revision FROM inference_graph_users WHERE owner_user_id = NEW.owner_user_id),
+		updated_at = NEW.updated_at
+	WHERE owner_user_id = NEW.owner_user_id;
+	UPDATE inference_graph_convergence
+	SET d1_revision = (SELECT graph_revision FROM inference_graph_users WHERE owner_user_id = NEW.owner_user_id),
+		kv_revision = (SELECT graph_revision FROM inference_graph_users WHERE owner_user_id = NEW.owner_user_id),
+		updated_at = NEW.updated_at
+	WHERE owner_user_id = NEW.owner_user_id AND phase = 'terminal';
+END;
+
+CREATE TRIGGER inference_graph_revision_after_configuration_delete
+AFTER DELETE ON inference_configurations
+WHEN OLD.kind != 'account_default'
+BEGIN
+	UPDATE inference_graph_users
+	SET graph_revision = graph_revision + 1, updated_at = OLD.updated_at
+	WHERE owner_user_id = OLD.owner_user_id;
+	UPDATE inference_graph_legacy_projections
+	SET graph_revision = (SELECT graph_revision FROM inference_graph_users WHERE owner_user_id = OLD.owner_user_id),
+		updated_at = OLD.updated_at
+	WHERE owner_user_id = OLD.owner_user_id;
+	UPDATE inference_graph_convergence
+	SET d1_revision = (SELECT graph_revision FROM inference_graph_users WHERE owner_user_id = OLD.owner_user_id),
+		kv_revision = (SELECT graph_revision FROM inference_graph_users WHERE owner_user_id = OLD.owner_user_id),
+		updated_at = OLD.updated_at
+	WHERE owner_user_id = OLD.owner_user_id AND phase = 'terminal';
+END;
+
+CREATE TRIGGER inference_graph_revision_after_credential_update
+AFTER UPDATE ON inference_configuration_credentials
+BEGIN
+	UPDATE inference_graph_users
+	SET graph_revision = graph_revision + 1, updated_at = NEW.updated_at
+	WHERE owner_user_id = NEW.owner_user_id;
+	UPDATE inference_graph_legacy_projections
+	SET graph_revision = (SELECT graph_revision FROM inference_graph_users WHERE owner_user_id = NEW.owner_user_id),
+		updated_at = NEW.updated_at
+	WHERE owner_user_id = NEW.owner_user_id;
+	UPDATE inference_graph_convergence
+	SET d1_revision = (SELECT graph_revision FROM inference_graph_users WHERE owner_user_id = NEW.owner_user_id),
+		kv_revision = (SELECT graph_revision FROM inference_graph_users WHERE owner_user_id = NEW.owner_user_id),
+		updated_at = NEW.updated_at
+	WHERE owner_user_id = NEW.owner_user_id AND phase = 'terminal';
+END;
+
+CREATE TRIGGER inference_graph_revision_after_translation_update
+AFTER UPDATE ON inference_translation_selections
+BEGIN
+	UPDATE inference_graph_users
+	SET graph_revision = graph_revision + 1, updated_at = NEW.updated_at
+	WHERE owner_user_id = NEW.owner_user_id;
+	UPDATE inference_graph_legacy_projections
+	SET graph_revision = (SELECT graph_revision FROM inference_graph_users WHERE owner_user_id = NEW.owner_user_id),
+		updated_at = NEW.updated_at
+	WHERE owner_user_id = NEW.owner_user_id;
+	UPDATE inference_graph_convergence
+	SET d1_revision = (SELECT graph_revision FROM inference_graph_users WHERE owner_user_id = NEW.owner_user_id),
+		kv_revision = (SELECT graph_revision FROM inference_graph_users WHERE owner_user_id = NEW.owner_user_id),
+		updated_at = NEW.updated_at
+	WHERE owner_user_id = NEW.owner_user_id AND phase = 'terminal';
+END;

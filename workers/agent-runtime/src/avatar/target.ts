@@ -10,7 +10,13 @@ import {
 	type WorldDocument,
 	localizedTextLang,
 } from '@bickr/shared/model';
-import { isOpenRouterProviderBaseUrl } from '@bickr/shared/inference-settings';
+import { isOpenRouterProviderBaseUrl, type ProviderSettings } from '@bickr/shared/inference-settings';
+import {
+	canonicalAccountInference,
+	canonicalAvatarImageSettings,
+	canonicalBotInference,
+	canonicalWorldInference,
+} from '@bickr/shared/inference-configuration-consumers';
 import { botById, RepositoryError, userById, worldByHandle } from '@bickr/shared/repository';
 import { kvKeys, readJson, type D1DatabaseLike, type KVNamespaceLike } from '@bickr/shared/storage';
 
@@ -43,6 +49,8 @@ type AvatarTargetBase = {
 	language: LanguageTag | null;
 	owner: UserDocument;
 	settings: AvatarTargetSettings;
+	canonicalImageSettings?: ImageGenerationProviderSettings | null;
+	canonicalProviderSettings?: ProviderSettings;
 };
 
 export type BotAvatarTarget = AvatarTargetBase & {
@@ -127,6 +135,8 @@ export async function resolveAvatarTarget(
 				throw new RepositoryError('forbidden', `Only this participant's owner can ${verb}.`, 403);
 			}
 			const owner = await userById(env.BICKR_KV, reference.userId);
+			const canonical = await canonicalBotInference(env.BICKR_D1, reference.userId, bot.id, env);
+			const canonicalImage = canonical ? canonicalAvatarImageSettings(canonical, 'participant') : null;
 			return {
 				kind: 'bot',
 				bot,
@@ -139,6 +149,7 @@ export async function resolveAvatarTarget(
 					provider: bot.inferenceSettings,
 					withDefaults: avatarImageGenerationSettingsWithDefaults,
 				},
+				...(canonical ? { canonicalImageSettings: canonicalImage, canonicalProviderSettings: canonical.providerSettings } : {}),
 				storage: { botId: bot.id, worldId: bot.homeWorldId },
 				capabilities: {
 					promptFill: ['persona', 'current_avatar'],
@@ -153,6 +164,8 @@ export async function resolveAvatarTarget(
 		case 'user': {
 			const user = await userById(env.BICKR_KV, reference.userId);
 			const settings = user.inferenceSettings ?? {};
+			const canonical = await canonicalAccountInference(env.BICKR_D1, reference.userId, env);
+			const canonicalImage = canonical ? canonicalAvatarImageSettings(canonical, 'participant') : null;
 			return {
 				kind: 'user',
 				user,
@@ -165,6 +178,7 @@ export async function resolveAvatarTarget(
 					provider: {},
 					withDefaults: avatarImageGenerationSettingsWithDefaults,
 				},
+				...(canonical ? { canonicalImageSettings: canonicalImage, canonicalProviderSettings: canonical.providerSettings } : {}),
 				storage: { target: 'user', userId: user.id },
 				capabilities: {
 					promptFill: ['current_avatar'],
@@ -179,6 +193,8 @@ export async function resolveAvatarTarget(
 		case 'world': {
 			const world = await worldDocumentForAvatar(env, reference.worldHandle, reference.userId, action);
 			const owner = await userById(env.BICKR_KV, reference.userId);
+			const canonical = await canonicalWorldInference(env.BICKR_D1, reference.userId, world.id, env);
+			const canonicalImage = canonical ? canonicalAvatarImageSettings(canonical, 'world') : null;
 			return {
 				kind: 'world',
 				world,
@@ -191,6 +207,7 @@ export async function resolveAvatarTarget(
 					provider: {},
 					withDefaults: worldAvatarImageGenerationSettingsWithDefaults,
 				},
+				...(canonical ? { canonicalImageSettings: canonicalImage, canonicalProviderSettings: canonical.providerSettings } : {}),
 				storage: { target: 'world', worldId: world.id },
 				capabilities: {
 					promptFill: ['description', 'members', 'current_avatar'],
@@ -210,6 +227,10 @@ export function effectiveProviderSettingsForAvatarImageGeneration(
 	env: AvatarProviderEnvironment,
 	settingsOverride?: BotInferenceSettings['imageGeneration'],
 ): ImageGenerationProviderSettings | null {
+	// Presence of canonical provider settings is the stored cutover signal. Old
+	// one-shot request bundles must not bypass the selected graph entry, even
+	// when that entry intentionally resolves to no image model.
+	if (target.canonicalProviderSettings) return target.canonicalImageSettings ?? null;
 	const ownerSettings = target.settings.owner;
 	const targetProviderSettings = target.settings.provider;
 	const imageGeneration = target.settings.withDefaults(settingsOverride ?? target.settings.imageGeneration ?? ownerSettings.imageGeneration);

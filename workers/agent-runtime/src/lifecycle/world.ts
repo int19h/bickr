@@ -18,6 +18,14 @@ import {
 	serializedLifecycleRequest,
 	type LifecycleOperation,
 } from "@bickr/shared/entity-lifecycle";
+import { inferenceOverridesFromLegacyImageSettings } from "@bickr/shared/inference-configuration-legacy";
+import {
+	accountDefaultConfigurationId,
+	fixedConfigurationDeletionStatements,
+	insertFixedConfigurationStatement,
+	lifecycleUsesInferenceGraph,
+	worldConfigurationId,
+} from "@bickr/shared/inference-configuration-repository";
 import { deterministicId, makeId } from "@bickr/shared/ids";
 import { addInternalServiceAuthHeader, internalServiceUrl } from "@bickr/shared/internal-service";
 import type { BotGroupSummary, CreateWorldInput, WorldDocument, WorldSummary } from "@bickr/shared/model";
@@ -115,7 +123,24 @@ export async function runWorldCreateOperation(
 		operation = await markLifecycleMaterializing(context.env.BICKR_D1, operation, new Date().toISOString());
 		await requestWorldMaterialization(context, request);
 		await lifecycleCheckpoint(context.coordinator.failureInjector, "world.activate.d1");
-		await activateLifecycleEntity(context.env.BICKR_D1, operation, { kind: "legacy_compatible" }, new Date().toISOString());
+		const activatedAt = new Date().toISOString();
+		if (await lifecycleUsesInferenceGraph(context.env.BICKR_D1)) {
+			await activateLifecycleEntity(context.env.BICKR_D1, operation, {
+				kind: "inference_graph",
+				entityKind: "world",
+				fixedConfigurationStatement: insertFixedConfigurationStatement(context.env.BICKR_D1, {
+					kind: "world",
+					configurationId: await worldConfigurationId(request.worldId),
+					ownerUserId: request.userId,
+					parentId: await accountDefaultConfigurationId(request.userId),
+					worldId: request.worldId,
+					now: activatedAt,
+					overrides: inferenceOverridesFromLegacyImageSettings(request.input.imageGeneration),
+				}),
+			}, activatedAt);
+		} else {
+			await activateLifecycleEntity(context.env.BICKR_D1, operation, { kind: "legacy_compatible" }, activatedAt);
+		}
 	} catch (error) {
 		const failure = classifyLifecycleFailure(error);
 		const failedAt = new Date().toISOString();
@@ -300,7 +325,18 @@ export async function runWorldDeleteOperation(
 		} satisfies WorldLifecycleMutation);
 		const result = parseWorldLifecycleMutationResult(await serviceResponseData(response, "World deletion coordinator request failed."));
 		if (result.kind !== "world_deleted") throw new RepositoryError("server_error", "World deletion coordinator returned the wrong result kind.", 500);
-		await finalizeLifecycleDeletion(context.env.BICKR_D1, operation, { kind: "legacy_compatible" }, new Date().toISOString());
+		const finalizedAt = new Date().toISOString();
+		const graphDeletion = await lifecycleUsesInferenceGraph(context.env.BICKR_D1);
+		await finalizeLifecycleDeletion(context.env.BICKR_D1, operation, graphDeletion ? {
+			kind: "inference_graph",
+			entityKind: "world",
+			configurationStatements: await fixedConfigurationDeletionStatements(context.env.BICKR_D1, {
+				ownerUserId: request.userId,
+				configurationId: await worldConfigurationId(request.worldId),
+				entityKind: "world",
+				now: finalizedAt,
+			}),
+		} : { kind: "legacy_compatible" }, finalizedAt);
 		await lifecycleCheckpoint(context.coordinator.failureInjector, "world.delete.finish.d1");
 	} catch (error) {
 		const deleted = await worldDeletionHasStarted(context.env, request.worldId);

@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
 	applyInferenceOverridePatch,
 	inferenceResolutionFingerprint,
+	parseInferenceConfigurationOverridePatch,
 	parseInferenceConfigurationOverrides,
 	resolveImageSettingsForTarget,
 	resolveInferenceConfiguration,
 	type InferenceConfigurationNode,
 	type InferenceConfigurationOverrides,
 } from "./inference-configuration";
+import { defaultProviderModel } from "./model";
 
 describe("canonical inference configuration resolution", () => {
 	it("resolves arbitrary-depth fields independently and preserves falsy, empty, and equal explicit values", () => {
@@ -82,6 +84,29 @@ describe("canonical inference configuration resolution", () => {
 		});
 	});
 
+	it("does not authorize an account model through a child with no owner provider", () => {
+		const child = node("child", "custom", "account", {
+			model: value("owner/child-model"),
+		});
+		const account = node("account", "account_default", null, {
+			model: value("owner/account-model"),
+		});
+		const resolution = resolveInferenceConfiguration([child, account]);
+
+		expect(resolution.raw.model).toMatchObject({
+			state: "value",
+			value: "owner/child-model",
+			source: { kind: "configuration", configurationId: "child" },
+		});
+		expect(resolution.effective.model).toBe(defaultProviderModel);
+		expect(resolution.providerAuthorizationAdjustment).toMatchObject({
+			kind: "model_fell_back",
+			requestedModel: "owner/child-model",
+			effectiveModel: defaultProviderModel,
+			reason: "owner_provider_unavailable",
+		});
+	});
+
 	it("authorizes a stored model through inherited saved credentials without exposing their text", async () => {
 		const account = node("account", "account_default", null, {}, {
 			mode: "value",
@@ -140,6 +165,19 @@ describe("canonical inference configuration resolution", () => {
 			temperature: { kind: "inherit" },
 			topP: value(0),
 		})).toEqual({ topP: value(0) });
+		expect(() => parseInferenceConfigurationOverridePatch({
+			temperature: { kind: "inherit", extra: true },
+		})).toThrow("Invalid override for inference field temperature");
+		expect(() => parseInferenceConfigurationOverrides({ temperature: value(2.01) })).toThrow();
+		expect(() => parseInferenceConfigurationOverrides({ topP: value(-0.01) })).toThrow();
+		expect(() => parseInferenceConfigurationOverrides({ imageFrequencyPenalty: value(2.01) })).toThrow();
+		expect(parseInferenceConfigurationOverrides({
+			topK: value(1.5),
+			imageTopK: value(2.5),
+		})).toMatchObject({
+			topK: value(1.5),
+			imageTopK: value(2.5),
+		});
 	});
 
 	it("rejects broken, cyclic, and non-Account-default path endings", () => {

@@ -248,7 +248,7 @@ async function dropD1Schema(db: D1Database): Promise<void> {
 		if (virtualTables.includes(row.name) || shadowTablePrefixes.some((prefix) => row.name.startsWith(prefix))) {
 			continue;
 		}
-		if (row.name === "inference_configurations") {
+		if (row.name === "inference_configurations" || row.name === "inference_graph_legacy_projection_entries") {
 			// This table deliberately has a restrictive self-FK. D1 enforces it
 			// even for DROP TABLE when rows remain, so peel leaves before dropping
 			// the test-only schema. Production deletion always uses coordinator
@@ -256,9 +256,9 @@ async function dropD1Schema(db: D1Database): Promise<void> {
 			let deleted: number;
 			do {
 				const result = await db.prepare(
-					`DELETE FROM inference_configurations AS configuration
+					`DELETE FROM ${sqlIdentifier(row.name)} AS configuration
 					 WHERE NOT EXISTS (
-						SELECT 1 FROM inference_configurations AS child
+						SELECT 1 FROM ${sqlIdentifier(row.name)} AS child
 						WHERE child.parent_id = configuration.configuration_id
 					 )`,
 				).run();

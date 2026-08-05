@@ -17,6 +17,54 @@ import { makeId } from '@bickr/shared/ids';
 import { json } from '@bickr/shared/http';
 import { type ObjectIndexConvergenceTask, runObjectIndexConvergenceBatch } from '@bickr/shared/index-repair';
 import { providerEnvironmentSettingsFromBindings } from '@bickr/shared/inference-settings';
+import {
+	InferenceConfigurationDataError,
+	parseInferenceConfigurationOverridePatch,
+	parseInferenceConfigurationOverrides,
+} from '@bickr/shared/inference-configuration';
+import {
+	bickrInferenceDefaultsFromEnvironment,
+	canonicalTranslationInferenceAnnotation,
+} from '@bickr/shared/inference-configuration-consumers';
+import {
+	inferenceOverridesFromLegacyTranslationSettings,
+	inferenceOverridePatchFromLegacyImageSettingsMask,
+	inferenceOverridePatchFromLegacySettingsMask,
+	inferenceOverridePatchFromLegacyTranslationSettingsMask,
+	legacyImageCompatibilityFieldMask,
+	legacyInferenceCompatibilityFieldMask,
+	legacyInferenceCompatibilityFieldMaskIsEmpty,
+	type LegacyInferenceCompatibilityFieldMask,
+} from '@bickr/shared/inference-configuration-legacy';
+import {
+	inferenceConfigurationDeleteImpact,
+	inferenceConfigurationMutations,
+	inferenceConfigurationOwnerDto,
+	inferenceGraphReadVersion,
+	accountDefaultConfigurationId,
+	botConfigurationId,
+	loadInferenceConfigurationPath,
+	listImmediateInferenceChildren,
+	listInferenceConfigurations,
+	listInferenceParentCandidates,
+	listInferenceTranslationCandidates,
+	readTranslationSelection,
+	worldConfigurationId,
+	type CredentialUpdate,
+} from '@bickr/shared/inference-configuration-repository';
+import {
+	activateInferenceGraphLifecycle,
+	beginInferenceGraphCompatibilityWrite,
+	completeInferenceGraphCompatibilityWrite,
+	cleanupInferenceGraphTerminalState,
+	inferenceGraphMigrationStatus,
+	listInferenceGraphFleetStatus,
+	markInferenceGraphCompatibilitySourceWritten,
+	pendingInferenceGraphCompatibilityWrite,
+	reactivateInferenceGraphCutover,
+	rollbackInferenceGraphCutover,
+	runInferenceGraphMigrationStep,
+} from '@bickr/shared/inference-configuration-migration';
 import { addInternalServiceAuthHeader, internalServiceUrl, isTrustedInternalServiceRequest } from '@bickr/shared/internal-service';
 import { mutationMaintenanceResponse, readMaintenanceState } from '@bickr/shared/maintenance';
 import {
@@ -86,7 +134,7 @@ import {
 	effectiveAvatarSettingsLanguageForBot,
 	effectiveAvatarSettingsLanguageForUser,
 	effectiveAvatarSettingsLanguageForWorld,
-	effectiveProviderSettingsForBot,
+	effectiveProviderSettingsForBotCanonical,
 	errorResponse,
 	parseTranslationInput,
 	readOptionalJsonBody,
@@ -137,7 +185,7 @@ import {
 	resumeDueUserLifecycleOperation,
 } from './lifecycle/recovery';
 import { kvKeys, readJson } from '@bickr/shared/storage';
-import { authProviders, type AuthProvider, type AvatarCrop, type AvatarImage, type BotDocument, type WorldDocument } from '@bickr/shared/model';
+import { authProviders, type AuthProvider, type AvatarCrop, type AvatarImage, type BotDocument, type BotImageGenerationSettings, type BotInferenceSettings, type WorldDocument } from '@bickr/shared/model';
 
 const {
 	deleteBotAvatar,
@@ -153,6 +201,16 @@ const {
 	updateUserAvatar,
 	updateUserProfile,
 } = userCoordinatorRepositoryMutations;
+
+const {
+	createCustom: createInferenceConfiguration,
+	deleteCustom: deleteInferenceConfiguration,
+	ensureCompatibilityTranslation,
+	renameCustom: renameInferenceConfiguration,
+	reparent: reparentInferenceConfiguration,
+	update: updateInferenceConfiguration,
+	updateTranslationSelection,
+} = inferenceConfigurationMutations;
 
 type AgentRuntimeRouteHandler = (context: AgentRuntimeRouteContext) => Promise<Response>;
 
@@ -388,6 +446,333 @@ export const agentRuntimeRouteTable = [
 		},
 	},
 	{
+		id: 'inference-graph-migration-status',
+		method: 'GET',
+		pattern: /^\/users\/([^/]+)\/inference-graph\/migration$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			if (context.coordinator.ownerUserId !== userId) throw new RepositoryError('forbidden', 'Migration status was dispatched to the wrong coordinator.', 403);
+			return ok({ migration: await inferenceGraphMigrationStatus(context.env.BICKR_D1, userId), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'run-inference-graph-migration',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/inference-graph\/migrate$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			requireSchedulerServiceRequest(context.request);
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			if (context.coordinator.ownerUserId !== userId) throw new RepositoryError('forbidden', 'Migration was dispatched to the wrong coordinator.', 403);
+			return ok({ migration: await runInferenceGraphMigrationStep(context.env, userId), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'rollback-inference-graph',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/inference-graph\/rollback$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			requireSchedulerServiceRequest(context.request);
+			const maintenance = await readMaintenanceState(context.env.BICKR_D1);
+			if (!maintenance.enabled) throw new RepositoryError('conflict', 'Inference graph rollback requires maintenance mode.', 409);
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			if (context.coordinator.ownerUserId !== userId) throw new RepositoryError('forbidden', 'Rollback was dispatched to the wrong coordinator.', 403);
+			await rollbackInferenceGraphCutover(context.env.BICKR_D1, userId);
+			return ok({ rolledBack: true, coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'reactivate-inference-graph',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/inference-graph\/reactivate$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			requireSchedulerServiceRequest(context.request);
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			if (context.coordinator.ownerUserId !== userId) throw new RepositoryError('forbidden', 'Reactivation was dispatched to the wrong coordinator.', 403);
+			await reactivateInferenceGraphCutover(context.env.BICKR_D1, userId);
+			return ok({ reactivated: true, coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'list-inference-configurations',
+		method: 'GET',
+		pattern: /^\/users\/([^/]+)\/inference-configurations$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = await requireInferenceGraphOwner(context);
+			return ok({ configurations: await listInferenceConfigurations(context.env.BICKR_D1, userId, {
+				...(context.url.searchParams.get('cursor') ? { cursor: context.url.searchParams.get('cursor')! } : {}),
+				...(context.url.searchParams.get('q') ? { query: context.url.searchParams.get('q')! } : {}),
+				...(context.url.searchParams.get('limit') ? { limit: requiredPositiveInteger(context.url.searchParams.get('limit'), 'limit') } : {}),
+				defaults: await bickrInferenceDefaultsFromEnvironment(context.env),
+			}), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'create-inference-configuration',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/inference-configurations$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = await requireInferenceGraphOwner(context);
+			const body = requiredRecord(await readJsonBody(context.request));
+			const configuration = await createInferenceConfiguration(context.env.BICKR_D1, userId, {
+				name: requiredString(body.name, 'name'),
+				parentId: requiredString(body.parentId, 'parentId'),
+				...(body.overrides !== undefined ? { overrides: parseInferenceOverridesForRoute(body.overrides) } : {}),
+				...(body.credential !== undefined ? { credential: parseCredentialUpdate(body.credential) } : {}),
+			});
+			return ok({ configuration: await inferenceConfigurationOwnerDto(
+				context.env.BICKR_D1, userId, configuration.id, await bickrInferenceDefaultsFromEnvironment(context.env),
+			), coordinator: context.objectId }, { status: 201 });
+		},
+	},
+	{
+		id: 'inference-configuration-parent-candidates',
+		method: 'GET',
+		pattern: /^\/users\/([^/]+)\/inference-configurations\/([^/]+)\/parent-candidates$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = await requireInferenceGraphOwner(context);
+			return ok({ candidates: await listInferenceParentCandidates(
+				context.env.BICKR_D1,
+				userId,
+				decodeURIComponent(context.match[2] ?? ''),
+				{ ...pageInput(context.url), defaults: await bickrInferenceDefaultsFromEnvironment(context.env) },
+			), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'inference-configuration-children',
+		method: 'GET',
+		pattern: /^\/users\/([^/]+)\/inference-configurations\/([^/]+)\/children$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = await requireInferenceGraphOwner(context);
+			return ok({ children: await listImmediateInferenceChildren(
+				context.env.BICKR_D1,
+				userId,
+				decodeURIComponent(context.match[2] ?? ''),
+				{ ...pageInput(context.url), defaults: await bickrInferenceDefaultsFromEnvironment(context.env) },
+			), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'inference-configuration-impact',
+		method: 'GET',
+		pattern: /^\/users\/([^/]+)\/inference-configurations\/([^/]+)\/impact$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = await requireInferenceGraphOwner(context);
+			return ok({ impact: await inferenceConfigurationDeleteImpact(context.env.BICKR_D1, userId, decodeURIComponent(context.match[2] ?? '')), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'rename-inference-configuration',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/inference-configurations\/([^/]+)\/rename$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = await requireInferenceGraphOwner(context);
+			const body = requiredRecord(await readJsonBody(context.request));
+			const configuration = await renameInferenceConfiguration(context.env.BICKR_D1, userId, {
+				configurationId: decodeURIComponent(context.match[2] ?? ''),
+				name: requiredString(body.name, 'name'),
+				expectedRevision: requiredPositiveInteger(body.expectedRevision, 'expectedRevision'),
+			});
+			return ok({ configuration: await inferenceConfigurationOwnerDto(
+				context.env.BICKR_D1, userId, configuration.id, await bickrInferenceDefaultsFromEnvironment(context.env),
+			), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'reparent-inference-configuration',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/inference-configurations\/([^/]+)\/reparent$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = await requireInferenceGraphOwner(context);
+			const body = requiredRecord(await readJsonBody(context.request));
+			const configuration = await reparentInferenceConfiguration(context.env.BICKR_D1, userId, {
+				configurationId: decodeURIComponent(context.match[2] ?? ''),
+				parentId: requiredString(body.parentId, 'parentId'),
+				expectedRevision: requiredPositiveInteger(body.expectedRevision, 'expectedRevision'),
+			});
+			return ok({ configuration: await inferenceConfigurationOwnerDto(
+				context.env.BICKR_D1, userId, configuration.id, await bickrInferenceDefaultsFromEnvironment(context.env),
+			), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'get-inference-configuration',
+		method: 'GET',
+		pattern: /^\/users\/([^/]+)\/inference-configurations\/([^/]+)$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = await requireInferenceGraphOwner(context);
+			return ok({ configuration: await inferenceConfigurationOwnerDto(
+				context.env.BICKR_D1,
+				userId,
+				decodeURIComponent(context.match[2] ?? ''),
+				await bickrInferenceDefaultsFromEnvironment(context.env),
+			), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'update-inference-configuration',
+		method: 'PATCH',
+		pattern: /^\/users\/([^/]+)\/inference-configurations\/([^/]+)$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = await requireInferenceGraphOwner(context);
+			const body = requiredRecord(await readJsonBody(context.request));
+			if (body.overrides === undefined && body.credential === undefined) throw new InputError('An overrides or credential update is required.');
+			const configuration = await updateInferenceConfiguration(context.env.BICKR_D1, userId, {
+				configurationId: decodeURIComponent(context.match[2] ?? ''),
+				expectedRevision: requiredPositiveInteger(body.expectedRevision, 'expectedRevision'),
+				...(body.overrides !== undefined ? { overrides: parseInferencePatchForRoute(body.overrides) } : {}),
+				...(body.credential !== undefined ? { credential: parseCredentialUpdate(body.credential) } : {}),
+			});
+			return ok({ configuration: await inferenceConfigurationOwnerDto(
+				context.env.BICKR_D1, userId, configuration.id, await bickrInferenceDefaultsFromEnvironment(context.env),
+			), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'delete-inference-configuration',
+		method: 'DELETE',
+		pattern: /^\/users\/([^/]+)\/inference-configurations\/([^/]+)$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = await requireInferenceGraphOwner(context);
+			const body = requiredRecord(await readJsonBody(context.request));
+			const impact = await deleteInferenceConfiguration(context.env.BICKR_D1, userId, {
+				configurationId: decodeURIComponent(context.match[2] ?? ''),
+				expectedRevision: requiredPositiveInteger(body.expectedRevision, 'expectedRevision'),
+			});
+			return ok({ impact, coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'inference-translation-candidates',
+		method: 'GET',
+		pattern: /^\/users\/([^/]+)\/inference-translation\/candidates$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = await requireInferenceGraphOwner(context);
+			return ok({ candidates: await listInferenceTranslationCandidates(
+				context.env.BICKR_D1,
+				userId,
+				{
+					...pageInput(context.url),
+					...(context.url.searchParams.get('q') ? { query: context.url.searchParams.get('q')! } : {}),
+					defaults: await bickrInferenceDefaultsFromEnvironment(context.env),
+				},
+			), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'get-inference-translation-selection',
+		method: 'GET',
+		pattern: /^\/users\/([^/]+)\/inference-translation$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = await requireInferenceGraphOwner(context);
+			const selection = await readTranslationSelection(context.env.BICKR_D1, userId);
+			return ok({ selection, configuration: await inferenceConfigurationOwnerDto(
+				context.env.BICKR_D1, userId, selection.configurationId, await bickrInferenceDefaultsFromEnvironment(context.env),
+			), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'get-inference-translation-annotation',
+		method: 'GET',
+		pattern: /^\/users\/([^/]+)\/inference-translation\/annotation$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			if (context.coordinator.ownerUserId !== userId) {
+				throw new RepositoryError('forbidden', 'Translation annotation was dispatched to the wrong coordinator.', 403);
+			}
+			return ok({
+				annotation: await canonicalTranslationInferenceAnnotation(context.env.BICKR_D1, userId, context.env),
+				coordinator: context.objectId,
+			});
+		},
+	},
+	{
+		id: 'update-inference-translation-selection',
+		method: 'PUT',
+		pattern: /^\/users\/([^/]+)\/inference-translation$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			const userId = await requireInferenceGraphOwner(context);
+			const body = requiredRecord(await readJsonBody(context.request));
+			const selection = await updateTranslationSelection(context.env.BICKR_D1, userId, {
+				configurationId: requiredString(body.configurationId, 'configurationId'),
+				expectedRevision: requiredPositiveInteger(body.expectedRevision, 'expectedRevision'),
+			});
+			return ok({ selection, configuration: await inferenceConfigurationOwnerDto(
+				context.env.BICKR_D1, userId, selection.configurationId, await bickrInferenceDefaultsFromEnvironment(context.env),
+			), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'inference-graph-fleet-status',
+		method: 'GET',
+		pattern: /^\/inference-graph\/fleet-status$/,
+		dispatch: 'direct',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) {
+				throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			}
+			requireSchedulerServiceRequest(context.request);
+			return ok({ status: await listInferenceGraphFleetStatus(context.env.BICKR_D1, {
+				...(context.url.searchParams.get('cursor') ? { cursor: context.url.searchParams.get('cursor')! } : {}),
+				...(context.url.searchParams.get('limit') ? { limit: requiredPositiveInteger(context.url.searchParams.get('limit'), 'limit') } : {}),
+			}) });
+		},
+	},
+	{
+		id: 'inference-graph-cleanup',
+		method: 'POST',
+		pattern: /^\/inference-graph\/cleanup$/,
+		dispatch: 'direct',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) {
+				throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			}
+			requireSchedulerServiceRequest(context.request);
+			const maintenance = await readMaintenanceState(context.env.BICKR_D1);
+			if (!maintenance.enabled) throw new RepositoryError('conflict', 'Inference graph cleanup requires maintenance mode.', 409);
+			const body = requiredRecord(await readJsonBody(context.request));
+			return ok({ cleanup: await cleanupInferenceGraphTerminalState(
+				context.env.BICKR_D1,
+				new Date().toISOString(),
+				body.limit === undefined ? undefined : requiredPositiveInteger(body.limit, 'limit'),
+			) });
+		},
+	},
+	{
+		id: 'activate-inference-graph-lifecycle',
+		method: 'POST',
+		pattern: /^\/inference-graph\/activate-lifecycle$/,
+		dispatch: 'direct',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) {
+				throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			}
+			requireSchedulerServiceRequest(context.request);
+			return ok(await activateInferenceGraphLifecycle(context.env.BICKR_D1));
+		},
+	},
+	{
 		id: 'health',
 		method: '*',
 		pattern: /^\/health$/,
@@ -429,10 +814,18 @@ export const agentRuntimeRouteTable = [
 		method: 'PATCH',
 		pattern: /^\/users\/([^/]+)\/profile$/,
 		dispatch: 'user-coordinator',
-		handler: async (context) => {
-			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
-			const input = parseUpdateUserProfileInput(await readJsonBody(context.request));
-			const profile = await updateUserProfile(context.env.BICKR_KV, context.env.BICKR_D1, userId, input);
+			handler: async (context) => {
+				const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+				const input = parseUpdateUserProfileInput(await readJsonBody(context.request));
+				const compatibilityFieldMask = input.inferenceSettings === undefined
+					? null
+					: legacyInferenceCompatibilityFieldMask(input.inferenceSettings);
+				if (compatibilityFieldMask) {
+					const current = await userById(context.env.BICKR_KV, userId);
+					await prepareLegacyInferenceCompatibilityWrite(context, userId, 'account', userId, current.revision, compatibilityFieldMask);
+				}
+				const profile = await updateUserProfile(context.env.BICKR_KV, context.env.BICKR_D1, userId, input);
+			if (compatibilityFieldMask) await resumePendingLegacyInferenceCompatibilityWrite(context, userId);
 			const result = { kind: 'profile_updated', profile } satisfies AccountMutationResult;
 			return ok({ ...result, coordinator: context.objectId });
 		},
@@ -531,10 +924,10 @@ export const agentRuntimeRouteTable = [
 			const summaries = await listOwnerBotTokenSpendSummaries(
 				context.env.BICKR_D1,
 				userId,
-				bots.map((bot) => ({
+				await Promise.all(bots.map(async (bot) => ({
 					botId: bot.id,
-					currentModel: effectiveProviderSettingsForBot(bot, owner, context.env).model,
-				})),
+					currentModel: (await effectiveProviderSettingsForBotCanonical(context.env.BICKR_D1, bot, owner, context.env)).model,
+				}))),
 				now,
 			);
 			return ok({
@@ -610,6 +1003,9 @@ export const agentRuntimeRouteTable = [
 							language: effectiveAvatarSettingsLanguageForUser(await userById(context.env.BICKR_KV, userId)),
 							inferenceSettings: { imageGeneration: body.settings },
 						});
+			const compatibilityFieldMask = settingsInput?.inferenceSettings === undefined
+				? null
+				: legacyInferenceCompatibilityFieldMask(settingsInput.inferenceSettings);
 			let profile = await applyGeneratedAvatarForUser(
 				context.env,
 				userId,
@@ -621,10 +1017,13 @@ export const agentRuntimeRouteTable = [
 					avatar,
 				),
 			);
-			if (settingsInput?.inferenceSettings !== undefined) {
-				profile = await updateUserProfile(context.env.BICKR_KV, context.env.BICKR_D1, userId, {
+				if (settingsInput?.inferenceSettings !== undefined && compatibilityFieldMask) {
+					const current = await userById(context.env.BICKR_KV, userId);
+					await prepareLegacyInferenceCompatibilityWrite(context, userId, 'account', userId, current.revision, compatibilityFieldMask);
+					profile = await updateUserProfile(context.env.BICKR_KV, context.env.BICKR_D1, userId, {
 					inferenceSettings: settingsInput.inferenceSettings,
 				});
+				await resumePendingLegacyInferenceCompatibilityWrite(context, userId);
 			}
 			return ok({ profile, coordinator: context.objectId });
 		},
@@ -673,10 +1072,20 @@ export const agentRuntimeRouteTable = [
 		handler: async (context) => {
 			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
 			const worldHandle = normalizeHandle(decodeURIComponent(context.match[2] ?? ''));
-			const input = parseUpdateWorldInput(await readJsonBody(context.request));
-			const world = await worldForUpdateMutation(context, worldHandle, input.handle);
-			const result = await requestOwnerWorldMutation(context, world.id, userId, { kind: 'world_update', worldHandle, input });
-			return ok({ world: requiredWorldMutationResult(result), coordinator: context.objectId });
+				const input = parseUpdateWorldInput(await readJsonBody(context.request));
+				const world = await worldForUpdateMutation(context, worldHandle, input.handle);
+				const compatibilityFieldMask = input.imageGeneration === undefined
+					? null
+					: legacyImageCompatibilityFieldMask(input.imageGeneration);
+				if (compatibilityFieldMask) {
+					const current = await readJson<WorldDocument>(context.env.BICKR_KV, kvKeys.world(world.id));
+					if (!current) throw new RepositoryError('server_error', 'World compatibility source document is missing.', 500);
+					await prepareLegacyInferenceCompatibilityWrite(context, userId, 'world', world.id, current.revision, compatibilityFieldMask);
+				}
+				const result = await requestOwnerWorldMutation(context, world.id, userId, { kind: 'world_update', worldHandle, input });
+			const updated = requiredWorldMutationResult(result);
+			if (compatibilityFieldMask) await resumePendingLegacyInferenceCompatibilityWrite(context, userId);
+			return ok({ world: updated, coordinator: context.objectId });
 		},
 	},
 	{
@@ -790,9 +1199,17 @@ export const agentRuntimeRouteTable = [
 		handler: async (context) => {
 			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
 			const botId = decodeURIComponent(context.match[2] ?? '');
-			const input = parseUpdateBotInput(await readJsonBody(context.request));
-			const updatedAt = new Date().toISOString();
-			const bot = await updateBot(context.env.BICKR_KV, context.env.BICKR_D1, botId, userId, input, updatedAt);
+				const input = parseUpdateBotInput(await readJsonBody(context.request));
+				const updatedAt = new Date().toISOString();
+				const compatibilityFieldMask = input.inferenceSettings === undefined
+					? null
+					: legacyInferenceCompatibilityFieldMask(input.inferenceSettings);
+				if (compatibilityFieldMask) {
+					const current = await rawBotById(context.env.BICKR_KV, context.env.BICKR_D1, botId);
+					await prepareLegacyInferenceCompatibilityWrite(context, userId, 'bot', botId, current.revision, compatibilityFieldMask);
+				}
+				const bot = await updateBot(context.env.BICKR_KV, context.env.BICKR_D1, botId, userId, input, updatedAt);
+			if (compatibilityFieldMask) await resumePendingLegacyInferenceCompatibilityWrite(context, userId);
 			await upsertBotVector(context.env, bot);
 			const affectedBots = await refreshLinkedCloneIndexes(context.env.BICKR_KV, context.env.BICKR_D1, bot.id);
 			await Promise.all(affectedBots.map((affectedBot) => upsertBotVector(context.env, affectedBot)));
@@ -925,6 +1342,9 @@ export const agentRuntimeRouteTable = [
 							language: effectiveAvatarSettingsLanguageForBot(targetBot),
 							inferenceSettings: { imageGeneration: body.settings },
 						});
+			const compatibilityFieldMask = settingsInput?.inferenceSettings === undefined
+				? null
+				: legacyInferenceCompatibilityFieldMask(settingsInput.inferenceSettings);
 			let bot = await applyGeneratedAvatarForBot(
 				context.env,
 				userId,
@@ -938,10 +1358,13 @@ export const agentRuntimeRouteTable = [
 					avatar,
 				),
 			);
-			if (settingsInput?.inferenceSettings !== undefined) {
-				bot = await updateBot(context.env.BICKR_KV, context.env.BICKR_D1, bot.id, userId, {
+				if (settingsInput?.inferenceSettings !== undefined && compatibilityFieldMask) {
+					const current = await rawBotById(context.env.BICKR_KV, context.env.BICKR_D1, bot.id);
+					await prepareLegacyInferenceCompatibilityWrite(context, userId, 'bot', bot.id, current.revision, compatibilityFieldMask);
+					bot = await updateBot(context.env.BICKR_KV, context.env.BICKR_D1, bot.id, userId, {
 					inferenceSettings: settingsInput.inferenceSettings,
 				});
+				await resumePendingLegacyInferenceCompatibilityWrite(context, userId);
 			}
 			await upsertBotVector(context.env, bot);
 			const affectedBots = await refreshLinkedCloneIndexes(context.env.BICKR_KV, context.env.BICKR_D1, bot.id);
@@ -1027,6 +1450,9 @@ export const agentRuntimeRouteTable = [
 							language: effectiveAvatarSettingsLanguageForWorld(targetWorld),
 							imageGeneration: body.settings,
 						});
+			const compatibilityFieldMask = settingsInput?.imageGeneration === undefined
+				? null
+				: legacyImageCompatibilityFieldMask(settingsInput.imageGeneration);
 			let world = await applyGeneratedAvatarForWorld(
 				context.env,
 				userId,
@@ -1038,12 +1464,16 @@ export const agentRuntimeRouteTable = [
 					avatar,
 				})),
 			);
-			if (settingsInput?.imageGeneration !== undefined) {
-				world = requiredWorldMutationResult(await requestOwnerWorldMutation(context, targetWorld.id, userId, {
+				if (settingsInput?.imageGeneration !== undefined && compatibilityFieldMask) {
+					const current = await readJson<WorldDocument>(context.env.BICKR_KV, kvKeys.world(targetWorld.id));
+					if (!current) throw new RepositoryError('server_error', 'World compatibility source document is missing.', 500);
+					await prepareLegacyInferenceCompatibilityWrite(context, userId, 'world', targetWorld.id, current.revision, compatibilityFieldMask);
+					world = requiredWorldMutationResult(await requestOwnerWorldMutation(context, targetWorld.id, userId, {
 					kind: 'world_update',
 					worldHandle: world.handle,
 					input: { imageGeneration: settingsInput.imageGeneration },
 				}));
+				await resumePendingLegacyInferenceCompatibilityWrite(context, userId);
 			}
 			return ok({ world, coordinator: context.objectId });
 		},
@@ -1100,6 +1530,228 @@ export const agentRuntimeRouteTable = [
 		dispatch: 'bot-runtime',
 	},
 ] as const satisfies readonly AgentRuntimeRoute[];
+
+type LegacyInferenceCompatibilityWrite =
+	| { kind: 'account'; entityId: string; revision: number; settings: BotInferenceSettings }
+	| { kind: 'bot'; entityId: string; revision: number; settings: BotInferenceSettings }
+	| { kind: 'world'; entityId: string; revision: number; settings: BotImageGenerationSettings | undefined };
+
+async function projectLegacyInferenceCompatibilityWrite(
+	context: AgentRuntimeRouteContext,
+	ownerUserId: string,
+	write: LegacyInferenceCompatibilityWrite,
+	fieldMask: LegacyInferenceCompatibilityFieldMask,
+): Promise<void> {
+	if (context.coordinator.ownerUserId && context.coordinator.ownerUserId !== ownerUserId) {
+		throw new RepositoryError('forbidden', 'Compatibility write was dispatched to the wrong coordinator.', 403);
+	}
+	const version = await inferenceGraphReadVersion(context.env.BICKR_D1, ownerUserId);
+	if (version.writerVersion !== 1) return;
+	const now = new Date().toISOString();
+	await markInferenceGraphCompatibilitySourceWritten(context.env.BICKR_D1, ownerUserId, write.revision, now);
+	if (fieldMask.fields.length > 0 || fieldMask.credential) {
+		const configurationId = write.kind === 'account'
+			? await accountDefaultConfigurationId(ownerUserId)
+			: write.kind === 'bot'
+				? await botConfigurationId(write.entityId)
+				: await worldConfigurationId(write.entityId);
+		const selected = (await loadInferenceConfigurationPath(context.env.BICKR_D1, ownerUserId, configurationId))[0];
+		await updateInferenceConfiguration(context.env.BICKR_D1, ownerUserId, {
+			configurationId,
+			expectedRevision: selected.revision,
+			overrides: write.kind === 'world'
+				? inferenceOverridePatchFromLegacyImageSettingsMask(write.settings, fieldMask)
+				: inferenceOverridePatchFromLegacySettingsMask(write.settings, fieldMask),
+			...(write.kind !== 'world' && fieldMask.credential ? {
+				credential: write.settings.openRouterApiKey?.trim()
+					? { mode: 'value' as const, secret: write.settings.openRouterApiKey.trim() }
+					: { mode: 'inherit' as const },
+			} : {}),
+		}, now);
+	}
+	if (write.kind === 'account') {
+		await projectLegacyTranslationCompatibilityWrite(context, ownerUserId, write.settings, fieldMask);
+	}
+	await completeInferenceGraphCompatibilityWrite(context.env.BICKR_D1, ownerUserId, now);
+}
+
+async function prepareLegacyInferenceCompatibilityWrite(
+	context: AgentRuntimeRouteContext,
+	ownerUserId: string,
+	kind: LegacyInferenceCompatibilityWrite['kind'],
+	entityId: string,
+	currentRevision: number,
+	fieldMask: LegacyInferenceCompatibilityFieldMask,
+): Promise<void> {
+	if (context.coordinator.ownerUserId && context.coordinator.ownerUserId !== ownerUserId) {
+		throw new RepositoryError('forbidden', 'Compatibility write was dispatched to the wrong coordinator.', 403);
+	}
+	await resumePendingLegacyInferenceCompatibilityWrite(context, ownerUserId);
+	if (legacyInferenceCompatibilityFieldMaskIsEmpty(fieldMask)) return;
+	await beginInferenceGraphCompatibilityWrite(context.env.BICKR_D1, {
+		ownerUserId,
+		kind,
+		entityId,
+		sourceRevision: currentRevision + 1,
+		fieldMask,
+		now: new Date().toISOString(),
+	});
+}
+
+async function resumePendingLegacyInferenceCompatibilityWrite(
+	context: AgentRuntimeRouteContext,
+	ownerUserId: string,
+): Promise<void> {
+	const pending = await pendingInferenceGraphCompatibilityWrite(context.env.BICKR_D1, ownerUserId);
+	if (!pending) return;
+	let write: LegacyInferenceCompatibilityWrite;
+	switch (pending.kind) {
+		case 'account': {
+			const user = await userById(context.env.BICKR_KV, pending.entityId);
+			if (user.id !== ownerUserId) throw new RepositoryError('conflict', 'Account convergence owner does not match.', 409);
+			if (user.revision < pending.sourceRevision) {
+				return;
+			}
+			write = { kind: 'account', entityId: user.id, revision: user.revision, settings: user.inferenceSettings ?? {} };
+			break;
+		}
+		case 'bot': {
+			const bot = await rawBotById(context.env.BICKR_KV, context.env.BICKR_D1, pending.entityId);
+			if (bot.ownerUserId !== ownerUserId) throw new RepositoryError('conflict', 'Participant convergence owner does not match.', 409);
+			if (bot.revision < pending.sourceRevision) {
+				return;
+			}
+			write = { kind: 'bot', entityId: bot.id, revision: bot.revision, settings: bot.inferenceSettings };
+			break;
+		}
+		case 'world': {
+			const world = await readJson<WorldDocument>(context.env.BICKR_KV, kvKeys.world(pending.entityId));
+			if (!world || world.createdByUserId !== ownerUserId) throw new RepositoryError('conflict', 'World convergence owner does not match.', 409);
+			if (world.revision < pending.sourceRevision) {
+				return;
+			}
+			write = { kind: 'world', entityId: world.id, revision: world.revision, settings: world.imageGeneration };
+			break;
+		}
+	}
+	await projectLegacyInferenceCompatibilityWrite(context, ownerUserId, write, pending.fieldMask);
+}
+
+async function projectLegacyTranslationCompatibilityWrite(
+	context: AgentRuntimeRouteContext,
+	ownerUserId: string,
+	settings: BotInferenceSettings,
+	fieldMask: LegacyInferenceCompatibilityFieldMask,
+): Promise<void> {
+	if (fieldMask.translationFields.length === 0) return;
+	const version = await inferenceGraphReadVersion(context.env.BICKR_D1, ownerUserId);
+	// Once cut over, the selected Account default/custom configuration is
+	// canonical. Legacy profile prompt/toggle writes must not replace it merely
+	// because their deprecated inference subobject is absent or stale.
+	if (version.cutoverVersion !== 0) return;
+	const selection = await readTranslationSelection(context.env.BICKR_D1, ownerUserId);
+	const translation = settings.translation;
+	const rootId = await accountDefaultConfigurationId(ownerUserId);
+	if (!translation?.model?.trim()) {
+		if (selection.configurationId !== rootId) {
+			await updateTranslationSelection(context.env.BICKR_D1, ownerUserId, {
+				configurationId: rootId,
+				expectedRevision: selection.revision,
+			});
+		}
+		return;
+	}
+	const overrides = inferenceOverridesFromLegacyTranslationSettings(translation);
+	const compatibility = await ensureCompatibilityTranslation(
+		context.env.BICKR_D1,
+		ownerUserId,
+		overrides,
+	);
+	const configurationId = compatibility.id;
+	if (JSON.stringify(compatibility.overrides) !== JSON.stringify(overrides)) {
+		await updateInferenceConfiguration(context.env.BICKR_D1, ownerUserId, {
+			configurationId,
+			expectedRevision: compatibility.revision,
+			overrides: inferenceOverridePatchFromLegacyTranslationSettingsMask(translation, fieldMask),
+		});
+	}
+	if (selection.configurationId !== configurationId) {
+		await updateTranslationSelection(context.env.BICKR_D1, ownerUserId, {
+			configurationId,
+			expectedRevision: selection.revision,
+		});
+	}
+}
+
+async function requireInferenceGraphOwner(context: AgentRuntimeRouteContext): Promise<string> {
+	const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+	if (context.coordinator.ownerUserId !== userId) {
+		throw new RepositoryError('forbidden', 'Inference configuration request was dispatched to the wrong coordinator.', 403);
+	}
+	const version = await inferenceGraphReadVersion(context.env.BICKR_D1, userId);
+	if (version.cutoverVersion !== 1) {
+		throw new RepositoryError('conflict', 'Inference configuration graph is not available for this account.', 409);
+	}
+	return userId;
+}
+
+function requiredRecord(value: unknown): Record<string, unknown> {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) throw new InputError('A JSON object is required.');
+	return value as Record<string, unknown>;
+}
+
+function requiredString(value: unknown, field: string): string {
+	if (typeof value !== 'string' || !value.trim()) throw new InputError(`${field} is required.`);
+	return value;
+}
+
+function requiredPositiveInteger(value: unknown, field: string): number {
+	const parsed = typeof value === 'string' && value.trim() ? Number(value) : value;
+	if (typeof parsed !== 'number' || !Number.isSafeInteger(parsed) || parsed < 1) {
+		throw new InputError(`${field} must be a positive integer.`);
+	}
+	return parsed;
+}
+
+function pageInput(url: URL): { cursor?: string; limit?: number } {
+	const cursor = url.searchParams.get('cursor');
+	const limit = url.searchParams.get('limit');
+	return {
+		...(cursor ? { cursor } : {}),
+		...(limit ? { limit: requiredPositiveInteger(limit, 'limit') } : {}),
+	};
+}
+
+function parseCredentialUpdate(value: unknown): CredentialUpdate {
+	const record = requiredRecord(value);
+	switch (record.mode) {
+		case 'inherit':
+		case 'none':
+			return { mode: record.mode };
+		case 'value':
+			return { mode: 'value', secret: requiredString(record.secret, 'credential.secret') };
+		default:
+			throw new InputError('credential.mode must be inherit, value, or none.');
+	}
+}
+
+function parseInferenceOverridesForRoute(value: unknown) {
+	try {
+		return parseInferenceConfigurationOverrides(value);
+	} catch (error) {
+		if (error instanceof InferenceConfigurationDataError) throw new InputError(error.message);
+		throw error;
+	}
+}
+
+function parseInferencePatchForRoute(value: unknown) {
+	try {
+		return parseInferenceConfigurationOverridePatch(value);
+	} catch (error) {
+		if (error instanceof InferenceConfigurationDataError) throw new InputError(error.message);
+		throw error;
+	}
+}
 
 type ResolvedAgentRuntimeRoute = {
 	route: (typeof agentRuntimeRouteTable)[number];
@@ -1251,7 +1903,13 @@ export async function handleAgentRuntimeRequest(
 		Partial<Pick<Env, 'FORUM_COORDINATOR_SERVICE' | 'INTERNAL_SERVICE_SECRET'>>,
 	context: UserBotsCoordinatorContext | string = 'direct',
 ): Promise<Response> {
-	const maintenanceResponse = await mutationMaintenanceResponse(request, env.BICKR_D1, { allowRuntimeStop: true });
+	const pathname = new URL(request.url).pathname;
+	// These internal scheduler operations require maintenance inside their own
+	// handlers. Let them reach that stricter gate while ordinary mutations keep
+	// the shared maintenance rejection behavior.
+	const maintenanceOperation = /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate)$/.test(pathname) ||
+		/^\/inference-graph\/(?:cleanup|activate-lifecycle)$/.test(pathname);
+	const maintenanceResponse = maintenanceOperation ? null : await mutationMaintenanceResponse(request, env.BICKR_D1, { allowRuntimeStop: true });
 	if (maintenanceResponse) {
 		return maintenanceResponse;
 	}

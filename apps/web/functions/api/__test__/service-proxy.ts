@@ -48,7 +48,10 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 			headers: serviceProxyHeaders(input.headers, env.INTERNAL_SERVICE_SECRET),
 			method: input.method,
 		});
-		const maintenanceResponse = await mutationMaintenanceResponse(serviceRequest, env.BICKR_D1, {
+		// These scheduler-authenticated operations require maintenance in their
+		// agent-runtime handlers. The test proxy must let them reach that stricter
+		// gate; every other mutation retains the shared maintenance rejection.
+		const maintenanceResponse = isInferenceGraphMaintenanceOperation(input) ? null : await mutationMaintenanceResponse(serviceRequest, env.BICKR_D1, {
 			allowRuntimeStop: true,
 		});
 		if (maintenanceResponse) {
@@ -60,6 +63,12 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 		return pageErrorResponse(error);
 	}
 };
+
+function isInferenceGraphMaintenanceOperation(input: ServiceProxyInput): boolean {
+	if (input.service !== "agent-runtime" || input.method !== "POST") return false;
+	return /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate)$/.test(input.path) ||
+		/^\/inference-graph\/(?:cleanup|activate-lifecycle)$/.test(input.path);
+}
 
 function parseServiceProxyInput(input: unknown): ServiceProxyInput {
 	const record = asRecord(input);

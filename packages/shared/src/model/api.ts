@@ -64,8 +64,18 @@ export type LinkedAuthIdentity = {
 export type UserProfile = PublicUser & {
 	authIdentities: LinkedAuthIdentity[];
 	inferenceSettings: PublicBotInferenceSettings;
+	translationInference?: TranslationInferenceAnnotation;
 	createdAt: string;
 	updatedAt: string;
+};
+
+export type TranslationInferenceAnnotation = {
+	selectedConfigurationId: string;
+	selectedDisplayName: string;
+	selectionRevision: number;
+	effectiveModel: string;
+	effectiveRevisionFingerprint: string;
+	credentialAvailable: boolean;
 };
 
 export type SessionPayload = {

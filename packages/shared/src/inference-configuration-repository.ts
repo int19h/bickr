@@ -3,19 +3,25 @@ import { deterministicId, makeId } from "./ids";
 import {
 	applyInferenceOverridePatch,
 	inferenceConfigurationCorruptionSentinel,
+	inferenceConfigurationFields,
 	inferenceConfigurationOwnerQuota,
+	inferenceFieldAnnotations,
 	inferenceResolutionFingerprint,
 	normalizedInferenceConfigurationName,
 	parseInferenceConfigurationOverrides,
 	resolveInferenceConfiguration,
 	type InferenceConfigurationCredential,
+	type InferenceConfigurationField,
 	type InferenceConfigurationKind,
 	type InferenceConfigurationNode,
 	type InferenceConfigurationOverridePatch,
 	type InferenceConfigurationOverrides,
 	type InferenceConfigurationPath,
+	type InferenceFieldAdjustment,
 	type InferenceCredentialMode,
-	type InferenceResolution,
+	type InferenceOverrideUpdate,
+	type InferenceSource,
+	type BickrInferenceDefaults,
 } from "./inference-configuration";
 import { RepositoryError } from "./repository";
 import type { D1DatabaseLike, D1PreparedStatementLike } from "./storage";
@@ -136,6 +142,81 @@ export async function loadInternalInferenceConfigurationPath(
 	return loadPath(db, ownerUserId, configurationId, true);
 }
 
+/**
+ * Loads the revision-matched compatibility snapshot used only by cutover
+ * version 2. Plaintext still comes from the canonical secret table and is
+ * admitted only when its version matches the projected credential envelope.
+ */
+export async function loadInternalInferenceCompatibilityProjectionPath(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	configurationId: string,
+	expectedGraphRevision: number,
+): Promise<InferenceConfigurationPath> {
+	const result = await db.prepare(
+		`WITH RECURSIVE projection_path (
+			id, ownerUserId, kind, parentId, worldId, botId, customName,
+			customNameKey, overridesJson, revision, createdAt, updatedAt,
+			credentialMode, secretVersion, secretValue, depth
+		) AS (
+			SELECT entry.configuration_id, entry.owner_user_id, entry.kind,
+				entry.parent_id, entry.world_id, entry.bot_id, entry.custom_name,
+				entry.custom_name_key, entry.overrides_json,
+				entry.configuration_revision, projection.created_at, projection.updated_at,
+				entry.credential_mode, entry.credential_secret_version,
+				CASE WHEN credentials.secret_version = entry.credential_secret_version
+					THEN credentials.secret_value ELSE NULL END,
+				0
+			FROM inference_graph_legacy_projection_entries AS entry
+			JOIN inference_graph_legacy_projections AS projection
+				ON projection.owner_user_id = entry.owner_user_id AND projection.graph_revision = ?
+			LEFT JOIN inference_configuration_credentials AS credentials
+				ON credentials.configuration_id = entry.configuration_id
+				AND credentials.owner_user_id = entry.owner_user_id
+			WHERE entry.configuration_id = ? AND entry.owner_user_id = ?
+			UNION ALL
+			SELECT entry.configuration_id, entry.owner_user_id, entry.kind,
+				entry.parent_id, entry.world_id, entry.bot_id, entry.custom_name,
+				entry.custom_name_key, entry.overrides_json,
+				entry.configuration_revision, projection.created_at, projection.updated_at,
+				entry.credential_mode, entry.credential_secret_version,
+				CASE WHEN credentials.secret_version = entry.credential_secret_version
+					THEN credentials.secret_value ELSE NULL END,
+				path.depth + 1
+			FROM projection_path AS path
+			JOIN inference_graph_legacy_projection_entries AS entry
+				ON entry.configuration_id = path.parentId AND entry.owner_user_id = path.ownerUserId
+			JOIN inference_graph_legacy_projections AS projection
+				ON projection.owner_user_id = entry.owner_user_id AND projection.graph_revision = ?
+			LEFT JOIN inference_configuration_credentials AS credentials
+				ON credentials.configuration_id = entry.configuration_id
+				AND credentials.owner_user_id = entry.owner_user_id
+			WHERE path.depth < ?
+		)
+		SELECT * FROM projection_path ORDER BY depth ASC LIMIT ?`,
+	).bind(
+		expectedGraphRevision,
+		configurationId,
+		ownerUserId,
+		expectedGraphRevision,
+		inferenceConfigurationCorruptionSentinel - 1,
+		inferenceConfigurationCorruptionSentinel,
+	).all<ConfigurationPathRow>();
+	const rows = result.results ?? [];
+	if (rows.length === 0) {
+		throw new InferenceGraphRepositoryError("corrupt_graph", "Current inference compatibility projection entry is missing.");
+	}
+	if (rows.length >= inferenceConfigurationCorruptionSentinel) {
+		throw new InferenceGraphRepositoryError("corrupt_graph", "Inference compatibility projection path exceeds the corruption sentinel.");
+	}
+	const path = rows.map((row) => configurationNodeFromRow(row, true));
+	const root = path.at(-1);
+	if (!root || root.kind !== "account_default" || root.parentId !== null) {
+		throw new InferenceGraphRepositoryError("corrupt_graph", "Inference compatibility projection path has no Account default.");
+	}
+	return [path[0]!, ...path.slice(1)];
+}
+
 async function loadPath(
 	db: D1DatabaseLike,
 	ownerUserId: string,
@@ -152,6 +233,12 @@ async function loadPath(
 		.all<ConfigurationPathRow>();
 	const rows = result.results ?? [];
 	if (rows.length === 0) {
+		const foreignOwner = await db.prepare(
+			`SELECT owner_user_id AS ownerUserId FROM inference_configurations WHERE configuration_id = ? LIMIT 1`,
+		).bind(configurationId).first<{ ownerUserId: string }>();
+		if (foreignOwner && foreignOwner.ownerUserId !== ownerUserId) {
+			throw new InferenceGraphRepositoryError("cross_owner", "Inference configuration belongs to another owner.");
+		}
 		throw new RepositoryError("not_found", "Inference configuration not found.", 404);
 	}
 	if (rows.length >= inferenceConfigurationCorruptionSentinel) {
@@ -222,18 +309,39 @@ export type RedactedInferenceConfigurationDto = {
 	revision: number;
 	overrides: InferenceConfigurationOverrides;
 	credential: { mode: InferenceCredentialMode; available: boolean; secretVersion: number };
-	resolution: InferenceResolution;
+	effectiveModel: string;
+	fields: RedactedInferenceFieldDtoMap;
+	graphRevision: number;
 	fingerprint: string;
+};
+
+/**
+ * This public shape is deliberately distinct from the internal resolution
+ * types. Adding a secret-bearing member to the resolver cannot silently make
+ * it serializable through an owner endpoint.
+ */
+export type RedactedInferenceFieldDto<K extends InferenceConfigurationField> = {
+	override: InferenceOverrideUpdate<K>;
+	effective: unknown;
+	source: InferenceSource;
+	adjustment: InferenceFieldAdjustment;
+};
+
+export type RedactedInferenceFieldDtoMap = {
+	[K in InferenceConfigurationField]: RedactedInferenceFieldDto<K>;
 };
 
 export async function inferenceConfigurationOwnerDto(
 	db: D1DatabaseLike,
 	ownerUserId: string,
 	configurationId: string,
+	defaults?: BickrInferenceDefaults,
 ): Promise<RedactedInferenceConfigurationDto> {
 	const path = await loadInferenceConfigurationPath(db, ownerUserId, configurationId);
 	const selected = path[0];
-	const resolution = resolveInferenceConfiguration(path);
+	const resolution = resolveInferenceConfiguration(path, { ...(defaults ? { defaults } : {}) });
+	const internalAnnotations = inferenceFieldAnnotations(selected.overrides, resolution);
+	const control = await inferenceGraphReadVersion(db, ownerUserId);
 	return {
 		[redactedOwnerDtoBrand]: true,
 		id: selected.id,
@@ -247,7 +355,17 @@ export async function inferenceConfigurationOwnerDto(
 			available: resolution.effective.credential.kind === "available",
 			secretVersion: selected.credential.secretVersion,
 		},
-		resolution,
+		effectiveModel: resolution.effective.model,
+		fields: Object.fromEntries(inferenceConfigurationFields.map((field) => {
+			const annotation = internalAnnotations[field];
+			return [field, {
+				override: annotation.override,
+				effective: annotation.effective,
+				source: annotation.source,
+				adjustment: annotation.adjustment,
+			}];
+		})) as RedactedInferenceFieldDtoMap,
+		graphRevision: control.graphRevision,
 		fingerprint: await inferenceResolutionFingerprint(resolution),
 	};
 }
@@ -269,6 +387,8 @@ export type InferenceConfigurationSummary = {
 	revision: number;
 	updatedAt: string;
 	credentialMode: InferenceCredentialMode;
+	effectiveModel: string;
+	parent: { id: string; displayName: string; revision: number } | null;
 };
 
 type SummaryRow = {
@@ -282,6 +402,8 @@ type SummaryRow = {
 	credentialMode: InferenceCredentialMode;
 };
 
+type BoundedAncestorRow = ConfigurationPathRow & { displayName: string };
+
 export type InferenceConfigurationPage = {
 	items: InferenceConfigurationSummary[];
 	nextCursor?: string;
@@ -292,6 +414,7 @@ export type InferenceConfigurationListInput = {
 	limit?: number;
 	query?: string;
 	kinds?: readonly InferenceConfigurationKind[];
+	defaults?: BickrInferenceDefaults;
 };
 
 export async function listInferenceConfigurations(
@@ -352,11 +475,144 @@ export async function listInferenceConfigurations(
 		limit + 1,
 	).all<SummaryRow>();
 	const pageRows = (rows.results ?? []).slice(0, limit);
+	const ancestors = await loadBoundedInferenceAncestors(db, ownerUserId, pageRows.map((row) => row.id));
 	return {
-		items: pageRows.map(({ sortName: _sortName, ...row }) => row),
+		items: summariesFromAncestors(pageRows, ancestors, input.defaults),
 		...(rows.results && rows.results.length > limit && pageRows.length > 0
 			? { nextCursor: encodeCursor(pageRows[pageRows.length - 1]!) }
 			: {}),
+	};
+}
+
+/**
+ * Server-only, set-oriented loader for a bounded consumer batch. It returns the
+ * union of the selected rows and all ancestors, including secrets for runtime
+ * parity/resolution, without scanning unrelated owner configurations.
+ */
+export async function loadInternalInferenceConfigurationAncestors(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	configurationIds: readonly string[],
+): Promise<InferenceConfigurationNode[]> {
+	if (configurationIds.length === 0) return [];
+	if (configurationIds.length > maximumPageSize) {
+		throw new InferenceGraphRepositoryError("corrupt_graph", "Internal inference configuration batch exceeds its query bound.");
+	}
+	const result = await db.prepare(
+		`WITH RECURSIVE selected(id) AS (SELECT value FROM json_each(?)), ancestors(id) AS (
+			SELECT id FROM selected
+			UNION
+			SELECT configuration.parent_id
+			FROM inference_configurations AS configuration
+			JOIN ancestors ON ancestors.id = configuration.configuration_id
+			WHERE configuration.owner_user_id = ? AND configuration.parent_id IS NOT NULL
+		)
+		SELECT ${pathColumns}, credentials.secret_value AS secretValue, 0 AS depth
+		FROM ancestors
+		JOIN inference_configurations AS configuration
+			ON configuration.configuration_id = ancestors.id AND configuration.owner_user_id = ?
+		JOIN inference_configuration_credentials AS credentials
+			ON credentials.configuration_id = configuration.configuration_id
+			AND credentials.owner_user_id = configuration.owner_user_id
+		ORDER BY configuration.configuration_id ASC LIMIT ?`,
+	).bind(JSON.stringify(configurationIds), ownerUserId, ownerUserId, inferenceConfigurationCorruptionSentinel)
+		.all<ConfigurationPathRow>();
+	const rows = result.results ?? [];
+	if (rows.length >= inferenceConfigurationCorruptionSentinel) {
+		throw new InferenceGraphRepositoryError("corrupt_graph", "Internal inference configuration ancestors exceed the corruption sentinel.");
+	}
+	return rows.map((row) => configurationNodeFromRow(row, true));
+}
+
+function pathFromSnapshot(
+	selected: InferenceConfigurationNode,
+	byId: ReadonlyMap<string, InferenceConfigurationNode>,
+): InferenceConfigurationPath {
+	const result: InferenceConfigurationNode[] = [];
+	const seen = new Set<string>();
+	let current: InferenceConfigurationNode | undefined = selected;
+	while (current) {
+		if (seen.has(current.id)) throw new InferenceGraphRepositoryError("corrupt_graph", "Inference configuration owner snapshot contains a cycle.");
+		seen.add(current.id);
+		result.push(current);
+		if (result.length >= inferenceConfigurationCorruptionSentinel) {
+			throw new InferenceGraphRepositoryError("corrupt_graph", "Inference configuration owner snapshot path exceeds the corruption sentinel.");
+		}
+		current = current.parentId ? byId.get(current.parentId) : undefined;
+	}
+	const root = result.at(-1);
+	if (!root || root.kind !== "account_default") {
+		throw new InferenceGraphRepositoryError("corrupt_graph", "Inference configuration owner snapshot path has no Account default.");
+	}
+	return [result[0]!, ...result.slice(1)];
+}
+
+export function inferenceConfigurationPathFromSnapshot(
+	selected: InferenceConfigurationNode,
+	snapshot: readonly InferenceConfigurationNode[],
+): InferenceConfigurationPath {
+	return pathFromSnapshot(selected, new Map(snapshot.map((node) => [node.id, node])));
+}
+
+type BoundedInferenceAncestors = {
+	byId: ReadonlyMap<string, InferenceConfigurationNode>;
+	displayNames: ReadonlyMap<string, string>;
+};
+
+/**
+ * Loads only the union of the requested page rows and their ancestors. The
+ * VALUES seed is bounded by the public page limit, UNION deduplicates shared
+ * ancestors, and the 10,001-row sentinel detects a corrupt over-quota graph.
+ */
+async function loadBoundedInferenceAncestors(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	configurationIds: readonly string[],
+): Promise<BoundedInferenceAncestors> {
+	if (configurationIds.length === 0) return { byId: new Map(), displayNames: new Map() };
+	if (configurationIds.length > maximumPageSize) {
+		throw new InferenceGraphRepositoryError("corrupt_graph", "Inference configuration page exceeds its query bound.");
+	}
+	const result = await db.prepare(
+		`WITH RECURSIVE selected(id) AS (SELECT value FROM json_each(?)), ancestors(id) AS (
+			SELECT id FROM selected
+			UNION
+			SELECT configuration.parent_id
+			FROM inference_configurations AS configuration
+			JOIN ancestors ON ancestors.id = configuration.configuration_id
+			WHERE configuration.owner_user_id = ? AND configuration.parent_id IS NOT NULL
+		)
+		SELECT ${pathColumns}, 0 AS depth,
+			CASE configuration.kind
+				WHEN 'account_default' THEN 'Account default'
+				WHEN 'world' THEN worlds.name
+				WHEN 'bot' THEN bots.display_name
+				ELSE configuration.custom_name
+			END AS displayName
+		FROM ancestors
+		JOIN inference_configurations AS configuration
+			ON configuration.configuration_id = ancestors.id AND configuration.owner_user_id = ?
+		JOIN inference_configuration_credentials AS credentials
+			ON credentials.configuration_id = configuration.configuration_id
+			AND credentials.owner_user_id = configuration.owner_user_id
+		LEFT JOIN worlds_index AS worlds ON worlds.world_id = configuration.world_id
+		LEFT JOIN bots_index AS bots ON bots.bot_id = configuration.bot_id
+		ORDER BY configuration.configuration_id ASC
+		LIMIT ?`,
+	).bind(JSON.stringify(configurationIds), ownerUserId, ownerUserId, inferenceConfigurationCorruptionSentinel).all<BoundedAncestorRow>();
+	const rows = result.results ?? [];
+	if (rows.length >= inferenceConfigurationCorruptionSentinel) {
+		throw new InferenceGraphRepositoryError("corrupt_graph", "Inference configuration page ancestors exceed the corruption sentinel.");
+	}
+	const nodes = rows.map((row) => configurationNodeFromRow(row, false));
+	return {
+		byId: new Map(nodes.map((node) => [node.id, node])),
+		displayNames: new Map(rows.map((row) => {
+			if (!row.displayName) {
+				throw new InferenceGraphRepositoryError("corrupt_graph", "Inference configuration display metadata is missing.");
+			}
+			return [row.id, row.displayName];
+		})),
 	};
 }
 
@@ -395,6 +651,17 @@ function escapeLike(value: string): string {
 
 export type ParentCandidatePage = InferenceConfigurationPage;
 
+export async function listInferenceTranslationCandidates(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	input: Omit<InferenceConfigurationListInput, "kinds"> = {},
+): Promise<InferenceConfigurationPage> {
+	return listInferenceConfigurations(db, ownerUserId, {
+		...input,
+		kinds: ["account_default", "custom"],
+	});
+}
+
 export async function listInferenceParentCandidates(
 	db: D1DatabaseLike,
 	ownerUserId: string,
@@ -403,36 +670,89 @@ export async function listInferenceParentCandidates(
 ): Promise<ParentCandidatePage> {
 	const selected = await loadInferenceConfigurationPath(db, ownerUserId, configurationId);
 	if (selected[0].kind === "account_default") return { items: [] };
-	// One recursive, indexed query materializes descendants. The subsequent page
-	// query is bounded and uses the ordinary owner listing index.
-	const descendants = await db.prepare(
+	const limit = boundedPageSize(input.limit);
+	const cursor = decodeCursor(input.cursor);
+	const query = input.query ? normalizedInferenceConfigurationName(input.query).key : "";
+	const rows = await db.prepare(
 		`WITH RECURSIVE descendants(id) AS (
 			SELECT configuration_id FROM inference_configurations
 			WHERE configuration_id = ? AND owner_user_id = ?
-			UNION ALL
+			UNION
 			SELECT child.configuration_id
 			FROM inference_configurations AS child
 			JOIN descendants ON child.parent_id = descendants.id
 			WHERE child.owner_user_id = ?
+		), summaries AS (
+			SELECT configuration.configuration_id AS id, configuration.kind,
+				configuration.parent_id AS parentId,
+				CASE configuration.kind
+					WHEN 'account_default' THEN 'Account default'
+					WHEN 'world' THEN worlds.name
+					WHEN 'bot' THEN bots.display_name
+					ELSE configuration.custom_name
+				END AS displayName,
+				lower(CASE configuration.kind
+					WHEN 'account_default' THEN 'Account default'
+					WHEN 'world' THEN worlds.name
+					WHEN 'bot' THEN bots.display_name
+					ELSE configuration.custom_name
+				END) AS sortName,
+				configuration.revision, configuration.updated_at AS updatedAt,
+				credentials.mode AS credentialMode
+			FROM inference_configurations AS configuration
+			JOIN inference_configuration_credentials AS credentials
+				ON credentials.configuration_id = configuration.configuration_id
+			LEFT JOIN worlds_index AS worlds ON worlds.world_id = configuration.world_id
+			LEFT JOIN bots_index AS bots ON bots.bot_id = configuration.bot_id
+			WHERE configuration.owner_user_id = ?
+				AND NOT EXISTS (SELECT 1 FROM descendants WHERE descendants.id = configuration.configuration_id)
+				AND (? = '' OR
+					(configuration.kind = 'custom' AND configuration.custom_name_key >= ? AND configuration.custom_name_key < ?)
+					OR (configuration.kind != 'custom' AND lower(CASE configuration.kind
+						WHEN 'account_default' THEN 'Account default'
+						WHEN 'world' THEN worlds.name ELSE bots.display_name END) LIKE ? ESCAPE '\\'))
 		)
-		SELECT id FROM descendants LIMIT ?`,
-	).bind(configurationId, ownerUserId, ownerUserId, inferenceConfigurationCorruptionSentinel).all<{ id: string }>();
-	if ((descendants.results?.length ?? 0) >= inferenceConfigurationCorruptionSentinel) {
-		throw new InferenceGraphRepositoryError("corrupt_graph", "Inference configuration descendants exceed the corruption sentinel.");
-	}
-	const excluded = new Set((descendants.results ?? []).map((row) => row.id));
-	// Fetching at most one bounded page plus the descendant set avoids an N+1;
-	// repeated empty pages are impossible because the owner graph is acyclic.
-	let cursor = input.cursor;
-	const items: InferenceConfigurationSummary[] = [];
-	while (items.length < boundedPageSize(input.limit)) {
-		const page = await listInferenceConfigurations(db, ownerUserId, { ...input, cursor, limit: maximumPageSize });
-		items.push(...page.items.filter((item) => !excluded.has(item.id)));
-		cursor = page.nextCursor;
-		if (!cursor) break;
-	}
-	const limit = boundedPageSize(input.limit);
-	return { items: items.slice(0, limit), ...(cursor ? { nextCursor: cursor } : {}) };
+		SELECT * FROM summaries
+		WHERE sortName > ? OR (sortName = ? AND id > ?)
+		ORDER BY sortName ASC, id ASC LIMIT ?`,
+	).bind(
+		configurationId, ownerUserId, ownerUserId, ownerUserId,
+		query, query, prefixUpperBound(query), `${escapeLike(query)}%`,
+		cursor.sortName, cursor.sortName, cursor.id, limit + 1,
+	).all<SummaryRow>();
+	const pageRows = (rows.results ?? []).slice(0, limit);
+	const ancestors = await loadBoundedInferenceAncestors(db, ownerUserId, pageRows.map((row) => row.id));
+	return {
+		items: summariesFromAncestors(pageRows, ancestors, input.defaults),
+		...(rows.results && rows.results.length > limit && pageRows.length > 0
+			? { nextCursor: encodeCursor(pageRows[pageRows.length - 1]!) }
+			: {}),
+	};
+}
+
+function summariesFromAncestors(
+	rows: readonly SummaryRow[],
+	ancestors: BoundedInferenceAncestors,
+	defaults?: BickrInferenceDefaults,
+): InferenceConfigurationSummary[] {
+	const { byId, displayNames } = ancestors;
+	return rows.map(({ sortName: _sortName, ...row }) => {
+		const node = byId.get(row.id);
+		if (!node) throw new InferenceGraphRepositoryError("corrupt_graph", "List entry is missing from the owner graph snapshot.");
+		const parentNode = node.parentId ? byId.get(node.parentId) : undefined;
+		return {
+			...row,
+			effectiveModel: resolveInferenceConfiguration(
+				pathFromSnapshot(node, byId),
+				{ ...(defaults ? { defaults } : {}) },
+			).effective.model,
+			parent: parentNode ? {
+				id: parentNode.id,
+				displayName: displayNames.get(parentNode.id) ?? corruptParentDisplayName(parentNode.id),
+				revision: parentNode.revision,
+			} : null,
+		};
+	});
 }
 
 export async function listImmediateInferenceChildren(
@@ -458,10 +778,35 @@ export async function listImmediateInferenceChildren(
 		ORDER BY configuration.configuration_id ASC LIMIT ?`,
 	).bind(ownerUserId, parentId, cursor, limit + 1).all<Omit<SummaryRow, "sortName">>();
 	const page = (rows.results ?? []).slice(0, limit);
+	const ancestors = await loadBoundedInferenceAncestors(db, ownerUserId, page.map((row) => row.id));
+	const { byId, displayNames } = ancestors;
 	return {
-		items: page,
+		items: page.map((row) => {
+			const node = byId.get(row.id);
+			if (!node) throw new InferenceGraphRepositoryError("corrupt_graph", "Child entry is missing from the owner graph snapshot.");
+			const parent = node.parentId ? byId.get(node.parentId) : undefined;
+			return {
+				...row,
+				effectiveModel: resolveInferenceConfiguration(
+					pathFromSnapshot(node, byId),
+					{ ...(input.defaults ? { defaults: input.defaults } : {}) },
+				).effective.model,
+				parent: parent ? {
+					id: parent.id,
+					displayName: displayNames.get(parent.id) ?? corruptParentDisplayName(parent.id),
+					revision: parent.revision,
+				} : null,
+			};
+		}),
 		...(rows.results && rows.results.length > limit && page.length > 0 ? { nextCursor: btoa(page[page.length - 1]!.id) } : {}),
 	};
+}
+
+function corruptParentDisplayName(configurationId: string): never {
+	throw new InferenceGraphRepositoryError(
+		"corrupt_graph",
+		`Inference configuration parent ${configurationId} is missing display metadata.`,
+	);
 }
 
 function decodeIdCursor(cursor: string | undefined): string {
@@ -560,6 +905,7 @@ type InferenceConfigurationMutationCapability = Readonly<{
 	reparent(db: D1DatabaseLike, ownerUserId: string, input: ReparentInferenceConfigurationInput, now?: string): Promise<InferenceConfigurationNode>;
 	deleteCustom(db: D1DatabaseLike, ownerUserId: string, input: DeleteInferenceConfigurationInput, now?: string): Promise<InferenceDeleteImpact>;
 	updateTranslationSelection(db: D1DatabaseLike, ownerUserId: string, input: UpdateTranslationSelectionInput, now?: string): Promise<TranslationSelection>;
+	ensureCompatibilityTranslation(db: D1DatabaseLike, ownerUserId: string, overrides: InferenceConfigurationOverrides, now?: string): Promise<InferenceConfigurationNode>;
 }>;
 
 /** The sole ordinary graph-write surface; imports are statically allowlisted. */
@@ -570,6 +916,7 @@ export const inferenceConfigurationMutations: InferenceConfigurationMutationCapa
 	reparent: reparentConfiguration,
 	deleteCustom,
 	updateTranslationSelection,
+	ensureCompatibilityTranslation,
 });
 
 async function createCustom(
@@ -719,6 +1066,23 @@ export async function readTranslationSelection(
 	return row;
 }
 
+export async function readCompatibilityProjectionTranslationSelection(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	expectedGraphRevision: number,
+): Promise<TranslationSelection> {
+	const row = await db.prepare(
+		`SELECT owner_user_id AS ownerUserId,
+			translation_configuration_id AS configurationId,
+			translation_selection_revision AS revision,
+			updated_at AS updatedAt
+		 FROM inference_graph_legacy_projections
+		 WHERE owner_user_id = ? AND graph_revision = ? LIMIT 1`,
+	).bind(ownerUserId, expectedGraphRevision).first<TranslationSelection>();
+	if (!row) throw new InferenceGraphRepositoryError("corrupt_graph", "Current translation compatibility projection is missing.");
+	return row;
+}
+
 async function updateTranslationSelection(
 	db: D1DatabaseLike,
 	ownerUserId: string,
@@ -739,6 +1103,94 @@ async function updateTranslationSelection(
 	return readTranslationSelection(db, ownerUserId);
 }
 
+async function ensureCompatibilityTranslation(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	overrides: InferenceConfigurationOverrides,
+	now = new Date().toISOString(),
+): Promise<InferenceConfigurationNode> {
+	const existing = await db.prepare(
+		`SELECT compatibility_translation_configuration_id AS id
+		 FROM inference_graph_users WHERE owner_user_id = ? LIMIT 1`,
+	).bind(ownerUserId).first<{ id: string | null }>();
+	if (!existing) throw new RepositoryError("not_found", "Inference graph owner not found.", 404);
+	if (existing.id) {
+		const selected = (await loadInferenceConfigurationPath(db, ownerUserId, existing.id))[0];
+		if (selected.kind !== "custom") {
+			throw new InferenceGraphRepositoryError("corrupt_graph", "Compatibility translation reference is not custom.");
+		}
+		return selected;
+	}
+	const configurationId = await deterministicId("cfg", `inference:translation:${ownerUserId}`);
+	const deterministicEntry = await db.prepare(
+		`SELECT owner_user_id AS ownerUserId, kind
+		 FROM inference_configurations WHERE configuration_id = ? LIMIT 1`,
+	).bind(configurationId).first<{ ownerUserId: string; kind: InferenceConfigurationKind }>();
+	if (deterministicEntry) {
+		if (deterministicEntry.ownerUserId !== ownerUserId || deterministicEntry.kind !== "custom") {
+			throw new InferenceGraphRepositoryError("unexpected_unique_conflict", "Deterministic translation configuration identity is unavailable.");
+		}
+		await db.prepare(
+			`UPDATE inference_graph_users SET compatibility_translation_configuration_id = ?, updated_at = ?
+			 WHERE owner_user_id = ? AND compatibility_translation_configuration_id IS NULL`,
+		).bind(configurationId, now, ownerUserId).run();
+		return (await loadInferenceConfigurationPath(db, ownerUserId, configurationId))[0];
+	}
+	await assertOwnerQuota(db, ownerUserId);
+	const rootId = await accountDefaultConfigurationId(ownerUserId);
+	await loadInferenceConfigurationPath(db, ownerUserId, rootId);
+	const candidate = await db.prepare(
+		`WITH RECURSIVE names(suffix, name, name_key) AS (
+			VALUES (0, 'Migrated translation settings', 'migrated translation settings')
+			UNION ALL
+			SELECT suffix + 1,
+				CASE WHEN suffix = 0
+					THEN 'Migrated translation settings (' || substr(?, -8) || ')'
+					ELSE 'Migrated translation settings (' || substr(?, -8) || '-' || CAST(suffix + 1 AS TEXT) || ')' END,
+				CASE WHEN suffix = 0
+					THEN 'migrated translation settings (' || lower(substr(?, -8)) || ')'
+					ELSE 'migrated translation settings (' || lower(substr(?, -8)) || '-' || CAST(suffix + 1 AS TEXT) || ')' END
+			FROM names
+			WHERE suffix < ? AND EXISTS (
+				SELECT 1 FROM inference_configurations
+				WHERE owner_user_id = ? AND kind = 'custom' AND custom_name_key = names.name_key
+			)
+		)
+		SELECT name, name_key AS nameKey FROM names
+		WHERE NOT EXISTS (
+			SELECT 1 FROM inference_configurations
+			WHERE owner_user_id = ? AND kind = 'custom' AND custom_name_key = names.name_key
+		)
+		ORDER BY suffix ASC LIMIT 1`,
+	).bind(
+		configurationId,
+		configurationId,
+		configurationId,
+		configurationId,
+		inferenceConfigurationOwnerQuota,
+		ownerUserId,
+		ownerUserId,
+	).first<{ name: string; nameKey: string }>();
+	if (!candidate) throw new InferenceGraphRepositoryError("quota_exceeded", "Inference configuration quota reached.");
+	try {
+		await db.batch([
+			db.prepare(
+				`INSERT INTO inference_configurations (
+					configuration_id, owner_user_id, kind, parent_id, custom_name,
+					custom_name_key, overrides_json, revision, created_at, updated_at
+				) VALUES (?, ?, 'custom', ?, ?, ?, ?, 1, ?, ?)`,
+			).bind(configurationId, ownerUserId, rootId, candidate.name, candidate.nameKey, JSON.stringify(overrides), now, now),
+			db.prepare(
+				`UPDATE inference_graph_users SET compatibility_translation_configuration_id = ?, updated_at = ?
+				 WHERE owner_user_id = ? AND compatibility_translation_configuration_id IS NULL`,
+			).bind(configurationId, now, ownerUserId),
+		]);
+	} catch (error) {
+		throw mapUniqueConflict(error, "unexpected_unique_conflict");
+	}
+	return (await loadInferenceConfigurationPath(db, ownerUserId, configurationId))[0];
+}
+
 async function assertOwnerQuota(db: D1DatabaseLike, ownerUserId: string): Promise<void> {
 	const row = await db.prepare(
 		`SELECT COUNT(*) AS count FROM inference_configurations WHERE owner_user_id = ?`,
@@ -749,7 +1201,9 @@ async function assertOwnerQuota(db: D1DatabaseLike, ownerUserId: string): Promis
 }
 
 function assertOneMutation(changes: number | undefined, currentRevision: number, expectedRevision: number): void {
-	if (currentRevision !== expectedRevision || changes !== 1) staleRevision();
+	// D1 reports changes made by invalidation triggers in this count as well as
+	// the guarded row. A zero count is the only reliable stale-write signal.
+	if (currentRevision !== expectedRevision || !changes || changes < 1) staleRevision();
 }
 
 function staleRevision(): never {
@@ -809,6 +1263,25 @@ export async function lifecycleUsesInferenceGraph(db: D1DatabaseLike): Promise<b
 	return row.mode === "inference_graph_required";
 }
 
+export type InferenceGraphReadVersion = {
+	writerVersion: 0 | 1;
+	cutoverVersion: 0 | 1 | 2;
+	graphRevision: number;
+};
+
+/** Every compatibility consumer selects read mode from this stored version. */
+export async function inferenceGraphReadVersion(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+): Promise<InferenceGraphReadVersion> {
+	const row = await db.prepare(
+		`SELECT writer_version AS writerVersion, cutover_version AS cutoverVersion,
+			graph_revision AS graphRevision
+		 FROM inference_graph_users WHERE owner_user_id = ? LIMIT 1`,
+	).bind(ownerUserId).first<InferenceGraphReadVersion>();
+	return row ?? { writerVersion: 0, cutoverVersion: 0, graphRevision: 0 };
+}
+
 export function insertAccountDefaultConfigurationStatement(
 	db: D1DatabaseLike,
 	input: { configurationId: string; ownerUserId: string; now: string; overrides?: InferenceConfigurationOverrides },
@@ -829,6 +1302,19 @@ export function insertTranslationSelectionStatement(
 			owner_user_id, configuration_id, selected_kind, revision, created_at, updated_at
 		) VALUES (?, ?, 'account_default', 1, ?, ?)`,
 	).bind(input.ownerUserId, input.configurationId, input.now, input.now);
+}
+
+/** Transfers an account bootstrap credential inside the activation D1 batch. */
+export function configurationCredentialValueStatement(
+	db: D1DatabaseLike,
+	input: { configurationId: string; ownerUserId: string; secret: string; now: string },
+): D1PreparedStatementLike {
+	if (!input.secret.trim()) throw new RepositoryError("bad_request", "Provider credential cannot be empty.", 400);
+	return db.prepare(
+		`UPDATE inference_configuration_credentials
+		 SET mode = 'value', secret_value = ?, secret_version = secret_version + 1, updated_at = ?
+		 WHERE configuration_id = ? AND owner_user_id = ? AND mode = 'inherit'`,
+	).bind(input.secret.trim(), input.now, input.configurationId, input.ownerUserId);
 }
 
 export function insertFixedConfigurationStatement(

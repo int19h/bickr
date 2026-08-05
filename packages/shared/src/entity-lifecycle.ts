@@ -131,6 +131,7 @@ export type InferenceGraphActivationTransition =
 			entityKind: "account";
 			projectionStatements?: readonly D1PreparedStatementLike[];
 			accountDefaultStatement: D1PreparedStatementLike;
+			accountCredentialStatement?: D1PreparedStatementLike;
 			translationReferenceStatement: D1PreparedStatementLike;
 	  }
 	| {
@@ -705,6 +706,7 @@ export async function activateLifecycleEntity(
 	transition: LifecycleActivationTransition,
 	now: string,
 ): Promise<void> {
+	operation = await lifecycleOperationById(db, operation.operationId) ?? operation;
 	if (operation.phase === "terminal") {
 		return;
 	}
@@ -786,6 +788,7 @@ async function finalizeLifecycleDeletionInternal(
 	terminalResultJson: string | null,
 	now: string,
 ): Promise<void> {
+	operation = await lifecycleOperationById(db, operation.operationId) ?? operation;
 	if (operation.phase === "terminal") {
 		return;
 	}
@@ -1315,7 +1318,11 @@ async function lifecycleActivationExtensionStatements(
 		);
 	}
 	return transition.entityKind === "account"
-		? [transition.accountDefaultStatement, transition.translationReferenceStatement]
+		? [
+			transition.accountDefaultStatement,
+			...(transition.accountCredentialStatement ? [transition.accountCredentialStatement] : []),
+			transition.translationReferenceStatement,
+		]
 		: [transition.fixedConfigurationStatement];
 }
 

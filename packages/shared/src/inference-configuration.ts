@@ -14,6 +14,9 @@ import {
 	defaultProviderBaseUrl,
 	defaultProviderModel,
 	defaultTextGenerationTemperature,
+	avatarImageGenerationSettingsWithDefaults,
+	worldAvatarImageGenerationSettingsWithDefaults,
+	type BotImageGenerationSettings,
 	type BotCompactionMode,
 	type BotCompactionReasoningEffort,
 	type BotCompactionReasoningRequest,
@@ -28,6 +31,9 @@ import { sha256Hex } from "./ids";
 export const inferenceGraphSchemaVersion = 1;
 export const inferenceGraphCapabilityVersion = 1;
 export const inferenceGraphGlobalDefaultsVersion = 1;
+// Public fingerprints use this non-secret deployment token for the global
+// credential. Bump it with every global credential rotation.
+export const inferenceGraphGlobalCredentialVersion = 1;
 export const inferenceConfigurationOwnerQuota = 10_000;
 export const inferenceConfigurationCorruptionSentinel = inferenceConfigurationOwnerQuota + 1;
 
@@ -214,6 +220,21 @@ export type InferenceResolution = {
 	providerAuthorizationAdjustment: InferenceProviderAuthorizationAdjustment;
 };
 
+export type InferenceFieldAdjustment =
+	| InferenceProviderAuthorizationAdjustment
+	| { kind: "provider_or_model_default"; effective: unknown }
+	| { kind: "capability_adjustment"; requested: unknown; effective: unknown }
+	| { kind: "compaction_policy"; resolution: CompactionReasoningResolution };
+
+export type InferenceFieldAnnotation = {
+	override: InferenceOverrideUpdate<InferenceConfigurationField>;
+	effective: unknown;
+	source: InferenceSource;
+	adjustment: InferenceFieldAdjustment;
+};
+
+export type InferenceFieldAnnotationMap = Record<InferenceConfigurationField, InferenceFieldAnnotation>;
+
 export type BickrInferenceDefaults = {
 	fields: Partial<InferenceConfigurationFieldValues> & Pick<InferenceConfigurationFieldValues, "baseUrl" | "model" | "temperature">;
 	credential?: string;
@@ -257,7 +278,7 @@ export function resolveInferenceConfiguration(
 	const raw = resolveRawInferenceFields(path, defaults.fields);
 	const baseUrl = requiredRawValue(raw.baseUrl, "base URL");
 	const credential = resolveCredential(path, defaults);
-	const authorization = authorizedModel(path, raw.model, raw.baseUrl, credential, defaults);
+	const authorization = authorizedModel(raw.model, raw.baseUrl, credential, defaults);
 	const effectiveModel = authorization.model;
 	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
 	const providerRouting = optionalRawValue(raw.providerRouting);
@@ -373,12 +394,10 @@ export function resolveImageSettingsForTarget(
 	const frequencyPenalty = optionalRawValue(image.frequencyPenalty);
 	const presencePenalty = optionalRawValue(image.presencePenalty);
 	const repetitionPenalty = optionalRawValue(image.repetitionPenalty);
-	return {
+	const raw: BotImageGenerationSettings = {
 		...(model ? { model } : {}),
 		...(providerRouting ? { providerRouting } : {}),
-		...(image.aspectRatio.state === "explicit_none"
-			? {}
-			: { aspectRatio: aspectRatio ?? (target === "world" ? "21:9" : "1:1") }),
+		...(aspectRatio ? { aspectRatio } : {}),
 		...(imageSize ? { imageSize } : {}),
 		...(temperature !== undefined ? { temperature } : {}),
 		...(topK !== undefined ? { topK } : {}),
@@ -387,6 +406,24 @@ export function resolveImageSettingsForTarget(
 		...(frequencyPenalty !== undefined ? { frequencyPenalty } : {}),
 		...(presencePenalty !== undefined ? { presencePenalty } : {}),
 		...(repetitionPenalty !== undefined ? { repetitionPenalty } : {}),
+	};
+	const withDefaults = target === "world"
+		? worldAvatarImageGenerationSettingsWithDefaults(raw)
+		: avatarImageGenerationSettingsWithDefaults(raw);
+	return {
+		...(image.model.state !== "explicit_none" && withDefaults.model ? { model: withDefaults.model } : {}),
+		...(withDefaults.providerRouting ? { providerRouting: withDefaults.providerRouting } : {}),
+		...(image.aspectRatio.state !== "explicit_none"
+			? { aspectRatio: withDefaults.aspectRatio ?? (target === "world" ? "21:9" : "1:1") }
+			: {}),
+		...(image.imageSize.state !== "explicit_none" && withDefaults.imageSize ? { imageSize: withDefaults.imageSize } : {}),
+		...(withDefaults.temperature !== undefined ? { temperature: withDefaults.temperature } : {}),
+		...(withDefaults.topK !== undefined ? { topK: withDefaults.topK } : {}),
+		...(withDefaults.topP !== undefined ? { topP: withDefaults.topP } : {}),
+		...(withDefaults.minP !== undefined ? { minP: withDefaults.minP } : {}),
+		...(withDefaults.frequencyPenalty !== undefined ? { frequencyPenalty: withDefaults.frequencyPenalty } : {}),
+		...(withDefaults.presencePenalty !== undefined ? { presencePenalty: withDefaults.presencePenalty } : {}),
+		...(withDefaults.repetitionPenalty !== undefined ? { repetitionPenalty: withDefaults.repetitionPenalty } : {}),
 	};
 }
 
@@ -427,6 +464,28 @@ export function applyInferenceOverridePatch(
 		}
 	}
 	return next as InferenceConfigurationOverrides;
+}
+
+export function parseInferenceConfigurationOverridePatch(value: unknown): InferenceConfigurationOverridePatch {
+	if (!isRecord(value)) {
+		throw new InferenceConfigurationDataError("invalid_overrides", "Inference configuration patch must be an object.");
+	}
+	const result: Record<string, unknown> = {};
+	for (const [key, update] of Object.entries(value)) {
+		if (!isInferenceConfigurationField(key)) {
+			throw new InferenceConfigurationDataError("invalid_overrides", `Unknown inference configuration field ${JSON.stringify(key)}.`);
+		}
+		if (!isRecord(update) || typeof update.kind !== "string") {
+			throw new InferenceConfigurationDataError("invalid_overrides", `Inference configuration field ${key} has invalid update intent.`);
+		}
+		if (update.kind === "inherit") {
+			if (Object.keys(update).length !== 1) throw invalidOverride(key);
+			result[key] = { kind: "inherit" };
+		} else {
+			result[key] = parseStoredOverride(key, update);
+		}
+	}
+	return result as InferenceConfigurationOverridePatch;
 }
 
 export function normalizedInferenceConfigurationName(name: string): { name: string; key: string } {
@@ -471,7 +530,7 @@ export async function inferenceResolutionFingerprint(
 	return sha256Hex(canonicalJson(fingerprintInput));
 }
 
-const inferenceConfigurationFields = [
+export const inferenceConfigurationFields = [
 	"baseUrl",
 	"model",
 	"providerRouting",
@@ -500,6 +559,100 @@ const inferenceConfigurationFields = [
 	"imagePresencePenalty",
 	"imageRepetitionPenalty",
 ] as const satisfies readonly InferenceConfigurationField[];
+
+export function inferenceFieldAnnotations(
+	selectedOverrides: InferenceConfigurationOverrides,
+	resolution: InferenceResolution,
+): InferenceFieldAnnotationMap {
+	return Object.fromEntries(inferenceConfigurationFields.map((field) => {
+		const raw = resolution.raw[field] as AnyResolvedRawInferenceField;
+		const effective = effectiveInferenceField(resolution, field);
+		return [field, {
+			override: selectedOverrides[field] ?? { kind: "inherit" },
+			effective,
+			source: raw.source,
+			adjustment: inferenceFieldAdjustment(resolution, field, raw, effective),
+		}];
+	})) as InferenceFieldAnnotationMap;
+}
+
+function effectiveInferenceField(resolution: InferenceResolution, field: InferenceConfigurationField): unknown {
+	switch (field) {
+		case "baseUrl": return resolution.effective.baseUrl;
+		case "model": return resolution.effective.model;
+		case "providerRouting": return resolution.effective.providerRouting ?? null;
+		case "reasoning": return resolution.effective.reasoningEffort ?? null;
+		case "compactionReasoning": return resolution.effective.compactionReasoning;
+		case "toolCalls": return resolution.effective.toolCalls;
+		case "compactionMode": return resolution.effective.compactionMode;
+		case "promptCacheMode": return resolution.effective.promptCacheMode;
+		case "supportsPrefill": return resolution.effective.supportsPrefill;
+		case "temperature": return resolution.effective.temperature;
+		case "topK": return resolution.effective.topK ?? null;
+		case "topP": return resolution.effective.topP ?? null;
+		case "minP": return resolution.effective.minP ?? null;
+		case "frequencyPenalty": return resolution.effective.frequencyPenalty ?? null;
+		case "presencePenalty": return resolution.effective.presencePenalty ?? null;
+		case "repetitionPenalty": return resolution.effective.repetitionPenalty ?? null;
+		case "imageModel": return rawEffectiveValue(resolution.raw.imageModel);
+		case "imageProviderRouting": return rawEffectiveValue(resolution.raw.imageProviderRouting);
+		case "imageAspectRatio": return rawEffectiveValue(resolution.raw.imageAspectRatio);
+		case "imageSize": return rawEffectiveValue(resolution.raw.imageSize);
+		case "imageTemperature": return rawEffectiveValue(resolution.raw.imageTemperature);
+		case "imageTopK": return rawEffectiveValue(resolution.raw.imageTopK);
+		case "imageTopP": return rawEffectiveValue(resolution.raw.imageTopP);
+		case "imageMinP": return rawEffectiveValue(resolution.raw.imageMinP);
+		case "imageFrequencyPenalty": return rawEffectiveValue(resolution.raw.imageFrequencyPenalty);
+		case "imagePresencePenalty": return rawEffectiveValue(resolution.raw.imagePresencePenalty);
+		case "imageRepetitionPenalty": return rawEffectiveValue(resolution.raw.imageRepetitionPenalty);
+	}
+}
+
+function rawEffectiveValue(raw: AnyResolvedRawInferenceField): unknown {
+	return raw.state === "value" ? raw.value : null;
+}
+
+function inferenceFieldAdjustment(
+	resolution: InferenceResolution,
+	field: InferenceConfigurationField,
+	raw: AnyResolvedRawInferenceField,
+	effective: unknown,
+): InferenceFieldAdjustment {
+	if (field === "model" && resolution.providerAuthorizationAdjustment) return resolution.providerAuthorizationAdjustment;
+	if (field === "compactionReasoning") {
+		return { kind: "compaction_policy", resolution: resolution.effective.compactionReasoning };
+	}
+	const requested = normalizedRawRequest(field, raw);
+	if (requested.kind === "provider_default") return { kind: "provider_or_model_default", effective };
+	return canonicalJson(requested.value) === canonicalJson(effective)
+		? null
+		: { kind: "capability_adjustment", requested: requested.value, effective };
+}
+
+function normalizedRawRequest(
+	field: InferenceConfigurationField,
+	raw: AnyResolvedRawInferenceField,
+): { kind: "value"; value: unknown } | { kind: "provider_default" } {
+	if (raw.state !== "value") return { kind: "value", value: null };
+	if (field === "reasoning") {
+		const request = raw.value as InferenceReasoningRequest;
+		if (request.kind === "provider_default") return { kind: "provider_default" };
+		return { kind: "value", value: request.kind === "reasoning_disabled" ? "none" : request.effort };
+	}
+	if (field === "toolCalls") {
+		const request = raw.value as InferenceToolCallRequest;
+		return request.kind === "provider_default" ? { kind: "provider_default" } : { kind: "value", value: request.strategy };
+	}
+	if (field === "compactionMode") {
+		const request = raw.value as InferenceCompactionModeRequest;
+		return request.kind === "provider_default" ? { kind: "provider_default" } : { kind: "value", value: request.mode };
+	}
+	if (field === "promptCacheMode") {
+		const request = raw.value as InferencePromptCacheRequest;
+		return request.kind === "provider_default" ? { kind: "provider_default" } : { kind: "value", value: request.mode };
+	}
+	return { kind: "value", value: raw.value };
+}
 
 const inferenceConfigurationFieldSet = new Set<string>(inferenceConfigurationFields);
 const valueOnlyFields = new Set<InferenceConfigurationField>([
@@ -582,7 +735,6 @@ function resolveCredential(
 }
 
 function authorizedModel(
-	path: InferenceConfigurationPath,
 	model: ResolvedRawInferenceField<"model">,
 	baseUrl: ResolvedRawInferenceField<"baseUrl">,
 	credential: InferenceCredentialResolution,
@@ -596,26 +748,11 @@ function authorizedModel(
 	if (model.source.kind === "bickr_default" || ownerProviderIsAvailable(baseUrl, credential)) {
 		return { model: requestedModel, source: model.source, adjustment: null };
 	}
-	const modelDepth = "depth" in model.source ? model.source.depth : -1;
-	for (let depth = modelDepth + 1; depth < path.length; depth += 1) {
-		const candidate = path[depth];
-		const override = candidate?.overrides.model;
-		if (candidate && override?.kind === "value") {
-			const source = sourceForEntry(candidate, depth);
-			return {
-				model: override.value,
-				source,
-				adjustment: {
-					kind: "model_fell_back",
-					requestedModel,
-					requestedSource: model.source,
-					effectiveModel: override.value,
-					effectiveSource: source,
-					reason: "owner_provider_unavailable",
-				},
-			};
-		}
-	}
+	// Provider authorization is resolved for the effective base URL and
+	// credential pair. If that pair cannot authorize the nearest owner-defined
+	// model, a more distant owner-defined model is not authorized by it either.
+	// Falling all the way back preserves raw intent while preventing an account
+	// default model from bypassing the same provider-availability rule.
 	return {
 		model: defaults.fields.model,
 		source: { kind: "bickr_default" },
@@ -727,7 +864,11 @@ function parseFieldValue<K extends InferenceConfigurationField>(
 		return value.trim() as InferenceConfigurationFieldValues[K];
 	}
 	if (numberFields.has(field)) {
-		if (typeof value !== "number" || !Number.isFinite(value)) throw invalidOverride(field);
+		const domain = numericFieldDomains[field as NumericInferenceConfigurationField];
+		if (typeof value !== "number" || !Number.isFinite(value) || value < domain.min || value > domain.max ||
+			domain.integer && !Number.isSafeInteger(value)) {
+			throw invalidOverride(field);
+		}
 		return value as InferenceConfigurationFieldValues[K];
 	}
 	if (jsonFields.has(field)) {
@@ -852,6 +993,26 @@ const numberFields = new Set<InferenceConfigurationField>([
 	"temperature", "topK", "topP", "minP", "frequencyPenalty", "presencePenalty", "repetitionPenalty",
 	"imageTemperature", "imageTopK", "imageTopP", "imageMinP", "imageFrequencyPenalty", "imagePresencePenalty", "imageRepetitionPenalty",
 ]);
+type NumericInferenceConfigurationField =
+	| "temperature" | "topK" | "topP" | "minP" | "frequencyPenalty" | "presencePenalty" | "repetitionPenalty"
+	| "imageTemperature" | "imageTopK" | "imageTopP" | "imageMinP"
+	| "imageFrequencyPenalty" | "imagePresencePenalty" | "imageRepetitionPenalty";
+const numericFieldDomains: Record<NumericInferenceConfigurationField, { min: number; max: number; integer: boolean }> = {
+	temperature: { min: 0, max: 2, integer: false },
+	topK: { min: 0, max: 10_000, integer: false },
+	topP: { min: 0, max: 1, integer: false },
+	minP: { min: 0, max: 1, integer: false },
+	frequencyPenalty: { min: -2, max: 2, integer: false },
+	presencePenalty: { min: -2, max: 2, integer: false },
+	repetitionPenalty: { min: 0, max: 2, integer: false },
+	imageTemperature: { min: 0, max: 2, integer: false },
+	imageTopK: { min: 0, max: 10_000, integer: false },
+	imageTopP: { min: 0, max: 1, integer: false },
+	imageMinP: { min: 0, max: 1, integer: false },
+	imageFrequencyPenalty: { min: -2, max: 2, integer: false },
+	imagePresencePenalty: { min: -2, max: 2, integer: false },
+	imageRepetitionPenalty: { min: 0, max: 2, integer: false },
+};
 const jsonFields = new Set<InferenceConfigurationField>(["providerRouting", "imageProviderRouting"]);
 const compactionEfforts = new Set<unknown>(["minimal", "low", "medium", "high", "xhigh"]);
 const toolCallStrategies = new Set<unknown>(["require", "railroad", "at_will"]);

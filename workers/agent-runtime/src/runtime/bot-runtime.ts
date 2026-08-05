@@ -4,6 +4,11 @@ import {
 } from '@bickr/shared/avatar-storage';
 import { isCloudflareRateLimitError, retryCloudflareOperation } from '@bickr/shared/cloudflare';
 import { isD1UniqueConstraintError } from '@bickr/shared/d1-errors';
+import {
+	canonicalBotInference,
+	canonicalTranslationInference,
+	translationToolCallStrategy,
+} from '@bickr/shared/inference-configuration-consumers';
 import { ExclusiveOperationQueue } from '@bickr/shared/exclusive-operation-queue';
 import { json } from '@bickr/shared/http';
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseObjectRef, parseThreadRef } from '@bickr/shared/ids';
@@ -11,6 +16,7 @@ import {
 	isOpenRouterProviderBaseUrl,
 	providerEnvironmentSettingsFromBindings,
 	resolveBotProviderSettings,
+	resolveLegacyTranslationProviderSettings,
 } from '@bickr/shared/inference-settings';
 import {
 	addInternalServiceAuthHeader,
@@ -1182,67 +1188,29 @@ export function effectiveProviderSettingsForBot(
 	return resolveBotProviderSettings(bot, owner, providerEnvironmentSettingsFromBindings(env)).settings;
 }
 
+export async function effectiveProviderSettingsForBotCanonical(
+	db: D1DatabaseLike,
+	bot: Pick<BotDocument, 'id' | 'ownerUserId' | 'inferenceSettings'>,
+	owner: Pick<UserDocument, 'inferenceSettings'>,
+	env: Pick<Env, 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
+): Promise<ProviderSettings> {
+	const canonical = await canonicalBotInference(db, bot.ownerUserId, bot.id, env);
+	return canonical?.providerSettings ?? effectiveProviderSettingsForBot(bot, owner, env);
+}
+
 export function effectiveProviderSettingsForTranslation(
 	user: Pick<UserDocument, 'inferenceSettings'>,
 	env: Pick<Env, 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
 ): TranslationProviderSettings | null {
-	const userSettings = user.inferenceSettings ?? {};
-	const translation = userSettings.translation;
-	if (!translation?.enabled) {
-		return null;
-	}
-	const translationModel = trimmed(translation.model);
-	const userModel = trimmed(userSettings.model);
-	const envModel = trimmed(env.OPENROUTER_MODEL);
-	const userBaseUrl = trimmed(userSettings.baseUrl);
-	const envBaseUrl = trimmed(env.OPENROUTER_BASE_URL);
-	const userApiKey = trimmed(userSettings.openRouterApiKey);
-	const envApiKey = trimmed(env.OPENROUTER_API_KEY);
-	const hasCustomBaseUrl = Boolean(userBaseUrl);
-	const baseUrl = userBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl;
-	const model = translationModel ?? userModel ?? envModel ?? fallbackProviderModel;
-	const usingLoopSettings = !translationModel;
-	const openRouterBaseUrl = isOpenRouterProviderBaseUrl(baseUrl);
-	const providerRouting = openRouterProviderRouting(
-		baseUrl,
-		usingLoopSettings ? userSettings.providerRouting : translation.providerRouting,
+	const translation = user.inferenceSettings?.translation;
+	const settings = resolveLegacyTranslationProviderSettings(
+		user,
+		providerEnvironmentSettingsFromBindings(env),
 	);
-	const reasoningEffort = effectiveReasoningEffortForModel(
-		model,
-		openRouterBaseUrl,
-		usingLoopSettings ? userSettings.reasoningEffort : translation.reasoningEffort,
-	);
-	const toolCalls = effectiveStructuredToolCallsForModel(
-		model,
-		openRouterBaseUrl,
-		usingLoopSettings ? userSettings.toolCalls : translation.toolCalls,
-	);
+	if (!settings || !translation) return null;
 	return {
-		apiKey: userApiKey ?? (hasCustomBaseUrl ? undefined : envApiKey),
-		baseUrl,
-		model,
-		...(providerRouting ? { providerRouting } : {}),
-		...(reasoningEffort ? { reasoningEffort } : {}),
-		toolCalls,
+		...settings,
 		prompt: trimmed(translation?.prompt ? localizedTextString(translation.prompt) : undefined) ?? defaultTranslationPrompt,
-		temperature: usingLoopSettings ? (userSettings.temperature ?? defaultTextGenerationTemperature) : (translation.temperature ?? 0),
-		...(usingLoopSettings
-			? {
-					...(userSettings.topK !== undefined ? { topK: userSettings.topK } : {}),
-					...(userSettings.topP !== undefined ? { topP: userSettings.topP } : {}),
-					...(userSettings.minP !== undefined ? { minP: userSettings.minP } : {}),
-					...(userSettings.frequencyPenalty !== undefined ? { frequencyPenalty: userSettings.frequencyPenalty } : {}),
-					...(userSettings.presencePenalty !== undefined ? { presencePenalty: userSettings.presencePenalty } : {}),
-					...(userSettings.repetitionPenalty !== undefined ? { repetitionPenalty: userSettings.repetitionPenalty } : {}),
-				}
-			: {
-					...(translation.topK !== undefined ? { topK: translation.topK } : {}),
-					...(translation.topP !== undefined ? { topP: translation.topP } : {}),
-					...(translation.minP !== undefined ? { minP: translation.minP } : {}),
-					...(translation.frequencyPenalty !== undefined ? { frequencyPenalty: translation.frequencyPenalty } : {}),
-					...(translation.presencePenalty !== undefined ? { presencePenalty: translation.presencePenalty } : {}),
-					...(translation.repetitionPenalty !== undefined ? { repetitionPenalty: translation.repetitionPenalty } : {}),
-				}),
 	};
 }
 
@@ -1998,7 +1966,7 @@ export class BotRuntime {
 
 			const bot = await this.botWithEffectivePostingSettings(await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId));
 			const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
-			const providerSettings = this.effectiveProviderSettings(bot, owner);
+			const providerSettings = await this.effectiveProviderSettings(bot, owner);
 			const runId = crypto.randomUUID();
 			const now = new Date().toISOString();
 			const leaseExpiresAt = new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString();
@@ -4261,7 +4229,7 @@ export class BotRuntime {
 
 	private async tokenSpendSummary(bot: BotDocument, now = new Date()): Promise<BotTokenSpendSummary> {
 		const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
-		const currentModel = this.effectiveProviderSettings(bot, owner).model;
+		const currentModel = (await this.effectiveProviderSettings(bot, owner)).model;
 		const windowEndMs = now.getTime();
 		const windowStartMs = windowEndMs - 7 * dayMs;
 		const rows = this.providerUsageRows(new Date(windowStartMs).toISOString(), now.toISOString());
@@ -4373,7 +4341,7 @@ export class BotRuntime {
 			tickSettings: mergeTickSettings(currentBot.tickSettings, input?.tickSettings),
 		});
 		const tickSettings = effectiveTickSettings(bot.tickSettings);
-		const settings = this.effectiveProviderSettings(bot, owner);
+		const settings = await this.effectiveProviderSettings(bot, owner);
 		if (computeIfMissing && !settings.apiKey && !settings.usesCustomBaseUrl && this.env.BICKR_SIMULATION_MODE !== 'provider') {
 			throw new InputError('Configure an OpenRouter API key or custom inference base URL to compute exact tokens.');
 		}
@@ -4485,7 +4453,7 @@ export class BotRuntime {
 
 	private async readCommentTreeTokenBudget(bot: RuntimeBotDocument): Promise<number> {
 		const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
-		const settings = this.effectiveProviderSettings(bot, owner);
+		const settings = await this.effectiveProviderSettings(bot, owner);
 		const parts = contextBudgetPromptParts(bot, settings);
 		const fixedSystemFingerprint = await sha256Hex(
 			JSON.stringify({
@@ -4928,8 +4896,8 @@ export class BotRuntime {
 		return usage;
 	}
 
-	private effectiveProviderSettings(bot: BotDocument, owner: UserDocument): ProviderSettings {
-		return effectiveProviderSettingsForBot(bot, owner, this.env);
+	private async effectiveProviderSettings(bot: BotDocument, owner: UserDocument): Promise<ProviderSettings> {
+		return effectiveProviderSettingsForBotCanonical(this.env.BICKR_D1, bot, owner, this.env);
 	}
 
 	private async runLocalSimulation(
@@ -5890,7 +5858,7 @@ export class BotRuntime {
 		try {
 			const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
 			const owner = await userById(this.env.BICKR_KV, bot.ownerUserId);
-			const settings = this.effectiveProviderSettings(bot, owner);
+			const settings = await this.effectiveProviderSettings(bot, owner);
 			const runId = crypto.randomUUID();
 			const rows = this.compactionCandidateRows();
 			if (rows.length === 0) {
@@ -7414,12 +7382,18 @@ export async function readOptionalJsonBody(request: Request): Promise<unknown> {
 }
 
 export async function translateForUser(
-	env: Pick<Env, 'BICKR_KV' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
+	env: Pick<Env, 'BICKR_D1' | 'BICKR_KV' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
 	userId: string,
 	text: string,
 ): Promise<string> {
 	const user = await userById(env.BICKR_KV, userId);
-	const settings = effectiveProviderSettingsForTranslation(user, env);
+	const legacySettings = effectiveProviderSettingsForTranslation(user, env);
+	const graph = legacySettings ? await canonicalTranslationInference(env.BICKR_D1, userId, env) : null;
+	const settings: TranslationProviderSettings | null = graph && legacySettings ? {
+		...graph.providerSettings,
+		prompt: legacySettings.prompt,
+		toolCalls: translationToolCallStrategy(graph.providerSettings.toolCalls),
+	} : legacySettings;
 	if (!settings) {
 		throw new InputError('Enable inline translations in profile inference settings before translating text.');
 	}

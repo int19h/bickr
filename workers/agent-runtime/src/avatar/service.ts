@@ -333,7 +333,9 @@ export async function worldAvatarPromptSettings(
 	runtime: AvatarPromptSettingsRuntime,
 ): Promise<BotInferenceSettings> {
 	const target = await resolveAvatarTarget(env, reference, 'prepare');
-	return runtime.publicPromptProviderSettings(runtime.effectiveProviderSettingsForWorldPrompt(target.owner, env));
+	return runtime.publicPromptProviderSettings(
+		target.canonicalProviderSettings ?? runtime.effectiveProviderSettingsForWorldPrompt(target.owner, env),
+	);
 }
 
 export async function applyGeneratedAvatarForBot(
@@ -478,15 +480,20 @@ async function prefillTextAvatarPrompt(
 ): Promise<string> {
 	switch (target.kind) {
 		case 'bot':
-			return provider.describeParticipant(runtime.effectiveProviderSettingsForBot(target.bot, target.owner, env), target.bot, {
+			return provider.describeParticipant(
+				target.canonicalProviderSettings ?? runtime.effectiveProviderSettingsForBot(target.bot, target.owner, env),
+				target.bot,
+				{
 				prefill: input.prefill,
 				...options,
-			});
+				},
+			);
 		case 'user':
 			throw new InputError('Human avatar prompt fill only supports the current avatar.');
 		case 'world': {
 			const promptSettingsOverride = parseInferenceSettingsOverride(input.promptSettings, target.language);
-			const settings = runtime.effectiveProviderSettingsForWorldPrompt(target.owner, env, promptSettingsOverride);
+			const settings = target.canonicalProviderSettings ??
+				runtime.effectiveProviderSettingsForWorldPrompt(target.owner, env, promptSettingsOverride);
 			if (input.mode === 'members') {
 				const members = await listWorldBots(env.BICKR_KV, env.BICKR_D1, target.world.handle);
 				return provider.describeWorldMembers(settings, target.world, members, { prefill: input.prefill, ...options });

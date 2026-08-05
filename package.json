@@ -30,6 +30,7 @@
 		"probe:openrouter-image-config": "node scripts/probe-openrouter-image-config.mjs",
 		"backup:kv": "node scripts/copy-cloudflare-kv.mjs",
 		"rehearse:do-transfer": "node scripts/rehearse-do-transfer.mjs",
+		"inference-graph:maintenance": "node scripts/inference-graph-maintenance.mjs",
 		"test": "vitest run",
 		"test:watch": "vitest"
 	},

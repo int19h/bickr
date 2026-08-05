@@ -72,6 +72,14 @@ const worldCoordinatorModule = "workers/forum-coordinator/src/index.ts";
 const accountBootstrapReservationModule = "workers/agent-runtime/src/lifecycle/account-bootstrap-reservation.ts";
 const repositoryModule = "packages/shared/src/repository.ts";
 const governanceModule = "packages/shared/src/governance.ts";
+const inferenceConfigurationRepositoryModule = "packages/shared/src/inference-configuration-repository.ts";
+const inferenceConfigurationMutationModules = new Set([
+	"workers/agent-runtime/src/routes.ts",
+	"test/entity-lifecycle.spec.ts",
+	"test/inference-configuration-consumers.spec.ts",
+	"test/inference-configuration-migration.spec.ts",
+	"test/inference-configuration-repository.spec.ts",
+]);
 
 describe("serialized entity mutation import boundary", () => {
 	it("allows coordinator mutation capabilities only at the narrow serialized writer modules", () => {
@@ -104,6 +112,67 @@ describe("serialized entity mutation import boundary", () => {
 			repositoryMutationNames,
 			governanceMutationNames,
 		));
+		expect(violations).toEqual([]);
+	});
+
+	it("keeps inference graph mutations inside the user coordinator queue", () => {
+		const repositorySource = readFileSync(resolve(process.cwd(), inferenceConfigurationRepositoryModule), "utf8");
+		expect(capabilityMembers(repositorySource, "inferenceConfigurationMutations").sort()).toEqual([
+			"createCustom",
+			"deleteCustom",
+			"ensureCompatibilityTranslation",
+			"renameCustom",
+			"reparent",
+			"update",
+			"updateTranslationSelection",
+		].sort());
+		const violations = sourceModuleFiles(resolve(process.cwd())).flatMap((filename) => {
+			const relativeFilename = relativePath(filename);
+			if (relativeFilename === inferenceConfigurationRepositoryModule) return [];
+			const source = readFileSync(filename, "utf8");
+			const importsCapability = /import\s*\{[^}]*\binferenceConfigurationMutations\b[^}]*\}\s*from\s*['"]@bickr\/shared\/inference-configuration-repository['"]/.test(source);
+			return importsCapability && !inferenceConfigurationMutationModules.has(relativeFilename)
+				? [`${relativeFilename}: imports or launders inferenceConfigurationMutations outside UserBotsCoordinator routes`]
+				: [];
+		});
+		expect(violations).toEqual([]);
+	});
+
+	it("keeps legacy compatibility and migration adapters at their versioned coordinator boundaries", () => {
+		const legacyAdapterModules = new Set([
+			"packages/shared/src/inference-configuration-migration.ts",
+			"workers/agent-runtime/src/lifecycle/account.ts",
+			"workers/agent-runtime/src/lifecycle/bot.ts",
+			"workers/agent-runtime/src/lifecycle/world.ts",
+			"workers/agent-runtime/src/routes.ts",
+		]);
+		const migrationAdapterModules = new Set([
+			"test/inference-configuration-migration.spec.ts",
+			"workers/agent-runtime/src/routes.ts",
+		]);
+		const graphSqlWriterModules = new Set([
+			"packages/shared/src/inference-configuration-migration.ts",
+			"packages/shared/src/inference-configuration-repository.ts",
+		]);
+		const violations = sourceModuleFiles(resolve(process.cwd())).flatMap((filename) => {
+			const relativeFilename = relativePath(filename);
+			const source = readFileSync(filename, "utf8");
+			const result: string[] = [];
+			if (/from\s*['"]@bickr\/shared\/inference-configuration-legacy['"]/.test(source) &&
+				!legacyAdapterModules.has(relativeFilename)) {
+				result.push(`${relativeFilename}: imports the legacy inference adapter outside lifecycle/migration/UserBotsCoordinator`);
+			}
+			if (/from\s*['"]@bickr\/shared\/inference-configuration-migration['"]/.test(source) &&
+				!migrationAdapterModules.has(relativeFilename)) {
+				result.push(`${relativeFilename}: imports the inference migration adapter outside UserBotsCoordinator or its focused test`);
+			}
+			if (!relativeFilename.includes(".test.") && !relativeFilename.startsWith("test/") &&
+				/(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+inference_configurations\b/i.test(source) &&
+				!graphSqlWriterModules.has(relativeFilename)) {
+				result.push(`${relativeFilename}: writes inference_configurations outside the repository or migration adapter`);
+			}
+			return result;
+		});
 		expect(violations).toEqual([]);
 	});
 
