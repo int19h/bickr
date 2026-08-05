@@ -1,0 +1,101 @@
+const [action, ...argumentsList] = process.argv.slice(2);
+const options = parseOptions(argumentsList);
+const origin = requiredOption(options, "origin").replace(/\/$/, "");
+const secret = process.env.TEST_AUTH_SECRET?.trim();
+if (!secret) throw new Error("TEST_AUTH_SECRET is required.");
+
+switch (action) {
+	case "status-user":
+		print(await proxy("GET", `/users/${encodeURIComponent(requiredOption(options, "user"))}/inference-graph/migration`));
+		break;
+	case "migrate-user":
+		await migrateUser(requiredOption(options, "user"));
+		break;
+	case "rollback-user":
+		print(await proxy("POST", `/users/${encodeURIComponent(requiredOption(options, "user"))}/inference-graph/rollback`));
+		break;
+	case "reactivate-user":
+		print(await proxy("POST", `/users/${encodeURIComponent(requiredOption(options, "user"))}/inference-graph/reactivate`));
+		break;
+	case "fleet-status": {
+		const params = new URLSearchParams();
+		if (options.get("cursor")) params.set("cursor", options.get("cursor"));
+		if (options.get("limit")) params.set("limit", options.get("limit"));
+		print(await proxy("GET", `/inference-graph/fleet-status${params.size ? `?${params}` : ""}`));
+		break;
+	}
+	case "cleanup":
+		print(await proxy("POST", "/inference-graph/cleanup", { limit: optionalPositiveInteger(options, "limit") ?? 100 }));
+		break;
+	case "activate-lifecycle":
+		print(await proxy("POST", "/inference-graph/activate-lifecycle"));
+		break;
+	default:
+		throw new Error("Usage: inference-graph-maintenance <status-user|migrate-user|rollback-user|reactivate-user|fleet-status|cleanup|activate-lifecycle> --origin URL [--user ID] [--limit N] [--cursor CURSOR]");
+}
+
+async function migrateUser(userId) {
+	const maximumSteps = optionalPositiveInteger(options, "max-steps") ?? 1_000;
+	for (let step = 0; step < maximumSteps; step += 1) {
+		const payload = await proxy("POST", `/users/${encodeURIComponent(userId)}/inference-graph/migrate`);
+		print(payload);
+		const migration = payload?.data?.migration;
+		if (migration?.complete === true) return;
+	}
+	throw new Error(`Migration did not reach terminal state within ${maximumSteps} steps.`);
+}
+
+async function proxy(method, path, body) {
+	const userId = options.get("user") ?? "usr_inference_graph_maintenance";
+	const response = await fetch(`${origin}/api/__test__/service-proxy`, {
+		method: "POST",
+		headers: {
+			"content-type": "application/json",
+			"x-test-auth-secret": secret,
+		},
+		body: JSON.stringify({
+			service: "agent-runtime",
+			method,
+			path,
+			headers: {
+				"x-bickr-scheduler": "1",
+				"x-bickr-user-id": userId,
+			},
+			...(body === undefined ? {} : { body }),
+		}),
+	});
+	const payload = await response.json();
+	if (!response.ok || payload?.ok === false) {
+		throw new Error(`Inference graph maintenance request failed with HTTP ${response.status}.`);
+	}
+	return payload;
+}
+
+function parseOptions(values) {
+	const result = new Map();
+	for (let index = 0; index < values.length; index += 2) {
+		const name = values[index];
+		const value = values[index + 1];
+		if (!name?.startsWith("--") || value === undefined) throw new Error(`Invalid option ${name ?? ""}.`);
+		result.set(name.slice(2), value);
+	}
+	return result;
+}
+
+function requiredOption(values, name) {
+	const value = values.get(name)?.trim();
+	if (!value) throw new Error(`--${name} is required.`);
+	return value;
+}
+
+function optionalPositiveInteger(values, name) {
+	const value = values.get(name);
+	if (value === undefined) return undefined;
+	const parsed = Number(value);
+	if (!Number.isSafeInteger(parsed) || parsed < 1) throw new Error(`--${name} must be a positive integer.`);
+	return parsed;
+}
+
+function print(payload) {
+	process.stdout.write(`${JSON.stringify(payload)}\n`);
+}

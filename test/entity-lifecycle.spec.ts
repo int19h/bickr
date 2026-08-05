@@ -3,11 +3,14 @@ import { env as testEnv } from "cloudflare:test";
 import {
 	activateLifecycleEntity,
 	abortLifecycleDeletion,
+	beginDeleteLifecycle,
+	beginWorldDeleteLifecycle,
 	beginAccountDeleteLifecycle,
 	beginLifecycleCompensation,
 	claimDueLifecycleRecoveryOwners,
 	cleanupTerminalLifecycleOperations,
 	finalizeLifecycleCompensation,
+	finalizeLifecycleDeletion,
 	hashLifecycleRequest,
 	lifecycleOperationById,
 	markLifecycleMaterializing,
@@ -15,15 +18,29 @@ import {
 	recordAccountDeleteConvergenceFailure,
 	requiredAccountDeleteLifecycleOperation,
 	reserveAccountCreateLifecycle,
+	reserveBotCreateLifecycle,
 	reserveOwnedCreateLifecycle,
 	serializedLifecycleRequest,
 	terminalLifecycleCleanupDeleteSql,
 	type LifecycleOperation,
 } from "@bickr/shared/entity-lifecycle";
-import { localizedText, schemaVersion, type UserDocument } from "@bickr/shared/model";
+import { localizedText, schemaVersion, type LanguageTag, type UserDocument, type WorldDocument } from "@bickr/shared/model";
+import type { D1DatabaseLike } from "@bickr/shared/storage";
+import {
+	accountDefaultConfigurationId,
+	botConfigurationId,
+	configurationCredentialValueStatement,
+	fixedConfigurationDeletionStatements,
+	inferenceConfigurationMutations,
+	insertAccountDefaultConfigurationStatement,
+	insertFixedConfigurationStatement,
+	insertTranslationSelectionStatement,
+	worldConfigurationId,
+} from "@bickr/shared/inference-configuration-repository";
 import {
 	deleteBotGroupMembershipsByBotSql,
 	userIndexProjectionStatement,
+	worldIndexProjectionStatement,
 } from "@bickr/shared/repository";
 import {
 	applyD1LifecycleRecoveryMigration,
@@ -32,6 +49,7 @@ import {
 } from "./helpers/d1-schema";
 
 const now = "2026-08-04T00:00:00.000Z";
+const en = "en" as LanguageTag;
 
 beforeEach(async () => {
 	await resetD1Schema(testEnv.BICKR_D1);
@@ -115,6 +133,249 @@ describe("entity lifecycle foundation", () => {
 			projectionStatements: [userIndexProjectionStatement(testEnv.BICKR_D1, user, { lifecycleState: "pending" })],
 		}, now)).rejects.toMatchObject({ code: "conflict", status: 409 });
 		expect(await testEnv.BICKR_D1.prepare(`SELECT user_id FROM users_index WHERE user_id = ?`).bind(user.id).first()).toBeNull();
+
+		const configurationId = await accountDefaultConfigurationId(user.id);
+		await expect(activateLifecycleEntity(testEnv.BICKR_D1, reserved.operation, {
+			kind: "inference_graph",
+			entityKind: "account",
+			projectionStatements: [userIndexProjectionStatement(testEnv.BICKR_D1, user, { lifecycleState: "pending" })],
+			accountDefaultStatement: insertAccountDefaultConfigurationStatement(testEnv.BICKR_D1, {
+				configurationId,
+				ownerUserId: user.id,
+				now,
+			}),
+			accountCredentialStatement: insertAccountDefaultConfigurationStatement(testEnv.BICKR_D1, {
+				configurationId,
+				ownerUserId: user.id,
+				now,
+			}),
+			translationReferenceStatement: insertTranslationSelectionStatement(testEnv.BICKR_D1, {
+				ownerUserId: user.id,
+				configurationId,
+				now,
+			}),
+		}, now)).rejects.toThrow();
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT configuration_id FROM inference_configurations WHERE configuration_id = ?`,
+		).bind(configurationId).first()).toBeNull();
+		await activateLifecycleEntity(testEnv.BICKR_D1, reserved.operation, {
+			kind: "inference_graph",
+			entityKind: "account",
+			projectionStatements: [userIndexProjectionStatement(testEnv.BICKR_D1, user, { lifecycleState: "pending" })],
+			accountDefaultStatement: insertAccountDefaultConfigurationStatement(testEnv.BICKR_D1, {
+				configurationId,
+				ownerUserId: user.id,
+				now,
+			}),
+			accountCredentialStatement: configurationCredentialValueStatement(testEnv.BICKR_D1, {
+				configurationId,
+				ownerUserId: user.id,
+				secret: "account-bootstrap-secret",
+				now,
+			}),
+			translationReferenceStatement: insertTranslationSelectionStatement(testEnv.BICKR_D1, {
+				ownerUserId: user.id,
+				configurationId,
+				now,
+			}),
+		}, now);
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT configuration_id AS configurationId, kind, parent_id AS parentId
+			 FROM inference_configurations WHERE owner_user_id = ?`,
+		).bind(user.id).first()).toEqual({ configurationId, kind: "account_default", parentId: null });
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT configuration_id AS configurationId FROM inference_translation_selections WHERE owner_user_id = ?`,
+		).bind(user.id).first()).toEqual({ configurationId });
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT writer_version AS writerVersion, cutover_version AS cutoverVersion
+			 FROM inference_graph_users WHERE owner_user_id = ?`,
+		).bind(user.id).first()).toEqual({ writerVersion: 1, cutoverVersion: 1 });
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT mode, secret_value AS secret, secret_version AS secretVersion
+			 FROM inference_configuration_credentials WHERE configuration_id = ?`,
+		).bind(configurationId).first()).toEqual({
+			mode: "value",
+			secret: "account-bootstrap-secret",
+			secretVersion: 1,
+		});
+	});
+
+	it("atomically activates and deletes a fixed world entry while preserving child intent", async () => {
+		const ownerId = "usr_world_graph";
+		await seedGraphLifecycleOwner(ownerId, "world-graph-owner");
+		const world = testWorld("wld_graph", ownerId, "graph-world");
+		const reserved = await reserveOwnedCreateLifecycle(testEnv.BICKR_D1, {
+			ownerUserId: ownerId,
+			idempotencyKey: "world-graph-create",
+			requestHash: await hashLifecycleRequest({ kind: "world_create", worldId: world.id }),
+			requestJson: "{}",
+			entityKind: "world",
+			entityId: world.id,
+			reservations: [{ kind: "world_handle", scope: "global", value: world.handle }],
+			now,
+		});
+		await worldIndexProjectionStatement(testEnv.BICKR_D1, world, { lifecycleState: "pending" }).run();
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const fixedId = await worldConfigurationId(world.id);
+		await expect(activateLifecycleEntity(testEnv.BICKR_D1, reserved.operation, {
+			kind: "inference_graph",
+			entityKind: "world",
+			fixedConfigurationStatement: insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "world",
+				configurationId: fixedId,
+				ownerUserId: ownerId,
+				parentId: "cfg_missing_parent",
+				worldId: world.id,
+				now,
+			}),
+		}, now)).rejects.toThrow();
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT configuration_id FROM inference_configurations WHERE configuration_id = ?`,
+		).bind(fixedId).first()).toBeNull();
+		await activateLifecycleEntity(testEnv.BICKR_D1, reserved.operation, {
+			kind: "inference_graph",
+			entityKind: "world",
+			fixedConfigurationStatement: insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "world",
+				configurationId: fixedId,
+				ownerUserId: ownerId,
+				parentId: rootId,
+				worldId: world.id,
+				now,
+			}),
+		}, now);
+		await activateLifecycleEntity(testEnv.BICKR_D1, reserved.operation, {
+			kind: "inference_graph",
+			entityKind: "world",
+			fixedConfigurationStatement: insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "world", configurationId: fixedId, ownerUserId: ownerId, parentId: rootId, worldId: world.id, now,
+			}),
+		}, now);
+		expect((await testEnv.BICKR_D1.prepare(
+			`SELECT COUNT(*) AS count FROM inference_configurations WHERE world_id = ?`,
+		).bind(world.id).first<{ count: number }>())?.count).toBe(1);
+		const child = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "World child",
+			parentId: fixedId,
+			overrides: { temperature: { kind: "value", value: 0 } },
+			credential: { mode: "value", secret: "child-secret" },
+		}, now);
+		const deleting = await beginWorldDeleteLifecycle(testEnv.BICKR_D1, {
+			ownerUserId: ownerId,
+			idempotencyKey: "world-graph-delete",
+			requestHash: await hashLifecycleRequest({ kind: "world_delete", worldId: world.id }),
+			requestJson: "{}",
+			entityId: world.id,
+			now,
+		});
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE worlds_index SET handle = ?, deleted_at = ?, lifecycle_state = 'deleting' WHERE world_id = ?`,
+		).bind(`deleted-${world.id}`, now, world.id).run();
+		const worldDeleteStatements = await fixedConfigurationDeletionStatements(testEnv.BICKR_D1, {
+			ownerUserId: ownerId,
+			configurationId: fixedId,
+			entityKind: "world",
+			now,
+		});
+		await expect(finalizeLifecycleDeletion(testEnv.BICKR_D1, deleting.operation, {
+			kind: "inference_graph",
+			entityKind: "world",
+			configurationStatements: [...worldDeleteStatements, testEnv.BICKR_D1.prepare(
+				`INSERT INTO inference_configuration_credentials
+				 SELECT * FROM inference_configuration_credentials WHERE configuration_id = ?`,
+			).bind(rootId)],
+		}, now)).rejects.toThrow();
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT configuration_id FROM inference_configurations WHERE configuration_id = ?`,
+		).bind(fixedId).first()).not.toBeNull();
+		await finalizeLifecycleDeletion(testEnv.BICKR_D1, deleting.operation, {
+			kind: "inference_graph",
+			entityKind: "world",
+			configurationStatements: worldDeleteStatements,
+		}, now);
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT configuration_id FROM inference_configurations WHERE configuration_id = ?`,
+		).bind(fixedId).first()).toBeNull();
+		expect((await testEnv.BICKR_D1.prepare(
+			`SELECT parent_id AS parentId, overrides_json AS overridesJson
+			 FROM inference_configurations WHERE configuration_id = ?`,
+		).bind(child.id).first<{ parentId: string; overridesJson: string }>())).toEqual({
+			parentId: rootId,
+			overridesJson: JSON.stringify({ temperature: { kind: "value", value: 0 } }),
+		});
+		expect((await testEnv.BICKR_D1.prepare(
+			`SELECT secret_value AS secret FROM inference_configuration_credentials WHERE configuration_id = ?`,
+		).bind(child.id).first<{ secret: string }>())?.secret).toBe("child-secret");
+	});
+
+	it("keeps clone-of-clone graph parentage and reparents once when a fixed participant is deleted", async () => {
+		const ownerId = "usr_clone_graph";
+		await seedGraphLifecycleOwner(ownerId, "clone-graph-owner");
+		const world = testWorld("wld_clone_graph", ownerId, "clone-graph-world");
+		await seedActiveWorld(world);
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const source = await activateGraphBot(ownerId, world, "bot_graph_source", "graph-source", rootId, "source-secret");
+		const clone = await activateGraphBot(ownerId, world, "bot_graph_clone", "graph-clone", source, undefined);
+		const cloneOfClone = await activateGraphBot(ownerId, world, "bot_graph_clone_two", "graph-clone-two", clone, undefined);
+		expect((await testEnv.BICKR_D1.prepare(
+			`SELECT parent_id AS parentId FROM inference_configurations WHERE configuration_id = ?`,
+		).bind(cloneOfClone).first<{ parentId: string }>())?.parentId).toBe(clone);
+
+		await testEnv.BICKR_D1.prepare(
+			`INSERT INTO bot_clone_sources (
+				bot_id, source_bot_id, source_world_id, source_world_handle,
+				source_handle, cloned_at, linked
+			) VALUES ('bot_graph_clone_two', 'bot_graph_clone', ?, ?, 'graph-clone', ?, 1)`,
+		).bind(world.id, world.handle, now).run();
+		await testEnv.BICKR_D1.prepare(`UPDATE bot_clone_sources SET linked = 0 WHERE bot_id = 'bot_graph_clone_two'`).run();
+		await testEnv.BICKR_D1.prepare(`UPDATE bot_clone_sources SET linked = 1 WHERE bot_id = 'bot_graph_clone_two'`).run();
+		expect((await testEnv.BICKR_D1.prepare(
+			`SELECT parent_id AS parentId FROM inference_configurations WHERE configuration_id = ?`,
+		).bind(cloneOfClone).first<{ parentId: string }>())?.parentId).toBe(clone);
+
+		const deleting = await beginDeleteLifecycle(testEnv.BICKR_D1, {
+			ownerUserId: ownerId,
+			idempotencyKey: "clone-graph-delete",
+			requestHash: await hashLifecycleRequest({ kind: "bot_delete", botId: "bot_graph_clone" }),
+			requestJson: "{}",
+			entityKind: "bot",
+			entityId: "bot_graph_clone",
+			now,
+		});
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE bots_index SET handle = ?, deleted_at = ?, lifecycle_state = 'deleting' WHERE bot_id = ?`,
+		).bind("deleted-bot_graph_clone", now, "bot_graph_clone").run();
+		const cloneDeleteStatements = await fixedConfigurationDeletionStatements(testEnv.BICKR_D1, {
+			ownerUserId: ownerId,
+			configurationId: clone,
+			entityKind: "bot",
+			now,
+		});
+		await expect(finalizeLifecycleDeletion(testEnv.BICKR_D1, deleting.operation, {
+			kind: "inference_graph",
+			entityKind: "bot",
+			configurationStatements: [...cloneDeleteStatements, testEnv.BICKR_D1.prepare(
+				`INSERT INTO inference_configuration_credentials
+				 SELECT * FROM inference_configuration_credentials WHERE configuration_id = ?`,
+			).bind(rootId)],
+		}, now)).rejects.toThrow();
+		expect((await testEnv.BICKR_D1.prepare(
+			`SELECT parent_id AS parentId FROM inference_configurations WHERE configuration_id = ?`,
+		).bind(cloneOfClone).first<{ parentId: string }>())?.parentId).toBe(clone);
+		await finalizeLifecycleDeletion(testEnv.BICKR_D1, deleting.operation, {
+			kind: "inference_graph",
+			entityKind: "bot",
+			configurationStatements: cloneDeleteStatements,
+		}, now);
+		expect((await testEnv.BICKR_D1.prepare(
+			`SELECT parent_id AS parentId FROM inference_configurations WHERE configuration_id = ?`,
+		).bind(cloneOfClone).first<{ parentId: string }>())?.parentId).toBe(source);
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT configuration_id FROM inference_configurations WHERE configuration_id = ?`,
+		).bind(clone).first()).toBeNull();
+		expect((await testEnv.BICKR_D1.prepare(
+			`SELECT secret_value AS secret FROM inference_configuration_credentials WHERE configuration_id = ?`,
+		).bind(source).first<{ secret: string }>())?.secret).toBe("source-secret");
 	});
 
 	it("keeps a claimed same-id tombstone recreation pending across a crash before activation", async () => {
@@ -531,6 +792,99 @@ async function seedLifecycleOwner(userId: string, handle: string): Promise<void>
 		 ) VALUES ('user_handle', 'global', ?, 'account', ?, ?, 'active', NULL, ?, ?)`,
 	).bind(handle, userId, userId, now, now).run();
 	await userIndexProjectionStatement(testEnv.BICKR_D1, testUser(userId, handle)).run();
+}
+
+async function seedGraphLifecycleOwner(userId: string, handle: string): Promise<void> {
+	await seedLifecycleOwner(userId, handle);
+	const rootId = await accountDefaultConfigurationId(userId);
+	await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
+		insertAccountDefaultConfigurationStatement(testEnv.BICKR_D1, {
+			configurationId: rootId,
+			ownerUserId: userId,
+			now,
+		}),
+		insertTranslationSelectionStatement(testEnv.BICKR_D1, {
+			ownerUserId: userId,
+			configurationId: rootId,
+			now,
+		}),
+		testEnv.BICKR_D1.prepare(
+			`UPDATE entity_lifecycle_control SET activation_mode = 'inference_graph_required', updated_at = ? WHERE id = 1`,
+		).bind(now),
+	]);
+}
+
+async function seedActiveWorld(world: WorldDocument): Promise<void> {
+	await testEnv.BICKR_D1.prepare(
+		`INSERT INTO entity_lifecycle_identity_claims (
+			key_kind, key_scope, key_value, entity_kind, entity_id, owner_user_id,
+			claim_state, operation_id, created_at, updated_at
+		) VALUES ('world_handle', 'global', ?, 'world', ?, ?, 'active', NULL, ?, ?)`,
+	).bind(world.handle, world.id, world.createdByUserId, now, now).run();
+	await worldIndexProjectionStatement(testEnv.BICKR_D1, world).run();
+}
+
+async function activateGraphBot(
+	ownerUserId: string,
+	world: WorldDocument,
+	botId: string,
+	handle: string,
+	parentId: string,
+	secret: string | undefined,
+): Promise<string> {
+	const reserved = await reserveBotCreateLifecycle(testEnv.BICKR_D1, {
+		ownerUserId,
+		idempotencyKey: `create-${botId}`,
+		requestHash: await hashLifecycleRequest({ kind: "bot_create", botId }),
+		requestJson: "{}",
+		entityKind: "bot",
+		entityId: botId,
+		worldId: world.id,
+		reservations: [{ kind: "bot_handle", scope: world.id, value: handle }],
+		...(secret ? { secrets: [{ kind: "bot_openrouter_api_key" as const, value: secret }] } : {}),
+		now,
+	});
+	await testEnv.BICKR_D1.prepare(
+		`INSERT INTO bots_index (
+			bot_id, home_world_id, home_world_handle, handle, display_name,
+			owner_user_id, short_bio, created_at, updated_at, lifecycle_state
+		) VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, 'pending')`,
+	).bind(botId, world.id, world.handle, handle, handle, ownerUserId, now, now).run();
+	const configurationId = await botConfigurationId(botId);
+	await activateLifecycleEntity(testEnv.BICKR_D1, reserved.operation, {
+		kind: "inference_graph",
+		entityKind: "bot",
+		fixedConfigurationStatement: insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+			kind: "bot",
+			configurationId,
+			ownerUserId,
+			parentId,
+			botId,
+			now,
+		}),
+	}, now);
+	return configurationId;
+}
+
+function testWorld(id: string, ownerUserId: string, handle: string): WorldDocument {
+	return {
+		id,
+		type: "world",
+		schemaVersion,
+		revision: 1,
+		handle,
+		language: en,
+		name: localizedText(handle, en),
+		description: localizedText("Graph lifecycle world", en),
+		prompt: localizedText("World prompt", en),
+		recurringPromptEnabled: false,
+		recurringPrompt: localizedText("", en),
+		initialBotNotification: localizedText("", en),
+		createdByUserId: ownerUserId,
+		visibility: "public",
+		createdAt: now,
+		updatedAt: now,
+	};
 }
 
 function testUser(id: string, handle: string): UserDocument {

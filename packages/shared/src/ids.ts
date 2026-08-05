@@ -14,7 +14,8 @@ export type IdPrefix =
 	| "act"
 	| "hsb"
 	| "hnt"
-	| "opn";
+	| "opn"
+	| "cfg";
 
 export function makeId(prefix: IdPrefix): string {
 	return `${prefix}_${crypto.randomUUID()}`;

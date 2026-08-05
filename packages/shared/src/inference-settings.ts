@@ -3,6 +3,7 @@ import {
 	effectiveReasoningEffortForModel,
 	effectiveSupportsPrefillForModel,
 	effectiveToolCallsForModel,
+	effectiveStructuredToolCallsForModel,
 	modelSupportsPromptCacheControl,
 } from "./openrouter-model-capabilities";
 import {
@@ -71,6 +72,10 @@ export type ProviderSettings = {
 	frequencyPenalty?: number;
 	presencePenalty?: number;
 	repetitionPenalty?: number;
+};
+
+export type LegacyTranslationProviderSettings = Omit<ProviderSettings, "toolCalls"> & {
+	toolCalls: Exclude<BotInferenceToolCalls, "at_will">;
 };
 
 export type BotProviderSettingSource =
@@ -277,6 +282,67 @@ export function resolveBotProviderSettings(
 			...(presencePenalty ? { presencePenalty } : {}),
 			...(repetitionPenalty ? { repetitionPenalty } : {}),
 		},
+	};
+}
+
+/** Legacy translation request normalization used only for migration parity and
+ * the version-0 compatibility reader. Prompt/enabled remain document-owned. */
+export function resolveLegacyTranslationProviderSettings(
+	user: Pick<UserDocument, "inferenceSettings">,
+	env: ProviderEnvironmentSettings = {},
+): LegacyTranslationProviderSettings | null {
+	const userSettings = user.inferenceSettings ?? {};
+	const translation = userSettings.translation;
+	if (!translation?.enabled) return null;
+	const translationModel = trimmed(translation.model);
+	const userModel = trimmed(userSettings.model);
+	const userBaseUrl = trimmed(userSettings.baseUrl);
+	const userApiKey = trimmed(userSettings.openRouterApiKey);
+	const hasCustomBaseUrl = Boolean(userBaseUrl);
+	const baseUrl = userBaseUrl ?? trimmed(env.baseUrl) ?? defaultProviderBaseUrl;
+	const model = translationModel ?? userModel ?? trimmed(env.model) ?? defaultProviderModel;
+	const usingLoopSettings = !translationModel;
+	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
+	const providerRouting = openRouterProviderRouting(
+		baseUrl,
+		usingLoopSettings ? userSettings.providerRouting : translation.providerRouting,
+	);
+	const reasoningEffort = effectiveReasoningEffortForModel(
+		model,
+		openRouter,
+		usingLoopSettings ? userSettings.reasoningEffort : translation.reasoningEffort,
+	);
+	const toolCalls = effectiveStructuredToolCallsForModel(
+		model,
+		openRouter,
+		usingLoopSettings ? userSettings.toolCalls : translation.toolCalls,
+	);
+	return {
+		apiKey: userApiKey ?? (hasCustomBaseUrl ? undefined : trimmed(env.apiKey)),
+		baseUrl,
+		model,
+		...(providerRouting ? { providerRouting } : {}),
+		...(reasoningEffort ? { reasoningEffort } : {}),
+		toolCalls,
+		temperature: usingLoopSettings
+			? userSettings.temperature ?? defaultTextGenerationTemperature
+			: translation.temperature ?? 0,
+		...(usingLoopSettings
+			? optionalSamplingFields(userSettings)
+			: optionalSamplingFields(translation)),
+	};
+}
+
+function optionalSamplingFields(settings: Pick<BotInferenceSettings,
+	"topK" | "topP" | "minP" | "frequencyPenalty" | "presencePenalty" | "repetitionPenalty">):
+	Pick<ProviderSettings, "topK" | "topP" | "minP" | "frequencyPenalty" | "presencePenalty" | "repetitionPenalty"> {
+	return {
+		...(settings.topK !== undefined ? { topK: settings.topK } : {}),
+		...(settings.topP !== undefined ? { topP: settings.topP } : {}),
+		...(settings.minP !== undefined ? { minP: settings.minP } : {}),
+		...(settings.frequencyPenalty !== undefined ? { frequencyPenalty: settings.frequencyPenalty } : {}),
+		...(settings.presencePenalty !== undefined ? { presencePenalty: settings.presencePenalty } : {}),
+		...(settings.repetitionPenalty !== undefined ? { repetitionPenalty: settings.repetitionPenalty } : {}),
 	};
 }
 

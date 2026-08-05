@@ -23,6 +23,15 @@ import {
 	type AccountDeleteTerminalResult,
 	type LifecycleOperation,
 } from "@bickr/shared/entity-lifecycle";
+import { inferenceOverridesFromLegacySettings } from "@bickr/shared/inference-configuration-legacy";
+import {
+	accountConfigurationDeletionStatements,
+	accountDefaultConfigurationId,
+	configurationCredentialValueStatement,
+	insertAccountDefaultConfigurationStatement,
+	insertTranslationSelectionStatement,
+	lifecycleUsesInferenceGraph,
+} from "@bickr/shared/inference-configuration-repository";
 import {
 	authProviders,
 	localizedText,
@@ -126,10 +135,40 @@ export async function runAccountBootstrapOperation(
 		await writeJson(context.env.BICKR_KV, kvKeys.user(operation.entityId), bootstrap.user);
 		await lifecycleCheckpoint(context.coordinator.failureInjector, "account.materialize.kv");
 		await lifecycleCheckpoint(context.coordinator.failureInjector, "account.activate.d1");
-		await activateLifecycleEntity(context.env.BICKR_D1, operation, {
-			kind: "legacy_compatible",
-			projectionStatements: providerUserBootstrapActivationStatements(context.env.BICKR_D1, bootstrap),
-		}, new Date().toISOString());
+		const activatedAt = new Date().toISOString();
+		const projectionStatements = providerUserBootstrapActivationStatements(context.env.BICKR_D1, bootstrap);
+		if (await lifecycleUsesInferenceGraph(context.env.BICKR_D1)) {
+			const configurationId = await accountDefaultConfigurationId(operation.entityId);
+			await activateLifecycleEntity(context.env.BICKR_D1, operation, {
+				kind: "inference_graph",
+				entityKind: "account",
+				projectionStatements,
+				accountDefaultStatement: insertAccountDefaultConfigurationStatement(context.env.BICKR_D1, {
+					configurationId,
+					ownerUserId: operation.entityId,
+					now: activatedAt,
+					overrides: inferenceOverridesFromLegacySettings(bootstrap.user.inferenceSettings),
+				}),
+				...(bootstrap.user.inferenceSettings?.openRouterApiKey?.trim() ? {
+					accountCredentialStatement: configurationCredentialValueStatement(context.env.BICKR_D1, {
+						configurationId,
+						ownerUserId: operation.entityId,
+						secret: bootstrap.user.inferenceSettings.openRouterApiKey,
+						now: activatedAt,
+					}),
+				} : {}),
+				translationReferenceStatement: insertTranslationSelectionStatement(context.env.BICKR_D1, {
+					ownerUserId: operation.entityId,
+					configurationId,
+					now: activatedAt,
+				}),
+			}, activatedAt);
+		} else {
+			await activateLifecycleEntity(context.env.BICKR_D1, operation, {
+				kind: "legacy_compatible",
+				projectionStatements,
+			}, activatedAt);
+		}
 	} catch (error) {
 		const failure = classifyLifecycleFailure(error);
 		const failedAt = new Date().toISOString();
@@ -281,12 +320,18 @@ export async function runAccountDeleteOperation(
 			kind: "account_delete_complete",
 			deleted: request.plannedCounts,
 		};
+		const finalizedAt = new Date().toISOString();
+		const graphDeletion = await lifecycleUsesInferenceGraph(context.env.BICKR_D1);
 		await finalizeAccountLifecycleDeletion(
 			context.env.BICKR_D1,
 			operation,
-			{ kind: "legacy_compatible" },
+			graphDeletion ? {
+				kind: "inference_graph",
+				entityKind: "account",
+				configurationStatements: await accountConfigurationDeletionStatements(context.env.BICKR_D1, request.userId, finalizedAt),
+			} : { kind: "legacy_compatible" },
 			terminalResult,
-			new Date().toISOString(),
+			finalizedAt,
 		);
 		await lifecycleCheckpoint(context.coordinator.failureInjector, "account.delete.finish.d1");
 		operation = requiredAccountDeleteLifecycleOperation(

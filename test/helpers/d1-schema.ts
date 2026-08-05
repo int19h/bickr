@@ -40,6 +40,7 @@ import migration0038 from "../../migrations/0038_maintenance_control.sql?raw";
 import migration0039 from "../../migrations/0039_entity_lifecycle.sql?raw";
 import migration0040 from "../../migrations/0040_entity_lifecycle_recovery.sql?raw";
 import migration0041 from "../../migrations/0041_bot_group_members_bot.sql?raw";
+import migration0042 from "../../migrations/0042_inference_configuration_graph.sql?raw";
 
 const migrationSql = [
 	migration0001,
@@ -84,6 +85,7 @@ const migrationSql = [
 	migration0039,
 	migration0040,
 	migration0041,
+	migration0042,
 ];
 
 type D1SchemaRow = {
@@ -239,11 +241,35 @@ async function dropD1Schema(db: D1Database): Promise<void> {
 	for (const table of virtualTables) {
 		await db.prepare(`DROP TABLE IF EXISTS ${sqlIdentifier(table)}`).run();
 	}
-	for (const row of rows.filter((item) => item.type === "table")) {
+	// Migrations create referenced parent tables before referencing children.
+	// Reverse schema creation order so restrictive foreign keys remain valid
+	// while resetting the isolated test database.
+	for (const row of rows.filter((item) => item.type === "table").reverse()) {
 		if (virtualTables.includes(row.name) || shadowTablePrefixes.some((prefix) => row.name.startsWith(prefix))) {
 			continue;
 		}
-		await db.prepare(`DROP TABLE IF EXISTS ${sqlIdentifier(row.name)}`).run();
+		if (row.name === "inference_configurations" || row.name === "inference_graph_legacy_projection_entries") {
+			// This table deliberately has a restrictive self-FK. D1 enforces it
+			// even for DROP TABLE when rows remain, so peel leaves before dropping
+			// the test-only schema. Production deletion always uses coordinator
+			// transactions and never reaches this teardown path.
+			let deleted: number;
+			do {
+				const result = await db.prepare(
+					`DELETE FROM ${sqlIdentifier(row.name)} AS configuration
+					 WHERE NOT EXISTS (
+						SELECT 1 FROM ${sqlIdentifier(row.name)} AS child
+						WHERE child.parent_id = configuration.configuration_id
+					 )`,
+				).run();
+				deleted = result.meta.changes;
+			} while (deleted > 0);
+		}
+		try {
+			await db.prepare(`DROP TABLE IF EXISTS ${sqlIdentifier(row.name)}`).run();
+		} catch (error) {
+			throw new Error(`Failed to drop test table ${row.name}.`, { cause: error });
+		}
 	}
 }
 

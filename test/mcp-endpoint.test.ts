@@ -197,6 +197,20 @@ describe("MCP endpoint", () => {
 			["delete_thread", "bickr.write", false, true, false],
 			["delete_comment", "bickr.write", false, true, false],
 			["list_my_bots", "bickr.read", true, false, true],
+			["list_inference_configurations", "bickr.read", true, false, true],
+			["get_inference_configuration", "bickr.read", true, false, true],
+			["create_inference_configuration", "bickr.write", false, false, false],
+			["update_inference_configuration", "bickr.write", false, false, false],
+			["rename_inference_configuration", "bickr.write", false, false, false],
+			["reparent_inference_configuration", "bickr.write", false, false, false],
+			["list_inference_parent_candidates", "bickr.read", true, false, true],
+			["list_inference_configuration_children", "bickr.read", true, false, true],
+			["get_inference_configuration_delete_impact", "bickr.read", true, false, true],
+			["get_inference_configuration_parent_impact", "bickr.read", true, false, true],
+			["delete_inference_configuration", "bickr.write", false, true, false],
+			["get_translation_inference_selection", "bickr.read", true, false, true],
+			["list_translation_inference_candidates", "bickr.read", true, false, true],
+			["set_translation_inference_selection", "bickr.write", false, false, false],
 			["list_world_bots", "bickr.read", true, false, true],
 			["get_bot", "bickr.read", true, false, true],
 			["create_bot", "bickr.write", false, false, false],
@@ -519,6 +533,47 @@ describe("MCP endpoint", () => {
 		expect(result.structuredContent.results).toMatchObject([
 			{ operationId: "first", status: "succeeded", result: { ok: true, data: { accepted: true } } },
 			{ operationId: "second", status: "succeeded", result: { ok: true, data: { accepted: true } } },
+		]);
+	});
+
+	it("maps inference library section, kind, and search parameters onto the runtime service", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
+		const requestedPaths: string[] = [];
+		const agentRuntime = {
+			fetch: async (request: Request) => {
+				requestedPaths.push(new URL(request.url).pathname + new URL(request.url).search);
+				return Response.json({ ok: true, data: { configurations: { section: "bot", items: [], groups: [] } } });
+			},
+		};
+		const callRead = async (name: string, args: Record<string, unknown>) => callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: { name, arguments: args },
+		}, { AGENT_RUNTIME: agentRuntime, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
+
+		expect((await callRead("list_inference_configurations", {
+			section: "bot",
+			query: "home-world",
+			limit: 25,
+		})).status).toBe(200);
+		expect((await callRead("list_inference_configurations", { kind: "custom,world" })).status).toBe(200);
+		expect((await callRead("list_inference_configuration_children", {
+			configurationId: "cfg_children",
+			query: "child",
+			limit: 10,
+		})).status).toBe(200);
+		expect((await callRead("list_inference_parent_candidates", {
+			configurationId: "cfg_parent",
+			query: "alpha",
+		})).status).toBe(200);
+
+		expect(requestedPaths).toEqual([
+			"/users/usr_mcp/inference-configurations?section=bot&q=home-world&limit=25",
+			"/users/usr_mcp/inference-configurations?kind=custom%2Cworld",
+			"/users/usr_mcp/inference-configurations/cfg_children/children?q=child&limit=10",
+			"/users/usr_mcp/inference-configurations/cfg_parent/parent-candidates?q=alpha",
 		]);
 	});
 

@@ -91,6 +91,9 @@ async function main(argv: string[]): Promise<void> {
 		case "subscriptions":
 			await subscriptionsCommand(ctx, rest);
 			break;
+		case "inference":
+			await inferenceCommand(ctx, rest);
+			break;
 		case "api":
 			await apiCommand(ctx, rest);
 			break;
@@ -736,6 +739,115 @@ async function subscriptionsCommand(ctx: CommandContext, args: string[]): Promis
 	throw new CliUsageError("Usage: bickr subscriptions <list|set|delete>");
 }
 
+async function inferenceCommand(ctx: CommandContext, args: string[]): Promise<void> {
+	const [subcommand, ...rest] = args;
+	const options = parseCommandOptions(rest, commandBooleanFlags);
+	if (subcommand === "list") {
+		const params = new URLSearchParams();
+		const section = flagString(options.flags, "section");
+		const kind = flagString(options.flags, "kind");
+		const query = flagString(options.flags, "query");
+		const cursor = flagString(options.flags, "cursor");
+		const limit = flagString(options.flags, "limit");
+		if (section) params.set("section", section);
+		if (kind) params.set("kind", kind);
+		if (query) params.set("q", query);
+		if (cursor) params.set("cursor", cursor);
+		if (limit) params.set("limit", limit);
+		await printGenericEnvelope(ctx, ctx.client.request(`/me/inference-configurations${params.size ? `?${params}` : ""}`));
+		return;
+	}
+	if (subcommand === "get") {
+		const id = requiredPosition(options.positionals, 0, "configuration id");
+		await printGenericEnvelope(ctx, ctx.client.request(`/me/inference-configurations/${encodeURIComponent(id)}`));
+		return;
+	}
+	if (subcommand === "create") {
+		const body = await bodyFromFlags(options.flags, () => ({
+			name: requiredFlag(options.flags, "name"),
+			parentId: requiredFlag(options.flags, "parent"),
+		}));
+		await printMutation(ctx, ctx.client.request("/me/inference-configurations", { body, method: "POST" }), "Inference configuration created.");
+		return;
+	}
+	if (subcommand === "update") {
+		const id = requiredPosition(options.positionals, 0, "configuration id");
+		const body = await bodyFromFlags(options.flags, () => ({ expectedRevision: requiredIntegerFlag(options.flags, "revision") }));
+		await printMutation(ctx, ctx.client.request(`/me/inference-configurations/${encodeURIComponent(id)}`, { body, method: "PATCH" }), "Inference configuration updated.");
+		return;
+	}
+	if (subcommand === "rename" || subcommand === "reparent") {
+		const id = requiredPosition(options.positionals, 0, "configuration id");
+		const body = await bodyFromFlags(options.flags, () => subcommand === "rename" ? {
+			name: requiredFlag(options.flags, "name"),
+			expectedRevision: requiredIntegerFlag(options.flags, "revision"),
+		} : {
+			parentId: requiredFlag(options.flags, "parent"),
+			expectedRevision: requiredIntegerFlag(options.flags, "revision"),
+		});
+		await printMutation(ctx, ctx.client.request(`/me/inference-configurations/${encodeURIComponent(id)}/${subcommand}`, { body, method: "POST" }), `Inference configuration ${subcommand} complete.`);
+		return;
+	}
+	if (subcommand === "parent-candidates" || subcommand === "children") {
+		const id = requiredPosition(options.positionals, 0, "configuration id");
+		const params = new URLSearchParams();
+		const cursor = flagString(options.flags, "cursor");
+		const limit = flagString(options.flags, "limit");
+		const query = flagString(options.flags, "query");
+		if (cursor) params.set("cursor", cursor);
+		if (limit) params.set("limit", limit);
+		if (query) params.set("q", query);
+		await printGenericEnvelope(ctx, ctx.client.request(
+			`/me/inference-configurations/${encodeURIComponent(id)}/${subcommand}${params.size ? `?${params}` : ""}`,
+		));
+		return;
+	}
+	if (subcommand === "impact") {
+		const id = requiredPosition(options.positionals, 0, "configuration id");
+		const params = new URLSearchParams();
+		const parentId = flagString(options.flags, "parent");
+		if (parentId) params.set("parentId", parentId);
+		await printGenericEnvelope(ctx, ctx.client.request(
+			`/me/inference-configurations/${encodeURIComponent(id)}/impact${params.size ? `?${params}` : ""}`,
+		));
+		return;
+	}
+	if (subcommand === "delete") {
+		const id = requiredPosition(options.positionals, 0, "configuration id");
+		requireYes(options.flags, "Inference configuration deletion");
+		const body = await bodyFromFlags(options.flags, () => ({ expectedRevision: requiredIntegerFlag(options.flags, "revision") }));
+		await printMutation(ctx, ctx.client.request(`/me/inference-configurations/${encodeURIComponent(id)}`, { body, method: "DELETE" }), "Inference configuration deleted.");
+		return;
+	}
+	if (subcommand === "translation") {
+		const action = requiredPosition(options.positionals, 0, "translation action");
+		if (action === "get") {
+			await printGenericEnvelope(ctx, ctx.client.request("/me/inference-translation"));
+			return;
+		}
+		if (action === "set") {
+			const body = await bodyFromFlags(options.flags, () => ({
+				configurationId: requiredFlag(options.flags, "configuration"),
+				expectedRevision: requiredIntegerFlag(options.flags, "revision"),
+			}));
+			await printMutation(ctx, ctx.client.request("/me/inference-translation", { body, method: "PUT" }), "Translation inference selection updated.");
+			return;
+		}
+		if (action === "candidates") {
+			const params = new URLSearchParams();
+			const query = flagString(options.flags, "query");
+			const cursor = flagString(options.flags, "cursor");
+			const limit = flagString(options.flags, "limit");
+			if (query) params.set("q", query);
+			if (cursor) params.set("cursor", cursor);
+			if (limit) params.set("limit", limit);
+			await printGenericEnvelope(ctx, ctx.client.request(`/me/inference-translation/candidates${params.size ? `?${params}` : ""}`));
+			return;
+		}
+	}
+	throw new CliUsageError("Usage: bickr inference <list|get|create|update|rename|reparent|parent-candidates|children|impact|delete|translation>");
+}
+
 async function apiCommand(ctx: CommandContext, args: string[]): Promise<void> {
 	const options = parseCommandOptions(args);
 	const method = requiredPosition(options.positionals, 0, "HTTP method").toUpperCase();
@@ -1055,6 +1167,9 @@ Core commands:
   bickr bots list [w/world]
   bickr bots get u/name
   bickr bots bulk update w/world --model MODEL [--yes]
+	  bickr inference list [--section account|custom|world|bot] [--kind KINDS] [--query TEXT]
+	  bickr inference get cfg_ID
+	  bickr inference children cfg_ID [--query TEXT]
   bickr export thread w/world/f/forum/t/thread --format json
   bickr export forum w/world/f/forum --range 1-500 --format ndjson
   bickr api GET /session
