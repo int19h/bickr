@@ -32,7 +32,7 @@ describe('OpenRouter compaction reasoning metadata refresh', () => {
 			supportedParameters: ['reasoning'],
 		})).toEqual({
 			support: { kind: 'unknown' },
-			modelDefault: { kind: 'provider_default' },
+			modelDefault: { kind: 'provider_default', relativeOrder: 'unknown' },
 		});
 		expect(compactionReasoningCapabilitiesFromModelMetadata({
 			reasoning: null,
@@ -53,7 +53,74 @@ describe('OpenRouter compaction reasoning metadata refresh', () => {
 			supportedParameters: ['reasoning'],
 		})).toEqual({
 			support: { kind: 'known', efforts: ['high', 'low', 'medium', 'minimal', 'xhigh'] },
-			modelDefault: { kind: 'provider_default' },
+			modelDefault: { kind: 'provider_default', relativeOrder: 'above_xhigh' },
+		});
+	});
+
+	it('keeps unmodelled effort observations distinct from explicit unsupported metadata', () => {
+		expect(compactionReasoningCapabilitiesFromModelMetadata({
+			reasoning: { supported_efforts: ['max'], default_effort: 'max' },
+			supportedParameters: ['reasoning'],
+		})).toEqual({
+			support: { kind: 'partially_known', efforts: [] },
+			modelDefault: { kind: 'provider_default', relativeOrder: 'above_xhigh' },
+		});
+		expect(compactionReasoningCapabilitiesFromModelMetadata({
+			reasoning: { supported_efforts: ['max', 'high'], default_effort: 'max' },
+			supportedParameters: ['reasoning'],
+		})).toEqual({
+			support: { kind: 'partially_known', efforts: ['high'] },
+			modelDefault: { kind: 'provider_default', relativeOrder: 'above_xhigh' },
+		});
+		expect(compactionReasoningCapabilitiesFromModelMetadata({
+			reasoning: { supported_efforts: [] },
+			supportedParameters: ['reasoning'],
+		})).toEqual({
+			support: { kind: 'unsupported' },
+			modelDefault: { kind: 'provider_default', relativeOrder: 'unknown' },
+		});
+		expect(compactionReasoningCapabilitiesFromModelMetadata({
+			reasoning: { supported_efforts: [null] },
+			supportedParameters: ['reasoning'],
+		})).toEqual({
+			support: { kind: 'unknown' },
+			modelDefault: { kind: 'provider_default', relativeOrder: 'unknown' },
+		});
+	});
+
+	it('preserves provider-default ordering evidence without guessing', () => {
+		expect(compactionReasoningCapabilitiesFromModelMetadata({
+			reasoning: { default_effort: 'none' },
+			supportedParameters: ['reasoning'],
+		})).toMatchObject({
+			modelDefault: { kind: 'provider_default', relativeOrder: 'below_minimal' },
+		});
+		expect(compactionReasoningCapabilitiesFromModelMetadata({
+			reasoning: { default_enabled: false },
+			supportedParameters: ['reasoning'],
+		})).toMatchObject({
+			modelDefault: { kind: 'provider_default', relativeOrder: 'below_minimal' },
+		});
+	});
+
+	it('distinguishes an absent or malformed support observation from an explicit empty list', () => {
+		expect(compactionReasoningCapabilitiesFromModelMetadata({ reasoning: null })).toEqual({
+			support: { kind: 'unknown' },
+			modelDefault: { kind: 'absent' },
+		});
+		expect(compactionReasoningCapabilitiesFromModelMetadata({
+			reasoning: null,
+			supportedParameters: 'reasoning',
+		})).toEqual({
+			support: { kind: 'unknown' },
+			modelDefault: { kind: 'absent' },
+		});
+		expect(compactionReasoningCapabilitiesFromModelMetadata({
+			reasoning: null,
+			supportedParameters: [],
+		})).toEqual({
+			support: { kind: 'unsupported' },
+			modelDefault: { kind: 'absent' },
 		});
 	});
 

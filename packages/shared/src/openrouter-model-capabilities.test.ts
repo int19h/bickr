@@ -42,7 +42,7 @@ describe("compaction reasoning capability metadata", () => {
 			modelDefault: { kind: "explicit_effort", effort: "medium" },
 		});
 		expect(openRouterModelCapabilities("  ~OPENAI/GPT-LATEST ").compactionReasoning).toEqual({
-			support: { kind: "known", efforts: ["high", "low", "medium", "xhigh"] },
+			support: { kind: "partially_known", efforts: ["high", "low", "medium", "xhigh"] },
 			modelDefault: { kind: "explicit_effort", effort: "medium" },
 		});
 	});
@@ -54,7 +54,7 @@ describe("compaction reasoning capability metadata", () => {
 		});
 		expect(compactionReasoningCapabilitiesForModel("unknown/provider-model", true)).toEqual({
 			support: { kind: "unknown" },
-			modelDefault: { kind: "provider_default" },
+			modelDefault: { kind: "provider_default", relativeOrder: "unknown" },
 		});
 	});
 
@@ -158,12 +158,116 @@ describe("canonical compaction reasoning resolution", () => {
 		const resolution = resolveCompactionReasoningSelection({
 			policy: disabledBaselinePolicy(),
 			request: { kind: "explicit_effort", effort: "high" },
-			capabilities: { support: { kind: "unknown" }, modelDefault: { kind: "provider_default" } },
+			capabilities: {
+				support: { kind: "unknown" },
+				modelDefault: { kind: "provider_default", relativeOrder: "below_minimal" },
+			},
 		});
 
 		expect(resolution).toMatchObject({
 			kind: "refused",
 			refusal: { kind: "support_unknown_for_required_effort", requiredEffort: "high" },
+		});
+	});
+
+	it("never lowers a max provider default to an explicit configured effort", () => {
+		const model = "~moonshotai/kimi-latest";
+		expect(compactionReasoningCapabilitiesForModel(model, true)).toMatchObject({
+			modelDefault: { kind: "provider_default", relativeOrder: "above_xhigh" },
+		});
+
+		const configuredResolution = resolveCompactionReasoningSelection({
+			policy: compactionReasoningPolicyForModel(model, true),
+			request: { kind: "explicit_effort", effort: "high" },
+			capabilities: compactionReasoningCapabilitiesForModel(model, true),
+		});
+
+		expect(configuredResolution).toMatchObject({
+			kind: "selected",
+			selection: { kind: "model_default" },
+			provenance: {
+				configuration: { kind: "explicit_effort", effort: "high" },
+				modelDefault: { kind: "provider_default", relativeOrder: "above_xhigh" },
+			},
+		});
+		expect(resolveCompactionReasoningSelection({
+			policy: compactionReasoningPolicyForModel(model, true),
+			capabilities: compactionReasoningCapabilitiesForModel(model, true),
+			learnedFloor: { kind: "explicit_effort", effort: "minimal" },
+		})).toMatchObject({
+			kind: "selected",
+			selection: { kind: "model_default" },
+			provenance: {
+				learnedFloor: { kind: "explicit_effort", effort: "minimal" },
+			},
+		});
+	});
+
+	it("selects an explicit effort above a provider default known to be below minimal", () => {
+		expect(resolveCompactionReasoningSelection({
+			policy: disabledBaselinePolicy(),
+			request: { kind: "explicit_effort", effort: "medium" },
+			capabilities: {
+				support: { kind: "known", efforts: allEfforts },
+				modelDefault: { kind: "provider_default", relativeOrder: "below_minimal" },
+			},
+		})).toMatchObject({
+			kind: "selected",
+			selection: { kind: "explicit_effort", effort: "medium" },
+		});
+	});
+
+	it("refuses an explicit effort when a provider default has unknown relative order", () => {
+		const resolution = resolveCompactionReasoningSelection({
+			policy: disabledBaselinePolicy(),
+			request: { kind: "explicit_effort", effort: "high" },
+			capabilities: {
+				support: { kind: "known", efforts: allEfforts },
+				modelDefault: { kind: "provider_default", relativeOrder: "unknown" },
+			},
+		});
+
+		expect(resolution).toMatchObject({
+			kind: "refused",
+			refusal: {
+				kind: "model_default_order_unknown_for_required_effort",
+				requiredEffort: "high",
+			},
+		});
+	});
+
+	it("uses observed modelled efforts without treating a partial observation as complete", () => {
+		const capabilities = {
+			support: { kind: "partially_known", efforts: ["high"] },
+			modelDefault: { kind: "provider_default", relativeOrder: "below_minimal" },
+		} as const;
+		expect(resolveCompactionReasoningSelection({
+			policy: disabledBaselinePolicy(),
+			request: { kind: "explicit_effort", effort: "medium" },
+			capabilities,
+		})).toMatchObject({
+			kind: "selected",
+			selection: { kind: "explicit_effort", effort: "high" },
+			provenance: { support: "partially_known" },
+		});
+		expect(resolveCompactionReasoningSelection({
+			policy: disabledBaselinePolicy(),
+			request: { kind: "explicit_effort", effort: "xhigh" },
+			capabilities,
+		})).toMatchObject({
+			kind: "refused",
+			refusal: { kind: "support_unknown_for_required_effort", requiredEffort: "xhigh" },
+		});
+		expect(resolveCompactionReasoningSelection({
+			policy: disabledBaselinePolicy(),
+			request: { kind: "explicit_effort", effort: "minimal" },
+			capabilities: {
+				support: { kind: "partially_known", efforts: [] },
+				modelDefault: { kind: "provider_default", relativeOrder: "below_minimal" },
+			},
+		})).toMatchObject({
+			kind: "refused",
+			refusal: { kind: "support_unknown_for_required_effort", requiredEffort: "minimal" },
 		});
 	});
 

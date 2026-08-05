@@ -35,6 +35,23 @@ import type {
 	LoopMessageRowForTest,
 	ProviderToolDefinition,
 } from "./helpers/index-harness";
+import {
+	ProviderCompactionRequestError,
+	type CompactionReasoningDiagnostic,
+} from "../workers/agent-runtime/src/errors";
+
+const learnedMinimalCompactionReasoning = {
+	selection: { kind: "explicit_effort", effort: "minimal" },
+	provenance: {
+		baselineSelection: { kind: "reasoning_disabled" },
+		configuration: { kind: "model_default" },
+		learnedFloor: { kind: "explicit_effort", effort: "minimal" },
+		modelDefault: { kind: "explicit_effort", effort: "minimal" },
+		policySource: "custom_provider",
+		safetyFloor: { kind: "reasoning_disabled" },
+		support: "unknown",
+	},
+} as const satisfies CompactionReasoningDiagnostic;
 
 describe("Compaction", () => {
 
@@ -79,6 +96,10 @@ describe("Compaction", () => {
 
 				expect(fetchMock).toHaveBeenCalledTimes(5);
 				expect(thrown).toMatchObject({
+					compactionReasoning: {
+						selection: { kind: "reasoning_disabled" },
+						provenance: expect.objectContaining({ learnedFloor: null }),
+					},
 					name: "ProviderCompactionRequestError",
 					message: expect.stringContaining("schema-invalid compaction tool arguments"),
 				});
@@ -549,7 +570,11 @@ describe("Compaction", () => {
 				}));
 				const recordInferenceSubmission = vi.fn();
 				const replaceEventPayload = vi.fn();
-				const providerError = new Error("Provider returned an empty compaction response.");
+				const providerError = new ProviderCompactionRequestError(
+					new Error("Provider returned an empty compaction response."),
+					"{}",
+					learnedMinimalCompactionReasoning,
+				);
 				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 					env: {},
 					state: {
@@ -605,6 +630,7 @@ describe("Compaction", () => {
 				]),
 			}));
 			expect(replaceEventPayload).toHaveBeenCalledWith(expect.objectContaining({ seq: 101 }), expect.objectContaining({
+				compactionReasoning: learnedMinimalCompactionReasoning,
 				status: "failed",
 				error: "Provider returned an empty compaction response.",
 			}));
@@ -1054,6 +1080,7 @@ describe("Compaction", () => {
 				appendEvent,
 				recordInferenceSubmission: vi.fn(),
 				callProviderForCompaction: async () => ({
+					compactionReasoning: learnedMinimalCompactionReasoning,
 					content: "I chose to follow up with Müller about concise release notes.",
 					requestBody: "{}",
 					rawResponse: "{}",
@@ -1099,6 +1126,7 @@ describe("Compaction", () => {
 				position: 7,
 			}));
 			expect(replaceEventPayload).toHaveBeenLastCalledWith(expect.objectContaining({ seq: 101 }), expect.objectContaining({
+				compactionReasoning: learnedMinimalCompactionReasoning,
 				status: "complete",
 				summary: "I chose to follow up with Müller about concise release notes.",
 			}));
@@ -1175,6 +1203,7 @@ describe("Compaction", () => {
 			}));
 			const recordInferenceSubmission = vi.fn();
 			const callProviderForCompaction = vi.fn(async (_settings: unknown, _messages: unknown[]) => ({
+				compactionReasoning: learnedMinimalCompactionReasoning,
 				content: "I kept the provider-visible context.",
 				requestBody: "{}",
 				rawResponse: "{}",

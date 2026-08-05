@@ -311,6 +311,7 @@ import {
 	ProviderResponseInterruptedError,
 	runtimeErrorCause,
 	runtimeErrorText,
+	type CompactionReasoningDiagnostic,
 } from '../errors';
 import {
 	providerContextCompletionReserveTokens,
@@ -725,6 +726,21 @@ function compactionAttemptReasoningStateFromResolution(
 		selection: resolution.selection,
 		provenance: resolution.provenance,
 	};
+}
+
+function compactionReasoningDiagnostic(
+	reasoning: CompactionAttemptReasoningState,
+): CompactionReasoningDiagnostic {
+	return {
+		selection: reasoning.selection,
+		provenance: reasoning.provenance,
+	};
+}
+
+function failedCompactionReasoningDiagnostic(error: unknown): CompactionReasoningDiagnostic | null {
+	return error instanceof ProviderCompactionRequestError || error instanceof PersistentCompactionReductionFailureError
+		? error.compactionReasoning
+		: null;
 }
 
 function compactionAttemptRetryReasonEvent(reason: CompactionAttemptRetryReason | null): {
@@ -3324,6 +3340,7 @@ export class BotRuntime {
 		initialReasoning?: CompactionAttemptReasoningState,
 	): Promise<
 		Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse'> & {
+			compactionReasoning: CompactionAttemptReasoningState;
 			content: string;
 		}
 	> {
@@ -3348,6 +3365,7 @@ export class BotRuntime {
 					maxAttempts: attemptState.retry.maxAttempts,
 					delayMs: attemptState.retry.delayMs,
 					reason: retryReason.text,
+					compactionReasoning: compactionReasoningDiagnostic(attemptState.reasoning),
 					...(retryReason.reasoningFallback ? { compactionReasoningFallback: retryReason.reasoningFallback } : {}),
 				});
 				if (attemptState.retry.delayMs > 0) {
@@ -3388,7 +3406,11 @@ export class BotRuntime {
 					});
 				}
 				plan = plan.transition({ kind: 'success' });
-				return { ...response, requestBody: body };
+				return {
+					...response,
+					compactionReasoning: attemptState.reasoning,
+					requestBody: body,
+				};
 			} catch (error) {
 				this.recordProviderTokenCalibrationSampleFromError({
 					attempt: attemptState.calibrationAttempt,
@@ -3417,11 +3439,17 @@ export class BotRuntime {
 						throw new PersistentCompactionReductionFailureError(
 							plan.state.attempts,
 							body,
+							compactionReasoningDiagnostic(attemptState.reasoning),
 							providerCompactionFailureResponseText(error),
 						);
 					}
 					if (plan.state.terminal === 'failed') {
-						throw new ProviderCompactionRequestError(error, body, providerCompactionFailureResponseText(error));
+						throw new ProviderCompactionRequestError(
+							error,
+							body,
+							compactionReasoningDiagnostic(attemptState.reasoning),
+							providerCompactionFailureResponseText(error),
+						);
 					}
 				}
 			}
@@ -5972,6 +6000,7 @@ export class BotRuntime {
 		const providerActive = Boolean(settings.apiKey || settings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === 'provider');
 		let response:
 			| (Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse'> & {
+					compactionReasoning: CompactionAttemptReasoningState;
 					content: string;
 			  })
 			| null = null;
@@ -6041,10 +6070,7 @@ export class BotRuntime {
 				anticipatedSummaryTokens: compactionLimits.anticipatedSummaryTokens,
 				nextCompactionTokens: compactionLimits.nextCompactionTokens,
 				compactionMode,
-				compactionReasoning: {
-					selection: compactionReasoning.selection,
-					provenance: compactionReasoning.provenance,
-				},
+				compactionReasoning: compactionReasoningDiagnostic(compactionReasoning),
 				...(outputLimitShrinkAttempts > 0 ? { outputLimitShrinkAttempts } : {}),
 				...(overBudgetFallback ? { overBudgetFallback: true } : {}),
 			};
@@ -6085,6 +6111,7 @@ export class BotRuntime {
 							compactionReasoning,
 						)
 					: {
+							compactionReasoning,
 							content: deterministicCompactionSummary('', recentActivity),
 						};
 				break;
@@ -6097,8 +6124,10 @@ export class BotRuntime {
 					providerRows = reducedRows;
 					continue;
 				}
+				const failedReasoning = failedCompactionReasoningDiagnostic(error);
 				this.replaceEventPayload(summaryEvent, {
 					...compactionEventPayload,
+					...(failedReasoning ? { compactionReasoning: failedReasoning } : {}),
 					status: 'failed',
 					error: runtimeErrorText(error),
 				});
@@ -6138,6 +6167,7 @@ export class BotRuntime {
 		}
 		this.replaceEventPayload(summaryEvent, {
 			...compactionEventPayload,
+			compactionReasoning: compactionReasoningDiagnostic(response.compactionReasoning),
 			status: 'complete',
 			summary,
 			summaryMessageSeq: summaryMessage.seq,

@@ -3,6 +3,7 @@ import type { CompactionReasoningFloor } from '@bickr/shared/openrouter-model-ca
 export type FrozenCompactionReasoningFallbackResolution =
 	| { kind: 'absent' }
 	| { kind: 'matched'; learnedFloor: CompactionReasoningFloor }
+	| { kind: 'unrecognized' }
 	| { kind: 'stale' };
 
 export function compactionReasoningLearnedFloorFromFrozenState(
@@ -21,5 +22,10 @@ export function compactionReasoningLearnedFloorFromFrozenState(
 			learnedFloor: { kind: 'explicit_effort', effort: 'minimal' },
 		};
 	}
-	return { kind: 'stale' };
+	// Only an explicit different model proves that the frozen record is stale.
+	// Preserve same-model and malformed records byte-for-byte; repairing or
+	// deleting unrecognized persisted state on read would hide its writer bug.
+	return typeof stored.model === 'string' && stored.model !== model
+		? { kind: 'stale' }
+		: { kind: 'unrecognized' };
 }

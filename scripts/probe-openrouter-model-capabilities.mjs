@@ -63,7 +63,7 @@ const pinnedCapabilityEntries = new Map([
 			cacheControl: false,
 			compactionReasoning: {
 				support: { kind: "unknown" },
-				modelDefault: { kind: "provider_default" },
+				modelDefault: { kind: "provider_default", relativeOrder: "unknown" },
 			},
 		},
 	],
@@ -388,27 +388,43 @@ export function compactionReasoningCapabilitiesFromModelMetadata(model) {
 	const supportedParametersObserved = Array.isArray(model?.supportedParameters);
 	const supportsReasoningParameter = stringArray(model?.supportedParameters).includes("reasoning");
 	const hasSupportedEfforts = Object.prototype.hasOwnProperty.call(reasoning, "supported_efforts");
-	const observedEfforts = reasoning.supported_efforts === null && hasSupportedEfforts
-		? [...compactionReasoningEfforts].sort((left, right) => left.localeCompare(right))
-		: Array.isArray(reasoning.supported_efforts)
-		? uniqueStrings(reasoning.supported_efforts)
+	let support;
+	if (reasoning.supported_efforts === null && hasSupportedEfforts) {
+		// OpenRouter defines null as accepting every gateway effort value. Store
+		// the intersection with Phase 2's modelled ladder; see the models API docs:
+		// https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties
+		support = { kind: "known", efforts: [...compactionReasoningEfforts].sort((left, right) => left.localeCompare(right)) };
+	} else if (Array.isArray(reasoning.supported_efforts)) {
+		const observedEffortValues = uniqueStrings(reasoning.supported_efforts);
+		const observedModelledEfforts = observedEffortValues
 			.filter((effort) => compactionReasoningEfforts.has(effort))
-			.sort((left, right) => left.localeCompare(right))
-		: null;
-	const support = observedEfforts === null
-		? reasoningValue === null || reasoningValue === undefined
-			? !supportedParametersObserved || supportsReasoningParameter
-				? { kind: "unknown" }
-				: { kind: "unsupported" }
-			: { kind: "unknown" }
-		: observedEfforts.length > 0
-			? { kind: "known", efforts: observedEfforts }
+			.sort((left, right) => left.localeCompare(right));
+		const hasUnmodelledEffort = observedEffortValues.some((effort) => !compactionReasoningEfforts.has(effort));
+		if (reasoning.supported_efforts.length === 0) {
+			support = { kind: "unsupported" };
+		} else if (observedEffortValues.length === 0) {
+			support = { kind: "unknown" };
+		} else if (hasUnmodelledEffort) {
+			support = { kind: "partially_known", efforts: observedModelledEfforts };
+		} else {
+			support = { kind: "known", efforts: observedModelledEfforts };
+		}
+	} else if (reasoningValue === null || reasoningValue === undefined) {
+		support = !supportedParametersObserved || supportsReasoningParameter
+			? { kind: "unknown" }
 			: { kind: "unsupported" };
+	} else {
+		support = { kind: "unknown" };
+	}
 	const defaultEffort = stringValue(reasoning.default_effort);
 	const modelDefault = defaultEffort && compactionReasoningEfforts.has(defaultEffort)
 		? { kind: "explicit_effort", effort: defaultEffort }
+		: defaultEffort === "max"
+			? { kind: "provider_default", relativeOrder: "above_xhigh" }
+			: defaultEffort === "none" || (!defaultEffort && reasoning.default_enabled === false)
+				? { kind: "provider_default", relativeOrder: "below_minimal" }
 		: Object.keys(reasoning).length > 0 || supportsReasoningParameter
-			? { kind: "provider_default" }
+			? { kind: "provider_default", relativeOrder: "unknown" }
 			: { kind: "absent" };
 	return { support, modelDefault };
 }
@@ -635,11 +651,12 @@ export function generatedTableText(entries) {
 		"export type GeneratedCompactionReasoningCapabilities = {",
 		"\tsupport:",
 		"\t\t| { kind: \"known\"; efforts: readonly GeneratedCompactionReasoningEffort[] }",
+		"\t\t| { kind: \"partially_known\"; efforts: readonly GeneratedCompactionReasoningEffort[] }",
 		"\t\t| { kind: \"unknown\" }",
 		"\t\t| { kind: \"unsupported\" };",
 		"\tmodelDefault:",
 		"\t\t| { kind: \"absent\" }",
-		"\t\t| { kind: \"provider_default\" }",
+		"\t\t| { kind: \"provider_default\"; relativeOrder: \"below_minimal\" | \"above_xhigh\" | \"unknown\" }",
 		"\t\t| { kind: \"explicit_effort\"; effort: GeneratedCompactionReasoningEffort };",
 		"};",
 		"",

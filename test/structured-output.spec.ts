@@ -26,6 +26,35 @@ import type {
 	BotInferenceSubmissionMessage,
 	ProviderToolDefinition,
 } from "./helpers/index-harness";
+import type { CompactionReasoningDiagnostic } from "../workers/agent-runtime/src/errors";
+
+type CompactionProviderResult = {
+	compactionReasoning: CompactionReasoningDiagnostic;
+	content: string;
+	requestBody?: string;
+};
+
+const customProviderInitialCompactionReasoningDiagnostic = {
+	selection: { kind: "reasoning_disabled" },
+	provenance: {
+		baselineSelection: { kind: "reasoning_disabled" },
+		configuration: null,
+		learnedFloor: null,
+		modelDefault: { kind: "explicit_effort", effort: "minimal" },
+		policySource: "custom_provider",
+		safetyFloor: { kind: "reasoning_disabled" },
+		support: "unknown",
+	},
+} as const satisfies CompactionReasoningDiagnostic;
+
+const customProviderRetryLearnedCompactionReasoningDiagnostic = {
+	...customProviderInitialCompactionReasoningDiagnostic,
+	selection: { kind: "explicit_effort", effort: "minimal" },
+	provenance: {
+		...customProviderInitialCompactionReasoningDiagnostic.provenance,
+		learnedFloor: { kind: "explicit_effort", effort: "minimal" },
+	},
+} as const satisfies CompactionReasoningDiagnostic;
 
 // TODO(#12): move next to module on extraction.
 describe("Structured output", () => {
@@ -366,7 +395,7 @@ describe("Structured output", () => {
 			fetchMock.mockResolvedValueOnce(new Response(unsupportedBody, { status: 400 }));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-					const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 						appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
 							events.push({ type, payload });
 							return {
@@ -391,7 +420,7 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+					callProviderForCompaction: (...args: unknown[]) => Promise<CompactionProviderResult>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const settings = {
@@ -413,6 +442,7 @@ describe("Structured output", () => {
 				const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { reasoning?: unknown };
 				expect(firstBody.reasoning).toEqual({ effort: "none", exclude: false });
 				expect(secondBody.reasoning).toEqual({ effort: "minimal", exclude: false });
+				expect(response.compactionReasoning).toMatchObject(customProviderRetryLearnedCompactionReasoningDiagnostic);
 				expect([...runtimeState.values()][0]).toMatchObject({
 					model: "openai/gpt-5.1-codex-mini",
 					mode: "minimal",
@@ -427,6 +457,7 @@ describe("Structured output", () => {
 					type: "provider_retry",
 					payload: expect.objectContaining({
 						attempt: 2,
+						compactionReasoning: customProviderRetryLearnedCompactionReasoningDiagnostic,
 						compactionReasoningFallback: {
 							from: { kind: "reasoning_disabled" },
 							to: { kind: "explicit_effort", effort: "minimal" },
@@ -453,6 +484,29 @@ describe("Structured output", () => {
 				expect(cachedBody.reasoning).toEqual({ effort: "minimal", exclude: false });
 				expect(runtimeState.size).toBe(1);
 
+				const fallbackStateKey = [...runtimeState.keys()][0];
+				if (!fallbackStateKey) {
+					throw new Error("Expected the frozen fallback state key.");
+				}
+				const unrecognizedSameModelState = {
+					model: settings.model,
+					mode: "model_default",
+					preserved: true,
+				};
+				runtimeState.set(fallbackStateKey, unrecognizedSameModelState);
+				fetchMock.mockClear();
+				await callProviderForCompaction(
+					settings,
+					[{ role: "user", content: "Compact with same-model unrecognized state." }],
+					"run-compaction-unrecognized-frozen-state",
+					new AbortController().signal,
+					{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+				);
+				expect(fetchMock).toHaveBeenCalledTimes(1);
+				const unrecognizedStateBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { reasoning?: unknown };
+				expect(unrecognizedStateBody.reasoning).toEqual({ effort: "none", exclude: false });
+				expect(runtimeState.get(fallbackStateKey)).toEqual(unrecognizedSameModelState);
+
 				fetchMock.mockClear();
 				await callProviderForCompaction(
 					{ ...settings, model: "google/gemini-3.1-flash-lite-preview" },
@@ -466,7 +520,78 @@ describe("Structured output", () => {
 					expect(changedModelBody.model).toBe("google/gemini-3.1-flash-lite-preview");
 					expect(changedModelBody.reasoning).toEqual({ effort: "none", exclude: false });
 					expect(runtimeState.size).toBe(0);
-				} finally {
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("preserves retry-learned compaction reasoning on terminal provider failure", async () => {
+			const originalFetch = globalThis.fetch;
+			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+			const runtimeState = new Map<string, unknown>();
+			const unsupportedBody = JSON.stringify({
+				error: { message: "reasoning effort none is not supported for this model" },
+			});
+			const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>()
+				.mockResolvedValueOnce(new Response(unsupportedBody, { status: 400 }))
+				.mockResolvedValueOnce(new Response(unsupportedBody, { status: 400 }));
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: (_runId: string, type: string, payload: Record<string, unknown>) => {
+						events.push({ type, payload });
+						return {
+							seq: events.length,
+							runId: _runId,
+							type,
+							payload,
+							tokenEstimate: 0,
+							createdAt: new Date().toISOString(),
+						};
+					},
+					runtimeStateRecord: (key: string) => {
+						const value = runtimeState.get(key);
+						return value && typeof value === "object" && !Array.isArray(value)
+							? value as Record<string, unknown>
+							: undefined;
+					},
+					deleteRuntimeState: (key: string) => runtimeState.delete(key),
+					setRuntimeState: (key: string, value: unknown) => runtimeState.set(key, value),
+					throwIfStopped: vi.fn(),
+				});
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<CompactionProviderResult>;
+				}).callProviderForCompaction.bind(runtime);
+
+				let thrown: unknown;
+				try {
+					await callProviderForCompaction(
+						{
+							baseUrl: customProviderBaseUrl,
+							model: "openai/gpt-5.1-codex-mini",
+							temperature: 0.2,
+						},
+						[{ role: "user", content: "Compact the retained activity." }],
+						"run-compaction-reasoning-fallback-failed",
+						new AbortController().signal,
+						{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+					);
+				} catch (error) {
+					thrown = error;
+				}
+
+				expect(fetchMock).toHaveBeenCalledTimes(2);
+				expect(events).toContainEqual({
+					type: "provider_retry",
+					payload: expect.objectContaining({
+						compactionReasoning: customProviderRetryLearnedCompactionReasoningDiagnostic,
+					}),
+				});
+				expect(thrown).toMatchObject({
+					name: "ProviderCompactionRequestError",
+					compactionReasoning: customProviderRetryLearnedCompactionReasoningDiagnostic,
+				});
+			} finally {
 				vi.stubGlobal("fetch", originalFetch);
 			}
 		});
@@ -1347,7 +1472,7 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+					callProviderForCompaction: (...args: unknown[]) => Promise<CompactionProviderResult>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const response = await callProviderForCompaction(
@@ -1361,6 +1486,7 @@ describe("Structured output", () => {
 				);
 
 				expect(response.content).toBe("I remember the important parts.");
+				expect(response.compactionReasoning).toMatchObject(customProviderInitialCompactionReasoningDiagnostic);
 				expect(fetchMock).toHaveBeenCalledTimes(2);
 				const repairedBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
 				expect(repairedBody.messages).toEqual(expect.arrayContaining([

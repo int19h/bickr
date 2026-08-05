@@ -14,7 +14,7 @@ describe('frozen compaction reasoning fallback state', () => {
 		});
 	});
 
-	it('distinguishes absent state from a stale model without normalizing the stored shape', () => {
+	it('marks only a record for a different model as stale', () => {
 		expect(compactionReasoningLearnedFloorFromFrozenState(undefined, 'local/model')).toEqual({ kind: 'absent' });
 		expect(compactionReasoningLearnedFloorFromFrozenState({
 			model: 'old/model',
@@ -23,6 +23,9 @@ describe('frozen compaction reasoning fallback state', () => {
 		expect(compactionReasoningLearnedFloorFromFrozenState({
 			model: 'local/model',
 			mode: 'model_default',
-		}, 'local/model')).toEqual({ kind: 'stale' });
+		}, 'local/model')).toEqual({ kind: 'unrecognized' });
+		expect(compactionReasoningLearnedFloorFromFrozenState({
+			mode: 'minimal',
+		}, 'local/model')).toEqual({ kind: 'unrecognized' });
 	});
 });

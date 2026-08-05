@@ -34,12 +34,16 @@ export type CompactionReasoningFloor = BotCompactionReasoningRequest;
 
 export type CompactionReasoningEffortSupport =
 	| { kind: "known"; efforts: readonly CompactionReasoningEffort[] }
+	| { kind: "partially_known"; efforts: readonly CompactionReasoningEffort[] }
 	| { kind: "unknown" }
 	| { kind: "unsupported" };
 
 export type CompactionReasoningModelDefault =
 	| { kind: "absent" }
-	| { kind: "provider_default" }
+	| {
+			kind: "provider_default";
+			relativeOrder: "below_minimal" | "above_xhigh" | "unknown";
+	  }
 	| { kind: "explicit_effort"; effort: CompactionReasoningEffort };
 
 export type CompactionReasoningCapabilities = {
@@ -81,6 +85,10 @@ export type CompactionReasoningRefusal =
 			requiredEffort: CompactionReasoningEffort;
 	  }
 	| {
+			kind: "model_default_order_unknown_for_required_effort";
+			requiredEffort: CompactionReasoningEffort;
+	  }
+	| {
 			kind: "no_supported_effort";
 			required: Extract<CompactionReasoningSelection, { kind: "model_default" | "explicit_effort" }>;
 			supportedEfforts: readonly CompactionReasoningEffort[];
@@ -113,7 +121,7 @@ const conservativeOpenRouterModelCapabilities = {
 	cacheControl: false,
 	compactionReasoning: {
 		support: { kind: "unknown" },
-		modelDefault: { kind: "provider_default" },
+		modelDefault: { kind: "provider_default", relativeOrder: "unknown" },
 	},
 } as const satisfies OpenRouterModelCapabilities;
 
@@ -166,7 +174,7 @@ const generatedOpenRouterModelCapabilities = validatedGeneratedCapabilitiesMap()
 // schema path can repeat the input instead of producing a reducing summary.
 // It can also mask compaction reasoning=none rejection as an internal server
 // error when OpenRouter server tools are present, so the compaction plan should
-// select the model default (currently minimal) before constructing that request.
+// select the registry-owned model default before constructing that request.
 const xiaomiFp8ProviderRoute = "xiaomi/fp8";
 const providerSelectionRoutingKeys = ["only", "order"] as const;
 
@@ -280,10 +288,6 @@ export function resolveCompactionReasoningSelection(input: {
 	const joinedFloor = [input.request, input.learnedFloor]
 		.filter((floor): floor is CompactionReasoningFloor => floor !== undefined)
 		.reduce(strongerCompactionReasoningFloor, input.policy.floor);
-	const requiredSelection = compactionReasoningSelection(
-		joinedFloor,
-		modelDefaultEffort(modelDefaultCompactionReasoningSelection(input.capabilities.modelDefault)),
-	);
 	const provenance: CompactionReasoningProvenance = {
 		configuration: input.request ?? null,
 		modelDefault: input.capabilities.modelDefault,
@@ -293,9 +297,18 @@ export function resolveCompactionReasoningSelection(input: {
 		support: input.capabilities.support.kind,
 		policySource: input.policy.source,
 	};
-	if (sameCompactionReasoningFloor(joinedFloor, input.policy.floor)) {
+	if (sameCompactionReasoningFloor(joinedFloor, input.policy.floor) && joinedFloor.kind !== "explicit_effort") {
 		return selectedCompactionReasoningResolution(input.policy.selection, input.policy.runtimeFallback, provenance);
 	}
+	const selectionResolution = compactionReasoningSelectionForJoinedFloor(joinedFloor, input.capabilities.modelDefault);
+	if (selectionResolution.kind === "refused") {
+		return {
+			kind: "refused",
+			refusal: selectionResolution.refusal,
+			provenance,
+		};
+	}
+	const requiredSelection = selectionResolution.selection;
 
 	if (requiredSelection.kind === "reasoning_disabled") {
 		return selectedCompactionReasoningResolution(requiredSelection, input.policy.runtimeFallback, provenance);
@@ -317,27 +330,31 @@ export function resolveCompactionReasoningSelection(input: {
 
 	const requiredEffort = requiredSelection.effort;
 	switch (input.capabilities.support.kind) {
-		case "known": {
+		case "known":
+		case "partially_known": {
 			const effort = leastSupportedCompactionReasoningEffortAtOrAbove(
 				input.capabilities.support.efforts,
 				requiredEffort,
 			);
-			if (!effort) {
-				return {
-					kind: "refused",
-					refusal: {
-						kind: "no_supported_effort",
-						required: requiredSelection,
-						supportedEfforts: orderedCompactionReasoningEfforts(input.capabilities.support.efforts),
-					},
+			if (effort) {
+				return selectedCompactionReasoningResolution(
+					{ kind: "explicit_effort", effort },
+					{ kind: "none" },
 					provenance,
-				};
+				);
 			}
-			return selectedCompactionReasoningResolution(
-				{ kind: "explicit_effort", effort },
-				{ kind: "none" },
+			if (input.capabilities.support.kind === "partially_known") {
+				return unknownCompactionReasoningSupportResolution(requiredSelection, input.learnedFloor, provenance);
+			}
+			return {
+				kind: "refused",
+				refusal: {
+					kind: "no_supported_effort",
+					required: requiredSelection,
+					supportedEfforts: orderedCompactionReasoningEfforts(input.capabilities.support.efforts),
+				},
 				provenance,
-			);
+			};
 		}
 		case "unsupported":
 			return {
@@ -345,22 +362,8 @@ export function resolveCompactionReasoningSelection(input: {
 				refusal: { kind: "no_supported_effort", required: requiredSelection, supportedEfforts: [] },
 				provenance,
 			};
-		case "unknown": {
-			const learnedEffort = input.learnedFloor?.kind === "explicit_effort"
-				? input.learnedFloor.effort
-				: undefined;
-			if (
-				learnedEffort &&
-				compactionReasoningEffortRank(learnedEffort) >= compactionReasoningEffortRank(requiredEffort)
-			) {
-				return selectedCompactionReasoningResolution(requiredSelection, { kind: "none" }, provenance);
-			}
-			return {
-				kind: "refused",
-				refusal: { kind: "support_unknown_for_required_effort", requiredEffort },
-				provenance,
-			};
-		}
+		case "unknown":
+			return unknownCompactionReasoningSupportResolution(requiredSelection, input.learnedFloor, provenance);
 		default:
 			return unreachableCompactionReasoningValue(input.capabilities.support);
 	}
@@ -591,6 +594,54 @@ function compactionReasoningSelection(
 	}
 }
 
+function compactionReasoningSelectionForJoinedFloor(
+	floor: CompactionReasoningFloor,
+	modelDefault: CompactionReasoningModelDefault,
+):
+	| { kind: "selected"; selection: CompactionReasoningSelection }
+	| {
+			kind: "refused";
+			refusal: Extract<CompactionReasoningRefusal, { kind: "model_default_order_unknown_for_required_effort" }>;
+	  } {
+	switch (floor.kind) {
+		case "reasoning_disabled":
+			return { kind: "selected", selection: { kind: "reasoning_disabled" } };
+		case "model_default":
+			return { kind: "selected", selection: modelDefaultCompactionReasoningSelection(modelDefault) };
+		case "explicit_effort":
+			switch (modelDefault.kind) {
+				case "absent":
+					return { kind: "selected", selection: { kind: "explicit_effort", effort: floor.effort } };
+				case "explicit_effort":
+					return {
+						kind: "selected",
+						selection: compactionReasoningSelection(floor, modelDefault.effort),
+					};
+				case "provider_default":
+					switch (modelDefault.relativeOrder) {
+						case "below_minimal":
+							return { kind: "selected", selection: { kind: "explicit_effort", effort: floor.effort } };
+						case "above_xhigh":
+							return { kind: "selected", selection: modelDefaultCompactionReasoningSelection(modelDefault) };
+						case "unknown":
+							return {
+								kind: "refused",
+								refusal: {
+									kind: "model_default_order_unknown_for_required_effort",
+									requiredEffort: floor.effort,
+								},
+							};
+						default:
+							return unreachableCompactionReasoningValue(modelDefault.relativeOrder);
+					}
+				default:
+					return unreachableCompactionReasoningValue(modelDefault);
+			}
+		default:
+			return unreachableCompactionReasoningValue(floor);
+	}
+}
+
 function compactionReasoningPolicy(input: {
 	floor: CompactionReasoningFloor;
 	knownFailure?: CompactionReasoningPolicy["knownFailure"];
@@ -599,7 +650,7 @@ function compactionReasoningPolicy(input: {
 	source: CompactionReasoningPolicy["source"];
 }): CompactionReasoningPolicy {
 	const modelDefaultSelection = modelDefaultCompactionReasoningSelection(input.modelDefault);
-	const selection = compactionReasoningSelection(input.floor, modelDefaultEffort(modelDefaultSelection));
+	const selection = baselineCompactionReasoningSelection(input.floor, input.modelDefault);
 	return {
 		floor: input.floor,
 		...(input.knownFailure ? { knownFailure: input.knownFailure } : {}),
@@ -613,6 +664,25 @@ function compactionReasoningPolicy(input: {
 		selection,
 		source: input.source,
 	};
+}
+
+function baselineCompactionReasoningSelection(
+	floor: CompactionReasoningFloor,
+	modelDefault: CompactionReasoningModelDefault,
+): CompactionReasoningSelection {
+	if (floor.kind !== "explicit_effort") {
+		return compactionReasoningSelection(floor, modelDefaultEffort(modelDefaultCompactionReasoningSelection(modelDefault)));
+	}
+	if (modelDefault.kind === "explicit_effort") {
+		return compactionReasoningSelection(floor, modelDefault.effort);
+	}
+	if (modelDefault.kind === "provider_default" && modelDefault.relativeOrder === "above_xhigh") {
+		return modelDefaultCompactionReasoningSelection(modelDefault);
+	}
+	// An incomparable default is resolved by the canonical operation. Retain
+	// the settled policy selection here as baseline evidence, never as proof
+	// that the explicit floor dominates that default.
+	return { kind: "explicit_effort", effort: floor.effort };
 }
 
 function modelDefaultCompactionReasoningSelection(
@@ -646,7 +716,28 @@ function selectedCompactionReasoningResolution(
 function supportedCompactionReasoningEfforts(
 	support: CompactionReasoningEffortSupport,
 ): readonly CompactionReasoningEffort[] {
-	return support.kind === "known" ? orderedCompactionReasoningEfforts(support.efforts) : [];
+	return support.kind === "known" || support.kind === "partially_known"
+		? orderedCompactionReasoningEfforts(support.efforts)
+		: [];
+}
+
+function unknownCompactionReasoningSupportResolution(
+	required: Extract<CompactionReasoningSelection, { kind: "explicit_effort" }>,
+	learnedFloor: CompactionReasoningFloor | undefined,
+	provenance: CompactionReasoningProvenance,
+): CompactionReasoningResolution {
+	const learnedEffort = learnedFloor?.kind === "explicit_effort" ? learnedFloor.effort : undefined;
+	if (
+		learnedEffort &&
+		compactionReasoningEffortRank(learnedEffort) >= compactionReasoningEffortRank(required.effort)
+	) {
+		return selectedCompactionReasoningResolution(required, { kind: "none" }, provenance);
+	}
+	return {
+		kind: "refused",
+		refusal: { kind: "support_unknown_for_required_effort", requiredEffort: required.effort },
+		provenance,
+	};
 }
 
 function leastSupportedCompactionReasoningEffortAtOrAbove(
@@ -673,16 +764,16 @@ function validatedGeneratedCapabilities(
 		throw new Error(`Generated OpenRouter capability model id is not normalized: ${JSON.stringify(model)}`);
 	}
 	const support = capabilities.compactionReasoning.support;
-	if (support.kind === "known") {
+	if (support.kind === "known" || support.kind === "partially_known") {
 		const ordered = orderedCompactionReasoningEfforts(support.efforts);
-		if (ordered.length === 0) {
+		if (support.kind === "known" && ordered.length === 0) {
 			throw new Error(`Generated OpenRouter capability ${model} has an empty known compaction effort set.`);
 		}
 		if (ordered.length !== support.efforts.length) {
 			throw new Error(`Generated OpenRouter capability ${model} has duplicate compaction efforts.`);
 		}
 		const modelDefault = capabilities.compactionReasoning.modelDefault;
-		if (modelDefault.kind === "explicit_effort" && !support.efforts.includes(modelDefault.effort)) {
+		if (support.kind === "known" && modelDefault.kind === "explicit_effort" && !support.efforts.includes(modelDefault.effort)) {
 			throw new Error(`Generated OpenRouter capability ${model} has a default compaction effort outside its support set.`);
 		}
 	}
