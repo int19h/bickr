@@ -36,6 +36,7 @@ import {
 	legacyImageCompatibilityFieldMask,
 	legacyInferenceCompatibilityFieldMask,
 	legacyInferenceCompatibilityFieldMaskIsEmpty,
+	legacyModelCouplesLinkedCloneProvider,
 	type LegacyInferenceCompatibilityFieldMask,
 } from '@bickr/shared/inference-configuration-legacy';
 import {
@@ -1578,9 +1579,12 @@ async function projectLegacyInferenceCompatibilityWrite(
 		const selected = (await loadInferenceConfigurationPath(context.env.BICKR_D1, ownerUserId, configurationId))[0];
 		// One bounded lookup answers both linked-clone barriers below: the local
 		// model made the whole local bundle live, so neither the base URL nor the
-		// credential may fall back through the source bot.
+		// credential may fall back through the source bot. A model transition
+		// carries that intent for the credential too, so the same write that moves
+		// the base URL barrier moves the credential with it.
 		const linkedClone = write.kind === 'bot' && await isLinkedCloneBot(context.env.BICKR_D1, write.entityId);
-		const credential = write.kind !== 'world' && fieldMask.credential
+		const credential = write.kind !== 'world'
+			&& (fieldMask.credential || legacyModelCouplesLinkedCloneProvider(fieldMask, { linkedClone }))
 			? legacyCompatibilityCredentialUpdate(write, linkedClone)
 			: undefined;
 		await updateInferenceConfiguration(context.env.BICKR_D1, ownerUserId, {

@@ -53,7 +53,7 @@ describe("legacy inference compatibility intent", () => {
 		expect(legacyImageCompatibilityFieldMask(null).fields).toEqual(account.fields);
 	});
 
-	it("resumes a linked local-model clone base URL at Account default instead of its source", () => {
+	it("moves the linked-clone base URL barrier with every model transition the request states", () => {
 		const mask = legacyInferenceCompatibilityFieldMask({ model: "clone/model", baseUrl: null });
 		expect(mask.fields).toEqual(["baseUrl", "model"]);
 
@@ -74,9 +74,33 @@ describe("legacy inference compatibility intent", () => {
 			.toEqual({ baseUrl: { kind: "inherit" }, model: { kind: "inherit" } });
 		expect(inferenceOverridePatchFromLegacyBotSettingsMask({ model: "bot/model" }, mask, { linkedClone: false }))
 			.toEqual({ baseUrl: { kind: "inherit" }, model: { kind: "value", value: "bot/model" } });
-		// A write that never mentioned the base URL does not invent intent for it.
+		// The model field alone carries the whole bundle's intent, because legacy
+		// gated the clone's provider fallbacks on it.
 		const modelOnly = legacyInferenceCompatibilityFieldMask({ model: "clone/model" });
 		expect(inferenceOverridePatchFromLegacyBotSettingsMask({ model: "clone/model" }, modelOnly, { linkedClone: true }))
-			.toEqual({ model: { kind: "value", value: "clone/model" } });
+			.toEqual({ baseUrl: { kind: "account_default" }, model: { kind: "value", value: "clone/model" } });
+		expect(inferenceOverridePatchFromLegacyBotSettingsMask(
+			{ model: "clone/model", baseUrl: "https://clone.example/v1" },
+			modelOnly,
+			{ linkedClone: true },
+		)).toEqual({
+			baseUrl: { kind: "value", value: "https://clone.example/v1" },
+			model: { kind: "value", value: "clone/model" },
+		});
+		// Clearing the model returns the newly dormant clone to its source path.
+		const clearedModel = legacyInferenceCompatibilityFieldMask({ model: null });
+		expect(inferenceOverridePatchFromLegacyBotSettingsMask({}, clearedModel, { linkedClone: true }))
+			.toEqual({ baseUrl: { kind: "inherit" }, model: { kind: "inherit" } });
+		// A write that never mentioned the model says nothing about the bundle, so
+		// it restates the merged model without touching either barrier.
+		const unrelated = legacyInferenceCompatibilityFieldMask({ temperature: 0.25 });
+		expect(inferenceOverridePatchFromLegacyBotSettingsMask(
+			{ model: "clone/model", temperature: 0.25 },
+			unrelated,
+			{ linkedClone: true },
+		)).toEqual({
+			model: { kind: "value", value: "clone/model" },
+			temperature: { kind: "value", value: 0.25 },
+		});
 	});
 });

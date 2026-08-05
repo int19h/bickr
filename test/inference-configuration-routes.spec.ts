@@ -106,6 +106,31 @@ describe("inference configuration runtime routes", () => {
 		expect(badCursor.status).toBe(400);
 	});
 
+	it("returns a typed 400 when an owner PATCH stores the Account-default state on Account default", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const path = `/inference-configurations/${encodeURIComponent(rootId)}`;
+		const baseUrlMisuse = await routePayload(path, {
+			method: "PATCH",
+			body: { expectedRevision: 1, overrides: { baseUrl: { kind: "account_default" } } },
+		});
+		expect(baseUrlMisuse.status).toBe(400);
+		expect(baseUrlMisuse.body.error).toBe("bad_request");
+		// The sibling credential misuse already answered 400; both now agree.
+		const credentialMisuse = await routePayload(path, {
+			method: "PATCH",
+			body: { expectedRevision: 1, credential: { mode: "account_default" } },
+		});
+		expect(credentialMisuse.status).toBe(400);
+		expect(credentialMisuse.body.error).toBe("bad_request");
+		// Both rejections were atomic, so the entry is still at its first revision
+		// and an allowed patch against that revision succeeds.
+		const accepted = await routePayload(path, {
+			method: "PATCH",
+			body: { expectedRevision: 1, overrides: { baseUrl: { kind: "value", value: "https://account.example/v1" } } },
+		});
+		expect(accepted.status).toBe(200);
+	});
+
 	it("wires q through parent candidates and children, and reports the unfiltered child total", async () => {
 		const rootId = await accountDefaultConfigurationId(ownerId);
 		const alpha = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, { name: "Alpha parent", parentId: rootId }, now);
@@ -158,9 +183,19 @@ function configurationsPage(body: RouteEnvelope): ConfigurationsPage {
 	return page as ConfigurationsPage;
 }
 
-async function routePayload(path: string): Promise<{ status: number; body: RouteEnvelope }> {
+async function routePayload(
+	path: string,
+	init: { method?: string; body?: unknown } = {},
+): Promise<{ status: number; body: RouteEnvelope }> {
 	const response = await handleAgentRuntimeRequest(
-		new Request(`https://agent.internal/users/${ownerId}${path}`, { headers: { "x-bickr-user-id": ownerId } }),
+		new Request(`https://agent.internal/users/${ownerId}${path}`, {
+			...(init.method ? { method: init.method } : {}),
+			headers: {
+				"x-bickr-user-id": ownerId,
+				...(init.body === undefined ? {} : { "content-type": "application/json" }),
+			},
+			...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+		}),
 		testEnv as never,
 		{ objectId: "route-test-coordinator", ownerUserId: ownerId },
 	);

@@ -694,11 +694,26 @@ describe("inference configuration D1 repository", () => {
 	it("refuses the Account-default base URL state on Account default in the writer and in D1", async () => {
 		const rootId = await accountDefaultConfigurationId(ownerId);
 		const root = (await loadInferenceConfigurationPath(testEnv.BICKR_D1, ownerId, rootId))[0];
+		// The writer is a public mutation boundary, so misuse is a typed 400 and
+		// matches the sibling Account-default credential rejection.
 		await expect(inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
 			configurationId: rootId,
 			expectedRevision: root.revision,
 			overrides: { baseUrl: { kind: "account_default" } },
-		}, now)).rejects.toMatchObject({ kind: "invalid_overrides" });
+		}, now)).rejects.toMatchObject({ code: "bad_request", status: 400 });
+		await expect(inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: rootId,
+			expectedRevision: root.revision,
+			credential: { mode: "account_default" },
+		}, now)).rejects.toMatchObject({ code: "bad_request", status: 400 });
+		expect((await loadInferenceConfigurationPath(testEnv.BICKR_D1, ownerId, rootId))[0].revision).toBe(root.revision);
+		// Stored corruption keeps its own untyped data error rather than a 400.
+		expect(() => insertAccountDefaultConfigurationStatement(testEnv.BICKR_D1, {
+			configurationId: rootId,
+			ownerUserId: ownerId,
+			now,
+			overrides: { baseUrl: { kind: "account_default" } },
+		})).toThrow(expect.objectContaining({ kind: "invalid_overrides" }));
 		await expect(testEnv.BICKR_D1.prepare(
 			`UPDATE inference_configurations SET overrides_json = ? WHERE configuration_id = ?`,
 		).bind(JSON.stringify({ baseUrl: { kind: "account_default" } }), rootId).run()).rejects.toThrow();

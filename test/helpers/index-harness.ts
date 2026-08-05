@@ -522,7 +522,8 @@ export type {
 	WorldSummary,
 };
 
-export type RouteParams = Record<string, string>;
+/** A catch-all Pages route binds its segment list, so a value can be an array. */
+export type RouteParams = Record<string, string | string[]>;
 
 export const customProviderBaseUrl = "http://localhost:11434/v1";
 

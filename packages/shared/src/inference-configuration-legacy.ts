@@ -191,11 +191,28 @@ export function inferenceOverridePatchFromLegacySettingsMask(
 }
 
 /**
- * Participant variant of the masked patch. A linked clone whose local model is
- * set never inherited its source's provider fields, so an absent local base URL
- * means "resume at Account default", not "continue through the source". This
- * mirrors the credential intent the same write already stores and the barrier
- * the migration applies to the whole local bundle.
+ * A linked clone's provider bundle was model-gated as one unit: a local model
+ * stopped the clone from consulting its source for base URL and credential, and
+ * clearing that model made the whole local bundle dormant again. A legacy
+ * request that carries the model field therefore states intent for the whole
+ * bundle even when it names neither URL nor key, so both barriers must move
+ * with it. Requests that leave the model field out say nothing about the
+ * bundle and must not disturb either barrier.
+ */
+export function legacyModelCouplesLinkedCloneProvider(
+	mask: LegacyInferenceCompatibilityFieldMask,
+	context: { linkedClone: boolean },
+): boolean {
+	return context.linkedClone && mask.fields.includes("model");
+}
+
+/**
+ * Participant variant of the masked patch. Under the coupling above an active
+ * local model means "explicit local URL, else resume at Account default" rather
+ * than "continue through the source", and a cleared model returns the field to
+ * the source path the dormant clone read again. This mirrors the credential
+ * intent the same write stores and the barrier the migration applies to the
+ * whole local bundle.
  */
 export function inferenceOverridePatchFromLegacyBotSettingsMask(
 	settings: Partial<BotInferenceSettings> | BotInferenceSettingsInput | null | undefined,
@@ -203,8 +220,11 @@ export function inferenceOverridePatchFromLegacyBotSettingsMask(
 	context: { linkedClone: boolean },
 ): InferenceConfigurationOverridePatch {
 	const patch = inferenceOverridePatchFromLegacySettingsMask(settings, mask);
-	if (!context.linkedClone || !settings?.model?.trim() || !mask.fields.includes("baseUrl")) return patch;
-	return settings.baseUrl?.trim() ? patch : { ...patch, baseUrl: { kind: "account_default" } };
+	if (!legacyModelCouplesLinkedCloneProvider(mask, context)) return patch;
+	if (!settings?.model?.trim()) return { ...patch, baseUrl: { kind: "inherit" } };
+	return settings.baseUrl?.trim()
+		? { ...patch, baseUrl: { kind: "value", value: settings.baseUrl } }
+		: { ...patch, baseUrl: { kind: "account_default" } };
 }
 
 export function inferenceOverridePatchFromLegacyImageSettings(

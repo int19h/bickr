@@ -3,6 +3,7 @@ import { deterministicId, makeId } from "./ids";
 import {
 	applyInferenceOverridePatch,
 	assertInferenceOverridesAllowedForKind,
+	InferenceConfigurationDataError,
 	inferenceConfigurationCorruptionSentinel,
 	inferenceConfigurationFields,
 	inferenceConfigurationOwnerQuota,
@@ -1479,7 +1480,7 @@ async function updateConfiguration(
 	now = new Date().toISOString(),
 ): Promise<InferenceConfigurationNode> {
 	const current = (await loadInferenceConfigurationPath(db, ownerUserId, input.configurationId))[0];
-	if (input.overrides) assertInferenceOverridesAllowedForKind(current.kind, input.overrides);
+	if (input.overrides) assertMutationOverridesAllowedForKind(current.kind, input.overrides);
 	const overrides = input.overrides ? applyInferenceOverridePatch(current.overrides, input.overrides) : current.overrides;
 	const statements = [db.prepare(
 		`UPDATE inference_configurations SET overrides_json = ?, revision = revision + 1, updated_at = ?
@@ -1697,6 +1698,27 @@ async function assertOwnerQuota(db: D1DatabaseLike, ownerUserId: string): Promis
 	).bind(ownerUserId).first<{ count: number }>();
 	if ((row?.count ?? 0) >= inferenceConfigurationOwnerQuota) {
 		throw new InferenceGraphRepositoryError("quota_exceeded", "Inference configuration quota reached.");
+	}
+}
+
+/**
+ * Mutation input reaches this writer straight from a public request body, so an
+ * override state the target kind cannot hold is caller error, not corruption.
+ * Only this boundary reclassifies it: stored rows, the DDL statement builders,
+ * and the resolver keep raising the untyped data error so a graph that already
+ * holds an impossible state still surfaces as a server fault.
+ */
+function assertMutationOverridesAllowedForKind(
+	kind: InferenceConfigurationKind,
+	overrides: InferenceConfigurationOverridePatch,
+): void {
+	try {
+		assertInferenceOverridesAllowedForKind(kind, overrides);
+	} catch (error) {
+		if (error instanceof InferenceConfigurationDataError) {
+			throw new RepositoryError("bad_request", error.message, 400);
+		}
+		throw error;
 	}
 }
 

@@ -693,7 +693,125 @@ describe("restartable inference graph migration", () => {
 		});
 	}
 
-	it("stores the Account-default base URL barrier from a legacy linked-clone compatibility write", async () => {
+	const cloneActivationWrites = [
+		{ name: "a model-only legacy write", settings: { model: "clone/written-model" } },
+		{ name: "a legacy write that also clears the base URL", settings: { model: "clone/written-model", baseUrl: null } },
+	] as const;
+
+	for (const activation of cloneActivationWrites) {
+		it(`couples both linked-clone barriers for ${activation.name}`, async () => {
+			await seedOwnerInferenceSettings({ openRouterApiKey: "account-secret" });
+			await seedWorldWithoutImageSettings();
+			const source = migrationBot("bot_w_source", "writer-source", {
+				model: "source/model",
+				baseUrl: "https://source.example/v1",
+				openRouterApiKey: "source-only-secret",
+			});
+			const clone = migrationBot("bot_w_clone", "writer-clone", {}, source);
+			await seedBot(source);
+			await seedBot(clone);
+			await seedLinkedClone(clone, source);
+			await migrateToCutover(deploymentEnv);
+
+			const cloneConfigurationId = await botConfigurationId(clone.id);
+			expect(await configurationOverrides(cloneConfigurationId)).toEqual({});
+			await leaveMaintenance();
+			expect(await patchBotInferenceSettings(clone.id, activation.settings)).toBe(200);
+
+			// The local model made the whole local bundle live, so neither barrier
+			// may still route through the source even though the legacy request
+			// named no URL and no key.
+			expect(await configurationOverrides(cloneConfigurationId)).toMatchObject({
+				model: { kind: "value", value: "clone/written-model" },
+				baseUrl: { kind: "account_default" },
+			});
+			expect(await credential(cloneConfigurationId)).toEqual({
+				mode: "account_default",
+				secretValue: null,
+				secretVersion: 0,
+			});
+
+			const canonical = await canonicalBotInference(testEnv.BICKR_D1, ownerId, clone.id, deploymentEnv);
+			const legacy = await legacyProviderSettings(await storedBotInferenceSettings(clone.id));
+			expect(canonical?.providerSettings.baseUrl).toBe(legacy.baseUrl);
+			expect(canonical?.providerSettings.model).toBe(legacy.model);
+			expect(canonical?.providerSettings.model).toBe("clone/written-model");
+			expect(canonical?.providerSettings.apiKey).toBe(legacy.apiKey);
+			expect(canonical?.providerSettings.apiKey).toBe("account-secret");
+			// The source base URL and key stay unreachable from the clone.
+			expect(canonical?.providerSettings.baseUrl).not.toBe("https://source.example/v1");
+			expect(canonical?.providerSettings.apiKey).not.toBe("source-only-secret");
+		});
+	}
+
+	it("returns both linked-clone barriers to the source when a legacy write clears the local model", async () => {
+		await seedOwnerInferenceSettings({ openRouterApiKey: "account-secret" });
+		await seedWorldWithoutImageSettings();
+		const source = migrationBot("bot_w_source", "writer-source", {
+			model: "source/model",
+			baseUrl: "https://source.example/v1",
+			openRouterApiKey: "source-only-secret",
+		});
+		const clone = migrationBot("bot_w_clone", "writer-clone", { model: "clone/local-model" }, source);
+		await seedBot(source);
+		await seedBot(clone);
+		await seedLinkedClone(clone, source);
+		await migrateToCutover(deploymentEnv);
+
+		const cloneConfigurationId = await botConfigurationId(clone.id);
+		expect(await configurationOverrides(cloneConfigurationId)).toMatchObject({ baseUrl: { kind: "account_default" } });
+		expect((await credential(cloneConfigurationId))?.mode).toBe("account_default");
+		await leaveMaintenance();
+		expect(await patchBotInferenceSettings(clone.id, { model: null })).toBe(200);
+
+		// The clone is dormant again, so the states that bypassed the source must
+		// not survive the transition that ended the local bundle. An inherited
+		// field is stored as an absent key.
+		const dormantOverrides = await configurationOverrides(cloneConfigurationId);
+		expect(dormantOverrides).not.toHaveProperty("model");
+		expect(dormantOverrides).not.toHaveProperty("baseUrl");
+		expect((await credential(cloneConfigurationId))?.mode).toBe("inherit");
+
+		const canonical = await canonicalBotInference(testEnv.BICKR_D1, ownerId, clone.id, deploymentEnv);
+		// A dormant linked clone read its source's whole bundle, so the source
+		// document is what legacy resolution saw through the clone.
+		const legacy = await legacyProviderSettings(source.inferenceSettings);
+		expect(canonical?.providerSettings.baseUrl).toBe(legacy.baseUrl);
+		expect(canonical?.providerSettings.baseUrl).toBe("https://source.example/v1");
+		expect(canonical?.providerSettings.model).toBe(legacy.model);
+		expect(canonical?.providerSettings.apiKey).toBe(legacy.apiKey);
+		expect(canonical?.providerSettings.apiKey).toBe("source-only-secret");
+	});
+
+	it("keeps a linked clone's own key when a model-only legacy write activates it", async () => {
+		await seedOwnerInferenceSettings({ openRouterApiKey: "account-secret" });
+		await seedWorldWithoutImageSettings();
+		const source = migrationBot("bot_w_source", "writer-source", {
+			model: "source/model",
+			baseUrl: "https://source.example/v1",
+			openRouterApiKey: "source-only-secret",
+		});
+		const clone = migrationBot("bot_w_clone", "writer-clone", { openRouterApiKey: "clone-secret" }, source);
+		await seedBot(source);
+		await seedBot(clone);
+		await seedLinkedClone(clone, source);
+		await migrateToCutover(deploymentEnv);
+
+		const cloneConfigurationId = await botConfigurationId(clone.id);
+		await leaveMaintenance();
+		expect(await patchBotInferenceSettings(clone.id, { model: "clone/written-model" })).toBe(200);
+
+		// Coupling the credential barrier must not discard a local key the legacy
+		// request never mentioned.
+		expect(await configurationOverrides(cloneConfigurationId)).toMatchObject({ baseUrl: { kind: "account_default" } });
+		expect(await credential(cloneConfigurationId)).toMatchObject({ mode: "value", secretValue: "clone-secret" });
+		const canonical = await canonicalBotInference(testEnv.BICKR_D1, ownerId, clone.id, deploymentEnv);
+		const legacy = await legacyProviderSettings(await storedBotInferenceSettings(clone.id));
+		expect(canonical?.providerSettings.apiKey).toBe(legacy.apiKey);
+		expect(canonical?.providerSettings.apiKey).toBe("clone-secret");
+	});
+
+	it("leaves both linked-clone barriers alone on a legacy write that omits the model", async () => {
 		await seedOwnerInferenceSettings({ openRouterApiKey: "account-secret" });
 		await seedWorldWithoutImageSettings();
 		const source = migrationBot("bot_w_source", "writer-source", {
@@ -708,23 +826,10 @@ describe("restartable inference graph migration", () => {
 		await migrateToCutover(deploymentEnv);
 
 		const cloneConfigurationId = await botConfigurationId(clone.id);
-		expect(await configurationOverrides(cloneConfigurationId)).toEqual({});
-		await testEnv.BICKR_D1.prepare(
-			`UPDATE maintenance_control SET enabled = 0, activated_at = NULL, updated_at = ? WHERE id = 1`,
-		).bind("2026-08-04T00:03:00.000Z").run();
-		const response = await handleAgentRuntimeRequest(new Request(
-			`https://agent.internal/users/${ownerId}/bots/${clone.id}`,
-			{
-				method: "PATCH",
-				headers: { "content-type": "application/json", "x-bickr-user-id": ownerId },
-				body: JSON.stringify({ inferenceSettings: { model: "clone/written-model", baseUrl: null } }),
-			},
-		), testEnv, { objectId: "user-coordinator-test", ownerUserId: ownerId });
-		expect(response.status).toBe(200);
-		expect(await configurationOverrides(cloneConfigurationId)).toMatchObject({
-			model: { kind: "value", value: "clone/written-model" },
-			baseUrl: { kind: "account_default" },
-		});
+		await leaveMaintenance();
+		expect(await patchBotInferenceSettings(clone.id, { temperature: 0.25 })).toBe(200);
+
+		expect(await configurationOverrides(cloneConfigurationId)).toEqual({ temperature: { kind: "value", value: 0.25 } });
 		expect((await credential(cloneConfigurationId))?.mode).toBe("inherit");
 	});
 
@@ -754,6 +859,38 @@ async function migrateToCutover(env: Record<string, unknown>): Promise<void> {
 		);
 	}
 	expect(result).toMatchObject({ complete: true, phase: "terminal", writerVersion: 1, cutoverVersion: 1 });
+}
+
+async function leaveMaintenance(): Promise<void> {
+	await testEnv.BICKR_D1.prepare(
+		`UPDATE maintenance_control SET enabled = 0, activated_at = NULL, updated_at = ? WHERE id = 1`,
+	).bind("2026-08-04T00:03:00.000Z").run();
+}
+
+async function patchBotInferenceSettings(botId: string, inferenceSettings: Record<string, unknown>): Promise<number> {
+	const response = await handleAgentRuntimeRequest(new Request(
+		`https://agent.internal/users/${ownerId}/bots/${botId}`,
+		{
+			method: "PATCH",
+			headers: { "content-type": "application/json", "x-bickr-user-id": ownerId },
+			body: JSON.stringify({ inferenceSettings }),
+		},
+	), testEnv, { objectId: "user-coordinator-test", ownerUserId: ownerId });
+	return response.status;
+}
+
+async function storedBotInferenceSettings(botId: string): Promise<BotDocument["inferenceSettings"]> {
+	const bot = await readJson<BotDocument>(testEnv.BICKR_KV, kvKeys.bot(botId));
+	if (!bot) throw new Error(`Expected a stored participant document for ${botId}.`);
+	return bot.inferenceSettings;
+}
+
+async function legacyProviderSettings(settings: BotDocument["inferenceSettings"]) {
+	return resolveBotProviderSettings(
+		{ inferenceSettings: settings },
+		{ inferenceSettings: (await ownerDocument()).inferenceSettings },
+		providerEnvironmentSettingsFromBindings(deploymentEnv),
+	).settings;
 }
 
 async function ownerDocument(): Promise<UserDocument> {
