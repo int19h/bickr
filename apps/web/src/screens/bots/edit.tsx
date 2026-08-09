@@ -15,7 +15,7 @@ import { useContext, useEffect, useState } from "react";
 import { isOpenRouterProviderBaseUrl } from "@bickr/shared/inference-settings";
 import { api } from "../../api";
 import { OpenRouterServerToolFields } from "../../components/openrouter-tool-fields";
-import { ConfigurationLinkCard, useFixedConfiguration } from "../../inference/links";
+import { BotInferenceConfigurationAction, useFixedConfiguration } from "../../inference/links";
 import { LanguageField, RenameHandleModal, textLang } from "../../components/form-fields";
 import { TimeAgoLabel } from "../../components/record-display";
 import { BotSourceValue, Reference, type WorldView } from "../../components/content";
@@ -355,8 +355,11 @@ export function BotEdit({
 					<section className="section">
 						<div className="section-head">
 							<h2>Posting</h2>
-							<span className="meta">soft body limits</span>
+							<span className="meta">this participant only</span>
 						</div>
+						<p className="help">
+							These posting limits apply only to this participant and are not part of its reusable inference configuration.
+						</p>
 						<div className="field-row">
 							<Field help="Blank inherits the world limit." label="Thread body characters">
 								<div className="input-suffix">
@@ -398,8 +401,11 @@ export function BotEdit({
 					<section className="section">
 						<div className="section-head">
 							<h2>Agentic Loop</h2>
-							<span className="meta">owner tools</span>
+							<span className="meta">this participant only</span>
 						</div>
+						<p className="help">
+							These loop schedules, budgets, limits, and recurring-prompt controls apply only to this participant and are not part of its reusable inference configuration.
+						</p>
 						<div className="card runtime-card agentic-loop-card">
 							<div className="field-row">
 								<Field
@@ -599,18 +605,30 @@ export function BotEdit({
 						</div>
 					</section>
 
-					<ConfigurationLinkCard
-						description="Provider, model, loop, compaction, and image inference for this participant live in its inference configuration."
-						returnTo={{ route: "bot-edit", worldHandle: bot.homeWorldHandle, botHandle: bot.handle }}
-						state={configuration}
-						title="Inference configuration"
-					/>
+					<section className="section">
+						<div className="section-head">
+							<h2>Inference configuration</h2>
+							<span className="meta">reusable inference</span>
+						</div>
+						<p className="help">
+							Provider, model, loop, compaction, and image inference for this participant live in its reusable configuration.
+						</p>
+						<BotInferenceConfigurationAction
+							botHandle={bot.handle}
+							botId={bot.id}
+							state={configuration}
+							worldHandle={bot.homeWorldHandle}
+						/>
+					</section>
 
 					<section className="section">
 						<div className="section-head">
 							<h2>OpenRouter Server Tools</h2>
-							<span className="meta">opt-in per participant</span>
+							<span className="meta">this participant only</span>
 						</div>
+						<p className="help">
+							These tool permissions apply only to this participant and are not part of its reusable inference configuration.
+						</p>
 						<OpenRouterServerToolFields
 							available={openRouterServerToolsAvailable}
 							draft={draft.tools}

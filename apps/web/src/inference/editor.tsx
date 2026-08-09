@@ -1,7 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { InferenceConfigurationField } from "@bickr/shared/inference-configuration";
 import type {
-	EffectiveImageSettings,
 	InferenceConfigurationSummary,
 	InferenceDeleteImpact,
 	InferenceImmediateChildrenPage,
@@ -34,8 +33,6 @@ import {
 	type InferenceFieldSuggestion,
 } from "./fields";
 import {
-	compactionRequestedText,
-	compactionReasoningEffectiveText,
 	draftMapFromFields,
 	draftsChanged,
 	effectiveValueText,
@@ -502,8 +499,6 @@ export function InferenceConfigurationEditorScreen({
 						<h2>{group.title}</h2>
 					</div>
 					<p className="help">{group.description}</p>
-					{group.key === "compaction" && <CompactionSummary dto={dto} />}
-					{group.key === "image" && <ImagePreviews previews={dto.imagePreviews} />}
 					<div className="inference-field-grid">
 						{group.fields.map((field) => (
 							<InferenceField
@@ -677,61 +672,6 @@ export function conflictingFieldLabels(
 	return inferenceEditorFields
 		.filter((field) => !sameDraft(drafts[field], draftFromOverride(field, server.fields[field].override)))
 		.map((field) => inferenceFieldLabels[field]);
-}
-
-function CompactionSummary({ dto }: { dto: RedactedInferenceConfigurationDto }) {
-	const adjustment = dto.fields.compactionReasoning.adjustment;
-	const resolution = adjustment && adjustment.kind === "compaction_policy" ? adjustment.resolution : undefined;
-	return (
-		<div className="card runtime-card inference-compaction-summary">
-			<div className="runtime-row">
-				<span className="label">Requested</span>
-				<span className="value">{compactionRequestedText(dto)}</span>
-			</div>
-			<div className="runtime-row">
-				<span className="label">Effective</span>
-				<span className="value">{compactionReasoningEffectiveText(resolution)}</span>
-			</div>
-			{resolution && (
-				<div className="runtime-row">
-					<span className="label">Contributors</span>
-					<span className="value">
-						{`configuration ${resolution.provenance.configuration ? "requested" : "inherited"}, model default ${resolution.provenance.modelDefault.kind}, safety floor ${resolution.provenance.safetyFloor.kind}${
-							resolution.provenance.learnedFloor ? ", learned runtime floor" : ""
-						}`}
-					</span>
-				</div>
-			)}
-		</div>
-	);
-}
-
-function ImagePreviews({ previews }: { previews: { participant: EffectiveImageSettings; world: EffectiveImageSettings } }) {
-	return (
-		<div className="inference-image-previews">
-			<ImagePreview label="Participant and account avatars" settings={previews.participant} />
-			<ImagePreview label="World avatars" settings={previews.world} />
-		</div>
-	);
-}
-
-function ImagePreview({ label, settings }: { label: string; settings: EffectiveImageSettings }) {
-	return (
-		<div className="card runtime-card">
-			<div className="runtime-row">
-				<span className="label">{label}</span>
-				<span className="value">{settings.model ?? "no image model"}</span>
-			</div>
-			<div className="runtime-row">
-				<span className="label">Aspect ratio</span>
-				<span className="value">{settings.aspectRatio ?? "provider default"}</span>
-			</div>
-			<div className="runtime-row">
-				<span className="label">Image size</span>
-				<span className="value">{settings.imageSize ?? "provider default"}</span>
-			</div>
-		</div>
-	);
 }
 
 export function impactWarningText(warning: InferenceImpactWarning): string {

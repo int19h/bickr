@@ -7972,17 +7972,6 @@ button.avatar-large-preview:not(:disabled),
 	gap: 6px;
 }
 
-.inference-image-previews,
-.inference-compaction-summary {
-	margin-bottom: 12px;
-}
-
-.inference-image-previews {
-	display: grid;
-	gap: 12px;
-	grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-}
-
 .inference-impact-warnings {
 	color: var(--ink-3);
 	font-size: calc(12px * var(--font-scale));

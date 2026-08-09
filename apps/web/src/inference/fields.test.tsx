@@ -207,6 +207,30 @@ describe("text and number inheritance controls", () => {
 		);
 		expect(html).toContain("Requested Require; this model or provider uses Railroad.");
 	});
+
+	it("shows a raised compaction request beside its effective value and source", () => {
+		const resolution = {
+			kind: "selected",
+			selection: { kind: "explicit_effort", effort: "xhigh" },
+			runtimeFallback: { kind: "none" },
+			provenance: {
+				configuration: { kind: "explicit_effort", effort: "high" },
+				modelDefault: { kind: "absent" },
+				safetyFloor: { kind: "explicit_effort", effort: "xhigh" },
+				learnedFloor: null,
+				baselineSelection: { kind: "model_default" },
+				support: "known",
+				policySource: "openrouter_generated",
+			},
+		} as const;
+		const html = render(
+			"compactionReasoning",
+			{ mode: "explicit", state: "value", text: "high" },
+			dto({ effective: resolution, adjustment: { kind: "compaction_policy", resolution } }),
+		);
+		expect(html).toContain("Effective xhigh from Account default");
+		expect(html).toContain("Requested high; compaction policy applies xhigh because of the safety floor.");
+	});
 });
 
 describe("credential control", () => {

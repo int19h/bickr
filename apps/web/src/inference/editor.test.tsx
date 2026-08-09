@@ -22,6 +22,7 @@ import {
 	staleConflict,
 } from "./editor";
 import {
+	adjustmentText,
 	compactionRequestedText,
 	draftMapFromFields,
 	inferenceEditorFields,
@@ -250,8 +251,8 @@ describe("refresh decision", () => {
 	});
 });
 
-describe("compaction reasoning summary", () => {
-	it("reports the configuration request separately from the applied effort", () => {
+describe("compaction reasoning adjustment", () => {
+	it("explains a raised configuration request inline", () => {
 		const fields = fieldMap();
 		fields.compactionReasoning = {
 			override: { kind: "value", value: { kind: "explicit_effort", effort: "high" } },
@@ -275,7 +276,12 @@ describe("compaction reasoning summary", () => {
 				},
 			},
 		} as RedactedInferenceConfigurationDto["fields"]["compactionReasoning"];
-		expect(compactionRequestedText({ fields } as RedactedInferenceConfigurationDto)).toBe("high");
+		const policy = fields.compactionReasoning.adjustment;
+		if (!policy || policy.kind !== "compaction_policy") throw new Error("Expected compaction policy fixture.");
+		expect(compactionRequestedText(policy.resolution)).toBe("high");
+		expect(adjustmentText("compactionReasoning", policy)).toBe(
+			"Requested high; compaction policy applies xhigh because of the safety floor.",
+		);
 	});
 });
 
@@ -296,7 +302,7 @@ describe("model completions", () => {
 		]);
 	});
 
-	it("labels image models and follows the resolved image model for ratios and sizes", () => {
+	it("retains image previews as the source for image-field suggestions", () => {
 		const suggestions = fieldSuggestions(dto, [{ id: "img/one", name: "Image One" }]);
 		expect(suggestions.imageModel).toEqual([{ value: "img/one", label: "Image One (img/one)" }]);
 		expect(suggestions.imageAspectRatio?.length).toBeGreaterThan(0);

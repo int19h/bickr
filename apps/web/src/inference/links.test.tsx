@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { RedactedInferenceConfigurationDto } from "@bickr/shared/inference-configuration-owner";
 import { fixedConfigurationPath } from "./api";
-import { ConfigurationCardBody, ConfigurationLinkCard } from "./links";
+import { BotInferenceConfigurationAction, ConfigurationCardBody, ConfigurationLinkCard } from "./links";
 import { inferenceEditorFields } from "./field-model";
 
 function dto(): RedactedInferenceConfigurationDto {
@@ -110,5 +110,70 @@ describe("configuration link card", () => {
 			/>,
 		);
 		expect(html).toContain("Participant not found.");
+	});
+});
+
+describe("bot inference configuration action", () => {
+	it("renders a named disabled action while the fixed configuration is loading", () => {
+		const html = renderToStaticMarkup(
+			<BotInferenceConfigurationAction
+				botHandle="scout"
+				botId="bot_scout"
+				state={{ configuration: null, error: null, loading: true, reload: () => undefined }}
+				worldHandle="patch-notes"
+			/>,
+		);
+		expect(html).toContain("Open inference configuration for u/scout");
+		expect(html).toMatch(/<button[^>]*disabled=""/);
+		expect(html).not.toContain("href=");
+	});
+
+	it("keeps the action disabled and explains an unavailable graph", () => {
+		const html = renderToStaticMarkup(
+			<BotInferenceConfigurationAction
+				botHandle="scout"
+				botId="bot_scout"
+				state={{
+					configuration: null,
+					error: { ok: false, error: "conflict", message: "Inference configuration graph is not available for this account." },
+					loading: false,
+					reload: () => undefined,
+				}}
+				worldHandle="patch-notes"
+			/>,
+		);
+		expect(html).toContain("Open inference configuration for u/scout");
+		expect(html).toMatch(/<button[^>]*disabled=""/);
+		expect(html).toContain("has not been moved onto inference configurations yet");
+	});
+
+	it("uses the loaded configuration id and preserves bot-editor return navigation", () => {
+		const html = renderToStaticMarkup(
+			<BotInferenceConfigurationAction
+				botHandle="scout"
+				botId="bot_scout"
+				state={{ configuration: dto(), error: null, loading: false, reload: () => undefined }}
+				worldHandle="patch-notes"
+			/>,
+		);
+		expect(html).toContain(
+			'href="/me/inference/cfg_bot?from=%2Fw%2Fpatch-notes%2Fu%2Fscout%2Fedit"',
+		);
+		expect(html).toContain("Open inference configuration for u/scout");
+		expect(html).not.toContain("<button");
+	});
+
+	it("keeps a configuration loaded for a different bot disabled and non-navigable", () => {
+		const html = renderToStaticMarkup(
+			<BotInferenceConfigurationAction
+				botHandle="other"
+				botId="bot_other"
+				state={{ configuration: dto(), error: null, loading: false, reload: () => undefined }}
+				worldHandle="patch-notes"
+			/>,
+		);
+		expect(html).toContain("Open inference configuration for u/other");
+		expect(html).toMatch(/<button[^>]*disabled=""/);
+		expect(html).not.toContain("href=");
 	});
 });

@@ -69,7 +69,10 @@ describe("BotEdit inference boundary", () => {
 	it("links the participant's configuration instead of editing reusable inference", () => {
 		const markup = render();
 		expect(markup).toContain("Inference configuration");
-		expect(markup).toContain("live in its inference configuration");
+		expect(markup).toContain("Open inference configuration for u/scout");
+		expect(markup).not.toContain("Effective model");
+		expect(markup).not.toContain(">Parent<");
+		expect(markup).not.toContain(">Credential<");
 		expect(markup).not.toContain("Inference: Agentic Loop");
 		expect(markup).not.toContain("Inference Provider");
 		expect(markup).not.toContain("OpenRouter API key");
@@ -100,6 +103,14 @@ describe("BotEdit inference boundary", () => {
 		]) {
 			expect(markup).toContain(label);
 		}
+		for (const copy of [
+			"These posting limits apply only to this participant and are not part of its reusable inference configuration.",
+			"These loop schedules, budgets, limits, and recurring-prompt controls apply only to this participant and are not part of its reusable inference configuration.",
+			"These tool permissions apply only to this participant and are not part of its reusable inference configuration.",
+		]) {
+			expect(markup).toContain(copy);
+		}
+		expect(markup.match(/this participant only/g)).toHaveLength(3);
 		expect(markup).toContain("I check the feed.");
 	});
 });
