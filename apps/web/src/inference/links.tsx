@@ -5,6 +5,7 @@ import type {
 } from "@bickr/shared/inference-configuration-owner";
 import type { ApiFailure } from "../api";
 import type { InferenceReturnTarget } from "../routes";
+import { SpaLink } from "../components/navigation";
 import { fixedConfigurationPath, inferenceGraphUnavailable } from "./api";
 import { api } from "../api";
 import { ConfigurationLink, KindBadge } from "./summary";
@@ -94,6 +95,53 @@ export function ConfigurationLinkCard({
 				<ConfigurationCardBody configuration={state.configuration} returnTo={returnTo} />
 			) : null}
 		</section>
+	);
+}
+
+/**
+ * The participant editor deliberately exposes one action instead of repeating
+ * the reusable configuration's model, parent, and credential summary. The
+ * configuration address always comes from the loaded owner DTO; the handle is
+ * presentation and return-navigation state only.
+ */
+export function BotInferenceConfigurationAction({
+	botHandle,
+	state,
+	worldHandle,
+}: {
+	botHandle: string;
+	state: FixedConfigurationState;
+	worldHandle: string;
+}) {
+	const label = `Open inference configuration for u/${botHandle}`;
+	const action = !state.loading && state.configuration ? (
+		<SpaLink
+			className="btn primary"
+			to={{
+				route: "inference-configuration",
+				configurationId: state.configuration.id,
+				returnTo: { route: "bot-edit", worldHandle, botHandle },
+			}}
+		>
+			{label}
+		</SpaLink>
+	) : (
+		<button className="btn primary" disabled type="button">{label}</button>
+	);
+
+	return (
+		<>
+			{action}
+			{state.loading ? (
+				<div className="runtime-message">Loading the linked configuration...</div>
+			) : state.error ? (
+				<div className="runtime-message error">
+					{inferenceGraphUnavailable(state.error)
+						? "This account has not been moved onto inference configurations yet."
+						: state.error.message}
+				</div>
+			) : null}
+		</>
 	);
 }
 

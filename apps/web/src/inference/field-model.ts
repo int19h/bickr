@@ -14,7 +14,6 @@ import {
 	numericInferenceFieldDomains,
 	type InferenceConfigurationPathEntry,
 	type NumericInferenceFieldDomain,
-	type RedactedInferenceConfigurationDto,
 	type RedactedInferenceFieldDtoMap,
 } from "@bickr/shared/inference-configuration-owner";
 
@@ -411,17 +410,54 @@ export function adjustmentText(field: InferenceConfigurationField, adjustment: I
 			return null;
 		case "capability_adjustment":
 			return `Requested ${effectiveValueText(field, adjustment.requested)}; this model or provider uses ${effectiveValueText(field, adjustment.effective)}.`;
-		case "compaction_policy":
-			return compactionRefusalText(adjustment.resolution);
+		case "compaction_policy": {
+			const resolution = adjustment.resolution;
+			if (resolution.kind === "refused") return compactionRefusalText(resolution);
+			const requested = resolution.provenance.configuration;
+			if (!requested || compactionSelectionsMatch(requested, resolution.selection)) return null;
+			return `Requested ${compactionRequestedText(resolution)}; compaction policy applies ${compactionSelectionText(resolution.selection)} because of ${compactionPolicyContributors(resolution)}.`;
+		}
 	}
 }
 
 /** Requested value for compaction reasoning, independent of the applied policy. */
-export function compactionRequestedText(dto: RedactedInferenceConfigurationDto): string {
-	const adjustment = dto.fields.compactionReasoning.adjustment;
-	if (!adjustment || adjustment.kind !== "compaction_policy") return "inherited";
-	const configuration = adjustment.resolution.provenance.configuration;
+export function compactionRequestedText(resolution: CompactionReasoningResolution): string {
+	const configuration = resolution.provenance.configuration;
 	return configuration ? compactionSelectionText(configuration as CompactionReasoningSelection) : "not requested";
+}
+
+function compactionSelectionsMatch(
+	requested: CompactionReasoningSelection,
+	effective: CompactionReasoningSelection,
+): boolean {
+	if (requested.kind !== effective.kind) return false;
+	return requested.kind !== "explicit_effort" ||
+		(effective.kind === "explicit_effort" && requested.effort === effective.effort);
+}
+
+function compactionPolicyContributors(
+	resolution: Extract<CompactionReasoningResolution, { kind: "selected" }>,
+): string {
+	const contributors: string[] = [];
+	const { provenance, selection } = resolution;
+	if (compactionSelectionsMatch(provenance.safetyFloor, selection)) contributors.push("the safety floor");
+	if (provenance.learnedFloor && compactionSelectionsMatch(provenance.learnedFloor, selection)) {
+		contributors.push("the learned runtime floor");
+	}
+	if (
+		(provenance.modelDefault.kind === "explicit_effort" &&
+			selection.kind === "explicit_effort" &&
+			provenance.modelDefault.effort === selection.effort) ||
+		(provenance.modelDefault.kind === "provider_default" && selection.kind === "model_default")
+	) {
+		contributors.push("the model default");
+	}
+	if (contributors.length === 0 && compactionSelectionsMatch(provenance.baselineSelection, selection)) {
+		contributors.push("the model or provider policy");
+	}
+	if (contributors.length === 0) return "the policy floor and supported effort levels";
+	if (contributors.length === 1) return contributors[0] ?? "the compaction policy";
+	return `${contributors.slice(0, -1).join(", ")} and ${contributors.at(-1)}`;
 }
 
 /**
