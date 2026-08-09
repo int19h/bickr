@@ -9,13 +9,13 @@
 import type {
 	InferenceConfigurationField,
 	InferenceConfigurationKind,
-	InferenceConfigurationOverrides,
 	InferenceCredentialMode,
 	InferenceCredentialResolution,
 	InferenceCredentialUnavailableReason,
 	InferenceFieldAdjustment,
 	InferenceOverrideUpdate,
 	InferenceSource,
+	OwnerInferenceConfigurationOverrides,
 } from "./inference-configuration";
 import type { EffectiveImageSettings } from "./inference-configuration";
 
@@ -178,7 +178,7 @@ type RedactedInferenceConfigurationDtoBase = {
 	parentId: string | null;
 	displayName: string;
 	revision: number;
-	overrides: InferenceConfigurationOverrides;
+	overrides: OwnerInferenceConfigurationOverrides;
 	credential: {
 		mode: InferenceCredentialMode;
 		available: boolean;

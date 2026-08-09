@@ -127,6 +127,17 @@ describe("inference configuration runtime routes", () => {
 		});
 		expect(credentialMisuse.status).toBe(400);
 		expect(credentialMisuse.body.error).toBe("bad_request");
+		const provenanceMisuse = await routePayload(path, {
+			method: "PATCH",
+			body: { expectedRevision: 1, overrides: {
+				imageModel: {
+					kind: "historical_bickr_default",
+					value: "google/gemini-3.1-flash-image-preview",
+				},
+			} },
+		});
+		expect(provenanceMisuse.status).toBe(400);
+		expect(provenanceMisuse.body.error).toBe("bad_request");
 		// Both rejections were atomic, so the entry is still at its first revision
 		// and an allowed patch against that revision succeeds.
 		const accepted = await routePayload(path, {

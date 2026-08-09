@@ -3,8 +3,10 @@ import {
 	applyInferenceOverridePatch,
 	assertInferenceOverridesAllowedForKind,
 	inferenceResolutionFingerprint,
+	ownerInferenceOverride,
 	parseInferenceConfigurationOverridePatch,
 	parseInferenceConfigurationOverrides,
+	parseStoredInferenceConfigurationOverrides,
 	resolveImageSettingsForTarget,
 	resolveInferenceConfiguration,
 	type InferenceConfigurationNode,
@@ -223,6 +225,50 @@ describe("canonical inference configuration resolution", () => {
 			"participant",
 		);
 		expect(customPreview).toEqual({ model: "owner/custom-image-model" });
+	});
+
+	it("round-trips only an exact historical Bickr image default with Bickr provenance", () => {
+		const historicalModel = "google/gemini-3.1-flash-image-preview";
+		const stored = parseStoredInferenceConfigurationOverrides(JSON.stringify({
+			imageModel: { kind: "historical_bickr_default", value: historicalModel },
+		}));
+		expect(stored).toEqual({
+			imageModel: { kind: "historical_bickr_default", value: historicalModel },
+		});
+		expect(() => parseInferenceConfigurationOverrides(stored)).toThrow("Invalid override for inference field imageModel");
+		expect(() => parseInferenceConfigurationOverridePatch(stored)).toThrow("Invalid override for inference field imageModel");
+		for (const nearMiss of [
+			"Google/gemini-3.1-flash-image-preview",
+			"google/gemini-3.1-flash-image-preview:free",
+			"google/gemini-3.1-flash-image-preview ",
+		]) {
+			expect(() => parseStoredInferenceConfigurationOverrides({
+				imageModel: { kind: "historical_bickr_default", value: nearMiss },
+			})).toThrow("Invalid override for inference field imageModel");
+		}
+
+		const account = node("account", "account_default", null, {});
+		const selected = node("selected", "custom", account.id, stored);
+		const resolution = resolveInferenceConfiguration([selected, account], {
+			defaults: {
+				fields: { baseUrl: "https://deployment.example/v1", model: "deployment/model", temperature: 1 },
+				credential: "deployment-secret",
+				credentialVersion: 1,
+			},
+		});
+		expect(resolution.raw.imageModel).toMatchObject({
+			state: "value",
+			value: historicalModel,
+			source: { kind: "bickr_default" },
+			override: { kind: "historical_bickr_default", value: historicalModel },
+		});
+		expect(resolveImageSettingsForTarget(resolution.effective.image, "participant").model).toBe(historicalModel);
+		expect(ownerInferenceOverride(stored.imageModel)).toEqual({ kind: "value", value: historicalModel });
+
+		expect(applyInferenceOverridePatch(stored, { temperature: value(0.25) }).imageModel).toEqual(stored.imageModel);
+		expect(applyInferenceOverridePatch(stored, { imageModel: value(historicalModel) }).imageModel).toEqual(stored.imageModel);
+		expect(applyInferenceOverridePatch(stored, { imageModel: value("owner/new-image") }).imageModel)
+			.toEqual({ kind: "value", value: "owner/new-image" });
 	});
 
 	it("validates the discriminated storage and update protocols exhaustively", () => {
