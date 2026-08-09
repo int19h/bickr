@@ -32,7 +32,9 @@ import { sha256Hex } from "./ids";
 import { readMaintenanceState } from "./maintenance";
 import {
 	avatarImageGenerationSettingsWithDefaults,
+	defaultAvatarImageGenerationSettings,
 	defaultTextGenerationTemperature,
+	defaultWorldAvatarImageGenerationSettings,
 	worldAvatarImageGenerationSettingsWithDefaults,
 	type BotDocument,
 	type BotImageGenerationSettings,
@@ -260,7 +262,7 @@ async function migrateWorldBatch(env: InferenceGraphMigrationEnv, operation: Mig
 			parentId: rootId,
 			worldId: row.worldId,
 			now,
-			overrides: legacyImageMigrationOverrides(storedImage),
+			overrides: legacyImageMigrationOverrides(storedImage, { target: "world" }),
 		}));
 	}
 	const cursor = rows.at(-1)?.worldId ?? operation.worldCursor;
@@ -402,10 +404,10 @@ function inferenceOverridesForLegacyBotMigration(
 	if (linkedClone) {
 		Object.assign(overrides, legacyImageMigrationOverrides(
 			settings.imageGeneration ?? ownerSettings?.imageGeneration,
-			true,
+			{ target: "participant", materializeWholeObject: true },
 		));
 	} else if (settings.imageGeneration) {
-		Object.assign(overrides, legacyImageMigrationOverrides(settings.imageGeneration));
+		Object.assign(overrides, legacyImageMigrationOverrides(settings.imageGeneration, { target: "participant" }));
 	}
 	return overrides;
 }
@@ -415,17 +417,27 @@ function inferenceOverridesForLegacySettingsMigration(
 ): InferenceConfigurationOverrides {
 	const overrides = inferenceOverridesFromLegacySettings(settings);
 	if (settings?.imageGeneration) {
-		Object.assign(overrides, legacyImageMigrationOverrides(settings.imageGeneration));
+		Object.assign(overrides, legacyImageMigrationOverrides(settings.imageGeneration, { target: "participant" }));
 	}
 	return overrides;
 }
 
 function legacyImageMigrationOverrides(
 	settings: BotImageGenerationSettings | undefined,
-	materializeWholeObject = false,
+	options: { target: AvatarInferenceTarget; materializeWholeObject?: boolean },
 ): InferenceConfigurationOverrides {
-	if (!settings && !materializeWholeObject) return {};
+	if (!settings && !options.materializeWholeObject) return {};
 	const overrides = inferenceOverridesFromLegacyImageSettings(settings);
+	const targetDefaults = options.target === "world"
+		? defaultWorldAvatarImageGenerationSettings
+		: defaultAvatarImageGenerationSettings;
+	// The legacy document did not distinguish a stored copy of Bickr's model
+	// default from selecting that model independently. Preserve its effective
+	// provenance: the deployment credential may authorize Bickr's default, while
+	// genuinely owner-selected models still require an owner provider.
+	if (settings?.model?.trim() === targetDefaults.model) {
+		overrides.imageModel = { kind: "target_default" };
+	}
 	for (const field of ["imageModel", "imageAspectRatio", "imageSize"] as const) {
 		overrides[field] ??= { kind: "target_default" };
 	}
@@ -573,7 +585,10 @@ async function verifyWorldParityBatch(env: InferenceGraphMigrationEnv, operation
 		if (!world || world.deletedAt || world.createdByUserId !== operation.ownerUserId ||
 			!node || node.kind !== "world" || node.worldId !== row.worldId || node.parentId !== rootId) migrationParityFailure();
 		const storedImage = parsedStoredObject(row.imageGenerationJson);
-		assertSameOverrides(node, legacyImageMigrationOverrides(storedImage as BotImageGenerationSettings | undefined));
+		assertSameOverrides(node, legacyImageMigrationOverrides(
+			storedImage as BotImageGenerationSettings | undefined,
+			{ target: "world" },
+		));
 		assertCredentialParity(node, undefined);
 		if (parityJson(storedImage ?? null) !== parityJson(world.imageGeneration ?? null)) migrationParityFailure();
 		const resolution = resolveInferenceConfiguration(inferenceConfigurationPathFromSnapshot(node, snapshot), { defaults });
