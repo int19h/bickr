@@ -819,33 +819,7 @@ async function inferenceCommand(ctx: CommandContext, args: string[]): Promise<vo
 		await printMutation(ctx, ctx.client.request(`/me/inference-configurations/${encodeURIComponent(id)}`, { body, method: "DELETE" }), "Inference configuration deleted.");
 		return;
 	}
-	if (subcommand === "translation") {
-		const action = requiredPosition(options.positionals, 0, "translation action");
-		if (action === "get") {
-			await printGenericEnvelope(ctx, ctx.client.request("/me/inference-translation"));
-			return;
-		}
-		if (action === "set") {
-			const body = await bodyFromFlags(options.flags, () => ({
-				configurationId: requiredFlag(options.flags, "configuration"),
-				expectedRevision: requiredIntegerFlag(options.flags, "revision"),
-			}));
-			await printMutation(ctx, ctx.client.request("/me/inference-translation", { body, method: "PUT" }), "Translation inference selection updated.");
-			return;
-		}
-		if (action === "candidates") {
-			const params = new URLSearchParams();
-			const query = flagString(options.flags, "query");
-			const cursor = flagString(options.flags, "cursor");
-			const limit = flagString(options.flags, "limit");
-			if (query) params.set("q", query);
-			if (cursor) params.set("cursor", cursor);
-			if (limit) params.set("limit", limit);
-			await printGenericEnvelope(ctx, ctx.client.request(`/me/inference-translation/candidates${params.size ? `?${params}` : ""}`));
-			return;
-		}
-	}
-	throw new CliUsageError("Usage: bickr inference <list|get|create|update|rename|reparent|parent-candidates|children|impact|delete|translation>");
+	throw new CliUsageError("Usage: bickr inference <list|get|create|update|rename|reparent|parent-candidates|children|impact|delete>");
 }
 
 async function apiCommand(ctx: CommandContext, args: string[]): Promise<void> {

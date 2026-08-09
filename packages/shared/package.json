@@ -24,6 +24,8 @@
 		"./inference-configuration-migration": "./src/inference-configuration-migration.ts",
 		"./inference-configuration-owner": "./src/inference-configuration-owner.ts",
 		"./inference-configuration-repository": "./src/inference-configuration-repository.ts",
+		"./inference-translation-role": "./src/inference-translation-role.ts",
+		"./inference-translation-role-migration": "./src/inference-translation-role-migration.ts",
 		"./index-versions": "./src/index-versions.ts",
 		"./index-repair": "./src/index-repair.ts",
 		"./internal-service": "./src/internal-service.ts",

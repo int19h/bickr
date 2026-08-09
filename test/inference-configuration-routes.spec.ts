@@ -4,8 +4,9 @@ import {
 	inferenceConfigurationMutations,
 	insertAccountDefaultConfigurationStatement,
 	insertFixedConfigurationStatement,
-	insertTranslationSelectionStatement,
+	insertTranslationInferencePointerStatement,
 } from "@bickr/shared/inference-configuration-repository";
+import { translationInferenceLifecycle } from "@bickr/shared/inference-translation-role";
 import {
 	accountDefaultConfigurationId,
 	botConfigurationId,
@@ -38,7 +39,7 @@ beforeEach(async () => {
 	const rootId = await accountDefaultConfigurationId(ownerId);
 	await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
 		insertAccountDefaultConfigurationStatement(testEnv.BICKR_D1, { configurationId: rootId, ownerUserId: ownerId, now }),
-		insertTranslationSelectionStatement(testEnv.BICKR_D1, { configurationId: rootId, ownerUserId: ownerId, now }),
+		insertTranslationInferencePointerStatement(testEnv.BICKR_D1, { configurationId: rootId, ownerUserId: ownerId, now }),
 	]);
 	// The owner graph endpoints are gated on a completed cutover; the graph row
 	// itself is created by the Account default insert.
@@ -323,25 +324,24 @@ describe("inference configuration runtime routes", () => {
 		expect(invalidKind.body.error).toBe("bad_request");
 	});
 
-	it("offers only Account default and custom entries as translation candidates", async () => {
-		const rootId = await accountDefaultConfigurationId(ownerId);
-		await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, { name: "Translation tuning", parentId: rootId }, now);
-		await seedWorld(worldId, "route-world");
-		await seedBot("bot_translation", worldId, "route-world", "route-translation");
-		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
-			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
-				kind: "world", configurationId: "cfg_translation_world", ownerUserId: ownerId, parentId: rootId, worldId, now,
-			}),
-			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
-				kind: "bot", configurationId: "cfg_translation_bot", ownerUserId: ownerId, parentId: rootId, botId: "bot_translation", now,
-			}),
-		]);
+	it("exposes Translation only as a fixed role and retires selector routes", async () => {
+		expect((await routePayload("/inference-translation")).status).toBe(404);
+		expect((await routePayload("/inference-translation/candidates")).status).toBe(404);
+		expect((await routePayload("/inference-configurations/fixed/translation")).status).toBe(404);
 
-		const candidates = await routePayload("/inference-translation/candidates");
-		expect(candidates.status).toBe(200);
-		const page = candidates.body.data?.candidates as { items: { displayName: string; kind: string }[] };
-		expect(page.items.map((item) => item.kind).sort()).toEqual(["account_default", "custom"]);
-		expect(page.items.map((item) => item.displayName).sort()).toEqual(["Account default", "Translation tuning"]);
+		await translationInferenceLifecycle.enable(testEnv.BICKR_D1, ownerId, now);
+		const fixed = await routePayload("/inference-configurations/fixed/translation");
+		expect(fixed.status).toBe(200);
+		expect(fixed.body.data?.configuration).toMatchObject({
+			kind: "translation",
+			displayName: "Translation",
+			identity: { kind: "translation" },
+		});
+		const annotation = await routePayload("/inference-translation/annotation");
+		expect(annotation.body.data?.annotation).toMatchObject({
+			enabled: true,
+			displayName: "Translation",
+		});
 	});
 
 	it("wires q through parent candidates and children, and reports the unfiltered child total", async () => {

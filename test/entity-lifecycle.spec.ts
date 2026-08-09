@@ -27,13 +27,15 @@ import {
 import { localizedText, schemaVersion, type LanguageTag, type UserDocument, type WorldDocument } from "@bickr/shared/model";
 import type { D1DatabaseLike } from "@bickr/shared/storage";
 import {
+	accountConfigurationDeletionStatements,
 	configurationCredentialValueStatement,
 	fixedConfigurationDeletionStatements,
 	inferenceConfigurationMutations,
 	insertAccountDefaultConfigurationStatement,
 	insertFixedConfigurationStatement,
-	insertTranslationSelectionStatement,
+	insertTranslationInferencePointerStatement,
 } from "@bickr/shared/inference-configuration-repository";
+import { translationInferenceLifecycle } from "@bickr/shared/inference-translation-role";
 import {
 	accountDefaultConfigurationId,
 	botConfigurationId,
@@ -151,7 +153,7 @@ describe("entity lifecycle foundation", () => {
 				ownerUserId: user.id,
 				now,
 			}),
-			translationReferenceStatement: insertTranslationSelectionStatement(testEnv.BICKR_D1, {
+			translationReferenceStatement: insertTranslationInferencePointerStatement(testEnv.BICKR_D1, {
 				ownerUserId: user.id,
 				configurationId,
 				now,
@@ -175,7 +177,7 @@ describe("entity lifecycle foundation", () => {
 				secret: "account-bootstrap-secret",
 				now,
 			}),
-			translationReferenceStatement: insertTranslationSelectionStatement(testEnv.BICKR_D1, {
+			translationReferenceStatement: insertTranslationInferencePointerStatement(testEnv.BICKR_D1, {
 				ownerUserId: user.id,
 				configurationId,
 				now,
@@ -200,6 +202,34 @@ describe("entity lifecycle foundation", () => {
 			secret: "account-bootstrap-secret",
 			secretVersion: 1,
 		});
+	});
+
+	it("removes the fixed Translation role through the account graph sweep", async () => {
+		const ownerId = "usr_translation_account_delete";
+		await seedGraphLifecycleOwner(ownerId, "translation-account-delete");
+		const enabled = await translationInferenceLifecycle.enable(testEnv.BICKR_D1, ownerId, now);
+		if (!enabled.enabled) throw new Error("Translation role fixture was not enabled");
+		await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Translation dependent",
+			parentId: enabled.role.id,
+			credential: { mode: "value", secret: "delete-with-owner" },
+		}, now);
+
+		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
+			...await accountConfigurationDeletionStatements(testEnv.BICKR_D1, ownerId, now),
+		]);
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT COUNT(*) AS count FROM inference_configurations WHERE owner_user_id = ?`,
+		).bind(ownerId).first()).toEqual({ count: 0 });
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT COUNT(*) AS count FROM inference_configuration_credentials WHERE owner_user_id = ?`,
+		).bind(ownerId).first()).toEqual({ count: 0 });
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT owner_user_id FROM inference_translation_selections WHERE owner_user_id = ?`,
+		).bind(ownerId).first()).toBeNull();
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT owner_user_id FROM inference_graph_users WHERE owner_user_id = ?`,
+		).bind(ownerId).first()).toBeNull();
 	});
 
 	it("atomically activates and deletes a fixed world entry while preserving child intent", async () => {
@@ -805,7 +835,7 @@ async function seedGraphLifecycleOwner(userId: string, handle: string): Promise<
 			ownerUserId: userId,
 			now,
 		}),
-		insertTranslationSelectionStatement(testEnv.BICKR_D1, {
+		insertTranslationInferencePointerStatement(testEnv.BICKR_D1, {
 			ownerUserId: userId,
 			configurationId: rootId,
 			now,

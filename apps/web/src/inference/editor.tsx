@@ -87,9 +87,8 @@ export function InferenceConfigurationEditorScreen({
 	/** Nonbinding completions from the models this owner's participants use. */
 	modelSuggestions?: readonly string[];
 	/**
-	 * Any successful mutation here can move the effective result of the
-	 * configuration translation selected, so the account's translation
-	 * annotation is refreshed rather than left to a later page load.
+	 * Any successful mutation can move the effective result of a Translation
+	 * role that inherits through this entry, so its annotation is refreshed.
 	 */
 	onInferenceChanged?: () => void;
 	onNavigate: (route: ParsedRoute) => void;
@@ -324,8 +323,8 @@ export function InferenceConfigurationEditorScreen({
 		apply(result.data, { drafts: "keep", name: "keep" });
 		onInferenceChanged?.();
 		setParentPickerOpen(false);
-		setMessage("Parent changed. Inherited values below are recomputed from the server.");
-		toast.push("Changed parent configuration");
+		setMessage("Inheritance source changed. Inherited values below are recomputed from the server.");
+		toast.push("Changed inheritance source");
 	}
 
 	async function confirmDelete(): Promise<void> {
@@ -338,8 +337,6 @@ export function InferenceConfigurationEditorScreen({
 			await handleMutationFailure(result);
 			return;
 		}
-		// Deleting the selected custom entry resets translation to Account default
-		// in the same transaction, so the annotation must be reread.
 		onInferenceChanged?.();
 		toast.push(`Deleted ${dto.displayName}`);
 		onNavigate({ route: "inference-library", ...(returnTo ? { returnTo } : {}) });
@@ -422,7 +419,7 @@ export function InferenceConfigurationEditorScreen({
 			<section className="section">
 				<div className="section-head">
 					<h2>Identity</h2>
-					<span className="meta">{isCustom ? "renameable" : "derived from the account, world, or participant"}</span>
+					<span className="meta">{isCustom ? "renameable" : dto.kind === "translation" ? "fixed account role" : "derived from its owner"}</span>
 				</div>
 				<div className="field-stack">
 					{isCustom ? (
@@ -443,15 +440,17 @@ export function InferenceConfigurationEditorScreen({
 						</div>
 					) : (
 						<p className="help">
-							This name follows the account, world, or participant it belongs to and cannot drift from a rename.
+							{dto.kind === "translation"
+								? "Translation is a fixed account role and cannot be renamed."
+								: "This name follows the account, world, or participant it belongs to and cannot drift from a rename."}
 						</p>
 					)}
 					<div className="field">
-						<span className="inference-field-label">Parent</span>
+						<span className="inference-field-label">Inherit settings from</span>
 						{isAccountDefault ? (
 							<p className="help">
 								<span className="inference-parent-fixed">Bickr defaults</span> — Account default inherits the
-								deployment defaults and has no owner parent.
+								deployment defaults and has no owner inheritance source.
 							</p>
 						) : (
 							<div className="inline-controls">
@@ -470,7 +469,7 @@ export function InferenceConfigurationEditorScreen({
 									<span>Bickr defaults</span>
 								)}
 								<button className="btn compact" disabled={busy} onClick={() => setParentPickerOpen(true)} type="button">
-									Change parent
+									Change
 								</button>
 							</div>
 						)}
@@ -523,8 +522,8 @@ export function InferenceConfigurationEditorScreen({
 				<section className="danger-zone">
 					<h3>Danger zone</h3>
 					<p>
-						Deleting this configuration reparents its immediate children to its own parent. Values are not copied
-						down, so effective values may change.
+						Deleting this configuration makes its immediate children inherit from this entry's inheritance source.
+						Values are not copied down, so effective values may change.
 					</p>
 					<button
 						className="btn danger solid"
@@ -557,7 +556,7 @@ export function InferenceConfigurationEditorScreen({
 				body={
 					deleteImpact ? (
 						<div className="field-stack">
-							{deleteImpactLines(dto.displayName, parentEntry?.displayName ?? "its parent", deleteImpact).map((line) => (
+							{deleteImpactLines(dto.displayName, parentEntry?.displayName ?? "its inheritance source", deleteImpact).map((line) => (
 								<p key={line}>{line}</p>
 							))}
 							<ImpactWarnings warnings={deleteImpact.warnings} />
@@ -581,7 +580,7 @@ const providerRoutingDocsUrl = "https://openrouter.ai/docs/guides/routing/provid
 
 function fieldHelp(field: InferenceConfigurationField, isAccountDefault: boolean): ReactNode {
 	if (field === "baseUrl" && !isAccountDefault) {
-		return "Inherit continues through the immediate parent. Use Account default skips intervening entries for this field only and keeps the provenance of whatever Account default or Bickr defaults supply.";
+		return "Inherit continues through the immediate inheritance source. Use Account default skips intervening entries for this field only and keeps the provenance of whatever Account default or Bickr defaults supply.";
 	}
 	if (field === "providerRouting" || field === "imageProviderRouting") {
 		return (
@@ -622,9 +621,8 @@ function childCountText(count: number): string {
 }
 
 /**
- * Deletion names the replacement parent, both dependent counts, and the fact
- * that inheritance is repaired rather than flattened. A translation reset is
- * disclosed here because the same transaction performs it.
+ * Deletion names the replacement inheritance source, both dependent counts,
+ * and the fact that inheritance is repaired rather than flattened.
  */
 export function deleteImpactLines(
 	displayName: string,
@@ -632,11 +630,8 @@ export function deleteImpactLines(
 	impact: InferenceDeleteImpact,
 ): string[] {
 	return [
-		`${displayName} will be removed. Its ${childCountText(impact.immediateDependentCount)} will be reparented to ${parentName}.`,
+		`${displayName} will be removed. Its ${childCountText(impact.immediateDependentCount)} will inherit from ${parentName}.`,
 		`${impact.transitiveDependentCount} configuration${impact.transitiveDependentCount === 1 ? "" : "s"} depend on this entry. Inherited effective values may change, because deletion repairs links rather than copying values down.`,
-		...(impact.resetsTranslationSelection
-			? ["Inline translation currently uses this configuration and will switch to Account default."]
-			: []),
 	];
 }
 
@@ -739,7 +734,7 @@ function ParentPickerModal({
 		[configuration.id, query],
 	);
 
-	// Recent choices and Account default come first: the current parent and the
+	// Recent choices and Account default come first: the current source and the
 	// account root are the entries an owner reaches for most often.
 	const ordered = useMemo(() => orderedParentCandidates(candidates.items, configuration.parentId), [candidates.items, configuration.parentId]);
 
@@ -778,18 +773,18 @@ function ParentPickerModal({
 							onClick={() => candidateId && onConfirm(candidateId)}
 							type="button"
 						>
-							Change parent
+							Change inheritance source
 						</button>
 					</div>
 				</>
 			}
 			onClose={onClose}
 			open
-			title="Change parent configuration"
+			title="Change inheritance source"
 			wide
 		>
 			<div className="field-stack">
-				<FilterBox label="Search parent candidates" onChange={setQuery} placeholder="Search candidates" value={query} />
+				<FilterBox label="Search inheritance sources" onChange={setQuery} placeholder="Search configurations" value={query} />
 				{candidates.loading ? (
 					<div className="runtime-message">Loading candidates...</div>
 				) : candidates.error ? (

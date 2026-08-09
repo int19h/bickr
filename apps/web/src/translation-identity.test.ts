@@ -15,9 +15,10 @@ function profile(overrides: Partial<UserProfile> = {}): UserProfile {
 		profileComplete: true,
 		inferenceSettings: { translation: { enabled: true, prompt: localizedText("Translate this.", en) } },
 		translationInference: {
-			selectedConfigurationId: "cfg_root",
-			selectedDisplayName: "Account default",
-			selectionRevision: 3,
+			enabled: true,
+			configurationId: "cfg_translation",
+			displayName: "Translation",
+			pointerRevision: 3,
 			effectiveModel: "anthropic/claude-opus-4",
 			effectiveRevisionFingerprint: "fingerprint-a",
 			credentialAvailable: true,
@@ -34,7 +35,7 @@ describe("translation cache identity", () => {
 		const context = translationContextValue(profile());
 		expect(context).toMatchObject({
 			enabled: true,
-			identity: "cfg_root:fingerprint-a",
+			identity: "cfg_translation:fingerprint-a",
 			model: "anthropic/claude-opus-4",
 			prompt: "Translate this.",
 		});
@@ -45,24 +46,29 @@ describe("translation cache identity", () => {
 	// equal, and a cached translation must not survive it.
 	it("changes when only the effective fingerprint moves", () => {
 		const before = translationContextValue(profile());
+		const annotation = profile().translationInference;
+		if (!annotation?.enabled) throw new Error("enabled annotation fixture required");
 		const after = translationContextValue(profile({
-			translationInference: { ...profile().translationInference!, effectiveRevisionFingerprint: "fingerprint-b" },
+			translationInference: { ...annotation, effectiveRevisionFingerprint: "fingerprint-b" },
 		}));
 		expect(after.model).toBe(before.model);
 		expect(after.prompt).toBe(before.prompt);
 		expect(after.identity).not.toBe(before.identity);
 	});
 
-	it("changes when the selected configuration changes", () => {
+	it("changes when the fixed role is recreated", () => {
 		const before = translationContextValue(profile());
+		const annotation = profile().translationInference;
+		if (!annotation?.enabled) throw new Error("enabled annotation fixture required");
 		const after = translationContextValue(profile({
-			translationInference: { ...profile().translationInference!, selectedConfigurationId: "cfg_custom" },
+			translationInference: { ...annotation, configurationId: "cfg_translation_new" },
 		}));
 		expect(after.identity).not.toBe(before.identity);
 	});
 
-	it("keeps the account-owned enabled toggle and prompt", () => {
-		expect(translationContextValue(profile({ inferenceSettings: { translation: { enabled: false } } })).enabled).toBe(false);
+	it("uses canonical enablement while keeping the account-owned prompt", () => {
+		expect(translationContextValue(profile({ inferenceSettings: { translation: { enabled: false } } })).enabled).toBe(true);
+		expect(translationContextValue(profile({ translationInference: { enabled: false } })).enabled).toBe(false);
 		expect(translationContextValue(profile({ inferenceSettings: {} })).prompt).toContain("Translate");
 	});
 

@@ -116,7 +116,6 @@ import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
 import { worldIndexProjectionStatement } from "@bickr/shared/repository";
 import { exportThreadRef } from "../apps/web/functions/api/cli/export/_export";
 import { onRequest as inferenceConfigurationsProxy } from "../apps/web/functions/api/me/inference-configurations/[[path]]";
-import { onRequest as inferenceTranslationProxy } from "../apps/web/functions/api/me/inference-translation/[[path]]";
 import {
 	listHumanNotifications,
 	listHumanSubscriptionTree,
@@ -2311,99 +2310,6 @@ describe("Pages functions", () => {
 			expect.stringContaining("/inference-configurations?section=bot&q=alpha&limit=5"),
 			expect.stringContaining("/inference-configurations/cfg_proxy/children?q=child&cursor=abc"),
 		]);
-	});
-
-	/**
-	 * The optional catch-all is the only owner of this path, so it has to answer
-	 * the base selection route itself. A sibling module used to own the base
-	 * path and lost it to this function on the deployed build, which then
-	 * refused the empty path and broke the translation selector.
-	 */
-	it("answers the translation selection base path from the optional catch-all it shares with its suffixes", async () => {
-		const cookie = await authCookieFor({
-			subject: "translation-proxy-owner",
-			login: "translation-proxy-owner",
-			displayName: "Translation Proxy Owner",
-		});
-		const userId = await userIdForHandle("translation-proxy-owner");
-		const base = `/users/${userId}/inference-translation`;
-		const proxied: { url: string; method: string; body: string; userId: string | null }[] = [];
-		const agentRuntime = {
-			fetch: async (request: Request) => {
-				proxied.push({
-					url: request.url,
-					method: request.method,
-					body: await request.text(),
-					userId: request.headers.get("x-bickr-user-id"),
-				});
-				return Response.json({ ok: true, data: { selection: { configurationId: "cfg_translation" } } });
-			},
-		} as unknown as Fetcher;
-		const translationProxy = (
-			request: Request,
-			params: Record<string, string | string[]>,
-		) => inferenceTranslationProxy(contextFor<typeof inferenceTranslationProxy>(
-			request,
-			params,
-			{ AGENT_RUNTIME: agentRuntime },
-		));
-
-		// Pages can present the empty path as an absent param or as an empty
-		// list; both mean the base selection route rather than a missing one.
-		const emptyPathParams: Record<string, string | string[]>[] = [{}, { path: [] }, { path: "" }];
-		for (const params of emptyPathParams) {
-			const selection = await translationProxy(
-				new Request("http://example.com/api/me/inference-translation", { headers: { cookie } }),
-				params,
-			);
-			expect(selection.status, await selection.clone().text()).toBe(200);
-		}
-
-		const updated = await translationProxy(
-			new Request("http://example.com/api/me/inference-translation", {
-				body: JSON.stringify({ configurationId: "cfg_translation", expectedRevision: 3 }),
-				headers: { "content-type": "application/json", cookie },
-				method: "PUT",
-			}),
-			{ path: [] },
-		);
-		expect(updated.status, await updated.clone().text()).toBe(200);
-
-		const candidates = await translationProxy(
-			new Request("http://example.com/api/me/inference-translation/candidates?q=tuning&limit=5", { headers: { cookie } }),
-			{ path: ["candidates"] },
-		);
-		expect(candidates.status).toBe(200);
-		const annotation = await translationProxy(
-			new Request("http://example.com/api/me/inference-translation/annotation", { headers: { cookie } }),
-			{ path: ["annotation"] },
-		);
-		expect(annotation.status).toBe(200);
-
-		expect(proxied.map((entry) => new URL(entry.url).pathname + new URL(entry.url).search)).toEqual([
-			base,
-			base,
-			base,
-			base,
-			`${base}/candidates?q=tuning&limit=5`,
-			`${base}/annotation`,
-		]);
-		expect(proxied.map((entry) => entry.method)).toEqual(["GET", "GET", "GET", "PUT", "GET", "GET"]);
-		expect(proxied[0]!.body).toBe("");
-		expect(proxied[3]!.body).toBe(JSON.stringify({ configurationId: "cfg_translation", expectedRevision: 3 }));
-		// Every hop still carries the session-derived owner, never a client claim.
-		expect(proxied.every((entry) => entry.userId === userId)).toBe(true);
-
-		// A traversal or empty segment is still refused before any proxying.
-		for (const segments of [["..", "secrets"], ["annotation", ""], ["."]]) {
-			const refused = await translationProxy(
-				new Request("http://example.com/api/me/inference-translation/x", { headers: { cookie } }),
-				{ path: segments },
-			);
-			expect(refused.status).toBe(404);
-			expect(await refused.json()).toMatchObject({ ok: false, error: "not_found" });
-		}
-		expect(proxied).toHaveLength(6);
 	});
 
 	it("returns public human profile ownership grouped by world", async () => {

@@ -28,12 +28,10 @@ export function throwApiError(message: string): never {
 /**
  * Translation view state for the whole app.
  *
- * The identity is the cache key input. It is the selected configuration plus
+ * The identity is the cache key input. It is the Translation role plus
  * the effective revision fingerprint the server computed, so a change to any
  * inherited routing, reasoning, or sampling value invalidates cached
- * translations even when the model and prompt are unchanged. Every screen that
- * can move that result reloads the profile, so the identity cannot lag behind a
- * selection change or a configuration edit until the next page load.
+ * translations even when the model and prompt are unchanged.
  */
 export function translationContextValue(profile: UserProfile | null): {
 	enabled: boolean;
@@ -44,11 +42,11 @@ export function translationContextValue(profile: UserProfile | null): {
 	const translation = profile?.inferenceSettings.translation;
 	const annotation = profile?.translationInference;
 	return {
-		enabled: Boolean(translation?.enabled),
-		identity: annotation
-			? `${annotation.selectedConfigurationId}:${annotation.effectiveRevisionFingerprint}`
+		enabled: annotation ? annotation.enabled : Boolean(translation?.enabled),
+		identity: annotation?.enabled
+			? `${annotation.configurationId}:${annotation.effectiveRevisionFingerprint}`
 			: defaultProviderModel,
-		model: annotation?.effectiveModel ?? defaultProviderModel,
+		model: annotation?.enabled ? annotation.effectiveModel : defaultProviderModel,
 		prompt: localizedTextString(translation?.prompt).trim() || defaultTranslationPrompt,
 	};
 }

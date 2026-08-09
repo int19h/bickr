@@ -28,7 +28,7 @@ import {
 	accountConfigurationDeletionStatements,
 	configurationCredentialValueStatement,
 	insertAccountDefaultConfigurationStatement,
-	insertTranslationSelectionStatement,
+	insertTranslationInferencePointerStatement,
 	lifecycleUsesInferenceGraph,
 } from "@bickr/shared/inference-configuration-repository";
 import {
@@ -159,7 +159,7 @@ export async function runAccountBootstrapOperation(
 						now: activatedAt,
 					}),
 				} : {}),
-				translationReferenceStatement: insertTranslationSelectionStatement(context.env.BICKR_D1, {
+				translationReferenceStatement: insertTranslationInferencePointerStatement(context.env.BICKR_D1, {
 					ownerUserId: operation.entityId,
 					configurationId,
 					now: activatedAt,

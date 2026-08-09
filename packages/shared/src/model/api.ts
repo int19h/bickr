@@ -69,14 +69,17 @@ export type UserProfile = PublicUser & {
 	updatedAt: string;
 };
 
-export type TranslationInferenceAnnotation = {
-	selectedConfigurationId: string;
-	selectedDisplayName: string;
-	selectionRevision: number;
-	effectiveModel: string;
-	effectiveRevisionFingerprint: string;
-	credentialAvailable: boolean;
-};
+export type TranslationInferenceAnnotation =
+	| { enabled: false }
+	| {
+			enabled: true;
+			configurationId: string;
+			displayName: "Translation";
+			pointerRevision: number;
+			effectiveModel: string;
+			effectiveRevisionFingerprint: string;
+			credentialAvailable: boolean;
+	  };
 
 export type SessionPayload = {
 	authenticated: boolean;

@@ -25,6 +25,7 @@ export type FixedConfigurationState = {
  */
 export type FixedConfigurationActionTarget =
 	| { kind: "account_default" }
+	| { kind: "translation" }
 	| { kind: "world"; worldId: string; worldHandle: string }
 	| { kind: "bot"; botId: string; botHandle: string; homeWorldHandle: string };
 
@@ -70,6 +71,7 @@ export function useFixedConfiguration(reference: FixedInferenceConfigurationRefe
 function referenceEntityId(reference: FixedInferenceConfigurationReference): string {
 	switch (reference.kind) {
 		case "account_default": return "";
+		case "translation": return "";
 		case "world": return reference.worldId;
 		case "bot": return reference.botId;
 	}
@@ -78,6 +80,7 @@ function referenceEntityId(reference: FixedInferenceConfigurationReference): str
 export function fixedConfigurationReference(target: FixedConfigurationActionTarget): FixedInferenceConfigurationReference {
 	switch (target.kind) {
 		case "account_default": return { kind: "account_default" };
+		case "translation": return { kind: "translation" };
 		case "world": return { kind: "world", worldId: target.worldId };
 		case "bot": return { kind: "bot", botId: target.botId };
 		default: return unreachableFixedConfigurationTarget(target);
@@ -87,6 +90,7 @@ export function fixedConfigurationReference(target: FixedConfigurationActionTarg
 function fixedConfigurationActionLabel(target: FixedConfigurationActionTarget): string {
 	switch (target.kind) {
 		case "account_default": return "Open Account default configuration";
+		case "translation": return "Open Translation configuration";
 		case "world": return `Open inference configuration for w/${target.worldHandle}`;
 		case "bot": return `Open inference configuration for u/${target.botHandle}`;
 		default: return unreachableFixedConfigurationTarget(target);
@@ -96,6 +100,7 @@ function fixedConfigurationActionLabel(target: FixedConfigurationActionTarget): 
 function fixedConfigurationReturnTarget(target: FixedConfigurationActionTarget): InferenceReturnTarget {
 	switch (target.kind) {
 		case "account_default": return { route: "profile" };
+		case "translation": return { route: "profile" };
 		case "world": return { route: "world-edit", worldHandle: target.worldHandle };
 		case "bot": return {
 			route: "bot-edit",
@@ -113,6 +118,8 @@ function fixedConfigurationMatchesTarget(
 	switch (target.kind) {
 		case "account_default":
 			return configuration.kind === "account_default";
+		case "translation":
+			return configuration.kind === "translation";
 		case "world":
 			return configuration.kind === "world" && configuration.identity.worldId === target.worldId;
 		case "bot":
@@ -233,7 +240,7 @@ export function ConfigurationCardBody({
 				<span className="value">{configuration.effectiveModel}</span>
 			</div>
 			<div className="runtime-row">
-				<span className="label">Parent</span>
+				<span className="label">Inherit settings from</span>
 				<span className="value">
 					{parent ? (
 						<ConfigurationLink className="linklike" configurationId={parent.id} returnTo={returnTo}>

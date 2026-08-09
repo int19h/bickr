@@ -9,6 +9,7 @@ import { SpaLink } from "../components/navigation";
 export function configurationKindLabel(kind: InferenceConfigurationEntryIdentity["kind"]): string {
 	switch (kind) {
 		case "account_default": return "Account default";
+		case "translation": return "Translation";
 		case "world": return "World";
 		case "bot": return "Participant";
 		case "custom": return "Custom";
@@ -70,13 +71,13 @@ export function ConfigurationSummaryRow({
 				<span className="inference-summary-parent">
 					{summary.parent ? (
 						<>
-							parent:{" "}
+							Inherit settings from:{" "}
 							<ConfigurationLink className="linklike" configurationId={summary.parent.id} returnTo={returnTo}>
 								{summary.parent.displayName}
 							</ConfigurationLink>
 						</>
 					) : (
-						"parent: Bickr defaults"
+						"Inherit settings from: Bickr defaults"
 					)}
 				</span>
 				<span className="inference-summary-children">

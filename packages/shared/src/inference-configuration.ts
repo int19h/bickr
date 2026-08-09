@@ -44,7 +44,25 @@ export const inferenceGraphGlobalCredentialVersion = 1;
 export const inferenceConfigurationOwnerQuota = 10_000;
 export const inferenceConfigurationCorruptionSentinel = inferenceConfigurationOwnerQuota + 1;
 
-export type InferenceConfigurationKind = "account_default" | "world" | "bot" | "custom";
+export type InferenceConfigurationKind = "account_default" | "translation" | "world" | "bot" | "custom";
+export type StoredInferenceConfigurationKind = Exclude<InferenceConfigurationKind, "translation">;
+export type InferenceConfigurationFixedRole = "translation";
+
+/**
+ * The fixed Translation role intentionally reuses the physical custom shape so
+ * old projection readers can traverse it. This is the only adapter where that
+ * storage compatibility detail crosses into the typed graph domain.
+ */
+export function inferenceConfigurationKindFromStorage(
+	kind: StoredInferenceConfigurationKind,
+	fixedRole: InferenceConfigurationFixedRole | null,
+): InferenceConfigurationKind {
+	if (fixedRole === "translation") {
+		if (kind !== "custom") throw new InferenceConfigurationDataError("invalid_path", "The Translation role has an invalid stored kind.");
+		return "translation";
+	}
+	return kind;
+}
 export type InferenceCredentialMode = "inherit" | "account_default" | "value" | "none";
 
 export type InferenceReasoningRequest =
@@ -146,6 +164,7 @@ type ConfigurationNodeBase = {
 
 export type InferenceConfigurationNode =
 	| (ConfigurationNodeBase & { kind: "account_default" })
+	| (ConfigurationNodeBase & { kind: "translation" })
 	| (ConfigurationNodeBase & { kind: "world"; worldId: string })
 	| (ConfigurationNodeBase & { kind: "bot"; botId: string })
 	| (ConfigurationNodeBase & { kind: "custom"; name: string; nameKey: string });

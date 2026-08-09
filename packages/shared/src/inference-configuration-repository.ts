@@ -26,13 +26,13 @@ import {
 	type RedactedInferenceConfigurationDto,
 	type RedactedInferenceCredentialResolution,
 	type RedactedInferenceFieldDtoMap,
-	type TranslationSelection,
 } from "./inference-configuration-owner";
 import {
 	applyInferenceOverridePatch,
 	assertInferenceOverridesAllowedForKind,
 	InferenceConfigurationDataError,
 	inferenceConfigurationCorruptionSentinel,
+	inferenceConfigurationKindFromStorage,
 	inferenceConfigurationOwnerQuota,
 	inferenceFieldAnnotations,
 	inferenceResolutionFingerprint,
@@ -46,9 +46,11 @@ import {
 	type InferenceConfigurationOverridePatch,
 	type InferenceConfigurationOverrides,
 	type InferenceConfigurationPath,
+	type InferenceConfigurationFixedRole,
 	type InferenceCredentialMode,
 	type InferenceCredentialResolution,
 	type InferenceSource,
+	type StoredInferenceConfigurationKind,
 	type BickrInferenceDefaults,
 } from "./inference-configuration";
 import type { InferenceGraphConflictCause } from "./model";
@@ -82,7 +84,8 @@ export class InferenceGraphRepositoryError extends RepositoryError {
 type ConfigurationPathRow = {
 	id: string;
 	ownerUserId: string;
-	kind: InferenceConfigurationKind;
+	kind: StoredInferenceConfigurationKind;
+	fixedRole: InferenceConfigurationFixedRole | null;
 	parentId: string | null;
 	worldId: string | null;
 	botId: string | null;
@@ -102,6 +105,7 @@ const pathColumns = `
 	configuration.configuration_id AS id,
 	configuration.owner_user_id AS ownerUserId,
 	configuration.kind,
+	configuration.fixed_role AS fixedRole,
 	configuration.parent_id AS parentId,
 	configuration.world_id AS worldId,
 	configuration.bot_id AS botId,
@@ -116,7 +120,7 @@ const pathColumns = `
 
 function pathSql(includeSecret: boolean): string {
 	return `WITH RECURSIVE configuration_path (
-		id, ownerUserId, kind, parentId, worldId, botId, customName,
+		id, ownerUserId, kind, fixedRole, parentId, worldId, botId, customName,
 		customNameKey, overridesJson, revision, createdAt, updatedAt,
 		credentialMode, secretVersion${includeSecret ? ", secretValue" : ""}, depth
 	) AS (
@@ -179,11 +183,11 @@ export async function loadInternalInferenceCompatibilityProjectionPath(
 ): Promise<InferenceConfigurationPath> {
 	const result = await db.prepare(
 		`WITH RECURSIVE projection_path (
-			id, ownerUserId, kind, parentId, worldId, botId, customName,
+			id, ownerUserId, kind, fixedRole, parentId, worldId, botId, customName,
 			customNameKey, overridesJson, revision, createdAt, updatedAt,
 			credentialMode, secretVersion, secretValue, depth
 		) AS (
-			SELECT entry.configuration_id, entry.owner_user_id, entry.kind,
+			SELECT entry.configuration_id, entry.owner_user_id, entry.kind, entry.fixed_role,
 				entry.parent_id, entry.world_id, entry.bot_id, entry.custom_name,
 				entry.custom_name_key, entry.overrides_json,
 				entry.configuration_revision, projection.created_at, projection.updated_at,
@@ -199,7 +203,7 @@ export async function loadInternalInferenceCompatibilityProjectionPath(
 				AND credentials.owner_user_id = entry.owner_user_id
 			WHERE entry.configuration_id = ? AND entry.owner_user_id = ?
 			UNION ALL
-			SELECT entry.configuration_id, entry.owner_user_id, entry.kind,
+			SELECT entry.configuration_id, entry.owner_user_id, entry.kind, entry.fixed_role,
 				entry.parent_id, entry.world_id, entry.bot_id, entry.custom_name,
 				entry.custom_name_key, entry.overrides_json,
 				entry.configuration_revision, projection.created_at, projection.updated_at,
@@ -277,10 +281,16 @@ async function loadPath(
 }
 
 function configurationNodeFromRow(row: ConfigurationPathRow, includeSecret: boolean): InferenceConfigurationNode {
+	let kind: InferenceConfigurationKind;
+	try {
+		kind = inferenceConfigurationKindFromStorage(row.kind, row.fixedRole);
+	} catch {
+		throw corruptKind(row);
+	}
 	const credential = credentialFromRow(row, includeSecret);
 	const overrides = parseInferenceConfigurationOverrides(row.overridesJson);
 	try {
-		assertInferenceOverridesAllowedForKind(row.kind, overrides);
+		assertInferenceOverridesAllowedForKind(kind, overrides);
 	} catch {
 		throw new InferenceGraphRepositoryError("corrupt_graph", `Inference configuration ${row.id} stores an override state its kind cannot hold.`);
 	}
@@ -294,27 +304,36 @@ function configurationNodeFromRow(row: ConfigurationPathRow, includeSecret: bool
 		updatedAt: row.updatedAt,
 		credential,
 	};
-	switch (row.kind) {
+	switch (kind) {
 		case "account_default":
 			if (row.parentId !== null) throw corruptKind(row);
-			return { ...common, kind: row.kind };
+			return { ...common, kind };
+		case "translation":
+			if (row.parentId === null) throw corruptKind(row);
+			return { ...common, kind };
 		case "world":
 			if (!row.worldId) throw corruptKind(row);
-			return { ...common, kind: row.kind, worldId: row.worldId };
+			return { ...common, kind, worldId: row.worldId };
 		case "bot":
 			if (!row.botId) throw corruptKind(row);
-			return { ...common, kind: row.kind, botId: row.botId };
+			return { ...common, kind, botId: row.botId };
 		case "custom":
 			if (!row.customName || !row.customNameKey) throw corruptKind(row);
-			return { ...common, kind: row.kind, name: row.customName, nameKey: row.customNameKey };
+			return { ...common, kind, name: row.customName, nameKey: row.customNameKey };
 	}
 }
 
 function credentialFromRow(row: ConfigurationPathRow, includeSecret: boolean): InferenceConfigurationCredential {
+	let kind: InferenceConfigurationKind;
+	try {
+		kind = inferenceConfigurationKindFromStorage(row.kind, row.fixedRole);
+	} catch {
+		throw corruptKind(row);
+	}
 	switch (row.credentialMode) {
 		case "inherit": return { mode: "inherit", secretVersion: 0 };
 		case "account_default":
-			if (row.kind === "account_default") {
+			if (kind === "account_default") {
 				throw new InferenceGraphRepositoryError("corrupt_graph", "Account default has an invalid credential mode.");
 			}
 			return { mode: "account_default", secretVersion: 0 };
@@ -402,6 +421,7 @@ function entryIdentity(identity: InferenceConfigurationIdentity): InferenceConfi
 function displayName(identity: InferenceConfigurationIdentity): string {
 	switch (identity.kind) {
 		case "account_default": return "Account default";
+		case "translation": return "Translation";
 		case "world": return `w/${identity.worldHandle}`;
 		case "bot": return `u/${identity.botHandle}`;
 		case "custom": return identity.name;
@@ -409,7 +429,8 @@ function displayName(identity: InferenceConfigurationIdentity): string {
 }
 
 type ConfigurationIdentityRow = {
-	kind: InferenceConfigurationKind;
+	kind: StoredInferenceConfigurationKind;
+	fixedRole: InferenceConfigurationFixedRole | null;
 	worldId: string | null;
 	worldHandle: string | null;
 	botId: string | null;
@@ -420,17 +441,24 @@ type ConfigurationIdentityRow = {
 };
 
 function identityFromRow(row: ConfigurationIdentityRow): InferenceConfigurationIdentity {
-	switch (row.kind) {
-		case "account_default": return { kind: row.kind };
+	let kind: InferenceConfigurationKind;
+	try {
+		kind = inferenceConfigurationKindFromStorage(row.kind, row.fixedRole);
+	} catch {
+		throw new InferenceGraphRepositoryError("corrupt_graph", "Inference configuration has an invalid fixed role identity.");
+	}
+	switch (kind) {
+		case "account_default": return { kind };
+		case "translation": return { kind };
 		case "world":
 			if (!row.worldId || !row.worldHandle) throw new InferenceGraphRepositoryError("corrupt_graph", "World inference identity is missing.");
-			return { kind: row.kind, worldId: row.worldId, worldHandle: row.worldHandle };
+			return { kind, worldId: row.worldId, worldHandle: row.worldHandle };
 		case "bot":
 			if (!row.botId || !row.botHandle || !row.homeWorldId || !row.homeWorldHandle) {
 				throw new InferenceGraphRepositoryError("corrupt_graph", "Participant inference identity is missing.");
 			}
 			return {
-				kind: row.kind,
+				kind,
 				botId: row.botId,
 				botHandle: row.botHandle,
 				homeWorldId: row.homeWorldId,
@@ -438,7 +466,7 @@ function identityFromRow(row: ConfigurationIdentityRow): InferenceConfigurationI
 			};
 		case "custom":
 			if (!row.customName) throw new InferenceGraphRepositoryError("corrupt_graph", "Custom inference identity is missing.");
-			return { kind: row.kind, name: row.customName };
+			return { kind, name: row.customName };
 	}
 }
 
@@ -455,11 +483,11 @@ type SummaryRow = ConfigurationIdentityRow & {
 
 type BoundedAncestorRow = ConfigurationPathRow & ConfigurationIdentityRow & { displayName: string };
 
-const librarySectionKinds: Record<InferenceLibrarySection, InferenceConfigurationKind> = {
-	account: "account_default",
-	custom: "custom",
-	world: "world",
-	bot: "bot",
+const librarySectionKinds: Record<InferenceLibrarySection, readonly InferenceConfigurationKind[]> = {
+	account: ["account_default", "translation"],
+	custom: ["custom"],
+	world: ["world"],
+	bot: ["bot"],
 };
 
 export type InferenceConfigurationListInput = {
@@ -490,10 +518,10 @@ export function parseInferenceConfigurationKinds(value: string): InferenceConfig
 	const kinds = value.split(",").map((entry) => entry.trim()).filter(Boolean);
 	if (kinds.length === 0) throw new RepositoryError("bad_request", "At least one inference configuration kind is required.", 400);
 	return kinds.map((kind) => {
-		if (kind !== "account_default" && kind !== "world" && kind !== "bot" && kind !== "custom") {
+		if (kind !== "account_default" && kind !== "translation" && kind !== "world" && kind !== "bot" && kind !== "custom") {
 			throw new RepositoryError(
 				"bad_request",
-				"Unknown inference configuration kind. Expected one of account_default, world, bot, custom.",
+				"Unknown inference configuration kind. Expected one of account_default, translation, world, bot, custom.",
 				400,
 			);
 		}
@@ -504,19 +532,21 @@ export function parseInferenceConfigurationKinds(value: string): InferenceConfig
 // Display identity is the ordering key for every non-bot page. Bot pages sort
 // by home world first, so their key concatenates both handles behind a unit
 // separator that the validated handle charset cannot contain.
-const identitySortNameSql = `lower(CASE configuration.kind
-	WHEN 'account_default' THEN 'Account default'
-	WHEN 'world' THEN 'w/' || worlds.handle
-	WHEN 'bot' THEN 'u/' || bots.handle
+const identitySortNameSql = `lower(CASE
+	WHEN configuration.fixed_role = 'translation' THEN 'Translation'
+	WHEN configuration.kind = 'account_default' THEN 'Account default'
+	WHEN configuration.kind = 'world' THEN 'w/' || worlds.handle
+	WHEN configuration.kind = 'bot' THEN 'u/' || bots.handle
 	ELSE configuration.custom_name
 END)`;
 
 const botHomeWorldSortNameSql = `lower(bots.home_world_handle) || char(31) || lower(bots.handle)`;
 
-const displayNameSql = `CASE configuration.kind
-	WHEN 'account_default' THEN 'Account default'
-	WHEN 'world' THEN 'w/' || worlds.handle
-	WHEN 'bot' THEN 'u/' || bots.handle
+const displayNameSql = `CASE
+	WHEN configuration.fixed_role = 'translation' THEN 'Translation'
+	WHEN configuration.kind = 'account_default' THEN 'Account default'
+	WHEN configuration.kind = 'world' THEN 'w/' || worlds.handle
+	WHEN configuration.kind = 'bot' THEN 'u/' || bots.handle
 	ELSE configuration.custom_name
 END`;
 
@@ -526,6 +556,7 @@ const immediateChildCountSql = `(SELECT COUNT(*) FROM inference_configurations A
 
 function summaryColumnsSql(sortNameSql: string): string {
 	return `configuration.configuration_id AS id, configuration.kind,
+		configuration.fixed_role AS fixedRole,
 		configuration.parent_id AS parentId,
 		configuration.world_id AS worldId, worlds.handle AS worldHandle,
 		configuration.bot_id AS botId, bots.handle AS botHandle,
@@ -550,11 +581,12 @@ const summaryFromSql = `FROM inference_configurations AS configuration
  * and — for participants — their home-world handle.
  */
 const searchPredicateSql = `(? = '' OR
-	(configuration.kind = 'custom' AND configuration.custom_name_key >= ? AND configuration.custom_name_key < ?)
-	OR (configuration.kind != 'custom' AND (
-		lower(CASE configuration.kind
-			WHEN 'account_default' THEN 'Account default'
-			WHEN 'world' THEN 'w/' || worlds.handle ELSE 'u/' || bots.handle END) LIKE ? ESCAPE '\\'
+	(configuration.kind = 'custom' AND configuration.fixed_role IS NULL
+		AND configuration.custom_name_key >= ? AND configuration.custom_name_key < ?)
+	OR ((configuration.kind != 'custom' OR configuration.fixed_role IS NOT NULL) AND (
+		lower(CASE WHEN configuration.fixed_role = 'translation' THEN 'Translation'
+			WHEN configuration.kind = 'account_default' THEN 'Account default'
+			WHEN configuration.kind = 'world' THEN 'w/' || worlds.handle ELSE 'u/' || bots.handle END) LIKE ? ESCAPE '\\'
 		OR lower(CASE configuration.kind WHEN 'world' THEN worlds.handle WHEN 'bot' THEN bots.handle ELSE '' END) LIKE ? ESCAPE '\\'
 		OR lower(CASE configuration.kind WHEN 'bot' THEN bots.home_world_handle ELSE '' END) LIKE ? ESCAPE '\\')))`;
 
@@ -574,13 +606,15 @@ export async function listInferenceConfigurations(
 ): Promise<InferenceConfigurationPage> {
 	const limit = boundedPageSize(input.limit);
 	const cursor = decodeCursor(input.cursor, "identity");
-	const kinds = input.kinds?.length ? [...new Set(input.kinds)] : ["account_default", "world", "bot", "custom"];
+	const kinds: InferenceConfigurationKind[] = input.kinds?.length
+		? [...new Set(input.kinds)]
+		: ["account_default", "translation", "world", "bot", "custom"];
 	const rows = await db.prepare(
 		`WITH summaries AS (
 			SELECT ${summaryColumnsSql(identitySortNameSql)}
 			${summaryFromSql}
 			WHERE configuration.owner_user_id = ?
-				AND configuration.kind IN (${kinds.map(() => "?").join(", ")})
+				AND ${configurationKindsPredicateSql(kinds)}
 				AND ${searchPredicateSql}
 		)
 		SELECT * FROM summaries
@@ -589,7 +623,6 @@ export async function listInferenceConfigurations(
 		LIMIT ?`,
 	).bind(
 		ownerUserId,
-		...kinds,
 		...searchBindings(normalizedSearchKey(input.query)),
 		cursor.sortName,
 		cursor.sortName,
@@ -597,6 +630,15 @@ export async function listInferenceConfigurations(
 		limit + 1,
 	).all<SummaryRow>();
 	return summaryPage(db, ownerUserId, rows.results ?? [], limit, "identity", input.defaults);
+}
+
+function configurationKindsPredicateSql(kinds: readonly InferenceConfigurationKind[]): string {
+	const predicates = kinds.map((kind) => {
+		if (kind === "translation") return "(configuration.kind = 'custom' AND configuration.fixed_role = 'translation')";
+		if (kind === "custom") return "(configuration.kind = 'custom' AND configuration.fixed_role IS NULL)";
+		return `(configuration.kind = '${kind}' AND configuration.fixed_role IS NULL)`;
+	});
+	return predicates.length ? `(${predicates.join(" OR ")})` : "0";
 }
 
 /**
@@ -650,7 +692,7 @@ export async function listInferenceLibrarySection(
 	if (input.section !== "bot") {
 		const page = await listInferenceConfigurations(db, ownerUserId, {
 			...input,
-			kinds: [librarySectionKinds[input.section]],
+			kinds: librarySectionKinds[input.section],
 		});
 		return { ...page, section: input.section, groups: [] };
 	}
@@ -905,17 +947,6 @@ function escapeLike(value: string): string {
 	return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
 
-export async function listInferenceTranslationCandidates(
-	db: D1DatabaseLike,
-	ownerUserId: string,
-	input: Omit<InferenceConfigurationListInput, "kinds"> = {},
-): Promise<InferenceConfigurationPage> {
-	return listInferenceConfigurations(db, ownerUserId, {
-		...input,
-		kinds: ["account_default", "custom"],
-	});
-}
-
 export async function listInferenceParentCandidates(
 	db: D1DatabaseLike,
 	ownerUserId: string,
@@ -964,7 +995,7 @@ function summariesFromAncestors(
 		if (!node) throw new InferenceGraphRepositoryError("corrupt_graph", "List entry is missing from the owner graph snapshot.");
 		const parentNode = node.parentId ? byId.get(node.parentId) : undefined;
 		const {
-			kind: _kind, sortName: _sortName, worldId: _worldId, worldHandle: _worldHandle,
+			kind: _kind, fixedRole: _fixedRole, sortName: _sortName, worldId: _worldId, worldHandle: _worldHandle,
 			botId: _botId, botHandle: _botHandle, homeWorldId: _homeWorldId,
 			homeWorldHandle: _homeWorldHandle, customName: _customName, ...summary
 		} = row;
@@ -1124,10 +1155,6 @@ export async function inferenceConfigurationDeleteImpact(
 	}
 	const affectedIds = dependents.map((dependent) => dependent.id);
 	const changes = compareInferenceResolutions(affectedIds, byId, after, defaults);
-	const row = await db.prepare(
-		`SELECT EXISTS(SELECT 1 FROM inference_translation_selections
-			WHERE owner_user_id = ? AND configuration_id = ?) AS resetsTranslationSelection`,
-	).bind(ownerUserId, configurationId).first<{ resetsTranslationSelection: number }>();
 	const immediate = dependents.filter((dependent) => dependent.depth === 1).length;
 	return {
 		kind: "delete",
@@ -1139,7 +1166,6 @@ export async function inferenceConfigurationDeleteImpact(
 		affectedConfigurationCount: affectedIds.length,
 		changes,
 		warnings: inferenceImpactWarnings(changes),
-		resetsTranslationSelection: Boolean(row?.resetsTranslationSelection),
 	};
 }
 
@@ -1276,7 +1302,7 @@ export type DeleteInferenceConfigurationInput = {
 	defaults?: BickrInferenceDefaults;
 };
 
-export type UpdateTranslationSelectionInput = {
+type UpdateLegacyTranslationPointerInput = {
 	configurationId: string;
 	expectedRevision: number;
 };
@@ -1287,7 +1313,7 @@ type InferenceConfigurationMutationCapability = Readonly<{
 	update(db: D1DatabaseLike, ownerUserId: string, input: UpdateInferenceConfigurationInput, now?: string): Promise<InferenceConfigurationNode>;
 	reparent(db: D1DatabaseLike, ownerUserId: string, input: ReparentInferenceConfigurationInput, now?: string): Promise<InferenceConfigurationNode>;
 	deleteCustom(db: D1DatabaseLike, ownerUserId: string, input: DeleteInferenceConfigurationInput, now?: string): Promise<InferenceDeleteImpact>;
-	updateTranslationSelection(db: D1DatabaseLike, ownerUserId: string, input: UpdateTranslationSelectionInput, now?: string): Promise<TranslationSelection>;
+	updateLegacyTranslationPointer(db: D1DatabaseLike, ownerUserId: string, input: UpdateLegacyTranslationPointerInput, now?: string): Promise<TranslationInferencePointer>;
 	ensureCompatibilityTranslation(db: D1DatabaseLike, ownerUserId: string, overrides: InferenceConfigurationOverrides, now?: string): Promise<InferenceConfigurationNode>;
 }>;
 
@@ -1298,7 +1324,7 @@ export const inferenceConfigurationMutations: InferenceConfigurationMutationCapa
 	update: updateConfiguration,
 	reparent: reparentConfiguration,
 	deleteCustom,
-	updateTranslationSelection,
+	updateLegacyTranslationPointer,
 	ensureCompatibilityTranslation,
 });
 
@@ -1352,7 +1378,8 @@ async function renameCustom(
 	try {
 		const result = await db.prepare(
 			`UPDATE inference_configurations SET custom_name = ?, custom_name_key = ?, revision = revision + 1, updated_at = ?
-			 WHERE configuration_id = ? AND owner_user_id = ? AND kind = 'custom' AND revision = ?`,
+			 WHERE configuration_id = ? AND owner_user_id = ? AND kind = 'custom'
+				AND fixed_role IS NULL AND revision = ?`,
 		).bind(name.name, name.key, now, input.configurationId, ownerUserId, input.expectedRevision).run();
 		assertOneMutation(result.meta?.changes, current.revision, input.expectedRevision);
 	} catch (error) {
@@ -1426,70 +1453,68 @@ async function deleteCustom(
 	const results = await db.batch([
 		db.prepare(
 			`UPDATE inference_configurations SET parent_id = ?, revision = revision + 1, updated_at = ?
-			 WHERE owner_user_id = ? AND parent_id = ?`,
-		).bind(impact.parentId, now, ownerUserId, input.configurationId),
+			 WHERE owner_user_id = ? AND parent_id = ?
+				AND EXISTS (SELECT 1 FROM inference_configurations AS selected
+					WHERE selected.configuration_id = ? AND selected.owner_user_id = ?
+						AND selected.kind = 'custom' AND selected.fixed_role IS NULL AND selected.revision = ?)`,
+		).bind(impact.parentId, now, ownerUserId, input.configurationId,
+			input.configurationId, ownerUserId, input.expectedRevision),
 		db.prepare(
-			`UPDATE inference_translation_selections SET configuration_id = ?, selected_kind = 'account_default', revision = revision + 1, updated_at = ?
-			 WHERE owner_user_id = ? AND configuration_id = ?`,
-		).bind(accountDefault.id, now, ownerUserId, input.configurationId),
-		db.prepare(`DELETE FROM inference_configuration_credentials WHERE configuration_id = ? AND owner_user_id = ?`)
-			.bind(input.configurationId, ownerUserId),
+			`DELETE FROM inference_configuration_credentials
+			 WHERE configuration_id = ? AND owner_user_id = ?
+				AND EXISTS (SELECT 1 FROM inference_configurations AS selected
+					WHERE selected.configuration_id = ? AND selected.owner_user_id = ?
+						AND selected.kind = 'custom' AND selected.fixed_role IS NULL AND selected.revision = ?)`,
+		).bind(input.configurationId, ownerUserId, input.configurationId, ownerUserId, input.expectedRevision),
 		db.prepare(
 			`DELETE FROM inference_configurations
-			 WHERE configuration_id = ? AND owner_user_id = ? AND kind = 'custom' AND revision = ?`,
+			 WHERE configuration_id = ? AND owner_user_id = ? AND kind = 'custom'
+				AND fixed_role IS NULL AND revision = ?`,
 		).bind(input.configurationId, ownerUserId, input.expectedRevision),
 	]);
-	assertOneMutation(results[3]?.meta?.changes, current.revision, input.expectedRevision);
+	assertOneMutation(results[2]?.meta?.changes, current.revision, input.expectedRevision);
 	return impact;
 }
 
-export async function readTranslationSelection(
+export type TranslationInferencePointer = {
+	ownerUserId: string;
+	configurationId: string;
+	selectedKind: "account_default" | "custom";
+	revision: number;
+	updatedAt: string;
+};
+
+export async function readTranslationInferencePointer(
 	db: D1DatabaseLike,
 	ownerUserId: string,
-): Promise<TranslationSelection> {
+): Promise<TranslationInferencePointer> {
 	const row = await db.prepare(
-		`SELECT owner_user_id AS ownerUserId, configuration_id AS configurationId, revision, updated_at AS updatedAt
+		`SELECT owner_user_id AS ownerUserId, configuration_id AS configurationId,
+			selected_kind AS selectedKind, revision, updated_at AS updatedAt
 		 FROM inference_translation_selections WHERE owner_user_id = ? LIMIT 1`,
-	).bind(ownerUserId).first<TranslationSelection>();
-	if (!row) throw new RepositoryError("not_found", "Translation inference selection not found.", 404);
+	).bind(ownerUserId).first<TranslationInferencePointer>();
+	if (!row) throw new RepositoryError("not_found", "Translation inference pointer not found.", 404);
 	return row;
 }
 
-export async function readCompatibilityProjectionTranslationSelection(
+async function updateLegacyTranslationPointer(
 	db: D1DatabaseLike,
 	ownerUserId: string,
-	expectedGraphRevision: number,
-): Promise<TranslationSelection> {
-	const row = await db.prepare(
-		`SELECT owner_user_id AS ownerUserId,
-			translation_configuration_id AS configurationId,
-			translation_selection_revision AS revision,
-			updated_at AS updatedAt
-		 FROM inference_graph_legacy_projections
-		 WHERE owner_user_id = ? AND graph_revision = ? LIMIT 1`,
-	).bind(ownerUserId, expectedGraphRevision).first<TranslationSelection>();
-	if (!row) throw new InferenceGraphRepositoryError("corrupt_graph", "Current translation compatibility projection is missing.");
-	return row;
-}
-
-async function updateTranslationSelection(
-	db: D1DatabaseLike,
-	ownerUserId: string,
-	input: UpdateTranslationSelectionInput,
+	input: UpdateLegacyTranslationPointerInput,
 	now = new Date().toISOString(),
-): Promise<TranslationSelection> {
+): Promise<TranslationInferencePointer> {
 	const candidate = (await loadInferenceConfigurationPath(db, ownerUserId, input.configurationId))[0];
 	if (candidate.kind !== "account_default" && candidate.kind !== "custom") {
 		throw new InferenceGraphRepositoryError("invalid_parent", "Translation selection must be Account default or custom.", 400);
 	}
-	const current = await readTranslationSelection(db, ownerUserId);
+	const current = await readTranslationInferencePointer(db, ownerUserId);
 	const result = await db.prepare(
 		`UPDATE inference_translation_selections
 		 SET configuration_id = ?, selected_kind = ?, revision = revision + 1, updated_at = ?
 		 WHERE owner_user_id = ? AND revision = ?`,
 	).bind(candidate.id, candidate.kind, now, ownerUserId, input.expectedRevision).run();
 	assertOneMutation(result.meta?.changes, current.revision, input.expectedRevision);
-	return readTranslationSelection(db, ownerUserId);
+	return readTranslationInferencePointer(db, ownerUserId);
 }
 
 async function ensureCompatibilityTranslation(
@@ -1542,13 +1567,15 @@ async function ensureCompatibilityTranslation(
 			FROM names
 			WHERE suffix < ? AND EXISTS (
 				SELECT 1 FROM inference_configurations
-				WHERE owner_user_id = ? AND kind = 'custom' AND custom_name_key = names.name_key
+				WHERE owner_user_id = ? AND kind = 'custom' AND fixed_role IS NULL
+					AND custom_name_key = names.name_key
 			)
 		)
 		SELECT name, name_key AS nameKey FROM names
 		WHERE NOT EXISTS (
 			SELECT 1 FROM inference_configurations
-			WHERE owner_user_id = ? AND kind = 'custom' AND custom_name_key = names.name_key
+			WHERE owner_user_id = ? AND kind = 'custom' AND fixed_role IS NULL
+				AND custom_name_key = names.name_key
 		)
 		ORDER BY suffix ASC LIMIT 1`,
 	).bind(
@@ -1680,6 +1707,14 @@ export async function ownedFixedInferenceConfigurationId(
 	switch (reference.kind) {
 		case "account_default":
 			return accountDefaultConfigurationId(ownerUserId);
+		case "translation": {
+			const row = await db.prepare(
+				`SELECT configuration_id AS id FROM inference_configurations
+				 WHERE owner_user_id = ? AND fixed_role = 'translation' LIMIT 1`,
+			).bind(ownerUserId).first<{ id: string }>();
+			if (!row) throw new RepositoryError("not_found", "Translation inference configuration not found.", 404);
+			return row.id;
+		}
 		case "world": {
 			const row = await db.prepare(
 				`SELECT world_id AS id FROM worlds_index
@@ -1705,6 +1740,7 @@ export function parseFixedInferenceConfigurationReference(
 ): FixedInferenceConfigurationReference {
 	switch (kind) {
 		case "account_default": return { kind: "account_default" };
+		case "translation": return { kind: "translation" };
 		case "world": return { kind: "world", worldId: entityId };
 		case "bot": return { kind: "bot", botId: entityId };
 		default:
@@ -1754,7 +1790,7 @@ export function insertAccountDefaultConfigurationStatement(
 	).bind(input.configurationId, input.ownerUserId, JSON.stringify(input.overrides ?? {}), input.now, input.now);
 }
 
-export function insertTranslationSelectionStatement(
+export function insertTranslationInferencePointerStatement(
 	db: D1DatabaseLike,
 	input: { ownerUserId: string; configurationId: string; now: string },
 ): D1PreparedStatementLike {

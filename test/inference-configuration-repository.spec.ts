@@ -12,15 +12,18 @@ import {
 	inferenceConfigurationMutations,
 	inferenceConfigurationOwnerDto,
 	insertAccountDefaultConfigurationStatement,
-	insertTranslationSelectionStatement,
+	insertTranslationInferencePointerStatement,
 	listImmediateInferenceChildren,
 	listInferenceConfigurations,
 	listInferenceParentCandidates,
-	listInferenceTranslationCandidates,
 	loadInferenceConfigurationPath,
 	loadInternalInferenceConfigurationPath,
-	readTranslationSelection,
+	readTranslationInferencePointer,
 } from "@bickr/shared/inference-configuration-repository";
+import {
+	canonicalTranslationInferenceState,
+	translationInferenceLifecycle,
+} from "@bickr/shared/inference-translation-role";
 import {
 	accountDefaultConfigurationId,
 } from "@bickr/shared/inference-configuration-repository";
@@ -52,7 +55,7 @@ beforeEach(async () => {
 			ownerUserId: ownerId,
 			now,
 		}),
-		insertTranslationSelectionStatement(testEnv.BICKR_D1, {
+		insertTranslationInferencePointerStatement(testEnv.BICKR_D1, {
 			configurationId: rootId,
 			ownerUserId: ownerId,
 			now,
@@ -398,9 +401,6 @@ describe("inference configuration D1 repository", () => {
 		await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
 			name: "Deleting grandchild", parentId: deletingChild.id,
 		}, now);
-		await inferenceConfigurationMutations.updateTranslationSelection(testEnv.BICKR_D1, ownerId, {
-			configurationId: deleting.id, expectedRevision: 1,
-		}, now);
 		const deleteImpact = await inferenceConfigurationDeleteImpact(
 			testEnv.BICKR_D1, ownerId, deleting.id, defaults,
 		);
@@ -409,14 +409,13 @@ describe("inference configuration D1 repository", () => {
 			immediateDependentCount: 1,
 			transitiveDependentCount: 2,
 			affectedConfigurationCount: 2,
-			resetsTranslationSelection: true,
 			changes: { effectiveModel: 2, credentialAvailability: 2, credentialSource: 2 },
 		});
 		expect(JSON.stringify(deleteImpact)).not.toContain("impact-source-secret");
 		expect(JSON.stringify(deleteImpact)).not.toContain("deployment-secret");
 	});
 
-	it("deletes a selected custom entry in one FK-safe batch without flattening children", async () => {
+	it("deletes a custom entry in one FK-safe batch without flattening children", async () => {
 		const rootId = await accountDefaultConfigurationId(ownerId);
 		const parent = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
 			name: "Delete me",
@@ -428,28 +427,64 @@ describe("inference configuration D1 repository", () => {
 			name: "Survivor",
 			parentId: parent.id,
 		}, now);
-		await inferenceConfigurationMutations.updateTranslationSelection(testEnv.BICKR_D1, ownerId, {
-			configurationId: parent.id,
-			expectedRevision: 1,
-		}, now);
-
 		const impact = await inferenceConfigurationMutations.deleteCustom(testEnv.BICKR_D1, ownerId, {
 			configurationId: parent.id,
 			expectedRevision: parent.revision,
 		}, now);
-		expect(impact).toMatchObject({ immediateChildren: 1, resetsTranslationSelection: true });
+		expect(impact).toMatchObject({ immediateChildren: 1 });
 		expect((await loadInferenceConfigurationPath(testEnv.BICKR_D1, ownerId, child.id))[0]).toMatchObject({
 			parentId: rootId,
 			overrides: {},
 			revision: 2,
 		});
-		expect(await readTranslationSelection(testEnv.BICKR_D1, ownerId)).toMatchObject({
+		expect(await readTranslationInferencePointer(testEnv.BICKR_D1, ownerId)).toMatchObject({
 			configurationId: rootId,
-			revision: 3,
+			revision: 1,
 		});
 		expect(await testEnv.BICKR_D1.prepare(
 			`SELECT configuration_id FROM inference_configuration_credentials WHERE configuration_id = ?`,
 		).bind(parent.id).first()).toBeNull();
+	});
+
+	it("maps the fixed Translation role without occupying custom names and removes it through lifecycle only", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const manual = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Translation",
+			parentId: rootId,
+		}, now);
+		const enabled = await translationInferenceLifecycle.enable(testEnv.BICKR_D1, ownerId, now);
+		expect(enabled).toMatchObject({ enabled: true, role: { parentId: rootId }, pointerRevision: 2 });
+		if (!enabled.enabled) throw new Error("Translation role fixture was not enabled");
+		expect(await translationInferenceLifecycle.enable(testEnv.BICKR_D1, ownerId, now)).toEqual(enabled);
+		expect((await loadInferenceConfigurationPath(testEnv.BICKR_D1, ownerId, enabled.role.id))[0]).toMatchObject({
+			kind: "translation",
+			parentId: rootId,
+		});
+		expect(await inferenceConfigurationOwnerDto(testEnv.BICKR_D1, ownerId, enabled.role.id)).toMatchObject({
+			kind: "translation",
+			displayName: "Translation",
+			identity: { kind: "translation" },
+		});
+		const account = await listInferenceLibrarySection(testEnv.BICKR_D1, ownerId, { section: "account" });
+		expect(account.items.map((item) => item.kind)).toEqual(["account_default", "translation"]);
+		const custom = await listInferenceLibrarySection(testEnv.BICKR_D1, ownerId, { section: "custom" });
+		expect(custom.items).toEqual([expect.objectContaining({ id: manual.id, kind: "custom", displayName: "Translation" })]);
+		await expect(inferenceConfigurationMutations.renameCustom(testEnv.BICKR_D1, ownerId, {
+			configurationId: enabled.role.id, name: "Renamed", expectedRevision: 1,
+		})).rejects.toMatchObject({ causeKind: "fixed_entry_requires_lifecycle" });
+		await expect(inferenceConfigurationDeleteImpact(testEnv.BICKR_D1, ownerId, enabled.role.id))
+			.rejects.toMatchObject({ causeKind: "fixed_entry_requires_lifecycle" });
+
+		const child = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Translation child", parentId: enabled.role.id,
+		}, now);
+		expect(await translationInferenceLifecycle.disable(testEnv.BICKR_D1, ownerId, now)).toEqual({
+			enabled: false, rootId, pointerRevision: 3,
+		});
+		expect((await loadInferenceConfigurationPath(testEnv.BICKR_D1, ownerId, child.id))[0]).toMatchObject({ parentId: rootId, revision: 2 });
+		expect(await canonicalTranslationInferenceState(testEnv.BICKR_D1, ownerId)).toEqual({
+			enabled: false, rootId, pointerRevision: 3,
+		});
 	});
 
 	it("paginates list/search and immediate children without per-entry queries", async () => {
@@ -478,7 +513,7 @@ describe("inference configuration D1 repository", () => {
 		expect(children.nextCursor).toBeTruthy();
 	});
 
-	it("keeps parent and translation candidate queries bounded at observed graph scale", async () => {
+	it("keeps parent candidate queries bounded at observed graph scale", async () => {
 		const rootId = await accountDefaultConfigurationId(ownerId);
 		const selected = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
 			name: "Selected",
@@ -499,10 +534,6 @@ describe("inference configuration D1 repository", () => {
 		const candidates = await listInferenceParentCandidates(testEnv.BICKR_D1, ownerId, selected.id, { limit: 100 });
 		expect(candidates.items).toHaveLength(92);
 		expect(candidates.items.some((item) => item.id === selected.id || item.parentId === selected.id)).toBe(false);
-		const translation = await listInferenceTranslationCandidates(testEnv.BICKR_D1, ownerId, { limit: 100 });
-		expect(translation.items).toHaveLength(100);
-		expect(translation.items.every((item) => item.kind === "account_default" || item.kind === "custom")).toBe(true);
-		expect(translation.nextCursor).toBeTruthy();
 	});
 
 	it("returns typed cross-owner rejection without reading foreign paths", async () => {
@@ -855,6 +886,12 @@ describe("inference configuration D1 repository", () => {
 			name: "Over quota",
 			parentId: rootId,
 		}, now)).rejects.toMatchObject({ causeKind: "quota_exceeded", status: 409 });
+		await expect(translationInferenceLifecycle.enable(testEnv.BICKR_D1, ownerId, now))
+			.rejects.toMatchObject({ causeKind: "quota_exceeded", status: 409 });
+		expect(await readTranslationInferencePointer(testEnv.BICKR_D1, ownerId)).toMatchObject({
+			configurationId: rootId,
+			revision: 1,
+		});
 
 		await testEnv.BICKR_D1.prepare(`DROP TRIGGER inference_configurations_owner_quota`).run();
 		await testEnv.BICKR_D1.prepare(

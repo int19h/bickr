@@ -555,7 +555,7 @@ const mcpTools: McpTool[] = [
 	}), "presented"),
 	readTool("list_inference_configurations", "List inference configurations", "List the signed-in account's reusable inference configurations with effective model, immediate-child count, redacted credential availability, and parent annotations. Sections paginate independently; the participant section is ordered by home world and carries per-world group counts.", {
 		section: stringSchema("Optional library section: account, custom, world, or bot."),
-		kind: stringSchema("Optional comma-separated kinds: account_default, world, bot, custom."),
+		kind: stringSchema("Optional comma-separated kinds: account_default, translation, world, bot, custom."),
 		query: stringSchema("Optional prefix matched against custom name, world handle, participant handle, and participant home-world handle."),
 		cursor: stringSchema("Optional pagination cursor. Cursors are bound to one sort order."),
 		limit: integerSchema("Optional page size."),
@@ -579,7 +579,7 @@ const mcpTools: McpTool[] = [
 	)),
 	serviceTool("create_inference_configuration", "Create inference configuration", "Create a reusable custom inference configuration.", bodySchema({
 		name: stringSchema("Configuration display name."),
-		parentId: stringSchema("Parent configuration ID."),
+		parentId: stringSchema("Inheritance source configuration ID."),
 		overrides: objectSchema("Typed per-field overrides."),
 		credential: objectSchema("Credential intent: inherit, account_default, none, or value with secret."),
 	}), ["name", "parentId"], "write", "agent", "POST", (_args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/inference-configurations`),
@@ -594,12 +594,12 @@ const mcpTools: McpTool[] = [
 		name: stringSchema("New custom configuration name."),
 		expectedRevision: integerSchema("Expected configuration revision."),
 	}), ["configurationId", "name", "expectedRevision"], "write", "agent", "POST", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}/rename`, withoutMcpKeys("configurationId")),
-	serviceTool("reparent_inference_configuration", "Reparent inference configuration", "Change a configuration parent without copying or flattening inherited values.", bodySchema({
+	serviceTool("reparent_inference_configuration", "Change inference inheritance source", "Change a configuration's inheritance source without copying or flattening inherited values.", bodySchema({
 		configurationId: stringSchema("Configuration ID."),
-		parentId: stringSchema("New parent configuration ID."),
+		parentId: stringSchema("New inheritance source configuration ID."),
 		expectedRevision: integerSchema("Expected configuration revision."),
 	}), ["configurationId", "parentId", "expectedRevision"], "write", "agent", "POST", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}/reparent`, withoutMcpKeys("configurationId")),
-	readTool("list_inference_parent_candidates", "List inference parent candidates", "List valid non-self, non-descendant parent candidates for a configuration.", {
+	readTool("list_inference_parent_candidates", "List inference inheritance sources", "List valid non-self, non-descendant inheritance sources for a configuration.", {
 		configurationId: stringSchema("Configuration ID."),
 		query: stringSchema("Optional prefix matched against custom name, world handle, participant handle, and participant home-world handle."),
 		cursor: stringSchema("Optional pagination cursor."),
@@ -629,54 +629,28 @@ const mcpTools: McpTool[] = [
 			`/users/${encodeURIComponent(auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}/children${params.size ? `?${params}` : ""}`,
 			"GET", auth.user.id);
 	}),
-	readTool("get_inference_configuration_delete_impact", "Get inference configuration delete impact", "Preview immediate-child reparenting and translation-selection reset for a custom configuration deletion.", {
+	readTool("get_inference_configuration_delete_impact", "Get inference configuration delete impact", "Preview immediate-child reparenting for a custom configuration deletion.", {
 		configurationId: stringSchema("Configuration ID."),
 	}, ({ env, request, auth }, args) => servicePayload(
 		env.AGENT_RUNTIME, env, request,
 		`/users/${encodeURIComponent(auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}/impact`,
 		"GET", auth.user.id,
 	)),
-	readTool("get_inference_configuration_parent_impact", "Get inference configuration parent impact", "Preview bounded effective-setting changes for a candidate parent.", {
+	readTool("get_inference_configuration_parent_impact", "Get inference inheritance impact", "Preview bounded effective-setting changes for a candidate inheritance source.", {
 		configurationId: stringSchema("Configuration ID."),
-		parentId: stringSchema("Candidate parent configuration ID."),
+		parentId: stringSchema("Candidate inheritance source configuration ID."),
 	}, ({ env, request, auth }, args) => {
-		const params = new URLSearchParams({ parentId: text(args.parentId, "Parent configuration ID") });
+		const params = new URLSearchParams({ parentId: text(args.parentId, "Inheritance source configuration ID") });
 		return servicePayload(
 			env.AGENT_RUNTIME, env, request,
 			`/users/${encodeURIComponent(auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}/impact?${params}`,
 			"GET", auth.user.id,
 		);
 	}),
-	serviceTool("delete_inference_configuration", "Delete inference configuration", "Delete a custom configuration, reparenting its immediate children and resetting its translation consumer atomically when needed.", bodySchema({
+	serviceTool("delete_inference_configuration", "Delete inference configuration", "Delete a custom configuration and reparent its immediate children atomically.", bodySchema({
 		configurationId: stringSchema("Configuration ID."),
 		expectedRevision: integerSchema("Expected configuration revision."),
 	}), ["configurationId", "expectedRevision"], "destructive", "agent", "DELETE", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}`, withoutMcpKeys("configurationId")),
-	readTool("get_translation_inference_selection", "Get translation inference selection", "Read the Account default or custom configuration selected for translation.", {}, ({ env, request, auth }) => servicePayload(
-		env.AGENT_RUNTIME,
-		env,
-		request,
-		`/users/${encodeURIComponent(auth.user.id)}/inference-translation`,
-		"GET",
-		auth.user.id,
-	)),
-	readTool("list_translation_inference_candidates", "List translation inference candidates", "List only Account default and custom configurations that may be selected for translation.", {
-		query: stringSchema("Optional candidate-name prefix."),
-		cursor: stringSchema("Optional pagination cursor."),
-		limit: integerSchema("Optional page size."),
-	}, ({ env, request, auth }, args) => {
-		const params = new URLSearchParams();
-		for (const name of ["query", "cursor", "limit"]) {
-			const value = valueString(args[name]);
-			if (value) params.set(name === "query" ? "q" : name, value);
-		}
-		return servicePayload(env.AGENT_RUNTIME, env, request,
-			`/users/${encodeURIComponent(auth.user.id)}/inference-translation/candidates${params.size ? `?${params}` : ""}`,
-			"GET", auth.user.id);
-	}),
-	serviceTool("set_translation_inference_selection", "Set translation inference selection", "Select an Account default or custom configuration for translation using an expected selector revision.", bodySchema({
-		configurationId: stringSchema("Account default or custom configuration ID."),
-		expectedRevision: integerSchema("Expected translation selector revision."),
-	}), ["configurationId", "expectedRevision"], "write", "agent", "PUT", (_args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/inference-translation`),
 	readTool("list_world_bots", "List world bots", "List bots in a Bickr world.", {
 		worldHandle: stringSchema("World handle."),
 	}, async (ctx, args) => ({
@@ -1122,8 +1096,9 @@ function inferenceTranslationAnnotationFromEnvelope(value: unknown): Record<stri
 		throw new Error("Agent runtime returned an invalid translation annotation.");
 	}
 	const record = annotation as Record<string, unknown>;
-	if (typeof record.selectedConfigurationId !== "string" || typeof record.selectedDisplayName !== "string" ||
-		typeof record.selectionRevision !== "number" || typeof record.effectiveModel !== "string" ||
+	if (record.enabled === false) return { enabled: false };
+	if (record.enabled !== true || typeof record.configurationId !== "string" || record.displayName !== "Translation" ||
+		typeof record.pointerRevision !== "number" || typeof record.effectiveModel !== "string" ||
 		typeof record.effectiveRevisionFingerprint !== "string" || typeof record.credentialAvailable !== "boolean") {
 		throw new Error("Agent runtime returned an invalid translation annotation.");
 	}
