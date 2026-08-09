@@ -116,6 +116,7 @@ describe("configuration link card", () => {
 					configuration: null,
 					error: { ok: false, error: "conflict", message: "Inference configuration graph is not available for this account." },
 					loading: false,
+					reload: () => undefined,
 				}}
 				title="Inference configuration"
 			/>,
@@ -131,6 +132,7 @@ describe("configuration link card", () => {
 					configuration: null,
 					error: { ok: false, error: "not_found", message: "Participant not found." },
 					loading: false,
+					reload: () => undefined,
 				}}
 				title="Inference configuration"
 			/>,
@@ -143,7 +145,7 @@ describe("fixed inference configuration action", () => {
 	it("renders a named disabled action while the fixed configuration is loading", () => {
 		const html = renderToStaticMarkup(
 			<FixedConfigurationAction
-				state={{ configuration: null, error: null, loading: true }}
+				state={{ configuration: null, error: null, loading: true, reload: () => undefined }}
 				target={{ kind: "bot", botId: "bot_scout", botHandle: "scout", homeWorldHandle: "patch-notes" }}
 			/>,
 		);
@@ -160,6 +162,7 @@ describe("fixed inference configuration action", () => {
 					configuration: null,
 					error: { ok: false, error: "conflict", message: "Inference configuration graph is not available for this account." },
 					loading: false,
+					reload: () => undefined,
 				}}
 				target={{ kind: "bot", botId: "bot_scout", botHandle: "scout", homeWorldHandle: "patch-notes" }}
 			/>,
@@ -172,7 +175,7 @@ describe("fixed inference configuration action", () => {
 	it("uses the loaded configuration id and preserves bot-editor return navigation", () => {
 		const html = renderToStaticMarkup(
 			<FixedConfigurationAction
-				state={{ configuration: dto(), error: null, loading: false }}
+				state={{ configuration: dto(), error: null, loading: false, reload: () => undefined }}
 				target={{ kind: "bot", botId: "bot_scout", botHandle: "scout", homeWorldHandle: "patch-notes" }}
 			/>,
 		);
@@ -186,7 +189,7 @@ describe("fixed inference configuration action", () => {
 	it("keeps a configuration loaded for a different bot disabled and non-navigable", () => {
 		const html = renderToStaticMarkup(
 			<FixedConfigurationAction
-				state={{ configuration: dto(), error: null, loading: false }}
+				state={{ configuration: dto(), error: null, loading: false, reload: () => undefined }}
 				target={{ kind: "bot", botId: "bot_other", botHandle: "other", homeWorldHandle: "patch-notes" }}
 			/>,
 		);
@@ -199,7 +202,7 @@ describe("fixed inference configuration action", () => {
 	it("uses the loaded Account default id and returns to the profile editor", () => {
 		const html = renderToStaticMarkup(
 			<FixedConfigurationAction
-				state={{ configuration: accountDto(), error: null, loading: false }}
+				state={{ configuration: accountDto(), error: null, loading: false, reload: () => undefined }}
 				target={{ kind: "account_default" }}
 			/>,
 		);
@@ -211,7 +214,7 @@ describe("fixed inference configuration action", () => {
 	it("keeps a non-account DTO disabled for the Account default target", () => {
 		const html = renderToStaticMarkup(
 			<FixedConfigurationAction
-				state={{ configuration: dto(), error: null, loading: false }}
+				state={{ configuration: dto(), error: null, loading: false, reload: () => undefined }}
 				target={{ kind: "account_default" }}
 			/>,
 		);
@@ -223,7 +226,7 @@ describe("fixed inference configuration action", () => {
 	it("uses the loaded world id and preserves its saved editor return navigation", () => {
 		const html = renderToStaticMarkup(
 			<FixedConfigurationAction
-				state={{ configuration: worldDto(), error: null, loading: false }}
+				state={{ configuration: worldDto(), error: null, loading: false, reload: () => undefined }}
 				target={{ kind: "world", worldId: "wld_recurring", worldHandle: "recurring" }}
 			/>,
 		);
@@ -235,7 +238,7 @@ describe("fixed inference configuration action", () => {
 	it("keeps a configuration loaded for a different world disabled and non-navigable", () => {
 		const html = renderToStaticMarkup(
 			<FixedConfigurationAction
-				state={{ configuration: worldDto("wld_other"), error: null, loading: false }}
+				state={{ configuration: worldDto("wld_other"), error: null, loading: false, reload: () => undefined }}
 				target={{ kind: "world", worldId: "wld_recurring", worldHandle: "recurring" }}
 			/>,
 		);

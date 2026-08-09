@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
 	FixedInferenceConfigurationReference,
 	RedactedInferenceConfigurationDto,
@@ -15,6 +15,7 @@ export type FixedConfigurationState = {
 	configuration: RedactedInferenceConfigurationDto | null;
 	error: ApiFailure | null;
 	loading: boolean;
+	reload: () => void;
 };
 
 /**
@@ -34,11 +35,13 @@ export type FixedConfigurationActionTarget =
  * own identity metadata, so no configuration address is derived here.
  */
 export function useFixedConfiguration(reference: FixedInferenceConfigurationReference | null): FixedConfigurationState {
-	const [state, setState] = useState<FixedConfigurationState>({
+	const [state, setState] = useState<Omit<FixedConfigurationState, "reload">>({
 		configuration: null,
 		error: null,
 		loading: Boolean(reference),
 	});
+	const [token, setToken] = useState(0);
+	const reload = useCallback(() => setToken((current) => current + 1), []);
 	const key = reference ? `${reference.kind}:${referenceEntityId(reference)}` : "";
 
 	useEffect(() => {
@@ -59,9 +62,9 @@ export function useFixedConfiguration(reference: FixedInferenceConfigurationRefe
 		return () => {
 			cancelled = true;
 		};
-	}, [key]);
+	}, [key, token]);
 
-	return state;
+	return { ...state, reload };
 }
 
 function referenceEntityId(reference: FixedInferenceConfigurationReference): string {

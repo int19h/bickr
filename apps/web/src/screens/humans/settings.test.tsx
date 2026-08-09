@@ -53,8 +53,7 @@ describe("ProfileScreen inference boundary", () => {
 		expect(markup).toContain("Open Account default configuration");
 		expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>Open Account default configuration<\/button>/);
 		expect(markup).not.toContain("inference-link-card");
-		expect(markup).not.toContain("Effective model");
-		expect(markup).not.toContain('<span class="label">Inference</span>');
+		expect(markup).toMatch(/<div class="kvrow"><div><div class="k">Inference<\/div><\/div><div class="v">\.\.\.<\/div><\/div>/);
 		expect(markup).not.toContain("Inference Provider");
 		expect(markup).not.toContain("Inference: Agentic Loop");
 		expect(markup).not.toContain("Inference: Image Generation");

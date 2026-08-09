@@ -384,6 +384,7 @@ export function ProfileScreen({
 						</div>
 						<TranslationConfigurationSelector
 							onSelectionSaved={() => {
+								accountConfiguration.reload();
 								void reloadProfile();
 							}}
 							returnTo={{ route: "profile" }}
@@ -409,6 +410,10 @@ export function ProfileScreen({
 									unlinkable={authIdentities.length > 1}
 								/>
 							))}
+							<RuntimeRow
+								label="Inference"
+								value={accountConfiguration.configuration?.effectiveModel ?? "..."}
+							/>
 							<RuntimeRow label="Created" value={profile ? <TimeAgoLabel value={profile.createdAt} /> : "..."} />
 							<RuntimeRow label="Updated" value={profile ? <TimeAgoLabel value={profile.updatedAt} /> : "..."} />
 						</div>
