@@ -13,7 +13,13 @@ import {
 	rollbackInferenceGraphCutover,
 	runInferenceGraphMigrationStep,
 } from "@bickr/shared/inference-configuration-migration";
-import { canonicalBotInference, canonicalTranslationInferenceAnnotation } from "@bickr/shared/inference-configuration-consumers";
+import {
+	canonicalAccountInference,
+	canonicalAvatarImageSettings,
+	canonicalBotInference,
+	canonicalTranslationInferenceAnnotation,
+	canonicalWorldInference,
+} from "@bickr/shared/inference-configuration-consumers";
 import { providerEnvironmentSettingsFromBindings, resolveBotProviderSettings } from "@bickr/shared/inference-settings";
 import {
 	inferenceConfigurationMutations,
@@ -371,6 +377,81 @@ describe("restartable inference graph migration", () => {
 		});
 		expect(JSON.stringify(await inferenceGraphMigrationStatus(testEnv.BICKR_D1, ownerId)))
 			.not.toContain("deployment-secret");
+	});
+
+	it("migrates explicit Bickr image defaults without suppressing a deployment-only credential", async () => {
+		const deploymentOnlyEnv = { OPENROUTER_API_KEY: "deployment-only-secret" };
+		const participantDefaults = {
+			model: "google/gemini-3.1-flash-image",
+			aspectRatio: "1:1",
+			imageSize: "1K",
+		};
+		const worldDefaults = { ...participantDefaults, aspectRatio: "21:9" };
+		const user = { ...migrationUser(), inferenceSettings: { imageGeneration: participantDefaults } };
+		await writeJson(testEnv.BICKR_KV, kvKeys.user(ownerId), user);
+		const world = { ...migrationWorld(), imageGeneration: worldDefaults };
+		await worldIndexProjectionStatement(testEnv.BICKR_D1, world).run();
+		await writeJson(testEnv.BICKR_KV, kvKeys.world(worldId), world);
+		const source = migrationBot("bot_default_source", "default-source", {
+			imageGeneration: participantDefaults,
+		});
+		const clone = migrationBot("bot_default_clone", "default-clone", {}, source);
+		await seedBot(source);
+		await seedBot(clone);
+		await seedLinkedClone(clone, source);
+
+		await migrateToCutover(deploymentOnlyEnv);
+
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const sourceId = await botConfigurationId(source.id);
+		expect(await configurationOverrides(rootId)).toMatchObject({
+			imageModel: { kind: "target_default" },
+			imageAspectRatio: { kind: "value", value: "1:1" },
+			imageSize: { kind: "value", value: "1K" },
+		});
+		expect(await configurationOverrides(await worldConfigurationId(worldId))).toMatchObject({
+			imageModel: { kind: "target_default" },
+			imageAspectRatio: { kind: "value", value: "21:9" },
+			imageSize: { kind: "value", value: "1K" },
+		});
+		expect(await configurationOverrides(sourceId)).toMatchObject({
+			imageModel: { kind: "target_default" },
+			imageAspectRatio: { kind: "value", value: "1:1" },
+			imageSize: { kind: "value", value: "1K" },
+		});
+		expect(await configurationOverrides(await botConfigurationId(clone.id))).toEqual({});
+
+		const canonicalTargets = [
+			{
+				consumer: await canonicalAccountInference(testEnv.BICKR_D1, ownerId, deploymentOnlyEnv),
+				target: "participant" as const,
+				aspectRatio: "1:1",
+			},
+			{
+				consumer: await canonicalWorldInference(testEnv.BICKR_D1, ownerId, worldId, deploymentOnlyEnv),
+				target: "world" as const,
+				aspectRatio: "21:9",
+			},
+			{
+				consumer: await canonicalBotInference(testEnv.BICKR_D1, ownerId, source.id, deploymentOnlyEnv),
+				target: "participant" as const,
+				aspectRatio: "1:1",
+			},
+			{
+				consumer: await canonicalBotInference(testEnv.BICKR_D1, ownerId, clone.id, deploymentOnlyEnv),
+				target: "participant" as const,
+				aspectRatio: "1:1",
+			},
+		];
+		for (const { consumer, target, aspectRatio } of canonicalTargets) {
+			expect(consumer).not.toBeNull();
+			expect(canonicalAvatarImageSettings(consumer!, target)).toMatchObject({
+				apiKey: "deployment-only-secret",
+				model: "google/gemini-3.1-flash-image",
+				aspectRatio,
+				imageSize: "1K",
+			});
+		}
 	});
 
 	it("preserves model-gated provider bundles and whole-object image inheritance for every bot shape", async () => {
