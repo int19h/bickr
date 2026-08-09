@@ -243,6 +243,24 @@ async function migrateAccountDefault(env: InferenceGraphMigrationEnv, ownerUserI
 
 type WorldMigrationRow = { worldId: string; imageGenerationJson: string | null };
 
+/**
+ * World prompts remain KV-owned and are audited separately. Rest destructuring
+ * deliberately keeps every current and future non-prompt inference field in
+ * raw parity without mutating the stored or authoritative settings object.
+ */
+export function worldImageInferenceSettingsForRawParity(
+	settings: BotImageGenerationSettings,
+): Omit<BotImageGenerationSettings, "prompt"> {
+	const { prompt: _prompt, ...inferenceSettings } = settings;
+	return inferenceSettings;
+}
+
+function worldImageInferenceParityValue(
+	settings: BotImageGenerationSettings | null | undefined,
+): Omit<BotImageGenerationSettings, "prompt"> | null | undefined {
+	return settings == null ? settings : worldImageInferenceSettingsForRawParity(settings);
+}
+
 async function migrateWorldBatch(env: InferenceGraphMigrationEnv, operation: MigrationOperation, now: string): Promise<void> {
 	const result = await env.BICKR_D1.prepare(
 		`SELECT world_id AS worldId, image_generation AS imageGenerationJson
@@ -596,7 +614,8 @@ async function verifyWorldParityBatch(env: InferenceGraphMigrationEnv, operation
 			{ target: "world" },
 		));
 		assertCredentialParity(node, undefined);
-		if (parityJson(storedImage ?? null) !== parityJson(world.imageGeneration ?? null)) migrationParityFailure();
+		if (parityJson(worldImageInferenceParityValue(storedImage as BotImageGenerationSettings | undefined)) !==
+			parityJson(worldImageInferenceParityValue(world.imageGeneration))) migrationParityFailure();
 		const resolution = resolveInferenceConfiguration(inferenceConfigurationPathFromSnapshot(node, snapshot), { defaults });
 		const canonicalProvider = providerSettingsFromResolution(resolution);
 		const legacyImage = legacyImageEnvelope(
