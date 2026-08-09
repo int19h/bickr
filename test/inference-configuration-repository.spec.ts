@@ -448,6 +448,9 @@ describe("inference configuration D1 repository", () => {
 
 	it("resets an unswept cutover-1 pointer before deleting its selected custom entry", async () => {
 		await enableCutover();
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE inference_graph_users SET translation_role_state_version = 0 WHERE owner_user_id = ?`,
+		).bind(ownerId).run();
 		const rootId = await accountDefaultConfigurationId(ownerId);
 		const selected = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
 			name: "Unswept selected translation",

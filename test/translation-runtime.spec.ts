@@ -65,6 +65,11 @@ describe("translation runtime authority", () => {
 				 SET configuration_id = ?, selected_kind = 'custom', revision = revision + 1, updated_at = ?
 				 WHERE owner_user_id = ? AND revision = 1`,
 			).bind(selectedId, now, ownerId),
+			testEnv.BICKR_D1.prepare(
+				`UPDATE inference_graph_users
+				 SET translation_role_state_version = 0
+				 WHERE owner_user_id = ?`,
+			).bind(ownerId),
 		]);
 		await writeJson(testEnv.BICKR_KV, kvKeys.user(ownerId), user(true));
 		const originalFetch = globalThis.fetch;

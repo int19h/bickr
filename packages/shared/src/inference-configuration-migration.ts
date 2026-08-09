@@ -169,8 +169,9 @@ export async function runInferenceGraphMigrationStep(
 			env.BICKR_D1.prepare(
 				`INSERT INTO inference_graph_users (
 					owner_user_id, writer_version, cutover_version, graph_revision,
+					translation_role_state_version,
 					created_at, updated_at
-				) VALUES (?, 0, 0, 0, ?, ?)
+				) VALUES (?, 0, 0, 0, 0, ?, ?)
 				ON CONFLICT(owner_user_id) DO NOTHING`,
 			).bind(ownerUserId, now, now),
 			env.BICKR_D1.prepare(

@@ -191,9 +191,14 @@ describe("entity lifecycle foundation", () => {
 			`SELECT configuration_id AS configurationId FROM inference_translation_selections WHERE owner_user_id = ?`,
 		).bind(user.id).first()).toEqual({ configurationId });
 		expect(await testEnv.BICKR_D1.prepare(
-			`SELECT writer_version AS writerVersion, cutover_version AS cutoverVersion
+			`SELECT writer_version AS writerVersion, cutover_version AS cutoverVersion,
+				translation_role_state_version AS translationRoleStateVersion
 			 FROM inference_graph_users WHERE owner_user_id = ?`,
-		).bind(user.id).first()).toEqual({ writerVersion: 1, cutoverVersion: 1 });
+		).bind(user.id).first()).toEqual({
+			writerVersion: 1,
+			cutoverVersion: 1,
+			translationRoleStateVersion: 1,
+		});
 		expect(await testEnv.BICKR_D1.prepare(
 			`SELECT mode, secret_value AS secret, secret_version AS secretVersion
 			 FROM inference_configuration_credentials WHERE configuration_id = ?`,

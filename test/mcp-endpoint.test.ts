@@ -496,6 +496,39 @@ describe("MCP endpoint", () => {
 		});
 	});
 
+	it("accepts a migration-pending Translation annotation from the runtime", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
+		const annotation = {
+			enabled: true,
+			migrationPending: true,
+			sourceConfigurationId: "cfg_pre_sweep_translation",
+			pointerRevision: 3,
+			effectiveModel: "legacy/translation-model",
+			effectiveRevisionFingerprint: "pending-fingerprint",
+			credentialAvailable: true,
+		} as const;
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: { name: "get_profile", arguments: {} },
+		}, {
+			AGENT_RUNTIME: {
+				fetch: async (request: Request) => {
+					expect(new URL(request.url).pathname)
+						.toBe("/users/usr_mcp/inference-translation/annotation");
+					return Response.json({ ok: true, data: { annotation } });
+				},
+			},
+			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+		});
+
+		expect((await jsonResponse(response)).result).toMatchObject({
+			structuredContent: { profile: { translationInference: annotation } },
+		});
+	});
+
 	it("executes mutation batches in order and correlates every result", async () => {
 		const kv = new MapKV();
 		const accessToken = await issueAccessToken(kv, ["bickr.runtime"]);
