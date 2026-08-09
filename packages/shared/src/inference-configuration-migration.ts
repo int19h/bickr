@@ -7,6 +7,7 @@ import {
 } from "./inference-configuration-legacy";
 import {
 	inferenceConfigurationCorruptionSentinel,
+	isHistoricalBickrDefaultImageModel,
 	type InferenceConfigurationOverrides,
 } from "./inference-configuration";
 import { resolveInferenceConfiguration, type AvatarInferenceTarget, type InferenceConfigurationNode, type InferenceResolution } from "./inference-configuration";
@@ -437,6 +438,11 @@ function legacyImageMigrationOverrides(
 	// genuinely owner-selected models still require an owner provider.
 	if (settings?.model?.trim() === targetDefaults.model) {
 		overrides.imageModel = { kind: "target_default" };
+	} else if (isHistoricalBickrDefaultImageModel(settings?.model)) {
+		// Preserve the exact former default and its Bickr provenance. This is an
+		// internal migration state: ordinary owner input can store the same string
+		// only as a normal value and therefore cannot manufacture authorization.
+		overrides.imageModel = { kind: "historical_bickr_default", value: settings.model };
 	}
 	for (const field of ["imageModel", "imageAspectRatio", "imageSize"] as const) {
 		overrides[field] ??= { kind: "target_default" };

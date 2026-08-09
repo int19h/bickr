@@ -37,7 +37,8 @@ import {
 	inferenceFieldAnnotations,
 	inferenceResolutionFingerprint,
 	normalizedInferenceConfigurationName,
-	parseInferenceConfigurationOverrides,
+	ownerInferenceConfigurationOverrides,
+	parseStoredInferenceConfigurationOverrides,
 	resolveInferenceConfiguration,
 	resolveImageSettingsForTarget,
 	type InferenceConfigurationCredential,
@@ -50,6 +51,7 @@ import {
 	type InferenceCredentialMode,
 	type InferenceCredentialResolution,
 	type InferenceSource,
+	type OwnerInferenceConfigurationOverrides,
 	type StoredInferenceConfigurationKind,
 	type BickrInferenceDefaults,
 } from "./inference-configuration";
@@ -288,7 +290,7 @@ function configurationNodeFromRow(row: ConfigurationPathRow, includeSecret: bool
 		throw corruptKind(row);
 	}
 	const credential = credentialFromRow(row, includeSecret);
-	const overrides = parseInferenceConfigurationOverrides(row.overridesJson);
+	const overrides = parseStoredInferenceConfigurationOverrides(row.overridesJson);
 	try {
 		assertInferenceOverridesAllowedForKind(kind, overrides);
 	} catch {
@@ -380,7 +382,7 @@ export async function inferenceConfigurationOwnerDto(
 			...entryIdentity(named.identities.get(entry.id) ?? corruptIdentity(entry.id)),
 		})),
 		revision: selected.revision,
-		overrides: selected.overrides,
+		overrides: ownerInferenceConfigurationOverrides(selected.overrides),
 		credential: {
 			mode: selected.credential.mode,
 			available: resolution.effective.credential.kind === "available",
@@ -1273,7 +1275,7 @@ function inferenceImpactWarnings(changes: InferenceImpactChangeCounts): Inferenc
 export type CreateCustomInferenceConfigurationInput = {
 	name: string;
 	parentId: string;
-	overrides?: InferenceConfigurationOverrides;
+	overrides?: OwnerInferenceConfigurationOverrides;
 	credential?: CredentialUpdate;
 };
 

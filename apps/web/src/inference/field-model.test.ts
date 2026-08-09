@@ -196,7 +196,13 @@ describe("override protocol drafts", () => {
 	});
 
 	it("patches only fields whose draft moved away from the loaded override", () => {
-		const loaded = fields({ baseUrl: { kind: "account_default" }, temperature: { kind: "value", value: 0 } });
+		const loaded = fields({
+			baseUrl: { kind: "account_default" },
+			temperature: { kind: "value", value: 0 },
+			// Internal historical-default provenance is owner-projected as this
+			// ordinary value. Loading and saving another field must not resubmit it.
+			imageModel: { kind: "value", value: "google/gemini-3.1-flash-image-preview" },
+		});
 		const drafts = Object.fromEntries(
 			inferenceEditorFields.map((field) => [field, draftFromOverride(field, loaded[field].override)]),
 		) as Record<InferenceConfigurationField, InferenceFieldDraft>;

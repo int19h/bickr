@@ -187,10 +187,36 @@ describe("canonical inference consumers", () => {
 		expect(targetDefaultSettings?.model).toBeTruthy();
 		expect(targetDefaultSettings?.apiKey).toBe("deployment-only-secret");
 
+		const historicalModel = "google/gemini-3.1-flash-image-preview";
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE inference_configurations
+			 SET overrides_json = ?, revision = revision + 1, updated_at = ?
+			 WHERE configuration_id = ?`,
+		).bind(JSON.stringify({
+			baseUrl: { kind: "account_default" },
+			imageModel: { kind: "historical_bickr_default", value: historicalModel },
+		}), now, botConfiguration).run();
+		const historicalTarget = await resolveAvatarTarget(env, { kind: "bot", userId: ownerId, botId }, "generate");
+		expect(effectiveProviderSettingsForAvatarImageGeneration(historicalTarget, env)).toMatchObject({
+			apiKey: "deployment-only-secret",
+			model: historicalModel,
+		});
+
+		// The owner-facing value projection is safe to resubmit unchanged; a real
+		// value change becomes owner provenance and loses deployment authorization.
 		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
 			configurationId: botConfiguration,
-			expectedRevision: 2,
-			overrides: { imageModel: { kind: "value", value: "owner/chosen-image" } },
+			expectedRevision: 3,
+			overrides: { imageModel: { kind: "value", value: historicalModel } },
+		}, now);
+		const preservedTarget = await resolveAvatarTarget(env, { kind: "bot", userId: ownerId, botId }, "generate");
+		expect(effectiveProviderSettingsForAvatarImageGeneration(preservedTarget, env)?.apiKey)
+			.toBe("deployment-only-secret");
+
+		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: botConfiguration,
+			expectedRevision: 4,
+			overrides: { imageModel: { kind: "value", value: `${historicalModel}:free` } },
 		}, now);
 		const ownerModelTarget = await resolveAvatarTarget(env, { kind: "bot", userId: ownerId, botId }, "generate");
 		expect(effectiveProviderSettingsForAvatarImageGeneration(ownerModelTarget, env)).toBeNull();

@@ -379,10 +379,24 @@ describe("restartable inference graph migration", () => {
 			.not.toContain("deployment-secret");
 	});
 
-	it("migrates explicit Bickr image defaults without suppressing a deployment-only credential", async () => {
+	it.each([
+		{
+			name: "current",
+			model: "google/gemini-3.1-flash-image",
+			expectedOverride: { kind: "target_default" },
+		},
+		{
+			name: "historical",
+			model: "google/gemini-3.1-flash-image-preview",
+			expectedOverride: {
+				kind: "historical_bickr_default",
+				value: "google/gemini-3.1-flash-image-preview",
+			},
+		},
+	] as const)("migrates an explicit $name Bickr image default without suppressing a deployment-only credential", async ({ model, expectedOverride }) => {
 		const deploymentOnlyEnv = { OPENROUTER_API_KEY: "deployment-only-secret" };
 		const participantDefaults = {
-			model: "google/gemini-3.1-flash-image",
+			model,
 			aspectRatio: "1:1",
 			imageSize: "1K",
 		};
@@ -405,17 +419,17 @@ describe("restartable inference graph migration", () => {
 		const rootId = await accountDefaultConfigurationId(ownerId);
 		const sourceId = await botConfigurationId(source.id);
 		expect(await configurationOverrides(rootId)).toMatchObject({
-			imageModel: { kind: "target_default" },
+			imageModel: expectedOverride,
 			imageAspectRatio: { kind: "value", value: "1:1" },
 			imageSize: { kind: "value", value: "1K" },
 		});
 		expect(await configurationOverrides(await worldConfigurationId(worldId))).toMatchObject({
-			imageModel: { kind: "target_default" },
+			imageModel: expectedOverride,
 			imageAspectRatio: { kind: "value", value: "21:9" },
 			imageSize: { kind: "value", value: "1K" },
 		});
 		expect(await configurationOverrides(sourceId)).toMatchObject({
-			imageModel: { kind: "target_default" },
+			imageModel: expectedOverride,
 			imageAspectRatio: { kind: "value", value: "1:1" },
 			imageSize: { kind: "value", value: "1K" },
 		});
@@ -447,11 +461,18 @@ describe("restartable inference graph migration", () => {
 			expect(consumer).not.toBeNull();
 			expect(canonicalAvatarImageSettings(consumer!, target)).toMatchObject({
 				apiKey: "deployment-only-secret",
-				model: "google/gemini-3.1-flash-image",
+				model,
 				aspectRatio,
 				imageSize: "1K",
 			});
 		}
+		const terminalRetry = await runInferenceGraphMigrationStep(
+			{ ...testEnv, ...deploymentOnlyEnv },
+			ownerId,
+			"2026-08-04T00:01:00.000Z",
+		);
+		expect(terminalRetry).toMatchObject({ complete: true, phase: "terminal", cutoverVersion: 1 });
+		expect((await configurationOverrides(rootId)).imageModel).toEqual(expectedOverride);
 	});
 
 	it("preserves model-gated provider bundles and whole-object image inheritance for every bot shape", async () => {

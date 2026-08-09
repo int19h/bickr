@@ -101,6 +101,54 @@ describe("inference configuration D1 repository", () => {
 		});
 	});
 
+	it("preserves historical Bickr image provenance across owner DTO and no-op updates", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const historicalModel = "google/gemini-3.1-flash-image-preview";
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE inference_configurations SET overrides_json = ? WHERE configuration_id = ?`,
+		).bind(JSON.stringify({
+			imageModel: { kind: "historical_bickr_default", value: historicalModel },
+		}), rootId).run();
+
+		const deploymentDefaults = {
+			fields: { baseUrl: "https://deployment.example/v1", model: "deployment/model", temperature: 1 },
+			credential: "deployment-secret",
+			credentialVersion: 1,
+		};
+		const loaded = (await loadInferenceConfigurationPath(testEnv.BICKR_D1, ownerId, rootId))[0];
+		expect(loaded.overrides.imageModel).toEqual({
+			kind: "historical_bickr_default",
+			value: historicalModel,
+		});
+		const dto = await inferenceConfigurationOwnerDto(testEnv.BICKR_D1, ownerId, rootId, deploymentDefaults);
+		expect(dto.overrides.imageModel).toEqual({ kind: "value", value: historicalModel });
+		expect(dto.fields.imageModel).toMatchObject({
+			override: { kind: "value", value: historicalModel },
+			effective: historicalModel,
+			source: { kind: "bickr_default" },
+		});
+		expect(dto.imagePreviews.participant.model).toBe(historicalModel);
+
+		const unrelated = await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: rootId,
+			expectedRevision: 1,
+			overrides: { temperature: { kind: "value", value: 0.25 } },
+		}, now);
+		expect(unrelated.overrides.imageModel).toEqual(loaded.overrides.imageModel);
+		const noOpModel = await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: rootId,
+			expectedRevision: 2,
+			overrides: { imageModel: { kind: "value", value: historicalModel } },
+		}, now);
+		expect(noOpModel.overrides.imageModel).toEqual(loaded.overrides.imageModel);
+		const changed = await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: rootId,
+			expectedRevision: 3,
+			overrides: { imageModel: { kind: "value", value: "owner/new-image-model" } },
+		}, now);
+		expect(changed.overrides.imageModel).toEqual({ kind: "value", value: "owner/new-image-model" });
+	});
+
 	it("reports typed credential provenance without reporting deployment or saved secret text", async () => {
 		const rootId = await accountDefaultConfigurationId(ownerId);
 		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {

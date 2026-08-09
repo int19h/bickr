@@ -126,6 +126,21 @@ type ValueOnlyField =
 type ImageTargetDefaultField = "imageModel" | "imageAspectRatio" | "imageSize";
 
 /**
+ * Exact image models that Bickr previously supplied as its own default. This
+ * list is deliberately immutable and exact: aliases, case variants, provider
+ * suffixes, and future models do not acquire Bickr provenance accidentally.
+ */
+export const historicalBickrDefaultImageModels = [
+	"google/gemini-3.1-flash-image-preview",
+] as const;
+
+export type HistoricalBickrDefaultImageModel = typeof historicalBickrDefaultImageModels[number];
+
+export function isHistoricalBickrDefaultImageModel(value: unknown): value is HistoricalBickrDefaultImageModel {
+	return typeof value === "string" && (historicalBickrDefaultImageModels as readonly string[]).includes(value);
+}
+
+/**
  * Only the base URL can resume raw resolution at Account default. A linked
  * clone whose local model made its whole local bundle live never consulted its
  * source's provider fields, so it must skip intervening parents without
@@ -137,14 +152,22 @@ export type StoredInferenceOverride<K extends InferenceConfigurationField> =
 	| { kind: "value"; value: InferenceConfigurationFieldValues[K] }
 	| (K extends ValueOnlyField ? never : { kind: "explicit_none" })
 	| (K extends ImageTargetDefaultField ? { kind: "target_default" } : never)
+	| (K extends "imageModel" ? { kind: "historical_bickr_default"; value: HistoricalBickrDefaultImageModel } : never)
 	| (K extends AccountDefaultResumableField ? { kind: "account_default" } : never);
+
+export type OwnerInferenceOverride<K extends InferenceConfigurationField> =
+	Exclude<StoredInferenceOverride<K>, { kind: "historical_bickr_default" }>;
 
 export type InferenceOverrideUpdate<K extends InferenceConfigurationField> =
 	| { kind: "inherit" }
-	| StoredInferenceOverride<K>;
+	| OwnerInferenceOverride<K>;
 
 export type InferenceConfigurationOverrides = {
 	[K in InferenceConfigurationField]?: StoredInferenceOverride<K>;
+};
+
+export type OwnerInferenceConfigurationOverrides = {
+	[K in InferenceConfigurationField]?: OwnerInferenceOverride<K>;
 };
 
 export type InferenceConfigurationOverridePatch = {
@@ -476,7 +499,19 @@ export function resolveImageSettingsForTarget(
 	};
 }
 
-export function parseInferenceConfigurationOverrides(value: string | unknown): InferenceConfigurationOverrides {
+export function parseInferenceConfigurationOverrides(value: string | unknown): OwnerInferenceConfigurationOverrides {
+	return parseInferenceConfigurationOverridesWithAccess(value, false) as OwnerInferenceConfigurationOverrides;
+}
+
+/** Stored graph rows may contain migration-only provenance states. */
+export function parseStoredInferenceConfigurationOverrides(value: string | unknown): InferenceConfigurationOverrides {
+	return parseInferenceConfigurationOverridesWithAccess(value, true);
+}
+
+function parseInferenceConfigurationOverridesWithAccess(
+	value: string | unknown,
+	allowHistoricalBickrDefault: boolean,
+): InferenceConfigurationOverrides {
 	let parsed: unknown = value;
 	if (typeof value === "string") {
 		try {
@@ -493,7 +528,7 @@ export function parseInferenceConfigurationOverrides(value: string | unknown): I
 		if (!isInferenceConfigurationField(key)) {
 			throw new InferenceConfigurationDataError("invalid_overrides", `Unknown inference configuration field ${JSON.stringify(key)}.`);
 		}
-		result[key] = parseStoredOverride(key, override);
+		result[key] = parseInferenceOverride(key, override, allowHistoricalBickrDefault);
 	}
 	return result as InferenceConfigurationOverrides;
 }
@@ -509,7 +544,16 @@ export function applyInferenceOverridePatch(
 		if (update.kind === "inherit") {
 			delete next[field];
 		} else {
-			next[field] = parseStoredOverride(field, update);
+			const parsed = parseInferenceOverride(field, update, false);
+			if (field === "imageModel" &&
+				current.imageModel?.kind === "historical_bickr_default" &&
+				parsed.kind === "value" && parsed.value === current.imageModel.value) {
+				// Owner surfaces intentionally project the internal state as an
+				// ordinary value. Re-submitting that unchanged projection must not
+				// silently re-attribute the model to the owner.
+				continue;
+			}
+			next[field] = parsed;
 		}
 	}
 	return next as InferenceConfigurationOverrides;
@@ -531,7 +575,7 @@ export function parseInferenceConfigurationOverridePatch(value: unknown): Infere
 			if (Object.keys(update).length !== 1) throw invalidOverride(key);
 			result[key] = { kind: "inherit" };
 		} else {
-			result[key] = parseStoredOverride(key, update);
+			result[key] = parseInferenceOverride(key, update, false);
 		}
 	}
 	return result as InferenceConfigurationOverridePatch;
@@ -605,12 +649,31 @@ export function inferenceFieldAnnotations(
 		const raw = resolution.raw[field] as AnyResolvedRawInferenceField;
 		const effective = effectiveInferenceField(resolution, field);
 		return [field, {
-			override: selectedOverrides[field] ?? { kind: "inherit" },
+			override: ownerInferenceOverride(selectedOverrides[field]),
 			effective,
 			source: raw.source,
 			adjustment: inferenceFieldAdjustment(resolution, field, raw, effective),
 		}];
 	})) as InferenceFieldAnnotationMap;
+}
+
+export function ownerInferenceOverride<K extends InferenceConfigurationField>(
+	override: StoredInferenceOverride<K> | undefined,
+): InferenceOverrideUpdate<K> {
+	if (!override) return { kind: "inherit" };
+	if (override.kind === "historical_bickr_default") {
+		return { kind: "value", value: override.value } as InferenceOverrideUpdate<K>;
+	}
+	return override as InferenceOverrideUpdate<K>;
+}
+
+export function ownerInferenceConfigurationOverrides(
+	overrides: InferenceConfigurationOverrides,
+): OwnerInferenceConfigurationOverrides {
+	return Object.fromEntries(inferenceConfigurationFields.flatMap((field) => {
+		const override = overrides[field];
+		return override ? [[field, ownerInferenceOverride(override)]] : [];
+	})) as OwnerInferenceConfigurationOverrides;
 }
 
 function effectiveInferenceField(resolution: InferenceResolution, field: InferenceConfigurationField): unknown {
@@ -717,6 +780,7 @@ type AnyStoredInferenceOverride =
 	| { kind: "value"; value: InferenceConfigurationFieldValues[InferenceConfigurationField] }
 	| { kind: "explicit_none" }
 	| { kind: "target_default" }
+	| { kind: "historical_bickr_default"; value: HistoricalBickrDefaultImageModel }
 	| { kind: "account_default" };
 
 type AnyResolvedRawInferenceField =
@@ -755,6 +819,9 @@ function resolveRawInferenceFieldFromDepth(
 			// the Bickr default then supplies keeps its own provenance, so a hidden
 			// deployment value is never relabelled as owner-selected.
 			return resolveRawInferenceFieldFromDepth(path, field, defaultValue, path.length - 1);
+		}
+		if (override.kind === "historical_bickr_default") {
+			return { state: "value", value: override.value, source: { kind: "bickr_default" }, override };
 		}
 		const source = sourceForEntry(entry, depth);
 		if (override.kind === "explicit_none") {
@@ -935,9 +1002,10 @@ function optionalNumber<K extends InferenceConfigurationField>(
 	return typeof value === "number" ? value : undefined;
 }
 
-function parseStoredOverride<K extends InferenceConfigurationField>(
+function parseInferenceOverride<K extends InferenceConfigurationField>(
 	field: K,
 	value: unknown,
+	allowHistoricalBickrDefault: boolean,
 ): StoredInferenceOverride<K> {
 	if (!isRecord(value) || typeof value.kind !== "string") {
 		throw invalidOverride(field);
@@ -949,6 +1017,12 @@ function parseStoredOverride<K extends InferenceConfigurationField>(
 	if (value.kind === "target_default") {
 		if (!imageTargetDefaultFields.has(field) || Object.keys(value).length !== 1) throw invalidOverride(field);
 		return { kind: "target_default" } as StoredInferenceOverride<K>;
+	}
+	if (value.kind === "historical_bickr_default") {
+		if (!allowHistoricalBickrDefault || field !== "imageModel" ||
+			Object.keys(value).some((key) => key !== "kind" && key !== "value") ||
+			!isHistoricalBickrDefaultImageModel(value.value)) throw invalidOverride(field);
+		return { kind: "historical_bickr_default", value: value.value } as StoredInferenceOverride<K>;
 	}
 	if (value.kind === "account_default") {
 		if (!accountDefaultResumableFields.has(field) || Object.keys(value).length !== 1) throw invalidOverride(field);
