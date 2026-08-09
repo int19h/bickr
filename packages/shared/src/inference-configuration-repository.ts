@@ -1451,6 +1451,22 @@ async function deleteCustom(
 		throw new InferenceGraphRepositoryError("corrupt_graph", "Deleted configuration has no Account default ancestor.");
 	}
 	const results = await db.batch([
+		// Version-zero cutover-1 owners still use the old selected-custom delete
+		// behavior until the Translation-role fleet sweep reaches them. Remove
+		// this statement with the version-zero read adapter after fleet
+		// convergence and all pre-convergence rollback windows expire.
+		db.prepare(
+			`UPDATE inference_translation_selections
+			 SET configuration_id = ?, selected_kind = 'account_default', revision = revision + 1, updated_at = ?
+			 WHERE owner_user_id = ? AND configuration_id = ? AND selected_kind = 'custom'
+				AND EXISTS (SELECT 1 FROM inference_graph_users
+					WHERE owner_user_id = ? AND cutover_version = 1
+						AND translation_role_state_version = 0)
+				AND EXISTS (SELECT 1 FROM inference_configurations AS selected
+					WHERE selected.configuration_id = ? AND selected.owner_user_id = ?
+						AND selected.kind = 'custom' AND selected.fixed_role IS NULL AND selected.revision = ?)`,
+		).bind(accountDefault.id, now, ownerUserId, input.configurationId, ownerUserId,
+			input.configurationId, ownerUserId, input.expectedRevision),
 		db.prepare(
 			`UPDATE inference_configurations SET parent_id = ?, revision = revision + 1, updated_at = ?
 			 WHERE owner_user_id = ? AND parent_id = ?
@@ -1472,7 +1488,7 @@ async function deleteCustom(
 				AND fixed_role IS NULL AND revision = ?`,
 		).bind(input.configurationId, ownerUserId, input.expectedRevision),
 	]);
-	assertOneMutation(results[2]?.meta?.changes, current.revision, input.expectedRevision);
+	assertOneMutation(results[3]?.meta?.changes, current.revision, input.expectedRevision);
 	return impact;
 }
 

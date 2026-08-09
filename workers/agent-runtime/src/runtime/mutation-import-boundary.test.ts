@@ -141,6 +141,7 @@ describe("serialized entity mutation import boundary", () => {
 
 		const translationLifecycleSource = readFileSync(resolve(process.cwd(), translationInferenceLifecycleModule), "utf8");
 		expect(capabilityMembers(translationLifecycleSource, "translationInferenceLifecycle").sort()).toEqual([
+			"completeMigration",
 			"disable",
 			"enable",
 			"migrateLegacy",

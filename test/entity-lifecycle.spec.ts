@@ -207,6 +207,11 @@ describe("entity lifecycle foundation", () => {
 	it("removes the fixed Translation role through the account graph sweep", async () => {
 		const ownerId = "usr_translation_account_delete";
 		await seedGraphLifecycleOwner(ownerId, "translation-account-delete");
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE inference_graph_users
+			 SET writer_version = 1, cutover_version = 1, verified_cutover_at = ?, updated_at = ?
+			 WHERE owner_user_id = ?`,
+		).bind(now, now, ownerId).run();
 		const enabled = await translationInferenceLifecycle.enable(testEnv.BICKR_D1, ownerId, now);
 		if (!enabled.enabled) throw new Error("Translation role fixture was not enabled");
 		await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {

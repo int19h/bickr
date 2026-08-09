@@ -58,7 +58,7 @@ import {
 	readTranslationInferencePointer,
 } from '@bickr/shared/inference-configuration-repository';
 import {
-	canonicalTranslationInferenceState,
+	translationInferenceState,
 	translationInferenceLifecycle,
 } from '@bickr/shared/inference-translation-role';
 import {
@@ -793,8 +793,21 @@ export const agentRuntimeRouteTable = [
 			if (context.coordinator.ownerUserId !== userId) {
 				throw new RepositoryError('forbidden', 'Translation annotation was dispatched to the wrong coordinator.', 403);
 			}
+			const version = await inferenceGraphReadVersion(context.env.BICKR_D1, userId);
+			let legacyEnabled = false;
+			if (version.cutoverVersion !== 0) {
+				const transition = await translationInferenceState(context.env.BICKR_D1, userId);
+				legacyEnabled = transition.kind === 'migration_pending'
+					? Boolean((await userById(context.env.BICKR_KV, userId)).inferenceSettings?.translation?.enabled)
+					: false;
+			}
 			return ok({
-				annotation: await canonicalTranslationInferenceAnnotation(context.env.BICKR_D1, userId, context.env),
+				annotation: await canonicalTranslationInferenceAnnotation(
+					context.env.BICKR_D1,
+					userId,
+					context.env,
+					legacyEnabled,
+				),
 				coordinator: context.objectId,
 			});
 		},
@@ -895,23 +908,29 @@ export const agentRuntimeRouteTable = [
 			const input = parseUpdateUserProfileInput(await readJsonBody(context.request));
 			const version = await inferenceGraphReadVersion(context.env.BICKR_D1, userId);
 			const translationPatch = input.inferenceSettings?.translation;
+			let currentUser: Awaited<ReturnType<typeof userById>> | null = null;
 			if (version.cutoverVersion !== 0) {
-				let state = await canonicalTranslationInferenceState(context.env.BICKR_D1, userId);
+				currentUser = await userById(context.env.BICKR_KV, userId);
+				const state = await translationInferenceState(context.env.BICKR_D1, userId);
+				let enabled = state.kind === 'canonical'
+					? state.enabled
+					: Boolean(currentUser.inferenceSettings?.translation?.enabled);
 				const requestedEnabled = translationPatch === null
 					? false
 					: translationPatch?.enabled;
-				if (requestedEnabled !== undefined && requestedEnabled !== state.enabled) {
+				if (requestedEnabled !== undefined && requestedEnabled !== enabled) {
 					if (version.cutoverVersion === 2) {
 						throw new RepositoryError('conflict', 'Translation inference cannot be enabled or disabled during compatibility rollback.', 409);
 					}
-					state = requestedEnabled
+					const canonical = requestedEnabled
 						? await translationInferenceLifecycle.enable(context.env.BICKR_D1, userId)
 						: await translationInferenceLifecycle.disable(context.env.BICKR_D1, userId);
+					enabled = canonical.enabled;
 				}
 				if (input.inferenceSettings && translationPatch !== undefined) {
 					input.inferenceSettings = {
 						...input.inferenceSettings,
-						translation: canonicalTranslationMirrorPatch(state.enabled, translationPatch),
+						translation: canonicalTranslationMirrorPatch(enabled, translationPatch),
 					};
 				}
 			}
@@ -919,12 +938,17 @@ export const agentRuntimeRouteTable = [
 				? null
 				: legacyInferenceCompatibilityFieldMask(input.inferenceSettings);
 			if (compatibilityFieldMask) {
-				const current = await userById(context.env.BICKR_KV, userId);
+				const current = currentUser ?? await userById(context.env.BICKR_KV, userId);
 				await prepareLegacyInferenceCompatibilityWrite(context, userId, 'account', userId, current.revision, compatibilityFieldMask);
 			}
 			const profile = await updateUserProfile(context.env.BICKR_KV, context.env.BICKR_D1, userId, input);
 			if (compatibilityFieldMask) await resumePendingLegacyInferenceCompatibilityWrite(context, userId);
-			const annotation = await canonicalTranslationInferenceAnnotation(context.env.BICKR_D1, userId, context.env);
+			const annotation = await canonicalTranslationInferenceAnnotation(
+				context.env.BICKR_D1,
+				userId,
+				context.env,
+				Boolean(profile.inferenceSettings.translation?.enabled),
+			);
 			const result = {
 				kind: 'profile_updated',
 				profile: { ...profile, ...(annotation ? { translationInference: annotation } : {}) },

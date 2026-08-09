@@ -7393,7 +7393,12 @@ export async function translateForUser(
 	if (version.cutoverVersion === 0) {
 		settings = effectiveProviderSettingsForTranslation(user, env);
 	} else {
-		const graph = await canonicalTranslationInference(env.BICKR_D1, userId, env);
+		const graph = await canonicalTranslationInference(
+			env.BICKR_D1,
+			userId,
+			env,
+			Boolean(user.inferenceSettings?.translation?.enabled),
+		);
 		const prompt = trimmed(user.inferenceSettings?.translation?.prompt
 			? localizedTextString(user.inferenceSettings.translation.prompt)
 			: undefined) ?? defaultTranslationPrompt;

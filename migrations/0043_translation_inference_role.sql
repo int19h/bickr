@@ -1,6 +1,12 @@
 ALTER TABLE inference_configurations
 	ADD COLUMN fixed_role TEXT CHECK (fixed_role IS NULL OR fixed_role = 'translation');
 
+-- The physical-custom name below is a compatibility adapter for 0042's
+-- three-kind CHECK/FK shape. Retire its application-code interpretation only
+-- after the 0044 version-zero fleet has converged, all pre-convergence
+-- cutover-2 rollback windows have expired, and the old three-kind schema is no
+-- longer a supported rollback target.
+
 ALTER TABLE inference_graph_legacy_projection_entries
 	ADD COLUMN fixed_role TEXT CHECK (fixed_role IS NULL OR fixed_role = 'translation');
 

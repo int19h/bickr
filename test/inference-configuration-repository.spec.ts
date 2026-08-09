@@ -446,7 +446,34 @@ describe("inference configuration D1 repository", () => {
 		).bind(parent.id).first()).toBeNull();
 	});
 
+	it("resets an unswept cutover-1 pointer before deleting its selected custom entry", async () => {
+		await enableCutover();
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const selected = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Unswept selected translation",
+			parentId: rootId,
+		}, now);
+		await inferenceConfigurationMutations.updateLegacyTranslationPointer(testEnv.BICKR_D1, ownerId, {
+			configurationId: selected.id,
+			expectedRevision: 1,
+		}, now);
+		await inferenceConfigurationMutations.deleteCustom(testEnv.BICKR_D1, ownerId, {
+			configurationId: selected.id,
+			expectedRevision: selected.revision,
+		}, now);
+		expect(await readTranslationInferencePointer(testEnv.BICKR_D1, ownerId)).toMatchObject({
+			configurationId: rootId,
+			selectedKind: "account_default",
+			revision: 3,
+		});
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT translation_role_state_version AS stateVersion
+			 FROM inference_graph_users WHERE owner_user_id = ?`,
+		).bind(ownerId).first()).toEqual({ stateVersion: 0 });
+	});
+
 	it("maps the fixed Translation role without occupying custom names and removes it through lifecycle only", async () => {
+		await enableCutover();
 		const rootId = await accountDefaultConfigurationId(ownerId);
 		const manual = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
 			name: "Translation",
@@ -479,11 +506,77 @@ describe("inference configuration D1 repository", () => {
 			name: "Translation child", parentId: enabled.role.id,
 		}, now);
 		expect(await translationInferenceLifecycle.disable(testEnv.BICKR_D1, ownerId, now)).toEqual({
-			enabled: false, rootId, pointerRevision: 3,
+			kind: "canonical", enabled: false, rootId, cutoverVersion: 1, pointerRevision: 3,
 		});
 		expect((await loadInferenceConfigurationPath(testEnv.BICKR_D1, ownerId, child.id))[0]).toMatchObject({ parentId: rootId, revision: 2 });
 		expect(await canonicalTranslationInferenceState(testEnv.BICKR_D1, ownerId)).toEqual({
-			enabled: false, rootId, pointerRevision: 3,
+			kind: "canonical", enabled: false, rootId, cutoverVersion: 1, pointerRevision: 3,
+		});
+	});
+
+	it("supports Translation overrides, arbitrary parents, candidates, cycle rejection, and parent-delete repair", async () => {
+		await enableCutover();
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const enabled = await translationInferenceLifecycle.enable(testEnv.BICKR_D1, ownerId, now);
+		if (!enabled.enabled) throw new Error("Translation role fixture was not enabled");
+		const edited = await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: enabled.role.id,
+			expectedRevision: enabled.role.revision,
+			overrides: { model: { kind: "value", value: "translation/own-model" } },
+		}, now);
+		expect(edited).toMatchObject({
+			kind: "translation",
+			revision: 2,
+			overrides: { model: { kind: "value", value: "translation/own-model" } },
+		});
+
+		const parent = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Translation source",
+			parentId: rootId,
+		}, now);
+		const reparented = await inferenceConfigurationMutations.reparent(testEnv.BICKR_D1, ownerId, {
+			configurationId: enabled.role.id,
+			parentId: parent.id,
+			expectedRevision: edited.revision,
+		}, now);
+		expect(reparented).toMatchObject({ kind: "translation", parentId: parent.id, revision: 3 });
+
+		const candidateConsumer = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Candidate consumer",
+			parentId: rootId,
+		}, now);
+		const candidates = await listInferenceParentCandidates(
+			testEnv.BICKR_D1,
+			ownerId,
+			candidateConsumer.id,
+			{ limit: 100 },
+		);
+		expect(candidates.items).toContainEqual(expect.objectContaining({
+			id: enabled.role.id,
+			kind: "translation",
+			displayName: "Translation",
+		}));
+
+		const descendant = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Translation descendant",
+			parentId: enabled.role.id,
+		}, now);
+		await expect(inferenceConfigurationMutations.reparent(testEnv.BICKR_D1, ownerId, {
+			configurationId: enabled.role.id,
+			parentId: descendant.id,
+			expectedRevision: reparented.revision,
+		}, now)).rejects.toMatchObject({ causeKind: "descendant_parent" });
+
+		await inferenceConfigurationMutations.deleteCustom(testEnv.BICKR_D1, ownerId, {
+			configurationId: parent.id,
+			expectedRevision: parent.revision,
+		}, now);
+		expect((await loadInferenceConfigurationPath(testEnv.BICKR_D1, ownerId, enabled.role.id))[0])
+			.toMatchObject({ kind: "translation", parentId: rootId, revision: 4 });
+		expect(await canonicalTranslationInferenceState(testEnv.BICKR_D1, ownerId)).toMatchObject({
+			kind: "canonical",
+			enabled: true,
+			role: { id: enabled.role.id, parentId: rootId, revision: 4 },
 		});
 	});
 
@@ -863,6 +956,7 @@ describe("inference configuration D1 repository", () => {
 	});
 
 	it("enforces 10,000 configurations and detects a 10,001-row corrupted path without truncating", async () => {
+		await enableCutover();
 		const rootId = await accountDefaultConfigurationId(ownerId);
 		await testEnv.BICKR_D1.prepare(
 			`WITH digits(value) AS (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)),
@@ -913,6 +1007,14 @@ describe("inference configuration D1 repository", () => {
 			.rejects.toMatchObject({ causeKind: "corrupt_graph", status: 500 });
 	}, 30_000);
 });
+
+async function enableCutover(): Promise<void> {
+	await testEnv.BICKR_D1.prepare(
+		`UPDATE inference_graph_users
+		 SET writer_version = 1, cutover_version = 1, verified_cutover_at = ?, updated_at = ?
+		 WHERE owner_user_id = ?`,
+	).bind(now, now, ownerId).run();
+}
 
 async function seedWorld(worldId: string, handle: string): Promise<void> {
 	await testEnv.BICKR_D1.batch([

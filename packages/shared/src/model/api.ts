@@ -73,8 +73,18 @@ export type TranslationInferenceAnnotation =
 	| { enabled: false }
 	| {
 			enabled: true;
+			migrationPending?: false;
 			configurationId: string;
 			displayName: "Translation";
+			pointerRevision: number;
+			effectiveModel: string;
+			effectiveRevisionFingerprint: string;
+			credentialAvailable: boolean;
+	  }
+	| {
+			enabled: true;
+			migrationPending: true;
+			sourceConfigurationId: string;
 			pointerRevision: number;
 			effectiveModel: string;
 			effectiveRevisionFingerprint: string;

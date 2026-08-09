@@ -21,7 +21,6 @@ import {
 } from "@bickr/shared/inference-configuration-repository";
 import {
 	canonicalTranslationInferenceState,
-	translationInferenceLifecycle,
 } from "@bickr/shared/inference-translation-role";
 import {
 	migrateTranslationRoleForOwner,
@@ -66,6 +65,7 @@ describe("restartable inference graph migration", () => {
 		).bind(ownerId).first<{ configurationId: string; revision: number }>();
 		expect(pointerBefore).not.toBeNull();
 		expect(await translationRoleMigrationStatus(testEnv.BICKR_D1, ownerId, true)).toMatchObject({
+			state: "migration_needed",
 			migrated: false,
 			roleConfigurationId: null,
 			pointerConfigurationId: pointerBefore!.configurationId,
@@ -73,6 +73,7 @@ describe("restartable inference graph migration", () => {
 
 		const migrated = await migrateTranslationRoleForOwner(testEnv.BICKR_D1, ownerId, true);
 		expect(migrated).toMatchObject({
+			state: "migrated",
 			migrated: true,
 			roleParentId: pointerBefore!.configurationId,
 			behaviorEquivalent: true,
@@ -80,8 +81,98 @@ describe("restartable inference graph migration", () => {
 		expect(migrated.roleConfigurationId).not.toBe(pointerBefore!.configurationId);
 		expect(await configuration(pointerBefore!.configurationId)).not.toBeNull();
 		expect(await migrateTranslationRoleForOwner(testEnv.BICKR_D1, ownerId, true)).toEqual(migrated);
-		const annotation = await canonicalTranslationInferenceAnnotation(testEnv.BICKR_D1, ownerId, {});
+		const annotation = await canonicalTranslationInferenceAnnotation(testEnv.BICKR_D1, ownerId, {}, false);
 		expect(annotation?.enabled && annotation.effectiveModel).toBe("translator/model");
+	});
+
+	it("preserves cutover-1 behavior before sweep while normalizing only obsolete KV inference fields", async () => {
+		await migrateToCutover(deploymentEnv);
+		const before = await translationRoleMigrationStatus(testEnv.BICKR_D1, ownerId, true);
+		expect(before).toMatchObject({
+			cutoverVersion: 1,
+			state: "migration_needed",
+			eligible: true,
+			migrated: false,
+			roleConfigurationId: null,
+		});
+		const annotation = await canonicalTranslationInferenceAnnotation(testEnv.BICKR_D1, ownerId, {}, true);
+		expect(annotation).toMatchObject({
+			enabled: true,
+			migrationPending: true,
+			effectiveModel: "translator/model",
+		});
+		const annotationResponse = await handleAgentRuntimeRequest(new Request(
+			`https://agent.internal/users/${ownerId}/inference-translation/annotation`,
+			{ headers: { "x-bickr-user-id": ownerId } },
+		), testEnv, { objectId: "user-coordinator-test", ownerUserId: ownerId });
+		expect(annotationResponse.status, await annotationResponse.clone().text()).toBe(200);
+		expect(await annotationResponse.json()).toMatchObject({
+			data: { annotation: { enabled: true, migrationPending: true, effectiveModel: "translator/model" } },
+		});
+
+		await leaveMaintenance();
+		const response = await handleAgentRuntimeRequest(new Request(`https://agent.internal/users/${ownerId}/profile`, {
+			method: "PATCH",
+			headers: { "content-type": "application/json", "x-bickr-user-id": ownerId },
+			body: JSON.stringify({ language: en, inferenceSettings: { translation: {
+				prompt: localizedText("Preserve the authored transition prompt", en),
+				model: "obsolete/legacy-model",
+			} } }),
+		}), testEnv, { objectId: "user-coordinator-test", ownerUserId: ownerId });
+		expect(response.status, await response.clone().text()).toBe(200);
+		expect(await response.json()).toMatchObject({
+			data: { profile: { translationInference: { enabled: true, migrationPending: true } } },
+		});
+		expect((await readJson<UserDocument>(testEnv.BICKR_KV, kvKeys.user(ownerId)))?.inferenceSettings?.translation)
+			.toEqual({
+				enabled: true,
+				prompt: localizedText("Preserve the authored transition prompt", en),
+			});
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT translation_role_state_version AS stateVersion
+			 FROM inference_graph_users WHERE owner_user_id = ?`,
+		).bind(ownerId).first()).toEqual({ stateVersion: 0 });
+	});
+
+	it("reports unswept cutover-2 owners as deferred without mutating them", async () => {
+		await migrateToCutover(deploymentEnv);
+		await rollbackInferenceGraphCutover(testEnv.BICKR_D1, ownerId, "2026-08-04T00:05:00.000Z");
+		const before = await testEnv.BICKR_D1.prepare(
+			`SELECT pointer.configuration_id AS configurationId, pointer.revision,
+				graph.translation_role_state_version AS stateVersion
+			 FROM inference_translation_selections AS pointer
+			 JOIN inference_graph_users AS graph ON graph.owner_user_id = pointer.owner_user_id
+			 WHERE pointer.owner_user_id = ?`,
+		).bind(ownerId).first();
+		expect(await translationRoleMigrationStatus(testEnv.BICKR_D1, ownerId, true)).toMatchObject({
+			cutoverVersion: 2,
+			state: "deferred",
+			deferredReason: "compatibility_rollback",
+			eligible: false,
+		});
+		await expect(migrateTranslationRoleForOwner(testEnv.BICKR_D1, ownerId, true))
+			.rejects.toMatchObject({ code: "conflict", status: 409 });
+		expect(await canonicalTranslationInferenceAnnotation(testEnv.BICKR_D1, ownerId, {}, true))
+			.toMatchObject({ enabled: true, migrationPending: true, effectiveModel: "translator/model" });
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT pointer.configuration_id AS configurationId, pointer.revision,
+				graph.translation_role_state_version AS stateVersion
+			 FROM inference_translation_selections AS pointer
+			 JOIN inference_graph_users AS graph ON graph.owner_user_id = pointer.owner_user_id
+			 WHERE pointer.owner_user_id = ?`,
+		).bind(ownerId).first()).toEqual(before);
+	});
+
+	it("reports post-sweep invariant disagreement as corruption rather than migration work", async () => {
+		await migrateToCutover(deploymentEnv);
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE inference_graph_users SET translation_role_state_version = 1 WHERE owner_user_id = ?`,
+		).bind(ownerId).run();
+		expect(await translationRoleMigrationStatus(testEnv.BICKR_D1, ownerId, true)).toMatchObject({
+			state: "corrupt",
+			eligible: false,
+			migrated: false,
+		});
 	});
 
 	it("resets a disabled legacy pointer without changing its former custom entry", async () => {
@@ -95,7 +186,7 @@ describe("restartable inference graph migration", () => {
 		).bind(ownerId).first<{ configurationId: string; revision: number }>();
 		expect(pointerBefore).not.toBeNull();
 		expect(await translationRoleMigrationStatus(testEnv.BICKR_D1, ownerId, false))
-			.toMatchObject({ migrated: false, roleConfigurationId: null });
+			.toMatchObject({ state: "migration_needed", migrated: false, roleConfigurationId: null });
 
 		const migrated = await migrateTranslationRoleForOwner(testEnv.BICKR_D1, ownerId, false);
 		expect(migrated).toMatchObject({
@@ -536,7 +627,7 @@ describe("restartable inference graph migration", () => {
 			configurationId: userSelected.id,
 			expectedRevision: selectionBefore!.revision,
 		});
-		await translationInferenceLifecycle.migrateLegacy(testEnv.BICKR_D1, ownerId, true);
+		await migrateTranslationRoleForOwner(testEnv.BICKR_D1, ownerId, true);
 		await testEnv.BICKR_D1.prepare(
 			`UPDATE maintenance_control SET enabled = 0, activated_at = NULL, updated_at = ? WHERE id = 1`,
 		).bind("2026-08-04T00:03:00.000Z").run();
@@ -591,7 +682,7 @@ describe("restartable inference graph migration", () => {
 
 		await rollbackInferenceGraphCutover(testEnv.BICKR_D1, ownerId, "2026-08-04T00:04:00.000Z");
 		expect((await inferenceGraphReadVersion(testEnv.BICKR_D1, ownerId)).cutoverVersion).toBe(2);
-		const translation = await canonicalTranslationInferenceAnnotation(testEnv.BICKR_D1, ownerId, {});
+		const translation = await canonicalTranslationInferenceAnnotation(testEnv.BICKR_D1, ownerId, {}, false);
 		expect(translation?.enabled && translation.effectiveModel).toBe("user/selected-translation");
 		const rejectedToggle = await handleAgentRuntimeRequest(new Request(`https://agent.internal/users/${ownerId}/profile`, {
 			method: "PATCH",

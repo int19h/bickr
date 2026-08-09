@@ -44,12 +44,29 @@ export function translationContextValue(profile: UserProfile | null): {
 	return {
 		enabled: annotation ? annotation.enabled : Boolean(translation?.enabled),
 		identity: annotation?.enabled
-			? `${annotation.configurationId}:${annotation.effectiveRevisionFingerprint}`
+			? `${annotation.migrationPending ? `migration:${annotation.sourceConfigurationId}` : annotation.configurationId}:${annotation.effectiveRevisionFingerprint}`
 			: defaultProviderModel,
 		model: annotation?.enabled ? annotation.effectiveModel : defaultProviderModel,
 		prompt: localizedTextString(translation?.prompt).trim() || defaultTranslationPrompt,
 	};
 }
+
+/**
+ * Entity mutation responses intentionally contain only their owned profile
+ * fields. Keep the independently resolved Translation annotation when such a
+ * response omits it, while allowing an explicit canonical enabled/disabled
+ * annotation to replace the saved value.
+ */
+export function profileWithPreservedTranslationInference(
+	current: UserProfile | null,
+	saved: UserProfile,
+): UserProfile {
+	if (saved.translationInference !== undefined || current?.translationInference === undefined) {
+		return saved;
+	}
+	return { ...saved, translationInference: current.translationInference };
+}
+
 export function worldAvatarMembersPromptSizeTitle(world: WorldSummary, members: BotSummary[] | null): string {
 	if (!members) {
 		return "Member bios are still loading; prompt size will appear here once they are available.";

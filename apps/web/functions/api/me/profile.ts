@@ -41,6 +41,12 @@ function translationAnnotationFromServicePayload(value: unknown): TranslationInf
 	}
 	const record = annotation as Record<string, unknown>;
 	if (record.enabled === false) return { enabled: false };
+	if (record.enabled === true && record.migrationPending === true &&
+		typeof record.sourceConfigurationId === "string" && typeof record.pointerRevision === "number" &&
+		typeof record.effectiveModel === "string" && typeof record.effectiveRevisionFingerprint === "string" &&
+		typeof record.credentialAvailable === "boolean") {
+		return record as TranslationInferenceAnnotation;
+	}
 	if (record.enabled !== true || typeof record.configurationId !== "string" || record.displayName !== "Translation" ||
 		typeof record.pointerRevision !== "number" || typeof record.effectiveModel !== "string" ||
 		typeof record.effectiveRevisionFingerprint !== "string" || typeof record.credentialAvailable !== "boolean") {

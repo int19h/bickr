@@ -10,6 +10,7 @@ import {
 } from "@bickr/shared/model";
 import { useContext, useEffect, useState } from "react";
 import { api } from "../../api";
+import { profileWithPreservedTranslationInference } from "../../app-records";
 import { avatarImagePixels, cloudflareImageUrl } from "../../avatar-image-urls";
 import { AvatarCropModal } from "../../avatar/AvatarCropModal";
 import { AvatarUploadModal } from "../../avatar/AvatarUploadModal";
@@ -133,13 +134,13 @@ export function ProfileScreen({
 	async function unlinkAuthIdentity(provider: AuthProvider): Promise<void> {
 		const saved = await onAuthIdentityUnlink(provider);
 		if (saved) {
-			setProfile(saved);
+			setProfile((current) => profileWithPreservedTranslationInference(current, saved));
 			toast.push(`Unlinked ${authProviderLabel(provider)}`);
 		}
 	}
 
 	function applySavedAvatarProfile(saved: UserProfile): void {
-		setProfile(saved);
+		setProfile((current) => profileWithPreservedTranslationInference(current, saved));
 		onAvatarUpdated(saved);
 	}
 
@@ -332,7 +333,7 @@ export function ProfileScreen({
 							</Field>
 							{savedTranslationEnabled ?
 								<FixedConfigurationAction state={translationConfiguration} target={translationConfigurationTarget} />
-							: 	<p className="help">Save with inline translations enabled to create and edit the Translation configuration.</p>}
+							: 	<p className="help">Enabling inline translations creates the fixed Translation configuration; disabling inline translations removes it.</p>}
 						</div>
 					</section>
 				</div>
@@ -470,7 +471,9 @@ export function profileDraftFromProfile(profile: UserProfile): ProfileDraft {
 }
 
 export function savedTranslationConfigurationReference(profile: UserProfile | null) {
-	return profile?.translationInference?.enabled === true ? ({ kind: "translation" } as const) : null;
+	return profile?.translationInference?.enabled === true && !profile.translationInference.migrationPending
+		? ({ kind: "translation" } as const)
+		: null;
 }
 
 function profileDraftChanged(draft: ProfileDraft, profile: UserProfile): boolean {

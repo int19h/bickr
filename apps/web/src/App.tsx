@@ -47,6 +47,7 @@ import {
 	publicUserFromProfile,
 	renameThreadDocuments,
 	renameThreadSummaries,
+	profileWithPreservedTranslationInference,
 	routeWithRenamedWorld,
 	sortBotsForCascadeDelete,
 	throwApiError,
@@ -1772,7 +1773,7 @@ function App() {
 	}
 
 	function applySavedUserProfile(profile: UserProfile): void {
-		setUserProfile(profile);
+		setUserProfile((current) => profileWithPreservedTranslationInference(current, profile));
 		setSession((current) => ({
 			...current,
 			user: publicUserFromProfile(profile),
@@ -1800,7 +1801,7 @@ function App() {
 				method: "DELETE",
 			}));
 			saved = result.data.profile;
-			setUserProfile(result.data.profile);
+			applySavedUserProfile(result.data.profile);
 			return `Unlinked ${authProviderLabel(provider)}.`;
 		});
 		return ok ? saved : null;

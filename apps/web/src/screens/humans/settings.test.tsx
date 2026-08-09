@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it } from "vitest";
 import { localizedText, type LanguageTag, type PublicUser, type UserProfile } from "@bickr/shared/model";
+import { profileWithPreservedTranslationInference } from "../../app-records";
 import {
 	ProfileScreen,
 	profileDraftFromProfile,
@@ -64,7 +65,7 @@ describe("ProfileScreen inference boundary", () => {
 
 	it("keeps Translation role editing behind a saved canonical enablement", () => {
 		const markup = render();
-		expect(markup).toContain("Save with inline translations enabled to create and edit the Translation configuration.");
+		expect(markup).toContain("Enabling inline translations creates the fixed Translation configuration; disabling inline translations removes it.");
 		expect(markup).not.toContain("Open Translation configuration");
 		// Translation-only model, reasoning, tool-call, and sampling editors are gone.
 		expect(markup).not.toContain("Inference: Translation");
@@ -98,5 +99,17 @@ describe("canonical Translation profile identity", () => {
 		expect(profileDraftFromProfile(profile(false)).translationEnabled).toBe(false);
 		expect(savedTranslationConfigurationReference(profile(true))).toEqual({ kind: "translation" });
 		expect(savedTranslationConfigurationReference(profile(false))).toBeNull();
+	});
+
+	it("keeps the Translation action across annotation-omitting mutations and replaces explicit state", () => {
+		const current = profile(true);
+		const { translationInference: _omitted, ...avatarResponse } = current;
+		const preserved = profileWithPreservedTranslationInference(current, avatarResponse as UserProfile);
+		expect(preserved.translationInference).toBe(current.translationInference);
+		expect(savedTranslationConfigurationReference(preserved)).toEqual({ kind: "translation" });
+
+		const disabled = profileWithPreservedTranslationInference(current, profile(false));
+		expect(disabled.translationInference).toEqual({ enabled: false });
+		expect(savedTranslationConfigurationReference(disabled)).toBeNull();
 	});
 });

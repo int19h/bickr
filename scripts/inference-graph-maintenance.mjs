@@ -57,16 +57,35 @@ async function migrateUser(userId) {
 async function migrateTranslationFleet() {
 	const limit = optionalPositiveInteger(options, "limit") ?? 100;
 	let cursor = options.get("cursor") ?? "";
+	let failures = 0;
 	do {
 		const params = new URLSearchParams({ limit: String(limit) });
 		if (cursor) params.set("cursor", cursor);
 		const page = await proxy("GET", `/inference-graph/fleet-status?${params}`);
 		for (const owner of page?.data?.status?.items ?? []) {
-			if (owner.cutoverVersion !== 1) continue;
-			print(await proxy("POST", `/users/${encodeURIComponent(owner.ownerUserId)}/inference-translation-role/migrate`));
+			try {
+				const status = await proxy("GET", `/users/${encodeURIComponent(owner.ownerUserId)}/inference-translation-role/migration`);
+				print(status);
+				const migration = status?.data?.migration;
+				if (migration?.state === "corrupt") {
+					failures += 1;
+					continue;
+				}
+				if (migration?.state === "migration_needed") {
+					print(await proxy("POST", `/users/${encodeURIComponent(owner.ownerUserId)}/inference-translation-role/migrate`));
+				}
+			} catch (error) {
+				failures += 1;
+				print({
+					ownerUserId: owner.ownerUserId,
+					state: "request_failed",
+					message: error instanceof Error ? error.message : String(error),
+				});
+			}
 		}
 		cursor = page?.data?.status?.nextCursor ?? "";
 	} while (cursor);
+	if (failures) throw new Error(`Translation role fleet migration completed with ${failures} owner failure(s).`);
 }
 
 async function proxy(method, path, body) {

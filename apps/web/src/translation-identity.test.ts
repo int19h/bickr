@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { localizedText, type LanguageTag, type UserProfile } from "@bickr/shared/model";
-import { translationContextValue } from "./app-records";
+import { profileWithPreservedTranslationInference, translationContextValue } from "./app-records";
 
 const en = "en" as LanguageTag;
 const now = "2026-08-05T00:00:00.000Z";
@@ -47,7 +47,7 @@ describe("translation cache identity", () => {
 	it("changes when only the effective fingerprint moves", () => {
 		const before = translationContextValue(profile());
 		const annotation = profile().translationInference;
-		if (!annotation?.enabled) throw new Error("enabled annotation fixture required");
+		if (!annotation?.enabled || annotation.migrationPending) throw new Error("canonical enabled annotation fixture required");
 		const after = translationContextValue(profile({
 			translationInference: { ...annotation, effectiveRevisionFingerprint: "fingerprint-b" },
 		}));
@@ -59,7 +59,7 @@ describe("translation cache identity", () => {
 	it("changes when the fixed role is recreated", () => {
 		const before = translationContextValue(profile());
 		const annotation = profile().translationInference;
-		if (!annotation?.enabled) throw new Error("enabled annotation fixture required");
+		if (!annotation?.enabled || annotation.migrationPending) throw new Error("canonical enabled annotation fixture required");
 		const after = translationContextValue(profile({
 			translationInference: { ...annotation, configurationId: "cfg_translation_new" },
 		}));
@@ -77,5 +77,43 @@ describe("translation cache identity", () => {
 		const context = translationContextValue(withoutAnnotation as UserProfile);
 		expect(context.identity).toBe(context.model);
 		expect(translationContextValue(null).enabled).toBe(false);
+	});
+
+	it("preserves annotation identity for annotation-omitting mutations and replaces explicit annotations", () => {
+		const current = profile();
+		const { translationInference: _omitted, ...avatarResponse } = profile({
+			updatedAt: "2026-08-05T00:01:00.000Z",
+		});
+		const preserved = profileWithPreservedTranslationInference(current, avatarResponse as UserProfile);
+		expect(preserved.translationInference).toBe(current.translationInference);
+		expect(translationContextValue(preserved)).toMatchObject({
+			enabled: true,
+			identity: "cfg_translation:fingerprint-a",
+			model: "anthropic/claude-opus-4",
+		});
+
+		const disabled = profileWithPreservedTranslationInference(current, profile({
+			translationInference: { enabled: false },
+		}));
+		expect(disabled.translationInference).toEqual({ enabled: false });
+		expect(translationContextValue(disabled).enabled).toBe(false);
+
+		const replacement = profile({
+			translationInference: {
+				enabled: true,
+				configurationId: "cfg_translation_new",
+				displayName: "Translation",
+				pointerRevision: 4,
+				effectiveModel: "openai/gpt-5",
+				effectiveRevisionFingerprint: "fingerprint-b",
+				credentialAvailable: false,
+			},
+		});
+		const replaced = profileWithPreservedTranslationInference(current, replacement);
+		expect(replaced.translationInference).toBe(replacement.translationInference);
+		expect(translationContextValue(replaced)).toMatchObject({
+			identity: "cfg_translation_new:fingerprint-b",
+			model: "openai/gpt-5",
+		});
 	});
 });

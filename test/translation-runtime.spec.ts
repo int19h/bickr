@@ -48,6 +48,52 @@ beforeEach(async () => {
 });
 
 describe("translation runtime authority", () => {
+	it("uses the legacy graph selection for an enabled cutover-1 owner before the role sweep", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const selectedId = "cfg_pre_sweep_translation";
+		await testEnv.BICKR_D1.batch([
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO inference_configurations (
+					configuration_id, owner_user_id, kind, parent_id, custom_name,
+					custom_name_key, overrides_json, revision, created_at, updated_at
+				) VALUES (?, ?, 'custom', ?, 'Pre-sweep translation', 'pre-sweep translation', ?, 1, ?, ?)`,
+			).bind(selectedId, ownerId, rootId, JSON.stringify({
+				model: { kind: "value", value: "legacy/pre-sweep-model" },
+			}), now, now),
+			testEnv.BICKR_D1.prepare(
+				`UPDATE inference_translation_selections
+				 SET configuration_id = ?, selected_kind = 'custom', revision = revision + 1, updated_at = ?
+				 WHERE owner_user_id = ? AND revision = 1`,
+			).bind(selectedId, now, ownerId),
+		]);
+		await writeJson(testEnv.BICKR_KV, kvKeys.user(ownerId), user(true));
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(async () => Response.json({
+			choices: [{
+				message: {
+					content: "",
+					tool_calls: [{
+						id: "call_translation",
+						type: "function",
+						function: { name: "save_translation", arguments: JSON.stringify({ translation: "Avant balayage" }) },
+					}],
+				},
+			}],
+		}));
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			expect(await translateForUser(runtimeEnv(), ownerId, "Before sweep")).toBe("Avant balayage");
+			const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { model?: string };
+			expect(body.model).toBe("legacy/pre-sweep-model");
+			expect(await testEnv.BICKR_D1.prepare(
+				`SELECT translation_role_state_version AS stateVersion
+				 FROM inference_graph_users WHERE owner_user_id = ?`,
+			).bind(ownerId).first()).toEqual({ stateVersion: 0 });
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
+
 	it("uses the fixed role instead of stale KV enablement in both directions", async () => {
 		await translationInferenceLifecycle.enable(testEnv.BICKR_D1, ownerId, now);
 		const originalFetch = globalThis.fetch;
