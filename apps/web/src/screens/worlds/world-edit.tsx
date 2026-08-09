@@ -17,7 +17,7 @@ import { AvatarCropModal } from "../../avatar/AvatarCropModal";
 import { AvatarUploadModal } from "../../avatar/AvatarUploadModal";
 import { worldAvatarTarget } from "../../avatar/target";
 import { Reference, type WorldView } from "../../components/content";
-import { ConfigurationLinkCard, useFixedConfiguration } from "../../inference/links";
+import { FixedConfigurationAction, fixedConfigurationReference, useFixedConfiguration } from "../../inference/links";
 import { SpaLink } from "../../components/navigation";
 import { languageDraftValue, languageInputValue } from "../../components/ui-text";
 import { defaultLanguageTag } from "../../language";
@@ -73,7 +73,12 @@ export function WorldEditPage({
 	const [deleteAvatarConfirm, setDeleteAvatarConfirm] = useState(false);
 	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 	const toast = useContext(ToastContext);
-	const configuration = useFixedConfiguration(readonly ? null : { kind: "world", worldId: world.id });
+	const configurationTarget = {
+		kind: "world",
+		worldId: world.id,
+		worldHandle: world.handle,
+	} as const;
+	const configuration = useFixedConfiguration(readonly ? null : fixedConfigurationReference(configurationTarget));
 
 	useEffect(() => {
 		setHandle(world.handle);
@@ -355,12 +360,16 @@ export function WorldEditPage({
 					</section>
 
 					{!readonly && (
-						<ConfigurationLinkCard
-							description="World avatar generation resolves its non-prompt image fields from this configuration; the image prompt stays on the avatar screen."
-							returnTo={{ route: "world-edit", worldHandle: world.handle }}
-							state={configuration}
-							title="Inference configuration"
-						/>
+						<section className="section">
+							<div className="section-head">
+								<h2>Inference configuration</h2>
+								<span className="meta">reusable inference</span>
+							</div>
+							<p className="help">
+								Provider, model, loop, compaction, and image inference for this world live in its reusable configuration.
+							</p>
+							<FixedConfigurationAction state={configuration} target={configurationTarget} />
+						</section>
 					)}
 				</div>
 			</div>

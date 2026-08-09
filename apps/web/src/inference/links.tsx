@@ -19,6 +19,16 @@ export type FixedConfigurationState = {
 };
 
 /**
+ * Everything needed to address one fixed configuration from its owner screen.
+ * Keeping presentation and return-navigation identity beside the lookup
+ * identity prevents callers from mixing details from different entities.
+ */
+export type FixedConfigurationActionTarget =
+	| { kind: "account_default" }
+	| { kind: "world"; worldId: string; worldHandle: string }
+	| { kind: "bot"; botId: string; botHandle: string; homeWorldHandle: string };
+
+/**
  * Loads the fixed configuration that belongs to one account, world, or
  * participant. The screen names only the entity it already displays; the server
  * authorizes that entity against the owner and answers with the configuration's
@@ -65,6 +75,57 @@ function referenceEntityId(reference: FixedInferenceConfigurationReference): str
 	}
 }
 
+export function fixedConfigurationReference(target: FixedConfigurationActionTarget): FixedInferenceConfigurationReference {
+	switch (target.kind) {
+		case "account_default": return { kind: "account_default" };
+		case "world": return { kind: "world", worldId: target.worldId };
+		case "bot": return { kind: "bot", botId: target.botId };
+		default: return unreachableFixedConfigurationTarget(target);
+	}
+}
+
+function fixedConfigurationActionLabel(target: FixedConfigurationActionTarget): string {
+	switch (target.kind) {
+		case "account_default": return "Open Account default configuration";
+		case "world": return `Open inference configuration for w/${target.worldHandle}`;
+		case "bot": return `Open inference configuration for u/${target.botHandle}`;
+		default: return unreachableFixedConfigurationTarget(target);
+	}
+}
+
+function fixedConfigurationReturnTarget(target: FixedConfigurationActionTarget): InferenceReturnTarget {
+	switch (target.kind) {
+		case "account_default": return { route: "profile" };
+		case "world": return { route: "world-edit", worldHandle: target.worldHandle };
+		case "bot": return {
+			route: "bot-edit",
+			worldHandle: target.homeWorldHandle,
+			botHandle: target.botHandle,
+		};
+		default: return unreachableFixedConfigurationTarget(target);
+	}
+}
+
+function fixedConfigurationMatchesTarget(
+	target: FixedConfigurationActionTarget,
+	configuration: RedactedInferenceConfigurationDto,
+): boolean {
+	switch (target.kind) {
+		case "account_default":
+			return configuration.kind === "account_default";
+		case "world":
+			return configuration.kind === "world" && configuration.identity.worldId === target.worldId;
+		case "bot":
+			return configuration.kind === "bot" && configuration.identity.botId === target.botId;
+		default:
+			return unreachableFixedConfigurationTarget(target);
+	}
+}
+
+function unreachableFixedConfigurationTarget(target: never): never {
+	throw new Error(`Unsupported fixed configuration target: ${JSON.stringify(target)}`);
+}
+
 export function ConfigurationLinkCard({
 	description,
 	returnTo,
@@ -99,34 +160,31 @@ export function ConfigurationLinkCard({
 }
 
 /**
- * The participant editor deliberately exposes one action instead of repeating
- * the reusable configuration's model, parent, and credential summary. The
- * configuration address always comes from a loaded owner DTO for the current
- * participant; the handle is presentation and return-navigation state only.
+ * Owner editors expose one action instead of repeating the reusable
+ * configuration's model, parent, and credential summary. The configuration
+ * address always comes from a matching loaded owner DTO; target handles are
+ * presentation and return-navigation state only.
  */
-export function BotInferenceConfigurationAction({
-	botHandle,
-	botId,
+export function FixedConfigurationAction({
 	state,
-	worldHandle,
+	target,
 }: {
-	botHandle: string;
-	botId: string;
 	state: FixedConfigurationState;
-	worldHandle: string;
+	target: FixedConfigurationActionTarget;
 }) {
-	const label = `Open inference configuration for u/${botHandle}`;
-	const configuration = state.configuration;
-	const readyConfiguration = !state.loading && configuration?.kind === "bot" && configuration.identity.botId === botId
-		? configuration
+	const label = fixedConfigurationActionLabel(target);
+	const readyConfiguration = !state.loading && !state.error && state.configuration &&
+		fixedConfigurationMatchesTarget(target, state.configuration)
+		? state.configuration
 		: null;
+	const resolving = !state.error && !readyConfiguration;
 	const action = readyConfiguration ? (
 		<SpaLink
 			className="btn primary"
 			to={{
 				route: "inference-configuration",
 				configurationId: readyConfiguration.id,
-				returnTo: { route: "bot-edit", worldHandle, botHandle },
+				returnTo: fixedConfigurationReturnTarget(target),
 			}}
 		>
 			{label}
@@ -138,7 +196,7 @@ export function BotInferenceConfigurationAction({
 	return (
 		<>
 			{action}
-			{state.loading ? (
+			{resolving ? (
 				<div className="runtime-message">Loading the linked configuration...</div>
 			) : state.error ? (
 				<div className="runtime-message error">

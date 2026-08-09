@@ -68,11 +68,15 @@ describe("WorldEditPage recurring prompt", () => {
 });
 
 describe("WorldEditPage inference configuration", () => {
-	it("links the world's fixed configuration and keeps prompts and policy on this screen", () => {
+	it("shows the world's fixed-configuration action and keeps prompts and policy on this screen", () => {
 		const markup = render(world());
 
 		expect(markup).toContain("Inference configuration");
-		expect(markup).toContain("World avatar generation resolves its non-prompt image fields from this configuration");
+		expect(markup).toContain("Provider, model, loop, compaction, and image inference for this world live in its reusable configuration");
+		expect(markup).toContain("Open inference configuration for w/recurring");
+		expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>Open inference configuration for w\/recurring<\/button>/);
+		expect(markup).not.toContain("inference-link-card");
+		expect(markup).not.toContain("Effective model");
 		// Prompts and non-inference world policy stay here.
 		expect(markup).toContain("A careful setting.");
 		expect(markup).toContain("Initial participant notification");
@@ -83,7 +87,10 @@ describe("WorldEditPage inference configuration", () => {
 		expect(markup).not.toContain("Provider routing");
 	});
 
-	it("hides the owner-only configuration card in the read-only view", () => {
-		expect(render(world(), true)).not.toContain("Inference configuration");
+	it("hides the owner-only configuration action in the read-only view", () => {
+		const markup = render(world(), true);
+		expect(markup).not.toContain("Inference configuration");
+		expect(markup).not.toContain("Open inference configuration for w/recurring");
+		expect(markup).not.toContain("inference-link-card");
 	});
 });
