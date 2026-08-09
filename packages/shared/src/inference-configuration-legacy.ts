@@ -6,12 +6,14 @@ import type {
 	BotInferenceSettingsInput,
 	BotTranslationSettings,
 	BotTranslationSettingsInput,
+	JsonObject,
 } from "./model";
 import type {
 	InferenceConfigurationOverrides,
 	InferenceConfigurationOverridePatch,
 	InferenceConfigurationField,
 	InferenceReasoningRequest,
+	StoredInferenceOverride,
 } from "./inference-configuration";
 
 export type LegacyInferenceCompatibilityFieldMask = {
@@ -31,7 +33,7 @@ export function inferenceOverridesFromLegacySettings(
 	return {
 		...(settings.baseUrl != null ? { baseUrl: value(settings.baseUrl) } : {}),
 		...(settings.model != null ? { model: value(settings.model) } : {}),
-		...(settings.providerRouting != null ? { providerRouting: value(settings.providerRouting) } : {}),
+		...(settings.providerRouting != null ? { providerRouting: legacyTextProviderRouting(settings.providerRouting) } : {}),
 		...(settings.reasoningEffort != null ? { reasoning: value(legacyReasoning(settings.reasoningEffort)) } : {}),
 		...(settings.toolCalls != null ? { toolCalls: value({ kind: "strategy" as const, strategy: settings.toolCalls }) } : {}),
 		...(settings.compactionMode != null ? { compactionMode: value({ kind: "mode" as const, mode: settings.compactionMode }) } : {}),
@@ -63,7 +65,7 @@ export function inferenceOverridesFromLegacyTranslationSettings(
 			? { kind: "strategy", strategy: translation.toolCalls }
 			: { kind: "provider_default" } },
 		temperature: { kind: "value", value: translation.temperature ?? 0 },
-		providerRouting: translation.providerRouting === undefined ? { kind: "explicit_none" } : { kind: "value", value: translation.providerRouting },
+		providerRouting: legacyTextProviderRouting(translation.providerRouting),
 		topK: translation.topK === undefined ? { kind: "explicit_none" } : { kind: "value", value: translation.topK },
 		topP: translation.topP === undefined ? { kind: "explicit_none" } : { kind: "value", value: translation.topP },
 		minP: translation.minP === undefined ? { kind: "explicit_none" } : { kind: "value", value: translation.minP },
@@ -374,6 +376,14 @@ function legacyReasoning(reasoning: BotInferenceReasoningEffort): InferenceReaso
 		case "xhigh":
 			return { kind: "explicit_effort", effort: reasoning };
 	}
+}
+
+function legacyTextProviderRouting(
+	providerRouting: JsonObject | undefined,
+): StoredInferenceOverride<"providerRouting"> {
+	return providerRouting === undefined || Object.keys(providerRouting).length === 0
+		? { kind: "explicit_none" }
+		: value(providerRouting);
 }
 
 function value<T>(input: T): { kind: "value"; value: T } {
