@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { localizedText, type LanguageTag } from "./model";
 import {
 	inferenceOverridePatchFromLegacyBotSettingsMask,
+	inferenceOverridesFromLegacyImageSettings,
+	inferenceOverridesFromLegacySettings,
+	inferenceOverridesFromLegacyTranslationSettings,
 	legacyImageCompatibilityFieldMask,
 	legacyInferenceCompatibilityFieldMask,
 	legacyInferenceCompatibilityFieldMaskIsEmpty,
@@ -40,6 +43,28 @@ describe("legacy inference compatibility intent", () => {
 			fields: ["temperature", "imageTopK"],
 			translationFields: ["model"],
 			credential: true,
+		});
+	});
+
+	it("preserves empty text routing as a no-routing barrier without changing image routing", () => {
+		expect(inferenceOverridesFromLegacySettings({ providerRouting: {} })).toEqual({
+			providerRouting: { kind: "explicit_none" },
+		});
+		expect(inferenceOverridesFromLegacyTranslationSettings({
+			model: "translator/model",
+			providerRouting: {},
+		}).providerRouting).toEqual({ kind: "explicit_none" });
+
+		const nonEmptyRouting = { order: ["preferred-provider"] };
+		expect(inferenceOverridesFromLegacySettings({ providerRouting: nonEmptyRouting })).toEqual({
+			providerRouting: { kind: "value", value: nonEmptyRouting },
+		});
+		expect(inferenceOverridesFromLegacyTranslationSettings({
+			model: "translator/model",
+			providerRouting: nonEmptyRouting,
+		}).providerRouting).toEqual({ kind: "value", value: nonEmptyRouting });
+		expect(inferenceOverridesFromLegacyImageSettings({ providerRouting: {} })).toEqual({
+			imageProviderRouting: { kind: "value", value: {} },
 		});
 	});
 

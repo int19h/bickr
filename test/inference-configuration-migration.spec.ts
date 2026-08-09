@@ -448,6 +448,30 @@ describe("restartable inference graph migration", () => {
 		});
 	});
 
+	it("preserves an empty participant routing object as a barrier to Account routing", async () => {
+		const user = migrationUser();
+		const accountRouting = { order: ["account-provider"] };
+		user.inferenceSettings = { ...user.inferenceSettings, providerRouting: accountRouting };
+		await writeJson(testEnv.BICKR_KV, kvKeys.user(ownerId), user);
+		const bot = migrationBot("bot_empty_routing", "empty-routing", { providerRouting: {} });
+		await seedBot(bot);
+
+		await migrateToCutover(deploymentEnv);
+
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		expect(await configurationOverrides(rootId)).toMatchObject({
+			providerRouting: { kind: "value", value: accountRouting },
+		});
+		expect(await configurationOverrides(await botConfigurationId(bot.id))).toEqual({
+			providerRouting: { kind: "explicit_none" },
+		});
+		expect((await inferenceGraphReadVersion(testEnv.BICKR_D1, ownerId)).cutoverVersion).toBe(1);
+		const canonical = await canonicalBotInference(testEnv.BICKR_D1, ownerId, bot.id, deploymentEnv);
+		expect(canonical).not.toBeNull();
+		expect(canonical?.resolution.effective.providerRouting).toBeUndefined();
+		expect(canonical?.providerSettings.providerRouting).toBeUndefined();
+	});
+
 	it("uses Account-default credential intent for linked local models without copying a deployment secret", async () => {
 		const user = migrationUser();
 		delete user.inferenceSettings?.openRouterApiKey;
