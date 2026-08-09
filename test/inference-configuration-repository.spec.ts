@@ -475,6 +475,66 @@ describe("inference configuration D1 repository", () => {
 		).bind(ownerId).first()).toEqual({ stateVersion: 0 });
 	});
 
+	it("enables an unswept owner from Account default without changing its obsolete custom entry", async () => {
+		await enableCutover();
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE inference_graph_users SET translation_role_state_version = 0 WHERE owner_user_id = ?`,
+		).bind(ownerId).run();
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const obsolete = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Obsolete disabled translation",
+			parentId: rootId,
+			overrides: { model: { kind: "value", value: "legacy/disabled-model" } },
+			credential: { mode: "value", secret: "legacy-disabled-secret" },
+		}, now);
+		await inferenceConfigurationMutations.updateLegacyTranslationPointer(testEnv.BICKR_D1, ownerId, {
+			configurationId: obsolete.id,
+			expectedRevision: 1,
+		}, now);
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT graph.translation_role_state_version AS stateVersion,
+				pointer.configuration_id AS configurationId, pointer.selected_kind AS selectedKind,
+				(SELECT COUNT(*) FROM inference_configurations AS role
+				 WHERE role.owner_user_id = graph.owner_user_id AND role.fixed_role = 'translation') AS roleCount
+			 FROM inference_graph_users AS graph
+			 JOIN inference_translation_selections AS pointer ON pointer.owner_user_id = graph.owner_user_id
+			 WHERE graph.owner_user_id = ?`,
+		).bind(ownerId).first()).toEqual({
+			stateVersion: 0,
+			configurationId: obsolete.id,
+			selectedKind: "custom",
+			roleCount: 0,
+		});
+		const obsoleteBefore = (await loadInternalInferenceConfigurationPath(
+			testEnv.BICKR_D1, ownerId, obsolete.id,
+		))[0];
+
+		const enabled = await translationInferenceLifecycle.enable(testEnv.BICKR_D1, ownerId, now);
+		expect(enabled).toMatchObject({
+			kind: "canonical",
+			enabled: true,
+			role: { parentId: rootId, revision: 1 },
+			pointerRevision: 3,
+		});
+		if (!enabled.enabled) throw new Error("Translation role fixture was not enabled");
+		expect((await loadInferenceConfigurationPath(testEnv.BICKR_D1, ownerId, enabled.role.id))[0])
+			.toMatchObject({ parentId: rootId, overrides: {}, revision: 1 });
+		expect(await readTranslationInferencePointer(testEnv.BICKR_D1, ownerId)).toEqual({
+			ownerUserId: ownerId,
+			configurationId: enabled.role.id,
+			selectedKind: "custom",
+			revision: 3,
+			updatedAt: now,
+		});
+		expect(await testEnv.BICKR_D1.prepare(
+			`SELECT translation_role_state_version AS stateVersion
+			 FROM inference_graph_users WHERE owner_user_id = ?`,
+		).bind(ownerId).first()).toEqual({ stateVersion: 1 });
+		expect((await loadInternalInferenceConfigurationPath(
+			testEnv.BICKR_D1, ownerId, obsolete.id,
+		))[0]).toEqual(obsoleteBefore);
+	});
+
 	it("maps the fixed Translation role without occupying custom names and removes it through lifecycle only", async () => {
 		await enableCutover();
 		const rootId = await accountDefaultConfigurationId(ownerId);

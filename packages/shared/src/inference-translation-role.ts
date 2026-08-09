@@ -190,7 +190,7 @@ async function enableTranslationInference(
 		} else {
 			await assertTranslationRoleQuota(db, ownerUserId);
 			await insertTranslationRole(
-				db, ownerUserId, current.selection.configurationId, current.pointerRevision, now, true,
+				db, ownerUserId, current.rootId, current.pointerRevision, now, true,
 			);
 		}
 		return canonicalTranslationInferenceState(db, ownerUserId);
