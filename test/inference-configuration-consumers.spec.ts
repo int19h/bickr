@@ -9,8 +9,9 @@ import {
 	inferenceConfigurationMutations,
 	insertAccountDefaultConfigurationStatement,
 	insertFixedConfigurationStatement,
-	insertTranslationSelectionStatement,
+	insertTranslationInferencePointerStatement,
 } from "@bickr/shared/inference-configuration-repository";
+import { translationInferenceLifecycle } from "@bickr/shared/inference-translation-role";
 import {
 	accountDefaultConfigurationId,
 	botConfigurationId,
@@ -63,7 +64,7 @@ beforeEach(async () => {
 				imageModel: { kind: "value", value: "owner/account-image" },
 			},
 		}),
-		insertTranslationSelectionStatement(testEnv.BICKR_D1, { ownerUserId: ownerId, configurationId: rootId, now }),
+		insertTranslationInferencePointerStatement(testEnv.BICKR_D1, { ownerUserId: ownerId, configurationId: rootId, now }),
 		insertFixedConfigurationStatement(testEnv.BICKR_D1, {
 			kind: "world",
 			configurationId: await worldConfigurationId(worldId),
@@ -101,21 +102,40 @@ describe("canonical inference consumers", () => {
 		expect(canonical?.resolution.effective.compactionReasoning.kind).toBe("refused");
 		expect(canonical?.providerSettings.compactionReasoning).toEqual({ kind: "explicit_effort", effort: "high" });
 
-		const first = await canonicalTranslationInferenceAnnotation(testEnv.BICKR_D1, ownerId, {});
+		expect(await canonicalTranslationInferenceAnnotation(testEnv.BICKR_D1, ownerId, {}, false)).toEqual({ enabled: false });
+		await translationInferenceLifecycle.enable(testEnv.BICKR_D1, ownerId);
+		const first = await canonicalTranslationInferenceAnnotation(testEnv.BICKR_D1, ownerId, {}, false);
 		expect(first).toMatchObject({
-			selectedConfigurationId: await accountDefaultConfigurationId(ownerId),
-			selectedDisplayName: "Account default",
+			enabled: true,
+			displayName: "Translation",
 			effectiveModel: "owner/account-model",
 			credentialAvailable: false,
 		});
+		if (!first?.enabled || first.migrationPending) throw new Error("Canonical Translation annotation fixture was not enabled");
 		const rootId = await accountDefaultConfigurationId(ownerId);
 		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
 			configurationId: rootId,
 			expectedRevision: 1,
 			overrides: { temperature: { kind: "value", value: 0 } },
 		});
-		const second = await canonicalTranslationInferenceAnnotation(testEnv.BICKR_D1, ownerId, {});
-		expect(second?.effectiveRevisionFingerprint).not.toBe(first?.effectiveRevisionFingerprint);
+		const second = await canonicalTranslationInferenceAnnotation(testEnv.BICKR_D1, ownerId, {}, false);
+		if (!second?.enabled || second.migrationPending) throw new Error("Canonical Translation annotation unexpectedly unavailable");
+		expect(second.effectiveRevisionFingerprint).not.toBe(first.effectiveRevisionFingerprint);
+		const parent = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Translation reparent source",
+			parentId: rootId,
+			overrides: { model: { kind: "value", value: "owner/reparented-translation" } },
+		});
+		await inferenceConfigurationMutations.reparent(testEnv.BICKR_D1, ownerId, {
+			configurationId: first.configurationId,
+			parentId: parent.id,
+			expectedRevision: 1,
+		});
+		const reparented = await canonicalTranslationInferenceAnnotation(testEnv.BICKR_D1, ownerId, {}, false);
+		if (!reparented?.enabled || reparented.migrationPending) throw new Error("Canonical Translation annotation unexpectedly unavailable after reparent");
+		expect(reparented.configurationId).toBe(first.configurationId);
+		expect(reparented.effectiveModel).toBe("owner/reparented-translation");
+		expect(reparented.effectiveRevisionFingerprint).not.toBe(second.effectiveRevisionFingerprint);
 		const credentialA = await canonicalBotInference(testEnv.BICKR_D1, ownerId, botId, { OPENROUTER_API_KEY: "secret-a" });
 		const credentialB = await canonicalBotInference(testEnv.BICKR_D1, ownerId, botId, { OPENROUTER_API_KEY: "secret-b" });
 		expect(credentialA?.fingerprint).toBe(credentialB?.fingerprint);
@@ -178,6 +198,7 @@ describe("canonical inference consumers", () => {
 
 	it("never forwards the deployment credential through owner provider settings or avatar targets", async () => {
 		await enableCutover();
+		await translationInferenceLifecycle.enable(testEnv.BICKR_D1, ownerId);
 		const env = {
 			...testEnv,
 			OPENROUTER_API_KEY: "global-only-secret",
@@ -188,7 +209,7 @@ describe("canonical inference consumers", () => {
 			kind: "unavailable",
 			reason: "deployment_credential_suppressed_for_owner_base_url",
 		});
-		expect(await canonicalTranslationInferenceAnnotation(env.BICKR_D1, ownerId, env))
+		expect(await canonicalTranslationInferenceAnnotation(env.BICKR_D1, ownerId, env, false))
 			.toMatchObject({ credentialAvailable: false });
 		const targets = [
 			await resolveAvatarTarget(env, { kind: "user", userId: ownerId }, "generate"),

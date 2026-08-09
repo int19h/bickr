@@ -16,6 +16,8 @@ const routeCases = [
 	{ method: 'POST', path: '/users/user-1/account/bootstrap', handlerId: 'account-bootstrap' },
 	{ method: 'GET', path: '/users/user-1/inference-graph/migration', handlerId: 'inference-graph-migration-status' },
 	{ method: 'POST', path: '/users/user-1/inference-graph/migrate', handlerId: 'run-inference-graph-migration' },
+	{ method: 'GET', path: '/users/user-1/inference-translation-role/migration', handlerId: 'translation-role-migration-status' },
+	{ method: 'POST', path: '/users/user-1/inference-translation-role/migrate', handlerId: 'migrate-translation-role' },
 	{ method: 'POST', path: '/users/user-1/inference-graph/rollback', handlerId: 'rollback-inference-graph' },
 	{ method: 'POST', path: '/users/user-1/inference-graph/reactivate', handlerId: 'reactivate-inference-graph' },
 	{ method: 'GET', path: '/users/user-1/inference-configurations', handlerId: 'list-inference-configurations' },
@@ -30,10 +32,7 @@ const routeCases = [
 	{ method: 'GET', path: '/users/user-1/inference-configurations/config-1', handlerId: 'get-inference-configuration' },
 	{ method: 'PATCH', path: '/users/user-1/inference-configurations/config-1', handlerId: 'update-inference-configuration' },
 	{ method: 'DELETE', path: '/users/user-1/inference-configurations/config-1', handlerId: 'delete-inference-configuration' },
-	{ method: 'GET', path: '/users/user-1/inference-translation/candidates', handlerId: 'inference-translation-candidates' },
-	{ method: 'GET', path: '/users/user-1/inference-translation', handlerId: 'get-inference-translation-selection' },
 	{ method: 'GET', path: '/users/user-1/inference-translation/annotation', handlerId: 'get-inference-translation-annotation' },
-	{ method: 'PUT', path: '/users/user-1/inference-translation', handlerId: 'update-inference-translation-selection' },
 	{ method: 'GET', path: '/inference-graph/fleet-status', handlerId: 'inference-graph-fleet-status' },
 	{ method: 'POST', path: '/inference-graph/cleanup', handlerId: 'inference-graph-cleanup' },
 	{ method: 'POST', path: '/inference-graph/activate-lifecycle', handlerId: 'activate-inference-graph-lifecycle' },
@@ -91,6 +90,7 @@ describe('agent runtime route matching', () => {
 	it('matches the fixed-entry lookup for every entity kind without shadowing a configuration id', () => {
 		for (const path of [
 			'/users/user-1/inference-configurations/fixed/account_default',
+			'/users/user-1/inference-configurations/fixed/translation',
 			'/users/user-1/inference-configurations/fixed/world/world-1',
 			'/users/user-1/inference-configurations/fixed/bot/bot-1',
 		]) {
@@ -108,6 +108,9 @@ describe('agent runtime route matching', () => {
 
 	it('does not match a route under the wrong method', () => {
 		expect(matchAgentRuntimeRoute('/users/user-1/translate', 'GET')).toBeNull();
+		expect(matchAgentRuntimeRoute('/users/user-1/inference-translation', 'GET')).toBeNull();
+		expect(matchAgentRuntimeRoute('/users/user-1/inference-translation/candidates', 'GET')).toBeNull();
+		expect(matchAgentRuntimeRoute('/users/user-1/inference-translation', 'PUT')).toBeNull();
 	});
 
 	it('preserves the raw BotRuntime path segment used to name the Durable Object', () => {

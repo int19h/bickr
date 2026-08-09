@@ -208,9 +208,6 @@ describe("MCP endpoint", () => {
 			["get_inference_configuration_delete_impact", "bickr.read", true, false, true],
 			["get_inference_configuration_parent_impact", "bickr.read", true, false, true],
 			["delete_inference_configuration", "bickr.write", false, true, false],
-			["get_translation_inference_selection", "bickr.read", true, false, true],
-			["list_translation_inference_candidates", "bickr.read", true, false, true],
-			["set_translation_inference_selection", "bickr.write", false, false, false],
 			["list_world_bots", "bickr.read", true, false, true],
 			["get_bot", "bickr.read", true, false, true],
 			["create_bot", "bickr.write", false, false, false],
@@ -496,6 +493,39 @@ describe("MCP endpoint", () => {
 				},
 			},
 			content: [{ type: "text" }],
+		});
+	});
+
+	it("accepts a migration-pending Translation annotation from the runtime", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
+		const annotation = {
+			enabled: true,
+			migrationPending: true,
+			sourceConfigurationId: "cfg_pre_sweep_translation",
+			pointerRevision: 3,
+			effectiveModel: "legacy/translation-model",
+			effectiveRevisionFingerprint: "pending-fingerprint",
+			credentialAvailable: true,
+		} as const;
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "tools/call",
+			params: { name: "get_profile", arguments: {} },
+		}, {
+			AGENT_RUNTIME: {
+				fetch: async (request: Request) => {
+					expect(new URL(request.url).pathname)
+						.toBe("/users/usr_mcp/inference-translation/annotation");
+					return Response.json({ ok: true, data: { annotation } });
+				},
+			},
+			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+		});
+
+		expect((await jsonResponse(response)).result).toMatchObject({
+			structuredContent: { profile: { translationInference: annotation } },
 		});
 	});
 

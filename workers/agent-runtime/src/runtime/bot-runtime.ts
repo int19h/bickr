@@ -9,6 +9,7 @@ import {
 	canonicalTranslationInference,
 	translationToolCallStrategy,
 } from '@bickr/shared/inference-configuration-consumers';
+import { inferenceGraphReadVersion } from '@bickr/shared/inference-configuration-repository';
 import { ExclusiveOperationQueue } from '@bickr/shared/exclusive-operation-queue';
 import { json } from '@bickr/shared/http';
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseObjectRef, parseThreadRef } from '@bickr/shared/ids';
@@ -7387,13 +7388,26 @@ export async function translateForUser(
 	text: string,
 ): Promise<string> {
 	const user = await userById(env.BICKR_KV, userId);
-	const legacySettings = effectiveProviderSettingsForTranslation(user, env);
-	const graph = legacySettings ? await canonicalTranslationInference(env.BICKR_D1, userId, env) : null;
-	const settings: TranslationProviderSettings | null = graph && legacySettings ? {
-		...graph.providerSettings,
-		prompt: legacySettings.prompt,
-		toolCalls: translationToolCallStrategy(graph.providerSettings.toolCalls),
-	} : legacySettings;
+	const version = await inferenceGraphReadVersion(env.BICKR_D1, userId);
+	let settings: TranslationProviderSettings | null;
+	if (version.cutoverVersion === 0) {
+		settings = effectiveProviderSettingsForTranslation(user, env);
+	} else {
+		const graph = await canonicalTranslationInference(
+			env.BICKR_D1,
+			userId,
+			env,
+			Boolean(user.inferenceSettings?.translation?.enabled),
+		);
+		const prompt = trimmed(user.inferenceSettings?.translation?.prompt
+			? localizedTextString(user.inferenceSettings.translation.prompt)
+			: undefined) ?? defaultTranslationPrompt;
+		settings = graph ? {
+			...graph.providerSettings,
+			prompt,
+			toolCalls: translationToolCallStrategy(graph.providerSettings.toolCalls),
+		} : null;
+	}
 	if (!settings) {
 		throw new InputError('Enable inline translations in profile inference settings before translating text.');
 	}

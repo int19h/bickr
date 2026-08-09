@@ -73,6 +73,7 @@ const accountBootstrapReservationModule = "workers/agent-runtime/src/lifecycle/a
 const repositoryModule = "packages/shared/src/repository.ts";
 const governanceModule = "packages/shared/src/governance.ts";
 const inferenceConfigurationRepositoryModule = "packages/shared/src/inference-configuration-repository.ts";
+const translationInferenceLifecycleModule = "packages/shared/src/inference-translation-role.ts";
 const inferenceConfigurationMutationModules = new Set([
 	"workers/agent-runtime/src/routes.ts",
 	"test/entity-lifecycle.spec.ts",
@@ -125,7 +126,7 @@ describe("serialized entity mutation import boundary", () => {
 			"renameCustom",
 			"reparent",
 			"update",
-			"updateTranslationSelection",
+			"updateLegacyTranslationPointer",
 		].sort());
 		const violations = sourceModuleFiles(resolve(process.cwd())).flatMap((filename) => {
 			const relativeFilename = relativePath(filename);
@@ -137,6 +138,34 @@ describe("serialized entity mutation import boundary", () => {
 				: [];
 		});
 		expect(violations).toEqual([]);
+
+		const translationLifecycleSource = readFileSync(resolve(process.cwd(), translationInferenceLifecycleModule), "utf8");
+		expect(capabilityMembers(translationLifecycleSource, "translationInferenceLifecycle").sort()).toEqual([
+			"completeMigration",
+			"disable",
+			"enable",
+			"migrateLegacy",
+		].sort());
+		const translationLifecycleImporters = new Set([
+			"packages/shared/src/inference-translation-role-migration.ts",
+			"test/entity-lifecycle.spec.ts",
+			"test/inference-configuration-consumers.spec.ts",
+			"test/inference-configuration-migration.spec.ts",
+			"test/inference-configuration-repository.spec.ts",
+			"test/inference-configuration-routes.spec.ts",
+			"test/translation-runtime.spec.ts",
+			"workers/agent-runtime/src/routes.ts",
+		]);
+		const lifecycleViolations = sourceModuleFiles(resolve(process.cwd())).flatMap((filename) => {
+			const relativeFilename = relativePath(filename);
+			if (relativeFilename === translationInferenceLifecycleModule) return [];
+			const source = readFileSync(filename, "utf8");
+			const importsCapability = /import\s*\{[^}]*\btranslationInferenceLifecycle\b[^}]*\}\s*from\s*['"]@bickr\/shared\/inference-translation-role['"]/.test(source);
+			return importsCapability && !translationLifecycleImporters.has(relativeFilename)
+				? [`${relativeFilename}: imports translationInferenceLifecycle outside UserBotsCoordinator routes or migration tests`]
+				: [];
+		});
+		expect(lifecycleViolations).toEqual([]);
 	});
 
 	it("keeps legacy compatibility and migration adapters at their versioned coordinator boundaries", () => {
@@ -154,6 +183,7 @@ describe("serialized entity mutation import boundary", () => {
 		const graphSqlWriterModules = new Set([
 			"packages/shared/src/inference-configuration-migration.ts",
 			"packages/shared/src/inference-configuration-repository.ts",
+			translationInferenceLifecycleModule,
 		]);
 		const violations = sourceModuleFiles(resolve(process.cwd())).flatMap((filename) => {
 			const relativeFilename = relativePath(filename);
@@ -170,7 +200,7 @@ describe("serialized entity mutation import boundary", () => {
 			if (!relativeFilename.includes(".test.") && !relativeFilename.startsWith("test/") &&
 				/(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+inference_configurations\b/i.test(source) &&
 				!graphSqlWriterModules.has(relativeFilename)) {
-				result.push(`${relativeFilename}: writes inference_configurations outside the repository or migration adapter`);
+				result.push(`${relativeFilename}: writes inference_configurations outside the repository or lifecycle/migration adapter`);
 			}
 			return result;
 		});

@@ -41,6 +41,8 @@ import migration0039 from "../../migrations/0039_entity_lifecycle.sql?raw";
 import migration0040 from "../../migrations/0040_entity_lifecycle_recovery.sql?raw";
 import migration0041 from "../../migrations/0041_bot_group_members_bot.sql?raw";
 import migration0042 from "../../migrations/0042_inference_configuration_graph.sql?raw";
+import migration0043 from "../../migrations/0043_translation_inference_role.sql?raw";
+import migration0044 from "../../migrations/0044_translation_role_transition_state.sql?raw";
 
 const migrationSql = [
 	migration0001,
@@ -86,6 +88,8 @@ const migrationSql = [
 	migration0040,
 	migration0041,
 	migration0042,
+	migration0043,
+	migration0044,
 ];
 
 type D1SchemaRow = {

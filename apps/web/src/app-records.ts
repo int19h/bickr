@@ -28,12 +28,10 @@ export function throwApiError(message: string): never {
 /**
  * Translation view state for the whole app.
  *
- * The identity is the cache key input. It is the selected configuration plus
+ * The identity is the cache key input. It is the Translation role plus
  * the effective revision fingerprint the server computed, so a change to any
  * inherited routing, reasoning, or sampling value invalidates cached
- * translations even when the model and prompt are unchanged. Every screen that
- * can move that result reloads the profile, so the identity cannot lag behind a
- * selection change or a configuration edit until the next page load.
+ * translations even when the model and prompt are unchanged.
  */
 export function translationContextValue(profile: UserProfile | null): {
 	enabled: boolean;
@@ -44,14 +42,31 @@ export function translationContextValue(profile: UserProfile | null): {
 	const translation = profile?.inferenceSettings.translation;
 	const annotation = profile?.translationInference;
 	return {
-		enabled: Boolean(translation?.enabled),
-		identity: annotation
-			? `${annotation.selectedConfigurationId}:${annotation.effectiveRevisionFingerprint}`
+		enabled: annotation ? annotation.enabled : Boolean(translation?.enabled),
+		identity: annotation?.enabled
+			? `${annotation.migrationPending ? `migration:${annotation.sourceConfigurationId}` : annotation.configurationId}:${annotation.effectiveRevisionFingerprint}`
 			: defaultProviderModel,
-		model: annotation?.effectiveModel ?? defaultProviderModel,
+		model: annotation?.enabled ? annotation.effectiveModel : defaultProviderModel,
 		prompt: localizedTextString(translation?.prompt).trim() || defaultTranslationPrompt,
 	};
 }
+
+/**
+ * Entity mutation responses intentionally contain only their owned profile
+ * fields. Keep the independently resolved Translation annotation when such a
+ * response omits it, while allowing an explicit canonical enabled/disabled
+ * annotation to replace the saved value.
+ */
+export function profileWithPreservedTranslationInference(
+	current: UserProfile | null,
+	saved: UserProfile,
+): UserProfile {
+	if (saved.translationInference !== undefined || current?.translationInference === undefined) {
+		return saved;
+	}
+	return { ...saved, translationInference: current.translationInference };
+}
+
 export function worldAvatarMembersPromptSizeTitle(world: WorldSummary, members: BotSummary[] | null): string {
 	if (!members) {
 		return "Member bios are still loading; prompt size will appear here once they are available.";

@@ -161,12 +161,17 @@ export async function runInferenceGraphMigrationStep(
 	await requireActiveMigrationOwner(env.BICKR_D1, ownerUserId);
 	let operation = await migrationOperation(env.BICKR_D1, ownerUserId);
 	if (!operation) {
+		const existingVersion = await inferenceGraphReadVersion(env.BICKR_D1, ownerUserId);
+		if (existingVersion.cutoverVersion !== 0) {
+			throw new RepositoryError("conflict", "Completed inference graph migration cannot be restarted after terminal cleanup.", 409);
+		}
 		await env.BICKR_D1.batch([
 			env.BICKR_D1.prepare(
 				`INSERT INTO inference_graph_users (
 					owner_user_id, writer_version, cutover_version, graph_revision,
+					translation_role_state_version,
 					created_at, updated_at
-				) VALUES (?, 0, 0, 0, ?, ?)
+				) VALUES (?, 0, 0, 0, 0, ?, ?)
 				ON CONFLICT(owner_user_id) DO NOTHING`,
 			).bind(ownerUserId, now, now),
 			env.BICKR_D1.prepare(
@@ -1110,12 +1115,12 @@ async function createRollbackProjection(db: D1DatabaseLike, ownerUserId: string,
 function projectionEntryInsertStatement(db: D1DatabaseLike, ownerUserId: string): D1PreparedStatementLike {
 	return db.prepare(
 		`INSERT INTO inference_graph_legacy_projection_entries (
-			owner_user_id, configuration_id, kind, parent_id, world_id, bot_id,
+			owner_user_id, configuration_id, kind, fixed_role, parent_id, world_id, bot_id,
 			custom_name, custom_name_key, overrides_json, configuration_revision,
 			credential_mode, credential_secret_version
 		)
 		SELECT configuration.owner_user_id, configuration.configuration_id,
-			configuration.kind, configuration.parent_id, configuration.world_id,
+			configuration.kind, configuration.fixed_role, configuration.parent_id, configuration.world_id,
 			configuration.bot_id, configuration.custom_name, configuration.custom_name_key,
 			configuration.overrides_json, configuration.revision,
 			credentials.mode, credentials.secret_version
@@ -1675,14 +1680,16 @@ async function collisionSafeTranslationName(db: D1DatabaseLike, ownerUserId: str
 			FROM names
 			WHERE suffix < ? AND EXISTS (
 				SELECT 1 FROM inference_configurations
-				WHERE owner_user_id = ? AND kind = 'custom' AND custom_name_key = names.name_key
+				WHERE owner_user_id = ? AND kind = 'custom' AND fixed_role IS NULL
+					AND custom_name_key = names.name_key
 					AND configuration_id != ?
 			)
 		)
 		SELECT name FROM names
 		WHERE NOT EXISTS (
 			SELECT 1 FROM inference_configurations
-			WHERE owner_user_id = ? AND kind = 'custom' AND custom_name_key = names.name_key
+			WHERE owner_user_id = ? AND kind = 'custom' AND fixed_role IS NULL
+				AND custom_name_key = names.name_key
 				AND configuration_id != ?
 		)
 		ORDER BY suffix ASC LIMIT 1`,

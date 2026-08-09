@@ -29,10 +29,11 @@ export type { EffectiveImageSettings };
  */
 export type FixedInferenceConfigurationReference =
 	| { kind: "account_default" }
+	| { kind: "translation" }
 	| { kind: "world"; worldId: string }
 	| { kind: "bot"; botId: string };
 
-export const fixedInferenceConfigurationKinds = ["account_default", "world", "bot"] as const;
+export const fixedInferenceConfigurationKinds = ["account_default", "translation", "world", "bot"] as const;
 
 export type FixedInferenceConfigurationKind = typeof fixedInferenceConfigurationKinds[number];
 
@@ -145,6 +146,7 @@ export function isNumericInferenceField(field: InferenceConfigurationField): fie
 
 export type InferenceConfigurationIdentity =
 	| { kind: "account_default" }
+	| { kind: "translation" }
 	| { kind: "world"; worldId: string; worldHandle: string }
 	| { kind: "bot"; botId: string; botHandle: string; homeWorldId: string; homeWorldHandle: string }
 	| { kind: "custom"; name: string };
@@ -324,14 +326,6 @@ export type InferenceDeleteImpact = InferenceDependentImpact & {
 	parentId: string;
 	/** Compatibility alias for clients shipped with the first Phase-3 draft. */
 	immediateChildren: number;
-	resetsTranslationSelection: boolean;
-};
-
-export type TranslationSelection = {
-	ownerUserId: string;
-	configurationId: string;
-	revision: number;
-	updatedAt: string;
 };
 
 export type CredentialUpdate =

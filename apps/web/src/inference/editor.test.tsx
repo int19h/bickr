@@ -78,7 +78,6 @@ function impact(overrides: Partial<InferenceDeleteImpact> = {}): InferenceDelete
 		affectedConfigurationCount: 5,
 		changes: { effectiveModel: 0, effectiveBaseUrl: 0, credentialAvailability: 0, credentialSource: 0, providerAccess: 0 },
 		warnings: [],
-		resetsTranslationSelection: false,
 		...overrides,
 	};
 }
@@ -186,16 +185,11 @@ describe("delete confirmation", () => {
 	it("names the replacement parent, both dependent counts, and the value warning", () => {
 		const lines = deleteImpactLines("Shared sampling", "Account default", impact());
 		expect(lines[0]).toBe(
-			"Shared sampling will be removed. Its 2 immediate children will be reparented to Account default.",
+			"Shared sampling will be removed. Its 2 immediate children will inherit from Account default.",
 		);
 		expect(lines[1]).toContain("5 configurations depend on this entry");
 		expect(lines[1]).toContain("repairs links rather than copying values down");
 		expect(lines).toHaveLength(2);
-	});
-
-	it("discloses the translation reset when this entry supplies translation", () => {
-		const lines = deleteImpactLines("Migrated translation settings", "Account default", impact({ resetsTranslationSelection: true }));
-		expect(lines[2]).toBe("Inline translation currently uses this configuration and will switch to Account default.");
 	});
 
 	it("uses singular wording for a single child", () => {

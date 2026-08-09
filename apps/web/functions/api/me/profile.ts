@@ -40,8 +40,15 @@ function translationAnnotationFromServicePayload(value: unknown): TranslationInf
 		throw new Error("Agent runtime returned an invalid translation annotation.");
 	}
 	const record = annotation as Record<string, unknown>;
-	if (typeof record.selectedConfigurationId !== "string" || typeof record.selectedDisplayName !== "string" ||
-		typeof record.selectionRevision !== "number" || typeof record.effectiveModel !== "string" ||
+	if (record.enabled === false) return { enabled: false };
+	if (record.enabled === true && record.migrationPending === true &&
+		typeof record.sourceConfigurationId === "string" && typeof record.pointerRevision === "number" &&
+		typeof record.effectiveModel === "string" && typeof record.effectiveRevisionFingerprint === "string" &&
+		typeof record.credentialAvailable === "boolean") {
+		return record as TranslationInferenceAnnotation;
+	}
+	if (record.enabled !== true || typeof record.configurationId !== "string" || record.displayName !== "Translation" ||
+		typeof record.pointerRevision !== "number" || typeof record.effectiveModel !== "string" ||
 		typeof record.effectiveRevisionFingerprint !== "string" || typeof record.credentialAvailable !== "boolean") {
 		throw new Error("Agent runtime returned an invalid translation annotation.");
 	}

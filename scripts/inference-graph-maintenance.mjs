@@ -11,6 +11,15 @@ switch (action) {
 	case "migrate-user":
 		await migrateUser(requiredOption(options, "user"));
 		break;
+	case "translation-status-user":
+		print(await proxy("GET", `/users/${encodeURIComponent(requiredOption(options, "user"))}/inference-translation-role/migration`));
+		break;
+	case "migrate-translation-user":
+		print(await proxy("POST", `/users/${encodeURIComponent(requiredOption(options, "user"))}/inference-translation-role/migrate`));
+		break;
+	case "migrate-translation-fleet":
+		await migrateTranslationFleet();
+		break;
 	case "rollback-user":
 		print(await proxy("POST", `/users/${encodeURIComponent(requiredOption(options, "user"))}/inference-graph/rollback`));
 		break;
@@ -31,7 +40,7 @@ switch (action) {
 		print(await proxy("POST", "/inference-graph/activate-lifecycle"));
 		break;
 	default:
-		throw new Error("Usage: inference-graph-maintenance <status-user|migrate-user|rollback-user|reactivate-user|fleet-status|cleanup|activate-lifecycle> --origin URL [--user ID] [--limit N] [--cursor CURSOR]");
+		throw new Error("Usage: inference-graph-maintenance <status-user|migrate-user|translation-status-user|migrate-translation-user|migrate-translation-fleet|rollback-user|reactivate-user|fleet-status|cleanup|activate-lifecycle> --origin URL [--user ID] [--limit N] [--cursor CURSOR]");
 }
 
 async function migrateUser(userId) {
@@ -45,8 +54,43 @@ async function migrateUser(userId) {
 	throw new Error(`Migration did not reach terminal state within ${maximumSteps} steps.`);
 }
 
+async function migrateTranslationFleet() {
+	const limit = optionalPositiveInteger(options, "limit") ?? 100;
+	let cursor = options.get("cursor") ?? "";
+	let failures = 0;
+	do {
+		const params = new URLSearchParams({ limit: String(limit) });
+		if (cursor) params.set("cursor", cursor);
+		const page = await proxy("GET", `/inference-graph/fleet-status?${params}`);
+		for (const owner of page?.data?.status?.items ?? []) {
+			try {
+				const status = await proxy("GET", `/users/${encodeURIComponent(owner.ownerUserId)}/inference-translation-role/migration`);
+				print(status);
+				const migration = status?.data?.migration;
+				if (migration?.state === "corrupt") {
+					failures += 1;
+					continue;
+				}
+				if (migration?.state === "migration_needed") {
+					print(await proxy("POST", `/users/${encodeURIComponent(owner.ownerUserId)}/inference-translation-role/migrate`));
+				}
+			} catch (error) {
+				failures += 1;
+				print({
+					ownerUserId: owner.ownerUserId,
+					state: "request_failed",
+					message: error instanceof Error ? error.message : String(error),
+				});
+			}
+		}
+		cursor = page?.data?.status?.nextCursor ?? "";
+	} while (cursor);
+	if (failures) throw new Error(`Translation role fleet migration completed with ${failures} owner failure(s).`);
+}
+
 async function proxy(method, path, body) {
-	const userId = options.get("user") ?? "usr_inference_graph_maintenance";
+	const pathUser = /^\/users\/([^/]+)\//.exec(path)?.[1];
+	const userId = pathUser ? decodeURIComponent(pathUser) : options.get("user") ?? "usr_inference_graph_maintenance";
 	const response = await fetch(`${origin}/api/__test__/service-proxy`, {
 		method: "POST",
 		headers: {

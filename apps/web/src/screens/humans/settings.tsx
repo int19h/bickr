@@ -8,8 +8,9 @@ import {
 	type UpdateUserProfileInput,
 	type UserProfile,
 } from "@bickr/shared/model";
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { api } from "../../api";
+import { profileWithPreservedTranslationInference } from "../../app-records";
 import { avatarImagePixels, cloudflareImageUrl } from "../../avatar-image-urls";
 import { AvatarCropModal } from "../../avatar/AvatarCropModal";
 import { AvatarUploadModal } from "../../avatar/AvatarUploadModal";
@@ -21,7 +22,6 @@ import { Avatar, Confirm, FallbackImage, Field, Icon, ImageLightbox, ToastContex
 import { RuntimeRow, isValidHandle, slugify } from "../bots";
 import { authProviderLabel, authStartHref } from "../chrome";
 import { FixedConfigurationAction, fixedConfigurationReference, useFixedConfiguration } from "../../inference/links";
-import { TranslationConfigurationSelector } from "../../inference/translation-selector";
 import { LanguageField, textLang } from "../../components/form-fields";
 import { TimeAgoLabel } from "../../components/record-display";
 
@@ -37,32 +37,11 @@ export type ProfileDraft = {
 	translationPrompt: string;
 };
 
-/**
- * Merges a freshly loaded profile into the draft the owner is holding. A field
- * the owner has edited is theirs until they save or discard it; every other
- * field follows the server. Refreshing the translation annotation after a
- * configuration selection must not cost an unsaved handle, name, language,
- * translation toggle, or translation prompt.
- */
-export function profileDraftAfterReload(draft: ProfileDraft, loaded: ProfileDraft, next: ProfileDraft): ProfileDraft {
-	return {
-		handle: draft.handle === loaded.handle ? next.handle : draft.handle,
-		language: draft.language === loaded.language ? next.language : draft.language,
-		uiLocale: draft.uiLocale === loaded.uiLocale ? next.uiLocale : draft.uiLocale,
-		displayName: draft.displayName === loaded.displayName ? next.displayName : draft.displayName,
-		translationEnabled:
-			draft.translationEnabled === loaded.translationEnabled ? next.translationEnabled : draft.translationEnabled,
-		translationPrompt:
-			draft.translationPrompt === loaded.translationPrompt ? next.translationPrompt : draft.translationPrompt,
-	};
-}
-
 export function ProfileScreen({
 	busy,
 	onAuthIdentityUnlink,
 	onAvatarUpdated,
 	onOpenAvatarGeneration,
-	onProfileLoaded,
 	onSave,
 	onSignOut,
 	user,
@@ -71,8 +50,6 @@ export function ProfileScreen({
 	onAuthIdentityUnlink: (provider: AuthProvider) => Promise<UserProfile | null>;
 	onAvatarUpdated: (profile: UserProfile) => void;
 	onOpenAvatarGeneration: () => void;
-	/** Carries the translation annotation to the app so its cache key follows. */
-	onProfileLoaded: (profile: UserProfile) => void;
 	onSave: (draft: UpdateUserProfileInput) => Promise<UserProfile | null>;
 	onSignOut: () => void;
 	user: PublicUser;
@@ -89,32 +66,6 @@ export function ProfileScreen({
 	const [profileAvatarFailed, setProfileAvatarFailed] = useState(false);
 	const toast = useContext(ToastContext);
 	const t = useUiText();
-
-	// Read by the reload below so it can tell an edited field from one that
-	// simply still matches what the server last sent.
-	const loadedProfileRef = useRef<UserProfile | null>(null);
-	useEffect(() => {
-		loadedProfileRef.current = profile;
-	});
-
-	/**
-	 * Rereads the profile so the account's translation annotation and
-	 * fingerprint follow a configuration selection. It refreshes the saved copy
-	 * and every clean draft field, and leaves unsaved edits alone.
-	 */
-	const reloadProfile = useCallback(async (): Promise<void> => {
-		const result = await api<{ profile: UserProfile }>("/api/me/profile");
-		if (!result.ok) {
-			setMessage(result.message);
-			return;
-		}
-		const loaded = loadedProfileRef.current;
-		const next = profileDraftFromProfile(result.data.profile);
-		setDraft((current) => (loaded ? profileDraftAfterReload(current, profileDraftFromProfile(loaded), next) : next));
-		setProfile(result.data.profile);
-		setMessage("");
-		onProfileLoaded(result.data.profile);
-	}, [onProfileLoaded]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -149,6 +100,12 @@ export function ProfileScreen({
 	const canSave = (dirty || profileIncomplete) && valid && !busy && !loading;
 	const accountConfigurationTarget = { kind: "account_default" } as const;
 	const accountConfiguration = useFixedConfiguration(fixedConfigurationReference(accountConfigurationTarget));
+	const translationConfigurationTarget = { kind: "translation" } as const;
+	const savedTranslationReference = savedTranslationConfigurationReference(profile);
+	const savedTranslationEnabled = savedTranslationReference !== null;
+	const translationConfiguration = useFixedConfiguration(
+		savedTranslationReference,
+	);
 
 	async function save(): Promise<void> {
 		const language = languageInputValue(draft.language);
@@ -177,13 +134,13 @@ export function ProfileScreen({
 	async function unlinkAuthIdentity(provider: AuthProvider): Promise<void> {
 		const saved = await onAuthIdentityUnlink(provider);
 		if (saved) {
-			setProfile(saved);
+			setProfile((current) => profileWithPreservedTranslationInference(current, saved));
 			toast.push(`Unlinked ${authProviderLabel(provider)}`);
 		}
 	}
 
 	function applySavedAvatarProfile(saved: UserProfile): void {
-		setProfile(saved);
+		setProfile((current) => profileWithPreservedTranslationInference(current, saved));
 		onAvatarUpdated(saved);
 	}
 
@@ -354,7 +311,7 @@ export function ProfileScreen({
 					<section className="section">
 						<div className="section-head">
 							<h2>Inline translations</h2>
-							<span className="meta">viewer feature</span>
+							<span className="meta">profile and inference</span>
 						</div>
 						<div className="field-stack">
 							<label className="checkbox-line">
@@ -374,21 +331,10 @@ export function ProfileScreen({
 									value={draft.translationPrompt}
 								/>
 							</Field>
+							{savedTranslationEnabled ?
+								<FixedConfigurationAction state={translationConfiguration} target={translationConfigurationTarget} />
+							: 	<p className="help">Enabling inline translations creates the fixed Translation configuration; disabling inline translations removes it.</p>}
 						</div>
-					</section>
-
-					<section className="section">
-						<div className="section-head">
-							<h2>Translation inference configuration</h2>
-							<span className="meta">Account default or a custom configuration</span>
-						</div>
-						<TranslationConfigurationSelector
-							onSelectionSaved={() => {
-								accountConfiguration.reload();
-								void reloadProfile();
-							}}
-							returnTo={{ route: "profile" }}
-						/>
 					</section>
 				</div>
 
@@ -513,15 +459,21 @@ function profileDraftFromUser(user: PublicUser): ProfileDraft {
 	};
 }
 
-function profileDraftFromProfile(profile: UserProfile): ProfileDraft {
+export function profileDraftFromProfile(profile: UserProfile): ProfileDraft {
 	return {
 		handle: profile.handle,
 		language: languageDraftValue(profile.language, textLang(profile.displayName) ?? defaultLanguageTag),
 		uiLocale: profile.uiLocale ?? "system",
 		displayName: textValue(profile.displayName),
-		translationEnabled: Boolean(profile.inferenceSettings.translation?.enabled),
+		translationEnabled: profile.translationInference?.enabled ?? Boolean(profile.inferenceSettings.translation?.enabled),
 		translationPrompt: textValue(profile.inferenceSettings.translation?.prompt ?? ""),
 	};
+}
+
+export function savedTranslationConfigurationReference(profile: UserProfile | null) {
+	return profile?.translationInference?.enabled === true && !profile.translationInference.migrationPending
+		? ({ kind: "translation" } as const)
+		: null;
 }
 
 function profileDraftChanged(draft: ProfileDraft, profile: UserProfile): boolean {

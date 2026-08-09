@@ -51,13 +51,20 @@ import {
 	listInferenceConfigurations,
 	listInferenceLibrarySection,
 	listInferenceParentCandidates,
-	listInferenceTranslationCandidates,
 	ownedFixedInferenceConfigurationId,
 	parseFixedInferenceConfigurationReference,
 	parseInferenceConfigurationKinds,
 	parseInferenceLibrarySection,
-	readTranslationSelection,
+	readTranslationInferencePointer,
 } from '@bickr/shared/inference-configuration-repository';
+import {
+	translationInferenceState,
+	translationInferenceLifecycle,
+} from '@bickr/shared/inference-translation-role';
+import {
+	migrateTranslationRoleForOwner,
+	translationRoleMigrationStatus,
+} from '@bickr/shared/inference-translation-role-migration';
 import {
 	type CredentialUpdate,
 	type InferenceLibrarySection,
@@ -200,7 +207,7 @@ import {
 	resumeDueUserLifecycleOperation,
 } from './lifecycle/recovery';
 import { kvKeys, readJson } from '@bickr/shared/storage';
-import { authProviders, type AuthProvider, type AvatarCrop, type AvatarImage, type BotDocument, type BotImageGenerationSettings, type BotInferenceSettings, type WorldDocument } from '@bickr/shared/model';
+import { authProviders, type AuthProvider, type AvatarCrop, type AvatarImage, type BotDocument, type BotImageGenerationSettings, type BotInferenceSettings, type BotTranslationSettingsInput, type WorldDocument } from '@bickr/shared/model';
 
 const {
 	deleteBotAvatar,
@@ -224,7 +231,7 @@ const {
 	renameCustom: renameInferenceConfiguration,
 	reparent: reparentInferenceConfiguration,
 	update: updateInferenceConfiguration,
-	updateTranslationSelection,
+	updateLegacyTranslationPointer,
 } = inferenceConfigurationMutations;
 
 type AgentRuntimeRouteHandler = (context: AgentRuntimeRouteContext) => Promise<Response>;
@@ -485,6 +492,42 @@ export const agentRuntimeRouteTable = [
 		},
 	},
 	{
+		id: 'translation-role-migration-status',
+		method: 'GET',
+		pattern: /^\/users\/([^/]+)\/inference-translation-role\/migration$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			requireSchedulerServiceRequest(context.request);
+			const maintenance = await readMaintenanceState(context.env.BICKR_D1);
+			if (!maintenance.enabled) throw new RepositoryError('conflict', 'Translation role migration status requires maintenance mode.', 409);
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			if (context.coordinator.ownerUserId !== userId) throw new RepositoryError('forbidden', 'Translation role migration status was dispatched to the wrong coordinator.', 403);
+			const user = await userById(context.env.BICKR_KV, userId);
+			return ok({ migration: await translationRoleMigrationStatus(
+				context.env.BICKR_D1, userId, Boolean(user.inferenceSettings?.translation?.enabled),
+			), coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'migrate-translation-role',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/inference-translation-role\/migrate$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			requireSchedulerServiceRequest(context.request);
+			const maintenance = await readMaintenanceState(context.env.BICKR_D1);
+			if (!maintenance.enabled) throw new RepositoryError('conflict', 'Translation role migration requires maintenance mode.', 409);
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			if (context.coordinator.ownerUserId !== userId) throw new RepositoryError('forbidden', 'Translation role migration was dispatched to the wrong coordinator.', 403);
+			const user = await userById(context.env.BICKR_KV, userId);
+			return ok({ migration: await migrateTranslationRoleForOwner(
+				context.env.BICKR_D1, userId, Boolean(user.inferenceSettings?.translation?.enabled),
+			), coordinator: context.objectId });
+		},
+	},
+	{
 		id: 'rollback-inference-graph',
 		method: 'POST',
 		pattern: /^\/users\/([^/]+)\/inference-graph\/rollback$/,
@@ -741,33 +784,6 @@ export const agentRuntimeRouteTable = [
 		},
 	},
 	{
-		id: 'inference-translation-candidates',
-		method: 'GET',
-		pattern: /^\/users\/([^/]+)\/inference-translation\/candidates$/,
-		dispatch: 'user-coordinator',
-		handler: async (context) => {
-			const userId = await requireInferenceGraphOwner(context);
-			return ok({ candidates: await listInferenceTranslationCandidates(
-				context.env.BICKR_D1,
-				userId,
-				{ ...inferenceListingInput(context.url), defaults: await bickrInferenceDefaultsFromEnvironment(context.env) },
-			), coordinator: context.objectId });
-		},
-	},
-	{
-		id: 'get-inference-translation-selection',
-		method: 'GET',
-		pattern: /^\/users\/([^/]+)\/inference-translation$/,
-		dispatch: 'user-coordinator',
-		handler: async (context) => {
-			const userId = await requireInferenceGraphOwner(context);
-			const selection = await readTranslationSelection(context.env.BICKR_D1, userId);
-			return ok({ selection, configuration: await inferenceConfigurationOwnerDto(
-				context.env.BICKR_D1, userId, selection.configurationId, await bickrInferenceDefaultsFromEnvironment(context.env),
-			), coordinator: context.objectId });
-		},
-	},
-	{
 		id: 'get-inference-translation-annotation',
 		method: 'GET',
 		pattern: /^\/users\/([^/]+)\/inference-translation\/annotation$/,
@@ -777,27 +793,23 @@ export const agentRuntimeRouteTable = [
 			if (context.coordinator.ownerUserId !== userId) {
 				throw new RepositoryError('forbidden', 'Translation annotation was dispatched to the wrong coordinator.', 403);
 			}
+			const version = await inferenceGraphReadVersion(context.env.BICKR_D1, userId);
+			let legacyEnabled = false;
+			if (version.cutoverVersion !== 0) {
+				const transition = await translationInferenceState(context.env.BICKR_D1, userId);
+				legacyEnabled = transition.kind === 'migration_pending'
+					? Boolean((await userById(context.env.BICKR_KV, userId)).inferenceSettings?.translation?.enabled)
+					: false;
+			}
 			return ok({
-				annotation: await canonicalTranslationInferenceAnnotation(context.env.BICKR_D1, userId, context.env),
+				annotation: await canonicalTranslationInferenceAnnotation(
+					context.env.BICKR_D1,
+					userId,
+					context.env,
+					legacyEnabled,
+				),
 				coordinator: context.objectId,
 			});
-		},
-	},
-	{
-		id: 'update-inference-translation-selection',
-		method: 'PUT',
-		pattern: /^\/users\/([^/]+)\/inference-translation$/,
-		dispatch: 'user-coordinator',
-		handler: async (context) => {
-			const userId = await requireInferenceGraphOwner(context);
-			const body = requiredRecord(await readJsonBody(context.request));
-			const selection = await updateTranslationSelection(context.env.BICKR_D1, userId, {
-				configurationId: requiredString(body.configurationId, 'configurationId'),
-				expectedRevision: requiredPositiveInteger(body.expectedRevision, 'expectedRevision'),
-			});
-			return ok({ selection, configuration: await inferenceConfigurationOwnerDto(
-				context.env.BICKR_D1, userId, selection.configurationId, await bickrInferenceDefaultsFromEnvironment(context.env),
-			), coordinator: context.objectId });
 		},
 	},
 	{
@@ -891,19 +903,56 @@ export const agentRuntimeRouteTable = [
 		method: 'PATCH',
 		pattern: /^\/users\/([^/]+)\/profile$/,
 		dispatch: 'user-coordinator',
-			handler: async (context) => {
-				const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
-				const input = parseUpdateUserProfileInput(await readJsonBody(context.request));
-				const compatibilityFieldMask = input.inferenceSettings === undefined
-					? null
-					: legacyInferenceCompatibilityFieldMask(input.inferenceSettings);
-				if (compatibilityFieldMask) {
-					const current = await userById(context.env.BICKR_KV, userId);
-					await prepareLegacyInferenceCompatibilityWrite(context, userId, 'account', userId, current.revision, compatibilityFieldMask);
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const input = parseUpdateUserProfileInput(await readJsonBody(context.request));
+			const version = await inferenceGraphReadVersion(context.env.BICKR_D1, userId);
+			const translationPatch = input.inferenceSettings?.translation;
+			let currentUser: Awaited<ReturnType<typeof userById>> | null = null;
+			if (version.cutoverVersion !== 0) {
+				currentUser = await userById(context.env.BICKR_KV, userId);
+				const state = await translationInferenceState(context.env.BICKR_D1, userId);
+				let enabled = state.kind === 'canonical'
+					? state.enabled
+					: Boolean(currentUser.inferenceSettings?.translation?.enabled);
+				const requestedEnabled = translationPatch === null
+					? false
+					: translationPatch?.enabled;
+				if (requestedEnabled !== undefined && requestedEnabled !== enabled) {
+					if (version.cutoverVersion === 2) {
+						throw new RepositoryError('conflict', 'Translation inference cannot be enabled or disabled during compatibility rollback.', 409);
+					}
+					const canonical = requestedEnabled
+						? await translationInferenceLifecycle.enable(context.env.BICKR_D1, userId)
+						: await translationInferenceLifecycle.disable(context.env.BICKR_D1, userId);
+					enabled = canonical.enabled;
 				}
-				const profile = await updateUserProfile(context.env.BICKR_KV, context.env.BICKR_D1, userId, input);
+				if (input.inferenceSettings && translationPatch !== undefined) {
+					input.inferenceSettings = {
+						...input.inferenceSettings,
+						translation: canonicalTranslationMirrorPatch(enabled, translationPatch),
+					};
+				}
+			}
+			const compatibilityFieldMask = input.inferenceSettings === undefined
+				? null
+				: legacyInferenceCompatibilityFieldMask(input.inferenceSettings);
+			if (compatibilityFieldMask) {
+				const current = currentUser ?? await userById(context.env.BICKR_KV, userId);
+				await prepareLegacyInferenceCompatibilityWrite(context, userId, 'account', userId, current.revision, compatibilityFieldMask);
+			}
+			const profile = await updateUserProfile(context.env.BICKR_KV, context.env.BICKR_D1, userId, input);
 			if (compatibilityFieldMask) await resumePendingLegacyInferenceCompatibilityWrite(context, userId);
-			const result = { kind: 'profile_updated', profile } satisfies AccountMutationResult;
+			const annotation = await canonicalTranslationInferenceAnnotation(
+				context.env.BICKR_D1,
+				userId,
+				context.env,
+				Boolean(profile.inferenceSettings.translation?.enabled),
+			);
+			const result = {
+				kind: 'profile_updated',
+				profile: { ...profile, ...(annotation ? { translationInference: annotation } : {}) },
+			} satisfies AccountMutationResult;
 			return ok({ ...result, coordinator: context.objectId });
 		},
 	},
@@ -1704,6 +1753,36 @@ async function prepareLegacyInferenceCompatibilityWrite(
 	});
 }
 
+/**
+ * After graph cutover, KV retains only the profile-owned prompt and a best-effort
+ * enable mirror. Explicit nulls remove any legacy provider bundle that the
+ * repository's nested patch merge would otherwise preserve.
+ */
+function canonicalTranslationMirrorPatch(
+	enabled: boolean,
+	patch: BotTranslationSettingsInput | null,
+): BotTranslationSettingsInput {
+	return {
+		enabled,
+		model: null,
+		reasoningEffort: null,
+		toolCalls: null,
+		providerRouting: null,
+		temperature: null,
+		topK: null,
+		topP: null,
+		minP: null,
+		frequencyPenalty: null,
+		presencePenalty: null,
+		repetitionPenalty: null,
+		...(patch === null
+			? { prompt: null }
+			: patch.prompt !== undefined
+				? { prompt: patch.prompt }
+				: {}),
+	};
+}
+
 async function resumePendingLegacyInferenceCompatibilityWrite(
 	context: AgentRuntimeRouteContext,
 	ownerUserId: string,
@@ -1755,12 +1834,12 @@ async function projectLegacyTranslationCompatibilityWrite(
 	// canonical. Legacy profile prompt/toggle writes must not replace it merely
 	// because their deprecated inference subobject is absent or stale.
 	if (version.cutoverVersion !== 0) return;
-	const selection = await readTranslationSelection(context.env.BICKR_D1, ownerUserId);
+	const selection = await readTranslationInferencePointer(context.env.BICKR_D1, ownerUserId);
 	const translation = settings.translation;
 	const rootId = await accountDefaultConfigurationId(ownerUserId);
 	if (!translation?.model?.trim()) {
 		if (selection.configurationId !== rootId) {
-			await updateTranslationSelection(context.env.BICKR_D1, ownerUserId, {
+			await updateLegacyTranslationPointer(context.env.BICKR_D1, ownerUserId, {
 				configurationId: rootId,
 				expectedRevision: selection.revision,
 			});
@@ -1782,7 +1861,7 @@ async function projectLegacyTranslationCompatibilityWrite(
 		});
 	}
 	if (selection.configurationId !== configurationId) {
-		await updateTranslationSelection(context.env.BICKR_D1, ownerUserId, {
+		await updateLegacyTranslationPointer(context.env.BICKR_D1, ownerUserId, {
 			configurationId,
 			expectedRevision: selection.revision,
 		});
@@ -2028,6 +2107,7 @@ function isInferenceGraphMaintenanceRequest(request: Request): boolean {
 	}
 	const pathname = new URL(request.url).pathname;
 	return /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate)$/.test(pathname) ||
+		/^\/users\/[^/]+\/inference-translation-role\/migrate$/.test(pathname) ||
 		/^\/inference-graph\/(?:cleanup|activate-lifecycle)$/.test(pathname);
 }
 

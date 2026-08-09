@@ -47,6 +47,7 @@ import {
 	publicUserFromProfile,
 	renameThreadDocuments,
 	renameThreadSummaries,
+	profileWithPreservedTranslationInference,
 	routeWithRenamedWorld,
 	sortBotsForCascadeDelete,
 	throwApiError,
@@ -1772,14 +1773,7 @@ function App() {
 	}
 
 	function applySavedUserProfile(profile: UserProfile): void {
-		// Entity PATCH responses carry no translation annotation, so the existing
-		// one is preserved rather than dropped; a real change reloads the profile.
-		setUserProfile((current) => ({
-			...profile,
-			...(profile.translationInference || !current?.translationInference
-				? {}
-				: { translationInference: current.translationInference }),
-		}));
+		setUserProfile((current) => profileWithPreservedTranslationInference(current, profile));
 		setSession((current) => ({
 			...current,
 			user: publicUserFromProfile(profile),
@@ -1807,7 +1801,7 @@ function App() {
 				method: "DELETE",
 			}));
 			saved = result.data.profile;
-			setUserProfile(result.data.profile);
+			applySavedUserProfile(result.data.profile);
 			return `Unlinked ${authProviderLabel(provider)}.`;
 		});
 		return ok ? saved : null;
@@ -1875,10 +1869,8 @@ function App() {
 		if (activeBot && deletedIds.has(activeBot.id)) {
 			navigate({ route: "my-bots" });
 		}
-		// Every browser bot deletion — single, bulk, or a clone cascade — removes
-		// that participant's fixed configuration and reparents whatever inherited
-		// through it, which can move the selected translation configuration's
-		// effective result. The annotation is reread rather than left stale.
+		// A Translation role can inherit through the deleted participant, so its
+		// effective result may move when lifecycle reparenting runs.
 		void loadUserProfile();
 	}
 
@@ -2352,7 +2344,6 @@ function App() {
 								onAuthIdentityUnlink={unlinkAuthIdentity}
 								onAvatarUpdated={applySavedUserProfile}
 								onOpenAvatarGeneration={() => navigate({ route: "profile-avatar" })}
-								onProfileLoaded={setUserProfile}
 								onSave={updateProfile}
 								onSignOut={() => void logout()}
 								user={currentUser}

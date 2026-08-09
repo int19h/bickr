@@ -5,7 +5,7 @@ import type {
 	InferenceConfigurationSummary,
 } from "@bickr/shared/inference-configuration-owner";
 import { InferenceLibraryScreen, SelectedParentLine, createErrorMessage, groupBotSummaries } from "./library";
-import { librarySectionPath, parentCandidatesPath, translationCandidatesPath } from "./api";
+import { fixedConfigurationPath, librarySectionPath, parentCandidatesPath } from "./api";
 import { ConfigurationSummaryRow } from "./summary";
 
 const now = "2026-08-05T00:00:00.000Z";
@@ -58,7 +58,7 @@ describe("library listing requests", () => {
 		expect(parentCandidatesPath("cfg_one", { query: "acc" })).toBe(
 			"/api/me/inference-configurations/cfg_one/parent-candidates?q=acc",
 		);
-		expect(translationCandidatesPath({ cursor: "next" })).toBe("/api/me/inference-translation/candidates?cursor=next");
+		expect(fixedConfigurationPath({ kind: "translation" })).toBe("/api/me/inference-configurations/fixed/translation");
 	});
 });
 
@@ -118,7 +118,7 @@ describe("typed create errors", () => {
 describe("create form parent retention", () => {
 	it("names the retained parent and its kind, whatever the search is showing", () => {
 		const html = renderToStaticMarkup(<SelectedParentLine parent={summary({ displayName: "Shared sampling" })} />);
-		expect(html).toContain("Selected parent: Shared sampling");
+		expect(html).toContain("Inherit settings from: Shared sampling");
 		expect(html).not.toContain("Account default");
 		expect(html).toContain("custom");
 	});
@@ -131,7 +131,7 @@ describe("create form parent retention", () => {
 			identity: { kind: "account_default" },
 		});
 		expect(renderToStaticMarkup(<SelectedParentLine parent={accountDefault} />))
-			.toContain("Selected parent: Account default");
+			.toContain("Inherit settings from: Account default");
 	});
 });
 
@@ -139,9 +139,9 @@ describe("library rendering", () => {
 	it("orders custom configurations before the fixed sections", () => {
 		const html = renderToStaticMarkup(<InferenceLibraryScreen onNavigate={() => undefined} />);
 		expect(html).toContain("Inference library");
-		expect(html).toContain("flows through every child immediately");
-		expect(html.indexOf("Custom configurations")).toBeLessThan(html.indexOf("Account, world, and bot configurations"));
-		expect(html.indexOf("Account default")).toBeLessThan(html.indexOf("Owned worlds"));
+		expect(html).toContain("flows through every dependent configuration immediately");
+		expect(html.indexOf("Custom configurations")).toBeLessThan(html.indexOf("Fixed configurations"));
+		expect(html.indexOf("Account configurations")).toBeLessThan(html.indexOf("Owned worlds"));
 		expect(html.indexOf("Owned worlds")).toBeLessThan(html.indexOf("Participants by home world"));
 		expect(html).toContain("New configuration");
 		// The library reuses the grouping treatment only: no selection, bulk

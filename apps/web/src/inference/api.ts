@@ -7,7 +7,6 @@ import {
 	type CredentialUpdate,
 	type FixedInferenceConfigurationReference,
 	type InferenceBotEffectiveModelSet,
-	type InferenceConfigurationPage,
 	type InferenceDeleteImpact,
 	type InferenceImmediateChildrenPage,
 	type InferenceLibraryPage,
@@ -15,7 +14,6 @@ import {
 	type InferenceParentImpact,
 	type ParentCandidatePage,
 	type RedactedInferenceConfigurationDto,
-	type TranslationSelection,
 } from "@bickr/shared/inference-configuration-owner";
 import { api, type ApiFailure, type ApiResult } from "../api";
 
@@ -27,7 +25,6 @@ import { api, type ApiFailure, type ApiResult } from "../api";
  */
 
 const configurationsPath = "/api/me/inference-configurations";
-const translationPath = "/api/me/inference-translation";
 
 export type InferenceListQuery = {
 	query?: string;
@@ -60,10 +57,6 @@ export function childrenPath(configurationId: string, query: InferenceListQuery 
 	return `${configurationPath(configurationId)}/children${listSearch({}, query)}`;
 }
 
-export function translationCandidatesPath(query: InferenceListQuery = {}): string {
-	return `${translationPath}/candidates${listSearch({}, query)}`;
-}
-
 /**
  * Canonical model labels for the participants a screen already renders. The
  * browser names participants it can see and the server answers with resolved
@@ -89,7 +82,7 @@ export async function loadBotEffectiveModels(
  * never derives a configuration id.
  */
 export function fixedConfigurationPath(reference: FixedInferenceConfigurationReference): string {
-	const suffix = reference.kind === "account_default"
+	const suffix = reference.kind === "account_default" || reference.kind === "translation"
 		? ""
 		: `/${encodeURIComponent(reference.kind === "world" ? reference.worldId : reference.botId)}`;
 	return `${configurationsPath}/fixed/${reference.kind}${suffix}`;
@@ -186,22 +179,8 @@ export async function loadDeleteImpact(configurationId: string): Promise<ApiResu
 	return unwrap(await api<{ impact: InferenceDeleteImpact }>(`${configurationPath(configurationId)}/impact`), "impact");
 }
 
-export async function updateTranslationSelection(input: {
-	configurationId: string;
-	expectedRevision: number;
-}): Promise<ApiResult<TranslationSelectionResponse>> {
-	const result = await api<TranslationSelectionResponse>(translationPath, { method: "PUT", body: input });
-	return result.ok ? { ok: true, data: result.data } : result;
-}
-
-export type TranslationSelectionResponse = {
-	selection: TranslationSelection;
-	configuration: RedactedInferenceConfigurationDto;
-};
-
 export type LibraryPageResponse = { configurations: InferenceLibraryPage };
 export type ParentCandidatesResponse = { candidates: ParentCandidatePage };
-export type TranslationCandidatesResponse = { candidates: InferenceConfigurationPage };
 export type ChildrenResponse = { children: InferenceImmediateChildrenPage };
 
 function listSearch(base: { section?: InferenceLibrarySection }, query: InferenceListQuery): string {
@@ -217,5 +196,3 @@ function listSearch(base: { section?: InferenceLibrarySection }, query: Inferenc
 function unwrap<K extends string, T>(result: ApiResult<Record<K, T>>, key: K): ApiResult<T> {
 	return result.ok ? { ok: true, data: result.data[key] } : result;
 }
-
-export { translationPath as inferenceTranslationPath };

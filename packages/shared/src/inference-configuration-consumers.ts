@@ -12,9 +12,8 @@ import {
 	inferenceGraphReadVersion,
 	loadInternalInferenceConfigurationPath,
 	loadInternalInferenceCompatibilityProjectionPath,
-	readCompatibilityProjectionTranslationSelection,
-	readTranslationSelection,
 } from "./inference-configuration-repository";
+import { translationInferenceState } from "./inference-translation-role";
 import {
 	accountDefaultConfigurationId,
 	botConfigurationId,
@@ -69,37 +68,60 @@ export async function canonicalTranslationInference(
 	db: D1DatabaseLike,
 	ownerUserId: string,
 	env: ProviderEnvironmentBindings,
+	legacyEnabled: boolean,
 ): Promise<CanonicalInferenceConsumerResolution | null> {
 	const version = await inferenceGraphReadVersion(db, ownerUserId);
 	if (version.cutoverVersion === 0) return null;
-	const selection = version.cutoverVersion === 2
-		? await readCompatibilityProjectionTranslationSelection(db, ownerUserId, version.graphRevision)
-		: await readTranslationSelection(db, ownerUserId);
-	return resolvedConsumer(db, ownerUserId, selection.configurationId, "translation", env, version);
+	const state = await translationInferenceState(db, ownerUserId);
+	if (state.kind === "canonical") {
+		if (!state.enabled) return null;
+		return resolvedConsumer(db, ownerUserId, state.role.id, "translation", env, version);
+	}
+	if (!legacyEnabled) return null;
+	return resolvedConsumer(
+		db,
+		ownerUserId,
+		state.role?.id ?? state.selection.configurationId,
+		"translation",
+		env,
+		version,
+	);
 }
 
 export async function canonicalTranslationInferenceAnnotation(
 	db: D1DatabaseLike,
 	ownerUserId: string,
 	env: ProviderEnvironmentBindings,
+	legacyEnabled: boolean,
 ): Promise<TranslationInferenceAnnotation | null> {
 	const version = await inferenceGraphReadVersion(db, ownerUserId);
 	if (version.cutoverVersion === 0) return null;
-	const selection = version.cutoverVersion === 2
-		? await readCompatibilityProjectionTranslationSelection(db, ownerUserId, version.graphRevision)
-		: await readTranslationSelection(db, ownerUserId);
-	const consumer = await resolvedConsumer(db, ownerUserId, selection.configurationId, "translation", env, version);
+	const state = await translationInferenceState(db, ownerUserId);
+	if (state.kind === "migration_pending") {
+		if (!legacyEnabled) return { enabled: false };
+		const sourceConfigurationId = state.role?.id ?? state.selection.configurationId;
+		const consumer = await resolvedConsumer(db, ownerUserId, sourceConfigurationId, "translation", env, version);
+		return {
+			enabled: true,
+			migrationPending: true,
+			sourceConfigurationId,
+			pointerRevision: state.pointerRevision,
+			effectiveModel: consumer.resolution.effective.model,
+			effectiveRevisionFingerprint: consumer.fingerprint,
+			credentialAvailable: consumer.resolution.effective.credential.kind === "available",
+		};
+	}
+	if (!state.enabled) return { enabled: false };
+	const consumer = await resolvedConsumer(db, ownerUserId, state.role.id, "translation", env, version);
 	const selected = consumer.resolution.path[0];
-	// The selector accepts only Account default and custom entries, and both the
-	// repository writer and the migration enforce that. A world/participant
-	// entry here is a corrupt selection, not a label this annotation composes.
-	if (selected.kind !== "account_default" && selected.kind !== "custom") {
-		throw new RepositoryError("server_error", "Translation inference selection is not an Account default or custom configuration.", 500);
+	if (selected.kind !== "translation") {
+		throw new RepositoryError("server_error", "Translation inference role resolved to the wrong configuration kind.", 500);
 	}
 	return {
-		selectedConfigurationId: selected.id,
-		selectedDisplayName: selected.kind === "account_default" ? "Account default" : selected.name,
-		selectionRevision: selection.revision,
+		enabled: true,
+		configurationId: selected.id,
+		displayName: "Translation",
+		pointerRevision: state.pointerRevision,
 		effectiveModel: consumer.resolution.effective.model,
 		effectiveRevisionFingerprint: consumer.fingerprint,
 		credentialAvailable: consumer.resolution.effective.credential.kind === "available",

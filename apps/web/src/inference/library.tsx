@@ -29,14 +29,13 @@ export function InferenceLibraryScreen({
 	const [createOpen, setCreateOpen] = useState(false);
 	const toast = useContext(ToastContext);
 
-	// Search covers custom names and world/participant handles; Account default is
-	// a single fixed entry that always stays reachable, including for New
-	// configuration's Start blank parent.
+	// Account configurations stay reachable independently of the library search,
+	// including Account default for New configuration's Start blank parent.
 	const account = useSection("account", "");
 	const custom = useSection("custom", query);
 	const worlds = useSection("world", query);
 	const bots = useSection("bot", query);
-	const accountDefault = account.items[0] ?? null;
+	const accountDefault = account.items.find((item) => item.kind === "account_default") ?? null;
 	const unavailable = [account, custom, worlds, bots].find((section) => section.error && inferenceGraphUnavailable(section.error));
 
 	function applySearch(value: string): void {
@@ -60,8 +59,8 @@ export function InferenceLibraryScreen({
 				<div className="page-title-block">
 					<h1>Inference library</h1>
 					<p className="sub">
-						Configurations inherit field by field from their parent. Editing a parent flows through every child
-						immediately; nothing here is a copied snapshot.
+						Configurations inherit field by field from their inheritance source. Editing a source flows through
+						every dependent configuration immediately; nothing here is a copied snapshot.
 					</p>
 				</div>
 				<div className="actions">
@@ -100,14 +99,14 @@ export function InferenceLibraryScreen({
 
 			<section className="section">
 				<div className="section-head">
-					<h2>Account, world, and bot configurations</h2>
-					<span className="meta">created and removed with the account, world, or participant</span>
+					<h2>Fixed configurations</h2>
+					<span className="meta">managed by account, Translation, world, and participant lifecycles</span>
 				</div>
 
-				<h3 className="inference-subsection-title">Account default</h3>
+				<h3 className="inference-subsection-title">Account configurations</h3>
 				<SectionBody
-					emptyBody="Account default has not been created for this account yet."
-					emptyTitle="No Account default"
+					emptyBody="Account configurations have not been created for this account yet."
+					emptyTitle="No account configurations"
 					returnTo={returnTo}
 					section={account}
 				/>
@@ -362,10 +361,10 @@ function CreateConfigurationModal({
 					/>
 				</div>
 				<div className="field">
-					<span className="inference-field-label">Parent</span>
+					<span className="inference-field-label">Inherit settings from</span>
 					<p className="help">
-						Start blank keeps Account default as the parent and stores no overrides. Choosing another entry creates a
-						live parent link, not a copy.
+						Start blank inherits from Account default and stores no overrides. Choosing another entry creates a
+						live inheritance link, not a copy.
 					</p>
 					<div className="inference-parent-picker">
 						<button
@@ -377,13 +376,13 @@ function CreateConfigurationModal({
 							Start blank (Account default)
 						</button>
 						<FilterBox
-							label="Search parent configurations"
+							label="Search inheritance sources"
 							onChange={setParentQuery}
-							placeholder="Search parents"
+							placeholder="Search configurations"
 							value={parentQuery}
 						/>
 						{candidates.loading ? (
-							<div className="runtime-message">Loading parents...</div>
+							<div className="runtime-message">Loading inheritance sources...</div>
 						) : candidates.error ? (
 							<div className="runtime-message error">{candidates.error.message}</div>
 						) : candidates.items.length === 0 ? (
@@ -427,7 +426,7 @@ function CreateConfigurationModal({
 export function SelectedParentLine({ parent }: { parent: InferenceConfigurationSummary }) {
 	return (
 		<p className="help inference-selected-parent">
-			<span>Selected parent: {parent.displayName}</span>
+			<span>Inherit settings from: {parent.displayName}</span>
 			<KindBadge kind={parent.kind} />
 		</p>
 	);
@@ -440,7 +439,7 @@ export function createErrorMessage(failure: ApiFailure): string {
 		case "quota_exceeded":
 			return "This account has reached its configuration limit.";
 		case "invalid_parent":
-			return "That parent configuration is no longer available.";
+			return "That inheritance source is no longer available.";
 		default:
 			return failure.message;
 	}
