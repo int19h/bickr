@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { RedactedInferenceConfigurationDto } from "@bickr/shared/inference-configuration-owner";
 import { fixedConfigurationPath } from "./api";
-import { BotInferenceConfigurationAction, ConfigurationCardBody, ConfigurationLinkCard } from "./links";
+import { ConfigurationCardBody, ConfigurationLinkCard, FixedConfigurationAction } from "./links";
 import { inferenceEditorFields } from "./field-model";
 
 function dto(): RedactedInferenceConfigurationDto {
@@ -42,6 +42,34 @@ function dto(): RedactedInferenceConfigurationDto {
 		) as RedactedInferenceConfigurationDto["fields"],
 		graphRevision: 12,
 		fingerprint: "fp",
+	} as RedactedInferenceConfigurationDto;
+}
+
+function accountDto(): RedactedInferenceConfigurationDto {
+	return {
+		...dto(),
+		id: "cfg_account",
+		kind: "account_default",
+		identity: { kind: "account_default" },
+		parentId: null,
+		displayName: "Account default",
+		path: [
+			{ id: "cfg_account", displayName: "Account default", revision: 7, kind: "account_default", identity: { kind: "account_default" } },
+		],
+	} as RedactedInferenceConfigurationDto;
+}
+
+function worldDto(worldId = "wld_recurring"): RedactedInferenceConfigurationDto {
+	return {
+		...dto(),
+		id: "cfg_world",
+		kind: "world",
+		identity: { kind: "world", worldId, worldHandle: "recurring" },
+		displayName: "w/recurring",
+		path: [
+			{ id: "cfg_world", displayName: "w/recurring", revision: 3, kind: "world", identity: { kind: "world", worldId, worldHandle: "recurring" } },
+			{ id: "cfg_account", displayName: "Account default", revision: 7, kind: "account_default", identity: { kind: "account_default" } },
+		],
 	} as RedactedInferenceConfigurationDto;
 }
 
@@ -88,7 +116,6 @@ describe("configuration link card", () => {
 					configuration: null,
 					error: { ok: false, error: "conflict", message: "Inference configuration graph is not available for this account." },
 					loading: false,
-					reload: () => undefined,
 				}}
 				title="Inference configuration"
 			/>,
@@ -104,7 +131,6 @@ describe("configuration link card", () => {
 					configuration: null,
 					error: { ok: false, error: "not_found", message: "Participant not found." },
 					loading: false,
-					reload: () => undefined,
 				}}
 				title="Inference configuration"
 			/>,
@@ -113,33 +139,29 @@ describe("configuration link card", () => {
 	});
 });
 
-describe("bot inference configuration action", () => {
+describe("fixed inference configuration action", () => {
 	it("renders a named disabled action while the fixed configuration is loading", () => {
 		const html = renderToStaticMarkup(
-			<BotInferenceConfigurationAction
-				botHandle="scout"
-				botId="bot_scout"
-				state={{ configuration: null, error: null, loading: true, reload: () => undefined }}
-				worldHandle="patch-notes"
+			<FixedConfigurationAction
+				state={{ configuration: null, error: null, loading: true }}
+				target={{ kind: "bot", botId: "bot_scout", botHandle: "scout", homeWorldHandle: "patch-notes" }}
 			/>,
 		);
 		expect(html).toContain("Open inference configuration for u/scout");
 		expect(html).toMatch(/<button[^>]*disabled=""/);
+		expect(html).toContain("Loading the linked configuration...");
 		expect(html).not.toContain("href=");
 	});
 
 	it("keeps the action disabled and explains an unavailable graph", () => {
 		const html = renderToStaticMarkup(
-			<BotInferenceConfigurationAction
-				botHandle="scout"
-				botId="bot_scout"
+			<FixedConfigurationAction
 				state={{
 					configuration: null,
 					error: { ok: false, error: "conflict", message: "Inference configuration graph is not available for this account." },
 					loading: false,
-					reload: () => undefined,
 				}}
-				worldHandle="patch-notes"
+				target={{ kind: "bot", botId: "bot_scout", botHandle: "scout", homeWorldHandle: "patch-notes" }}
 			/>,
 		);
 		expect(html).toContain("Open inference configuration for u/scout");
@@ -149,11 +171,9 @@ describe("bot inference configuration action", () => {
 
 	it("uses the loaded configuration id and preserves bot-editor return navigation", () => {
 		const html = renderToStaticMarkup(
-			<BotInferenceConfigurationAction
-				botHandle="scout"
-				botId="bot_scout"
-				state={{ configuration: dto(), error: null, loading: false, reload: () => undefined }}
-				worldHandle="patch-notes"
+			<FixedConfigurationAction
+				state={{ configuration: dto(), error: null, loading: false }}
+				target={{ kind: "bot", botId: "bot_scout", botHandle: "scout", homeWorldHandle: "patch-notes" }}
 			/>,
 		);
 		expect(html).toContain(
@@ -165,14 +185,61 @@ describe("bot inference configuration action", () => {
 
 	it("keeps a configuration loaded for a different bot disabled and non-navigable", () => {
 		const html = renderToStaticMarkup(
-			<BotInferenceConfigurationAction
-				botHandle="other"
-				botId="bot_other"
-				state={{ configuration: dto(), error: null, loading: false, reload: () => undefined }}
-				worldHandle="patch-notes"
+			<FixedConfigurationAction
+				state={{ configuration: dto(), error: null, loading: false }}
+				target={{ kind: "bot", botId: "bot_other", botHandle: "other", homeWorldHandle: "patch-notes" }}
 			/>,
 		);
 		expect(html).toContain("Open inference configuration for u/other");
+		expect(html).toMatch(/<button[^>]*disabled=""/);
+		expect(html).toContain("Loading the linked configuration...");
+		expect(html).not.toContain("href=");
+	});
+
+	it("uses the loaded Account default id and returns to the profile editor", () => {
+		const html = renderToStaticMarkup(
+			<FixedConfigurationAction
+				state={{ configuration: accountDto(), error: null, loading: false }}
+				target={{ kind: "account_default" }}
+			/>,
+		);
+		expect(html).toContain('href="/me/inference/cfg_account?from=%2Fme%2Fprofile"');
+		expect(html).toContain("Open Account default configuration");
+		expect(html).not.toContain("<button");
+	});
+
+	it("keeps a non-account DTO disabled for the Account default target", () => {
+		const html = renderToStaticMarkup(
+			<FixedConfigurationAction
+				state={{ configuration: dto(), error: null, loading: false }}
+				target={{ kind: "account_default" }}
+			/>,
+		);
+		expect(html).toContain("Open Account default configuration");
+		expect(html).toMatch(/<button[^>]*disabled=""/);
+		expect(html).not.toContain("href=");
+	});
+
+	it("uses the loaded world id and preserves its saved editor return navigation", () => {
+		const html = renderToStaticMarkup(
+			<FixedConfigurationAction
+				state={{ configuration: worldDto(), error: null, loading: false }}
+				target={{ kind: "world", worldId: "wld_recurring", worldHandle: "recurring" }}
+			/>,
+		);
+		expect(html).toContain('href="/me/inference/cfg_world?from=%2Fw%2Frecurring%2Fedit"');
+		expect(html).toContain("Open inference configuration for w/recurring");
+		expect(html).not.toContain("<button");
+	});
+
+	it("keeps a configuration loaded for a different world disabled and non-navigable", () => {
+		const html = renderToStaticMarkup(
+			<FixedConfigurationAction
+				state={{ configuration: worldDto("wld_other"), error: null, loading: false }}
+				target={{ kind: "world", worldId: "wld_recurring", worldHandle: "recurring" }}
+			/>,
+		);
+		expect(html).toContain("Open inference configuration for w/recurring");
 		expect(html).toMatch(/<button[^>]*disabled=""/);
 		expect(html).not.toContain("href=");
 	});

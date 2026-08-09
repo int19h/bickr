@@ -20,7 +20,7 @@ import { runApiAction } from "../../use-api";
 import { Avatar, Confirm, FallbackImage, Field, Icon, ImageLightbox, ToastContext, textValue } from "../../ui";
 import { RuntimeRow, isValidHandle, slugify } from "../bots";
 import { authProviderLabel, authStartHref } from "../chrome";
-import { ConfigurationLinkCard, useFixedConfiguration } from "../../inference/links";
+import { FixedConfigurationAction, fixedConfigurationReference, useFixedConfiguration } from "../../inference/links";
 import { TranslationConfigurationSelector } from "../../inference/translation-selector";
 import { LanguageField, textLang } from "../../components/form-fields";
 import { TimeAgoLabel } from "../../components/record-display";
@@ -147,7 +147,8 @@ export function ProfileScreen({
 	const dirty = profile ? profileDraftChanged(draft, profile) : true;
 	const valid = isValidHandle(draft.handle) && draft.displayName.trim().length > 0;
 	const canSave = (dirty || profileIncomplete) && valid && !busy && !loading;
-	const accountConfiguration = useFixedConfiguration({ kind: "account_default" });
+	const accountConfigurationTarget = { kind: "account_default" } as const;
+	const accountConfiguration = useFixedConfiguration(fixedConfigurationReference(accountConfigurationTarget));
 
 	async function save(): Promise<void> {
 		const language = languageInputValue(draft.language);
@@ -339,12 +340,16 @@ export function ProfileScreen({
 							</div>
 						</section>
 
-					<ConfigurationLinkCard
-						description="Account default supplies provider, model, loop, compaction, and image inference for everything you own that does not override it."
-						returnTo={{ route: "profile" }}
-						state={accountConfiguration}
-						title="Account default configuration"
-					/>
+					<section className="section">
+						<div className="section-head">
+							<h2>Account default configuration</h2>
+							<span className="meta">reusable inference</span>
+						</div>
+						<p className="help">
+							Account default supplies provider, model, loop, compaction, and image inference for everything you own that does not override it.
+						</p>
+						<FixedConfigurationAction state={accountConfiguration} target={accountConfigurationTarget} />
+					</section>
 
 					<section className="section">
 						<div className="section-head">
@@ -379,7 +384,6 @@ export function ProfileScreen({
 						</div>
 						<TranslationConfigurationSelector
 							onSelectionSaved={() => {
-								accountConfiguration.reload();
 								void reloadProfile();
 							}}
 							returnTo={{ route: "profile" }}
@@ -405,10 +409,6 @@ export function ProfileScreen({
 									unlinkable={authIdentities.length > 1}
 								/>
 							))}
-							<RuntimeRow
-								label="Inference"
-								value={accountConfiguration.configuration?.effectiveModel ?? "..."}
-							/>
 							<RuntimeRow label="Created" value={profile ? <TimeAgoLabel value={profile.createdAt} /> : "..."} />
 							<RuntimeRow label="Updated" value={profile ? <TimeAgoLabel value={profile.updatedAt} /> : "..."} />
 						</div>

@@ -15,7 +15,7 @@ import { useContext, useEffect, useState } from "react";
 import { isOpenRouterProviderBaseUrl } from "@bickr/shared/inference-settings";
 import { api } from "../../api";
 import { OpenRouterServerToolFields } from "../../components/openrouter-tool-fields";
-import { BotInferenceConfigurationAction, useFixedConfiguration } from "../../inference/links";
+import { FixedConfigurationAction, fixedConfigurationReference, useFixedConfiguration } from "../../inference/links";
 import { LanguageField, RenameHandleModal, textLang } from "../../components/form-fields";
 import { TimeAgoLabel } from "../../components/record-display";
 import { BotSourceValue, Reference, type WorldView } from "../../components/content";
@@ -69,7 +69,13 @@ export function BotEdit({
 	world: WorldView | null;
 }) {
 	const [draft, setDraft] = useState<BotEditDraft>(() => botEditDraftFromBot(bot));
-	const configuration = useFixedConfiguration({ kind: "bot", botId: bot.id });
+	const configurationTarget = {
+		kind: "bot",
+		botId: bot.id,
+		botHandle: bot.handle,
+		homeWorldHandle: bot.homeWorldHandle,
+	} as const;
+	const configuration = useFixedConfiguration(fixedConfigurationReference(configurationTarget));
 	const [confirm, setConfirm] = useState(false);
 	const [cloneLinkConfirm, setCloneLinkConfirm] = useState<"unlink" | "relink" | null>(null);
 	const [renameOpen, setRenameOpen] = useState(false);
@@ -613,12 +619,7 @@ export function BotEdit({
 						<p className="help">
 							Provider, model, loop, compaction, and image inference for this participant live in its reusable configuration.
 						</p>
-						<BotInferenceConfigurationAction
-							botHandle={bot.handle}
-							botId={bot.id}
-							state={configuration}
-							worldHandle={bot.homeWorldHandle}
-						/>
+						<FixedConfigurationAction state={configuration} target={configurationTarget} />
 					</section>
 
 					<section className="section">

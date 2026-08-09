@@ -46,10 +46,15 @@ describe("ProfileScreen inference boundary", () => {
 		expect(markup).toContain("Account language");
 	});
 
-	it("replaces reusable inference editors with a link to Account default", () => {
+	it("replaces reusable inference summaries with the Account default action", () => {
 		const markup = render();
 		expect(markup).toContain("Account default configuration");
 		expect(markup).toContain("Account default supplies provider, model, loop, compaction, and image inference");
+		expect(markup).toContain("Open Account default configuration");
+		expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>Open Account default configuration<\/button>/);
+		expect(markup).not.toContain("inference-link-card");
+		expect(markup).not.toContain("Effective model");
+		expect(markup).not.toContain('<span class="label">Inference</span>');
 		expect(markup).not.toContain("Inference Provider");
 		expect(markup).not.toContain("Inference: Agentic Loop");
 		expect(markup).not.toContain("Inference: Image Generation");
