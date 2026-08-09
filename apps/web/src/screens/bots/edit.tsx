@@ -615,6 +615,7 @@ export function BotEdit({
 						</p>
 						<BotInferenceConfigurationAction
 							botHandle={bot.handle}
+							botId={bot.id}
 							state={configuration}
 							worldHandle={bot.homeWorldHandle}
 						/>

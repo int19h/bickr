@@ -101,25 +101,31 @@ export function ConfigurationLinkCard({
 /**
  * The participant editor deliberately exposes one action instead of repeating
  * the reusable configuration's model, parent, and credential summary. The
- * configuration address always comes from the loaded owner DTO; the handle is
- * presentation and return-navigation state only.
+ * configuration address always comes from a loaded owner DTO for the current
+ * participant; the handle is presentation and return-navigation state only.
  */
 export function BotInferenceConfigurationAction({
 	botHandle,
+	botId,
 	state,
 	worldHandle,
 }: {
 	botHandle: string;
+	botId: string;
 	state: FixedConfigurationState;
 	worldHandle: string;
 }) {
 	const label = `Open inference configuration for u/${botHandle}`;
-	const action = !state.loading && state.configuration ? (
+	const configuration = state.configuration;
+	const readyConfiguration = !state.loading && configuration?.kind === "bot" && configuration.identity.botId === botId
+		? configuration
+		: null;
+	const action = readyConfiguration ? (
 		<SpaLink
 			className="btn primary"
 			to={{
 				route: "inference-configuration",
-				configurationId: state.configuration.id,
+				configurationId: readyConfiguration.id,
 				returnTo: { route: "bot-edit", worldHandle, botHandle },
 			}}
 		>
