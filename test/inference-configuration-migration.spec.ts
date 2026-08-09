@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, expectTypeOf, it } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import {
 	activateInferenceGraphLifecycle,
@@ -12,6 +12,7 @@ import {
 	reactivateInferenceGraphCutover,
 	rollbackInferenceGraphCutover,
 	runInferenceGraphMigrationStep,
+	worldImageInferenceSettingsForRawParity,
 } from "@bickr/shared/inference-configuration-migration";
 import {
 	canonicalAccountInference,
@@ -37,7 +38,15 @@ import {
 	botConfigurationId,
 	worldConfigurationId,
 } from "@bickr/shared/inference-configuration-repository";
-import { localizedText, schemaVersion, type BotDocument, type LanguageTag, type UserDocument, type WorldDocument } from "@bickr/shared/model";
+import {
+	localizedText,
+	schemaVersion,
+	type BotDocument,
+	type BotImageGenerationSettings,
+	type LanguageTag,
+	type UserDocument,
+	type WorldDocument,
+} from "@bickr/shared/model";
 import { userIndexProjectionStatement, worldIndexProjectionStatement } from "@bickr/shared/repository";
 import { kvKeys, readJson, writeJson } from "@bickr/shared/storage";
 import { clearKv, resetD1Schema } from "./helpers/d1-schema";
@@ -63,6 +72,100 @@ beforeEach(async () => {
 });
 
 describe("restartable inference graph migration", () => {
+	it("projects every non-prompt world image field for raw parity without mutation", () => {
+		const inferenceSettings = {
+			model: "owner/image-model",
+			providerRouting: { order: ["preferred-provider"] },
+			aspectRatio: "4:3",
+			imageSize: "2K",
+			temperature: 0.4,
+			topK: 16,
+			topP: 0.8,
+			minP: 0.05,
+			frequencyPenalty: 0.1,
+			presencePenalty: 0.2,
+			repetitionPenalty: 1.1,
+		} satisfies Required<Omit<BotImageGenerationSettings, "prompt">>;
+		const settings = {
+			...inferenceSettings,
+			prompt: localizedText("KV-owned prompt", en),
+		} satisfies BotImageGenerationSettings;
+		const before = structuredClone(settings);
+
+		const projected = worldImageInferenceSettingsForRawParity(settings);
+
+		expectTypeOf(projected).toEqualTypeOf<Omit<BotImageGenerationSettings, "prompt">>();
+		expect(projected).toEqual(inferenceSettings);
+		expect(settings).toEqual(before);
+		expect(projected).not.toBe(settings);
+	});
+
+	it.each([
+		{ name: "D1 prompt absent and KV prompt present", d1Prompt: null, kvPrompt: "K".repeat(6_034) },
+		{ name: "D1 prompt stale and KV prompt present", d1Prompt: "stale D1 prompt", kvPrompt: "K".repeat(2_042) },
+		{ name: "D1 prompt present and KV prompt absent", d1Prompt: "stale D1 prompt", kvPrompt: null },
+	])("ignores $name while preserving the authoritative KV document byte-for-byte", async ({ d1Prompt, kvPrompt }) => {
+		const baseWorld = migrationWorld();
+		const imageSettings = baseWorld.imageGeneration!;
+		const d1World = {
+			...baseWorld,
+			imageGeneration: d1Prompt === null
+				? { ...imageSettings }
+				: { ...imageSettings, prompt: localizedText(d1Prompt, en) },
+		};
+		const kvWorld = {
+			...baseWorld,
+			imageGeneration: kvPrompt === null
+				? { ...imageSettings }
+				: { ...imageSettings, prompt: localizedText(kvPrompt, en) },
+		};
+		await worldIndexProjectionStatement(testEnv.BICKR_D1, d1World).run();
+		await writeJson(testEnv.BICKR_KV, kvKeys.world(worldId), kvWorld);
+		const before = await testEnv.BICKR_KV.get(kvKeys.world(worldId));
+
+		await migrateToCutover(deploymentEnv);
+
+		expect(await testEnv.BICKR_KV.get(kvKeys.world(worldId))).toBe(before);
+	});
+
+	it("returns a typed conflict for non-prompt world image drift even when the prompt also differs", async () => {
+		const baseWorld = migrationWorld();
+		const imageSettings = baseWorld.imageGeneration!;
+		await worldIndexProjectionStatement(testEnv.BICKR_D1, {
+			...baseWorld,
+			imageGeneration: {
+				...imageSettings,
+				aspectRatio: "16:9",
+				prompt: localizedText("stale D1 prompt", en),
+			},
+		}).run();
+		await writeJson(testEnv.BICKR_KV, kvKeys.world(worldId), {
+			...baseWorld,
+			imageGeneration: {
+				...imageSettings,
+				prompt: localizedText("authoritative KV prompt", en),
+			},
+		});
+		const before = await testEnv.BICKR_KV.get(kvKeys.world(worldId));
+		const migrationEnv = { ...deploymentEnv, BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV } as never;
+		let result = await runInferenceGraphMigrationStep(migrationEnv, ownerId, now);
+		for (let attempt = 0; attempt < 15 && !(result.phase === "parity" && result.parityStage === "worlds"); attempt += 1) {
+			result = await runInferenceGraphMigrationStep(
+				migrationEnv,
+				ownerId,
+				new Date(Date.parse(now) + attempt + 1).toISOString(),
+			);
+		}
+		expect(result).toMatchObject({ phase: "parity", parityStage: "worlds" });
+
+		await expect(runInferenceGraphMigrationStep(
+			migrationEnv,
+			ownerId,
+			"2026-08-04T00:01:00.000Z",
+		)).rejects.toMatchObject({ code: "conflict", status: 409 });
+		expect(await testEnv.BICKR_KV.get(kvKeys.world(worldId))).toBe(before);
+	});
+
 	it("migrates the legacy translation selection into a behavior-preserving fixed role", async () => {
 		await migrateToCutover(deploymentEnv);
 		const pointerBefore = await testEnv.BICKR_D1.prepare(
