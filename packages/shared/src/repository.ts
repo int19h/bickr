@@ -1548,12 +1548,18 @@ function encodeBotSummaryCursor(row: BotSummaryCursor): string {
 
 function decodeBotSummaryCursor(value: string): BotSummaryCursor {
 	try {
-		const parsed = decodeOpaqueJsonCursor(value) as Partial<BotSummaryCursor>;
-		if (typeof parsed.updatedAt !== "string" || typeof parsed.handle !== "string") throw new Error("invalid");
-		return { updatedAt: parsed.updatedAt, handle: parsed.handle };
+		const parsed = decodeOpaqueJsonCursor(value);
+		if (isRecord(parsed) && typeof parsed.updatedAt === "string" && typeof parsed.handle === "string") {
+			return { updatedAt: parsed.updatedAt, handle: parsed.handle };
+		}
 	} catch {
-		throw new RepositoryError("bad_request", "Participant page cursor is invalid.", 400);
+		// Parsing failures all map to one typed public input error.
 	}
+	throw new RepositoryError("bad_request", "Participant page cursor is invalid.", 400);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 type UserBotRuntimeSpreadRow = {

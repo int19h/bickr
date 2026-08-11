@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import { localizedText, type BotDocument, type LanguageTag, type LocalizedText, type UserDocument } from "../packages/shared/src/model";
 import { inferenceConfigurationFields } from "../packages/shared/src/inference-configuration-owner";
+import { encodeOpaqueJsonCursor } from "../packages/shared/src/opaque-json-cursor";
 import {
 	createMcpAuthorizationCode,
 	exchangeMcpAuthorizationCode,
@@ -1072,9 +1073,17 @@ describe("MCP endpoint", () => {
 		const kv = new MapKV();
 		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
 		const requestedPaths: string[] = [];
-		const utf8Cursor = `v1.${btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify({
-			order: "identity", sortName: "漢字🪐", id: "cfg_unicode",
-		}))))}`;
+		const utf8Cursor = encodeOpaqueJsonCursor({
+			order: "identity", sortName: "🧿🪐", id: "cfg_unicode",
+		});
+		const cursorBody = utf8Cursor.slice("v1.".length);
+		const encodedCursor = encodeURIComponent(utf8Cursor);
+		expect(cursorBody).toContain("+");
+		expect(cursorBody).toContain("/");
+		expect(cursorBody).toContain("=");
+		expect(encodedCursor).toContain("%2B");
+		expect(encodedCursor).toContain("%2F");
+		expect(encodedCursor).toContain("%3D");
 		const agentRuntime = {
 			fetch: async (request: Request) => {
 				const url = new URL(request.url);
@@ -1126,7 +1135,7 @@ describe("MCP endpoint", () => {
 			"/users/usr_mcp/inference-configurations?section=bot&q=home-world&limit=25",
 			"/users/usr_mcp/inference-configurations?kind=custom%2Cworld",
 			"/users/usr_mcp/inference-configurations?limit=1",
-			`/users/usr_mcp/inference-configurations?cursor=${encodeURIComponent(utf8Cursor)}&limit=1`,
+			`/users/usr_mcp/inference-configurations?cursor=${encodedCursor}&limit=1`,
 			"/users/usr_mcp/inference-configurations/cfg_children/children?q=child&limit=10",
 			"/users/usr_mcp/inference-configurations/cfg_parent/parent-candidates?q=alpha",
 		]);
