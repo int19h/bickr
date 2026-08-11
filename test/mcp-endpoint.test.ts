@@ -1,16 +1,21 @@
 import { describe, expect, it } from "vitest";
+import { env as testEnv } from "cloudflare:test";
 import { localizedText, type BotDocument, type LanguageTag, type LocalizedText, type UserDocument } from "../packages/shared/src/model";
+import { inferenceConfigurationFields } from "../packages/shared/src/inference-configuration-owner";
 import {
 	createMcpAuthorizationCode,
 	exchangeMcpAuthorizationCode,
 	registerMcpClient,
 } from "../packages/shared/src/mcp-auth";
-import { kvKeys, type KVNamespaceLike } from "../packages/shared/src/storage";
+import { kvKeys, writeJson, type KVNamespaceLike } from "../packages/shared/src/storage";
 import { onRequestGet as onAuthorizationServerGet } from "../apps/web/functions/.well-known/oauth-authorization-server";
 import { onRequestGet as onProtectedResourceGet } from "../apps/web/functions/.well-known/oauth-protected-resource";
 import { onRequestGet as onPathProtectedResourceGet } from "../apps/web/functions/.well-known/oauth-protected-resource/mcp";
 import { mcpToolMetadataForTest, onRequestPost } from "../apps/web/functions/mcp";
 import { onRequestPost as onRegisterPost } from "../apps/web/functions/oauth/register";
+import { handleAgentRuntimeRequest } from "../workers/agent-runtime/src/routes";
+import { listWorldBots } from "../packages/shared/src/repository";
+import { clearKv, resetD1Schema } from "./helpers/d1-schema";
 
 type TestPagesContext = Parameters<typeof onRequestPost>[0];
 const en = "en" as LanguageTag;
@@ -60,12 +65,60 @@ function toolArgumentSchema(inputSchema: Record<string, unknown>): Record<string
 	return items as Record<string, unknown>;
 }
 
+function expectSchemaAccepts(schema: Record<string, unknown>, value: unknown, path = "result"): void {
+	const allowedTypes = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : [];
+	const actualType = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+	if (allowedTypes.length > 0) {
+		expect(allowedTypes, `${path} type`).toContain(actualType === "number" && Number.isInteger(value) ?
+			(allowedTypes.includes("integer") ? "integer" : "number") : actualType);
+	}
+	if (Array.isArray(schema.enum)) expect(schema.enum, `${path} enum`).toContain(value);
+	if (Array.isArray(value) && schema.items && typeof schema.items === "object") {
+		value.forEach((entry, index) => expectSchemaAccepts(schema.items as Record<string, unknown>, entry, `${path}[${index}]`));
+	}
+	if (value && typeof value === "object" && !Array.isArray(value)) {
+		const record = value as Record<string, unknown>;
+		const rawProperties = schema.properties;
+		const properties = rawProperties && typeof rawProperties === "object" && !Array.isArray(rawProperties)
+			? rawProperties as Record<string, unknown>
+			: {};
+		for (const required of Array.isArray(schema.required) ? schema.required : []) {
+			if (typeof required === "string") expect(record, `${path}.${required}`).toHaveProperty(required);
+		}
+		for (const [key, entry] of Object.entries(record)) {
+			const property = properties[key];
+			if (property && typeof property === "object" && !Array.isArray(property)) {
+				expectSchemaAccepts(property as Record<string, unknown>, entry, `${path}.${key}`);
+			} else if (schema.additionalProperties === false) {
+				throw new Error(`${path}.${key} is not allowed by the schema.`);
+			}
+		}
+	}
+}
+
 function schemaProperties(schema: Record<string, unknown>): Record<string, unknown> {
 	const properties = schema.properties;
 	if (!properties || typeof properties !== "object" || Array.isArray(properties)) {
 		throw new Error("Schema properties are missing.");
 	}
 	return properties as Record<string, unknown>;
+}
+
+function activeIdentityClaim(
+	kind: "world_handle" | "bot_handle",
+	scope: string,
+	value: string,
+	entityKind: "world" | "bot",
+	entityId: string,
+	ownerUserId: string,
+) {
+	const now = "2026-08-11T00:00:00.000Z";
+	return testEnv.BICKR_D1.prepare(
+		`INSERT INTO entity_lifecycle_identity_claims (
+			key_kind, key_scope, key_value, entity_kind, entity_id,
+			owner_user_id, claim_state, operation_id, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?)`,
+	).bind(kind, scope, value, entityKind, entityId, ownerUserId, now, now);
 }
 
 function localizedPropertyKeys(tools: Map<string, { inputSchema: Record<string, unknown> }>, toolName: string, ...path: string[]): string[] {
@@ -517,7 +570,11 @@ describe("MCP endpoint", () => {
 		});
 
 		expect((await jsonResponse(response)).result).toMatchObject({ structuredContent: { profile: {
-			inferenceConfigurations: { annotations, graphRevision: 7 },
+			inferenceConfigurations: {
+				accountDefault: annotations[0],
+				translation: annotations[1],
+				graphRevision: 7,
+			},
 		} } });
 	});
 
@@ -564,6 +621,168 @@ describe("MCP endpoint", () => {
 		expect(results[0]).toHaveProperty("inferenceConfiguration");
 		expect(results[1]).not.toHaveProperty("inferenceConfiguration");
 		expect(JSON.stringify(results[1])).not.toMatch(/graphRevision|effectiveModel|credential/i);
+	});
+
+	it("keeps cutover-0 MCP search readable when results belong to other owners", async () => {
+		await resetD1Schema(testEnv.BICKR_D1);
+		await clearKv(testEnv.BICKR_KV);
+		await writeJson(testEnv.BICKR_KV, kvKeys.user("usr_mcp"), testUser({
+			inferenceSettings: { model: "deepseek/deepseek-v3", openRouterApiKey: "legacy-owner-secret" },
+		}));
+		await testEnv.BICKR_D1.batch([
+			activeIdentityClaim("world_handle", "global", "foreign-search", "world", "wld_foreign_search", "usr_foreign"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO worlds_index (
+					world_id, handle, name, description, created_by_user_id, visibility,
+					created_at, updated_at, lifecycle_state
+				) VALUES ('wld_foreign_search', 'foreign-search', 'Foreign', '', 'usr_foreign', 'public', ?, ?, 'active')`,
+			).bind("2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
+			activeIdentityClaim("bot_handle", "wld_foreign_search", "foreign-bot", "bot", "bot_foreign_search", "usr_foreign"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO bots_index (
+					bot_id, home_world_id, home_world_handle, handle, display_name,
+					owner_user_id, short_bio, created_at, updated_at, lifecycle_state
+				) VALUES ('bot_foreign_search', 'wld_foreign_search', 'foreign-search', 'foreign-bot',
+					'Foreign bot', 'usr_foreign', '', ?, ?, 'active')`,
+			).bind("2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
+		]);
+		const search = {
+			query: "foreign", page: 1, pageSize: 20, hasNextPage: false, total: 2, totalRelation: "exact",
+			results: [
+				{ id: "wld_foreign_search", type: "world", rank: 1, source: "semantic", urlPath: "/foreign-search", world: { id: "wld_foreign_search", handle: "foreign-search", name: lt("Foreign"), description: lt(""), matched: true }, handle: "foreign-search", name: lt("Foreign"), description: lt("") },
+				{ id: "bot_foreign_search", type: "bot", rank: 2, source: "semantic", urlPath: "/foreign-bot", world: { id: "wld_foreign_search", handle: "foreign-search", name: lt("Foreign"), description: lt(""), matched: false }, handle: "foreign-bot", displayName: lt("Foreign bot"), shortBio: lt("") },
+			],
+		};
+		const runtimeService = { fetch: async (request: Request) => {
+			if (new URL(request.url).pathname === "/search/entities") {
+				return Response.json({ ok: true, data: { search } });
+			}
+			return handleAgentRuntimeRequest(request, testEnv as never, {
+				objectId: "mcp-cutover-zero", ownerUserId: "usr_mcp",
+			});
+		} };
+		const authKv = new MapKV();
+		const accessToken = await issueAccessToken(authKv, ["bickr.read"]);
+		const response = await callMcp(authKv, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/call",
+			params: { name: "search", arguments: { query: "foreign", mode: "semantic" } },
+		}, { AGENT_RUNTIME: runtimeService, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
+		const body = await jsonResponse(response);
+		expect(body.result).not.toHaveProperty("isError");
+		const serialized = JSON.stringify(body.result);
+		expect(serialized).toContain("bot_foreign_search");
+		expect(serialized).not.toMatch(/legacy-owner-secret|inferenceConfiguration|graphRevision|effectiveModel/);
+	});
+
+	it("reports world posting provenance and linked-clone prompt provenance on get_bot", async () => {
+		await resetD1Schema(testEnv.BICKR_D1);
+		await clearKv(testEnv.BICKR_KV);
+		await writeJson(testEnv.BICKR_KV, kvKeys.user("usr_mcp"), testUser());
+		const source = testBot({
+			id: "bot_source",
+			handle: "source",
+			displayName: "Inherited name",
+		});
+		const bot = testBot({
+			id: "bot_provenance",
+			handle: "provenance",
+			displayName: "",
+			shortBio: "",
+			prompt: "",
+		});
+		await Promise.all([
+			writeJson(testEnv.BICKR_KV, kvKeys.bot(source.id), source),
+			writeJson(testEnv.BICKR_KV, kvKeys.bot(bot.id), bot),
+		]);
+		await testEnv.BICKR_D1.batch([
+			activeIdentityClaim("world_handle", "global", "mcp-world", "world", "w_mcp", "usr_mcp"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO worlds_index (
+					world_id, handle, name, description, created_by_user_id, visibility,
+					posting_thread_body_characters, created_at, updated_at, lifecycle_state
+				) VALUES ('w_mcp', 'mcp-world', 'MCP world', '', 'usr_mcp', 'public', 6000, ?, ?, 'active')`,
+			).bind("2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
+			activeIdentityClaim("bot_handle", "w_mcp", "source", "bot", source.id, "usr_mcp"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO bots_index (
+					bot_id, home_world_id, home_world_handle, handle, display_name,
+					owner_user_id, short_bio, created_at, updated_at, lifecycle_state
+				) VALUES (?, 'w_mcp', 'mcp-world', 'source', 'Inherited name', 'usr_mcp', '', ?, ?, 'active')`,
+			).bind(source.id, "2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
+			activeIdentityClaim("bot_handle", "w_mcp", "provenance", "bot", bot.id, "usr_mcp"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO bots_index (
+					bot_id, home_world_id, home_world_handle, handle, display_name,
+					owner_user_id, short_bio, created_at, updated_at, lifecycle_state
+				) VALUES (?, 'w_mcp', 'mcp-world', 'provenance', 'Inherited name', 'usr_mcp', '', ?, ?, 'active')`,
+			).bind(bot.id, "2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO bot_clone_sources (
+					bot_id, source_bot_id, source_world_id, source_world_handle,
+					source_handle, cloned_at, linked
+				) VALUES (?, ?, 'w_mcp', 'mcp-world', 'source', ?, 1)`,
+			).bind(bot.id, source.id, "2026-08-11T00:00:00.000Z"),
+		]);
+		const accessToken = await issueAccessToken(testEnv.BICKR_KV, ["bickr.read"]);
+		const response = await callMcp(testEnv.BICKR_KV, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/call",
+			params: { name: "get_bot", arguments: { botId: bot.id } },
+		}, {
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+			AGENT_RUNTIME: canonicalAnnotationService([]),
+			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+		});
+		const body = await jsonResponse(response);
+		if (!body.result) {
+			throw new Error(JSON.stringify(body));
+		}
+		const result = body.result as {
+			structuredContent: { bot: { mcpResolvedSettings: Record<string, Record<string, { effective: unknown; source: string }>> } };
+		};
+		expect(result.structuredContent.bot.mcpResolvedSettings.postingSettings?.threadBodyCharacters)
+			.toMatchObject({ effective: 6000, source: "world" });
+		expect(result.structuredContent.bot.mcpResolvedSettings.cloneProfile?.displayName)
+			.toMatchObject({ effective: lt("Inherited name"), source: "source_bot" });
+	});
+
+	it("keeps legacy world bot lists alphabetical while MCP pages use recency keysets", async () => {
+		await resetD1Schema(testEnv.BICKR_D1);
+		await clearKv(testEnv.BICKR_KV);
+		await testEnv.BICKR_D1.batch([
+			activeIdentityClaim("world_handle", "global", "mcp-world", "world", "w_mcp", "usr_mcp"),
+			testEnv.BICKR_D1.prepare(
+			`INSERT INTO worlds_index (
+				world_id, handle, name, description, created_by_user_id, visibility,
+				created_at, updated_at, lifecycle_state
+			) VALUES ('w_mcp', 'mcp-world', 'MCP world', '', 'usr_mcp', 'public', ?, ?, 'active')`,
+		).bind("2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
+		]);
+		const alpha = testBot({ id: "bot_alpha_order", handle: "alpha" });
+		const zeta = testBot({ id: "bot_zeta_order", handle: "zeta", updatedAt: "2026-08-11T02:00:00.000Z" });
+		await Promise.all([
+			writeJson(testEnv.BICKR_KV, kvKeys.bot(alpha.id), alpha),
+			writeJson(testEnv.BICKR_KV, kvKeys.bot(zeta.id), zeta),
+		]);
+		await testEnv.BICKR_D1.batch([
+			activeIdentityClaim("bot_handle", "w_mcp", "alpha", "bot", alpha.id, "usr_mcp"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO bots_index (bot_id, home_world_id, home_world_handle, handle, display_name,
+					owner_user_id, short_bio, created_at, updated_at, lifecycle_state)
+				 VALUES (?, 'w_mcp', 'mcp-world', 'alpha', 'Alpha', 'usr_mcp', '', ?, ?, 'active')`,
+			).bind(alpha.id, alpha.createdAt, alpha.updatedAt),
+			activeIdentityClaim("bot_handle", "w_mcp", "zeta", "bot", zeta.id, "usr_mcp"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO bots_index (bot_id, home_world_id, home_world_handle, handle, display_name,
+					owner_user_id, short_bio, created_at, updated_at, lifecycle_state)
+				 VALUES (?, 'w_mcp', 'mcp-world', 'zeta', 'Zeta', 'usr_mcp', '', ?, ?, 'active')`,
+			).bind(zeta.id, zeta.createdAt, zeta.updatedAt),
+		]);
+		const legacy = await listWorldBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "mcp-world");
+		const page = await listWorldBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "mcp-world", { limit: 1 });
+		expect(legacy.map((bot) => bot.handle)).toEqual(["alpha", "zeta"]);
+		expect(page.bots.map((bot) => bot.handle)).toEqual(["zeta"]);
+		expect(page.hasMore).toBe(true);
 	});
 
 	it("executes mutation batches in order and correlates every result", async () => {
@@ -904,6 +1123,52 @@ describe("MCP endpoint", () => {
 		expect(byName.get("get_fixed_inference_configuration")?.outputSchema).toBeDefined();
 	});
 
+	it("publishes explicit inference output contracts that accept representative results", () => {
+		const byName = new Map(mcpToolMetadataForTest().map((tool) => [tool.name, tool]));
+		const inferenceTools = [
+			"get_profile", "update_profile", "list_inference_configurations", "get_inference_configuration",
+			"get_fixed_inference_configuration", "create_inference_configuration", "update_inference_configuration",
+			"rename_inference_configuration", "reparent_inference_configuration", "list_inference_parent_candidates",
+			"list_inference_configuration_children", "get_inference_configuration_delete_impact",
+			"get_inference_configuration_parent_impact", "delete_inference_configuration",
+		];
+		for (const name of inferenceTools) expect(byName.get(name)?.outputSchema, `${name} outputSchema`).toBeDefined();
+		const annotation = canonicalAnnotation("account_default", "cfg_account", "xiaomi/mimo-v2.5");
+		expectSchemaAccepts(byName.get("get_profile")!.outputSchema!, {
+			profile: { id: "usr_mcp", handle: "mcp-user", inferenceConfigurations: { graphRevision: 7, accountDefault: annotation } },
+		});
+		expectSchemaAccepts(byName.get("get_fixed_inference_configuration")!.outputSchema!, {
+			annotation, graphRevision: 7,
+		});
+		expectSchemaAccepts(byName.get("list_inference_configurations")!.outputSchema!, {
+			ok: true, data: { configurations: { items: [(annotation.configuration as Record<string, unknown>)] } },
+		});
+		expectSchemaAccepts(byName.get("get_inference_configuration")!.outputSchema!, {
+			ok: true,
+			data: { configuration: {
+				id: "cfg_custom", kind: "custom", identity: { kind: "custom", name: "Portable" },
+				revision: 3, graphRevision: 7,
+				fields: Object.fromEntries(inferenceConfigurationFields.map((field) => [field, {
+					override: { kind: "inherit" }, effective: null, source: { kind: "bickr_default" }, adjustment: null,
+				}])),
+				path: [{ id: "cfg_custom", displayName: "Portable", revision: 3, kind: "custom", identity: { kind: "custom", name: "Portable" } }],
+			} },
+		});
+		expectSchemaAccepts(byName.get("get_inference_configuration_delete_impact")!.outputSchema!, {
+			ok: true,
+			data: { impact: {
+				kind: "delete", configurationId: "cfg_custom", parentId: "cfg_account", immediateChildren: 1,
+				immediateDependentCount: 1, transitiveDependentCount: 2, affectedConfigurationCount: 3,
+				changes: { effectiveModel: 1, effectiveBaseUrl: 0, credentialAvailability: 0, credentialSource: 0, providerAccess: 0 },
+				warnings: [{ kind: "effective_model_changes", configurations: 1 }],
+			} },
+		});
+		expectSchemaAccepts(byName.get("update_inference_configuration")!.outputSchema!, {
+			results: [{ operationId: "update", status: "succeeded", result: { ok: true } }],
+			succeeded: 1, failed: 0, indeterminate: 0,
+		});
+	});
+
 	it("rejects reusable provider fields on singleton and bulk entity mutations", async () => {
 		const kv = new MapKV();
 		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
@@ -1011,6 +1276,33 @@ describe("MCP endpoint", () => {
 			result: { profile: { displayName: { text: "Updated profile" } } },
 			presentationWarning: { kind: "canonical_inference_enrichment_failed" },
 		} });
+	});
+
+	it("omits empty world image-generation settings from mutation presentation", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
+		const world = {
+			id: "wld_empty_image", handle: "empty-image", language: en,
+			name: lt("Empty image"), description: lt(""), prompt: lt(""),
+			recurringPromptEnabled: false, recurringPrompt: lt(""), initialBotNotification: lt(""),
+			imageGeneration: { model: "private/provider-model" },
+			createdByUserId: "usr_mcp", createdAt: "2026-08-11T00:00:00.000Z", updatedAt: "2026-08-11T00:00:00.000Z",
+		};
+		const service = { fetch: async (request: Request) => {
+			if (new URL(request.url).pathname.endsWith("/inference-consumers/annotations")) {
+				return Response.json({ ok: true, data: { annotations: [], graphRevision: 7 } });
+			}
+			return Response.json({ ok: true, data: { world } });
+		} };
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/call",
+			params: { name: "update_world", arguments: { worldHandle: world.handle } },
+		}, { BICKR_D1: emptyD1(), AGENT_RUNTIME: service, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
+		const responseBody = await jsonResponse(response);
+		if (!responseBody.result) throw new Error(JSON.stringify(responseBody));
+		const result = responseBody.result as { structuredContent: { data: { world: Record<string, unknown> } } };
+		expect(result.structuredContent.data.world).not.toHaveProperty("imageGeneration");
+		expect(JSON.stringify(result.structuredContent.data.world)).not.toContain("private/provider-model");
 	});
 
 	it("rejects write tools before execution when the token has read scope only", async () => {
@@ -1154,7 +1446,6 @@ function canonicalAnnotation(kind: "account_default" | "translation", id: string
 	return {
 		kind: "canonical",
 		reference: { kind },
-		graphRevision: 7,
 		configuration: {
 			id,
 			kind,
@@ -1344,8 +1635,8 @@ function testBot(
 			compactionThreshold: 0.75,
 		},
 		...(overrides.postingSettings ? { postingSettings: overrides.postingSettings } : {}),
-		createdAt: "2026-05-01T00:00:00.000Z",
-		updatedAt: "2026-05-01T00:00:00.000Z",
+		createdAt: overrides.createdAt ?? "2026-05-01T00:00:00.000Z",
+		updatedAt: overrides.updatedAt ?? "2026-05-01T00:00:00.000Z",
 	};
 }
 

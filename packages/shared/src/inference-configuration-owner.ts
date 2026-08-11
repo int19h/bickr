@@ -254,7 +254,6 @@ export type CanonicalInferenceAnnotation =
 		kind: "canonical";
 		reference: CanonicalInferenceFixedReference;
 		configuration: InferenceConfigurationSummary;
-		graphRevision: number;
 	}
 	| {
 		kind: "legacy_compatibility";

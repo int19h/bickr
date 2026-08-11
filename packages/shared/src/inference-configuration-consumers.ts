@@ -44,8 +44,9 @@ export async function canonicalInferenceConsumerBatch(
 	ownerUserId: string,
 	consumers: readonly { configurationId: string; consumer: CanonicalInferenceConsumer }[],
 	env: ProviderEnvironmentBindings,
+	readVersion?: { cutoverVersion: number; graphRevision: number },
 ): Promise<ReadonlyMap<string, CanonicalInferenceConsumerResolution>> {
-	const version = await inferenceGraphReadVersion(db, ownerUserId);
+	const version = readVersion ?? await inferenceGraphReadVersion(db, ownerUserId);
 	if (version.cutoverVersion === 0 || consumers.length === 0) return new Map();
 	const paths = await loadInternalInferenceConsumerPaths(
 		db, ownerUserId, consumers.map(({ configurationId }) => configurationId), version,

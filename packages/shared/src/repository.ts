@@ -1444,14 +1444,17 @@ export async function listUserBots(
 	page?: BotSummaryPageInput,
 ): Promise<BotSummary[] | BotSummaryPage> {
 	const paging = botSummaryPaging(page);
+	const selectedPageSql = page
+		? `AND (updated_at < ? OR (updated_at = ? AND handle > ?)) ORDER BY updated_at DESC, handle ASC LIMIT ?`
+		: `ORDER BY handle ASC`;
+	const resultOrderSql = page ? `selected.updated_at DESC, selected.handle ASC` : `selected.handle ASC`;
 	const result = await db
 		.prepare(
 			`WITH selected AS (
 				SELECT bot_id AS id, updated_at, handle
 				FROM bots_index
 				WHERE owner_user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
-					AND (updated_at < ? OR (updated_at = ? AND handle > ?))
-				ORDER BY updated_at DESC, handle ASC LIMIT ?
+					${selectedPageSql}
 			 ),
 			 activity AS (
 				SELECT threads.author_bot_id AS bot_id, threads.created_at AS active_at
@@ -1482,9 +1485,11 @@ export async function listUserBots(
 			 LEFT JOIN bot_runtime_index runtime ON runtime.bot_id = selected.id
 			 LEFT JOIN activity ON activity.bot_id = selected.id
 			 GROUP BY selected.id, runtime.next_due_at, selected.updated_at, selected.handle
-			 ORDER BY selected.updated_at DESC, selected.handle ASC`,
+			 ORDER BY ${resultOrderSql}`,
 		)
-		.bind(userId, paging.updatedAt, paging.updatedAt, paging.handle, paging.queryLimit)
+		.bind(...(page
+			? [userId, paging.updatedAt, paging.updatedAt, paging.handle, paging.queryLimit]
+			: [userId]))
 		.all<{ id: string; updatedAt: string; handle: string; nextDueAt: string | null; lastActiveAt: string | null }>();
 	const allRows = result.results ?? [];
 	const hasMore = allRows.length > paging.limit;
@@ -2275,14 +2280,17 @@ export async function listWorldBots(
 ): Promise<BotSummary[] | BotSummaryPage> {
 	const world = await worldByHandle(db, worldHandle);
 	const paging = botSummaryPaging(page);
+	const selectedPageSql = page
+		? `AND (updated_at < ? OR (updated_at = ? AND handle > ?)) ORDER BY updated_at DESC, handle ASC LIMIT ?`
+		: `ORDER BY handle ASC`;
+	const resultOrderSql = page ? `selected.updated_at DESC, selected.handle ASC` : `selected.handle ASC`;
 	const result = await db
 		.prepare(
 			`WITH selected AS (
 				SELECT bot_id AS id, updated_at, handle
 				FROM bots_index
 				WHERE home_world_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
-					AND (updated_at < ? OR (updated_at = ? AND handle > ?))
-				ORDER BY updated_at DESC, handle ASC LIMIT ?
+					${selectedPageSql}
 			 ),
 			 activity AS (
 				SELECT threads.author_bot_id AS bot_id, threads.created_at AS active_at
@@ -2313,9 +2321,11 @@ export async function listWorldBots(
 			 LEFT JOIN bot_runtime_index runtime ON runtime.bot_id = selected.id
 			 LEFT JOIN activity ON activity.bot_id = selected.id
 			 GROUP BY selected.id, runtime.next_due_at, selected.updated_at, selected.handle
-			 ORDER BY selected.updated_at DESC, selected.handle ASC`,
+			 ORDER BY ${resultOrderSql}`,
 		)
-		.bind(world.id, paging.updatedAt, paging.updatedAt, paging.handle, paging.queryLimit)
+		.bind(...(page
+			? [world.id, paging.updatedAt, paging.updatedAt, paging.handle, paging.queryLimit]
+			: [world.id]))
 		.all<{ id: string; updatedAt: string; handle: string; nextDueAt: string | null; lastActiveAt: string | null }>();
 	const allRows = result.results ?? [];
 	const hasMore = allRows.length > paging.limit;
@@ -3149,7 +3159,7 @@ async function worldPostingSettingsById(
 	return worlds.get(worldId);
 }
 
-async function worldPostingSettingsByIds(
+export async function worldPostingSettingsByIds(
 	db: D1DatabaseLike,
 	worldIds: string[],
 ): Promise<Map<string, PostingSettings | undefined>> {

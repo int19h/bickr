@@ -68,6 +68,37 @@ describe("inference configuration runtime routes", () => {
 		expect(second.worlds[0]?.id).not.toBe(first.worlds[0]?.id);
 	});
 
+	it("resolves a full batch from one deduplicated deep ancestor snapshot", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		let parentId = rootId;
+		const chainStatements = [];
+		for (let index = 0; index < 99; index += 1) {
+			const id = `cfg_shared_${String(index).padStart(3, "0")}`;
+			chainStatements.push(testEnv.BICKR_D1.prepare(
+				`INSERT INTO inference_configurations (
+					configuration_id, owner_user_id, kind, custom_name, custom_name_key,
+					parent_id, overrides_json, revision, created_at, updated_at
+				) VALUES (?, ?, 'custom', ?, ?, ?, '{}', 1, ?, ?)`,
+			).bind(id, ownerId, `Shared ${index}`, `shared-${index}`, parentId, now, now));
+			parentId = id;
+		}
+		await testEnv.BICKR_D1.batch(chainStatements);
+		const leafIds = Array.from({ length: 100 }, (_unused, index) => `cfg_leaf_${String(index).padStart(3, "0")}`);
+		await testEnv.BICKR_D1.batch(leafIds.map((id, index) => testEnv.BICKR_D1.prepare(
+			`INSERT INTO inference_configurations (
+				configuration_id, owner_user_id, kind, custom_name, custom_name_key,
+				parent_id, overrides_json, revision, created_at, updated_at
+			) VALUES (?, ?, 'custom', ?, ?, ?, '{}', 1, ?, ?)`,
+		).bind(id, ownerId, `Leaf ${index}`, `leaf-${index}`, parentId, now, now)));
+
+		const paths = await loadInternalInferenceConsumerPaths(testEnv.BICKR_D1, ownerId, leafIds, {
+			cutoverVersion: 1, graphRevision: 1,
+		});
+		expect(paths.size).toBe(100);
+		expect(paths.get(leafIds.at(-1)!)?.at(-1)?.id).toBe(rootId);
+		expect(paths.get(leafIds.at(-1)!)?.length).toBe(101);
+	});
+
 	it("switches reusable presentation from legacy KV to canonical D1 at cutover", async () => {
 		const en = "en" as LanguageTag;
 		const legacyOwner: UserDocument = {
@@ -155,7 +186,7 @@ describe("inference configuration runtime routes", () => {
 		projectedOverrides.model = { kind: "value", value: "rollback/projection-model" };
 		await testEnv.BICKR_D1.batch([
 			testEnv.BICKR_D1.prepare(
-				`UPDATE inference_graph_legacy_projection_entries SET overrides_json = ?
+				`UPDATE inference_graph_legacy_projection_entries SET overrides_json = ?, configuration_revision = 41
 				 WHERE owner_user_id = ? AND configuration_id = ?`,
 			).bind(JSON.stringify(projectedOverrides), ownerId, rootId),
 			testEnv.BICKR_D1.prepare(
@@ -166,11 +197,19 @@ describe("inference configuration runtime routes", () => {
 			method: "POST", body: { accountDefault: true },
 		});
 		expect(rollback.body.data?.annotations).toEqual([
-			expect.objectContaining({
-				kind: "canonical",
-				configuration: expect.objectContaining({ effectiveModel: "rollback/projection-model" }),
-			}),
+				expect.objectContaining({
+					kind: "canonical",
+					configuration: expect.objectContaining({ effectiveModel: "rollback/projection-model", revision: 41 }),
+				}),
 		]);
+		expect((rollback.body.data?.annotations as Record<string, unknown>[])[0]).not.toHaveProperty("graphRevision");
+		await testEnv.BICKR_D1.prepare(
+			`DELETE FROM inference_graph_legacy_projection_entries WHERE owner_user_id = ? AND configuration_id = ?`,
+		).bind(ownerId, rootId).run();
+		const missingProjection = await routePayload("/inference-consumers/annotations", {
+			method: "POST", body: { accountDefault: true },
+		});
+		expect(missingProjection.body.data?.annotations).toEqual([]);
 	});
 
 	it("selects validated library sections and carries participant grouping through the route", async () => {

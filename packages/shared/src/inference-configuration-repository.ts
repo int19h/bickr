@@ -5,12 +5,10 @@ import {
 	inferenceConfigurationFields,
 	inferenceLibrarySections,
 	maximumCanonicalInferenceAnnotationBatch,
-	maximumInferenceBotEffectiveModelBatch,
 	redactedOwnerDtoBrand,
 	type CredentialUpdate,
 	type CanonicalInferenceFixedReference,
 	type FixedInferenceConfigurationReference,
-	type InferenceBotEffectiveModelSet,
 	type InferenceBotHomeWorldGroup,
 	type InferenceConfigurationEntryIdentity,
 	type InferenceConfigurationIdentity,
@@ -191,74 +189,59 @@ export async function loadInternalInferenceConsumerPaths(
 	if (ids.length > maximumCanonicalInferenceAnnotationBatch) {
 		throw new RepositoryError("bad_request", "Inference consumer path batch exceeds 100 entries.", 400);
 	}
-	const normalSql = `WITH RECURSIVE selected(selectedId) AS (SELECT value FROM json_each(?)),
-		consumer_path AS (
-			SELECT selected.selectedId, ${pathColumns}, credentials.secret_value AS secretValue, 0 AS depth
-			FROM selected JOIN inference_configurations AS configuration
-				ON configuration.configuration_id = selected.selectedId AND configuration.owner_user_id = ?
-			JOIN inference_configuration_credentials AS credentials
-				ON credentials.configuration_id = configuration.configuration_id AND credentials.owner_user_id = configuration.owner_user_id
-			UNION ALL
-			SELECT path.selectedId, ${pathColumns}, credentials.secret_value AS secretValue, path.depth + 1
-			FROM consumer_path AS path
-			JOIN inference_configurations AS configuration ON configuration.configuration_id = path.parentId AND configuration.owner_user_id = path.ownerUserId
-			JOIN inference_configuration_credentials AS credentials
-				ON credentials.configuration_id = configuration.configuration_id AND credentials.owner_user_id = configuration.owner_user_id
-			WHERE path.depth < ?
-		)
-		SELECT * FROM consumer_path ORDER BY selectedId ASC, depth ASC LIMIT ?`;
-	const projectionSql = `WITH RECURSIVE selected(selectedId) AS (SELECT value FROM json_each(?)),
-		consumer_path (selectedId, id, ownerUserId, kind, fixedRole, parentId, worldId, botId, customName,
-			customNameKey, overridesJson, revision, createdAt, updatedAt, credentialMode, secretVersion, secretValue, depth) AS (
-			SELECT selected.selectedId, entry.configuration_id, entry.owner_user_id, entry.kind, entry.fixed_role,
-				entry.parent_id, entry.world_id, entry.bot_id, entry.custom_name, entry.custom_name_key,
-				entry.overrides_json, entry.configuration_revision, projection.created_at, projection.updated_at,
-				entry.credential_mode, entry.credential_secret_version,
-				CASE WHEN credentials.secret_version = entry.credential_secret_version THEN credentials.secret_value ELSE NULL END, 0
-			FROM selected JOIN inference_graph_legacy_projection_entries AS entry
-				ON entry.configuration_id = selected.selectedId AND entry.owner_user_id = ?
-			JOIN inference_graph_legacy_projections AS projection
-				ON projection.owner_user_id = entry.owner_user_id AND projection.graph_revision = ?
-			LEFT JOIN inference_configuration_credentials AS credentials
-				ON credentials.configuration_id = entry.configuration_id AND credentials.owner_user_id = entry.owner_user_id
-			UNION ALL
-			SELECT path.selectedId, entry.configuration_id, entry.owner_user_id, entry.kind, entry.fixed_role,
-				entry.parent_id, entry.world_id, entry.bot_id, entry.custom_name, entry.custom_name_key,
-				entry.overrides_json, entry.configuration_revision, projection.created_at, projection.updated_at,
-				entry.credential_mode, entry.credential_secret_version,
-				CASE WHEN credentials.secret_version = entry.credential_secret_version THEN credentials.secret_value ELSE NULL END, path.depth + 1
-			FROM consumer_path AS path
-			JOIN inference_graph_legacy_projection_entries AS entry
-				ON entry.configuration_id = path.parentId AND entry.owner_user_id = path.ownerUserId
-			JOIN inference_graph_legacy_projections AS projection
-				ON projection.owner_user_id = entry.owner_user_id AND projection.graph_revision = ?
-			LEFT JOIN inference_configuration_credentials AS credentials
-				ON credentials.configuration_id = entry.configuration_id AND credentials.owner_user_id = entry.owner_user_id
-			WHERE path.depth < ?
-		)
-		SELECT * FROM consumer_path ORDER BY selectedId ASC, depth ASC LIMIT ?`;
-	const result = version.cutoverVersion === 2
-		? await db.prepare(projectionSql).bind(
-			JSON.stringify(ids), ownerUserId, version.graphRevision, version.graphRevision,
-			inferenceConfigurationCorruptionSentinel - 1, inferenceConfigurationCorruptionSentinel,
-		).all<ConfigurationPathRow & { selectedId: string }>()
-		: await db.prepare(normalSql).bind(
-			JSON.stringify(ids), ownerUserId,
-			inferenceConfigurationCorruptionSentinel - 1, inferenceConfigurationCorruptionSentinel,
-		).all<ConfigurationPathRow & { selectedId: string }>();
-	const grouped = new Map<string, InferenceConfigurationNode[]>();
-	for (const row of result.results ?? []) {
-		const path = grouped.get(row.selectedId) ?? [];
-		path.push(configurationNodeFromRow(row, true));
-		grouped.set(row.selectedId, path);
-	}
-	return new Map([...grouped].map(([selectedId, path]) => {
-		const root = path.at(-1);
-		if (!path[0] || !root || root.kind !== "account_default" || root.parentId !== null) {
-			throw new InferenceGraphRepositoryError("corrupt_graph", "Inference consumer path does not terminate at Account default.");
-		}
-		return [selectedId, [path[0], ...path.slice(1)] as InferenceConfigurationPath];
+	const snapshot = version.cutoverVersion === 2
+		? await loadInternalInferenceCompatibilityProjectionAncestors(db, ownerUserId, ids, version.graphRevision)
+		: await loadInternalInferenceConfigurationAncestors(db, ownerUserId, ids);
+	const byId = new Map(snapshot.map((node) => [node.id, node]));
+	return new Map(ids.flatMap((selectedId) => {
+		const selected = byId.get(selectedId);
+		return selected ? [[selectedId, pathFromSnapshot(selected, byId)] as const] : [];
 	}));
+}
+
+async function loadInternalInferenceCompatibilityProjectionAncestors(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	configurationIds: readonly string[],
+	expectedGraphRevision: number,
+): Promise<InferenceConfigurationNode[]> {
+	const result = await db.prepare(
+		`WITH RECURSIVE selected(id) AS (SELECT value FROM json_each(?)), ancestors(id) AS (
+			SELECT entry.configuration_id FROM selected
+			JOIN inference_graph_legacy_projection_entries AS entry
+				ON entry.configuration_id = selected.id AND entry.owner_user_id = ?
+			JOIN inference_graph_legacy_projections AS projection
+				ON projection.owner_user_id = entry.owner_user_id AND projection.graph_revision = ?
+			UNION
+			SELECT entry.parent_id FROM inference_graph_legacy_projection_entries AS entry
+			JOIN ancestors ON ancestors.id = entry.configuration_id
+			WHERE entry.owner_user_id = ? AND entry.parent_id IS NOT NULL
+		)
+		SELECT entry.configuration_id AS id, entry.owner_user_id AS ownerUserId, entry.kind,
+			entry.fixed_role AS fixedRole, entry.parent_id AS parentId, entry.world_id AS worldId,
+			entry.bot_id AS botId, entry.custom_name AS customName, entry.custom_name_key AS customNameKey,
+			entry.overrides_json AS overridesJson, entry.configuration_revision AS revision,
+			projection.created_at AS createdAt, projection.updated_at AS updatedAt,
+			entry.credential_mode AS credentialMode, entry.credential_secret_version AS secretVersion,
+			CASE WHEN credentials.secret_version = entry.credential_secret_version
+				THEN credentials.secret_value ELSE NULL END AS secretValue, 0 AS depth
+		 FROM ancestors
+		 JOIN inference_graph_legacy_projection_entries AS entry
+			ON entry.configuration_id = ancestors.id AND entry.owner_user_id = ?
+		 JOIN inference_graph_legacy_projections AS projection
+			ON projection.owner_user_id = entry.owner_user_id AND projection.graph_revision = ?
+		 LEFT JOIN inference_configuration_credentials AS credentials
+			ON credentials.configuration_id = entry.configuration_id AND credentials.owner_user_id = entry.owner_user_id
+		 ORDER BY entry.configuration_id ASC LIMIT ?`,
+	).bind(
+		JSON.stringify(configurationIds), ownerUserId, expectedGraphRevision, ownerUserId,
+		ownerUserId, expectedGraphRevision, inferenceConfigurationCorruptionSentinel,
+	).all<ConfigurationPathRow>();
+	const rows = result.results ?? [];
+	if (rows.length >= inferenceConfigurationCorruptionSentinel) {
+		throw new InferenceGraphRepositoryError("corrupt_graph", "Inference compatibility projection ancestors exceed the corruption sentinel.");
+	}
+	return rows.map((row) => configurationNodeFromRow(row, true));
 }
 
 /**
@@ -733,49 +716,6 @@ function configurationKindsPredicateSql(kinds: readonly InferenceConfigurationKi
 }
 
 /**
- * Canonical effective model for a bounded set of the owner's participants.
- *
- * Owner surfaces that only label a participant's current model — the bot table,
- * the participant profile, the runtime panel — read it here instead of
- * reconstructing one from a stored legacy settings cascade, which stops being
- * the resolved answer as soon as the graph is edited. It costs two queries for
- * the whole set: the participants' own configurations, then the one bounded
- * ancestor load every listing surface uses, so a page of participants is never
- * a read per row. Unowned or unknown participants are simply absent from the
- * answer; they are never an error that would blank a whole table.
- */
-export async function listBotEffectiveModels(
-	db: D1DatabaseLike,
-	ownerUserId: string,
-	input: { botIds: readonly string[]; defaults?: BickrInferenceDefaults },
-): Promise<InferenceBotEffectiveModelSet> {
-	const botIds = [...new Set(input.botIds)];
-	if (botIds.length === 0) return { models: [] };
-	if (botIds.length > maximumInferenceBotEffectiveModelBatch) {
-		throw new RepositoryError(
-			"bad_request",
-			`At most ${maximumInferenceBotEffectiveModelBatch} participants can be resolved in one request.`,
-			400,
-		);
-	}
-	const rows = await db.prepare(
-		`SELECT ${summaryColumnsSql(identitySortNameSql)}
-		${summaryFromSql}
-		WHERE configuration.owner_user_id = ? AND configuration.kind = 'bot'
-			AND configuration.bot_id IN (SELECT value FROM json_each(?))
-		ORDER BY configuration.configuration_id ASC
-		LIMIT ?`,
-	).bind(ownerUserId, JSON.stringify(botIds), maximumInferenceBotEffectiveModelBatch).all<SummaryRow>();
-	const pageRows = rows.results ?? [];
-	const ancestors = await loadBoundedInferenceAncestors(db, ownerUserId, pageRows.map((row) => row.id));
-	return {
-		models: summariesFromAncestors(pageRows, ancestors, input.defaults).flatMap((summary) =>
-			summary.kind === "bot" ? [{ botId: summary.identity.botId, effectiveModel: summary.effectiveModel }] : [],
-		),
-	};
-}
-
-/**
  * Redacted summaries for a bounded set of fixed consumers. Entity ownership,
  * active lifecycle state, and graph ownership are checked in the selecting
  * query; the second query loads the union of their ancestors. This is the one
@@ -786,6 +726,7 @@ export async function listOwnedFixedInferenceConfigurationSummaries(
 	ownerUserId: string,
 	references: readonly CanonicalInferenceFixedReference[],
 	defaults?: BickrInferenceDefaults,
+	version?: { cutoverVersion: number; graphRevision: number },
 ): Promise<InferenceConfigurationSummary[]> {
 	const unique = new Map(references.map((reference) => [JSON.stringify(reference), reference]));
 	if (unique.size === 0) return [];
@@ -805,6 +746,43 @@ export async function listOwnedFixedInferenceConfigurationSummaries(
 		}
 	}));
 	const includeTranslation = [...unique.values()].some((reference) => reference.kind === "translation");
+	if (version?.cutoverVersion === 2) {
+		const rows = await db.prepare(
+			`SELECT entry.configuration_id AS id, entry.kind, entry.fixed_role AS fixedRole,
+				entry.parent_id AS parentId, entry.world_id AS worldId, worlds.handle AS worldHandle,
+				entry.bot_id AS botId, bots.handle AS botHandle,
+				bots.home_world_id AS homeWorldId, bots.home_world_handle AS homeWorldHandle,
+				entry.custom_name AS customName,
+				CASE WHEN entry.fixed_role = 'translation' THEN 'Translation'
+					WHEN entry.kind = 'account_default' THEN 'Account default'
+					WHEN entry.kind = 'world' THEN 'w/' || worlds.handle
+					WHEN entry.kind = 'bot' THEN 'u/' || bots.handle ELSE entry.custom_name END AS displayName,
+				entry.configuration_id AS sortName, entry.configuration_revision AS revision,
+				projection.updated_at AS updatedAt, entry.credential_mode AS credentialMode,
+				(SELECT COUNT(*) FROM inference_graph_legacy_projection_entries AS child
+				 WHERE child.owner_user_id = entry.owner_user_id AND child.parent_id = entry.configuration_id) AS immediateChildCount
+			 FROM inference_graph_legacy_projection_entries AS entry
+			 JOIN inference_graph_legacy_projections AS projection
+				ON projection.owner_user_id = entry.owner_user_id AND projection.graph_revision = ?
+			 LEFT JOIN worlds_index AS worlds ON worlds.world_id = entry.world_id
+			 LEFT JOIN bots_index AS bots ON bots.bot_id = entry.bot_id
+			 WHERE entry.owner_user_id = ?
+				AND (entry.configuration_id IN (SELECT value FROM json_each(?))
+					OR (? = 1 AND entry.fixed_role = 'translation'))
+				AND (entry.kind != 'bot' OR (bots.owner_user_id = ? AND bots.deleted_at IS NULL AND bots.lifecycle_state = 'active'))
+				AND (entry.kind != 'world' OR (worlds.created_by_user_id = ? AND worlds.deleted_at IS NULL AND worlds.lifecycle_state = 'active'))
+			 ORDER BY entry.configuration_id ASC LIMIT ?`,
+		).bind(
+			version.graphRevision, ownerUserId,
+			JSON.stringify(ids.filter((id): id is string => Boolean(id))), includeTranslation ? 1 : 0,
+			ownerUserId, ownerUserId, maximumCanonicalInferenceAnnotationBatch,
+		).all<SummaryRow>();
+		const selected = rows.results ?? [];
+		const ancestors = await loadBoundedProjectionAncestors(
+			db, ownerUserId, selected.map((row) => row.id), version.graphRevision,
+		);
+		return summariesFromAncestors(selected, ancestors, defaults);
+	}
 	const rows = await db.prepare(
 		`SELECT ${summaryColumnsSql(identitySortNameSql)}
 		 ${summaryFromSql}
@@ -979,7 +957,7 @@ function pathFromSnapshot(
 		current = current.parentId ? byId.get(current.parentId) : undefined;
 	}
 	const root = result.at(-1);
-	if (!root || root.kind !== "account_default") {
+	if (!root || root.kind !== "account_default" || root.parentId !== null) {
 		throw new InferenceGraphRepositoryError("corrupt_graph", "Inference configuration owner snapshot path has no Account default.");
 	}
 	return [result[0]!, ...result.slice(1)];
@@ -1042,6 +1020,60 @@ async function loadBoundedInferenceAncestors(
 	if (rows.length >= inferenceConfigurationCorruptionSentinel) {
 		throw new InferenceGraphRepositoryError("corrupt_graph", "Inference configuration page ancestors exceed the corruption sentinel.");
 	}
+	return boundedAncestorsFromRows(rows);
+}
+
+async function loadBoundedProjectionAncestors(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	configurationIds: readonly string[],
+	expectedGraphRevision: number,
+): Promise<BoundedInferenceAncestors> {
+	if (configurationIds.length === 0) return { byId: new Map(), displayNames: new Map(), identities: new Map() };
+	const result = await db.prepare(
+		`WITH RECURSIVE selected(id) AS (SELECT value FROM json_each(?)), ancestors(id) AS (
+			SELECT entry.configuration_id FROM selected
+			JOIN inference_graph_legacy_projection_entries AS entry
+				ON entry.configuration_id = selected.id AND entry.owner_user_id = ?
+			JOIN inference_graph_legacy_projections AS projection
+				ON projection.owner_user_id = entry.owner_user_id AND projection.graph_revision = ?
+			UNION
+			SELECT entry.parent_id FROM inference_graph_legacy_projection_entries AS entry
+			JOIN ancestors ON ancestors.id = entry.configuration_id
+			WHERE entry.owner_user_id = ? AND entry.parent_id IS NOT NULL
+		)
+		SELECT entry.configuration_id AS id, entry.owner_user_id AS ownerUserId, entry.kind,
+			entry.fixed_role AS fixedRole, entry.parent_id AS parentId, entry.world_id AS worldId,
+			worlds.handle AS worldHandle, entry.bot_id AS botId, bots.handle AS botHandle,
+			bots.home_world_id AS homeWorldId, bots.home_world_handle AS homeWorldHandle,
+			entry.custom_name AS customName, entry.custom_name_key AS customNameKey,
+			entry.overrides_json AS overridesJson, entry.configuration_revision AS revision,
+			projection.created_at AS createdAt, projection.updated_at AS updatedAt,
+			entry.credential_mode AS credentialMode, entry.credential_secret_version AS secretVersion,
+			0 AS depth, CASE WHEN entry.fixed_role = 'translation' THEN 'Translation'
+				WHEN entry.kind = 'account_default' THEN 'Account default'
+				WHEN entry.kind = 'world' THEN 'w/' || worlds.handle
+				WHEN entry.kind = 'bot' THEN 'u/' || bots.handle ELSE entry.custom_name END AS displayName
+		 FROM ancestors
+		 JOIN inference_graph_legacy_projection_entries AS entry
+			ON entry.configuration_id = ancestors.id AND entry.owner_user_id = ?
+		 JOIN inference_graph_legacy_projections AS projection
+			ON projection.owner_user_id = entry.owner_user_id AND projection.graph_revision = ?
+		 LEFT JOIN worlds_index AS worlds ON worlds.world_id = entry.world_id
+		 LEFT JOIN bots_index AS bots ON bots.bot_id = entry.bot_id
+		 ORDER BY entry.configuration_id ASC LIMIT ?`,
+	).bind(
+		JSON.stringify(configurationIds), ownerUserId, expectedGraphRevision, ownerUserId,
+		ownerUserId, expectedGraphRevision, inferenceConfigurationCorruptionSentinel,
+	).all<BoundedAncestorRow>();
+	const rows = result.results ?? [];
+	if (rows.length >= inferenceConfigurationCorruptionSentinel) {
+		throw new InferenceGraphRepositoryError("corrupt_graph", "Inference compatibility projection summary ancestors exceed the corruption sentinel.");
+	}
+	return boundedAncestorsFromRows(rows);
+}
+
+function boundedAncestorsFromRows(rows: readonly BoundedAncestorRow[]): BoundedInferenceAncestors {
 	const nodes = rows.map((row) => configurationNodeFromRow(row, false));
 	return {
 		byId: new Map(nodes.map((node) => [node.id, node])),
