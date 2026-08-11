@@ -1162,6 +1162,8 @@ type ResolvedSetting<T> = {
 
 type ResolvedSettingMap = Record<string, ResolvedSetting<unknown>>;
 
+const maximumMcpPresentationEntities = 100;
+
 async function annotateMcpPayload(envelope: McpPayloadEnvelope, ctx: ToolContext): Promise<unknown> {
 	switch (envelope.kind) {
 		case "opaque":
@@ -1199,18 +1201,39 @@ async function annotateMcpPayload(envelope: McpPayloadEnvelope, ctx: ToolContext
 		}
 		case "bot":
 		case "bots": {
-			const candidates = payloadBots(envelope.payload, envelope.kind);
+			const record = payloadRecord(envelope.payload);
+			const primary = payloadBots(envelope.payload, envelope.kind);
+			const rawAffected = envelope.kind === "bot" && Array.isArray(record.affectedBots)
+				? record.affectedBots as Array<BotDocument | BotSummary>
+				: [];
+			const affectedLimit = envelope.kind === "bot" ? Math.max(0, maximumMcpPresentationEntities - primary.length) : 0;
+			const affected = rawAffected.slice(0, affectedLimit);
+			const candidates = [...primary, ...affected].slice(0, maximumMcpPresentationEntities);
 			const worldSettings = await worldPostingSettingsByIds(ctx.env.BICKR_D1, candidates.map((bot) => bot.homeWorldId));
 			const annotations = await canonicalAnnotationsForMcp(ctx, {
-				botIds: candidates.filter((bot) => bot.ownerUserId === ctx.auth.user.id).map((bot) => bot.id).slice(0, 100),
+				botIds: candidates.filter((bot) => bot.ownerUserId === ctx.auth.user.id).map((bot) => bot.id),
 			});
-			return mapMcpPayloadData(envelope.payload, (record) => ({
-				...record,
-				...(envelope.kind === "bot"
-					? { bot: presentMcpBot(record.bot as BotDocument | BotSummary, ctx.auth.user.id, annotations, worldSettings.get(candidates[0]!.homeWorldId)) }
-					: { bots: (record.bots as Array<BotDocument | BotSummary>).slice(0, 100)
-						.map((bot) => presentMcpBot(bot, ctx.auth.user.id, annotations, worldSettings.get(bot.homeWorldId))) }),
-			}));
+			return mapMcpPayloadData(envelope.payload, (resultRecord) => {
+				const { affectedBots: _affectedBots, ...resultWithoutAffectedBots } = resultRecord;
+				return {
+					...resultWithoutAffectedBots,
+					...(envelope.kind === "bot"
+						? {
+							bot: presentMcpBot(primary[0]!, ctx.auth.user.id, annotations, worldSettings.get(primary[0]!.homeWorldId)),
+							...(Array.isArray(resultRecord.affectedBots) ? {
+								affectedBots: affected.map((bot) => presentMcpBot(
+									bot, ctx.auth.user.id, annotations, worldSettings.get(bot.homeWorldId),
+								)),
+								affectedBotsPresentation: {
+									maximumEntities: affectedLimit,
+									truncated: rawAffected.length > affected.length,
+								},
+							} : {}),
+						}
+						: { bots: primary.slice(0, maximumMcpPresentationEntities)
+							.map((bot) => presentMcpBot(bot, ctx.auth.user.id, annotations, worldSettings.get(bot.homeWorldId))) }),
+				};
+			});
 		}
 		case "world":
 		case "worlds": {
@@ -1276,7 +1299,7 @@ async function canonicalAnnotationsForMcp(
 	ctx: ToolContext,
 	request: { accountDefault?: boolean; translation?: boolean; botIds?: string[]; worldIds?: string[] },
 ): Promise<CanonicalInferenceAnnotationSet> {
-	const count = Number(request.accountDefault) + Number(request.translation)
+	const count = (request.accountDefault ? 1 : 0) + (request.translation ? 1 : 0)
 		+ (request.botIds?.length ?? 0) + (request.worldIds?.length ?? 0);
 	if (count === 0) return { annotations: [], graphRevision: 0 };
 	const payload = await servicePayload(

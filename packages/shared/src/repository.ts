@@ -1446,8 +1446,8 @@ export async function listUserBots(
 	const paging = botSummaryPaging(page);
 	const selectedPageSql = page
 		? `AND (updated_at < ? OR (updated_at = ? AND handle > ?)) ORDER BY updated_at DESC, handle ASC LIMIT ?`
-		: `ORDER BY handle ASC`;
-	const resultOrderSql = page ? `selected.updated_at DESC, selected.handle ASC` : `selected.handle ASC`;
+		: "";
+	const resultOrderSql = "selected.updated_at DESC, selected.handle ASC";
 	const result = await db
 		.prepare(
 			`WITH selected AS (

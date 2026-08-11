@@ -908,19 +908,6 @@ export const agentRuntimeRouteTable = [
 			}),
 	},
 	{
-		id: 'provider-environment',
-		method: 'GET',
-		pattern: /^\/provider-settings\/environment$/,
-		dispatch: 'direct',
-		handler: async (context) => {
-			requireAuthenticatedServiceRequest(context.request);
-			return ok({
-				kind: 'provider_environment' as const,
-				settings: providerEnvironmentSettingsFromBindings(context.env, { includeApiKey: false }),
-			});
-		},
-	},
-	{
 		id: 'translate',
 		method: 'POST',
 		pattern: /^\/users\/([^/]+)\/translate$/,
@@ -1938,7 +1925,7 @@ function parseCanonicalInferenceAnnotationRequest(value: unknown): CanonicalInfe
 		...(stringArray(record.botIds, 'botIds') ? { botIds: stringArray(record.botIds, 'botIds') } : {}),
 		...(stringArray(record.worldIds, 'worldIds') ? { worldIds: stringArray(record.worldIds, 'worldIds') } : {}),
 	};
-	const count = Number(request.accountDefault) + Number(request.translation)
+	const count = (request.accountDefault ? 1 : 0) + (request.translation ? 1 : 0)
 		+ (request.botIds?.length ?? 0) + (request.worldIds?.length ?? 0);
 	if (count > maximumCanonicalInferenceAnnotationBatch) {
 		throw new InputError(`At most ${maximumCanonicalInferenceAnnotationBatch} fixed inference consumers may be requested.`);

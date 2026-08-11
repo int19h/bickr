@@ -14,7 +14,7 @@ import { onRequestGet as onPathProtectedResourceGet } from "../apps/web/function
 import { mcpToolMetadataForTest, onRequestPost } from "../apps/web/functions/mcp";
 import { onRequestPost as onRegisterPost } from "../apps/web/functions/oauth/register";
 import { handleAgentRuntimeRequest } from "../workers/agent-runtime/src/routes";
-import { listWorldBots } from "../packages/shared/src/repository";
+import { listUserBots, listWorldBots } from "../packages/shared/src/repository";
 import { clearKv, resetD1Schema } from "./helpers/d1-schema";
 
 type TestPagesContext = Parameters<typeof onRequestPost>[0];
@@ -674,6 +674,36 @@ describe("MCP endpoint", () => {
 		expect(serialized).not.toMatch(/legacy-owner-secret|inferenceConfiguration|graphRevision|effectiveModel/);
 	});
 
+	it("does not call canonical annotation service for an all-foreign public page", async () => {
+		await resetD1Schema(testEnv.BICKR_D1);
+		await clearKv(testEnv.BICKR_KV);
+		await testEnv.BICKR_D1.batch([
+			activeIdentityClaim("world_handle", "global", "foreign-page", "world", "wld_foreign_page", "usr_foreign"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO worlds_index (
+					world_id, handle, name, description, created_by_user_id, visibility,
+					created_at, updated_at, lifecycle_state
+				) VALUES ('wld_foreign_page', 'foreign-page', 'Foreign page', '', 'usr_foreign', 'public', ?, ?, 'active')`,
+			).bind("2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
+		]);
+		const accessToken = await issueAccessToken(testEnv.BICKR_KV, ["bickr.read"]);
+		let annotationCalls = 0;
+		const response = await callMcp(testEnv.BICKR_KV, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/call",
+			params: { name: "list_worlds", arguments: { limit: 20 } },
+		}, {
+			BICKR_D1: testEnv.BICKR_D1,
+			AGENT_RUNTIME: { fetch: async () => {
+				annotationCalls += 1;
+				throw new Error("annotation service must not be called");
+			} },
+			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+		});
+		const result = (await jsonResponse(response)).result as { structuredContent: { worlds: Array<{ id: string }> } };
+		expect(result.structuredContent.worlds.map((world) => world.id)).toContain("wld_foreign_page");
+		expect(annotationCalls).toBe(0);
+	});
+
 	it("reports world posting provenance and linked-clone prompt provenance on get_bot", async () => {
 		await resetD1Schema(testEnv.BICKR_D1);
 		await clearKv(testEnv.BICKR_KV);
@@ -746,7 +776,7 @@ describe("MCP endpoint", () => {
 			.toMatchObject({ effective: lt("Inherited name"), source: "source_bot" });
 	});
 
-	it("keeps legacy world bot lists alphabetical while MCP pages use recency keysets", async () => {
+	it("preserves legacy world/user bot ordering while MCP pages use recency keysets", async () => {
 		await resetD1Schema(testEnv.BICKR_D1);
 		await clearKv(testEnv.BICKR_KV);
 		await testEnv.BICKR_D1.batch([
@@ -783,6 +813,11 @@ describe("MCP endpoint", () => {
 		expect(legacy.map((bot) => bot.handle)).toEqual(["alpha", "zeta"]);
 		expect(page.bots.map((bot) => bot.handle)).toEqual(["zeta"]);
 		expect(page.hasMore).toBe(true);
+		const legacyOwned = await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "usr_mcp");
+		const ownedPage = await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "usr_mcp", { limit: 1 });
+		expect(legacyOwned.map((bot) => bot.handle)).toEqual(["zeta", "alpha"]);
+		expect(ownedPage.bots.map((bot) => bot.handle)).toEqual(["zeta"]);
+		expect(ownedPage.hasMore).toBe(true);
 	});
 
 	it("executes mutation batches in order and correlates every result", async () => {
@@ -1257,6 +1292,59 @@ describe("MCP endpoint", () => {
 		} });
 	});
 
+	it("bounds and prompt-sanitizes every affected participant in bot mutation receipts", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
+		const primary = testBot({ id: "bot_receipt_primary", handle: "receipt-primary" });
+		const reusableSettings = {
+			model: "private/model", baseUrl: "https://private.invalid", providerRouting: { only: ["private"] },
+			reasoningEffort: "high" as const, temperature: 0.7, topP: 0.8,
+			translation: { enabled: true, model: "private/translation", reasoningEffort: "medium" as const, temperature: 0.4 },
+			imageGeneration: { model: "private/image", prompt: lt("portrait") },
+		};
+		const firstAffected = {
+			...testBot({ id: "bot_affected_000", handle: "affected-000", inferenceSettings: reusableSettings }),
+			localOverrides: {
+				language: en, includeLanguageInSystemPrompt: false,
+				displayName: lt(""), shortBio: lt(""), prompt: lt(""),
+				inferenceSettings: reusableSettings, hasAvatar: false,
+			},
+		};
+		const affectedBots = [firstAffected, ...Array.from({ length: 100 }, (_unused, index) => testBot({
+			id: `bot_affected_${String(index + 1).padStart(3, "0")}`,
+			handle: `affected-${String(index + 1).padStart(3, "0")}`,
+		}))];
+		const service = { fetch: async (request: Request) => {
+			if (new URL(request.url).pathname.endsWith("/inference-consumers/annotations")) {
+				return Response.json({ ok: true, data: { annotations: [], graphRevision: 7 } });
+			}
+			return Response.json({ ok: true, data: { bot: primary, affectedBots } });
+		} };
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "update_bot", arguments: {
+				operations: [{ operationId: "sanitize-receipt", botId: primary.id, prompt: lt("updated") }],
+			} },
+		}, { BICKR_D1: emptyD1(), AGENT_RUNTIME: service, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
+		const result = (await jsonResponse(response)).result as {
+			structuredContent: {
+				results: Array<{ result: { data: {
+					affectedBots: Array<{ inferenceSettings: Record<string, unknown>; localOverrides?: { inferenceSettings: Record<string, unknown> } }>;
+					affectedBotsPresentation: { maximumEntities: number; truncated: boolean };
+				} } }>;
+			};
+		};
+		const data = result.structuredContent.results[0]!.result.data;
+		expect(data.affectedBots).toHaveLength(99);
+		expect(data.affectedBotsPresentation).toEqual({ maximumEntities: 99, truncated: true });
+		expect(data.affectedBots[0]!.inferenceSettings).toEqual({ imageGeneration: { prompt: lt("portrait") } });
+		expect(data.affectedBots[0]!.localOverrides?.inferenceSettings).toEqual({ imageGeneration: { prompt: lt("portrait") } });
+		for (const settings of [data.affectedBots[0]!.inferenceSettings, data.affectedBots[0]!.localOverrides!.inferenceSettings]) {
+			for (const key of ["model", "baseUrl", "providerRouting", "reasoningEffort", "temperature", "topP", "translation"]) {
+				expect(settings).not.toHaveProperty(key);
+			}
+		}
+	});
+
 	it("keeps a committed singleton profile mutation successful when canonical enrichment fails", async () => {
 		const kv = new MapKV();
 		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
@@ -1336,8 +1424,6 @@ async function callMcp(kv: KVNamespaceLike, accessToken: string | null, body: un
 	const {
 		AGENT_RUNTIME: upstreamAgentRuntime,
 		MAINTENANCE_ENABLED: maintenanceEnabled = false,
-		MCP_PROVIDER_ENVIRONMENT_ERROR: providerEnvironmentError = false,
-		MCP_PROVIDER_ENVIRONMENT: providerEnvironment = { apiKeySet: true, model: "openrouter/free" },
 		...restEnv
 	} = env;
 	const agentRuntime = upstreamAgentRuntime as { fetch(request: Request): Promise<Response> } | undefined;
@@ -1351,15 +1437,6 @@ async function callMcp(kv: KVNamespaceLike, accessToken: string | null, body: un
 		BICKR_D1: maintenanceAwareD1(restEnv.BICKR_D1 ?? emptyD1(), maintenanceEnabled === true),
 		AGENT_RUNTIME: {
 			fetch: async (request: Request) => {
-				if (new URL(request.url).pathname === "/provider-settings/environment") {
-					if (providerEnvironmentError) {
-						return Response.json({ ok: false, error: "unavailable", message: "Provider environment unavailable." }, { status: 503 });
-					}
-					return Response.json({
-						ok: true,
-						data: { kind: "provider_environment", settings: providerEnvironment },
-					});
-				}
 				if (!agentRuntime) {
 					return Response.json({ ok: false, error: "not_found", message: "Agent runtime mock is not configured." }, { status: 404 });
 				}

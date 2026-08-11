@@ -38,7 +38,6 @@ const routeCases = [
 	{ method: 'POST', path: '/inference-graph/cleanup', handlerId: 'inference-graph-cleanup' },
 	{ method: 'POST', path: '/inference-graph/activate-lifecycle', handlerId: 'activate-inference-graph-lifecycle' },
 	{ method: 'GET', path: '/health', handlerId: 'health' },
-	{ method: 'GET', path: '/provider-settings/environment', handlerId: 'provider-environment' },
 	{ method: 'POST', path: '/users/user-1/translate', handlerId: 'translate' },
 	{ method: 'PATCH', path: '/users/user-1/profile', handlerId: 'update-profile' },
 	{ method: 'POST', path: '/users/user-1/auth/identities', handlerId: 'link-provider-identity' },

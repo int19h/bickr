@@ -56,6 +56,18 @@ beforeEach(async () => {
 });
 
 describe("inference configuration runtime routes", () => {
+	it("rejects more than 100 fixed references before cutover-0 resolution", async () => {
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE inference_graph_users SET cutover_version = 0, verified_cutover_at = NULL WHERE owner_user_id = ?`,
+		).bind(ownerId).run();
+		const response = await routePayload("/inference-consumers/annotations", {
+			method: "POST",
+			body: { botIds: Array.from({ length: 101 }, (_unused, index) => `bot_oversized_${index}`) },
+		});
+		expect(response.status).toBe(400);
+		expect(response.body).toMatchObject({ ok: false, error: "bad_request" });
+	});
+
 	it("bounds MCP world collection work before page enrichment and advances a keyset cursor", async () => {
 		await seedWorld("wld_page_a", "page-a");
 		await seedWorld("wld_page_b", "page-b");
