@@ -66,6 +66,11 @@ describe("inference configuration runtime routes", () => {
 		});
 		expect(response.status).toBe(400);
 		expect(response.body).toMatchObject({ ok: false, error: "bad_request" });
+		const compatibility = await routePayload(`/inference-configurations/effective-models?botIds=${
+			Array.from({ length: 101 }, (_unused, index) => `bot_compat_${index}`).join(",")
+		}`);
+		expect(compatibility.status).toBe(400);
+		expect(compatibility.body).toMatchObject({ ok: false, error: "bad_request" });
 	});
 
 	it("bounds MCP world collection work before page enrichment and advances a keyset cursor", async () => {

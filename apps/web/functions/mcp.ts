@@ -295,7 +295,7 @@ async function callMutationTool(
 			try {
 				return await toolResult({ kind: tool.resultKind, payload: result }, ctx);
 			} catch (error) {
-				return successfulSingletonMutationWithWarning(result, error);
+				return successfulSingletonMutationWithWarning(error);
 			}
 		}
 		const operations = mutationOperations(args, tool.operationSchema);
@@ -1388,7 +1388,10 @@ function presentMcpBot(
 	annotations: CanonicalInferenceAnnotationSet,
 	worldPostingSettings?: PostingSettings,
 ): Record<string, unknown> {
-	const bot = publicBotSummary(candidate, isBotDocument(candidate) ? { includeToolSettings: true } : {});
+	const bot = publicBotSummary(candidate, isBotDocument(candidate) ? {
+		includeToolSettings: true,
+		worldPostingSettings,
+	} : {});
 	const local = bot.localOverrides;
 	return {
 		...bot,
@@ -1625,9 +1628,9 @@ async function toolResult(envelope: McpPayloadEnvelope, ctx: ToolContext): Promi
 	};
 }
 
-function successfulSingletonMutationWithWarning(payload: unknown, error: unknown): Record<string, unknown> {
+function successfulSingletonMutationWithWarning(error: unknown): Record<string, unknown> {
 	const structuredContent = {
-		result: jsonCompatible(payload),
+		result: null,
 		presentationWarning: jsonCompatible({
 			kind: "canonical_inference_enrichment_failed",
 			...errorPayload(error),

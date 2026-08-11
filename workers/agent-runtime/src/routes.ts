@@ -726,7 +726,8 @@ export const agentRuntimeRouteTable = [
 				.split(',')
 				.map((value) => value.trim())
 				.filter(Boolean);
-			const annotations = await canonicalInferenceAnnotations(context, userId, { botIds });
+			const request = parseCanonicalInferenceAnnotationRequest({ botIds });
+			const annotations = await canonicalInferenceAnnotations(context, userId, request);
 			return ok({
 				effectiveModels: {
 					models: annotations.annotations.flatMap((annotation) => annotation.reference.kind === 'bot'

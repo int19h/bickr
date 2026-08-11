@@ -753,7 +753,7 @@ describe("MCP endpoint", () => {
 				) VALUES (?, ?, 'w_mcp', 'mcp-world', 'source', ?, 1)`,
 			).bind(bot.id, source.id, "2026-08-11T00:00:00.000Z"),
 		]);
-		const accessToken = await issueAccessToken(testEnv.BICKR_KV, ["bickr.read"]);
+		const accessToken = await issueAccessToken(testEnv.BICKR_KV, ["bickr.read", "bickr.write"]);
 		const response = await callMcp(testEnv.BICKR_KV, accessToken, {
 			jsonrpc: "2.0", id: 1, method: "tools/call",
 			params: { name: "get_bot", arguments: { botId: bot.id } },
@@ -774,6 +774,30 @@ describe("MCP endpoint", () => {
 			.toMatchObject({ effective: 6000, source: "world" });
 		expect(result.structuredContent.bot.mcpResolvedSettings.cloneProfile?.displayName)
 			.toMatchObject({ effective: lt("Inherited name"), source: "source_bot" });
+
+		const rawBot = testBot({ id: "bot_raw_receipt", handle: "raw-receipt" });
+		const mutationService = { fetch: async (request: Request) => {
+			if (new URL(request.url).pathname.endsWith("/inference-consumers/annotations")) {
+				return Response.json({ ok: true, data: { annotations: [], graphRevision: 7 } });
+			}
+			return Response.json({ ok: true, data: { bot: rawBot } });
+		} };
+		const mutationResponse = await callMcp(testEnv.BICKR_KV, accessToken, {
+			jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "update_bot", arguments: {
+				operations: [{ operationId: "raw-posting", botId: rawBot.id, prompt: lt("updated") }],
+			} },
+		}, {
+			BICKR_D1: testEnv.BICKR_D1,
+			AGENT_RUNTIME: mutationService,
+			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+		});
+		const mutationResult = (await jsonResponse(mutationResponse)).result as {
+			structuredContent: { results: Array<{ result: { data: { bot: {
+				mcpResolvedSettings: { postingSettings: { threadBodyCharacters: { effective: number; source: string } } };
+			} } } }> };
+		};
+		expect(mutationResult.structuredContent.results[0]!.result.data.bot.mcpResolvedSettings.postingSettings.threadBodyCharacters)
+			.toMatchObject({ effective: 6000, source: "world" });
 	});
 
 	it("preserves legacy world/user bot ordering while MCP pages use recency keysets", async () => {
@@ -1348,22 +1372,33 @@ describe("MCP endpoint", () => {
 	it("keeps a committed singleton profile mutation successful when canonical enrichment fails", async () => {
 		const kv = new MapKV();
 		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
-		const profile = testUser({ displayName: lt("Updated profile") });
+		const profile = testUser({
+			displayName: lt("Updated profile"),
+			inferenceSettings: { model: "private/singleton-model", openRouterApiKey: "singleton-secret" },
+		});
 		const service = { fetch: async (request: Request) => {
 			if (new URL(request.url).pathname.endsWith("/inference-consumers/annotations")) {
 				throw new Error("injected singleton enrichment failure");
 			}
-			return Response.json({ ok: true, data: { kind: "profile_updated", profile } });
+			return Response.json({ ok: true, data: {
+				kind: "profile_updated", profile,
+				affectedBots: Array.from({ length: 101 }, (_unused, index) => testBot({
+					id: `bot_singleton_leak_${index}`, handle: `singleton-leak-${index}`,
+					inferenceSettings: { model: "private/affected-model" },
+				})),
+			} });
 		} };
 		const response = await callMcp(kv, accessToken, {
 			jsonrpc: "2.0", id: 1, method: "tools/call", params: {
 				name: "update_profile", arguments: { displayName: lt("Updated profile"), lang: "en" },
 			},
 		}, { BICKR_D1: emptyD1(), AGENT_RUNTIME: service, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
-		expect((await jsonResponse(response)).result).toMatchObject({ structuredContent: {
-			result: { profile: { displayName: { text: "Updated profile" } } },
+		const result = (await jsonResponse(response)).result;
+		expect(result).toMatchObject({ structuredContent: {
+			result: null,
 			presentationWarning: { kind: "canonical_inference_enrichment_failed" },
 		} });
+		expect(JSON.stringify(result)).not.toMatch(/singleton-secret|private\/singleton-model|private\/affected-model|affectedBots/);
 	});
 
 	it("omits empty world image-generation settings from mutation presentation", async () => {
