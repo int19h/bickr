@@ -630,6 +630,94 @@ describe("inference configuration D1 repository", () => {
 		expect(children.nextCursor).toBeTruthy();
 	});
 
+	it("preserves Unicode inference cursor continuity and exact legacy decoding", async () => {
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		const created = [];
+		for (const name of ["Ascii", "Café", "Кириллица", "漢字", "Astral 🪐", "Ã© legacy bytes"]) {
+			created.push(await inferenceConfigurationMutations.createCustom(
+				testEnv.BICKR_D1, ownerId, { name, parentId: rootId }, now,
+			));
+		}
+
+		const expected = (await listInferenceConfigurations(testEnv.BICKR_D1, ownerId, { kinds: ["custom"] })).items;
+		const pagedIds: string[] = [];
+		let cursor: string | undefined;
+		do {
+			const page = await listInferenceConfigurations(testEnv.BICKR_D1, ownerId, {
+				kinds: ["custom"], limit: 1, ...(cursor ? { cursor } : {}),
+			});
+			pagedIds.push(...page.items.map((item) => item.id));
+			cursor = page.nextCursor;
+			if (cursor) expect(cursor).toMatch(/^v1\./);
+		} while (cursor);
+		expect(pagedIds).toEqual(expected.map((item) => item.id));
+		expect(new Set(pagedIds)).toEqual(new Set(created.map((item) => item.id)));
+
+		const asciiBoundary = expected.find((item) => item.displayName === "Ascii")!;
+		const asciiLegacy = btoa(JSON.stringify({
+			order: "identity", sortName: "ascii", id: asciiBoundary.id,
+		}));
+		const asciiContinuation = await listInferenceConfigurations(testEnv.BICKR_D1, ownerId, {
+			kinds: ["custom"], cursor: asciiLegacy,
+		});
+		expect(asciiContinuation.items.map((item) => item.id)).toEqual(
+			expected.slice(expected.findIndex((item) => item.id === asciiBoundary.id) + 1).map((item) => item.id),
+		);
+
+		// The legacy byte string C3 A9 is valid UTF-8 for é, but historically
+		// represented the two Latin-1 characters Ã©. It must retain that exact
+		// value instead of being opportunistically reinterpreted as UTF-8.
+		const latin1Boundary = expected.find((item) => item.displayName === "Ã© legacy bytes")!;
+		const latin1Legacy = btoa(JSON.stringify({
+			order: "identity", sortName: "Ã© legacy bytes", id: latin1Boundary.id,
+		}));
+		const afterLatin1 = await listInferenceConfigurations(testEnv.BICKR_D1, ownerId, {
+			kinds: ["custom"], cursor: latin1Legacy,
+		});
+		expect(afterLatin1.items.map((item) => item.id)).toEqual(
+			expected.slice(expected.findIndex((item) => item.id === latin1Boundary.id) + 1).map((item) => item.id),
+		);
+
+		await seedWorld("wld_unicode_a", "München-漢字");
+		await seedWorld("wld_unicode_b", "世界-🪐");
+		await seedBotRow("bot_unicode_a", "wld_unicode_a", "München-漢字", "Кириллица-🪐");
+		await seedBotRow("bot_unicode_b", "wld_unicode_b", "世界-🪐", "participant-漢字");
+		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "world", configurationId: "cfg_unicode_world_a", ownerUserId: ownerId,
+				parentId: rootId, worldId: "wld_unicode_a", now,
+			}),
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "world", configurationId: "cfg_unicode_world_b", ownerUserId: ownerId,
+				parentId: rootId, worldId: "wld_unicode_b", now,
+			}),
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "bot", configurationId: "cfg_unicode_bot_a", ownerUserId: ownerId,
+				parentId: rootId, botId: "bot_unicode_a", now,
+			}),
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "bot", configurationId: "cfg_unicode_bot_b", ownerUserId: ownerId,
+				parentId: rootId, botId: "bot_unicode_b", now,
+			}),
+		]);
+		const firstWorld = await listInferenceConfigurations(testEnv.BICKR_D1, ownerId, { kinds: ["world"], limit: 1 });
+		expect(firstWorld.nextCursor).toMatch(/^v1\./);
+		const secondWorld = await listInferenceConfigurations(testEnv.BICKR_D1, ownerId, {
+			kinds: ["world"], limit: 1, cursor: firstWorld.nextCursor,
+		});
+		expect(new Set([...firstWorld.items, ...secondWorld.items].map((item) => item.id))).toEqual(
+			new Set(["cfg_unicode_world_a", "cfg_unicode_world_b"]),
+		);
+		const firstBot = await listInferenceLibrarySection(testEnv.BICKR_D1, ownerId, { section: "bot", limit: 1 });
+		expect(firstBot.nextCursor).toMatch(/^v1\./);
+		const secondBot = await listInferenceLibrarySection(testEnv.BICKR_D1, ownerId, {
+			section: "bot", limit: 1, cursor: firstBot.nextCursor,
+		});
+		expect(new Set([...firstBot.items, ...secondBot.items].map((item) => item.id))).toEqual(
+			new Set(["cfg_unicode_bot_a", "cfg_unicode_bot_b"]),
+		);
+	});
+
 	it("keeps parent candidate queries bounded at observed graph scale", async () => {
 		const rootId = await accountDefaultConfigurationId(ownerId);
 		const selected = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
@@ -926,6 +1014,16 @@ describe("inference configuration D1 repository", () => {
 		})).rejects.toMatchObject({ status: 400 });
 		await expect(listInferenceConfigurations(testEnv.BICKR_D1, ownerId, { cursor: "not-a-cursor" }))
 			.rejects.toMatchObject({ status: 400 });
+		for (const cursor of [
+			"v1.",
+			"v1.not-base64!",
+			`v1.${btoa(String.fromCharCode(0xc3))}`,
+			`v1.${btoa(JSON.stringify({ order: "bot_home_world", sortName: "", id: "" }))}`,
+			btoa(JSON.stringify({ order: "bot_home_world", sortName: "", id: "" })),
+		]) {
+			await expect(listInferenceConfigurations(testEnv.BICKR_D1, ownerId, { cursor }))
+				.rejects.toMatchObject({ code: "bad_request", status: 400 });
+		}
 	});
 
 	it("refuses the Account-default base URL state on Account default in the writer and in D1", async () => {

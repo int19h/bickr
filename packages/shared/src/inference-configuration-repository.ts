@@ -55,6 +55,7 @@ import {
 	type StoredInferenceConfigurationKind,
 	type BickrInferenceDefaults,
 } from "./inference-configuration";
+import { decodeOpaqueJsonCursor, encodeOpaqueJsonCursor } from "./opaque-json-cursor";
 import type { InferenceGraphConflictCause } from "./model";
 import { RepositoryError } from "./repository";
 import type { D1DatabaseLike, D1PreparedStatementLike } from "./storage";
@@ -1101,13 +1102,13 @@ type InferencePageOrder = "identity" | "bot_home_world" | "child_id";
 type PageCursor = { order: InferencePageOrder; sortName: string; id: string };
 
 function encodeCursor(order: InferencePageOrder, row: Pick<SummaryRow, "sortName" | "id">): string {
-	return btoa(JSON.stringify({ order, sortName: row.sortName, id: row.id } satisfies PageCursor));
+	return encodeOpaqueJsonCursor({ order, sortName: row.sortName, id: row.id } satisfies PageCursor);
 }
 
 function decodeCursor(cursor: string | undefined, order: InferencePageOrder): PageCursor {
 	if (!cursor) return { order, sortName: "", id: "" };
 	try {
-		const value = JSON.parse(atob(cursor)) as unknown;
+		const value = decodeOpaqueJsonCursor(cursor);
 		if (isRecord(value) && value.order === order && typeof value.sortName === "string" && typeof value.id === "string") {
 			return { order, sortName: value.sortName, id: value.id };
 		}
