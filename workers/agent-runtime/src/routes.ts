@@ -16,7 +16,11 @@ import {
 import { makeId } from '@bickr/shared/ids';
 import { json } from '@bickr/shared/http';
 import { type ObjectIndexConvergenceTask, runObjectIndexConvergenceBatch } from '@bickr/shared/index-repair';
-import { providerEnvironmentSettingsFromBindings } from '@bickr/shared/inference-settings';
+import {
+	providerEnvironmentSettingsFromBindings,
+	resolveBotProviderSettings,
+	resolveLegacyTranslationProviderSettings,
+} from '@bickr/shared/inference-settings';
 import {
 	InferenceConfigurationDataError,
 	parseInferenceConfigurationOverridePatch,
@@ -25,6 +29,7 @@ import {
 } from '@bickr/shared/inference-configuration';
 import {
 	bickrInferenceDefaultsFromEnvironment,
+	canonicalInferenceConsumerBatch,
 	canonicalTranslationInferenceAnnotation,
 } from '@bickr/shared/inference-configuration-consumers';
 import {
@@ -46,7 +51,7 @@ import {
 	inferenceConfigurationOwnerDto,
 	inferenceGraphReadVersion,
 	loadInferenceConfigurationPath,
-	listBotEffectiveModels,
+	listOwnedFixedInferenceConfigurationSummaries,
 	listImmediateInferenceChildren,
 	listInferenceConfigurations,
 	listInferenceLibrarySection,
@@ -67,6 +72,10 @@ import {
 } from '@bickr/shared/inference-translation-role-migration';
 import {
 	type CredentialUpdate,
+	maximumCanonicalInferenceAnnotationBatch,
+	type CanonicalInferenceAnnotation,
+	type CanonicalInferenceAnnotationRequest,
+	type CanonicalInferenceFixedReference,
 	type InferenceLibrarySection,
 } from "@bickr/shared/inference-configuration-owner";
 import {
@@ -99,10 +108,12 @@ import {
 	listUserAuthIdentities,
 	publicBotSummary,
 	rawBotById,
+	normalizeBotDefaults,
 	RepositoryError,
 	userById,
 	userProfile,
 	worldByHandle,
+	worldPostingSettingsByIds,
 	worldSummaryFromDocument,
 } from '@bickr/shared/repository';
 import {
@@ -684,6 +695,20 @@ export const agentRuntimeRouteTable = [
 		},
 	},
 	{
+		// Read-only consumer presentation deliberately bypasses the edit cutover
+		// gate. Authorization and entity ownership remain mandatory, while the
+		// resolver follows the same 0/1/2 state machine as provider execution.
+		id: 'get-inference-consumer-annotations',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/inference-consumers\/annotations$/,
+		dispatch: 'direct',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const request = parseCanonicalInferenceAnnotationRequest(await readJsonBody(context.request));
+			return ok(await canonicalInferenceAnnotations(context, userId, request));
+		},
+	},
+	{
 		// Set-oriented canonical model labels for the participants an owner screen
 		// is already rendering. It answers with resolved model strings only, so an
 		// owner UI never reconstructs an effective model locally and never reads a
@@ -694,16 +719,27 @@ export const agentRuntimeRouteTable = [
 		pattern: /^\/users\/([^/]+)\/inference-configurations\/effective-models$/,
 		dispatch: 'user-coordinator',
 		handler: async (context) => {
-			const userId = await requireInferenceGraphOwner(context);
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			if (context.coordinator.ownerUserId !== userId) {
+				throw new RepositoryError('forbidden', 'Inference consumer request was dispatched to the wrong coordinator.', 403);
+			}
 			const botIds = (context.url.searchParams.get('botIds') ?? '')
 				.split(',')
 				.map((value) => value.trim())
 				.filter(Boolean);
+			const request = parseCanonicalInferenceAnnotationRequest({ botIds });
+			const annotations = await canonicalInferenceAnnotations(context, userId, request);
 			return ok({
-				effectiveModels: await listBotEffectiveModels(context.env.BICKR_D1, userId, {
-					botIds,
-					defaults: await bickrInferenceDefaultsFromEnvironment(context.env),
-				}),
+				effectiveModels: {
+					models: annotations.annotations.flatMap((annotation) => annotation.reference.kind === 'bot'
+						? [{
+							botId: annotation.reference.botId,
+							effectiveModel: annotation.kind === 'canonical'
+								? annotation.configuration.effectiveModel
+								: annotation.effectiveModel,
+						}]
+						: []),
+				},
 				coordinator: context.objectId,
 			});
 		},
@@ -872,19 +908,6 @@ export const agentRuntimeRouteTable = [
 				ok: true,
 				runtime: 'agent-runtime-worker',
 			}),
-	},
-	{
-		id: 'provider-environment',
-		method: 'GET',
-		pattern: /^\/provider-settings\/environment$/,
-		dispatch: 'direct',
-		handler: async (context) => {
-			requireAuthenticatedServiceRequest(context.request);
-			return ok({
-				kind: 'provider_environment' as const,
-				settings: providerEnvironmentSettingsFromBindings(context.env, { includeApiKey: false }),
-			});
-		},
 	},
 	{
 		id: 'translate',
@@ -1618,7 +1641,13 @@ export const agentRuntimeRouteTable = [
 			if (!deleted?.deletedAt) {
 				throw new RepositoryError('server_error', 'Deleted participant document is missing.', 500);
 			}
-			return ok({ bot: publicBotSummary(deleted, { includeToolSettings: true, nextDueAt: null }), coordinator: context.objectId });
+			const worldPostingSettings = (await worldPostingSettingsByIds(
+				context.env.BICKR_D1, [deleted.homeWorldId],
+			)).get(deleted.homeWorldId);
+			return ok({
+				bot: publicBotSummary(deleted, { includeToolSettings: true, nextDueAt: null, worldPostingSettings }),
+				coordinator: context.objectId,
+			});
 		},
 	},
 	{
@@ -1878,6 +1907,211 @@ async function requireInferenceGraphOwner(context: AgentRuntimeRouteContext): Pr
 		throw new RepositoryError('conflict', 'Inference configuration graph is not available for this account.', 409);
 	}
 	return userId;
+}
+
+function parseCanonicalInferenceAnnotationRequest(value: unknown): CanonicalInferenceAnnotationRequest {
+	const record = requiredRecord(value);
+	const allowed = new Set(['accountDefault', 'translation', 'botIds', 'worldIds']);
+	const unexpected = Object.keys(record).find((key) => !allowed.has(key));
+	if (unexpected) throw new InputError(`Unsupported inference consumer annotation field: ${unexpected}.`);
+	const stringArray = (candidate: unknown, field: string): string[] | undefined => {
+		if (candidate === undefined) return undefined;
+		if (!Array.isArray(candidate) || candidate.some((entry) => typeof entry !== 'string' || !entry.trim())) {
+			throw new InputError(`${field} must be an array of non-empty strings.`);
+		}
+		return [...new Set(candidate)];
+	};
+	if (record.accountDefault !== undefined && typeof record.accountDefault !== 'boolean') {
+		throw new InputError('accountDefault must be boolean.');
+	}
+	if (record.translation !== undefined && typeof record.translation !== 'boolean') {
+		throw new InputError('translation must be boolean.');
+	}
+	const request: CanonicalInferenceAnnotationRequest = {
+		...(record.accountDefault === true ? { accountDefault: true } : {}),
+		...(record.translation === true ? { translation: true } : {}),
+		...(stringArray(record.botIds, 'botIds') ? { botIds: stringArray(record.botIds, 'botIds') } : {}),
+		...(stringArray(record.worldIds, 'worldIds') ? { worldIds: stringArray(record.worldIds, 'worldIds') } : {}),
+	};
+	const count = (request.accountDefault ? 1 : 0) + (request.translation ? 1 : 0)
+		+ (request.botIds?.length ?? 0) + (request.worldIds?.length ?? 0);
+	if (count > maximumCanonicalInferenceAnnotationBatch) {
+		throw new InputError(`At most ${maximumCanonicalInferenceAnnotationBatch} fixed inference consumers may be requested.`);
+	}
+	return request;
+}
+
+async function canonicalInferenceAnnotations(
+	context: AgentRuntimeRouteContext,
+	userId: string,
+	request: CanonicalInferenceAnnotationRequest,
+): Promise<{ annotations: CanonicalInferenceAnnotation[]; graphRevision: number }> {
+	const references: CanonicalInferenceFixedReference[] = [
+		...(request.accountDefault ? [{ kind: 'account_default' } as const] : []),
+		...(request.translation ? [{ kind: 'translation' } as const] : []),
+		...(request.worldIds ?? []).map((worldId) => ({ kind: 'world' as const, worldId })),
+		...(request.botIds ?? []).map((botId) => ({ kind: 'bot' as const, botId })),
+	];
+	const version = await inferenceGraphReadVersion(context.env.BICKR_D1, userId);
+	if (version.cutoverVersion === 0) {
+		const owner = await userById(context.env.BICKR_KV, userId);
+		const environment = providerEnvironmentSettingsFromBindings(context.env);
+		const accountModel = resolveBotProviderSettings({ inferenceSettings: {} }, owner, environment).settings.model;
+		const legacy = await legacyInferenceConsumerCandidates(context, userId, request.botIds ?? [], request.worldIds ?? []);
+		const annotations: CanonicalInferenceAnnotation[] = [];
+		for (const reference of references) {
+			let effectiveModel: string | undefined;
+			switch (reference.kind) {
+				case 'account_default':
+					effectiveModel = accountModel;
+					break;
+				case 'translation':
+					effectiveModel = resolveLegacyTranslationProviderSettings(owner, environment)?.model;
+					break;
+				case 'world':
+					effectiveModel = legacy.worldIds.has(reference.worldId) ? accountModel : undefined;
+					break;
+				case 'bot': {
+					const inferenceSettings = legacy.botInferenceSettings.get(reference.botId);
+					effectiveModel = inferenceSettings
+						? resolveBotProviderSettings({ inferenceSettings }, owner, environment).settings.model
+						: undefined;
+					break;
+				}
+			}
+			if (effectiveModel) {
+				annotations.push({ kind: 'legacy_compatibility', reference, effectiveModel, reason: 'graph_not_migrated' });
+			}
+		}
+		return { annotations, graphRevision: version.graphRevision };
+	}
+	let translationConfigurationId: string | null | undefined;
+	if (request.translation) {
+		const state = await translationInferenceState(context.env.BICKR_D1, userId);
+		if (state.kind === 'canonical') {
+			translationConfigurationId = state.enabled ? state.role.id : null;
+		} else {
+			const legacyEnabled = Boolean((await userById(context.env.BICKR_KV, userId)).inferenceSettings?.translation?.enabled);
+			translationConfigurationId = legacyEnabled ? state.role?.id ?? state.selection.configurationId : null;
+		}
+	}
+	const referenceConfigurationIds = await Promise.all(references.map(async (reference) => {
+		switch (reference.kind) {
+			case 'account_default': return accountDefaultConfigurationId(userId);
+			case 'translation': return translationConfigurationId ?? null;
+			case 'world': return worldConfigurationId(reference.worldId);
+			case 'bot': return botConfigurationId(reference.botId);
+		}
+	}));
+	const referencesByConfigurationId = new Map<string, CanonicalInferenceFixedReference[]>();
+	for (const [index, configurationId] of referenceConfigurationIds.entries()) {
+		if (!configurationId) continue;
+		const selected = referencesByConfigurationId.get(configurationId) ?? [];
+		selected.push(references[index]!);
+		referencesByConfigurationId.set(configurationId, selected);
+	}
+	const defaults = await bickrInferenceDefaultsFromEnvironment(context.env);
+	const summaries = await listOwnedFixedInferenceConfigurationSummaries(
+		context.env.BICKR_D1, userId, references, defaults, version, translationConfigurationId,
+	);
+	const resolved = await canonicalInferenceConsumerBatch(
+		context.env.BICKR_D1,
+		userId,
+		summaries.map((configuration) => ({
+			configurationId: configuration.id,
+			consumer: referencesByConfigurationId.get(configuration.id)?.some((reference) => reference.kind === 'translation')
+				? 'translation'
+				: configuration.kind === 'account_default' ? 'account' : configuration.kind === 'custom' ? 'bot' : configuration.kind,
+		})),
+		context.env,
+		version,
+	);
+	const annotations = summaries.flatMap((configuration): CanonicalInferenceAnnotation[] => {
+		const consumer = resolved.get(configuration.id);
+		if (!consumer) return [];
+		const credential = consumer.resolution.effective.credential;
+		configuration = {
+			...configuration,
+			effectiveModel: consumer.resolution.effective.model,
+			credentialAvailability: credential.kind === 'available'
+				? { kind: 'available', source: credential.source }
+				: credential.kind === 'explicit_none'
+					? { kind: 'explicit_none', source: credential.source }
+					: { kind: 'unavailable', source: credential.source, reason: credential.reason },
+		};
+		return (referencesByConfigurationId.get(configuration.id) ?? []).map((reference) => ({
+			kind: 'canonical' as const,
+			reference,
+			configuration,
+		}));
+	});
+	return { annotations, graphRevision: version.graphRevision };
+}
+
+type LegacyInferenceConsumerRow = {
+	kind: 'world' | 'bot';
+	requestedId: string;
+	entityId: string;
+	sourceBotId: string | null;
+	linked: number | null;
+	depth: number;
+};
+
+async function legacyInferenceConsumerCandidates(
+	context: AgentRuntimeRouteContext,
+	ownerUserId: string,
+	botIds: readonly string[],
+	worldIds: readonly string[],
+): Promise<{ worldIds: ReadonlySet<string>; botInferenceSettings: ReadonlyMap<string, BotInferenceSettings> }> {
+	const result = await context.env.BICKR_D1.prepare(
+		`WITH RECURSIVE requested_bots(id) AS (SELECT value FROM json_each(?)),
+		requested_worlds(id) AS (SELECT value FROM json_each(?)),
+		owned_bots(id) AS (
+			SELECT bots.bot_id FROM bots_index AS bots JOIN requested_bots ON requested_bots.id = bots.bot_id
+			WHERE bots.owner_user_id = ? AND bots.deleted_at IS NULL AND bots.lifecycle_state = 'active'
+		), clone_chain(requestedId, entityId, sourceBotId, linked, depth) AS (
+			SELECT owned.id, owned.id, source.source_bot_id, COALESCE(source.linked, 0), 0
+			FROM owned_bots AS owned LEFT JOIN bot_clone_sources AS source ON source.bot_id = owned.id
+			UNION ALL
+			SELECT chain.requestedId, source_bot.bot_id, source.source_bot_id, COALESCE(source.linked, 0), chain.depth + 1
+			FROM clone_chain AS chain
+			JOIN bots_index AS source_bot ON source_bot.bot_id = chain.sourceBotId
+				AND source_bot.deleted_at IS NULL AND source_bot.lifecycle_state = 'active'
+			LEFT JOIN bot_clone_sources AS source ON source.bot_id = source_bot.bot_id
+			WHERE chain.linked = 1 AND chain.depth < 17
+		)
+		SELECT 'world' AS kind, worlds.world_id AS requestedId, worlds.world_id AS entityId,
+			NULL AS sourceBotId, NULL AS linked, 0 AS depth
+		FROM worlds_index AS worlds JOIN requested_worlds ON requested_worlds.id = worlds.world_id
+		WHERE worlds.created_by_user_id = ? AND worlds.deleted_at IS NULL AND worlds.lifecycle_state = 'active'
+		UNION ALL
+		SELECT 'bot' AS kind, requestedId, entityId, sourceBotId, linked, depth FROM clone_chain
+		ORDER BY kind, requestedId, depth`,
+	).bind(JSON.stringify(botIds), JSON.stringify(worldIds), ownerUserId, ownerUserId).all<LegacyInferenceConsumerRow>();
+	const rows = result.results ?? [];
+	const worldSet = new Set(rows.filter((row) => row.kind === 'world').map((row) => row.requestedId));
+	const botRows = rows.filter((row) => row.kind === 'bot');
+	const entityIds = [...new Set(botRows.map((row) => row.entityId))];
+	const documents = await Promise.all(entityIds.map(async (id) => [id, await readJson<BotDocument>(
+		context.env.BICKR_KV, kvKeys.bot(id),
+	)] as const));
+	const byId = new Map(documents.flatMap(([id, bot]) => bot && !bot.deletedAt ? [[id, normalizeBotDefaults(bot)] as const] : []));
+	const settings = new Map<string, BotInferenceSettings>();
+	for (const requestedId of new Set(botRows.map((row) => row.requestedId))) {
+		const chain = botRows.filter((row) => row.requestedId === requestedId);
+		if (chain.some((row) => row.depth > 16)) {
+			throw new RepositoryError('conflict', 'Clone source chain is too deep.', 409);
+		}
+		let effective: BotInferenceSettings | undefined;
+		for (const row of [...chain].reverse()) {
+			const bot = byId.get(row.entityId);
+			if (!bot) { effective = undefined; break; }
+			const local = bot.inferenceSettings;
+			effective = row.linked === 1 && !local.model?.trim() && effective ? effective : local;
+		}
+		if (effective) settings.set(requestedId, effective);
+	}
+	return { worldIds: worldSet, botInferenceSettings: settings };
 }
 
 function requiredRecord(value: unknown): Record<string, unknown> {

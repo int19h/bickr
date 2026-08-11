@@ -6,6 +6,7 @@ import { isCloudflareRateLimitError, retryCloudflareOperation } from '@bickr/sha
 import { isD1UniqueConstraintError } from '@bickr/shared/d1-errors';
 import {
 	canonicalBotInference,
+	canonicalConfigurationInference,
 	canonicalTranslationInference,
 	translationToolCallStrategy,
 } from '@bickr/shared/inference-configuration-consumers';
@@ -4321,10 +4322,7 @@ export class BotRuntime {
 	): Promise<BotContextBudget | null> {
 		const currentBot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
 		const owner = await userById(this.env.BICKR_KV, currentBot.ownerUserId);
-		const inferenceSettings = enforceInferenceModelAccess(
-			mergeInferenceSettings(currentBot.inferenceSettings, input?.inferenceSettings),
-			owner.inferenceSettings,
-		);
+		const inferenceSettings = enforceInferenceModelAccess(currentBot.inferenceSettings, owner.inferenceSettings);
 		const toolSettings = mergeToolSettings(currentBot.toolSettings, input?.toolSettings);
 		const postingSettings = mergePostingSettings(currentBot.postingSettings, input?.postingSettings);
 		const inputLanguage = input?.language ?? currentBot.language;
@@ -4342,7 +4340,15 @@ export class BotRuntime {
 			tickSettings: mergeTickSettings(currentBot.tickSettings, input?.tickSettings),
 		});
 		const tickSettings = effectiveTickSettings(bot.tickSettings);
-		const settings = await this.effectiveProviderSettings(bot, owner);
+		const selectedConfiguration = input?.configurationId
+			? await canonicalConfigurationInference(
+				this.env.BICKR_D1, currentBot.ownerUserId, input.configurationId, this.env,
+			)
+			: null;
+		if (input?.configurationId && !selectedConfiguration) {
+			throw new InputError('Reusable inference configurations are not available for this account.');
+		}
+		const settings = selectedConfiguration?.providerSettings ?? await this.effectiveProviderSettings(bot, owner);
 		if (computeIfMissing && !settings.apiKey && !settings.usesCustomBaseUrl && this.env.BICKR_SIMULATION_MODE !== 'provider') {
 			throw new InputError('Configure an OpenRouter API key or custom inference base URL to compute exact tokens.');
 		}

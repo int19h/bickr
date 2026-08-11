@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import {
 	accountConfigurationDeletionStatements,
-	listBotEffectiveModels,
 	listInferenceLibrarySection,
 	parseInferenceConfigurationKinds,
 	parseInferenceLibrarySection,
@@ -300,92 +299,6 @@ describe("inference configuration D1 repository", () => {
 				identity: { kind: "world", worldId, worldHandle: "identity-world" },
 			},
 		});
-	});
-
-	/**
-	 * Owner surfaces that only label a participant's current model read it here.
-	 * The answer has to follow graph edits — an override, a reparent, or an
-	 * Account-default change — because that is exactly what a browser-side
-	 * reconstruction from stored legacy settings cannot do.
-	 */
-	it("resolves canonical participant models for a bounded set and follows graph edits", async () => {
-		const rootId = await accountDefaultConfigurationId(ownerId);
-		const deploymentDefaults = {
-			fields: { baseUrl: "https://deployment.example/v1", model: "bickr/default", temperature: 1 },
-			credentialVersion: 0,
-		};
-		// An owner-chosen model only takes effect behind an owner provider, so the
-		// account keeps a saved key exactly as a real graph would.
-		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
-			configurationId: rootId,
-			expectedRevision: 1,
-			credential: { mode: "value", secret: "owner-provider-key" },
-		}, now);
-		await seedWorld("wld_models", "model-world");
-		await seedBotRow("bot_alpha", "wld_models", "model-world", "alpha");
-		await seedBotRow("bot_beta", "wld_models", "model-world", "beta");
-		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
-			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
-				kind: "world", configurationId: "cfg_models_world", ownerUserId: ownerId,
-				parentId: rootId, worldId: "wld_models", overrides: { model: { kind: "value", value: "world/model" } }, now,
-			}),
-			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
-				kind: "bot", configurationId: "cfg_models_alpha", ownerUserId: ownerId,
-				parentId: "cfg_models_world", botId: "bot_alpha", overrides: {}, now,
-			}),
-			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
-				kind: "bot", configurationId: "cfg_models_beta", ownerUserId: ownerId,
-				parentId: rootId, botId: "bot_beta", overrides: { model: { kind: "value", value: "beta/model" } }, now,
-			}),
-		]);
-
-		const inherited = await listBotEffectiveModels(testEnv.BICKR_D1, ownerId, {
-			botIds: ["bot_alpha", "bot_beta"],
-			defaults: deploymentDefaults,
-		});
-		expect(inherited.models).toEqual(expect.arrayContaining([
-			{ botId: "bot_alpha", effectiveModel: "world/model" },
-			{ botId: "bot_beta", effectiveModel: "beta/model" },
-		]));
-		expect(inherited.models).toHaveLength(2);
-
-		// An override on the participant's own entry, and a reparent away from the
-		// world entry, both move the answer.
-		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
-			configurationId: "cfg_models_alpha",
-			expectedRevision: 1,
-			overrides: { model: { kind: "value", value: "alpha/model" } },
-		}, now);
-		await inferenceConfigurationMutations.reparent(testEnv.BICKR_D1, ownerId, {
-			configurationId: "cfg_models_beta",
-			parentId: "cfg_models_world",
-			expectedRevision: 1,
-		}, now);
-		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
-			configurationId: "cfg_models_beta",
-			expectedRevision: 2,
-			overrides: { model: { kind: "inherit" } },
-		}, now);
-		const edited = await listBotEffectiveModels(testEnv.BICKR_D1, ownerId, {
-			botIds: ["bot_alpha", "bot_beta"],
-			defaults: deploymentDefaults,
-		});
-		expect(edited.models).toEqual(expect.arrayContaining([
-			{ botId: "bot_alpha", effectiveModel: "alpha/model" },
-			{ botId: "bot_beta", effectiveModel: "world/model" },
-		]));
-
-		// Nothing but the model reaches the answer, an unowned or unknown
-		// participant is simply absent, and an oversized set is a typed refusal
-		// rather than an unbounded scan.
-		expect(Object.keys(edited.models[0] ?? {})).toEqual(["botId", "effectiveModel"]);
-		expect(JSON.stringify(edited)).not.toContain("owner-provider-key");
-		expect((await listBotEffectiveModels(testEnv.BICKR_D1, ownerId, { botIds: ["bot_missing"] })).models).toEqual([]);
-		expect((await listBotEffectiveModels(testEnv.BICKR_D1, "usr_other", { botIds: ["bot_alpha"] })).models).toEqual([]);
-		expect((await listBotEffectiveModels(testEnv.BICKR_D1, ownerId, { botIds: [] })).models).toEqual([]);
-		await expect(listBotEffectiveModels(testEnv.BICKR_D1, ownerId, {
-			botIds: Array.from({ length: 101 }, (_unused, index) => `bot_${index}`),
-		})).rejects.toThrow(/At most 100 participants/);
 	});
 
 	it("previews bounded reparent and delete effects without secret material", async () => {

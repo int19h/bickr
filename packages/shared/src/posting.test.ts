@@ -229,25 +229,19 @@ describe("posting settings", () => {
 			customTitle: null,
 		});
 		expect(parseBotContextBudgetInput({
+			configurationId: "cfg_budget",
 			language: "en",
 			includeLanguageInSystemPrompt: true,
 			displayName: en("Budget Bot"),
 			prompt: en("Count this draft prompt."),
 			shortBio: en("Counts context."),
-			inferenceSettings: {
-				recurringPrompt: en("Preserve this prefill.  "),
-				translation: { prompt: en("Translate budget text.") },
-			},
 		})).toMatchObject({
+			configurationId: "cfg_budget",
 			language: "en",
 			includeLanguageInSystemPrompt: true,
 			displayName: "Budget Bot",
 			prompt: "Count this draft prompt.",
 			shortBio: "Counts context.",
-			inferenceSettings: {
-				recurringPrompt: en("Preserve this prefill.  "),
-				translation: { prompt: en("Translate budget text.") },
-			},
 		});
 	});
 

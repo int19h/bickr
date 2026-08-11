@@ -1,16 +1,21 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import { env as testEnv } from "cloudflare:test";
 import { localizedText, type BotDocument, type LanguageTag, type LocalizedText, type UserDocument } from "../packages/shared/src/model";
+import { inferenceConfigurationFields } from "../packages/shared/src/inference-configuration-owner";
 import {
 	createMcpAuthorizationCode,
 	exchangeMcpAuthorizationCode,
 	registerMcpClient,
 } from "../packages/shared/src/mcp-auth";
-import { kvKeys, type KVNamespaceLike } from "../packages/shared/src/storage";
+import { kvKeys, writeJson, type KVNamespaceLike } from "../packages/shared/src/storage";
 import { onRequestGet as onAuthorizationServerGet } from "../apps/web/functions/.well-known/oauth-authorization-server";
 import { onRequestGet as onProtectedResourceGet } from "../apps/web/functions/.well-known/oauth-protected-resource";
 import { onRequestGet as onPathProtectedResourceGet } from "../apps/web/functions/.well-known/oauth-protected-resource/mcp";
 import { mcpToolMetadataForTest, onRequestPost } from "../apps/web/functions/mcp";
 import { onRequestPost as onRegisterPost } from "../apps/web/functions/oauth/register";
+import { handleAgentRuntimeRequest } from "../workers/agent-runtime/src/routes";
+import { listUserBots, listWorldBots } from "../packages/shared/src/repository";
+import { clearKv, resetD1Schema } from "./helpers/d1-schema";
 
 type TestPagesContext = Parameters<typeof onRequestPost>[0];
 const en = "en" as LanguageTag;
@@ -60,12 +65,60 @@ function toolArgumentSchema(inputSchema: Record<string, unknown>): Record<string
 	return items as Record<string, unknown>;
 }
 
+function expectSchemaAccepts(schema: Record<string, unknown>, value: unknown, path = "result"): void {
+	const allowedTypes = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : [];
+	const actualType = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+	if (allowedTypes.length > 0) {
+		expect(allowedTypes, `${path} type`).toContain(actualType === "number" && Number.isInteger(value) ?
+			(allowedTypes.includes("integer") ? "integer" : "number") : actualType);
+	}
+	if (Array.isArray(schema.enum)) expect(schema.enum, `${path} enum`).toContain(value);
+	if (Array.isArray(value) && schema.items && typeof schema.items === "object") {
+		value.forEach((entry, index) => expectSchemaAccepts(schema.items as Record<string, unknown>, entry, `${path}[${index}]`));
+	}
+	if (value && typeof value === "object" && !Array.isArray(value)) {
+		const record = value as Record<string, unknown>;
+		const rawProperties = schema.properties;
+		const properties = rawProperties && typeof rawProperties === "object" && !Array.isArray(rawProperties)
+			? rawProperties as Record<string, unknown>
+			: {};
+		for (const required of Array.isArray(schema.required) ? schema.required : []) {
+			if (typeof required === "string") expect(record, `${path}.${required}`).toHaveProperty(required);
+		}
+		for (const [key, entry] of Object.entries(record)) {
+			const property = properties[key];
+			if (property && typeof property === "object" && !Array.isArray(property)) {
+				expectSchemaAccepts(property as Record<string, unknown>, entry, `${path}.${key}`);
+			} else if (schema.additionalProperties === false) {
+				throw new Error(`${path}.${key} is not allowed by the schema.`);
+			}
+		}
+	}
+}
+
 function schemaProperties(schema: Record<string, unknown>): Record<string, unknown> {
 	const properties = schema.properties;
 	if (!properties || typeof properties !== "object" || Array.isArray(properties)) {
 		throw new Error("Schema properties are missing.");
 	}
 	return properties as Record<string, unknown>;
+}
+
+function activeIdentityClaim(
+	kind: "world_handle" | "bot_handle",
+	scope: string,
+	value: string,
+	entityKind: "world" | "bot",
+	entityId: string,
+	ownerUserId: string,
+) {
+	const now = "2026-08-11T00:00:00.000Z";
+	return testEnv.BICKR_D1.prepare(
+		`INSERT INTO entity_lifecycle_identity_claims (
+			key_kind, key_scope, key_value, entity_kind, entity_id,
+			owner_user_id, claim_state, operation_id, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?)`,
+	).bind(kind, scope, value, entityKind, entityId, ownerUserId, now, now);
 }
 
 function localizedPropertyKeys(tools: Map<string, { inputSchema: Record<string, unknown> }>, toolName: string, ...path: string[]): string[] {
@@ -90,7 +143,7 @@ describe("MCP endpoint", () => {
 	it("keeps read tools available while blocking mutations during maintenance", async () => {
 		const kv = new MapKV();
 		const accessToken = await issueAccessToken(kv, ["bickr.read", "bickr.write"]);
-		const environment = { BICKR_D1: emptyD1(), MAINTENANCE_ENABLED: true };
+		const environment = { BICKR_D1: emptyD1(), MAINTENANCE_ENABLED: true, AGENT_RUNTIME: canonicalAnnotationService([]), INTERNAL_SERVICE_SECRET: "test-internal-service-secret" };
 
 		const readResponse = await callMcp(kv, accessToken, {
 			jsonrpc: "2.0",
@@ -199,6 +252,7 @@ describe("MCP endpoint", () => {
 			["list_my_bots", "bickr.read", true, false, true],
 			["list_inference_configurations", "bickr.read", true, false, true],
 			["get_inference_configuration", "bickr.read", true, false, true],
+			["get_fixed_inference_configuration", "bickr.read", true, false, true],
 			["create_inference_configuration", "bickr.write", false, false, false],
 			["update_inference_configuration", "bickr.write", false, false, false],
 			["rename_inference_configuration", "bickr.write", false, false, false],
@@ -267,7 +321,14 @@ describe("MCP endpoint", () => {
 		const forbiddenKeywords = new Set(["oneOf", "anyOf", "allOf", "$ref", "$defs", "if", "then", "else", "not"]);
 		for (const tool of tools) {
 			assertNoSchemaKeywords(tool.inputSchema, forbiddenKeywords, tool.name);
-			expect(JSON.stringify(tool.inputSchema).length, `${tool.name} schema bytes`).toBeLessThanOrEqual(5_000);
+			const maximumBytes = tool.name === "create_inference_configuration" || tool.name === "update_inference_configuration"
+				? 32 * 1024
+				: 5 * 1024;
+			expect(JSON.stringify(tool.inputSchema).length, `${tool.name} schema bytes`).toBeLessThanOrEqual(maximumBytes);
+			if (tool.outputSchema) {
+				assertNoSchemaKeywords(tool.outputSchema, forbiddenKeywords, `${tool.name}.outputSchema`);
+				expect(JSON.stringify(tool.outputSchema).length, `${tool.name} output schema bytes`).toBeLessThanOrEqual(maximumBytes);
+			}
 			if (tool.annotations.readOnlyHint === true) {
 				continue;
 			}
@@ -288,6 +349,7 @@ describe("MCP endpoint", () => {
 			expect(schemaRequired(new Map([[tool.name, tool]]), tool.name), tool.name).toContain("operationId");
 			expect(schemaProperties(operationSchema), tool.name).toHaveProperty("operationId");
 		}
+		expect(JSON.stringify({ tools }).length, "complete tools/list bytes").toBeLessThanOrEqual(256 * 1024);
 	});
 
 	it("advertises lang-aware schemas for authored MCP text", () => {
@@ -452,18 +514,19 @@ describe("MCP endpoint", () => {
 		});
 	});
 
-	it("advertises localized prompt fields in nested settings schemas", () => {
+	it("advertises closed prompt-only entity schemas", () => {
 		const byName = new Map(mcpToolMetadataForTest().map((tool) => [tool.name, tool]));
 		const createBotInference = schemaProperty(byName, "create_bot", "inferenceSettings");
 		const inferenceProperties = schemaProperties(createBotInference);
 		const recurringPrompt = inferenceProperties.recurringPrompt as Record<string, unknown>;
 		const imageGeneration = inferenceProperties.imageGeneration as Record<string, unknown>;
-		const translation = inferenceProperties.translation as Record<string, unknown>;
 
 		expect(Object.keys(schemaProperties(recurringPrompt))).toEqual(["lang", "text"]);
-		expect(inferenceProperties).not.toHaveProperty("reasoningPrefill");
+		expect(Object.keys(inferenceProperties)).toEqual(["recurringPromptEnabled", "recurringPrompt", "imageGeneration"]);
 		expect(Object.keys(schemaProperties(schemaProperties(imageGeneration).prompt as Record<string, unknown>))).toEqual(["lang", "text"]);
-		expect(Object.keys(schemaProperties(schemaProperties(translation).prompt as Record<string, unknown>))).toEqual(["lang", "text"]);
+		const profile = schemaProperties(schemaProperty(byName, "update_profile", "inferenceSettings"));
+		expect(Object.keys(profile)).toEqual(["imageGeneration", "translation"]);
+		expect(schemaProperties(profile.translation as Record<string, unknown>)).toHaveProperty("enabled");
 	});
 
 	it("returns structured tool content before compatibility text content", async () => {
@@ -477,7 +540,7 @@ describe("MCP endpoint", () => {
 				name: "get_profile",
 				arguments: {},
 			},
-		}, { BICKR_D1: emptyD1() });
+		}, { BICKR_D1: emptyD1(), AGENT_RUNTIME: canonicalAnnotationService([]), INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
 		const body = await jsonResponse(response);
 		const result = body.result as Record<string, unknown>;
 		const resultKeys = Object.keys(result);
@@ -496,37 +559,352 @@ describe("MCP endpoint", () => {
 		});
 	});
 
-	it("accepts a migration-pending Translation annotation from the runtime", async () => {
+	it("returns canonical Account default and Translation annotations from one runtime read", async () => {
 		const kv = new MapKV();
 		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
-		const annotation = {
-			enabled: true,
-			migrationPending: true,
-			sourceConfigurationId: "cfg_pre_sweep_translation",
-			pointerRevision: 3,
-			effectiveModel: "legacy/translation-model",
-			effectiveRevisionFingerprint: "pending-fingerprint",
-			credentialAvailable: true,
-		} as const;
+		const annotations = [canonicalAnnotation("account_default", "cfg_account", "xiaomi/mimo-v2.5"), canonicalAnnotation("translation", "cfg_translation", "xiaomi/mimo-v2.5")];
 		const response = await callMcp(kv, accessToken, {
 			jsonrpc: "2.0",
 			id: 1,
 			method: "tools/call",
 			params: { name: "get_profile", arguments: {} },
 		}, {
-			AGENT_RUNTIME: {
-				fetch: async (request: Request) => {
-					expect(new URL(request.url).pathname)
-						.toBe("/users/usr_mcp/inference-translation/annotation");
-					return Response.json({ ok: true, data: { annotation } });
-				},
-			},
+			AGENT_RUNTIME: canonicalAnnotationService(annotations),
 			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
 		});
 
-		expect((await jsonResponse(response)).result).toMatchObject({
-			structuredContent: { profile: { translationInference: annotation } },
+		expect((await jsonResponse(response)).result).toMatchObject({ structuredContent: { profile: {
+			inferenceConfigurations: {
+				accountDefault: annotations[0],
+				translation: annotations[1],
+				graphRevision: 7,
+			},
+		} } });
+	});
+
+	it("uses the canonical profile shape for profile mutation receipts", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
+		const translation = canonicalAnnotation("translation", "cfg_translation", "xiaomi/mimo-v2.5");
+		const profile = {
+			...testUser({ displayName: lt("Updated profile") }),
+			translationInference: { enabled: true, model: "legacy/private-translation" },
+		};
+		const service = { fetch: async (request: Request) => {
+			if (new URL(request.url).pathname.endsWith("/inference-consumers/annotations")) {
+				return Response.json({ ok: true, data: { annotations: [translation], graphRevision: 7 } });
+			}
+			return Response.json({ ok: true, data: { kind: "profile_updated", profile } });
+		} };
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/call",
+			params: { name: "update_profile", arguments: { displayName: lt("Updated profile"), lang: "en" } },
+		}, { BICKR_D1: emptyD1(), AGENT_RUNTIME: service, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
+		const result = (await jsonResponse(response)).result as {
+			structuredContent: { profile: Record<string, unknown> };
+		};
+		expect(result.structuredContent.profile).not.toHaveProperty("translationInference");
+		expect(result.structuredContent.profile).toMatchObject({
+			inferenceConfigurations: { graphRevision: 7, translation },
 		});
+		expect(JSON.stringify(result)).not.toContain("legacy/private-translation");
+	});
+
+	it("enriches owned search results once and leaves public unowned results free of graph state", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
+		let annotationCalls = 0;
+		const ownedAnnotation = {
+			...canonicalAnnotation("account_default", "cfg_owned_bot", "xiaomi/mimo-v2.5"),
+			reference: { kind: "bot", botId: "bot_owned" },
+			configuration: {
+				...(canonicalAnnotation("account_default", "cfg_owned_bot", "xiaomi/mimo-v2.5").configuration as Record<string, unknown>),
+				kind: "bot",
+				identity: { kind: "bot", botId: "bot_owned", handle: "owned", homeWorldId: "wld_search", homeWorldHandle: "search" },
+			},
+		};
+		const service = { fetch: async (request: Request) => {
+			const path = new URL(request.url).pathname;
+			if (path.endsWith("/inference-consumers/annotations")) {
+				annotationCalls += 1;
+				return Response.json({ ok: true, data: { annotations: [ownedAnnotation], graphRevision: 7 } });
+			}
+			return Response.json({ ok: true, data: { search: {
+				query: "bot", page: 1, pageSize: 20, hasNextPage: false, total: 2, totalRelation: "exact",
+				results: [
+					{ id: "bot_owned", type: "bot", rank: 1, source: "semantic", urlPath: "/owned", world: { id: "wld_search", handle: "search", name: lt("Search"), description: lt(""), matched: false }, handle: "owned", displayName: lt("Owned"), shortBio: lt("") },
+					{ id: "bot_foreign", type: "bot", rank: 2, source: "semantic", urlPath: "/foreign", world: { id: "wld_search", handle: "search", name: lt("Search"), description: lt(""), matched: false }, handle: "foreign", displayName: lt("Foreign"), shortBio: lt("") },
+				],
+			} } });
+		} };
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/call", params: {
+				name: "search", arguments: { query: "bot", mode: "semantic" },
+			},
+		}, { AGENT_RUNTIME: service, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
+		const responseBody = await jsonResponse(response);
+		if (!(responseBody.result as { structuredContent?: unknown } | undefined)?.structuredContent) {
+			throw new Error(JSON.stringify(responseBody));
+		}
+		const data = (responseBody.result as {
+			structuredContent: { data: { inferenceConfigurations: { graphRevision: number }; search: { results: Record<string, unknown>[] } } };
+		}).structuredContent.data;
+		const results = data.search.results;
+		expect(annotationCalls).toBe(1);
+		expect(data.inferenceConfigurations).toEqual({ graphRevision: 7 });
+		expect(results[0]).toHaveProperty("inferenceConfiguration");
+		expect(results[1]).not.toHaveProperty("inferenceConfiguration");
+		expect(JSON.stringify(results[1])).not.toMatch(/graphRevision|effectiveModel|credential/i);
+	});
+
+	it("keeps cutover-0 MCP search readable when results belong to other owners", async () => {
+		await resetD1Schema(testEnv.BICKR_D1);
+		await clearKv(testEnv.BICKR_KV);
+		await writeJson(testEnv.BICKR_KV, kvKeys.user("usr_mcp"), testUser({
+			inferenceSettings: { model: "deepseek/deepseek-v3", openRouterApiKey: "legacy-owner-secret" },
+		}));
+		await testEnv.BICKR_D1.batch([
+			activeIdentityClaim("world_handle", "global", "foreign-search", "world", "wld_foreign_search", "usr_foreign"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO worlds_index (
+					world_id, handle, name, description, created_by_user_id, visibility,
+					created_at, updated_at, lifecycle_state
+				) VALUES ('wld_foreign_search', 'foreign-search', 'Foreign', '', 'usr_foreign', 'public', ?, ?, 'active')`,
+			).bind("2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
+			activeIdentityClaim("bot_handle", "wld_foreign_search", "foreign-bot", "bot", "bot_foreign_search", "usr_foreign"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO bots_index (
+					bot_id, home_world_id, home_world_handle, handle, display_name,
+					owner_user_id, short_bio, created_at, updated_at, lifecycle_state
+				) VALUES ('bot_foreign_search', 'wld_foreign_search', 'foreign-search', 'foreign-bot',
+					'Foreign bot', 'usr_foreign', '', ?, ?, 'active')`,
+			).bind("2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
+		]);
+		const search = {
+			query: "foreign", page: 1, pageSize: 20, hasNextPage: false, total: 2, totalRelation: "exact",
+			results: [
+				{ id: "wld_foreign_search", type: "world", rank: 1, source: "semantic", urlPath: "/foreign-search", world: { id: "wld_foreign_search", handle: "foreign-search", name: lt("Foreign"), description: lt(""), matched: true }, handle: "foreign-search", name: lt("Foreign"), description: lt("") },
+				{ id: "bot_foreign_search", type: "bot", rank: 2, source: "semantic", urlPath: "/foreign-bot", world: { id: "wld_foreign_search", handle: "foreign-search", name: lt("Foreign"), description: lt(""), matched: false }, handle: "foreign-bot", displayName: lt("Foreign bot"), shortBio: lt("") },
+			],
+		};
+		const runtimeService = { fetch: async (request: Request) => {
+			if (new URL(request.url).pathname === "/search/entities") {
+				return Response.json({ ok: true, data: { search } });
+			}
+			return handleAgentRuntimeRequest(request, testEnv as never, {
+				objectId: "mcp-cutover-zero", ownerUserId: "usr_mcp",
+			});
+		} };
+		const authKv = new MapKV();
+		const accessToken = await issueAccessToken(authKv, ["bickr.read"]);
+		const response = await callMcp(authKv, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/call",
+			params: { name: "search", arguments: { query: "foreign", mode: "semantic" } },
+		}, { AGENT_RUNTIME: runtimeService, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
+		const body = await jsonResponse(response);
+		expect(body.result).not.toHaveProperty("isError");
+		const serialized = JSON.stringify(body.result);
+		expect(serialized).toContain("bot_foreign_search");
+		expect(serialized).not.toMatch(/legacy-owner-secret|inferenceConfiguration|graphRevision|effectiveModel/);
+	});
+
+	it("does not call canonical annotation service for an all-foreign public page", async () => {
+		await resetD1Schema(testEnv.BICKR_D1);
+		await clearKv(testEnv.BICKR_KV);
+		await testEnv.BICKR_D1.batch([
+			activeIdentityClaim("world_handle", "global", "foreign-page", "world", "wld_foreign_page", "usr_foreign"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO worlds_index (
+					world_id, handle, name, description, created_by_user_id, visibility,
+					created_at, updated_at, lifecycle_state
+				) VALUES ('wld_foreign_page', 'foreign-page', 'Foreign page', '', 'usr_foreign', 'public', ?, ?, 'active')`,
+			).bind("2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
+		]);
+		const accessToken = await issueAccessToken(testEnv.BICKR_KV, ["bickr.read"]);
+		let annotationCalls = 0;
+		const response = await callMcp(testEnv.BICKR_KV, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/call",
+			params: { name: "list_worlds", arguments: { limit: 20 } },
+		}, {
+			BICKR_D1: testEnv.BICKR_D1,
+			AGENT_RUNTIME: { fetch: async () => {
+				annotationCalls += 1;
+				throw new Error("annotation service must not be called");
+			} },
+			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+		});
+		const result = (await jsonResponse(response)).result as { structuredContent: { worlds: Array<{ id: string }> } };
+		expect(result.structuredContent.worlds.map((world) => world.id)).toContain("wld_foreign_page");
+		expect(annotationCalls).toBe(0);
+	});
+
+	it("reports world posting provenance and linked-clone prompt provenance on get_bot", async () => {
+		await resetD1Schema(testEnv.BICKR_D1);
+		await clearKv(testEnv.BICKR_KV);
+		await writeJson(testEnv.BICKR_KV, kvKeys.user("usr_mcp"), testUser());
+		const source = testBot({
+			id: "bot_source",
+			handle: "source",
+			displayName: "Inherited name",
+		});
+		const bot = testBot({
+			id: "bot_provenance",
+			handle: "provenance",
+			displayName: "",
+			shortBio: "",
+			prompt: "",
+		});
+		const deletedBot = testBot({ id: "bot_delete_provenance", handle: "delete-provenance" });
+		await Promise.all([
+			writeJson(testEnv.BICKR_KV, kvKeys.bot(source.id), source),
+			writeJson(testEnv.BICKR_KV, kvKeys.bot(bot.id), bot),
+			writeJson(testEnv.BICKR_KV, kvKeys.bot(deletedBot.id), deletedBot),
+		]);
+		await testEnv.BICKR_D1.batch([
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO entity_lifecycle_identity_claims (
+					key_kind, key_scope, key_value, entity_kind, entity_id, owner_user_id,
+					claim_state, operation_id, created_at, updated_at
+				) VALUES ('user_handle', 'global', 'mcp-user', 'account', 'usr_mcp', 'usr_mcp', 'active', NULL, ?, ?)`,
+			).bind("2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO users_index (user_id, handle, display_name, created_at, updated_at, lifecycle_state)
+				 VALUES ('usr_mcp', 'mcp-user', 'MCP User', ?, ?, 'active')`,
+			).bind("2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
+			activeIdentityClaim("world_handle", "global", "mcp-world", "world", "w_mcp", "usr_mcp"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO worlds_index (
+					world_id, handle, name, description, created_by_user_id, visibility,
+					posting_thread_body_characters, created_at, updated_at, lifecycle_state
+				) VALUES ('w_mcp', 'mcp-world', 'MCP world', '', 'usr_mcp', 'public', 6000, ?, ?, 'active')`,
+			).bind("2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
+			activeIdentityClaim("bot_handle", "w_mcp", "source", "bot", source.id, "usr_mcp"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO bots_index (
+					bot_id, home_world_id, home_world_handle, handle, display_name,
+					owner_user_id, short_bio, created_at, updated_at, lifecycle_state
+				) VALUES (?, 'w_mcp', 'mcp-world', 'source', 'Inherited name', 'usr_mcp', '', ?, ?, 'active')`,
+			).bind(source.id, "2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
+			activeIdentityClaim("bot_handle", "w_mcp", "provenance", "bot", bot.id, "usr_mcp"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO bots_index (
+					bot_id, home_world_id, home_world_handle, handle, display_name,
+					owner_user_id, short_bio, created_at, updated_at, lifecycle_state
+				) VALUES (?, 'w_mcp', 'mcp-world', 'provenance', 'Inherited name', 'usr_mcp', '', ?, ?, 'active')`,
+			).bind(bot.id, "2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO bot_clone_sources (
+					bot_id, source_bot_id, source_world_id, source_world_handle,
+					source_handle, cloned_at, linked
+				) VALUES (?, ?, 'w_mcp', 'mcp-world', 'source', ?, 1)`,
+			).bind(bot.id, source.id, "2026-08-11T00:00:00.000Z"),
+			activeIdentityClaim("bot_handle", "w_mcp", deletedBot.handle, "bot", deletedBot.id, "usr_mcp"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO bots_index (
+					bot_id, home_world_id, home_world_handle, handle, display_name,
+					owner_user_id, short_bio, created_at, updated_at, lifecycle_state
+				) VALUES (?, 'w_mcp', 'mcp-world', ?, 'Delete provenance', 'usr_mcp', '', ?, ?, 'active')`,
+			).bind(deletedBot.id, deletedBot.handle, deletedBot.createdAt, deletedBot.updatedAt),
+		]);
+		const accessToken = await issueAccessToken(testEnv.BICKR_KV, ["bickr.read", "bickr.write"]);
+		const response = await callMcp(testEnv.BICKR_KV, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/call",
+			params: { name: "get_bot", arguments: { botId: bot.id } },
+		}, {
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+			AGENT_RUNTIME: canonicalAnnotationService([]),
+			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+		});
+		const body = await jsonResponse(response);
+		if (!body.result) {
+			throw new Error(JSON.stringify(body));
+		}
+		const result = body.result as {
+			structuredContent: { bot: { mcpResolvedSettings: Record<string, Record<string, { effective: unknown; source: string }>> } };
+		};
+		expect(result.structuredContent.bot.mcpResolvedSettings.postingSettings?.threadBodyCharacters)
+			.toMatchObject({ effective: 6000, source: "world" });
+		expect(result.structuredContent.bot.mcpResolvedSettings.cloneProfile?.displayName)
+			.toMatchObject({ effective: lt("Inherited name"), source: "source_bot" });
+
+		const deleteResponse = await handleAgentRuntimeRequest(new Request(
+			`https://agent.internal/users/usr_mcp/bots/${deletedBot.id}`,
+			{ method: "DELETE", headers: { "x-bickr-user-id": "usr_mcp", "idempotency-key": "delete-provenance" } },
+		), testEnv as never, { objectId: "delete-provenance-coordinator", ownerUserId: "usr_mcp" });
+		const deletePayload = await deleteResponse.json() as {
+			data?: { bot?: { effectivePostingSettings?: { threadBodyCharacters?: number } } };
+		};
+		expect(deleteResponse.status).toBe(200);
+		expect(deletePayload.data?.bot?.effectivePostingSettings?.threadBodyCharacters).toBe(6000);
+
+		const rawBot = testBot({ id: "bot_raw_receipt", handle: "raw-receipt" });
+		const mutationService = { fetch: async (request: Request) => {
+			if (new URL(request.url).pathname.endsWith("/inference-consumers/annotations")) {
+				return Response.json({ ok: true, data: { annotations: [], graphRevision: 7 } });
+			}
+			return Response.json({ ok: true, data: { bot: rawBot } });
+		} };
+		const mutationResponse = await callMcp(testEnv.BICKR_KV, accessToken, {
+			jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "update_bot", arguments: {
+				operations: [{ operationId: "raw-posting", botId: rawBot.id, prompt: lt("updated") }],
+			} },
+		}, {
+			BICKR_D1: testEnv.BICKR_D1,
+			AGENT_RUNTIME: mutationService,
+			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+		});
+		const mutationResult = (await jsonResponse(mutationResponse)).result as {
+			structuredContent: { results: Array<{ result: { data: { bot: {
+				mcpResolvedSettings: { postingSettings: { threadBodyCharacters: { effective: number; source: string } } };
+			} } } }> };
+		};
+		expect(mutationResult.structuredContent.results[0]!.result.data.bot.mcpResolvedSettings.postingSettings.threadBodyCharacters)
+			.toMatchObject({ effective: 6000, source: "world" });
+	});
+
+	it("preserves legacy world/user bot ordering while MCP pages use recency keysets", async () => {
+		await resetD1Schema(testEnv.BICKR_D1);
+		await clearKv(testEnv.BICKR_KV);
+		await testEnv.BICKR_D1.batch([
+			activeIdentityClaim("world_handle", "global", "mcp-world", "world", "w_mcp", "usr_mcp"),
+			testEnv.BICKR_D1.prepare(
+			`INSERT INTO worlds_index (
+				world_id, handle, name, description, created_by_user_id, visibility,
+				created_at, updated_at, lifecycle_state
+			) VALUES ('w_mcp', 'mcp-world', 'MCP world', '', 'usr_mcp', 'public', ?, ?, 'active')`,
+		).bind("2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
+		]);
+		const alpha = testBot({ id: "bot_alpha_order", handle: "alpha" });
+		const zeta = testBot({ id: "bot_zeta_order", handle: "zeta", updatedAt: "2026-08-11T02:00:00.000Z" });
+		await Promise.all([
+			writeJson(testEnv.BICKR_KV, kvKeys.bot(alpha.id), alpha),
+			writeJson(testEnv.BICKR_KV, kvKeys.bot(zeta.id), zeta),
+		]);
+		await testEnv.BICKR_D1.batch([
+			activeIdentityClaim("bot_handle", "w_mcp", "alpha", "bot", alpha.id, "usr_mcp"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO bots_index (bot_id, home_world_id, home_world_handle, handle, display_name,
+					owner_user_id, short_bio, created_at, updated_at, lifecycle_state)
+				 VALUES (?, 'w_mcp', 'mcp-world', 'alpha', 'Alpha', 'usr_mcp', '', ?, ?, 'active')`,
+			).bind(alpha.id, alpha.createdAt, alpha.updatedAt),
+			activeIdentityClaim("bot_handle", "w_mcp", "zeta", "bot", zeta.id, "usr_mcp"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO bots_index (bot_id, home_world_id, home_world_handle, handle, display_name,
+					owner_user_id, short_bio, created_at, updated_at, lifecycle_state)
+				 VALUES (?, 'w_mcp', 'mcp-world', 'zeta', 'Zeta', 'usr_mcp', '', ?, ?, 'active')`,
+			).bind(zeta.id, zeta.createdAt, zeta.updatedAt),
+		]);
+		const legacy = await listWorldBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "mcp-world");
+		const page = await listWorldBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "mcp-world", { limit: 1 });
+		expect(legacy.map((bot) => bot.handle)).toEqual(["alpha", "zeta"]);
+		expect(page.bots.map((bot) => bot.handle)).toEqual(["zeta"]);
+		expect(page.hasMore).toBe(true);
+		const legacyOwned = await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "usr_mcp");
+		const ownedPage = await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "usr_mcp", { limit: 1 });
+		expect(legacyOwned.map((bot) => bot.handle)).toEqual(["zeta", "alpha"]);
+		expect(ownedPage.bots.map((bot) => bot.handle)).toEqual(["zeta"]);
+		expect(ownedPage.hasMore).toBe(true);
 	});
 
 	it("executes mutation batches in order and correlates every result", async () => {
@@ -846,380 +1224,284 @@ describe("MCP endpoint", () => {
 		});
 	});
 
-	it("redacts stored bot credentials from every bot-list MCP response", async () => {
-		const kv = new MapKV();
-		const bot = testBot({
-			id: "bot_listed",
-			handle: "listed-bot",
-			inferenceSettings: { openRouterApiKey: "listed-bot-secret", model: "listed/model" },
-		});
-		await kv.put(kvKeys.bot(bot.id), JSON.stringify(bot));
-		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
-
-		for (const [name, args] of [
-			["list_my_bots", {}],
-			["list_world_bots", { worldHandle: "mcp-world" }],
-		] as const) {
-			const response = await callMcp(kv, accessToken, {
-				jsonrpc: "2.0",
-				id: 1,
-				method: "tools/call",
-				params: { name, arguments: args },
-			}, { BICKR_D1: mcpBotCollectionD1(bot.id) });
-			const body = await jsonResponse(response);
-			const structured = (body.result as { structuredContent: {
-				bots: Array<{ inferenceSettings: Record<string, unknown> }>;
-			} }).structuredContent;
-
-			expect(response.status).toBe(200);
-			expect(structured.bots).toHaveLength(1);
-			expect(structured.bots[0]?.inferenceSettings).not.toHaveProperty("openRouterApiKey");
-			expect(structured.bots[0]?.inferenceSettings.openRouterApiKeySet).toBe(true);
-			expect(JSON.stringify(body)).not.toContain("listed-bot-secret");
+	it("binds exhaustive reusable-inference schemas to the 27-field registry", () => {
+		const byName = new Map(mcpToolMetadataForTest().map((tool) => [tool.name, tool]));
+		for (const toolName of ["create_inference_configuration", "update_inference_configuration"] as const) {
+			const overrides = schemaProperties(schemaProperty(byName, toolName, "overrides"));
+			expect(Object.keys(overrides)).toHaveLength(27);
+			expect(Object.keys(overrides)).toEqual(expect.arrayContaining([
+				"compactionReasoning", "promptCacheMode", "imageRepetitionPenalty",
+			]));
+			expect((schemaProperties(overrides.temperature as Record<string, unknown>).value as Record<string, unknown>))
+				.toMatchObject({ type: "number", minimum: 0, maximum: 2 });
 		}
+		const createModelKinds = schemaProperties(schemaProperties(schemaProperty(byName, "create_inference_configuration", "overrides")).model as Record<string, unknown>).kind as Record<string, unknown>;
+		const patchModelKinds = schemaProperties(schemaProperties(schemaProperty(byName, "update_inference_configuration", "overrides")).model as Record<string, unknown>).kind as Record<string, unknown>;
+		expect(createModelKinds.enum).toEqual(["value"]);
+		expect(patchModelKinds.enum).toEqual(["inherit", "value"]);
+		const credential = schemaProperty(byName, "create_inference_configuration", "credential");
+		expect(credential).toMatchObject({ additionalProperties: false, required: ["mode"] });
+		expect(schemaProperties(credential).mode).toMatchObject({ enum: ["inherit", "account_default", "none", "value"] });
+		expect(byName.get("get_fixed_inference_configuration")?.outputSchema).toBeDefined();
 	});
 
-	it("redacts stored bot credentials from MCP bot groups", async () => {
-		const kv = new MapKV();
-		const bot = testBot({
-			id: "bot_grouped",
-			handle: "grouped-bot",
-			inferenceSettings: { openRouterApiKey: "grouped-bot-secret" },
+	it("publishes explicit inference output contracts that accept representative results", () => {
+		const byName = new Map(mcpToolMetadataForTest().map((tool) => [tool.name, tool]));
+		const inferenceTools = [
+			"get_profile", "update_profile", "list_inference_configurations", "get_inference_configuration",
+			"get_fixed_inference_configuration", "create_inference_configuration", "update_inference_configuration",
+			"rename_inference_configuration", "reparent_inference_configuration", "list_inference_parent_candidates",
+			"list_inference_configuration_children", "get_inference_configuration_delete_impact",
+			"get_inference_configuration_parent_impact", "delete_inference_configuration",
+		];
+		for (const name of inferenceTools) expect(byName.get(name)?.outputSchema, `${name} outputSchema`).toBeDefined();
+		const annotation = canonicalAnnotation("account_default", "cfg_account", "xiaomi/mimo-v2.5");
+		expectSchemaAccepts(byName.get("get_profile")!.outputSchema!, {
+			profile: { id: "usr_mcp", handle: "mcp-user", inferenceConfigurations: { graphRevision: 7, accountDefault: annotation } },
 		});
-		await kv.put(kvKeys.bot(bot.id), JSON.stringify(bot));
-		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
-		const response = await callMcp(kv, accessToken, {
-			jsonrpc: "2.0",
-			id: 1,
-			method: "tools/call",
-			params: { name: "list_groups", arguments: { worldHandle: "mcp-world" } },
-		}, { BICKR_D1: mcpBotCollectionD1(bot.id, "grp_mcp") });
-		const body = await jsonResponse(response);
-		const structured = (body.result as { structuredContent: {
-			groups: Array<{ bots: Array<{ inferenceSettings: Record<string, unknown> }> }>;
-		} }).structuredContent;
-		const groupedBot = structured.groups[0]?.bots[0];
-
-		expect(response.status).toBe(200);
-		expect(groupedBot?.inferenceSettings).not.toHaveProperty("openRouterApiKey");
-		expect(groupedBot?.inferenceSettings.openRouterApiKeySet).toBe(true);
-		expect(JSON.stringify(body)).not.toContain("grouped-bot-secret");
-	});
-
-	it("includes specified and effective MCP settings with origins for inherited bot values", async () => {
-		const kv = new MapKV();
-		const source = testBot({
-			id: "bot_source",
-			handle: "source-bot",
-			displayName: "Source Bot",
-			shortBio: "Source bio",
-			prompt: "Source prompt",
-			inferenceSettings: {
-				openRouterApiKey: "source-bot-secret",
-				baseUrl: "http://localhost:11434/v1",
-				model: "source/model",
-				temperature: 0.2,
-				imageGeneration: {
-					model: "source/image",
-				},
-			},
+		expectSchemaAccepts(byName.get("get_fixed_inference_configuration")!.outputSchema!, {
+			annotation, graphRevision: 7,
 		});
-		const clone = testBot({
-			id: "bot_clone",
-			handle: "clone-bot",
-			displayName: "",
-			shortBio: "",
-			prompt: "",
-			inferenceSettings: { openRouterApiKey: "clone-override-secret", temperature: 0.7 },
-			postingSettings: {
-				commentBodyCharacters: 500,
-			},
+		expectSchemaAccepts(byName.get("list_inference_configurations")!.outputSchema!, {
+			ok: true, data: { configurations: { items: [(annotation.configuration as Record<string, unknown>)] } },
 		});
-		await kv.put(kvKeys.bot(source.id), JSON.stringify(source));
-		await kv.put(kvKeys.bot(clone.id), JSON.stringify(clone));
-		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
-		const response = await callMcp(kv, accessToken, {
-			jsonrpc: "2.0",
-			id: 1,
-			method: "tools/call",
-			params: {
-				name: "get_bot",
-				arguments: { botId: clone.id },
-			},
-		}, { BICKR_D1: mcpSettingsD1() });
-		const body = await jsonResponse(response);
-		const toolResult = body.result as Record<string, unknown>;
-		const structured = toolResult.structuredContent as { bot: {
-			language: string | null;
-			lang: string | null;
-			inferenceSettings: Record<string, unknown>;
-			localOverrides?: { inferenceSettings: Record<string, unknown> };
-			mcpResolvedSettings: Record<string, Record<string, unknown>>;
-		} };
-
-		expect(response.status).toBe(200);
-		expect(JSON.stringify(body)).not.toContain("source-bot-secret");
-		expect(JSON.stringify(body)).not.toContain("clone-override-secret");
-		expect(structured.bot.inferenceSettings).not.toHaveProperty("openRouterApiKey");
-		expect(structured.bot.inferenceSettings.openRouterApiKeySet).toBe(true);
-		expect(structured.bot.localOverrides?.inferenceSettings).not.toHaveProperty("openRouterApiKey");
-		expect(structured.bot.localOverrides?.inferenceSettings.openRouterApiKeySet).toBe(true);
-		expect(structured.bot.language).toBe("en");
-		expect(structured.bot.lang).toBe("en");
-		expect(structured.bot.mcpResolvedSettings.cloneProfile.displayName).toMatchObject({
-			effective: lt("Source Bot"),
-			source: "source_bot",
+		expectSchemaAccepts(byName.get("get_inference_configuration")!.outputSchema!, {
+			ok: true,
+			data: { configuration: {
+				id: "cfg_custom", kind: "custom", identity: { kind: "custom", name: "Portable" },
+				revision: 3, graphRevision: 7,
+				fields: Object.fromEntries(inferenceConfigurationFields.map((field) => [field, {
+					override: { kind: "inherit" }, effective: null, source: { kind: "bickr_default" }, adjustment: null,
+				}])),
+				path: [{ id: "cfg_custom", displayName: "Portable", revision: 3, kind: "custom", identity: { kind: "custom", name: "Portable" } }],
+			} },
 		});
-		expect(structured.bot.mcpResolvedSettings.inferenceSettings.model).toMatchObject({
-			effective: "source/model",
-			source: "source_bot",
+		expectSchemaAccepts(byName.get("get_inference_configuration_delete_impact")!.outputSchema!, {
+			ok: true,
+			data: { impact: {
+				kind: "delete", configurationId: "cfg_custom", parentId: "cfg_account", immediateChildren: 1,
+				immediateDependentCount: 1, transitiveDependentCount: 2, affectedConfigurationCount: 3,
+				changes: { effectiveModel: 1, effectiveBaseUrl: 0, credentialAvailability: 0, credentialSource: 0, providerAccess: 0 },
+				warnings: [{ kind: "effective_model_changes", configurations: 1 }],
+			} },
 		});
-		expect(structured.bot.mcpResolvedSettings.inferenceSettings.temperature).toMatchObject({
-			specified: 0.7,
-			effective: 0.2,
-			source: "source_bot",
-		});
-		expect(structured.bot.mcpResolvedSettings.imageGeneration.model).toMatchObject({
-			effective: "source/image",
-			source: "source_bot",
-		});
-		expect(structured.bot.mcpResolvedSettings.postingSettings.commentBodyCharacters).toMatchObject({
-			specified: 500,
-			effective: 500,
-			source: "bot",
-		});
-		expect(structured.bot.mcpResolvedSettings.postingSettings.threadBodyCharacters).toMatchObject({
-			effective: 6000,
-			source: "world",
+		expectSchemaAccepts(byName.get("update_inference_configuration")!.outputSchema!, {
+			results: [{ operationId: "update", status: "succeeded", result: { ok: true } }],
+			succeeded: 1, failed: 0, indeterminate: 0,
 		});
 	});
 
-	it("applies the runtime provider gate to linked source models", async () => {
-		const kv = new MapKV();
-		const source = testBot({
-			id: "bot_source",
-			handle: "source-bot",
-			inferenceSettings: { model: "source/model" },
-		});
-		const clone = testBot({ id: "bot_clone", handle: "clone-bot", inferenceSettings: {} });
-		await kv.put(kvKeys.bot(source.id), JSON.stringify(source));
-		await kv.put(kvKeys.bot(clone.id), JSON.stringify(clone));
-		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
-		const response = await callMcp(kv, accessToken, {
-			jsonrpc: "2.0",
-			id: 1,
-			method: "tools/call",
-			params: { name: "get_bot", arguments: { botId: clone.id } },
-		}, { BICKR_D1: mcpSettingsD1() });
-		const body = await jsonResponse(response);
-		const structured = (body.result as { structuredContent: { bot: {
-			mcpResolvedSettings: Record<string, Record<string, unknown>>;
-		} } }).structuredContent;
-
-		expect(structured.bot.mcpResolvedSettings.inferenceSettings.model).toMatchObject({
-			effective: "openrouter/free",
-			source: "bickr_default",
-		});
-	});
-
-	it("uses the shared runtime resolution for profile-inherited MCP settings", async () => {
-		const kv = new MapKV();
-		const bot = testBot({ id: "bot_source", handle: "profile-default", inferenceSettings: {} });
-		const user = testUser({
-			inferenceSettings: {
-				model: "deepseek/deepseek-v4-flash-0731",
-				openRouterApiKey: "profile-secret",
-				providerRouting: { only: ["deepseek/fp8"] },
-			},
-		});
-		await kv.put(kvKeys.bot(bot.id), JSON.stringify(bot));
-		const accessToken = await issueAccessToken(kv, ["bickr.read"], user);
-		const response = await callMcp(kv, accessToken, {
-			jsonrpc: "2.0",
-			id: 1,
-			method: "tools/call",
-			params: { name: "get_bot", arguments: { botId: bot.id } },
-		}, { BICKR_D1: mcpSettingsD1() });
-		const body = await jsonResponse(response);
-		const toolResult = body.result as { structuredContent: unknown };
-		const structured = toolResult.structuredContent as {
-			bot: { inferenceSettings: Record<string, unknown>; mcpResolvedSettings: Record<string, Record<string, unknown>> };
-		};
-
-		expect(structured.bot.inferenceSettings).not.toHaveProperty("openRouterApiKey");
-		expect(JSON.stringify(structured)).not.toContain("profile-secret");
-		expect(structured.bot.mcpResolvedSettings.inferenceSettings.model).toMatchObject({
-			effective: "deepseek/deepseek-v4-flash-0731",
-			source: "profile",
-		});
-		expect(structured.bot.mcpResolvedSettings.inferenceSettings.openRouterApiKeySet).toMatchObject({
-			effective: true,
-			source: "profile",
-		});
-		expect(structured.bot.mcpResolvedSettings.inferenceSettings.providerRouting).toMatchObject({
-			effective: { only: ["deepseek/fp8"] },
-			source: "profile",
-		});
-	});
-
-	it("uses the agent runtime deployment defaults in MCP annotations", async () => {
-		const kv = new MapKV();
-		const bot = testBot({ id: "bot_source", handle: "deployment-default", inferenceSettings: {} });
-		await kv.put(kvKeys.bot(bot.id), JSON.stringify(bot));
-		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
-		const response = await callMcp(kv, accessToken, {
-			jsonrpc: "2.0",
-			id: 1,
-			method: "tools/call",
-			params: { name: "get_bot", arguments: { botId: bot.id } },
-		}, {
-			BICKR_D1: mcpSettingsD1(),
-			MCP_PROVIDER_ENVIRONMENT: { apiKeySet: true, model: "deployment/model" },
-		});
-		const body = await jsonResponse(response);
-		const structured = (body.result as { structuredContent: { bot: {
-			mcpResolvedSettings: Record<string, Record<string, unknown>>;
-		} } }).structuredContent;
-
-		expect(structured.bot.mcpResolvedSettings.inferenceSettings.model).toMatchObject({
-			effective: "deployment/model",
-			source: "bickr_default",
-		});
-		expect(structured.bot.mcpResolvedSettings.inferenceSettings.openRouterApiKeySet).toMatchObject({
-			effective: true,
-			source: "bickr_default",
-		});
-	});
-
-	it("omits profile-dependent resolved inference settings for bots owned by someone else", async () => {
-		const kv = new MapKV();
-		const bot = testBot({
-			id: "bot_source",
-			handle: "other-owner",
-			ownerUserId: "usr_other",
-			inferenceSettings: { model: "anthropic/claude-opus-4", openRouterApiKey: "other-owner-secret" },
-		});
-		await kv.put(kvKeys.bot(bot.id), JSON.stringify(bot));
-		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
-		const response = await callMcp(kv, accessToken, {
-			jsonrpc: "2.0",
-			id: 1,
-			method: "tools/call",
-			params: { name: "get_bot", arguments: { botId: bot.id } },
-		}, { BICKR_D1: mcpSettingsD1() });
-		const body = await jsonResponse(response);
-		const structured = (body.result as { structuredContent: { bot: {
-			inferenceSettings: Record<string, unknown>;
-			mcpResolvedSettings: Record<string, Record<string, unknown>>;
-		} } }).structuredContent;
-
-		expect(structured.bot.inferenceSettings.model).toBe("anthropic/claude-opus-4");
-		expect(structured.bot.inferenceSettings).not.toHaveProperty("openRouterApiKey");
-		expect(structured.bot.inferenceSettings.openRouterApiKeySet).toBe(true);
-		expect(JSON.stringify(body)).not.toContain("other-owner-secret");
-		expect(structured.bot.mcpResolvedSettings).not.toHaveProperty("inferenceSettings");
-	});
-
-	it("keeps bot reads available when runtime provider settings are unavailable", async () => {
-		const kv = new MapKV();
-		const bot = testBot({ id: "bot_source", handle: "runtime-unavailable", inferenceSettings: {} });
-		await kv.put(kvKeys.bot(bot.id), JSON.stringify(bot));
-		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
-		const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-		try {
-			const response = await callMcp(kv, accessToken, {
-				jsonrpc: "2.0",
-				id: 1,
-				method: "tools/call",
-				params: { name: "get_bot", arguments: { botId: bot.id } },
-			}, { BICKR_D1: mcpSettingsD1(), MCP_PROVIDER_ENVIRONMENT_ERROR: true });
-			const body = await jsonResponse(response);
-			const structured = (body.result as { structuredContent: { bot: {
-				mcpResolvedSettings: Record<string, Record<string, unknown>>;
-			} } }).structuredContent;
-
-			expect(response.status).toBe(200);
-			expect(structured.bot.mcpResolvedSettings).not.toHaveProperty("inferenceSettings");
-			expect(consoleError).toHaveBeenCalledOnce();
-		} finally {
-			consoleError.mockRestore();
-		}
-	});
-
-	it("resolves runtime provider settings before a legacy bot mutation can commit", async () => {
+	it("rejects reusable provider fields on singleton and bulk entity mutations", async () => {
 		const kv = new MapKV();
 		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
-		let mutationCalls = 0;
-		const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-		try {
+		let calls = 0;
+		const environment = {
+			BICKR_D1: emptyD1(),
+			AGENT_RUNTIME: { fetch: async () => { calls += 1; return Response.json({ ok: true, data: {} }); } },
+			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+		};
+		for (const [name, args] of [
+			["update_profile", { inferenceSettings: { model: "forbidden/model" } }],
+			["update_bot", { botId: "bot_one", inferenceSettings: { providerRouting: {} } }],
+			["update_world", { operations: [{ operationId: "world", worldHandle: "mcp-world", imageGeneration: { model: "forbidden/image" } }] }],
+		] as const) {
 			const response = await callMcp(kv, accessToken, {
-				jsonrpc: "2.0",
-				id: 1,
-				method: "tools/call",
-				params: {
-					name: "update_bot",
-					arguments: { botId: "bot_source", inferenceSettings: { model: null } },
-				},
-			}, {
-				MCP_PROVIDER_ENVIRONMENT_ERROR: true,
-				AGENT_RUNTIME: {
-					fetch: async () => {
-						mutationCalls += 1;
-						return Response.json({ ok: true, data: { bot: testBot({ id: "bot_source", handle: "unchanged" }) } });
-					},
-				},
-			});
-			const body = await jsonResponse(response);
+				jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args },
+			}, environment);
+			expect((await jsonResponse(response)).result).toMatchObject({ isError: true });
+		}
+		expect(calls).toBe(0);
+	});
 
-			expect(mutationCalls).toBe(0);
-			expect(body.result).toMatchObject({ isError: true });
-		} finally {
-			consoleError.mockRestore();
+	it("looks up fixed canonical configurations without a library scan", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
+		const annotation = canonicalAnnotation("account_default", "cfg_account", "xiaomi/mimo-v2.5");
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/call",
+			params: { name: "get_fixed_inference_configuration", arguments: { kind: "account_default" } },
+		}, { AGENT_RUNTIME: canonicalAnnotationService([annotation]), INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
+		expect((await jsonResponse(response)).result).toMatchObject({
+			structuredContent: { annotation: { kind: "canonical", configuration: { effectiveModel: "xiaomi/mimo-v2.5" } } },
+		});
+	});
+
+	it("returns typed not_found for an empty fixed canonical lookup", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/call",
+			params: { name: "get_fixed_inference_configuration", arguments: { kind: "translation" } },
+		}, { AGENT_RUNTIME: canonicalAnnotationService([]), INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
+		expect((await jsonResponse(response)).result).toMatchObject({
+			isError: true,
+			structuredContent: { error: "not_found" },
+		});
+	});
+
+	it("sends real inference configuration mutation bodies and preserves impact reads", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.read", "bickr.write"]);
+		const observed: Array<{ method: string; path: string; body: unknown }> = [];
+		const service = { fetch: async (request: Request) => {
+			observed.push({ method: request.method, path: new URL(request.url).pathname + new URL(request.url).search, body: request.method === "GET" ? null : await request.json() });
+			return Response.json({ ok: true, data: { configuration: { id: "cfg_custom" }, impact: { kind: "delete" } } });
+		} };
+		const environment = { BICKR_D1: emptyD1(), AGENT_RUNTIME: service, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" };
+		const mutation = async (name: string, args: Record<string, unknown>) => callMcp(kv, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { operations: [{ operationId: name, ...args }] } },
+		}, environment);
+		await mutation("create_inference_configuration", { name: "Portable", parentId: "cfg_account", overrides: { model: { kind: "value", value: "xiaomi/mimo-v2.5" } }, credential: { mode: "none" } });
+		await mutation("update_inference_configuration", { configurationId: "cfg_custom", expectedRevision: 1, overrides: { model: { kind: "inherit" } } });
+		await mutation("rename_inference_configuration", { configurationId: "cfg_custom", name: "Renamed", expectedRevision: 2 });
+		await mutation("reparent_inference_configuration", { configurationId: "cfg_custom", parentId: "cfg_account", expectedRevision: 3 });
+		await mutation("delete_inference_configuration", { configurationId: "cfg_custom", expectedRevision: 4 });
+		await callMcp(kv, accessToken, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "get_inference_configuration_parent_impact", arguments: { configurationId: "cfg_custom", parentId: "cfg_account" } } }, environment);
+		expect(observed).toMatchObject([
+			{ method: "POST", path: "/users/usr_mcp/inference-configurations", body: {
+				name: "Portable", parentId: "cfg_account",
+				overrides: { model: { kind: "value", value: "xiaomi/mimo-v2.5" } },
+				credential: { mode: "none" },
+			} },
+			{ method: "PATCH", path: "/users/usr_mcp/inference-configurations/cfg_custom", body: {
+				expectedRevision: 1, overrides: { model: { kind: "inherit" } },
+			} },
+			{ method: "POST", path: "/users/usr_mcp/inference-configurations/cfg_custom/rename", body: { name: "Renamed", expectedRevision: 2 } },
+			{ method: "POST", path: "/users/usr_mcp/inference-configurations/cfg_custom/reparent", body: { parentId: "cfg_account", expectedRevision: 3 } },
+			{ method: "DELETE", path: "/users/usr_mcp/inference-configurations/cfg_custom", body: { expectedRevision: 4 } },
+			{ method: "GET", path: "/users/usr_mcp/inference-configurations/cfg_custom/impact?parentId=cfg_account", body: null },
+		]);
+	});
+
+	it("keeps committed bot mutations successful when canonical enrichment fails", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
+		const bot = testBot({ id: "bot_committed", handle: "committed" });
+		const service = { fetch: async (request: Request) => {
+			if (new URL(request.url).pathname.endsWith("/inference-consumers/annotations")) throw new Error("injected enrichment failure");
+			return Response.json({ ok: true, data: { bot } });
+		} };
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "update_bot", arguments: {
+				operations: [{ operationId: "committed", botId: bot.id, prompt: lt("updated") }],
+			} },
+		}, { BICKR_D1: emptyD1(), AGENT_RUNTIME: service, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
+		expect((await jsonResponse(response)).result).toMatchObject({ structuredContent: {
+			results: [{ operationId: "committed", status: "succeeded", resultWarning: { kind: "canonical_inference_enrichment_failed" } }],
+			succeeded: 1,
+		} });
+	});
+
+	it("bounds and prompt-sanitizes every affected participant in bot mutation receipts", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
+		const primary = testBot({ id: "bot_receipt_primary", handle: "receipt-primary" });
+		const reusableSettings = {
+			model: "private/model", baseUrl: "https://private.invalid", providerRouting: { only: ["private"] },
+			reasoningEffort: "high" as const, temperature: 0.7, topP: 0.8,
+			translation: { enabled: true, model: "private/translation", reasoningEffort: "medium" as const, temperature: 0.4 },
+			imageGeneration: { model: "private/image", prompt: lt("portrait") },
+		};
+		const firstAffected = {
+			...testBot({ id: "bot_affected_000", handle: "affected-000", inferenceSettings: reusableSettings }),
+			localOverrides: {
+				language: en, includeLanguageInSystemPrompt: false,
+				displayName: lt(""), shortBio: lt(""), prompt: lt(""),
+				inferenceSettings: reusableSettings, hasAvatar: false,
+			},
+		};
+		const affectedBots = [firstAffected, ...Array.from({ length: 100 }, (_unused, index) => testBot({
+			id: `bot_affected_${String(index + 1).padStart(3, "0")}`,
+			handle: `affected-${String(index + 1).padStart(3, "0")}`,
+		}))];
+		const service = { fetch: async (request: Request) => {
+			if (new URL(request.url).pathname.endsWith("/inference-consumers/annotations")) {
+				return Response.json({ ok: true, data: { annotations: [], graphRevision: 7 } });
+			}
+			return Response.json({ ok: true, data: { bot: primary, affectedBots } });
+		} };
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "update_bot", arguments: {
+				operations: [{ operationId: "sanitize-receipt", botId: primary.id, prompt: lt("updated") }],
+			} },
+		}, { BICKR_D1: emptyD1(), AGENT_RUNTIME: service, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
+		const result = (await jsonResponse(response)).result as {
+			structuredContent: {
+				results: Array<{ result: { data: {
+					affectedBots: Array<{ inferenceSettings: Record<string, unknown>; localOverrides?: { inferenceSettings: Record<string, unknown> } }>;
+					affectedBotsPresentation: { maximumEntities: number; truncated: boolean };
+				} } }>;
+			};
+		};
+		const data = result.structuredContent.results[0]!.result.data;
+		expect(data.affectedBots).toHaveLength(99);
+		expect(data.affectedBotsPresentation).toEqual({ maximumEntities: 99, truncated: true });
+		expect(data.affectedBots[0]!.inferenceSettings).toEqual({ imageGeneration: { prompt: lt("portrait") } });
+		expect(data.affectedBots[0]!.localOverrides?.inferenceSettings).toEqual({ imageGeneration: { prompt: lt("portrait") } });
+		for (const settings of [data.affectedBots[0]!.inferenceSettings, data.affectedBots[0]!.localOverrides!.inferenceSettings]) {
+			for (const key of ["model", "baseUrl", "providerRouting", "reasoningEffort", "temperature", "topP", "translation"]) {
+				expect(settings).not.toHaveProperty(key);
+			}
 		}
 	});
 
-	it("annotates update_bot receipts with profile-inherited effective settings", async () => {
+	it("keeps a committed singleton profile mutation successful when canonical enrichment fails", async () => {
 		const kv = new MapKV();
-		const bot = testBot({
-			id: "bot_updated_default",
-			handle: "updated-default",
-			inferenceSettings: { openRouterApiKey: "upstream-bot-secret" },
+		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
+		const profile = testUser({
+			displayName: lt("Updated profile"),
+			inferenceSettings: { model: "private/singleton-model", openRouterApiKey: "singleton-secret" },
 		});
-		const user = testUser({
-			inferenceSettings: {
-				model: "deepseek/deepseek-v4-flash-0731",
-				openRouterApiKey: "profile-secret",
-			},
-		});
-		const accessToken = await issueAccessToken(kv, ["bickr.write"], user);
+		const service = { fetch: async (request: Request) => {
+			if (new URL(request.url).pathname.endsWith("/inference-consumers/annotations")) {
+				throw new Error("injected singleton enrichment failure");
+			}
+			return Response.json({ ok: true, data: {
+				kind: "profile_updated", profile,
+				affectedBots: Array.from({ length: 101 }, (_unused, index) => testBot({
+					id: `bot_singleton_leak_${index}`, handle: `singleton-leak-${index}`,
+					inferenceSettings: { model: "private/affected-model" },
+				})),
+			} });
+		} };
 		const response = await callMcp(kv, accessToken, {
-			jsonrpc: "2.0",
-			id: 1,
-			method: "tools/call",
-			params: {
-				name: "update_bot",
-				arguments: {
-					operations: [{ operationId: "clear-model", botId: bot.id, inferenceSettings: { model: null } }],
-				},
+			jsonrpc: "2.0", id: 1, method: "tools/call", params: {
+				name: "update_profile", arguments: { displayName: lt("Updated profile"), lang: "en" },
 			},
-		}, {
-			AGENT_RUNTIME: { fetch: async () => Response.json({ ok: true, data: { bot } }) },
-			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
-		});
-		const body = await jsonResponse(response);
-		const toolResult = body.result as { structuredContent: { results: Array<{ result: unknown }> } };
-		const result = toolResult.structuredContent.results[0]?.result as {
-			data: { bot: { mcpResolvedSettings: Record<string, Record<string, unknown>> } };
-		};
+		}, { BICKR_D1: emptyD1(), AGENT_RUNTIME: service, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
+		const result = (await jsonResponse(response)).result;
+		expect(result).toMatchObject({ structuredContent: {
+			result: null,
+			presentationWarning: { kind: "canonical_inference_enrichment_failed" },
+		} });
+		expect(JSON.stringify(result)).not.toMatch(/singleton-secret|private\/singleton-model|private\/affected-model|affectedBots/);
+	});
 
-		expect(result.data.bot.mcpResolvedSettings.inferenceSettings.model).toMatchObject({
-			effective: "deepseek/deepseek-v4-flash-0731",
-			source: "profile",
-		});
-		expect(result.data.bot).not.toHaveProperty("type");
-		expect(result.data.bot).not.toHaveProperty("revision");
-		expect(JSON.stringify(result)).not.toContain("upstream-bot-secret");
-		expect(JSON.stringify(result)).not.toContain("profile-secret");
+	it("omits empty world image-generation settings from mutation presentation", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
+		const world = {
+			id: "wld_empty_image", handle: "empty-image", language: en,
+			name: lt("Empty image"), description: lt(""), prompt: lt(""),
+			recurringPromptEnabled: false, recurringPrompt: lt(""), initialBotNotification: lt(""),
+			imageGeneration: { model: "private/provider-model" },
+			createdByUserId: "usr_mcp", createdAt: "2026-08-11T00:00:00.000Z", updatedAt: "2026-08-11T00:00:00.000Z",
+		};
+		const service = { fetch: async (request: Request) => {
+			if (new URL(request.url).pathname.endsWith("/inference-consumers/annotations")) {
+				return Response.json({ ok: true, data: { annotations: [], graphRevision: 7 } });
+			}
+			return Response.json({ ok: true, data: { world } });
+		} };
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/call",
+			params: { name: "update_world", arguments: { worldHandle: world.handle } },
+		}, { BICKR_D1: emptyD1(), AGENT_RUNTIME: service, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
+		const responseBody = await jsonResponse(response);
+		if (!responseBody.result) throw new Error(JSON.stringify(responseBody));
+		const result = responseBody.result as { structuredContent: { data: { world: Record<string, unknown> } } };
+		expect(result.structuredContent.data.world).not.toHaveProperty("imageGeneration");
+		expect(JSON.stringify(result.structuredContent.data.world)).not.toContain("private/provider-model");
 	});
 
 	it("rejects write tools before execution when the token has read scope only", async () => {
@@ -1253,8 +1535,6 @@ async function callMcp(kv: KVNamespaceLike, accessToken: string | null, body: un
 	const {
 		AGENT_RUNTIME: upstreamAgentRuntime,
 		MAINTENANCE_ENABLED: maintenanceEnabled = false,
-		MCP_PROVIDER_ENVIRONMENT_ERROR: providerEnvironmentError = false,
-		MCP_PROVIDER_ENVIRONMENT: providerEnvironment = { apiKeySet: true, model: "openrouter/free" },
 		...restEnv
 	} = env;
 	const agentRuntime = upstreamAgentRuntime as { fetch(request: Request): Promise<Response> } | undefined;
@@ -1268,15 +1548,6 @@ async function callMcp(kv: KVNamespaceLike, accessToken: string | null, body: un
 		BICKR_D1: maintenanceAwareD1(restEnv.BICKR_D1 ?? emptyD1(), maintenanceEnabled === true),
 		AGENT_RUNTIME: {
 			fetch: async (request: Request) => {
-				if (new URL(request.url).pathname === "/provider-settings/environment") {
-					if (providerEnvironmentError) {
-						return Response.json({ ok: false, error: "unavailable", message: "Provider environment unavailable." }, { status: 503 });
-					}
-					return Response.json({
-						ok: true,
-						data: { kind: "provider_environment", settings: providerEnvironment },
-					});
-				}
 				if (!agentRuntime) {
 					return Response.json({ ok: false, error: "not_found", message: "Agent runtime mock is not configured." }, { status: 404 });
 				}
@@ -1357,6 +1628,36 @@ async function issueAccessToken(kv: KVNamespaceLike, scopes: string[], user = te
 		resource: "https://bickr.social/mcp",
 	}, now);
 	return tokens.accessToken;
+}
+
+function canonicalAnnotation(kind: "account_default" | "translation", id: string, effectiveModel: string): Record<string, unknown> {
+	return {
+		kind: "canonical",
+		reference: { kind },
+		configuration: {
+			id,
+			kind,
+			identity: { kind },
+			parentId: null,
+			displayName: kind === "translation" ? "Translation" : "Account default",
+			revision: 2,
+			updatedAt: "2026-08-11T00:00:00.000Z",
+			credentialMode: "none",
+			credentialAvailability: { kind: "explicit_none", source: { kind: "account_default", configurationId: id, depth: 0 } },
+			immediateChildCount: 0,
+			effectiveModel,
+			parent: null,
+		},
+	};
+}
+
+function canonicalAnnotationService(annotations: unknown[]): { fetch(request: Request): Promise<Response> } {
+	return {
+		fetch: async (request: Request) => {
+			expect(new URL(request.url).pathname).toBe("/users/usr_mcp/inference-consumers/annotations");
+			return Response.json({ ok: true, data: { annotations, graphRevision: 7 } });
+		},
+	};
 }
 
 class MapKV implements KVNamespaceLike {
@@ -1444,73 +1745,6 @@ function mcpSettingsD1(): unknown {
 	};
 }
 
-function mcpBotCollectionD1(botId: string, groupId?: string): unknown {
-	return {
-		batch: async () => [],
-		prepare: (sql: string) => {
-			const statement = {
-				values: [] as unknown[],
-				bind(...values: unknown[]) {
-					this.values = values;
-					return this;
-				},
-				async first<T>() {
-					if (sql.includes("FROM worlds_index")) {
-						return {
-							id: "w_mcp",
-							handle: "mcp-world",
-							postingThreadBodyCharacters: 6000,
-							postingCommentBodyCharacters: null,
-						} as T;
-					}
-					return null;
-				},
-				async all<T>() {
-					if (sql.includes("WITH selected AS")) {
-						return { success: true, results: [{ id: botId, nextDueAt: null, lastActiveAt: null }] as T[] };
-					}
-					if (sql.includes("FROM bot_groups")) {
-						return {
-							success: true,
-							results: groupId ? [{
-								id: groupId,
-								worldId: "w_mcp",
-								ownerUserId: "usr_mcp",
-								language: "en",
-								customTitle: "MCP Group",
-								customTitleLang: "en",
-								createdAt: "2026-05-01T00:00:00.000Z",
-								updatedAt: "2026-05-01T00:00:00.000Z",
-							}] as T[] : [],
-						};
-					}
-					if (sql.includes("FROM bot_group_members")) {
-						return {
-							success: true,
-							results: groupId ? [{ groupId, botId }] as T[] : [],
-						};
-					}
-					if (sql.includes("FROM worlds_index")) {
-						return {
-							success: true,
-							results: [{
-								id: "w_mcp",
-								postingThreadBodyCharacters: 6000,
-								postingCommentBodyCharacters: null,
-							}] as T[],
-						};
-					}
-					return { success: true, results: [] as T[] };
-				},
-				async run() {
-					return { success: true, meta: { changes: 0 } };
-				},
-			};
-			return statement;
-		},
-	};
-}
-
 function mcpSubscriptionD1(actualWorldId: string | null): unknown {
 	let stored: Record<string, unknown> | null = null;
 	return {
@@ -1589,8 +1823,8 @@ function testBot(
 			compactionThreshold: 0.75,
 		},
 		...(overrides.postingSettings ? { postingSettings: overrides.postingSettings } : {}),
-		createdAt: "2026-05-01T00:00:00.000Z",
-		updatedAt: "2026-05-01T00:00:00.000Z",
+		createdAt: overrides.createdAt ?? "2026-05-01T00:00:00.000Z",
+		updatedAt: overrides.updatedAt ?? "2026-05-01T00:00:00.000Z",
 	};
 }
 

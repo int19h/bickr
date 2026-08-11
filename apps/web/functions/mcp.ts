@@ -1,11 +1,12 @@
 import { parseAccountMutationResult } from "@bickr/shared/account-mutation-protocol";
 import {
-	resolveBotProviderSettings,
-	type BotProviderSettingSource,
-	type ProviderEnvironmentSettings,
-	type ResolvedBotProviderSetting,
-	type ResolvedBotProviderSettings,
-} from "@bickr/shared/inference-settings";
+	inferenceConfigurationFields,
+	inferenceFieldOverrideStates,
+	isNumericInferenceField,
+	numericInferenceFieldDomains,
+	type CanonicalInferenceAnnotation,
+	type CanonicalInferenceAnnotationSet,
+} from "@bickr/shared/inference-configuration-owner";
 import {
 	addInternalServiceAuthHeader,
 	type InternalServiceAuthEnv,
@@ -19,38 +20,37 @@ import {
 } from "@bickr/shared/mcp-auth";
 import { requireMaintenanceDisabled } from "@bickr/shared/maintenance";
 import {
-	avatarImageGenerationSettingsWithDefaults,
 	type BotDocument,
 	type BotGroupSummary,
-	type BotImageGenerationSettings,
 	type BotInferenceSettings,
 	type BotSummary,
 	type BotTickSettings,
 	type BotEffectiveTickSettings,
 	type BotEffectivePostingSettings,
 	type PostingSettings,
+	type SearchResponse,
 	type ForumSummary,
 	type ThreadDocument,
-	type UserDocument,
 	type WorldSummary,
-	worldAvatarImageGenerationSettingsWithDefaults,
 } from "@bickr/shared/model";
 import { defaultPostingSettings } from "@bickr/shared/posting";
 import { defaultThreadCommentLimit } from "@bickr/shared/thread-policy";
 import {
 	botById,
-	listBotGroups,
+	listBotGroupsPage,
 	listForums,
-	listOwnedWorlds,
+	listOwnedWorldsPage,
 	listUserAuthIdentities,
 	listUserBots,
 	listWorldBots,
-	listWorlds,
+	listWorldsPage,
 	rawBotById,
 	isBotDocument,
 	publicBotSummary,
+	RepositoryError,
 	userProfile,
 	worldByHandle,
+	worldPostingSettingsByIds,
 } from "@bickr/shared/repository";
 import {
 	deactivateHumanSubscription,
@@ -108,6 +108,7 @@ type McpToolBase = {
 	name: string;
 	description: string;
 	inputSchema: Record<string, unknown>;
+	outputSchema?: Record<string, unknown>;
 	annotations: ToolAnnotations;
 	scopes: McpScope[];
 	resultKind: McpPayloadEnvelope["kind"];
@@ -139,7 +140,9 @@ type MutationOperationResult =
 
 type McpPayloadEnvelope =
 	| { kind: "opaque"; payload: unknown }
-	| { kind: "presented"; payload: unknown }
+	| { kind: "profile"; payload: unknown }
+	| { kind: "bots"; payload: unknown }
+	| { kind: "search"; payload: unknown }
 	| { kind: "bot"; payload: unknown }
 	| { kind: "world"; payload: unknown }
 	| { kind: "worlds"; payload: unknown }
@@ -153,8 +156,6 @@ type ToolContext = {
 	env: AppEnv;
 	request: Request;
 	auth: McpAuthContext;
-	providerEnvironment?: Promise<ProviderEnvironmentSettings>;
-	optionalProviderEnvironment?: Promise<ProviderEnvironmentSettings | undefined>;
 	mutationOperationId?: string;
 };
 
@@ -257,6 +258,7 @@ async function callTool(ctx: ToolContext, params: unknown): Promise<unknown> {
 	switch (tool.kind) {
 		case "read":
 			try {
+				validateMcpInput(args, tool.inputSchema, "Arguments");
 				const result = await tool.execute(ctx, args);
 				return await toolResult({ kind: tool.resultKind, payload: result }, ctx);
 			} catch (error) {
@@ -288,20 +290,16 @@ async function callMutationTool(
 			// Compatibility for tool definitions cached before the bulk schema rollout.
 			// Retire this singleton path after 2026-09-01 once clients have refreshed tools/list.
 			const legacyArguments = tool.legacyArguments ? tool.legacyArguments(args) : args;
-			if (mcpPayloadHasBots(tool.resultKind)) {
-				// Resolve all presentation dependencies before the legacy mutation commits.
-				// A later presentation failure must never make a committed write look retryable.
-				await providerEnvironmentForMcp(ctx);
-			}
+			validateMcpInput(legacyArguments, tool.operationSchema, "Arguments");
 			const result = await tool.executeOperation(ctx, legacyArguments);
-			return await toolResult({ kind: tool.resultKind, payload: result }, ctx);
+			if (isApiFailure(result)) return toolError(result);
+			try {
+				return await toolResult({ kind: tool.resultKind, payload: result }, ctx);
+			} catch (error) {
+				return successfulSingletonMutationWithWarning(error);
+			}
 		}
 		const operations = mutationOperations(args, tool.operationSchema);
-		if (mcpPayloadHasBots(tool.resultKind)) {
-			// The bulk result can degrade presentation to resultWarning, but fetching
-			// once before all writes also removes avoidable post-commit network I/O.
-			await providerEnvironmentForMcp(ctx);
-		}
 		const results: MutationOperationResult[] = [];
 		// Preserve input order and avoid concurrent writes to the same logical entity.
 		for (const operation of operations) {
@@ -363,8 +361,29 @@ function mutationOperations(args: Record<string, unknown>, operationSchema: Reco
 		}
 		seenIds.add(operationId);
 		const { operationId: _operationId, ...operationArguments } = record;
+		validateMcpInput(operationArguments, operationSchema, `Operation ${index + 1}`);
 		return { operationId, arguments: operationArguments };
 	});
+}
+
+function validateMcpInput(value: unknown, schema: Record<string, unknown>, label: string): void {
+	if (value === null) return;
+	const properties = schema.properties;
+	if (properties && typeof properties === "object" && !Array.isArray(properties)) {
+		if (!value || typeof value !== "object" || Array.isArray(value)) {
+			throw new InputError(`${label} must be an object.`);
+		}
+		const record = value as Record<string, unknown>;
+		const allowed = properties as Record<string, unknown>;
+		const unexpected = Object.keys(record).find((key) => !(key in allowed));
+		if (unexpected) throw new InputError(`${label} contains unsupported argument ${unexpected}.`);
+		for (const [key, child] of Object.entries(record)) {
+			const childSchema = allowed[key];
+			if (childSchema && typeof childSchema === "object" && !Array.isArray(childSchema)) {
+				validateMcpInput(child, childSchema as Record<string, unknown>, `${label}.${key}`);
+			}
+		}
+	}
 }
 
 function assertNeverMcpTool(tool: never): never {
@@ -372,25 +391,16 @@ function assertNeverMcpTool(tool: never): never {
 }
 
 const mcpTools: McpTool[] = [
-	readTool("get_profile", "Get profile", "Read the signed-in human user's Bickr profile.", {}, async ({ env, request, auth }) => {
+	readTool("get_profile", "Get profile", "Read the signed-in human user's Bickr profile.", {}, async ({ env, auth }) => {
 		const profile = userProfile(auth.user, await listUserAuthIdentities(env.BICKR_D1, auth.user.id));
-		const annotationPayload = await servicePayload(
-			env.AGENT_RUNTIME,
-			env,
-			request,
-			`/users/${encodeURIComponent(auth.user.id)}/inference-translation/annotation`,
-			"GET",
-			auth.user.id,
-		);
-		const annotation = inferenceTranslationAnnotationFromEnvelope(annotationPayload);
-		return { profile: { ...profile, lang: profile.language, ...(annotation ? { translationInference: annotation } : {}) } };
-	}),
+		return { profile };
+	}, "profile"),
 	writeTool("update_profile", "Update profile", "Update the signed-in human user's Bickr profile.", bodySchema({
 		handle: stringSchema("Profile handle."),
 		lang: languageSchema("Selected profile language. Required when displayName is provided."),
 		displayName: localizedTextSchema("Profile display name. lang must match the selected profile language."),
 		uiLocale: uiLocaleSchema("UI language preference."),
-		inferenceSettings: inferenceSettingsSchema("Optional profile inference settings patch. Localized prompt fields must use { lang, text }."),
+		inferenceSettings: profilePromptInferenceSettingsSchema("Profile-owned Translation toggle/prompt and account avatar prompt."),
 	}), async (ctx, args) => {
 		const payload = await servicePayload(
 			ctx.env.AGENT_RUNTIME,
@@ -413,18 +423,24 @@ const mcpTools: McpTool[] = [
 			case "provider_identity_unlinked":
 				throw new Error("Profile coordinator returned the wrong mutation result.");
 		}
-	}),
-	readTool("list_worlds", "List worlds", "List public Bickr worlds.", {}, async ({ env }) => ({
-		worlds: await listWorlds(env.BICKR_D1),
-	}), "worlds"),
-	readTool("list_my_worlds", "List my worlds", "List Bickr worlds owned by the signed-in human user.", {}, async ({ env, auth }) => ({
-		worlds: await listOwnedWorlds(env.BICKR_D1, auth.user.id),
-	}), "worlds"),
+	}, false, "profile"),
+	readTool("list_worlds", "List worlds", "List one bounded page of public Bickr worlds. Concurrent updates may move a world across a page boundary.", {
+		limit: integerSchema("Page size, from 1 through 100 (default 100)."),
+		cursor: stringSchema("Opaque keyset cursor returned by the previous page."),
+	}, async ({ env }, args) => listWorldsPage(env.BICKR_D1, mcpCollectionPage(args)), "worlds"),
+	readTool("list_my_worlds", "List my worlds", "List one bounded page of Bickr worlds owned by the signed-in account. Concurrent updates may move a world across a page boundary.", {
+		limit: integerSchema("Page size, from 1 through 100 (default 100)."),
+		cursor: stringSchema("Opaque keyset cursor returned by the previous page."),
+	}, async ({ env, auth }, args) => listOwnedWorldsPage(env.BICKR_D1, auth.user.id, mcpCollectionPage(args)), "worlds"),
 	serviceTool("create_world", "Create world", "Create a Bickr world.", bodySchema({
 		handle: stringSchema("World handle."),
 		lang: requiredLanguageSchema("Selected world language. Use a BCP 47 tag such as \"en\", \"ja\", \"zh-Hant\", or \"ar\"."),
 		name: localizedTextSchema("World name. lang must match the selected world language."),
 		description: localizedTextSchema("World description. lang must match the selected world language."),
+		prompt: localizedTextSchema("World prompt. lang must match the selected world language."),
+		recurringPromptEnabled: { type: "boolean", description: "Whether the recurring world prompt is enabled." },
+		recurringPrompt: localizedTextSchema("Recurring world prompt. lang must match the selected world language."),
+		imageGeneration: promptOnlyImageGenerationSchema("World avatar prompt."),
 		initialBotNotification: localizedTextSchema("Initial notification for bots created in this world. lang must match the selected world language."),
 		threadSettings: threadSettingsSchema("Optional thread policy. The smaller global, world, or forum comment limit wins."),
 	}), ["handle", "lang", "name", "description"], "write", "agent", "POST", (_args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/worlds`, mcpEntityLanguageBody, "world"),
@@ -434,12 +450,16 @@ const mcpTools: McpTool[] = [
 		lang: languageSchema("Selected world language. Required when updating localized world text."),
 		name: localizedTextSchema("World name. lang must match the selected world language."),
 		description: localizedTextSchema("World description. lang must match the selected world language."),
+		prompt: localizedTextSchema("World prompt. lang must match the selected world language."),
+		recurringPromptEnabled: { type: "boolean", description: "Whether the recurring world prompt is enabled." },
+		recurringPrompt: localizedTextSchema("Recurring world prompt. lang must match the selected world language."),
+		imageGeneration: promptOnlyImageGenerationSchema("World avatar prompt patch."),
 		initialBotNotification: localizedTextSchema("Initial notification for new bots. lang must match the selected world language."),
 		threadSettings: threadSettingsSchema("Optional thread policy patch. Set commentLimit to null to restore the global default."),
 	}), ["worldHandle"], "write", "agent", "PATCH", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}`, withoutMcpKeys("worldHandle"), "world"),
 	serviceTool("delete_world", "Delete world", "Delete a Bickr world owned by the signed-in human user.", bodySchema({
 		worldHandle: stringSchema("World handle."),
-	}), ["worldHandle"], "destructive", "agent", "DELETE", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}`),
+	}), ["worldHandle"], "destructive", "agent", "DELETE", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}`, undefined, "world"),
 	readTool("list_forums", "List forums", "List forums in a Bickr world.", {
 		worldHandle: stringSchema("World handle."),
 	}, async ({ env }, args) => ({ forums: await listForums(env.BICKR_D1, text(args.worldHandle, "World handle")) }), "forums"),
@@ -546,13 +566,13 @@ const mcpTools: McpTool[] = [
 		const forum = await forumByHandle(ctx.env.BICKR_KV, ctx.env.BICKR_D1, text(args.worldHandle, "World handle"), text(args.forumHandle, "Forum handle"));
 		return `/forums/${encodeURIComponent(forum.id)}/threads/${encodeURIComponent(text(args.threadId, "Thread ID"))}/comments/${encodeURIComponent(text(args.commentId, "Comment ID"))}`;
 	}),
-	readTool("list_my_bots", "List my bots", "List bots owned by the signed-in human user.", {}, async (ctx) => ({
-		bots: annotateMcpBots(
-			await listUserBots(ctx.env.BICKR_KV, ctx.env.BICKR_D1, ctx.auth.user.id),
-			ctx.auth.user,
-			await optionalProviderEnvironmentForMcp(ctx),
-		),
-	}), "presented"),
+	readTool("list_my_bots", "List my bots", "List one bounded page of participants owned by the signed-in account. Concurrent updates may move a participant across a page boundary.", {
+		limit: integerSchema("Page size, from 1 through 100 (default 100)."),
+		cursor: stringSchema("Opaque keyset cursor returned by the previous page."),
+	}, async (ctx, args) => listUserBots(ctx.env.BICKR_KV, ctx.env.BICKR_D1, ctx.auth.user.id, {
+		...(valueString(args.cursor) ? { cursor: valueString(args.cursor)! } : {}),
+		...(args.limit !== undefined ? { limit: boundedMcpCollectionLimit(args.limit) } : {}),
+	}), "bots"),
 	readTool("list_inference_configurations", "List inference configurations", "List the signed-in account's reusable inference configurations with effective model, immediate-child count, redacted credential availability, and parent annotations. Sections paginate independently; the participant section is ordered by home world and carries per-world group counts.", {
 		section: stringSchema("Optional library section: account, custom, world, or bot."),
 		kind: stringSchema("Optional comma-separated kinds: account_default, translation, world, bot, custom."),
@@ -577,17 +597,47 @@ const mcpTools: McpTool[] = [
 		"GET",
 		auth.user.id,
 	)),
+	readTool("get_fixed_inference_configuration", "Get fixed inference configuration", "Resolve Account default, Translation, an owned world, or an owned participant directly without paging through the inference library.", {
+		kind: enumSchema(["account_default", "translation", "world", "participant"], "Fixed inference configuration kind."),
+		worldId: stringSchema("Owned world ID when kind is world."),
+		worldHandle: stringSchema("Owned world handle when kind is world; use either worldId or worldHandle."),
+		botId: stringSchema("Owned participant ID when kind is participant."),
+	}, async ({ env, request, auth }, args) => {
+		const kind = text(args.kind, "Fixed inference configuration kind");
+		let body: Record<string, unknown>;
+		switch (kind) {
+			case "account_default": body = { accountDefault: true }; break;
+			case "translation": body = { translation: true }; break;
+			case "world": {
+				const worldId = valueString(args.worldId)
+					?? (valueString(args.worldHandle) ? (await worldByHandle(env.BICKR_D1, valueString(args.worldHandle)!)).id : null);
+				if (!worldId) throw new InputError("worldId or worldHandle is required for a world fixed lookup.");
+				body = { worldIds: [worldId] };
+				break;
+			}
+			case "participant": body = { botIds: [text(args.botId, "Participant ID")] }; break;
+			default: throw new InputError("Unknown fixed inference configuration kind.");
+		}
+		const payload = await servicePayload(
+			env.AGENT_RUNTIME, env, request,
+			`/users/${encodeURIComponent(auth.user.id)}/inference-consumers/annotations`,
+			"POST", auth.user.id, body,
+		);
+		const set = canonicalAnnotationSetFromEnvelope(payload);
+		if (set.annotations.length === 0) throw new RepositoryError("not_found", "Fixed inference configuration not found.", 404);
+		return { annotation: set.annotations[0], graphRevision: set.graphRevision };
+	}),
 	serviceTool("create_inference_configuration", "Create inference configuration", "Create a reusable custom inference configuration.", bodySchema({
 		name: stringSchema("Configuration display name."),
 		parentId: stringSchema("Inheritance source configuration ID."),
-		overrides: objectSchema("Typed per-field overrides."),
-		credential: objectSchema("Credential intent: inherit, account_default, none, or value with secret."),
-	}), ["name", "parentId"], "write", "agent", "POST", (_args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/inference-configurations`),
+		overrides: inferenceOverridesSchema(false),
+		credential: inferenceCredentialSchema(),
+	}), ["name", "parentId"], "write", "agent", "POST", (_args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/inference-configurations`, (args) => args),
 	serviceTool("update_inference_configuration", "Update inference configuration", "Update typed overrides or credential intent using an expected revision.", bodySchema({
 		configurationId: stringSchema("Configuration ID."),
 		expectedRevision: integerSchema("Expected configuration revision."),
-		overrides: objectSchema("Typed per-field override patch."),
-		credential: objectSchema("Credential intent update."),
+		overrides: inferenceOverridesSchema(true),
+		credential: inferenceCredentialSchema(),
 	}), ["configurationId", "expectedRevision"], "write", "agent", "PATCH", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}`, withoutMcpKeys("configurationId")),
 	serviceTool("rename_inference_configuration", "Rename inference configuration", "Rename a custom inference configuration using an expected revision.", bodySchema({
 		configurationId: stringSchema("Configuration ID."),
@@ -651,29 +701,26 @@ const mcpTools: McpTool[] = [
 		configurationId: stringSchema("Configuration ID."),
 		expectedRevision: integerSchema("Expected configuration revision."),
 	}), ["configurationId", "expectedRevision"], "destructive", "agent", "DELETE", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}`, withoutMcpKeys("configurationId")),
-	readTool("list_world_bots", "List world bots", "List bots in a Bickr world.", {
+	readTool("list_world_bots", "List world bots", "List one bounded page of participants in a Bickr world. Concurrent updates may move a participant across a page boundary.", {
 		worldHandle: stringSchema("World handle."),
-	}, async (ctx, args) => ({
-		bots: annotateMcpBots(
-			await listWorldBots(ctx.env.BICKR_KV, ctx.env.BICKR_D1, text(args.worldHandle, "World handle")),
-			ctx.auth.user,
-			await optionalProviderEnvironmentForMcp(ctx),
-		),
-	}), "presented"),
+		limit: integerSchema("Page size, from 1 through 100 (default 100)."),
+		cursor: stringSchema("Opaque keyset cursor returned by the previous page."),
+	}, async (ctx, args) => listWorldBots(
+		ctx.env.BICKR_KV,
+		ctx.env.BICKR_D1,
+		text(args.worldHandle, "World handle"),
+		{
+			...(valueString(args.cursor) ? { cursor: valueString(args.cursor)! } : {}),
+			...(args.limit !== undefined ? { limit: boundedMcpCollectionLimit(args.limit) } : {}),
+		},
+	), "bots"),
 	readTool("get_bot", "Get bot", "Read one Bickr bot by ID.", {
 		botId: stringSchema("Bot ID."),
 	}, async (ctx, args) => {
 		const bot = await botById(ctx.env.BICKR_KV, ctx.env.BICKR_D1, text(args.botId, "Bot ID"));
 		const world = await worldByHandle(ctx.env.BICKR_D1, bot.homeWorldHandle);
-		return {
-			bot: annotateMcpBot(
-				bot,
-				world.postingSettings,
-				ctx.auth.user,
-				await optionalProviderEnvironmentForMcp(ctx),
-			),
-		};
-	}, "presented"),
+		return { bot: publicBotSummary(bot, { includeToolSettings: true, worldPostingSettings: world.postingSettings }) };
+	}, "bot"),
 	serviceTool("create_bot", "Create bot", "Create a Bickr bot in a world.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		handle: stringSchema("Bot handle."),
@@ -681,7 +728,7 @@ const mcpTools: McpTool[] = [
 		displayName: localizedTextSchema("Bot display name. lang must match the selected bot language."),
 		shortBio: localizedTextSchema("Bot short bio. lang must match the selected bot language."),
 		prompt: localizedTextSchema("Bot prompt. lang must match the selected bot language."),
-		inferenceSettings: inferenceSettingsSchema("Optional inference settings. Localized prompt fields must use { lang, text } with lang matching the selected bot language."),
+		inferenceSettings: participantPromptInferenceSettingsSchema("Participant-owned recurring and avatar prompts."),
 	}), ["worldHandle", "handle", "lang", "displayName", "shortBio", "prompt"], "write", "agent", "POST", (args, _ctx) => `/users/${encodeURIComponent(_ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/bots`, withoutMcpKeys("worldHandle"), "bot"),
 	serviceTool("update_bot", "Update bot", "Update a Bickr bot owned by the signed-in human user.", bodySchema({
 		botId: stringSchema("Bot ID."),
@@ -690,7 +737,7 @@ const mcpTools: McpTool[] = [
 		displayName: localizedTextSchema("Bot display name. lang must match the selected bot language."),
 		shortBio: localizedTextSchema("Bot short bio. lang must match the selected bot language."),
 		prompt: localizedTextSchema("Bot prompt. lang must match the selected bot language."),
-		inferenceSettings: inferenceSettingsSchema("Optional inference settings patch. Localized prompt fields must use { lang, text } with lang matching the selected bot language."),
+		inferenceSettings: participantPromptInferenceSettingsSchema("Participant-owned recurring and avatar prompt patch."),
 	}), ["botId"], "write", "agent", "PATCH", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}`, withoutMcpKeys("botId"), "bot"),
 	serviceTool("delete_bot", "Delete bot", "Delete a Bickr bot owned by the signed-in human user.", bodySchema({
 		botId: stringSchema("Bot ID."),
@@ -708,9 +755,17 @@ const mcpTools: McpTool[] = [
 	}), ["botId", "crop"], "write", "agent", "PATCH", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/avatar/crop`, withoutMcpKeys("botId"), "bot"),
 	serviceTool("unlink_bot_clone", "Unlink bot clone", "Unlink a cloned bot from its source.", bodySchema({ botId: stringSchema("Bot ID.") }), ["botId"], "write", "agent", "POST", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/clone/unlink`, undefined, "bot"),
 	serviceTool("relink_bot_clone", "Relink bot clone", "Relink a cloned bot to its source.", bodySchema({ botId: stringSchema("Bot ID.") }), ["botId"], "write", "agent", "POST", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/clone/relink`, undefined, "bot"),
-	readTool("list_groups", "List bot groups", "List bot groups owned by the signed-in human user in a world.", { worldHandle: stringSchema("World handle.") }, async ({ env, auth }, args) => ({
-		groups: await listBotGroups(env.BICKR_KV, env.BICKR_D1, text(args.worldHandle, "World handle"), auth.user.id),
-	}), "groups"),
+	readTool("list_groups", "List bot groups", "List one bounded page of bot groups owned by the signed-in account, with at most 100 nested participants and an explicit truncation marker.", {
+		worldHandle: stringSchema("World handle."),
+		limit: integerSchema("Page size, from 1 through 100 (default 100)."),
+		cursor: stringSchema("Opaque keyset cursor returned by the previous page."),
+	}, async ({ env, auth }, args) => listBotGroupsPage(
+		env.BICKR_KV,
+		env.BICKR_D1,
+		text(args.worldHandle, "World handle"),
+		auth.user.id,
+		mcpCollectionPage(args),
+	), "groups"),
 	serviceTool("create_group", "Create bot group", "Create a Bickr bot group.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		lang: requiredLanguageSchema("Selected group language. Use a BCP 47 tag such as \"en\", \"ja\", \"zh-Hant\", or \"ar\"."),
@@ -759,7 +814,7 @@ const mcpTools: McpTool[] = [
 				types: parseSearchTypes(valueString(args.types)),
 			}),
 		};
-	}),
+	}, "search"),
 	readTool("export_thread", "Export thread", "Export one Bickr thread as structured data.", { ref: stringSchema("Thread reference.") }, async ({ env }, args) => ({
 		export: await exportThreadRef(env, text(args.ref, "Thread reference")),
 	})),
@@ -819,12 +874,14 @@ const mcpTools: McpTool[] = [
 export function mcpToolMetadataForTest(): Array<{
 	name: string;
 	inputSchema: Record<string, unknown>;
+	outputSchema?: Record<string, unknown>;
 	annotations: Record<string, unknown>;
 	scopes: McpScope[];
 }> {
 	return mcpTools.map((tool) => ({
 		name: tool.name,
 		inputSchema: tool.inputSchema,
+		...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
 		annotations: tool.annotations as Record<string, unknown>,
 		scopes: tool.scopes,
 	}));
@@ -891,6 +948,7 @@ function readTool(
 		name,
 		description,
 		inputSchema: objectInputSchema(properties),
+		...(outputSchemaForMcpTool(name) ? { outputSchema: outputSchemaForMcpTool(name) } : {}),
 		annotations: { title, readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 		scopes: ["bickr.read"],
 		resultKind,
@@ -913,6 +971,7 @@ function writeTool(
 		name,
 		description,
 		inputSchema: mutationInputSchema(inputSchema),
+		...(outputSchemaForMcpTool(name) ? { outputSchema: outputSchemaForMcpTool(name) } : {}),
 		annotations: { title, readOnlyHint: false, destructiveHint: destructive, idempotentHint: false, openWorldHint: false },
 		scopes: ["bickr.write"],
 		resultKind,
@@ -935,6 +994,7 @@ function runtimeTool(
 		name,
 		description,
 		inputSchema: mutationInputSchema(inputSchema),
+		...(outputSchemaForMcpTool(name) ? { outputSchema: outputSchemaForMcpTool(name) } : {}),
 		annotations: { title, readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
 		scopes: ["bickr.runtime"],
 		resultKind,
@@ -1076,104 +1136,23 @@ async function servicePayload(
 	return payload;
 }
 
-function inferenceTranslationAnnotationFromEnvelope(value: unknown): Record<string, unknown> | null {
-	if (isApiFailure(value)) {
-		// Older/disabled graph releases do not expose the optional annotation
-		// route. Structured not_found is the versioned compatibility boundary.
-		if (value.error === "not_found") return null;
-		throw new Error("Agent runtime could not provide a translation annotation.");
+function canonicalAnnotationSetFromEnvelope(value: unknown): CanonicalInferenceAnnotationSet {
+	if (isApiFailure(value)) throw new Error("Agent Runtime could not provide canonical inference annotations.");
+	const envelope = recordValue(value, "Canonical inference annotation envelope");
+	const data = recordValue(envelope.data, "Canonical inference annotation data");
+	if (!Array.isArray(data.annotations) || typeof data.graphRevision !== "number") {
+		throw new Error("Agent Runtime returned invalid canonical inference annotations.");
 	}
-	if (!value || typeof value !== "object" || Array.isArray(value)) {
-		throw new Error("Agent runtime returned an invalid translation annotation envelope.");
+	for (const annotation of data.annotations) {
+		const record = recordValue(annotation, "Canonical inference annotation");
+		if (record.kind !== "canonical" && record.kind !== "legacy_compatibility") {
+			throw new Error("Agent Runtime returned an unknown canonical inference annotation kind.");
+		}
 	}
-	const data = (value as { data?: unknown }).data;
-	if (!data || typeof data !== "object" || Array.isArray(data)) {
-		throw new Error("Agent runtime returned an invalid translation annotation envelope.");
-	}
-	const annotation = (data as { annotation?: unknown }).annotation;
-	if (annotation === null) return null;
-	if (!annotation || typeof annotation !== "object" || Array.isArray(annotation)) {
-		throw new Error("Agent runtime returned an invalid translation annotation.");
-	}
-	const record = annotation as Record<string, unknown>;
-	if (record.enabled === false) return { enabled: false };
-	if (record.enabled === true && record.migrationPending === true &&
-		typeof record.sourceConfigurationId === "string" && typeof record.pointerRevision === "number" &&
-		typeof record.effectiveModel === "string" && typeof record.effectiveRevisionFingerprint === "string" &&
-		typeof record.credentialAvailable === "boolean") {
-		return record;
-	}
-	if (record.enabled !== true || typeof record.configurationId !== "string" || record.displayName !== "Translation" ||
-		typeof record.pointerRevision !== "number" || typeof record.effectiveModel !== "string" ||
-		typeof record.effectiveRevisionFingerprint !== "string" || typeof record.credentialAvailable !== "boolean") {
-		throw new Error("Agent runtime returned an invalid translation annotation.");
-	}
-	return record;
+	return data as CanonicalInferenceAnnotationSet;
 }
 
-function providerEnvironmentForMcp(ctx: ToolContext): Promise<ProviderEnvironmentSettings> {
-	ctx.providerEnvironment ??= loadProviderEnvironmentForMcp(ctx);
-	return ctx.providerEnvironment;
-}
-
-function optionalProviderEnvironmentForMcp(ctx: ToolContext): Promise<ProviderEnvironmentSettings | undefined> {
-	ctx.optionalProviderEnvironment ??= providerEnvironmentForMcp(ctx).catch((error: unknown) => {
-		console.error("mcp provider environment unavailable", error);
-		return undefined;
-	});
-	return ctx.optionalProviderEnvironment;
-}
-
-async function loadProviderEnvironmentForMcp(ctx: ToolContext): Promise<ProviderEnvironmentSettings> {
-	const payload = await servicePayload(
-		ctx.env.AGENT_RUNTIME,
-		ctx.env,
-		ctx.request,
-		"/provider-settings/environment",
-		"GET",
-		ctx.auth.user.id,
-	);
-	return providerEnvironmentFromServicePayload(payload);
-}
-
-function providerEnvironmentFromServicePayload(payload: unknown): ProviderEnvironmentSettings {
-	if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-		throw new Error("Agent runtime returned an invalid provider-environment envelope.");
-	}
-	const envelope = payload as Record<string, unknown>;
-	const data = envelope.data;
-	if (envelope.ok !== true || !data || typeof data !== "object" || Array.isArray(data)) {
-		throw new Error("Agent runtime did not return provider-environment data.");
-	}
-	const providerEnvironment = data as Record<string, unknown>;
-	const settings = providerEnvironment.settings;
-	if (
-		providerEnvironment.kind !== "provider_environment" ||
-		!settings ||
-		typeof settings !== "object" ||
-		Array.isArray(settings)
-	) {
-		throw new Error("Agent runtime returned an invalid provider-environment payload.");
-	}
-	const record = settings as Record<string, unknown>;
-	if (
-		(record.apiKeySet !== undefined && typeof record.apiKeySet !== "boolean") ||
-		(record.baseUrl !== undefined && typeof record.baseUrl !== "string") ||
-		(record.model !== undefined && typeof record.model !== "string") ||
-		"apiKey" in record
-	) {
-		throw new Error("Agent runtime returned invalid redacted provider settings.");
-	}
-	return {
-		...(record.apiKeySet !== undefined ? { apiKeySet: record.apiKeySet } : {}),
-		...(record.baseUrl !== undefined ? { baseUrl: record.baseUrl } : {}),
-		...(record.model !== undefined ? { model: record.model } : {}),
-	};
-}
-
-type ResolvedSettingSource =
-	| BotProviderSettingSource
-	| "world";
+type ResolvedSettingSource = "bot" | "source_bot" | "world" | "bickr_default";
 
 type ResolvedSetting<T> = {
 	effective: T;
@@ -1184,30 +1163,108 @@ type ResolvedSetting<T> = {
 
 type ResolvedSettingMap = Record<string, ResolvedSetting<unknown>>;
 
-function annotateMcpPayload(
-	envelope: McpPayloadEnvelope,
-	viewer: UserDocument | undefined,
-	providerEnvironment: ProviderEnvironmentSettings | undefined,
-): unknown {
+const maximumMcpPresentationEntities = 100;
+
+type McpInferenceConfigurationsRevision = {
+	inferenceConfigurations: { graphRevision: number };
+};
+
+function inferenceConfigurationsRevision(
+	annotations: CanonicalInferenceAnnotationSet,
+): McpInferenceConfigurationsRevision | Record<string, never> {
+	return annotations.annotations.length > 0
+		? { inferenceConfigurations: { graphRevision: annotations.graphRevision } }
+		: {};
+}
+
+async function annotateMcpPayload(envelope: McpPayloadEnvelope, ctx: ToolContext): Promise<unknown> {
 	switch (envelope.kind) {
 		case "opaque":
-		case "presented":
 			return envelope.payload;
+		case "search": {
+			const record = payloadRecord(envelope.payload);
+			const search = record.search as SearchResponse;
+			const results = search.results.slice(0, 100);
+			const annotations = await canonicalAnnotationsForMcp(ctx, {
+				botIds: results.flatMap((result) => result.type === "bot" ? [result.id] : []),
+				worldIds: results.flatMap((result) => result.type === "world" ? [result.id] : []),
+			});
+			return mapMcpPayloadData(envelope.payload, (data) => ({
+				...data,
+				...inferenceConfigurationsRevision(annotations),
+				search: {
+					...search,
+					results: results.map((result) => ({
+						...result,
+						...(result.type === "bot"
+							? { inferenceConfiguration: annotationFor(annotations, { kind: "bot", botId: result.id }) }
+							: result.type === "world"
+								? { inferenceConfiguration: annotationFor(annotations, { kind: "world", worldId: result.id }) }
+								: {}),
+					})),
+					presentationPage: { maximumEntities: 100, truncated: search.results.length > 100 },
+				},
+			}));
+		}
+		case "profile": {
+			const annotations = await canonicalAnnotationsForMcp(ctx, { accountDefault: true, translation: true });
+			return mapMcpPayloadData(envelope.payload, (record) => ({
+				...record,
+				profile: presentMcpProfile(record.profile as ReturnType<typeof userProfile>, annotations),
+			}));
+		}
 		case "bot":
-			return mapMcpPayloadData(envelope.payload, (record) => ({
-				...record,
-				bot: annotateMcpBot(record.bot as BotDocument | BotSummary, undefined, viewer, providerEnvironment),
-			}));
+		case "bots": {
+			const record = payloadRecord(envelope.payload);
+			const primary = payloadBots(envelope.payload, envelope.kind);
+			const rawAffected = envelope.kind === "bot" && Array.isArray(record.affectedBots)
+				? record.affectedBots as Array<BotDocument | BotSummary>
+				: [];
+			const affectedLimit = envelope.kind === "bot" ? Math.max(0, maximumMcpPresentationEntities - primary.length) : 0;
+			const affected = rawAffected.slice(0, affectedLimit);
+			const candidates = [...primary, ...affected].slice(0, maximumMcpPresentationEntities);
+			const worldSettings = await worldPostingSettingsByIds(ctx.env.BICKR_D1, candidates.map((bot) => bot.homeWorldId));
+			const annotations = await canonicalAnnotationsForMcp(ctx, {
+				botIds: candidates.filter((bot) => bot.ownerUserId === ctx.auth.user.id).map((bot) => bot.id),
+			});
+			return mapMcpPayloadData(envelope.payload, (resultRecord) => {
+				const { affectedBots: _affectedBots, ...resultWithoutAffectedBots } = resultRecord;
+				return {
+					...resultWithoutAffectedBots,
+					...inferenceConfigurationsRevision(annotations),
+					...(envelope.kind === "bot"
+						? {
+							bot: presentMcpBot(primary[0]!, ctx.auth.user.id, annotations, worldSettings.get(primary[0]!.homeWorldId)),
+							...(Array.isArray(resultRecord.affectedBots) ? {
+								affectedBots: affected.map((bot) => presentMcpBot(
+									bot, ctx.auth.user.id, annotations, worldSettings.get(bot.homeWorldId),
+								)),
+								affectedBotsPresentation: {
+									maximumEntities: affectedLimit,
+									truncated: rawAffected.length > affected.length,
+								},
+							} : {}),
+						}
+						: { bots: primary.slice(0, maximumMcpPresentationEntities)
+							.map((bot) => presentMcpBot(bot, ctx.auth.user.id, annotations, worldSettings.get(bot.homeWorldId))) }),
+				};
+			});
+		}
 		case "world":
+		case "worlds": {
+			const candidates = payloadWorlds(envelope.payload, envelope.kind);
+			const annotations = await canonicalAnnotationsForMcp(ctx, {
+				worldIds: candidates.filter((world) => world.createdByUserId === ctx.auth.user.id).map((world) => world.id).slice(0, 100),
+			});
 			return mapMcpPayloadData(envelope.payload, (record) => ({
 				...record,
-				world: annotateMcpWorld(record.world as WorldSummary),
+				...inferenceConfigurationsRevision(annotations),
+				...(envelope.kind === "world"
+					? { world: presentMcpWorld(record.world as WorldSummary, ctx.auth.user.id, annotations) }
+					: { worlds: (record.worlds as WorldSummary[]).slice(0, 100)
+						.map((world) => presentMcpWorld(world, ctx.auth.user.id, annotations)) }),
 			}));
-		case "worlds":
-			return mapMcpPayloadData(envelope.payload, (record) => ({
-				...record,
-				worlds: (record.worlds as WorldSummary[]).map(annotateMcpWorld),
-			}));
+		}
 		case "forum":
 			return mapMcpPayloadData(envelope.payload, (record) => ({ ...record, forum: mcpForum(record.forum as ForumSummary) }));
 		case "forums":
@@ -1218,19 +1275,180 @@ function annotateMcpPayload(
 		case "thread":
 			return mapMcpPayloadData(envelope.payload, (record) => ({ ...record, thread: mcpThread(record.thread as ThreadDocument) }));
 		case "group":
+		case "groups": {
+			const groups = payloadGroups(envelope.payload, envelope.kind);
+			const candidates = groups.flatMap((group) => group.bots).slice(0, 100);
+			const worldSettings = await worldPostingSettingsByIds(ctx.env.BICKR_D1, candidates.map((bot) => bot.homeWorldId));
+			const annotations = await canonicalAnnotationsForMcp(ctx, {
+				botIds: candidates.filter((bot) => bot.ownerUserId === ctx.auth.user.id).map((bot) => bot.id),
+			});
+			let remaining = 100;
+			const presentGroup = (group: BotGroupSummary) => {
+				const bots = group.bots.slice(0, remaining);
+				remaining -= bots.length;
+				return {
+					...group,
+					lang: group.language,
+					bots: bots.map((bot) => presentMcpBot(bot, ctx.auth.user.id, annotations, worldSettings.get(bot.homeWorldId))),
+				};
+			};
 			return mapMcpPayloadData(envelope.payload, (record) => ({
 				...record,
-				group: annotateMcpBotGroup(record.group as BotGroupSummary, viewer, providerEnvironment),
+				...inferenceConfigurationsRevision(annotations),
+				...(envelope.kind === "group"
+					? { group: presentGroup(record.group as BotGroupSummary) }
+					: {
+						groups: (record.groups as BotGroupSummary[]).map(presentGroup),
+						presentationPage: {
+							maximumEntities: 100,
+							truncated: Boolean((record.presentationPage as { truncated?: unknown } | undefined)?.truncated)
+								|| groups.flatMap((group) => group.bots).length > 100,
+						},
+					}),
 			}));
-		case "groups":
-			return mapMcpPayloadData(envelope.payload, (record) => ({
-				...record,
-				groups: (record.groups as BotGroupSummary[]).map((group) =>
-					annotateMcpBotGroup(group, viewer, providerEnvironment)),
-			}));
+		}
 		default:
 			return assertNeverMcpPayloadEnvelope(envelope);
 	}
+}
+
+async function canonicalAnnotationsForMcp(
+	ctx: ToolContext,
+	request: { accountDefault?: boolean; translation?: boolean; botIds?: string[]; worldIds?: string[] },
+): Promise<CanonicalInferenceAnnotationSet> {
+	const count = (request.accountDefault ? 1 : 0) + (request.translation ? 1 : 0)
+		+ (request.botIds?.length ?? 0) + (request.worldIds?.length ?? 0);
+	if (count === 0) return { annotations: [], graphRevision: 0 };
+	const payload = await servicePayload(
+		ctx.env.AGENT_RUNTIME,
+		ctx.env,
+		ctx.request,
+		`/users/${encodeURIComponent(ctx.auth.user.id)}/inference-consumers/annotations`,
+		"POST",
+		ctx.auth.user.id,
+		request,
+	);
+	return canonicalAnnotationSetFromEnvelope(payload);
+}
+
+function payloadRecord(payload: unknown): Record<string, unknown> {
+	const record = recordValue(payload, "MCP result payload");
+	return record.ok === true ? recordValue(record.data, "MCP result data") : record;
+}
+
+function payloadBots(payload: unknown, kind: "bot" | "bots"): Array<BotDocument | BotSummary> {
+	const record = payloadRecord(payload);
+	return kind === "bot" ? [record.bot as BotDocument | BotSummary] : record.bots as Array<BotDocument | BotSummary>;
+}
+
+function payloadWorlds(payload: unknown, kind: "world" | "worlds"): WorldSummary[] {
+	const record = payloadRecord(payload);
+	return kind === "world" ? [record.world as WorldSummary] : record.worlds as WorldSummary[];
+}
+
+function payloadGroups(payload: unknown, kind: "group" | "groups"): BotGroupSummary[] {
+	const record = payloadRecord(payload);
+	return kind === "group" ? [record.group as BotGroupSummary] : record.groups as BotGroupSummary[];
+}
+
+function annotationFor(
+	set: CanonicalInferenceAnnotationSet,
+	reference: { kind: "account_default" | "translation" } | { kind: "bot"; botId: string } | { kind: "world"; worldId: string },
+): CanonicalInferenceAnnotation | undefined {
+	return set.annotations.find((annotation) => {
+		if (annotation.reference.kind !== reference.kind) return false;
+		if (reference.kind === "bot" && annotation.reference.kind === "bot") return annotation.reference.botId === reference.botId;
+		if (reference.kind === "world" && annotation.reference.kind === "world") return annotation.reference.worldId === reference.worldId;
+		return true;
+	});
+}
+
+function presentMcpProfile(
+	profile: ReturnType<typeof userProfile>,
+	annotations: CanonicalInferenceAnnotationSet,
+): Record<string, unknown> {
+	const { translationInference: _translationInference, ...canonicalProfile } = profile as ReturnType<typeof userProfile> & {
+		translationInference?: unknown;
+	};
+	return {
+		...canonicalProfile,
+		inferenceSettings: promptOnlyProfileInferenceSettings(profile.inferenceSettings),
+		lang: profile.language,
+		inferenceConfigurations: {
+			graphRevision: annotations.graphRevision,
+			accountDefault: annotationFor(annotations, { kind: "account_default" }),
+			translation: annotationFor(annotations, { kind: "translation" }),
+		},
+	};
+}
+
+function promptOnlyProfileInferenceSettings(settings: BotInferenceSettings | undefined): Record<string, unknown> {
+	return {
+		...(settings?.imageGeneration?.prompt ? { imageGeneration: { prompt: settings.imageGeneration.prompt } } : {}),
+		...(settings?.translation ? {
+			translation: {
+				...(settings.translation.enabled !== undefined ? { enabled: settings.translation.enabled } : {}),
+				...(settings.translation.prompt ? { prompt: settings.translation.prompt } : {}),
+			},
+		} : {}),
+	};
+}
+
+function promptOnlyParticipantInferenceSettings(settings: BotInferenceSettings | undefined): Record<string, unknown> {
+	return {
+		...(settings?.recurringPromptEnabled !== undefined ? { recurringPromptEnabled: settings.recurringPromptEnabled } : {}),
+		...(settings?.recurringPrompt ? { recurringPrompt: settings.recurringPrompt } : {}),
+		...(settings?.imageGeneration?.prompt ? { imageGeneration: { prompt: settings.imageGeneration.prompt } } : {}),
+	};
+}
+
+function presentMcpBot(
+	candidate: BotDocument | BotSummary,
+	viewerUserId: string,
+	annotations: CanonicalInferenceAnnotationSet,
+	worldPostingSettings?: PostingSettings,
+): Record<string, unknown> {
+	const bot = publicBotSummary(candidate, isBotDocument(candidate) ? {
+		includeToolSettings: true,
+		worldPostingSettings,
+	} : {});
+	const local = bot.localOverrides;
+	return {
+		...bot,
+		inferenceSettings: promptOnlyParticipantInferenceSettings(bot.inferenceSettings),
+		...(local ? {
+			localOverrides: {
+				...local,
+				...(local.inferenceSettings ? { inferenceSettings: promptOnlyParticipantInferenceSettings(local.inferenceSettings) } : {}),
+			},
+		} : {}),
+		lang: bot.language,
+		mcpResolvedSettings: {
+			cloneProfile: resolvedCloneProfile(bot),
+			postingSettings: resolvedPostingSettings(bot.postingSettings, bot.effectivePostingSettings, worldPostingSettings),
+			tickSettings: resolvedTickSettings(bot.tickSettings, bot.effectiveTickSettings),
+		},
+		...(bot.ownerUserId === viewerUserId
+			? { inferenceConfiguration: annotationFor(annotations, { kind: "bot", botId: bot.id }) }
+			: {}),
+	};
+}
+
+function presentMcpWorld(
+	world: WorldSummary,
+	viewerUserId: string,
+	annotations: CanonicalInferenceAnnotationSet,
+): Record<string, unknown> {
+	const { imageGeneration, ...publicWorld } = world;
+	return {
+		...publicWorld,
+		...(imageGeneration?.prompt ? { imageGeneration: { prompt: imageGeneration.prompt } } : {}),
+		lang: world.language,
+		mcpResolvedSettings: { postingSettings: resolvedWorldPostingSettings(world.postingSettings) },
+		...(world.createdByUserId === viewerUserId
+			? { inferenceConfiguration: annotationFor(annotations, { kind: "world", worldId: world.id }) }
+			: {}),
+	};
 }
 
 function mapMcpPayloadData(
@@ -1248,121 +1466,6 @@ function assertNeverMcpPayloadEnvelope(envelope: never): never {
 	throw new Error(`Unhandled MCP payload envelope kind: ${String((envelope as { kind?: unknown }).kind)}`);
 }
 
-function annotateMcpWorld(world: WorldSummary): WorldSummary & { lang: WorldSummary["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> } {
-	if ("mcpResolvedSettings" in world) {
-		return { ...world, lang: world.language } as WorldSummary & { lang: WorldSummary["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> };
-	}
-	return {
-		...world,
-		lang: world.language,
-		mcpResolvedSettings: {
-			postingSettings: resolvedWorldPostingSettings(world.postingSettings),
-			imageGeneration: resolvedImageGenerationSettings(
-				world.imageGeneration,
-				worldAvatarImageGenerationSettingsWithDefaults(world.imageGeneration),
-				"world",
-				"bickr_default",
-				"world avatar image generation setting",
-			),
-		},
-	};
-}
-
-function annotateMcpBotGroup(
-	group: BotGroupSummary,
-	viewer?: UserDocument,
-	providerEnvironment?: ProviderEnvironmentSettings,
-): BotGroupSummary & { lang: BotGroupSummary["language"]; bots: Array<BotSummary & { lang: BotSummary["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> }> } {
-	return {
-		...group,
-		lang: group.language,
-		bots: annotateMcpBots(group.bots, viewer, providerEnvironment),
-	};
-}
-
-function annotateMcpBots(
-	bots: Array<BotDocument | BotSummary>,
-	viewer?: UserDocument,
-	providerEnvironment?: ProviderEnvironmentSettings,
-): Array<BotSummary & { lang: BotSummary["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> }> {
-	return bots.map((bot) => annotateMcpBot(bot, undefined, viewer, providerEnvironment));
-}
-
-function annotateMcpBot(
-	candidate: BotDocument | BotSummary,
-	worldPostingSettings?: PostingSettings,
-	viewer?: UserDocument,
-	providerEnvironment?: ProviderEnvironmentSettings,
-): BotSummary & { lang: BotSummary["language"]; mcpResolvedSettings: Record<string, ResolvedSettingMap> } {
-	// Treat every bot-bearing result as untrusted at this final caller-facing
-	// boundary. The allowlisted summary prevents storage-only fields and future
-	// internal additions from becoming part of the MCP protocol by accident.
-	const bot = publicBotSummary(
-		candidate,
-		isBotDocument(candidate) ? { includeToolSettings: true, worldPostingSettings } : {},
-	);
-	const local = bot.localOverrides;
-	const specifiedInference = local?.inferenceSettings ?? bot.inferenceSettings;
-	const cloneLinked = bot.cloneSource?.linked === true;
-	const cloneProfile: ResolvedSettingMap = {
-		displayName: resolvedCloneField(
-			local?.displayName,
-			bot.displayName,
-			cloneLinked,
-			"bot display name",
-			sourceBotLabel(bot),
-		),
-		shortBio: resolvedCloneField(local?.shortBio, bot.shortBio, cloneLinked, "bot short bio", sourceBotLabel(bot)),
-		...(bot.prompt !== undefined ? {
-			prompt: resolvedCloneField(local?.prompt, bot.prompt, cloneLinked, "bot prompt", sourceBotLabel(bot)),
-		} : {}),
-	};
-	const mcpResolvedSettings: Record<string, ResolvedSettingMap> = {
-		cloneProfile,
-		postingSettings: resolvedPostingSettings(
-			bot.postingSettings,
-			bot.effectivePostingSettings,
-			worldPostingSettings,
-		),
-		tickSettings: resolvedTickSettings(bot.tickSettings, bot.effectiveTickSettings),
-	};
-	if (viewer?.id === bot.ownerUserId && providerEnvironment) {
-		// Effective inference settings depend on private owner defaults. Public bot
-		// configuration remains visible, but MCP only claims a resolved value when
-		// it has the owning profile needed to compute that value truthfully.
-		mcpResolvedSettings.inferenceSettings = resolvedInferenceSettings(
-			specifiedInference,
-			bot.inferenceSettings,
-			viewer.inferenceSettings,
-			cloneLinked,
-			sourceBotLabel(bot),
-			providerEnvironment,
-		);
-	}
-	if (bot.inferenceSettings.imageGeneration) {
-		mcpResolvedSettings.imageGeneration = resolvedImageGenerationSettings(
-			specifiedInference.imageGeneration,
-			avatarImageGenerationSettingsWithDefaults(bot.inferenceSettings.imageGeneration),
-			cloneLinked ? "source_bot" : "bot",
-			cloneLinked ? "source_bot" : "bickr_default",
-			cloneLinked ? `source bot ${sourceBotLabel(bot)}` : "bot image generation setting",
-		);
-	}
-	if (bot.inferenceSettings.translation) {
-		mcpResolvedSettings.translation = resolvedTranslationSettings(
-			specifiedInference.translation,
-			bot.inferenceSettings.translation,
-			cloneLinked,
-			sourceBotLabel(bot),
-		);
-	}
-	return {
-		...bot,
-		lang: bot.language,
-		mcpResolvedSettings,
-	};
-}
-
 function mcpForum(forum: ForumSummary): ForumSummary & { lang: ForumSummary["language"] } {
 	return { ...forum, lang: forum.language };
 }
@@ -1373,181 +1476,6 @@ function mcpThread(thread: ThreadDocument): ThreadDocument & { lang: ThreadDocum
 		lang: thread.title.lang,
 		comments: thread.comments.map((comment) => ({ ...comment, lang: comment.body.lang })),
 	};
-}
-
-function resolvedCloneField<T>(
-	specified: T | undefined,
-	effective: T,
-	cloneLinked: boolean,
-	label: string,
-	sourceBot: string,
-): ResolvedSetting<T> {
-	if (!cloneLinked || cloneFieldHasSpecifiedValue(specified)) {
-		return {
-			...(specified !== undefined ? { specified } : {}),
-			effective,
-			source: "bot",
-			explanation: `The effective ${label} is specified on this bot.`,
-		};
-	}
-	return {
-		effective,
-		source: "source_bot",
-		explanation: `This linked clone does not specify a local ${label}, so Bickr inherits it from ${sourceBot}.`,
-	};
-}
-
-function cloneFieldHasSpecifiedValue(value: unknown): boolean {
-	if (value === undefined) {
-		return false;
-	}
-	if (typeof value === "string") {
-		return value.trim() !== "";
-	}
-	if (value && typeof value === "object" && !Array.isArray(value)) {
-		const text = (value as { text?: unknown }).text;
-		if (typeof text === "string") {
-			return text.trim() !== "";
-		}
-	}
-	return true;
-}
-
-function resolvedInferenceSettings(
-	specified: BotInferenceSettings,
-	effective: BotInferenceSettings,
-	profile: BotInferenceSettings | undefined,
-	cloneLinked: boolean,
-	sourceBot: string,
-	providerEnvironment: ProviderEnvironmentSettings,
-): ResolvedSettingMap {
-	// Linked clones inherit inferenceSettings as one object. A local model selects
-	// the whole local object; without one, the whole effective object comes from
-	// the source bot, even if ignored partial local fields are still visible as specified.
-	const inheritedFromSource = cloneLinked && !specified.model?.trim();
-	const resolution = resolveBotProviderSettings(
-		{ inferenceSettings: effective },
-		{ inferenceSettings: profile },
-		providerEnvironment,
-		{ botSource: inheritedFromSource ? "source_bot" : "bot" },
-	);
-	const keys = [
-		"openRouterApiKeySet",
-		"baseUrl",
-		"model",
-		"compactionMode",
-		"promptCacheMode",
-		"supportsPrefill",
-		"reasoningEffort",
-		"toolCalls",
-		"providerRouting",
-		"temperature",
-		"topK",
-		"topP",
-		"minP",
-		"frequencyPenalty",
-		"presencePenalty",
-		"repetitionPenalty",
-	] as const satisfies ReadonlyArray<keyof ResolvedBotProviderSettings>;
-	const resolved: ResolvedSettingMap = {};
-	for (const key of keys) {
-		const setting = resolution.resolved[key];
-		if (!setting) {
-			continue;
-		}
-		resolved[key] = resolvedProviderSetting(
-			setting,
-			key === "openRouterApiKeySet" ? specified.openRouterApiKeySet : specified[key],
-			`inference setting ${key}`,
-			sourceBot,
-		);
-	}
-	for (const key of ["recurringPromptEnabled", "recurringPrompt"] as const) {
-		if (effective[key] !== undefined) {
-			resolved[key] = resolvedField(
-				specified[key],
-				effective[key],
-				inheritedFromSource,
-				`inference setting ${key}`,
-				sourceBot,
-				undefined,
-			);
-		}
-	}
-	return resolved;
-}
-
-function resolvedProviderSetting(
-	setting: ResolvedBotProviderSetting<unknown>,
-	specified: unknown,
-	label: string,
-	sourceBot: string,
-): ResolvedSetting<unknown> {
-	return {
-		...(specified !== undefined ? { specified } : {}),
-		effective: setting.effective,
-		source: setting.source,
-		explanation: providerSettingExplanation(setting.source, label, sourceBot, specified !== undefined),
-	};
-}
-
-function providerSettingExplanation(
-	source: BotProviderSettingSource,
-	label: string,
-	sourceBot: string,
-	hasSpecifiedValue: boolean,
-): string {
-	const prefix = hasSpecifiedValue && source !== "bot" ? `This bot specifies ${label}, but ` : "";
-	switch (source) {
-		case "bot":
-			return `The effective ${label} is resolved from this bot's setting.`;
-		case "source_bot":
-			return `${prefix || "This linked clone does not specify a local value, so "}Bickr resolves the effective ${label} from ${sourceBot}.`;
-		case "profile":
-			return `${prefix || "No bot or source bot value applies, so "}Bickr resolves the effective ${label} from the owner's profile defaults.`;
-		case "bickr_default":
-			return `${prefix || "No bot, source bot, or profile value applies, so "}Bickr resolves the effective ${label} from its default behavior.`;
-		case "model_capability":
-			return hasSpecifiedValue ?
-				`This bot specifies ${label}, but the selected model's capabilities constrain its effective value.`
-			:	`The selected model's capabilities constrain the effective ${label}.`;
-		default:
-			return assertNeverProviderSettingSource(source);
-	}
-}
-
-function assertNeverProviderSettingSource(source: never): never {
-	throw new Error(`Unhandled provider setting source: ${String(source)}`);
-}
-
-function resolvedImageGenerationSettings(
-	specified: BotImageGenerationSettings | undefined,
-	effective: BotImageGenerationSettings,
-	sourceWhenSpecified: ResolvedSettingSource,
-	sourceWhenInherited: ResolvedSettingSource,
-	sourceLabel: string,
-): ResolvedSettingMap {
-	return {
-		model: resolvedDefaultedField(specified?.model, effective.model, sourceWhenSpecified, sourceWhenInherited, sourceLabel, "Bickr image generation default model"),
-		aspectRatio: resolvedDefaultedField(specified?.aspectRatio, effective.aspectRatio, sourceWhenSpecified, sourceWhenInherited, sourceLabel, "Bickr image generation default aspect ratio"),
-		imageSize: resolvedDefaultedField(specified?.imageSize, effective.imageSize, sourceWhenSpecified, sourceWhenInherited, sourceLabel, "Bickr image generation default image size"),
-	};
-}
-
-function resolvedTranslationSettings(
-	specified: BotInferenceSettings["translation"],
-	effective: NonNullable<BotInferenceSettings["translation"]>,
-	cloneLinked: boolean,
-	sourceBot: string,
-): ResolvedSettingMap {
-	const resolved: ResolvedSettingMap = {};
-	for (const key of ["enabled", "model", "prompt", "reasoningEffort", "toolCalls", "providerRouting", "temperature", "topK", "topP", "minP", "frequencyPenalty", "presencePenalty", "repetitionPenalty"] as const) {
-		const effectiveValue = effective[key];
-		if (effectiveValue !== undefined) {
-			resolved[key] = resolvedField(specified?.[key], effectiveValue, cloneLinked, `translation setting ${key}`, sourceBot, undefined);
-		}
-	}
-	return resolved;
 }
 
 function resolvedPostingSettings(
@@ -1595,6 +1523,54 @@ function resolvedWorldPostingField(
 		source: "bickr_default",
 		explanation: `This world does not specify ${key}, so Bickr uses the global default.`,
 	};
+}
+
+function resolvedCloneProfile(bot: BotSummary): ResolvedSettingMap {
+	const local = bot.localOverrides;
+	const linked = bot.cloneSource?.linked === true;
+	const source = sourceBotLabel(bot);
+	return {
+		displayName: resolvedCloneField(local?.displayName, bot.displayName, linked, "bot display name", source),
+		shortBio: resolvedCloneField(local?.shortBio, bot.shortBio, linked, "bot short bio", source),
+		...(bot.prompt !== undefined ? { prompt: resolvedCloneField(local?.prompt, bot.prompt, linked, "bot prompt", source) } : {}),
+	};
+}
+
+function resolvedCloneField<T>(
+	specified: T | undefined,
+	effective: T,
+	cloneLinked: boolean,
+	label: string,
+	sourceBot: string,
+): ResolvedSetting<T> {
+	if (!cloneLinked || cloneFieldHasSpecifiedValue(specified)) {
+		return {
+			...(specified !== undefined ? { specified } : {}),
+			effective,
+			source: "bot",
+			explanation: `The effective ${label} is specified on this bot.`,
+		};
+	}
+	return {
+		effective,
+		source: "source_bot",
+		explanation: `This linked clone does not specify a local ${label}, so Bickr inherits it from ${sourceBot}.`,
+	};
+}
+
+function cloneFieldHasSpecifiedValue(value: unknown): boolean {
+	if (value === undefined) return false;
+	if (typeof value === "string") return value.trim() !== "";
+	if (value && typeof value === "object" && !Array.isArray(value)) {
+		const text = (value as { text?: unknown }).text;
+		if (typeof text === "string") return text.trim() !== "";
+	}
+	return true;
+}
+
+function sourceBotLabel(bot: Pick<BotDocument | BotSummary, "cloneSource">): string {
+	const source = bot.cloneSource?.sourceBot;
+	return source ? `source bot @${source.handle} (${source.id})` : "the linked source bot";
 }
 
 function resolvedPostingField(
@@ -1649,77 +1625,13 @@ function resolvedTickSettings(
 	return resolved;
 }
 
-function resolvedField<T>(
-	specified: T | undefined,
-	effective: T,
-	cloneLinked: boolean,
-	label: string,
-	sourceBot: string,
-	defaultExplanation: string | undefined,
-): ResolvedSetting<T> {
-	if (specified !== undefined) {
-		return {
-			specified,
-			effective,
-			source: "bot",
-			explanation: `The effective ${label} is specified on this bot.`,
-		};
-	}
-	if (cloneLinked) {
-		return {
-			effective,
-			source: "source_bot",
-			explanation: `This linked clone does not specify local ${label}, so Bickr inherits it from ${sourceBot}.`,
-		};
-	}
-	return {
-		effective,
-		source: "bickr_default",
-		explanation: defaultExplanation ?? `No ${label} is specified on this bot, so Bickr uses its default behavior.`,
-	};
-}
-
-function resolvedDefaultedField<T>(
-	specified: T | undefined,
-	effective: T | undefined,
-	sourceWhenSpecified: ResolvedSettingSource,
-	sourceWhenInherited: ResolvedSettingSource,
-	sourceLabel: string,
-	defaultLabel: string,
-): ResolvedSetting<T | undefined> {
-	if (specified !== undefined) {
-		return {
-			specified,
-			effective,
-			source: sourceWhenSpecified,
-			explanation: `The effective value is specified by ${sourceLabel}.`,
-		};
-	}
-	if (sourceWhenInherited !== "bickr_default") {
-		return {
-			effective,
-			source: sourceWhenInherited,
-			explanation: `No local value is specified, so Bickr inherits the effective value from ${sourceLabel}.`,
-		};
-	}
-	return {
-		effective,
-		source: "bickr_default",
-		explanation: `No value is specified, so Bickr uses ${defaultLabel}.`,
-	};
-}
-
-function sourceBotLabel(bot: Pick<BotDocument | BotSummary, "cloneSource">): string {
-	const source = bot.cloneSource?.sourceBot;
-	return source ? `source bot @${source.handle} (${source.id})` : "the linked source bot";
-}
-
 function toolMetadata(tool: McpTool): Record<string, unknown> {
 	return {
 		name: tool.name,
 		title: tool.annotations.title,
 		description: tool.description,
 		inputSchema: tool.inputSchema,
+		...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
 		annotations: tool.annotations,
 	};
 }
@@ -1728,12 +1640,25 @@ async function toolResult(envelope: McpPayloadEnvelope, ctx: ToolContext): Promi
 	if (isApiFailure(envelope.payload)) {
 		return toolError(envelope.payload);
 	}
-	const providerEnvironment = mcpPayloadHasBots(envelope.kind) ? await optionalProviderEnvironmentForMcp(ctx) : undefined;
-	const presented = annotateMcpPayload(envelope, ctx.auth.user, providerEnvironment);
+	const presented = await annotateMcpPayload(envelope, ctx);
 	const structuredContent = jsonCompatible(presented);
 	return {
 		structuredContent,
 		content: [{ type: "text", text: JSON.stringify(presented, null, 2) }],
+	};
+}
+
+function successfulSingletonMutationWithWarning(error: unknown): Record<string, unknown> {
+	const structuredContent = {
+		result: null,
+		presentationWarning: jsonCompatible({
+			kind: "canonical_inference_enrichment_failed",
+			...errorPayload(error),
+		}),
+	};
+	return {
+		structuredContent,
+		content: [{ type: "text", text: JSON.stringify(structuredContent, null, 2) }],
 	};
 }
 
@@ -1758,11 +1683,10 @@ async function successfulMutationOperationResult(
 	ctx: ToolContext,
 ): Promise<MutationOperationResult> {
 	try {
-		const providerEnvironment = mcpPayloadHasBots(kind) ? await providerEnvironmentForMcp(ctx) : {};
 		return {
 			operationId,
 			status: "succeeded",
-			result: jsonCompatible(annotateMcpPayload({ kind, payload }, ctx.auth.user, providerEnvironment)),
+			result: jsonCompatible(await annotateMcpPayload({ kind, payload }, ctx)),
 		};
 	} catch (error) {
 		// The mutation itself returned successfully. A presentation failure must not
@@ -1771,13 +1695,9 @@ async function successfulMutationOperationResult(
 			operationId,
 			status: "succeeded",
 			result: null,
-			resultWarning: jsonCompatible(errorPayload(error)),
+			resultWarning: jsonCompatible({ kind: "canonical_inference_enrichment_failed", ...errorPayload(error) }),
 		};
 	}
-}
-
-function mcpPayloadHasBots(kind: McpPayloadEnvelope["kind"]): boolean {
-	return kind === "bot" || kind === "group" || kind === "groups";
 }
 
 function toolError(value: unknown): Record<string, unknown> {
@@ -1790,6 +1710,9 @@ function toolError(value: unknown): Record<string, unknown> {
 }
 
 function errorPayload(error: unknown): Record<string, unknown> {
+	if (error instanceof RepositoryError) {
+		return { error: error.code, message: error.message };
+	}
 	if (error instanceof Error) {
 		return { error: error.name, message: error.message };
 	}
@@ -1963,6 +1886,21 @@ function integerSchema(description: string): Record<string, unknown> {
 	return { type: "integer", description };
 }
 
+function boundedMcpCollectionLimit(value: unknown): number {
+	if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 100) {
+		throw new InputError("Collection limit must be an integer from 1 through 100.");
+	}
+	return value;
+}
+
+function mcpCollectionPage(args: Record<string, unknown>): { cursor?: string; limit?: number } {
+	const cursor = valueString(args.cursor);
+	return {
+		...(cursor ? { cursor } : {}),
+		...(args.limit !== undefined ? { limit: boundedMcpCollectionLimit(args.limit) } : {}),
+	};
+}
+
 function threadSettingsSchema(description: string): Record<string, unknown> {
 	return {
 		type: ["object", "null"],
@@ -1983,50 +1921,396 @@ function objectSchema(description: string): Record<string, unknown> {
 	return { type: ["object", "null"], description, additionalProperties: true };
 }
 
-function inferenceSettingsSchema(description: string): Record<string, unknown> {
+function profilePromptInferenceSettingsSchema(description: string): Record<string, unknown> {
 	return {
 		type: ["object", "null"],
 		description,
 		properties: {
-			recurringPrompt: nullableLocalizedTextSchema("Optional recurring prompt. lang must match the selected profile, world, or bot language."),
-			imageGeneration: imageGenerationSettingsSchema("Optional avatar image generation settings."),
-			image_generation: imageGenerationSettingsSchema("Optional avatar image generation settings. Prefer imageGeneration."),
-			translation: translationSettingsSchema("Optional translation settings."),
+			imageGeneration: promptOnlyImageGenerationSchema("Account avatar prompt."),
+			translation: {
+				type: ["object", "null"],
+				properties: {
+					enabled: { type: "boolean", description: "Whether inline Translation is enabled." },
+					prompt: nullableLocalizedTextSchema("Translation prompt."),
+				},
+				additionalProperties: false,
+			},
 		},
-		additionalProperties: true,
+		additionalProperties: false,
 	};
 }
 
-function imageGenerationSettingsSchema(description: string): Record<string, unknown> {
+function participantPromptInferenceSettingsSchema(description: string): Record<string, unknown> {
 	return {
 		type: ["object", "null"],
 		description,
 		properties: {
-			prompt: nullableLocalizedTextSchema("Image generation prompt. lang must match the selected entity language."),
+			recurringPromptEnabled: { type: ["boolean", "null"], description: "Whether the recurring participant prompt is enabled." },
+			recurringPrompt: nullableLocalizedTextSchema("Recurring participant prompt."),
+			imageGeneration: promptOnlyImageGenerationSchema("Participant avatar prompt."),
 		},
-		additionalProperties: true,
+		additionalProperties: false,
 	};
 }
 
-function translationSettingsSchema(description: string): Record<string, unknown> {
+function promptOnlyImageGenerationSchema(description: string): Record<string, unknown> {
 	return {
 		type: ["object", "null"],
 		description,
+		properties: { prompt: nullableLocalizedTextSchema("Avatar image prompt.") },
+		additionalProperties: false,
+	};
+}
+
+function inferenceOverridesSchema(patch: boolean): Record<string, unknown> {
+	return {
+		type: "object",
+		description: patch ? "Typed reusable inference override patch." : "Typed reusable inference overrides.",
+		properties: Object.fromEntries(inferenceConfigurationFields.map((field) => [field, inferenceOverrideSchema(field, patch)])),
+		additionalProperties: false,
+	};
+}
+
+function inferenceOverrideSchema(
+	field: typeof inferenceConfigurationFields[number],
+	patch: boolean,
+): Record<string, unknown> {
+	const states = inferenceFieldOverrideStates[field];
+	const kinds = [
+		...(patch ? ["inherit"] : []),
+		"value",
+		...(states.explicitNone ? ["explicit_none"] : []),
+		...(states.targetDefault ? ["target_default"] : []),
+		...(states.accountDefault ? ["account_default"] : []),
+	];
+	return {
+		type: "object",
 		properties: {
-			prompt: nullableLocalizedTextSchema("Translation prompt. lang must match the selected entity language."),
+			kind: enumSchema(kinds, `Legal ${field} override intent.`),
+			value: inferenceFieldValueSchema(field),
+		},
+		required: ["kind"],
+		additionalProperties: false,
+	};
+}
+
+function inferenceFieldValueSchema(field: typeof inferenceConfigurationFields[number]): Record<string, unknown> {
+	if (isNumericInferenceField(field)) {
+		const domain = numericInferenceFieldDomains[field];
+		return {
+			type: domain.integer ? "integer" : "number",
+			minimum: domain.min,
+			maximum: domain.max,
+		};
+	}
+	switch (field) {
+		case "baseUrl":
+		case "model":
+		case "imageModel":
+		case "imageAspectRatio":
+		case "imageSize":
+			return { type: "string", minLength: 1 };
+		case "providerRouting":
+		case "imageProviderRouting":
+			return { type: "object", description: "Provider routing JSON object.", additionalProperties: true };
+		case "supportsPrefill":
+			return { type: "boolean" };
+		case "reasoning":
+			return closedDiscriminatedValueSchema(
+				["provider_default", "reasoning_disabled", "explicit_effort"],
+				{ effort: enumSchema(["minimal", "low", "medium", "high", "xhigh"], "Explicit reasoning effort.") },
+			);
+		case "compactionReasoning":
+			return closedDiscriminatedValueSchema(
+				["reasoning_disabled", "model_default", "explicit_effort"],
+				{ effort: enumSchema(["minimal", "low", "medium", "high", "xhigh"], "Explicit compaction reasoning effort.") },
+			);
+		case "toolCalls":
+			return closedDiscriminatedValueSchema(
+				["provider_default", "strategy"],
+				{ strategy: enumSchema(["require", "railroad", "at_will"], "Tool-call strategy.") },
+			);
+		case "compactionMode":
+			return closedDiscriminatedValueSchema(
+				["provider_default", "mode"],
+				{ mode: enumSchema(["structured_output", "tool_call", "tool_call_cache_friendly"], "Compaction mode.") },
+			);
+		case "promptCacheMode":
+			return closedDiscriminatedValueSchema(
+				["provider_default", "mode"],
+				{ mode: enumSchema(["off", "openrouter_anthropic_5m", "openrouter_anthropic_1h"], "Prompt-cache mode.") },
+			);
+		default:
+			return assertNeverInferenceField(field);
+	}
+}
+
+function closedDiscriminatedValueSchema(
+	kinds: readonly string[],
+	extraProperties: Record<string, unknown>,
+): Record<string, unknown> {
+	return {
+		type: "object",
+		properties: { kind: enumSchema(kinds, "Discriminated value kind."), ...extraProperties },
+		required: ["kind"],
+		additionalProperties: false,
+	};
+}
+
+function assertNeverInferenceField(field: never): never {
+	throw new Error(`Missing MCP schema for inference field ${String(field)}.`);
+}
+
+function inferenceCredentialSchema(): Record<string, unknown> {
+	return {
+		type: "object",
+		description: "Closed credential intent. Read results are always redacted.",
+		properties: {
+			mode: enumSchema(["inherit", "account_default", "none", "value"], "Credential intent."),
+			secret: { type: "string", minLength: 1, description: "Required only for value; never returned." },
+		},
+		required: ["mode"],
+		additionalProperties: false,
+	};
+}
+
+function outputSchemaForMcpTool(name: string): Record<string, unknown> | undefined {
+	switch (name) {
+		case "get_profile": return profileOutputSchema();
+		case "get_fixed_inference_configuration": return withRequired(bodySchema({
+			annotation: canonicalAnnotationOutputSchema(),
+			graphRevision: integerSchema("Inference graph snapshot revision."),
+		}), ["annotation", "graphRevision"]);
+		case "list_inference_configurations": return inferenceApiOutputSchema("configurations", inferenceConfigurationPageOutputSchema());
+		case "get_inference_configuration": return inferenceApiOutputSchema("configuration", inferenceConfigurationOutputSchema());
+		case "list_inference_parent_candidates": return inferenceApiOutputSchema("candidates", inferenceConfigurationPageOutputSchema());
+		case "list_inference_configuration_children": return inferenceApiOutputSchema("children", inferenceConfigurationPageOutputSchema());
+		case "get_inference_configuration_delete_impact":
+		case "get_inference_configuration_parent_impact": return inferenceApiOutputSchema("impact", inferenceImpactOutputSchema());
+		case "create_inference_configuration":
+		case "update_profile":
+		case "update_inference_configuration":
+		case "rename_inference_configuration":
+		case "reparent_inference_configuration":
+		case "delete_inference_configuration": return inferenceMutationOutputSchema();
+		default: return undefined;
+	}
+}
+
+function inferenceImpactOutputSchema(): Record<string, unknown> {
+	return withRequired({
+		type: "object",
+		properties: {
+			kind: enumSchema(["delete", "reparent"], "Impact operation."),
+			configurationId: { type: "string" },
+			parentId: { type: "string" },
+			candidateParentId: { type: "string" },
+			immediateChildren: { type: "integer", minimum: 0 },
+			immediateDependentCount: { type: "integer", minimum: 0 },
+			transitiveDependentCount: { type: "integer", minimum: 0 },
+			affectedConfigurationCount: { type: "integer", minimum: 0 },
+			changes: withRequired({
+				type: "object",
+				properties: Object.fromEntries([
+					"effectiveModel", "effectiveBaseUrl", "credentialAvailability", "credentialSource", "providerAccess",
+				].map((field) => [field, { type: "integer", minimum: 0 }])),
+				additionalProperties: false,
+			}, ["effectiveModel", "effectiveBaseUrl", "credentialAvailability", "credentialSource", "providerAccess"]),
+			warnings: {
+				type: "array",
+				items: withRequired({
+					type: "object",
+					properties: {
+						kind: enumSchema([
+							"effective_model_changes", "effective_base_url_changes", "credential_availability_changes",
+							"credential_source_changes", "provider_access_changes",
+						], "Impact warning."),
+						configurations: { type: "integer", minimum: 0 },
+					},
+					additionalProperties: false,
+				}, ["kind", "configurations"]),
+			},
 		},
 		additionalProperties: true,
-	};
+	}, ["kind", "configurationId", "immediateDependentCount", "transitiveDependentCount", "affectedConfigurationCount", "changes", "warnings"]);
+}
+
+function profileOutputSchema(): Record<string, unknown> {
+	return withRequired(bodySchema({
+		profile: withRequired({
+			type: "object",
+			properties: {
+				id: { type: "string" },
+				handle: { type: "string" },
+				inferenceConfigurations: withRequired(bodySchema({
+					graphRevision: integerSchema("Inference graph snapshot revision."),
+					accountDefault: canonicalAnnotationOutputSchema(),
+					translation: canonicalAnnotationOutputSchema(),
+				}), ["graphRevision"]),
+			},
+			additionalProperties: true,
+		}, ["id", "handle", "inferenceConfigurations"]),
+	}), ["profile"]);
+}
+
+function canonicalAnnotationOutputSchema(): Record<string, unknown> {
+	return withRequired(bodySchema({
+		kind: enumSchema(["canonical", "legacy_compatibility"], "Annotation state."),
+		reference: withRequired(bodySchema({
+			kind: enumSchema(["account_default", "translation", "world", "bot"], "Fixed consumer kind."),
+			worldId: { type: "string" },
+			botId: { type: "string" },
+		}), ["kind"]),
+		configuration: inferenceConfigurationSummaryOutputSchema(),
+		effectiveModel: { type: "string" },
+		reason: enumSchema(["graph_not_migrated"], "Legacy compatibility reason."),
+	}), ["kind", "reference"]);
+}
+
+function inferenceConfigurationSummaryOutputSchema(): Record<string, unknown> {
+	return withRequired({
+		type: "object",
+		properties: {
+			id: { type: "string" },
+			kind: enumSchema(["account_default", "translation", "world", "bot", "custom"], "Configuration kind."),
+			identity: inferenceConfigurationIdentityOutputSchema(),
+			parentId: { type: ["string", "null"] },
+			displayName: { type: "string" },
+			revision: { type: "integer", minimum: 1 },
+			updatedAt: { type: "string" },
+			credentialMode: enumSchema(["inherit", "account_default", "none", "value"], "Stored credential intent."),
+			effectiveModel: { type: "string" },
+			credentialAvailability: withRequired({
+				type: "object",
+				properties: { kind: enumSchema(["available", "explicit_none", "unavailable"], "Redacted credential state.") },
+				additionalProperties: true,
+			}, ["kind"]),
+		},
+		additionalProperties: true,
+	}, ["id", "kind", "identity", "displayName", "revision", "updatedAt", "credentialMode", "effectiveModel", "credentialAvailability"]);
+}
+
+function inferenceConfigurationOutputSchema(): Record<string, unknown> {
+	return withRequired({
+		type: "object",
+		properties: {
+			id: { type: "string" },
+			kind: enumSchema(["account_default", "translation", "world", "bot", "custom"], "Configuration kind."),
+			identity: inferenceConfigurationIdentityOutputSchema(),
+			revision: { type: "integer", minimum: 1 },
+			graphRevision: { type: "integer", minimum: 0 },
+			fields: inferenceConfigurationFieldsOutputSchema(),
+			path: { type: "array", items: inferenceConfigurationPathEntryOutputSchema() },
+		},
+		additionalProperties: true,
+	}, ["id", "kind", "identity", "revision", "graphRevision", "fields", "path"]);
+}
+
+function inferenceConfigurationIdentityOutputSchema(): Record<string, unknown> {
+	return withRequired({
+		type: "object",
+		properties: {
+			kind: enumSchema(["account_default", "translation", "world", "bot", "custom"], "Configuration identity kind."),
+			worldId: { type: "string" }, worldHandle: { type: "string" },
+			botId: { type: "string" }, botHandle: { type: "string" },
+			homeWorldId: { type: "string" }, homeWorldHandle: { type: "string" },
+			name: { type: "string" },
+		},
+		additionalProperties: false,
+	}, ["kind"]);
+}
+
+function inferenceConfigurationFieldsOutputSchema(): Record<string, unknown> {
+	const fieldSchema = withRequired({
+		type: "object",
+		properties: {
+			override: withRequired({
+				type: "object",
+				properties: { kind: { type: "string" } },
+				additionalProperties: true,
+			}, ["kind"]),
+			effective: {},
+			source: withRequired({
+				type: "object",
+				properties: { kind: enumSchema(["configuration", "account_default", "bickr_default"], "Effective-value source.") },
+				additionalProperties: true,
+			}, ["kind"]),
+			adjustment: { type: ["object", "null"], additionalProperties: true },
+		},
+		additionalProperties: false,
+	}, ["override", "effective", "source", "adjustment"]);
+	return withRequired({
+		type: "object",
+		propertyNames: { enum: [...inferenceConfigurationFields] },
+		additionalProperties: fieldSchema,
+	}, [...inferenceConfigurationFields]);
+}
+
+function inferenceConfigurationPathEntryOutputSchema(): Record<string, unknown> {
+	return withRequired({
+		type: "object",
+		properties: {
+			id: { type: "string" }, displayName: { type: "string" }, revision: { type: "integer", minimum: 1 },
+			kind: enumSchema(["account_default", "translation", "world", "bot", "custom"], "Path entry kind."),
+			identity: inferenceConfigurationIdentityOutputSchema(),
+		},
+		additionalProperties: false,
+	}, ["id", "displayName", "revision", "kind", "identity"]);
+}
+
+function inferenceConfigurationPageOutputSchema(): Record<string, unknown> {
+	return withRequired({
+		type: "object",
+		properties: {
+			items: { type: "array", items: inferenceConfigurationSummaryOutputSchema() },
+			nextCursor: { type: "string" },
+		},
+		additionalProperties: true,
+	}, ["items"]);
+}
+
+function inferenceApiOutputSchema(field: string, schema: Record<string, unknown>): Record<string, unknown> {
+	return withRequired({
+		type: "object",
+		properties: {
+			ok: { type: "boolean" },
+			data: withRequired({ type: "object", properties: { [field]: schema }, additionalProperties: true }, [field]),
+		},
+		additionalProperties: true,
+	}, ["ok", "data"]);
+}
+
+function inferenceMutationOutputSchema(): Record<string, unknown> {
+	return withRequired({
+		type: "object",
+		properties: {
+			results: { type: "array", items: withRequired({
+				type: "object",
+				properties: {
+					operationId: { type: "string" },
+					status: enumSchema(["succeeded", "failed", "indeterminate"], "Mutation result status."),
+					result: { type: ["object", "null"], additionalProperties: true },
+					resultWarning: { type: "object", additionalProperties: true },
+					error: { type: "object", additionalProperties: true },
+				},
+				additionalProperties: false,
+			}, ["operationId", "status"]) },
+			succeeded: { type: "integer", minimum: 0 },
+			failed: { type: "integer", minimum: 0 },
+			indeterminate: { type: "integer", minimum: 0 },
+		},
+		additionalProperties: false,
+	}, ["results", "succeeded", "failed", "indeterminate"]);
 }
 
 function contextBudgetBodySchema(): Record<string, unknown> {
 	return withRequired(bodySchema({
+		configurationId: stringSchema("Optional owned reusable inference configuration for a settings what-if; defaults to this participant's fixed configuration."),
 		lang: requiredLanguageSchema("Selected bot language for this context budget estimate."),
 		includeLanguageInSystemPrompt: { type: ["boolean", "null"], description: "Whether to include the selected language in the system prompt, or null to inherit." },
 		displayName: localizedTextSchema("Bot display name for the estimate. lang must match the selected bot language."),
 		prompt: localizedTextSchema("Bot prompt for the estimate. lang must match the selected bot language."),
 		shortBio: localizedTextSchema("Bot short bio for the estimate. lang must match the selected bot language."),
-		inferenceSettings: inferenceSettingsSchema("Optional inference settings for the estimate. Localized prompt fields must use { lang, text }."),
 		toolSettings: objectSchema("Optional tool settings for the estimate."),
 		postingSettings: objectSchema("Optional posting settings for the estimate."),
 		tickSettings: objectSchema("Optional tick settings for the estimate."),

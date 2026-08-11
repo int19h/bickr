@@ -237,6 +237,45 @@ type InferenceConfigurationSummaryBase = {
 
 export type InferenceConfigurationSummary = InferenceConfigurationSummaryBase & InferenceConfigurationEntryIdentity;
 
+export type CanonicalInferenceFixedReference =
+	| { kind: "account_default" }
+	| { kind: "translation" }
+	| { kind: "world"; worldId: string }
+	| { kind: "bot"; botId: string };
+
+/**
+ * Caller-facing resolution of one fixed consumer. Canonical annotations carry
+ * only redacted owner data. Pre-cutover compatibility intentionally carries no
+ * graph identity because no canonical entry is active yet; Agent Runtime
+ * computes its model with the same fallback used by the provider loop.
+ */
+export type CanonicalInferenceAnnotation =
+	| {
+		kind: "canonical";
+		reference: CanonicalInferenceFixedReference;
+		configuration: InferenceConfigurationSummary;
+	}
+	| {
+		kind: "legacy_compatibility";
+		reference: CanonicalInferenceFixedReference;
+		effectiveModel: string;
+		reason: "graph_not_migrated";
+	};
+
+export type CanonicalInferenceAnnotationRequest = {
+	accountDefault?: boolean;
+	translation?: boolean;
+	botIds?: string[];
+	worldIds?: string[];
+};
+
+export type CanonicalInferenceAnnotationSet = {
+	annotations: CanonicalInferenceAnnotation[];
+	graphRevision: number;
+};
+
+export const maximumCanonicalInferenceAnnotationBatch = 100;
+
 export type InferenceConfigurationPage = {
 	items: InferenceConfigurationSummary[];
 	nextCursor?: string;

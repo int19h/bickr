@@ -10,6 +10,7 @@ import {
 } from "./inference-configuration";
 import {
 	inferenceGraphReadVersion,
+	loadInternalInferenceConsumerPaths,
 	loadInternalInferenceConfigurationPath,
 	loadInternalInferenceCompatibilityProjectionPath,
 } from "./inference-configuration-repository";
@@ -38,6 +39,33 @@ export type CanonicalInferenceConsumerResolution = {
 	fingerprint: string;
 };
 
+export async function canonicalInferenceConsumerBatch(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	consumers: readonly { configurationId: string; consumer: CanonicalInferenceConsumer }[],
+	env: ProviderEnvironmentBindings,
+	readVersion?: { cutoverVersion: number; graphRevision: number },
+): Promise<ReadonlyMap<string, CanonicalInferenceConsumerResolution>> {
+	const version = readVersion ?? await inferenceGraphReadVersion(db, ownerUserId);
+	if (version.cutoverVersion === 0 || consumers.length === 0) return new Map();
+	const paths = await loadInternalInferenceConsumerPaths(
+		db, ownerUserId, consumers.map(({ configurationId }) => configurationId), version,
+	);
+	const defaults = await bickrInferenceDefaultsFromEnvironment(env);
+	const results = await Promise.all(consumers.map(async ({ configurationId, consumer }) => {
+		const path = paths.get(configurationId);
+		if (!path) return null;
+		const resolution = resolveInferenceConfiguration(path, { defaults });
+		return [configurationId, {
+			consumer,
+			resolution,
+			providerSettings: providerSettingsFromResolution(resolution),
+			fingerprint: await inferenceResolutionFingerprint(resolution, { selectedConfigurationId: configurationId }),
+		} satisfies CanonicalInferenceConsumerResolution] as const;
+	}));
+	return new Map(results.filter((entry): entry is NonNullable<typeof entry> => entry !== null));
+}
+
 export async function canonicalBotInference(
 	db: D1DatabaseLike,
 	ownerUserId: string,
@@ -53,6 +81,18 @@ export async function canonicalAccountInference(
 	env: ProviderEnvironmentBindings,
 ): Promise<CanonicalInferenceConsumerResolution | null> {
 	return canonicalFixedInference(db, ownerUserId, await accountDefaultConfigurationId(ownerUserId), "account", env);
+}
+
+/** Owner-scoped reusable-settings what-if for context-budget estimation. */
+export async function canonicalConfigurationInference(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	configurationId: string,
+	env: ProviderEnvironmentBindings,
+): Promise<CanonicalInferenceConsumerResolution | null> {
+	const version = await inferenceGraphReadVersion(db, ownerUserId);
+	if (version.cutoverVersion === 0) return null;
+	return resolvedConsumer(db, ownerUserId, configurationId, "bot", env, version);
 }
 
 export async function canonicalWorldInference(

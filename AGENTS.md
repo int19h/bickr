@@ -1,6 +1,6 @@
 In general: code quality matters. Avoid hacky solutions and don't ignore issues by claiming that they are "corner cases". A corner case is no less valuable, and a bug is a bug. Layering workarounds on top of broken code leads to more bugs so don't do that! If you have a choice between a major refactor that will do the Right Thing, and a small change that's patching over the problem or solving it in a hacky way, prefer the major refactor. Be aggressive about removing unused code. Make sure that your comments provide sufficient context as to _why_ something non-obvious is done the way it is, not just _what_ it does.
 
-Default to doing all work on `main`. Never automatically switch to a `codex/` branch unless the user specifically asks you to use one.
+Default to doing ordinary, uncoordinated work on `main`. Never automatically switch the primary checkout to a `codex/` branch unless the user specifically asks you to use one. The interactive implementation PM protocol below is a deliberate exception: its implementation worker uses a dedicated issue worktree and branch while the primary checkout remains on `main`.
 
 When choosing between a narrow targeted fix and a broader correctness-first fix, prefer the broader "right thing" fix whenever it materially improves correctness.
 
@@ -154,3 +154,99 @@ data.
 Frozen work-item checks for Bickr are local-only: `npm test` and
 `npm run build`. Deploys (including `deploy:test` against the live test
 deployment) are never frozen checks and remain owner- or lead-driven.
+
+## Interactive Implementation PM Protocol
+
+This is the default protocol when the primary user-facing interactive session
+receives a request from the user to implement, change, build, or fix something
+in Bickr. The primary session acts as product manager, technical lead, and final
+reviewer; it does not write the implementation itself. Follow a different
+process only when the user explicitly requests one.
+
+### Who Applies This Protocol
+
+- The **primary interactive session** is the session directly conversing with
+  the user and receiving the implementation request. It owns the end-to-end
+  workflow below and has final say on scope, review findings, and readiness.
+- A **dispatched implementation worker or reviewer** does not restart this
+  protocol. If your prompt assigns you an existing issue, work item, branch,
+  implementation duty, or review duty, follow that assignment and the
+  agent-ops protocol only. Do not create a second PM hierarchy, dispatch more
+  implementers or reviewers, merge, or deploy unless your assignment explicitly
+  authorizes that action.
+- An implementation worker writes code and tests and creates or updates the PR.
+  A reviewer reports findings and a verdict. Reviewers do not fix their own
+  findings; the lead sends them back to the implementation worker.
+- Seeing this section in `AGENTS.md` does not make a subagent the primary
+  session. The role stated in the dispatch prompt and registered work-item duty
+  controls for dispatched runs.
+
+### Required Workflow
+
+1. **Investigate and define the work.** Inspect the relevant implementation,
+   tests, stored-data and API boundaries, current live behavior when relevant,
+   and applicable primary documentation. Develop explicit acceptance criteria,
+   risks, invariants, migration or retention needs, and verification steps.
+2. **Create the durable GitHub scope.** Search for an existing GitHub issue that
+   fully covers the request. If none exists, create one or more issues. If one
+   exists but is incomplete, update it or add a durable planning comment before
+   implementation begins.
+3. **Design before coding.** Produce a concrete implementation plan covering
+   architecture, typing and correctness constraints, data lifecycle, tests,
+   observability, and release verification. Ask independent Opus and a second
+   reviewer to critique the plan. Prefer native Kimi for the second review; if
+   Kimi is unavailable, use native Qwen, and if Qwen is unavailable, use Gemini
+   Pro. Reconcile their feedback, using the primary session's own analysis and
+   final judgment, before handing work to an implementer. Record the actual
+   reviewer and any fallback rather than silently claiming the preferred roster.
+4. **Dispatch implementation through agent-ops.** Create a Bickr work item with
+   the required MCP allowance, dedicated issue worktree, and issue-specific
+   branch. Assign implementation to a Sol subagent at `xhigh` reasoning (for
+   example, `gpt-5.6-sol` with `xhigh`). Give it the approved scope, acceptance
+   criteria, frozen checks, and responsibility to implement, test, commit, push,
+   and open or update the PR. The primary session remains the PM and does not
+   write product code in parallel.
+5. **Review the exact PR head.** After the implementation worker submits a clean
+   commit, the primary session must perform its own substantive review. Opus and
+   the same ordered second-reviewer roster (native Kimi, then native Qwen, then
+   Gemini Pro) must also independently review that exact commit. A
+   dispatcher-backed reviewer from a family different from the implementer runs
+   the work item's required checks and records the formal agent-ops verdict;
+   direct native reviewers are advisory when their CLI has no trusted agent-ops
+   adapter. Independent reviewer-family requirements are additive to, never a
+   replacement for, the primary session's review.
+6. **Iterate through the same coding session.** Send every actionable finding
+   back to the Sol implementation session. It updates the code and tests,
+   commits and pushes a new head, and resubmits it. The primary session, Opus,
+   and the selected second reviewer review the new exact head again. Continue
+   until all findings are
+   resolved, all frozen checks pass from a clean worktree, and the primary,
+   Opus, and selected second reviewer approve the same commit. The primary
+   session makes the final readiness decision.
+7. **Merge and release to test.** Merge only the exact approved head, then deploy
+   it to the test environment. Verify the test deployment itself, including
+   relevant health endpoints, service bindings, migrations, and custom-domain
+   bundle convergence; command success alone is not sufficient.
+8. **Stop before production.** The default endpoint of this workflow is a
+   verified test deployment. Never deploy to production based on an
+   implementation request, merge permission, test-deploy permission, a request
+   to "finish" or "ship," or a production approval from an earlier task. Every
+   production deployment requires a fresh, explicit user command that names
+   production. When that command is given, deploy the exact reviewed merge from
+   a clean release worktree and verify production health and bundle convergence.
+9. **Release the owner-attended mailbox.** After the work item is terminal, any
+   required directed terminal notice has been sent, and all lead-owned work
+   authorized for the current request is complete, the primary interactive
+   session runs `~/git/agent-ops/bin/agent-detach`. If its host did not export a
+   default session id, it passes the exact `--session-id` originally used for
+   `agent-attach`; it never discovers or guesses one from shared state. Normally
+   this is after the verified test deployment; if the user separately
+   authorized production for that request, it is after production verification.
+   Do not detach while a review, implementation iteration, merge, deployment,
+   or handoff is pending.
+   This step applies only to the interactive session that previously ran
+   `agent-attach`. Dispatched implementers and reviewers never detach the lead,
+   and an ad-hoc session outside the harness or one that never attached has
+   nothing to do. Never guess or reuse another session id. Detachment stops
+   lifecycle-hook mail delivery to the session without deleting the durable
+   work item, role, channel, or mailbox history.
