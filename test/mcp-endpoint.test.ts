@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import { localizedText, type BotDocument, type LanguageTag, type LocalizedText, type UserDocument } from "../packages/shared/src/model";
 import { inferenceConfigurationFields } from "../packages/shared/src/inference-configuration-owner";
+import { encodeOpaqueJsonCursor } from "../packages/shared/src/opaque-json-cursor";
 import {
 	createMcpAuthorizationCode,
 	exchangeMcpAuthorizationCode,
@@ -907,6 +908,130 @@ describe("MCP endpoint", () => {
 		expect(ownedPage.hasMore).toBe(true);
 	});
 
+	it("paginates Unicode participant identities through repository and MCP boundaries", async () => {
+		await resetD1Schema(testEnv.BICKR_D1);
+		await clearKv(testEnv.BICKR_KV);
+		const updatedAt = "2026-08-11T03:00:00.000Z";
+		await testEnv.BICKR_D1.batch([
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO entity_lifecycle_identity_claims (
+					key_kind, key_scope, key_value, entity_kind, entity_id, owner_user_id,
+					claim_state, operation_id, created_at, updated_at
+				) VALUES ('user_handle', 'global', 'owner-漢字🪐', 'account', 'usr_mcp', 'usr_mcp', 'active', NULL, ?, ?)`,
+			).bind(updatedAt, updatedAt),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO users_index (user_id, handle, display_name, created_at, updated_at, lifecycle_state)
+				 VALUES ('usr_mcp', 'owner-漢字🪐', 'Owner name 名🪐', ?, ?, 'active')`,
+			).bind(updatedAt, updatedAt),
+			activeIdentityClaim("world_handle", "global", "世界-🪐", "world", "w_unicode", "usr_mcp"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO worlds_index (
+					world_id, handle, name, description, created_by_user_id, visibility,
+					created_at, updated_at, lifecycle_state
+				) VALUES ('w_unicode', '世界-🪐', 'World name 世界🪐', '', 'usr_mcp', 'public', ?, ?, 'active')`,
+			).bind(updatedAt, updatedAt),
+			activeIdentityClaim("world_handle", "global", "ascii-world", "world", "w_ascii", "usr_mcp"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO worlds_index (
+					world_id, handle, name, description, created_by_user_id, visibility,
+					created_at, updated_at, lifecycle_state
+				) VALUES ('w_ascii', 'ascii-world', 'ASCII world', '', 'usr_mcp', 'public', ?, ?, 'active')`,
+			).bind("2026-08-11T02:00:00.000Z", "2026-08-11T02:00:00.000Z"),
+		]);
+		const handles = ["ascii", "café", "Кириллица", "漢字", "astral-🪐"];
+		const bots = handles.map((handle, index) => ({
+			...testBot({ id: `bot_unicode_${index}`, handle, displayName: `Participant name ${handle}`, updatedAt }),
+			homeWorldId: "w_unicode",
+			homeWorldHandle: "世界-🪐",
+		}));
+		await Promise.all(bots.map((bot) => writeJson(testEnv.BICKR_KV, kvKeys.bot(bot.id), bot)));
+		await testEnv.BICKR_D1.batch(bots.flatMap((bot) => [
+			activeIdentityClaim("bot_handle", "w_unicode", bot.handle, "bot", bot.id, "usr_mcp"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO bots_index (bot_id, home_world_id, home_world_handle, handle, display_name,
+					owner_user_id, short_bio, created_at, updated_at, lifecycle_state)
+				 VALUES (?, 'w_unicode', '世界-🪐', ?, ?, 'usr_mcp', '', ?, ?, 'active')`,
+			).bind(bot.id, bot.handle, bot.displayName.text, bot.createdAt, bot.updatedAt),
+		]));
+
+		const expected = [...handles].sort();
+		const actual: string[] = [];
+		const ownerHandles: string[] = [];
+		let cursor: string | undefined;
+		do {
+			const page = await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "usr_mcp", {
+				limit: 1, ...(cursor ? { cursor } : {}),
+			});
+			actual.push(...page.bots.map((bot) => bot.handle));
+			ownerHandles.push(...page.bots.map((bot) => bot.owner?.handle ?? ""));
+			cursor = page.nextCursor;
+			if (cursor) expect(cursor).toMatch(/^v1\./);
+		} while (cursor);
+		expect(actual).toEqual(expected);
+		expect(ownerHandles).toEqual(Array<string>(handles.length).fill("owner-漢字🪐"));
+
+		const accessToken = await issueAccessToken(testEnv.BICKR_KV, ["bickr.read"]);
+		const mcpBots: Array<Record<string, unknown>> = [];
+		let mcpCursor: string | undefined;
+		do {
+			const response = await callMcp(testEnv.BICKR_KV, accessToken, {
+				jsonrpc: "2.0", id: 1, method: "tools/call",
+				params: { name: "list_my_bots", arguments: { limit: 1, ...(mcpCursor ? { cursor: mcpCursor } : {}) } },
+			}, {
+				BICKR_D1: testEnv.BICKR_D1,
+				AGENT_RUNTIME: canonicalAnnotationService([]),
+				INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+			});
+			const result = (await jsonResponse(response)).result as {
+				structuredContent: { bots: Array<Record<string, unknown>>; nextCursor?: string };
+			};
+			mcpBots.push(...result.structuredContent.bots);
+			mcpCursor = result.structuredContent.nextCursor;
+			if (mcpCursor) expect(mcpCursor).toMatch(/^v1\./);
+		} while (mcpCursor);
+		expect(mcpBots.map((bot) => bot.handle)).toEqual(expected);
+		const serializedMcpBots = JSON.stringify(mcpBots);
+		expect(serializedMcpBots).toContain("owner-漢字🪐");
+		expect(serializedMcpBots).toContain("Owner name 名🪐");
+		expect(serializedMcpBots).toContain("Participant name 漢字");
+		expect(serializedMcpBots).toContain("世界-🪐");
+
+		const mcpWorlds: Array<Record<string, unknown>> = [];
+		let worldCursor: string | undefined;
+		do {
+			const response = await callMcp(testEnv.BICKR_KV, accessToken, {
+				jsonrpc: "2.0", id: 1, method: "tools/call",
+				params: { name: "list_worlds", arguments: { limit: 1, ...(worldCursor ? { cursor: worldCursor } : {}) } },
+			}, {
+				BICKR_D1: testEnv.BICKR_D1,
+				AGENT_RUNTIME: canonicalAnnotationService([]),
+				INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+			});
+			const result = (await jsonResponse(response)).result as {
+				structuredContent: { worlds: Array<Record<string, unknown>>; nextCursor?: string };
+			};
+			mcpWorlds.push(...result.structuredContent.worlds);
+			worldCursor = result.structuredContent.nextCursor;
+			if (worldCursor) expect(worldCursor).toMatch(/^v1\./);
+		} while (worldCursor);
+		expect(mcpWorlds.map((world) => world.handle)).toEqual(["世界-🪐", "ascii-world"]);
+		expect(JSON.stringify(mcpWorlds)).toContain("World name 世界🪐");
+
+		const asciiLegacy = btoa(JSON.stringify({ updatedAt, handle: "ascii" }));
+		expect((await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "usr_mcp", {
+			limit: 100, cursor: asciiLegacy,
+		})).bots.map((bot) => bot.handle)).toEqual(expected.slice(1));
+		const latin1Legacy = btoa(JSON.stringify({ updatedAt, handle: "café" }));
+		expect((await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "usr_mcp", {
+			limit: 100, cursor: latin1Legacy,
+		})).bots.map((bot) => bot.handle)).toEqual(expected.slice(expected.indexOf("café") + 1));
+
+		for (const malformed of ["v1.", "v1.not-base64!", `v1.${btoa(String.fromCharCode(0xc3))}`]) {
+			await expect(listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "usr_mcp", { cursor: malformed }))
+				.rejects.toMatchObject({ code: "bad_request", status: 400 });
+		}
+	});
+
 	it("executes mutation batches in order and correlates every result", async () => {
 		const kv = new MapKV();
 		const accessToken = await issueAccessToken(kv, ["bickr.runtime"]);
@@ -948,10 +1073,30 @@ describe("MCP endpoint", () => {
 		const kv = new MapKV();
 		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
 		const requestedPaths: string[] = [];
+		const utf8Cursor = encodeOpaqueJsonCursor({
+			order: "identity", sortName: "🧿🪐", id: "cfg_unicode",
+		});
+		const cursorBody = utf8Cursor.slice("v1.".length);
+		const encodedCursor = encodeURIComponent(utf8Cursor);
+		expect(cursorBody).toContain("+");
+		expect(cursorBody).toContain("/");
+		expect(cursorBody).toContain("=");
+		expect(encodedCursor).toContain("%2B");
+		expect(encodedCursor).toContain("%2F");
+		expect(encodedCursor).toContain("%3D");
 		const agentRuntime = {
 			fetch: async (request: Request) => {
-				requestedPaths.push(new URL(request.url).pathname + new URL(request.url).search);
-				return Response.json({ ok: true, data: { configurations: { section: "bot", items: [], groups: [] } } });
+				const url = new URL(request.url);
+				requestedPaths.push(url.pathname + url.search);
+				return Response.json({
+					ok: true,
+					data: { configurations: {
+						section: "bot", items: [], groups: [],
+						...(url.searchParams.get("limit") === "1" && !url.searchParams.has("cursor")
+							? { nextCursor: utf8Cursor }
+							: {}),
+					} },
+				});
 			},
 		};
 		const callRead = async (name: string, args: Record<string, unknown>) => callMcp(kv, accessToken, {
@@ -967,6 +1112,15 @@ describe("MCP endpoint", () => {
 			limit: 25,
 		})).status).toBe(200);
 		expect((await callRead("list_inference_configurations", { kind: "custom,world" })).status).toBe(200);
+		const firstBoundedResponse = await callRead("list_inference_configurations", { limit: 1 });
+		const firstBoundedResult = (await jsonResponse(firstBoundedResponse)).result as {
+			structuredContent: { data: { configurations: { nextCursor: string } } };
+		};
+		expect(firstBoundedResult.structuredContent.data.configurations.nextCursor).toBe(utf8Cursor);
+		expect((await callRead("list_inference_configurations", {
+			cursor: firstBoundedResult.structuredContent.data.configurations.nextCursor,
+			limit: 1,
+		})).status).toBe(200);
 		expect((await callRead("list_inference_configuration_children", {
 			configurationId: "cfg_children",
 			query: "child",
@@ -980,6 +1134,8 @@ describe("MCP endpoint", () => {
 		expect(requestedPaths).toEqual([
 			"/users/usr_mcp/inference-configurations?section=bot&q=home-world&limit=25",
 			"/users/usr_mcp/inference-configurations?kind=custom%2Cworld",
+			"/users/usr_mcp/inference-configurations?limit=1",
+			`/users/usr_mcp/inference-configurations?cursor=${encodedCursor}&limit=1`,
 			"/users/usr_mcp/inference-configurations/cfg_children/children?q=child&limit=10",
 			"/users/usr_mcp/inference-configurations/cfg_parent/parent-candidates?q=alpha",
 		]);

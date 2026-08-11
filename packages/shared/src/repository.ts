@@ -107,6 +107,7 @@ import {
 } from "./storage";
 import { planBotTickSpread, type TickSpreadInput } from "./tick-spread";
 import { slugifyHandle } from "./validation";
+import { decodeOpaqueJsonCursor, encodeOpaqueJsonCursor } from "./opaque-json-cursor";
 
 export class RepositoryError extends Error {
 	readonly code: "bad_request" | "conflict" | "forbidden" | "not_found" | "server_error" | "unauthorized";
@@ -1542,17 +1543,23 @@ function botSummaryPaging(page: BotSummaryPageInput | undefined): {
 }
 
 function encodeBotSummaryCursor(row: BotSummaryCursor): string {
-	return btoa(JSON.stringify({ updatedAt: row.updatedAt, handle: row.handle } satisfies BotSummaryCursor));
+	return encodeOpaqueJsonCursor({ updatedAt: row.updatedAt, handle: row.handle } satisfies BotSummaryCursor);
 }
 
 function decodeBotSummaryCursor(value: string): BotSummaryCursor {
 	try {
-		const parsed = JSON.parse(atob(value)) as Partial<BotSummaryCursor>;
-		if (typeof parsed.updatedAt !== "string" || typeof parsed.handle !== "string") throw new Error("invalid");
-		return { updatedAt: parsed.updatedAt, handle: parsed.handle };
+		const parsed = decodeOpaqueJsonCursor(value);
+		if (isRecord(parsed) && typeof parsed.updatedAt === "string" && typeof parsed.handle === "string") {
+			return { updatedAt: parsed.updatedAt, handle: parsed.handle };
+		}
 	} catch {
-		throw new RepositoryError("bad_request", "Participant page cursor is invalid.", 400);
+		// Parsing failures all map to one typed public input error.
 	}
+	throw new RepositoryError("bad_request", "Participant page cursor is invalid.", 400);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 type UserBotRuntimeSpreadRow = {
