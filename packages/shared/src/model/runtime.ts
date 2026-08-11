@@ -1,5 +1,4 @@
 import type {
-	BotInferenceSettingsInput,
 	BotTickSettingsInput,
 	BotToolSettingsInput,
 	LanguageTag,
@@ -366,12 +365,13 @@ export type BotTickSpreadResult = {
 };
 
 export type BotContextBudgetInput = {
+	/** Owned reusable inference configuration used for a settings what-if. */
+	configurationId?: string;
 	language?: LanguageTag | null;
 	includeLanguageInSystemPrompt?: boolean | null;
 	displayName?: string;
 	prompt: string;
 	shortBio?: string;
-	inferenceSettings?: BotInferenceSettingsInput;
 	toolSettings?: BotToolSettingsInput;
 	postingSettings?: PostingSettingsInput;
 	tickSettings?: Partial<Pick<BotTickSettingsInput, "allowEarlyLogOff" | "contextWindowTokens" | "compactionMaxCharacters" | "compactionSummaryPercent">>;

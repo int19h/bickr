@@ -4,9 +4,11 @@ import {
 	fixedInferenceConfigurationKinds,
 	inferenceConfigurationFields,
 	inferenceLibrarySections,
+	maximumCanonicalInferenceAnnotationBatch,
 	maximumInferenceBotEffectiveModelBatch,
 	redactedOwnerDtoBrand,
 	type CredentialUpdate,
+	type CanonicalInferenceFixedReference,
 	type FixedInferenceConfigurationReference,
 	type InferenceBotEffectiveModelSet,
 	type InferenceBotHomeWorldGroup,
@@ -170,6 +172,93 @@ export async function loadInternalInferenceConfigurationPath(
 	configurationId: string,
 ): Promise<InferenceConfigurationPath> {
 	return loadPath(db, ownerUserId, configurationId, true);
+}
+
+/**
+ * Loads the union of up to 100 selected consumer paths in one D1 statement.
+ * The selectedId column keeps shared ancestors attributable without issuing a
+ * query per consumer. Version 2 reads the same revision-matched projection as
+ * the runtime singleton resolver.
+ */
+export async function loadInternalInferenceConsumerPaths(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	configurationIds: readonly string[],
+	version: { cutoverVersion: number; graphRevision: number },
+): Promise<ReadonlyMap<string, InferenceConfigurationPath>> {
+	const ids = [...new Set(configurationIds)];
+	if (ids.length === 0) return new Map();
+	if (ids.length > maximumCanonicalInferenceAnnotationBatch) {
+		throw new RepositoryError("bad_request", "Inference consumer path batch exceeds 100 entries.", 400);
+	}
+	const normalSql = `WITH RECURSIVE selected(selectedId) AS (SELECT value FROM json_each(?)),
+		consumer_path AS (
+			SELECT selected.selectedId, ${pathColumns}, credentials.secret_value AS secretValue, 0 AS depth
+			FROM selected JOIN inference_configurations AS configuration
+				ON configuration.configuration_id = selected.selectedId AND configuration.owner_user_id = ?
+			JOIN inference_configuration_credentials AS credentials
+				ON credentials.configuration_id = configuration.configuration_id AND credentials.owner_user_id = configuration.owner_user_id
+			UNION ALL
+			SELECT path.selectedId, ${pathColumns}, credentials.secret_value AS secretValue, path.depth + 1
+			FROM consumer_path AS path
+			JOIN inference_configurations AS configuration ON configuration.configuration_id = path.parentId AND configuration.owner_user_id = path.ownerUserId
+			JOIN inference_configuration_credentials AS credentials
+				ON credentials.configuration_id = configuration.configuration_id AND credentials.owner_user_id = configuration.owner_user_id
+			WHERE path.depth < ?
+		)
+		SELECT * FROM consumer_path ORDER BY selectedId ASC, depth ASC LIMIT ?`;
+	const projectionSql = `WITH RECURSIVE selected(selectedId) AS (SELECT value FROM json_each(?)),
+		consumer_path (selectedId, id, ownerUserId, kind, fixedRole, parentId, worldId, botId, customName,
+			customNameKey, overridesJson, revision, createdAt, updatedAt, credentialMode, secretVersion, secretValue, depth) AS (
+			SELECT selected.selectedId, entry.configuration_id, entry.owner_user_id, entry.kind, entry.fixed_role,
+				entry.parent_id, entry.world_id, entry.bot_id, entry.custom_name, entry.custom_name_key,
+				entry.overrides_json, entry.configuration_revision, projection.created_at, projection.updated_at,
+				entry.credential_mode, entry.credential_secret_version,
+				CASE WHEN credentials.secret_version = entry.credential_secret_version THEN credentials.secret_value ELSE NULL END, 0
+			FROM selected JOIN inference_graph_legacy_projection_entries AS entry
+				ON entry.configuration_id = selected.selectedId AND entry.owner_user_id = ?
+			JOIN inference_graph_legacy_projections AS projection
+				ON projection.owner_user_id = entry.owner_user_id AND projection.graph_revision = ?
+			LEFT JOIN inference_configuration_credentials AS credentials
+				ON credentials.configuration_id = entry.configuration_id AND credentials.owner_user_id = entry.owner_user_id
+			UNION ALL
+			SELECT path.selectedId, entry.configuration_id, entry.owner_user_id, entry.kind, entry.fixed_role,
+				entry.parent_id, entry.world_id, entry.bot_id, entry.custom_name, entry.custom_name_key,
+				entry.overrides_json, entry.configuration_revision, projection.created_at, projection.updated_at,
+				entry.credential_mode, entry.credential_secret_version,
+				CASE WHEN credentials.secret_version = entry.credential_secret_version THEN credentials.secret_value ELSE NULL END, path.depth + 1
+			FROM consumer_path AS path
+			JOIN inference_graph_legacy_projection_entries AS entry
+				ON entry.configuration_id = path.parentId AND entry.owner_user_id = path.ownerUserId
+			JOIN inference_graph_legacy_projections AS projection
+				ON projection.owner_user_id = entry.owner_user_id AND projection.graph_revision = ?
+			LEFT JOIN inference_configuration_credentials AS credentials
+				ON credentials.configuration_id = entry.configuration_id AND credentials.owner_user_id = entry.owner_user_id
+			WHERE path.depth < ?
+		)
+		SELECT * FROM consumer_path ORDER BY selectedId ASC, depth ASC LIMIT ?`;
+	const result = version.cutoverVersion === 2
+		? await db.prepare(projectionSql).bind(
+			JSON.stringify(ids), ownerUserId, version.graphRevision, version.graphRevision,
+			inferenceConfigurationCorruptionSentinel - 1, inferenceConfigurationCorruptionSentinel,
+		).all<ConfigurationPathRow & { selectedId: string }>()
+		: await db.prepare(normalSql).bind(
+			JSON.stringify(ids), ownerUserId,
+			inferenceConfigurationCorruptionSentinel - 1, inferenceConfigurationCorruptionSentinel,
+		).all<ConfigurationPathRow & { selectedId: string }>();
+	const grouped = new Map<string, InferenceConfigurationNode[]>();
+	for (const row of result.results ?? []) {
+		const path = grouped.get(row.selectedId) ?? [];
+		path.push(configurationNodeFromRow(row, true));
+		grouped.set(row.selectedId, path);
+	}
+	return new Map([...grouped].map(([selectedId, path]) => {
+		const root = path.at(-1);
+		if (!path[0] || !root || root.kind !== "account_default" || root.parentId !== null) {
+			throw new InferenceGraphRepositoryError("corrupt_graph", "Inference consumer path does not terminate at Account default.");
+		}
+		return [selectedId, [path[0], ...path.slice(1)] as InferenceConfigurationPath];
+	}));
 }
 
 /**
@@ -684,6 +773,59 @@ export async function listBotEffectiveModels(
 			summary.kind === "bot" ? [{ botId: summary.identity.botId, effectiveModel: summary.effectiveModel }] : [],
 		),
 	};
+}
+
+/**
+ * Redacted summaries for a bounded set of fixed consumers. Entity ownership,
+ * active lifecycle state, and graph ownership are checked in the selecting
+ * query; the second query loads the union of their ancestors. This is the one
+ * set-oriented primitive used by owner presentation routes.
+ */
+export async function listOwnedFixedInferenceConfigurationSummaries(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	references: readonly CanonicalInferenceFixedReference[],
+	defaults?: BickrInferenceDefaults,
+): Promise<InferenceConfigurationSummary[]> {
+	const unique = new Map(references.map((reference) => [JSON.stringify(reference), reference]));
+	if (unique.size === 0) return [];
+	if (unique.size > maximumCanonicalInferenceAnnotationBatch) {
+		throw new RepositoryError(
+			"bad_request",
+			`At most ${maximumCanonicalInferenceAnnotationBatch} fixed inference consumers can be resolved in one request.`,
+			400,
+		);
+	}
+	const ids = await Promise.all([...unique.values()].map(async (reference) => {
+		switch (reference.kind) {
+			case "account_default": return accountDefaultConfigurationId(ownerUserId);
+			case "translation": return null;
+			case "world": return worldConfigurationId(reference.worldId);
+			case "bot": return botConfigurationId(reference.botId);
+		}
+	}));
+	const includeTranslation = [...unique.values()].some((reference) => reference.kind === "translation");
+	const rows = await db.prepare(
+		`SELECT ${summaryColumnsSql(identitySortNameSql)}
+		 ${summaryFromSql}
+		 WHERE configuration.owner_user_id = ?
+			AND (configuration.configuration_id IN (SELECT value FROM json_each(?))
+				OR (? = 1 AND configuration.fixed_role = 'translation'))
+			AND (configuration.kind != 'bot' OR (bots.owner_user_id = ? AND bots.deleted_at IS NULL AND bots.lifecycle_state = 'active'))
+			AND (configuration.kind != 'world' OR (worlds.created_by_user_id = ? AND worlds.deleted_at IS NULL AND worlds.lifecycle_state = 'active'))
+		 ORDER BY configuration.configuration_id ASC
+		 LIMIT ?`,
+	).bind(
+		ownerUserId,
+		JSON.stringify(ids.filter((id): id is string => Boolean(id))),
+		includeTranslation ? 1 : 0,
+		ownerUserId,
+		ownerUserId,
+		maximumCanonicalInferenceAnnotationBatch,
+	).all<SummaryRow>();
+	const selected = rows.results ?? [];
+	const ancestors = await loadBoundedInferenceAncestors(db, ownerUserId, selected.map((row) => row.id));
+	return summariesFromAncestors(selected, ancestors, defaults);
 }
 
 export async function listInferenceLibrarySection(

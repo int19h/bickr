@@ -1216,6 +1216,53 @@ export async function listWorlds(db: D1DatabaseLike): Promise<WorldListSummary[]
 	return (result.results ?? []).map(worldSummaryFromIndexRow);
 }
 
+export type WorldSummaryPage<T extends WorldSummary = WorldSummary> = {
+	worlds: T[];
+	hasMore: boolean;
+	nextCursor?: string;
+};
+
+export async function listWorldsPage(
+	db: D1DatabaseLike,
+	page: BotSummaryPageInput = {},
+): Promise<WorldSummaryPage<WorldListSummary>> {
+	const paging = botSummaryPaging(page);
+	const result = await db.prepare(
+		`WITH selected AS (
+			SELECT world_id, updated_at, handle FROM worlds_index
+			WHERE deleted_at IS NULL AND lifecycle_state = 'active'
+				AND (updated_at < ? OR (updated_at = ? AND handle > ?))
+			ORDER BY updated_at DESC, handle ASC LIMIT ?
+		), forum_counts AS (
+			SELECT forums.world_id, COUNT(*) AS forumCount FROM forums_index AS forums
+			JOIN selected ON selected.world_id = forums.world_id
+			WHERE forums.deleted_at IS NULL AND forums.personal_bot_id IS NULL GROUP BY forums.world_id
+		), bot_counts AS (
+			SELECT bots.home_world_id AS world_id, COUNT(*) AS botCount FROM bots_index AS bots
+			JOIN selected ON selected.world_id = bots.home_world_id
+			WHERE bots.deleted_at IS NULL AND bots.lifecycle_state = 'active' GROUP BY bots.home_world_id
+		)
+		 SELECT
+			${worldSummarySelectColumns("w")},
+			COALESCE(forum_counts.forumCount, 0) AS forumCount,
+			COALESCE(bot_counts.botCount, 0) AS botCount
+		 FROM selected JOIN worlds_index AS w ON w.world_id = selected.world_id
+		 LEFT JOIN forum_counts ON forum_counts.world_id = w.world_id
+		 LEFT JOIN bot_counts ON bot_counts.world_id = w.world_id
+		 ORDER BY selected.updated_at DESC, selected.handle ASC`,
+	).bind(paging.updatedAt, paging.updatedAt, paging.handle, paging.queryLimit)
+		.all<WorldSummaryIndexRow & Pick<WorldListSummary, "forumCount" | "botCount">>();
+	const rows = result.results ?? [];
+	const selected = rows.slice(0, paging.limit);
+	const last = selected.at(-1);
+	const hasMore = rows.length > paging.limit;
+	return {
+		worlds: selected.map(worldSummaryFromIndexRow),
+		hasMore,
+		...(hasMore && last ? { nextCursor: encodeBotSummaryCursor({ updatedAt: last.updatedAt, handle: last.handle }) } : {}),
+	};
+}
+
 export function assertWorldRecurringPromptConfiguration(
 	world: Pick<WorldDocument, "recurringPromptEnabled" | "recurringPrompt">,
 ): void {
@@ -1367,17 +1414,44 @@ async function attachBotOwners(db: D1DatabaseLike, bots: BotSummary[]): Promise<
 	});
 }
 
+export type BotSummaryPage = {
+	bots: BotSummary[];
+	hasMore: boolean;
+	nextCursor?: string;
+};
+
+export type BotSummaryPageInput = { cursor?: string; limit?: number };
+
+type BotSummaryCursor = { updatedAt: string; handle: string };
+
+const maximumBotSummaryPageSize = 100;
+
 export async function listUserBots(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	userId: string,
-): Promise<BotSummary[]> {
+): Promise<BotSummary[]>;
+export async function listUserBots(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	userId: string,
+	page: BotSummaryPageInput,
+): Promise<BotSummaryPage>;
+export async function listUserBots(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	userId: string,
+	page?: BotSummaryPageInput,
+): Promise<BotSummary[] | BotSummaryPage> {
+	const paging = botSummaryPaging(page);
 	const result = await db
 		.prepare(
 			`WITH selected AS (
 				SELECT bot_id AS id, updated_at, handle
 				FROM bots_index
 				WHERE owner_user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
+					AND (updated_at < ? OR (updated_at = ? AND handle > ?))
+				ORDER BY updated_at DESC, handle ASC LIMIT ?
 			 ),
 			 activity AS (
 				SELECT threads.author_bot_id AS bot_id, threads.created_at AS active_at
@@ -1400,6 +1474,8 @@ export async function listUserBots(
 			 )
 			 SELECT
 				selected.id AS id,
+				selected.updated_at AS updatedAt,
+				selected.handle AS handle,
 				runtime.next_due_at AS nextDueAt,
 				MAX(activity.active_at) AS lastActiveAt
 			 FROM selected
@@ -1408,9 +1484,11 @@ export async function listUserBots(
 			 GROUP BY selected.id, runtime.next_due_at, selected.updated_at, selected.handle
 			 ORDER BY selected.updated_at DESC, selected.handle ASC`,
 		)
-		.bind(userId)
-		.all<{ id: string; nextDueAt: string | null; lastActiveAt: string | null }>();
-	const rows = result.results ?? [];
+		.bind(userId, paging.updatedAt, paging.updatedAt, paging.handle, paging.queryLimit)
+		.all<{ id: string; updatedAt: string; handle: string; nextDueAt: string | null; lastActiveAt: string | null }>();
+	const allRows = result.results ?? [];
+	const hasMore = allRows.length > paging.limit;
+	const rows = allRows.slice(0, paging.limit);
 	const runtimeById = new Map(
 		rows.map((row) => [row.id, { nextDueAt: row.nextDueAt, lastActiveAt: row.lastActiveAt }]),
 	);
@@ -1421,7 +1499,7 @@ export async function listUserBots(
 	const effectiveBots = await effectiveBotDocuments(kv, db, activeBots);
 	const worldPostingSettings = await worldPostingSettingsByIds(db, effectiveBots.map((bot) => bot.homeWorldId));
 
-	return attachBotOwners(db, effectiveBots.map((bot) => {
+	const summaries = await attachBotOwners(db, effectiveBots.map((bot) => {
 		const runtime = runtimeById.get(bot.id);
 		return botSummaryWithLastActive(bot, runtime?.lastActiveAt, {
 			includeToolSettings: true,
@@ -1429,6 +1507,47 @@ export async function listUserBots(
 			worldPostingSettings: worldPostingSettings.get(bot.homeWorldId),
 		});
 	}));
+	if (!page) return summaries;
+	const last = rows.at(-1);
+	return {
+		bots: summaries,
+		hasMore,
+		...(hasMore && last ? { nextCursor: encodeBotSummaryCursor(last) } : {}),
+	};
+}
+
+function botSummaryPaging(page: BotSummaryPageInput | undefined): {
+	limit: number;
+	queryLimit: number;
+	updatedAt: string;
+	handle: string;
+} {
+	if (!page) return { limit: Number.MAX_SAFE_INTEGER - 1, queryLimit: Number.MAX_SAFE_INTEGER, updatedAt: "9999-12-31T23:59:59.999Z", handle: "" };
+	const limit = page.limit ?? maximumBotSummaryPageSize;
+	if (!Number.isInteger(limit) || limit < 1 || limit > maximumBotSummaryPageSize) {
+		throw new RepositoryError("bad_request", `Participant page limit must be between 1 and ${maximumBotSummaryPageSize}.`, 400);
+	}
+	const cursor = page.cursor ? decodeBotSummaryCursor(page.cursor) : undefined;
+	return {
+		limit,
+		queryLimit: limit + 1,
+		updatedAt: cursor?.updatedAt ?? "9999-12-31T23:59:59.999Z",
+		handle: cursor?.handle ?? "",
+	};
+}
+
+function encodeBotSummaryCursor(row: BotSummaryCursor): string {
+	return btoa(JSON.stringify({ updatedAt: row.updatedAt, handle: row.handle } satisfies BotSummaryCursor));
+}
+
+function decodeBotSummaryCursor(value: string): BotSummaryCursor {
+	try {
+		const parsed = JSON.parse(atob(value)) as Partial<BotSummaryCursor>;
+		if (typeof parsed.updatedAt !== "string" || typeof parsed.handle !== "string") throw new Error("invalid");
+		return { updatedAt: parsed.updatedAt, handle: parsed.handle };
+	} catch {
+		throw new RepositoryError("bad_request", "Participant page cursor is invalid.", 400);
+	}
 }
 
 type UserBotRuntimeSpreadRow = {
@@ -2141,14 +2260,29 @@ export async function listWorldBots(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	worldHandle: string,
-): Promise<BotSummary[]> {
+): Promise<BotSummary[]>;
+export async function listWorldBots(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldHandle: string,
+	page: BotSummaryPageInput,
+): Promise<BotSummaryPage>;
+export async function listWorldBots(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldHandle: string,
+	page?: BotSummaryPageInput,
+): Promise<BotSummary[] | BotSummaryPage> {
 	const world = await worldByHandle(db, worldHandle);
+	const paging = botSummaryPaging(page);
 	const result = await db
 		.prepare(
 			`WITH selected AS (
-				SELECT bot_id AS id, handle
+				SELECT bot_id AS id, updated_at, handle
 				FROM bots_index
 				WHERE home_world_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
+					AND (updated_at < ? OR (updated_at = ? AND handle > ?))
+				ORDER BY updated_at DESC, handle ASC LIMIT ?
 			 ),
 			 activity AS (
 				SELECT threads.author_bot_id AS bot_id, threads.created_at AS active_at
@@ -2171,24 +2305,28 @@ export async function listWorldBots(
 			 )
 			 SELECT
 				selected.id AS id,
+				selected.updated_at AS updatedAt,
+				selected.handle AS handle,
 				runtime.next_due_at AS nextDueAt,
 				MAX(activity.active_at) AS lastActiveAt
 			 FROM selected
 			 LEFT JOIN bot_runtime_index runtime ON runtime.bot_id = selected.id
 			 LEFT JOIN activity ON activity.bot_id = selected.id
-			 GROUP BY selected.id, runtime.next_due_at, selected.handle
-			 ORDER BY selected.handle ASC`,
+			 GROUP BY selected.id, runtime.next_due_at, selected.updated_at, selected.handle
+			 ORDER BY selected.updated_at DESC, selected.handle ASC`,
 		)
-		.bind(world.id)
-		.all<{ id: string; nextDueAt: string | null; lastActiveAt: string | null }>();
-	const rows = result.results ?? [];
+		.bind(world.id, paging.updatedAt, paging.updatedAt, paging.handle, paging.queryLimit)
+		.all<{ id: string; updatedAt: string; handle: string; nextDueAt: string | null; lastActiveAt: string | null }>();
+	const allRows = result.results ?? [];
+	const hasMore = allRows.length > paging.limit;
+	const rows = allRows.slice(0, paging.limit);
 	const runtimeById = new Map(
 		rows.map((row) => [row.id, { nextDueAt: row.nextDueAt, lastActiveAt: row.lastActiveAt }]),
 	);
 	const bots = await Promise.all(rows.map((row) => readJson<BotDocument>(kv, kvKeys.bot(row.id))));
 	const activeBots = bots.filter((bot): bot is BotDocument => Boolean(bot && !bot.deletedAt)).map((bot) => normalizeBotDefaults(bot));
 	const effectiveBots = await effectiveBotDocuments(kv, db, activeBots);
-	return attachBotOwners(db, effectiveBots.map((bot) => {
+	const summaries = await attachBotOwners(db, effectiveBots.map((bot) => {
 		const runtime = runtimeById.get(bot.id);
 		return botSummaryWithLastActive(bot, runtime?.lastActiveAt, {
 			includePrompt: false,
@@ -2196,6 +2334,13 @@ export async function listWorldBots(
 			worldPostingSettings: world.postingSettings,
 		});
 	}));
+	if (!page) return summaries;
+	const last = rows.at(-1);
+	return {
+		bots: summaries,
+		hasMore,
+		...(hasMore && last ? { nextCursor: encodeBotSummaryCursor(last) } : {}),
+	};
 }
 
 type BotGroupRow = {
@@ -2222,6 +2367,54 @@ export async function listBotGroups(
 ): Promise<BotGroupSummary[]> {
 	const world = await worldByHandle(db, worldHandle);
 	return botGroupSummariesForOwner(kv, db, world.id, userId);
+}
+
+export async function listBotGroupsPage(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	worldHandle: string,
+	userId: string,
+	page: BotSummaryPageInput = {},
+): Promise<{
+	groups: BotGroupSummary[];
+	hasMore: boolean;
+	nextCursor?: string;
+	presentationPage: { maximumEntities: 100; truncated: boolean };
+}> {
+	const world = await worldByHandle(db, worldHandle);
+	const paging = botSummaryPaging(page);
+	const groupsResult = await db.prepare(
+		`SELECT group_id AS id, world_id AS worldId, owner_user_id AS ownerUserId,
+			language, custom_title AS customTitle, custom_title_lang AS customTitleLang,
+			created_at AS createdAt, updated_at AS updatedAt
+		 FROM bot_groups
+		 WHERE world_id = ? AND owner_user_id = ? AND deleted_at IS NULL
+			AND (updated_at < ? OR (updated_at = ? AND group_id > ?))
+		 ORDER BY updated_at DESC, group_id ASC LIMIT ?`,
+	).bind(world.id, userId, paging.updatedAt, paging.updatedAt, paging.handle, paging.queryLimit).all<BotGroupRow>();
+	const allGroups = groupsResult.results ?? [];
+	const groups = allGroups.slice(0, paging.limit);
+	const hasMore = allGroups.length > paging.limit;
+	const last = groups.at(-1);
+	if (groups.length === 0) return { groups: [], hasMore: false, presentationPage: { maximumEntities: 100, truncated: false } };
+	const result = await db.prepare(
+		`SELECT m.group_id AS groupId, m.bot_id AS botId
+		 FROM bot_group_members m
+		 JOIN bots_index b ON b.bot_id = m.bot_id AND b.home_world_id = m.world_id
+			AND b.deleted_at IS NULL AND b.lifecycle_state = 'active'
+		 WHERE m.world_id = ? AND m.group_id IN (SELECT value FROM json_each(?))
+		 ORDER BY m.group_id ASC, lower(b.handle) ASC, b.handle ASC LIMIT 101`,
+	).bind(world.id, JSON.stringify(groups.map((group) => group.id))).all<BotGroupMemberRow>();
+	const members = result.results ?? [];
+	return {
+		groups: await botGroupSummaries(kv, db, groups, members.slice(0, 100)),
+		hasMore,
+		...(hasMore && last ? { nextCursor: encodeBotSummaryCursor({ updatedAt: last.updatedAt, handle: last.id }) } : {}),
+		presentationPage: {
+			maximumEntities: 100,
+			truncated: members.length > 100,
+		},
+	};
 }
 
 async function createBotGroup(
@@ -2615,6 +2808,30 @@ export async function listOwnedWorlds(db: D1DatabaseLike, userId: string): Promi
 		.bind(userId)
 		.all<WorldSummaryIndexRow>();
 	return (result.results ?? []).map(worldSummaryFromIndexRow);
+}
+
+export async function listOwnedWorldsPage(
+	db: D1DatabaseLike,
+	userId: string,
+	page: BotSummaryPageInput = {},
+): Promise<WorldSummaryPage> {
+	const paging = botSummaryPaging(page);
+	const result = await db.prepare(
+		`SELECT ${worldSummarySelectColumns()}
+		 FROM worlds_index
+		 WHERE created_by_user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
+			AND (updated_at < ? OR (updated_at = ? AND handle > ?))
+		 ORDER BY updated_at DESC, handle ASC LIMIT ?`,
+	).bind(userId, paging.updatedAt, paging.updatedAt, paging.handle, paging.queryLimit).all<WorldSummaryIndexRow>();
+	const rows = result.results ?? [];
+	const selected = rows.slice(0, paging.limit);
+	const last = selected.at(-1);
+	const hasMore = rows.length > paging.limit;
+	return {
+		worlds: selected.map(worldSummaryFromIndexRow),
+		hasMore,
+		...(hasMore && last ? { nextCursor: encodeBotSummaryCursor({ updatedAt: last.updatedAt, handle: last.handle }) } : {}),
+	};
 }
 
 export type AccountDeletionTarget =

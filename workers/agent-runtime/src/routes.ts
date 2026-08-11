@@ -16,7 +16,11 @@ import {
 import { makeId } from '@bickr/shared/ids';
 import { json } from '@bickr/shared/http';
 import { type ObjectIndexConvergenceTask, runObjectIndexConvergenceBatch } from '@bickr/shared/index-repair';
-import { providerEnvironmentSettingsFromBindings } from '@bickr/shared/inference-settings';
+import {
+	providerEnvironmentSettingsFromBindings,
+	resolveBotProviderSettings,
+	resolveLegacyTranslationProviderSettings,
+} from '@bickr/shared/inference-settings';
 import {
 	InferenceConfigurationDataError,
 	parseInferenceConfigurationOverridePatch,
@@ -25,6 +29,7 @@ import {
 } from '@bickr/shared/inference-configuration';
 import {
 	bickrInferenceDefaultsFromEnvironment,
+	canonicalInferenceConsumerBatch,
 	canonicalTranslationInferenceAnnotation,
 } from '@bickr/shared/inference-configuration-consumers';
 import {
@@ -46,7 +51,7 @@ import {
 	inferenceConfigurationOwnerDto,
 	inferenceGraphReadVersion,
 	loadInferenceConfigurationPath,
-	listBotEffectiveModels,
+	listOwnedFixedInferenceConfigurationSummaries,
 	listImmediateInferenceChildren,
 	listInferenceConfigurations,
 	listInferenceLibrarySection,
@@ -67,6 +72,10 @@ import {
 } from '@bickr/shared/inference-translation-role-migration';
 import {
 	type CredentialUpdate,
+	maximumCanonicalInferenceAnnotationBatch,
+	type CanonicalInferenceAnnotation,
+	type CanonicalInferenceAnnotationRequest,
+	type CanonicalInferenceFixedReference,
 	type InferenceLibrarySection,
 } from "@bickr/shared/inference-configuration-owner";
 import {
@@ -684,6 +693,20 @@ export const agentRuntimeRouteTable = [
 		},
 	},
 	{
+		// Read-only consumer presentation deliberately bypasses the edit cutover
+		// gate. Authorization and entity ownership remain mandatory, while the
+		// resolver follows the same 0/1/2 state machine as provider execution.
+		id: 'get-inference-consumer-annotations',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/inference-consumers\/annotations$/,
+		dispatch: 'direct',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const request = parseCanonicalInferenceAnnotationRequest(await readJsonBody(context.request));
+			return ok(await canonicalInferenceAnnotations(context, userId, request));
+		},
+	},
+	{
 		// Set-oriented canonical model labels for the participants an owner screen
 		// is already rendering. It answers with resolved model strings only, so an
 		// owner UI never reconstructs an effective model locally and never reads a
@@ -694,16 +717,26 @@ export const agentRuntimeRouteTable = [
 		pattern: /^\/users\/([^/]+)\/inference-configurations\/effective-models$/,
 		dispatch: 'user-coordinator',
 		handler: async (context) => {
-			const userId = await requireInferenceGraphOwner(context);
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			if (context.coordinator.ownerUserId !== userId) {
+				throw new RepositoryError('forbidden', 'Inference consumer request was dispatched to the wrong coordinator.', 403);
+			}
 			const botIds = (context.url.searchParams.get('botIds') ?? '')
 				.split(',')
 				.map((value) => value.trim())
 				.filter(Boolean);
+			const annotations = await canonicalInferenceAnnotations(context, userId, { botIds });
 			return ok({
-				effectiveModels: await listBotEffectiveModels(context.env.BICKR_D1, userId, {
-					botIds,
-					defaults: await bickrInferenceDefaultsFromEnvironment(context.env),
-				}),
+				effectiveModels: {
+					models: annotations.annotations.flatMap((annotation) => annotation.reference.kind === 'bot'
+						? [{
+							botId: annotation.reference.botId,
+							effectiveModel: annotation.kind === 'canonical'
+								? annotation.configuration.effectiveModel
+								: annotation.effectiveModel,
+						}]
+						: []),
+				},
 				coordinator: context.objectId,
 			});
 		},
@@ -1878,6 +1911,132 @@ async function requireInferenceGraphOwner(context: AgentRuntimeRouteContext): Pr
 		throw new RepositoryError('conflict', 'Inference configuration graph is not available for this account.', 409);
 	}
 	return userId;
+}
+
+function parseCanonicalInferenceAnnotationRequest(value: unknown): CanonicalInferenceAnnotationRequest {
+	const record = requiredRecord(value);
+	const allowed = new Set(['accountDefault', 'translation', 'botIds', 'worldIds']);
+	const unexpected = Object.keys(record).find((key) => !allowed.has(key));
+	if (unexpected) throw new InputError(`Unsupported inference consumer annotation field: ${unexpected}.`);
+	const stringArray = (candidate: unknown, field: string): string[] | undefined => {
+		if (candidate === undefined) return undefined;
+		if (!Array.isArray(candidate) || candidate.some((entry) => typeof entry !== 'string' || !entry.trim())) {
+			throw new InputError(`${field} must be an array of non-empty strings.`);
+		}
+		return [...new Set(candidate)];
+	};
+	if (record.accountDefault !== undefined && typeof record.accountDefault !== 'boolean') {
+		throw new InputError('accountDefault must be boolean.');
+	}
+	if (record.translation !== undefined && typeof record.translation !== 'boolean') {
+		throw new InputError('translation must be boolean.');
+	}
+	const request: CanonicalInferenceAnnotationRequest = {
+		...(record.accountDefault === true ? { accountDefault: true } : {}),
+		...(record.translation === true ? { translation: true } : {}),
+		...(stringArray(record.botIds, 'botIds') ? { botIds: stringArray(record.botIds, 'botIds') } : {}),
+		...(stringArray(record.worldIds, 'worldIds') ? { worldIds: stringArray(record.worldIds, 'worldIds') } : {}),
+	};
+	const count = Number(request.accountDefault) + Number(request.translation)
+		+ (request.botIds?.length ?? 0) + (request.worldIds?.length ?? 0);
+	if (count > maximumCanonicalInferenceAnnotationBatch) {
+		throw new InputError(`At most ${maximumCanonicalInferenceAnnotationBatch} fixed inference consumers may be requested.`);
+	}
+	return request;
+}
+
+async function canonicalInferenceAnnotations(
+	context: AgentRuntimeRouteContext,
+	userId: string,
+	request: CanonicalInferenceAnnotationRequest,
+): Promise<{ annotations: CanonicalInferenceAnnotation[]; graphRevision: number }> {
+	const references: CanonicalInferenceFixedReference[] = [
+		...(request.accountDefault ? [{ kind: 'account_default' } as const] : []),
+		...(request.translation ? [{ kind: 'translation' } as const] : []),
+		...(request.worldIds ?? []).map((worldId) => ({ kind: 'world' as const, worldId })),
+		...(request.botIds ?? []).map((botId) => ({ kind: 'bot' as const, botId })),
+	];
+	const version = await inferenceGraphReadVersion(context.env.BICKR_D1, userId);
+	if (version.cutoverVersion === 0) {
+		const owner = await userById(context.env.BICKR_KV, userId);
+		const environment = providerEnvironmentSettingsFromBindings(context.env);
+		const accountModel = resolveBotProviderSettings({ inferenceSettings: {} }, owner, environment).settings.model;
+		const annotations: CanonicalInferenceAnnotation[] = [];
+		for (const reference of references) {
+			let effectiveModel: string | undefined;
+			switch (reference.kind) {
+				case 'account_default':
+					effectiveModel = accountModel;
+					break;
+				case 'translation':
+					effectiveModel = resolveLegacyTranslationProviderSettings(owner, environment)?.model;
+					break;
+				case 'world':
+					await ownedFixedInferenceConfigurationId(context.env.BICKR_D1, userId, reference);
+					effectiveModel = accountModel;
+					break;
+				case 'bot': {
+					const bot = await botById(context.env.BICKR_KV, context.env.BICKR_D1, reference.botId);
+					if (bot.ownerUserId !== userId) throw new RepositoryError('not_found', 'Participant not found.', 404);
+					effectiveModel = (await effectiveProviderSettingsForBotCanonical(
+						context.env.BICKR_D1, bot, owner, context.env,
+					)).model;
+					break;
+				}
+			}
+			if (effectiveModel) {
+				annotations.push({ kind: 'legacy_compatibility', reference, effectiveModel, reason: 'graph_not_migrated' });
+			}
+		}
+		return { annotations, graphRevision: version.graphRevision };
+	}
+	const defaults = await bickrInferenceDefaultsFromEnvironment(context.env);
+	const summaries = await listOwnedFixedInferenceConfigurationSummaries(
+		context.env.BICKR_D1, userId, references, defaults,
+	);
+	const resolved = await canonicalInferenceConsumerBatch(
+		context.env.BICKR_D1,
+		userId,
+		summaries.flatMap((configuration) => configuration.kind === 'custom' ? [] : [{
+			configurationId: configuration.id,
+			consumer: configuration.kind === 'account_default' ? 'account' : configuration.kind,
+		}]),
+		context.env,
+	);
+	const annotations = summaries.map((configuration): CanonicalInferenceAnnotation => {
+		const consumer = resolved.get(configuration.id);
+		if (consumer) {
+			const credential = consumer.resolution.effective.credential;
+			configuration = {
+				...configuration,
+				effectiveModel: consumer.resolution.effective.model,
+				credentialAvailability: credential.kind === 'available'
+					? { kind: 'available', source: credential.source }
+					: credential.kind === 'explicit_none'
+						? { kind: 'explicit_none', source: credential.source }
+						: { kind: 'unavailable', source: credential.source, reason: credential.reason },
+			};
+		}
+		return {
+			kind: 'canonical',
+			reference: fixedReferenceForSummary(configuration),
+			configuration,
+			graphRevision: version.graphRevision,
+		};
+	});
+	return { annotations, graphRevision: version.graphRevision };
+}
+
+function fixedReferenceForSummary(
+	configuration: Awaited<ReturnType<typeof listOwnedFixedInferenceConfigurationSummaries>>[number],
+): CanonicalInferenceFixedReference {
+	switch (configuration.kind) {
+		case 'account_default': return { kind: 'account_default' };
+		case 'translation': return { kind: 'translation' };
+		case 'world': return { kind: 'world', worldId: configuration.identity.worldId };
+		case 'bot': return { kind: 'bot', botId: configuration.identity.botId };
+		case 'custom': throw new RepositoryError('server_error', 'A custom configuration cannot be a fixed consumer.', 500);
+	}
 }
 
 function requiredRecord(value: unknown): Record<string, unknown> {

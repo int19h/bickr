@@ -624,14 +624,12 @@ export function parseBotContextBudgetInput(input: unknown): BotContextBudgetInpu
 			undefined
 		:	pickContextWindowTickSettings(parseTickSettings(record.tickSettings));
 	return {
+		...(record.configurationId === undefined ? {} : { configurationId: requiredText(record.configurationId, "Inference configuration ID", 200) }),
 		...(language === undefined ? {} : { language }),
 		...(includeLanguageInSystemPrompt === undefined ? {} : { includeLanguageInSystemPrompt }),
 		...(record.displayName === undefined ? {} : { displayName: requiredHumanText(record.displayName, "Bot name", 80, textLanguage) }),
 		prompt: requiredHumanText(record.prompt, "Prompt", maxBotPromptLength, textLanguage),
 		...(record.shortBio === undefined ? {} : { shortBio: requiredHumanText(record.shortBio, "Short bio", maxBotShortBioLength, textLanguage) }),
-		...(record.inferenceSettings === undefined ?
-			{}
-		:	{ inferenceSettings: parseInferenceSettings(record.inferenceSettings, textLanguage) }),
 		...(record.toolSettings === undefined ? {} : { toolSettings: parseToolSettings(record.toolSettings) }),
 		...(record.postingSettings === undefined ?
 			{}

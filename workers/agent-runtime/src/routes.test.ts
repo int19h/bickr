@@ -27,6 +27,7 @@ const routeCases = [
 	{ method: 'GET', path: '/users/user-1/inference-configurations/config-1/impact', handlerId: 'inference-configuration-impact' },
 	{ method: 'POST', path: '/users/user-1/inference-configurations/config-1/rename', handlerId: 'rename-inference-configuration' },
 	{ method: 'POST', path: '/users/user-1/inference-configurations/config-1/reparent', handlerId: 'reparent-inference-configuration' },
+	{ method: 'POST', path: '/users/user-1/inference-consumers/annotations', handlerId: 'get-inference-consumer-annotations' },
 	{ method: 'GET', path: '/users/user-1/inference-configurations/effective-models', handlerId: 'inference-configuration-bot-effective-models' },
 	{ method: 'GET', path: '/users/user-1/inference-configurations/fixed/bot/bot-1', handlerId: 'get-fixed-inference-configuration' },
 	{ method: 'GET', path: '/users/user-1/inference-configurations/config-1', handlerId: 'get-inference-configuration' },

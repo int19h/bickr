@@ -5,6 +5,7 @@ import {
 	insertAccountDefaultConfigurationStatement,
 	insertFixedConfigurationStatement,
 	insertTranslationInferencePointerStatement,
+	loadInternalInferenceConsumerPaths,
 } from "@bickr/shared/inference-configuration-repository";
 import { translationInferenceLifecycle } from "@bickr/shared/inference-translation-role";
 import {
@@ -13,7 +14,10 @@ import {
 	worldConfigurationId,
 } from "@bickr/shared/inference-configuration-repository";
 import type { D1DatabaseLike } from "@bickr/shared/storage";
-import { resetD1Schema } from "./helpers/d1-schema";
+import { kvKeys, writeJson } from "@bickr/shared/storage";
+import { localizedText, schemaVersion, type LanguageTag, type UserDocument } from "@bickr/shared/model";
+import { listWorldsPage } from "@bickr/shared/repository";
+import { clearKv, resetD1Schema } from "./helpers/d1-schema";
 import { handleAgentRuntimeRequest } from "../workers/agent-runtime/src/routes";
 
 const ownerId = "usr_route_owner";
@@ -24,6 +28,7 @@ type RouteEnvelope = { ok: boolean; error?: string; details?: Record<string, unk
 
 beforeEach(async () => {
 	await resetD1Schema(testEnv.BICKR_D1);
+	await clearKv(testEnv.BICKR_KV);
 	await testEnv.BICKR_D1.batch([
 		testEnv.BICKR_D1.prepare(
 			`INSERT INTO entity_lifecycle_identity_claims (
@@ -51,6 +56,123 @@ beforeEach(async () => {
 });
 
 describe("inference configuration runtime routes", () => {
+	it("bounds MCP world collection work before page enrichment and advances a keyset cursor", async () => {
+		await seedWorld("wld_page_a", "page-a");
+		await seedWorld("wld_page_b", "page-b");
+		const first = await listWorldsPage(testEnv.BICKR_D1, { limit: 1 });
+		expect(first.worlds).toHaveLength(1);
+		expect(first.hasMore).toBe(true);
+		expect(first.nextCursor).toBeTruthy();
+		const second = await listWorldsPage(testEnv.BICKR_D1, { limit: 1, cursor: first.nextCursor });
+		expect(second.worlds).toHaveLength(1);
+		expect(second.worlds[0]?.id).not.toBe(first.worlds[0]?.id);
+	});
+
+	it("switches reusable presentation from legacy KV to canonical D1 at cutover", async () => {
+		const en = "en" as LanguageTag;
+		const legacyOwner: UserDocument = {
+			id: ownerId,
+			type: "user",
+			schemaVersion,
+			revision: 1,
+			handle: "route-owner",
+			language: en,
+			displayName: localizedText("Route Owner", en),
+			inferenceSettings: { model: "deepseek/deepseek-v3", openRouterApiKey: "stale-kv-secret" },
+			createdAt: now,
+			updatedAt: now,
+		};
+		await writeJson(testEnv.BICKR_KV, kvKeys.user(ownerId), legacyOwner);
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: rootId,
+			expectedRevision: 1,
+			overrides: { model: { kind: "value", value: "xiaomi/mimo-v2.5" } },
+			credential: { mode: "value", secret: "canonical-d1-secret" },
+		}, now);
+		const storedRoot = await testEnv.BICKR_D1.prepare(
+			`SELECT overrides_json AS overridesJson FROM inference_configurations WHERE configuration_id = ?`,
+		).bind(rootId).first<{ overridesJson: string }>();
+		expect(storedRoot?.overridesJson).toContain("xiaomi/mimo-v2.5");
+		const paths = await loadInternalInferenceConsumerPaths(testEnv.BICKR_D1, ownerId, [rootId], {
+			cutoverVersion: 1, graphRevision: 2,
+		});
+		expect(paths.get(rootId)?.[0].overrides.model).toEqual({ kind: "value", value: "xiaomi/mimo-v2.5" });
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE inference_graph_users SET cutover_version = 0, verified_cutover_at = NULL WHERE owner_user_id = ?`,
+		).bind(ownerId).run();
+
+		const legacy = await routePayload("/inference-consumers/annotations", {
+			method: "POST", body: { accountDefault: true },
+		});
+		expect(legacy.body.data?.annotations).toEqual([
+			expect.objectContaining({ kind: "legacy_compatibility", effectiveModel: "deepseek/deepseek-v3" }),
+		]);
+		expect(JSON.stringify(legacy.body)).not.toContain("stale-kv-secret");
+
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE inference_graph_users SET cutover_version = 1, verified_cutover_at = ? WHERE owner_user_id = ?`,
+		).bind(now, ownerId).run();
+		const canonical = await routePayload("/inference-consumers/annotations", {
+			method: "POST", body: { accountDefault: true },
+		});
+		expect(canonical.body.data?.annotations).toEqual([
+			expect.objectContaining({
+				kind: "canonical",
+				configuration: expect.objectContaining({ effectiveModel: "xiaomi/mimo-v2.5" }),
+			}),
+		]);
+		expect(JSON.stringify(canonical.body)).not.toContain("canonical-d1-secret");
+
+		const graph = await testEnv.BICKR_D1.prepare(
+			`SELECT graph_revision AS graphRevision FROM inference_graph_users WHERE owner_user_id = ?`,
+		).bind(ownerId).first<{ graphRevision: number }>();
+		if (!graph) throw new Error("Missing inference graph fixture.");
+		await testEnv.BICKR_D1.batch([
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO inference_graph_legacy_projections (
+					owner_user_id, graph_revision, translation_configuration_id,
+					translation_selection_revision, created_at, updated_at, cleanup_at
+				) VALUES (?, ?, ?, 1, ?, ?, '2026-09-05T00:00:00.000Z')`,
+			).bind(ownerId, graph.graphRevision, rootId, now, now),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO inference_graph_legacy_projection_entries (
+					owner_user_id, configuration_id, kind, fixed_role, parent_id, world_id, bot_id,
+					custom_name, custom_name_key, overrides_json, configuration_revision,
+					credential_mode, credential_secret_version
+				) SELECT configuration.owner_user_id, configuration.configuration_id, configuration.kind,
+					configuration.fixed_role, configuration.parent_id, configuration.world_id, configuration.bot_id,
+					configuration.custom_name, configuration.custom_name_key, configuration.overrides_json,
+					configuration.revision, credentials.mode, credentials.secret_version
+				  FROM inference_configurations AS configuration
+				  JOIN inference_configuration_credentials AS credentials
+					ON credentials.configuration_id = configuration.configuration_id
+					AND credentials.owner_user_id = configuration.owner_user_id
+				 WHERE configuration.owner_user_id = ?`,
+			).bind(ownerId),
+		]);
+		const projectedOverrides = JSON.parse(storedRoot!.overridesJson) as Record<string, unknown>;
+		projectedOverrides.model = { kind: "value", value: "rollback/projection-model" };
+		await testEnv.BICKR_D1.batch([
+			testEnv.BICKR_D1.prepare(
+				`UPDATE inference_graph_legacy_projection_entries SET overrides_json = ?
+				 WHERE owner_user_id = ? AND configuration_id = ?`,
+			).bind(JSON.stringify(projectedOverrides), ownerId, rootId),
+			testEnv.BICKR_D1.prepare(
+				`UPDATE inference_graph_users SET cutover_version = 2 WHERE owner_user_id = ?`,
+			).bind(ownerId),
+		]);
+		const rollback = await routePayload("/inference-consumers/annotations", {
+			method: "POST", body: { accountDefault: true },
+		});
+		expect(rollback.body.data?.annotations).toEqual([
+			expect.objectContaining({
+				kind: "canonical",
+				configuration: expect.objectContaining({ effectiveModel: "rollback/projection-model" }),
+			}),
+		]);
+	});
+
 	it("selects validated library sections and carries participant grouping through the route", async () => {
 		const rootId = await accountDefaultConfigurationId(ownerId);
 		await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, { name: "Route custom", parentId: rootId }, now);
@@ -241,15 +363,17 @@ describe("inference configuration runtime routes", () => {
 	 */
 	it("answers canonical participant models for a set without colliding with a configuration id", async () => {
 		const rootId = await accountDefaultConfigurationId(ownerId);
+		const firstConfigurationId = await botConfigurationId("bot_models_a");
+		const secondConfigurationId = await botConfigurationId("bot_models_b");
 		await seedWorld(worldId, "route-world");
 		await seedBot("bot_models_a", worldId, "route-world", "route-model-a");
 		await seedBot("bot_models_b", worldId, "route-world", "route-model-b");
 		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
 			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
-				kind: "bot", configurationId: "cfg_models_a", ownerUserId: ownerId, parentId: rootId, botId: "bot_models_a", now,
+				kind: "bot", configurationId: firstConfigurationId, ownerUserId: ownerId, parentId: rootId, botId: "bot_models_a", now,
 			}),
 			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
-				kind: "bot", configurationId: "cfg_models_b", ownerUserId: ownerId, parentId: rootId, botId: "bot_models_b", now,
+				kind: "bot", configurationId: secondConfigurationId, ownerUserId: ownerId, parentId: rootId, botId: "bot_models_b", now,
 			}),
 		]);
 		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
@@ -258,7 +382,7 @@ describe("inference configuration runtime routes", () => {
 			credential: { mode: "value", secret: "route-owner-key" },
 		}, now);
 		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
-			configurationId: "cfg_models_a",
+			configurationId: firstConfigurationId,
 			expectedRevision: 1,
 			overrides: { model: { kind: "value", value: "route/alpha-model" } },
 		}, now);
@@ -272,11 +396,30 @@ describe("inference configuration runtime routes", () => {
 		expect(JSON.stringify(resolved.body)).not.toContain("route-owner-key");
 		expect(Object.keys(models[0] ?? {})).toEqual(["botId", "effectiveModel"]);
 
+		const annotations = await routePayload("/inference-consumers/annotations", {
+			method: "POST",
+			body: { accountDefault: true, botIds: ["bot_models_a", "bot_models_b"] },
+		});
+		expect(annotations.status).toBe(200);
+		expect(annotations.body.data?.annotations).toEqual(expect.arrayContaining([
+			expect.objectContaining({
+				kind: "canonical",
+				reference: { kind: "account_default" },
+				configuration: expect.objectContaining({ effectiveModel: expect.any(String) }),
+			}),
+			expect.objectContaining({
+				kind: "canonical",
+				reference: { kind: "bot", botId: "bot_models_a" },
+				configuration: expect.objectContaining({ effectiveModel: "route/alpha-model" }),
+			}),
+		]));
+		expect(JSON.stringify(annotations.body)).not.toContain("route-owner-key");
+
 		// The single-configuration route still answers for a real id, and an
 		// unknown participant is absent rather than an error.
-		const single = await routePayload(`/inference-configurations/${encodeURIComponent("cfg_models_a")}`);
+		const single = await routePayload(`/inference-configurations/${encodeURIComponent(firstConfigurationId)}`);
 		expect(single.status).toBe(200);
-		expect(single.body.data?.configuration).toMatchObject({ id: "cfg_models_a", kind: "bot" });
+		expect(single.body.data?.configuration).toMatchObject({ id: firstConfigurationId, kind: "bot" });
 		const unknown = await routePayload("/inference-configurations/effective-models?botIds=bot_missing");
 		expect(unknown.status).toBe(200);
 		expect((unknown.body.data?.effectiveModels as { models: unknown[] }).models).toEqual([]);
