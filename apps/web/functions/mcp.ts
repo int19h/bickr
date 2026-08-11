@@ -47,6 +47,7 @@ import {
 	rawBotById,
 	isBotDocument,
 	publicBotSummary,
+	RepositoryError,
 	userProfile,
 	worldByHandle,
 	worldPostingSettingsByIds,
@@ -623,7 +624,7 @@ const mcpTools: McpTool[] = [
 			"POST", auth.user.id, body,
 		);
 		const set = canonicalAnnotationSetFromEnvelope(payload);
-		if (set.annotations.length === 0) throw new InputError("Fixed inference configuration not found.");
+		if (set.annotations.length === 0) throw new RepositoryError("not_found", "Fixed inference configuration not found.", 404);
 		return { annotation: set.annotations[0], graphRevision: set.graphRevision };
 	}),
 	serviceTool("create_inference_configuration", "Create inference configuration", "Create a reusable custom inference configuration.", bodySchema({
@@ -1164,6 +1165,18 @@ type ResolvedSettingMap = Record<string, ResolvedSetting<unknown>>;
 
 const maximumMcpPresentationEntities = 100;
 
+type McpInferenceConfigurationsRevision = {
+	inferenceConfigurations: { graphRevision: number };
+};
+
+function inferenceConfigurationsRevision(
+	annotations: CanonicalInferenceAnnotationSet,
+): McpInferenceConfigurationsRevision | Record<string, never> {
+	return annotations.annotations.length > 0
+		? { inferenceConfigurations: { graphRevision: annotations.graphRevision } }
+		: {};
+}
+
 async function annotateMcpPayload(envelope: McpPayloadEnvelope, ctx: ToolContext): Promise<unknown> {
 	switch (envelope.kind) {
 		case "opaque":
@@ -1178,6 +1191,7 @@ async function annotateMcpPayload(envelope: McpPayloadEnvelope, ctx: ToolContext
 			});
 			return mapMcpPayloadData(envelope.payload, (data) => ({
 				...data,
+				...inferenceConfigurationsRevision(annotations),
 				search: {
 					...search,
 					results: results.map((result) => ({
@@ -1217,6 +1231,7 @@ async function annotateMcpPayload(envelope: McpPayloadEnvelope, ctx: ToolContext
 				const { affectedBots: _affectedBots, ...resultWithoutAffectedBots } = resultRecord;
 				return {
 					...resultWithoutAffectedBots,
+					...inferenceConfigurationsRevision(annotations),
 					...(envelope.kind === "bot"
 						? {
 							bot: presentMcpBot(primary[0]!, ctx.auth.user.id, annotations, worldSettings.get(primary[0]!.homeWorldId)),
@@ -1243,6 +1258,7 @@ async function annotateMcpPayload(envelope: McpPayloadEnvelope, ctx: ToolContext
 			});
 			return mapMcpPayloadData(envelope.payload, (record) => ({
 				...record,
+				...inferenceConfigurationsRevision(annotations),
 				...(envelope.kind === "world"
 					? { world: presentMcpWorld(record.world as WorldSummary, ctx.auth.user.id, annotations) }
 					: { worlds: (record.worlds as WorldSummary[]).slice(0, 100)
@@ -1278,6 +1294,7 @@ async function annotateMcpPayload(envelope: McpPayloadEnvelope, ctx: ToolContext
 			};
 			return mapMcpPayloadData(envelope.payload, (record) => ({
 				...record,
+				...inferenceConfigurationsRevision(annotations),
 				...(envelope.kind === "group"
 					? { group: presentGroup(record.group as BotGroupSummary) }
 					: {
@@ -1350,8 +1367,11 @@ function presentMcpProfile(
 	profile: ReturnType<typeof userProfile>,
 	annotations: CanonicalInferenceAnnotationSet,
 ): Record<string, unknown> {
+	const { translationInference: _translationInference, ...canonicalProfile } = profile as ReturnType<typeof userProfile> & {
+		translationInference?: unknown;
+	};
 	return {
-		...profile,
+		...canonicalProfile,
 		inferenceSettings: promptOnlyProfileInferenceSettings(profile.inferenceSettings),
 		lang: profile.language,
 		inferenceConfigurations: {
@@ -1690,6 +1710,9 @@ function toolError(value: unknown): Record<string, unknown> {
 }
 
 function errorPayload(error: unknown): Record<string, unknown> {
+	if (error instanceof RepositoryError) {
+		return { error: error.code, message: error.message };
+	}
 	if (error instanceof Error) {
 		return { error: error.name, message: error.message };
 	}
@@ -2198,7 +2221,7 @@ function inferenceConfigurationIdentityOutputSchema(): Record<string, unknown> {
 }
 
 function inferenceConfigurationFieldsOutputSchema(): Record<string, unknown> {
-	const fieldSchema = () => withRequired({
+	const fieldSchema = withRequired({
 		type: "object",
 		properties: {
 			override: withRequired({
@@ -2207,35 +2230,20 @@ function inferenceConfigurationFieldsOutputSchema(): Record<string, unknown> {
 				additionalProperties: true,
 			}, ["kind"]),
 			effective: {},
-			source: inferenceSourceOutputSchema(),
-			adjustment: {
-				type: ["object", "null"],
-				properties: { kind: enumSchema([
-					"model_fell_back", "provider_or_model_default", "capability_adjustment", "compaction_policy",
-				], "Effective-value adjustment kind.") },
+			source: withRequired({
+				type: "object",
+				properties: { kind: enumSchema(["configuration", "account_default", "bickr_default"], "Effective-value source.") },
 				additionalProperties: true,
-			},
+			}, ["kind"]),
+			adjustment: { type: ["object", "null"], additionalProperties: true },
 		},
 		additionalProperties: false,
 	}, ["override", "effective", "source", "adjustment"]);
 	return withRequired({
 		type: "object",
-		properties: Object.fromEntries(inferenceConfigurationFields.map((field) => [field, fieldSchema()])),
-		additionalProperties: false,
+		propertyNames: { enum: [...inferenceConfigurationFields] },
+		additionalProperties: fieldSchema,
 	}, [...inferenceConfigurationFields]);
-}
-
-function inferenceSourceOutputSchema(): Record<string, unknown> {
-	return withRequired({
-		type: "object",
-		properties: {
-			kind: enumSchema(["configuration", "account_default", "bickr_default"], "Effective-value source."),
-			configurationId: { type: "string" },
-			configurationKind: enumSchema(["translation", "world", "bot", "custom"], "Source configuration kind."),
-			depth: { type: "integer", minimum: 0 },
-		},
-		additionalProperties: false,
-	}, ["kind"]);
 }
 
 function inferenceConfigurationPathEntryOutputSchema(): Record<string, unknown> {

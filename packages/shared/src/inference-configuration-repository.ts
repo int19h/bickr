@@ -727,6 +727,7 @@ export async function listOwnedFixedInferenceConfigurationSummaries(
 	references: readonly CanonicalInferenceFixedReference[],
 	defaults?: BickrInferenceDefaults,
 	version?: { cutoverVersion: number; graphRevision: number },
+	translationConfigurationId?: string | null,
 ): Promise<InferenceConfigurationSummary[]> {
 	const unique = new Map(references.map((reference) => [JSON.stringify(reference), reference]));
 	if (unique.size === 0) return [];
@@ -740,12 +741,13 @@ export async function listOwnedFixedInferenceConfigurationSummaries(
 	const ids = await Promise.all([...unique.values()].map(async (reference) => {
 		switch (reference.kind) {
 			case "account_default": return accountDefaultConfigurationId(ownerUserId);
-			case "translation": return null;
+			case "translation": return translationConfigurationId ?? null;
 			case "world": return worldConfigurationId(reference.worldId);
 			case "bot": return botConfigurationId(reference.botId);
 		}
 	}));
-	const includeTranslation = [...unique.values()].some((reference) => reference.kind === "translation");
+	const includeTranslation = translationConfigurationId === undefined
+		&& [...unique.values()].some((reference) => reference.kind === "translation");
 	if (version?.cutoverVersion === 2) {
 		const rows = await db.prepare(
 			`SELECT entry.configuration_id AS id, entry.kind, entry.fixed_role AS fixedRole,

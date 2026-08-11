@@ -113,6 +113,7 @@ import {
 	userById,
 	userProfile,
 	worldByHandle,
+	worldPostingSettingsByIds,
 	worldSummaryFromDocument,
 } from '@bickr/shared/repository';
 import {
@@ -1640,7 +1641,13 @@ export const agentRuntimeRouteTable = [
 			if (!deleted?.deletedAt) {
 				throw new RepositoryError('server_error', 'Deleted participant document is missing.', 500);
 			}
-			return ok({ bot: publicBotSummary(deleted, { includeToolSettings: true, nextDueAt: null }), coordinator: context.objectId });
+			const worldPostingSettings = (await worldPostingSettingsByIds(
+				context.env.BICKR_D1, [deleted.homeWorldId],
+			)).get(deleted.homeWorldId);
+			return ok({
+				bot: publicBotSummary(deleted, { includeToolSettings: true, nextDueAt: null, worldPostingSettings }),
+				coordinator: context.objectId,
+			});
 		},
 	},
 	{
@@ -1978,17 +1985,44 @@ async function canonicalInferenceAnnotations(
 		}
 		return { annotations, graphRevision: version.graphRevision };
 	}
+	let translationConfigurationId: string | null | undefined;
+	if (request.translation) {
+		const state = await translationInferenceState(context.env.BICKR_D1, userId);
+		if (state.kind === 'canonical') {
+			translationConfigurationId = state.enabled ? state.role.id : null;
+		} else {
+			const legacyEnabled = Boolean((await userById(context.env.BICKR_KV, userId)).inferenceSettings?.translation?.enabled);
+			translationConfigurationId = legacyEnabled ? state.role?.id ?? state.selection.configurationId : null;
+		}
+	}
+	const referenceConfigurationIds = await Promise.all(references.map(async (reference) => {
+		switch (reference.kind) {
+			case 'account_default': return accountDefaultConfigurationId(userId);
+			case 'translation': return translationConfigurationId ?? null;
+			case 'world': return worldConfigurationId(reference.worldId);
+			case 'bot': return botConfigurationId(reference.botId);
+		}
+	}));
+	const referencesByConfigurationId = new Map<string, CanonicalInferenceFixedReference[]>();
+	for (const [index, configurationId] of referenceConfigurationIds.entries()) {
+		if (!configurationId) continue;
+		const selected = referencesByConfigurationId.get(configurationId) ?? [];
+		selected.push(references[index]!);
+		referencesByConfigurationId.set(configurationId, selected);
+	}
 	const defaults = await bickrInferenceDefaultsFromEnvironment(context.env);
 	const summaries = await listOwnedFixedInferenceConfigurationSummaries(
-		context.env.BICKR_D1, userId, references, defaults, version,
+		context.env.BICKR_D1, userId, references, defaults, version, translationConfigurationId,
 	);
 	const resolved = await canonicalInferenceConsumerBatch(
 		context.env.BICKR_D1,
 		userId,
-		summaries.flatMap((configuration) => configuration.kind === 'custom' ? [] : [{
+		summaries.map((configuration) => ({
 			configurationId: configuration.id,
-			consumer: configuration.kind === 'account_default' ? 'account' : configuration.kind,
-		}]),
+			consumer: referencesByConfigurationId.get(configuration.id)?.some((reference) => reference.kind === 'translation')
+				? 'translation'
+				: configuration.kind === 'account_default' ? 'account' : configuration.kind === 'custom' ? 'bot' : configuration.kind,
+		})),
 		context.env,
 		version,
 	);
@@ -2005,11 +2039,11 @@ async function canonicalInferenceAnnotations(
 					? { kind: 'explicit_none', source: credential.source }
 					: { kind: 'unavailable', source: credential.source, reason: credential.reason },
 		};
-		return [{
-			kind: 'canonical',
-			reference: fixedReferenceForSummary(configuration),
+		return (referencesByConfigurationId.get(configuration.id) ?? []).map((reference) => ({
+			kind: 'canonical' as const,
+			reference,
 			configuration,
-		}];
+		}));
 	});
 	return { annotations, graphRevision: version.graphRevision };
 }
@@ -2078,18 +2112,6 @@ async function legacyInferenceConsumerCandidates(
 		if (effective) settings.set(requestedId, effective);
 	}
 	return { worldIds: worldSet, botInferenceSettings: settings };
-}
-
-function fixedReferenceForSummary(
-	configuration: Awaited<ReturnType<typeof listOwnedFixedInferenceConfigurationSummaries>>[number],
-): CanonicalInferenceFixedReference {
-	switch (configuration.kind) {
-		case 'account_default': return { kind: 'account_default' };
-		case 'translation': return { kind: 'translation' };
-		case 'world': return { kind: 'world', worldId: configuration.identity.worldId };
-		case 'bot': return { kind: 'bot', botId: configuration.identity.botId };
-		case 'custom': throw new RepositoryError('server_error', 'A custom configuration cannot be a fixed consumer.', 500);
-	}
 }
 
 function requiredRecord(value: unknown): Record<string, unknown> {

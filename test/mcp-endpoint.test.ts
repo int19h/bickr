@@ -325,6 +325,10 @@ describe("MCP endpoint", () => {
 				? 32 * 1024
 				: 5 * 1024;
 			expect(JSON.stringify(tool.inputSchema).length, `${tool.name} schema bytes`).toBeLessThanOrEqual(maximumBytes);
+			if (tool.outputSchema) {
+				assertNoSchemaKeywords(tool.outputSchema, forbiddenKeywords, `${tool.name}.outputSchema`);
+				expect(JSON.stringify(tool.outputSchema).length, `${tool.name} output schema bytes`).toBeLessThanOrEqual(maximumBytes);
+			}
 			if (tool.annotations.readOnlyHint === true) {
 				continue;
 			}
@@ -578,6 +582,34 @@ describe("MCP endpoint", () => {
 		} } });
 	});
 
+	it("uses the canonical profile shape for profile mutation receipts", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
+		const translation = canonicalAnnotation("translation", "cfg_translation", "xiaomi/mimo-v2.5");
+		const profile = {
+			...testUser({ displayName: lt("Updated profile") }),
+			translationInference: { enabled: true, model: "legacy/private-translation" },
+		};
+		const service = { fetch: async (request: Request) => {
+			if (new URL(request.url).pathname.endsWith("/inference-consumers/annotations")) {
+				return Response.json({ ok: true, data: { annotations: [translation], graphRevision: 7 } });
+			}
+			return Response.json({ ok: true, data: { kind: "profile_updated", profile } });
+		} };
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/call",
+			params: { name: "update_profile", arguments: { displayName: lt("Updated profile"), lang: "en" } },
+		}, { BICKR_D1: emptyD1(), AGENT_RUNTIME: service, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
+		const result = (await jsonResponse(response)).result as {
+			structuredContent: { profile: Record<string, unknown> };
+		};
+		expect(result.structuredContent.profile).not.toHaveProperty("translationInference");
+		expect(result.structuredContent.profile).toMatchObject({
+			inferenceConfigurations: { graphRevision: 7, translation },
+		});
+		expect(JSON.stringify(result)).not.toContain("legacy/private-translation");
+	});
+
 	it("enriches owned search results once and leaves public unowned results free of graph state", async () => {
 		const kv = new MapKV();
 		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
@@ -614,10 +646,12 @@ describe("MCP endpoint", () => {
 		if (!(responseBody.result as { structuredContent?: unknown } | undefined)?.structuredContent) {
 			throw new Error(JSON.stringify(responseBody));
 		}
-		const results = (responseBody.result as {
-			structuredContent: { data: { search: { results: Record<string, unknown>[] } } };
-		}).structuredContent.data.search.results;
+		const data = (responseBody.result as {
+			structuredContent: { data: { inferenceConfigurations: { graphRevision: number }; search: { results: Record<string, unknown>[] } } };
+		}).structuredContent.data;
+		const results = data.search.results;
 		expect(annotationCalls).toBe(1);
+		expect(data.inferenceConfigurations).toEqual({ graphRevision: 7 });
 		expect(results[0]).toHaveProperty("inferenceConfiguration");
 		expect(results[1]).not.toHaveProperty("inferenceConfiguration");
 		expect(JSON.stringify(results[1])).not.toMatch(/graphRevision|effectiveModel|credential/i);
@@ -720,11 +754,23 @@ describe("MCP endpoint", () => {
 			shortBio: "",
 			prompt: "",
 		});
+		const deletedBot = testBot({ id: "bot_delete_provenance", handle: "delete-provenance" });
 		await Promise.all([
 			writeJson(testEnv.BICKR_KV, kvKeys.bot(source.id), source),
 			writeJson(testEnv.BICKR_KV, kvKeys.bot(bot.id), bot),
+			writeJson(testEnv.BICKR_KV, kvKeys.bot(deletedBot.id), deletedBot),
 		]);
 		await testEnv.BICKR_D1.batch([
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO entity_lifecycle_identity_claims (
+					key_kind, key_scope, key_value, entity_kind, entity_id, owner_user_id,
+					claim_state, operation_id, created_at, updated_at
+				) VALUES ('user_handle', 'global', 'mcp-user', 'account', 'usr_mcp', 'usr_mcp', 'active', NULL, ?, ?)`,
+			).bind("2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO users_index (user_id, handle, display_name, created_at, updated_at, lifecycle_state)
+				 VALUES ('usr_mcp', 'mcp-user', 'MCP User', ?, ?, 'active')`,
+			).bind("2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
 			activeIdentityClaim("world_handle", "global", "mcp-world", "world", "w_mcp", "usr_mcp"),
 			testEnv.BICKR_D1.prepare(
 				`INSERT INTO worlds_index (
@@ -752,6 +798,13 @@ describe("MCP endpoint", () => {
 					source_handle, cloned_at, linked
 				) VALUES (?, ?, 'w_mcp', 'mcp-world', 'source', ?, 1)`,
 			).bind(bot.id, source.id, "2026-08-11T00:00:00.000Z"),
+			activeIdentityClaim("bot_handle", "w_mcp", deletedBot.handle, "bot", deletedBot.id, "usr_mcp"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO bots_index (
+					bot_id, home_world_id, home_world_handle, handle, display_name,
+					owner_user_id, short_bio, created_at, updated_at, lifecycle_state
+				) VALUES (?, 'w_mcp', 'mcp-world', ?, 'Delete provenance', 'usr_mcp', '', ?, ?, 'active')`,
+			).bind(deletedBot.id, deletedBot.handle, deletedBot.createdAt, deletedBot.updatedAt),
 		]);
 		const accessToken = await issueAccessToken(testEnv.BICKR_KV, ["bickr.read", "bickr.write"]);
 		const response = await callMcp(testEnv.BICKR_KV, accessToken, {
@@ -774,6 +827,16 @@ describe("MCP endpoint", () => {
 			.toMatchObject({ effective: 6000, source: "world" });
 		expect(result.structuredContent.bot.mcpResolvedSettings.cloneProfile?.displayName)
 			.toMatchObject({ effective: lt("Inherited name"), source: "source_bot" });
+
+		const deleteResponse = await handleAgentRuntimeRequest(new Request(
+			`https://agent.internal/users/usr_mcp/bots/${deletedBot.id}`,
+			{ method: "DELETE", headers: { "x-bickr-user-id": "usr_mcp", "idempotency-key": "delete-provenance" } },
+		), testEnv as never, { objectId: "delete-provenance-coordinator", ownerUserId: "usr_mcp" });
+		const deletePayload = await deleteResponse.json() as {
+			data?: { bot?: { effectivePostingSettings?: { threadBodyCharacters?: number } } };
+		};
+		expect(deleteResponse.status).toBe(200);
+		expect(deletePayload.data?.bot?.effectivePostingSettings?.threadBodyCharacters).toBe(6000);
 
 		const rawBot = testBot({ id: "bot_raw_receipt", handle: "raw-receipt" });
 		const mutationService = { fetch: async (request: Request) => {
@@ -1260,6 +1323,19 @@ describe("MCP endpoint", () => {
 		}, { AGENT_RUNTIME: canonicalAnnotationService([annotation]), INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
 		expect((await jsonResponse(response)).result).toMatchObject({
 			structuredContent: { annotation: { kind: "canonical", configuration: { effectiveModel: "xiaomi/mimo-v2.5" } } },
+		});
+	});
+
+	it("returns typed not_found for an empty fixed canonical lookup", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.read"]);
+		const response = await callMcp(kv, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/call",
+			params: { name: "get_fixed_inference_configuration", arguments: { kind: "translation" } },
+		}, { AGENT_RUNTIME: canonicalAnnotationService([]), INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
+		expect((await jsonResponse(response)).result).toMatchObject({
+			isError: true,
+			structuredContent: { error: "not_found" },
 		});
 	});
 

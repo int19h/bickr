@@ -7,7 +7,8 @@ import {
 	insertTranslationInferencePointerStatement,
 	loadInternalInferenceConsumerPaths,
 } from "@bickr/shared/inference-configuration-repository";
-import { translationInferenceLifecycle } from "@bickr/shared/inference-translation-role";
+import { canonicalTranslationInference } from "@bickr/shared/inference-configuration-consumers";
+import { translationInferenceLifecycle, translationInferenceState } from "@bickr/shared/inference-translation-role";
 import {
 	accountDefaultConfigurationId,
 	botConfigurationId,
@@ -56,6 +57,51 @@ beforeEach(async () => {
 });
 
 describe("inference configuration runtime routes", () => {
+	it("uses the migration-pending Translation selection before the fixed role exists", async () => {
+		const en = "en" as LanguageTag;
+		await writeJson(testEnv.BICKR_KV, kvKeys.user(ownerId), {
+			id: ownerId, type: "user", schemaVersion, revision: 1, handle: "route-owner",
+			language: en, displayName: localizedText("Route Owner", en),
+			inferenceSettings: { translation: { enabled: true, model: "legacy/ignored-by-canonical" } },
+			createdAt: now, updatedAt: now,
+		} satisfies UserDocument);
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE inference_graph_users SET translation_role_state_version = 0 WHERE owner_user_id = ?`,
+		).bind(ownerId).run();
+		const rootId = await accountDefaultConfigurationId(ownerId);
+		await inferenceConfigurationMutations.update(testEnv.BICKR_D1, ownerId, {
+			configurationId: rootId,
+			expectedRevision: 1,
+			credential: { mode: "value", secret: "migration-pending-key" },
+		}, now);
+		const selected = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, ownerId, {
+			name: "Pending Translation",
+			parentId: rootId,
+			overrides: { model: { kind: "value", value: "canonical/migration-pending" } },
+		}, now);
+		await inferenceConfigurationMutations.updateLegacyTranslationPointer(testEnv.BICKR_D1, ownerId, {
+			configurationId: selected.id,
+			expectedRevision: 1,
+		}, now);
+		const state = await translationInferenceState(testEnv.BICKR_D1, ownerId);
+		expect(state).toMatchObject({ kind: "migration_pending", role: null, selection: { configurationId: selected.id } });
+		const runtime = await canonicalTranslationInference(testEnv.BICKR_D1, ownerId, testEnv as never, true);
+		expect(runtime?.resolution.effective.model).toBe("canonical/migration-pending");
+		const response = await routePayload("/inference-consumers/annotations", {
+			method: "POST", body: { translation: true },
+		});
+		expect(response.status).toBe(200);
+		expect(response.body.data?.annotations).toEqual([expect.objectContaining({
+			kind: "canonical",
+			reference: { kind: "translation" },
+			configuration: expect.objectContaining({
+				id: selected.id,
+				revision: 1,
+				effectiveModel: "canonical/migration-pending",
+			}),
+		})]);
+	});
+
 	it("rejects more than 100 fixed references before cutover-0 resolution", async () => {
 		await testEnv.BICKR_D1.prepare(
 			`UPDATE inference_graph_users SET cutover_version = 0, verified_cutover_at = NULL WHERE owner_user_id = ?`,
