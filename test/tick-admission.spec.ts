@@ -382,26 +382,83 @@ describe("runtime scheduling against a concurrent owner pause", () => {
 		});
 	});
 
+	// The mirror image of the pause race: the release carries the *absence* of a
+	// schedule computed from a paused read, and the row is enabled again by the
+	// time it lands. Writing that null would leave an enabled participant with
+	// nothing due and nothing left to reschedule it.
+	it("keeps an unpaused participant's fresh schedule when the release proposes a stale nothing", async () => {
+		await seedBotRuntimeRow({
+			status: "running",
+			activeRunId: "run-live",
+			leaseExpiresAt: staleDueAt,
+			nextDueAt: staleDueAt,
+		});
+		await seedBotDocuments();
+
+		expect((await patchTickEnabled(false)).status).toBe(200);
+		// The run — or a reaper — reads the paused row here and proposes no next
+		// visit at all, exactly as production computes it from `enabled`.
+		const pausedRead = await runtimeIndexRow(botId);
+		expect(pausedRead).toMatchObject({ enabled: 0, status: "running", nextDueAt: null });
+		const staleProposal = pausedRead.enabled === 1 ? staleDueAt : null;
+		expect(staleProposal).toBeNull();
+
+		// The owner changes their mind before that visit finishes: the resume makes
+		// the participant due immediately.
+		expect((await patchTickEnabled(true)).status).toBe(200);
+		const resumed = await runtimeIndexRow(botId);
+		expect(resumed).toMatchObject({ enabled: 1, status: "running", activeRunId: "run-live" });
+		expect(resumed.nextDueAt).not.toBeNull();
+		expect(Date.parse(resumed.nextDueAt!)).toBeLessThanOrEqual(Date.now());
+
+		await expect(
+			releaseRuntimeRun(testEnv.BICKR_D1, {
+				botId,
+				runId: "run-live",
+				status: "idle",
+				nextDueAt: staleProposal,
+				lastError: null,
+				now: "2026-07-09T20:05:00.000Z",
+			}),
+		).resolves.toBe(true);
+		// The run is released — status, lease and ownership all cleared — while the
+		// resume's own schedule survives untouched.
+		await expect(runtimeIndexRow(botId)).resolves.toEqual({
+			enabled: 1,
+			status: "idle",
+			activeRunId: null,
+			leaseExpiresAt: null,
+			nextDueAt: resumed.nextDueAt,
+		});
+	});
+
 	it("keeps the runtime index write unscheduled when the pause lands after its enabled read", async () => {
-		await seedBotRuntimeRow({ status: "running", nextDueAt: null });
+		await seedBotRuntimeRow({
+			status: "running",
+			activeRunId: "run-live",
+			leaseExpiresAt: staleDueAt,
+			nextDueAt: null,
+		});
 		await pauseRuntimeIndexRows(botId);
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			env: { BICKR_D1: stalelyEnabledD1(), BICKR_KV: testEnv.BICKR_KV },
 		}) as unknown as {
 			setRuntimeIndex(
 				bot: BotDocument,
-				status: "idle" | "running" | "failed",
-				activeRunId: string | null,
+				status: "idle" | "failed",
 				lastError: string | undefined,
 				now: string,
+				ownedByRunId: string,
 			): Promise<string | null>;
 		};
 
-		await runtime.setRuntimeIndex(testBotDocument(), "idle", null, undefined, now);
+		await runtime.setRuntimeIndex(testBotDocument(), "idle", undefined, now, "run-live");
 
-		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({
+		await expect(runtimeIndexRow(botId)).resolves.toEqual({
 			enabled: 0,
 			status: "idle",
+			activeRunId: null,
+			leaseExpiresAt: null,
 			nextDueAt: null,
 		});
 	});

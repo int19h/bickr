@@ -611,20 +611,32 @@ export async function releaseRuntimeRun(
 	const result = await db
 		.prepare(
 			// The caller computes next_due_at from an `enabled` value it read before
-			// the run finished. An owner who pauses the participant during that run
-			// has already cleared next_due_at, so persisting the proposal unguarded
-			// would resurrect a schedule for a disabled row — and, because unpausing
-			// keeps an existing next_due_at, would leave the participant waiting out
-			// a stale interval instead of becoming due immediately. Deciding this in
-			// SQL keeps the check and the write in one atomic statement, the same way
-			// claimRuntimeRun decides admission inside its WHERE. The status columns
-			// stay unconditional: a pause must not strand a finished run as running.
+			// the run finished, so the proposal has to be reconciled against the row
+			// the owner has since left behind — in both directions.
+			//
+			// Pause during the run: the pause already cleared next_due_at, so writing
+			// the proposal unguarded would resurrect a schedule for a disabled row —
+			// and, because unpausing keeps an existing next_due_at, would leave the
+			// participant waiting out a stale interval instead of becoming due
+			// immediately.
+			//
+			// Unpause during the run: a caller that read the paused row proposes
+			// null, while the unpause has already made the row due now. Writing that
+			// null would strand an enabled participant with nothing scheduled, and
+			// nothing later would re-schedule it. COALESCE keeps what the unpause
+			// wrote; a caller that read an enabled row always proposes a real
+			// schedule, so it is never the one that falls through to the column.
+			//
+			// Deciding both in SQL keeps the check and the write in one atomic
+			// statement, the same way claimRuntimeRun decides admission inside its
+			// WHERE. The status columns stay unconditional: neither transition may
+			// strand a finished run as running.
 			`UPDATE bot_runtime_index
 			 SET status = ?,
 			     active_run_id = NULL,
 			     lease_expires_at = NULL,
 			     last_error = ?,
-			     next_due_at = CASE WHEN enabled = 1 THEN ? ELSE NULL END,
+			     next_due_at = CASE WHEN enabled = 1 THEN COALESCE(?, next_due_at) ELSE NULL END,
 			     updated_at = ?
 			 WHERE bot_id = ?
 			   AND status = 'running'
@@ -2053,7 +2065,7 @@ export class BotRuntime {
 			this.throwIfStopped(runId, abortController.signal);
 			const injections = this.consumeInjections(mode === 'spotlight' ? (options.injectionIds ?? []) : undefined);
 			if (mode === 'spotlight' && injections.length === 0) {
-				const nextDueAt = await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString(), runId);
+				const nextDueAt = await this.setRuntimeIndex(bot, 'idle', undefined, new Date().toISOString(), runId);
 				this.appendEvent(runId, 'tick_completed', {
 					...(nextDueAt ? { nextDueAt } : {}),
 					note: 'No pending spotlight injection was available.',
@@ -2112,7 +2124,7 @@ export class BotRuntime {
 			}
 
 			await this.compactIfNeeded(bot, providerSettings, runId, abortController.signal);
-			const nextDueAt = await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString(), runId);
+			const nextDueAt = await this.setRuntimeIndex(bot, 'idle', undefined, new Date().toISOString(), runId);
 			this.appendEvent(runId, 'tick_completed', { ...(nextDueAt ? { nextDueAt } : {}) });
 			startQueuedSpotlightAfterRun = true;
 			return { runId, status: 'completed' };
@@ -2122,7 +2134,7 @@ export class BotRuntime {
 				if (!this.hasTerminalEvent(runId)) {
 					this.appendEvent(runId, 'tick_stopped', { message: 'This Bickr visit was stopped.' });
 				}
-				await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString(), runId);
+				await this.setRuntimeIndex(bot, 'idle', undefined, new Date().toISOString(), runId);
 				return { runId, status: 'stopped' };
 			}
 				if (error instanceof PersistentToolFailureError) {
@@ -2135,7 +2147,7 @@ export class BotRuntime {
 							failure: error.failure,
 						}, [], { cause });
 					}
-					await this.setRuntimeIndex(bot, 'failed', null, message, new Date().toISOString(), runId);
+					await this.setRuntimeIndex(bot, 'failed', message, new Date().toISOString(), runId);
 					try {
 						await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 							bot,
@@ -2165,7 +2177,7 @@ export class BotRuntime {
 							toolNames: error.toolNames,
 						}, [], { cause });
 					}
-					await this.setRuntimeIndex(bot, 'failed', null, message, new Date().toISOString(), runId);
+					await this.setRuntimeIndex(bot, 'failed', message, new Date().toISOString(), runId);
 					try {
 						await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 							bot,
@@ -2198,7 +2210,7 @@ export class BotRuntime {
 					}
 					const failedAt = new Date().toISOString();
 					await this.pauseBotAfterPersistentCompactionFailure(bot, message, failedAt);
-				await this.setRuntimeIndex(bot, 'failed', null, message, failedAt, runId);
+					await this.setRuntimeIndex(bot, 'failed', message, failedAt, runId);
 					try {
 						await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 							bot,
@@ -2215,7 +2227,7 @@ export class BotRuntime {
 				if (!this.hasTerminalEvent(runId)) {
 					this.recordTickFailure(runId, { message }, runtimeFailureLogs(error), { cause });
 				}
-				await this.setRuntimeIndex(bot, 'failed', null, message, new Date().toISOString(), runId);
+				await this.setRuntimeIndex(bot, 'failed', message, new Date().toISOString(), runId);
 				try {
 					await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 						bot,
@@ -2586,7 +2598,7 @@ export class BotRuntime {
 		if (!this.hasTerminalEvent(runId)) {
 			this.appendEvent(runId, 'tick_stopped', { message: 'This Bickr visit was stopped.' });
 		}
-		const nextDueAt = await this.setRuntimeIndex(bot, 'idle', null, undefined, new Date().toISOString(), runId);
+		const nextDueAt = await this.setRuntimeIndex(bot, 'idle', undefined, new Date().toISOString(), runId);
 		this.clearStopRequest(runId);
 		return nextDueAt;
 	}
@@ -6708,52 +6720,42 @@ export class BotRuntime {
 		return Boolean(row);
 	}
 
+	// Releasing a run this instance owns is the only index transition left here:
+	// admission is claimRuntimeRun's compare-and-set, so a `running` transition is
+	// deliberately unrepresentable in this signature, and the run id is required so
+	// every write goes through releaseRuntimeRun's ownership CAS. Keeping one
+	// writer is what keeps the concurrent-pause guard in a single statement instead
+	// of two copies that can drift apart.
 	private async setRuntimeIndex(
 		bot: BotDocument,
-		status: 'idle' | 'running' | 'failed',
-		activeRunId: string | null,
+		status: RuntimeReleaseStatus,
 		lastError: string | undefined,
 		now: string,
-		ownedByRunId?: string,
+		ownedByRunId: string,
 	): Promise<string | null> {
 		const enabled = await this.runtimeIndexEnabled(bot.id, bot.tickSettings.enabled);
-		const leaseExpiresAt = status === 'running' ? new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString() : null;
+		// A participant read as paused proposes nothing; releaseRuntimeRun decides
+		// what that means for a row whose `enabled` moved since this read. A failed
+		// run waits out a lease timeout rather than the participant's own interval.
 		let nextDueAt: string | null;
-		if (status === 'running') {
-			nextDueAt = enabled ? leaseExpiresAt : null;
-		} else if (!enabled) {
+		if (!enabled) {
 			nextDueAt = null;
 		} else if (status === 'idle') {
 			nextDueAt = this.nextDue(bot, now);
 		} else {
 			nextDueAt = new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString();
 		}
-		if (ownedByRunId !== undefined) {
-			if (status === 'running') {
-				throw new Error('Runtime run ownership guards are only valid for release transitions.');
-			}
-			await releaseRuntimeRun(this.env.BICKR_D1, {
-				botId: bot.id,
-				runId: ownedByRunId,
-				status,
-				nextDueAt,
-				lastError: lastError ?? null,
-				now,
-			});
-			return nextDueAt;
-		}
-		await this.env.BICKR_D1.prepare(
-			// Same concurrent-pause guard as releaseRuntimeRun: `enabled` was read
-			// above, and a pause committed since then must keep the row unscheduled.
-			// The returned value stays the proposed schedule, which only annotates a
-			// runtime event; the row remains the authority readStatus reports from.
-			`UPDATE bot_runtime_index
-			 SET status = ?, active_run_id = ?, lease_expires_at = ?, last_error = ?,
-			     next_due_at = CASE WHEN enabled = 1 THEN ? ELSE NULL END, updated_at = ?
-			 WHERE bot_id = ?`,
-		)
-			.bind(status, activeRunId, leaseExpiresAt, lastError ?? null, nextDueAt, now, bot.id)
-			.run();
+		await releaseRuntimeRun(this.env.BICKR_D1, {
+			botId: bot.id,
+			runId: ownedByRunId,
+			status,
+			nextDueAt,
+			lastError: lastError ?? null,
+			now,
+		});
+		// The returned value stays the proposed schedule, which only annotates a
+		// runtime event; the row the write reconciled remains the authority
+		// readStatus reports from.
 		return nextDueAt;
 	}
 
