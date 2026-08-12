@@ -1849,6 +1849,8 @@ function mutationInputSchema(operationSchema: Record<string, unknown>): Record<s
 		operations: {
 			type: "array",
 			description: `Mutations run sequentially in order and continue after errors. failed is definitive; indeterminate may have applied and must not be retried without reconciliation. Maximum ${maxMutationOperations}.`,
+			minItems: 1,
+			maxItems: maxMutationOperations,
 			items: {
 				type: "object",
 				properties: {

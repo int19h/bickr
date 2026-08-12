@@ -344,8 +344,11 @@ describe("MCP endpoint", () => {
 			expect(Object.keys(rootProperties), tool.name).toEqual(["operations"]);
 			const operations = rootProperties.operations as Record<string, unknown>;
 			expect(operations.type, tool.name).toBe("array");
-			// Every mutation tool publishes the same batch ceiling the server enforces.
-			expect(operations.description, `${tool.name} batch maximum`).toContain("Maximum 20.");
+			// Every mutation tool publishes the same batch bounds the server enforces,
+			// both as machine-checkable JSON Schema and in prose for the model.
+			expect(operations.minItems, `${tool.name} batch minimum`).toBe(1);
+			expect(operations.maxItems, `${tool.name} batch maximum`).toBe(20);
+			expect(operations.description, `${tool.name} batch maximum prose`).toContain("Maximum 20.");
 			const operationSchema = toolArgumentSchema(tool.inputSchema);
 			expect(operationSchema, tool.name).toMatchObject({
 				type: "object",
@@ -965,10 +968,9 @@ describe("MCP endpoint", () => {
 			AGENT_RUNTIME: ownedParticipantRuntimeService(),
 			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
 		};
-		// `attempt` distinguishes operation IDs across calls. The MCP layer derives
-		// each operation's idempotency key from its operation ID, so a repeat that
-		// reuses one would be answered from the stored first response instead of
-		// exercising the canonical route again.
+		// `attempt` keeps operation IDs unique across calls so each invocation's
+		// results stay individually identifiable and no repeat reuses an earlier
+		// operation's identity.
 		const mutate = async (name: string, botIds: string[], attempt = "") => {
 			const response = await callMcp(testEnv.BICKR_KV, accessToken, {
 				jsonrpc: "2.0", id: 1, method: "tools/call", params: {
@@ -1040,9 +1042,9 @@ describe("MCP endpoint", () => {
 		expect(Date.parse(resumedRow.nextDueAt!)).toBeLessThanOrEqual(Date.now());
 		expect(resumedBot?.nextDueAt).toBe(resumedRow.nextDueAt);
 
-		// Resuming an already-resumed participant under a fresh operation ID runs
-		// the canonical PATCH a second time rather than replaying the first
-		// response — the bumped document revision is what distinguishes the two.
+		// Resuming an already-resumed participant under a fresh operation ID keeps
+		// the second invocation's result distinguishable from the first, and the
+		// bumped document revision proves the canonical PATCH executed again.
 		// Naming an absolute target state, it must land on the same enabled row and
 		// leave the visit that is already due where it is instead of pushing it out
 		// by another interval.
