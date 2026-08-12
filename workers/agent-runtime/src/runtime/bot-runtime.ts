@@ -602,12 +602,20 @@ export async function releaseRuntimeRun(
 ): Promise<boolean> {
 	const result = await db
 		.prepare(
+			// The caller computes next_due_at from an `enabled` value it read before
+			// the run finished. An owner who pauses the participant during that run
+			// has already cleared next_due_at, so persisting the proposal unguarded
+			// would resurrect a schedule for a disabled row — and, because unpausing
+			// keeps an existing next_due_at, would leave the participant waiting out
+			// a stale interval instead of becoming due immediately. Deciding this in
+			// SQL keeps the check and the write in one atomic statement, exactly as
+			// claimRuntimeRun does.
 			`UPDATE bot_runtime_index
 			 SET status = ?,
 			     active_run_id = NULL,
 			     lease_expires_at = NULL,
 			     last_error = ?,
-			     next_due_at = ?,
+			     next_due_at = CASE WHEN enabled = 1 THEN ? ELSE NULL END,
 			     updated_at = ?
 			 WHERE bot_id = ?
 			   AND status = 'running'
@@ -6718,8 +6726,13 @@ export class BotRuntime {
 			return nextDueAt;
 		}
 		await this.env.BICKR_D1.prepare(
+			// Same concurrent-pause guard as releaseRuntimeRun: `enabled` was read
+			// above, and a pause committed since then must keep the row unscheduled.
+			// The returned value stays the proposed schedule, which only annotates a
+			// runtime event; the row remains the authority readStatus reports from.
 			`UPDATE bot_runtime_index
-			 SET status = ?, active_run_id = ?, lease_expires_at = ?, last_error = ?, next_due_at = ?, updated_at = ?
+			 SET status = ?, active_run_id = ?, lease_expires_at = ?, last_error = ?,
+			     next_due_at = CASE WHEN enabled = 1 THEN ? ELSE NULL END, updated_at = ?
 			 WHERE bot_id = ?`,
 		)
 			.bind(status, activeRunId, leaseExpiresAt, lastError ?? null, nextDueAt, now, bot.id)

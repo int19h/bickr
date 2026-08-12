@@ -5,6 +5,7 @@ import { ExclusiveOperationQueue } from "@bickr/shared/exclusive-operation-queue
 import {
 	BotRuntime,
 	claimRuntimeRun,
+	handleAgentRuntimeRequest,
 	releaseRuntimeRun,
 } from "../workers/agent-runtime/src/index";
 import {
@@ -215,6 +216,126 @@ describe("runtime D1 claim helpers", () => {
 	});
 });
 
+describe("runtime scheduling against a concurrent owner pause", () => {
+	// Far enough out that a resume which merely preserved it would leave the
+	// participant idle for months instead of visiting again straight away.
+	const staleDueAt = "2027-01-01T00:00:00.000Z";
+
+	it("leaves a participant paused mid-visit unscheduled and makes the resume due immediately", async () => {
+		await seedBotRuntimeRow({
+			status: "running",
+			activeRunId: "run-live",
+			leaseExpiresAt: staleDueAt,
+			nextDueAt: staleDueAt,
+		});
+		await seedBotDocuments();
+
+		expect((await patchTickEnabled(false)).status).toBe(200);
+		// The visit under way is deliberately untouched: pausing is not stopping.
+		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({
+			enabled: 0,
+			nextDueAt: null,
+			status: "running",
+			activeRunId: "run-live",
+		});
+
+		// That visit now finishes and proposes the schedule it computed before the
+		// pause. Persisting it would resurrect a schedule for a disabled row.
+		await expect(
+			releaseRuntimeRun(testEnv.BICKR_D1, {
+				botId,
+				runId: "run-live",
+				status: "idle",
+				nextDueAt: staleDueAt,
+				lastError: null,
+				now: "2026-07-09T20:05:00.000Z",
+			}),
+		).resolves.toBe(true);
+		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({
+			enabled: 0,
+			nextDueAt: null,
+			status: "idle",
+			activeRunId: null,
+		});
+
+		expect((await patchTickEnabled(true)).status).toBe(200);
+		const resumed = await runtimeIndexRow(botId);
+		expect(resumed.enabled).toBe(1);
+		expect(resumed.nextDueAt).not.toBeNull();
+		expect(Date.parse(resumed.nextDueAt!)).toBeLessThanOrEqual(Date.now());
+	});
+
+	it("refuses to admit a loop run while the participant is paused", async () => {
+		await seedBotRuntimeRow({ status: "idle" });
+		await seedBotDocuments();
+		expect((await patchTickEnabled(false)).status).toBe(200);
+		const harness = testRuntimeHarness();
+
+		const payload = await json<TickResponsePayload>(harness.runtime.fetch(tickRequest()));
+
+		expect(payload).toMatchObject({ ok: true, data: { run: { runId: "paused", status: "paused" } } });
+		expect(harness.tickBodies).toEqual([]);
+		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({
+			enabled: 0,
+			nextDueAt: null,
+			status: "idle",
+		});
+	});
+
+	it("still persists a released run's proposed schedule while the participant stays enabled", async () => {
+		await seedBotRuntimeRow({
+			botId: "bot_release_enabled",
+			status: "running",
+			activeRunId: "run-enabled",
+			leaseExpiresAt: staleDueAt,
+			nextDueAt: staleDueAt,
+		});
+
+		await expect(
+			releaseRuntimeRun(testEnv.BICKR_D1, {
+				botId: "bot_release_enabled",
+				runId: "run-enabled",
+				status: "idle",
+				nextDueAt: "2026-07-09T20:01:00.000Z",
+				lastError: null,
+				now: "2026-07-09T20:00:30.000Z",
+			}),
+		).resolves.toBe(true);
+		await expect(runtimeIndexRow("bot_release_enabled")).resolves.toMatchObject({
+			enabled: 1,
+			status: "idle",
+			activeRunId: null,
+			nextDueAt: "2026-07-09T20:01:00.000Z",
+		});
+	});
+
+	it("keeps the runtime index write unscheduled when the pause lands after its enabled read", async () => {
+		await seedBotRuntimeRow({ status: "running", nextDueAt: null });
+		await testEnv.BICKR_D1.prepare(`UPDATE bot_runtime_index SET enabled = 0 WHERE bot_id = ?`)
+			.bind(botId)
+			.run();
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: { BICKR_D1: stalelyEnabledD1(), BICKR_KV: testEnv.BICKR_KV },
+		}) as unknown as {
+			setRuntimeIndex(
+				bot: BotDocument,
+				status: "idle" | "running" | "failed",
+				activeRunId: string | null,
+				lastError: string | undefined,
+				now: string,
+			): Promise<string | null>;
+		};
+
+		await runtime.setRuntimeIndex(testBotDocument(), "idle", null, undefined, now);
+
+		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({
+			enabled: 0,
+			status: "idle",
+			nextDueAt: null,
+		});
+	});
+});
+
 function testRuntimeHarness(): RuntimeHarness {
 	const tickStarted = deferred<string>();
 	const releaseTick = deferred<void>();
@@ -332,19 +453,8 @@ function clearHistoryRequest(): Request {
 	});
 }
 
-async function seedBotDocuments(): Promise<void> {
-	const user: UserDocument = {
-		id: ownerId,
-		type: "user",
-		schemaVersion,
-		revision: 1,
-		handle: "tick-owner",
-		language: testLanguage,
-		displayName: localizedText("Tick Owner", testLanguage),
-		createdAt: now,
-		updatedAt: now,
-	};
-	const bot: BotDocument = {
+function testBotDocument(): BotDocument {
+	return {
 		id: botId,
 		type: "bot",
 		schemaVersion,
@@ -368,6 +478,21 @@ async function seedBotDocuments(): Promise<void> {
 		createdAt: now,
 		updatedAt: now,
 	};
+}
+
+async function seedBotDocuments(): Promise<void> {
+	const user: UserDocument = {
+		id: ownerId,
+		type: "user",
+		schemaVersion,
+		revision: 1,
+		handle: "tick-owner",
+		language: testLanguage,
+		displayName: localizedText("Tick Owner", testLanguage),
+		createdAt: now,
+		updatedAt: now,
+	};
+	const bot = testBotDocument();
 	await testEnv.BICKR_KV.put(kvKeys.user(ownerId), JSON.stringify(user));
 	await testEnv.BICKR_KV.put(kvKeys.bot(botId), JSON.stringify(bot));
 	await testEnv.BICKR_D1.batch([
@@ -406,6 +531,7 @@ async function seedBotRuntimeRow(input: {
 	status: "idle" | "running" | "failed";
 	activeRunId?: string | null;
 	leaseExpiresAt?: string | null;
+	nextDueAt?: string | null;
 }): Promise<void> {
 	const rowBotId = input.botId ?? botId;
 	await testEnv.BICKR_D1.prepare(
@@ -421,7 +547,7 @@ async function seedBotRuntimeRow(input: {
 			rowBotId,
 			ownerId,
 			worldId,
-			now,
+			input.nextDueAt === undefined ? now : input.nextDueAt,
 			input.status,
 			input.activeRunId ?? null,
 			input.leaseExpiresAt ?? null,
@@ -431,22 +557,61 @@ async function seedBotRuntimeRow(input: {
 		.run();
 }
 
-async function runtimeIndexRow(rowBotId: string): Promise<{
+type RuntimeIndexRow = {
+	enabled: number;
 	status: string;
 	activeRunId: string | null;
 	leaseExpiresAt: string | null;
-}> {
+	nextDueAt: string | null;
+};
+
+async function runtimeIndexRow(rowBotId: string): Promise<RuntimeIndexRow> {
 	const row = await testEnv.BICKR_D1.prepare(
-		`SELECT status, active_run_id AS activeRunId, lease_expires_at AS leaseExpiresAt
+		`SELECT enabled, status, active_run_id AS activeRunId,
+			lease_expires_at AS leaseExpiresAt, next_due_at AS nextDueAt
 		 FROM bot_runtime_index
 		 WHERE bot_id = ?`,
 	)
 		.bind(rowBotId)
-		.first<{ status: string; activeRunId: string | null; leaseExpiresAt: string | null }>();
+		.first<RuntimeIndexRow>();
 	if (!row) {
 		throw new Error(`Missing runtime row for ${rowBotId}.`);
 	}
 	return row;
+}
+
+async function patchTickEnabled(enabled: boolean): Promise<Response> {
+	return handleAgentRuntimeRequest(
+		new Request(`https://agent.internal/users/${ownerId}/bots/${botId}`, {
+			method: "PATCH",
+			headers: {
+				"content-type": "application/json",
+				"x-bickr-user-id": ownerId,
+				"idempotency-key": `tick-enabled-${String(enabled)}`,
+			},
+			body: JSON.stringify({ tickSettings: { enabled } }),
+		}),
+		testEnv as never,
+		{ objectId: "tick-admission-coordinator", ownerUserId: ownerId },
+	);
+}
+
+// Models the owner's pause committing between the enabled read and the index
+// write: the read still reports an enabled participant while the stored row is
+// already disabled. Only the write's own guard can keep it unscheduled.
+function stalelyEnabledD1(): D1Database {
+	return {
+		batch: (statements: unknown[]) => (testEnv.BICKR_D1 as unknown as {
+			batch(values: unknown[]): Promise<unknown>;
+		}).batch(statements),
+		prepare: (sql: string) => {
+			if (!/^\s*SELECT enabled\b/u.test(sql)) {
+				return testEnv.BICKR_D1.prepare(sql);
+			}
+			const statement = { bind: () => statement, first: async () => ({ enabled: 1 }) };
+			return statement;
+		},
+	} as unknown as D1Database;
 }
 
 async function json<T>(response: Promise<Response> | Response): Promise<T> {

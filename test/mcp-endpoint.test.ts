@@ -267,6 +267,8 @@ describe("MCP endpoint", () => {
 			["get_bot", "bickr.read", true, false, true],
 			["create_bot", "bickr.write", false, false, false],
 			["update_bot", "bickr.write", false, false, false],
+			["pause_bot", "bickr.write", false, false, true],
+			["unpause_bot", "bickr.write", false, false, true],
 			["delete_bot", "bickr.write", false, true, false],
 			["set_bot_avatar_url", "bickr.write", false, false, false],
 			["clear_bot_avatar", "bickr.write", false, true, false],
@@ -342,6 +344,8 @@ describe("MCP endpoint", () => {
 			expect(Object.keys(rootProperties), tool.name).toEqual(["operations"]);
 			const operations = rootProperties.operations as Record<string, unknown>;
 			expect(operations.type, tool.name).toBe("array");
+			// Every mutation tool publishes the same batch ceiling the server enforces.
+			expect(operations.description, `${tool.name} batch maximum`).toContain("Maximum 20.");
 			const operationSchema = toolArgumentSchema(tool.inputSchema);
 			expect(operationSchema, tool.name).toMatchObject({
 				type: "object",
@@ -371,6 +375,39 @@ describe("MCP endpoint", () => {
 		expect(localizedPropertyKeys(byName, "create_group", "customTitle")).toEqual(["lang", "text"]);
 		expect(localizedPropertyKeys(byName, "update_profile", "displayName")).toEqual(["lang", "text"]);
 		expect(localizedPropertyKeys(byName, "update_runtime_context_budget", "body", "prompt")).toEqual(["lang", "text"]);
+	});
+
+	it("advertises closed participant-only operations for pausing and resuming", async () => {
+		const byName = new Map(mcpToolMetadataForTest().map((tool) => [tool.name, tool]));
+
+		for (const name of ["pause_bot", "unpause_bot"]) {
+			const inputSchema = byName.get(name)?.inputSchema;
+			if (!inputSchema) {
+				throw new Error(`Missing ${name} tool schema.`);
+			}
+			const operationSchema = toolArgumentSchema(inputSchema);
+			expect(Object.keys(schemaProperties(operationSchema)), name).toEqual(["operationId", "botId"]);
+			expect(schemaRequired(byName, name), name).toEqual(["operationId", "botId"]);
+			expect(operationSchema.additionalProperties, name).toBe(false);
+		}
+
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
+		const listed = (await jsonResponse(await callMcp(kv, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/list",
+		}))).result as { tools: Array<{ name: string; title: string; description: string }> };
+		const published = new Map(listed.tools.map((tool) => [tool.name, tool]));
+
+		expect(published.get("pause_bot")).toMatchObject({
+			title: "Pause participant",
+			description: expect.stringContaining("participant"),
+		});
+		// Pausing must not read as cancelling the visit already under way.
+		expect(published.get("pause_bot")?.description).toContain("stop_runtime");
+		expect(published.get("unpause_bot")).toMatchObject({
+			title: "Resume participant",
+			description: expect.stringContaining("participant"),
+		});
 	});
 
 	it("advertises only the portable canonical vote target fields", () => {
@@ -864,6 +901,155 @@ describe("MCP endpoint", () => {
 			.toMatchObject({ effective: 6000, source: "world" });
 	});
 
+	it("pauses and resumes owned participants through the canonical participant patch", async () => {
+		await resetD1Schema(testEnv.BICKR_D1);
+		await clearKv(testEnv.BICKR_KV);
+		const seededAt = "2026-08-11T00:00:00.000Z";
+		// Far enough ahead that a resume which merely preserved it would be visibly
+		// wrong: the participant must become due now, not in this stale interval.
+		const staleDueAt = "2027-01-01T00:00:00.000Z";
+		await writeJson(testEnv.BICKR_KV, kvKeys.user("usr_mcp"), testUser());
+		const visiting = testBot({
+			id: "bot_visiting", handle: "visiting",
+			tickSettings: { enabled: true, intervalSeconds: 3600, compactionThreshold: 0.75 },
+		});
+		const waiting = testBot({
+			id: "bot_waiting", handle: "waiting",
+			tickSettings: { enabled: true, intervalSeconds: 3600, compactionThreshold: 0.75 },
+		});
+		const foreign = testBot({
+			id: "bot_foreign", handle: "foreign", ownerUserId: "usr_other",
+			tickSettings: { enabled: false, intervalSeconds: 3600, compactionThreshold: 0.75 },
+		});
+		await Promise.all([
+			writeJson(testEnv.BICKR_KV, kvKeys.bot(visiting.id), visiting),
+			writeJson(testEnv.BICKR_KV, kvKeys.bot(waiting.id), waiting),
+			writeJson(testEnv.BICKR_KV, kvKeys.bot(foreign.id), foreign),
+		]);
+		await testEnv.BICKR_D1.batch([
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO entity_lifecycle_identity_claims (
+					key_kind, key_scope, key_value, entity_kind, entity_id, owner_user_id,
+					claim_state, operation_id, created_at, updated_at
+				) VALUES ('user_handle', 'global', 'mcp-user', 'account', 'usr_mcp', 'usr_mcp', 'active', NULL, ?, ?)`,
+			).bind(seededAt, seededAt),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO users_index (user_id, handle, display_name, created_at, updated_at, lifecycle_state)
+				 VALUES ('usr_mcp', 'mcp-user', 'MCP User', ?, ?, 'active')`,
+			).bind(seededAt, seededAt),
+			activeIdentityClaim("world_handle", "global", "mcp-world", "world", "w_mcp", "usr_mcp"),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO worlds_index (
+					world_id, handle, name, description, created_by_user_id, visibility,
+					created_at, updated_at, lifecycle_state
+				) VALUES ('w_mcp', 'mcp-world', 'MCP world', '', 'usr_mcp', 'public', ?, ?, 'active')`,
+			).bind(seededAt, seededAt),
+			...[visiting, waiting, foreign].flatMap((bot) => [
+				activeIdentityClaim("bot_handle", "w_mcp", bot.handle, "bot", bot.id, bot.ownerUserId),
+				testEnv.BICKR_D1.prepare(
+					`INSERT INTO bots_index (
+						bot_id, home_world_id, home_world_handle, handle, display_name,
+						owner_user_id, short_bio, created_at, updated_at, lifecycle_state
+					) VALUES (?, 'w_mcp', 'mcp-world', ?, 'MCP Bot', ?, '', ?, ?, 'active')`,
+				).bind(bot.id, bot.handle, bot.ownerUserId, bot.createdAt, bot.updatedAt),
+			]),
+		]);
+		await seedRuntimeIndexRow(visiting.id, {
+			status: "running", activeRunId: "run-live", leaseExpiresAt: staleDueAt, nextDueAt: staleDueAt,
+		});
+		await seedRuntimeIndexRow(waiting.id, { status: "idle", nextDueAt: staleDueAt });
+
+		const accessToken = await issueAccessToken(testEnv.BICKR_KV, ["bickr.write"]);
+		const environment = {
+			BICKR_D1: testEnv.BICKR_D1,
+			AGENT_RUNTIME: ownedParticipantRuntimeService(),
+			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+		};
+		const mutate = async (name: string, botIds: string[]) => {
+			const response = await callMcp(testEnv.BICKR_KV, accessToken, {
+				jsonrpc: "2.0", id: 1, method: "tools/call", params: {
+					name,
+					arguments: {
+						operations: botIds.map((botId) => ({ operationId: `${name}:${botId}`, botId })),
+					},
+				},
+			}, environment);
+			const body = await jsonResponse(response);
+			if (!body.result) {
+				throw new Error(JSON.stringify(body));
+			}
+			return body.result as {
+				isError?: boolean;
+				structuredContent: {
+					succeeded: number;
+					failed: number;
+					indeterminate: number;
+					results: Array<{
+						operationId: string;
+						status: string;
+						error?: Record<string, unknown>;
+						result?: { data: { bot: {
+							id: string;
+							nextDueAt: string | null;
+							tickSettings: { enabled: boolean };
+							mcpResolvedSettings: { tickSettings: { enabled: { effective: boolean; source: string } } };
+						} } };
+					}>;
+				};
+			};
+		};
+
+		const paused = await mutate("pause_bot", [visiting.id, waiting.id]);
+		expect(paused.structuredContent).toMatchObject({ succeeded: 2, failed: 0, indeterminate: 0 });
+		expect(paused.structuredContent.results.map((entry) => entry.operationId))
+			.toEqual([`pause_bot:${visiting.id}`, `pause_bot:${waiting.id}`]);
+		for (const entry of paused.structuredContent.results) {
+			expect(entry.status).toBe("succeeded");
+			expect(entry.result?.data.bot.tickSettings.enabled).toBe(false);
+			expect(entry.result?.data.bot.nextDueAt).toBeNull();
+			expect(entry.result?.data.bot.mcpResolvedSettings.tickSettings.enabled)
+				.toMatchObject({ effective: false, source: "bot" });
+		}
+		for (const bot of [visiting, waiting]) {
+			expect((await storedBot(bot.id)).tickSettings.enabled, bot.id).toBe(false);
+			expect(await requiredRuntimeIndexRow(bot.id), bot.id).toMatchObject({ enabled: 0, nextDueAt: null });
+		}
+		// Pausing clears scheduling without pretending to cancel the visit already
+		// under way; stop_runtime remains the operation that ends a live run.
+		expect(await requiredRuntimeIndexRow(visiting.id)).toMatchObject({
+			status: "running", activeRunId: "run-live", leaseExpiresAt: staleDueAt,
+		});
+
+		const repeated = await mutate("pause_bot", [waiting.id]);
+		expect(repeated.structuredContent).toMatchObject({ succeeded: 1, failed: 0, indeterminate: 0 });
+		expect(repeated.structuredContent.results[0]?.result?.data.bot.tickSettings.enabled).toBe(false);
+		expect(await requiredRuntimeIndexRow(waiting.id)).toMatchObject({ enabled: 0, nextDueAt: null });
+
+		const resumed = await mutate("unpause_bot", [waiting.id]);
+		expect(resumed.structuredContent).toMatchObject({ succeeded: 1, failed: 0, indeterminate: 0 });
+		const resumedBot = resumed.structuredContent.results[0]?.result?.data.bot;
+		expect(resumedBot?.tickSettings.enabled).toBe(true);
+		expect((await storedBot(waiting.id)).tickSettings.enabled).toBe(true);
+		const resumedRow = await requiredRuntimeIndexRow(waiting.id);
+		expect(resumedRow.enabled).toBe(1);
+		expect(resumedRow.nextDueAt).not.toBeNull();
+		expect(Date.parse(resumedRow.nextDueAt!)).toBeLessThanOrEqual(Date.now());
+		expect(resumedBot?.nextDueAt).toBe(resumedRow.nextDueAt);
+
+		// A definitive per-operation failure must not stop the batch, and the
+		// participant that failed ownership must stay exactly as it was.
+		const mixed = await mutate("unpause_bot", [foreign.id, visiting.id]);
+		expect(mixed.structuredContent).toMatchObject({ succeeded: 1, failed: 1, indeterminate: 0 });
+		expect(mixed.structuredContent.results.map((entry) => [entry.operationId, entry.status])).toEqual([
+			[`unpause_bot:${foreign.id}`, "failed"],
+			[`unpause_bot:${visiting.id}`, "succeeded"],
+		]);
+		expect(mixed.structuredContent.results[0]?.error).toMatchObject({ error: "forbidden" });
+		expect((await storedBot(foreign.id)).tickSettings.enabled).toBe(false);
+		expect(await runtimeIndexRow(foreign.id)).toBeNull();
+		expect((await storedBot(visiting.id)).tickSettings.enabled).toBe(true);
+	});
+
 	it("preserves legacy world/user bot ordering while MCP pages use recency keysets", async () => {
 		await resetD1Schema(testEnv.BICKR_D1);
 		await clearKv(testEnv.BICKR_KV);
@@ -1283,7 +1469,7 @@ describe("MCP endpoint", () => {
 		const invalidArguments: Array<Record<string, unknown>> = [
 			{ extra: true, operations: [{ operationId: "one", botId: "bot_a", text: "alpha" }] },
 			{ operations: [] },
-			{ operations: Array.from({ length: 51 }, (_, index) => ({ operationId: `op-${index}`, botId: "bot_a", text: "alpha" })) },
+			{ operations: Array.from({ length: 21 }, (_, index) => ({ operationId: `op-${index}`, botId: "bot_a", text: "alpha" })) },
 			{ operations: [{ operationId: "same", botId: "bot_a", text: "alpha" }, { operationId: "same", botId: "bot_b", text: "beta" }] },
 			{ operations: ["not-an-object"] },
 			{ operations: [{ operationId: "missing-text", botId: "bot_a" }] },
@@ -1314,6 +1500,55 @@ describe("MCP endpoint", () => {
 			expect(callCount).toBe(0);
 			expect(body.result).toMatchObject({ isError: true });
 		}
+	});
+
+	// inject_runtime predates the pause tools, so exercising the boundary here
+	// proves the ceiling belongs to the shared mutation envelope rather than to
+	// any one tool's own validation.
+	it("admits the largest mutation batch and rejects one operation more before dispatch", async () => {
+		const submit = async (operationCount: number) => {
+			const kv = new MapKV();
+			const accessToken = await issueAccessToken(kv, ["bickr.runtime"]);
+			let callCount = 0;
+			const response = await callMcp(kv, accessToken, {
+				jsonrpc: "2.0",
+				id: 1,
+				method: "tools/call",
+				params: {
+					name: "inject_runtime",
+					arguments: {
+						operations: Array.from({ length: operationCount }, (_unused, index) => ({
+							operationId: `op-${index}`,
+							botId: `bot_${index}`,
+							text: "alpha",
+						})),
+					},
+				},
+			}, {
+				AGENT_RUNTIME: {
+					fetch: async () => {
+						callCount += 1;
+						return Response.json({ ok: true, data: { accepted: true } });
+					},
+				},
+				INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+			});
+			return { callCount, result: (await jsonResponse(response)).result as Record<string, unknown> };
+		};
+
+		const admitted = await submit(20);
+		expect(admitted.callCount).toBe(20);
+		expect(admitted.result).not.toHaveProperty("isError");
+		expect(admitted.result).toMatchObject({
+			structuredContent: { succeeded: 20, failed: 0, indeterminate: 0 },
+		});
+
+		const rejected = await submit(21);
+		expect(rejected.callCount).toBe(0);
+		expect(rejected.result).toMatchObject({
+			isError: true,
+			structuredContent: { message: expect.stringContaining("At most 20 operations") },
+		});
 	});
 
 	it("requires a complete profile before dispatching a bulk mutation", async () => {
@@ -1950,6 +2185,79 @@ function mcpSubscriptionD1(actualWorldId: string | null): unknown {
 			return statement;
 		},
 	};
+}
+
+// Pause and resume run the real owned-participant PATCH so the assertions cover
+// the stored document and the scheduling row the route actually writes, not a
+// mock's idea of them. Canonical annotations stay mocked because the inference
+// graph is unrelated to this behavior.
+function ownedParticipantRuntimeService(): { fetch(request: Request): Promise<Response> } {
+	return {
+		fetch: async (request: Request) => {
+			if (new URL(request.url).pathname.endsWith("/inference-consumers/annotations")) {
+				return Response.json({ ok: true, data: { annotations: [], graphRevision: 7 } });
+			}
+			return handleAgentRuntimeRequest(request, testEnv as never, {
+				objectId: "mcp-participant-coordinator",
+				ownerUserId: "usr_mcp",
+			});
+		},
+	};
+}
+
+type RuntimeIndexRow = {
+	enabled: number;
+	status: string;
+	activeRunId: string | null;
+	leaseExpiresAt: string | null;
+	nextDueAt: string | null;
+};
+
+async function seedRuntimeIndexRow(botId: string, input: {
+	status: "idle" | "running" | "failed";
+	activeRunId?: string | null;
+	leaseExpiresAt?: string | null;
+	nextDueAt: string | null;
+}): Promise<void> {
+	const seededAt = "2026-08-11T00:00:00.000Z";
+	await testEnv.BICKR_D1.prepare(
+		`INSERT INTO bot_runtime_index (
+			bot_id, owner_user_id, world_id, enabled, tick_interval_seconds, context_window_tokens,
+			compaction_threshold, compaction_summary_percent, compaction_max_characters,
+			max_tool_calls_per_tick, max_successful_tool_calls_per_iteration,
+			max_generated_tokens_per_tick, max_generated_tokens_per_iteration,
+			next_due_at, status, active_run_id, lease_expires_at, last_error, created_at, updated_at
+		) VALUES (?, 'usr_mcp', 'w_mcp', 1, 3600, NULL, 0.75, 10, 4000, 10, 8, 15000, 30000, ?, ?, ?, ?, NULL, ?, ?)`,
+	)
+		.bind(botId, input.nextDueAt, input.status, input.activeRunId ?? null, input.leaseExpiresAt ?? null, seededAt, seededAt)
+		.run();
+}
+
+async function runtimeIndexRow(botId: string): Promise<RuntimeIndexRow | null> {
+	return await testEnv.BICKR_D1.prepare(
+		`SELECT enabled, status, active_run_id AS activeRunId,
+			lease_expires_at AS leaseExpiresAt, next_due_at AS nextDueAt
+		 FROM bot_runtime_index
+		 WHERE bot_id = ?`,
+	)
+		.bind(botId)
+		.first<RuntimeIndexRow>();
+}
+
+async function requiredRuntimeIndexRow(botId: string): Promise<RuntimeIndexRow> {
+	const row = await runtimeIndexRow(botId);
+	if (!row) {
+		throw new Error(`Missing runtime index row for ${botId}.`);
+	}
+	return row;
+}
+
+async function storedBot(botId: string): Promise<BotDocument> {
+	const bot = await testEnv.BICKR_KV.get(kvKeys.bot(botId), { type: "json" }) as BotDocument | null;
+	if (!bot) {
+		throw new Error(`Missing stored participant ${botId}.`);
+	}
+	return bot;
 }
 
 function testBot(

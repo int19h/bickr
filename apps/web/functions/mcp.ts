@@ -31,6 +31,7 @@ import {
 	type SearchResponse,
 	type ForumSummary,
 	type ThreadDocument,
+	type UpdateBotInput,
 	type WorldSummary,
 } from "@bickr/shared/model";
 import { defaultPostingSettings } from "@bickr/shared/posting";
@@ -271,7 +272,12 @@ async function callTool(ctx: ToolContext, params: unknown): Promise<unknown> {
 	}
 }
 
-const maxMutationOperations = 50;
+// Operations in one bulk mutation run serially and most of them cross a service
+// boundary, so the request's wall-clock cost grows linearly with this number.
+// Twenty keeps the worst case inside connector and client response timeouts.
+// The same constant drives the published envelope description and the
+// pre-dispatch check, so a client can never be told a limit the server rejects.
+const maxMutationOperations = 20;
 
 async function callMutationTool(
 	ctx: ToolContext,
@@ -423,7 +429,7 @@ const mcpTools: McpTool[] = [
 			case "provider_identity_unlinked":
 				throw new Error("Profile coordinator returned the wrong mutation result.");
 		}
-	}, false, "profile"),
+	}, "write", "profile"),
 	readTool("list_worlds", "List worlds", "List one bounded page of public Bickr worlds. Concurrent updates may move a world across a page boundary.", {
 		limit: integerSchema("Page size, from 1 through 100 (default 100)."),
 		cursor: stringSchema("Opaque keyset cursor returned by the previous page."),
@@ -739,6 +745,18 @@ const mcpTools: McpTool[] = [
 		prompt: localizedTextSchema("Bot prompt. lang must match the selected bot language."),
 		inferenceSettings: participantPromptInferenceSettingsSchema("Participant-owned recurring and avatar prompt patch."),
 	}), ["botId"], "write", "agent", "PATCH", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}`, withoutMcpKeys("botId"), "bot"),
+	botTickStateTool(
+		"pause_bot",
+		"Pause participant",
+		"Pause a Bickr participant owned by the signed-in human user so Bickr stops scheduling its visits. A visit already under way keeps running; stop_runtime ends that instead.",
+		{ tickSettings: { enabled: false } },
+	),
+	botTickStateTool(
+		"unpause_bot",
+		"Resume participant",
+		"Resume a paused Bickr participant owned by the signed-in human user so Bickr schedules its next visit as soon as possible.",
+		{ tickSettings: { enabled: true } },
+	),
 	serviceTool("delete_bot", "Delete bot", "Delete a Bickr bot owned by the signed-in human user.", bodySchema({
 		botId: stringSchema("Bot ID."),
 	}), ["botId"], "destructive", "agent", "DELETE", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}`, undefined, "bot"),
@@ -867,7 +885,7 @@ const mcpTools: McpTool[] = [
 	}), async ({ env, auth }, args) => {
 		await deactivateHumanSubscription(env.BICKR_D1, auth.user.id, subscriptionScopeType(args.scopeType), text(args.scopeId, "Scope ID"));
 		return { deactivated: true };
-	}, true),
+	}, "destructive"),
 	...runtimeTools(),
 ];
 
@@ -956,13 +974,30 @@ function readTool(
 	};
 }
 
+// The destructive and idempotent MCP hints are not independent facts: removing
+// an entity is destructive and unsafe to repeat, while an operation that names
+// an absolute target state destroys nothing and is safe to repeat. Deriving
+// both from one named effect keeps the advertised pair coherent instead of
+// letting two booleans drift apart at each call site.
+type McpMutationEffect = "write" | "idempotent" | "destructive";
+
+function mutationAnnotations(title: string, effect: McpMutationEffect): ToolAnnotations {
+	return {
+		title,
+		readOnlyHint: false,
+		destructiveHint: effect === "destructive",
+		idempotentHint: effect === "idempotent",
+		openWorldHint: false,
+	};
+}
+
 function writeTool(
 	name: string,
 	title: string,
 	description: string,
 	inputSchema: Record<string, unknown>,
 	execute: MutationMcpTool["executeOperation"],
-	destructive = false,
+	effect: McpMutationEffect = "write",
 	resultKind: McpPayloadEnvelope["kind"] = "opaque",
 	legacyArguments?: (args: Record<string, unknown>) => Record<string, unknown>,
 ): MutationMcpTool {
@@ -972,7 +1007,7 @@ function writeTool(
 		description,
 		inputSchema: mutationInputSchema(inputSchema),
 		...(outputSchemaForMcpTool(name) ? { outputSchema: outputSchemaForMcpTool(name) } : {}),
-		annotations: { title, readOnlyHint: false, destructiveHint: destructive, idempotentHint: false, openWorldHint: false },
+		annotations: mutationAnnotations(title, effect),
 		scopes: ["bickr.write"],
 		resultKind,
 		operationSchema: inputSchema,
@@ -995,7 +1030,7 @@ function runtimeTool(
 		description,
 		inputSchema: mutationInputSchema(inputSchema),
 		...(outputSchemaForMcpTool(name) ? { outputSchema: outputSchemaForMcpTool(name) } : {}),
-		annotations: { title, readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+		annotations: mutationAnnotations(title, "destructive"),
 		scopes: ["bickr.runtime"],
 		resultKind,
 		operationSchema: inputSchema,
@@ -1009,7 +1044,7 @@ function serviceTool(
 	description: string,
 	inputSchema: Record<string, unknown>,
 	required: string[],
-	kind: "write" | "destructive",
+	effect: McpMutationEffect,
 	service: "forum" | "agent",
 	method: string,
 	path: string | ((args: Record<string, unknown>, ctx: ToolContext) => string | Promise<string>),
@@ -1029,8 +1064,28 @@ function serviceTool(
 			body?.(args),
 			ctx.mutationOperationId ? { "idempotency-key": `mcp:${ctx.auth.user.id}:${ctx.mutationOperationId}` } : {},
 		);
-	}, kind === "destructive", resultKind, legacyArguments);
+	}, effect, resultKind, legacyArguments);
 	return tool;
+}
+
+// Pausing and resuming an owned participant are the same canonical participant
+// patch with opposite values, so one definition builds both. Typing the patch
+// as UpdateBotInput makes any change to the canonical update shape a compile
+// error here instead of a body the update route silently rejects at runtime.
+function botTickStateTool(name: string, title: string, description: string, patch: UpdateBotInput): McpTool {
+	return serviceTool(
+		name,
+		title,
+		description,
+		bodySchema({ botId: stringSchema("Participant ID.") }),
+		["botId"],
+		"idempotent",
+		"agent",
+		"PATCH",
+		(args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}`,
+		() => patch,
+		"bot",
+	);
 }
 
 function botActorTool(
@@ -1057,7 +1112,7 @@ function botActorTool(
 			"x-bickr-bot-id": botId,
 			...(routed.extraHeaders ?? {}),
 		});
-	}, false, resultKind, legacyArguments);
+	}, "write", resultKind, legacyArguments);
 }
 
 async function mcpAuth(env: AppEnv, request: Request): Promise<McpAuthContext | null> {
