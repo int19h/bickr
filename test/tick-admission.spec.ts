@@ -5,6 +5,7 @@ import { ExclusiveOperationQueue } from "@bickr/shared/exclusive-operation-queue
 import {
 	BotRuntime,
 	claimRuntimeRun,
+	handleAgentRuntimeRequest,
 	releaseRuntimeRun,
 } from "../workers/agent-runtime/src/index";
 import {
@@ -213,6 +214,254 @@ describe("runtime D1 claim helpers", () => {
 			leaseExpiresAt: "2026-07-09T20:45:00.000Z",
 		});
 	});
+
+	// The lease guard alone would admit both of these rows. `enabled = 1` has to
+	// be an independent conjunct in the claim, because a pause is exactly what
+	// leaves a claimable — idle, or holding nothing but a dead lease — row behind.
+	it("refuses to claim a paused row and leaves it untouched", async () => {
+		await seedBotRuntimeRow({ botId: "bot_claim_paused_idle", status: "idle", nextDueAt: null });
+		await seedBotRuntimeRow({
+			botId: "bot_claim_paused_expired",
+			status: "running",
+			activeRunId: "run-abandoned",
+			leaseExpiresAt: "2026-07-09T19:59:59.000Z",
+			nextDueAt: null,
+		});
+		await pauseRuntimeIndexRows("bot_claim_paused_idle", "bot_claim_paused_expired");
+
+		await expect(
+			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_paused_idle", "run-paused", "2026-07-09T20:15:00.000Z", now),
+		).resolves.toBe(false);
+		await expect(runtimeIndexRow("bot_claim_paused_idle")).resolves.toMatchObject({
+			enabled: 0,
+			status: "idle",
+			activeRunId: null,
+			leaseExpiresAt: null,
+			nextDueAt: null,
+		});
+
+		await expect(
+			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_paused_expired", "run-successor", "2026-07-09T20:15:00.000Z", now),
+		).resolves.toBe(false);
+		await expect(runtimeIndexRow("bot_claim_paused_expired")).resolves.toMatchObject({
+			enabled: 0,
+			status: "running",
+			activeRunId: "run-abandoned",
+			leaseExpiresAt: "2026-07-09T19:59:59.000Z",
+			nextDueAt: null,
+		});
+	});
+});
+
+describe("runtime scheduling against a concurrent owner pause", () => {
+	// Far enough out that a resume which merely preserved it would leave the
+	// participant idle for months instead of visiting again straight away.
+	const staleDueAt = "2027-01-01T00:00:00.000Z";
+
+	it("leaves a participant paused mid-visit unscheduled and makes the resume due immediately", async () => {
+		await seedBotRuntimeRow({
+			status: "running",
+			activeRunId: "run-live",
+			leaseExpiresAt: staleDueAt,
+			nextDueAt: staleDueAt,
+		});
+		await seedBotDocuments();
+
+		expect((await patchTickEnabled(false)).status).toBe(200);
+		// The visit under way is deliberately untouched: pausing is not stopping.
+		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({
+			enabled: 0,
+			nextDueAt: null,
+			status: "running",
+			activeRunId: "run-live",
+		});
+
+		// That visit now finishes and proposes the schedule it computed before the
+		// pause. Persisting it would resurrect a schedule for a disabled row.
+		await expect(
+			releaseRuntimeRun(testEnv.BICKR_D1, {
+				botId,
+				runId: "run-live",
+				status: "idle",
+				nextDueAt: staleDueAt,
+				lastError: null,
+				now: "2026-07-09T20:05:00.000Z",
+			}),
+		).resolves.toBe(true);
+		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({
+			enabled: 0,
+			nextDueAt: null,
+			status: "idle",
+			activeRunId: null,
+		});
+
+		expect((await patchTickEnabled(true)).status).toBe(200);
+		const resumed = await runtimeIndexRow(botId);
+		expect(resumed.enabled).toBe(1);
+		expect(resumed.nextDueAt).not.toBeNull();
+		expect(Date.parse(resumed.nextDueAt!)).toBeLessThanOrEqual(Date.now());
+	});
+
+	it("refuses to admit a loop run while the participant is paused", async () => {
+		await seedBotRuntimeRow({ status: "idle" });
+		await seedBotDocuments();
+		expect((await patchTickEnabled(false)).status).toBe(200);
+		const harness = testRuntimeHarness();
+
+		const payload = await json<TickResponsePayload>(harness.runtime.fetch(tickRequest()));
+
+		expect(payload).toMatchObject({ ok: true, data: { run: { runId: "paused", status: "paused" } } });
+		expect(harness.tickBodies).toEqual([]);
+		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({
+			enabled: 0,
+			nextDueAt: null,
+			status: "idle",
+		});
+	});
+
+	it("refuses to admit a loop run when the pause lands between the enabled read and the claim", async () => {
+		await seedBotRuntimeRow({ status: "idle" });
+		await seedBotDocuments();
+		const harness = testRuntimeHarness();
+		// Admission reads `enabled`, then awaits the participant, its owner, and the
+		// provider settings before claiming the row. Committing the owner's pause
+		// inside the first of those awaits places the write exactly in that window,
+		// so only the claim's own guard can keep the run out.
+		Object.assign(harness.runtime as object, {
+			botWithEffectivePostingSettings: async (bot: BotDocument) => {
+				expect((await patchTickEnabled(false)).status).toBe(200);
+				return {
+					...bot,
+					effectivePostingSettings: { threadBodyCharacters: 1000, commentBodyCharacters: 1000 },
+					worldPrompt: "",
+				};
+			},
+		});
+		// Nothing should reach the tick body, but an admitted run must finish rather
+		// than hang the assertions below on a never-released deferred.
+		harness.releaseTick.resolve();
+
+		const payload = await json<TickResponsePayload>(harness.runtime.fetch(tickRequest()));
+
+		expect(payload).toMatchObject({ ok: true, data: { run: { runId: "paused", status: "paused" } } });
+		expect(harness.tickBodies).toEqual([]);
+		expect(harness.events).toEqual([]);
+		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({
+			enabled: 0,
+			status: "idle",
+			activeRunId: null,
+			leaseExpiresAt: null,
+			nextDueAt: null,
+		});
+	});
+
+	it("still persists a released run's proposed schedule while the participant stays enabled", async () => {
+		await seedBotRuntimeRow({
+			botId: "bot_release_enabled",
+			status: "running",
+			activeRunId: "run-enabled",
+			leaseExpiresAt: staleDueAt,
+			nextDueAt: staleDueAt,
+		});
+
+		await expect(
+			releaseRuntimeRun(testEnv.BICKR_D1, {
+				botId: "bot_release_enabled",
+				runId: "run-enabled",
+				status: "idle",
+				nextDueAt: "2026-07-09T20:01:00.000Z",
+				lastError: null,
+				now: "2026-07-09T20:00:30.000Z",
+			}),
+		).resolves.toBe(true);
+		await expect(runtimeIndexRow("bot_release_enabled")).resolves.toMatchObject({
+			enabled: 1,
+			status: "idle",
+			activeRunId: null,
+			nextDueAt: "2026-07-09T20:01:00.000Z",
+		});
+	});
+
+	// The mirror image of the pause race: the release carries the *absence* of a
+	// schedule computed from a paused read, and the row is enabled again by the
+	// time it lands. Writing that null would leave an enabled participant with
+	// nothing due and nothing left to reschedule it.
+	it("keeps an unpaused participant's fresh schedule when the release proposes a stale nothing", async () => {
+		await seedBotRuntimeRow({
+			status: "running",
+			activeRunId: "run-live",
+			leaseExpiresAt: staleDueAt,
+			nextDueAt: staleDueAt,
+		});
+		await seedBotDocuments();
+
+		expect((await patchTickEnabled(false)).status).toBe(200);
+		// The run — or a reaper — reads the paused row here and proposes no next
+		// visit at all, exactly as production computes it from `enabled`.
+		const pausedRead = await runtimeIndexRow(botId);
+		expect(pausedRead).toMatchObject({ enabled: 0, status: "running", nextDueAt: null });
+		const staleProposal = pausedRead.enabled === 1 ? staleDueAt : null;
+		expect(staleProposal).toBeNull();
+
+		// The owner changes their mind before that visit finishes: the resume makes
+		// the participant due immediately.
+		expect((await patchTickEnabled(true)).status).toBe(200);
+		const resumed = await runtimeIndexRow(botId);
+		expect(resumed).toMatchObject({ enabled: 1, status: "running", activeRunId: "run-live" });
+		expect(resumed.nextDueAt).not.toBeNull();
+		expect(Date.parse(resumed.nextDueAt!)).toBeLessThanOrEqual(Date.now());
+
+		await expect(
+			releaseRuntimeRun(testEnv.BICKR_D1, {
+				botId,
+				runId: "run-live",
+				status: "idle",
+				nextDueAt: staleProposal,
+				lastError: null,
+				now: "2026-07-09T20:05:00.000Z",
+			}),
+		).resolves.toBe(true);
+		// The run is released — status, lease and ownership all cleared — while the
+		// resume's own schedule survives untouched.
+		await expect(runtimeIndexRow(botId)).resolves.toEqual({
+			enabled: 1,
+			status: "idle",
+			activeRunId: null,
+			leaseExpiresAt: null,
+			nextDueAt: resumed.nextDueAt,
+		});
+	});
+
+	it("keeps the runtime index write unscheduled when the pause lands after its enabled read", async () => {
+		await seedBotRuntimeRow({
+			status: "running",
+			activeRunId: "run-live",
+			leaseExpiresAt: staleDueAt,
+			nextDueAt: null,
+		});
+		await pauseRuntimeIndexRows(botId);
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: { BICKR_D1: stalelyEnabledD1(), BICKR_KV: testEnv.BICKR_KV },
+		}) as unknown as {
+			setRuntimeIndex(
+				bot: BotDocument,
+				status: "idle" | "failed",
+				lastError: string | undefined,
+				now: string,
+				ownedByRunId: string,
+			): Promise<string | null>;
+		};
+
+		await runtime.setRuntimeIndex(testBotDocument(), "idle", undefined, now, "run-live");
+
+		await expect(runtimeIndexRow(botId)).resolves.toEqual({
+			enabled: 0,
+			status: "idle",
+			activeRunId: null,
+			leaseExpiresAt: null,
+			nextDueAt: null,
+		});
+	});
 });
 
 function testRuntimeHarness(): RuntimeHarness {
@@ -332,19 +581,8 @@ function clearHistoryRequest(): Request {
 	});
 }
 
-async function seedBotDocuments(): Promise<void> {
-	const user: UserDocument = {
-		id: ownerId,
-		type: "user",
-		schemaVersion,
-		revision: 1,
-		handle: "tick-owner",
-		language: testLanguage,
-		displayName: localizedText("Tick Owner", testLanguage),
-		createdAt: now,
-		updatedAt: now,
-	};
-	const bot: BotDocument = {
+function testBotDocument(): BotDocument {
+	return {
 		id: botId,
 		type: "bot",
 		schemaVersion,
@@ -368,6 +606,21 @@ async function seedBotDocuments(): Promise<void> {
 		createdAt: now,
 		updatedAt: now,
 	};
+}
+
+async function seedBotDocuments(): Promise<void> {
+	const user: UserDocument = {
+		id: ownerId,
+		type: "user",
+		schemaVersion,
+		revision: 1,
+		handle: "tick-owner",
+		language: testLanguage,
+		displayName: localizedText("Tick Owner", testLanguage),
+		createdAt: now,
+		updatedAt: now,
+	};
+	const bot = testBotDocument();
 	await testEnv.BICKR_KV.put(kvKeys.user(ownerId), JSON.stringify(user));
 	await testEnv.BICKR_KV.put(kvKeys.bot(botId), JSON.stringify(bot));
 	await testEnv.BICKR_D1.batch([
@@ -406,6 +659,7 @@ async function seedBotRuntimeRow(input: {
 	status: "idle" | "running" | "failed";
 	activeRunId?: string | null;
 	leaseExpiresAt?: string | null;
+	nextDueAt?: string | null;
 }): Promise<void> {
 	const rowBotId = input.botId ?? botId;
 	await testEnv.BICKR_D1.prepare(
@@ -421,7 +675,7 @@ async function seedBotRuntimeRow(input: {
 			rowBotId,
 			ownerId,
 			worldId,
-			now,
+			input.nextDueAt === undefined ? now : input.nextDueAt,
 			input.status,
 			input.activeRunId ?? null,
 			input.leaseExpiresAt ?? null,
@@ -431,22 +685,69 @@ async function seedBotRuntimeRow(input: {
 		.run();
 }
 
-async function runtimeIndexRow(rowBotId: string): Promise<{
+type RuntimeIndexRow = {
+	enabled: number;
 	status: string;
 	activeRunId: string | null;
 	leaseExpiresAt: string | null;
-}> {
+	nextDueAt: string | null;
+};
+
+async function pauseRuntimeIndexRows(...rowBotIds: string[]): Promise<void> {
+	await testEnv.BICKR_D1.batch(
+		rowBotIds.map((rowBotId) =>
+			testEnv.BICKR_D1.prepare(`UPDATE bot_runtime_index SET enabled = 0 WHERE bot_id = ?`).bind(rowBotId),
+		),
+	);
+}
+
+async function runtimeIndexRow(rowBotId: string): Promise<RuntimeIndexRow> {
 	const row = await testEnv.BICKR_D1.prepare(
-		`SELECT status, active_run_id AS activeRunId, lease_expires_at AS leaseExpiresAt
+		`SELECT enabled, status, active_run_id AS activeRunId,
+			lease_expires_at AS leaseExpiresAt, next_due_at AS nextDueAt
 		 FROM bot_runtime_index
 		 WHERE bot_id = ?`,
 	)
 		.bind(rowBotId)
-		.first<{ status: string; activeRunId: string | null; leaseExpiresAt: string | null }>();
+		.first<RuntimeIndexRow>();
 	if (!row) {
 		throw new Error(`Missing runtime row for ${rowBotId}.`);
 	}
 	return row;
+}
+
+async function patchTickEnabled(enabled: boolean): Promise<Response> {
+	return handleAgentRuntimeRequest(
+		new Request(`https://agent.internal/users/${ownerId}/bots/${botId}`, {
+			method: "PATCH",
+			headers: {
+				"content-type": "application/json",
+				"x-bickr-user-id": ownerId,
+				"idempotency-key": `tick-enabled-${String(enabled)}`,
+			},
+			body: JSON.stringify({ tickSettings: { enabled } }),
+		}),
+		testEnv as never,
+		{ objectId: "tick-admission-coordinator", ownerUserId: ownerId },
+	);
+}
+
+// Models the owner's pause committing between the enabled read and the index
+// write: the read still reports an enabled participant while the stored row is
+// already disabled. Only the write's own guard can keep it unscheduled.
+function stalelyEnabledD1(): D1Database {
+	return {
+		batch: (statements: unknown[]) => (testEnv.BICKR_D1 as unknown as {
+			batch(values: unknown[]): Promise<unknown>;
+		}).batch(statements),
+		prepare: (sql: string) => {
+			if (!/^\s*SELECT enabled\b/u.test(sql)) {
+				return testEnv.BICKR_D1.prepare(sql);
+			}
+			const statement = { bind: () => statement, first: async () => ({ enabled: 1 }) };
+			return statement;
+		},
+	} as unknown as D1Database;
 }
 
 async function json<T>(response: Promise<Response> | Response): Promise<T> {
