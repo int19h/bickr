@@ -57,6 +57,8 @@ import {
 	providerMessagesWithReasoningPrefill,
 	providerResponseWithContent,
 	providerTokenProbeRequest,
+	providerSelfAuthor,
+	providerSerializationContext,
 	providerToolResultPayload,
 	pruneStreamEventsForPersistentEvents,
 	readThread,
@@ -306,6 +308,78 @@ describe("Provider requests", () => {
 			logOff?.function.parameters.properties.reason,
 			"Why I am finished with this Bickr visit. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.",
 		);
+	});
+
+	it("serializes the reading participant's own forum content as MYSELF through the tool path", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "self-author-tools");
+		const reader = await createBotForTest(cookie, "self-author-reader");
+		const other = await createBotForTest(cookie, "self-author-other");
+		const thread = await createThreadForTest(forum.id, reader.id, "My own thread", "My root body.");
+		const theirReply = await createCommentForTest(thread.id, other.id, "Their reply body.");
+		const myFollowUp = await createCommentForTest(thread.id, reader.id, "My follow-up body.", theirReply.id);
+
+		const runtime = testRuntimeForToolExecution() as BotRuntime & { events: BotRuntimeEvent[] };
+		const executeTool = (BotRuntime.prototype as unknown as {
+			executeTool: (
+				bot: Awaited<ReturnType<typeof botById>>,
+				runId: string,
+				name: string,
+				args: Record<string, unknown>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ result: unknown; providerResult: unknown }>;
+		}).executeTool.bind(runtime);
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, reader.id);
+		const signal = new AbortController().signal;
+
+		const readResult = await executeTool(
+			bot,
+			"run-read-own-thread",
+			"read_thread_by_id",
+			{ threadId: thread.id },
+			{ mode: "normal", signal },
+		);
+		expect(readResult.providerResult).toMatchObject({
+			thread: { threadRef: formatThreadRef(thread.id), author: providerSelfAuthor },
+			content: [
+				{
+					commentRef: formatCommentRef(thread.rootCommentId),
+					author: providerSelfAuthor,
+					replies: [{
+						commentRef: formatCommentRef(theirReply.id),
+						author: `u/${other.handle}`,
+						replies: [{ commentRef: formatCommentRef(myFollowUp.id), author: providerSelfAuthor }],
+					}],
+				},
+			],
+		});
+		// The raw stored result keeps canonical identity; only the provider payload renders MYSELF.
+		expect(JSON.stringify(readResult.result)).toContain(reader.id);
+		expect(JSON.stringify(readResult.providerResult)).not.toContain(reader.id);
+		expect(JSON.stringify(readResult.providerResult)).not.toContain(`u/${reader.handle}`);
+
+		const listResult = await executeTool(
+			bot,
+			"run-list-own-threads",
+			"list_recent_threads",
+			{ forumHandle: forum.handle },
+			{ mode: "normal", signal },
+		);
+		expect(listResult.providerResult).toMatchObject([{ threadRef: formatThreadRef(thread.id), author: providerSelfAuthor }]);
+
+		const searchResult = await executeTool(
+			bot,
+			"run-search-own-content",
+			"search_threads",
+			{ query: "follow-up" },
+			{ mode: "normal", signal },
+		);
+		const searchHits = searchResult.providerResult as Array<Record<string, unknown>>;
+		expect(searchHits.length).toBeGreaterThan(0);
+		expect(searchHits.every((hit) => hit.author === providerSelfAuthor || String(hit.author).startsWith("u/"))).toBe(true);
+		expect(searchHits.some((hit) => hit.author === providerSelfAuthor)).toBe(true);
+		expect(JSON.stringify(searchHits)).not.toContain(`u/${reader.handle}`);
 	});
 
 	it("executes bulk vote and profile follow tool calls", async () => {
@@ -3081,7 +3155,7 @@ describe("Provider requests", () => {
 			vi.useFakeTimers();
 			vi.setSystemTime(new Date("2026-05-08T00:00:00.000Z"));
 			try {
-				const scope = { commentsWithText: new Set<string>(), threadsWithText: new Set<string>() };
+				const context = providerSerializationContext({ botId: "bot_reader" });
 				const searchResult = providerToolResultPayload(
 					"search_threads",
 					[
@@ -3090,7 +3164,7 @@ describe("Provider requests", () => {
 						{ threadId: "thr_old", commentId: "cmt_old", forumHandle: "random", title: "Old", authorHandle: "carol", createdAt: "2026-05-06T00:00:00.000Z" },
 					],
 					{},
-					scope,
+					context,
 					{ tokenBudget: 45 },
 				) as Array<Record<string, unknown>>;
 				expect(searchResult.map((item) => item.threadRef)).toEqual(["t/thr_new"]);
@@ -3102,7 +3176,7 @@ describe("Provider requests", () => {
 						{ threadId: "thr_semantic_old", commentId: "cmt_semantic_old", forumHandle: "random", title: "Old semantic hit", authorHandle: "bob" },
 					],
 					{},
-					scope,
+					context,
 					{ tokenBudget: 45 },
 				) as Array<Record<string, unknown>>;
 				expect(semanticSearchResult.map((item) => item.threadRef)).toEqual(["t/thr_semantic_new"]);
@@ -3117,7 +3191,7 @@ describe("Provider requests", () => {
 						],
 					},
 					{},
-					scope,
+					context,
 					{ tokenBudget: 45 },
 				) as { profiles: Array<Record<string, unknown>> };
 				expect(profilesResult.profiles.map((item) => item.username)).toEqual(["u/alpha"]);
@@ -3137,7 +3211,7 @@ describe("Provider requests", () => {
 						],
 					},
 					{},
-					scope,
+					context,
 					{ tokenBudget: 45 },
 				) as { mode: string; offset: number; limit: number; total: number; hasMore: boolean; profiles: Array<Record<string, unknown>> };
 				expect(listProfilesResult).toMatchObject({
@@ -3157,10 +3231,15 @@ describe("Provider requests", () => {
 			vi.useFakeTimers();
 			vi.setSystemTime(new Date("2026-05-08T00:00:00.000Z"));
 			try {
-				const unbudgetedActivityResult = providerToolResultPayload("view_activity", {
-					bot: { handle: "owner" },
-					activities: [{ type: "thread", threadId: "thr_preview", forumHandle: "random", bodyPreview: "p".repeat(240), createdAt: "2026-05-08T00:00:00.000Z" }],
-				}) as { activities: Array<Record<string, unknown>> };
+				const unbudgetedActivityResult = providerToolResultPayload(
+					"view_activity",
+					{
+						bot: { handle: "owner" },
+						activities: [{ type: "thread", threadId: "thr_preview", forumHandle: "random", bodyPreview: "p".repeat(240), createdAt: "2026-05-08T00:00:00.000Z" }],
+					},
+					{},
+					providerSerializationContext({ botId: "bot_reader" }),
+				) as { activities: Array<Record<string, unknown>> };
 				expect(unbudgetedActivityResult.activities[0]?.bodyPreview).toBe(`${"p".repeat(240)}…`);
 
 				const activityResult = providerToolResultPayload(
@@ -3187,7 +3266,7 @@ describe("Provider requests", () => {
 						],
 					},
 					{},
-					{ commentsWithText: new Set<string>(), threadsWithText: new Set<string>() },
+					providerSerializationContext({ botId: "bot_reader" }),
 					{ tokenBudget: 70 },
 				) as { activities: Array<Record<string, unknown>> };
 
@@ -3226,7 +3305,7 @@ describe("Provider requests", () => {
 				"check_notifications",
 				{ events: notifications },
 				{},
-				{ commentsWithText: new Set<string>(), threadsWithText: new Set<string>() },
+				providerSerializationContext({ botId: "bot_reader" }),
 				{ tokenBudget: 90 },
 			) as { context?: string; events: Array<Record<string, unknown>> };
 
@@ -3288,6 +3367,73 @@ describe("Provider requests", () => {
 			expect(JSON.parse(String(checkNotificationResult?.content))).toMatchObject({
 				events: [{ actor: "u/new" }],
 			});
+		});
+
+		it("marks the participant's own thread and comment as MYSELF in synthetic notification context", async () => {
+			const appendedMessages: Array<Record<string, unknown>> = [];
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				readCommentTreeTokenBudget: async () => 4_000,
+				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+					appendedMessages.push(message);
+					return { seq: appendedMessages.length };
+				},
+			});
+			const appendNotificationSyntheticContext = (BotRuntime.prototype as unknown as {
+				appendNotificationSyntheticContext: (
+					bot: BotDocument,
+					runId: string,
+					notifications: Array<Record<string, unknown>>,
+					existingProfileUsernames: ReadonlySet<string>,
+					existingProviderContent: { commentsWithText: Set<string>; threadsWithText: Set<string> },
+				) => Promise<string[]>;
+			}).appendNotificationSyntheticContext.bind(runtime);
+			const bot = fakeBotDocument({ id: "bot_self_author", handle: "sabine-h" });
+			await appendNotificationSyntheticContext(
+				bot,
+				"run-notification-self",
+				[
+					{
+						id: "ntf_reply_to_me",
+						type: "comment_created",
+						deliveryReasons: ["direct_reply"],
+						sourceObjectId: "cmt_theirs",
+						actor: { id: "bot_other", username: "u/other-h" },
+						thread: {
+							id: "thr_mine",
+							title: "My thread",
+							author: { id: bot.id, username: "u/sabine-h" },
+							text: "My root post.",
+						},
+						comment: {
+							id: "cmt_theirs",
+							threadId: "thr_mine",
+							author: { id: "bot_other", username: "u/other-h" },
+							text: "Their reply to me.",
+						},
+						replyTo: {
+							id: "cmt_mine",
+							threadId: "thr_mine",
+							author: { id: bot.id, username: "u/sabine-h" },
+							text: "My earlier comment.",
+						},
+					},
+				],
+				new Set(["other-h"]),
+				{ commentsWithText: new Set<string>(), threadsWithText: new Set<string>() },
+			);
+
+			const notificationContent = String(appendedMessages.find((message) => message.role === "tool")?.content);
+			expect(JSON.parse(notificationContent)).toMatchObject({
+				events: [
+					{
+						actor: "u/other-h",
+						thread: { threadRef: "t/thr_mine", author: providerSelfAuthor },
+						comment: { commentRef: "c/cmt_theirs", author: "u/other-h" },
+						replyTo: { commentRef: "c/cmt_mine", author: providerSelfAuthor },
+					},
+				],
+			});
+			expect(notificationContent).not.toContain(bot.id);
 		});
 
 	it("rejects translation without auth, configured model, or parseable provider JSON", async () => {

@@ -29,6 +29,8 @@ import {
 	providerResponseWithRawToolCalls,
 	providerResponseWithToolCall,
 	providerResponseWithToolCalls,
+	providerSelfAuthor,
+	providerSerializationContext,
 	providerToolResultPayload,
 	providerUsageForTest,
 	readThread,
@@ -1123,10 +1125,10 @@ describe("Tick flow", () => {
 		});
 
 	it("deduplicates explicit read result comment bodies while keeping comment IDs", () => {
-		const activeScope = {
-			commentsWithText: new Set(["cmt_seen"]),
-			threadsWithText: new Set<string>(),
-		};
+		const activeContext = providerSerializationContext(
+			{ botId: "bot_reader" },
+			{ commentsWithText: new Set(["cmt_seen"]), threadsWithText: new Set<string>() },
+		);
 		const threadResult = providerToolResultPayload(
 			"read_thread_by_id",
 			{
@@ -1156,7 +1158,7 @@ describe("Tick flow", () => {
 				],
 			},
 			{},
-			activeScope,
+			activeContext,
 		) as { thread: Record<string, unknown>; content: Array<Record<string, unknown>> };
 		expect(threadResult.thread).toMatchObject({ threadRef: "t/thr_read", title: "Read thread", author: "u/thread-author" });
 		expect(threadResult.thread).not.toHaveProperty("id");
@@ -1185,10 +1187,10 @@ describe("Tick flow", () => {
 				],
 			},
 			{},
-			{
-				commentsWithText: new Set(["cmt_seen"]),
-				threadsWithText: new Set<string>(),
-			},
+			providerSerializationContext(
+				{ botId: "bot_reader" },
+				{ commentsWithText: new Set(["cmt_seen"]), threadsWithText: new Set<string>() },
+			),
 		) as { content: Array<Record<string, unknown>> };
 		expect(commentResult.content[0]).toMatchObject({ commentRef: "c/cmt_seen" });
 		expect(commentResult.content[0]).not.toHaveProperty("type");
@@ -1201,9 +1203,12 @@ describe("Tick flow", () => {
 			vi.useFakeTimers();
 			vi.setSystemTime(new Date("2026-05-08T00:00:00.000Z"));
 		try {
-			const forumResult = providerToolResultPayload("list_accessible_forums", [
-				{ id: "frm_random", worldHandle: "primary", handle: "random", description: "Random chatter." },
-			]);
+			const forumResult = providerToolResultPayload(
+				"list_accessible_forums",
+				[{ id: "frm_random", worldHandle: "primary", handle: "random", description: "Random chatter." }],
+				{},
+				providerSerializationContext({ botId: "bot_reader" }),
+			);
 			expect(forumResult).toEqual([{ forum: "f/random", description: "Random chatter." }]);
 
 			const recentResult = providerToolResultPayload("list_recent_threads", [
@@ -1222,7 +1227,7 @@ describe("Tick flow", () => {
 					lock: { kind: "comment_limit", limit: 3 },
 					lastActivityAt: "2026-05-01T00:00:00.000Z",
 				},
-			]);
+			], {}, providerSerializationContext({ botId: "bot_reader" }));
 			expect(recentResult).toMatchObject([
 				{
 					threadRef: "t/thr_recent",
@@ -1248,7 +1253,7 @@ describe("Tick flow", () => {
 					authorHandle: "bob",
 					lastActivityAt: "2026-05-07T22:00:00.000Z",
 				},
-			]);
+			], {}, providerSerializationContext({ botId: "bot_reader" }));
 			expect(hotResult).toMatchObject([{ threadRef: "t/thr_hot", forum: "f/weird", author: "u/bob", lastActivity: "2 hours ago" }]);
 
 			const searchResult = providerToolResultPayload("search_threads", [
@@ -1264,7 +1269,7 @@ describe("Tick flow", () => {
 					createdAt: "2026-05-07T00:00:00.000Z",
 					score: 0.91,
 				},
-			]);
+			], {}, providerSerializationContext({ botId: "bot_reader" }));
 			expect(searchResult).toMatchObject([
 				{
 					threadRef: "t/thr_search",
@@ -1292,10 +1297,10 @@ describe("Tick flow", () => {
 					},
 				],
 				{},
-				{
-					commentsWithText: new Set(["cmt_search"]),
-					threadsWithText: new Set<string>(),
-				},
+				providerSerializationContext(
+					{ botId: "bot_reader" },
+					{ commentsWithText: new Set(["cmt_search"]), threadsWithText: new Set<string>() },
+				),
 			);
 			expect((compactedSearchResult as Array<Record<string, unknown>>)[0]).toMatchObject({
 				threadRef: "t/thr_search",
@@ -1315,7 +1320,7 @@ describe("Tick flow", () => {
 					comment: { id: "cmt_notice", threadId: "thr_notice", parentCommentId: "cmt_parent", text: "Notice body." },
 					vote: { targetType: "comment", commentId: "cmt_notice", value: 1 },
 				}],
-			});
+			}, {}, providerSerializationContext({ botId: "bot_reader" }));
 			expect(notificationResult).toMatchObject({
 				events: [{
 					type: "vote_cast",
@@ -1377,7 +1382,7 @@ describe("Tick flow", () => {
 						createdAt: "2026-05-03T00:00:00.000Z",
 					},
 				],
-			});
+			}, {}, providerSerializationContext({ botId: "bot_reader" }));
 				expect(activityResult).toMatchObject({
 					profile: "u/owner",
 					activities: [
@@ -1654,6 +1659,121 @@ describe("Tick flow", () => {
 		expect(profileResultIndex).toBeGreaterThanOrEqual(0);
 		expect(focusMessageIndex).toBeGreaterThan(profileResultIndex);
 		expect(focusMessageIndex).toBe(built.length - 1);
+	});
+
+	it("renders the participant's own spotlight thread and comments as MYSELF", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const selfProfile = await createBotForTest(cookie, "spotlight-self-author");
+		const otherProfile = await createBotForTest(cookie, "spotlight-other-author");
+		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
+		const contexts: SpotlightSyntheticContext[] = [{
+			kind: "spotlight_context",
+			world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
+			forum: { id: "frm_self_spotlight", handle: "f/self-spotlight" },
+			targetType: "comments",
+			threads: [{
+				id: "thr_self_spotlight",
+				threadId: "thr_self_spotlight",
+				title: lt("My own thread"),
+				rootCommentId: "cmt_self_root",
+			}],
+			content: [
+				{
+					type: "comment",
+					id: "cmt_self_root",
+					commentId: "cmt_self_root",
+					threadId: "thr_self_spotlight",
+					title: lt("My own thread"),
+					authorBotId: selfProfile.id,
+					authorHandle: selfProfile.handle,
+					authorDisplayName: lt(selfProfile.displayName),
+					body: lt("My root post."),
+					createdAt: "2026-05-01T00:00:00.000Z",
+					ancestorOnly: true,
+				},
+				{
+					type: "comment",
+					id: "cmt_other_reply",
+					commentId: "cmt_other_reply",
+					threadId: "thr_self_spotlight",
+					parentCommentId: "cmt_self_root",
+					authorBotId: otherProfile.id,
+					authorHandle: otherProfile.handle,
+					authorDisplayName: lt(otherProfile.displayName),
+					body: lt("Their reply."),
+					createdAt: "2026-05-01T00:01:00.000Z",
+					ancestorOnly: true,
+				},
+				{
+					type: "comment",
+					id: "cmt_self_reply",
+					commentId: "cmt_self_reply",
+					threadId: "thr_self_spotlight",
+					parentCommentId: "cmt_other_reply",
+					authorBotId: selfProfile.id,
+					authorHandle: selfProfile.handle,
+					authorDisplayName: lt(selfProfile.displayName),
+					body: lt("My follow-up."),
+					createdAt: "2026-05-01T00:02:00.000Z",
+					focused: true,
+				},
+			],
+		}];
+		const messages: Array<Record<string, unknown>> = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV },
+			previousTerminalTickEvent: () => null,
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
+				messages.push(message);
+				return { seq: messages.length, runId: "run-spotlight-self", role: message.role, message };
+			},
+			readCommentTreeTokenBudget: async () => 4_000,
+			activeLoopMessagesForProvider: () => messages,
+			activeLoopMessageRows: () => [],
+		});
+		const buildMessages = (BotRuntime.prototype as unknown as {
+			buildMessages: (
+				bot: BotDocument,
+				input: Record<string, unknown>,
+				runId: string,
+				inputCreatedAt: string,
+				options?: { setupMode?: "new_iteration" | "continuation" | "spotlight" },
+			) => Promise<Array<Record<string, unknown>>>;
+		}).buildMessages.bind(runtime);
+
+		const built = await buildMessages(
+			bot,
+			{ notifications: [], injections: [], spotlightContexts: contexts, ping: false },
+			"run-spotlight-self",
+			"2026-05-01T00:15:00.000Z",
+			{ setupMode: "spotlight" },
+		);
+		const readResultContent = built
+			.filter((message) => message.role === "tool")
+			.map((message) => String(message.content))
+			.find((content) => content.includes("read_comment_by_id"));
+		expect(readResultContent).toBeDefined();
+		expect(JSON.parse(String(readResultContent))).toMatchObject({
+			thread: { threadRef: "t/thr_self_spotlight", author: providerSelfAuthor },
+			content: [
+				{
+					commentRef: "c/cmt_self_root",
+					author: providerSelfAuthor,
+					replies: [{
+						commentRef: "c/cmt_other_reply",
+						author: `u/${otherProfile.handle}`,
+						replies: [{
+							commentRef: "c/cmt_self_reply",
+							author: providerSelfAuthor,
+							"My focus is on this comment": true,
+						}],
+					}],
+				},
+			],
+		});
+		expect(readResultContent).not.toContain(selfProfile.id);
+		expect(readResultContent).not.toContain(`u/${selfProfile.handle}`);
 	});
 
 	it("builds deep spotlight comment chains without re-nesting replies exponentially", async () => {
