@@ -83,6 +83,7 @@ import {
 	voteTargetsArg,
 } from './tool-args';
 import {
+	providerSerializationContext,
 	providerToolResultPayload,
 	providerToolResultUsesTokenBudget,
 	pruneReadContentTreeForProviderBudget,
@@ -382,9 +383,14 @@ export class RuntimeTools {
 		const providerResultTokenBudget = providerToolResultUsesTokenBudget(canonicalName)
 			? await this.runtime.readCommentTreeTokenBudget(bot)
 			: undefined;
-		const providerResult = providerToolResultPayload(canonicalName, result, normalizedArgs, this.runtime.providerContentInActiveContext(), {
-			tokenBudget: providerResultTokenBudget,
-		}, envelope);
+		const providerResult = providerToolResultPayload(
+			canonicalName,
+			result,
+			normalizedArgs,
+			providerSerializationContext({ botId: bot.id }, this.runtime.providerContentInActiveContext()),
+			{ tokenBudget: providerResultTokenBudget },
+			envelope,
+		);
 		const toolResultPayload = {
 			name: canonicalName,
 			args: providerToolArgs(canonicalName, normalizedArgs),
@@ -675,7 +681,7 @@ export class RuntimeTools {
 		const annotatedContent = await this.annotateReadContentFollowStatus(bot.id, content);
 		const commentTree = readContentItemTree(annotatedContent);
 		const tokenBudget = await this.runtime.readCommentTreeTokenBudget(bot);
-		const pruned = pruneReadContentTreeForProviderBudget(commentTree, tokenBudget);
+		const pruned = pruneReadContentTreeForProviderBudget(commentTree, tokenBudget, { botId: bot.id });
 		const threadSummary =
 			(await this.annotateThreadReadSummariesFollowStatus(bot.id, [threadReadSummary(thread)]))[0] ?? threadReadSummary(thread);
 		return {

@@ -213,12 +213,15 @@ import {
 	providerReadCommentTreeTokenBudget,
 	providerReadResult,
 	providerSafeJsonValue,
+	providerSelfAuthor,
+	providerSerializationContext,
 	providerThreadRef,
 	providerToolResultPayload,
 	pruneReadContentTreeForProviderBudget,
 	readContentItemTree,
 	readResultContext,
 	type ProviderContextContentScope,
+	type ProviderSerializationContext,
 } from './tool-results';
 import {
 	DuplicateReplyError,
@@ -436,7 +439,7 @@ export { defaultReasoningPrefill };
 export { parseAvatarImageGenerationSettingsOverride as parseImageGenerationSettingsOverride };
 export { PersistentCompactionReductionFailureError, runtimeMonitorInitialBackfillLimit };
 export { localizedToolTextArg, parseToolArgs };
-export { providerSafeJsonValue, providerToolResultPayload };
+export { providerSafeJsonValue, providerSelfAuthor, providerSerializationContext, providerToolResultPayload };
 export { followToolSelfCorrectionMessage, planFollowToolTargets };
 export type { ToolFailurePayload };
 export type { ProviderSettings } from '../provider-requests';
@@ -5169,9 +5172,9 @@ export class BotRuntime {
 		existingProviderContent: ProviderContextContentScope,
 	): Promise<string[]> {
 		const toolCalls: ToolCall[] = [syntheticToolCall(runId, 'check_notifications', 0, {})];
-		const providerContentScope = cloneProviderContextContentScope(existingProviderContent);
+		const providerContext = providerSerializationContext({ botId: bot.id }, cloneProviderContextContentScope(existingProviderContent));
 		const notificationTokenBudget = notifications.length > 0 ? await this.readCommentTreeTokenBudget(bot) : undefined;
-		const notificationResult = providerCheckNotificationsResultWithInclusions(notifications, providerContentScope, notificationTokenBudget);
+		const notificationResult = providerCheckNotificationsResultWithInclusions(notifications, providerContext, notificationTokenBudget);
 		const includedNotificationIds = new Set(notificationResult.includedEventIds);
 		const includedNotifications = notifications.filter((notification) => includedNotificationIds.has(notification.id));
 		const results: ChatMessage[] = [
@@ -5191,7 +5194,7 @@ export class BotRuntime {
 				role: 'tool',
 				tool_call_id: toolCall.id,
 				content: JSON.stringify(
-					providerToolResultPayload('view_profiles', { profiles }, {}, emptyProviderContextContentScope(), {
+					providerToolResultPayload('view_profiles', { profiles }, {}, providerSerializationContext({ botId: bot.id }), {
 						tokenBudget: notificationTokenBudget,
 					}),
 				),
@@ -5216,13 +5219,13 @@ export class BotRuntime {
 	): Promise<void> {
 		const chains = contexts.flatMap(spotlightSyntheticToolChains);
 		const toolCalls: ToolCall[] = chains.map((chain, index) => syntheticToolCall(runId, chain.toolName, index, chain.args));
-		const providerContentScope = cloneProviderContextContentScope(existingProviderContent);
+		const providerContext = providerSerializationContext({ botId: bot.id }, cloneProviderContextContentScope(existingProviderContent));
 		const tokenBudget = await this.readCommentTreeTokenBudget(bot);
 		const results: ChatMessage[] = chains.map((chain, index) => ({
 			role: 'tool',
 			tool_call_id: toolCalls[index]?.id ?? syntheticToolCallId(runId, index),
 			content: JSON.stringify(
-				spotlightReadResult(chain.context, chain.toolName, providerContentScope, tokenBudget, chain.targetCommentId, chain.targetThreadId),
+				spotlightReadResult(chain.context, chain.toolName, providerContext, tokenBudget, chain.targetCommentId, chain.targetThreadId),
 			),
 		}));
 		const usernames = referencedProfileUsernamesFromSpotlight(contexts, bot.handle, existingProfileUsernames);
@@ -5234,7 +5237,9 @@ export class BotRuntime {
 			results.push({
 				role: 'tool',
 				tool_call_id: toolCall.id,
-				content: JSON.stringify(providerToolResultPayload('view_profiles', { profiles })),
+				content: JSON.stringify(
+					providerToolResultPayload('view_profiles', { profiles }, {}, providerSerializationContext({ botId: bot.id })),
+				),
 			});
 		}
 		if (toolCalls.length === 0) {
@@ -7273,29 +7278,32 @@ function spotlightFocusAssistantContent(contexts: readonly SpotlightSyntheticCon
 }
 
 function spotlightReadResult(
-	context: SpotlightSyntheticContext,
+	spotlight: SpotlightSyntheticContext,
 	operation: 'read_thread_by_id' | 'read_comment_by_id',
-	scope: ProviderContextContentScope,
+	providerContext: ProviderSerializationContext,
 	tokenBudget: number,
 	targetCommentId?: string,
 	targetThreadId?: string,
 ): Record<string, unknown> {
 	const threadId =
-		targetThreadId ?? context.content.find((item) => item.id === targetCommentId)?.threadId ?? context.content[0]?.threadId ?? 'unknown';
+		targetThreadId ??
+		spotlight.content.find((item) => item.id === targetCommentId)?.threadId ??
+		spotlight.content[0]?.threadId ??
+		'unknown';
 	const content = targetCommentId
-		? spotlightCommentChainContent(context.content, threadId, targetCommentId)
-		: context.content.filter((item) => item.threadId === threadId);
-	const commentTree = readContentItemTree(content.map((item) => spotlightReadContentItem(context, item)));
-	const pruned = pruneReadContentTreeForProviderBudget(commentTree, tokenBudget);
+		? spotlightCommentChainContent(spotlight.content, threadId, targetCommentId)
+		: spotlight.content.filter((item) => item.threadId === threadId);
+	const commentTree = readContentItemTree(content.map((item) => spotlightReadContentItem(spotlight, item)));
+	const pruned = pruneReadContentTreeForProviderBudget(commentTree, tokenBudget, providerContext.self);
 	return providerReadResult(
 		{
 			operation,
 			context: readResultContext(operation, pruned, tokenBudget),
-			thread: spotlightThreadSummaryRecord(context, threadId, content),
+			thread: spotlightThreadSummaryRecord(spotlight, threadId, content),
 			...(targetCommentId ? { targetCommentId } : {}),
 			content: pruned.content,
 		},
-		scope,
+		providerContext,
 	);
 }
 
