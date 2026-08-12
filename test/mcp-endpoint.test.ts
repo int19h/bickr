@@ -965,12 +965,16 @@ describe("MCP endpoint", () => {
 			AGENT_RUNTIME: ownedParticipantRuntimeService(),
 			INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
 		};
-		const mutate = async (name: string, botIds: string[]) => {
+		// `attempt` distinguishes operation IDs across calls. The MCP layer derives
+		// each operation's idempotency key from its operation ID, so a repeat that
+		// reuses one would be answered from the stored first response instead of
+		// exercising the canonical route again.
+		const mutate = async (name: string, botIds: string[], attempt = "") => {
 			const response = await callMcp(testEnv.BICKR_KV, accessToken, {
 				jsonrpc: "2.0", id: 1, method: "tools/call", params: {
 					name,
 					arguments: {
-						operations: botIds.map((botId) => ({ operationId: `${name}:${botId}`, botId })),
+						operations: botIds.map((botId) => ({ operationId: `${name}${attempt}:${botId}`, botId })),
 					},
 				},
 			}, environment);
@@ -1035,6 +1039,23 @@ describe("MCP endpoint", () => {
 		expect(resumedRow.nextDueAt).not.toBeNull();
 		expect(Date.parse(resumedRow.nextDueAt!)).toBeLessThanOrEqual(Date.now());
 		expect(resumedBot?.nextDueAt).toBe(resumedRow.nextDueAt);
+
+		// Resuming an already-resumed participant under a fresh operation ID runs
+		// the canonical PATCH a second time rather than replaying the first
+		// response — the bumped document revision is what distinguishes the two.
+		// Naming an absolute target state, it must land on the same enabled row and
+		// leave the visit that is already due where it is instead of pushing it out
+		// by another interval.
+		const resumedRevision = (await storedBot(waiting.id)).revision;
+		const resumedAgain = await mutate("unpause_bot", [waiting.id], "-again");
+		expect(resumedAgain.structuredContent).toMatchObject({ succeeded: 1, failed: 0, indeterminate: 0 });
+		expect(resumedAgain.structuredContent.results[0]?.operationId).toBe(`unpause_bot-again:${waiting.id}`);
+		expect(resumedAgain.structuredContent.results[0]?.result?.data.bot.tickSettings.enabled).toBe(true);
+		expect(resumedAgain.structuredContent.results[0]?.result?.data.bot.nextDueAt).toBe(resumedRow.nextDueAt);
+		const resumedAgainDocument = await storedBot(waiting.id);
+		expect(resumedAgainDocument.tickSettings.enabled).toBe(true);
+		expect(resumedAgainDocument.revision).toBe(resumedRevision + 1);
+		expect(await requiredRuntimeIndexRow(waiting.id)).toMatchObject({ enabled: 1, nextDueAt: resumedRow.nextDueAt });
 
 		// A definitive per-operation failure must not stop the batch, and the
 		// participant that failed ownership must stay exactly as it was.

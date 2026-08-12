@@ -3218,7 +3218,10 @@ describe("Forum coordinator", () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "spotlight-tick-reactions");
-		const bot = await createBotForTest(cookie, "tick-reaction-observer");
+		// Participants are created paused, and this test drives the real admission
+		// path, which refuses to claim a run for a disabled row. The observer has to
+		// be genuinely enabled rather than merely reported as enabled.
+		const bot = await createBotForTest(cookie, "tick-reaction-observer", { enabled: true });
 		const author = await createBotForTest(cookie, "tick-reaction-author");
 		const thread = await createThreadForTest(forum.id, author.id, "Spotlight tick context", "Root spotlight body.");
 		const user = await testEnv.BICKR_D1.prepare(`SELECT user_id AS id FROM users_index LIMIT 1`).first<{ id: string }>();
@@ -3291,7 +3294,6 @@ describe("Forum coordinator", () => {
 				runProviderLoop: async () => outcome,
 				startQueuedSpotlightTick: () => {},
 				reapStaleRun: async () => false,
-				readStatus: async () => ({ botId: bot.id, enabled: true, status: "idle" as const }),
 				throwIfStopped: (_runId: string, signal: AbortSignal) => {
 					if (signal.aborted) {
 						throw new Error("Unexpected abort.");

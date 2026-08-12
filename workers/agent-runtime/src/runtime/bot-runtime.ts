@@ -574,14 +574,22 @@ export async function claimRuntimeRun(
 ): Promise<boolean> {
 	const result = await db
 		.prepare(
+			// `enabled = 1` is a guard condition, not a filter the caller can hoist:
+			// admission reads `enabled`, then awaits the participant, its owner, and
+			// the effective provider settings before reaching this statement, and an
+			// owner's pause committing during those awaits must still turn the claim
+			// away. Making it part of the same compare-and-set that guards the lease
+			// is what lets pause reliably block new admissions; a row that survives
+			// this WHERE is enabled, so next_due_at needs no further condition.
 			`UPDATE bot_runtime_index
 			 SET status = 'running',
 			     active_run_id = ?,
 			     lease_expires_at = ?,
 			     last_error = NULL,
-			     next_due_at = CASE WHEN enabled = 1 THEN ? ELSE NULL END,
+			     next_due_at = ?,
 			     updated_at = ?
 			 WHERE bot_id = ?
+			   AND enabled = 1
 			   AND (status != 'running' OR lease_expires_at IS NULL OR lease_expires_at <= ?)`,
 		)
 		.bind(runId, leaseExpiresAt, leaseExpiresAt, now, botId, now)
@@ -608,8 +616,9 @@ export async function releaseRuntimeRun(
 			// would resurrect a schedule for a disabled row — and, because unpausing
 			// keeps an existing next_due_at, would leave the participant waiting out
 			// a stale interval instead of becoming due immediately. Deciding this in
-			// SQL keeps the check and the write in one atomic statement, exactly as
-			// claimRuntimeRun does.
+			// SQL keeps the check and the write in one atomic statement, the same way
+			// claimRuntimeRun decides admission inside its WHERE. The status columns
+			// stay unconditional: a pause must not strand a finished run as running.
 			`UPDATE bot_runtime_index
 			 SET status = ?,
 			     active_run_id = NULL,
@@ -1982,7 +1991,15 @@ export class BotRuntime {
 			const leaseExpiresAt = new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString();
 			const claimed = await claimRuntimeRun(this.env.BICKR_D1, bot.id, runId, leaseExpiresAt, now);
 			if (!claimed) {
-				return { admitted: false, result: this.busyTickResult(await this.readStatus(botId), trigger, options) };
+				// The claim refuses both a live run and a paused participant, so the
+				// caller-facing answer comes from re-running the guards above against
+				// the row as it stands now. A live run still wins: a spotlight request
+				// has to be queued onto it rather than told the participant is paused.
+				const refused = await this.readStatus(botId);
+				if (refused.status !== 'running' && !refused.enabled) {
+					return { admitted: false, result: pausedTickResult() };
+				}
+				return { admitted: false, result: this.busyTickResult(refused, trigger, options) };
 			}
 
 			const abortController = new AbortController();
