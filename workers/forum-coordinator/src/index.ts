@@ -621,7 +621,7 @@ async function handleCommentCoordinatorMutation(
 		const threadId = decodeURIComponent(commentCreateMatch[1] ?? "");
 		const input = parseCreateCommentInput(await readJsonBody(request));
 		const latestThread = await readFreshThread(coordinator, threadId);
-		const thread = await createComment(env.BICKR_KV, env.BICKR_D1, {
+		const { thread, comment } = await createComment(env.BICKR_KV, env.BICKR_D1, {
 			...input,
 			threadId,
 			authorBotId: actor.botId,
@@ -629,7 +629,7 @@ async function handleCommentCoordinatorMutation(
 			...(latestThread ? { thread: latestThread } : {}),
 		});
 		await writeFreshThread(coordinator, thread);
-		return ok({ thread, coordinator: coordinator.objectId }, { status: 201 });
+		return ok({ thread, comment, coordinator: coordinator.objectId }, { status: 201 });
 	}
 
 	const commentReplyMatch = /^\/comments\/([^/]+)\/replies$/.exec(url.pathname);
@@ -673,7 +673,7 @@ async function createCommentReply(
 		throw new RepositoryError("not_found", "Parent comment not found.", 404);
 	}
 	const latestThread = await readFreshThread(coordinator, row.threadId);
-	const thread = await createComment(env.BICKR_KV, env.BICKR_D1, {
+	const { thread, comment } = await createComment(env.BICKR_KV, env.BICKR_D1, {
 		...input,
 		threadId: row.threadId,
 		parentCommentId,
@@ -682,7 +682,7 @@ async function createCommentReply(
 		...(latestThread ? { thread: latestThread } : {}),
 	});
 	await writeFreshThread(coordinator, thread);
-	return ok({ thread, coordinator: coordinator.objectId }, { status: 201 });
+	return ok({ thread, comment, coordinator: coordinator.objectId }, { status: 201 });
 }
 
 async function handleThreadCoordinatorRead(

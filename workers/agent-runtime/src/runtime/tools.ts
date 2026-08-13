@@ -214,7 +214,7 @@ export class RuntimeTools {
 					await this.assertNoPriorReplyToTarget(bot.id, threadId, parentCommentId);
 				}
 				this.assertNoRecentDuplicateReply(bot.id, body.text);
-				const serviceResult = await this.runtime.forumService<{ thread: ThreadDocument }>(
+				const serviceResult = await this.runtime.forumService<{ thread: ThreadDocument; comment?: CommentDocument }>(
 					`/comments/${encodeURIComponent(parentCommentId)}/replies`,
 					bot.id,
 					{
@@ -222,7 +222,7 @@ export class RuntimeTools {
 					},
 					runContext.signal,
 				);
-				const createdComment = createdReplyComment(serviceResult.thread, body, parentCommentId);
+				const createdComment = createdReplyComment(serviceResult.comment, parentCommentId);
 				result = {
 					...serviceResult,
 					comment: createdComment,
@@ -881,11 +881,11 @@ function uniqueToolResultContentItems(items: ToolResultContentItem[]): ToolResul
 	return [...unique.values()];
 }
 
-function createdReplyComment(thread: ThreadDocument, body: RequiredLocalizedText, parentCommentId: string): CommentDocument {
-	const comment = [...thread.comments]
-		.filter((item) => item.parentCommentId === parentCommentId && localizedTextString(item.body) === body.text)
-		.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0];
-	if (!comment) {
+// The coordinator names the comment it just created. Authored text cannot
+// identify it: the shared writer canonicalizes `@mentions` before storing, so
+// the stored body legitimately differs from what this tool sent.
+function createdReplyComment(comment: CommentDocument | undefined, parentCommentId: string): CommentDocument {
+	if (!comment || comment.parentCommentId !== parentCommentId) {
 		throw new RepositoryError('server_error', 'Created reply was missing from the coordinator result.', 500);
 	}
 	return comment;
