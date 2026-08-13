@@ -5,6 +5,7 @@ import type {
 } from "@bickr/shared/inference-configuration";
 import type {
 	InferenceConfigurationPathEntry,
+	RedactedInferenceFieldDto,
 	RedactedInferenceFieldDtoMap,
 } from "@bickr/shared/inference-configuration-owner";
 import {
@@ -17,6 +18,7 @@ import {
 	explicitStatesForField,
 	fieldValueText,
 	inferenceEditorFields,
+	inferenceFieldPresentation,
 	inferenceFieldLabels,
 	modeCheckboxDomState,
 	nextBooleanCycleState,
@@ -35,14 +37,24 @@ const path: InferenceConfigurationPathEntry[] = [
 ];
 
 function fields(overrides: Partial<Record<InferenceConfigurationField, InferenceOverrideUpdate<InferenceConfigurationField>>> = {}): RedactedInferenceFieldDtoMap {
-	return Object.fromEntries(
-		inferenceEditorFields.map((field) => [field, {
+	const result = {} as RedactedInferenceFieldDtoMap;
+	for (const field of inferenceEditorFields) {
+		setField(result, field, {
 			override: overrides[field] ?? { kind: "inherit" },
 			effective: null,
-			source: { kind: "bickr_default" },
+			provenance: { kind: "unset" },
 			adjustment: null,
-		}]),
-	) as RedactedInferenceFieldDtoMap;
+		});
+	}
+	return result;
+}
+
+function setField<K extends InferenceConfigurationField>(
+	fields: RedactedInferenceFieldDtoMap,
+	field: K,
+	dto: RedactedInferenceFieldDto<K>,
+): void {
+	Object.assign(fields, { [field]: dto });
 }
 
 describe("boolean inheritance cycle", () => {
@@ -251,6 +263,10 @@ describe("provenance and effective text", () => {
 		expect(
 			effectiveValueText("compactionReasoning", {
 				kind: "refused",
+				decision: {
+					kind: "configuration",
+					request: { kind: "explicit_effort", effort: "high" },
+				},
 				refusal: { kind: "support_unknown_for_required_effort", requiredEffort: "high" },
 				provenance: {
 					configuration: { kind: "explicit_effort", effort: "high" },
@@ -263,5 +279,68 @@ describe("provenance and effective text", () => {
 				},
 			}),
 		).toBe("refused by provider policy");
+	});
+
+	it("uses one typed presentation for unset model-default compaction status, inherit option, and announcement", () => {
+		const resolution = {
+			kind: "selected",
+			decision: {
+				kind: "model_default",
+				modelDefault: { kind: "explicit_effort", effort: "high" },
+			},
+			selection: { kind: "explicit_effort", effort: "high" },
+			runtimeFallback: { kind: "none" },
+			provenance: {
+				configuration: null,
+				modelDefault: { kind: "explicit_effort", effort: "high" },
+				safetyFloor: { kind: "explicit_effort", effort: "low" },
+				learnedFloor: null,
+				baselineSelection: { kind: "explicit_effort", effort: "high" },
+				support: "known",
+				policySource: "openrouter_semantic_override",
+			},
+		} as const;
+		const presentation = inferenceFieldPresentation("compactionReasoning", {
+			override: { kind: "inherit" },
+			effective: resolution,
+			provenance: { kind: "unset" },
+			adjustment: { kind: "compaction_policy", resolution },
+		}, path);
+
+		expect(presentation).toEqual({
+			status: "Configuration unset; no configuration or Bickr default sets this field. Applied high from the model default.",
+			inheritOption: "Inherit — Configuration unset; no configuration or Bickr default sets this field. Applied high from the model default.",
+			inheritAnnouncement: "Compaction reasoning inherits: Configuration unset; no configuration or Bickr default sets this field. Applied high from the model default.",
+		});
+		expect(presentation.status).not.toContain("from Bickr defaults");
+	});
+
+	it("presents an inherited configured request separately from a learned-floor outcome", () => {
+		const resolution = {
+			kind: "selected",
+			decision: { kind: "learned_floor", floor: { kind: "explicit_effort", effort: "high" } },
+			selection: { kind: "explicit_effort", effort: "high" },
+			runtimeFallback: { kind: "none" },
+			provenance: {
+				configuration: { kind: "explicit_effort", effort: "low" },
+				modelDefault: { kind: "absent" },
+				safetyFloor: { kind: "reasoning_disabled" },
+				learnedFloor: { kind: "explicit_effort", effort: "high" },
+				baselineSelection: { kind: "reasoning_disabled" },
+				support: "known",
+				policySource: "custom_provider",
+			},
+		} as const;
+		expect(inferenceFieldPresentation("compactionReasoning", {
+			override: { kind: "inherit" },
+			effective: resolution,
+			provenance: {
+				kind: "configured",
+				source: { kind: "account_default", configurationId: "cfg_root", depth: 2 },
+			},
+			adjustment: { kind: "compaction_policy", resolution },
+		}, path).status).toBe(
+			"Configured low from Account default. Applied high from the learned runtime floor.",
+		);
 	});
 });

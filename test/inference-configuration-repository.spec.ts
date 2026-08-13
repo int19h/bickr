@@ -124,7 +124,7 @@ describe("inference configuration D1 repository", () => {
 		expect(dto.fields.imageModel).toMatchObject({
 			override: { kind: "value", value: historicalModel },
 			effective: historicalModel,
-			source: { kind: "bickr_default" },
+			provenance: { kind: "configured", source: { kind: "bickr_default" } },
 		});
 		expect(dto.imagePreviews.participant.model).toBe(historicalModel);
 

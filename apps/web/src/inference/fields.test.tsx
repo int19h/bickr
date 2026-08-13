@@ -26,7 +26,10 @@ function dto(overrides: Partial<RedactedInferenceFieldDto<InferenceConfiguration
 	return {
 		override: { kind: "inherit" },
 		effective: null,
-		source: { kind: "account_default", configurationId: "cfg_root", depth: 1 },
+		provenance: {
+			kind: "configured",
+			source: { kind: "account_default", configurationId: "cfg_root", depth: 1 },
+		},
 		adjustment: null,
 		...overrides,
 	};
@@ -211,6 +214,7 @@ describe("text and number inheritance controls", () => {
 	it("shows a raised compaction request beside its effective value and source", () => {
 		const resolution = {
 			kind: "selected",
+			decision: { kind: "safety_floor", floor: { kind: "explicit_effort", effort: "xhigh" } },
 			selection: { kind: "explicit_effort", effort: "xhigh" },
 			runtimeFallback: { kind: "none" },
 			provenance: {
@@ -226,10 +230,53 @@ describe("text and number inheritance controls", () => {
 		const html = render(
 			"compactionReasoning",
 			{ mode: "explicit", state: "value", text: "high" },
-			dto({ effective: resolution, adjustment: { kind: "compaction_policy", resolution } }),
+			dto({
+				effective: resolution,
+				provenance: {
+					kind: "configured",
+					source: { kind: "account_default", configurationId: "cfg_root", depth: 1 },
+				},
+				adjustment: { kind: "compaction_policy", resolution },
+			}),
 		);
-		expect(html).toContain("Effective xhigh from Account default");
-		expect(html).toContain("Requested high; compaction policy applies xhigh because of the safety floor.");
+		expect(html).toContain("Configured high from Account default. Applied xhigh from the safety floor.");
+		expect(html).toContain("Inherit — Configured high from Account default. Applied xhigh from the safety floor.");
+		expect(html).not.toContain("Requested high; compaction policy applies");
+	});
+
+	it("renders unset configuration and model-default policy attribution in both compaction locations", () => {
+		const resolution = {
+			kind: "selected",
+			decision: {
+				kind: "model_default",
+				modelDefault: { kind: "explicit_effort", effort: "high" },
+			},
+			selection: { kind: "explicit_effort", effort: "high" },
+			runtimeFallback: { kind: "none" },
+			provenance: {
+				configuration: null,
+				modelDefault: { kind: "explicit_effort", effort: "high" },
+				safetyFloor: { kind: "explicit_effort", effort: "low" },
+				learnedFloor: null,
+				baselineSelection: { kind: "explicit_effort", effort: "high" },
+				support: "known",
+				policySource: "openrouter_semantic_override",
+			},
+		} as const;
+		const html = render(
+			"compactionReasoning",
+			{ mode: "inherit" },
+			dto({
+				effective: resolution,
+				provenance: { kind: "unset" },
+				adjustment: { kind: "compaction_policy", resolution },
+			}),
+		);
+		const presentation = "Configuration unset; no configuration or Bickr default sets this field. Applied high from the model default.";
+		expect(html).toContain(presentation);
+		expect(html).toContain(`Inherit — ${presentation}`);
+		expect(html).toContain('aria-live="polite"');
+		expect(html).not.toContain("from Bickr defaults");
 	});
 });
 

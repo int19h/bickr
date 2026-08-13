@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
 	applyInferenceOverridePatch,
 	assertInferenceOverridesAllowedForKind,
+	defaultBickrInferenceDefaults,
+	inferenceFieldAnnotations,
 	inferenceResolutionFingerprint,
 	ownerInferenceOverride,
 	parseInferenceConfigurationOverridePatch,
@@ -35,7 +37,10 @@ describe("canonical inference configuration resolution", () => {
 		expect(resolution.raw.temperature).toMatchObject({
 			state: "value",
 			value: 0,
-			source: { kind: "configuration", configurationId: selected.id, depth: 0 },
+			provenance: {
+				kind: "configured",
+				source: { kind: "configuration", configurationId: selected.id, depth: 0 },
+			},
 			override: { kind: "value", value: 0 },
 		});
 		expect(resolution.raw.supportsPrefill).toMatchObject({ state: "value", value: false });
@@ -66,6 +71,73 @@ describe("canonical inference configuration resolution", () => {
 		});
 	});
 
+	it("keeps an unset global compaction request distinct from a high model-default decision", () => {
+		expect(defaultBickrInferenceDefaults.fields).not.toHaveProperty("compactionReasoning");
+		const account = node("account", "account_default", null, {});
+		const defaults = {
+			...defaultBickrInferenceDefaults,
+			fields: {
+				...defaultBickrInferenceDefaults.fields,
+				model: "deepseek/deepseek-v4-flash-0731",
+			},
+		};
+		const resolution = resolveInferenceConfiguration([account], { defaults });
+
+		expect(resolution.raw.compactionReasoning).toEqual({
+			state: "absent",
+			provenance: { kind: "unset" },
+			override: null,
+		});
+		expect(resolution.effective.compactionReasoning).toMatchObject({
+			kind: "selected",
+			decision: {
+				kind: "model_default",
+				modelDefault: { kind: "explicit_effort", effort: "high" },
+			},
+			selection: { kind: "explicit_effort", effort: "high" },
+			provenance: { configuration: null },
+		});
+		expect(inferenceFieldAnnotations(account.overrides, resolution).compactionReasoning).toMatchObject({
+			provenance: { kind: "unset" },
+			effective: {
+				kind: "selected",
+				decision: { kind: "model_default" },
+				selection: { kind: "explicit_effort", effort: "high" },
+			},
+		});
+	});
+
+	it("keeps an inherited compaction request source separate from the applied policy decision", () => {
+		const account = node("account", "account_default", null, {
+			compactionReasoning: value({ kind: "explicit_effort", effort: "low" }),
+		});
+		const selected = node("selected", "custom", account.id, {});
+		const resolution = resolveInferenceConfiguration([selected, account], {
+			defaults: {
+				...defaultBickrInferenceDefaults,
+				fields: {
+					...defaultBickrInferenceDefaults.fields,
+					model: "deepseek/deepseek-v4-flash-0731",
+				},
+			},
+		});
+
+		expect(resolution.raw.compactionReasoning).toMatchObject({
+			state: "value",
+			value: { kind: "explicit_effort", effort: "low" },
+			provenance: {
+				kind: "configured",
+				source: { kind: "account_default", configurationId: account.id, depth: 1 },
+			},
+		});
+		expect(resolution.effective.compactionReasoning).toMatchObject({
+			kind: "selected",
+			decision: { kind: "model_default" },
+			selection: { kind: "explicit_effort", effort: "high" },
+			provenance: { configuration: { kind: "explicit_effort", effort: "low" } },
+		});
+	});
+
 	it("falls back from an unauthorized explicit model without mutating raw intent", () => {
 		const account = node("account", "account_default", null, {});
 		const selected = node("selected", "custom", account.id, {
@@ -76,7 +148,10 @@ describe("canonical inference configuration resolution", () => {
 		expect(resolution.raw.model).toMatchObject({
 			state: "value",
 			value: "openai/gpt-4.1",
-			source: { kind: "configuration", configurationId: selected.id },
+			provenance: {
+				kind: "configured",
+				source: { kind: "configuration", configurationId: selected.id },
+			},
 		});
 		expect(resolution.effective.model).toBe("openrouter/free");
 		expect(resolution.providerAuthorizationAdjustment).toMatchObject({
@@ -99,7 +174,10 @@ describe("canonical inference configuration resolution", () => {
 		expect(resolution.raw.model).toMatchObject({
 			state: "value",
 			value: "owner/child-model",
-			source: { kind: "configuration", configurationId: "child" },
+			provenance: {
+				kind: "configured",
+				source: { kind: "configuration", configurationId: "child" },
+			},
 		});
 		expect(resolution.effective.model).toBe(defaultProviderModel);
 		expect(resolution.providerAuthorizationAdjustment).toMatchObject({
@@ -259,7 +337,7 @@ describe("canonical inference configuration resolution", () => {
 		expect(resolution.raw.imageModel).toMatchObject({
 			state: "value",
 			value: historicalModel,
-			source: { kind: "bickr_default" },
+			provenance: { kind: "configured", source: { kind: "bickr_default" } },
 			override: { kind: "historical_bickr_default", value: historicalModel },
 		});
 		expect(resolveImageSettingsForTarget(resolution.effective.image, "participant").model).toBe(historicalModel);
@@ -342,7 +420,7 @@ describe("canonical inference configuration resolution", () => {
 		expect(resolution.raw.baseUrl).toMatchObject({
 			state: "value",
 			value: "https://deployment.example/v1",
-			source: { kind: "bickr_default" },
+			provenance: { kind: "configured", source: { kind: "bickr_default" } },
 			override: null,
 		});
 		expect(resolution.effective.credential).toMatchObject({
@@ -377,7 +455,10 @@ describe("canonical inference configuration resolution", () => {
 		const resolution = resolveInferenceConfiguration([clone, source, account], { defaults: deploymentDefaults });
 
 		expect(resolution.effective.baseUrl).toBe("https://account.example/v1");
-		expect(resolution.raw.baseUrl.source).toMatchObject({ kind: "account_default", configurationId: account.id });
+		expect(resolution.raw.baseUrl.provenance).toMatchObject({
+			kind: "configured",
+			source: { kind: "account_default", configurationId: account.id },
+		});
 		expect(resolution.effective.credential).toMatchObject({
 			kind: "unavailable",
 			reason: "deployment_credential_suppressed_for_owner_base_url",

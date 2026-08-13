@@ -1,11 +1,14 @@
-import type {
-	CompactionReasoningResolution,
-	CompactionReasoningSelection,
+import {
+	isCompactionReasoningResolution,
+	type CompactionReasoningDecisionProvenance,
+	type CompactionReasoningResolution,
+	type CompactionReasoningSelection,
 } from "@bickr/shared/openrouter-model-capabilities";
 import type {
 	InferenceConfigurationField,
 	InferenceConfigurationOverridePatch,
 	InferenceFieldAdjustment,
+	InferenceFieldProvenance,
 	InferenceOverrideUpdate,
 	InferenceSource,
 } from "@bickr/shared/inference-configuration";
@@ -14,6 +17,7 @@ import {
 	numericInferenceFieldDomains,
 	type InferenceConfigurationPathEntry,
 	type NumericInferenceFieldDomain,
+	type RedactedInferenceFieldDto,
 	type RedactedInferenceFieldDtoMap,
 } from "@bickr/shared/inference-configuration-owner";
 
@@ -360,9 +364,63 @@ export function sourceLabel(source: InferenceSource, path: readonly InferenceCon
 	return source.depth === 0 ? `${name} (set here)` : name;
 }
 
+export type InferenceFieldPresentation = {
+	status: string;
+	inheritOption: string;
+	inheritAnnouncement: string;
+};
+
+/**
+ * One presentation owns the visible status, enum inherit option, and live
+ * announcement. Compaction reasoning receives a two-part presentation because
+ * its configured request and its applied policy outcome have independent
+ * provenance.
+ */
+export function inferenceFieldPresentation<K extends InferenceConfigurationField>(
+	field: K,
+	dto: RedactedInferenceFieldDto<K>,
+	path: readonly InferenceConfigurationPathEntry[],
+	label: string = inferenceFieldLabels[field],
+): InferenceFieldPresentation {
+	let status: string;
+	let inheritedDescription: string;
+	if (field === "compactionReasoning" && isCompactionReasoningResolution(dto.effective)) {
+		status = compactionReasoningPresentation(dto.provenance, dto.effective, path);
+		inheritedDescription = status;
+	} else if (dto.provenance.kind === "unset") {
+		status = "No configured value; no configuration or Bickr default sets this field.";
+		inheritedDescription = status;
+	} else {
+		inheritedDescription = `${effectiveValueText(field, dto.effective)} from ${sourceLabel(dto.provenance.source, path)}`;
+		status = `Effective ${inheritedDescription}`;
+	}
+	return {
+		status,
+		inheritOption: `Inherit — ${inheritedDescription}`,
+		inheritAnnouncement: `${label} inherits: ${status}`,
+	};
+}
+
+function compactionReasoningPresentation(
+	provenance: InferenceFieldProvenance,
+	resolution: CompactionReasoningResolution,
+	path: readonly InferenceConfigurationPathEntry[],
+): string {
+	const configured = resolution.provenance.configuration;
+	const raw = provenance.kind === "unset"
+		? "Configuration unset; no configuration or Bickr default sets this field."
+		: configured
+			? `Configured ${compactionSelectionText(configured)} from ${sourceLabel(provenance.source, path)}.`
+			: `Configured request unavailable from ${sourceLabel(provenance.source, path)}.`;
+	if (resolution.kind === "refused") {
+		return `${raw} Compaction policy refuses the request; controlling input is ${compactionDecisionText(resolution.decision)}.`;
+	}
+	return `${raw} Applied ${compactionSelectionText(resolution.selection)} from ${compactionDecisionText(resolution.decision)}.`;
+}
+
 export function effectiveValueText(field: InferenceConfigurationField, effective: unknown): string {
 	if (field === "compactionReasoning") {
-		return compactionReasoningEffectiveText(effective as CompactionReasoningResolution);
+		return compactionReasoningEffectiveText(isCompactionReasoningResolution(effective) ? effective : undefined);
 	}
 	if (effective === null || effective === undefined) return "no value";
 	const control = inferenceFieldControl(field);
@@ -412,52 +470,19 @@ export function adjustmentText(field: InferenceConfigurationField, adjustment: I
 			return `Requested ${effectiveValueText(field, adjustment.requested)}; this model or provider uses ${effectiveValueText(field, adjustment.effective)}.`;
 		case "compaction_policy": {
 			const resolution = adjustment.resolution;
-			if (resolution.kind === "refused") return compactionRefusalText(resolution);
-			const requested = resolution.provenance.configuration;
-			if (!requested || compactionSelectionsMatch(requested, resolution.selection)) return null;
-			return `Requested ${compactionRequestedText(resolution)}; compaction policy applies ${compactionSelectionText(resolution.selection)} because of ${compactionPolicyContributors(resolution)}.`;
+			return resolution.kind === "refused" ? compactionRefusalText(resolution) : null;
 		}
 	}
 }
 
-/** Requested value for compaction reasoning, independent of the applied policy. */
-export function compactionRequestedText(resolution: CompactionReasoningResolution): string {
-	const configuration = resolution.provenance.configuration;
-	return configuration ? compactionSelectionText(configuration as CompactionReasoningSelection) : "not requested";
-}
-
-function compactionSelectionsMatch(
-	requested: CompactionReasoningSelection,
-	effective: CompactionReasoningSelection,
-): boolean {
-	if (requested.kind !== effective.kind) return false;
-	return requested.kind !== "explicit_effort" ||
-		(effective.kind === "explicit_effort" && requested.effort === effective.effort);
-}
-
-function compactionPolicyContributors(
-	resolution: Extract<CompactionReasoningResolution, { kind: "selected" }>,
-): string {
-	const contributors: string[] = [];
-	const { provenance, selection } = resolution;
-	if (compactionSelectionsMatch(provenance.safetyFloor, selection)) contributors.push("the safety floor");
-	if (provenance.learnedFloor && compactionSelectionsMatch(provenance.learnedFloor, selection)) {
-		contributors.push("the learned runtime floor");
+export function compactionDecisionText(decision: CompactionReasoningDecisionProvenance): string {
+	switch (decision.kind) {
+		case "configuration": return "the configured request";
+		case "model_default": return "the model default";
+		case "safety_floor": return "the safety floor";
+		case "learned_floor": return "the learned runtime floor";
+		case "baseline": return "the model or provider policy baseline";
 	}
-	if (
-		(provenance.modelDefault.kind === "explicit_effort" &&
-			selection.kind === "explicit_effort" &&
-			provenance.modelDefault.effort === selection.effort) ||
-		(provenance.modelDefault.kind === "provider_default" && selection.kind === "model_default")
-	) {
-		contributors.push("the model default");
-	}
-	if (contributors.length === 0 && compactionSelectionsMatch(provenance.baselineSelection, selection)) {
-		contributors.push("the model or provider policy");
-	}
-	if (contributors.length === 0) return "the policy floor and supported effort levels";
-	if (contributors.length === 1) return contributors[0] ?? "the compaction policy";
-	return `${contributors.slice(0, -1).join(", ")} and ${contributors.at(-1)}`;
 }
 
 /**

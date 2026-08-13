@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	compactionReasoningCapabilitiesForModel,
 	compactionReasoningPolicyForModel,
+	isCompactionReasoningResolution,
 	openRouterFreeModel,
 	openRouterModelCapabilities,
 	openRouterModelPolicy,
@@ -111,6 +112,7 @@ describe("canonical compaction reasoning resolution", () => {
 
 		expect(resolution).toMatchObject({
 			kind: "selected",
+			decision: { kind: "configuration", request: { kind: "explicit_effort", effort } },
 			selection: { kind: "explicit_effort", effort },
 			provenance: {
 				configuration: { kind: "explicit_effort", effort },
@@ -152,6 +154,20 @@ describe("canonical compaction reasoning resolution", () => {
 				runtimeFallback: policy.runtimeFallback,
 			});
 		}
+	});
+
+	it("attributes an unchanged permissive policy outcome to its baseline", () => {
+		const resolution = resolveCompactionReasoningSelection({
+			policy: disabledBaselinePolicy(),
+			capabilities: knownCapabilities(),
+		});
+		expect(resolution).toMatchObject({
+			kind: "selected",
+			decision: { kind: "baseline", selection: { kind: "reasoning_disabled" } },
+			selection: { kind: "reasoning_disabled" },
+		});
+		expect(isCompactionReasoningResolution(resolution)).toBe(true);
+		expect(isCompactionReasoningResolution({ ...resolution, decision: undefined })).toBe(false);
 	});
 
 	it("returns support_unknown_for_required_effort for a stronger unknown explicit requirement", () => {
@@ -249,6 +265,7 @@ describe("canonical compaction reasoning resolution", () => {
 				},
 			})).toEqual({
 				kind: "selected",
+				decision: { kind: "configuration", request: { kind: "model_default" } },
 				selection: { kind: "model_default" },
 				runtimeFallback: { kind: "none" },
 				provenance: {
@@ -272,6 +289,7 @@ describe("canonical compaction reasoning resolution", () => {
 			capabilities: compactionReasoningCapabilitiesForModel(model, true),
 		})).toEqual({
 			kind: "selected",
+			decision: { kind: "model_default", modelDefault: { kind: "absent" } },
 			selection: { kind: "model_default" },
 			runtimeFallback: { kind: "none" },
 			provenance: {
@@ -371,11 +389,35 @@ describe("canonical compaction reasoning resolution", () => {
 
 		expect(resolution).toMatchObject({
 			kind: "selected",
+			decision: {
+				kind: "model_default",
+				modelDefault: { kind: "explicit_effort", effort: "high" },
+			},
 			selection: { kind: "explicit_effort", effort: "high" },
 			provenance: {
 				configuration: { kind: "explicit_effort", effort: "minimal" },
 				safetyFloor: { kind: "explicit_effort", effort: "low" },
 			},
+		});
+	});
+
+	it("attributes a policy-raised selection to the safety floor at the resolver", () => {
+		const policy: CompactionReasoningPolicy = {
+			...disabledBaselinePolicy(),
+			floor: { kind: "explicit_effort", effort: "xhigh" },
+			selection: { kind: "explicit_effort", effort: "xhigh" },
+		};
+		expect(resolveCompactionReasoningSelection({
+			policy,
+			request: { kind: "explicit_effort", effort: "high" },
+			capabilities: {
+				support: { kind: "known", efforts: allEfforts },
+				modelDefault: { kind: "absent" },
+			},
+		})).toMatchObject({
+			kind: "selected",
+			decision: { kind: "safety_floor", floor: { kind: "explicit_effort", effort: "xhigh" } },
+			selection: { kind: "explicit_effort", effort: "xhigh" },
 		});
 	});
 
@@ -387,6 +429,7 @@ describe("canonical compaction reasoning resolution", () => {
 			learnedFloor,
 		})).toMatchObject({
 			kind: "selected",
+			decision: { kind: "learned_floor", floor: learnedFloor },
 			selection: { kind: "explicit_effort", effort: "minimal" },
 			provenance: { learnedFloor },
 		});

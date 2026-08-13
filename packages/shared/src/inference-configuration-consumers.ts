@@ -1,4 +1,5 @@
 import {
+	configuredRawInferenceFieldSource,
 	defaultBickrInferenceDefaults,
 	inferenceGraphGlobalCredentialVersion,
 	inferenceResolutionFingerprint,
@@ -219,7 +220,7 @@ export async function bickrInferenceDefaultsFromEnvironment(env: ProviderEnviron
 export function providerSettingsFromResolution(resolution: InferenceResolution): ProviderSettings {
 	const effective = resolution.effective;
 	const credential = effective.credential.kind === "available" ? effective.credential.secret : undefined;
-	const baseSource = resolution.raw.baseUrl.source;
+	const baseSource = configuredRawInferenceFieldSource(resolution.raw.baseUrl, "base URL");
 	const compactionReasoning = resolution.raw.compactionReasoning.state === "value"
 		? resolution.raw.compactionReasoning.value
 		: undefined;
@@ -265,13 +266,16 @@ export function canonicalAvatarImageSettings(
 	if (!image.model) return null;
 	const rawModel = consumer.resolution.effective.image.model;
 	const credential = consumer.resolution.effective.credential;
-	const ownerProviderAvailable = consumer.resolution.raw.baseUrl.source.kind !== "bickr_default" ||
+	const ownerProviderAvailable = configuredRawInferenceFieldSource(
+		consumer.resolution.raw.baseUrl,
+		"base URL",
+	).kind !== "bickr_default" ||
 		credential.kind === "available" && credential.source.kind !== "bickr_default";
 	// Only an owner-stored model value is gated. target_default names Bickr's own
 	// per-target default, so the configuration that stores it is the location of
 	// the intent, not the origin of the model; treating it as owner-selected
 	// would refuse image generation that the same settings always allowed.
-	const ownerSelectedModel = rawModel.state === "value" && rawModel.source.kind !== "bickr_default";
+	const ownerSelectedModel = rawModel.state === "value" && rawModel.provenance.source.kind !== "bickr_default";
 	if (ownerSelectedModel && !ownerProviderAvailable) return null;
 	const providerRouting = image.providerRouting && Object.keys(image.providerRouting).length > 0 &&
 		isOpenRouterProviderBaseUrl(consumer.providerSettings.baseUrl)

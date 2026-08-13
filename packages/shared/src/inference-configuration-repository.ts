@@ -472,7 +472,7 @@ export async function inferenceConfigurationOwnerDto(
 			return [field, {
 				override: annotation.override,
 				effective: annotation.effective,
-				source: annotation.source,
+				provenance: annotation.provenance,
 				adjustment: annotation.adjustment,
 			}];
 		})) as RedactedInferenceFieldDtoMap,

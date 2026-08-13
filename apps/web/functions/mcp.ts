@@ -2289,15 +2289,36 @@ function inferenceConfigurationFieldsOutputSchema(): Record<string, unknown> {
 				additionalProperties: true,
 			}, ["kind"]),
 			effective: {},
-			source: withRequired({
-				type: "object",
-				properties: { kind: enumSchema(["configuration", "account_default", "bickr_default"], "Effective-value source.") },
-				additionalProperties: true,
-			}, ["kind"]),
+			provenance: {
+				oneOf: [
+					withRequired({
+						type: "object",
+						properties: { kind: { const: "unset" } },
+						additionalProperties: false,
+					}, ["kind"]),
+					withRequired({
+						type: "object",
+						properties: {
+							kind: { const: "configured" },
+							source: withRequired({
+								type: "object",
+								properties: {
+									kind: enumSchema(
+										["configuration", "account_default", "bickr_default"],
+										"Configured-value source.",
+									),
+								},
+								additionalProperties: true,
+							}, ["kind"]),
+						},
+						additionalProperties: false,
+					}, ["kind", "source"]),
+				],
+			},
 			adjustment: { type: ["object", "null"], additionalProperties: true },
 		},
 		additionalProperties: false,
-	}, ["override", "effective", "source", "adjustment"]);
+	}, ["override", "effective", "provenance", "adjustment"]);
 	return withRequired({
 		type: "object",
 		propertyNames: { enum: [...inferenceConfigurationFields] },

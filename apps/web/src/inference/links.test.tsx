@@ -1,9 +1,35 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { RedactedInferenceConfigurationDto } from "@bickr/shared/inference-configuration-owner";
+import type { InferenceConfigurationField } from "@bickr/shared/inference-configuration";
+import type {
+	RedactedInferenceConfigurationDto,
+	RedactedInferenceFieldDto,
+	RedactedInferenceFieldDtoMap,
+} from "@bickr/shared/inference-configuration-owner";
 import { fixedConfigurationPath } from "./api";
 import { ConfigurationCardBody, ConfigurationLinkCard, FixedConfigurationAction } from "./links";
 import { inferenceEditorFields } from "./field-model";
+
+function fieldMap(): RedactedInferenceFieldDtoMap {
+	const result = {} as RedactedInferenceFieldDtoMap;
+	for (const field of inferenceEditorFields) {
+		setField(result, field, {
+			override: { kind: "inherit" },
+			effective: null,
+			provenance: { kind: "unset" },
+			adjustment: null,
+		});
+	}
+	return result;
+}
+
+function setField<K extends InferenceConfigurationField>(
+	fields: RedactedInferenceFieldDtoMap,
+	field: K,
+	dto: RedactedInferenceFieldDto<K>,
+): void {
+	Object.assign(fields, { [field]: dto });
+}
 
 function dto(): RedactedInferenceConfigurationDto {
 	return {
@@ -32,14 +58,7 @@ function dto(): RedactedInferenceConfigurationDto {
 			{ id: "cfg_bot", displayName: "u/scout", revision: 3, kind: "bot", identity: { kind: "bot", botId: "bot_scout", botHandle: "scout", homeWorldId: "wld_one", homeWorldHandle: "patch-notes" } },
 			{ id: "cfg_root", displayName: "Account default", revision: 7, kind: "account_default", identity: { kind: "account_default" } },
 		],
-		fields: Object.fromEntries(
-			inferenceEditorFields.map((field) => [field, {
-				override: { kind: "inherit" },
-				effective: null,
-				source: { kind: "bickr_default" },
-				adjustment: null,
-			}]),
-		) as RedactedInferenceConfigurationDto["fields"],
+		fields: fieldMap(),
 		graphRevision: 12,
 		fingerprint: "fp",
 	} as RedactedInferenceConfigurationDto;

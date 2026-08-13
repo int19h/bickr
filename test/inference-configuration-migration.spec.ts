@@ -1056,7 +1056,10 @@ describe("restartable inference graph migration", () => {
 		).settings;
 		// Deployment provenance survives the jump, so the deployment key is not
 		// suppressed and the owner-selected model is still not authorized by it.
-		expect(canonical?.resolution.raw.baseUrl.source).toEqual({ kind: "bickr_default" });
+		expect(canonical?.resolution.raw.baseUrl.provenance).toEqual({
+			kind: "configured",
+			source: { kind: "bickr_default" },
+		});
 		expect(canonical?.resolution.effective.credential).toMatchObject({
 			kind: "available",
 			source: { kind: "bickr_default" },

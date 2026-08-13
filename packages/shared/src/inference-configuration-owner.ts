@@ -13,6 +13,8 @@ import type {
 	InferenceCredentialResolution,
 	InferenceCredentialUnavailableReason,
 	InferenceFieldAdjustment,
+	InferenceFieldEffectiveValues,
+	InferenceFieldProvenance,
 	InferenceOverrideUpdate,
 	InferenceSource,
 	OwnerInferenceConfigurationOverrides,
@@ -207,8 +209,8 @@ export type RedactedInferenceCredentialResolution =
  */
 export type RedactedInferenceFieldDto<K extends InferenceConfigurationField> = {
 	override: InferenceOverrideUpdate<K>;
-	effective: unknown;
-	source: InferenceSource;
+	effective: InferenceFieldEffectiveValues[K];
+	provenance: InferenceFieldProvenance;
 	adjustment: InferenceFieldAdjustment;
 };
 

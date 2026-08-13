@@ -1709,7 +1709,7 @@ describe("MCP endpoint", () => {
 				id: "cfg_custom", kind: "custom", identity: { kind: "custom", name: "Portable" },
 				revision: 3, graphRevision: 7,
 				fields: Object.fromEntries(inferenceConfigurationFields.map((field) => [field, {
-					override: { kind: "inherit" }, effective: null, source: { kind: "bickr_default" }, adjustment: null,
+					override: { kind: "inherit" }, effective: null, provenance: { kind: "unset" }, adjustment: null,
 				}])),
 				path: [{ id: "cfg_custom", displayName: "Portable", revision: 3, kind: "custom", identity: { kind: "custom", name: "Portable" } }],
 			} },

@@ -18,6 +18,7 @@ import {
 	explicitStateLabel,
 	explicitStatesForField,
 	fieldValueText,
+	inferenceFieldPresentation,
 	inferenceFieldControl,
 	inferenceFieldLabels,
 	modeCheckboxDomState,
@@ -41,12 +42,6 @@ export type InferenceFieldProps = {
 };
 
 export type InferenceFieldSuggestion = { value: string; label?: string };
-
-/** Effective value plus its provenance, shown visually and as the description. */
-function statusText(props: InferenceFieldProps): string {
-	const effective = effectiveValueText(props.field, props.dto.effective);
-	return `Effective ${effective} from ${sourceLabel(props.dto.source, props.path)}`;
-}
 
 function useControlledCheckbox(state: CheckboxDomState) {
 	const ref = useRef<HTMLInputElement | null>(null);
@@ -110,14 +105,14 @@ function BooleanInferenceField(props: InferenceFieldProps) {
 	const domState = booleanCheckboxDomState(cycle);
 	const setCheckbox = useControlledCheckbox(domState);
 	const label = inferenceFieldLabels[props.field];
-	const status = statusText(props);
+	const presentation = inferenceFieldPresentation(props.field, props.dto, props.path, label);
 	const inheritedValue = props.dto.effective === true;
 
 	function apply(next: ReturnType<typeof nextBooleanCycleState>): void {
 		props.onChange(draftFromBooleanCycleState(next));
 		setAnnouncement(
 			next.mode === "inherit"
-				? `${label} inherits: ${status}.`
+				? presentation.inheritAnnouncement
 				: `${label} set explicitly to ${next.value ? "on" : "off"}.`,
 		);
 	}
@@ -153,7 +148,7 @@ function BooleanInferenceField(props: InferenceFieldProps) {
 					</button>
 				</div>
 			}
-			status={status}
+			status={presentation.status}
 			statusId={statusId}
 		>
 			<span aria-live="polite" className="sr-only">{announcement}</span>
@@ -164,8 +159,9 @@ function BooleanInferenceField(props: InferenceFieldProps) {
 function EnumInferenceField(props: InferenceFieldProps & { options: readonly { value: string; label: string }[] }) {
 	const inputId = useId();
 	const statusId = useId();
+	const [announcement, setAnnouncement] = useState("");
 	const label = inferenceFieldLabels[props.field];
-	const status = statusText(props);
+	const presentation = inferenceFieldPresentation(props.field, props.dto, props.path, label);
 	const selected = props.draft.mode === "explicit" && props.draft.state === "value" ? props.draft.text : "";
 	return (
 		<FieldShell
@@ -177,30 +173,35 @@ function EnumInferenceField(props: InferenceFieldProps & { options: readonly { v
 					<label htmlFor={inputId}>{label}</label>
 				</div>
 			}
-			status={status}
+			status={presentation.status}
 			statusId={statusId}
 		>
 			<select
 				aria-describedby={statusId}
 				className="input"
 				id={inputId}
-				onChange={(event) =>
+				onChange={(event) => {
+					const value = event.target.value;
 					props.onChange(
-						event.target.value === ""
+						value === ""
 							? { mode: "inherit" }
-							: { mode: "explicit", state: "value", text: event.target.value },
-					)
-				}
+							: { mode: "explicit", state: "value", text: value },
+					);
+					setAnnouncement(value === ""
+						? presentation.inheritAnnouncement
+						: `${label} set explicitly to ${props.options.find((option) => option.value === value)?.label ?? value}.`);
+				}}
 				value={selected}
 			>
 				<option value="">
-					{`Inherit — ${effectiveValueText(props.field, props.dto.effective)} from ${sourceLabel(props.dto.source, props.path)}`}
+					{presentation.inheritOption}
 				</option>
 				<option disabled value="__separator">──────────</option>
 				{props.options.map((option) => (
 					<option key={option.value} value={option.value}>{option.label}</option>
 				))}
 			</select>
+			<span aria-live="polite" className="sr-only">{announcement}</span>
 		</FieldShell>
 	);
 }
@@ -216,7 +217,7 @@ function TextualInferenceField(
 	const stateId = useId();
 	const listId = useId();
 	const label = inferenceFieldLabels[props.field];
-	const status = statusText(props);
+	const presentation = inferenceFieldPresentation(props.field, props.dto, props.path, label);
 	const draft = props.draft;
 	const explicit = draft.mode === "explicit";
 	const states = explicitStatesForField(props.field, props.isAccountDefault);
@@ -267,7 +268,7 @@ function TextualInferenceField(
 					)}
 				</div>
 			}
-			status={status}
+			status={presentation.status}
 			statusId={statusId}
 		>
 			{props.multiline ? (

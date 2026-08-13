@@ -205,24 +205,33 @@ export type InferenceSource =
 	| { kind: "account_default"; configurationId: string; depth: number }
 	| { kind: "bickr_default" };
 
+/**
+ * Raw configuration provenance is intentionally distinct from runtime policy
+ * provenance. An unset field has no source; assigning Bickr as its source
+ * would falsely claim that Bickr supplied a value.
+ */
+export type InferenceFieldProvenance =
+	| { kind: "unset" }
+	| { kind: "configured"; source: InferenceSource };
+
 export type ResolvedRawInferenceField<K extends InferenceConfigurationField> =
 	| {
 			state: "value";
 			value: InferenceConfigurationFieldValues[K];
-			source: InferenceSource;
+			provenance: Extract<InferenceFieldProvenance, { kind: "configured" }>;
 			override: StoredInferenceOverride<K> | null;
 	  }
 	| {
 			state: "explicit_none";
-			source: InferenceSource;
+			provenance: Extract<InferenceFieldProvenance, { kind: "configured" }>;
 			override: Extract<StoredInferenceOverride<K>, { kind: "explicit_none" }>;
 	  }
 	| {
 			state: "target_default";
-			source: InferenceSource;
+			provenance: Extract<InferenceFieldProvenance, { kind: "configured" }>;
 			override: Extract<StoredInferenceOverride<K>, { kind: "target_default" }>;
 	  }
-	| { state: "absent"; source: { kind: "bickr_default" }; override: null };
+	| { state: "absent"; provenance: Extract<InferenceFieldProvenance, { kind: "unset" }>; override: null };
 
 export type ResolvedRawInferenceFields = {
 	[K in InferenceConfigurationField]: ResolvedRawInferenceField<K>;
@@ -298,14 +307,46 @@ export type InferenceFieldAdjustment =
 	| { kind: "capability_adjustment"; requested: unknown; effective: unknown }
 	| { kind: "compaction_policy"; resolution: CompactionReasoningResolution };
 
-export type InferenceFieldAnnotation = {
-	override: InferenceOverrideUpdate<InferenceConfigurationField>;
-	effective: unknown;
-	source: InferenceSource;
+export type InferenceFieldEffectiveValues = {
+	baseUrl: string;
+	model: string;
+	providerRouting: JsonObject | null;
+	reasoning: Exclude<BotInferenceReasoningEffort, "default"> | null;
+	compactionReasoning: CompactionReasoningResolution;
+	toolCalls: BotInferenceToolCalls;
+	compactionMode: BotCompactionMode;
+	promptCacheMode: BotPromptCacheMode;
+	supportsPrefill: boolean;
+	temperature: number;
+	topK: number | null;
+	topP: number | null;
+	minP: number | null;
+	frequencyPenalty: number | null;
+	presencePenalty: number | null;
+	repetitionPenalty: number | null;
+	imageModel: string | null;
+	imageProviderRouting: JsonObject | null;
+	imageAspectRatio: string | null;
+	imageSize: string | null;
+	imageTemperature: number | null;
+	imageTopK: number | null;
+	imageTopP: number | null;
+	imageMinP: number | null;
+	imageFrequencyPenalty: number | null;
+	imagePresencePenalty: number | null;
+	imageRepetitionPenalty: number | null;
+};
+
+export type InferenceFieldAnnotation<K extends InferenceConfigurationField> = {
+	override: InferenceOverrideUpdate<K>;
+	effective: InferenceFieldEffectiveValues[K];
+	provenance: InferenceFieldProvenance;
 	adjustment: InferenceFieldAdjustment;
 };
 
-export type InferenceFieldAnnotationMap = Record<InferenceConfigurationField, InferenceFieldAnnotation>;
+export type InferenceFieldAnnotationMap = {
+	[K in InferenceConfigurationField]: InferenceFieldAnnotation<K>;
+};
 
 export type BickrInferenceDefaults = {
 	fields: Partial<InferenceConfigurationFieldValues> & Pick<InferenceConfigurationFieldValues, "baseUrl" | "model" | "temperature">;
@@ -645,13 +686,14 @@ export function inferenceFieldAnnotations(
 	selectedOverrides: InferenceConfigurationOverrides,
 	resolution: InferenceResolution,
 ): InferenceFieldAnnotationMap {
+	const effectiveFields = effectiveInferenceFields(resolution);
 	return Object.fromEntries(inferenceConfigurationFields.map((field) => {
-		const raw = resolution.raw[field] as AnyResolvedRawInferenceField;
-		const effective = effectiveInferenceField(resolution, field);
+		const raw = resolution.raw[field];
+		const effective = effectiveFields[field];
 		return [field, {
 			override: ownerInferenceOverride(selectedOverrides[field]),
 			effective,
-			source: raw.source,
+			provenance: raw.provenance,
 			adjustment: inferenceFieldAdjustment(resolution, field, raw, effective),
 		}];
 	})) as InferenceFieldAnnotationMap;
@@ -676,39 +718,41 @@ export function ownerInferenceConfigurationOverrides(
 	})) as OwnerInferenceConfigurationOverrides;
 }
 
-function effectiveInferenceField(resolution: InferenceResolution, field: InferenceConfigurationField): unknown {
-	switch (field) {
-		case "baseUrl": return resolution.effective.baseUrl;
-		case "model": return resolution.effective.model;
-		case "providerRouting": return resolution.effective.providerRouting ?? null;
-		case "reasoning": return resolution.effective.reasoningEffort ?? null;
-		case "compactionReasoning": return resolution.effective.compactionReasoning;
-		case "toolCalls": return resolution.effective.toolCalls;
-		case "compactionMode": return resolution.effective.compactionMode;
-		case "promptCacheMode": return resolution.effective.promptCacheMode;
-		case "supportsPrefill": return resolution.effective.supportsPrefill;
-		case "temperature": return resolution.effective.temperature;
-		case "topK": return resolution.effective.topK ?? null;
-		case "topP": return resolution.effective.topP ?? null;
-		case "minP": return resolution.effective.minP ?? null;
-		case "frequencyPenalty": return resolution.effective.frequencyPenalty ?? null;
-		case "presencePenalty": return resolution.effective.presencePenalty ?? null;
-		case "repetitionPenalty": return resolution.effective.repetitionPenalty ?? null;
-		case "imageModel": return rawEffectiveValue(resolution.raw.imageModel);
-		case "imageProviderRouting": return rawEffectiveValue(resolution.raw.imageProviderRouting);
-		case "imageAspectRatio": return rawEffectiveValue(resolution.raw.imageAspectRatio);
-		case "imageSize": return rawEffectiveValue(resolution.raw.imageSize);
-		case "imageTemperature": return rawEffectiveValue(resolution.raw.imageTemperature);
-		case "imageTopK": return rawEffectiveValue(resolution.raw.imageTopK);
-		case "imageTopP": return rawEffectiveValue(resolution.raw.imageTopP);
-		case "imageMinP": return rawEffectiveValue(resolution.raw.imageMinP);
-		case "imageFrequencyPenalty": return rawEffectiveValue(resolution.raw.imageFrequencyPenalty);
-		case "imagePresencePenalty": return rawEffectiveValue(resolution.raw.imagePresencePenalty);
-		case "imageRepetitionPenalty": return rawEffectiveValue(resolution.raw.imageRepetitionPenalty);
-	}
+function effectiveInferenceFields(resolution: InferenceResolution): InferenceFieldEffectiveValues {
+	return {
+		baseUrl: resolution.effective.baseUrl,
+		model: resolution.effective.model,
+		providerRouting: resolution.effective.providerRouting ?? null,
+		reasoning: resolution.effective.reasoningEffort ?? null,
+		compactionReasoning: resolution.effective.compactionReasoning,
+		toolCalls: resolution.effective.toolCalls,
+		compactionMode: resolution.effective.compactionMode,
+		promptCacheMode: resolution.effective.promptCacheMode,
+		supportsPrefill: resolution.effective.supportsPrefill,
+		temperature: resolution.effective.temperature,
+		topK: resolution.effective.topK ?? null,
+		topP: resolution.effective.topP ?? null,
+		minP: resolution.effective.minP ?? null,
+		frequencyPenalty: resolution.effective.frequencyPenalty ?? null,
+		presencePenalty: resolution.effective.presencePenalty ?? null,
+		repetitionPenalty: resolution.effective.repetitionPenalty ?? null,
+		imageModel: rawEffectiveValue(resolution.raw.imageModel),
+		imageProviderRouting: rawEffectiveValue(resolution.raw.imageProviderRouting),
+		imageAspectRatio: rawEffectiveValue(resolution.raw.imageAspectRatio),
+		imageSize: rawEffectiveValue(resolution.raw.imageSize),
+		imageTemperature: rawEffectiveValue(resolution.raw.imageTemperature),
+		imageTopK: rawEffectiveValue(resolution.raw.imageTopK),
+		imageTopP: rawEffectiveValue(resolution.raw.imageTopP),
+		imageMinP: rawEffectiveValue(resolution.raw.imageMinP),
+		imageFrequencyPenalty: rawEffectiveValue(resolution.raw.imageFrequencyPenalty),
+		imagePresencePenalty: rawEffectiveValue(resolution.raw.imagePresencePenalty),
+		imageRepetitionPenalty: rawEffectiveValue(resolution.raw.imageRepetitionPenalty),
+	};
 }
 
-function rawEffectiveValue(raw: AnyResolvedRawInferenceField): unknown {
+function rawEffectiveValue<K extends InferenceConfigurationField>(
+	raw: ResolvedRawInferenceField<K>,
+): InferenceConfigurationFieldValues[K] | null {
 	return raw.state === "value" ? raw.value : null;
 }
 
@@ -784,10 +828,23 @@ type AnyStoredInferenceOverride =
 	| { kind: "account_default" };
 
 type AnyResolvedRawInferenceField =
-	| { state: "value"; value: InferenceConfigurationFieldValues[InferenceConfigurationField]; source: InferenceSource; override: AnyStoredInferenceOverride | null }
-	| { state: "explicit_none"; source: InferenceSource; override: { kind: "explicit_none" } }
-	| { state: "target_default"; source: InferenceSource; override: { kind: "target_default" } }
-	| { state: "absent"; source: { kind: "bickr_default" }; override: null };
+	| {
+			state: "value";
+			value: InferenceConfigurationFieldValues[InferenceConfigurationField];
+			provenance: Extract<InferenceFieldProvenance, { kind: "configured" }>;
+			override: AnyStoredInferenceOverride | null;
+	  }
+	| {
+			state: "explicit_none";
+			provenance: Extract<InferenceFieldProvenance, { kind: "configured" }>;
+			override: { kind: "explicit_none" };
+	  }
+	| {
+			state: "target_default";
+			provenance: Extract<InferenceFieldProvenance, { kind: "configured" }>;
+			override: { kind: "target_default" };
+	  }
+	| { state: "absent"; provenance: Extract<InferenceFieldProvenance, { kind: "unset" }>; override: null };
 
 function resolveRawInferenceField(
 	path: InferenceConfigurationPath,
@@ -821,20 +878,30 @@ function resolveRawInferenceFieldFromDepth(
 			return resolveRawInferenceFieldFromDepth(path, field, defaultValue, path.length - 1);
 		}
 		if (override.kind === "historical_bickr_default") {
-			return { state: "value", value: override.value, source: { kind: "bickr_default" }, override };
+			return {
+				state: "value",
+				value: override.value,
+				provenance: { kind: "configured", source: { kind: "bickr_default" } },
+				override,
+			};
 		}
 		const source = sourceForEntry(entry, depth);
 		if (override.kind === "explicit_none") {
-			return { state: "explicit_none", source, override };
+			return { state: "explicit_none", provenance: { kind: "configured", source }, override };
 		}
 		if (override.kind === "target_default") {
-			return { state: "target_default", source, override };
+			return { state: "target_default", provenance: { kind: "configured", source }, override };
 		}
-		return { state: "value", value: override.value, source, override };
+		return { state: "value", value: override.value, provenance: { kind: "configured", source }, override };
 	}
 	return defaultValue === undefined
-		? { state: "absent", source: { kind: "bickr_default" }, override: null }
-		: { state: "value", value: defaultValue, source: { kind: "bickr_default" }, override: null };
+		? { state: "absent", provenance: { kind: "unset" }, override: null }
+		: {
+				state: "value",
+				value: defaultValue,
+				provenance: { kind: "configured", source: { kind: "bickr_default" } },
+				override: null,
+			};
 }
 
 function resolveCredential(
@@ -886,9 +953,10 @@ function credentialAuthorizedForBaseUrl(
 	baseUrl: ResolvedRawInferenceField<"baseUrl">,
 	credential: InferenceCredentialResolution,
 ): InferenceCredentialResolution {
+	const baseUrlSource = configuredRawInferenceFieldSource(baseUrl, "base URL");
 	// Source provenance, not URL-string equality, defines the trust boundary.
 	// A deployment key must never be sent to a base URL selected by an owner.
-	if (baseUrl.source.kind !== "bickr_default" &&
+	if (baseUrlSource.kind !== "bickr_default" &&
 		credential.kind === "available" && credential.source.kind === "bickr_default") {
 		return {
 			kind: "unavailable",
@@ -910,8 +978,9 @@ function authorizedModel(
 	adjustment: InferenceProviderAuthorizationAdjustment;
 } {
 	const requestedModel = requiredRawValue(model, "model");
-	if (model.source.kind === "bickr_default" || ownerProviderIsAvailable(baseUrl, credential)) {
-		return { model: requestedModel, source: model.source, adjustment: null };
+	const modelSource = configuredRawInferenceFieldSource(model, "model");
+	if (modelSource.kind === "bickr_default" || ownerProviderIsAvailable(baseUrl, credential)) {
+		return { model: requestedModel, source: modelSource, adjustment: null };
 	}
 	// Provider authorization is resolved for the effective base URL and
 	// credential pair. If that pair cannot authorize the nearest owner-defined
@@ -924,7 +993,7 @@ function authorizedModel(
 		adjustment: {
 			kind: "model_fell_back",
 			requestedModel,
-			requestedSource: model.source,
+			requestedSource: modelSource,
 			effectiveModel: defaults.fields.model,
 			effectiveSource: { kind: "bickr_default" },
 			reason: "owner_provider_unavailable",
@@ -936,7 +1005,7 @@ function ownerProviderIsAvailable(
 	baseUrl: ResolvedRawInferenceField<"baseUrl">,
 	credential: InferenceCredentialResolution,
 ): boolean {
-	return baseUrl.source.kind !== "bickr_default" ||
+	return configuredRawInferenceFieldSource(baseUrl, "base URL").kind !== "bickr_default" ||
 		(credential.kind === "available" && credential.source.kind !== "bickr_default");
 }
 
@@ -987,6 +1056,16 @@ function requiredRawValue<K extends Extract<ValueOnlyField, "baseUrl" | "model">
 		throw new InferenceConfigurationDataError("invalid_path", `Resolved inference ${label} is absent.`);
 	}
 	return field.value;
+}
+
+export function configuredRawInferenceFieldSource<K extends InferenceConfigurationField>(
+	field: ResolvedRawInferenceField<K>,
+	label: string,
+): InferenceSource {
+	if (field.provenance.kind !== "configured") {
+		throw new InferenceConfigurationDataError("invalid_path", `Resolved inference ${label} is unset.`);
+	}
+	return field.provenance.source;
 }
 
 function optionalRawValue<K extends InferenceConfigurationField>(
