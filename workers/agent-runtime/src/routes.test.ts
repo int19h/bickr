@@ -29,6 +29,7 @@ const routeCases = [
 	{ method: 'POST', path: '/users/user-1/inference-configurations/config-1/reparent', handlerId: 'reparent-inference-configuration' },
 	{ method: 'POST', path: '/users/user-1/inference-consumers/annotations', handlerId: 'get-inference-consumer-annotations' },
 	{ method: 'GET', path: '/users/user-1/inference-configurations/effective-models', handlerId: 'inference-configuration-bot-effective-models' },
+	{ method: 'GET', path: '/worlds/world-1/bots/bot-1/effective-model', handlerId: 'public-bot-effective-model' },
 	{ method: 'GET', path: '/users/user-1/inference-configurations/fixed/bot/bot-1', handlerId: 'get-fixed-inference-configuration' },
 	{ method: 'GET', path: '/users/user-1/inference-configurations/config-1', handlerId: 'get-inference-configuration' },
 	{ method: 'PATCH', path: '/users/user-1/inference-configurations/config-1', handlerId: 'update-inference-configuration' },
@@ -104,6 +105,28 @@ describe('agent runtime route matching', () => {
 		// its own route has to win the path segment.
 		expect(matchAgentRuntimeRoute('/users/user-1/inference-configurations/effective-models', 'GET')?.handlerId)
 			.toBe('inference-configuration-bot-effective-models');
+	});
+
+	// The public model row is one addressed participant, resolved without a
+	// coordinator. It must stay a single read: no batch shape underneath it, and
+	// no write method reachable through the same path.
+	it('exposes the public participant model as one read-only participant-scoped route', () => {
+		expect(matchAgentRuntimeRoute('/worlds/world-1/bots/bot-1/effective-model', 'GET')).toEqual({
+			handlerId: 'public-bot-effective-model',
+			dispatch: 'direct',
+			params: ['world-1', 'bot-1'],
+		});
+		for (const method of ['POST', 'PATCH', 'PUT', 'DELETE']) {
+			expect(matchAgentRuntimeRoute('/worlds/world-1/bots/bot-1/effective-model', method)).toBeNull();
+		}
+		for (const path of [
+			'/worlds/world-1/bots/effective-model',
+			'/worlds/world-1/bots/effective-models',
+			'/worlds/world-1/bots',
+			'/worlds/world-1/effective-model',
+		]) {
+			expect(matchAgentRuntimeRoute(path, 'GET')).toBeNull();
+		}
 	});
 
 	it('does not match a route under the wrong method', () => {

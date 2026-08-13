@@ -49,6 +49,7 @@ import {
 	inferenceConfigurationParentImpact,
 	inferenceConfigurationMutations,
 	inferenceConfigurationOwnerDto,
+	InferenceGraphRepositoryError,
 	inferenceGraphReadVersion,
 	loadInferenceConfigurationPath,
 	listOwnedFixedInferenceConfigurationSummaries,
@@ -99,6 +100,7 @@ import {
 import { addInternalServiceAuthHeader, internalServiceUrl, isTrustedInternalServiceRequest } from '@bickr/shared/internal-service';
 import { mutationMaintenanceResponse, readMaintenanceState } from '@bickr/shared/maintenance';
 import {
+	botByHandle,
 	botById,
 	botSummaryById,
 	userCoordinatorRepositoryMutations,
@@ -218,7 +220,7 @@ import {
 	resumeDueUserLifecycleOperation,
 } from './lifecycle/recovery';
 import { kvKeys, readJson } from '@bickr/shared/storage';
-import { authProviders, type AuthProvider, type AvatarCrop, type AvatarImage, type BotDocument, type BotImageGenerationSettings, type BotInferenceSettings, type BotTranslationSettingsInput, type WorldDocument } from '@bickr/shared/model';
+import { authProviders, type AuthProvider, type AvatarCrop, type AvatarImage, type BotDocument, type BotImageGenerationSettings, type BotInferenceSettings, type BotTranslationSettingsInput, type InferenceGraphErrorCause, type PublicBotEffectiveModel, type WorldDocument } from '@bickr/shared/model';
 
 const {
 	deleteBotAvatar,
@@ -295,6 +297,173 @@ async function worldForUpdateMutation(
 		// the route's old handle. Dispatch that replay to the same world DO.
 		return candidate;
 	}
+}
+
+/**
+ * Resolve one participant's effective model for a reader who proved nothing.
+ *
+ * The addressed world and participant are public, so their absence stays a
+ * 404. Everything this function touches afterwards is owner-scoped: the owner
+ * document, and the canonical inference graph whose failures are deliberately
+ * expressive for the owner who is editing it. `InferenceGraphRepositoryError`
+ * carries an `inferenceGraphCause` in typed details, its prose names
+ * configuration ids, a missing configuration answers 404, and a cross-owner
+ * row answers 409 — a public reader must learn none of that, and even the
+ * distinction between "this graph is broken" and "this account was deleted" is
+ * owner-only. So every failure past the entity lookup, typed or not, collapses
+ * to one constant 500 with no code, id, cause, or message taken from it. What
+ * operators read instead is `publicEffectiveModelFailureEvent`.
+ */
+async function publicEffectiveModelForBot(
+	env: Pick<AgentRuntimeRouteEnv, 'BICKR_D1' | 'BICKR_KV' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
+	bot: BotDocument,
+): Promise<string> {
+	// Which of the two owner-scoped reads failed is the diagnosis the collapsed
+	// error can no longer carry, and it cannot be recovered from the error either
+	// — a KV outage and a D1 outage arrive here as the same untyped value.
+	let stage: PublicEffectiveModelStage = 'owner_document';
+	try {
+		const owner = await userById(env.BICKR_KV, bot.ownerUserId);
+		stage = 'canonical_resolution';
+		const settings = await effectiveProviderSettingsForBotCanonical(env.BICKR_D1, bot, owner, env);
+		return settings.model;
+	} catch (error) {
+		console.error(publicEffectiveModelFailureEvent(bot.id, stage, error));
+		throw new RepositoryError('server_error', 'Effective model is unavailable.', 500);
+	}
+}
+
+type PublicEffectiveModelStage = 'owner_document' | 'canonical_resolution';
+
+/**
+ * The `code` and `inferenceGraphCause` values this log is allowed to name.
+ *
+ * Written as exhaustive tables rather than a type assertion so that a new union
+ * member is a compile error here, and so that the emitted value is always one
+ * of these literals rather than whatever string the error happened to hold.
+ */
+const loggableRepositoryErrorCodes = {
+	bad_request: true,
+	conflict: true,
+	forbidden: true,
+	not_found: true,
+	server_error: true,
+	unauthorized: true,
+} as const satisfies Record<RepositoryError['code'], true>;
+
+const loggableInferenceGraphCauses = {
+	account_default_required: true,
+	corrupt_graph: true,
+	cross_owner: true,
+	descendant_parent: true,
+	duplicate_name: true,
+	fixed_entry_requires_lifecycle: true,
+	invalid_parent: true,
+	quota_exceeded: true,
+	self_parent: true,
+	stale_revision: true,
+	unexpected_unique_conflict: true,
+} as const satisfies Record<InferenceGraphErrorCause, true>;
+
+function allowlistedValue<T extends string>(table: Record<T, true>, value: unknown): T | undefined {
+	// `hasOwn`, not `in`: an inherited `constructor` or `toString` is not a member.
+	return typeof value === 'string' && Object.hasOwn(table, value) ? (value as T) : undefined;
+}
+
+/**
+ * Every read this event makes of the caught value goes through here.
+ *
+ * A thrower owns the shape of what it throws: `code`, `status`, and `details`
+ * can each be an accessor, and an accessor is free to throw. If one escaped the
+ * builder it would replace the error this catch is handling, and the generic
+ * route fallback would log that value raw and answer from its message — the
+ * thrower choosing the disclosure this event exists to prevent. A read that
+ * throws is a read that produced nothing.
+ */
+function errorProperty(value: unknown, key: string): unknown {
+	try {
+		return (value as Record<string, unknown> | null | undefined)?.[key];
+	} catch {
+		return undefined;
+	}
+}
+
+type PublicEffectiveModelErrorKind = 'inference_graph_repository' | 'repository' | 'error' | 'unknown';
+
+function publicEffectiveModelErrorKind(error: unknown): PublicEffectiveModelErrorKind {
+	try {
+		return error instanceof InferenceGraphRepositoryError
+			? 'inference_graph_repository'
+			: error instanceof RepositoryError
+				? 'repository'
+				: error instanceof Error
+					? 'error'
+					: 'unknown';
+	} catch {
+		// `instanceof` walks the value's own prototype chain, which a proxy trap
+		// may throw from. A value that will not say what it is, is unknown.
+		return 'unknown';
+	}
+}
+
+type PublicEffectiveModelFailureEvent = {
+	event: 'public_effective_model_failed';
+	botId: string;
+	stage: PublicEffectiveModelStage;
+	errorKind: PublicEffectiveModelErrorKind;
+	code?: RepositoryError['code'];
+	status?: number;
+	inferenceGraphCause?: InferenceGraphErrorCause;
+};
+
+/**
+ * The one event an opaque public failure leaves behind for operators.
+ *
+ * The catch above spans owner KV loading, canonical D1 loading, and resolution,
+ * so the value it holds is genuinely unknown: typed repository errors, untyped
+ * platform failures, and errors a dependency threw with arbitrary text, cause,
+ * or metadata attached all arrive there. Logging that object would republish
+ * into Workers Logs exactly what the response just refused to disclose — the
+ * owner's configuration ids and graph diagnostics — and would put any secret a
+ * future thrower attaches there too.
+ *
+ * So nothing is copied out of the error. `botId` and `stage` are produced by
+ * this worker, `errorKind` is decided by `instanceof` rather than read from the
+ * value, and the two string fields are emitted only when the error's own value
+ * is a member of the tables above. `status` is admitted as a number. Anything
+ * unrecognized — including every message, stack, and cause — is dropped, so an
+ * unfamiliar failure logs that it happened and where, and nothing else.
+ *
+ * It is returned as an object and logged as the single console argument, not
+ * pre-serialized: Workers Logs extracts and indexes the fields of a logged
+ * object, while a string arrives as opaque message text an operator can only
+ * grep. Every field here is a literal this worker chose, so the fields it
+ * indexes are queryable and bounded. Reaching the object is total by
+ * construction — the classification and each read are guarded above — so this
+ * builder cannot itself become the failure that leaks.
+ */
+function publicEffectiveModelFailureEvent(
+	botId: string,
+	stage: PublicEffectiveModelStage,
+	error: unknown,
+): PublicEffectiveModelFailureEvent {
+	const errorKind = publicEffectiveModelErrorKind(error);
+	const event = { event: 'public_effective_model_failed', botId, stage, errorKind } as const;
+	if (errorKind !== 'repository' && errorKind !== 'inference_graph_repository') {
+		return event;
+	}
+	const code = allowlistedValue(loggableRepositoryErrorCodes, errorProperty(error, 'code'));
+	const status = errorProperty(error, 'status');
+	const inferenceGraphCause = allowlistedValue(
+		loggableInferenceGraphCauses,
+		errorProperty(errorProperty(error, 'details'), 'inferenceGraphCause'),
+	);
+	return {
+		...event,
+		...(code === undefined ? {} : { code }),
+		...(typeof status === 'number' && Number.isFinite(status) ? { status } : {}),
+		...(inferenceGraphCause === undefined ? {} : { inferenceGraphCause }),
+	};
 }
 
 export const agentRuntimeRouteTable = [
@@ -741,6 +910,46 @@ export const agentRuntimeRouteTable = [
 						: []),
 				},
 				coordinator: context.objectId,
+			});
+		},
+	},
+	{
+		// The single inference fact a public participant profile publishes.
+		//
+		// Every viewer reads the same string because resolution is pinned to the
+		// participant's own owner and the caller is never an input: the Pages
+		// proxy sends no viewer identity, and this handler asks for none. It runs
+		// the same canonical resolution the runtime runs for a real tick, so the
+		// value is live rather than a publish-time snapshot, and it projects only
+		// the effective model out of the resolved provider settings — never the
+		// base URL, provider routing, credential, or the configuration graph that
+		// produced it.
+		//
+		// Addressing is the world/handle pair the rest of the public profile
+		// already uses, so visibility and not-found behavior are exactly the
+		// public profile's: one participant per request, no batch, no
+		// enumeration. Everything past that addressed lookup is owner-scoped and
+		// fails opaquely — see publicEffectiveModelForBot.
+		id: 'public-bot-effective-model',
+		method: 'GET',
+		pattern: /^\/worlds\/([^/]+)\/bots\/([^/]+)\/effective-model$/,
+		dispatch: 'direct',
+		handler: async (context) => {
+			const world = await worldByHandle(context.env.BICKR_D1, decodeURIComponent(context.match[1] ?? ''));
+			const bot = await botByHandle(
+				context.env.BICKR_KV,
+				context.env.BICKR_D1,
+				world.id,
+				decodeURIComponent(context.match[2] ?? ''),
+			);
+			if (!bot) {
+				throw new RepositoryError('not_found', 'Bot not found.', 404);
+			}
+			return ok({
+				model: {
+					botId: bot.id,
+					effectiveModel: await publicEffectiveModelForBot(context.env, bot),
+				} satisfies PublicBotEffectiveModel,
 			});
 		},
 	},

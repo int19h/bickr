@@ -328,20 +328,6 @@ export function botEditableInferenceSettings(bot: BotSummary): BotInferenceSetti
 	return bot.localOverrides?.inferenceSettings ?? bot.inferenceSettings;
 }
 
-/**
- * What a public participant payload publishes as its own model.
- *
- * Effective inference is resolved by the server from the configuration graph
- * and only an owner may read it, so a visitor is told exactly what the payload
- * carries: this participant's own model when it publishes one, and otherwise
- * that its owner supplies it. Nothing is resolved or inherited here — a
- * browser-side cascade over stored settings stopped being the answer when the
- * graph became canonical.
- */
-export function publishedBotModel(bot: BotSummary): string {
-	return bot.inferenceSettings.model?.trim() || "set by its owner";
-}
-
 export function optionalNumberDraftValue(value: number | undefined): string {
 	return value === undefined ? "" : String(value);
 }

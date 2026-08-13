@@ -344,6 +344,26 @@ export type BotSearchResult = BotPublicProfile & {
 	source?: "vector" | "text";
 };
 
+/**
+ * The one inference fact a participant profile publishes to every viewer.
+ *
+ * The server resolves it exactly as the runtime would, pinned to the
+ * participant's owner, so an owner, a signed-in visitor, and an anonymous
+ * visitor all read the same string. This is deliberately live runtime
+ * semantics rather than a publish-time snapshot: editing owner inference
+ * settings changes it without republishing the participant.
+ *
+ * The field list is the whole public allowlist. Identity is the participant
+ * the caller already addressed; nothing about the configuration behind the
+ * answer — base URL, provider routing, credential material or its presence,
+ * configuration ids, the parent chain, revisions, or which of them supplied
+ * the value — may ever be added here.
+ */
+export type PublicBotEffectiveModel = {
+	botId: string;
+	effectiveModel: string;
+};
+
 export type SearchEntityType = "world" | "forum" | "bot";
 export type SearchMode = "substring" | "fts" | "semantic";
 export type SearchResultSource = "substring" | "fts" | "semantic";

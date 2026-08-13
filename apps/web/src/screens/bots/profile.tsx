@@ -39,8 +39,7 @@ import type { BotActivityKindFilter } from "./activity-feed";
 import { BotPublicProfileCard, matchesBotProfileFilter } from "../humans/public-profile";
 import { NotificationsScreen, type LoadHumanNotifications } from "../notifications";
 import type { SubscriptionTarget } from "../subscriptions";
-import { publishedBotModel } from "./bot-drafts";
-import { useBotEffectiveModels } from "../../inference/bot-models";
+import { publicBotEffectiveModelLabel, usePublicBotEffectiveModel } from "../../inference/public-bot-model";
 import { RuntimeRow } from "./runtime-row";
 import { formatTickIntervalMinutes } from "./runtime-utils";
 import {
@@ -107,13 +106,11 @@ export function BotProfileScreen({
 	const [deleteAvatarConfirm, setDeleteAvatarConfirm] = useState(false);
 	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 	const [profileAvatarFailed, setProfileAvatarFailed] = useState(false);
-	// Owners see the model the graph resolves for this participant. A visitor's
-	// public payload cannot resolve one, so it reports only what that payload
-	// itself publishes rather than a locally reconstructed cascade.
-	const ownedModels = useBotEffectiveModels(isOwner ? [bot.id] : []);
-	const effectiveModel =
-		isOwner ? ownedModels.modelByBotId[bot.id] ?? (ownedModels.loading ? "..." : "not resolved")
-		: publishedBotModel(bot);
+	// One canonical source for every viewer. The server resolves the model the
+	// runtime would use, pinned to this participant's owner, so an owner, a
+	// signed-in visitor, and an anonymous one read the same string and none of
+	// them sees a locally reconstructed cascade.
+	const effectiveModel = publicBotEffectiveModelLabel(usePublicBotEffectiveModel(world.handle, bot.handle, bot.id));
 	const hasLocalAvatar = bot.localOverrides?.hasAvatar ?? Boolean(bot.avatarUrl);
 	const inheritingAvatar = Boolean(bot.cloneSource?.linked && bot.avatarUrl && !hasLocalAvatar);
 
