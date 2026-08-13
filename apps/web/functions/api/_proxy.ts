@@ -45,6 +45,35 @@ export function serviceRequest(
 	});
 }
 
+/**
+ * A service request that deliberately carries no viewer identity.
+ *
+ * Public reads must answer identically for the owner, a signed-in visitor, and
+ * an anonymous one, so this proxy omits `x-bickr-user-id` instead of
+ * forwarding whoever happens to hold a session. A receiving route therefore
+ * authorizes on the addressed entity alone and can never widen its answer for
+ * the caller — `requireUserMatch` and `requireAuthenticatedServiceRequest`
+ * reject anything reached this way.
+ */
+export function publicServiceRequest(
+	env: InternalServiceAuthEnv,
+	request: Request,
+	path: string,
+): Request {
+	const headers = new Headers();
+	const accept = request.headers.get("accept");
+	if (accept !== null) {
+		headers.set("accept", accept);
+	}
+	addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
+
+	return new Request(internalServiceUrl(path), {
+		method: request.method,
+		headers,
+		signal: request.signal,
+	});
+}
+
 export async function forwardServiceJsonRequest(
 	service: Fetcher,
 	env: InternalServiceAuthEnv,
