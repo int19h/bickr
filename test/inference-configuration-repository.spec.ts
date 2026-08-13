@@ -91,7 +91,10 @@ describe("inference configuration D1 repository", () => {
 		expect(dto.fields.temperature).toMatchObject({
 			override: { kind: "inherit" },
 			effective: 0,
-			source: { configurationId: parent.id },
+			provenance: {
+				kind: "configured",
+				source: { configurationId: parent.id },
+			},
 		});
 		expect(Object.keys(dto.fields)).toHaveLength(27);
 		expect(dto.imagePreviews).toMatchObject({

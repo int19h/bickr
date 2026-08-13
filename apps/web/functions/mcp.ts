@@ -2289,32 +2289,21 @@ function inferenceConfigurationFieldsOutputSchema(): Record<string, unknown> {
 				additionalProperties: true,
 			}, ["kind"]),
 			effective: {},
-			provenance: {
-				oneOf: [
-					withRequired({
-						type: "object",
-						properties: { kind: { const: "unset" } },
-						additionalProperties: false,
-					}, ["kind"]),
-					withRequired({
+			provenance: closedDiscriminatedValueSchema(
+				["unset", "configured"],
+				{
+					source: withRequired({
 						type: "object",
 						properties: {
-							kind: { const: "configured" },
-							source: withRequired({
-								type: "object",
-								properties: {
-									kind: enumSchema(
-										["configuration", "account_default", "bickr_default"],
-										"Configured-value source.",
-									),
-								},
-								additionalProperties: true,
-							}, ["kind"]),
+							kind: enumSchema(
+								["configuration", "account_default", "bickr_default"],
+								"Configured-value source; present only when provenance kind is configured.",
+							),
 						},
-						additionalProperties: false,
-					}, ["kind", "source"]),
-				],
-			},
+						additionalProperties: true,
+					}, ["kind"]),
+				},
+			),
 			adjustment: { type: ["object", "null"], additionalProperties: true },
 		},
 		additionalProperties: false,

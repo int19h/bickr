@@ -1694,6 +1694,18 @@ describe("MCP endpoint", () => {
 		];
 		for (const name of inferenceTools) expect(byName.get(name)?.outputSchema, `${name} outputSchema`).toBeDefined();
 		const annotation = canonicalAnnotation("account_default", "cfg_account", "xiaomi/mimo-v2.5");
+		const configurationFields: Record<string, unknown> = Object.fromEntries(inferenceConfigurationFields.map((field) => [field, {
+			override: { kind: "inherit" }, effective: null, provenance: { kind: "unset" }, adjustment: null,
+		}]));
+		configurationFields.temperature = {
+			override: { kind: "inherit" },
+			effective: 0,
+			provenance: {
+				kind: "configured",
+				source: { kind: "account_default", configurationId: "cfg_account", depth: 1 },
+			},
+			adjustment: null,
+		};
 		expectSchemaAccepts(byName.get("get_profile")!.outputSchema!, {
 			profile: { id: "usr_mcp", handle: "mcp-user", inferenceConfigurations: { graphRevision: 7, accountDefault: annotation } },
 		});
@@ -1708,9 +1720,7 @@ describe("MCP endpoint", () => {
 			data: { configuration: {
 				id: "cfg_custom", kind: "custom", identity: { kind: "custom", name: "Portable" },
 				revision: 3, graphRevision: 7,
-				fields: Object.fromEntries(inferenceConfigurationFields.map((field) => [field, {
-					override: { kind: "inherit" }, effective: null, provenance: { kind: "unset" }, adjustment: null,
-				}])),
+				fields: configurationFields,
 				path: [{ id: "cfg_custom", displayName: "Portable", revision: 3, kind: "custom", identity: { kind: "custom", name: "Portable" } }],
 			} },
 		});
