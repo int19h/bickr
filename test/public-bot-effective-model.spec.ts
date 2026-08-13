@@ -149,6 +149,55 @@ describe("public participant effective model", () => {
 		}
 	});
 
+	// The graph resolver is deliberately expressive for the owner editing it: it
+	// names configuration ids in its prose, carries an `inferenceGraphCause` in
+	// typed details, and answers 404 for a configuration that is simply not
+	// there. A reader who only addressed a public profile learns none of that,
+	// so every failure past the addressed participant is one opaque answer.
+	it("collapses a corrupt configuration graph to an opaque server error", async () => {
+		await seedGraph({ accountModel: "owner/account-model", botModel: "owner/bot-model" });
+		const worldConfigId = await worldConfigurationId(worldId);
+		// A parent cycle is the corruption the row constraints cannot reject: every
+		// CHECK still holds locally, so only the resolver's own depth sentinel
+		// catches it, and it reports the cause the owner surface branches on.
+		await reparent(worldConfigId, await botConfigurationId(botId));
+		try {
+			await expectOpaqueResolutionFailure(await runtimeResponse(), ["corrupt_graph", "sentinel"]);
+		} finally {
+			// A cyclic self-reference also blocks the shared schema reset's table
+			// drop, so the cycle is undone here instead of failing the next test.
+			await reparent(worldConfigId, await accountDefaultConfigurationId(ownerId));
+		}
+	});
+
+	it("collapses a missing configuration to an opaque server error rather than a not-found", async () => {
+		// The participant is public and present, and its owner is migrated; only
+		// the participant's own configuration entry is absent. Answering 404 here
+		// would both contradict the profile and tell an anonymous reader which
+		// owner rows exist.
+		await seedGraph({ accountModel: "owner/account-model", omitBotConfiguration: true });
+
+		await expectOpaqueResolutionFailure(await runtimeResponse(), ["Inference configuration", "not_found"]);
+	});
+
+	it("collapses a configuration owned by another account to an opaque server error", async () => {
+		await seedGraph({ accountModel: "owner/account-model", botModel: "owner/bot-model" });
+		await seedGraph({ accountModel: "visitor/account-model", forUserId: otherUserId });
+		// A participant document whose owner has drifted from the graph row's
+		// owner. The resolver answers 409 "belongs to another owner", which names
+		// an ownership relation the public profile never publishes.
+		await writeJson(testEnv.BICKR_KV, kvKeys.bot(botId), { ...bot(), ownerUserId: otherUserId });
+
+		await expectOpaqueResolutionFailure(await runtimeResponse(), ["cross_owner", "another owner", "conflict"]);
+	});
+
+	it("collapses an unreadable owner to an opaque server error", async () => {
+		await seedGraph({ accountModel: "owner/account-model", botModel: "owner/bot-model" });
+		await testEnv.BICKR_KV.delete(kvKeys.user(ownerId));
+
+		await expectOpaqueResolutionFailure(await runtimeResponse(), ["User not found", ownerId]);
+	});
+
 	it("keeps the public profile's not-found behavior for unknown and removed participants", async () => {
 		await expect(runtimeResponse({ worldHandle: "no-such-world" })).resolves.toMatchObject({
 			status: 404,
@@ -208,6 +257,24 @@ describe("public participant effective model", () => {
 });
 
 type ResponseProbe = { status: number; text: string; body: ModelEnvelope };
+
+async function reparent(configurationId: string, parentId: string): Promise<void> {
+	await testEnv.BICKR_D1.prepare(`UPDATE inference_configurations SET parent_id = ? WHERE configuration_id = ?`)
+		.bind(parentId, configurationId).run();
+}
+
+/**
+ * One constant answer for every resolution failure: same status, same body, no
+ * error code, id, cause, or wording carried over from what actually broke.
+ * `disclosures` are the strings this particular failure would have leaked.
+ */
+function expectOpaqueResolutionFailure(response: ResponseProbe, disclosures: readonly string[]): void {
+	expect(response.status).toBe(500);
+	expect(response.body).toEqual({ ok: false, error: "server_error", message: "Effective model is unavailable." });
+	for (const disclosure of [...disclosures, "inferenceGraphCause", "details", "cfg_"]) {
+		expect(response.text).not.toContain(disclosure);
+	}
+}
 
 async function runtimeResponse(options: {
 	viewerUserId?: string;
@@ -295,6 +362,7 @@ async function seedGraph(input: {
 	botModel?: string;
 	baseUrl?: string;
 	forUserId?: string;
+	omitBotConfiguration?: boolean;
 }): Promise<void> {
 	const owner = input.forUserId ?? ownerId;
 	const rootId = await accountDefaultConfigurationId(owner);
@@ -330,15 +398,17 @@ async function seedGraph(input: {
 				now,
 				...modelOverride(input.worldModel),
 			}),
-			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
-				kind: "bot",
-				configurationId: await botConfigurationId(botId),
-				ownerUserId: owner,
-				parentId: worldConfigId,
-				botId,
-				now,
-				...modelOverride(input.botModel),
-			}),
+			...(input.omitBotConfiguration ? [] : [
+				insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+					kind: "bot",
+					configurationId: await botConfigurationId(botId),
+					ownerUserId: owner,
+					parentId: worldConfigId,
+					botId,
+					now,
+					...modelOverride(input.botModel),
+				}),
+			]),
 		]),
 	]);
 	await testEnv.BICKR_D1.prepare(

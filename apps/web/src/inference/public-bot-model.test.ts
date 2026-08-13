@@ -37,7 +37,7 @@ describe("public participant model", () => {
 			data: { model: { botId: "bot_scout", effectiveModel: "anthropic/claude-opus-4" } },
 		}));
 
-		await expect(loadPublicBotEffectiveModel("patch-notes", "scout")).resolves.toEqual({
+		await expect(loadPublicBotEffectiveModel("patch-notes", "scout", "bot_scout")).resolves.toEqual({
 			status: "resolved",
 			effectiveModel: "anthropic/claude-opus-4",
 		});
@@ -47,22 +47,34 @@ describe("public participant model", () => {
 
 	it("reports an explicit unresolved state when the server cannot answer", async () => {
 		stubFetch(() => jsonResponse({ ok: false, error: "server_error", message: "Unexpected API error." }, 500));
-		await expect(loadPublicBotEffectiveModel("patch-notes", "scout")).resolves.toEqual({ status: "unresolved" });
+		await expect(loadPublicBotEffectiveModel("patch-notes", "scout", "bot_scout")).resolves.toEqual({ status: "unresolved" });
 	});
 
 	it("reports an explicit unresolved state for an unknown participant", async () => {
 		stubFetch(() => jsonResponse({ ok: false, error: "not_found", message: "Bot not found." }, 404));
-		await expect(loadPublicBotEffectiveModel("patch-notes", "ghost")).resolves.toEqual({ status: "unresolved" });
+		await expect(loadPublicBotEffectiveModel("patch-notes", "ghost", "bot_ghost")).resolves.toEqual({ status: "unresolved" });
+	});
+
+	// The handles address the participant, the answer identifies it. A released
+	// and reclaimed handle makes those disagree, and then the model belongs to
+	// someone else.
+	it("reports an explicit unresolved state when the answer is about another participant", async () => {
+		stubFetch(() => jsonResponse({
+			ok: true,
+			data: { model: { botId: "bot_successor", effectiveModel: "anthropic/claude-opus-4" } },
+		}));
+		await expect(loadPublicBotEffectiveModel("patch-notes", "scout", "bot_scout"))
+			.resolves.toEqual({ status: "unresolved" });
 	});
 
 	it("reports an explicit unresolved state when the request itself fails", async () => {
 		vi.stubGlobal("fetch", () => Promise.reject(new Error("offline")));
-		await expect(loadPublicBotEffectiveModel("patch-notes", "scout")).resolves.toEqual({ status: "unresolved" });
+		await expect(loadPublicBotEffectiveModel("patch-notes", "scout", "bot_scout")).resolves.toEqual({ status: "unresolved" });
 	});
 
 	it("reports an explicit unresolved state for an answer without a model", async () => {
 		stubFetch(() => jsonResponse({ ok: true, data: { model: { botId: "bot_scout", effectiveModel: "  " } } }));
-		await expect(loadPublicBotEffectiveModel("patch-notes", "scout")).resolves.toEqual({ status: "unresolved" });
+		await expect(loadPublicBotEffectiveModel("patch-notes", "scout", "bot_scout")).resolves.toEqual({ status: "unresolved" });
 	});
 
 	// Loading and failure are named states rather than a guess about who set the

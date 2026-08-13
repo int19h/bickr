@@ -110,7 +110,7 @@ export function BotProfileScreen({
 	// runtime would use, pinned to this participant's owner, so an owner, a
 	// signed-in visitor, and an anonymous one read the same string and none of
 	// them sees a locally reconstructed cascade.
-	const effectiveModel = publicBotEffectiveModelLabel(usePublicBotEffectiveModel(world.handle, bot.handle));
+	const effectiveModel = publicBotEffectiveModelLabel(usePublicBotEffectiveModel(world.handle, bot.handle, bot.id));
 	const hasLocalAvatar = bot.localOverrides?.hasAvatar ?? Boolean(bot.avatarUrl);
 	const inheritingAvatar = Boolean(bot.cloneSource?.linked && bot.avatarUrl && !hasLocalAvatar);
 

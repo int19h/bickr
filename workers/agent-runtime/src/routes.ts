@@ -298,6 +298,35 @@ async function worldForUpdateMutation(
 	}
 }
 
+/**
+ * Resolve one participant's effective model for a reader who proved nothing.
+ *
+ * The addressed world and participant are public, so their absence stays a
+ * 404. Everything this function touches afterwards is owner-scoped: the owner
+ * document, and the canonical inference graph whose failures are deliberately
+ * expressive for the owner who is editing it. `InferenceGraphRepositoryError`
+ * carries an `inferenceGraphCause` in typed details, its prose names
+ * configuration ids, a missing configuration answers 404, and a cross-owner
+ * row answers 409 — a public reader must learn none of that, and even the
+ * distinction between "this graph is broken" and "this account was deleted" is
+ * owner-only. So every failure past the entity lookup, typed or not, collapses
+ * to one constant 500 with no code, id, cause, or message taken from it. The
+ * error itself survives in the worker log, which is where operators read it.
+ */
+async function publicEffectiveModelForBot(
+	env: Pick<AgentRuntimeRouteEnv, 'BICKR_D1' | 'BICKR_KV' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
+	bot: BotDocument,
+): Promise<string> {
+	try {
+		const owner = await userById(env.BICKR_KV, bot.ownerUserId);
+		const settings = await effectiveProviderSettingsForBotCanonical(env.BICKR_D1, bot, owner, env);
+		return settings.model;
+	} catch (error) {
+		console.error('public effective model resolution failed', bot.id, error);
+		throw new RepositoryError('server_error', 'Effective model is unavailable.', 500);
+	}
+}
+
 export const agentRuntimeRouteTable = [
 	{
 		id: 'account-bootstrap-dispatch',
@@ -760,7 +789,8 @@ export const agentRuntimeRouteTable = [
 		// Addressing is the world/handle pair the rest of the public profile
 		// already uses, so visibility and not-found behavior are exactly the
 		// public profile's: one participant per request, no batch, no
-		// enumeration.
+		// enumeration. Everything past that addressed lookup is owner-scoped and
+		// fails opaquely — see publicEffectiveModelForBot.
 		id: 'public-bot-effective-model',
 		method: 'GET',
 		pattern: /^\/worlds\/([^/]+)\/bots\/([^/]+)\/effective-model$/,
@@ -776,10 +806,11 @@ export const agentRuntimeRouteTable = [
 			if (!bot) {
 				throw new RepositoryError('not_found', 'Bot not found.', 404);
 			}
-			const owner = await userById(context.env.BICKR_KV, bot.ownerUserId);
-			const settings = await effectiveProviderSettingsForBotCanonical(context.env.BICKR_D1, bot, owner, context.env);
 			return ok({
-				model: { botId: bot.id, effectiveModel: settings.model } satisfies PublicBotEffectiveModel,
+				model: {
+					botId: bot.id,
+					effectiveModel: await publicEffectiveModelForBot(context.env, bot),
+				} satisfies PublicBotEffectiveModel,
 			});
 		},
 	},
