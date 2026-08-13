@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { BotPublicProfile, LanguageTag, RequiredLocalizedText } from "@bickr/shared/model";
+import type {
+	BotPublicProfile,
+	CommentDocument,
+	LanguageTag,
+	RequiredLocalizedText,
+	ThreadDocument,
+} from "@bickr/shared/model";
 import { RepositoryError } from "@bickr/shared/repository";
 import {
 	apiErrorPayload,
@@ -8,7 +14,13 @@ import {
 	toolFailurePayload,
 	type ToolFailurePayload,
 } from "../index";
-import { followToolSelfCorrectionMessage, planFollowToolTargets } from "./tools";
+import type { RuntimeRow } from "../types";
+import {
+	assertNoDuplicateReplyInToolResultRows,
+	DuplicateReplyError,
+	followToolSelfCorrectionMessage,
+	planFollowToolTargets,
+} from "./tools";
 
 const enLang = "en" as LanguageTag;
 const en = (text: string): RequiredLocalizedText => ({ lang: enLang, text });
@@ -260,4 +272,136 @@ describe("forum coordinator error details across the service boundary", () => {
 		expect(apiErrorPayload({ ...readOnlyBody, details: { existingThread, forumWriteCause: "forum_read_only" } })?.details)
 			.toMatchObject({ existingThread: { id: "thr_existing" }, forumWriteCause: "forum_read_only" });
 	});
+});
+
+describe("duplicate reply detection across retained tool results", () => {
+	const selfBotId = "bot_self";
+	const createdAt = "2026-05-06T12:00:00.000Z";
+
+	function comment(id: string, body: string, authorBotId: string, parentCommentId?: string): CommentDocument {
+		return {
+			id,
+			threadId: "thr_mentions",
+			worldId: "wld_primary",
+			forumId: "frm_general",
+			authorBotId,
+			authorHandle: authorBotId === selfBotId ? "me" : "alice",
+			authorDisplayName: en(authorBotId === selfBotId ? "Me" : "Alice"),
+			...(parentCommentId ? { parentCommentId } : {}),
+			body: en(body),
+			voteScore: 0,
+			createdAt,
+			updatedAt: createdAt,
+		};
+	}
+
+	function thread(...comments: CommentDocument[]): ThreadDocument {
+		return {
+			id: "thr_mentions",
+			type: "thread",
+			schemaVersion: 1,
+			revision: comments.length,
+			createdAt,
+			updatedAt: createdAt,
+			worldId: "wld_primary",
+			worldHandle: "primary",
+			forumId: "frm_general",
+			forumHandle: "general",
+			title: en("Mentions"),
+			rootCommentId: "com_root",
+			comments,
+			commentCount: comments.length,
+			voteScore: 0,
+			recentCommentCount: comments.length,
+			lastActivityAt: createdAt,
+		};
+	}
+
+	function toolResultRow(payload: Record<string, unknown>): RuntimeRow {
+		return {
+			seq: 41,
+			run_id: "run-earlier",
+			type: "tool_result",
+			payload_json: JSON.stringify(payload),
+			token_estimate: 0,
+			compacted_by: null,
+			created_at: createdAt,
+		};
+	}
+
+	/** A row as the reply tool records it today: authored args plus the typed envelope. */
+	function replyRow(authoredBody: string, storedBody: string): RuntimeRow {
+		const root = comment("com_root", "Who is around?", "bot_alice");
+		const reply = comment("com_reply", storedBody, selfBotId, root.id);
+		const replyThread = thread(root, reply);
+		return toolResultRow({
+			name: "reply_to_comment",
+			args: { commentId: root.id, body: en(authoredBody) },
+			result: { thread: replyThread, comment: reply },
+			envelope: { kind: "comment_created", thread: replyThread, comment: reply },
+		});
+	}
+
+	it("rejects a verbatim repeat whose stored mention the writer canonicalized", () => {
+		// The stored body can no longer stand in for the authored one, so the
+		// guard has to compare what this participant wrote both times.
+		const authored = "Good point, @alice!";
+		const rows = [replyRow(authored, "Good point, u/alice!")];
+
+		const error = duplicateReplyError(() => assertNoDuplicateReplyInToolResultRows(rows, selfBotId, authored));
+
+		expect(error.duplicate).toEqual({
+			threadId: "thr_mentions",
+			commentId: "com_reply",
+			urlPath: "/w/primary/f/general/t/thr_mentions/c/com_reply",
+			seq: 41,
+		});
+		expect(error.message).toContain("/w/primary/f/general/t/thr_mentions/c/com_reply");
+	});
+
+	it("rejects a verbatim repeat that carries no mention", () => {
+		const authored = "Same thing again.";
+		const rows = [replyRow(authored, authored)];
+
+		expect(duplicateReplyError(() => assertNoDuplicateReplyInToolResultRows(rows, selfBotId, authored)).duplicate.commentId)
+			.toBe("com_reply");
+	});
+
+	it("rejects a repeat that differs only in surrounding whitespace", () => {
+		const rows = [replyRow("Good point, @alice!", "Good point, u/alice!")];
+
+		expect(() => assertNoDuplicateReplyInToolResultRows(rows, selfBotId, "\nGood point, @alice!  "))
+			.toThrow(DuplicateReplyError);
+	});
+
+	it("allows a different reply body and another participant's identical comment", () => {
+		const rows = [replyRow("Good point, @alice!", "Good point, u/alice!")];
+
+		expect(() => assertNoDuplicateReplyInToolResultRows(rows, selfBotId, "Good point, @bob!")).not.toThrow();
+		expect(() => assertNoDuplicateReplyInToolResultRows(rows, "bot_other", "Good point, @alice!")).not.toThrow();
+	});
+
+	it("still matches the stored body of a row written before authored args were retained", () => {
+		// Such a row also predates canonicalization, so its stored body is the
+		// authored text and is the only thing left to compare against.
+		const root = comment("com_root", "Who is around?", "bot_alice");
+		const reply = comment("com_reply", "Legacy reply text.", selfBotId, root.id);
+		const rows = [toolResultRow({ name: "reply_to_thread", result: { thread: thread(root, reply) } })];
+
+		expect(duplicateReplyError(() => assertNoDuplicateReplyInToolResultRows(rows, selfBotId, "Legacy reply text.")).duplicate.commentId)
+			.toBe("com_reply");
+		expect(() => assertNoDuplicateReplyInToolResultRows(rows, selfBotId, "Legacy reply text, revised.")).not.toThrow();
+	});
+
+	function duplicateReplyError(run: () => void): DuplicateReplyError {
+		try {
+			run();
+		} catch (error) {
+			if (error instanceof DuplicateReplyError) {
+				return error;
+			}
+			throw error;
+		}
+		throw new Error("Expected a duplicate reply to be rejected.");
+	}
 });
