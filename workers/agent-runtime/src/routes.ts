@@ -371,6 +371,52 @@ function allowlistedValue<T extends string>(table: Record<T, true>, value: unkno
 }
 
 /**
+ * Every read this event makes of the caught value goes through here.
+ *
+ * A thrower owns the shape of what it throws: `code`, `status`, and `details`
+ * can each be an accessor, and an accessor is free to throw. If one escaped the
+ * builder it would replace the error this catch is handling, and the generic
+ * route fallback would log that value raw and answer from its message — the
+ * thrower choosing the disclosure this event exists to prevent. A read that
+ * throws is a read that produced nothing.
+ */
+function errorProperty(value: unknown, key: string): unknown {
+	try {
+		return (value as Record<string, unknown> | null | undefined)?.[key];
+	} catch {
+		return undefined;
+	}
+}
+
+type PublicEffectiveModelErrorKind = 'inference_graph_repository' | 'repository' | 'error' | 'unknown';
+
+function publicEffectiveModelErrorKind(error: unknown): PublicEffectiveModelErrorKind {
+	try {
+		return error instanceof InferenceGraphRepositoryError
+			? 'inference_graph_repository'
+			: error instanceof RepositoryError
+				? 'repository'
+				: error instanceof Error
+					? 'error'
+					: 'unknown';
+	} catch {
+		// `instanceof` walks the value's own prototype chain, which a proxy trap
+		// may throw from. A value that will not say what it is, is unknown.
+		return 'unknown';
+	}
+}
+
+type PublicEffectiveModelFailureEvent = {
+	event: 'public_effective_model_failed';
+	botId: string;
+	stage: PublicEffectiveModelStage;
+	errorKind: PublicEffectiveModelErrorKind;
+	code?: RepositoryError['code'];
+	status?: number;
+	inferenceGraphCause?: InferenceGraphErrorCause;
+};
+
+/**
  * The one event an opaque public failure leaves behind for operators.
  *
  * The catch above spans owner KV loading, canonical D1 loading, and resolution,
@@ -387,27 +433,37 @@ function allowlistedValue<T extends string>(table: Record<T, true>, value: unkno
  * is a member of the tables above. `status` is admitted as a number. Anything
  * unrecognized — including every message, stack, and cause — is dropped, so an
  * unfamiliar failure logs that it happened and where, and nothing else.
+ *
+ * It is returned as an object and logged as the single console argument, not
+ * pre-serialized: Workers Logs extracts and indexes the fields of a logged
+ * object, while a string arrives as opaque message text an operator can only
+ * grep. Every field here is a literal this worker chose, so the fields it
+ * indexes are queryable and bounded. Reaching the object is total by
+ * construction — the classification and each read are guarded above — so this
+ * builder cannot itself become the failure that leaks.
  */
-function publicEffectiveModelFailureEvent(botId: string, stage: PublicEffectiveModelStage, error: unknown): string {
-	return JSON.stringify({
-		event: 'public_effective_model_failed',
-		botId,
-		stage,
-		errorKind: error instanceof InferenceGraphRepositoryError
-			? 'inference_graph_repository'
-			: error instanceof RepositoryError
-				? 'repository'
-				: error instanceof Error
-					? 'error'
-					: 'unknown',
-		...(error instanceof RepositoryError
-			? {
-				code: allowlistedValue(loggableRepositoryErrorCodes, error.code),
-				status: typeof error.status === 'number' && Number.isFinite(error.status) ? error.status : undefined,
-				inferenceGraphCause: allowlistedValue(loggableInferenceGraphCauses, error.details?.inferenceGraphCause),
-			}
-			: {}),
-	});
+function publicEffectiveModelFailureEvent(
+	botId: string,
+	stage: PublicEffectiveModelStage,
+	error: unknown,
+): PublicEffectiveModelFailureEvent {
+	const errorKind = publicEffectiveModelErrorKind(error);
+	const event = { event: 'public_effective_model_failed', botId, stage, errorKind } as const;
+	if (errorKind !== 'repository' && errorKind !== 'inference_graph_repository') {
+		return event;
+	}
+	const code = allowlistedValue(loggableRepositoryErrorCodes, errorProperty(error, 'code'));
+	const status = errorProperty(error, 'status');
+	const inferenceGraphCause = allowlistedValue(
+		loggableInferenceGraphCauses,
+		errorProperty(errorProperty(error, 'details'), 'inferenceGraphCause'),
+	);
+	return {
+		...event,
+		...(code === undefined ? {} : { code }),
+		...(typeof status === 'number' && Number.isFinite(status) ? { status } : {}),
+		...(inferenceGraphCause === undefined ? {} : { inferenceGraphCause }),
+	};
 }
 
 export const agentRuntimeRouteTable = [

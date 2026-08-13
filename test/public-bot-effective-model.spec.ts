@@ -213,17 +213,17 @@ describe("public participant effective model", () => {
 		});
 		Object.assign(failure, { metadata: { configurationId: leakedConfigurationId } });
 
-		const { response, logged } = await failedResolution({ BICKR_KV: ownerReadFails(failure) });
+		const { response, logged, loggedText } = await failedResolution({ BICKR_KV: ownerReadFails(failure) });
 
 		expectOpaqueResolutionFailure(response, ["OPENROUTER_API_KEY", ownerSecret]);
-		expect(JSON.parse(logged)).toEqual({
+		expect(logged).toStrictEqual({
 			event: "public_effective_model_failed",
 			botId,
 			stage: "owner_document",
 			errorKind: "error",
 		});
 		for (const disclosure of [ownerSecret, leakedConfigurationId, "OPENROUTER_API_KEY", "metadata", "cause"]) {
-			expect(logged).not.toContain(disclosure);
+			expect(loggedText).not.toContain(disclosure);
 		}
 	});
 
@@ -244,10 +244,10 @@ describe("public participant effective model", () => {
 			metadata: { openRouterApiKey: ownerSecret, configurationId: leakedConfigurationId },
 		});
 
-		const { response, logged } = await failedResolution({ BICKR_KV: ownerReadFails(failure) });
+		const { response, logged, loggedText } = await failedResolution({ BICKR_KV: ownerReadFails(failure) });
 
 		expectOpaqueResolutionFailure(response, ["Inference configuration", ownerSecret]);
-		expect(JSON.parse(logged)).toEqual({
+		expect(logged).toStrictEqual({
 			event: "public_effective_model_failed",
 			botId,
 			stage: "owner_document",
@@ -255,7 +255,63 @@ describe("public participant effective model", () => {
 			status: 500,
 		});
 		for (const disclosure of [ownerSecret, leakedConfigurationId, "upstream rejected", "metadata", "cause"]) {
-			expect(logged).not.toContain(disclosure);
+			expect(loggedText).not.toContain(disclosure);
+		}
+	});
+
+	// A thrower owns the shape of what it throws, so reading a typed field off it
+	// can run the thrower's own code. If that read escaped, the caught error would
+	// be replaced by the accessor's — and the generic route fallback logs an
+	// unrecognized error raw, and answers a RepositoryError from its message. The
+	// thrower would then choose both disclosures the opaque failure just closed.
+	it("keeps the event and the response safe when reading the caught value throws", async () => {
+		await seedGraph({ accountModel: "owner/account-model", botModel: "owner/bot-model" });
+		const hostileMessage = `OPENROUTER_API_KEY=${ownerSecret} for ${leakedConfigurationId}`;
+
+		// A typed field is an accessor that throws a repository error, whose
+		// message the fallback would have answered with verbatim.
+		const throwingDetails = new RepositoryError("server_error", "Resolution failed.", 500);
+		Object.defineProperty(throwingDetails, "details", {
+			get: () => {
+				throw new RepositoryError("server_error", hostileMessage, 500);
+			},
+		});
+
+		// The same hostility one level down: `details` reads, and the union member
+		// the log wants off it is the accessor that throws.
+		const throwingCause = new RepositoryError("server_error", "Resolution failed.", 500);
+		Object.defineProperty(throwingCause, "details", {
+			get: () => ({
+				get inferenceGraphCause(): string {
+					throw new Error(hostileMessage);
+				},
+			}),
+		});
+
+		// And a value that will not answer what it is: `instanceof` walks its
+		// prototype chain, and this one throws from that trap.
+		const throwingPrototype = new Proxy(new Error(hostileMessage), {
+			getPrototypeOf: () => {
+				throw new Error(hostileMessage);
+			},
+		});
+
+		for (const [failure, expected] of [
+			// The reads that did not throw still carry their diagnosis.
+			[throwingDetails, { errorKind: "repository", code: "server_error", status: 500 }],
+			[throwingCause, { errorKind: "repository", code: "server_error", status: 500 }],
+			[throwingPrototype, { errorKind: "unknown" }],
+		] as const) {
+			const { response, logged, loggedText } = await failedResolution({ BICKR_KV: ownerReadFails(failure) });
+
+			expectOpaqueResolutionFailure(response, [ownerSecret, "OPENROUTER_API_KEY"]);
+			expect(logged).toStrictEqual({
+				event: "public_effective_model_failed",
+				botId,
+				stage: "owner_document",
+				...expected,
+			});
+			expect(loggedText).not.toContain(ownerSecret);
 		}
 	});
 
@@ -266,7 +322,7 @@ describe("public participant effective model", () => {
 		try {
 			const { logged } = await failedResolution();
 
-			expect(JSON.parse(logged)).toEqual({
+			expect(logged).toStrictEqual({
 				event: "public_effective_model_failed",
 				botId,
 				stage: "canonical_resolution",
@@ -360,10 +416,16 @@ function expectOpaqueResolutionFailure(response: ResponseProbe, disclosures: rea
 
 /**
  * Runs one failing public read with `console.error` captured, and asserts the
- * shape of the logging itself: exactly one event, passed as a single JSON
- * string, so no caught value can arrive as positional console data.
+ * shape of the logging itself: exactly one call carrying exactly one argument,
+ * and that argument an object rather than a string. The object is what Workers
+ * Logs extracts and indexes as queryable fields; a string would arrive as
+ * message text. The single argument is also what keeps a caught value from
+ * riding along as positional console data. `loggedText` flattens the event so a
+ * test can scan the whole of it for a disclosure.
  */
-async function failedResolution(env?: Record<string, unknown>): Promise<{ response: ResponseProbe; logged: string }> {
+async function failedResolution(
+	env?: Record<string, unknown>,
+): Promise<{ response: ResponseProbe; logged: unknown; loggedText: string }> {
 	const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 	try {
 		const response = await runtimeResponse(env ? { env } : {});
@@ -371,8 +433,8 @@ async function failedResolution(env?: Record<string, unknown>): Promise<{ respon
 		expect(consoleError.mock.calls).toHaveLength(1);
 		const [logged, ...positional] = consoleError.mock.calls[0] ?? [];
 		expect(positional).toEqual([]);
-		expect(typeof logged).toBe("string");
-		return { response, logged: String(logged) };
+		expect(logged).toBeTypeOf("object");
+		return { response, logged, loggedText: JSON.stringify(logged) };
 	} finally {
 		consoleError.mockRestore();
 	}
