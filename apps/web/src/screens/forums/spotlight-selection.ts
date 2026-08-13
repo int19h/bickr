@@ -47,12 +47,35 @@ export type ActivationObservation =
 	| { readonly kind: "spotlight" }
 	| { readonly kind: "unrelated" };
 
-/** Captures ordered by the document position of the comments they came from. */
+/**
+ * Whether the captured selection may still seed a Spotlight prefill.
+ *
+ * The browser does not retire a selection when we consume it: a keyboard
+ * selection never collapses at all, and a touch selection only collapses if the
+ * platform happens to dismiss it. So "already spent" has to be state we keep
+ * rather than something a fresh read of the document can tell us — otherwise
+ * every later consume re-reads the same still-highlighted text and quotes it
+ * again, and clearing or invalidating the capture achieves nothing.
+ */
+export type SelectionFreshness = "armed" | "retired";
+
+/**
+ * Captures ordered by the document position of the comments they came from,
+ * plus whether they are still allowed to seed a prefill.
+ *
+ * A `retired` state keeps captures on purpose. They are no longer eligible
+ * text; they are the fingerprint of whatever was still selected when the state
+ * was retired, so that reading that same selection again recognizes it as spent
+ * instead of rearming it. When nothing was selected there is nothing to
+ * fingerprint and the state is empty, which is why reselecting the very same
+ * words after a collapse arms a genuinely new capture.
+ */
 export type SpotlightSelectionState = {
 	readonly captures: readonly CommentSelectionCapture[];
+	readonly freshness: SelectionFreshness;
 };
 
-export const emptySpotlightSelection: SpotlightSelectionState = { captures: [] };
+export const emptySpotlightSelection: SpotlightSelectionState = { captures: [], freshness: "retired" };
 
 export function observeSelection(
 	state: SpotlightSelectionState,
@@ -61,17 +84,64 @@ export function observeSelection(
 	switch (observation.kind) {
 		case "collapsed":
 		case "neutral":
-			return state;
+			// A collapse never invalidates an armed capture — that is the mobile
+			// dismissal this feature exists to survive — and neither does the reader
+			// selecting inside Spotlight's own UI. Both do drop a retired
+			// fingerprint: the spent selection is gone from the document, so
+			// whatever the reader selects next is a new selection even when it is
+			// the very same words.
+			return state.freshness === "armed" ? state : emptySpotlightSelection;
 		case "selected":
-			return { captures: observation.captures };
+			// Reading the same selection again is not a new selection, whether it
+			// arrives as the queued `selectionchange` for one already consumed live
+			// or as a live read after the capture was retired. Only different
+			// content rearms — including no content at all, which is the reader
+			// selecting outside every comment body and moving on.
+			return sameCaptures(state.captures, observation.captures) ?
+					state
+				:	{ captures: observation.captures, freshness: "armed" };
 	}
 }
 
+/**
+ * Marks the selection spent: an explicit clear, an unrelated activation, or the
+ * consume that just quoted it.
+ *
+ * `live` is what the document has selected at that moment, or `null` when the
+ * caller cannot say. Its content becomes the retirement fingerprint, because it
+ * is exactly what a later read could mistake for a fresh selection. A collapsed
+ * or Spotlight-internal selection leaves nothing to mistake, so the state goes
+ * empty and the next selection rearms whatever it says.
+ */
+export function retireSelection(
+	state: SpotlightSelectionState,
+	live: SelectionObservation | null,
+): SpotlightSelectionState {
+	if (!live) {
+		return state.freshness === "retired" ? state : { captures: state.captures, freshness: "retired" };
+	}
+	return live.kind === "selected" ? { captures: live.captures, freshness: "retired" } : emptySpotlightSelection;
+}
+
+/**
+ * Applies a completed activation.
+ *
+ * An unrelated activation retires whatever is selected right now rather than
+ * only what a delivered `selectionchange` has reported: a selection made and
+ * abandoned within one task would otherwise still be waiting when a Spotlight
+ * toggle is activated much later.
+ */
 export function observeActivation(
 	state: SpotlightSelectionState,
-	activation: ActivationObservation,
+	{
+		activation,
+		live,
+	}: {
+		readonly activation: ActivationObservation;
+		readonly live: SelectionObservation | null;
+	},
 ): SpotlightSelectionState {
-	return activation.kind === "unrelated" ? emptySpotlightSelection : state;
+	return activation.kind === "spotlight" ? state : retireSelection(state, live);
 }
 
 export type SpotlightFocusConsumption = {
@@ -87,11 +157,12 @@ export type SpotlightFocusConsumption = {
  * queued as a task: a selection the reader just made — keyboard activation in
  * particular never collapses one — can still be ahead of the retained capture.
  * Applying it through the same replacement rule the queued event would have
- * used keeps live-first and eager capture from disagreeing.
+ * used keeps live-first and eager capture from disagreeing, and is also what
+ * stops the live read from resurrecting a selection this state already spent:
+ * `observeSelection` rearms only for content it has not already accounted for.
  *
- * The capture is cleared unconditionally, whether or not it produced text: one
- * capture seeds exactly one Spotlight prefill, so a second consume can never
- * reuse it.
+ * The state is retired unconditionally, whether or not it produced text: one
+ * capture seeds exactly one Spotlight prefill.
  */
 export function consumeSpotlightFocusText(
 	state: SpotlightSelectionState,
@@ -105,9 +176,22 @@ export function consumeSpotlightFocusText(
 ): SpotlightFocusConsumption {
 	const current = live ? observeSelection(state, live) : state;
 	return {
-		state: emptySpotlightSelection,
-		focusText: quoteSpotlightFocusText(selectedTextForComments(current.captures, targetCommentIds)),
+		state: retireSelection(current, live),
+		focusText:
+			current.freshness === "armed" ?
+				quoteSpotlightFocusText(selectedTextForComments(current.captures, targetCommentIds))
+			:	"",
 	};
+}
+
+function sameCaptures(
+	left: readonly CommentSelectionCapture[],
+	right: readonly CommentSelectionCapture[],
+): boolean {
+	return (
+		left.length === right.length
+		&& left.every((capture, index) => capture.commentId === right[index].commentId && capture.text === right[index].text)
+	);
 }
 
 function selectedTextForComments(
@@ -196,7 +280,7 @@ export type SpotlightSelectionController = {
 	readonly observeActivation: (activation: ActivationObservation) => void;
 	/** Quotes the capture for these comments and retires it. */
 	readonly consumeFocusText: (targetCommentIds: readonly string[]) => string;
-	/** Drops the capture: thread replacement, Spotlight clear, or unmount. */
+	/** Retires the capture: a Spotlight clear or unmount. */
 	readonly reset: () => void;
 	readonly snapshot: () => SpotlightSelectionState;
 };
@@ -205,6 +289,10 @@ export type SpotlightSelectionController = {
  * Holds the capture outside React state. Capture must not re-render the thread
  * — it happens on every `selectionchange` — and must not be lost to a render
  * that lands between the selection and the activation that consumes it.
+ *
+ * Every entry point that spends or invalidates the capture reads the live
+ * selection first and folds it in, so the state always knows about whatever is
+ * selected at that moment and can recognize it later as already spent.
  */
 export function createSpotlightSelectionController(
 	readSelection: () => SelectionObservation,
@@ -215,7 +303,7 @@ export function createSpotlightSelectionController(
 			state = observeSelection(state, readSelection());
 		},
 		observeActivation: (activation) => {
-			state = observeActivation(state, activation);
+			state = observeActivation(state, { activation, live: readSelection() });
 		},
 		consumeFocusText: (targetCommentIds) => {
 			const consumption = consumeSpotlightFocusText(state, { live: readSelection(), targetCommentIds });
@@ -223,7 +311,7 @@ export function createSpotlightSelectionController(
 			return consumption.focusText;
 		},
 		reset: () => {
-			state = emptySpotlightSelection;
+			state = retireSelection(state, readSelection());
 		},
 		snapshot: () => state,
 	};

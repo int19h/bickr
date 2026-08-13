@@ -17,6 +17,13 @@ export function useSpotlightSelectionCapture(): SpotlightSelectionController {
 	const controller = controllerRef.current;
 
 	useEffect(() => {
+		// Capture is not coalesced. Deferring serialization to a frame or an idle
+		// callback would have to re-read `window.getSelection()` when it finally
+		// ran, and the collapse this feature exists to survive can land first —
+		// the flush would then serialize nothing and lose exactly the last
+		// selection before activation. Retaining the `Range` to serialize later is
+		// no better: the same collapse invalidates it. Each read is already scoped
+		// to the selection rather than to the thread (see `candidateBodies`).
 		const onSelectionChange = () => controller.observeSelectionChange();
 		const onClick = (event: MouseEvent) => {
 			const activation = classifyActivation(event.target instanceof Element ? event.target : null);
@@ -25,16 +32,26 @@ export function useSpotlightSelectionCapture(): SpotlightSelectionController {
 			}
 		};
 		document.addEventListener("selectionchange", onSelectionChange);
-		// Bubble phase: React handles a checkbox toggle during the click dispatch
-		// at its root container, so the Spotlight prefill is already consumed by
-		// the time this listener sees the same event. Selection dismissal is
-		// deliberately not observed here — on mobile the tap that clears the
-		// selection frequently lands somewhere other than the eventual checkbox,
-		// and invalidating on it is exactly the bug this replaces.
-		document.addEventListener("click", onClick);
+		// Capture phase, not bubble. Thread controls — content references, author
+		// and ordinary references, translation controls — call `stopPropagation()`
+		// from their React handlers, which stops the native event at React's root
+		// container, below `document`. Those clicks are precisely the unrelated
+		// activations that must retire the capture, so a bubble-phase listener
+		// misses the ones that matter most.
+		//
+		// Seeing a click before the activated control handles it cannot race a
+		// Spotlight toggle: activations are classified by where the target sits in
+		// the document, so a toggle's own click classifies as `spotlight` and
+		// leaves the capture alone for the `change` handler that follows. Nothing
+		// here calls `preventDefault` or `stopPropagation`, so running first
+		// changes no other behavior. Selection dismissal is still deliberately not
+		// observed — on mobile the tap that clears the selection frequently lands
+		// somewhere other than the eventual checkbox, and invalidating on it is
+		// exactly the bug this replaces.
+		document.addEventListener("click", onClick, true);
 		return () => {
 			document.removeEventListener("selectionchange", onSelectionChange);
-			document.removeEventListener("click", onClick);
+			document.removeEventListener("click", onClick, true);
 			controller.reset();
 		};
 	}, [controller]);

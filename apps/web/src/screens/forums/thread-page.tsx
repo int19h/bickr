@@ -41,24 +41,7 @@ type ThreadActivityNotice = {
 	newCommentCount: number;
 };
 
-export function ThreadPage({
-	activityCheckToken,
-	currentUserId,
-	forum,
-	loadedAt,
-	loading,
-	onDeleteComment,
-	onDeleteThread,
-	onReference,
-	onRefresh,
-	onToggleSubscription,
-	ownedBots,
-	subscriptions,
-	targetCommentId,
-	thread,
-	threadId,
-	world,
-}: {
+type ThreadPageProps = {
 	activityCheckToken: number;
 	currentUserId: string | null;
 	forum: ForumSummary;
@@ -75,7 +58,43 @@ export function ThreadPage({
 	thread: ThreadDocument | null;
 	threadId: string | null;
 	world: WorldView;
-}) {
+};
+
+/**
+ * Binds every piece of thread-scoped state to the identity of the rendered
+ * thread.
+ *
+ * Spotlight targets, the focus seed, and the selection capture all describe
+ * comments that only exist in one thread, so a rendered thread swap has to
+ * replace them at the same instant it replaces the comments. Resetting them in
+ * an effect cannot do that: React would commit the replacement thread with the
+ * previous thread's checkboxes ticked and its Spotlight panel on screen, then
+ * schedule a second render to clean up. Keying the body on the thread id makes
+ * the replacement atomic by construction — React discards the old state before
+ * it renders the new thread at all, so no commit can mix the two.
+ */
+export function ThreadPage(props: ThreadPageProps) {
+	return <ThreadPageBody key={props.thread?.id ?? "no-thread"} {...props} />;
+}
+
+function ThreadPageBody({
+	activityCheckToken,
+	currentUserId,
+	forum,
+	loadedAt,
+	loading,
+	onDeleteComment,
+	onDeleteThread,
+	onReference,
+	onRefresh,
+	onToggleSubscription,
+	ownedBots,
+	subscriptions,
+	targetCommentId,
+	thread,
+	threadId,
+	world,
+}: ThreadPageProps) {
 	const [selectedComments, setSelectedComments] = useState<Record<string, boolean>>({});
 	const [threadSelected, setThreadSelected] = useState(false);
 	const [spotlightFocusSeed, setSpotlightFocusSeed] = useState("");
@@ -104,16 +123,6 @@ export function ThreadPage({
 		(commentIds: string[]) => selectionCapture.consumeFocusText(spotlightTargetCommentIds(commentIds, commentParentById)),
 		[commentParentById, selectionCapture],
 	);
-
-	useEffect(() => {
-		// A rendered thread swap replaces every comment on screen, so neither the
-		// retained selection nor the Spotlight targets chosen for the previous
-		// thread may survive it.
-		setThreadSelected(false);
-		setSelectedComments({});
-		setSpotlightFocusSeed("");
-		selectionCapture.reset();
-	}, [selectionCapture, thread?.id]);
 
 	useEffect(() => {
 		if (!targetCommentId || !thread) {
