@@ -49,6 +49,7 @@ import {
 	inferenceConfigurationParentImpact,
 	inferenceConfigurationMutations,
 	inferenceConfigurationOwnerDto,
+	InferenceGraphRepositoryError,
 	inferenceGraphReadVersion,
 	loadInferenceConfigurationPath,
 	listOwnedFixedInferenceConfigurationSummaries,
@@ -219,7 +220,7 @@ import {
 	resumeDueUserLifecycleOperation,
 } from './lifecycle/recovery';
 import { kvKeys, readJson } from '@bickr/shared/storage';
-import { authProviders, type AuthProvider, type AvatarCrop, type AvatarImage, type BotDocument, type BotImageGenerationSettings, type BotInferenceSettings, type BotTranslationSettingsInput, type PublicBotEffectiveModel, type WorldDocument } from '@bickr/shared/model';
+import { authProviders, type AuthProvider, type AvatarCrop, type AvatarImage, type BotDocument, type BotImageGenerationSettings, type BotInferenceSettings, type BotTranslationSettingsInput, type InferenceGraphErrorCause, type PublicBotEffectiveModel, type WorldDocument } from '@bickr/shared/model';
 
 const {
 	deleteBotAvatar,
@@ -310,21 +311,103 @@ async function worldForUpdateMutation(
  * row answers 409 — a public reader must learn none of that, and even the
  * distinction between "this graph is broken" and "this account was deleted" is
  * owner-only. So every failure past the entity lookup, typed or not, collapses
- * to one constant 500 with no code, id, cause, or message taken from it. The
- * error itself survives in the worker log, which is where operators read it.
+ * to one constant 500 with no code, id, cause, or message taken from it. What
+ * operators read instead is `publicEffectiveModelFailureEvent`.
  */
 async function publicEffectiveModelForBot(
 	env: Pick<AgentRuntimeRouteEnv, 'BICKR_D1' | 'BICKR_KV' | 'OPENROUTER_API_KEY' | 'OPENROUTER_BASE_URL' | 'OPENROUTER_MODEL'>,
 	bot: BotDocument,
 ): Promise<string> {
+	// Which of the two owner-scoped reads failed is the diagnosis the collapsed
+	// error can no longer carry, and it cannot be recovered from the error either
+	// — a KV outage and a D1 outage arrive here as the same untyped value.
+	let stage: PublicEffectiveModelStage = 'owner_document';
 	try {
 		const owner = await userById(env.BICKR_KV, bot.ownerUserId);
+		stage = 'canonical_resolution';
 		const settings = await effectiveProviderSettingsForBotCanonical(env.BICKR_D1, bot, owner, env);
 		return settings.model;
 	} catch (error) {
-		console.error('public effective model resolution failed', bot.id, error);
+		console.error(publicEffectiveModelFailureEvent(bot.id, stage, error));
 		throw new RepositoryError('server_error', 'Effective model is unavailable.', 500);
 	}
+}
+
+type PublicEffectiveModelStage = 'owner_document' | 'canonical_resolution';
+
+/**
+ * The `code` and `inferenceGraphCause` values this log is allowed to name.
+ *
+ * Written as exhaustive tables rather than a type assertion so that a new union
+ * member is a compile error here, and so that the emitted value is always one
+ * of these literals rather than whatever string the error happened to hold.
+ */
+const loggableRepositoryErrorCodes = {
+	bad_request: true,
+	conflict: true,
+	forbidden: true,
+	not_found: true,
+	server_error: true,
+	unauthorized: true,
+} as const satisfies Record<RepositoryError['code'], true>;
+
+const loggableInferenceGraphCauses = {
+	account_default_required: true,
+	corrupt_graph: true,
+	cross_owner: true,
+	descendant_parent: true,
+	duplicate_name: true,
+	fixed_entry_requires_lifecycle: true,
+	invalid_parent: true,
+	quota_exceeded: true,
+	self_parent: true,
+	stale_revision: true,
+	unexpected_unique_conflict: true,
+} as const satisfies Record<InferenceGraphErrorCause, true>;
+
+function allowlistedValue<T extends string>(table: Record<T, true>, value: unknown): T | undefined {
+	// `hasOwn`, not `in`: an inherited `constructor` or `toString` is not a member.
+	return typeof value === 'string' && Object.hasOwn(table, value) ? (value as T) : undefined;
+}
+
+/**
+ * The one event an opaque public failure leaves behind for operators.
+ *
+ * The catch above spans owner KV loading, canonical D1 loading, and resolution,
+ * so the value it holds is genuinely unknown: typed repository errors, untyped
+ * platform failures, and errors a dependency threw with arbitrary text, cause,
+ * or metadata attached all arrive there. Logging that object would republish
+ * into Workers Logs exactly what the response just refused to disclose — the
+ * owner's configuration ids and graph diagnostics — and would put any secret a
+ * future thrower attaches there too.
+ *
+ * So nothing is copied out of the error. `botId` and `stage` are produced by
+ * this worker, `errorKind` is decided by `instanceof` rather than read from the
+ * value, and the two string fields are emitted only when the error's own value
+ * is a member of the tables above. `status` is admitted as a number. Anything
+ * unrecognized — including every message, stack, and cause — is dropped, so an
+ * unfamiliar failure logs that it happened and where, and nothing else.
+ */
+function publicEffectiveModelFailureEvent(botId: string, stage: PublicEffectiveModelStage, error: unknown): string {
+	return JSON.stringify({
+		event: 'public_effective_model_failed',
+		botId,
+		stage,
+		errorKind: error instanceof InferenceGraphRepositoryError
+			? 'inference_graph_repository'
+			: error instanceof RepositoryError
+				? 'repository'
+				: error instanceof Error
+					? 'error'
+					: 'unknown',
+		...(error instanceof RepositoryError
+			? {
+				code: allowlistedValue(loggableRepositoryErrorCodes, error.code),
+				status: typeof error.status === 'number' && Number.isFinite(error.status) ? error.status : undefined,
+				inferenceGraphCause: allowlistedValue(loggableInferenceGraphCauses, error.details?.inferenceGraphCause),
+			}
+			: {}),
+	});
 }
 
 export const agentRuntimeRouteTable = [

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import {
 	accountDefaultConfigurationId,
@@ -20,8 +20,8 @@ import {
 	type UserDocument,
 	type WorldDocument,
 } from "@bickr/shared/model";
-import { userIndexProjectionStatement, worldIndexProjectionStatement } from "@bickr/shared/repository";
-import { kvKeys, writeJson, type D1DatabaseLike } from "@bickr/shared/storage";
+import { RepositoryError, userIndexProjectionStatement, worldIndexProjectionStatement } from "@bickr/shared/repository";
+import { kvKeys, writeJson, type D1DatabaseLike, type KVNamespaceLike } from "@bickr/shared/storage";
 import { onRequestGet as publicEffectiveModelRoute } from "../apps/web/functions/api/worlds/[worldHandle]/bots/[botHandle]/effective-model";
 import type { AppEnv } from "../apps/web/functions/api/_auth";
 import { handleAgentRuntimeRequest, handleAgentRuntimeWorkerRequest } from "../workers/agent-runtime/src/routes";
@@ -47,6 +47,7 @@ const botHandle = "model-bot";
 const en = "en" as LanguageTag;
 const internalSecret = "test-internal-service-secret";
 const ownerSecret = "sk-owner-provider-credential";
+const leakedConfigurationId = "cfg_owner_private_configuration";
 
 type ModelEnvelope = {
 	ok: boolean;
@@ -198,6 +199,87 @@ describe("public participant effective model", () => {
 		await expectOpaqueResolutionFailure(await runtimeResponse(), ["User not found", ownerId]);
 	});
 
+	// The response is opaque, so the log is the only account of what broke — and
+	// a log is a disclosure too. It carries the participant, which of the two
+	// owner-scoped reads failed, and typed values the worker recognizes; it never
+	// carries the error itself, so nothing a thrower attaches can ride along.
+	it("logs one safe event and none of what an unrecognized failure carried", async () => {
+		await seedGraph({ accountModel: "owner/account-model", botModel: "owner/bot-model" });
+		// The step this replaces is a platform read, so what it throws is whatever
+		// the host or a future dependency decided to throw: untyped, and free to
+		// carry credentials in its message, its cause, or fields invented for it.
+		const failure = new Error(`OPENROUTER_API_KEY=${ownerSecret} rejected for ${leakedConfigurationId}`, {
+			cause: { openRouterApiKey: ownerSecret },
+		});
+		Object.assign(failure, { metadata: { configurationId: leakedConfigurationId } });
+
+		const { response, logged } = await failedResolution({ BICKR_KV: ownerReadFails(failure) });
+
+		expectOpaqueResolutionFailure(response, ["OPENROUTER_API_KEY", ownerSecret]);
+		expect(JSON.parse(logged)).toEqual({
+			event: "public_effective_model_failed",
+			botId,
+			stage: "owner_document",
+			errorKind: "error",
+		});
+		for (const disclosure of [ownerSecret, leakedConfigurationId, "OPENROUTER_API_KEY", "metadata", "cause"]) {
+			expect(logged).not.toContain(disclosure);
+		}
+	});
+
+	it("logs no typed field whose value is not a member of its allowlist", async () => {
+		await seedGraph({ accountModel: "owner/account-model", botModel: "owner/bot-model" });
+		// A repository error whose own typed fields hold values outside their
+		// unions. Nothing in this repository throws that today; it stands in for
+		// any future thrower, and it is the case that separates "the log names a
+		// safe field" from "the log copies whatever that field happens to hold".
+		const failure = new RepositoryError(
+			ownerSecret as never,
+			`Inference configuration ${leakedConfigurationId} rejected key ${ownerSecret}.`,
+			500,
+			{ inferenceGraphCause: ownerSecret as never, references: [leakedConfigurationId] },
+		);
+		Object.assign(failure, {
+			cause: new Error(`upstream rejected ${ownerSecret}`),
+			metadata: { openRouterApiKey: ownerSecret, configurationId: leakedConfigurationId },
+		});
+
+		const { response, logged } = await failedResolution({ BICKR_KV: ownerReadFails(failure) });
+
+		expectOpaqueResolutionFailure(response, ["Inference configuration", ownerSecret]);
+		expect(JSON.parse(logged)).toEqual({
+			event: "public_effective_model_failed",
+			botId,
+			stage: "owner_document",
+			errorKind: "repository",
+			status: 500,
+		});
+		for (const disclosure of [ownerSecret, leakedConfigurationId, "upstream rejected", "metadata", "cause"]) {
+			expect(logged).not.toContain(disclosure);
+		}
+	});
+
+	it("logs the typed cause of a real graph corruption without its owner-facing prose", async () => {
+		await seedGraph({ accountModel: "owner/account-model", botModel: "owner/bot-model" });
+		const worldConfigId = await worldConfigurationId(worldId);
+		await reparent(worldConfigId, await botConfigurationId(botId));
+		try {
+			const { logged } = await failedResolution();
+
+			expect(JSON.parse(logged)).toEqual({
+				event: "public_effective_model_failed",
+				botId,
+				stage: "canonical_resolution",
+				errorKind: "inference_graph_repository",
+				code: "server_error",
+				status: 500,
+				inferenceGraphCause: "corrupt_graph",
+			});
+		} finally {
+			await reparent(worldConfigId, await accountDefaultConfigurationId(ownerId));
+		}
+	});
+
 	it("keeps the public profile's not-found behavior for unknown and removed participants", async () => {
 		await expect(runtimeResponse({ worldHandle: "no-such-world" })).resolves.toMatchObject({
 			status: 404,
@@ -276,11 +358,50 @@ function expectOpaqueResolutionFailure(response: ResponseProbe, disclosures: rea
 	}
 }
 
+/**
+ * Runs one failing public read with `console.error` captured, and asserts the
+ * shape of the logging itself: exactly one event, passed as a single JSON
+ * string, so no caught value can arrive as positional console data.
+ */
+async function failedResolution(env?: Record<string, unknown>): Promise<{ response: ResponseProbe; logged: string }> {
+	const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+	try {
+		const response = await runtimeResponse(env ? { env } : {});
+		expect(response.status).toBe(500);
+		expect(consoleError.mock.calls).toHaveLength(1);
+		const [logged, ...positional] = consoleError.mock.calls[0] ?? [];
+		expect(positional).toEqual([]);
+		expect(typeof logged).toBe("string");
+		return { response, logged: String(logged) };
+	} finally {
+		consoleError.mockRestore();
+	}
+}
+
+/**
+ * A KV binding that fails only the owner document read, with `failure`. The
+ * participant and world lookups ahead of it still resolve, so the request
+ * reaches the owner-scoped step rather than the public 404 before it.
+ */
+function ownerReadFails(failure: unknown): KVNamespaceLike {
+	const kv = testEnv.BICKR_KV as unknown as KVNamespaceLike;
+	return {
+		get: (key, options) => {
+			if (key === kvKeys.user(ownerId)) {
+				throw failure;
+			}
+			return kv.get(key, options);
+		},
+		put: (key, value, options) => kv.put(key, value, options),
+		delete: (key) => kv.delete(key),
+	};
+}
+
 async function runtimeResponse(options: {
 	viewerUserId?: string;
 	worldHandle?: string;
 	botHandle?: string;
-	env?: Record<string, string>;
+	env?: Record<string, unknown>;
 } = {}): Promise<ResponseProbe> {
 	const path = `/worlds/${encodeURIComponent(options.worldHandle ?? worldHandle)}`
 		+ `/bots/${encodeURIComponent(options.botHandle ?? botHandle)}/effective-model`;
