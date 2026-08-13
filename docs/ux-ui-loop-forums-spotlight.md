@@ -287,6 +287,13 @@ Focus text:
 - Suggested placeholder: `What should they pay attention to?`
 - Keep it short visually. This is not a long-form post composer.
 
+Selection prefill:
+
+- Text selected in the thread prefills the focus field, quoted line by line, restricted to the comment bodies the chosen spotlight target covers and excluding popup and reference metadata.
+- Mobile browsers collapse the selection while dismissing the selection handles and moving focus into the checkbox, and no pointer event reliably precedes that collapse. The selection is therefore captured as it is made, not read back when the checkbox changes, and a collapse alone never discards it.
+- Selecting inside the spotlight panel leaves the captured thread selection alone. A new selection anywhere else replaces it, and activating any control outside spotlight discards it.
+- One capture prefills one spotlight. Clearing the spotlight, or switching to another thread, discards it.
+
 Preview:
 
 - Show per-bot preview because included content can differ by bot.
