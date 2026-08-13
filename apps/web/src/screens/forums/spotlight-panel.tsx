@@ -114,7 +114,7 @@ export function SpotlightPanel({
 	}
 
 	return (
-		<aside className="spot-panel" aria-label="Spotlight panel">
+		<aside className="spot-panel" aria-label="Spotlight panel" data-spotlight-ui="true">
 			<div className="head">
 				<h3>
 					<span className="pulse" />

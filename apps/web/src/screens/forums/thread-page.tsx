@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type {
 	BotSummary,
 	CommentDocument,
@@ -8,7 +8,6 @@ import type {
 } from "@bickr/shared/model";
 import { effectiveThreadSettings, threadLock } from "@bickr/shared/thread-policy";
 import { api } from "../../api";
-import { spotlightFocusSeedFromSelection } from "../../spotlight-focus";
 import {
 	Reference,
 	TranslatableText,
@@ -31,32 +30,18 @@ import {
 	buildCommentTree,
 	commentDomId,
 	impliedAncestorIds,
+	spotlightTargetCommentIds,
 	threadRootComment,
 } from "./comment-tree";
 import { SpotlightPanel } from "./spotlight-panel";
+import { SpotlightTargetCheckbox } from "./spotlight-target-checkbox";
+import { useSpotlightSelectionCapture } from "./use-spotlight-selection";
 
 type ThreadActivityNotice = {
 	newCommentCount: number;
 };
 
-export function ThreadPage({
-	activityCheckToken,
-	currentUserId,
-	forum,
-	loadedAt,
-	loading,
-	onDeleteComment,
-	onDeleteThread,
-	onReference,
-	onRefresh,
-	onToggleSubscription,
-	ownedBots,
-	subscriptions,
-	targetCommentId,
-	thread,
-	threadId,
-	world,
-}: {
+type ThreadPageProps = {
 	activityCheckToken: number;
 	currentUserId: string | null;
 	forum: ForumSummary;
@@ -73,7 +58,43 @@ export function ThreadPage({
 	thread: ThreadDocument | null;
 	threadId: string | null;
 	world: WorldView;
-}) {
+};
+
+/**
+ * Binds every piece of thread-scoped state to the identity of the rendered
+ * thread.
+ *
+ * Spotlight targets, the focus seed, and the selection capture all describe
+ * comments that only exist in one thread, so a rendered thread swap has to
+ * replace them at the same instant it replaces the comments. Resetting them in
+ * an effect cannot do that: React would commit the replacement thread with the
+ * previous thread's checkboxes ticked and its Spotlight panel on screen, then
+ * schedule a second render to clean up. Keying the body on the thread id makes
+ * the replacement atomic by construction — React discards the old state before
+ * it renders the new thread at all, so no commit can mix the two.
+ */
+export function ThreadPage(props: ThreadPageProps) {
+	return <ThreadPageBody key={props.thread?.id ?? "no-thread"} {...props} />;
+}
+
+function ThreadPageBody({
+	activityCheckToken,
+	currentUserId,
+	forum,
+	loadedAt,
+	loading,
+	onDeleteComment,
+	onDeleteThread,
+	onReference,
+	onRefresh,
+	onToggleSubscription,
+	ownedBots,
+	subscriptions,
+	targetCommentId,
+	thread,
+	threadId,
+	world,
+}: ThreadPageProps) {
 	const [selectedComments, setSelectedComments] = useState<Record<string, boolean>>({});
 	const [threadSelected, setThreadSelected] = useState(false);
 	const [spotlightFocusSeed, setSpotlightFocusSeed] = useState("");
@@ -81,7 +102,7 @@ export function ThreadPage({
 	const [confirmThreadDelete, setConfirmThreadDelete] = useState(false);
 	const [confirmComment, setConfirmComment] = useState<CommentDocument | null>(null);
 	const toast = useContext(ToastContext);
-	const pendingSpotlightFocusSeedRef = useRef("");
+	const selectionCapture = useSpotlightSelectionCapture();
 	const commentTree = useMemo(() => buildCommentTree(thread?.comments ?? [], thread?.rootCommentId), [thread?.comments, thread?.rootCommentId]);
 	const threadCommentIds = useMemo(() => thread?.comments.map((comment) => comment.id) ?? [], [thread?.comments]);
 	const selectedCommentIds = Object.keys(selectedComments).filter((id) => selectedComments[id]);
@@ -99,11 +120,8 @@ export function ThreadPage({
 	const rootComment = thread ? threadRootComment(thread) : null;
 	const lock = thread ? threadLock(thread.commentCount, effectiveThreadSettings(world.threadSettings, forum.threadSettings)) : undefined;
 	const focusSeedForCommentTargets = useCallback(
-		(commentIds: string[]) => {
-			const included = new Set([...commentIds, ...impliedAncestorIds(commentIds, commentParentById)]);
-			return spotlightFocusSeedFromSelection(threadCommentIds.filter((commentId) => included.has(commentId)));
-		},
-		[commentParentById, threadCommentIds],
+		(commentIds: string[]) => selectionCapture.consumeFocusText(spotlightTargetCommentIds(commentIds, commentParentById)),
+		[commentParentById, selectionCapture],
 	);
 
 	useEffect(() => {
@@ -182,26 +200,19 @@ export function ThreadPage({
 				<div className="thread-title-row">
 					{canUseAccountActions && (
 						<label className="thread-spot-check">
-							<input
-								aria-label="Spotlight this entire thread"
+							<SpotlightTargetCheckbox
 								checked={threadSelected}
-								className="cb"
-								onPointerDown={() => {
-									pendingSpotlightFocusSeedRef.current = spotlightFocusSeedFromSelection(threadCommentIds);
-								}}
-								onChange={(event) => {
-									const checked = event.target.checked;
+								label="Spotlight this entire thread"
+								onToggle={(checked) => {
 									setThreadSelected(checked);
 									if (checked) {
-										setSpotlightFocusSeed(spotlightFocusSeedFromSelection(threadCommentIds) || pendingSpotlightFocusSeedRef.current);
+										setSpotlightFocusSeed(selectionCapture.consumeFocusText(threadCommentIds));
 										setSelectedComments({});
 									} else {
 										setSpotlightFocusSeed("");
+										selectionCapture.reset();
 									}
-									pendingSpotlightFocusSeedRef.current = "";
 								}}
-								title="Spotlight this entire thread"
-								type="checkbox"
 							/>
 						</label>
 					)}
@@ -255,13 +266,6 @@ export function ThreadPage({
 						forumHandle={thread.forumHandle}
 						isLastSibling={index === commentTree.length - 1}
 						key={comment.id}
-						onPrepareToggle={canUseAccountActions ? (commentId, checked) => {
-							const nextSelectedCommentIds =
-								checked ?
-									[...new Set([...selectedCommentIds, commentId])]
-								:	selectedCommentIds.filter((id) => id !== commentId);
-							pendingSpotlightFocusSeedRef.current = checked ? focusSeedForCommentTargets(nextSelectedCommentIds) : "";
-						} : undefined}
 						onToggle={canUseAccountActions ? (commentId, checked) => {
 							const nextSelectedCommentIds =
 								checked ?
@@ -269,11 +273,11 @@ export function ThreadPage({
 								:	selectedCommentIds.filter((id) => id !== commentId);
 							setThreadSelected(false);
 							if (checked) {
-								setSpotlightFocusSeed(focusSeedForCommentTargets(nextSelectedCommentIds) || pendingSpotlightFocusSeedRef.current);
+								setSpotlightFocusSeed(focusSeedForCommentTargets(nextSelectedCommentIds));
 							} else if (nextSelectedCommentIds.length === 0) {
 								setSpotlightFocusSeed("");
+								selectionCapture.reset();
 							}
-							pendingSpotlightFocusSeedRef.current = "";
 							setSelectedComments((current) => {
 								const next = { ...current };
 								if (checked) {
@@ -310,6 +314,7 @@ export function ThreadPage({
 					onClear={() => {
 						setThreadSelected(false);
 						setSpotlightFocusSeed("");
+						selectionCapture.reset();
 					}}
 					ownedBots={ownedBots}
 					targetType="threads"
@@ -325,6 +330,7 @@ export function ThreadPage({
 					onClear={() => {
 						setSelectedComments({});
 						setSpotlightFocusSeed("");
+						selectionCapture.reset();
 					}}
 					ownedBots={ownedBots}
 					targetType="comments"

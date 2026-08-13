@@ -20,6 +20,7 @@ import {
 	useViewportConstrainedPopout,
 } from "../../ui";
 import { TimeAgoLabel } from "../../components/record-display";
+import { SpotlightTargetCheckbox } from "./spotlight-target-checkbox";
 import type { SubscriptionTarget } from "../subscriptions";
 
 type CommentTreeNode = CommentDocument & {
@@ -32,7 +33,6 @@ export function CommentNode({
 	implied,
 	isLastSibling,
 	onReference,
-	onPrepareToggle,
 	onRequestDelete,
 	onToggle,
 	onToggleSubscription,
@@ -48,7 +48,6 @@ export function CommentNode({
 	implied: Set<string>;
 	isLastSibling: boolean;
 	onReference: OpenReference;
-	onPrepareToggle?: (commentId: string, checked: boolean) => void;
 	onRequestDelete?: (comment: CommentDocument) => void;
 	onToggle?: (commentId: string, checked: boolean) => void;
 	onToggleSubscription?: (target: SubscriptionTarget, active: boolean) => Promise<void>;
@@ -61,7 +60,6 @@ export function CommentNode({
 }) {
 	const checked = Boolean(selected[comment.id]);
 	const indeterminate = !checked && implied.has(comment.id);
-	const checkboxRef = useRef<HTMLInputElement | null>(null);
 	const isTarget = targetCommentId === comment.id;
 	const isRootComment = comment.id === rootCommentId;
 	const commentHref = `${window.location.pathname.split("/c/")[0]}/c/${encodeURIComponent(comment.id)}`;
@@ -69,11 +67,6 @@ export function CommentNode({
 	const subscribed = subscriptions.some((subscription) =>
 		subscription.scopeType === "comment" && subscription.scopeId === comment.id && subscription.active,
 	);
-	useEffect(() => {
-		if (checkboxRef.current) {
-			checkboxRef.current.indeterminate = indeterminate;
-		}
-	}, [indeterminate]);
 	const hasReplies = comment.replies.length > 0;
 	return (
 		<div
@@ -85,15 +78,11 @@ export function CommentNode({
 				className={onToggle ? "checkcell" : "checkcell placeholder"}
 			>
 				{onToggle && (
-					<input
-						aria-label="Spotlight this reply chain"
+					<SpotlightTargetCheckbox
 						checked={checked}
-						className="cb"
-						ref={checkboxRef}
-						onPointerDown={() => onPrepareToggle?.(comment.id, !checked)}
-						onChange={(event) => onToggle(comment.id, event.target.checked)}
-						title="Spotlight this reply chain"
-						type="checkbox"
+						indeterminate={indeterminate}
+						label="Spotlight this reply chain"
+						onToggle={(next) => onToggle(comment.id, next)}
 					/>
 				)}
 			</div>
@@ -161,6 +150,7 @@ export function CommentNode({
 				<TranslatableText
 					as="div"
 					className="body"
+					commentBodyId={comment.id}
 					directionMode="lines"
 					onReference={onReference}
 					rich
@@ -178,7 +168,6 @@ export function CommentNode({
 								isLastSibling={index === comment.replies.length - 1}
 								key={reply.id}
 								onReference={onReference}
-								onPrepareToggle={onPrepareToggle}
 								onRequestDelete={onRequestDelete}
 								onToggle={onToggle}
 								onToggleSubscription={onToggleSubscription}
@@ -379,6 +368,15 @@ export function impliedAncestorIds(selectedIds: string[], parentById: Map<string
 		}
 	}
 	return implied;
+}
+
+/**
+ * The comments a reply-chain Spotlight actually covers: the checked ones plus
+ * every ancestor the chain implies, which is also what the panel displays as
+ * included. Spotlight prefill quotes exactly this set.
+ */
+export function spotlightTargetCommentIds(selectedIds: string[], parentById: Map<string, string | null>): string[] {
+	return [...new Set([...selectedIds, ...impliedAncestorIds(selectedIds, parentById)])];
 }
 
 export function commentDomId(commentId: string): string {

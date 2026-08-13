@@ -644,6 +644,7 @@ function isTrailingVerticalScriptRunConnector(character: string): boolean {
 export function TranslatableText({
 	as,
 	className,
+	commentBodyId,
 	directionMode = "element",
 	interactiveReferences = true,
 	onReference,
@@ -654,6 +655,12 @@ export function TranslatableText({
 }: {
 	as?: "div" | "h1" | "p" | "span";
 	className?: string;
+	/**
+	 * Marks this element as the rendered body of that comment, so Spotlight
+	 * selection capture can attribute selected text to a comment without
+	 * depending on styling class names. See `selection-markers.ts`.
+	 */
+	commentBodyId?: string;
 	directionMode?: "element" | "lines";
 	interactiveReferences?: boolean;
 	onReference?: OpenReference;
@@ -765,12 +772,13 @@ export function TranslatableText({
 				verticalBlockScript ? `vertical-script-block-${verticalBlockScript}` : "",
 				className ?? "",
 			].filter(Boolean).join(" ")}
+			data-comment-body={commentBodyId}
 			dir={dir}
 			lang={visibleLang ?? undefined}
 		>
 			<span className="translatable-content">{content}</span>
 			{enabled && (
-				<span className="translation-controls">
+				<span className="translation-controls" data-selection-exclude="true">
 					<button
 						aria-label={cachedTranslation ? "Re-translate" : "Translate"}
 						className="translation-action"
@@ -823,12 +831,18 @@ function DirectionalTextLines({
 	return (
 		<>
 				{lines.map((line, index) => (
-					<span className={line ? "bidi-line" : "bidi-line bidi-line-empty"} dir="auto" key={index}>
+					<span
+						className={line ? "bidi-line" : "bidi-line bidi-line-empty"}
+						data-text-line="true"
+						dir="auto"
+						key={index}
+					>
 					{line ?
 						rich && onReference ?
 							<RichText interactive={interactiveReferences} onReference={onReference} text={line} worldHandle={worldHandle} />
 						:	<PlainText text={line} />
-					:	"\u00a0"}
+					:	// Filler that gives an empty line its height; never quoted text.
+						<span data-selection-exclude="true">{"\u00a0"}</span>}
 				</span>
 			))}
 		</>
