@@ -119,6 +119,15 @@ export type ForumDocument = EntityDocument & {
 	createdByUserId: string;
 	personalBotId?: string;
 	threadSettings?: ThreadSettings;
+	/**
+	 * A read-only forum keeps its threads and comments readable and keeps voting
+	 * and moderation available; only new threads and replies are rejected. It is
+	 * required rather than optional so every writer states it explicitly; the
+	 * authoritative value for content-write enforcement is the `read_only`
+	 * column of the D1 projection, which the forum PATCH commits before it
+	 * returns.
+	 */
+	readOnly: boolean;
 };
 
 export type ChirperImportSource = {

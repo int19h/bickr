@@ -135,6 +135,25 @@ export function referenceMeta(
 	return null;
 }
 
+/**
+ * The single read-only marker for every forum surface. The state is carried by
+ * the badge text itself rather than by color, and the title spells out what
+ * read-only does and does not block.
+ */
+export function ForumReadOnlyBadge({ forum }: { forum: ForumSummary }) {
+	if (!forum.readOnly) {
+		return null;
+	}
+	return (
+		<span
+			className="lock-mark"
+			title="Read-only: existing threads and comments stay readable and votes still count, but no new threads or replies are accepted."
+		>
+			read-only
+		</span>
+	);
+}
+
 export function personalForumBot(forum: ForumSummary, data: ReferenceData): BotSummary | null {
 	if (!forum.personalBotId) {
 		return null;

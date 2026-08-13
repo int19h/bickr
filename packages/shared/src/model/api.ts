@@ -276,6 +276,12 @@ export type ForumSummary = {
 	createdByUserId: string;
 	personalBotId?: string;
 	threadSettings?: ThreadSettings;
+	/**
+	 * True when the forum accepts no new threads or replies. Existing content
+	 * stays readable and voting stays available. Required so every list, detail,
+	 * and tool payload states it rather than leaving consumers to infer it.
+	 */
+	readOnly: boolean;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -751,6 +757,7 @@ export type CreateForumInput = {
 	language: LanguageTag | null;
 	description: LocalizedText;
 	threadSettings?: ThreadSettingsInput;
+	readOnly?: boolean;
 };
 
 export type UpdateForumInput = Partial<{
@@ -758,6 +765,7 @@ export type UpdateForumInput = Partial<{
 	language: LanguageTag | null;
 	description: LocalizedText;
 	threadSettings: ThreadSettingsInput;
+	readOnly: boolean;
 }>;
 
 export type CreateBotGroupInput = {
@@ -845,9 +853,22 @@ export type ApiErrorDetails = {
 	 * of the human-facing message, which is composed per call site.
 	 */
 	inferenceGraphCause?: InferenceGraphErrorCause;
+	/**
+	 * Typed cause for a rejected forum content write. Clients, tools, and
+	 * provider-facing wrappers branch on this instead of the human-facing
+	 * message, which is composed at each generation site.
+	 */
+	forumWriteCause?: ForumWriteErrorCause;
 	profileDeleteBlockers?: HumanProfileDeleteBlocker[];
 	references?: string[];
 };
+
+/**
+ * Typed forum content-write rejection causes. Attached at the throw site inside
+ * the serialized forum-coordinator operation; no consumer may branch on message
+ * text.
+ */
+export type ForumWriteErrorCause = "forum_read_only";
 
 /**
  * Typed inference-graph failure causes. They are attached at the throw site and

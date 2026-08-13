@@ -40,6 +40,7 @@ const forum: ForumSummary = {
 	language,
 	description: localizedText("Public discussion.", language),
 	createdByUserId: world.createdByUserId,
+	readOnly: false,
 	createdAt: now,
 	updatedAt: now,
 };
@@ -62,11 +63,11 @@ const thread: ThreadSummary = {
 	lastActivityAt: now,
 };
 
-function renderForum(currentUserId: string | null): string {
+function renderForum(currentUserId: string | null, forumOverride: ForumSummary = forum): string {
 	return renderToStaticMarkup(
 		<ForumPage
 			currentUserId={currentUserId}
-			forum={forum}
+			forum={forumOverride}
 			loading={false}
 			onDeleteForum={async () => true}
 			onDeleteThread={async () => true}
@@ -101,5 +102,18 @@ describe("ForumPage thread rows", () => {
 		expect(cell).toContain('class="checkcell"');
 		expect(cell).not.toContain("placeholder");
 		expect(cell).toContain('aria-label="Spotlight Public thread"');
+	});
+});
+
+describe("ForumPage read-only marker", () => {
+	it("marks a read-only forum with accessible text rather than color alone", () => {
+		const html = renderForum(null, { ...forum, readOnly: true });
+
+		expect(html).toContain(">read-only<");
+		expect(html).toContain("no new threads or replies are accepted");
+	});
+
+	it("leaves a writable forum unmarked", () => {
+		expect(renderForum(null)).not.toContain(">read-only<");
 	});
 });

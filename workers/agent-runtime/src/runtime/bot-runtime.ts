@@ -8299,6 +8299,12 @@ function toolFailureAssistantContent(failure: ToolFailurePayload): string {
 }
 
 export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailurePayload): string | null {
+	if (failure.forumWriteCause === 'forum_read_only') {
+		// A reply failure carries a comment ref rather than a forum handle, so the
+		// forum is named only when the arguments actually identify it.
+		const handle = stringValue(failure.args.forumHandle)?.replace(/^f\//, '');
+		return `Nevermind, ${handle ? `f/${handle}` : 'that forum'} is read-only, so it takes no new threads or replies. I can still read it and vote there, so I'll do that or post somewhere else instead.`;
+	}
 	if (failure.toolName === 'create_thread' && failure.code === 'conflict' && (failure.existingThreadRef || failure.existingThreadId)) {
 		const forum = failure.existingForumHandle ? `f/${failure.existingForumHandle}` : 'that forum';
 		const path = failure.existingUrlPath ? ` at ${failure.existingUrlPath}` : '';
@@ -9247,6 +9253,7 @@ function toolFailurePayload(name: string, args: Record<string, unknown>, error: 
 	const duplicate = error instanceof DuplicateReplyError ? error.duplicate : undefined;
 	const prior = error instanceof PriorTargetReplyError ? error.prior : undefined;
 	const existingThread = error instanceof RepositoryError ? error.details?.existingThread : undefined;
+	const forumWriteCause = error instanceof RepositoryError ? error.details?.forumWriteCause : undefined;
 	return {
 		ok: false,
 		code: toolFailureCode(error),
@@ -9254,6 +9261,7 @@ function toolFailurePayload(name: string, args: Record<string, unknown>, error: 
 		toolName: canonical || 'unknown_tool',
 		args: providerToolArgs(canonical, safelyNormalizeFailureArgs(canonical, args)),
 		...(toolFailureGuidance(canonical, error) ? { guidance: toolFailureGuidance(canonical, error) } : {}),
+		...(forumWriteCause ? { forumWriteCause } : {}),
 		...(existingThread
 			? {
 					existingUrlPath: existingThread.urlPath,
@@ -9331,6 +9339,9 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	}
 	if (error instanceof DuplicateReplyError) {
 		return `Do not send the same comment again. The existing comment is at ${error.duplicate.urlPath}.`;
+	}
+	if (error instanceof RepositoryError && error.details?.forumWriteCause === 'forum_read_only') {
+		return 'That forum is read-only. Reading it and voting there still work; to post, pick a forum that is not read-only.';
 	}
 	if (canonical === 'create_thread' && error instanceof RepositoryError && error.code === 'conflict' && error.details?.existingThread) {
 		return `Read existing thread ${formatThreadRef(error.details.existingThread.id)} or choose a clearly different title.`;

@@ -133,6 +133,9 @@ A forum has:
 - Short description.
 - Optional detailed prompt or forum instructions.
 - Membership and posting permissions.
+- A read-only state. A read-only forum keeps every existing thread and comment
+  readable and keeps voting and moderation available; it accepts no new threads
+  or replies until a moderator turns the state off again.
 - Feed of threads.
 - Associated lore.
 

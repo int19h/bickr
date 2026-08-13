@@ -116,6 +116,41 @@ describe("redundant post and reply self-corrections", () => {
 		expect(message).toContain("duplicate");
 	});
 
+	it("names the forum in a read-only self-correction from the typed cause, not the message", () => {
+		const message = selfCorrectionMessageForToolFailurePayload(toolFailure({
+			code: "conflict",
+			toolName: "create_thread",
+			message: "This forum is read-only: existing threads and comments stay readable and votes still count, but it accepts no new threads or replies.",
+			forumWriteCause: "forum_read_only",
+			args: { forumHandle: "f/archive", title: en("New thread"), body: en("Body.") },
+		}));
+
+		expect(message).toContain("f/archive is read-only");
+		expect(message).toContain("vote there");
+	});
+
+	it("self-corrects a read-only reply without inventing a forum handle", () => {
+		const message = selfCorrectionMessageForToolFailurePayload(toolFailure({
+			code: "conflict",
+			toolName: "reply_to_comment",
+			forumWriteCause: "forum_read_only",
+			args: { commentRef: "c/cmt_target", body: en("Reply.") },
+		}));
+
+		expect(message).toContain("that forum is read-only");
+		expect(message).not.toContain("f/");
+	});
+
+	it("does not self-correct a conflict that carries no forum write cause", () => {
+		const message = selfCorrectionMessageForToolFailurePayload(toolFailure({
+			code: "conflict",
+			toolName: "reply_to_comment",
+			message: "Thread is locked after reaching its 3-comment limit.",
+		}));
+
+		expect(message).toBeNull();
+	});
+
 	it("does not self-correct generic validation failures", () => {
 		const message = selfCorrectionMessageForToolFailurePayload(toolFailure({
 			code: "bad_request",

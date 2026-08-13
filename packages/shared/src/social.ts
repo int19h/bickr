@@ -66,6 +66,7 @@ import {
 } from "./model";
 import { assertNeverToolResultEnvelope, type ToolResultEnvelope } from "./tool-results";
 import {
+	booleanFromStored,
 	botByHandle,
 	botById,
 	botPublicProfile,
@@ -484,6 +485,41 @@ async function assertThreadForumIsLive(
 		throw repositoryError("not_found", "Thread not found in this forum.", 404);
 	}
 	return forum;
+}
+
+/**
+ * Participant-facing wording for a rejected write into a read-only forum. It
+ * states the narrow meaning of the setting so a participant does not conclude
+ * that the forum is gone or that voting is blocked too.
+ */
+const forumReadOnlyConflictMessage =
+	"This forum is read-only: existing threads and comments stay readable and votes still count, but it accepts no new threads or replies.";
+
+/**
+ * The read-only gate for authored forum content.
+ *
+ * The value is read from the D1 projection rather than the KV forum document
+ * because `forums_index.read_only` is what the forum PATCH commits before it
+ * returns, while KV reads are only eventually consistent. Thread creation and
+ * forum PATCH are serialized by the same forum-ID coordinator; replies run on a
+ * thread-ID coordinator and therefore rely on that committed D1 visibility.
+ *
+ * It is deliberately not part of `assertThreadForumIsLive`, which votes also
+ * use: read-only governs authored content, not reactions. A missing row takes
+ * the existing not-found path, and a D1 failure propagates to the structured
+ * server-error boundary, so the gate can never fail open.
+ */
+async function assertForumAcceptsNewContent(db: D1DatabaseLike, forumId: string): Promise<void> {
+	const row = await db
+		.prepare(`SELECT read_only AS readOnly FROM forums_index WHERE forum_id = ? AND deleted_at IS NULL`)
+		.bind(forumId)
+		.first<{ readOnly: number }>();
+	if (!row) {
+		throw repositoryError("not_found", "Forum not found.", 404);
+	}
+	if (booleanFromStored(row.readOnly)) {
+		throw repositoryError("conflict", forumReadOnlyConflictMessage, 409, { forumWriteCause: "forum_read_only" });
+	}
 }
 
 export async function listThreads(
@@ -1397,6 +1433,7 @@ async function subscriptionForumSummariesByIds(
 		descriptionLang: string | null;
 		createdByUserId: string;
 		personalBotId: string | null;
+		readOnly: number;
 		createdAt: string;
 		updatedAt: string;
 	}>(
@@ -1412,6 +1449,7 @@ async function subscriptionForumSummariesByIds(
 			f.description_lang AS descriptionLang,
 			f.created_by_user_id AS createdByUserId,
 			f.personal_bot_id AS personalBotId,
+			f.read_only AS readOnly,
 			f.created_at AS createdAt,
 			f.updated_at AS updatedAt
 		 FROM forums_index f
@@ -1425,6 +1463,7 @@ async function subscriptionForumSummariesByIds(
 		description: localizedTextFromIndex(row.description, row.descriptionLang),
 		createdByUserId: row.createdByUserId,
 		...(row.personalBotId ? { personalBotId: row.personalBotId } : {}),
+		readOnly: booleanFromStored(row.readOnly),
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 	})));
@@ -2354,6 +2393,7 @@ export async function createThread(
 	now = new Date().toISOString(),
 ): Promise<ThreadDocument> {
 	const forum = await forumById(kv, db, input.forumId);
+	await assertForumAcceptsNewContent(db, forum.id);
 	const bot = await botById(kv, db, input.authorBotId);
 	assertBotInWorld(bot, forum.worldId);
 	const postingSettings = await effectivePostingSettingsForAuthor(kv, forum.worldId, bot);
@@ -2490,6 +2530,7 @@ export async function createComment(
 		throw repositoryError("not_found", "Thread not found.", 404);
 	}
 	const forum = await assertThreadForumIsLive(kv, db, thread);
+	await assertForumAcceptsNewContent(db, forum.id);
 	const effectiveSettings = await effectiveThreadSettingsForForum(kv, forum);
 	const lock = threadLock(thread.comments.length, effectiveSettings);
 	if (lock) {

@@ -25,6 +25,7 @@ import {
 import {
 	assertWorldRecurringPromptConfiguration,
 	assertThreadSettingsInputWithinLimit,
+	booleanSql,
 	mergeImageGenerationSettings,
 	normalizeForumDefaults,
 	normalizeWorldDefaults,
@@ -292,50 +293,52 @@ async function updateForum(
 		revision: forum.revision + 1,
 		updatedAt: now,
 	};
-	if (nextHandle !== forum.handle) {
-		await db.batch([
-			db
-				.prepare(
-					`UPDATE forums_index
-					 SET handle = ?, language = ?, description = ?, description_lang = ?, thread_comment_limit = ?, updated_at = ?
-					 WHERE forum_id = ? AND deleted_at IS NULL`,
-				)
-				.bind(
-					updated.handle,
-					updated.language,
-					updated.description.text,
-					updated.description.lang,
-					updated.threadSettings?.commentLimit ?? null,
-					now,
-					updated.id,
-				),
+	// One settings statement for both paths, so a newly persisted forum column
+	// cannot be carried by the rename branch and dropped by the other. The
+	// projection is written before the KV document and its row count is checked,
+	// so a PATCH never reports success while `forums_index` still holds the
+	// previous settings; read-only enforcement reads that committed column.
+	const renaming = nextHandle !== forum.handle;
+	const projectionStatement = db
+		.prepare(
+			`UPDATE forums_index
+			 SET ${renaming ? "handle = ?, " : ""}language = ?, description = ?, description_lang = ?,
+			     thread_comment_limit = ?, read_only = ?, updated_at = ?
+			 WHERE forum_id = ? AND deleted_at IS NULL`,
+		)
+		.bind(
+			...(renaming ? [updated.handle] : []),
+			updated.language,
+			updated.description.text,
+			updated.description.lang,
+			updated.threadSettings?.commentLimit ?? null,
+			booleanSql(updated.readOnly),
+			now,
+			updated.id,
+		);
+	if (renaming) {
+		const results = await db.batch([
+			projectionStatement,
 			db
 				.prepare(`UPDATE threads_index SET forum_handle = ? WHERE forum_id = ? AND deleted_at IS NULL`)
 				.bind(updated.handle, updated.id),
 			objectIndexScopeStaleStatement(db, { kind: "forum", forumId: updated.id }, { includeScopeRoot: false }),
 		]);
-		await writeJson(kv, kvKeys.forum(updated.id), updated);
+		assertForumProjectionApplied(results[0]?.meta?.changes ?? 0);
 	} else {
-		await db
-			.prepare(
-				`UPDATE forums_index
-				 SET language = ?, description = ?, description_lang = ?, thread_comment_limit = ?, updated_at = ?
-				 WHERE forum_id = ? AND deleted_at IS NULL`,
-			)
-			.bind(
-				updated.language,
-				updated.description.text,
-				updated.description.lang,
-				updated.threadSettings?.commentLimit ?? null,
-				now,
-				updated.id,
-			)
-			.run();
-		await writeJson(kv, kvKeys.forum(updated.id), updated);
+		const projectionResult = await projectionStatement.run();
+		assertForumProjectionApplied(projectionResult.meta?.changes ?? 0);
 	}
+	await writeJson(kv, kvKeys.forum(updated.id), updated);
 	await upsertForumSearchIndex(db, updated);
 	await putObjectIndex(db, updated, "forum", entityIndexVersions.forum, updated.worldId);
 	return forumSummary(updated);
+}
+
+function assertForumProjectionApplied(changes: number): void {
+	if (changes < 1) {
+		throw new RepositoryError("not_found", "Forum not found.", 404);
+	}
 }
 
 async function deleteForum(
@@ -593,6 +596,7 @@ function forumSummary(forum: ForumDocument): ForumSummary {
 		createdByUserId: forum.createdByUserId,
 		...(forum.personalBotId ? { personalBotId: forum.personalBotId } : {}),
 		...(threadSettingsHasValues(forum.threadSettings) ? { threadSettings: forum.threadSettings } : {}),
+		readOnly: forum.readOnly,
 		createdAt: forum.createdAt,
 		updatedAt: forum.updatedAt,
 	};

@@ -1205,11 +1205,17 @@ describe("Tick flow", () => {
 		try {
 			const forumResult = providerToolResultPayload(
 				"list_accessible_forums",
-				[{ id: "frm_random", worldHandle: "primary", handle: "random", description: "Random chatter." }],
+				[
+					{ id: "frm_random", worldHandle: "primary", handle: "random", description: "Random chatter.", readOnly: false },
+					{ id: "frm_archive", worldHandle: "primary", handle: "archive", description: "Closed archive.", readOnly: true },
+				],
 				{},
 				providerSerializationContext({ botId: "bot_reader" }),
 			);
-			expect(forumResult).toEqual([{ forum: "f/random", description: "Random chatter." }]);
+			expect(forumResult).toEqual([
+				{ forum: "f/random", description: "Random chatter.", readOnly: false },
+				{ forum: "f/archive", description: "Closed archive.", readOnly: true },
+			]);
 
 			const recentResult = providerToolResultPayload("list_recent_threads", [
 				{

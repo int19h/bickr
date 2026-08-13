@@ -9,7 +9,7 @@ import type {
 import type { CSSProperties, ReactNode } from "react";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
-import { Reference, TranslatableText } from "../../components/content";
+import { ForumReadOnlyBadge, Reference, TranslatableText } from "../../components/content";
 import { SpaLink } from "../../components/navigation";
 import {
 	cycleSubscriptionContainer,
@@ -242,9 +242,12 @@ function SubscriptionForumRows({
 			<SubscriptionTreeRow
 				depth={1}
 				label={
-					<SpaLink to={{ route: "forum", worldHandle: node.forum.worldHandle, forumHandle: node.forum.handle }}>
-						<Reference kind="forum" link={false} name={node.forum.handle} />
-					</SpaLink>
+					<>
+						<SpaLink to={{ route: "forum", worldHandle: node.forum.worldHandle, forumHandle: node.forum.handle }}>
+							<Reference kind="forum" link={false} name={node.forum.handle} />
+						</SpaLink>
+						<ForumReadOnlyBadge forum={node.forum} />
+					</>
 				}
 					meta={<TranslatableText as="span" text={node.forum.description} />}
 				node={node}

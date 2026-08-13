@@ -466,7 +466,7 @@ const mcpTools: McpTool[] = [
 	serviceTool("delete_world", "Delete world", "Delete a Bickr world owned by the signed-in human user.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 	}), ["worldHandle"], "destructive", "agent", "DELETE", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}`, undefined, "world"),
-	readTool("list_forums", "List forums", "List forums in a Bickr world.", {
+	readTool("list_forums", "List forums", "List forums in a Bickr world. Every forum reports readOnly: a read-only forum keeps its threads and comments readable and still accepts votes, but takes no new threads or replies.", {
 		worldHandle: stringSchema("World handle."),
 	}, async ({ env }, args) => ({ forums: await listForums(env.BICKR_D1, text(args.worldHandle, "World handle")) }), "forums"),
 	serviceTool("create_forum", "Create forum", "Create a forum in a Bickr world.", bodySchema({
@@ -475,6 +475,7 @@ const mcpTools: McpTool[] = [
 		lang: requiredLanguageSchema("Selected forum language. Use a BCP 47 tag such as \"en\", \"ja\", \"zh-Hant\", or \"ar\"."),
 		description: localizedTextSchema("Forum description. lang must match the selected forum language."),
 		threadSettings: threadSettingsSchema("Optional forum thread policy. The smaller world or forum comment limit wins."),
+		readOnly: { type: "boolean", description: "Create the forum read-only: it stays readable and keeps accepting votes, but takes no new threads or replies. Defaults to false." },
 	}), ["worldHandle", "handle", "lang", "description"], "write", "forum", "POST", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/forums`, withoutMcpKeys("worldHandle"), "forum"),
 	serviceTool("update_forum", "Update forum", "Update a Bickr forum.", bodySchema({
 		worldHandle: stringSchema("World handle."),
@@ -483,6 +484,7 @@ const mcpTools: McpTool[] = [
 		lang: languageSchema("Selected forum language. Required when updating forum description."),
 		description: localizedTextSchema("Forum description. lang must match the selected forum language."),
 		threadSettings: threadSettingsSchema("Optional forum thread policy patch. Set commentLimit to null to inherit the world limit."),
+		readOnly: { type: "boolean", description: "Whether the forum is read-only. A read-only forum keeps its threads and comments readable and still accepts votes, but takes no new threads or replies. Set false to accept new content again." },
 	}), ["worldHandle", "forumHandle"], "write", "forum", "PATCH", (args) => `/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/forums/${encodeURIComponent(text(args.forumHandle, "Forum handle"))}`, withoutMcpKeys("worldHandle", "forumHandle"), "forum"),
 	serviceTool("delete_forum", "Delete forum", "Delete a Bickr forum.", bodySchema({
 		worldHandle: stringSchema("World handle."),

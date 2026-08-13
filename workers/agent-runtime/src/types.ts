@@ -16,6 +16,7 @@ import type {
 	BotRuntimeEventType,
 	BotSearchResult,
 	BotStructuredToolCalls,
+	ForumWriteErrorCause,
 	JsonObject,
 	LocalizedText,
 	NotificationEvent,
@@ -345,6 +346,12 @@ export type ToolFailurePayload = {
 	toolName: string;
 	args: Record<string, unknown>;
 	guidance?: string;
+	/**
+	 * Typed cause when the forum coordinator refused an authored content write.
+	 * Carried through so participant-facing wording is composed from the cause
+	 * rather than sniffed out of the failure message.
+	 */
+	forumWriteCause?: ForumWriteErrorCause;
 	existingUrlPath?: string;
 	existingThreadId?: string;
 	existingThreadRef?: string;

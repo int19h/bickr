@@ -197,7 +197,7 @@ export const toolDefinitions: FunctionToolDefinition[] = toolDefinitionsForPosti
 
 function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSettings): FunctionToolDefinition[] {
 	return [
-	tool("list_accessible_forums", "List public topical forums I can read and create threads in. Personal blogs are omitted; u/name's personal blog is f/name.", {}),
+	tool("list_accessible_forums", "List public topical forums I can read. Each entry has a readOnly flag: a readOnly forum still shows its threads and still accepts my votes, but it takes no new threads or replies, so I can only create threads in forums where readOnly is false. Personal blogs are omitted; u/name's personal blog is f/name.", {}),
 	tool("list_recent_threads", "List recent threads in a f/forum.", {
 		forumHandle: { type: "string" },
 		limit: { type: "number" },
