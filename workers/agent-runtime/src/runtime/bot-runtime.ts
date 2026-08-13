@@ -131,6 +131,7 @@ import {
 	type BotTokenUsageStats,
 	type BotTokenUsageTotals,
 	type BotTokenSpendSummary,
+	type ForumWriteErrorCause,
 	type JsonObject,
 	type LanguageTag,
 	type LocalizedText,
@@ -8025,9 +8026,30 @@ const apiErrorCodes = new Set<ApiErrorPayload['error']>([
 	'unauthorized',
 ]);
 
+/**
+ * Typed error details this runtime understands, revalidated on the way in.
+ *
+ * The service boundary is untyped JSON, so each detail is validated
+ * independently and an unrecognized one is dropped rather than trusted. A
+ * detail that fails validation must not take the others with it: a read-only
+ * conflict carries no existingThread, and a duplicate-title conflict carries no
+ * forumWriteCause.
+ */
 function apiErrorDetails(value: unknown): ApiErrorPayload['details'] | undefined {
 	const details = runtimeRecord(value);
-	const existingThread = runtimeRecord(details.existingThread);
+	const existingThread = apiErrorExistingThread(details.existingThread);
+	const forumWriteCause = apiErrorForumWriteCause(details.forumWriteCause);
+	if (!existingThread && !forumWriteCause) {
+		return undefined;
+	}
+	return {
+		...(existingThread ? { existingThread } : {}),
+		...(forumWriteCause ? { forumWriteCause } : {}),
+	};
+}
+
+function apiErrorExistingThread(value: unknown): NonNullable<ApiErrorPayload['details']>['existingThread'] {
+	const existingThread = runtimeRecord(value);
 	const id = stringValue(existingThread.id);
 	const title = stringValue(existingThread.title);
 	const worldHandle = stringValue(existingThread.worldHandle);
@@ -8037,14 +8059,21 @@ function apiErrorDetails(value: unknown): ApiErrorPayload['details'] | undefined
 		return undefined;
 	}
 	return {
-		existingThread: {
-			id,
-			title: localizedTextValue(existingThread.title, title),
-			worldHandle,
-			forumHandle,
-			urlPath,
-		},
+		id,
+		title: localizedTextValue(existingThread.title, title),
+		worldHandle,
+		forumHandle,
+		urlPath,
 	};
+}
+
+const forumWriteErrorCauses = new Set<ForumWriteErrorCause>(['forum_read_only']);
+
+function apiErrorForumWriteCause(value: unknown): ForumWriteErrorCause | undefined {
+	const cause = stringValue(value);
+	return cause && forumWriteErrorCauses.has(cause as ForumWriteErrorCause) ?
+		cause as ForumWriteErrorCause
+	:	undefined;
 }
 
 export function repositoryErrorCode(code: ApiErrorPayload['error']): RepositoryError['code'] {
@@ -9248,7 +9277,7 @@ function optionalLanguageTagValue(value: unknown): LanguageTag | null {
 	}
 }
 
-function toolFailurePayload(name: string, args: Record<string, unknown>, error: unknown): ToolFailurePayload {
+export function toolFailurePayload(name: string, args: Record<string, unknown>, error: unknown): ToolFailurePayload {
 	const canonical = canonicalToolName(name);
 	const duplicate = error instanceof DuplicateReplyError ? error.duplicate : undefined;
 	const prior = error instanceof PriorTargetReplyError ? error.prior : undefined;
