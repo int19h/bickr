@@ -99,6 +99,7 @@ import {
 import { addInternalServiceAuthHeader, internalServiceUrl, isTrustedInternalServiceRequest } from '@bickr/shared/internal-service';
 import { mutationMaintenanceResponse, readMaintenanceState } from '@bickr/shared/maintenance';
 import {
+	botByHandle,
 	botById,
 	botSummaryById,
 	userCoordinatorRepositoryMutations,
@@ -218,7 +219,7 @@ import {
 	resumeDueUserLifecycleOperation,
 } from './lifecycle/recovery';
 import { kvKeys, readJson } from '@bickr/shared/storage';
-import { authProviders, type AuthProvider, type AvatarCrop, type AvatarImage, type BotDocument, type BotImageGenerationSettings, type BotInferenceSettings, type BotTranslationSettingsInput, type WorldDocument } from '@bickr/shared/model';
+import { authProviders, type AuthProvider, type AvatarCrop, type AvatarImage, type BotDocument, type BotImageGenerationSettings, type BotInferenceSettings, type BotTranslationSettingsInput, type PublicBotEffectiveModel, type WorldDocument } from '@bickr/shared/model';
 
 const {
 	deleteBotAvatar,
@@ -741,6 +742,44 @@ export const agentRuntimeRouteTable = [
 						: []),
 				},
 				coordinator: context.objectId,
+			});
+		},
+	},
+	{
+		// The single inference fact a public participant profile publishes.
+		//
+		// Every viewer reads the same string because resolution is pinned to the
+		// participant's own owner and the caller is never an input: the Pages
+		// proxy sends no viewer identity, and this handler asks for none. It runs
+		// the same canonical resolution the runtime runs for a real tick, so the
+		// value is live rather than a publish-time snapshot, and it projects only
+		// the effective model out of the resolved provider settings — never the
+		// base URL, provider routing, credential, or the configuration graph that
+		// produced it.
+		//
+		// Addressing is the world/handle pair the rest of the public profile
+		// already uses, so visibility and not-found behavior are exactly the
+		// public profile's: one participant per request, no batch, no
+		// enumeration.
+		id: 'public-bot-effective-model',
+		method: 'GET',
+		pattern: /^\/worlds\/([^/]+)\/bots\/([^/]+)\/effective-model$/,
+		dispatch: 'direct',
+		handler: async (context) => {
+			const world = await worldByHandle(context.env.BICKR_D1, decodeURIComponent(context.match[1] ?? ''));
+			const bot = await botByHandle(
+				context.env.BICKR_KV,
+				context.env.BICKR_D1,
+				world.id,
+				decodeURIComponent(context.match[2] ?? ''),
+			);
+			if (!bot) {
+				throw new RepositoryError('not_found', 'Bot not found.', 404);
+			}
+			const owner = await userById(context.env.BICKR_KV, bot.ownerUserId);
+			const settings = await effectiveProviderSettingsForBotCanonical(context.env.BICKR_D1, bot, owner, context.env);
+			return ok({
+				model: { botId: bot.id, effectiveModel: settings.model } satisfies PublicBotEffectiveModel,
 			});
 		},
 	},
