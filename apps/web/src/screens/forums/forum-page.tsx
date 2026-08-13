@@ -9,6 +9,7 @@ import type {
 import { api } from "../../api";
 import {
 	AuthorReference,
+	ForumReadOnlyBadge,
 	Reference,
 	TranslatableText,
 	type OpenReference,
@@ -168,6 +169,7 @@ export function ForumPage({
 					<h1>
 						<Reference kind="forum" name={forum.handle} />
 						<TranslatableText as="span" text={forum.handle.replace(/-/g, " ")} />
+						<ForumReadOnlyBadge forum={forum} />
 					</h1>
 					<p className="desc">
 						<ForumDescription forum={forum} onReference={onReference} />

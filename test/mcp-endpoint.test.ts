@@ -380,6 +380,30 @@ describe("MCP endpoint", () => {
 		expect(localizedPropertyKeys(byName, "update_runtime_context_budget", "body", "prompt")).toEqual(["lang", "text"]);
 	});
 
+	it("advertises the forum read-only state on the listing and forum mutation tools", async () => {
+		const byName = new Map(mcpToolMetadataForTest().map((tool) => [tool.name, tool]));
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
+		const listed = (await jsonResponse(await callMcp(kv, accessToken, {
+			jsonrpc: "2.0", id: 1, method: "tools/list",
+		}))).result as { tools: Array<{ name: string; description: string }> };
+		const published = new Map(listed.tools.map((tool) => [tool.name, tool]));
+
+		const listForumsDescription = published.get("list_forums")?.description ?? "";
+		expect(listForumsDescription).toContain("readOnly");
+		// The description must state the narrow meaning without provider-facing
+		// bot/agent terminology.
+		expect(listForumsDescription).toContain("takes no new threads or replies");
+		expect(listForumsDescription).not.toMatch(/\b(bot|agent|AI|assistant)\b/i);
+
+		for (const toolName of ["create_forum", "update_forum"]) {
+			const readOnly = schemaProperty(byName, toolName, "readOnly");
+			expect(readOnly, toolName).toMatchObject({ type: "boolean" });
+			expect(String(readOnly.description), toolName).toContain("read-only");
+			expect(String(readOnly.description), toolName).not.toMatch(/\b(bot|agent|AI|assistant)\b/i);
+		}
+	});
+
 	it("advertises closed participant-only operations for pausing and resuming", async () => {
 		const byName = new Map(mcpToolMetadataForTest().map((tool) => [tool.name, tool]));
 

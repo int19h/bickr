@@ -222,12 +222,35 @@ function worldSummarySelectColumns(alias?: string): string {
 				${column("updated_at")} AS updatedAt`;
 }
 
-type ForumSummaryIndexRow = Omit<ForumSummary, "description" | "threadSettings"> & {
+type ForumSummaryIndexRow = Omit<ForumSummary, "description" | "readOnly" | "threadSettings"> & {
 	language: string | null;
 	description: string;
 	descriptionLang: string | null;
 	threadCommentLimit: number | null;
+	readOnly: number;
 };
+
+/**
+ * The projection columns every `ForumSummary` producer selects. Naming them in
+ * one place keeps `read_only` (and anything added beside it) from being dropped
+ * by a query that forgot to grow, and rules out positional `SELECT *` mapping.
+ */
+function forumSummarySelectColumns(alias: string): string {
+	return `${alias}.forum_id AS id,
+				${alias}.world_id AS worldId,
+				${alias}.world_handle AS worldHandle,
+				${alias}.handle,
+				${alias}.language,
+				${alias}.description,
+				${alias}.description_lang AS descriptionLang,
+				${alias}.created_by_user_id AS createdByUserId,
+				${alias}.personal_bot_id AS personalBotId,
+				${alias}.thread_comment_limit AS threadCommentLimit,
+				${alias}.read_only AS readOnly,
+				${alias}.created_at AS createdAt,
+				${alias}.updated_at AS updatedAt`;
+}
+
 type ExistingHandleRow = { handle: string };
 
 type BotCloneSourceRow = {
@@ -262,11 +285,11 @@ function localizedTextLangSql(value: LocalizedText): string | null {
 	return value.lang;
 }
 
-function booleanSql(value: boolean | null | undefined): number {
+export function booleanSql(value: boolean | null | undefined): number {
 	return value ? 1 : 0;
 }
 
-function booleanFromStored(value: number | boolean | null | undefined): boolean {
+export function booleanFromStored(value: number | boolean | null | undefined): boolean {
 	return value === true || value === 1;
 }
 
@@ -1336,18 +1359,7 @@ export async function listForums(db: D1DatabaseLike, worldHandle: string): Promi
 	const result = await db
 		.prepare(
 			`SELECT
-				f.forum_id AS id,
-				f.world_id AS worldId,
-				f.world_handle AS worldHandle,
-				f.handle,
-				f.language,
-				f.description,
-				f.description_lang AS descriptionLang,
-				f.created_by_user_id AS createdByUserId,
-				f.personal_bot_id AS personalBotId,
-				f.thread_comment_limit AS threadCommentLimit,
-				f.created_at AS createdAt,
-				f.updated_at AS updatedAt
+				${forumSummarySelectColumns("f")}
 			 FROM forums_index f
 			 WHERE f.world_id = ? AND f.deleted_at IS NULL
 			 ORDER BY f.handle ASC`,
@@ -1395,6 +1407,7 @@ async function createForum(
 		language: input.language,
 		description: input.description,
 		...(threadSettingsHasValues(threadSettings) ? { threadSettings } : {}),
+		readOnly: input.readOnly ?? false,
 		createdByUserId: userId,
 		createdAt: now,
 		updatedAt: now,
@@ -2965,18 +2978,7 @@ export async function listOwnedForumsOutsideOwnedWorlds(
 	const result = await db
 		.prepare(
 			`SELECT
-				f.forum_id AS id,
-				f.world_id AS worldId,
-				f.world_handle AS worldHandle,
-				f.handle,
-				f.language,
-				f.description,
-				f.description_lang AS descriptionLang,
-				f.created_by_user_id AS createdByUserId,
-				f.personal_bot_id AS personalBotId,
-				f.thread_comment_limit AS threadCommentLimit,
-				f.created_at AS createdAt,
-				f.updated_at AS updatedAt
+				${forumSummarySelectColumns("f")}
 			 FROM forums_index f
 			 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
 			 WHERE f.created_by_user_id = ?
@@ -3042,27 +3044,10 @@ async function listOwnedForumsByWorld(
 	db: D1DatabaseLike,
 	userId: string,
 ): Promise<HumanOwnedForumGroup[]> {
-	type ForumWithWorldRow = Omit<ForumSummary, "description" | "language" | "threadSettings"> & {
-		language: string | null;
-		description: string;
-		descriptionLang: string | null;
-		threadCommentLimit: number | null;
-	};
 	const result = await db
 		.prepare(
 			`SELECT
-				f.forum_id AS id,
-				f.world_id AS worldId,
-				f.world_handle AS worldHandle,
-				f.handle,
-				f.language,
-				f.description,
-				f.description_lang AS descriptionLang,
-				f.created_by_user_id AS createdByUserId,
-				f.personal_bot_id AS personalBotId,
-				f.thread_comment_limit AS threadCommentLimit,
-				f.created_at AS createdAt,
-				f.updated_at AS updatedAt
+				${forumSummarySelectColumns("f")}
 			 FROM forums_index f
 			 JOIN worlds_index w ON w.world_id = f.world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
 			 WHERE f.created_by_user_id = ?
@@ -3071,7 +3056,7 @@ async function listOwnedForumsByWorld(
 			 ORDER BY lower(w.handle) ASC, lower(f.handle) ASC`,
 		)
 		.bind(userId)
-		.all<ForumWithWorldRow>();
+		.all<ForumSummaryIndexRow>();
 	const worldsById = await worldSummariesByIds(db, (result.results ?? []).map((row) => row.worldId));
 	const groups = new Map<string, HumanOwnedForumGroup>();
 	for (const row of result.results ?? []) {
@@ -3088,19 +3073,7 @@ async function listOwnedForumsByWorld(
 			groups.set(row.worldId, createdGroup);
 			group = createdGroup;
 		}
-		group.forums.push({
-			id: row.id,
-			worldId: row.worldId,
-			worldHandle: row.worldHandle,
-			handle: row.handle,
-			language: languageFromStored(row.language),
-			description: localizedTextFromParts(row.description, row.descriptionLang ?? row.language),
-			createdByUserId: row.createdByUserId,
-			...(row.personalBotId ? { personalBotId: row.personalBotId } : {}),
-			...threadSettingsObject(row.threadCommentLimit),
-			createdAt: row.createdAt,
-			updatedAt: row.updatedAt,
-		});
+		group.forums.push(forumSummaryFromIndexRow(row));
 	}
 	return [...groups.values()];
 }
@@ -3991,8 +3964,8 @@ export async function upsertForumIndexProjection(
 			`INSERT INTO forums_index (
 				forum_id, world_id, world_handle, handle, language, description, description_lang,
 				created_by_user_id, created_at, updated_at, deleted_at, personal_bot_id,
-				thread_comment_limit
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				thread_comment_limit, read_only
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(forum_id) DO UPDATE SET
 				world_handle = excluded.world_handle,
 				handle = excluded.handle,
@@ -4001,6 +3974,7 @@ export async function upsertForumIndexProjection(
 				description_lang = excluded.description_lang,
 				personal_bot_id = excluded.personal_bot_id,
 				thread_comment_limit = excluded.thread_comment_limit,
+				read_only = excluded.read_only,
 				updated_at = excluded.updated_at,
 				deleted_at = excluded.deleted_at`,
 		)
@@ -4018,6 +3992,7 @@ export async function upsertForumIndexProjection(
 			normalized.deletedAt ?? null,
 			normalized.personalBotId ?? null,
 			normalized.threadSettings?.commentLimit ?? null,
+			booleanSql(normalized.readOnly),
 		)
 		.run();
 	await upsertForumSearchIndex(db, normalized);
@@ -4279,6 +4254,7 @@ function forumSummary(forum: ForumDocument): ForumSummary {
 		createdByUserId: forum.createdByUserId,
 		...(forum.personalBotId ? { personalBotId: forum.personalBotId } : {}),
 		...(threadSettingsHasValues(forum.threadSettings) ? { threadSettings: forum.threadSettings } : {}),
+		readOnly: forum.readOnly,
 		createdAt: forum.createdAt,
 		updatedAt: forum.updatedAt,
 	};
@@ -4301,12 +4277,13 @@ export async function rawForumSummaryById(
 }
 
 function forumSummaryFromIndexRow(row: ForumSummaryIndexRow): ForumSummary {
-	const { threadCommentLimit, ...forum } = row;
+	const { threadCommentLimit, readOnly, ...forum } = row;
 	return {
 		...forum,
 		language: languageFromStored(row.language),
 		description: localizedTextFromParts(row.description, row.descriptionLang ?? row.language),
 		...threadSettingsObject(threadCommentLimit),
+		readOnly: booleanFromStored(readOnly),
 	};
 }
 
@@ -4442,6 +4419,7 @@ async function createPersonalForumForBot(
 		description: personalForumDescription(bot),
 		createdByUserId: userId,
 		personalBotId: bot.id,
+		readOnly: false,
 		createdAt: now,
 		updatedAt: now,
 	};
@@ -4482,6 +4460,7 @@ async function createIntroForumForWorld(
 		language: world.language,
 		description: introForumDescriptionText(world.language),
 		createdByUserId: userId,
+		readOnly: false,
 		createdAt: now,
 		updatedAt: now,
 	};
@@ -4678,6 +4657,14 @@ export function normalizeForumDefaults(forum: ForumDocument): ForumDocument {
 		...(threadSettingsHasValues(forum.threadSettings) ?
 			{ threadSettings: mergeThreadSettings(undefined, forum.threadSettings) }
 		:	{ threadSettings: undefined }),
+		// Forum documents written before #168 have no `readOnly` key. They are
+		// writable, so the missing value normalizes to false. Retirement path:
+		// the KV normalization sweep (`normalizeKvDocuments(env, "forum")`) is a
+		// one-time bounded rewrite that persists the key on every stored forum
+		// document; once it reports `done` in production, this default can be
+		// deleted and the field read directly. Do not stack another forum shim on
+		// top of this one before that sweep completes.
+		readOnly: raw.readOnly === true,
 	};
 }
 

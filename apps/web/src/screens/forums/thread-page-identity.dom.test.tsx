@@ -56,6 +56,7 @@ const forum: ForumSummary = {
 	language,
 	description: localizedText("Public discussion.", language),
 	createdByUserId: world.createdByUserId,
+	readOnly: false,
 	createdAt: now,
 	updatedAt: now,
 };

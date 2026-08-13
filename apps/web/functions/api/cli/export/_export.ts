@@ -97,6 +97,7 @@ async function socialExportForThreads(env: AppEnv, threads: ThreadDocument[]): P
 				description: forum.description,
 				createdByUserId: forum.createdByUserId,
 				...(forum.personalBotId ? { personalBotId: forum.personalBotId } : {}),
+				readOnly: forum.readOnly,
 				createdAt: forum.createdAt,
 				updatedAt: forum.updatedAt,
 			},

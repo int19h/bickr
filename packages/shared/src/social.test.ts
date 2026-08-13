@@ -514,6 +514,7 @@ type FixtureOptions = {
 	forumPersonalBotId?: string;
 	worldThreadSettings?: ThreadSettings;
 	forumThreadSettings?: ThreadSettings;
+	forumReadOnly?: boolean;
 };
 
 function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV; bot: BotDocument } {
@@ -528,6 +529,7 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV; bot: BotDoc
 		language: "en" as LanguageTag,
 		description: en("General discussion"),
 		createdByUserId: "usr_owner",
+		readOnly: options.forumReadOnly ?? false,
 		...(options.forumPersonalBotId ? { personalBotId: options.forumPersonalBotId } : {}),
 		...(options.forumThreadSettings ? { threadSettings: options.forumThreadSettings } : {}),
 		createdAt: now,
@@ -586,7 +588,11 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV; bot: BotDoc
 		[kvKeys.forum(forum.id), forum],
 		[kvKeys.bot(bot.id), bot],
 	]));
-	return { db: new FakeD1(options.existingThreads, options.reservedContentIds, options.followerBotIds), kv, bot };
+	return {
+		db: new FakeD1(options.existingThreads, options.reservedContentIds, options.followerBotIds, options.forumReadOnly ?? false),
+		kv,
+		bot,
+	};
 }
 
 function mockRandomBytes(sequences: number[][]): () => void {
@@ -632,11 +638,18 @@ class FakeD1 implements D1DatabaseLike {
 	readonly contentIds: Set<string>;
 	private readonly existingThreads: ExistingThread[];
 	private readonly followerBotIds: string[];
+	private readonly forumReadOnly: boolean;
 
-	constructor(existingThreads: ExistingThread[], reservedContentIds = new Set<string>(), followerBotIds: string[] = []) {
+	constructor(
+		existingThreads: ExistingThread[],
+		reservedContentIds = new Set<string>(),
+		followerBotIds: string[] = [],
+		forumReadOnly = false,
+	) {
 		this.existingThreads = existingThreads;
 		this.contentIds = new Set(reservedContentIds);
 		this.followerBotIds = followerBotIds;
+		this.forumReadOnly = forumReadOnly;
 	}
 
 	prepare(query: string): D1PreparedStatementLike {
@@ -658,6 +671,9 @@ class FakeD1 implements D1DatabaseLike {
 				forumDeletedAt: null,
 				worldDeletedAt: null,
 			} as T;
+		}
+		if (query.includes("read_only AS readOnly") && query.includes("FROM forums_index")) {
+			return { readOnly: this.forumReadOnly ? 1 : 0 } as T;
 		}
 		if (query.includes("FROM bots_index") && query.includes("WHERE bot_id = ?")) {
 			return { deletedAt: null } as T;

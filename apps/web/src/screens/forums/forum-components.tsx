@@ -4,7 +4,7 @@ import type {
 } from "@bickr/shared/model";
 import { effectiveThreadSettings } from "@bickr/shared/thread-policy";
 import { useCallback, useContext, useEffect, useState } from "react";
-import { Reference, TranslatableText, type WorldView } from "../../components/content";
+import { ForumReadOnlyBadge, Reference, TranslatableText, type WorldView } from "../../components/content";
 import {
 	LanguageField,
 	RenameHandleModal,
@@ -43,6 +43,7 @@ export function EditForumModal({
 		const [language, setLanguage] = useState(languageDraftValue(defaultLanguageTag));
 		const [description, setDescription] = useState("");
 	const [threadCommentLimit, setThreadCommentLimit] = useState("");
+	const [readOnly, setReadOnly] = useState(false);
 	const [renameOpen, setRenameOpen] = useState(false);
 	const toast = useContext(ToastContext);
 	const closeEditModal = useCallback(() => {
@@ -58,6 +59,7 @@ export function EditForumModal({
 				setLanguage(languageDraftValue(forum.language, textLang(forum.description) ?? defaultLanguageTag));
 				setDescription(textValue(forum.description));
 				setThreadCommentLimit(optionalNumberDraftValue(forum.threadSettings?.commentLimit));
+				setReadOnly(forum.readOnly);
 				setRenameOpen(false);
 			}
 		}, [forum]);
@@ -75,13 +77,15 @@ export function EditForumModal({
 		const savedLanguage = languageInputValue(language);
 		const dirty = savedLanguage !== activeForum.language ||
 			description !== textValue(activeForum.description) ||
-			threadCommentLimitValue !== (activeForum.threadSettings?.commentLimit ?? null);
+			threadCommentLimitValue !== (activeForum.threadSettings?.commentLimit ?? null) ||
+			readOnly !== activeForum.readOnly;
 
 		async function submit(): Promise<void> {
 			const ok = await onSave(activeForum, {
 				language: savedLanguage,
 				description: localizedDraft(description, language),
 				threadSettings: { commentLimit: threadCommentLimitValue },
+				readOnly,
 			});
 		if (ok) {
 			toast.push(
@@ -140,6 +144,16 @@ export function EditForumModal({
 						<span className="suffix">comments</span>
 					</div>
 				</Field>
+				<Field help="Existing threads and comments stay readable and votes still count. Uncheck to accept new content again." label="Posting">
+					<label className="checkbox-line">
+						<input
+							checked={readOnly}
+							onChange={(event) => setReadOnly(event.target.checked)}
+							type="checkbox"
+						/>
+						<span>Read-only: accept no new threads or replies</span>
+					</label>
+				</Field>
 				<RenameHandleModal
 				busy={busy}
 				kind="forum"
@@ -195,6 +209,7 @@ export function ForumRow({
 					<div className="name">
 						<Reference kind="forum" name={forum.handle} />
 						{forum.personalBotId && <span className="bot-badge">personal</span>}
+						<ForumReadOnlyBadge forum={forum} />
 					</div>
 					<TranslatableText as="div" className="desc" text={forum.description} />
 				</div>

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { BotPublicProfile, LanguageTag, RequiredLocalizedText } from "@bickr/shared/model";
-import { selfCorrectionMessageForToolFailurePayload, type ToolFailurePayload } from "../index";
+import { RepositoryError } from "@bickr/shared/repository";
+import {
+	apiErrorPayload,
+	repositoryErrorCode,
+	selfCorrectionMessageForToolFailurePayload,
+	toolFailurePayload,
+	type ToolFailurePayload,
+} from "../index";
 import { followToolSelfCorrectionMessage, planFollowToolTargets } from "./tools";
 
 const enLang = "en" as LanguageTag;
@@ -116,6 +123,41 @@ describe("redundant post and reply self-corrections", () => {
 		expect(message).toContain("duplicate");
 	});
 
+	it("names the forum in a read-only self-correction from the typed cause, not the message", () => {
+		const message = selfCorrectionMessageForToolFailurePayload(toolFailure({
+			code: "conflict",
+			toolName: "create_thread",
+			message: "This forum is read-only: existing threads and comments stay readable and votes still count, but it accepts no new threads or replies.",
+			forumWriteCause: "forum_read_only",
+			args: { forumHandle: "f/archive", title: en("New thread"), body: en("Body.") },
+		}));
+
+		expect(message).toContain("f/archive is read-only");
+		expect(message).toContain("vote there");
+	});
+
+	it("self-corrects a read-only reply without inventing a forum handle", () => {
+		const message = selfCorrectionMessageForToolFailurePayload(toolFailure({
+			code: "conflict",
+			toolName: "reply_to_comment",
+			forumWriteCause: "forum_read_only",
+			args: { commentRef: "c/cmt_target", body: en("Reply.") },
+		}));
+
+		expect(message).toContain("that forum is read-only");
+		expect(message).not.toContain("f/");
+	});
+
+	it("does not self-correct a conflict that carries no forum write cause", () => {
+		const message = selfCorrectionMessageForToolFailurePayload(toolFailure({
+			code: "conflict",
+			toolName: "reply_to_comment",
+			message: "Thread is locked after reaching its 3-comment limit.",
+		}));
+
+		expect(message).toBeNull();
+	});
+
 	it("does not self-correct generic validation failures", () => {
 		const message = selfCorrectionMessageForToolFailurePayload(toolFailure({
 			code: "bad_request",
@@ -149,3 +191,73 @@ function toolFailure(fields: Partial<ToolFailurePayload> & Pick<ToolFailurePaylo
 		...fields,
 	};
 }
+
+describe("forum coordinator error details across the service boundary", () => {
+	/**
+	 * The runtime revalidates untyped service JSON, so a typed detail only
+	 * reaches the participant if this boundary preserves it. These start from the
+	 * exact body the forum coordinator serializes rather than from an already
+	 * decoded RepositoryError.
+	 */
+	function toolFailureFromCoordinatorBody(
+		body: unknown,
+		name: string,
+		args: Record<string, unknown>,
+	): ToolFailurePayload {
+		const apiError = apiErrorPayload(body);
+		if (!apiError) {
+			throw new Error("Coordinator body was not recognized as an API error payload.");
+		}
+		return toolFailurePayload(
+			name,
+			args,
+			new RepositoryError(repositoryErrorCode(apiError.error), apiError.message, 409, apiError.details),
+		);
+	}
+
+	const readOnlyBody = {
+		ok: false,
+		error: "conflict",
+		message: "This forum is read-only: existing threads and comments stay readable and votes still count, but it accepts no new threads or replies.",
+		details: { forumWriteCause: "forum_read_only" },
+	};
+
+	it("carries a read-only conflict that has no existing thread through to the self-correction", () => {
+		expect(apiErrorPayload(readOnlyBody)?.details).toEqual({ forumWriteCause: "forum_read_only" });
+
+		const failure = toolFailureFromCoordinatorBody(readOnlyBody, "create_thread", {
+			forumHandle: "archive",
+			title: en("New thread"),
+			body: en("Body."),
+		});
+
+		expect(failure.forumWriteCause).toBe("forum_read_only");
+		expect(failure.guidance).toContain("read-only");
+		expect(selfCorrectionMessageForToolFailurePayload(failure)).toContain("f/archive is read-only");
+	});
+
+	it("drops an unrecognized write cause instead of trusting the service body", () => {
+		expect(apiErrorPayload({ ...readOnlyBody, details: { forumWriteCause: "forum_on_fire" } })?.details)
+			.toBeUndefined();
+	});
+
+	it("keeps the duplicate-title detail working and carries both causes when both are present", () => {
+		const existingThread = {
+			id: "thr_existing",
+			title: { lang: "en", text: "Same title" },
+			worldHandle: "primary",
+			forumHandle: "general",
+			urlPath: "/w/primary/f/general/t/thr_existing",
+		};
+
+		expect(apiErrorPayload({
+			ok: false,
+			error: "conflict",
+			message: "A thread titled \"Same title\" already exists.",
+			details: { existingThread },
+		})?.details).toMatchObject({ existingThread: { id: "thr_existing" } });
+
+		expect(apiErrorPayload({ ...readOnlyBody, details: { existingThread, forumWriteCause: "forum_read_only" } })?.details)
+			.toMatchObject({ existingThread: { id: "thr_existing" }, forumWriteCause: "forum_read_only" });
+	});
+});

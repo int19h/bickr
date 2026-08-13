@@ -121,6 +121,7 @@ function sampleTree(): HumanSubscriptionTree {
 					language: en,
 					description: lt("General discussion."),
 					createdByUserId: "usr_owner",
+					readOnly: false,
 					createdAt: now,
 					updatedAt: now,
 				},

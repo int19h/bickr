@@ -774,6 +774,9 @@ function providerForum(record: Record<string, unknown>): Record<string, unknown>
 	return {
 		forum: providerForumNameFromRecord(record) ?? 'f/unknown',
 		description: stringValue(record.description) ?? '',
+		// Always emitted, never omitted when false: the tool description tells the
+		// participant to read this flag before choosing where to create a thread.
+		readOnly: record.readOnly === true,
 	};
 }
 

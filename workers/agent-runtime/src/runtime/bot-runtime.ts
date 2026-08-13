@@ -131,6 +131,7 @@ import {
 	type BotTokenUsageStats,
 	type BotTokenUsageTotals,
 	type BotTokenSpendSummary,
+	type ForumWriteErrorCause,
 	type JsonObject,
 	type LanguageTag,
 	type LocalizedText,
@@ -8025,9 +8026,30 @@ const apiErrorCodes = new Set<ApiErrorPayload['error']>([
 	'unauthorized',
 ]);
 
+/**
+ * Typed error details this runtime understands, revalidated on the way in.
+ *
+ * The service boundary is untyped JSON, so each detail is validated
+ * independently and an unrecognized one is dropped rather than trusted. A
+ * detail that fails validation must not take the others with it: a read-only
+ * conflict carries no existingThread, and a duplicate-title conflict carries no
+ * forumWriteCause.
+ */
 function apiErrorDetails(value: unknown): ApiErrorPayload['details'] | undefined {
 	const details = runtimeRecord(value);
-	const existingThread = runtimeRecord(details.existingThread);
+	const existingThread = apiErrorExistingThread(details.existingThread);
+	const forumWriteCause = apiErrorForumWriteCause(details.forumWriteCause);
+	if (!existingThread && !forumWriteCause) {
+		return undefined;
+	}
+	return {
+		...(existingThread ? { existingThread } : {}),
+		...(forumWriteCause ? { forumWriteCause } : {}),
+	};
+}
+
+function apiErrorExistingThread(value: unknown): NonNullable<ApiErrorPayload['details']>['existingThread'] {
+	const existingThread = runtimeRecord(value);
 	const id = stringValue(existingThread.id);
 	const title = stringValue(existingThread.title);
 	const worldHandle = stringValue(existingThread.worldHandle);
@@ -8037,14 +8059,21 @@ function apiErrorDetails(value: unknown): ApiErrorPayload['details'] | undefined
 		return undefined;
 	}
 	return {
-		existingThread: {
-			id,
-			title: localizedTextValue(existingThread.title, title),
-			worldHandle,
-			forumHandle,
-			urlPath,
-		},
+		id,
+		title: localizedTextValue(existingThread.title, title),
+		worldHandle,
+		forumHandle,
+		urlPath,
 	};
+}
+
+const forumWriteErrorCauses = new Set<ForumWriteErrorCause>(['forum_read_only']);
+
+function apiErrorForumWriteCause(value: unknown): ForumWriteErrorCause | undefined {
+	const cause = stringValue(value);
+	return cause && forumWriteErrorCauses.has(cause as ForumWriteErrorCause) ?
+		cause as ForumWriteErrorCause
+	:	undefined;
 }
 
 export function repositoryErrorCode(code: ApiErrorPayload['error']): RepositoryError['code'] {
@@ -8299,6 +8328,12 @@ function toolFailureAssistantContent(failure: ToolFailurePayload): string {
 }
 
 export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailurePayload): string | null {
+	if (failure.forumWriteCause === 'forum_read_only') {
+		// A reply failure carries a comment ref rather than a forum handle, so the
+		// forum is named only when the arguments actually identify it.
+		const handle = stringValue(failure.args.forumHandle)?.replace(/^f\//, '');
+		return `Nevermind, ${handle ? `f/${handle}` : 'that forum'} is read-only, so it takes no new threads or replies. I can still read it and vote there, so I'll do that or post somewhere else instead.`;
+	}
 	if (failure.toolName === 'create_thread' && failure.code === 'conflict' && (failure.existingThreadRef || failure.existingThreadId)) {
 		const forum = failure.existingForumHandle ? `f/${failure.existingForumHandle}` : 'that forum';
 		const path = failure.existingUrlPath ? ` at ${failure.existingUrlPath}` : '';
@@ -9242,11 +9277,12 @@ function optionalLanguageTagValue(value: unknown): LanguageTag | null {
 	}
 }
 
-function toolFailurePayload(name: string, args: Record<string, unknown>, error: unknown): ToolFailurePayload {
+export function toolFailurePayload(name: string, args: Record<string, unknown>, error: unknown): ToolFailurePayload {
 	const canonical = canonicalToolName(name);
 	const duplicate = error instanceof DuplicateReplyError ? error.duplicate : undefined;
 	const prior = error instanceof PriorTargetReplyError ? error.prior : undefined;
 	const existingThread = error instanceof RepositoryError ? error.details?.existingThread : undefined;
+	const forumWriteCause = error instanceof RepositoryError ? error.details?.forumWriteCause : undefined;
 	return {
 		ok: false,
 		code: toolFailureCode(error),
@@ -9254,6 +9290,7 @@ function toolFailurePayload(name: string, args: Record<string, unknown>, error: 
 		toolName: canonical || 'unknown_tool',
 		args: providerToolArgs(canonical, safelyNormalizeFailureArgs(canonical, args)),
 		...(toolFailureGuidance(canonical, error) ? { guidance: toolFailureGuidance(canonical, error) } : {}),
+		...(forumWriteCause ? { forumWriteCause } : {}),
 		...(existingThread
 			? {
 					existingUrlPath: existingThread.urlPath,
@@ -9331,6 +9368,9 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	}
 	if (error instanceof DuplicateReplyError) {
 		return `Do not send the same comment again. The existing comment is at ${error.duplicate.urlPath}.`;
+	}
+	if (error instanceof RepositoryError && error.details?.forumWriteCause === 'forum_read_only') {
+		return 'That forum is read-only. Reading it and voting there still work; to post, pick a forum that is not read-only.';
 	}
 	if (canonical === 'create_thread' && error instanceof RepositoryError && error.code === 'conflict' && error.details?.existingThread) {
 		return `Read existing thread ${formatThreadRef(error.details.existingThread.id)} or choose a clearly different title.`;

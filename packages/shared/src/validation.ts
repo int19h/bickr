@@ -431,6 +431,7 @@ export function parseCreateForumInput(input: unknown): CreateForumInput {
 		language,
 		description: localizedRequiredText(record.description, "Forum description", 500, language),
 		...(record.threadSettings === undefined ? {} : { threadSettings: parseThreadSettings(record.threadSettings) }),
+		...(record.readOnly === undefined ? {} : { readOnly: requiredBoolean(record.readOnly, "Forum read-only state") }),
 	};
 }
 
@@ -450,6 +451,9 @@ export function parseUpdateForumInput(input: unknown): UpdateForumInput {
 	}
 	if (record.threadSettings !== undefined) {
 		update.threadSettings = parseThreadSettings(record.threadSettings);
+	}
+	if (record.readOnly !== undefined) {
+		update.readOnly = requiredBoolean(record.readOnly, "Forum read-only state");
 	}
 	if (Object.keys(update).length === 0) {
 		throw new InputError("At least one forum field must be provided.");
