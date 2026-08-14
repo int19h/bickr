@@ -256,7 +256,7 @@ describe('maintenance control', () => {
 		);
 		expect(fleetSweep.status).toBe(200);
 		expect(await fleetSweep.json()).toMatchObject({ data: { sweep: {
-			kind: 'inference_provider_default_barrier_fleet_sweep', processedOwners: 1, complete: false, nextCursor: '',
+			kind: 'inference_provider_default_barrier_fleet_sweep', processedOwners: 1, complete: false,
 			attempts: [{ ownerUserId: maintenanceOwnerId, status: 'accepted' }],
 		} } });
 

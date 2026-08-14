@@ -146,7 +146,6 @@ describe("Compaction", () => {
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				activeLoopMessageRows: () => rows,
-				compactionRowsLeaveOutputBudget: () => true,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
 			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
@@ -186,7 +185,6 @@ describe("Compaction", () => {
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				activeLoopMessageRows: () => rows,
-				compactionRowsLeaveOutputBudget: () => true,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
 			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
@@ -226,7 +224,6 @@ describe("Compaction", () => {
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				activeLoopMessageRows: () => rows,
-				compactionRowsLeaveOutputBudget: () => true,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
 			const compactionRowSelectionForEstimatedBudget = (BotRuntime.prototype as unknown as {
@@ -313,7 +310,7 @@ describe("Compaction", () => {
 			expect(selected.overBudgetFallback).toBe(false);
 		});
 
-		it("keeps the smallest over-budget prefix so compaction can always make progress", () => {
+		it("excludes a prefix group that would leave too little compaction output budget", () => {
 			const text = (char: string, length: number) => char.repeat(length);
 			const rows = [
 				loopMessageRowForMessage(1, { role: "assistant", content: text("a", 3_200) }),
@@ -354,32 +351,28 @@ describe("Compaction", () => {
 				activeLoopMessageRows: () => rows,
 				textTokenCalibration: () => calibration,
 			});
-			const compactionRowSelectionForEstimatedBudget = (BotRuntime.prototype as unknown as {
-				compactionRowSelectionForEstimatedBudget: (
+			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
+				compactionRowsForEstimatedBudget: (
 					bot: BotDocument,
 					providerTools?: ProviderToolDefinition[],
 					mode?: "structured_output" | "tool_call" | "tool_call_cache_friendly",
-				) => { rows: Array<{ seq: number; message_json: string }>; overBudgetFallback: boolean };
-			}).compactionRowSelectionForEstimatedBudget.bind(runtime);
+				) => Array<{ seq: number; message_json: string }>;
+			}).compactionRowsForEstimatedBudget.bind(runtime);
 
-			const selected = compactionRowSelectionForEstimatedBudget(bot, tools, "structured_output");
-			const smallestPrefixMessages = rows.slice(0, 1).map(
+			const selected = compactionRowsForEstimatedBudget(bot, tools, "structured_output");
+			const selectedMessages = selected.map(
 				(row) => JSON.parse(row.message_json) as Parameters<typeof providerCompactionSummaryLimitsForChat>[1][number],
 			);
-			const smallestPrefixLimits = providerCompactionSummaryLimitsForChat(
-				bot,
-				smallestPrefixMessages,
-				calibration,
-				tools,
-				"structured_output",
+			const selectedLimits = providerCompactionSummaryLimitsForChat(bot, selectedMessages, calibration, tools, "structured_output");
+			const rejectedMessages = rows.slice(0, 6).map(
+				(row) => JSON.parse(row.message_json) as Parameters<typeof providerCompactionSummaryLimitsForChat>[1][number],
 			);
+			const rejectedLimits = providerCompactionSummaryLimitsForChat(bot, rejectedMessages, calibration, tools, "structured_output");
 			const compactionOutputSafetyTokens = 512;
 
-			expect(selected.rows.map((row) => row.seq)).toEqual([1]);
-			expect(selected.overBudgetFallback).toBe(true);
-			expect(smallestPrefixLimits.maxCompletionTokens).toBeLessThan(
-				smallestPrefixLimits.maxSummaryTokens + compactionOutputSafetyTokens,
-			);
+			expect(selected.map((row) => row.seq)).toEqual([1, 2]);
+			expect(selectedLimits.maxCompletionTokens).toBeGreaterThanOrEqual(selectedLimits.maxSummaryTokens + compactionOutputSafetyTokens);
+			expect(rejectedLimits.maxCompletionTokens).toBeLessThan(rejectedLimits.maxSummaryTokens + compactionOutputSafetyTokens);
 		});
 
 		it("uses the provider-history filter for compaction candidates", () => {
@@ -1991,7 +1984,6 @@ describe("Compaction", () => {
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
 			botWithCurrentRuntimeBudget: async (current: BotDocument) => current,
-			compactionRowsLeaveOutputBudget: () => true,
 			compactLoopMessageRows: async (
 				_bot: unknown,
 				_settings: unknown,

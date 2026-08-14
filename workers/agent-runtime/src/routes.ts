@@ -1111,7 +1111,6 @@ export const agentRuntimeRouteTable = [
 			if (!maintenance.enabled) throw new RepositoryError('conflict', 'Provider-default barrier fleet sweep requires maintenance mode.', 409);
 			if (!context.env.USER_BOTS) throw new RepositoryError('server_error', 'User coordinator binding is unavailable.', 500);
 			const body = requiredRecord(await readOptionalJsonBody(context.request));
-			const cursor = body.cursor === undefined ? undefined : requiredString(body.cursor, 'cursor');
 			const requestedLimit = body.limit === undefined ? 25 : requiredPositiveInteger(body.limit, 'limit');
 			return ok({ sweep: await runInferenceProviderDefaultBarrierFleetStep({
 				BICKR_D1: context.env.BICKR_D1,
@@ -1119,11 +1118,7 @@ export const agentRuntimeRouteTable = [
 				...(context.env.INTERNAL_SERVICE_SECRET === undefined
 					? {}
 					: { INTERNAL_SERVICE_SECRET: context.env.INTERNAL_SERVICE_SECRET }),
-			}, {
-				...(cursor === undefined ? {} : { cursor }),
-				limit: requestedLimit,
-				sourceHeaders: context.request.headers,
-			}) });
+			}, { limit: requestedLimit }) });
 		},
 	},
 	{
@@ -2839,7 +2834,7 @@ export async function runScheduledAgentRuntimeTasks(env: Env, scheduledTime: num
 				...(env.INTERNAL_SERVICE_SECRET === undefined
 					? {}
 					: { INTERNAL_SERVICE_SECRET: env.INTERNAL_SERVICE_SECRET }),
-			});
+			}, { now: new Date(scheduledTime).toISOString() });
 			const failedOwners = sweep.attempts.filter((attempt) => attempt.status === 'failed').length;
 			const record = {
 				event: 'scheduled_provider_default_barrier_sweep',

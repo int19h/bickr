@@ -9,8 +9,9 @@ describe('scheduled provider-default barrier maintenance', () => {
 		phase: 'pending',
 		stage: 'bots',
 		botCursor: null,
-		appliedCount: 2,
-		skippedCount: 1,
+		appliedFieldCount: 2,
+		skippedFieldCount: 1,
+		unrepresentedConfigurationCount: 0,
 	} as const;
 
 	function maintenanceEnv(
@@ -19,6 +20,7 @@ describe('scheduled provider-default barrier maintenance', () => {
 	) {
 		const ordinaryDispatch = vi.fn((name: string) => name);
 		const coordinatorDispatch = vi.fn(fetchCoordinator);
+		const claimedAttempts: string[] = [];
 		const env = {
 			INTERNAL_SERVICE_SECRET: 'test-secret',
 			BICKR_D1: {
@@ -38,6 +40,16 @@ describe('scheduled provider-default barrier maintenance', () => {
 							},
 						};
 						return statement;
+					}
+					if (sql.includes('INTO inference_provider_default_barrier_fleet_attempts')) {
+						return {
+							bind(...values: string[]) {
+								for (let index = 0; index < values.length; index += 2) {
+									claimedAttempts.push(`${values[index]}@${values[index + 1]}`);
+								}
+								return { async run() { return { success: true }; } };
+							},
+						};
 					}
 					if (sql.includes('FROM inference_provider_default_barrier_sweeps')) {
 						return {
@@ -66,14 +78,20 @@ describe('scheduled provider-default barrier maintenance', () => {
 			env: env as unknown as Parameters<typeof runScheduledAgentRuntimeTasks>[0],
 			ordinaryDispatch,
 			coordinatorDispatch,
+			claimedAttempts,
 		};
 	}
 
 	it('defers ordinary tasks and advances a pending sweep through its user coordinator', async () => {
 		const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-		const { env, ordinaryDispatch, coordinatorDispatch } = maintenanceEnv([pendingOwner], async (request) => {
+		const { env, ordinaryDispatch, coordinatorDispatch, claimedAttempts } = maintenanceEnv([pendingOwner], async (request) => {
 			expect(new URL(request.url).pathname).toBe(
 				`/users/${pendingOwner.ownerUserId}/inference-graph/provider-default-barrier-sweep`,
+			);
+			// The coordinator request is built from scratch, so it carries the
+			// internal header set and nothing an operator request could contribute.
+			expect([...request.headers.keys()].sort()).toEqual(
+				['x-bickr-internal-auth', 'x-bickr-scheduler', 'x-bickr-user-id'],
 			);
 			expect(request.headers.get('x-bickr-scheduler')).toBe('1');
 			expect(request.headers.get('x-bickr-user-id')).toBe(pendingOwner.ownerUserId);
@@ -91,6 +109,9 @@ describe('scheduled provider-default barrier maintenance', () => {
 			},
 		});
 		expect(coordinatorDispatch).toHaveBeenCalledOnce();
+		// The claim records the attempt, so the next tick starts behind this owner
+		// instead of restarting at the front of the owner-id order.
+		expect(claimedAttempts).toEqual([`${pendingOwner.ownerUserId}@2026-08-14T00:00:00.000Z`]);
 		expect(ordinaryDispatch).not.toHaveBeenCalled();
 		expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
 			event: 'scheduled_provider_default_barrier_sweep',

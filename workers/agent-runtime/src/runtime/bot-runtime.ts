@@ -858,6 +858,23 @@ function providerToolCallsForSettings(
 	);
 }
 
+/**
+ * The single ordinary-loop decision about tool-call selection: which strategy is
+ * actually applied, and whether `tool_choice` reaches the wire at all. The
+ * request builder and the diagnostic event both read it from here so an event
+ * can never report a `tool_choice` the provider request omits, or a mode the
+ * request did not use.
+ */
+function providerToolChoiceEmissionForSettings(
+	settings: ProviderSettings,
+	value?: BotInferenceToolCalls,
+): { toolCalls: BotInferenceToolCalls; toolChoice: ReturnType<typeof providerToolChoiceForMode> } {
+	const toolCalls = providerToolCallsForSettings(settings, value);
+	const omitted = settings.ordinaryLoopToolCalls?.emission === 'omit_tool_choice'
+		|| settings.toolCallRequest?.kind === 'provider_default';
+	return { toolCalls, toolChoice: omitted ? undefined : providerToolChoiceForMode(toolCalls) };
+}
+
 function providerReasoningShapeForSettings(
 	settings: Pick<ProviderSettings, 'model' | 'reasoningEffort' | 'reasoningRequest'> & { baseUrl?: string },
 ): RequiredToolCallReasoningShape {
@@ -919,16 +936,14 @@ type ProviderLoopRequestEventPayloadInput = {
 };
 
 function providerLoopRequestEventPayload(input: ProviderLoopRequestEventPayloadInput): Record<string, unknown> {
-	const toolChoice = input.settings.ordinaryLoopToolCalls?.emission === 'omit_tool_choice'
-		? undefined
-		: providerToolChoiceForMode(input.toolCallsMode);
+	const { toolCalls, toolChoice } = providerToolChoiceEmissionForSettings(input.settings, input.toolCallsMode);
 	const reasoning = providerReasoningForSettings(input.settings);
 	const reasoningShape = providerReasoningShapeForSettings(input.settings);
 	return {
 		model: input.settings.model,
 		messageCount: input.requestMessages.length,
 		toolCount: input.providerTools.length,
-		toolCalls: input.toolCallsMode,
+		toolCalls,
 		...(input.settings.ordinaryLoopToolCalls
 			? { toolCallPolicy: compactAppliedToolCallPolicy(input.settings.ordinaryLoopToolCalls) }
 			: {}),
@@ -998,10 +1013,7 @@ export function providerChatCompletionRequest(
 		settings,
 		providerMessagesWithReasoningPrefill(messages, reasoningPrefill),
 	);
-	const effectiveToolCalls = providerToolCallsForSettings(settings, toolCalls);
-	const toolChoice = settings.ordinaryLoopToolCalls?.emission === 'omit_tool_choice' || settings.toolCallRequest?.kind === 'provider_default'
-		? undefined
-		: providerToolChoiceForMode(effectiveToolCalls);
+	const { toolChoice } = providerToolChoiceEmissionForSettings(settings, toolCalls);
 	const reasoning = providerReasoningForSettings(settings);
 	const cacheControl = providerPromptCacheControl(settings);
 	return {

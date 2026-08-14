@@ -77,16 +77,16 @@ async function sweepProviderDefaultBarriersUser(userId) {
 	throw new Error(`Provider-default barrier sweep did not reach terminal state within ${maximumSteps} steps.`);
 }
 
+// The fleet step claims the least recently attempted pending owners itself, so
+// this driver just repeats it. Owners that keep failing surface in every step's
+// printed attempts and are bounded by --max-steps rather than by a cursor.
 async function sweepProviderDefaultBarriersFleet() {
-	const maximumSteps = optionalPositiveInteger(options, "max-steps") ?? 10_000;
+	const maximumSteps = optionalPositiveInteger(options, "max-steps") ?? 1_000;
 	const limit = optionalPositiveInteger(options, "limit") ?? 25;
-	let cursor = options.get("cursor") ?? "";
 	for (let step = 0; step < maximumSteps; step += 1) {
-		const payload = await proxy("POST", "/inference-graph/provider-default-barrier-sweep", { cursor, limit });
+		const payload = await proxy("POST", "/inference-graph/provider-default-barrier-sweep", { limit });
 		print(payload);
-		const sweep = payload?.data?.sweep;
-		if (sweep?.complete === true) return;
-		cursor = sweep?.nextCursor ?? "";
+		if (payload?.data?.sweep?.complete === true) return;
 	}
 	throw new Error(`Provider-default barrier fleet sweep did not complete within ${maximumSteps} steps.`);
 }

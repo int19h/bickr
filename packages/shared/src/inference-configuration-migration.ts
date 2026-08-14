@@ -65,8 +65,16 @@ export type InferenceProviderDefaultBarrierSweepResult = {
 	ownerUserId: string;
 	phase: "not_needed" | "pending" | "terminal";
 	processedConfigurations: number;
-	appliedCount: number;
-	skippedCount: number;
+	/** Candidate fields corrected so far, counted in fields. */
+	appliedFieldCount: number;
+	/** Candidate fields that lost their provenance proof, counted in fields. */
+	skippedFieldCount: number;
+	/**
+	 * Migrated configurations whose legacy provenance source is gone and that
+	 * carried no barrier field, so no candidate field represents them. Counted in
+	 * configurations, never mixed into the field counts.
+	 */
+	unrepresentedConfigurationCount: number;
 };
 
 export type InferenceProviderDefaultBarrierSweepFleetStatus = {
@@ -74,8 +82,9 @@ export type InferenceProviderDefaultBarrierSweepFleetStatus = {
 	phase: "pending" | "terminal";
 	stage: "account" | "bots" | "translation" | "complete";
 	botCursor: string | null;
-	appliedCount: number;
-	skippedCount: number;
+	appliedFieldCount: number;
+	skippedFieldCount: number;
+	unrepresentedConfigurationCount: number;
 };
 
 export type InferenceProviderDefaultBarrierSweepFleetStatusPage = {
@@ -200,8 +209,6 @@ type ProviderDefaultBarrierCandidateRow = {
 	botId: string | null;
 	overridesJson: string;
 	revision: number;
-	projectionOverridesJson: string | null;
-	projectionRevision: number | null;
 	sourceBotId: string | null;
 };
 
@@ -228,8 +235,9 @@ type ProviderDefaultBarrierSweepRow = {
 	phase: "pending" | "terminal";
 	stage: "account" | "bots" | "translation" | "complete";
 	botCursor: string | null;
-	appliedCount: number;
-	skippedCount: number;
+	appliedFieldCount: number;
+	skippedFieldCount: number;
+	unrepresentedConfigurationCount: number;
 	migratedTranslationConfigurationId: string | null;
 	auditJson: string;
 };
@@ -250,7 +258,8 @@ export async function runInferenceProviderDefaultBarrierSweepStep(
 	}
 	const sweep = await env.BICKR_D1.prepare(
 		`SELECT sweep.phase, sweep.stage, sweep.bot_cursor AS botCursor,
-			sweep.applied_count AS appliedCount, sweep.skipped_count AS skippedCount,
+			sweep.applied_field_count AS appliedFieldCount, sweep.skipped_field_count AS skippedFieldCount,
+			sweep.unrepresented_configuration_count AS unrepresentedConfigurationCount,
 			migration.migrated_translation_configuration_id AS migratedTranslationConfigurationId,
 			migration.audit_json AS auditJson
 		 FROM inference_provider_default_barrier_sweeps AS sweep
@@ -259,17 +268,24 @@ export async function runInferenceProviderDefaultBarrierSweepStep(
 		 WHERE sweep.owner_user_id = ? LIMIT 1`,
 	).bind(ownerUserId).first<ProviderDefaultBarrierSweepRow>();
 	if (!sweep) {
-		return { kind: "inference_provider_default_barrier_sweep", ownerUserId, phase: "not_needed", processedConfigurations: 0, appliedCount: 0, skippedCount: 0 };
+		return {
+			kind: "inference_provider_default_barrier_sweep", ownerUserId, phase: "not_needed",
+			processedConfigurations: 0, appliedFieldCount: 0, skippedFieldCount: 0, unrepresentedConfigurationCount: 0,
+		};
 	}
 	if (sweep.phase === "terminal") {
-		return { kind: "inference_provider_default_barrier_sweep", ownerUserId, phase: "terminal", processedConfigurations: 0, appliedCount: sweep.appliedCount, skippedCount: sweep.skippedCount };
+		return {
+			kind: "inference_provider_default_barrier_sweep", ownerUserId, phase: "terminal", processedConfigurations: 0,
+			appliedFieldCount: sweep.appliedFieldCount, skippedFieldCount: sweep.skippedFieldCount,
+			unrepresentedConfigurationCount: sweep.unrepresentedConfigurationCount,
+		};
 	}
 	if (typeof sweep.auditJson !== "string") {
 		throw new RepositoryError("server_error", "Inference provider-default barrier migration provenance is missing.", 500);
 	}
 	parsedMigrationAudit(sweep.auditJson);
 	let auditJson = sweep.auditJson;
-	let unrepresentedSourceLossCount = providerDefaultBarrierUnrepresentedSourceLossCount(auditJson);
+	let unrepresentedConfigurationCount = providerDefaultBarrierUnrepresentedConfigurationCount(auditJson);
 
 	const user = await requiredMigrationUser(env, ownerUserId);
 	let rows: ProviderDefaultBarrierCandidateRow[] = [];
@@ -291,14 +307,9 @@ export async function runInferenceProviderDefaultBarrierSweepStep(
 				`SELECT configuration.configuration_id AS configurationId, configuration.kind,
 					configuration.fixed_role AS fixedRole, configuration.bot_id AS botId,
 					configuration.overrides_json AS overridesJson, configuration.revision,
-					projection.overrides_json AS projectionOverridesJson,
-					projection.configuration_revision AS projectionRevision,
 					CASE WHEN clones.linked = 1 THEN clones.source_bot_id ELSE NULL END AS sourceBotId
 				 FROM inference_configurations AS configuration
 				 LEFT JOIN bot_clone_sources AS clones ON clones.bot_id = configuration.bot_id
-				 LEFT JOIN inference_graph_legacy_projection_entries AS projection
-					ON projection.owner_user_id = configuration.owner_user_id
-					AND projection.configuration_id = configuration.configuration_id
 				 WHERE configuration.owner_user_id = ? AND configuration.kind = 'bot'
 					AND configuration.bot_id > ?
 				 ORDER BY configuration.bot_id LIMIT ?`,
@@ -323,7 +334,7 @@ export async function runInferenceProviderDefaultBarrierSweepStep(
 						observedAt: now,
 					};
 					auditJson = providerDefaultBarrierAuditWithSourceLoss(auditJson, loss);
-					unrepresentedSourceLossCount = providerDefaultBarrierUnrepresentedSourceLossCount(auditJson);
+					unrepresentedConfigurationCount = providerDefaultBarrierUnrepresentedConfigurationCount(auditJson);
 				} else if (row.kind !== "custom" || row.fixedRole !== null) {
 					throw new RepositoryError("server_error", "Migrated translation configuration provenance is missing.", 500);
 				} else {
@@ -355,7 +366,7 @@ export async function runInferenceProviderDefaultBarrierSweepStep(
 					expected.sourceRevision, expected.fields, now,
 				);
 				auditJson = providerDefaultBarrierAuditWithSourceLoss(auditJson, expected.loss);
-				unrepresentedSourceLossCount = providerDefaultBarrierUnrepresentedSourceLossCount(auditJson);
+				unrepresentedConfigurationCount = providerDefaultBarrierUnrepresentedConfigurationCount(auditJson);
 				break;
 		}
 	}
@@ -366,35 +377,59 @@ export async function runInferenceProviderDefaultBarrierSweepStep(
 		).bind(auditJson, now, ownerUserId, inferenceGraphMigrationVersion, sweep.auditJson));
 	}
 	const terminal = nextStage === "complete";
+	// Every candidate this step touched is terminal (applied or skipped) by the
+	// time this statement runs, unless a canonical compare-and-set lost a race.
+	// Refusing to advance then keeps the stage and cursor where they are so the
+	// bounded retry reprocesses exactly the same configurations.
 	statements.push(env.BICKR_D1.prepare(
 		`UPDATE inference_provider_default_barrier_sweeps
 		 SET phase = ?, stage = ?, bot_cursor = ?,
-			applied_count = (SELECT COUNT(*) FROM inference_provider_default_barrier_candidates WHERE owner_user_id = ? AND status = 'applied'),
-			skipped_count = (SELECT COUNT(*) FROM inference_provider_default_barrier_candidates WHERE owner_user_id = ? AND status = 'skipped') + ?,
+			applied_field_count = (SELECT COUNT(*) FROM inference_provider_default_barrier_candidates WHERE owner_user_id = ? AND status = 'applied'),
+			skipped_field_count = (SELECT COUNT(*) FROM inference_provider_default_barrier_candidates WHERE owner_user_id = ? AND status = 'skipped'),
+			unrepresented_configuration_count = ?,
 			updated_at = ?, terminal_cleanup_at = ?
 		 WHERE owner_user_id = ? AND phase = 'pending' AND stage = ?
+			AND NOT EXISTS (
+				SELECT 1 FROM inference_provider_default_barrier_candidates
+				WHERE owner_user_id = ? AND status = 'pending'
+			)
 			AND EXISTS (
 				SELECT 1 FROM inference_graph_migration_operations
 				WHERE owner_user_id = ? AND migration_version = ? AND audit_json = ?
 			)`,
 	).bind(
 		terminal ? "terminal" : "pending", nextStage, nextBotCursor,
-		ownerUserId, ownerUserId, unrepresentedSourceLossCount, now, terminal ? terminalCleanupAt(now) : null,
-		ownerUserId, sweep.stage, ownerUserId, inferenceGraphMigrationVersion, auditJson,
+		ownerUserId, ownerUserId, unrepresentedConfigurationCount, now, terminal ? terminalCleanupAt(now) : null,
+		ownerUserId, sweep.stage, ownerUserId,
+		ownerUserId, inferenceGraphMigrationVersion, auditJson,
 	));
-	await env.BICKR_D1.batch(statements);
+	const results = await env.BICKR_D1.batch(statements);
+	if (!results.at(-1)?.meta?.changes) {
+		throw new RepositoryError(
+			"conflict",
+			"Inference provider-default barrier sweep step changed concurrently.",
+			409,
+		);
+	}
 	const updated = await env.BICKR_D1.prepare(
-		`SELECT phase, applied_count AS appliedCount, skipped_count AS skippedCount
+		`SELECT phase, applied_field_count AS appliedFieldCount, skipped_field_count AS skippedFieldCount,
+			unrepresented_configuration_count AS unrepresentedConfigurationCount
 		 FROM inference_provider_default_barrier_sweeps WHERE owner_user_id = ? LIMIT 1`,
-	).bind(ownerUserId).first<{ phase: "pending" | "terminal"; appliedCount: number; skippedCount: number }>();
+	).bind(ownerUserId).first<{
+		phase: "pending" | "terminal";
+		appliedFieldCount: number;
+		skippedFieldCount: number;
+		unrepresentedConfigurationCount: number;
+	}>();
 	if (!updated) throw new RepositoryError("server_error", "Inference provider-default barrier sweep state disappeared.", 500);
 	return {
 		kind: "inference_provider_default_barrier_sweep",
 		ownerUserId,
 		phase: updated.phase,
 		processedConfigurations: rows.length,
-		appliedCount: updated.appliedCount,
-		skippedCount: updated.skippedCount,
+		appliedFieldCount: updated.appliedFieldCount,
+		skippedFieldCount: updated.skippedFieldCount,
+		unrepresentedConfigurationCount: updated.unrepresentedConfigurationCount,
 	};
 }
 
@@ -407,12 +442,8 @@ async function providerDefaultBarrierConfiguration(
 		`SELECT configuration.configuration_id AS configurationId, configuration.kind,
 			configuration.fixed_role AS fixedRole, configuration.bot_id AS botId,
 			configuration.overrides_json AS overridesJson, configuration.revision,
-			projection.overrides_json AS projectionOverridesJson,
-			projection.configuration_revision AS projectionRevision, NULL AS sourceBotId
+			NULL AS sourceBotId
 		 FROM inference_configurations AS configuration
-		 LEFT JOIN inference_graph_legacy_projection_entries AS projection
-			ON projection.owner_user_id = configuration.owner_user_id
-			AND projection.configuration_id = configuration.configuration_id
 		 WHERE configuration.owner_user_id = ? AND configuration.configuration_id = ? LIMIT 1`,
 	).bind(ownerUserId, configurationId).first<ProviderDefaultBarrierCandidateRow>();
 }
@@ -486,14 +517,9 @@ async function expectedProviderDefaultBarrierMigrationOverrides(
 
 function currentProviderDefaultBarrierFields(row: ProviderDefaultBarrierCandidateRow): ProviderDefaultBarrierField[] {
 	const canonical = parseStoredInferenceConfigurationOverrides(row.overridesJson);
-	const projection = row.projectionOverridesJson
-		? parseStoredInferenceConfigurationOverrides(row.projectionOverridesJson)
-		: undefined;
 	return providerDefaultBarrierFields.filter((field) => {
-		const canonicalOverride = canonical[field];
-		const projectionOverride = projection?.[field];
-		return (canonicalOverride?.kind === "value" && canonicalOverride.value.kind === "provider_default") ||
-			(projectionOverride?.kind === "value" && projectionOverride.value.kind === "provider_default");
+		const override = canonical[field];
+		return override?.kind === "value" && override.value.kind === "provider_default";
 	});
 }
 
@@ -518,6 +544,23 @@ function legacyProviderDefaultBarrierOverrides(corrected: InferenceConfiguration
 	return { overrides, fields };
 }
 
+/**
+ * The rollback projection is not an independently writable surface. Migration
+ * 0042 installs `inference_graph_projection_after_configuration_update`
+ * (redefined by 0043, still live after 0046): an unconditional AFTER UPDATE
+ * trigger on `inference_configurations` that copies `NEW.overrides_json` and
+ * `NEW.revision` into `inference_graph_legacy_projection_entries`. Together
+ * with the credential-insert trigger and `createRollbackProjection`, which both
+ * seed entries straight from canonical, every projection entry mirrors its
+ * canonical row for exactly the columns this sweep touches. So provenance is
+ * proven, and the correction applied, against canonical alone: the trigger
+ * carries the same correction into the rollback surface within the canonical
+ * UPDATE itself, and a second write here would only race it.
+ *
+ * Provenance is proven per field, not per record: a barrier field still
+ * byte-identical to the value migration manufactured is still manufactured, no
+ * matter how many unrelated fields the owner has edited since cutover.
+ */
 function appendProviderDefaultBarrierCandidateStatements(
 	db: D1DatabaseLike,
 	statements: D1PreparedStatementLike[],
@@ -529,21 +572,14 @@ function appendProviderDefaultBarrierCandidateStatements(
 	fields: readonly ProviderDefaultBarrierField[],
 	now: string,
 ): void {
-	if (fields.length === 0) return;
-	if ((row.projectionOverridesJson === null) !== (row.projectionRevision === null)) {
-		throw new RepositoryError("server_error", "Inference graph rollback projection provenance is invalid.", 500);
-	}
 	const current = parseStoredInferenceConfigurationOverrides(row.overridesJson);
-	const currentProjection = row.projectionOverridesJson === null
-		? null
-		: parseStoredInferenceConfigurationOverrides(row.projectionOverridesJson);
-	const canonicalFields = fields.filter((field) => parityJson(current[field]) === parityJson(legacy[field]));
-	const projectionFields = currentProjection === null
-		? []
-		: fields.filter((field) => parityJson(currentProjection[field]) === parityJson(legacy[field]));
-	const provenFieldSet = new Set<ProviderDefaultBarrierField>([...canonicalFields, ...projectionFields]);
-	for (const field of fields) {
-		const proven = provenFieldSet.has(field);
+	// A field that already holds the corrected value has nothing to decide and is
+	// not a candidate at all: recording it as skipped would inflate the operator's
+	// skipped-field count with work that never existed.
+	const candidateFields = fields.filter((field) => parityJson(current[field]) !== parityJson(corrected[field]));
+	const provenFields = candidateFields.filter((field) => parityJson(current[field]) === parityJson(legacy[field]));
+	for (const field of candidateFields) {
+		const proven = provenFields.includes(field);
 		statements.push(db.prepare(
 			`INSERT INTO inference_provider_default_barrier_candidates (
 				owner_user_id, configuration_id, field, source_revision, status, created_at, completed_at
@@ -554,98 +590,42 @@ function appendProviderDefaultBarrierCandidateStatements(
 			proven ? "pending" : "skipped", now, proven ? null : now,
 		));
 	}
-	const provenFields = fields.filter((field) => provenFieldSet.has(field));
+	// Any candidate still pending that this step cannot prove has lost its
+	// provenance for good, whether an earlier attempt left it pending or its
+	// value changed since. Terminalizing it here is what lets the sweep-state
+	// advance below distinguish "nothing left to decide" from a lost race.
+	statements.push(db.prepare(
+		`UPDATE inference_provider_default_barrier_candidates SET status = 'skipped', completed_at = ?
+		 WHERE owner_user_id = ? AND configuration_id = ? AND status = 'pending'
+			${provenFields.length > 0 ? `AND field NOT IN (${provenFields.map(() => "?").join(", ")})` : ""}`,
+	).bind(now, ownerUserId, row.configurationId, ...provenFields));
 	if (provenFields.length === 0) return;
 	const patched = { ...current };
-	const patchedProjection = currentProjection === null ? null : { ...currentProjection };
-	for (const field of canonicalFields) {
+	for (const field of provenFields) {
 		setProviderDefaultBarrierField(patched, corrected, field);
 	}
-	for (const field of projectionFields) {
-		if (patchedProjection) setProviderDefaultBarrierField(patchedProjection, corrected, field);
-	}
-	const correctedJson = canonicalFields.length > 0 ? JSON.stringify(patched) : row.overridesJson;
-	const correctedRevision = row.revision + (canonicalFields.length > 0 ? 1 : 0);
-	const correctedProjectionJson = patchedProjection === null ? null
-		: projectionFields.length > 0 ? JSON.stringify(patchedProjection) : row.projectionOverridesJson;
-	const correctedProjectionRevision = row.projectionRevision === null ? null
-		: row.projectionRevision + (projectionFields.length > 0 ? 1 : 0);
-	const placeholders = provenFields.map(() => "?").join(", ");
-	if (canonicalFields.length > 0) {
-		statements.push(db.prepare(
-			`UPDATE inference_configurations
-			 SET overrides_json = ?, revision = revision + 1, updated_at = ?
-			 WHERE owner_user_id = ? AND configuration_id = ? AND revision = ? AND overrides_json = ?
-				AND (
-					(? IS NULL AND NOT EXISTS (
-						SELECT 1 FROM inference_graph_legacy_projection_entries AS projection
-						WHERE projection.owner_user_id = inference_configurations.owner_user_id
-							AND projection.configuration_id = inference_configurations.configuration_id
-					)) OR (? IS NOT NULL AND EXISTS (
-						SELECT 1 FROM inference_graph_legacy_projection_entries AS projection
-						WHERE projection.owner_user_id = inference_configurations.owner_user_id
-							AND projection.configuration_id = inference_configurations.configuration_id
-							AND projection.configuration_revision = ? AND projection.overrides_json = ?
-					))
-				)`,
-		).bind(
-			correctedJson, now, ownerUserId, row.configurationId, row.revision, row.overridesJson,
-			row.projectionRevision, row.projectionRevision, row.projectionRevision, row.projectionOverridesJson,
-		));
-	}
-	// Rollback is a revision-matched materialized view. Correct it in the same
-	// D1 batch as canonical state; otherwise a later cutover_version=2 reader
-	// would resurrect the manufactured barrier even though the canonical sweep
-	// reported success.
-	if (projectionFields.length > 0 && correctedProjectionJson !== null && row.projectionRevision !== null) {
-		statements.push(db.prepare(
-			`UPDATE inference_graph_legacy_projection_entries
-			 SET overrides_json = ?, configuration_revision = configuration_revision + 1
-			 WHERE owner_user_id = ? AND configuration_id = ?
-				AND configuration_revision = ? AND overrides_json = ?
-				AND EXISTS (
-					SELECT 1 FROM inference_configurations AS configuration
-					WHERE configuration.owner_user_id = inference_graph_legacy_projection_entries.owner_user_id
-						AND configuration.configuration_id = inference_graph_legacy_projection_entries.configuration_id
-						AND configuration.revision = ? AND configuration.overrides_json = ?
-				)`,
-		).bind(
-			correctedProjectionJson, ownerUserId, row.configurationId,
-			row.projectionRevision, row.projectionOverridesJson,
-			correctedRevision, correctedJson,
-		));
-	}
+	const correctedJson = JSON.stringify(patched);
+	const correctedRevision = row.revision + 1;
+	statements.push(db.prepare(
+		`UPDATE inference_configurations
+		 SET overrides_json = ?, revision = revision + 1, updated_at = ?
+		 WHERE owner_user_id = ? AND configuration_id = ? AND revision = ? AND overrides_json = ?`,
+	).bind(correctedJson, now, ownerUserId, row.configurationId, row.revision, row.overridesJson));
+	// Only the observed corrected canonical state promotes a candidate out of
+	// pending. A lost compare-and-set leaves it pending, which holds back the
+	// sweep-state advance in this same batch so the step is retried instead of
+	// durably recording a corrected field as skipped.
 	statements.push(db.prepare(
 		`UPDATE inference_provider_default_barrier_candidates SET status = 'applied', completed_at = ?
-		 WHERE owner_user_id = ? AND configuration_id = ? AND status = 'pending' AND field IN (${placeholders})
+		 WHERE owner_user_id = ? AND configuration_id = ? AND status = 'pending'
+			AND field IN (${provenFields.map(() => "?").join(", ")})
 			AND EXISTS (
 				SELECT 1 FROM inference_configurations AS configuration
 				WHERE configuration.owner_user_id = inference_provider_default_barrier_candidates.owner_user_id
 					AND configuration.configuration_id = inference_provider_default_barrier_candidates.configuration_id
 					AND configuration.revision = ? AND configuration.overrides_json = ?
-			)
-			AND (
-				(? IS NULL AND NOT EXISTS (
-					SELECT 1 FROM inference_graph_legacy_projection_entries AS projection
-					WHERE projection.owner_user_id = inference_provider_default_barrier_candidates.owner_user_id
-						AND projection.configuration_id = inference_provider_default_barrier_candidates.configuration_id
-				)) OR (? IS NOT NULL AND EXISTS (
-					SELECT 1 FROM inference_graph_legacy_projection_entries AS projection
-					WHERE projection.owner_user_id = inference_provider_default_barrier_candidates.owner_user_id
-						AND projection.configuration_id = inference_provider_default_barrier_candidates.configuration_id
-						AND projection.configuration_revision = ? AND projection.overrides_json = ?
-				))
 			)`,
-	).bind(
-		now, ownerUserId, row.configurationId, ...provenFields,
-		correctedRevision, correctedJson,
-		correctedProjectionRevision, correctedProjectionRevision,
-		correctedProjectionRevision, correctedProjectionJson,
-	));
-	statements.push(db.prepare(
-		`UPDATE inference_provider_default_barrier_candidates SET status = 'skipped', completed_at = ?
-		 WHERE owner_user_id = ? AND configuration_id = ? AND status = 'pending' AND field IN (${placeholders})`,
-	).bind(now, ownerUserId, row.configurationId, ...provenFields));
+	).bind(now, ownerUserId, row.configurationId, ...provenFields, correctedRevision, correctedJson));
 }
 
 function setProviderDefaultBarrierField(
@@ -678,6 +658,13 @@ function appendSkippedProviderDefaultBarrierCandidateStatements(
 			ON CONFLICT(owner_user_id, configuration_id, field) DO NOTHING`,
 		).bind(ownerUserId, configurationId, field, sourceRevision, now, now));
 	}
+	// Losing the legacy source is terminal for the whole configuration, so any
+	// candidate an earlier attempt left pending is skipped here rather than
+	// blocking the sweep's stage advance forever.
+	statements.push(db.prepare(
+		`UPDATE inference_provider_default_barrier_candidates SET status = 'skipped', completed_at = ?
+		 WHERE owner_user_id = ? AND configuration_id = ? AND status = 'pending'`,
+	).bind(now, ownerUserId, configurationId));
 }
 
 export async function runInferenceGraphMigrationStep(
@@ -766,16 +753,10 @@ async function normalizeInFlightProviderDefaultBarriers(
 	const rows = (await db.prepare(
 		`SELECT configuration.configuration_id AS configurationId,
 			configuration.overrides_json AS overridesJson,
-			configuration.revision,
-			projection.configuration_id AS projectionConfigurationId,
-			projection.overrides_json AS projectionOverridesJson,
-			projection.configuration_revision AS projectionRevision
+			configuration.revision
 		 FROM inference_configurations AS configuration
 			JOIN inference_graph_migration_operations AS migration
 				ON migration.owner_user_id = configuration.owner_user_id AND migration.migration_version = 1
-			LEFT JOIN inference_graph_legacy_projection_entries AS projection
-				ON projection.owner_user_id = configuration.owner_user_id
-					AND projection.configuration_id = configuration.configuration_id
 			WHERE configuration.owner_user_id = ?
 				AND migration.phase NOT IN ('terminal', 'terminal_failed')
 				AND (
@@ -789,68 +770,28 @@ async function normalizeInFlightProviderDefaultBarriers(
 		configurationId: string;
 		overridesJson: string;
 		revision: number;
-		projectionConfigurationId: string | null;
-		projectionOverridesJson: string | null;
-		projectionRevision: number | null;
 	}>()).results ?? [];
 	if (rows.length === 0) return 0;
 
 	const statements: D1PreparedStatementLike[] = [];
 	for (const row of rows) {
-		if (row.projectionConfigurationId !== null && (
-			row.projectionRevision !== row.revision || row.projectionOverridesJson !== row.overridesJson
-		)) {
-			throw new RepositoryError(
-				"conflict",
-				"In-flight inference graph rollback projection diverged before provider-default normalization.",
-				409,
-			);
-		}
 		const correctedJson = JSON.stringify(normalizedInFlightProviderDefaultBarrierOverrides(row.overridesJson));
-		const correctedRevision = row.revision + 1;
-		if (row.projectionConfigurationId !== null) {
-			statements.push(db.prepare(
-				`UPDATE inference_graph_legacy_projection_entries
-				 SET overrides_json = ?, configuration_revision = ?
-				 WHERE owner_user_id = ? AND configuration_id = ?
-					AND configuration_revision = ? AND overrides_json = ?
-					AND EXISTS (
-						SELECT 1 FROM inference_configurations AS configuration
-						WHERE configuration.owner_user_id = ? AND configuration.configuration_id = ?
-							AND configuration.revision = ? AND configuration.overrides_json = ?
-					)`,
-			).bind(
-				correctedJson, correctedRevision, ownerUserId, row.configurationId,
-				row.revision, row.overridesJson,
-				ownerUserId, row.configurationId, row.revision, row.overridesJson,
-			));
-		}
 		statements.push(db.prepare(
 			`UPDATE inference_configurations
 			 SET overrides_json = ?, revision = ?, updated_at = ?
 			 WHERE owner_user_id = ? AND configuration_id = ?
-				AND revision = ? AND overrides_json = ?
-				AND ${row.projectionConfigurationId === null
-					? `NOT EXISTS (
-						SELECT 1 FROM inference_graph_legacy_projection_entries AS projection
-						WHERE projection.owner_user_id = inference_configurations.owner_user_id
-							AND projection.configuration_id = inference_configurations.configuration_id
-					)`
-					: `EXISTS (
-						SELECT 1 FROM inference_graph_legacy_projection_entries AS projection
-						WHERE projection.owner_user_id = inference_configurations.owner_user_id
-							AND projection.configuration_id = inference_configurations.configuration_id
-							AND projection.configuration_revision = ? AND projection.overrides_json = ?
-					)`}`,
+				AND revision = ? AND overrides_json = ?`,
 		).bind(
-			correctedJson, correctedRevision, now, ownerUserId, row.configurationId,
+			correctedJson, row.revision + 1, now, ownerUserId, row.configurationId,
 			row.revision, row.overridesJson,
-			...(row.projectionConfigurationId === null ? [] : [correctedRevision, correctedJson]),
 		));
 	}
-	// D1 executes a batch sequentially and atomically. Projection entries move
-	// first under an exact old-revision/JSON CAS; canonical rows then move only
-	// after observing that exact corrected projection (or confirmed absence).
+	// D1 executes a batch sequentially and atomically, and each canonical row
+	// moves under an exact old-revision/JSON compare-and-set. The rollback
+	// projection needs no statement of its own: migration 0042's AFTER UPDATE
+	// trigger on inference_configurations mirrors overrides_json and revision
+	// into inference_graph_legacy_projection_entries as part of each of these
+	// updates.
 	const results = await db.batch(statements);
 	if (results.length !== statements.length || results.some((result) => !result.meta?.changes)) {
 		throw new RepositoryError("conflict", "In-flight provider-default normalization changed concurrently.", 409);
@@ -2164,9 +2105,10 @@ export async function inferenceGraphMigrationStatus(
 }
 
 /**
- * Bounded, secret-free progress for the provenance-aware barrier sweep. The
- * optional phase filter lets the fleet driver select only unfinished owners
- * without scanning or mutating owner data outside their coordinators.
+ * Bounded, secret-free operator status for the provenance-aware barrier sweep.
+ * This is the diagnostic listing; the fleet driver claims its own work through
+ * claimInferenceProviderDefaultBarrierSweepFleetOwners instead, because owner-id
+ * paging is the wrong order for scheduling.
  */
 export async function listInferenceProviderDefaultBarrierSweepFleetStatus(
 	db: D1DatabaseLike,
@@ -2177,8 +2119,9 @@ export async function listInferenceProviderDefaultBarrierSweepFleetStatus(
 	const phase = input.phase ?? null;
 	const result = await db.prepare(
 		`SELECT sweep.owner_user_id AS ownerUserId, sweep.phase, sweep.stage,
-			sweep.bot_cursor AS botCursor, sweep.applied_count AS appliedCount,
-			sweep.skipped_count AS skippedCount
+			sweep.bot_cursor AS botCursor, sweep.applied_field_count AS appliedFieldCount,
+			sweep.skipped_field_count AS skippedFieldCount,
+			sweep.unrepresented_configuration_count AS unrepresentedConfigurationCount
 		 FROM inference_provider_default_barrier_sweeps AS sweep
 		 JOIN users_index AS users ON users.user_id = sweep.owner_user_id
 		 -- A lifecycle state may hide normal work without ending ownership. Only
@@ -2196,6 +2139,51 @@ export async function listInferenceProviderDefaultBarrierSweepFleetStatus(
 			? { nextCursor: encodeURIComponent(page[page.length - 1]!.ownerUserId) }
 			: {}),
 	};
+}
+
+/**
+ * Claims the next bounded set of pending owners for the scheduled fleet driver
+ * and records the attempt.
+ *
+ * Selection is least-recently-attempted first, never owner-id first: an owner
+ * whose coordinator step fails deterministically is retried, but only after
+ * every other pending owner has had its turn, so a handful of stuck owners
+ * cannot starve the rest of the fleet. Attempts live in a table the fleet driver
+ * owns alone, so this never writes the sweep row that owner coordinators own.
+ */
+export async function claimInferenceProviderDefaultBarrierSweepFleetOwners(
+	db: D1DatabaseLike,
+	input: { limit: number; now: string },
+): Promise<InferenceProviderDefaultBarrierSweepFleetStatus[]> {
+	const limit = Math.min(
+		Math.max(1, Math.floor(input.limit)),
+		inferenceProviderDefaultBarrierSweepBatchLimit,
+	);
+	const owners = (await db.prepare(
+		`SELECT sweep.owner_user_id AS ownerUserId, sweep.phase, sweep.stage,
+			sweep.bot_cursor AS botCursor, sweep.applied_field_count AS appliedFieldCount,
+			sweep.skipped_field_count AS skippedFieldCount,
+			sweep.unrepresented_configuration_count AS unrepresentedConfigurationCount
+		 FROM inference_provider_default_barrier_sweeps AS sweep
+		 JOIN users_index AS users ON users.user_id = sweep.owner_user_id
+		 LEFT JOIN inference_provider_default_barrier_fleet_attempts AS attempt
+			ON attempt.owner_user_id = sweep.owner_user_id
+		 -- A lifecycle state may hide normal work without ending ownership. Only
+		 -- terminal deletion removes sweep state, so every nondeleted owner remains
+		 -- eligible and cannot strand migration cleanup indefinitely.
+		 WHERE users.deleted_at IS NULL AND sweep.phase = 'pending'
+		 ORDER BY COALESCE(attempt.attempted_at, '') ASC, sweep.owner_user_id ASC
+		 LIMIT ?`,
+	).bind(limit).all<InferenceProviderDefaultBarrierSweepFleetStatus>()).results ?? [];
+	if (owners.length === 0) return [];
+	// One set-oriented upsert for the whole claimed page. The batch limit keeps
+	// this at 2 bound parameters per owner, well inside d1SafeBoundParameters.
+	await db.prepare(
+		`INSERT INTO inference_provider_default_barrier_fleet_attempts (owner_user_id, attempted_at)
+		 VALUES ${owners.map(() => "(?, ?)").join(", ")}
+		 ON CONFLICT(owner_user_id) DO UPDATE SET attempted_at = excluded.attempted_at`,
+	).bind(...owners.flatMap((owner) => [owner.ownerUserId, input.now])).run();
+	return owners;
 }
 
 /** Bounded, secret-free fleet status and invariant evidence for cutover. */
@@ -2576,7 +2564,12 @@ function providerDefaultBarrierAuditWithSourceLoss(
 	return JSON.stringify({ ...record, providerDefaultBarrierSourceLosses: losses });
 }
 
-function providerDefaultBarrierUnrepresentedSourceLossCount(value: string): number {
+/**
+ * Source losses that produced no candidate field at all. These are counted in
+ * configurations because there is no field-granularity verdict to report: the
+ * configuration is simply unrepresented in the candidate table.
+ */
+function providerDefaultBarrierUnrepresentedConfigurationCount(value: string): number {
 	return parsedMigrationAudit(value).providerDefaultBarrierSourceLosses
 		?.filter((loss) => loss.skippedFields.length === 0).length ?? 0;
 }

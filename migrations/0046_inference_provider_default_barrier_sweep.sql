@@ -8,8 +8,15 @@ CREATE TABLE inference_provider_default_barrier_sweeps (
 	phase TEXT NOT NULL CHECK (phase IN ('pending', 'terminal')),
 	stage TEXT NOT NULL CHECK (stage IN ('account', 'bots', 'translation', 'complete')),
 	bot_cursor TEXT,
-	applied_count INTEGER NOT NULL DEFAULT 0 CHECK (applied_count >= 0),
-	skipped_count INTEGER NOT NULL DEFAULT 0 CHECK (skipped_count >= 0),
+	-- Counted in candidate fields: one row of
+	-- inference_provider_default_barrier_candidates each.
+	applied_field_count INTEGER NOT NULL DEFAULT 0 CHECK (applied_field_count >= 0),
+	skipped_field_count INTEGER NOT NULL DEFAULT 0 CHECK (skipped_field_count >= 0),
+	-- Counted in configurations, not fields: migrated configurations whose legacy
+	-- provenance source is gone, so no per-field verdict could be reached at all.
+	-- A source loss with no barrier fields still costs the owner one
+	-- unrepresented configuration and zero skipped fields.
+	unrepresented_configuration_count INTEGER NOT NULL DEFAULT 0 CHECK (unrepresented_configuration_count >= 0),
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
 	terminal_cleanup_at TEXT,
@@ -24,6 +31,19 @@ CREATE INDEX inference_provider_default_barrier_sweeps_phase
 CREATE INDEX inference_provider_default_barrier_sweeps_cleanup
 	ON inference_provider_default_barrier_sweeps (terminal_cleanup_at, owner_user_id)
 	WHERE terminal_cleanup_at IS NOT NULL;
+
+-- Fleet scheduling state, owned exclusively by the scheduled fleet driver so it
+-- never writes the coordinator-owned sweep row. One row per owner the driver has
+-- dispatched to; the driver always picks the least recently attempted pending
+-- owners, so a deterministically failing owner is retried without starving the
+-- owners behind it. Retention follows the sweep row: terminal cleanup deletes
+-- the sweep and cascades these away.
+CREATE TABLE inference_provider_default_barrier_fleet_attempts (
+	owner_user_id TEXT PRIMARY KEY,
+	attempted_at TEXT NOT NULL,
+	FOREIGN KEY (owner_user_id)
+		REFERENCES inference_provider_default_barrier_sweeps(owner_user_id) ON DELETE CASCADE
+);
 
 -- One row records each field whose old migration output differed from the
 -- corrected output. The source revision is the migration-owned revision that

@@ -1,5 +1,5 @@
 import {
-	listInferenceProviderDefaultBarrierSweepFleetStatus,
+	claimInferenceProviderDefaultBarrierSweepFleetOwners,
 	type InferenceProviderDefaultBarrierSweepFleetStatus,
 } from '@bickr/shared/inference-configuration-migration';
 import { addInternalServiceAuthHeader, internalServiceUrl } from '@bickr/shared/internal-service';
@@ -50,8 +50,6 @@ export type InferenceProviderDefaultBarrierFleetDispatch =
 
 export type InferenceProviderDefaultBarrierFleetStepResult = {
 	kind: 'inference_provider_default_barrier_fleet_sweep';
-	cursor: string;
-	nextCursor: string;
 	processedOwners: number;
 	complete: boolean;
 	attempts: InferenceProviderDefaultBarrierFleetDispatch[];
@@ -59,28 +57,26 @@ export type InferenceProviderDefaultBarrierFleetStepResult = {
 
 export async function runInferenceProviderDefaultBarrierFleetStep<ObjectId>(
 	env: InferenceProviderDefaultBarrierFleetStepEnv<ObjectId>,
-	input: { cursor?: string; limit?: number; sourceHeaders?: Headers } = {},
+	input: { limit?: number; now?: string } = {},
 ): Promise<InferenceProviderDefaultBarrierFleetStepResult> {
-	const cursor = input.cursor ?? '';
 	const limit = Math.min(
 		Math.max(1, Math.floor(input.limit ?? inferenceProviderDefaultBarrierFleetStepLimit)),
 		inferenceProviderDefaultBarrierFleetStepLimit,
 	);
-	const page = await listInferenceProviderDefaultBarrierSweepFleetStatus(env.BICKR_D1, {
-		...(cursor ? { cursor } : {}),
+	// Owners are claimed least-recently-attempted first rather than paged by
+	// owner ID from an empty cursor, so a prefix of deterministically failing
+	// owners is retried on its turn instead of consuming every step forever.
+	const owners = await claimInferenceProviderDefaultBarrierSweepFleetOwners(env.BICKR_D1, {
 		limit,
-		phase: 'pending',
+		now: input.now ?? new Date().toISOString(),
 	});
-	const attempts = await Promise.all(page.items.map((item) => dispatchOwnerSweep(env, item, input.sourceHeaders)));
+	const attempts = await Promise.all(owners.map((owner) => dispatchOwnerSweep(env, owner)));
 	return {
 		kind: 'inference_provider_default_barrier_fleet_sweep',
-		cursor,
-		nextCursor: page.nextCursor ?? '',
 		processedOwners: attempts.length,
-		// Reaching the end of an owner-id page wraps to the beginning. An owner
-		// can require several bounded coordinator steps, and a failed dispatch
-		// must remain eligible for the next five-minute invocation.
-		complete: cursor === '' && page.items.length === 0,
+		// No pending owner remained to claim. A failed dispatch leaves its owner
+		// pending, so it is still counted here and reached again on a later step.
+		complete: owners.length === 0,
 		attempts,
 	};
 }
@@ -88,10 +84,12 @@ export async function runInferenceProviderDefaultBarrierFleetStep<ObjectId>(
 async function dispatchOwnerSweep<ObjectId>(
 	env: InferenceProviderDefaultBarrierFleetStepEnv<ObjectId>,
 	item: InferenceProviderDefaultBarrierSweepFleetStatus,
-	sourceHeaders: Headers | undefined,
 ): Promise<InferenceProviderDefaultBarrierFleetDispatch> {
-	const headers = new Headers(sourceHeaders);
-	headers.delete('content-type');
+	// This is a fresh bodyless internal request, not a forwarded one. Nothing
+	// from an operator's own request belongs on it: a stale content-length,
+	// cookies, authorization, idempotency keys, and arbitrary tracing headers
+	// would all reach the coordinator unreviewed.
+	const headers = new Headers();
 	headers.set('x-bickr-scheduler', '1');
 	headers.set('x-bickr-user-id', item.ownerUserId);
 	addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
