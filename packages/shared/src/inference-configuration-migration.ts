@@ -351,7 +351,6 @@ async function expectedProviderDefaultBarrierMigrationOverrides(
 }> {
 	let corrected: InferenceConfigurationOverrides;
 	let sourceRevision: 1 | 2 = 1;
-	let legacyBotPrefillBarrier = false;
 	switch (row.kind) {
 		case "account_default":
 			corrected = inferenceOverridesForLegacySettingsMigration(user.inferenceSettings);
@@ -366,11 +365,6 @@ async function expectedProviderDefaultBarrierMigrationOverrides(
 			corrected = inferenceOverridesForLegacyBotMigration(
 				bot.inferenceSettings, user.inferenceSettings, linked,
 			);
-			// The v1 bot migration wrote an explicit-none prefill barrier for
-			// every participant-local model. Reconstruct that historical source
-			// shape for the parity guard without retaining the obsolete barrier in
-			// the corrected configuration.
-			legacyBotPrefillBarrier = Boolean(bot.inferenceSettings?.model?.trim());
 			sourceRevision = linked ? 2 : 1;
 			break;
 		}
@@ -382,14 +376,11 @@ async function expectedProviderDefaultBarrierMigrationOverrides(
 			break;
 		}
 	}
-	const legacy = legacyProviderDefaultBarrierOverrides(corrected, legacyBotPrefillBarrier);
+	const legacy = legacyProviderDefaultBarrierOverrides(corrected);
 	return { corrected, legacy: legacy.overrides, fields: legacy.fields, sourceRevision };
 }
 
-function legacyProviderDefaultBarrierOverrides(
-	corrected: InferenceConfigurationOverrides,
-	legacyBotPrefillBarrier = false,
-): {
+function legacyProviderDefaultBarrierOverrides(corrected: InferenceConfigurationOverrides): {
 	overrides: InferenceConfigurationOverrides;
 	fields: ProviderDefaultBarrierField[];
 } {
@@ -406,9 +397,6 @@ function legacyProviderDefaultBarrierOverrides(
 			case "compactionMode": overrides.compactionMode = providerDefault; break;
 			case "promptCacheMode": overrides.promptCacheMode = providerDefault; break;
 		}
-	}
-	if (legacyBotPrefillBarrier && overrides.supportsPrefill === undefined) {
-		overrides.supportsPrefill = { kind: "explicit_none" };
 	}
 	return { overrides, fields };
 }
@@ -898,10 +886,9 @@ function inferenceOverridesForLegacyBotMigration(
 	overrides.compactionMode ??= { kind: "value", value: { kind: "bickr_automatic" } };
 	overrides.promptCacheMode ??= { kind: "value", value: { kind: "bickr_automatic" } };
 	overrides.providerRouting ??= { kind: "explicit_none" };
-	// A local model activated the legacy participant's entire provider bundle,
-	// where missing prefill meant Off rather than inheritance from Account or a
-	// linked source. Keep that whole-bundle barrier explicit even though prefill
-	// is opt-in, because inheritance could otherwise turn it On.
+	// The local-model explicit-none prefill barrier is deliberately retained for
+	// legacy parity: missing prefill was Off inside the whole provider bundle,
+	// while inheritance could turn it On from Account or a linked source.
 	overrides.supportsPrefill ??= { kind: "explicit_none" };
 	overrides.temperature ??= { kind: "value", value: defaultTextGenerationTemperature };
 	for (const field of [

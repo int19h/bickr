@@ -314,6 +314,23 @@ describe("text and number inheritance controls", () => {
 		expect(html).toContain("Requested Require; this model or provider uses Railroad.");
 	});
 
+	it("presents an inherited-unset Bickr policy baseline as Bickr automatic", () => {
+		const html = render("reasoning", { mode: "inherit" }, dto({
+			request: { unset: null },
+			effective: "minimal",
+			provenance: { unset: null },
+			adjustment: { kind: "bickr_automatic", effective: "minimal" },
+			inherited: {
+				request: { unset: null },
+				effective: "minimal",
+				provenance: { unset: null },
+				adjustment: { kind: "bickr_automatic", effective: "minimal" },
+			},
+		}));
+		expect(html).toContain("Bickr automatic applies Minimal.");
+		expect(html).not.toContain("this model or provider uses");
+	});
+
 	it("shows a raised compaction request beside its effective value and source", () => {
 		const resolution = {
 			kind: "selected",

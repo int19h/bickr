@@ -99,6 +99,20 @@ describe('maintenance control', () => {
 			path: '/bots/bot_1/stop',
 			headers: { 'x-bickr-scheduler': '1' },
 		})).toHaveProperty('status', 200);
+		for (const path of [
+			`/users/${maintenanceOwnerId}/inference-graph/provider-default-barrier-sweep`,
+			'/inference-graph/provider-default-barrier-sweep',
+		]) {
+			expect(await invoke({
+				service: 'agent-runtime',
+				method: 'POST',
+				path,
+				headers: {
+					'x-bickr-scheduler': '1',
+					'x-bickr-user-id': maintenanceOwnerId,
+				},
+			})).toHaveProperty('status', 200);
+		}
 		const blocked = await invoke({
 			service: 'agent-runtime',
 			method: 'POST',
@@ -110,6 +124,8 @@ describe('maintenance control', () => {
 		expect(proxiedRequests.map((request) => new URL(request.url).pathname)).toEqual([
 			'/health',
 			'/bots/bot_1/stop',
+			`/users/${maintenanceOwnerId}/inference-graph/provider-default-barrier-sweep`,
+			'/inference-graph/provider-default-barrier-sweep',
 		]);
 	});
 
@@ -256,7 +272,7 @@ describe('maintenance control', () => {
 		for (const path of [
 			`/users/${maintenanceOwnerId}/translate`,
 			'/bots/bot_1/tick',
-			// Only the five maintenance operations are exempt; a neighboring
+			// Only the designated maintenance operations are exempt; a neighboring
 			// inference graph path keeps the shared maintenance rejection.
 			'/inference-graph/fleet-status',
 		]) {

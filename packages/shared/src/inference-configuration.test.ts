@@ -234,6 +234,38 @@ describe("canonical inference configuration resolution", () => {
 		});
 	});
 
+	it("attributes every all-inherited policy outcome without manufacturing raw configuration", () => {
+		const account = node("account", "account_default", null, {});
+		const resolution = resolveInferenceConfiguration([account]);
+		const fields = inferenceFieldAnnotations({}, resolution);
+
+		for (const field of ["reasoning", "compactionMode", "promptCacheMode"] as const) {
+			expect(fields[field]).toMatchObject({
+				request: { kind: "unset" },
+				provenance: { kind: "unset" },
+				adjustment: { kind: "bickr_automatic", effective: fields[field].effective },
+				inherited: {
+					request: { kind: "unset" },
+					provenance: { kind: "unset" },
+					adjustment: { kind: "bickr_automatic", effective: fields[field].effective },
+				},
+			});
+		}
+		expect(fields.toolCalls.adjustment).toMatchObject({
+			kind: "tool_call_policy",
+			policy: { intent: { kind: "inherit" }, emission: "emit_tool_choice" },
+		});
+		expect(fields.supportsPrefill.adjustment).toMatchObject({
+			kind: "prefill_policy",
+			policy: { request: null, applied: false },
+		});
+		expect(fields.compactionReasoning).toMatchObject({
+			request: { kind: "unset" },
+			provenance: { kind: "unset" },
+			adjustment: { kind: "compaction_policy" },
+		});
+	});
+
 	it("falls back from an unauthorized explicit model without mutating raw intent", () => {
 		const account = node("account", "account_default", null, {});
 		const selected = node("selected", "custom", account.id, {

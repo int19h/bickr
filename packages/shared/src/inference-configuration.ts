@@ -854,11 +854,22 @@ function inferenceFieldAdjustment(
 		: { kind: "capability_adjustment", requested: requested.value, effective };
 }
 
+const bickrAutomaticUnsetRequestFields = new Set<InferenceConfigurationField>([
+	"reasoning",
+	"toolCalls",
+	"compactionMode",
+	"promptCacheMode",
+]);
+
 function normalizedRawRequest(
 	field: InferenceConfigurationField,
 	raw: AnyResolvedRawInferenceField,
 ): { kind: "value"; value: unknown } | { kind: "provider_default" } | { kind: "bickr_automatic" } {
-	if (raw.state !== "value") return { kind: "value", value: null };
+	if (raw.state !== "value") {
+		return bickrAutomaticUnsetRequestFields.has(field)
+			? { kind: "bickr_automatic" }
+			: { kind: "value", value: null };
+	}
 	if (field === "reasoning") {
 		const request = raw.value as InferenceReasoningRequest;
 		if (request.kind === "provider_default") return { kind: "provider_default" };

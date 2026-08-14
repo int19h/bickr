@@ -165,6 +165,10 @@ import { scheduledDispatchBudget, scheduledDispatchSelectLimit, scheduledDispatc
 import { RuntimeOperationTimeoutError } from './errors';
 import { withAbortableTimeout } from './provider/sse';
 import {
+	runInferenceProviderDefaultBarrierFleetStep,
+	type InferenceProviderDefaultBarrierFleetStepResult,
+} from './runtime/provider-default-barrier-sweep';
+import {
 	agentRuntimeNotFoundResponse,
 	avatarPromptSettingsRuntime,
 	avatarProvider,
@@ -1109,40 +1113,17 @@ export const agentRuntimeRouteTable = [
 			const body = requiredRecord(await readOptionalJsonBody(context.request));
 			const cursor = body.cursor === undefined ? undefined : requiredString(body.cursor, 'cursor');
 			const requestedLimit = body.limit === undefined ? 25 : requiredPositiveInteger(body.limit, 'limit');
-			const page = await listInferenceProviderDefaultBarrierSweepFleetStatus(context.env.BICKR_D1, {
-				...(cursor ? { cursor } : {}),
-				limit: Math.min(requestedLimit, 25),
-				phase: 'pending',
-			});
-			const attempts = await Promise.all(page.items.map(async (item) => {
-				const headers = new Headers(context.request.headers);
-				headers.delete('content-type');
-				headers.set('x-bickr-scheduler', '1');
-				headers.set('x-bickr-user-id', item.ownerUserId);
-				addInternalServiceAuthHeader(headers, context.env.INTERNAL_SERVICE_SECRET);
-				const objectId = context.env.USER_BOTS!.idFromName(item.ownerUserId);
-				const response = await context.env.USER_BOTS!.get(objectId).fetch(new Request(
-					internalServiceUrl(`/users/${encodeURIComponent(item.ownerUserId)}/inference-graph/provider-default-barrier-sweep`),
-					{ method: 'POST', headers },
-				));
-				return {
-					kind: 'provider_default_barrier_sweep_dispatch' as const,
-					ownerUserId: item.ownerUserId,
-					status: response.ok ? 'accepted' as const : 'failed' as const,
-					httpStatus: response.status,
-				};
-			}));
-			return ok({ sweep: {
-				kind: 'inference_provider_default_barrier_fleet_sweep',
-				cursor: cursor ?? '',
-				nextCursor: page.nextCursor ?? '',
-				processedOwners: attempts.length,
-				// Reaching the end of an owner-id page wraps to the beginning:
-				// each owner needs several bounded coordinator steps, and failures
-				// must be retried rather than skipped forever by a monotonic cursor.
-				complete: (cursor ?? '') === '' && page.items.length === 0,
-				attempts,
-			} });
+			return ok({ sweep: await runInferenceProviderDefaultBarrierFleetStep({
+				BICKR_D1: context.env.BICKR_D1,
+				USER_BOTS: context.env.USER_BOTS,
+				...(context.env.INTERNAL_SERVICE_SECRET === undefined
+					? {}
+					: { INTERNAL_SERVICE_SECRET: context.env.INTERNAL_SERVICE_SECRET }),
+			}, {
+				...(cursor === undefined ? {} : { cursor }),
+				limit: requestedLimit,
+				sourceHeaders: context.request.headers,
+			}) });
 		},
 	},
 	{
@@ -2844,11 +2825,40 @@ export default {
 	},
 } satisfies ExportedHandler<Env>;
 
-async function runScheduledAgentRuntimeTasks(env: Env, scheduledTime: number): Promise<void> {
+export type ScheduledAgentRuntimeTasksResult =
+	| { kind: 'maintenance'; sweep: InferenceProviderDefaultBarrierFleetStepResult }
+	| { kind: 'ordinary' };
+
+export async function runScheduledAgentRuntimeTasks(env: Env, scheduledTime: number): Promise<ScheduledAgentRuntimeTasksResult> {
 	const maintenance = await readMaintenanceState(env.BICKR_D1);
 	if (maintenance.enabled) {
-		console.log(JSON.stringify({ event: 'scheduled_tasks_deferred', reason: 'maintenance', scheduledTime }));
-		return;
+		try {
+			const sweep = await runInferenceProviderDefaultBarrierFleetStep({
+				BICKR_D1: env.BICKR_D1,
+				USER_BOTS: env.USER_BOTS,
+				...(env.INTERNAL_SERVICE_SECRET === undefined
+					? {}
+					: { INTERNAL_SERVICE_SECRET: env.INTERNAL_SERVICE_SECRET }),
+			});
+			const failedOwners = sweep.attempts.filter((attempt) => attempt.status === 'failed').length;
+			const record = {
+				event: 'scheduled_provider_default_barrier_sweep',
+				scheduledTime,
+				outcome: failedOwners === 0 ? 'progress' : 'partial_failure',
+				failedOwners,
+				sweep,
+			};
+			(failedOwners === 0 ? console.log : console.error)(JSON.stringify(record));
+			return { kind: 'maintenance', sweep };
+		} catch (error) {
+			console.error(JSON.stringify({
+				event: 'scheduled_provider_default_barrier_sweep',
+				scheduledTime,
+				outcome: 'failed',
+				failure: { errorName: error instanceof Error ? error.name : 'UnknownError' },
+			}));
+			throw error;
+		}
 	}
 	await Promise.all([
 		dispatchDueBots(env, scheduledTime),
@@ -2862,6 +2872,7 @@ async function runScheduledAgentRuntimeTasks(env: Env, scheduledTime: number): P
 			console.warn('global inference cost stats refresh failed', error);
 		}),
 	]);
+	return { kind: 'ordinary' };
 }
 
 export async function dispatchDueBots(

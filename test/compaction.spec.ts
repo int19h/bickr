@@ -313,7 +313,7 @@ describe("Compaction", () => {
 			expect(selected.overBudgetFallback).toBe(false);
 		});
 
-		it("excludes a prefix group that would leave too little compaction output budget", () => {
+		it("keeps the smallest over-budget prefix so compaction can always make progress", () => {
 			const text = (char: string, length: number) => char.repeat(length);
 			const rows = [
 				loopMessageRowForMessage(1, { role: "assistant", content: text("a", 3_200) }),
@@ -354,15 +354,15 @@ describe("Compaction", () => {
 				activeLoopMessageRows: () => rows,
 				textTokenCalibration: () => calibration,
 			});
-			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
-				compactionRowsForEstimatedBudget: (
+			const compactionRowSelectionForEstimatedBudget = (BotRuntime.prototype as unknown as {
+				compactionRowSelectionForEstimatedBudget: (
 					bot: BotDocument,
 					providerTools?: ProviderToolDefinition[],
 					mode?: "structured_output" | "tool_call" | "tool_call_cache_friendly",
-				) => Array<{ seq: number; message_json: string }>;
-			}).compactionRowsForEstimatedBudget.bind(runtime);
+				) => { rows: Array<{ seq: number; message_json: string }>; overBudgetFallback: boolean };
+			}).compactionRowSelectionForEstimatedBudget.bind(runtime);
 
-			const selected = compactionRowsForEstimatedBudget(bot, tools, "structured_output");
+			const selected = compactionRowSelectionForEstimatedBudget(bot, tools, "structured_output");
 			const smallestPrefixMessages = rows.slice(0, 1).map(
 				(row) => JSON.parse(row.message_json) as Parameters<typeof providerCompactionSummaryLimitsForChat>[1][number],
 			);
@@ -373,28 +373,13 @@ describe("Compaction", () => {
 				tools,
 				"structured_output",
 			);
-			const excludedPrefixMessages = rows.slice(0, 2).map(
-				(row) => JSON.parse(row.message_json) as Parameters<typeof providerCompactionSummaryLimitsForChat>[1][number],
-			);
-			const excludedPrefixLimits = providerCompactionSummaryLimitsForChat(
-				bot,
-				excludedPrefixMessages,
-				calibration,
-				tools,
-				"structured_output",
-			);
-			const rejectedMessages = rows.slice(0, 6).map(
-				(row) => JSON.parse(row.message_json) as Parameters<typeof providerCompactionSummaryLimitsForChat>[1][number],
-			);
-			const rejectedLimits = providerCompactionSummaryLimitsForChat(bot, rejectedMessages, calibration, tools, "structured_output");
 			const compactionOutputSafetyTokens = 512;
 
-			expect(selected).toEqual([]);
+			expect(selected.rows.map((row) => row.seq)).toEqual([1]);
+			expect(selected.overBudgetFallback).toBe(true);
 			expect(smallestPrefixLimits.maxCompletionTokens).toBeLessThan(
 				smallestPrefixLimits.maxSummaryTokens + compactionOutputSafetyTokens,
 			);
-			expect(excludedPrefixLimits.maxCompletionTokens).toBeLessThan(excludedPrefixLimits.maxSummaryTokens + compactionOutputSafetyTokens);
-			expect(rejectedLimits.maxCompletionTokens).toBeLessThan(rejectedLimits.maxSummaryTokens + compactionOutputSafetyTokens);
 		});
 
 		it("uses the provider-history filter for compaction candidates", () => {
