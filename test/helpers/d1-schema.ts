@@ -117,6 +117,24 @@ export async function applyD1LifecycleRecoveryMigration(db: D1Database): Promise
 	await execD1Statements(db, migration0040);
 }
 
+/**
+ * Replays migration 0046's seed statements against state built after the schema
+ * reset. The reset applies every migration to an empty database, so the seed
+ * finds no migrated owner; a test that migrates an owner afterwards gets the
+ * production seeding by running exactly the migration's own DML, never a
+ * hand-written copy of it.
+ */
+export async function seedProviderDefaultBarrierSweepMigration(db: D1Database): Promise<void> {
+	for (const statement of splitD1Statements(migration0046)) {
+		if (firstSqlKeyword(statement) === "CREATE" || !statement.trim()) continue;
+		await db.prepare(statement).run();
+	}
+}
+
+function firstSqlKeyword(statement: string): string {
+	return statement.replace(/--[^\n]*/gu, " ").trim().split(/\s+/u)[0]?.toUpperCase() ?? "";
+}
+
 export async function execD1Statements(db: D1Database, sql: string): Promise<void> {
 	for (const statement of splitD1Statements(sql)) {
 		if (statement.trim()) await db.prepare(statement).run();

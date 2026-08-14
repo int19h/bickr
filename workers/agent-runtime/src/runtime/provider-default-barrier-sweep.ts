@@ -1,6 +1,6 @@
 import {
 	claimInferenceProviderDefaultBarrierSweepFleetOwners,
-	type InferenceProviderDefaultBarrierSweepFleetStatus,
+	type InferenceProviderDefaultBarrierSweepFleetClaim,
 } from '@bickr/shared/inference-configuration-migration';
 import { addInternalServiceAuthHeader, internalServiceUrl } from '@bickr/shared/internal-service';
 import type { D1DatabaseLike } from '@bickr/shared/storage';
@@ -65,7 +65,9 @@ export async function runInferenceProviderDefaultBarrierFleetStep<ObjectId>(
 	);
 	// Owners are claimed least-recently-attempted first rather than paged by
 	// owner ID from an empty cursor, so a prefix of deterministically failing
-	// owners is retried on its turn instead of consuming every step forever.
+	// owners is retried on its turn instead of consuming every step forever. The
+	// claim is one atomic statement, so an overlapping tick cannot take the same
+	// owners from a stale snapshot.
 	const owners = await claimInferenceProviderDefaultBarrierSweepFleetOwners(env.BICKR_D1, {
 		limit,
 		now: input.now ?? new Date().toISOString(),
@@ -83,7 +85,7 @@ export async function runInferenceProviderDefaultBarrierFleetStep<ObjectId>(
 
 async function dispatchOwnerSweep<ObjectId>(
 	env: InferenceProviderDefaultBarrierFleetStepEnv<ObjectId>,
-	item: InferenceProviderDefaultBarrierSweepFleetStatus,
+	item: InferenceProviderDefaultBarrierSweepFleetClaim,
 ): Promise<InferenceProviderDefaultBarrierFleetDispatch> {
 	// This is a fresh bodyless internal request, not a forwarded one. Nothing
 	// from an operator's own request belongs on it: a stale content-length,

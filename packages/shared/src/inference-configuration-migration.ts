@@ -64,15 +64,27 @@ export type InferenceProviderDefaultBarrierSweepResult = {
 	kind: "inference_provider_default_barrier_sweep";
 	ownerUserId: string;
 	phase: "not_needed" | "pending" | "terminal";
+	/** Configurations this step reached a per-field verdict for. */
 	processedConfigurations: number;
 	/** Candidate fields corrected so far, counted in fields. */
 	appliedFieldCount: number;
-	/** Candidate fields that lost their provenance proof, counted in fields. */
+	/**
+	 * Eligible candidate fields the sweep left unchanged: the owner moved the
+	 * field off Provider default, the legacy source needed to compute the
+	 * correction is gone, or the corrected writer produces no Bickr-automatic
+	 * value for it. Counted in fields.
+	 */
 	skippedFieldCount: number;
 	/**
+	 * Fields still holding Provider default whose writer cannot be proven,
+	 * because a canonical write reached the configuration after migration.
+	 * Preserved exactly as stored. Counted in fields.
+	 */
+	ambiguousFieldCount: number;
+	/**
 	 * Migrated configurations whose legacy provenance source is gone and that
-	 * carried no barrier field, so no candidate field represents them. Counted in
-	 * configurations, never mixed into the field counts.
+	 * carried no candidate field, so no per-field verdict represents them.
+	 * Counted in configurations, never mixed into the field counts.
 	 */
 	unrepresentedConfigurationCount: number;
 };
@@ -84,7 +96,16 @@ export type InferenceProviderDefaultBarrierSweepFleetStatus = {
 	botCursor: string | null;
 	appliedFieldCount: number;
 	skippedFieldCount: number;
+	ambiguousFieldCount: number;
 	unrepresentedConfigurationCount: number;
+};
+
+/**
+ * What the scheduled fleet driver claims: an owner to dispatch to, and nothing
+ * else. Sweep counts belong to the operator status listing, not to scheduling.
+ */
+export type InferenceProviderDefaultBarrierSweepFleetClaim = {
+	ownerUserId: string;
 };
 
 export type InferenceProviderDefaultBarrierSweepFleetStatusPage = {
@@ -202,7 +223,7 @@ export type InferenceGraphMigrationEnv = ProviderEnvironmentBindings & {
 	BICKR_KV: KVNamespaceLike;
 };
 
-type ProviderDefaultBarrierCandidateRow = {
+type ProviderDefaultBarrierConfigurationRow = {
 	configurationId: string;
 	kind: "account_default" | "bot" | "custom";
 	fixedRole: "translation" | null;
@@ -215,21 +236,20 @@ type ProviderDefaultBarrierCandidateRow = {
 const providerDefaultBarrierFields = ["reasoning", "toolCalls", "compactionMode", "promptCacheMode"] as const;
 export type InferenceProviderDefaultBarrierField = typeof providerDefaultBarrierFields[number];
 type ProviderDefaultBarrierField = InferenceProviderDefaultBarrierField;
+type ProviderDefaultBarrierOverride = InferenceConfigurationOverrides[ProviderDefaultBarrierField];
+
+/**
+ * The still-undecided candidate fields migration 0046 seeded for one
+ * configuration, with the revision that migration left that configuration at.
+ */
+type ProviderDefaultBarrierPendingCandidates = {
+	migrationRevision: number;
+	fields: ProviderDefaultBarrierField[];
+};
 
 type ExpectedProviderDefaultBarrierMigrationOverrides =
-	| {
-			kind: "available";
-			corrected: InferenceConfigurationOverrides;
-			legacy: InferenceConfigurationOverrides;
-			fields: ProviderDefaultBarrierField[];
-			sourceRevision: 1 | 2;
-	  }
-	| {
-			kind: "source_unavailable";
-			loss: InferenceProviderDefaultBarrierSourceLoss;
-			fields: ProviderDefaultBarrierField[];
-			sourceRevision: 1 | 2;
-	  };
+	| { kind: "available"; corrected: InferenceConfigurationOverrides }
+	| { kind: "source_unavailable"; loss: InferenceProviderDefaultBarrierSourceLoss };
 
 type ProviderDefaultBarrierSweepRow = {
 	phase: "pending" | "terminal";
@@ -237,15 +257,17 @@ type ProviderDefaultBarrierSweepRow = {
 	botCursor: string | null;
 	appliedFieldCount: number;
 	skippedFieldCount: number;
+	ambiguousFieldCount: number;
 	unrepresentedConfigurationCount: number;
 	migratedTranslationConfigurationId: string | null;
 	auditJson: string;
 };
 
 /**
- * Reattributes only barriers whose migration provenance was durably seeded by
- * migration 0046. This is owner-scoped so every write remains serialized by
- * the same UserBotsCoordinator used by ordinary inference graph mutations.
+ * Corrects only the barrier fields migration 0046 durably proved were
+ * manufactured, and never decides eligibility from the stored value. This is
+ * owner-scoped so every write remains serialized by the same UserBotsCoordinator
+ * used by ordinary inference graph mutations.
  */
 export async function runInferenceProviderDefaultBarrierSweepStep(
 	env: Pick<InferenceGraphMigrationEnv, "BICKR_D1" | "BICKR_KV">,
@@ -259,6 +281,7 @@ export async function runInferenceProviderDefaultBarrierSweepStep(
 	const sweep = await env.BICKR_D1.prepare(
 		`SELECT sweep.phase, sweep.stage, sweep.bot_cursor AS botCursor,
 			sweep.applied_field_count AS appliedFieldCount, sweep.skipped_field_count AS skippedFieldCount,
+			sweep.ambiguous_field_count AS ambiguousFieldCount,
 			sweep.unrepresented_configuration_count AS unrepresentedConfigurationCount,
 			migration.migrated_translation_configuration_id AS migratedTranslationConfigurationId,
 			migration.audit_json AS auditJson
@@ -270,13 +293,15 @@ export async function runInferenceProviderDefaultBarrierSweepStep(
 	if (!sweep) {
 		return {
 			kind: "inference_provider_default_barrier_sweep", ownerUserId, phase: "not_needed",
-			processedConfigurations: 0, appliedFieldCount: 0, skippedFieldCount: 0, unrepresentedConfigurationCount: 0,
+			processedConfigurations: 0, appliedFieldCount: 0, skippedFieldCount: 0, ambiguousFieldCount: 0,
+			unrepresentedConfigurationCount: 0,
 		};
 	}
 	if (sweep.phase === "terminal") {
 		return {
 			kind: "inference_provider_default_barrier_sweep", ownerUserId, phase: "terminal", processedConfigurations: 0,
 			appliedFieldCount: sweep.appliedFieldCount, skippedFieldCount: sweep.skippedFieldCount,
+			ambiguousFieldCount: sweep.ambiguousFieldCount,
 			unrepresentedConfigurationCount: sweep.unrepresentedConfigurationCount,
 		};
 	}
@@ -288,7 +313,7 @@ export async function runInferenceProviderDefaultBarrierSweepStep(
 	let unrepresentedConfigurationCount = providerDefaultBarrierUnrepresentedConfigurationCount(auditJson);
 
 	const user = await requiredMigrationUser(env, ownerUserId);
-	let rows: ProviderDefaultBarrierCandidateRow[] = [];
+	let rows: ProviderDefaultBarrierConfigurationRow[] = [];
 	let nextStage: ProviderDefaultBarrierSweepRow["stage"] = sweep.stage;
 	let nextBotCursor = sweep.botCursor;
 	switch (sweep.stage) {
@@ -303,6 +328,9 @@ export async function runInferenceProviderDefaultBarrierSweepStep(
 			break;
 		}
 		case "bots": {
+			// Only participants migration 0046 seeded a still-undecided candidate for
+			// are worth a page: the rest have nothing this sweep may touch, and
+			// visiting them would read their KV documents for no verdict.
 			rows = (await env.BICKR_D1.prepare(
 				`SELECT configuration.configuration_id AS configurationId, configuration.kind,
 					configuration.fixed_role AS fixedRole, configuration.bot_id AS botId,
@@ -312,9 +340,15 @@ export async function runInferenceProviderDefaultBarrierSweepStep(
 				 LEFT JOIN bot_clone_sources AS clones ON clones.bot_id = configuration.bot_id
 				 WHERE configuration.owner_user_id = ? AND configuration.kind = 'bot'
 					AND configuration.bot_id > ?
+					AND EXISTS (
+						SELECT 1 FROM inference_provider_default_barrier_candidates AS candidate
+						WHERE candidate.owner_user_id = configuration.owner_user_id
+							AND candidate.configuration_id = configuration.configuration_id
+							AND candidate.status = 'pending'
+					)
 				 ORDER BY configuration.bot_id LIMIT ?`,
 			).bind(ownerUserId, sweep.botCursor ?? "", inferenceProviderDefaultBarrierSweepBatchLimit)
-				.all<ProviderDefaultBarrierCandidateRow>()).results ?? [];
+				.all<ProviderDefaultBarrierConfigurationRow>()).results ?? [];
 			nextBotCursor = rows.at(-1)?.botId ?? sweep.botCursor;
 			if (rows.length < inferenceProviderDefaultBarrierSweepBatchLimit) nextStage = "translation";
 			break;
@@ -349,21 +383,34 @@ export async function runInferenceProviderDefaultBarrierSweepStep(
 	}
 
 	const statements: D1PreparedStatementLike[] = [];
+	const pending = await pendingProviderDefaultBarrierCandidates(
+		env.BICKR_D1, ownerUserId, rows.map((row) => row.configurationId),
+	);
+	const decidedConfigurationIds: string[] = [];
 	for (const row of rows) {
+		const candidates = pending.get(row.configurationId);
+		// Migration 0046 seeded nothing undecided for this configuration, so there
+		// is no verdict to reach and no legacy source worth reading for it.
+		if (!candidates) continue;
+		decidedConfigurationIds.push(row.configurationId);
+		if (row.revision !== candidates.migrationRevision) {
+			appendUnprovenProviderDefaultBarrierStatements(
+				env.BICKR_D1, statements, ownerUserId, row, candidates.fields, now,
+			);
+			continue;
+		}
 		const expected = await expectedProviderDefaultBarrierMigrationOverrides(
-			env.BICKR_KV, ownerUserId, user, row, now,
+			env.BICKR_KV, ownerUserId, user, row, candidates.fields, now,
 		);
 		switch (expected.kind) {
 			case "available":
-				appendProviderDefaultBarrierCandidateStatements(
-					env.BICKR_D1, statements, ownerUserId, row, expected.corrected, expected.legacy,
-					expected.sourceRevision, expected.fields, now,
+				appendProviderDefaultBarrierCorrectionStatements(
+					env.BICKR_D1, statements, ownerUserId, row, expected.corrected, candidates.fields, now,
 				);
 				break;
 			case "source_unavailable":
-				appendSkippedProviderDefaultBarrierCandidateStatements(
-					env.BICKR_D1, statements, ownerUserId, row.configurationId,
-					expected.sourceRevision, expected.fields, now,
+				appendProviderDefaultBarrierCandidateOutcomeStatement(
+					env.BICKR_D1, statements, ownerUserId, row.configurationId, candidates.fields, "skipped", now,
 				);
 				auditJson = providerDefaultBarrierAuditWithSourceLoss(auditJson, expected.loss);
 				unrepresentedConfigurationCount = providerDefaultBarrierUnrepresentedConfigurationCount(auditJson);
@@ -377,30 +424,40 @@ export async function runInferenceProviderDefaultBarrierSweepStep(
 		).bind(auditJson, now, ownerUserId, inferenceGraphMigrationVersion, sweep.auditJson));
 	}
 	const terminal = nextStage === "complete";
-	// Every candidate this step touched is terminal (applied or skipped) by the
-	// time this statement runs, unless a canonical compare-and-set lost a race.
-	// Refusing to advance then keeps the stage and cursor where they are so the
-	// bounded retry reprocesses exactly the same configurations.
+	// Every candidate this step decided is terminal by the time this statement
+	// runs, unless a canonical compare-and-set lost a race. Refusing to advance
+	// then keeps the stage and cursor where they are so the bounded retry
+	// reprocesses exactly the same configurations. The check is scoped to those
+	// configurations: candidates in later stages are still pending by design, and
+	// an owner-wide check would deadlock the very first step. The scope is one
+	// bounded page, so the list stays far inside d1SafeBoundParameters.
+	const undecidedGuard = decidedConfigurationIds.length > 0
+		? `AND NOT EXISTS (
+				SELECT 1 FROM inference_provider_default_barrier_candidates
+				WHERE owner_user_id = ? AND status = 'pending'
+					AND configuration_id IN (${decidedConfigurationIds.map(() => "?").join(", ")})
+			)`
+		: "";
 	statements.push(env.BICKR_D1.prepare(
 		`UPDATE inference_provider_default_barrier_sweeps
 		 SET phase = ?, stage = ?, bot_cursor = ?,
 			applied_field_count = (SELECT COUNT(*) FROM inference_provider_default_barrier_candidates WHERE owner_user_id = ? AND status = 'applied'),
 			skipped_field_count = (SELECT COUNT(*) FROM inference_provider_default_barrier_candidates WHERE owner_user_id = ? AND status = 'skipped'),
+			ambiguous_field_count = (SELECT COUNT(*) FROM inference_provider_default_barrier_candidates WHERE owner_user_id = ? AND status = 'ambiguous'),
 			unrepresented_configuration_count = ?,
 			updated_at = ?, terminal_cleanup_at = ?
 		 WHERE owner_user_id = ? AND phase = 'pending' AND stage = ?
-			AND NOT EXISTS (
-				SELECT 1 FROM inference_provider_default_barrier_candidates
-				WHERE owner_user_id = ? AND status = 'pending'
-			)
+			${undecidedGuard}
 			AND EXISTS (
 				SELECT 1 FROM inference_graph_migration_operations
 				WHERE owner_user_id = ? AND migration_version = ? AND audit_json = ?
 			)`,
 	).bind(
 		terminal ? "terminal" : "pending", nextStage, nextBotCursor,
-		ownerUserId, ownerUserId, unrepresentedConfigurationCount, now, terminal ? terminalCleanupAt(now) : null,
-		ownerUserId, sweep.stage, ownerUserId,
+		ownerUserId, ownerUserId, ownerUserId,
+		unrepresentedConfigurationCount, now, terminal ? terminalCleanupAt(now) : null,
+		ownerUserId, sweep.stage,
+		...(decidedConfigurationIds.length > 0 ? [ownerUserId, ...decidedConfigurationIds] : []),
 		ownerUserId, inferenceGraphMigrationVersion, auditJson,
 	));
 	const results = await env.BICKR_D1.batch(statements);
@@ -413,12 +470,14 @@ export async function runInferenceProviderDefaultBarrierSweepStep(
 	}
 	const updated = await env.BICKR_D1.prepare(
 		`SELECT phase, applied_field_count AS appliedFieldCount, skipped_field_count AS skippedFieldCount,
+			ambiguous_field_count AS ambiguousFieldCount,
 			unrepresented_configuration_count AS unrepresentedConfigurationCount
 		 FROM inference_provider_default_barrier_sweeps WHERE owner_user_id = ? LIMIT 1`,
 	).bind(ownerUserId).first<{
 		phase: "pending" | "terminal";
 		appliedFieldCount: number;
 		skippedFieldCount: number;
+		ambiguousFieldCount: number;
 		unrepresentedConfigurationCount: number;
 	}>();
 	if (!updated) throw new RepositoryError("server_error", "Inference provider-default barrier sweep state disappeared.", 500);
@@ -426,9 +485,10 @@ export async function runInferenceProviderDefaultBarrierSweepStep(
 		kind: "inference_provider_default_barrier_sweep",
 		ownerUserId,
 		phase: updated.phase,
-		processedConfigurations: rows.length,
+		processedConfigurations: decidedConfigurationIds.length,
 		appliedFieldCount: updated.appliedFieldCount,
 		skippedFieldCount: updated.skippedFieldCount,
+		ambiguousFieldCount: updated.ambiguousFieldCount,
 		unrepresentedConfigurationCount: updated.unrepresentedConfigurationCount,
 	};
 }
@@ -437,7 +497,7 @@ async function providerDefaultBarrierConfiguration(
 	db: D1DatabaseLike,
 	ownerUserId: string,
 	configurationId: string,
-): Promise<ProviderDefaultBarrierCandidateRow | null> {
+): Promise<ProviderDefaultBarrierConfigurationRow | null> {
 	return db.prepare(
 		`SELECT configuration.configuration_id AS configurationId, configuration.kind,
 			configuration.fixed_role AS fixedRole, configuration.bot_id AS botId,
@@ -445,38 +505,68 @@ async function providerDefaultBarrierConfiguration(
 			NULL AS sourceBotId
 		 FROM inference_configurations AS configuration
 		 WHERE configuration.owner_user_id = ? AND configuration.configuration_id = ? LIMIT 1`,
-	).bind(ownerUserId, configurationId).first<ProviderDefaultBarrierCandidateRow>();
+	).bind(ownerUserId, configurationId).first<ProviderDefaultBarrierConfigurationRow>();
+}
+
+/**
+ * Loads the eligibility migration 0046 seeded, per configuration. This is the
+ * sweep's only source of candidacy: it never derives a candidate from a current
+ * value, because the stored Provider default union an owner can select in the
+ * canonical editor is byte-identical to the one migration manufactured.
+ */
+async function pendingProviderDefaultBarrierCandidates(
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	configurationIds: readonly string[],
+): Promise<Map<string, ProviderDefaultBarrierPendingCandidates>> {
+	if (configurationIds.length === 0) return new Map();
+	const rows = (await db.prepare(
+		`SELECT configuration_id AS configurationId, field, migration_revision AS migrationRevision
+		 FROM inference_provider_default_barrier_candidates
+		 WHERE owner_user_id = ? AND status = 'pending'
+			AND configuration_id IN (${configurationIds.map(() => "?").join(", ")})
+		 ORDER BY configuration_id, field`,
+	).bind(ownerUserId, ...configurationIds).all<{
+		configurationId: string;
+		field: string;
+		migrationRevision: number;
+	}>()).results ?? [];
+	const pending = new Map<string, ProviderDefaultBarrierPendingCandidates>();
+	for (const row of rows) {
+		const field = providerDefaultBarrierFields.find((candidate) => candidate === row.field);
+		if (!field) {
+			throw new RepositoryError("server_error", "Inference provider-default barrier candidate field is invalid.", 500);
+		}
+		const entry = pending.get(row.configurationId);
+		if (entry) entry.fields.push(field);
+		else pending.set(row.configurationId, { migrationRevision: row.migrationRevision, fields: [field] });
+	}
+	return pending;
 }
 
 async function expectedProviderDefaultBarrierMigrationOverrides(
 	kv: KVNamespaceLike,
 	ownerUserId: string,
 	user: UserDocument,
-	row: ProviderDefaultBarrierCandidateRow,
+	row: ProviderDefaultBarrierConfigurationRow,
+	fields: readonly ProviderDefaultBarrierField[],
 	now: string,
 ): Promise<ExpectedProviderDefaultBarrierMigrationOverrides> {
-	let corrected: InferenceConfigurationOverrides;
-	let sourceRevision: 1 | 2 = 1;
 	switch (row.kind) {
 		case "account_default":
-			corrected = inferenceOverridesForLegacySettingsMigration(user.inferenceSettings);
-			break;
+			return { kind: "available", corrected: inferenceOverridesForLegacySettingsMigration(user.inferenceSettings) };
 		case "bot": {
 			if (!row.botId) throw new RepositoryError("server_error", "Migrated participant provenance is invalid.", 500);
 			const linked = row.sourceBotId !== null;
-			sourceRevision = linked ? 2 : 1;
 			const bot = await readJson<BotDocument>(kv, kvKeys.bot(row.botId));
 			if (!bot || bot.deletedAt) {
-				const fields = currentProviderDefaultBarrierFields(row);
 				return {
 					kind: "source_unavailable",
-					fields,
-					sourceRevision,
 					loss: {
 						kind: "participant_unavailable",
 						configurationId: row.configurationId,
 						participantId: row.botId,
-						skippedFields: fields,
+						skippedFields: [...fields],
 						observedAt: now,
 					},
 				};
@@ -484,64 +574,40 @@ async function expectedProviderDefaultBarrierMigrationOverrides(
 			if (bot.ownerUserId !== ownerUserId) {
 				throw new RepositoryError("server_error", "Migrated participant provenance belongs to another owner.", 500);
 			}
-			corrected = inferenceOverridesForLegacyBotMigration(
-				bot.inferenceSettings, user.inferenceSettings, linked,
-			);
-			break;
+			return {
+				kind: "available",
+				corrected: inferenceOverridesForLegacyBotMigration(bot.inferenceSettings, user.inferenceSettings, linked),
+			};
 		}
 		case "custom": {
 			if (row.fixedRole !== null) {
 				throw new RepositoryError("server_error", "Migrated translation configuration provenance is invalid.", 500);
 			}
 			if (!user.inferenceSettings?.translation?.model?.trim()) {
-				const fields = currentProviderDefaultBarrierFields(row);
 				return {
 					kind: "source_unavailable",
-					fields,
-					sourceRevision,
 					loss: {
 						kind: "translation_legacy_source_unavailable",
 						configurationId: row.configurationId,
-						skippedFields: fields,
+						skippedFields: [...fields],
 						observedAt: now,
 					},
 				};
 			}
-			corrected = inferenceOverridesFromLegacyTranslationSettings(user.inferenceSettings.translation);
-			break;
+			return {
+				kind: "available",
+				corrected: inferenceOverridesFromLegacyTranslationSettings(user.inferenceSettings.translation),
+			};
 		}
 	}
-	const legacy = legacyProviderDefaultBarrierOverrides(corrected);
-	return { kind: "available", corrected, legacy: legacy.overrides, fields: legacy.fields, sourceRevision };
 }
 
-function currentProviderDefaultBarrierFields(row: ProviderDefaultBarrierCandidateRow): ProviderDefaultBarrierField[] {
-	const canonical = parseStoredInferenceConfigurationOverrides(row.overridesJson);
-	return providerDefaultBarrierFields.filter((field) => {
-		const override = canonical[field];
-		return override?.kind === "value" && override.value.kind === "provider_default";
-	});
+function isProviderDefaultBarrierValue(override: ProviderDefaultBarrierOverride): boolean {
+	return override?.kind === "value" && override.value.kind === "provider_default";
 }
 
-function legacyProviderDefaultBarrierOverrides(corrected: InferenceConfigurationOverrides): {
-	overrides: InferenceConfigurationOverrides;
-	fields: ProviderDefaultBarrierField[];
-} {
-	const overrides = { ...corrected };
-	const fields = providerDefaultBarrierFields.filter((field) => {
-		const override = corrected[field];
-		return override?.kind === "value" && override.value.kind === "bickr_automatic";
-	});
-	for (const field of fields) {
-		const providerDefault = { kind: "value", value: { kind: "provider_default" } } as const;
-		switch (field) {
-			case "reasoning": overrides.reasoning = providerDefault; break;
-			case "toolCalls": overrides.toolCalls = providerDefault; break;
-			case "compactionMode": overrides.compactionMode = providerDefault; break;
-			case "promptCacheMode": overrides.promptCacheMode = providerDefault; break;
-		}
-	}
-	return { overrides, fields };
+function isBickrAutomaticBarrierValue(override: ProviderDefaultBarrierOverride): boolean {
+	return override?.kind === "value" && override.value.kind === "bickr_automatic";
 }
 
 /**
@@ -552,56 +618,37 @@ function legacyProviderDefaultBarrierOverrides(corrected: InferenceConfiguration
  * `NEW.revision` into `inference_graph_legacy_projection_entries`. Together
  * with the credential-insert trigger and `createRollbackProjection`, which both
  * seed entries straight from canonical, every projection entry mirrors its
- * canonical row for exactly the columns this sweep touches. So provenance is
- * proven, and the correction applied, against canonical alone: the trigger
- * carries the same correction into the rollback surface within the canonical
- * UPDATE itself, and a second write here would only race it.
+ * canonical row for exactly the columns this sweep touches. So the correction is
+ * applied against canonical alone: the trigger carries it into the rollback
+ * surface within the canonical UPDATE itself, and a second write here would only
+ * race it.
  *
- * Provenance is proven per field, not per record: a barrier field still
- * byte-identical to the value migration manufactured is still manufactured, no
- * matter how many unrelated fields the owner has edited since cutover.
+ * Eligibility is not decided here. Migration 0046 already proved these fields
+ * were manufactured, and the caller has already established that no canonical
+ * write has reached the record since. All this decides is what the corrected
+ * writer produces today: the sweep replaces a manufactured Provider default with
+ * the Bickr-automatic value that writer now emits, and nothing else. A field the
+ * corrected writer does not resolve to Bickr automatic is left exactly as stored.
  */
-function appendProviderDefaultBarrierCandidateStatements(
+function appendProviderDefaultBarrierCorrectionStatements(
 	db: D1DatabaseLike,
 	statements: D1PreparedStatementLike[],
 	ownerUserId: string,
-	row: ProviderDefaultBarrierCandidateRow,
+	row: ProviderDefaultBarrierConfigurationRow,
 	corrected: InferenceConfigurationOverrides,
-	legacy: InferenceConfigurationOverrides,
-	sourceRevision: 1 | 2,
 	fields: readonly ProviderDefaultBarrierField[],
 	now: string,
 ): void {
 	const current = parseStoredInferenceConfigurationOverrides(row.overridesJson);
-	// A field that already holds the corrected value has nothing to decide and is
-	// not a candidate at all: recording it as skipped would inflate the operator's
-	// skipped-field count with work that never existed.
-	const candidateFields = fields.filter((field) => parityJson(current[field]) !== parityJson(corrected[field]));
-	const provenFields = candidateFields.filter((field) => parityJson(current[field]) === parityJson(legacy[field]));
-	for (const field of candidateFields) {
-		const proven = provenFields.includes(field);
-		statements.push(db.prepare(
-			`INSERT INTO inference_provider_default_barrier_candidates (
-				owner_user_id, configuration_id, field, source_revision, status, created_at, completed_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(owner_user_id, configuration_id, field) DO NOTHING`,
-		).bind(
-			ownerUserId, row.configurationId, field, sourceRevision,
-			proven ? "pending" : "skipped", now, proven ? null : now,
-		));
-	}
-	// Any candidate still pending that this step cannot prove has lost its
-	// provenance for good, whether an earlier attempt left it pending or its
-	// value changed since. Terminalizing it here is what lets the sweep-state
-	// advance below distinguish "nothing left to decide" from a lost race.
-	statements.push(db.prepare(
-		`UPDATE inference_provider_default_barrier_candidates SET status = 'skipped', completed_at = ?
-		 WHERE owner_user_id = ? AND configuration_id = ? AND status = 'pending'
-			${provenFields.length > 0 ? `AND field NOT IN (${provenFields.map(() => "?").join(", ")})` : ""}`,
-	).bind(now, ownerUserId, row.configurationId, ...provenFields));
-	if (provenFields.length === 0) return;
+	const correctable = fields.filter((field) =>
+		isProviderDefaultBarrierValue(current[field]) && isBickrAutomaticBarrierValue(corrected[field]));
+	const uncorrectable = fields.filter((field) => !correctable.includes(field));
+	appendProviderDefaultBarrierCandidateOutcomeStatement(
+		db, statements, ownerUserId, row.configurationId, uncorrectable, "skipped", now,
+	);
+	if (correctable.length === 0) return;
 	const patched = { ...current };
-	for (const field of provenFields) {
+	for (const field of correctable) {
 		setProviderDefaultBarrierField(patched, corrected, field);
 	}
 	const correctedJson = JSON.stringify(patched);
@@ -618,14 +665,14 @@ function appendProviderDefaultBarrierCandidateStatements(
 	statements.push(db.prepare(
 		`UPDATE inference_provider_default_barrier_candidates SET status = 'applied', completed_at = ?
 		 WHERE owner_user_id = ? AND configuration_id = ? AND status = 'pending'
-			AND field IN (${provenFields.map(() => "?").join(", ")})
+			AND field IN (${correctable.map(() => "?").join(", ")})
 			AND EXISTS (
 				SELECT 1 FROM inference_configurations AS configuration
 				WHERE configuration.owner_user_id = inference_provider_default_barrier_candidates.owner_user_id
 					AND configuration.configuration_id = inference_provider_default_barrier_candidates.configuration_id
 					AND configuration.revision = ? AND configuration.overrides_json = ?
 			)`,
-	).bind(now, ownerUserId, row.configurationId, ...provenFields, correctedRevision, correctedJson));
+	).bind(now, ownerUserId, row.configurationId, ...correctable, correctedRevision, correctedJson));
 }
 
 function setProviderDefaultBarrierField(
@@ -641,30 +688,50 @@ function setProviderDefaultBarrierField(
 	}
 }
 
-function appendSkippedProviderDefaultBarrierCandidateStatements(
+/**
+ * A canonical write reached this configuration after migration 0046 seeded it,
+ * so its migration-owned revision is gone. That write advanced one revision for
+ * the whole record without leaving any per-field trace, and an owner who selects
+ * Provider default stores exactly the union migration manufactured, so nothing
+ * durable distinguishes the two. Fields still holding Provider default are
+ * recorded ambiguous and preserved; fields the owner moved elsewhere are simply
+ * no longer correctable.
+ */
+function appendUnprovenProviderDefaultBarrierStatements(
+	db: D1DatabaseLike,
+	statements: D1PreparedStatementLike[],
+	ownerUserId: string,
+	row: ProviderDefaultBarrierConfigurationRow,
+	fields: readonly ProviderDefaultBarrierField[],
+	now: string,
+): void {
+	const current = parseStoredInferenceConfigurationOverrides(row.overridesJson);
+	const ambiguous = fields.filter((field) => isProviderDefaultBarrierValue(current[field]));
+	appendProviderDefaultBarrierCandidateOutcomeStatement(
+		db, statements, ownerUserId, row.configurationId, ambiguous, "ambiguous", now,
+	);
+	appendProviderDefaultBarrierCandidateOutcomeStatement(
+		db, statements, ownerUserId, row.configurationId,
+		fields.filter((field) => !ambiguous.includes(field)), "skipped", now,
+	);
+}
+
+/** Terminalizes seeded candidates that this step decided without a rewrite. */
+function appendProviderDefaultBarrierCandidateOutcomeStatement(
 	db: D1DatabaseLike,
 	statements: D1PreparedStatementLike[],
 	ownerUserId: string,
 	configurationId: string,
-	sourceRevision: 1 | 2,
 	fields: readonly ProviderDefaultBarrierField[],
+	status: "skipped" | "ambiguous",
 	now: string,
 ): void {
-	for (const field of fields) {
-		statements.push(db.prepare(
-			`INSERT INTO inference_provider_default_barrier_candidates (
-				owner_user_id, configuration_id, field, source_revision, status, created_at, completed_at
-			) VALUES (?, ?, ?, ?, 'skipped', ?, ?)
-			ON CONFLICT(owner_user_id, configuration_id, field) DO NOTHING`,
-		).bind(ownerUserId, configurationId, field, sourceRevision, now, now));
-	}
-	// Losing the legacy source is terminal for the whole configuration, so any
-	// candidate an earlier attempt left pending is skipped here rather than
-	// blocking the sweep's stage advance forever.
+	if (fields.length === 0) return;
 	statements.push(db.prepare(
-		`UPDATE inference_provider_default_barrier_candidates SET status = 'skipped', completed_at = ?
-		 WHERE owner_user_id = ? AND configuration_id = ? AND status = 'pending'`,
-	).bind(now, ownerUserId, configurationId));
+		`UPDATE inference_provider_default_barrier_candidates SET status = ?, completed_at = ?
+		 WHERE owner_user_id = ? AND configuration_id = ? AND status = 'pending'
+			AND field IN (${fields.map(() => "?").join(", ")})`,
+	).bind(status, now, ownerUserId, configurationId, ...fields));
 }
 
 export async function runInferenceGraphMigrationStep(
@@ -1708,8 +1775,11 @@ function parityJson(value: unknown): string {
 function parityJsonValue(value: unknown): unknown {
 	if (Array.isArray(value)) return value.map(parityJsonValue);
 	if (!value || typeof value !== "object") return value;
+	// Code-unit order, not localeCompare: parity is byte equality between two
+	// independently built objects, so the comparator must not depend on the
+	// runtime's locale or ICU build.
 	return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-		.sort(([left], [right]) => left.localeCompare(right))
+		.sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
 		.map(([key, entry]) => [key, parityJsonValue(entry)]));
 }
 
@@ -2121,6 +2191,7 @@ export async function listInferenceProviderDefaultBarrierSweepFleetStatus(
 		`SELECT sweep.owner_user_id AS ownerUserId, sweep.phase, sweep.stage,
 			sweep.bot_cursor AS botCursor, sweep.applied_field_count AS appliedFieldCount,
 			sweep.skipped_field_count AS skippedFieldCount,
+			sweep.ambiguous_field_count AS ambiguousFieldCount,
 			sweep.unrepresented_configuration_count AS unrepresentedConfigurationCount
 		 FROM inference_provider_default_barrier_sweeps AS sweep
 		 JOIN users_index AS users ON users.user_id = sweep.owner_user_id
@@ -2142,48 +2213,51 @@ export async function listInferenceProviderDefaultBarrierSweepFleetStatus(
 }
 
 /**
- * Claims the next bounded set of pending owners for the scheduled fleet driver
- * and records the attempt.
+ * Claims the next bounded set of pending owners for the scheduled fleet driver.
  *
  * Selection is least-recently-attempted first, never owner-id first: an owner
  * whose coordinator step fails deterministically is retried, but only after
  * every other pending owner has had its turn, so a handful of stuck owners
  * cannot starve the rest of the fleet. Attempts live in a table the fleet driver
  * owns alone, so this never writes the sweep row that owner coordinators own.
+ *
+ * Selecting and claiming are one statement, and an owner is claimed only by
+ * moving its attempt forward: the selection ignores owners already attempted at
+ * or after this timestamp, and the upsert refuses any write that would not
+ * advance `attempted_at`. Two overlapping invocations therefore cannot both
+ * claim from the same snapshot, and a manual run carrying an older timestamp
+ * cannot rewind another run's claim.
  */
 export async function claimInferenceProviderDefaultBarrierSweepFleetOwners(
 	db: D1DatabaseLike,
 	input: { limit: number; now: string },
-): Promise<InferenceProviderDefaultBarrierSweepFleetStatus[]> {
+): Promise<InferenceProviderDefaultBarrierSweepFleetClaim[]> {
 	const limit = Math.min(
 		Math.max(1, Math.floor(input.limit)),
 		inferenceProviderDefaultBarrierSweepBatchLimit,
 	);
-	const owners = (await db.prepare(
-		`SELECT sweep.owner_user_id AS ownerUserId, sweep.phase, sweep.stage,
-			sweep.bot_cursor AS botCursor, sweep.applied_field_count AS appliedFieldCount,
-			sweep.skipped_field_count AS skippedFieldCount,
-			sweep.unrepresented_configuration_count AS unrepresentedConfigurationCount
-		 FROM inference_provider_default_barrier_sweeps AS sweep
-		 JOIN users_index AS users ON users.user_id = sweep.owner_user_id
-		 LEFT JOIN inference_provider_default_barrier_fleet_attempts AS attempt
-			ON attempt.owner_user_id = sweep.owner_user_id
-		 -- A lifecycle state may hide normal work without ending ownership. Only
-		 -- terminal deletion removes sweep state, so every nondeleted owner remains
-		 -- eligible and cannot strand migration cleanup indefinitely.
-		 WHERE users.deleted_at IS NULL AND sweep.phase = 'pending'
-		 ORDER BY COALESCE(attempt.attempted_at, '') ASC, sweep.owner_user_id ASC
-		 LIMIT ?`,
-	).bind(limit).all<InferenceProviderDefaultBarrierSweepFleetStatus>()).results ?? [];
-	if (owners.length === 0) return [];
-	// One set-oriented upsert for the whole claimed page. The batch limit keeps
-	// this at 2 bound parameters per owner, well inside d1SafeBoundParameters.
-	await db.prepare(
+	// `WHERE true` separates the upsert clause from the selection, as SQLite
+	// requires whenever an INSERT ... SELECT is followed by ON CONFLICT.
+	const claimed = await db.prepare(
 		`INSERT INTO inference_provider_default_barrier_fleet_attempts (owner_user_id, attempted_at)
-		 VALUES ${owners.map(() => "(?, ?)").join(", ")}
-		 ON CONFLICT(owner_user_id) DO UPDATE SET attempted_at = excluded.attempted_at`,
-	).bind(...owners.flatMap((owner) => [owner.ownerUserId, input.now])).run();
-	return owners;
+		 SELECT claim.ownerUserId, ?
+		 FROM (
+			SELECT sweep.owner_user_id AS ownerUserId
+			FROM inference_provider_default_barrier_sweeps AS sweep
+			JOIN users_index AS users ON users.user_id = sweep.owner_user_id
+			LEFT JOIN inference_provider_default_barrier_fleet_attempts AS attempt
+				ON attempt.owner_user_id = sweep.owner_user_id
+			WHERE users.deleted_at IS NULL AND sweep.phase = 'pending'
+				AND (attempt.attempted_at IS NULL OR attempt.attempted_at < ?)
+			ORDER BY COALESCE(attempt.attempted_at, '') ASC, sweep.owner_user_id ASC
+			LIMIT ?
+		 ) AS claim
+		 WHERE true
+		 ON CONFLICT(owner_user_id) DO UPDATE SET attempted_at = excluded.attempted_at
+			WHERE excluded.attempted_at > inference_provider_default_barrier_fleet_attempts.attempted_at
+		 RETURNING owner_user_id AS ownerUserId`,
+	).bind(input.now, input.now, limit).all<InferenceProviderDefaultBarrierSweepFleetClaim>();
+	return claimed.results ?? [];
 }
 
 /** Bounded, secret-free fleet status and invariant evidence for cutover. */

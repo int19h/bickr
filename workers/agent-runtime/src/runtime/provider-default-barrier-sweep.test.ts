@@ -4,15 +4,7 @@ import { runScheduledAgentRuntimeTasks } from '../routes';
 describe('scheduled provider-default barrier maintenance', () => {
 	afterEach(() => vi.restoreAllMocks());
 
-	const pendingOwner = {
-		ownerUserId: 'usr_pending_sweep',
-		phase: 'pending',
-		stage: 'bots',
-		botCursor: null,
-		appliedFieldCount: 2,
-		skippedFieldCount: 1,
-		unrepresentedConfigurationCount: 0,
-	} as const;
+	const pendingOwner = { ownerUserId: 'usr_pending_sweep' } as const;
 
 	function maintenanceEnv(
 		rows: readonly (typeof pendingOwner)[],
@@ -41,19 +33,13 @@ describe('scheduled provider-default barrier maintenance', () => {
 						};
 						return statement;
 					}
-					if (sql.includes('INTO inference_provider_default_barrier_fleet_attempts')) {
+					// Selecting and claiming are one statement, so the claim is a single
+					// prepare that both reads the pending owners and records the attempt.
+					if (sql.includes('INTO inference_provider_default_barrier_fleet_attempts')
+						&& sql.includes('FROM inference_provider_default_barrier_sweeps')) {
 						return {
-							bind(...values: string[]) {
-								for (let index = 0; index < values.length; index += 2) {
-									claimedAttempts.push(`${values[index]}@${values[index + 1]}`);
-								}
-								return { async run() { return { success: true }; } };
-							},
-						};
-					}
-					if (sql.includes('FROM inference_provider_default_barrier_sweeps')) {
-						return {
-							bind() {
+							bind(attemptedAt: string) {
+								for (const row of rows) claimedAttempts.push(`${row.ownerUserId}@${attemptedAt}`);
 								return {
 									async all<T>() {
 										return { success: true, results: rows.map((row) => ({ ...row }) as T) };
