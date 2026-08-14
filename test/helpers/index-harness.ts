@@ -1382,18 +1382,10 @@ export async function createCommentForTest(
 		BICKR_D1: testEnv.BICKR_D1,
 		BICKR_KV: testEnv.BICKR_KV,
 	});
-	const payload = (await response.json()) as {
-		data: {
-			thread: {
-				rootCommentId: string;
-				comments: Array<{ id: string; body: LocalizedText | string; parentCommentId?: string }>;
-			};
-		};
-	};
-	const effectiveParentCommentId = parentCommentId ?? payload.data.thread.rootCommentId;
-	const comment = [...payload.data.thread.comments]
-		.reverse()
-		.find((item) => localizedTextString(item.body) === body && item.parentCommentId === effectiveParentCommentId);
+	// The coordinator names the created comment; its stored body can differ from
+	// the authored one because mentions are canonicalized on write.
+	const payload = (await response.json()) as { data: { comment?: { id: string } } };
+	const comment = payload.data.comment;
 	if (!comment) {
 		throw new Error("Created comment not found in test response.");
 	}

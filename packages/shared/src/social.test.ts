@@ -18,7 +18,7 @@ import {
 	threadHotScore,
 } from "./social";
 import { kvKeys, type D1DatabaseLike, type D1PreparedStatementLike, type D1Result, type KVNamespaceLike } from "./storage";
-import { schemaVersion, type BotDocument, type ForumDocument, type LanguageTag, type NotificationDocument, type PostingSettings, type RequiredLocalizedText, type ThreadSettings, type ThreadSummary, type WorldDocument } from "./model";
+import { localizedTextString, schemaVersion, type BotDocument, type ForumDocument, type LanguageTag, type NotificationDocument, type PostingSettings, type RequiredLocalizedText, type ThreadSettings, type ThreadSummary, type WorldDocument } from "./model";
 
 const now = "2026-05-06T12:00:00.000Z";
 const enLang = "en" as LanguageTag;
@@ -221,7 +221,7 @@ describe("createThread duplicate title guard", () => {
 			threadId: thread.id,
 			authorBotId: "bot_author",
 			body: en("x".repeat(80)),
-		}, now)).resolves.toMatchObject({ id: thread.id });
+		}, now)).resolves.toMatchObject({ thread: { id: thread.id } });
 		await expect(createComment(kv, db, {
 			threadId: thread.id,
 			authorBotId: "bot_author",
@@ -251,13 +251,13 @@ describe("createThread duplicate title guard", () => {
 			authorBotId: "bot_author",
 			body: en("Allowed final comment"),
 		}, now, { thread });
-		expect(atLimit.commentCount).toBe(2);
+		expect(atLimit.thread.commentCount).toBe(2);
 
 		await expect(createComment(kv, db, {
 			threadId: thread.id,
 			authorBotId: "bot_author",
 			body: en("Rejected after lock"),
-		}, now, { thread: atLimit })).rejects.toMatchObject({
+		}, now, { thread: atLimit.thread })).rejects.toMatchObject({
 			code: "conflict",
 			status: 409,
 			message: "Thread is locked after reaching its 2-comment limit.",
@@ -291,12 +291,11 @@ describe("createThread duplicate title guard", () => {
 			title: en("Short refs"),
 			body: en("Root body"),
 		}, now);
-		const updated = await createComment(kv, db, {
+		const { comment: reply } = await createComment(kv, db, {
 			threadId: thread.id,
 			authorBotId: "bot_author",
 			body: en("Reply body"),
 		}, now, { thread });
-		const reply = updated.comments.find((comment) => comment.body.text === "Reply body");
 
 		expect(isShortContentId(thread.id)).toBe(true);
 		expect(thread.rootCommentId).toBe(thread.id);
@@ -328,6 +327,209 @@ describe("createThread duplicate title guard", () => {
 		} finally {
 			restore();
 		}
+	});
+});
+
+describe("mention canonicalization at the write boundary", () => {
+	const mentionFixture = (options: Partial<FixtureOptions> = {}) => fixture({
+		existingThreads: [],
+		indexedBots: [
+			{ id: "bot_bob", handle: "bob" },
+			{ id: "bot_carol", handle: "carol" },
+			{ id: "bot_u", handle: "u" },
+			{ id: "bot_gone", handle: "gone", deletedAt: "2026-05-01T00:00:00.000Z" },
+			{ id: "bot_idle", handle: "idle", lifecycleState: "suspended" },
+			{ id: "bot_far", handle: "far", worldId: "wld_other" },
+		],
+		...options,
+	});
+
+	const mentionNotificationCount = (kv: FakeKV, botId: string): number =>
+		kv.puts.filter((key) => key.startsWith(`v1:notification:${botId}:`)).length;
+
+	it("rewrites both authored forms in the title and body of one mutation", async () => {
+		const { db, kv } = mentionFixture();
+
+		const thread = await createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_author",
+			title: en("Ping @bob about it"),
+			body: en("Also (@u/carol) and @BOB, plus u/bob already canonical."),
+		}, now);
+
+		expect(thread.title).toEqual(en("Ping u/bob about it"));
+		expect(thread.comments[0]?.body).toEqual(
+			en("Also (u/carol) and u/bob, plus u/bob already canonical."),
+		);
+		// Title and body are extracted separately but resolved together.
+		expect(db.mentionLookups).toHaveLength(1);
+	});
+
+	it("leaves unresolved, deleted, inactive, and other-world candidates exactly unchanged", async () => {
+		const { db, kv } = mentionFixture();
+		const body = "@nobody @gone @idle @far x@bob emoji\u{1f642}@bob @@bob @u/ @½ @bob@example.com stay put.";
+
+		const thread = await createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_author",
+			title: en("Unresolved mentions"),
+			body: en(body),
+		}, now);
+
+		expect(thread.comments[0]?.body).toEqual(en(body));
+		expect(kv.puts.some((key) => key.startsWith("v1:notification:"))).toBe(false);
+	});
+
+	it("notifies each mentioned participant once across spellings and excludes the author", async () => {
+		const { db, kv } = mentionFixture();
+
+		const thread = await createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_author",
+			title: en("Hello @bob"),
+			body: en("@BOB, @u/bob and u/bob are the same participant. Also @alice, me."),
+		}, now);
+
+		expect(thread.title).toEqual(en("Hello u/bob"));
+		expect(thread.comments[0]?.body).toEqual(
+			en("u/bob, u/bob and u/bob are the same participant. Also u/alice, me."),
+		);
+		expect(mentionNotificationCount(kv, "bot_bob")).toBe(1);
+		// The author's own handle is canonicalized but never notifies them.
+		expect(mentionNotificationCount(kv, "bot_author")).toBe(0);
+	});
+
+	it("rejects a title that only overflows after canonicalization", async () => {
+		const { db, kv } = mentionFixture();
+		const title = `${"t".repeat(147)} @carol`;
+		expect(title.length).toBe(154);
+
+		await expect(createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_author",
+			title: en(`${title} @carol`),
+			body: en("Root body"),
+		}, now)).rejects.toMatchObject({
+			name: "InputError",
+			message: "Thread title must be 160 characters or fewer.",
+		});
+		expect(kv.puts).toEqual([]);
+		await expect(createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_author",
+			title: en(title),
+			body: en("Root body"),
+		}, now)).resolves.toMatchObject({ title: en(`${"t".repeat(147)} u/carol`) });
+	});
+
+	it("rejects a body that only overflows after canonicalization", async () => {
+		const { db, kv } = mentionFixture({ worldPostingSettings: { threadBodyCharacters: 10 } });
+
+		await expect(createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_author",
+			title: en("Dense mentions"),
+			body: en("@bob @bob @bob @carol"),
+		}, now)).rejects.toMatchObject({
+			name: "InputError",
+			message: "Thread body must be 20 characters or fewer.",
+		});
+		expect(kv.puts).toEqual([]);
+	});
+
+	it("detects duplicate titles using the canonicalized title", async () => {
+		const { db, kv } = mentionFixture({
+			existingThreads: [
+				{
+					id: "thr_existing",
+					forumId: "frm_main",
+					title: "Welcome u/bob",
+					worldHandle: "primary",
+					forumHandle: "general",
+					createdAt: "2026-05-01T00:00:00.000Z",
+				},
+			],
+		});
+
+		await expect(createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_author",
+			title: en("Welcome @bob"),
+			body: en("Root body"),
+		}, now)).rejects.toMatchObject({
+			code: "conflict",
+			status: 409,
+			message: 'A thread titled "Welcome u/bob" already exists in f/general: thr_existing.',
+		});
+		expect(kv.puts).toEqual([]);
+	});
+
+	it("resolves more than one chunk of distinct candidates without truncating", async () => {
+		const handles = Array.from({ length: 120 }, (_, index) => `participant${index}`);
+		const { db, kv } = mentionFixture({
+			indexedBots: handles.map((handle, index) => ({ id: `bot_${index}`, handle })),
+		});
+
+		const thread = await createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_author",
+			title: en("Many mentions"),
+			body: en(handles.map((handle) => `@${handle}`).join(" ")),
+		}, now);
+
+		expect(thread.comments[0]?.body.text).toBe(handles.map((handle) => `u/${handle}`).join(" "));
+		expect(db.mentionLookups).toHaveLength(2);
+		for (const bindings of db.mentionLookups) {
+			expect(bindings.length).toBeLessThanOrEqual(99);
+		}
+		const notified = handles.filter((_, index) => mentionNotificationCount(kv, `bot_${index}`) === 1);
+		expect(notified).toHaveLength(handles.length);
+	});
+
+	it("canonicalizes comment and reply bodies and preserves their language tag", async () => {
+		const { db, kv } = mentionFixture();
+		const thread = await createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_author",
+			title: en("Comment mentions"),
+			body: en("Root body"),
+		}, now);
+
+		const comment = await createComment(kv, db, {
+			threadId: thread.id,
+			authorBotId: "bot_author",
+			body: { lang: "ja" as LanguageTag, text: "@bob さん、@u/carol も。" },
+		}, now, { thread });
+		const reply = await createComment(kv, db, {
+			threadId: thread.id,
+			authorBotId: "bot_author",
+			parentCommentId: comment.comment.id,
+			body: en("Replying about @nobody and @carol."),
+		}, now, { thread: comment.thread });
+
+		expect(comment.comment.body).toEqual({ lang: "ja", text: "u/bob さん、u/carol も。" });
+		expect(reply.comment.body).toEqual(en("Replying about @nobody and u/carol."));
+		expect(mentionNotificationCount(kv, "bot_carol")).toBe(2);
+	});
+
+	it("is a fixpoint: storing canonicalized text again changes nothing", async () => {
+		const { db, kv } = mentionFixture();
+		const authored = "@bob, @u/carol, u/bob, @u/u/carol and @nobody.";
+
+		const first = await createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_author",
+			title: en("Fixpoint"),
+			body: en(authored),
+		}, now);
+		const second = await createComment(kv, db, {
+			threadId: first.id,
+			authorBotId: "bot_author",
+			body: en(localizedTextString(first.comments[0]?.body)),
+		}, now, { thread: first });
+
+		expect(localizedTextString(first.comments[0]?.body)).toBe("u/bob, u/carol, u/bob, @u/u/carol and @nobody.");
+		expect(second.comment.body.text).toBe(localizedTextString(first.comments[0]?.body));
 	});
 });
 
@@ -505,6 +707,14 @@ type ExistingThread = {
 	deletedAt?: string;
 };
 
+type IndexedBot = {
+	id: string;
+	handle: string;
+	worldId?: string;
+	deletedAt?: string;
+	lifecycleState?: string;
+};
+
 type FixtureOptions = {
 	existingThreads: ExistingThread[];
 	reservedContentIds?: Set<string>;
@@ -515,6 +725,7 @@ type FixtureOptions = {
 	worldThreadSettings?: ThreadSettings;
 	forumThreadSettings?: ThreadSettings;
 	forumReadOnly?: boolean;
+	indexedBots?: IndexedBot[];
 };
 
 function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV; bot: BotDocument } {
@@ -589,7 +800,13 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV; bot: BotDoc
 		[kvKeys.bot(bot.id), bot],
 	]));
 	return {
-		db: new FakeD1(options.existingThreads, options.reservedContentIds, options.followerBotIds, options.forumReadOnly ?? false),
+		db: new FakeD1(
+			options.existingThreads,
+			options.reservedContentIds,
+			options.followerBotIds,
+			options.forumReadOnly ?? false,
+			[{ id: bot.id, handle: bot.handle }, ...(options.indexedBots ?? [])],
+		),
 		kv,
 		bot,
 	};
@@ -635,21 +852,25 @@ class FakeKV implements KVNamespaceLike {
 
 class FakeD1 implements D1DatabaseLike {
 	readonly runs: Array<{ query: string; bindings: unknown[] }> = [];
+	readonly mentionLookups: unknown[][] = [];
 	readonly contentIds: Set<string>;
 	private readonly existingThreads: ExistingThread[];
 	private readonly followerBotIds: string[];
 	private readonly forumReadOnly: boolean;
+	private readonly indexedBots: IndexedBot[];
 
 	constructor(
 		existingThreads: ExistingThread[],
 		reservedContentIds = new Set<string>(),
 		followerBotIds: string[] = [],
 		forumReadOnly = false,
+		indexedBots: IndexedBot[] = [],
 	) {
 		this.existingThreads = existingThreads;
 		this.contentIds = new Set(reservedContentIds);
 		this.followerBotIds = followerBotIds;
 		this.forumReadOnly = forumReadOnly;
+		this.indexedBots = indexedBots;
 	}
 
 	prepare(query: string): D1PreparedStatementLike {
@@ -694,12 +915,23 @@ class FakeD1 implements D1DatabaseLike {
 		return null;
 	}
 
-	all<T>(query: string, _bindings: unknown[]): D1Result<T> {
+	all<T>(query: string, bindings: unknown[]): D1Result<T> {
 		if (query.includes("FROM follows") && query.includes("WHERE followed_bot_id = ?")) {
 			return {
 				success: true,
 				results: this.followerBotIds.map((botId) => ({ botId }) as T),
 			};
+		}
+		if (query.includes("FROM bots_index") && query.includes("handle IN (")) {
+			this.mentionLookups.push(bindings);
+			const [worldId, ...handles] = bindings.map(String);
+			const rows = this.indexedBots.filter((indexed) =>
+				(indexed.worldId ?? "wld_primary") === worldId &&
+				indexed.deletedAt === undefined &&
+				(indexed.lifecycleState ?? "active") === "active" &&
+				handles.includes(indexed.handle),
+			);
+			return { success: true, results: rows.map((row) => ({ botId: row.id, handle: row.handle }) as T) };
 		}
 		return { success: true, results: [] };
 	}

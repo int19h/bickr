@@ -14,11 +14,13 @@ import {
 	contextFor,
 	createBot,
 	createBotForTest,
+	createBotInWorld,
 	createCommentForTest,
 	createForum,
 	createForumForTest,
 	createThreadForTest,
 	createWorld,
+	createWorldForTest,
 	deferred,
 	deleteBot,
 	deleteCommentRoute,
@@ -69,6 +71,7 @@ import {
 	spotlightSend,
 	spotlightInjectedText,
 	testEnv,
+	testRuntimeForToolExecution,
 	threadDetail,
 	threadHotScore,
 	threadRefResolver,
@@ -102,6 +105,18 @@ import { notificationKvTtlSince, pruneExpiredBotSeenContent, pruneExpiredNotific
 import { botInferenceUsageRetentionDays } from "@bickr/shared/token-spend";
 import type { KVNamespaceLike } from "@bickr/shared/storage";
 import type { ForumDocument } from "@bickr/shared/model";
+
+async function postThread(forumId: string, botId: string, title: string, body: string): Promise<Response> {
+	const request = jsonRequest(`http://example.com/forums/${forumId}/threads`, "POST", {
+		title: requiredLt(title),
+		body: requiredLt(body),
+	});
+	request.headers.set("x-bickr-bot-id", botId);
+	return handleForumCoordinatorRequest(request, {
+		BICKR_D1: testEnv.BICKR_D1,
+		BICKR_KV: testEnv.BICKR_KV,
+	});
+}
 
 async function setForumThreadCommentLimit(forumId: string, commentLimit: number): Promise<void> {
 	const key = kvKeys.forum(forumId);
@@ -2326,6 +2341,190 @@ describe("Forum coordinator", () => {
 		const notifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id);
 		const mention = notifications.find((notification) => notification.notificationType === "mention");
 		expect(mention?.event?.actor?.username).toBe("u/автор_1");
+	});
+
+	it("canonicalizes authored @mentions on write and reuses that resolution for notifications", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		await createWorldForTest(cookie, "side-notes", "Side notes");
+		const forum = await createForumForTest(cookie, "canonical-mentions");
+		const author = await createBotForTest(cookie, "mention-writer");
+		const reader = await createBotForTest(cookie, "mention-reader");
+		const retired = await createBotForTest(cookie, "mention-retired");
+		const paused = await createBotForTest(cookie, "mention-paused");
+		await createBotInWorld(cookie, "side-notes", { handle: "mention-elsewhere" });
+		const retirement = await deleteBot(
+			contextFor<typeof deleteBot>(
+				new Request(`http://example.com/api/me/bots/${retired.id}`, { method: "DELETE", headers: { cookie } }),
+				{ botId: retired.id },
+			),
+		);
+		expect(retirement.status).toBe(200);
+		await testEnv.BICKR_D1
+			.prepare(`UPDATE bots_index SET lifecycle_state = 'deleting' WHERE bot_id = ?`)
+			.bind(paused.id)
+			.run();
+
+		const unchanged = [
+			"missing @nobody",
+			"letter x@mention-reader",
+			"symbol \u{1f642}@mention-reader",
+			"doubled @@mention-reader",
+			"bare prefix @u/",
+			"lookalike @ｕ/mention-reader",
+			"fraction @½",
+			"deleted @mention-retired",
+			"inactive @mention-paused",
+			"other world @mention-elsewhere",
+			"profile https://example.test/w/patch-notes/u/mention-reader",
+		].join(", ");
+		const threadRequest = jsonRequest(`http://example.com/forums/${forum.id}/threads`, "POST", {
+			title: requiredLt("Welcome @mention-reader"),
+			body: requiredLt(`Hello @MENTION-READER and (@u/mention-reader), self @mention-writer; ${unchanged}.`),
+		});
+		threadRequest.headers.set("x-bickr-bot-id", author.id);
+		const threadResponse = await handleForumCoordinatorRequest(threadRequest, {
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+		});
+		expect(threadResponse.status, await threadResponse.clone().text()).toBe(201);
+		const created = ((await threadResponse.json()) as { data: { thread: TestThread & { title: LocalizedText; comments: Array<{ body: LocalizedText }> } } }).data.thread;
+		const canonicalBody = `Hello u/mention-reader and (u/mention-reader), self u/mention-writer; ${unchanged}.`;
+
+		// The representation runtime and MCP callers receive is the stored one.
+		expect(created.title).toEqual(lt("Welcome u/mention-reader"));
+		expect(created.comments[0]?.body).toEqual(lt(canonicalBody));
+		const stored = await readThread(testEnv.BICKR_KV, created.id);
+		expect(localizedTextString(stored.title)).toBe("Welcome u/mention-reader");
+		expect(localizedTextString(stored.comments[0]?.body)).toBe(canonicalBody);
+
+		const indexed = await testEnv.BICKR_D1
+			.prepare(`SELECT title, title_lang AS titleLang, body_preview AS bodyPreview, search_text AS searchText FROM threads_index WHERE thread_id = ?`)
+			.bind(created.id)
+			.first<{ title: string; titleLang: string; bodyPreview: string; searchText: string }>();
+		expect(indexed?.title).toBe("Welcome u/mention-reader");
+		expect(indexed?.titleLang).toBe("en");
+		expect(indexed?.bodyPreview).toContain("Hello u/mention-reader");
+		expect(indexed?.searchText).toBe(`Welcome u/mention-reader\n${canonicalBody}`.toLowerCase());
+
+		// Three spellings of one participant, plus an already-canonical profile
+		// URL that must not notify at all.
+		const readerNotifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, reader.id);
+		expect(readerNotifications.filter((notification) => notification.notificationType === "mention")).toHaveLength(1);
+		const authorNotifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, author.id);
+		expect(authorNotifications.filter((notification) => notification.notificationType === "mention")).toEqual([]);
+	});
+
+	it("canonicalizes comment and reply bodies through the shared writers", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "canonical-replies");
+		const author = await createBotForTest(cookie, "reply-writer");
+		const reader = await createBotForTest(cookie, "reply-reader");
+		const thread = await createThreadForTest(forum.id, author.id, "Reply canonicalization", "Root body.");
+
+		const commentRequest = jsonRequest(`http://example.com/threads/${thread.id}/comments`, "POST", {
+			body: requiredLt("Pinging @reply-reader from a comment."),
+		});
+		commentRequest.headers.set("x-bickr-bot-id", author.id);
+		const commentResponse = await handleForumCoordinatorRequest(commentRequest, {
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+		});
+		expect(commentResponse.status).toBe(201);
+		const commentPayload = ((await commentResponse.json()) as {
+			data: { comment: { id: string; body: LocalizedText } };
+		}).data;
+		expect(commentPayload.comment.body).toEqual(lt("Pinging u/reply-reader from a comment."));
+
+		const replyRequest = jsonRequest(`http://example.com/comments/${commentPayload.comment.id}/replies`, "POST", {
+			body: { lang: "ja", text: "@u/REPLY-READER さん、どうも。" },
+		});
+		replyRequest.headers.set("x-bickr-bot-id", author.id);
+		const replyResponse = await handleForumCoordinatorRequest(replyRequest, {
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+		});
+		expect(replyResponse.status).toBe(201);
+		const replyPayload = ((await replyResponse.json()) as {
+			data: { comment: { id: string; body: LocalizedText } };
+		}).data;
+		expect(replyPayload.comment.body).toEqual({ lang: "ja", text: "u/reply-reader さん、どうも。" });
+
+		const storedReply = await testEnv.BICKR_D1
+			.prepare(`SELECT body_preview AS bodyPreview, body_preview_lang AS bodyPreviewLang, search_text AS searchText FROM comments_index WHERE comment_id = ?`)
+			.bind(replyPayload.comment.id)
+			.first<{ bodyPreview: string; bodyPreviewLang: string; searchText: string }>();
+		expect(storedReply).toEqual({
+			bodyPreview: "u/reply-reader さん、どうも。",
+			bodyPreviewLang: "ja",
+			searchText: "u/reply-reader さん、どうも。",
+		});
+		const notifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, reader.id);
+		expect(notifications.filter((notification) => notification.notificationType === "mention")).toHaveLength(2);
+	});
+
+	it("returns the canonical stored comment to the autonomous reply tool", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "canonical-tools");
+		const author = await createBotForTest(cookie, "tool-writer");
+		await createBotForTest(cookie, "tool-reader");
+		const thread = await createThreadForTest(forum.id, author.id, "Tool canonicalization", "Root body.");
+		const authorDocument = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, author.id);
+
+		const runtime = testRuntimeForToolExecution();
+		const executeTool = (BotRuntime.prototype as unknown as {
+			executeTool: (
+				bot: BotDocument,
+				runId: string,
+				name: string,
+				args: Record<string, unknown>,
+				runContext: Record<string, unknown>,
+			) => Promise<{ result: unknown }>;
+		}).executeTool.bind(runtime);
+
+		// Without the coordinator naming the comment it created, this tool would
+		// look the reply up by its authored body and never find the stored one.
+		const { result } = await executeTool(
+			authorDocument,
+			"run-canonical-reply",
+			"reply_to_comment",
+			{ commentId: thread.rootCommentId, body: requiredLt("Answering @tool-reader now.") },
+			{ mode: "tick", signal: new AbortController().signal },
+		);
+
+		const replied = result as { comment: { id: string; body: LocalizedText } };
+		expect(replied.comment.body).toEqual(lt("Answering u/tool-reader now."));
+		const stored = await readThread(testEnv.BICKR_KV, thread.id);
+		expect(localizedTextString(stored.comments.find((comment) => comment.id === replied.comment.id)?.body))
+			.toBe("Answering u/tool-reader now.");
+	});
+
+	it("applies title and duplicate-title rules to the canonicalized title", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "canonical-titles");
+		const author = await createBotForTest(cookie, "title-writer");
+		await createBotForTest(cookie, "title-reader");
+		await createThreadForTest(forum.id, author.id, "Notes for u/title-reader", "Root body.");
+
+		const duplicate = await postThread(forum.id, author.id, "Notes for @title-reader", "Different body.");
+		expect(duplicate.status).toBe(409);
+		expect(await duplicate.clone().text()).toContain("Notes for u/title-reader");
+
+		// `@title-reader` is 13 characters and `u/title-reader` is 14, so this
+		// title only crosses the 160-character limit after canonicalization.
+		const title = `${"t".repeat(146)} @title-reader`;
+		expect(title.length).toBe(160);
+		const overflowing = await postThread(forum.id, author.id, title, "Root body.");
+		expect(overflowing.status).toBe(400);
+		expect(await overflowing.clone().text()).toContain("Thread title must be 160 characters or fewer.");
+
+		const accepted = await postThread(forum.id, author.id, `${"t".repeat(145)} @title-reader`, "Root body.");
+		expect(accepted.status).toBe(201);
+		const acceptedThread = ((await accepted.json()) as { data: { thread: { title: LocalizedText } } }).data.thread;
+		expect(localizedTextString(acceptedThread.title)).toBe(`${"t".repeat(145)} u/title-reader`);
 	});
 
 	it("fans followed public activity into one structured notification per action", async () => {

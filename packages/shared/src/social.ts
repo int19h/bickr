@@ -46,6 +46,7 @@ import {
 	type NotificationStatus,
 	type NotificationType,
 	type NotificationProfileRef,
+	type RequiredLocalizedText,
 	type SearchThreadResult,
 	type SpotlightBotPreview,
 	type SpotlightDeliveryResult,
@@ -104,14 +105,15 @@ import {
 	readJson,
 	writeJson,
 } from "./storage";
-import { handlePatternSource, InputError, normalizeHandle, requiredPostingBody } from "./validation";
+import { InputError, normalizeHandle, requiredPostingBody, requiredThreadTitle } from "./validation";
+import {
+	extractCanonicalMentionHandles,
+	extractMentionCandidates,
+	resolveMentionHandles,
+	rewriteMentions,
+	type ResolvedMention,
+} from "./mentions";
 
-const handleBoundaryPatternSource = String.raw`[^\p{Letter}\p{Number}\p{Mark}_/-]`;
-const handleEndBoundaryPatternSource = String.raw`[^\p{Letter}\p{Number}\p{Mark}_-]`;
-const mentionPattern = new RegExp(
-	`(^|${handleBoundaryPatternSource})(?:@|u/)(${handlePatternSource})(?=$|${handleEndBoundaryPatternSource})`,
-	"giu",
-);
 const threadHotScoreCoefficients = {
 	voteScore: 2,
 	recentCommentCount: 1.5,
@@ -2397,13 +2399,24 @@ export async function createThread(
 	const bot = await botById(kv, db, input.authorBotId);
 	assertBotInWorld(bot, forum.worldId);
 	const postingSettings = await effectivePostingSettingsForAuthor(kv, forum.worldId, bot);
-	requiredPostingBody(input.body.text, "Thread body", postingHardLimit(postingSettings.threadBodyCharacters));
+	// Canonicalize before anything looks at the text: the stored title and body,
+	// their limits, the duplicate-title check, the indexes, and the mention
+	// notifications must all see the same canonical text.
+	const { texts, mentioned } = await canonicalizeMentions(db, forum.worldId, {
+		title: input.title,
+		body: input.body,
+	});
+	const { title, body } = texts;
+	// Canonicalizing a bare `@handle` adds one character per mention, so both
+	// limits are authoritative only once the rewrite has happened.
+	requiredThreadTitle(title.text);
+	requiredPostingBody(body.text, "Thread body", postingHardLimit(postingSettings.threadBodyCharacters));
 
-	const existingThread = await existingActiveThreadWithTitle(db, forum.id, input.title.text);
+	const existingThread = await existingActiveThreadWithTitle(db, forum.id, title.text);
 	if (existingThread) {
 		throw repositoryError(
 			"conflict",
-			`A thread titled "${input.title.text}" already exists in f/${forum.handle}: ${existingThread.id}.`,
+			`A thread titled "${title.text}" already exists in f/${forum.handle}: ${existingThread.id}.`,
 			409,
 			{ existingThread },
 		);
@@ -2420,7 +2433,7 @@ export async function createThread(
 		authorHandle: bot.handle,
 		authorDisplayName: bot.displayName,
 		...(bot.avatar?.url ? { authorAvatarUrl: bot.avatar.url } : {}),
-		body: input.body,
+		body,
 		voteScore: 0,
 		createdAt: now,
 		updatedAt: now,
@@ -2434,7 +2447,7 @@ export async function createThread(
 		worldHandle: forum.worldHandle,
 		forumId: forum.id,
 		forumHandle: forum.handle,
-		title: input.title,
+		title,
 		rootCommentId,
 		...(input.url ? { url: input.url } : {}),
 		comments: [rootComment],
@@ -2461,9 +2474,14 @@ export async function createThread(
 			message: `${localizedTextString(bot.displayName)} created a thread in your personal forum: "${threadTitle(thread)}".`,
 		});
 	}
-	for (const mentioned of await mentionedBots(kv, db, thread.worldId, bot, `${input.title.text}\n${input.body.text}`)) {
+	for (const participant of mentioned) {
+		// Self-references are canonicalized like any other, but the author is
+		// still not notified about their own post.
+		if (participant.botId === bot.id) {
+			continue;
+		}
 		addNotificationRecipient(notificationRecipients, {
-			botId: mentioned.id,
+			botId: participant.botId,
 			notificationType: "mention",
 			deliveryReason: "mention",
 			sourceObjectId: formatThreadRef(thread.id),
@@ -2518,13 +2536,19 @@ async function existingActiveThreadWithTitle(
 	};
 }
 
+export type CreateCommentResult = {
+	readonly thread: ThreadDocument;
+	/** The comment this call created, named rather than searched for. */
+	readonly comment: CommentDocument;
+};
+
 export async function createComment(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	input: CreateCommentInput,
 	now = new Date().toISOString(),
 	options: { thread?: ThreadDocument } = {},
-): Promise<ThreadDocument> {
+): Promise<CreateCommentResult> {
 	const thread = normalizeThreadDefaults(options.thread ?? await readThread(kv, input.threadId));
 	if (thread.id !== input.threadId) {
 		throw repositoryError("not_found", "Thread not found.", 404);
@@ -2543,11 +2567,15 @@ export async function createComment(
 	const bot = await botById(kv, db, input.authorBotId);
 	assertBotInWorld(bot, thread.worldId);
 	const postingSettings = await effectivePostingSettingsForAuthor(kv, thread.worldId, bot);
-	requiredPostingBody(input.body.text, "Comment body", postingHardLimit(postingSettings.commentBodyCharacters));
 	const parentCommentId = input.parentCommentId ?? thread.rootCommentId;
 	if (!thread.comments.some((comment) => comment.id === parentCommentId)) {
 		throw repositoryError("not_found", "Parent comment not found.", 404);
 	}
+	// Canonicalize before the limit check: the stored body is what the limit,
+	// the indexes, and the mention notifications all have to agree on.
+	const { texts, mentioned } = await canonicalizeMentions(db, thread.worldId, { body: input.body });
+	const { body } = texts;
+	requiredPostingBody(body.text, "Comment body", postingHardLimit(postingSettings.commentBodyCharacters));
 
 	const comment: CommentDocument = {
 		id: await reserveContentId(db, "comment", now),
@@ -2559,7 +2587,7 @@ export async function createComment(
 		authorDisplayName: bot.displayName,
 		...(bot.avatar?.url ? { authorAvatarUrl: bot.avatar.url } : {}),
 		parentCommentId,
-		body: input.body,
+		body,
 		voteScore: 0,
 		createdAt: now,
 		updatedAt: now,
@@ -2591,9 +2619,14 @@ export async function createComment(
 			message: `${localizedTextString(bot.displayName)} replied to you in "${threadTitle(updated)}".`,
 		});
 	}
-	for (const mentioned of await mentionedBots(kv, db, updated.worldId, bot, input.body.text)) {
+	for (const participant of mentioned) {
+		// Self-references are canonicalized like any other, but the author is
+		// still not notified about their own comment.
+		if (participant.botId === bot.id) {
+			continue;
+		}
 		addNotificationRecipient(notificationRecipients, {
-			botId: mentioned.id,
+			botId: participant.botId,
 			notificationType: "mention",
 			deliveryReason: "mention",
 			sourceObjectId: formatCommentRef(comment.id),
@@ -2617,7 +2650,7 @@ export async function createComment(
 	}, now);
 	await notifyHumanCommentCreated(db, updated, comment, bot, now);
 
-	return updated;
+	return { thread: updated, comment };
 }
 
 export async function setVote(
@@ -5312,27 +5345,58 @@ function orderedDeliveryReasons(reasons: ReadonlySet<NotificationDeliveryReason>
 	return order.filter((reason) => reasons.has(reason));
 }
 
-async function mentionedBots(
-	kv: KVNamespaceLike,
+type MentionCanonicalization<Field extends string> = {
+	/** Rewritten fields, keyed exactly as supplied. Each keeps its `lang`. */
+	readonly texts: Readonly<Record<Field, RequiredLocalizedText>>;
+	/** Participants the stored text references, once each. */
+	readonly mentioned: readonly ResolvedMention[];
+};
+
+/**
+ * Canonicalizes every authored field of one mutation against one resolution.
+ *
+ * Fields are extracted separately — offsets are per field, so concatenating them
+ * would corrupt the spans — but their distinct handles are resolved together,
+ * and the single resulting map drives both the rewrite and the mention
+ * notification set. That shared map is what keeps canonicalization and
+ * notification eligibility from drifting apart.
+ *
+ * References that are already canonical are resolved too. They need no rewrite,
+ * but they are still mentions, and after rewriting they are indistinguishable
+ * from the candidates that just became canonical.
+ */
+async function canonicalizeMentions<Field extends string>(
 	db: D1DatabaseLike,
 	worldId: string,
-	author: BotDocument,
-	text: string,
-): Promise<BotDocument[]> {
+	fields: Readonly<Record<Field, RequiredLocalizedText>>,
+): Promise<MentionCanonicalization<Field>> {
+	const extracted = (Object.entries(fields) as Array<[Field, RequiredLocalizedText]>).map(([field, value]) => ({
+		field,
+		value,
+		candidates: extractMentionCandidates(value.text),
+		canonicalHandles: extractCanonicalMentionHandles(value.text),
+	}));
 	const handles = new Set<string>();
-	for (const match of text.matchAll(mentionPattern)) {
-		if (match[2]) {
-			handles.add(normalizeHandle(match[2]));
+	for (const { candidates, canonicalHandles } of extracted) {
+		for (const candidate of candidates) {
+			handles.add(candidate.handle);
+		}
+		for (const handle of canonicalHandles) {
+			handles.add(handle);
 		}
 	}
-	const bots: BotDocument[] = [];
-	for (const handle of handles) {
-		const bot = await botByHandle(kv, db, worldId, handle);
-		if (bot && bot.id !== author.id) {
-			bots.push(bot);
-		}
+	const resolved = handles.size === 0 ?
+		new Map<string, ResolvedMention>()
+	:	await resolveMentionHandles(db, worldId, [...handles]);
+	const texts = {} as Record<Field, RequiredLocalizedText>;
+	for (const { field, value, candidates } of extracted) {
+		const text = rewriteMentions(value.text, candidates, resolved);
+		texts[field] = text === value.text ? value : { ...value, text };
 	}
-	return bots;
+	// Every resolved handle came from a reference in one of these fields, and a
+	// resolved candidate is always rewritten, so the resolution result is exactly
+	// the set of participants the stored text names.
+	return { texts, mentioned: [...resolved.values()] };
 }
 
 function notificationProfileRef(profile: Pick<BotDocument | BotSummary | BotPublicProfile, "id" | "handle" | "displayName" | "shortBio">): NotificationProfileRef {

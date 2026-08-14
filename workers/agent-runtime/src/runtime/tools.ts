@@ -214,7 +214,7 @@ export class RuntimeTools {
 					await this.assertNoPriorReplyToTarget(bot.id, threadId, parentCommentId);
 				}
 				this.assertNoRecentDuplicateReply(bot.id, body.text);
-				const serviceResult = await this.runtime.forumService<{ thread: ThreadDocument }>(
+				const serviceResult = await this.runtime.forumService<{ thread: ThreadDocument; comment?: CommentDocument }>(
 					`/comments/${encodeURIComponent(parentCommentId)}/replies`,
 					bot.id,
 					{
@@ -222,7 +222,7 @@ export class RuntimeTools {
 					},
 					runContext.signal,
 				);
-				const createdComment = createdReplyComment(serviceResult.thread, body, parentCommentId);
+				const createdComment = createdReplyComment(serviceResult.comment, parentCommentId);
 				result = {
 					...serviceResult,
 					comment: createdComment,
@@ -667,13 +667,7 @@ export class RuntimeTools {
 	}
 
 	private assertNoRecentDuplicateReply(botId: string, body: string): void {
-		const rows = this.runtime.recentToolResultRows();
-		for (const row of rows) {
-			const duplicate = duplicateReplyFromToolResult(row, botId, body);
-			if (duplicate) {
-				throw new DuplicateReplyError(duplicate);
-			}
-		}
+		assertNoDuplicateReplyInToolResultRows(this.runtime.recentToolResultRows(), botId, body);
 	}
 
 	private async threadReadResult(bot: RuntimeBotDocument, thread: ThreadDocument, operation: string, targetCommentId?: string) {
@@ -881,11 +875,11 @@ function uniqueToolResultContentItems(items: ToolResultContentItem[]): ToolResul
 	return [...unique.values()];
 }
 
-function createdReplyComment(thread: ThreadDocument, body: RequiredLocalizedText, parentCommentId: string): CommentDocument {
-	const comment = [...thread.comments]
-		.filter((item) => item.parentCommentId === parentCommentId && localizedTextString(item.body) === body.text)
-		.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0];
-	if (!comment) {
+// The coordinator names the comment it just created. Authored text cannot
+// identify it: the shared writer canonicalizes `@mentions` before storing, so
+// the stored body legitimately differs from what this tool sent.
+function createdReplyComment(comment: CommentDocument | undefined, parentCommentId: string): CommentDocument {
+	if (!comment || comment.parentCommentId !== parentCommentId) {
 		throw new RepositoryError('server_error', 'Created reply was missing from the coordinator result.', 500);
 	}
 	return comment;
@@ -1012,24 +1006,30 @@ function commentReadItem(
 	};
 }
 
+// Rejects a reply whose body this participant already authored in one of the
+// retained tool-result rows, naming the comment that reply created.
+export function assertNoDuplicateReplyInToolResultRows(rows: readonly RuntimeRow[], botId: string, body: string): void {
+	for (const row of rows) {
+		const duplicate = duplicateReplyFromToolResult(row, botId, body);
+		if (duplicate) {
+			throw new DuplicateReplyError(duplicate);
+		}
+	}
+}
+
 function duplicateReplyFromToolResult(row: RuntimeRow, botId: string, body: string): DuplicateReply | null {
 	const payload = parsePayloadJson(row.payload_json);
 	const toolName = canonicalToolName(stringValue(payload.name) ?? '');
 	if (payload.error === true || (toolName !== 'reply_to_comment' && toolName !== 'make_additional_reply_to_the_same_comment')) {
 		return null;
 	}
-	const args = runtimeRecord(payload.args);
 	const envelope = legacyStoredToolResultEnvelope(payload);
 	if (envelope.kind !== 'comment_created') {
 		return null;
 	}
 	const thread = envelope.thread;
-	const comment = matchingSuccessfulReplyComment(thread, botId, body);
+	const comment = repeatedReplyComment(envelope, runtimeRecord(payload.args), botId, body);
 	if (!comment) {
-		return null;
-	}
-	const argsBody = localizedArgumentText(args.body);
-	if (argsBody && argsBody.trim() !== body) {
 		return null;
 	}
 	const threadId = stringValue(thread.id) ?? stringValue(comment.threadId);
@@ -1166,7 +1166,43 @@ function parsePayloadJson(payloadJson: string): Record<string, unknown> {
 	}
 }
 
-function matchingSuccessfulReplyComment(
+/**
+ * The comment a past reply created, if that reply authored the same text as the
+ * one being written now.
+ *
+ * A duplicate is a property of what this participant authored, so the decision
+ * compares the recorded reply argument against the new body. The stored comment
+ * body cannot stand in for it: the shared writer canonicalizes mentions
+ * (`@alice` to `u/alice`) before storing, so a verbatim repeat of a
+ * mention-carrying reply no longer matches the comment it produced. Identity
+ * comes from the typed envelope for the same reason — the coordinator names the
+ * comment it created.
+ *
+ * A row that carries no recorded body argument predates canonicalization, so
+ * its stored body still is the text that was authored and remains the only
+ * thing left to match on.
+ *
+ * Two different spellings of the same mention are consequently not a repeat
+ * here. Recognizing those would take the writer's world-scoped resolution, and
+ * canonicalization deliberately lives at the write boundary rather than being
+ * re-implemented in the runtime.
+ */
+function repeatedReplyComment(
+	envelope: Extract<ToolResultEnvelope, { kind: 'comment_created' }>,
+	args: Record<string, unknown>,
+	botId: string,
+	body: string,
+): CommentDocument | null {
+	// localizedArgumentText trims; trim the new body the same way so a repeat
+	// that differs only in surrounding whitespace is still a repeat.
+	const authoredBody = localizedArgumentText(args.body);
+	if (authoredBody) {
+		return authoredBody === body.trim() && envelope.comment.authorBotId === botId ? envelope.comment : null;
+	}
+	return matchingStoredReplyComment(envelope.thread, botId, body);
+}
+
+function matchingStoredReplyComment(
 	thread: ThreadDocument,
 	botId: string,
 	body: string,

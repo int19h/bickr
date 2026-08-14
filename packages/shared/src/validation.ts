@@ -63,7 +63,7 @@ export const maxWorldPromptLength = maxBotPromptLength;
 export const maxBotReasoningPrefillLength = 500;
 export const maxWorldRecurringPromptLength = maxBotReasoningPrefillLength;
 export const maxProviderRoutingJsonLength = 8_000;
-const maxThreadTitleLength = 160;
+export const maxThreadTitleLength = 160;
 export const maxThreadBodyHardLength = postingHardLimit(defaultThreadBodyCharacters);
 export const maxCommentBodyHardLength = postingHardLimit(defaultCommentBodyCharacters);
 const inferenceReasoningEfforts = ["default", "none", "minimal", "low", "medium", "high", "xhigh"] as const;
@@ -86,8 +86,24 @@ export function normalizeHandleText(value: string): string {
 	return value.trim().normalize("NFKC").toLowerCase();
 }
 
+// Checks a token that is already in its final form. Mention extraction needs
+// this half separately: it validates the authored token against the handle
+// grammar before NFKC folding, and the folded result again afterwards, because
+// compatibility expansion can leave the grammar (`½` becomes `1⁄2`).
+export function isHandleToken(value: string): boolean {
+	return handlePattern.test(value);
+}
+
+// Non-throwing counterpart of `normalizeHandle`, for text that may legitimately
+// turn out not to be a handle at all. Mention canonicalization must never reject
+// a post because an `@` was followed by something handle-shaped but invalid.
+export function tryNormalizeHandleText(value: string): string | null {
+	const normalized = normalizeHandleText(value);
+	return handlePattern.test(normalized) ? normalized : null;
+}
+
 export function isValidHandleText(value: string): boolean {
-	return handlePattern.test(normalizeHandleText(value));
+	return tryNormalizeHandleText(value) !== null;
 }
 
 export function sanitizeHandleInput(value: string, maxLength = 32): string {
@@ -110,8 +126,8 @@ export function normalizeHandle(value: unknown): string {
 		throw new InputError("Handle is required.");
 	}
 
-	const normalized = normalizeHandleText(value);
-	if (!handlePattern.test(normalized)) {
+	const normalized = tryNormalizeHandleText(value);
+	if (normalized === null) {
 		throw new InputError(handleHelpText);
 	}
 
@@ -184,6 +200,13 @@ function optionalHumanTextPreservingEmpty(
 	language: LanguageTag | null,
 ): string | undefined {
 	return optionalTextPreservingEmpty(humanTextValue(value, label, language), label, maxLength);
+}
+
+// The title invariant belongs to the writer, not only to route parsing: mention
+// canonicalization can grow a title after it was parsed, and direct repository
+// callers never pass through `parseCreateThreadInput` at all.
+export function requiredThreadTitle(value: unknown): string {
+	return requiredText(value, "Thread title", maxThreadTitleLength);
 }
 
 export function requiredPostingBody(value: unknown, label: string, maxLength: number): string {
