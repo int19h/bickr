@@ -90,12 +90,14 @@ import {
 	completeInferenceGraphCompatibilityWrite,
 	cleanupInferenceGraphTerminalState,
 	inferenceGraphMigrationStatus,
+	listInferenceProviderDefaultBarrierSweepFleetStatus,
 	listInferenceGraphFleetStatus,
 	markInferenceGraphCompatibilitySourceWritten,
 	pendingInferenceGraphCompatibilityWrite,
 	reactivateInferenceGraphCutover,
 	rollbackInferenceGraphCutover,
 	runInferenceGraphMigrationStep,
+	runInferenceProviderDefaultBarrierSweepStep,
 } from '@bickr/shared/inference-configuration-migration';
 import { addInternalServiceAuthHeader, internalServiceUrl, isTrustedInternalServiceRequest } from '@bickr/shared/internal-service';
 import { mutationMaintenanceResponse, readMaintenanceState } from '@bickr/shared/maintenance';
@@ -672,6 +674,22 @@ export const agentRuntimeRouteTable = [
 		},
 	},
 	{
+		id: 'run-inference-provider-default-barrier-sweep',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/inference-graph\/provider-default-barrier-sweep$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			requireSchedulerServiceRequest(context.request);
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			if (context.coordinator.ownerUserId !== userId) throw new RepositoryError('forbidden', 'Provider-default barrier sweep was dispatched to the wrong coordinator.', 403);
+			return ok({
+				sweep: await runInferenceProviderDefaultBarrierSweepStep(context.env, userId),
+				coordinator: context.objectId,
+			});
+		},
+	},
+	{
 		id: 'translation-role-migration-status',
 		method: 'GET',
 		pattern: /^\/users\/([^/]+)\/inference-translation-role\/migration$/,
@@ -1055,6 +1073,76 @@ export const agentRuntimeRouteTable = [
 				),
 				coordinator: context.objectId,
 			});
+		},
+	},
+	{
+		id: 'inference-provider-default-barrier-sweep-fleet-status',
+		method: 'GET',
+		pattern: /^\/inference-graph\/provider-default-barrier-sweep\/status$/,
+		dispatch: 'direct',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) {
+				throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			}
+			requireSchedulerServiceRequest(context.request);
+			const maintenance = await readMaintenanceState(context.env.BICKR_D1);
+			if (!maintenance.enabled) throw new RepositoryError('conflict', 'Provider-default barrier fleet status requires maintenance mode.', 409);
+			return ok({ status: await listInferenceProviderDefaultBarrierSweepFleetStatus(context.env.BICKR_D1, {
+				...(context.url.searchParams.get('cursor') ? { cursor: context.url.searchParams.get('cursor')! } : {}),
+				...(context.url.searchParams.get('limit') ? { limit: requiredPositiveInteger(context.url.searchParams.get('limit'), 'limit') } : {}),
+			}) });
+		},
+	},
+	{
+		id: 'run-inference-provider-default-barrier-sweep-fleet',
+		method: 'POST',
+		pattern: /^\/inference-graph\/provider-default-barrier-sweep$/,
+		dispatch: 'direct',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) {
+				throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			}
+			requireSchedulerServiceRequest(context.request);
+			const maintenance = await readMaintenanceState(context.env.BICKR_D1);
+			if (!maintenance.enabled) throw new RepositoryError('conflict', 'Provider-default barrier fleet sweep requires maintenance mode.', 409);
+			if (!context.env.USER_BOTS) throw new RepositoryError('server_error', 'User coordinator binding is unavailable.', 500);
+			const body = requiredRecord(await readOptionalJsonBody(context.request));
+			const cursor = body.cursor === undefined ? undefined : requiredString(body.cursor, 'cursor');
+			const requestedLimit = body.limit === undefined ? 25 : requiredPositiveInteger(body.limit, 'limit');
+			const page = await listInferenceProviderDefaultBarrierSweepFleetStatus(context.env.BICKR_D1, {
+				...(cursor ? { cursor } : {}),
+				limit: Math.min(requestedLimit, 25),
+				phase: 'pending',
+			});
+			const attempts = await Promise.all(page.items.map(async (item) => {
+				const headers = new Headers(context.request.headers);
+				headers.delete('content-type');
+				headers.set('x-bickr-scheduler', '1');
+				headers.set('x-bickr-user-id', item.ownerUserId);
+				addInternalServiceAuthHeader(headers, context.env.INTERNAL_SERVICE_SECRET);
+				const objectId = context.env.USER_BOTS!.idFromName(item.ownerUserId);
+				const response = await context.env.USER_BOTS!.get(objectId).fetch(new Request(
+					internalServiceUrl(`/users/${encodeURIComponent(item.ownerUserId)}/inference-graph/provider-default-barrier-sweep`),
+					{ method: 'POST', headers },
+				));
+				return {
+					kind: 'provider_default_barrier_sweep_dispatch' as const,
+					ownerUserId: item.ownerUserId,
+					status: response.ok ? 'accepted' as const : 'failed' as const,
+					httpStatus: response.status,
+				};
+			}));
+			return ok({ sweep: {
+				kind: 'inference_provider_default_barrier_fleet_sweep',
+				cursor: cursor ?? '',
+				nextCursor: page.nextCursor ?? '',
+				processedOwners: attempts.length,
+				// Reaching the end of an owner-id page wraps to the beginning:
+				// each owner needs several bounded coordinator steps, and failures
+				// must be retried rather than skipped forever by a monotonic cursor.
+				complete: (cursor ?? '') === '' && page.items.length === 0,
+				attempts,
+			} });
 		},
 	},
 	{
@@ -2549,9 +2637,9 @@ function isInferenceGraphMaintenanceRequest(request: Request): boolean {
 		return false;
 	}
 	const pathname = new URL(request.url).pathname;
-	return /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate)$/.test(pathname) ||
+	return /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate|provider-default-barrier-sweep)$/.test(pathname) ||
 		/^\/users\/[^/]+\/inference-translation-role\/migrate$/.test(pathname) ||
-		/^\/inference-graph\/(?:cleanup|activate-lifecycle)$/.test(pathname);
+		/^\/inference-graph\/(?:cleanup|activate-lifecycle|provider-default-barrier-sweep)$/.test(pathname);
 }
 
 export async function handleAgentRuntimeRequest(

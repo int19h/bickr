@@ -5,6 +5,7 @@ import type {
 	InferenceConfigurationPathEntry,
 	RedactedInferenceFieldDto,
 } from "@bickr/shared/inference-configuration-owner";
+import type { AppliedPrefillPolicy } from "@bickr/shared/openrouter-model-capabilities";
 import { CredentialField, InferenceField } from "./fields";
 import { nextBooleanDraft, type InferenceFieldDraft } from "./field-model";
 
@@ -22,17 +23,57 @@ const path: InferenceConfigurationPathEntry[] = [
 	{ id: "cfg_root", displayName: "Account default", revision: 5, kind: "account_default", identity: { kind: "account_default" } },
 ];
 
-function dto(overrides: Partial<RedactedInferenceFieldDto<InferenceConfigurationField>> = {}): RedactedInferenceFieldDto<InferenceConfigurationField> {
+type DtoOverrides = Partial<Omit<RedactedInferenceFieldDto<InferenceConfigurationField>, "inherited">> & {
+	inherited?: Partial<RedactedInferenceFieldDto<InferenceConfigurationField>["inherited"]>;
+};
+
+function dto(overrides: DtoOverrides = {}): RedactedInferenceFieldDto<InferenceConfigurationField> {
+	const { inherited, ...current } = overrides;
+	const request = current.request ?? { value: current.effective ?? null } as RedactedInferenceFieldDto<InferenceConfigurationField>["request"];
 	return {
 		override: { kind: "inherit" },
+		request,
 		effective: null,
-		provenance: {
-			kind: "configured",
-			source: { kind: "account_default", configurationId: "cfg_root", depth: 1 },
-		},
+		provenance: { configured: { accountDefault: { configurationId: "cfg_root", depth: 1 } } },
 		adjustment: null,
-		...overrides,
+		inherited: {
+			request: inherited?.request ?? request,
+			effective: inherited?.effective ?? current.effective ?? null,
+			provenance: inherited?.provenance ?? current.provenance ?? { configured: { accountDefault: { configurationId: "cfg_root", depth: 1 } } },
+			adjustment: inherited?.adjustment ?? current.adjustment ?? null,
+		},
+		...current,
 	};
+}
+
+function prefillDto(request: boolean, applied = request): RedactedInferenceFieldDto<InferenceConfigurationField> {
+	const policy: AppliedPrefillPolicy = request ? {
+		request: true,
+		reasoningShape: "reasoning_on",
+		applied,
+		adjustment: !applied ? "prefill_unsupported" : null,
+		capability: {
+			kind: "fixed_policy" as const,
+			status: applied ? "supported" as const : "unsupported" as const,
+			source: "custom_provider_policy" as const,
+		},
+	} : {
+		request: false,
+		reasoningShape: "reasoning_on",
+		applied: false,
+		adjustment: null,
+		capability: null,
+	};
+	return dto({
+		request: { value: request },
+		effective: applied,
+		adjustment: { kind: "prefill_policy", policy },
+		inherited: {
+			request: { value: request },
+			effective: applied,
+			adjustment: { kind: "prefill_policy", policy },
+		},
+	});
 }
 
 function render(
@@ -62,26 +103,26 @@ function checkboxMarkup(html: string): string {
 
 describe("boolean inheritance control", () => {
 	it("uses one native checkbox with no redundant aria-checked and a visible inherit reset", () => {
-		const html = render("supportsPrefill", { mode: "inherit" }, dto({ effective: true }));
+		const html = render("supportsPrefill", { mode: "inherit" }, prefillDto(true));
 		expect(html).toContain('type="checkbox"');
 		expect(html).not.toContain("aria-checked");
 		expect(html).toContain(">Inherit<");
 		expect(html).toContain('aria-live="polite"');
 	});
 
-	it("describes the effective value and its source", () => {
-		const html = render("supportsPrefill", { mode: "inherit" }, dto({ effective: true }));
-		expect(html).toContain("Effective on from Account default");
+	it("describes the resolved request and its source", () => {
+		const html = render("supportsPrefill", { mode: "inherit" }, prefillDto(true));
+		expect(html).toContain("Configured on from Account default. Applied on.");
 		expect(html).toMatch(/aria-describedby="([^"]+)"/);
 		const describedBy = /aria-describedby="([^"]+)"/.exec(html)?.[1];
 		expect(html).toContain(`id="${describedBy}"`);
 	});
 
 	it("enables the inherit reset only once a value is explicit", () => {
-		expect(render("supportsPrefill", { mode: "inherit" }, dto({ effective: false }))).toContain(
+		expect(render("supportsPrefill", { mode: "inherit" }, prefillDto(false))).toContain(
 			'class="btn ghost compact inference-inherit-reset" disabled=""',
 		);
-		expect(render("supportsPrefill", { mode: "explicit", state: "value", text: "false" }, dto({ effective: false }))).not.toContain(
+		expect(render("supportsPrefill", { mode: "explicit", state: "value", text: "false" }, prefillDto(false))).not.toContain(
 			'class="btn ghost compact inference-inherit-reset" disabled=""',
 		);
 	});
@@ -93,7 +134,7 @@ describe("boolean inheritance control", () => {
 	 * rebuilt an ephemeral cycle marker per render would never reach step three.
 	 */
 	it("cycles the rendered checkbox from inherit through both explicit values and back", () => {
-		const inherited = dto({ effective: true });
+		const inherited = prefillDto(true);
 		const steps: { checkbox: string; inheritDisabled: boolean }[] = [];
 		let draft: InferenceFieldDraft = { mode: "inherit" };
 		for (let click = 0; click < 4; click += 1) {
@@ -120,7 +161,7 @@ describe("boolean inheritance control", () => {
 	});
 
 	it("cycles a false inherited value through its own explicit copy first", () => {
-		const inherited = dto({ effective: false });
+		const inherited = prefillDto(false);
 		const first = nextBooleanDraft({ mode: "inherit" }, false);
 		expect(first).toEqual({ mode: "explicit", state: "value", text: "false" });
 		expect(checkboxMarkup(render("supportsPrefill", first, inherited))).not.toContain("checked");
@@ -128,19 +169,68 @@ describe("boolean inheritance control", () => {
 		expect(checkboxMarkup(render("supportsPrefill", second, inherited))).toContain('checked=""');
 		expect(nextBooleanDraft(second, false)).toEqual({ mode: "inherit" });
 	});
+
+	it("announces an explicit On request clamped Off by capability evidence", () => {
+		const html = render("supportsPrefill", { mode: "explicit", state: "value", text: "true" }, prefillDto(true, false));
+		expect(html).toContain(
+			"Configured on from Account default. Applied off because this provider route does not support prefill with tools.",
+		);
+	});
 });
 
 describe("enum inheritance control", () => {
 	it("offers a separated inherit option naming the effective value and source", () => {
-		const html = render("toolCalls", { mode: "inherit" }, dto({ effective: "railroad" }));
+		const html = render("toolCalls", { mode: "inherit" }, dto({
+			request: { value: { kind: "strategy", strategy: "railroad" } },
+			effective: "railroad",
+		}));
 		expect(html).toContain("Inherit — Railroad from Account default");
 		expect(html).toContain('<option disabled="" value="__separator">');
+		expect(html).toContain(">Bickr automatic<");
 		expect(html).toContain(">Provider default<");
 	});
 
 	it("selects the explicit option when one is stored", () => {
 		const html = render("toolCalls", { mode: "explicit", state: "value", text: "require" }, dto({ effective: "require" }));
 		expect(html).toContain('<option value="require" selected="">Require</option>');
+	});
+
+	it("keeps current applied status separate from the inherit option", () => {
+		const html = render("toolCalls", { mode: "explicit", state: "value", text: "require" }, dto({
+			request: { value: { kind: "strategy", strategy: "require" } },
+			effective: "require",
+			provenance: { configured: { configuration: {
+				configurationId: "cfg_self", configurationKind: "custom", depth: 0,
+			} } },
+			inherited: {
+				request: { value: { kind: "strategy", strategy: "railroad" } },
+				effective: "railroad",
+				provenance: { configured: { accountDefault: { configurationId: "cfg_root", depth: 1 } } },
+				adjustment: null,
+			},
+		}));
+		expect(html).toContain("Configured Require from Shared sampling (set here)");
+		expect(html).toContain("Inherit — Railroad from Account default");
+	});
+
+	it("never relabels Provider default as the applied structured strategy", () => {
+		const html = render("toolCalls", { mode: "explicit", state: "value", text: "provider_default" }, dto({
+			request: { value: { kind: "provider_default" } },
+			effective: "railroad",
+			provenance: { configured: { configuration: {
+				configurationId: "cfg_self", configurationKind: "custom", depth: 0,
+			} } },
+			inherited: {
+				request: { value: { kind: "provider_default" } },
+				effective: "require",
+				provenance: { configured: { accountDefault: { configurationId: "cfg_root", depth: 1 } } },
+				adjustment: null,
+			},
+		}));
+		expect(html).toContain("Configured Provider default from Shared sampling (set here)");
+		expect(html).toContain("Inherit — Provider default from Account default");
+		expect(html).not.toContain("Configured Railroad");
+		expect(html).not.toContain("Inherit — Require");
 	});
 });
 
@@ -155,7 +245,20 @@ describe("text and number inheritance controls", () => {
 		const html = render("temperature", { mode: "inherit" }, dto({ effective: 0 }));
 		expect(html).toContain("disabled=\"\"");
 		expect(html).toContain('placeholder="0"');
-		expect(html).toContain("Effective 0 from Account default");
+		expect(html).toContain("Configured 0 from Account default");
+	});
+
+	it("uses the inherited value for reset placeholders even when the current applied value differs", () => {
+		const html = render("temperature", { mode: "inherit" }, dto({
+			effective: 0.9,
+			inherited: {
+				effective: 0.3,
+				provenance: { configured: { accountDefault: { configurationId: "cfg_root", depth: 1 } } },
+				adjustment: null,
+			},
+		}));
+		expect(html).toContain('placeholder="0.3"');
+		expect(html).toContain("Configured 0.9 from Account default");
 	});
 
 	it("enables the input for an explicit value and keeps zero visible", () => {
@@ -231,11 +334,9 @@ describe("text and number inheritance controls", () => {
 			"compactionReasoning",
 			{ mode: "explicit", state: "value", text: "high" },
 			dto({
+				request: { value: { kind: "explicit_effort", effort: "high" } },
 				effective: resolution,
-				provenance: {
-					kind: "configured",
-					source: { kind: "account_default", configurationId: "cfg_root", depth: 1 },
-				},
+				provenance: { configured: { accountDefault: { configurationId: "cfg_root", depth: 1 } } },
 				adjustment: { kind: "compaction_policy", resolution },
 			}),
 		);
@@ -251,14 +352,14 @@ describe("text and number inheritance controls", () => {
 				kind: "model_default",
 				modelDefault: { kind: "explicit_effort", effort: "high" },
 			},
-			selection: { kind: "explicit_effort", effort: "high" },
+			selection: { kind: "model_default", effort: "high" },
 			runtimeFallback: { kind: "none" },
 			provenance: {
 				configuration: null,
 				modelDefault: { kind: "explicit_effort", effort: "high" },
 				safetyFloor: { kind: "explicit_effort", effort: "low" },
 				learnedFloor: null,
-				baselineSelection: { kind: "explicit_effort", effort: "high" },
+				baselineSelection: { kind: "model_default", effort: "high" },
 				support: "known",
 				policySource: "openrouter_semantic_override",
 			},
@@ -267,8 +368,9 @@ describe("text and number inheritance controls", () => {
 			"compactionReasoning",
 			{ mode: "inherit" },
 			dto({
+				request: { unset: null },
 				effective: resolution,
-				provenance: { kind: "unset" },
+				provenance: { unset: null },
 				adjustment: { kind: "compaction_policy", resolution },
 			}),
 		);

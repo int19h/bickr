@@ -1,5 +1,34 @@
 import { describe, expect, it } from "vitest";
 import { providerAvatarImageStreamChunk } from "../index";
+import { providerAvatarRequestedToolCalls, providerAvatarToolChoice } from "./provider";
+
+describe("provider avatar tool policy", () => {
+	it("covers every stored request strategy without losing provider omission intent", () => {
+		expect(providerAvatarRequestedToolCalls({ toolCallRequest: { kind: "provider_default" } })).toBe("at_will");
+		expect(providerAvatarRequestedToolCalls({ toolCallRequest: { kind: "inherit" }, toolCalls: "railroad" })).toBe("railroad");
+		expect(providerAvatarRequestedToolCalls({ toolCallRequest: { kind: "bickr_automatic" }, toolCalls: "railroad" })).toBe("railroad");
+		expect(providerAvatarRequestedToolCalls({ toolCallRequest: { kind: "bickr_automatic" }, toolCalls: "require" })).toBe("require");
+		for (const [strategy, expected] of [
+			["require", "require"],
+			["railroad", "railroad"],
+			["at_will", "require"],
+		] as const) {
+			expect(providerAvatarRequestedToolCalls({ toolCallRequest: { kind: "strategy", strategy } })).toBe(expected);
+		}
+	});
+
+	it("covers every avatar response mode and structured tool strategy", () => {
+		const automatic = { toolCallRequest: { kind: "bickr_automatic" as const } };
+		const providerDefault = { toolCallRequest: { kind: "provider_default" as const } };
+		for (const mode of ["structured_output", "tool_call", "tool_call_cache_friendly"] as const) {
+			for (const strategy of ["require", "railroad"] as const) {
+				const expected = mode === "structured_output" ? undefined : strategy === "require" ? "required" : undefined;
+				expect(providerAvatarToolChoice(mode, automatic, strategy)).toBe(expected);
+				expect(providerAvatarToolChoice(mode, providerDefault, strategy)).toBeUndefined();
+			}
+		}
+	});
+});
 
 describe("provider avatar image streaming", () => {
 	it("extracts streamed assistant text, image URLs, usage, and provider metadata", () => {

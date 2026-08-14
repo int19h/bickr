@@ -68,6 +68,13 @@ describe("legacy inference compatibility intent", () => {
 		});
 	});
 
+	it("preserves absent legacy translation controls as provider-default intent", () => {
+		expect(inferenceOverridesFromLegacyTranslationSettings({ model: "translator/model" })).toMatchObject({
+			reasoning: { kind: "value", value: { kind: "provider_default" } },
+			toolCalls: { kind: "value", value: { kind: "provider_default" } },
+		});
+	});
+
 	it("treats an explicit nested clear as intent for every reusable nested field", () => {
 		const account = legacyInferenceCompatibilityFieldMask({ imageGeneration: null });
 		expect(account.fields).toEqual([

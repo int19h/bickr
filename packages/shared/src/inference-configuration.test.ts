@@ -48,6 +48,66 @@ describe("canonical inference configuration resolution", () => {
 		expect(resolution.effective.temperature).toBe(0);
 	});
 
+	it("keeps prefill opt-in unset, inherited On, local clamps, and explicit Off distinct", () => {
+		const empty = node("empty", "account_default", null, {});
+		const unset = resolveInferenceConfiguration([empty]);
+		expect(unset.raw.supportsPrefill).toEqual({
+			state: "absent",
+			provenance: { kind: "unset" },
+			override: null,
+		});
+		expect(unset.effective.prefillPolicy).toEqual({
+			request: null,
+			reasoningShape: "provider_default",
+			applied: false,
+			adjustment: null,
+			capability: null,
+		});
+
+		const customAccount = node("custom-account", "account_default", null, {
+			baseUrl: value("https://provider.example/v1"),
+			model: value("provider/model"),
+			supportsPrefill: value(true),
+		});
+		const inheritedChild = node("child", "custom", customAccount.id, {});
+		const inherited = resolveInferenceConfiguration([inheritedChild, customAccount]);
+		expect(inherited.raw.supportsPrefill).toMatchObject({
+			state: "value",
+			value: true,
+			provenance: { kind: "configured", source: { kind: "account_default", depth: 1 } },
+		});
+		expect(inherited.effective.prefillPolicy).toMatchObject({ request: true, applied: true, adjustment: null });
+
+		const unsupported = node("unsupported", "account_default", null, {
+			reasoning: value({ kind: "reasoning_disabled" }),
+			supportsPrefill: value(true),
+		});
+		const clamped = resolveInferenceConfiguration([unsupported], {
+			defaults: {
+				...defaultBickrInferenceDefaults,
+				fields: {
+					...defaultBickrInferenceDefaults.fields,
+					model: "deepseek/deepseek-v4-flash-0731",
+				},
+			},
+		});
+		expect(clamped.effective.prefillPolicy).toMatchObject({
+			request: true,
+			reasoningShape: "reasoning_off",
+			applied: false,
+			adjustment: "provider_compatibility_incomplete",
+		});
+
+		const explicitOff = node("off", "custom", customAccount.id, { supportsPrefill: value(false) });
+		expect(resolveInferenceConfiguration([explicitOff, customAccount]).effective.prefillPolicy).toEqual({
+			request: false,
+			reasoningShape: "reasoning_on",
+			applied: false,
+			adjustment: null,
+			capability: null,
+		});
+	});
+
 	it("keeps normal and compaction reasoning independent", () => {
 		const account = node("account", "account_default", null, {
 			reasoning: value({ kind: "explicit_effort", effort: "high" }),
@@ -94,7 +154,7 @@ describe("canonical inference configuration resolution", () => {
 				kind: "model_default",
 				modelDefault: { kind: "explicit_effort", effort: "high" },
 			},
-			selection: { kind: "explicit_effort", effort: "high" },
+			selection: { kind: "model_default", effort: "high" },
 			provenance: { configuration: null },
 		});
 		expect(inferenceFieldAnnotations(account.overrides, resolution).compactionReasoning).toMatchObject({
@@ -102,7 +162,7 @@ describe("canonical inference configuration resolution", () => {
 			effective: {
 				kind: "selected",
 				decision: { kind: "model_default" },
-				selection: { kind: "explicit_effort", effort: "high" },
+				selection: { kind: "model_default", effort: "high" },
 			},
 		});
 	});
@@ -132,9 +192,45 @@ describe("canonical inference configuration resolution", () => {
 		});
 		expect(resolution.effective.compactionReasoning).toMatchObject({
 			kind: "selected",
-			decision: { kind: "model_default" },
-			selection: { kind: "explicit_effort", effort: "high" },
+			decision: { kind: "configuration" },
+			selection: { kind: "explicit_effort", effort: "low" },
 			provenance: { configuration: { kind: "explicit_effort", effort: "low" } },
+		});
+	});
+
+	it("keeps Bickr automatic, provider omission, and explicit request intent distinct", () => {
+		const account = node("account", "account_default", null, {});
+		const automatic = node("automatic", "custom", account.id, {
+			reasoning: value({ kind: "bickr_automatic" }),
+			toolCalls: value({ kind: "bickr_automatic" }),
+		});
+		const automaticResolution = resolveInferenceConfiguration([automatic, account]);
+		expect(automaticResolution.raw.reasoning).toMatchObject({ state: "value", value: { kind: "bickr_automatic" } });
+		expect(automaticResolution.effective.ordinaryLoopToolCalls).toMatchObject({
+			intent: { kind: "bickr_automatic" }, emission: "emit_tool_choice",
+		});
+
+		const providerDefault = node("provider", "custom", account.id, {
+			reasoning: value({ kind: "provider_default" }),
+			toolCalls: value({ kind: "provider_default" }),
+		});
+		const providerResolution = resolveInferenceConfiguration([providerDefault, account]);
+		expect(providerResolution.effective.reasoningEffort).toBeUndefined();
+		expect(providerResolution.effective.ordinaryLoopToolCalls).toMatchObject({
+			intent: { kind: "provider_default" },
+			reasoningShape: "provider_default",
+			appliedStrategy: "at_will",
+			emission: "omit_tool_choice",
+			capability: null,
+		});
+		const inherited = resolveInferenceConfiguration([account]);
+		expect(inherited.raw.toolCalls).toMatchObject({ state: "absent", provenance: { kind: "unset" } });
+		expect(inherited.effective).toMatchObject({
+			reasoningIntent: { kind: "inherit" },
+			toolCallIntent: { kind: "inherit" },
+			compactionModeIntent: { kind: "inherit" },
+			promptCacheIntent: { kind: "inherit" },
+			ordinaryLoopToolCalls: { intent: { kind: "inherit" }, emission: "emit_tool_choice" },
 		});
 	});
 

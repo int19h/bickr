@@ -41,6 +41,7 @@ import {
 } from "../workers/agent-runtime/src/errors";
 
 const learnedMinimalCompactionReasoning = {
+	decision: { kind: "learned_floor", floor: { kind: "explicit_effort", effort: "minimal" } },
 	selection: { kind: "explicit_effort", effort: "minimal" },
 	provenance: {
 		baselineSelection: { kind: "reasoning_disabled" },
@@ -145,6 +146,7 @@ describe("Compaction", () => {
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				activeLoopMessageRows: () => rows,
+				compactionRowsLeaveOutputBudget: () => true,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
 			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
@@ -184,6 +186,7 @@ describe("Compaction", () => {
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				activeLoopMessageRows: () => rows,
+				compactionRowsLeaveOutputBudget: () => true,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
 			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
@@ -223,6 +226,7 @@ describe("Compaction", () => {
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				activeLoopMessageRows: () => rows,
+				compactionRowsLeaveOutputBudget: () => true,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 			});
 			const compactionRowSelectionForEstimatedBudget = (BotRuntime.prototype as unknown as {
@@ -359,18 +363,37 @@ describe("Compaction", () => {
 			}).compactionRowsForEstimatedBudget.bind(runtime);
 
 			const selected = compactionRowsForEstimatedBudget(bot, tools, "structured_output");
-			const selectedMessages = selected.map(
+			const smallestPrefixMessages = rows.slice(0, 1).map(
 				(row) => JSON.parse(row.message_json) as Parameters<typeof providerCompactionSummaryLimitsForChat>[1][number],
 			);
-			const selectedLimits = providerCompactionSummaryLimitsForChat(bot, selectedMessages, calibration, tools, "structured_output");
+			const smallestPrefixLimits = providerCompactionSummaryLimitsForChat(
+				bot,
+				smallestPrefixMessages,
+				calibration,
+				tools,
+				"structured_output",
+			);
+			const excludedPrefixMessages = rows.slice(0, 2).map(
+				(row) => JSON.parse(row.message_json) as Parameters<typeof providerCompactionSummaryLimitsForChat>[1][number],
+			);
+			const excludedPrefixLimits = providerCompactionSummaryLimitsForChat(
+				bot,
+				excludedPrefixMessages,
+				calibration,
+				tools,
+				"structured_output",
+			);
 			const rejectedMessages = rows.slice(0, 6).map(
 				(row) => JSON.parse(row.message_json) as Parameters<typeof providerCompactionSummaryLimitsForChat>[1][number],
 			);
 			const rejectedLimits = providerCompactionSummaryLimitsForChat(bot, rejectedMessages, calibration, tools, "structured_output");
 			const compactionOutputSafetyTokens = 512;
 
-			expect(selected.map((row) => row.seq)).toEqual([1, 2]);
-			expect(selectedLimits.maxCompletionTokens).toBeGreaterThanOrEqual(selectedLimits.maxSummaryTokens + compactionOutputSafetyTokens);
+			expect(selected).toEqual([]);
+			expect(smallestPrefixLimits.maxCompletionTokens).toBeLessThan(
+				smallestPrefixLimits.maxSummaryTokens + compactionOutputSafetyTokens,
+			);
+			expect(excludedPrefixLimits.maxCompletionTokens).toBeLessThan(excludedPrefixLimits.maxSummaryTokens + compactionOutputSafetyTokens);
 			expect(rejectedLimits.maxCompletionTokens).toBeLessThan(rejectedLimits.maxSummaryTokens + compactionOutputSafetyTokens);
 		});
 
@@ -1731,6 +1754,20 @@ describe("Compaction", () => {
 			);
 			expect("tool_choice" in railroadRequest).toBe(false);
 			expect(railroadRequest.messages[0]?.content).toContain("You MUST use one of the following tools: save_translation.");
+
+			const providerDefaultRequest = providerTranslationRequest(
+				{
+					baseUrl: customProviderBaseUrl,
+					model: "openai/gpt-4o-mini",
+					prompt: "Translate to Pirate.",
+					reasoningRequest: { kind: "provider_default" },
+					toolCallRequest: { kind: "provider_default" },
+					temperature: 0,
+				},
+				"Hello world.",
+			);
+			expect("reasoning" in providerDefaultRequest).toBe(false);
+			expect("tool_choice" in providerDefaultRequest).toBe(false);
 		});
 
 		it("compacts old context from local token estimates before provider inference", async () => {
@@ -1969,6 +2006,7 @@ describe("Compaction", () => {
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
 			},
 			botWithCurrentRuntimeBudget: async (current: BotDocument) => current,
+			compactionRowsLeaveOutputBudget: () => true,
 			compactLoopMessageRows: async (
 				_bot: unknown,
 				_settings: unknown,

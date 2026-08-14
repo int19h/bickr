@@ -1677,6 +1677,12 @@ describe("MCP endpoint", () => {
 		const patchModelKinds = schemaProperties(schemaProperties(schemaProperty(byName, "update_inference_configuration", "overrides")).model as Record<string, unknown>).kind as Record<string, unknown>;
 		expect(createModelKinds.enum).toEqual(["value"]);
 		expect(patchModelKinds.enum).toEqual(["inherit", "value"]);
+		const reasoningValue = schemaProperties(
+			schemaProperties(schemaProperty(byName, "update_inference_configuration", "overrides")).reasoning as Record<string, unknown>,
+		).value as Record<string, unknown>;
+		expect(schemaProperties(reasoningValue).kind).toMatchObject({
+			enum: ["bickr_automatic", "provider_default", "reasoning_disabled", "explicit_effort"],
+		});
 		const credential = schemaProperty(byName, "create_inference_configuration", "credential");
 		expect(credential).toMatchObject({ additionalProperties: false, required: ["mode"] });
 		expect(schemaProperties(credential).mode).toMatchObject({ enum: ["inherit", "account_default", "none", "value"] });
@@ -1695,16 +1701,41 @@ describe("MCP endpoint", () => {
 		for (const name of inferenceTools) expect(byName.get(name)?.outputSchema, `${name} outputSchema`).toBeDefined();
 		const annotation = canonicalAnnotation("account_default", "cfg_account", "xiaomi/mimo-v2.5");
 		const configurationFields: Record<string, unknown> = Object.fromEntries(inferenceConfigurationFields.map((field) => [field, {
-			override: { kind: "inherit" }, effective: null, provenance: { kind: "unset" }, adjustment: null,
+			override: { kind: "inherit" }, request: { unset: null }, effective: null, provenance: { unset: null }, adjustment: null,
+			inherited: { request: { unset: null }, effective: null, provenance: { unset: null }, adjustment: null },
 		}]));
+		const unsetPrefillPolicy = {
+			kind: "prefill_policy",
+			policy: {
+				request: null,
+				reasoningShape: "provider_default",
+				applied: false,
+				adjustment: null,
+				capability: null,
+			},
+		};
+		configurationFields.supportsPrefill = {
+			override: { kind: "inherit" },
+			request: { unset: null },
+			effective: false,
+			provenance: { unset: null },
+			adjustment: unsetPrefillPolicy,
+			inherited: {
+				request: { unset: null }, effective: false, provenance: { unset: null }, adjustment: unsetPrefillPolicy,
+			},
+		};
 		configurationFields.temperature = {
 			override: { kind: "inherit" },
+			request: { value: 0 },
 			effective: 0,
-			provenance: {
-				kind: "configured",
-				source: { kind: "account_default", configurationId: "cfg_account", depth: 1 },
-			},
+			provenance: { configured: { accountDefault: { configurationId: "cfg_account", depth: 1 } } },
 			adjustment: null,
+			inherited: {
+				request: { value: 0 },
+				effective: 0,
+				provenance: { configured: { accountDefault: { configurationId: "cfg_account", depth: 1 } } },
+				adjustment: null,
+			},
 		};
 		expectSchemaAccepts(byName.get("get_profile")!.outputSchema!, {
 			profile: { id: "usr_mcp", handle: "mcp-user", inferenceConfigurations: { graphRevision: 7, accountDefault: annotation } },
@@ -1723,6 +1754,36 @@ describe("MCP endpoint", () => {
 				fields: configurationFields,
 				path: [{ id: "cfg_custom", displayName: "Portable", revision: 3, kind: "custom", identity: { kind: "custom", name: "Portable" } }],
 			} },
+		});
+		const getConfigurationOutput = byName.get("get_inference_configuration")!.outputSchema!;
+		const dataSchema = schemaProperties(getConfigurationOutput).data as Record<string, unknown>;
+		const configurationSchema = schemaProperties(dataSchema).configuration as Record<string, unknown>;
+		const fieldsSchema = schemaProperties(configurationSchema).fields as Record<string, unknown>;
+		const fieldSchemas = schemaProperties(fieldsSchema);
+		expect(Object.keys(fieldSchemas)).toEqual(["supportsPrefill"]);
+		expect(fieldsSchema.propertyNames).toEqual({ enum: [...inferenceConfigurationFields] });
+		const fieldSchema = fieldsSchema.additionalProperties as Record<string, unknown>;
+		const provenanceSchema = schemaProperties(fieldSchema).provenance as Record<string, unknown>;
+		expect(provenanceSchema).toMatchObject({ additionalProperties: false, minProperties: 1, maxProperties: 1 });
+		expect(Object.keys(schemaProperties(provenanceSchema))).toEqual(["unset", "configured"]);
+		const sourceSchema = schemaProperties(provenanceSchema).configured as Record<string, unknown>;
+		expect(sourceSchema).toMatchObject({ additionalProperties: false, minProperties: 1, maxProperties: 1 });
+		expect(Object.keys(schemaProperties(sourceSchema))).toEqual(["configuration", "accountDefault", "bickrDefault"]);
+		const requestSchema = schemaProperties(fieldSchema).request as Record<string, unknown>;
+		expect(requestSchema).toMatchObject({ additionalProperties: false, minProperties: 1, maxProperties: 1 });
+		expect(Object.keys(schemaProperties(requestSchema))).toEqual(["value", "explicitNone", "targetDefault", "unset"]);
+		const prefillFieldSchema = fieldSchemas.supportsPrefill as Record<string, unknown>;
+		expect(schemaProperties(prefillFieldSchema).effective).toMatchObject({ type: "boolean" });
+		const prefillAdjustment = schemaProperties(prefillFieldSchema).adjustment as Record<string, unknown>;
+		expect(prefillAdjustment).toMatchObject({ type: "object", additionalProperties: false, required: ["kind", "policy"] });
+		const prefillPolicy = schemaProperties(prefillAdjustment).policy as Record<string, unknown>;
+		expect(prefillPolicy).toMatchObject({
+			type: "object",
+			additionalProperties: false,
+			required: ["request", "reasoningShape", "applied", "adjustment", "capability"],
+		});
+		expect(schemaProperties(prefillPolicy).reasoningShape).toMatchObject({
+			enum: ["provider_default", "reasoning_off", "reasoning_on"],
 		});
 		expectSchemaAccepts(byName.get("get_inference_configuration_delete_impact")!.outputSchema!, {
 			ok: true,

@@ -36,6 +36,7 @@ type CompactionProviderResult = {
 };
 
 const customProviderInitialCompactionReasoningDiagnostic = {
+	decision: { kind: "baseline", selection: { kind: "reasoning_disabled" } },
 	selection: { kind: "reasoning_disabled" },
 	provenance: {
 		baselineSelection: { kind: "reasoning_disabled" },
@@ -50,6 +51,7 @@ const customProviderInitialCompactionReasoningDiagnostic = {
 
 const customProviderRetryLearnedCompactionReasoningDiagnostic = {
 	...customProviderInitialCompactionReasoningDiagnostic,
+	decision: { kind: "learned_floor", floor: { kind: "explicit_effort", effort: "minimal" } },
 	selection: { kind: "explicit_effort", effort: "minimal" },
 	provenance: {
 		...customProviderInitialCompactionReasoningDiagnostic.provenance,
@@ -235,6 +237,19 @@ describe("Structured output", () => {
 			);
 			expect("tool_choice" in railroadRequest).toBe(false);
 			expect("tool_choice" in coercedAtWillRequest).toBe(false);
+			const providerDefaultRequest = providerCompactionRequest(
+				{
+					model: "test-model",
+					toolCallRequest: { kind: "provider_default" },
+				},
+				messages,
+				limits,
+				undefined,
+				"tool_call",
+				{ effort: "low", exclude: false },
+			);
+			expect("tool_choice" in providerDefaultRequest).toBe(false);
+			expect(providerDefaultRequest.reasoning).toEqual({ effort: "low", exclude: false });
 			expect(messages[0]?.content).toContain(`You MUST use ${metaCompactionToolName}.`);
 			expect(messages[0]?.content).not.toContain("read_thread");
 		});
@@ -405,6 +420,7 @@ describe("Structured output", () => {
 				baseUrl: customProviderBaseUrl,
 				model,
 			})).toEqual({
+				decision: { kind: "learned_floor", floor: { kind: "explicit_effort", effort: "minimal" } },
 				selection: { kind: "explicit_effort", effort: "minimal" },
 				runtimeFallback: { kind: "none" },
 				provenance: {
@@ -421,6 +437,7 @@ describe("Structured output", () => {
 				baseUrl: "https://openrouter.ai/api/v1",
 				model,
 			})).toEqual({
+				decision: { kind: "baseline", selection: { kind: "reasoning_disabled" } },
 				selection: { kind: "reasoning_disabled" },
 				runtimeFallback: { kind: "none" },
 				provenance: {

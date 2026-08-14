@@ -42,7 +42,7 @@ function fields(overrides: Partial<Record<InferenceConfigurationField, Inference
 		setField(result, field, {
 			override: overrides[field] ?? { kind: "inherit" },
 			effective: null,
-			provenance: { kind: "unset" },
+			provenance: { unset: null },
 			adjustment: null,
 		});
 	}
@@ -52,9 +52,15 @@ function fields(overrides: Partial<Record<InferenceConfigurationField, Inference
 function setField<K extends InferenceConfigurationField>(
 	fields: RedactedInferenceFieldDtoMap,
 	field: K,
-	dto: RedactedInferenceFieldDto<K>,
+	dto: Omit<RedactedInferenceFieldDto<K>, "inherited" | "request"> &
+		Partial<Pick<RedactedInferenceFieldDto<K>, "inherited" | "request">>,
 ): void {
-	Object.assign(fields, { [field]: dto });
+	const request = dto.request ?? { kind: "value", value: dto.effective } as unknown as RedactedInferenceFieldDto<K>["request"];
+	Object.assign(fields, { [field]: {
+		...dto,
+		request,
+		inherited: dto.inherited ?? { request, effective: dto.effective, provenance: dto.provenance, adjustment: dto.adjustment },
+	} });
 }
 
 describe("boolean inheritance cycle", () => {
@@ -259,6 +265,65 @@ describe("provenance and effective text", () => {
 		expect(effectiveValueText("providerRouting", { order: ["anthropic"] })).toBe('{"order":["anthropic"]}');
 	});
 
+	it("presents prefill raw intent separately from the capability-gated outcome", () => {
+		const unsetPolicy = {
+			request: null,
+			reasoningShape: "provider_default",
+			applied: false,
+			adjustment: null,
+			capability: null,
+		} as const;
+		expect(inferenceFieldPresentation("supportsPrefill", {
+			override: { kind: "inherit" },
+			request: { unset: null },
+			effective: false,
+			provenance: { unset: null },
+			adjustment: { kind: "prefill_policy", policy: unsetPolicy },
+			inherited: {
+				request: { unset: null }, effective: false, provenance: { unset: null },
+				adjustment: { kind: "prefill_policy", policy: unsetPolicy },
+			},
+		}, path)).toEqual({
+			status: "Configuration unset; no configuration or Bickr default sets this field. Applied off because prefill is opt-in.",
+			inheritOption: "Inherit — Configuration unset; no configuration or Bickr default sets this field. Applied off because prefill is opt-in.",
+			inheritAnnouncement: "Supports prefill inherits: Configuration unset; no configuration or Bickr default sets this field. Applied off because prefill is opt-in.",
+		});
+
+		const unsupportedPolicy = {
+			request: true,
+			reasoningShape: "reasoning_on",
+			applied: false,
+			adjustment: "prefill_unsupported",
+			capability: { kind: "provider_aggregate", status: "unsupported", providers: [] },
+		} as const;
+		const supportedPolicy = {
+			request: true,
+			reasoningShape: "reasoning_on",
+			applied: true,
+			adjustment: null,
+			capability: { kind: "fixed_policy", status: "supported", source: "custom_provider_policy" },
+		} as const;
+		const presentation = inferenceFieldPresentation("supportsPrefill", {
+			override: { kind: "value", value: true },
+			request: { value: true },
+			effective: false,
+			provenance: { configured: { configuration: {
+				configurationId: "cfg_self", configurationKind: "custom", depth: 0,
+			} } },
+			adjustment: { kind: "prefill_policy", policy: unsupportedPolicy },
+			inherited: {
+				request: { value: true },
+				effective: true,
+				provenance: { configured: { accountDefault: { configurationId: "cfg_root", depth: 2 } } },
+				adjustment: { kind: "prefill_policy", policy: supportedPolicy },
+			},
+		}, path);
+		expect(presentation.status).toBe(
+			"Configured on from Shared sampling (set here). Applied off because this provider route does not support prefill with tools.",
+		);
+		expect(presentation.inheritOption).toBe("Inherit — Configured on from Account default. Applied on.");
+	});
+
 	it("summarizes a compaction refusal instead of a value", () => {
 		expect(
 			effectiveValueText("compactionReasoning", {
@@ -302,9 +367,11 @@ describe("provenance and effective text", () => {
 		} as const;
 		const presentation = inferenceFieldPresentation("compactionReasoning", {
 			override: { kind: "inherit" },
+			request: { unset: null },
 			effective: resolution,
-			provenance: { kind: "unset" },
+			provenance: { unset: null },
 			adjustment: { kind: "compaction_policy", resolution },
+			inherited: { request: { unset: null }, effective: resolution, provenance: { unset: null }, adjustment: { kind: "compaction_policy", resolution } },
 		}, path);
 
 		expect(presentation).toEqual({
@@ -333,12 +400,16 @@ describe("provenance and effective text", () => {
 		} as const;
 		expect(inferenceFieldPresentation("compactionReasoning", {
 			override: { kind: "inherit" },
+			request: { value: { kind: "explicit_effort", effort: "low" } },
 			effective: resolution,
-			provenance: {
-				kind: "configured",
-				source: { kind: "account_default", configurationId: "cfg_root", depth: 2 },
-			},
+			provenance: { configured: { accountDefault: { configurationId: "cfg_root", depth: 2 } } },
 			adjustment: { kind: "compaction_policy", resolution },
+			inherited: {
+				request: { value: { kind: "explicit_effort", effort: "low" } },
+				effective: resolution,
+				provenance: { configured: { accountDefault: { configurationId: "cfg_root", depth: 2 } } },
+				adjustment: { kind: "compaction_policy", resolution },
+			},
 		}, path).status).toBe(
 			"Configured low from Account default. Applied high from the learned runtime floor.",
 		);

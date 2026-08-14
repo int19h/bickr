@@ -1,14 +1,17 @@
 import {
 	effectiveCompactionModeForModel,
 	effectiveReasoningEffortForModel,
-	effectiveSupportsPrefillForModel,
-	effectiveToolCallsForModel,
+	resolvePrefillPolicyForModel,
+	resolveToolCallPolicyForModel,
 	modelSupportsPromptCacheControl,
 	compactionReasoningCapabilitiesForModel,
 	compactionReasoningPolicyForModel,
 	resolveCompactionReasoningSelection,
 	type CompactionReasoningFloor,
 	type CompactionReasoningResolution,
+	type AppliedToolCallPolicy,
+	type AppliedPrefillPolicy,
+	type RequiredToolCallReasoningShape,
 } from "./openrouter-model-capabilities";
 import {
 	defaultProviderBaseUrl,
@@ -18,11 +21,19 @@ import {
 	worldAvatarImageGenerationSettingsWithDefaults,
 	type BotImageGenerationSettings,
 	type BotCompactionMode,
+	type BotCompactionModeIntent,
+	type BotCompactionModeRequest,
 	type BotCompactionReasoningEffort,
 	type BotCompactionReasoningRequest,
 	type BotInferenceReasoningEffort,
+	type BotInferenceReasoningIntent,
+	type BotInferenceReasoningRequest,
 	type BotInferenceToolCalls,
+	type BotInferenceToolCallIntent,
+	type BotInferenceToolCallRequest,
 	type BotPromptCacheMode,
+	type BotPromptCacheIntent,
+	type BotPromptCacheRequest,
 	type JsonObject,
 } from "./model";
 import {
@@ -36,7 +47,7 @@ import { isOpenRouterProviderBaseUrl } from "./inference-settings";
 import { sha256Hex } from "./ids";
 
 export const inferenceGraphSchemaVersion = 1;
-export const inferenceGraphCapabilityVersion = 1;
+export const inferenceGraphCapabilityVersion = 2;
 export const inferenceGraphGlobalDefaultsVersion = 1;
 // Public fingerprints use this non-secret deployment token for the global
 // credential. Bump it with every global credential rotation.
@@ -65,22 +76,10 @@ export function inferenceConfigurationKindFromStorage(
 }
 export type InferenceCredentialMode = "inherit" | "account_default" | "value" | "none";
 
-export type InferenceReasoningRequest =
-	| { kind: "provider_default" }
-	| { kind: "reasoning_disabled" }
-	| { kind: "explicit_effort"; effort: BotCompactionReasoningEffort };
-
-export type InferenceToolCallRequest =
-	| { kind: "provider_default" }
-	| { kind: "strategy"; strategy: BotInferenceToolCalls };
-
-export type InferenceCompactionModeRequest =
-	| { kind: "provider_default" }
-	| { kind: "mode"; mode: BotCompactionMode };
-
-export type InferencePromptCacheRequest =
-	| { kind: "provider_default" }
-	| { kind: "mode"; mode: BotPromptCacheMode };
+export type InferenceReasoningRequest = BotInferenceReasoningRequest;
+export type InferenceToolCallRequest = BotInferenceToolCallRequest;
+export type InferenceCompactionModeRequest = BotCompactionModeRequest;
+export type InferencePromptCacheRequest = BotPromptCacheRequest;
 
 export type InferenceConfigurationFieldValues = {
 	baseUrl: string;
@@ -264,11 +263,17 @@ export type EffectiveInferenceSettings = {
 	credential: InferenceCredentialResolution;
 	providerRouting?: JsonObject;
 	reasoningEffort?: Exclude<BotInferenceReasoningEffort, "default">;
+	reasoningIntent: BotInferenceReasoningIntent;
 	compactionReasoning: CompactionReasoningResolution;
 	toolCalls: BotInferenceToolCalls;
+	toolCallIntent: BotInferenceToolCallIntent;
+	ordinaryLoopToolCalls: AppliedToolCallPolicy;
 	compactionMode: BotCompactionMode;
+	compactionModeIntent: BotCompactionModeIntent;
 	promptCacheMode: BotPromptCacheMode;
+	promptCacheIntent: BotPromptCacheIntent;
 	supportsPrefill: boolean;
+	prefillPolicy: AppliedPrefillPolicy;
 	temperature: number;
 	topK?: number;
 	topP?: number;
@@ -304,7 +309,10 @@ export type InferenceResolution = {
 export type InferenceFieldAdjustment =
 	| InferenceProviderAuthorizationAdjustment
 	| { kind: "provider_or_model_default"; effective: unknown }
+	| { kind: "bickr_automatic"; effective: unknown }
 	| { kind: "capability_adjustment"; requested: unknown; effective: unknown }
+	| { kind: "tool_call_policy"; policy: AppliedToolCallPolicy }
+	| { kind: "prefill_policy"; policy: AppliedPrefillPolicy }
 	| { kind: "compaction_policy"; resolution: CompactionReasoningResolution };
 
 export type InferenceFieldEffectiveValues = {
@@ -337,11 +345,25 @@ export type InferenceFieldEffectiveValues = {
 	imageRepetitionPenalty: number | null;
 };
 
+/** The resolved stored/default request before provider policy is applied. */
+export type InferenceFieldResolvedRequest<K extends InferenceConfigurationField> =
+	| { kind: "value"; value: InferenceConfigurationFieldValues[K] }
+	| { kind: "explicit_none" }
+	| { kind: "target_default" }
+	| { kind: "unset" };
+
 export type InferenceFieldAnnotation<K extends InferenceConfigurationField> = {
 	override: InferenceOverrideUpdate<K>;
+	request: InferenceFieldResolvedRequest<K>;
 	effective: InferenceFieldEffectiveValues[K];
 	provenance: InferenceFieldProvenance;
 	adjustment: InferenceFieldAdjustment;
+	inherited: {
+		request: InferenceFieldResolvedRequest<K>;
+		effective: InferenceFieldEffectiveValues[K];
+		provenance: InferenceFieldProvenance;
+		adjustment: InferenceFieldAdjustment;
+	};
 };
 
 export type InferenceFieldAnnotationMap = {
@@ -395,38 +417,47 @@ export function resolveInferenceConfiguration(
 	const effectiveModel = authorization.model;
 	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
 	const providerRouting = optionalRawValue(raw.providerRouting);
-	const reasoningRequest = optionalRawValue(raw.reasoning);
-	const reasoningEffort = effectiveReasoningEffortForModel(
+	const reasoningRequest: BotInferenceReasoningIntent = optionalRawValue(raw.reasoning) ?? { kind: "inherit" };
+	const reasoningEffort = reasoningRequest.kind === "provider_default"
+		? undefined
+		: effectiveReasoningEffortForModel(
+			effectiveModel,
+			openRouter,
+			legacyReasoningRequest(reasoningRequest),
+			providerRouting,
+		);
+	const toolCallRequest: BotInferenceToolCallIntent = optionalRawValue(raw.toolCalls) ?? { kind: "inherit" };
+	const reasoningShape: RequiredToolCallReasoningShape = reasoningRequest.kind === "provider_default" || reasoningEffort === undefined
+		? "provider_default"
+		: reasoningEffort === "none" ? "reasoning_off" : "reasoning_on";
+	const ordinaryLoopToolCalls = resolveToolCallPolicyForModel(
 		effectiveModel,
 		openRouter,
-		legacyReasoningRequest(reasoningRequest),
+		toolCallRequest,
 		providerRouting,
+		reasoningShape,
 	);
-	const toolCallRequest = optionalRawValue(raw.toolCalls);
-	const toolCalls = effectiveToolCallsForModel(
-		effectiveModel,
-		openRouter,
-		toolCallRequest?.kind === "strategy" ? toolCallRequest.strategy : undefined,
-		providerRouting,
-	);
-	const compactionModeRequest = optionalRawValue(raw.compactionMode);
+	const toolCalls = ordinaryLoopToolCalls.appliedStrategy;
+	const compactionModeRequest: BotCompactionModeIntent = optionalRawValue(raw.compactionMode) ?? { kind: "inherit" };
 	const compactionMode = effectiveCompactionModeForModel(
 		effectiveModel,
 		openRouter,
-		compactionModeRequest?.kind === "mode" ? compactionModeRequest.mode : undefined,
+		compactionModeRequest.kind === "mode" ? compactionModeRequest.mode : undefined,
 		providerRouting,
 	);
-	const promptCacheRequest = optionalRawValue(raw.promptCacheMode);
-	const requestedPromptCacheMode = promptCacheRequest?.kind === "mode" ? promptCacheRequest.mode : "off";
+	const promptCacheRequest: BotPromptCacheIntent = optionalRawValue(raw.promptCacheMode) ?? { kind: "inherit" };
+	const requestedPromptCacheMode = promptCacheRequest.kind === "mode" ? promptCacheRequest.mode : "off";
 	const promptCacheMode = modelSupportsPromptCacheControl(effectiveModel, openRouter)
 		? requestedPromptCacheMode
 		: "off";
-	const supportsPrefill = effectiveSupportsPrefillForModel(
+	const prefillPolicy = resolvePrefillPolicyForModel(
 		effectiveModel,
 		openRouter,
 		optionalRawValue(raw.supportsPrefill),
 		providerRouting,
+		reasoningShape,
 	);
+	const supportsPrefill = prefillPolicy.applied;
 	const compactionPolicy = compactionReasoningPolicyForModel(effectiveModel, openRouter, providerRouting);
 	const compactionReasoning = resolveCompactionReasoningSelection({
 		policy: compactionPolicy,
@@ -446,11 +477,17 @@ export function resolveInferenceConfiguration(
 			credential,
 			...(providerRouting ? { providerRouting } : {}),
 			...(reasoningEffort ? { reasoningEffort } : {}),
+			reasoningIntent: reasoningRequest,
 			compactionReasoning,
 			toolCalls,
+			toolCallIntent: toolCallRequest,
+			ordinaryLoopToolCalls,
 			compactionMode,
+			compactionModeIntent: compactionModeRequest,
 			promptCacheMode,
+			promptCacheIntent: promptCacheRequest,
 			supportsPrefill,
+			prefillPolicy,
 			temperature: optionalRawValue(raw.temperature) ?? defaultTextGenerationTemperature,
 			...(optionalNumber(raw.topK) !== undefined ? { topK: optionalNumber(raw.topK) } : {}),
 			...(optionalNumber(raw.topP) !== undefined ? { topP: optionalNumber(raw.topP) } : {}),
@@ -661,10 +698,16 @@ export async function inferenceResolutionFingerprint(
 			model: resolution.effective.model,
 			providerRouting: resolution.effective.providerRouting ?? null,
 			reasoningEffort: resolution.effective.reasoningEffort ?? null,
+			reasoningIntent: resolution.effective.reasoningIntent,
 			toolCalls: resolution.effective.toolCalls,
+			toolCallIntent: resolution.effective.toolCallIntent,
+			ordinaryLoopToolCalls: resolution.effective.ordinaryLoopToolCalls,
 			compactionMode: resolution.effective.compactionMode,
+			compactionModeIntent: resolution.effective.compactionModeIntent,
 			promptCacheMode: resolution.effective.promptCacheMode,
+			promptCacheIntent: resolution.effective.promptCacheIntent,
 			supportsPrefill: resolution.effective.supportsPrefill,
+			prefillPolicy: resolution.effective.prefillPolicy,
 			temperature: resolution.effective.temperature,
 			topK: resolution.effective.topK ?? null,
 			topP: resolution.effective.topP ?? null,
@@ -685,18 +728,53 @@ export async function inferenceResolutionFingerprint(
 export function inferenceFieldAnnotations(
 	selectedOverrides: InferenceConfigurationOverrides,
 	resolution: InferenceResolution,
+	options: ResolveInferenceConfigurationOptions = {},
 ): InferenceFieldAnnotationMap {
 	const effectiveFields = effectiveInferenceFields(resolution);
 	return Object.fromEntries(inferenceConfigurationFields.map((field) => {
 		const raw = resolution.raw[field];
 		const effective = effectiveFields[field];
+		const inheritedResolution = resolutionWithoutSelectedOverride(resolution, field, options);
+		const inheritedRaw = inheritedResolution.raw[field];
+		const inheritedEffective = effectiveInferenceFields(inheritedResolution)[field];
 		return [field, {
 			override: ownerInferenceOverride(selectedOverrides[field]),
+			request: resolvedInferenceFieldRequest(raw),
 			effective,
 			provenance: raw.provenance,
 			adjustment: inferenceFieldAdjustment(resolution, field, raw, effective),
+			inherited: {
+				request: resolvedInferenceFieldRequest(inheritedRaw),
+				effective: inheritedEffective,
+				provenance: inheritedRaw.provenance,
+				adjustment: inferenceFieldAdjustment(inheritedResolution, field, inheritedRaw, inheritedEffective),
+			},
 		}];
 	})) as InferenceFieldAnnotationMap;
+}
+
+function resolvedInferenceFieldRequest<K extends InferenceConfigurationField>(
+	raw: ResolvedRawInferenceField<K>,
+): InferenceFieldResolvedRequest<K> {
+	switch (raw.state) {
+		case "value": return { kind: "value", value: raw.value };
+		case "explicit_none": return { kind: "explicit_none" };
+		case "target_default": return { kind: "target_default" };
+		case "absent": return { kind: "unset" };
+	}
+}
+
+function resolutionWithoutSelectedOverride(
+	resolution: InferenceResolution,
+	field: InferenceConfigurationField,
+	options: ResolveInferenceConfigurationOptions,
+): InferenceResolution {
+	const selected = resolution.path[0];
+	if (!selected.overrides[field]) return resolution;
+	const overrides = { ...selected.overrides };
+	delete overrides[field];
+	const path = [{ ...selected, overrides }, ...resolution.path.slice(1)] as InferenceConfigurationPath;
+	return resolveInferenceConfiguration(path, options);
 }
 
 export function ownerInferenceOverride<K extends InferenceConfigurationField>(
@@ -766,8 +844,11 @@ function inferenceFieldAdjustment(
 	if (field === "compactionReasoning") {
 		return { kind: "compaction_policy", resolution: resolution.effective.compactionReasoning };
 	}
+	if (field === "toolCalls") return { kind: "tool_call_policy", policy: resolution.effective.ordinaryLoopToolCalls };
+	if (field === "supportsPrefill") return { kind: "prefill_policy", policy: resolution.effective.prefillPolicy };
 	const requested = normalizedRawRequest(field, raw);
 	if (requested.kind === "provider_default") return { kind: "provider_or_model_default", effective };
+	if (requested.kind === "bickr_automatic") return { kind: "bickr_automatic", effective };
 	return canonicalJson(requested.value) === canonicalJson(effective)
 		? null
 		: { kind: "capability_adjustment", requested: requested.value, effective };
@@ -776,24 +857,31 @@ function inferenceFieldAdjustment(
 function normalizedRawRequest(
 	field: InferenceConfigurationField,
 	raw: AnyResolvedRawInferenceField,
-): { kind: "value"; value: unknown } | { kind: "provider_default" } {
+): { kind: "value"; value: unknown } | { kind: "provider_default" } | { kind: "bickr_automatic" } {
 	if (raw.state !== "value") return { kind: "value", value: null };
 	if (field === "reasoning") {
 		const request = raw.value as InferenceReasoningRequest;
 		if (request.kind === "provider_default") return { kind: "provider_default" };
+		if (request.kind === "bickr_automatic") return { kind: "bickr_automatic" };
 		return { kind: "value", value: request.kind === "reasoning_disabled" ? "none" : request.effort };
 	}
 	if (field === "toolCalls") {
 		const request = raw.value as InferenceToolCallRequest;
-		return request.kind === "provider_default" ? { kind: "provider_default" } : { kind: "value", value: request.strategy };
+		return request.kind === "provider_default" ? { kind: "provider_default" }
+			: request.kind === "bickr_automatic" ? { kind: "bickr_automatic" }
+			: { kind: "value", value: request.strategy };
 	}
 	if (field === "compactionMode") {
 		const request = raw.value as InferenceCompactionModeRequest;
-		return request.kind === "provider_default" ? { kind: "provider_default" } : { kind: "value", value: request.mode };
+		return request.kind === "provider_default" ? { kind: "provider_default" }
+			: request.kind === "bickr_automatic" ? { kind: "bickr_automatic" }
+			: { kind: "value", value: request.mode };
 	}
 	if (field === "promptCacheMode") {
 		const request = raw.value as InferencePromptCacheRequest;
-		return request.kind === "provider_default" ? { kind: "provider_default" } : { kind: "value", value: request.mode };
+		return request.kind === "provider_default" ? { kind: "provider_default" }
+			: request.kind === "bickr_automatic" ? { kind: "bickr_automatic" }
+			: { kind: "value", value: request.mode };
 	}
 	return { kind: "value", value: raw.value };
 }
@@ -1038,10 +1126,11 @@ function validateInferenceConfigurationPath(path: InferenceConfigurationPath): v
 }
 
 function legacyReasoningRequest(
-	request: InferenceReasoningRequest | undefined,
+	request: BotInferenceReasoningIntent,
 ): BotInferenceReasoningEffort | undefined {
-	switch (request?.kind) {
-		case undefined:
+	switch (request.kind) {
+		case "inherit":
+		case "bickr_automatic": return "default";
 		case "provider_default": return undefined;
 		case "reasoning_disabled": return "none";
 		case "explicit_effort": return request.effort;
@@ -1149,6 +1238,7 @@ function parseFieldValue<K extends InferenceConfigurationField>(
 function parseReasoningRequest(value: unknown): InferenceReasoningRequest {
 	if (!isRecord(value) || typeof value.kind !== "string") throw invalidNestedValue("reasoning");
 	switch (value.kind) {
+		case "bickr_automatic":
 		case "provider_default":
 		case "reasoning_disabled":
 			if (Object.keys(value).length !== 1) throw invalidNestedValue("reasoning");
@@ -1180,7 +1270,9 @@ function parseCompactionReasoning(value: unknown): BotCompactionReasoningRequest
 
 function parseToolCallRequest(value: unknown): InferenceToolCallRequest {
 	if (!isRecord(value) || typeof value.kind !== "string") throw invalidNestedValue("tool calls");
-	if (value.kind === "provider_default" && Object.keys(value).length === 1) return { kind: "provider_default" };
+	if ((value.kind === "bickr_automatic" || value.kind === "provider_default") && Object.keys(value).length === 1) {
+		return { kind: value.kind };
+	}
 	if (value.kind === "strategy" && Object.keys(value).every((key) => key === "kind" || key === "strategy") && toolCallStrategies.has(value.strategy)) {
 		return { kind: "strategy", strategy: value.strategy as BotInferenceToolCalls };
 	}
@@ -1189,7 +1281,9 @@ function parseToolCallRequest(value: unknown): InferenceToolCallRequest {
 
 function parseCompactionModeRequest(value: unknown): InferenceCompactionModeRequest {
 	if (!isRecord(value) || typeof value.kind !== "string") throw invalidNestedValue("compaction mode");
-	if (value.kind === "provider_default" && Object.keys(value).length === 1) return { kind: "provider_default" };
+	if ((value.kind === "bickr_automatic" || value.kind === "provider_default") && Object.keys(value).length === 1) {
+		return { kind: value.kind };
+	}
 	if (value.kind === "mode" && Object.keys(value).every((key) => key === "kind" || key === "mode") && compactionModes.has(value.mode)) {
 		return { kind: "mode", mode: value.mode as BotCompactionMode };
 	}
@@ -1198,7 +1292,9 @@ function parseCompactionModeRequest(value: unknown): InferenceCompactionModeRequ
 
 function parsePromptCacheRequest(value: unknown): InferencePromptCacheRequest {
 	if (!isRecord(value) || typeof value.kind !== "string") throw invalidNestedValue("prompt cache mode");
-	if (value.kind === "provider_default" && Object.keys(value).length === 1) return { kind: "provider_default" };
+	if ((value.kind === "bickr_automatic" || value.kind === "provider_default") && Object.keys(value).length === 1) {
+		return { kind: value.kind };
+	}
 	if (value.kind === "mode" && Object.keys(value).every((key) => key === "kind" || key === "mode") && promptCacheModes.has(value.mode)) {
 		return { kind: "mode", mode: value.mode as BotPromptCacheMode };
 	}

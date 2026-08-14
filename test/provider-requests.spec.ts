@@ -57,6 +57,7 @@ import {
 	providerMessagesWithReasoningPrefill,
 	providerResponseWithContent,
 	providerTokenProbeRequest,
+	providerTranslationRequest,
 	providerSelfAuthor,
 	providerSerializationContext,
 	providerToolResultPayload,
@@ -1408,7 +1409,22 @@ describe("Provider requests", () => {
 				role: "assistant",
 				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			},
+			{ role: "user", content: "Bickr Terminal is ready for my next step." },
 		]);
+		expect(providerChatCompletionRequest(
+			{
+				baseUrl: customProviderBaseUrl,
+				model: "test-model",
+				supportsPrefill: true,
+				temperature: 0.2,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+			"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
+		).messages.at(-1)).toEqual({
+			role: "assistant",
+			content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
+		});
 		expect(
 			providerChatCompletionRequest(
 				{
@@ -1447,10 +1463,73 @@ describe("Provider requests", () => {
 				role: "assistant",
 				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			},
+			{ role: "user", content: "Bickr Terminal is ready for my next step." },
 		]);
 		expect("frequency_penalty" in request).toBe(false);
 		expect("presence_penalty" in request).toBe(false);
 		expect("repetition_penalty" in request).toBe(false);
+
+		const providerDefaultRequest = providerChatCompletionRequest(
+			{
+				baseUrl: customProviderBaseUrl,
+				model: "test-model",
+				reasoningRequest: { kind: "provider_default" },
+				toolCallRequest: { kind: "provider_default" },
+				temperature: 0.2,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+		);
+		expect("reasoning" in providerDefaultRequest).toBe(false);
+		expect("tool_choice" in providerDefaultRequest).toBe(false);
+		const providerDefaultCompaction = providerCompactionRequest(
+			{
+				baseUrl: customProviderBaseUrl,
+				model: "test-model",
+				toolCallRequest: { kind: "provider_default" },
+			},
+			[{ role: "user", content: "Compact this." }],
+			undefined,
+			undefined,
+			"tool_call",
+		);
+		expect("tool_choice" in providerDefaultCompaction).toBe(false);
+		const providerDefaultStructuredCompaction = providerCompactionRequest(
+			{
+				baseUrl: customProviderBaseUrl,
+				model: "test-model",
+				toolCallRequest: { kind: "provider_default" },
+			},
+			[{ role: "user", content: "Compact this." }],
+		);
+		expect(providerDefaultStructuredCompaction.tool_choice).toBe("none");
+
+		const automaticRequest = providerChatCompletionRequest(
+			{
+				baseUrl: customProviderBaseUrl,
+				model: "test-model",
+				reasoningRequest: { kind: "bickr_automatic" },
+				toolCallRequest: { kind: "bickr_automatic" },
+				temperature: 0.2,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+		);
+		expect(automaticRequest.reasoning).toEqual({ effort: "minimal", exclude: false });
+		expect(automaticRequest.tool_choice).toBe("required");
+		const inheritedRequest = providerChatCompletionRequest(
+			{
+				baseUrl: customProviderBaseUrl,
+				model: "test-model",
+				reasoningRequest: { kind: "inherit" },
+				toolCallRequest: { kind: "inherit" },
+				temperature: 0.2,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+		);
+		expect(inheritedRequest.reasoning).toEqual({ effort: "minimal", exclude: false });
+		expect(inheritedRequest.tool_choice).toBe("required");
 
 		const railroadRequest = providerChatCompletionRequest(
 			{
@@ -1759,16 +1838,16 @@ describe("Provider requests", () => {
 	it("normalizes OpenRouter model capabilities for generated, unknown, free, and custom models", () => {
 		const known = openRouterModelPolicy(capableOpenRouterModel);
 		expect(known).toMatchObject({
-			prefill: true,
+			prefill: { kind: "provider_matrix", version: 2 },
 			structuredOutputs: true,
 			structuredOutputCompaction: true,
 			compactionReasoningFloor: { kind: "reasoning_disabled" },
-			requiredToolCalls: true,
+			requiredToolCalls: { fallback: { supported: true } },
 			disabledReasoning: true,
 			defaultCompactionMode: "structured_output",
-			defaultReasoningEffort: "minimal",
 			defaultToolCalls: "require",
 		});
+		expect(known.defaultReasoningEffort).toBeUndefined();
 		expect(modelSupportsPrefill(capableOpenRouterModel, true)).toBe(true);
 		expect(modelSupportsRequiredToolCalls(capableOpenRouterModel, true)).toBe(true);
 		expect(modelSupportsStructuredOutputs(capableOpenRouterModel, true)).toBe(true);
@@ -1782,10 +1861,10 @@ describe("Provider requests", () => {
 
 		const unknown = openRouterModelPolicy("unknown/provider-model");
 		expect(unknown).toMatchObject({
-			prefill: false,
+			prefill: { kind: "provider_matrix", version: 2, providers: [] },
 			structuredOutputs: false,
 			compactionReasoningFloor: { kind: "model_default" },
-			requiredToolCalls: false,
+			requiredToolCalls: { fallback: { supported: false } },
 			disabledReasoning: false,
 			defaultCompactionMode: "tool_call_cache_friendly",
 			defaultToolCalls: "railroad",
@@ -1803,11 +1882,11 @@ describe("Provider requests", () => {
 
 		const free = openRouterModelPolicy(openRouterFreeModel);
 		expect(free).toMatchObject({
-			prefill: false,
+			prefill: { kind: "provider_matrix", version: 2, providers: [] },
 			structuredOutputs: false,
 			structuredOutputCompaction: false,
 			compactionReasoningFloor: { kind: "model_default" },
-			requiredToolCalls: false,
+			requiredToolCalls: { fallback: { supported: false } },
 			disabledReasoning: false,
 			defaultCompactionMode: "tool_call_cache_friendly",
 			defaultToolCalls: "railroad",
@@ -1831,7 +1910,7 @@ describe("Provider requests", () => {
 			structuredOutputs: true,
 			structuredOutputCompaction: false,
 			compactionReasoningFloor: { kind: "model_default" },
-			requiredToolCalls: true,
+			requiredToolCalls: { fallback: { supported: true } },
 			defaultCompactionMode: "tool_call_cache_friendly",
 			defaultToolCalls: "require",
 		});
@@ -1855,7 +1934,8 @@ describe("Provider requests", () => {
 
 		expect(effectiveCompactionModeForModel("local/model", false, undefined)).toBe("structured_output");
 		expect(effectiveReasoningEffortForModel("local/model", false, undefined)).toBe("minimal");
-		expect(effectiveSupportsPrefillForModel("local/model", false, undefined)).toBe(true);
+		expect(effectiveSupportsPrefillForModel("local/model", false, undefined)).toBe(false);
+		expect(effectiveSupportsPrefillForModel("local/model", false, true)).toBe(true);
 		expect(effectiveToolCallsForModel("local/model", false, undefined)).toBe("require");
 		expect(compactionReasoningPolicyForModel("local/model", false)).toMatchObject({
 			floor: { kind: "reasoning_disabled" },
@@ -1925,6 +2005,18 @@ describe("Provider requests", () => {
 				{},
 			)?.toolCalls,
 		).toBe("railroad");
+		const providerDefaultTranslation = effectiveProviderSettingsForTranslation(
+			{ inferenceSettings: { translation: { enabled: true, model: "openai/gpt-4o-mini" } } },
+			{},
+		);
+		expect(providerDefaultTranslation).toMatchObject({
+			reasoningRequest: { kind: "provider_default" },
+			toolCallRequest: { kind: "provider_default" },
+			toolCalls: "railroad",
+		});
+		const providerDefaultRequest = providerTranslationRequest(providerDefaultTranslation!, "Hello.");
+		expect("reasoning" in providerDefaultRequest).toBe(false);
+		expect("tool_choice" in providerDefaultRequest).toBe(false);
 	});
 
 	it("resolves compaction mode and prefill support settings from bot overrides before profile defaults", () => {
@@ -1946,7 +2038,33 @@ describe("Provider requests", () => {
 			),
 		).toMatchObject({
 			compactionMode: "structured_output",
-			supportsPrefill: true,
+			supportsPrefill: false,
+		});
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: { supportsPrefill: true } },
+				{ inferenceSettings: {} },
+				{ OPENROUTER_BASE_URL: customProviderBaseUrl },
+			),
+		).toMatchObject({ supportsPrefill: true });
+		const deepSeekEnv = { OPENROUTER_MODEL: "deepseek/deepseek-v4-flash-0731" };
+		expect(effectiveProviderSettingsForBot(
+			{ inferenceSettings: { reasoningEffort: "none", supportsPrefill: true } },
+			{ inferenceSettings: {} },
+			deepSeekEnv,
+		).prefillPolicy).toMatchObject({
+			request: true,
+			reasoningShape: "reasoning_off",
+			applied: false,
+		});
+		expect(effectiveProviderSettingsForBot(
+			{ inferenceSettings: { reasoningEffort: "low", supportsPrefill: true } },
+			{ inferenceSettings: {} },
+			deepSeekEnv,
+		).prefillPolicy).toMatchObject({
+			request: true,
+			reasoningShape: "reasoning_on",
+			applied: false,
 		});
 		expect(
 			effectiveProviderSettingsForBot(

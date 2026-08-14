@@ -3779,12 +3779,15 @@ describe("Pages functions", () => {
 		});
 		expect(worldRecurringChanged.cached).toBe(false);
 		expect(calls).toHaveLength(6);
-		expect(calls[3]?.messages.at(-1)).toEqual({
-			role: "assistant",
-			content:
-				"I remember the world's shared counting rule.\n\n" +
-				"I'm u/count-sage. I need to think about how I feel and what I want to do next.",
-		});
+		expect(calls[3]?.messages.slice(-2)).toEqual([
+			{
+				role: "assistant",
+				content:
+					"I remember the world's shared counting rule.\n\n" +
+					"I'm u/count-sage. I need to think about how I feel and what I want to do next.",
+			},
+			{ role: "user", content: "Bickr Terminal is ready for my next step." },
+		]);
 
 		const changed = await promptContextBudget(created.data.bot.id, {
 			prompt: "Stay brief with exact counts.",
@@ -4286,15 +4289,15 @@ describe("Pages functions", () => {
 						prompt: 0.2,
 						completion: 0.4,
 					},
-					},
-					stream: false,
-					temperature: 0,
-					tool_choice: "required",
-				});
-				expect((providerBody.tools as Array<{ function?: { name?: string } }>)[0]?.function?.name).toBe("save_translation");
-			} finally {
-				fetchSpy.mockRestore();
-			}
+				},
+				stream: false,
+				temperature: 0,
+			});
+			expect("tool_choice" in providerBody).toBe(false);
+			expect((providerBody.tools as Array<{ function?: { name?: string } }>)[0]?.function?.name).toBe("save_translation");
+		} finally {
+			fetchSpy.mockRestore();
+		}
 		});
 
 	it("creates, edits, lists, and deletes world-scoped bot groups with owned and other-owned bots", async () => {

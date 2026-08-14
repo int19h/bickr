@@ -6,13 +6,184 @@ import {
 	openRouterFreeModel,
 	openRouterModelCapabilities,
 	openRouterModelPolicy,
+	requiredToolCallResolution,
 	resolveCompactionReasoningSelection,
+	resolvePrefillPolicy,
+	resolvePrefillPolicyForModel,
+	resolveToolCallPolicyForModel,
 	type CompactionReasoningCapabilities,
 	type CompactionReasoningEffort,
 	type CompactionReasoningPolicy,
 } from "./openrouter-model-capabilities";
 
 const allEfforts = ["minimal", "low", "medium", "high", "xhigh"] as const;
+
+describe("required tool-call request-shape evidence", () => {
+	const capabilities = {
+		kind: "provider_matrix",
+		version: 2,
+		providers: [
+			{
+				provider: "decart/fp4",
+				providerDefault: { status: "supported", source: "probe" },
+				reasoningOff: { status: "supported", source: "probe" },
+				reasoningOn: { status: "supported", source: "probe", effort: "low" },
+			},
+			{
+				provider: "deepseek/fp8",
+				providerDefault: { status: "supported", source: "probe" },
+				reasoningOff: { status: "supported", source: "probe" },
+				reasoningOn: { status: "unsupported", source: "probe", effort: "low" },
+			},
+		],
+		fallback: { supported: true, source: "legacy_boolean" },
+	} as const;
+
+	it("selects the provider matrix only after the actual reasoning shape", () => {
+		expect(requiredToolCallResolution(capabilities, "require", "provider_default"))
+			.toMatchObject({ applied: "require", adjustment: null });
+		expect(requiredToolCallResolution(capabilities, "require", "reasoning_on"))
+			.toMatchObject({ applied: "railroad", adjustment: "required_tool_calls_unsupported" });
+		expect(requiredToolCallResolution(capabilities, "require", "reasoning_off"))
+			.toMatchObject({ applied: "require", adjustment: null });
+	});
+
+	it("requires compatibility from every possible unpinned or explicitly allowed provider", () => {
+		expect(requiredToolCallResolution(capabilities, "require", "reasoning_on"))
+			.toMatchObject({ applied: "railroad", adjustment: "required_tool_calls_unsupported", observation: { status: "unsupported" } });
+		expect(requiredToolCallResolution(capabilities, "require", "reasoning_on", { only: ["decart/fp4"] }))
+			.toMatchObject({ applied: "require", adjustment: null, observation: { status: "supported" } });
+		expect(requiredToolCallResolution(capabilities, "require", "reasoning_on", { only: ["deepseek/fp8"] }))
+			.toMatchObject({ applied: "railroad", adjustment: "required_tool_calls_unsupported" });
+		expect(requiredToolCallResolution(capabilities, "require", "reasoning_on", { only: ["decart/fp4", "deepseek/fp8"] }))
+			.toMatchObject({ applied: "railroad", adjustment: "required_tool_calls_unsupported" });
+		expect(requiredToolCallResolution(capabilities, "require", "reasoning_on", { ignore: ["deepseek"] }))
+			.toMatchObject({ applied: "require", adjustment: null });
+		expect(requiredToolCallResolution(capabilities, "require", "reasoning_on", { only: ["unobserved/provider"] }))
+			.toMatchObject({ applied: "railroad", adjustment: "provider_compatibility_incomplete", observation: { status: "unknown" } });
+	});
+
+	it("keeps the exact Decart-supported/DeepSeek-reasoning-on-unsupported split conservative", () => {
+		const resolution = requiredToolCallResolution(capabilities, "require", "reasoning_on");
+		expect(resolution).toMatchObject({
+			applied: "railroad",
+			adjustment: "required_tool_calls_unsupported",
+			observation: {
+				status: "unsupported",
+				providers: [
+					{ provider: "decart/fp4", observation: { status: "supported", effort: "low" } },
+					{ provider: "deepseek/fp8", observation: { status: "unsupported", effort: "low" } },
+				],
+			},
+		});
+	});
+
+	it("uses fallback evidence when a generated matrix has no provider rows", () => {
+		const empty = { ...capabilities, providers: [] } as const;
+		expect(requiredToolCallResolution(empty, "require", "provider_default")).toMatchObject({
+			applied: "require",
+			adjustment: null,
+			observation: { kind: "fallback", status: "supported", source: "legacy_boolean" },
+		});
+		expect(requiredToolCallResolution(empty, "require", "provider_default", { only: ["unknown/provider"] }))
+			.toMatchObject({ applied: "railroad", adjustment: "provider_compatibility_incomplete" });
+	});
+});
+
+describe("prefill-plus-tools request-shape evidence", () => {
+	const capabilities = {
+		kind: "provider_matrix",
+		version: 2,
+		providers: [
+			{
+				provider: "decart/fp4",
+				providerDefault: { status: "supported", source: "probe" },
+				reasoningOff: { status: "supported", source: "probe" },
+				reasoningOn: { status: "supported", source: "probe", effort: "low" },
+			},
+			{
+				provider: "deepseek/fp8",
+				providerDefault: { status: "supported", source: "probe" },
+				reasoningOff: { status: "unsupported", source: "probe" },
+				reasoningOn: { status: "unsupported", source: "probe", effort: "low" },
+			},
+		],
+		fallback: { supported: false, source: "conservative_policy" },
+	} as const;
+
+	it("keeps unset opt-in off and preserves an explicit off without consulting capability evidence", () => {
+		expect(resolvePrefillPolicy(capabilities, undefined, undefined, "reasoning_off")).toEqual({
+			request: null,
+			reasoningShape: "reasoning_off",
+			applied: false,
+			adjustment: null,
+			capability: null,
+		});
+		expect(resolvePrefillPolicy(capabilities, false, undefined, "reasoning_on")).toEqual({
+			request: false,
+			reasoningShape: "reasoning_on",
+			applied: false,
+			adjustment: null,
+			capability: null,
+		});
+	});
+
+	it("keeps the exact Decart-supported/DeepSeek-unsupported Off and Low evidence provider-scoped", () => {
+		for (const reasoningShape of ["reasoning_off", "reasoning_on"] as const) {
+			expect(resolvePrefillPolicy(capabilities, true, { only: ["deepseek/fp8"] }, reasoningShape)).toMatchObject({
+				request: true,
+				reasoningShape,
+				applied: false,
+				adjustment: "prefill_unsupported",
+				capability: { status: "unsupported" },
+			});
+			expect(resolvePrefillPolicy(capabilities, true, { only: ["decart/fp4"] }, reasoningShape)).toMatchObject({
+				request: true,
+				reasoningShape,
+				applied: true,
+				adjustment: null,
+				capability: { status: "supported" },
+			});
+			expect(resolvePrefillPolicy(capabilities, true, undefined, reasoningShape)).toMatchObject({
+				applied: false,
+				adjustment: "prefill_unsupported",
+			});
+		}
+		expect(capabilities.providers[1].reasoningOn).toEqual({ status: "unsupported", source: "probe", effort: "low" });
+	});
+
+	it("uses only the active shape and never lets a sibling shape bless or clamp it", () => {
+		const split = {
+			...capabilities,
+			providers: [{
+				provider: "split/provider",
+				providerDefault: { status: "unknown", source: "probe" },
+				reasoningOff: { status: "supported", source: "probe" },
+				reasoningOn: { status: "unsupported", source: "probe", effort: "low" },
+			}],
+		} as const;
+		expect(resolvePrefillPolicy(split, true, undefined, "reasoning_off")).toMatchObject({ applied: true, adjustment: null });
+		expect(resolvePrefillPolicy(split, true, undefined, "reasoning_on")).toMatchObject({
+			applied: false,
+			adjustment: "prefill_unsupported",
+		});
+		expect(resolvePrefillPolicy(split, true, undefined, "provider_default")).toMatchObject({
+			applied: false,
+			adjustment: "provider_compatibility_incomplete",
+		});
+	});
+
+	it("uses fallback evidence when a generated matrix has no provider rows", () => {
+		const empty = { ...capabilities, providers: [], fallback: { supported: true, source: "legacy_boolean" } } as const;
+		expect(resolvePrefillPolicy(empty, true, undefined, "provider_default")).toMatchObject({
+			applied: true,
+			adjustment: null,
+			capability: { kind: "fallback", status: "supported", source: "legacy_boolean" },
+		});
+		expect(resolvePrefillPolicy(empty, true, { only: ["unknown/provider"] }, "provider_default"))
+			.toMatchObject({ applied: false, adjustment: "provider_compatibility_incomplete" });
+	});
+});
 
 function disabledBaselinePolicy(): CompactionReasoningPolicy {
 	return {
@@ -62,6 +233,23 @@ describe("compaction reasoning capability metadata", () => {
 	it("keeps ordinary-loop reasoning defaults unchanged", () => {
 		expect(openRouterModelPolicy("openai/gpt-5-mini").defaultReasoningEffort).toBe("minimal");
 	});
+
+	it.each(["openai/gpt-4o-mini", "amazon/nova-lite-v1"])(
+		"keeps non-reasoning model defaults in the provider-default capability shape for %s",
+		(model) => {
+			expect(openRouterModelPolicy(model).defaultReasoningEffort).toBeUndefined();
+			expect(resolveToolCallPolicyForModel(model, true, { kind: "bickr_automatic" })).toMatchObject({
+				reasoningShape: "provider_default",
+				appliedStrategy: "require",
+				capability: { observation: { status: "supported" } },
+			});
+			expect(resolvePrefillPolicyForModel(model, true, true)).toMatchObject({
+				reasoningShape: "provider_default",
+				applied: true,
+				adjustment: null,
+			});
+		},
+	);
 });
 
 describe("compaction reasoning policy", () => {
@@ -73,13 +261,13 @@ describe("compaction reasoning policy", () => {
 			compactionReasoningFloor: { kind: "explicit_effort", effort: "low" },
 			contextLength: 1_048_576,
 			disabledReasoning: true,
-			prefill: true,
-			requiredToolCalls: true,
+			prefill: { kind: "provider_matrix", version: 2 },
+			requiredToolCalls: { fallback: { supported: true } },
 			structuredOutputs: true,
 		});
 		expect(compactionReasoningPolicyForModel("deepseek/deepseek-v4-flash-0731", true)).toMatchObject({
 			floor: { kind: "explicit_effort", effort: "low" },
-			selection: { kind: "explicit_effort", effort: "high" },
+			selection: { kind: "model_default", effort: "high" },
 			source: "openrouter_semantic_override",
 		});
 		expect(compactionReasoningPolicyForModel("deepseek/deepseek-v4-flash-0731:free", true)).toMatchObject({
@@ -132,6 +320,11 @@ describe("canonical compaction reasoning resolution", () => {
 
 		expect(resolution).toMatchObject({
 			kind: "selected",
+			decision: {
+				kind: "supported_effort_normalization",
+				requiredEffort: "medium",
+				appliedEffort: "high",
+			},
 			selection: { kind: "explicit_effort", effort: "high" },
 		});
 	});
@@ -186,7 +379,7 @@ describe("canonical compaction reasoning resolution", () => {
 		});
 	});
 
-	it("never lowers a max provider default to an explicit configured effort", () => {
+	it("uses a max provider default only as the no-request baseline", () => {
 		const model = "~moonshotai/kimi-latest";
 		expect(compactionReasoningCapabilitiesForModel(model, true)).toMatchObject({
 			modelDefault: { kind: "provider_default", relativeOrder: "above_xhigh" },
@@ -200,7 +393,8 @@ describe("canonical compaction reasoning resolution", () => {
 
 		expect(configuredResolution).toMatchObject({
 			kind: "selected",
-			selection: { kind: "model_default" },
+			decision: { kind: "configuration" },
+			selection: { kind: "explicit_effort", effort: "high" },
 			provenance: {
 				configuration: { kind: "explicit_effort", effort: "high" },
 				modelDefault: { kind: "provider_default", relativeOrder: "above_xhigh" },
@@ -212,10 +406,24 @@ describe("canonical compaction reasoning resolution", () => {
 			learnedFloor: { kind: "explicit_effort", effort: "minimal" },
 		})).toMatchObject({
 			kind: "selected",
-			selection: { kind: "model_default" },
+			decision: {
+				kind: "supported_effort_normalization",
+				requiredEffort: "minimal",
+				appliedEffort: "low",
+			},
+			selection: { kind: "explicit_effort", effort: "low" },
 			provenance: {
 				learnedFloor: { kind: "explicit_effort", effort: "minimal" },
 			},
+		});
+		expect(resolveCompactionReasoningSelection({
+			policy: compactionReasoningPolicyForModel(model, true),
+			request: { kind: "explicit_effort", effort: "low" },
+			capabilities: compactionReasoningCapabilitiesForModel(model, true),
+		})).toMatchObject({
+			kind: "selected",
+			decision: { kind: "configuration" },
+			selection: { kind: "explicit_effort", effort: "low" },
 		});
 	});
 
@@ -233,7 +441,7 @@ describe("canonical compaction reasoning resolution", () => {
 		});
 	});
 
-	it("does not raise a minimal request to an enabled-effort hint when the provider default is off", () => {
+	it("ignores the semantic disabled-reasoning floor but normalizes an unsupported explicit effort", () => {
 		const model = "openai/gpt-5.4-mini";
 		const capabilities = compactionReasoningCapabilitiesForModel(model, true);
 		expect(capabilities).toMatchObject({
@@ -246,6 +454,11 @@ describe("canonical compaction reasoning resolution", () => {
 			capabilities,
 		})).toMatchObject({
 			kind: "selected",
+			decision: {
+				kind: "supported_effort_normalization",
+				requiredEffort: "minimal",
+				appliedEffort: "low",
+			},
 			selection: { kind: "explicit_effort", effort: "low" },
 			provenance: {
 				configuration: { kind: "explicit_effort", effort: "minimal" },
@@ -304,7 +517,7 @@ describe("canonical compaction reasoning resolution", () => {
 		});
 	});
 
-	it("refuses an explicit effort when a provider default has unknown relative order", () => {
+	it("does not compare an explicit effort with a provider default of unknown relative order", () => {
 		const resolution = resolveCompactionReasoningSelection({
 			policy: disabledBaselinePolicy(),
 			request: { kind: "explicit_effort", effort: "high" },
@@ -315,11 +528,9 @@ describe("canonical compaction reasoning resolution", () => {
 		});
 
 		expect(resolution).toMatchObject({
-			kind: "refused",
-			refusal: {
-				kind: "model_default_order_unknown_for_required_effort",
-				requiredEffort: "high",
-			},
+			kind: "selected",
+			decision: { kind: "configuration" },
+			selection: { kind: "explicit_effort", effort: "high" },
 		});
 	});
 
@@ -379,8 +590,17 @@ describe("canonical compaction reasoning resolution", () => {
 		}
 	});
 
-	it("never rounds a request below the model default or semantic safety floor", () => {
+	it("normalizes unsupported explicit effort and raises disabled reasoning to the exact-model quality floor", () => {
 		const model = "deepseek/deepseek-v4-flash-0731";
+		expect(resolveCompactionReasoningSelection({
+			policy: compactionReasoningPolicyForModel(model, true),
+			request: { kind: "explicit_effort", effort: "low" },
+			capabilities: compactionReasoningCapabilitiesForModel(model, true),
+		})).toMatchObject({
+			kind: "selected",
+			decision: { kind: "configuration" },
+			selection: { kind: "explicit_effort", effort: "low" },
+		});
 		const resolution = resolveCompactionReasoningSelection({
 			policy: compactionReasoningPolicyForModel(model, true),
 			request: { kind: "explicit_effort", effort: "minimal" },
@@ -390,18 +610,28 @@ describe("canonical compaction reasoning resolution", () => {
 		expect(resolution).toMatchObject({
 			kind: "selected",
 			decision: {
-				kind: "model_default",
-				modelDefault: { kind: "explicit_effort", effort: "high" },
+				kind: "supported_effort_normalization",
+				requiredEffort: "minimal",
+				appliedEffort: "low",
 			},
-			selection: { kind: "explicit_effort", effort: "high" },
+			selection: { kind: "explicit_effort", effort: "low" },
 			provenance: {
 				configuration: { kind: "explicit_effort", effort: "minimal" },
 				safetyFloor: { kind: "explicit_effort", effort: "low" },
 			},
 		});
+		expect(resolveCompactionReasoningSelection({
+			policy: compactionReasoningPolicyForModel(model, true),
+			request: { kind: "reasoning_disabled" },
+			capabilities: compactionReasoningCapabilitiesForModel(model, true),
+		})).toMatchObject({
+			kind: "selected",
+			decision: { kind: "safety_floor", floor: { kind: "explicit_effort", effort: "low" } },
+			selection: { kind: "explicit_effort", effort: "low" },
+		});
 	});
 
-	it("attributes a policy-raised selection to the safety floor at the resolver", () => {
+	it("attributes a disabled-reasoning quality correction to the safety floor at the resolver", () => {
 		const policy: CompactionReasoningPolicy = {
 			...disabledBaselinePolicy(),
 			floor: { kind: "explicit_effort", effort: "xhigh" },
@@ -409,7 +639,7 @@ describe("canonical compaction reasoning resolution", () => {
 		};
 		expect(resolveCompactionReasoningSelection({
 			policy,
-			request: { kind: "explicit_effort", effort: "high" },
+			request: { kind: "reasoning_disabled" },
 			capabilities: {
 				support: { kind: "known", efforts: allEfforts },
 				modelDefault: { kind: "absent" },

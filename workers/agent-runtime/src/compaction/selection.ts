@@ -45,8 +45,13 @@ export function compactionRowSelectionForEstimatedBudget<Row extends CompactionM
 	for (const group of groups) {
 		const nextTokens = selectedTokens + group.tokens;
 		const nextRows = [...selected, ...group.rows];
-		const leavesOutputBudget = options.canIncludeRows?.(nextRows) !== false;
-		if (nextTokens > promptLimitTokens || !leavesOutputBudget) {
+		if (options.canIncludeRows?.(nextRows) === false) {
+			return {
+				rows: selected,
+				overBudgetFallback: false,
+			};
+		}
+		if (nextTokens > promptLimitTokens) {
 			if (selectedTokens < compactionOverBudgetFallbackMinSelectedTokens && group.rows.length > 0) {
 				return {
 					rows: nextRows,

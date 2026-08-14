@@ -44,6 +44,7 @@ import migration0042 from "../../migrations/0042_inference_configuration_graph.s
 import migration0043 from "../../migrations/0043_translation_inference_role.sql?raw";
 import migration0044 from "../../migrations/0044_translation_role_transition_state.sql?raw";
 import migration0045 from "../../migrations/0045_forum_read_only.sql?raw";
+import migration0046 from "../../migrations/0046_inference_provider_default_barrier_sweep.sql?raw";
 
 const migrationSql = [
 	migration0001,
@@ -92,6 +93,7 @@ const migrationSql = [
 	migration0043,
 	migration0044,
 	migration0045,
+	migration0046,
 ];
 
 type D1SchemaRow = {

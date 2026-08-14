@@ -106,7 +106,7 @@ function BooleanInferenceField(props: InferenceFieldProps) {
 	const setCheckbox = useControlledCheckbox(domState);
 	const label = inferenceFieldLabels[props.field];
 	const presentation = inferenceFieldPresentation(props.field, props.dto, props.path, label);
-	const inheritedValue = props.dto.effective === true;
+	const inheritedValue = props.dto.inherited.effective === true;
 
 	function apply(next: ReturnType<typeof nextBooleanCycleState>): void {
 		props.onChange(draftFromBooleanCycleState(next));
@@ -224,7 +224,7 @@ function TextualInferenceField(
 	const setModeCheckbox = useControlledCheckbox(modeCheckboxDomState(draft));
 	const text = draft.mode === "explicit" && draft.state === "value" ? draft.text : "";
 	const editable = draft.mode === "explicit" && draft.state === "value";
-	const inheritedPlaceholder = effectiveValueText(props.field, props.dto.effective);
+	const inheritedPlaceholder = effectiveValueText(props.field, props.dto.inherited.effective);
 
 	function toggleMode(): void {
 		props.onChange(
@@ -232,7 +232,7 @@ function TextualInferenceField(
 				? { mode: "inherit" }
 				// Seeding copies what is inherited today and records it explicitly, so
 				// a later parent change cannot silently move this value.
-				: { mode: "explicit", state: "value", text: fieldValueText(props.field, props.dto.effective) },
+				: { mode: "explicit", state: "value", text: fieldValueText(props.field, props.dto.inherited.effective) },
 		);
 	}
 

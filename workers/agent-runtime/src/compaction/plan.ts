@@ -1,5 +1,6 @@
 import type { JsonObject, BotInferenceSubmissionMessage } from '@bickr/shared/model';
 import type {
+	CompactionReasoningDecisionProvenance,
 	CompactionReasoningProvenance,
 	CompactionReasoningRuntimeFallback,
 	CompactionReasoningSelection,
@@ -7,6 +8,7 @@ import type {
 import type { RuntimeErrorCause } from '@bickr/shared/runtime-errors';
 
 export type CompactionAttemptReasoningState = {
+	decision: CompactionReasoningDecisionProvenance;
 	runtimeFallback: CompactionReasoningRuntimeFallback;
 	selection: CompactionReasoningSelection;
 	provenance: CompactionReasoningProvenance;

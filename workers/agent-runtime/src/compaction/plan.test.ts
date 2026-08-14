@@ -3,6 +3,7 @@ import { CompactionAttemptPlan, type CompactionAttemptPlanConfig } from './plan'
 
 const config = {
 	initialReasoning: {
+		decision: { kind: 'baseline', selection: { kind: 'reasoning_disabled' } },
 		runtimeFallback: { kind: 'unknown_model', selection: { kind: 'model_default', effort: 'minimal' } },
 		selection: { kind: 'reasoning_disabled' },
 		provenance: {
@@ -20,6 +21,7 @@ const config = {
 } as const satisfies CompactionAttemptPlanConfig;
 
 const learnedMinimalReasoning = {
+	decision: { kind: 'learned_floor', floor: { kind: 'explicit_effort', effort: 'minimal' } },
 	runtimeFallback: { kind: 'none' },
 	selection: { kind: 'explicit_effort', effort: 'minimal' },
 	provenance: {
@@ -205,6 +207,7 @@ describe('CompactionAttemptPlan', () => {
 
 	it('preserves an explicit selection through routing, schema, shortening, and isolated repairs', () => {
 		const explicitReasoning = {
+			decision: { kind: 'model_default', modelDefault: { kind: 'explicit_effort', effort: 'low' } },
 			runtimeFallback: { kind: 'none' },
 			selection: { kind: 'explicit_effort', effort: 'low' },
 			provenance: {

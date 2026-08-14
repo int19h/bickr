@@ -3,7 +3,6 @@ import type {
 	BotContextBudget,
 	BotDocument,
 	BotEffectivePostingSettings,
-	BotInferenceReasoningEffort,
 	BotInferenceSubmissionMessage,
 	BotInferenceSubmissionPurpose,
 	BotInferenceSubmissionToolCall,
@@ -589,21 +588,13 @@ export type PromptContextBudgetFingerprintParts = {
 	worldPromptFingerprint?: string;
 };
 
-export type TranslationProviderSettings = {
-	apiKey?: string;
-	baseUrl: string;
-	model: string;
-	providerRouting?: JsonObject;
-	reasoningEffort?: Exclude<BotInferenceReasoningEffort, 'default'>;
+export type TranslationProviderSettings = Omit<Pick<ProviderSettings,
+	'apiKey' | 'baseUrl' | 'model' | 'providerRouting' | 'reasoningEffort' | 'reasoningRequest' |
+	'toolCalls' | 'toolCallRequest' | 'temperature' | 'topK' | 'topP' | 'minP' |
+	'frequencyPenalty' | 'presencePenalty' | 'repetitionPenalty'
+>, 'toolCalls'> & {
 	toolCalls?: BotStructuredToolCalls;
 	prompt: string;
-	temperature: number;
-	topK?: number;
-	topP?: number;
-	minP?: number;
-	frequencyPenalty?: number;
-	presencePenalty?: number;
-	repetitionPenalty?: number;
 };
 
 export type ProviderLoopOutcome = {

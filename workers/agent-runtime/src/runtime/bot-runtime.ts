@@ -17,6 +17,7 @@ import { formatCommentRef, formatThreadRef, parseCommentRef, parseObjectRef, par
 import {
 	isOpenRouterProviderBaseUrl,
 	providerEnvironmentSettingsFromBindings,
+	providerReasoningRequestFromLegacyEffort,
 	resolveBotProviderSettings,
 	resolveLegacyTranslationProviderSettings,
 } from '@bickr/shared/inference-settings';
@@ -81,11 +82,13 @@ import {
 	effectiveReasoningEffortForModel,
 	effectiveContextWindowForModel,
 	effectiveStructuredToolCallsForModel,
-	effectiveSupportsPrefillForModel,
 	effectiveToolCallsForModel,
 	modelSupportsPromptCacheControl,
 	resolveCompactionReasoningSelection,
+	resolvePrefillPolicyForModel,
+	resolveToolCallPolicyForModel,
 	type CompactionReasoningResolution,
+	type RequiredToolCallReasoningShape,
 } from '@bickr/shared/openrouter-model-capabilities';
 import {
 	botFacingRuntimeErrorMessage,
@@ -749,9 +752,14 @@ export function effectiveAvatarSettingsLanguageForWorld(world: Pick<WorldDocumen
 }
 
 function providerReasoningForSettings(
-	settings: Pick<ProviderSettings, 'model' | 'reasoningEffort'> & { baseUrl?: string },
+	settings: Pick<ProviderSettings, 'model' | 'reasoningEffort' | 'reasoningRequest'> & { baseUrl?: string },
 ): ProviderReasoningConfig | undefined {
-	const effort = effectiveReasoningEffortForModel(settings.model, settingsUseOpenRouter(settings), settings.reasoningEffort);
+	const requested = settings.reasoningRequest;
+	if (requested?.kind === 'provider_default') return undefined;
+	const rawEffort = requested?.kind === 'reasoning_disabled' ? 'none'
+		: requested?.kind === 'explicit_effort' ? requested.effort
+		: settings.reasoningEffort;
+	const effort = effectiveReasoningEffortForModel(settings.model, settingsUseOpenRouter(settings), rawEffort);
 	return effort ? { effort, exclude: false } : undefined;
 }
 
@@ -763,6 +771,7 @@ function compactionAttemptReasoningStateFromResolution(
 	resolution: Extract<CompactionReasoningResolution, { kind: 'selected' }>,
 ): CompactionAttemptReasoningState {
 	return {
+		decision: resolution.decision,
 		runtimeFallback: resolution.runtimeFallback,
 		selection: resolution.selection,
 		provenance: resolution.provenance,
@@ -773,6 +782,7 @@ function compactionReasoningDiagnostic(
 	reasoning: CompactionAttemptReasoningState,
 ): CompactionReasoningDiagnostic {
 	return {
+		decision: reasoning.decision,
 		selection: reasoning.selection,
 		provenance: reasoning.provenance,
 	};
@@ -825,10 +835,29 @@ function providerPromptCacheSessionId(botId: string): string {
 }
 
 function providerToolCallsForSettings(
-	settings: Pick<ProviderSettings, 'baseUrl' | 'model' | 'toolCalls'>,
-	value: BotInferenceToolCalls | undefined = settings.toolCalls,
+	settings: Pick<ProviderSettings,
+		'baseUrl' | 'model' | 'ordinaryLoopToolCalls' | 'providerRouting' | 'reasoningEffort' | 'reasoningRequest' | 'toolCalls' | 'toolCallRequest'>,
+	value?: BotInferenceToolCalls,
 ): BotInferenceToolCalls {
-	return effectiveToolCallsForModel(settings.model, settingsUseOpenRouter(settings), value);
+	if (value === undefined && settings.ordinaryLoopToolCalls) return settings.ordinaryLoopToolCalls.appliedStrategy;
+	const requested = value ?? (settings.toolCallRequest?.kind === 'strategy'
+		? settings.toolCallRequest.strategy
+		: settings.toolCallRequest?.kind === 'provider_default' ? 'at_will' : settings.toolCalls);
+	return effectiveToolCallsForModel(
+		settings.model,
+		settingsUseOpenRouter(settings),
+		requested,
+		settings.providerRouting,
+		providerReasoningShapeForSettings(settings),
+	);
+}
+
+function providerReasoningShapeForSettings(
+	settings: Pick<ProviderSettings, 'model' | 'reasoningEffort' | 'reasoningRequest'> & { baseUrl?: string },
+): RequiredToolCallReasoningShape {
+	const reasoning = providerReasoningForSettings(settings);
+	if (!reasoning) return 'provider_default';
+	return 'effort' in reasoning && reasoning.effort === 'none' ? 'reasoning_off' : 'reasoning_on';
 }
 
 function providerFunctionToolsForBot(
@@ -876,13 +905,18 @@ type ProviderLoopRequestEventPayloadInput = {
 };
 
 function providerLoopRequestEventPayload(input: ProviderLoopRequestEventPayloadInput): Record<string, unknown> {
-	const toolChoice = providerToolChoiceForMode(input.toolCallsMode);
+	const toolChoice = input.settings.ordinaryLoopToolCalls?.emission === 'omit_tool_choice'
+		? undefined
+		: providerToolChoiceForMode(input.toolCallsMode);
 	const reasoning = providerReasoningForSettings(input.settings);
+	const reasoningShape = providerReasoningShapeForSettings(input.settings);
 	return {
 		model: input.settings.model,
 		messageCount: input.requestMessages.length,
 		toolCount: input.providerTools.length,
 		toolCalls: input.toolCallsMode,
+		...(input.settings.ordinaryLoopToolCalls ? { toolCallPolicy: input.settings.ordinaryLoopToolCalls } : {}),
+		...(input.settings.prefillPolicy ? { prefillPolicy: input.settings.prefillPolicy } : {}),
 		...(toolChoice ? { toolChoice } : {}),
 		parallelToolCalls: providerParallelToolCalls,
 		contextWindowTokens: input.requestContextWindowTokens,
@@ -890,6 +924,11 @@ function providerLoopRequestEventPayload(input: ProviderLoopRequestEventPayloadI
 		allowedPromptTokens: input.budgetCheck.allowedPromptTokens,
 		maxCompletionTokens: input.budgetCheck.maxCompletionTokens,
 		...(reasoning ? { reasoning } : {}),
+		reasoningPolicy: {
+			intent: input.settings.reasoningRequest ?? { kind: 'bickr_automatic' },
+			shape: reasoningShape,
+			...(reasoning ? { emitted: reasoning } : {}),
+		},
 		temperature: input.settings.temperature,
 		openRouterServerTools: {
 			enabled: input.serverTools.enabled,
@@ -942,7 +981,9 @@ export function providerChatCompletionRequest(
 		providerMessagesWithReasoningPrefill(messages, reasoningPrefill),
 	);
 	const effectiveToolCalls = providerToolCallsForSettings(settings, toolCalls);
-	const toolChoice = providerToolChoiceForMode(effectiveToolCalls);
+	const toolChoice = settings.ordinaryLoopToolCalls?.emission === 'omit_tool_choice' || settings.toolCallRequest?.kind === 'provider_default'
+		? undefined
+		: providerToolChoiceForMode(effectiveToolCalls);
 	const reasoning = providerReasoningForSettings(settings);
 	const cacheControl = providerPromptCacheControl(settings);
 	return {
@@ -977,7 +1018,7 @@ function providerLoopMaxCompletionTokens(contextWindowTokens: number, estimatedP
 }
 
 export function providerCompactionRequest(
-	settings: Pick<ProviderSettings, 'model' | 'providerRouting' | 'reasoningEffort' | 'supportsPrefill' | 'toolCalls'> & { baseUrl?: string },
+	settings: Pick<ProviderSettings, 'model' | 'providerRouting' | 'reasoningEffort' | 'reasoningRequest' | 'supportsPrefill' | 'toolCalls' | 'toolCallRequest'> & { baseUrl?: string },
 	messages: ChatMessage[],
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength' | 'maxCompletionTokens'> = defaultProviderCompactionSummaryLimits,
 	providerTools?: ProviderToolDefinition[],
@@ -985,14 +1026,23 @@ export function providerCompactionRequest(
 	reasoning?: ProviderReasoningConfig,
 ): ProviderCompactionRequest {
 	const effectiveMode = effectiveCompactionModeForModel(settings.model, settingsUseOpenRouter(settings), mode, settings.providerRouting);
+	const reasoningShape: RequiredToolCallReasoningShape = !reasoning ? 'provider_default'
+		: 'effort' in reasoning && reasoning.effort === 'none' ? 'reasoning_off' : 'reasoning_on';
+	const requestedToolCalls = settings.toolCallRequest?.kind === 'strategy'
+		? settings.toolCallRequest.strategy
+		: settings.toolCallRequest?.kind === 'provider_default' ? 'at_will'
+		: settings.toolCalls ?? 'require';
 	const toolCalls = effectiveStructuredToolCallsForModel(
 		settings.model,
 		settingsUseOpenRouter(settings),
-		settings.toolCalls ?? 'require',
+		requestedToolCalls,
 		settings.providerRouting,
+		reasoningShape,
 	);
 	const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, effectiveMode);
-	const toolChoice = effectiveMode === 'structured_output' ? providerNoToolChoice : providerToolChoiceForMode(toolCalls);
+	const toolChoice = effectiveMode === 'structured_output'
+		? providerNoToolChoice
+		: settings.toolCallRequest?.kind === 'provider_default' ? undefined : providerToolChoiceForMode(toolCalls);
 	const responseFormat = providerCompactionResponseFormat(limits.maxLength, effectiveMode);
 	const toolRequestFields =
 		effectiveProviderTools.length > 0
@@ -1053,16 +1103,17 @@ function contextBudgetPromptParts(bot: RuntimeBotDocument, settings: ProviderSet
 	const fixedSystemToolInstructionTools = providerTools;
 	const worldPrompt = stringValue(bot.worldPrompt) ?? '';
 	const botWithoutPrompt = { ...bot, prompt: { lang: bot.language, text: '' } };
+	const ordinaryToolCalls = providerToolCallsForSettings(settings);
 	const fixedSystemMessage =
-		settings.toolCalls === 'at_will'
+		ordinaryToolCalls === 'at_will'
 			? standardPrompt(botWithoutPrompt, '')
 			: appendToolRequirementInstruction(standardPrompt(botWithoutPrompt, ''), fixedSystemToolInstructionTools);
 	const personaSystemMessage =
-		settings.toolCalls === 'at_will'
+		ordinaryToolCalls === 'at_will'
 			? standardPrompt(bot, '')
 			: appendToolRequirementInstruction(standardPrompt(bot, ''), fixedSystemToolInstructionTools);
 	const fullSystemMessage =
-		settings.toolCalls === 'at_will'
+		ordinaryToolCalls === 'at_will'
 			? standardPrompt(bot, worldPrompt)
 			: appendToolRequirementInstruction(standardPrompt(bot, worldPrompt), fixedSystemToolInstructionTools);
 	return {
@@ -1073,7 +1124,7 @@ function contextBudgetPromptParts(bot: RuntimeBotDocument, settings: ProviderSet
 		personaSystemMessage,
 		reasoningPrefill: effectiveLoopRecurringPrompt(bot),
 		providerTools,
-		supportsPrefill: settings.supportsPrefill ?? true,
+		supportsPrefill: settings.supportsPrefill === true,
 	};
 }
 
@@ -1152,9 +1203,16 @@ export function providerTokenProbeRequest(
 }
 
 export function providerTranslationRequest(settings: TranslationProviderSettings, text: string): ProviderTranslationRequest {
-	const toolCalls = effectiveStructuredToolCallsForModel(settings.model, settingsUseOpenRouter(settings), settings.toolCalls ?? 'require');
-	const toolChoice = providerToolChoiceForMode(toolCalls);
 	const reasoning = providerReasoningForSettings(settings);
+	const reasoningShape = providerReasoningShapeForSettings(settings);
+	const requestedToolCalls = settings.toolCallRequest?.kind === 'strategy'
+		? settings.toolCallRequest.strategy
+		: settings.toolCallRequest?.kind === 'provider_default' ? 'at_will'
+		: settings.toolCalls ?? 'require';
+	const toolCalls = effectiveStructuredToolCallsForModel(
+		settings.model, settingsUseOpenRouter(settings), requestedToolCalls, settings.providerRouting, reasoningShape,
+	);
+	const toolChoice = settings.toolCallRequest?.kind === 'provider_default' ? undefined : providerToolChoiceForMode(toolCalls);
 	const tools = providerTranslationToolDefinitions();
 	return {
 		model: settings.model,
@@ -1272,10 +1330,26 @@ function effectiveProviderSettingsForWorldPrompt(
 	const baseUrl = requestBaseUrl ?? envBaseUrl ?? fallbackProviderBaseUrl;
 	const openRouterBaseUrl = isOpenRouterProviderBaseUrl(baseUrl);
 	const providerRouting = openRouterProviderRouting(baseUrl, requestSettings.providerRouting);
+	const reasoningRequest = providerReasoningRequestFromLegacyEffort(requestSettings.reasoningEffort);
 	const reasoningEffort = effectiveReasoningEffortForModel(model, openRouterBaseUrl, requestSettings.reasoningEffort, providerRouting);
-	const toolCalls = effectiveToolCallsForModel(model, openRouterBaseUrl, requestSettings.toolCalls, providerRouting);
+	const reasoningShape: RequiredToolCallReasoningShape = reasoningEffort === undefined ? 'provider_default'
+		: reasoningEffort === 'none' ? 'reasoning_off' : 'reasoning_on';
+	const toolCallRequest = requestSettings.toolCalls === undefined
+		? { kind: 'bickr_automatic' as const }
+		: { kind: 'strategy' as const, strategy: requestSettings.toolCalls };
+	const ordinaryLoopToolCalls = resolveToolCallPolicyForModel(
+		model, openRouterBaseUrl, toolCallRequest, providerRouting, reasoningShape,
+	);
+	const toolCalls = ordinaryLoopToolCalls.appliedStrategy;
 	const compactionMode = effectiveCompactionModeForModel(model, openRouterBaseUrl, requestSettings.compactionMode, providerRouting);
-	const supportsPrefill = effectiveSupportsPrefillForModel(model, openRouterBaseUrl, requestSettings.supportsPrefill, providerRouting);
+	const prefillPolicy = resolvePrefillPolicyForModel(
+		model,
+		openRouterBaseUrl,
+		requestSettings.supportsPrefill,
+		providerRouting,
+		reasoningShape,
+	);
+	const supportsPrefill = prefillPolicy.applied;
 	return {
 		apiKey: requestApiKey ?? (requestBaseUrl ? undefined : envApiKey),
 		baseUrl,
@@ -1283,8 +1357,12 @@ function effectiveProviderSettingsForWorldPrompt(
 		compactionMode,
 		...(providerRouting ? { providerRouting } : {}),
 		...(reasoningEffort ? { reasoningEffort } : {}),
+		reasoningRequest,
 		supportsPrefill,
+		prefillPolicy,
 		toolCalls,
+		toolCallRequest,
+		ordinaryLoopToolCalls,
 		temperature: requestSettings.temperature ?? defaultTextGenerationTemperature,
 		...(requestBaseUrl ? { usesCustomBaseUrl: true } : {}),
 		...(requestSettings.topK !== undefined ? { topK: requestSettings.topK } : {}),
@@ -4415,7 +4493,7 @@ export class BotRuntime {
 			personaPromptFingerprint,
 			providerBaseUrl: settings.baseUrl,
 			...(settings.providerRouting ? { providerRouting: settings.providerRouting } : {}),
-			supportsPrefill: settings.supportsPrefill ?? true,
+			supportsPrefill: settings.supportsPrefill === true,
 			worldPromptFingerprint,
 		});
 		const cachedCounts = this.contextBudgetCachedCounts(fingerprint);
@@ -4481,7 +4559,7 @@ export class BotRuntime {
 				personaSystemMessage,
 				reasoningPrefill,
 				providerTools,
-				supportsPrefill: settings.supportsPrefill ?? true,
+				supportsPrefill: settings.supportsPrefill === true,
 			},
 			calibration,
 		);
@@ -4524,7 +4602,7 @@ export class BotRuntime {
 				personaPromptFingerprint,
 				providerBaseUrl: settings.baseUrl,
 				...(settings.providerRouting ? { providerRouting: settings.providerRouting } : {}),
-				supportsPrefill: settings.supportsPrefill ?? true,
+				supportsPrefill: settings.supportsPrefill === true,
 				worldPromptFingerprint,
 			}),
 		);

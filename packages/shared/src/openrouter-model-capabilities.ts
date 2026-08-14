@@ -3,6 +3,7 @@ import {
 	type BotCompactionReasoningEffort,
 	type BotCompactionReasoningRequest,
 	type BotInferenceReasoningEffort,
+	type BotInferenceToolCallIntent,
 	type BotInferenceToolCalls,
 	type BotStructuredToolCalls,
 	type JsonObject,
@@ -11,13 +12,153 @@ import { generatedOpenRouterModelCapabilityEntries } from "./openrouter-model-ca
 import type { ProviderErrorCause } from "./runtime-errors";
 
 export type OpenRouterModelCapabilities = {
-	prefill: boolean;
+	prefill: PrefillCapabilities;
 	structuredOutputs: boolean;
-	requiredToolCalls: boolean;
+	requiredToolCalls: RequiredToolCallCapabilities;
 	disabledReasoning: boolean;
 	cacheControl: boolean;
 	compactionReasoning: CompactionReasoningCapabilities;
 	contextLength?: number;
+};
+
+export type PrefillObservationSource =
+	| "probe"
+	| "legacy_boolean"
+	| "custom_provider_policy"
+	| "conservative_policy";
+
+export type PrefillProviderCapabilities = {
+	provider: string;
+	providerDefault: RequiredToolCallObservation;
+	reasoningOff: RequiredToolCallObservation;
+	reasoningOn: RequiredToolCallReasoningOnObservation;
+};
+
+export type OpenRouterPrefillCapabilities = {
+	kind: "provider_matrix";
+	version: 2;
+	providers: readonly PrefillProviderCapabilities[];
+	fallback: { supported: boolean; source: Exclude<PrefillObservationSource, "probe"> };
+};
+
+export type FixedPrefillPolicy = {
+	kind: "fixed_policy";
+	supported: boolean;
+	source: "custom_provider_policy" | "conservative_policy";
+};
+
+export type PrefillCapabilities = OpenRouterPrefillCapabilities | FixedPrefillPolicy;
+
+export type PrefillProviderEvidence =
+	| { kind: "observed"; provider: string; observation: RequiredToolCallObservation | RequiredToolCallReasoningOnObservation }
+	| { kind: "unobserved"; provider: string };
+
+export type PrefillCapabilityResolution =
+	| {
+			kind: "provider_aggregate";
+			status: RequiredToolCallObservationStatus;
+			providers: readonly PrefillProviderEvidence[];
+	  }
+	| {
+			kind: "fallback";
+			status: "supported" | "unsupported";
+			source: OpenRouterPrefillCapabilities["fallback"]["source"];
+	  }
+	| {
+			kind: "fixed_policy";
+			status: "supported" | "unsupported";
+			source: FixedPrefillPolicy["source"];
+	  };
+
+export type AppliedPrefillPolicy =
+	| { request: null; reasoningShape: RequiredToolCallReasoningShape; applied: false; adjustment: null; capability: null }
+	| { request: false; reasoningShape: RequiredToolCallReasoningShape; applied: false; adjustment: null; capability: null }
+	| {
+			request: true;
+			reasoningShape: RequiredToolCallReasoningShape;
+			applied: boolean;
+			adjustment: "prefill_unsupported" | "reasoning_shape_not_applicable" | "provider_compatibility_incomplete" | null;
+			capability: PrefillCapabilityResolution;
+	  };
+
+export type RequiredToolCallReasoningShape = "provider_default" | "reasoning_off" | "reasoning_on";
+export type RequiredToolCallObservationStatus = "supported" | "unsupported" | "unknown" | "not_applicable";
+export type RequiredToolCallObservationSource =
+	| "probe"
+	| "legacy_boolean"
+	| "custom_provider_policy"
+	| "conservative_policy";
+
+export type RequiredToolCallObservation = {
+	status: RequiredToolCallObservationStatus;
+	source: "probe";
+};
+
+export type RequiredToolCallReasoningOnObservation =
+	| (RequiredToolCallObservation & { status: Exclude<RequiredToolCallObservationStatus, "not_applicable">; effort: CompactionReasoningEffort })
+	| (RequiredToolCallObservation & { status: "not_applicable"; effort: null });
+
+export type RequiredToolCallProviderCapabilities = {
+	provider: string;
+	providerDefault: RequiredToolCallObservation;
+	reasoningOff: RequiredToolCallObservation;
+	reasoningOn: RequiredToolCallReasoningOnObservation;
+};
+
+export type OpenRouterRequiredToolCallCapabilities = {
+	kind: "provider_matrix";
+	version: 2;
+	providers: readonly RequiredToolCallProviderCapabilities[];
+	fallback: { supported: boolean; source: Exclude<RequiredToolCallObservationSource, "probe"> };
+};
+
+export type FixedRequiredToolCallPolicy = {
+	kind: "fixed_policy";
+	supported: boolean;
+	source: "custom_provider_policy" | "conservative_policy";
+};
+
+export type RequiredToolCallCapabilities = OpenRouterRequiredToolCallCapabilities | FixedRequiredToolCallPolicy;
+
+export type RequiredToolCallProviderEvidence =
+	| { kind: "observed"; provider: string; observation: RequiredToolCallObservation | RequiredToolCallReasoningOnObservation }
+	| { kind: "unobserved"; provider: string };
+
+export type RequiredToolCallResolutionObservation =
+	| {
+			kind: "provider_aggregate";
+			status: RequiredToolCallObservationStatus;
+			providers: readonly RequiredToolCallProviderEvidence[];
+	  }
+	| {
+			kind: "fallback";
+			status: "supported" | "unsupported";
+			source: OpenRouterRequiredToolCallCapabilities["fallback"]["source"];
+	  }
+	| {
+			kind: "fixed_policy";
+			status: "supported" | "unsupported";
+			source: FixedRequiredToolCallPolicy["source"];
+	  };
+
+export type RequiredToolCallResolution = {
+	shape: RequiredToolCallReasoningShape;
+	observation: RequiredToolCallResolutionObservation;
+	applied: BotInferenceToolCalls;
+	adjustment:
+		| "required_tool_calls_unsupported"
+		| "reasoning_shape_not_applicable"
+		| "provider_compatibility_incomplete"
+		| null;
+};
+
+export type AppliedToolCallPolicy = {
+	intent: BotInferenceToolCallIntent;
+	reasoningShape: RequiredToolCallReasoningShape;
+	requestedStrategy: BotInferenceToolCalls | null;
+	appliedStrategy: BotInferenceToolCalls;
+	emission: "omit_tool_choice" | "emit_tool_choice";
+	capability: RequiredToolCallResolution | null;
 };
 
 export type OpenRouterModelPolicy = OpenRouterModelCapabilities & {
@@ -90,15 +231,16 @@ export type CompactionReasoningDecisionProvenance =
 	| { kind: "model_default"; modelDefault: CompactionReasoningModelDefault }
 	| { kind: "safety_floor"; floor: CompactionReasoningFloor }
 	| { kind: "learned_floor"; floor: CompactionReasoningFloor }
+	| {
+			kind: "supported_effort_normalization";
+			requiredEffort: CompactionReasoningEffort;
+			appliedEffort: CompactionReasoningEffort;
+	  }
 	| { kind: "baseline"; selection: CompactionReasoningSelection };
 
 export type CompactionReasoningRefusal =
 	| {
 			kind: "support_unknown_for_required_effort";
-			requiredEffort: CompactionReasoningEffort;
-	  }
-	| {
-			kind: "model_default_order_unknown_for_required_effort";
 			requiredEffort: CompactionReasoningEffort;
 	  }
 	| {
@@ -129,9 +271,9 @@ export type UnknownModelCompactionReasoningFailure =
 export const openRouterFreeModel = "openrouter/free";
 
 const conservativeOpenRouterModelCapabilities = {
-	prefill: false,
+	prefill: conservativeOpenRouterPrefillCapabilities("conservative_policy", false),
 	structuredOutputs: false,
-	requiredToolCalls: false,
+	requiredToolCalls: conservativeOpenRouterRequiredToolCapabilities("conservative_policy", false),
 	disabledReasoning: false,
 	cacheControl: false,
 	compactionReasoning: {
@@ -149,11 +291,19 @@ const openRouterFreeModelPolicy = {
 } as const satisfies OpenRouterModelPolicy;
 
 const permissiveCustomProviderPolicy = {
-	prefill: true,
+	prefill: {
+		kind: "fixed_policy",
+		supported: true,
+		source: "custom_provider_policy",
+	},
 	structuredOutputs: true,
 	structuredOutputCompaction: true,
 	compactionReasoningFloor: { kind: "reasoning_disabled" },
-	requiredToolCalls: true,
+	requiredToolCalls: {
+		kind: "fixed_policy",
+		supported: true,
+		source: "custom_provider_policy",
+	},
 	disabledReasoning: true,
 	cacheControl: false,
 	compactionReasoning: {
@@ -225,10 +375,13 @@ export function openRouterModelPolicy(model: string | undefined, providerRouting
 		compactionReasoningFloor,
 		structuredOutputCompaction,
 		defaultCompactionMode: structuredOutputCompaction ? "structured_output" : "tool_call_cache_friendly",
-		// Ordinary-loop defaults are deliberately unchanged in Phase 2. The
-		// separate compaction default above is metadata-driven.
-		defaultReasoningEffort: "minimal",
-		defaultToolCalls: capabilities.requiredToolCalls ? "require" : "railroad",
+		// Models that do not support reasoning must keep Bickr automatic as a
+		// provider-default request. Synthesizing `minimal` would misclassify the
+		// request as reasoning-on and select the wrong capability matrix column.
+		...(capabilities.compactionReasoning.support.kind === "unsupported"
+			? {}
+			: { defaultReasoningEffort: "minimal" as const }),
+		defaultToolCalls: requiredToolCallDefault(capabilities.requiredToolCalls),
 	};
 }
 
@@ -300,9 +453,15 @@ export function resolveCompactionReasoningSelection(input: {
 	capabilities: CompactionReasoningCapabilities;
 	learnedFloor?: CompactionReasoningFloor;
 }): CompactionReasoningResolution {
+	// The shipped quality floor corrects the unsafe disabled-reasoning request;
+	// it is not permission to rewrite an explicitly selected nonzero effort.
+	// Learned runtime evidence remains a real floor for every request.
+	const applicablePolicyFloor = input.request?.kind === "reasoning_disabled"
+		? input.policy.floor
+		: reasoningDisabledCompactionReasoningFloor;
 	const joinedFloor = [input.request, input.learnedFloor]
 		.filter((floor): floor is CompactionReasoningFloor => floor !== undefined)
-		.reduce(strongerCompactionReasoningFloor, input.policy.floor);
+		.reduce(strongerCompactionReasoningFloor, applicablePolicyFloor);
 	const provenance: CompactionReasoningProvenance = {
 		configuration: input.request ?? null,
 		modelDefault: input.capabilities.modelDefault,
@@ -316,24 +475,20 @@ export function resolveCompactionReasoningSelection(input: {
 	const selected = (
 		selection: CompactionReasoningSelection,
 		runtimeFallback: CompactionReasoningRuntimeFallback,
+		decision = compactionReasoningDecisionForSelection(input, selection, floorDecision),
 	): Extract<CompactionReasoningResolution, { kind: "selected" }> => selectedCompactionReasoningResolution(
 		selection,
 		runtimeFallback,
-		compactionReasoningDecisionForSelection(input, joinedFloor, selection, floorDecision),
+		decision,
 		provenance,
 	);
+	if (!input.request && !input.learnedFloor) {
+		return selected(input.policy.selection, input.policy.runtimeFallback);
+	}
 	if (sameCompactionReasoningFloor(joinedFloor, input.policy.floor) && joinedFloor.kind !== "explicit_effort") {
 		return selected(input.policy.selection, input.policy.runtimeFallback);
 	}
 	const selectionResolution = compactionReasoningSelectionForJoinedFloor(joinedFloor, input.capabilities.modelDefault);
-	if (selectionResolution.kind === "refused") {
-		return {
-			kind: "refused",
-			decision: floorDecision,
-			refusal: selectionResolution.refusal,
-			provenance,
-		};
-	}
 	const requiredSelection = selectionResolution.selection;
 
 	if (requiredSelection.kind === "reasoning_disabled") {
@@ -355,6 +510,11 @@ export function resolveCompactionReasoningSelection(input: {
 				return selected(
 					{ kind: "explicit_effort", effort },
 					{ kind: "none" },
+					effort === requiredEffort ? undefined : {
+						kind: "supported_effort_normalization",
+						requiredEffort,
+						appliedEffort: effort,
+					},
 				);
 			}
 			if (input.capabilities.support.kind === "partially_known") {
@@ -428,10 +588,72 @@ export function effectiveToolCallsForModel(
 	openRouter: boolean,
 	value: BotInferenceToolCalls | undefined,
 	providerRouting?: JsonObject,
+	reasoningShape?: RequiredToolCallReasoningShape,
 ): BotInferenceToolCalls {
+	return resolveToolCallPolicyForModel(
+		model,
+		openRouter,
+		value === undefined ? { kind: "bickr_automatic" } : { kind: "strategy", strategy: value },
+		providerRouting,
+		reasoningShape,
+	).appliedStrategy;
+}
+
+export function resolveToolCallPolicyForModel(
+	model: string | undefined,
+	openRouter: boolean,
+	intent: BotInferenceToolCallIntent,
+	providerRouting?: JsonObject,
+	reasoningShape?: RequiredToolCallReasoningShape,
+): AppliedToolCallPolicy {
 	const policy = providerModelPolicy(model, openRouter, providerRouting);
-	const requested = value ?? policy.defaultToolCalls;
-	return requested === "require" && !policy.requiredToolCalls ? "railroad" : requested;
+	const effectiveReasoningShape = reasoningShape ?? defaultReasoningShape(policy);
+	if (intent.kind === "provider_default") {
+		return {
+			intent,
+			reasoningShape: effectiveReasoningShape,
+			requestedStrategy: null,
+			appliedStrategy: "at_will",
+			emission: "omit_tool_choice",
+			capability: null,
+		};
+	}
+	let requestedStrategy: BotInferenceToolCalls;
+	switch (intent.kind) {
+		case "inherit":
+		case "bickr_automatic": requestedStrategy = policy.defaultToolCalls; break;
+		case "strategy": requestedStrategy = intent.strategy; break;
+	}
+	const capability = requiredToolCallResolution(
+		policy.requiredToolCalls,
+		requestedStrategy,
+		effectiveReasoningShape,
+		providerRouting,
+	);
+	return {
+		intent,
+		reasoningShape: effectiveReasoningShape,
+		requestedStrategy,
+		appliedStrategy: capability.applied,
+		emission: "emit_tool_choice",
+		capability,
+	};
+}
+
+export function requiredToolCallResolution(
+	capabilities: RequiredToolCallCapabilities,
+	requested: BotInferenceToolCalls,
+	shape: RequiredToolCallReasoningShape,
+	providerRouting?: JsonObject,
+): RequiredToolCallResolution {
+	const observation = requiredToolCallResolutionObservation(capabilities, shape, providerRouting);
+	if (requested !== "require") return { shape, observation, applied: requested, adjustment: null };
+	switch (observation.status) {
+		case "supported": return { shape, observation, applied: requested, adjustment: null };
+		case "unsupported": return { shape, observation, applied: "railroad", adjustment: "required_tool_calls_unsupported" };
+		case "not_applicable": return { shape, observation, applied: "railroad", adjustment: "reasoning_shape_not_applicable" };
+		case "unknown": return { shape, observation, applied: "railroad", adjustment: "provider_compatibility_incomplete" };
+	}
 }
 
 export function effectiveStructuredToolCallsForModel(
@@ -439,8 +661,9 @@ export function effectiveStructuredToolCallsForModel(
 	openRouter: boolean,
 	value: BotInferenceToolCalls | BotStructuredToolCalls | undefined,
 	providerRouting?: JsonObject,
+	reasoningShape?: RequiredToolCallReasoningShape,
 ): BotStructuredToolCalls {
-	const toolCalls = effectiveToolCallsForModel(model, openRouter, value, providerRouting);
+	const toolCalls = effectiveToolCallsForModel(model, openRouter, value, providerRouting, reasoningShape);
 	return toolCalls === "require" ? "require" : "railroad";
 }
 
@@ -449,9 +672,42 @@ export function effectiveSupportsPrefillForModel(
 	openRouter: boolean,
 	value: boolean | undefined,
 	providerRouting?: JsonObject,
+	reasoningShape?: RequiredToolCallReasoningShape,
 ): boolean {
+	return resolvePrefillPolicyForModel(model, openRouter, value, providerRouting, reasoningShape).applied;
+}
+
+export function resolvePrefillPolicyForModel(
+	model: string | undefined,
+	openRouter: boolean,
+	request: boolean | undefined,
+	providerRouting?: JsonObject,
+	reasoningShape?: RequiredToolCallReasoningShape,
+): AppliedPrefillPolicy {
 	const policy = providerModelPolicy(model, openRouter, providerRouting);
-	return policy.prefill ? value ?? true : false;
+	return resolvePrefillPolicy(
+		policy.prefill,
+		request,
+		providerRouting,
+		reasoningShape ?? defaultReasoningShape(policy),
+	);
+}
+
+export function resolvePrefillPolicy(
+	capabilities: PrefillCapabilities,
+	request: boolean | undefined,
+	providerRouting?: JsonObject,
+	reasoningShape: RequiredToolCallReasoningShape = "reasoning_on",
+): AppliedPrefillPolicy {
+	if (request === undefined) return { request: null, reasoningShape, applied: false, adjustment: null, capability: null };
+	if (!request) return { request: false, reasoningShape, applied: false, adjustment: null, capability: null };
+	const capability = prefillCapabilityResolution(capabilities, reasoningShape, providerRouting);
+	switch (capability.status) {
+		case "supported": return { request: true, reasoningShape, applied: true, adjustment: null, capability };
+		case "unsupported": return { request: true, reasoningShape, applied: false, adjustment: "prefill_unsupported", capability };
+		case "not_applicable": return { request: true, reasoningShape, applied: false, adjustment: "reasoning_shape_not_applicable", capability };
+		case "unknown": return { request: true, reasoningShape, applied: false, adjustment: "provider_compatibility_incomplete", capability };
+	}
 }
 
 export function effectiveCompactionModeForModel(
@@ -470,7 +726,13 @@ export function modelSupportsReasoningNone(model: string | undefined, openRouter
 }
 
 export function modelSupportsRequiredToolCalls(model: string | undefined, openRouter: boolean, providerRouting?: JsonObject): boolean {
-	return providerModelPolicy(model, openRouter, providerRouting).requiredToolCalls;
+	const policy = providerModelPolicy(model, openRouter, providerRouting);
+	return requiredToolCallResolution(
+		policy.requiredToolCalls,
+		"require",
+		defaultReasoningShape(policy),
+		providerRouting,
+	).applied === "require";
 }
 
 export function modelSupportsStructuredOutputs(model: string | undefined, openRouter: boolean, providerRouting?: JsonObject): boolean {
@@ -482,7 +744,7 @@ export function modelSupportsStructuredCompaction(model: string | undefined, ope
 }
 
 export function modelSupportsPrefill(model: string | undefined, openRouter: boolean, providerRouting?: JsonObject): boolean {
-	return providerModelPolicy(model, openRouter, providerRouting).prefill;
+	return resolvePrefillPolicyForModel(model, openRouter, true, providerRouting).applied;
 }
 
 export function modelContextWindowTokensForModel(model: string | undefined, openRouter: boolean): number | undefined {
@@ -515,6 +777,154 @@ export function modelSupportsPromptCacheControl(model: string | undefined, openR
 
 function normalizedOpenRouterModelId(model: string | undefined): string {
 	return model?.trim().toLowerCase() ?? "";
+}
+
+function conservativeOpenRouterRequiredToolCapabilities(
+	source: OpenRouterRequiredToolCallCapabilities["fallback"]["source"],
+	supported: boolean,
+): OpenRouterRequiredToolCallCapabilities {
+	return {
+		kind: "provider_matrix",
+		version: 2,
+		providers: [],
+		fallback: { supported, source },
+	};
+}
+
+function conservativeOpenRouterPrefillCapabilities(
+	source: OpenRouterPrefillCapabilities["fallback"]["source"],
+	supported: boolean,
+): OpenRouterPrefillCapabilities {
+	return {
+		kind: "provider_matrix",
+		version: 2,
+		providers: [],
+		fallback: { supported, source },
+	};
+}
+
+function requiredToolCallDefault(capabilities: RequiredToolCallCapabilities): BotInferenceToolCalls {
+	return capabilities.kind === "fixed_policy"
+		? capabilities.supported ? "require" : "railroad"
+		: capabilities.providers.length > 0 || capabilities.fallback.supported ? "require" : "railroad";
+}
+
+function defaultReasoningShape(policy: OpenRouterModelPolicy): RequiredToolCallReasoningShape {
+	if (policy.defaultReasoningEffort === undefined) return "provider_default";
+	return policy.defaultReasoningEffort === "none" ? "reasoning_off" : "reasoning_on";
+}
+
+function requiredToolCallObservation(
+	capabilities: RequiredToolCallProviderCapabilities,
+	shape: RequiredToolCallReasoningShape,
+): RequiredToolCallObservation | RequiredToolCallReasoningOnObservation {
+	switch (shape) {
+		case "provider_default": return capabilities.providerDefault;
+		case "reasoning_off": return capabilities.reasoningOff;
+		case "reasoning_on": return capabilities.reasoningOn;
+	}
+}
+
+function requiredToolCallResolutionObservation(
+	capabilities: RequiredToolCallCapabilities,
+	shape: RequiredToolCallReasoningShape,
+	routing: JsonObject | undefined,
+): RequiredToolCallResolutionObservation {
+	if (capabilities.kind === "fixed_policy") {
+		return {
+			kind: "fixed_policy",
+			status: capabilities.supported ? "supported" : "unsupported",
+			source: capabilities.source,
+		};
+	}
+	const providerCapabilities = new Map(capabilities.providers.map((provider) => [provider.provider, provider]));
+	const candidates = providerCapabilityCandidateNames(capabilities.providers, routing);
+	if (candidates.length === 0) {
+		return {
+			kind: "fallback",
+			status: capabilities.fallback.supported ? "supported" : "unsupported",
+			source: capabilities.fallback.source,
+		};
+	}
+	const providers: RequiredToolCallProviderEvidence[] = candidates.map((provider) => {
+		const observed = providerCapabilities.get(provider);
+		return observed
+			? { kind: "observed", provider, observation: requiredToolCallObservation(observed, shape) }
+			: { kind: "unobserved", provider };
+	});
+	const statuses = providers.map((provider) => provider.kind === "observed" ? provider.observation.status : "unknown");
+	const status: RequiredToolCallObservationStatus = statuses.length === 0 || statuses.includes("unknown")
+		? "unknown"
+		: statuses.includes("unsupported")
+			? "unsupported"
+			: statuses.includes("not_applicable")
+				? "not_applicable"
+				: "supported";
+	return { kind: "provider_aggregate", status, providers };
+}
+
+function prefillCapabilityResolution(
+	capabilities: PrefillCapabilities,
+	shape: RequiredToolCallReasoningShape,
+	routing: JsonObject | undefined,
+): PrefillCapabilityResolution {
+	if (capabilities.kind === "fixed_policy") {
+		return {
+			kind: "fixed_policy",
+			status: capabilities.supported ? "supported" : "unsupported",
+			source: capabilities.source,
+		};
+	}
+	const providerCapabilities = new Map(capabilities.providers.map((provider) => [provider.provider, provider]));
+	const candidates = providerCapabilityCandidateNames(capabilities.providers, routing);
+	if (candidates.length === 0) {
+		return {
+			kind: "fallback",
+			status: capabilities.fallback.supported ? "supported" : "unsupported",
+			source: capabilities.fallback.source,
+		};
+	}
+	const providers: PrefillProviderEvidence[] = candidates.map((provider) => {
+		const observed = providerCapabilities.get(provider);
+		return observed
+			? { kind: "observed", provider, observation: requiredToolCallObservation(observed, shape) }
+			: { kind: "unobserved", provider };
+	});
+	const statuses = providers.map((provider) => provider.kind === "observed" ? provider.observation.status : "unknown");
+	const status: RequiredToolCallObservationStatus = statuses.length === 0 || statuses.includes("unknown")
+		? "unknown"
+		: statuses.includes("unsupported") ? "unsupported"
+			: statuses.includes("not_applicable") ? "not_applicable" : "supported";
+	return { kind: "provider_aggregate", status, providers };
+}
+
+function providerCapabilityCandidateNames(
+	providers: readonly { provider: string }[],
+	routing: JsonObject | undefined,
+): string[] {
+	const known = providers.map(({ provider }) => provider);
+	const only = explicitProviderList(routing?.only) ?? (
+		routing?.allow_fallbacks === false ? explicitProviderList(routing.order) : undefined
+	);
+	const selected = only
+		? only.flatMap((selection) => {
+			const matches = known.filter((provider) => providerRouteSelectionMatches(selection, provider));
+			return matches.length > 0 ? matches : [selection];
+		})
+		: known;
+	const ignored = explicitProviderList(routing?.ignore) ?? [];
+	return [...new Set(selected)]
+		.filter((provider) => !ignored.some((selection) => providerRouteSelectionMatches(selection, provider)))
+		.sort(codeUnitCompare);
+}
+
+function explicitProviderList(value: unknown): string[] | undefined {
+	if (!Array.isArray(value) || value.length === 0 || value.some((item) => typeof item !== "string" || !item.trim())) return undefined;
+	return [...new Set(value.map((item) => item.trim().toLowerCase()))].sort(codeUnitCompare);
+}
+
+function providerRouteSelectionMatches(selection: string, provider: string): boolean {
+	return provider === selection || provider.startsWith(`${selection}/`);
 }
 
 function supportsStructuredOutputCompaction(
@@ -620,13 +1030,11 @@ function compactionReasoningSelection(
 			return { kind: "reasoning_disabled" };
 		case "model_default":
 			return { kind: "model_default", ...(modelDefaultEffort ? { effort: modelDefaultEffort } : {}) };
-		case "explicit_effort": {
-			const effort = modelDefaultEffort &&
-				compactionReasoningEffortRank(modelDefaultEffort) > compactionReasoningEffortRank(floor.effort)
-				? modelDefaultEffort
-				: floor.effort;
-			return { kind: "explicit_effort", effort };
-		}
+		case "explicit_effort":
+			// A model default is a baseline only. Once configuration or a quality
+			// floor selects an explicit effort, a stronger provider default must not
+			// silently rewrite that explicit request.
+			return { kind: "explicit_effort", effort: floor.effort };
 		default:
 			return unreachableCompactionReasoningValue(floor);
 	}
@@ -636,45 +1044,17 @@ function compactionReasoningSelectionForJoinedFloor(
 	floor: CompactionReasoningFloor,
 	modelDefault: CompactionReasoningModelDefault,
 ):
-	| { kind: "selected"; selection: CompactionReasoningSelection }
-	| {
-			kind: "refused";
-			refusal: Extract<CompactionReasoningRefusal, { kind: "model_default_order_unknown_for_required_effort" }>;
-	  } {
+	{ kind: "selected"; selection: CompactionReasoningSelection } {
 	switch (floor.kind) {
 		case "reasoning_disabled":
 			return { kind: "selected", selection: { kind: "reasoning_disabled" } };
 		case "model_default":
 			return { kind: "selected", selection: modelDefaultCompactionReasoningSelection(modelDefault) };
 		case "explicit_effort":
-			switch (modelDefault.kind) {
-				case "absent":
-					return { kind: "selected", selection: { kind: "explicit_effort", effort: floor.effort } };
-				case "explicit_effort":
-					return {
-						kind: "selected",
-						selection: compactionReasoningSelection(floor, modelDefault.effort),
-					};
-				case "provider_default":
-					switch (modelDefault.relativeOrder) {
-						case "below_minimal":
-							return { kind: "selected", selection: { kind: "explicit_effort", effort: floor.effort } };
-						case "above_xhigh":
-							return { kind: "selected", selection: modelDefaultCompactionReasoningSelection(modelDefault) };
-						case "unknown":
-							return {
-								kind: "refused",
-								refusal: {
-									kind: "model_default_order_unknown_for_required_effort",
-									requiredEffort: floor.effort,
-								},
-							};
-						default:
-							return unreachableCompactionReasoningValue(modelDefault.relativeOrder);
-					}
-				default:
-					return unreachableCompactionReasoningValue(modelDefault);
-			}
+			// Advertised model defaults are baseline data only. Once a request,
+			// safety floor, or learned floor selects an effort, support metadata may
+			// normalize that effort but the provider default cannot raise it.
+			return { kind: "selected", selection: { kind: "explicit_effort", effort: floor.effort } };
 		default:
 			return unreachableCompactionReasoningValue(floor);
 	}
@@ -711,16 +1091,12 @@ function baselineCompactionReasoningSelection(
 	if (floor.kind !== "explicit_effort") {
 		return compactionReasoningSelection(floor, modelDefaultEffort(modelDefaultCompactionReasoningSelection(modelDefault)));
 	}
-	if (modelDefault.kind === "explicit_effort") {
-		return compactionReasoningSelection(floor, modelDefault.effort);
-	}
-	if (modelDefault.kind === "provider_default" && modelDefault.relativeOrder === "above_xhigh") {
-		return modelDefaultCompactionReasoningSelection(modelDefault);
-	}
-	// An incomparable default is resolved by the canonical operation. Retain
-	// the settled policy selection here as baseline evidence, never as proof
-	// that the explicit floor dominates that default.
-	return { kind: "explicit_effort", effort: floor.effort };
+	// A semantic effort floor applies only when a caller explicitly requests
+	// disabled reasoning. With no request, the advertised model default remains
+	// the typed baseline regardless of how it orders relative to that quality
+	// floor. Keep its model-default identity even when metadata supplies the
+	// concrete effort that must be emitted.
+	return modelDefaultCompactionReasoningSelection(modelDefault);
 }
 
 function modelDefaultCompactionReasoningSelection(
@@ -790,7 +1166,6 @@ function compactionReasoningDecisionForSelection(
 		capabilities: CompactionReasoningCapabilities;
 		learnedFloor?: CompactionReasoningFloor;
 	},
-	joinedFloor: CompactionReasoningFloor,
 	selection: CompactionReasoningSelection,
 	floorDecision: CompactionReasoningDecisionProvenance,
 ): CompactionReasoningDecisionProvenance {
@@ -803,13 +1178,9 @@ function compactionReasoningDecisionForSelection(
 		}
 		return { kind: "model_default", modelDefault: input.capabilities.modelDefault };
 	}
-	if (
-		selection.kind === "explicit_effort" &&
-		joinedFloor.kind === "explicit_effort" &&
+	if (!input.request && !input.learnedFloor && selection.kind === "explicit_effort" &&
 		input.capabilities.modelDefault.kind === "explicit_effort" &&
-		input.capabilities.modelDefault.effort === selection.effort &&
-		compactionReasoningEffortRank(selection.effort) > compactionReasoningEffortRank(joinedFloor.effort)
-	) {
+		selection.effort === input.capabilities.modelDefault.effort) {
 		return { kind: "model_default", modelDefault: input.capabilities.modelDefault };
 	}
 	return floorDecision;
@@ -873,18 +1244,46 @@ function validatedGeneratedCapabilities(
 			throw new Error(`Generated OpenRouter capability ${model} has a default compaction effort outside its support set.`);
 		}
 	}
+	const requiredToolCalls = capabilities.requiredToolCalls;
+	if (requiredToolCalls.kind !== "provider_matrix" || requiredToolCalls.version !== 2) {
+		throw new Error(`Generated OpenRouter capability ${model} has an unsupported required-tool schema.`);
+	}
+	const providerNames = requiredToolCalls.providers.map(({ provider }) => provider);
+	if (providerNames.some((provider) => !provider || normalizedProviderSlug(provider) !== provider) ||
+		new Set(providerNames).size !== providerNames.length ||
+		providerNames.some((provider, index) => index > 0 && codeUnitCompare(providerNames[index - 1]!, provider) >= 0)) {
+		throw new Error(`Generated OpenRouter capability ${model} has malformed or unordered provider evidence.`);
+	}
+	const prefill = capabilities.prefill;
+	if (prefill.kind !== "provider_matrix" || prefill.version !== 2) {
+		throw new Error(`Generated OpenRouter capability ${model} has an unsupported prefill schema.`);
+	}
+	const prefillProviderNames = prefill.providers.map(({ provider }) => provider);
+	if (prefillProviderNames.some((provider) => !provider || normalizedProviderSlug(provider) !== provider) ||
+		new Set(prefillProviderNames).size !== prefillProviderNames.length ||
+		prefillProviderNames.some((provider, index) => index > 0 && codeUnitCompare(prefillProviderNames[index - 1]!, provider) >= 0)) {
+		throw new Error(`Generated OpenRouter capability ${model} has malformed or unordered prefill provider evidence.`);
+	}
 	return capabilities;
 }
 
 function validatedGeneratedCapabilitiesMap(): ReadonlyMap<string, OpenRouterModelCapabilities> {
 	const capabilitiesByModel = new Map<string, OpenRouterModelCapabilities>();
-	for (const [model, capabilities] of generatedOpenRouterModelCapabilityEntries) {
+	for (const [model, generated] of generatedOpenRouterModelCapabilityEntries) {
 		if (capabilitiesByModel.has(model)) {
 			throw new Error(`Generated OpenRouter capability model id is duplicated: ${JSON.stringify(model)}`);
 		}
-		capabilitiesByModel.set(model, validatedGeneratedCapabilities(model, capabilities));
+		capabilitiesByModel.set(model, validatedGeneratedCapabilities(model, generated));
 	}
 	return capabilitiesByModel;
+}
+
+function normalizedProviderSlug(provider: string): string {
+	return provider.trim().toLowerCase();
+}
+
+function codeUnitCompare(left: string, right: string): number {
+	return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function unreachableCompactionReasoningValue(value: never): never {
@@ -898,6 +1297,9 @@ function isCompactionReasoningDecisionProvenance(value: unknown): value is Compa
 		case "model_default": return isCompactionReasoningModelDefault(value.modelDefault);
 		case "safety_floor":
 		case "learned_floor": return isCompactionReasoningFloor(value.floor);
+		case "supported_effort_normalization":
+			return isCompactionReasoningEffort(value.requiredEffort) &&
+				isCompactionReasoningEffort(value.appliedEffort);
 		case "baseline": return isCompactionReasoningSelection(value.selection);
 		default: return false;
 	}
@@ -920,7 +1322,6 @@ function isCompactionReasoningRefusal(value: unknown): value is CompactionReason
 	if (!isUnknownRecord(value)) return false;
 	switch (value.kind) {
 		case "support_unknown_for_required_effort":
-		case "model_default_order_unknown_for_required_effort":
 			return isCompactionReasoningEffort(value.requiredEffort);
 		case "no_supported_effort":
 			return isUnknownRecord(value.required) && value.required.kind === "explicit_effort" &&

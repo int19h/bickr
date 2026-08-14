@@ -16,7 +16,7 @@ function fieldMap(): RedactedInferenceFieldDtoMap {
 		setField(result, field, {
 			override: { kind: "inherit" },
 			effective: null,
-			provenance: { kind: "unset" },
+			provenance: { unset: null },
 			adjustment: null,
 		});
 	}
@@ -26,9 +26,14 @@ function fieldMap(): RedactedInferenceFieldDtoMap {
 function setField<K extends InferenceConfigurationField>(
 	fields: RedactedInferenceFieldDtoMap,
 	field: K,
-	dto: RedactedInferenceFieldDto<K>,
+	dto: Omit<RedactedInferenceFieldDto<K>, "inherited" | "request"> & Partial<Pick<RedactedInferenceFieldDto<K>, "inherited" | "request">>,
 ): void {
-	Object.assign(fields, { [field]: dto });
+	const request = dto.request ?? { kind: "value", value: dto.effective } as unknown as RedactedInferenceFieldDto<K>["request"];
+	Object.assign(fields, { [field]: {
+		...dto,
+		request,
+		inherited: dto.inherited ?? { request, effective: dto.effective, provenance: dto.provenance, adjustment: dto.adjustment },
+	} });
 }
 
 function dto(): RedactedInferenceConfigurationDto {

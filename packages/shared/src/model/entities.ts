@@ -314,14 +314,36 @@ export type BotInferenceSettings = {
 
 export type BotInferenceReasoningEffort = "default" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export type BotCompactionReasoningEffort = Exclude<BotInferenceReasoningEffort, "default" | "none">;
+/** Provider request intent is retained until the final request shape is built. */
+export type BotInferenceReasoningRequest =
+	| { kind: "bickr_automatic" }
+	| { kind: "provider_default" }
+	| { kind: "reasoning_disabled" }
+	| { kind: "explicit_effort"; effort: BotCompactionReasoningEffort };
+export type BotInferenceReasoningIntent = { kind: "inherit" } | BotInferenceReasoningRequest;
 export type BotCompactionReasoningRequest =
 	| { kind: "reasoning_disabled" }
 	| { kind: "model_default" }
 	| { kind: "explicit_effort"; effort: BotCompactionReasoningEffort };
 export type BotInferenceToolCalls = "require" | "railroad" | "at_will";
+export type BotInferenceToolCallRequest =
+	| { kind: "bickr_automatic" }
+	| { kind: "provider_default" }
+	| { kind: "strategy"; strategy: BotInferenceToolCalls };
+export type BotInferenceToolCallIntent = { kind: "inherit" } | BotInferenceToolCallRequest;
 export type BotStructuredToolCalls = Exclude<BotInferenceToolCalls, "at_will">;
 export type BotCompactionMode = "structured_output" | "tool_call" | "tool_call_cache_friendly";
+export type BotCompactionModeRequest =
+	| { kind: "bickr_automatic" }
+	| { kind: "provider_default" }
+	| { kind: "mode"; mode: BotCompactionMode };
+export type BotCompactionModeIntent = { kind: "inherit" } | BotCompactionModeRequest;
 export type BotPromptCacheMode = "off" | "openrouter_anthropic_5m" | "openrouter_anthropic_1h";
+export type BotPromptCacheRequest =
+	| { kind: "bickr_automatic" }
+	| { kind: "provider_default" }
+	| { kind: "mode"; mode: BotPromptCacheMode };
+export type BotPromptCacheIntent = { kind: "inherit" } | BotPromptCacheRequest;
 
 export type BotTranslationSettings = {
 	enabled?: boolean;

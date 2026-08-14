@@ -367,7 +367,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function legacyReasoning(reasoning: BotInferenceReasoningEffort): InferenceReasoningRequest {
 	switch (reasoning) {
-		case "default": return { kind: "provider_default" };
+		case "default": return { kind: "bickr_automatic" };
 		case "none": return { kind: "reasoning_disabled" };
 		case "minimal":
 		case "low":
