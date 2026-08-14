@@ -1,14 +1,10 @@
 In general: code quality matters. Avoid hacky solutions and don't ignore issues by claiming that they are "corner cases". A corner case is no less valuable, and a bug is a bug. Layering workarounds on top of broken code leads to more bugs so don't do that! If you have a choice between a major refactor that will do the Right Thing, and a small change that's patching over the problem or solving it in a hacky way, prefer the major refactor. Be aggressive about removing unused code. Make sure that your comments provide sufficient context as to _why_ something non-obvious is done the way it is, not just _what_ it does.
 
-Default to doing ordinary, uncoordinated work on `main`. Never automatically switch the primary checkout to a `codex/` branch unless the user specifically asks you to use one. The interactive implementation PM protocol below is a deliberate exception: its implementation worker uses a dedicated issue worktree and branch while the primary checkout remains on `main`.
-
 When choosing between a narrow targeted fix and a broader correctness-first fix, prefer the broader "right thing" fix whenever it materially improves correctness.
 
 Use strong typing to your advantage. Prefer approaches that guarantee correctness by construction: for example, prefer strongly typed data where types capture constraints and invariants as much as possible over ad hoc stringing together of things. Use typeclasses judiciously to extract common features and enable their use without duplication. 
 
 ## Engineering Guardrails
-
-These rules codify recurring failure patterns identified in the 2026-07 implementation review (`docs/implementation-review-2026-07.md`). Apply them to all new code; when touching code that violates them, prefer fixing the violation over extending it.
 
 - **Never branch on error message text.** Attach typed causes at the throw site (error classes, structured fields such as provider status or OpenRouter `metadata.error_type`) and match on those. Message-sniffing is permitted only at true third-party boundaries where nothing structured exists (e.g. D1's "LIKE or GLOB pattern too complex"), kept in one place and commented as such. Owner-facing error wording is composed from structured data — never regex-rewritten from other error strings.
 - **Enforce invariants where data is written, not by repairing it on read.** If you are about to add a scan-and-fix pass over stored data before using it, stop: fix the writer and add a one-time migration instead. Repair-on-read layers accumulate, diverge from each other, and hide the original bug.
@@ -181,6 +177,43 @@ process only when the user explicitly requests one.
   session. The role stated in the dispatch prompt and registered work-item duty
   controls for dispatched runs.
 
+### Native Reviewer CLI Evidence
+
+Treat a reviewer as unavailable only after distinguishing a failed invocation
+from a failed CLI, provider, or model. Before falling back, capture the command,
+exit status, stdout/stderr, and session ID; check whether the process is still
+running; then inspect the CLI's persisted session/log output. Empty wrapper
+stdout is not evidence that a review returned no result. Record the actual
+failure and the evidence checked.
+
+- **Kimi:** use the configured qualified model alias
+  `kimi --model kimi-code/k3 -p '<prompt>'`. Do not infer that Kimi is
+  unavailable because the unqualified `k3` alias is absent. Confirm the current
+  aliases with `kimi provider list` and `~/.kimi-code/config.toml`. Kimi does not
+  allow `--plan` together with `--prompt`; make a print-mode review explicitly
+  read-only in its prompt and verify the worktree remains clean afterward.
+- **Qwen:** a Podman/crun failure from `--sandbox` is a sandbox-launch failure,
+  not a Qwen failure. For a read-only review in a clean dedicated worktree,
+  retry with `qwen --safe-mode -y -p '<prompt>' -o text`, verify afterward that
+  no files changed, and inspect the final assistant message in
+  `~/.qwen/projects/<project>/chats/<session-id>.jsonl` if immediate stdout is
+  empty. Also inspect `~/.qwen/usage_record.jsonl` to confirm whether the run
+  actually completed.
+- **Gemini:** use Antigravity's Gemini 3.1 Pro, not the deprecated `gemini` CLI:
+  `agy --model gemini-3.1-pro-high --mode plan -p '<prompt>'`.
+- **Claude Opus:** request structured output when practical, for example
+  `claude -p --model opus --output-format json '<prompt>'`, save it to a file,
+  and inspect the JSON `result`, `is_error`, `stop_reason`, permission denials,
+  and process exit status. If stdout capture is empty, inspect the matching
+  `~/.claude/projects/<project>/<session-id>.jsonl` before retrying or declaring
+  the review unavailable.
+
+Every plan or exact-head review must name the full base and head SHAs. Confirm
+that cited files and lines came from those objects (or from a clean worktree at
+the head), rather than trusting a review of a stale checkout. A persisted review
+is valid evidence even when the command wrapper failed to surface its final
+text; recover and evaluate that review before launching a fallback.
+
 ### Required Workflow
 
 1. **Investigate and define the work.** Inspect the relevant implementation,
@@ -195,21 +228,23 @@ process only when the user explicitly requests one.
    architecture, typing and correctness constraints, data lifecycle, tests,
    observability, and release verification. Ask independent Opus and a second
    reviewer to critique the plan. Prefer native Kimi for the second review; if
-   Kimi is unavailable, use native Qwen, and if Qwen is unavailable, use Gemini
-   Pro. Reconcile their feedback, using the primary session's own analysis and
+   Kimi is unavailable after the evidence checks above, use native Qwen, and if
+   Qwen is unavailable, use Gemini 3.1 Pro through `agy`. Reconcile their
+   feedback, using the primary session's own analysis and
    final judgment, before handing work to an implementer. Record the actual
    reviewer and any fallback rather than silently claiming the preferred roster.
 4. **Dispatch implementation through agent-ops.** Create a Bickr work item with
    the required MCP allowance, dedicated issue worktree, and issue-specific
-   branch. Assign implementation to a Sol subagent at `xhigh` reasoning (for
-   example, `gpt-5.6-sol` with `xhigh`). Give it the approved scope, acceptance
+   branch. Assign implementation to a Sol subagent at `medium` reasoning (for
+   example, `gpt-5.6-sol` with `medium`) unless directed otherwise. Give it the approved scope, acceptance
    criteria, frozen checks, and responsibility to implement, test, commit, push,
    and open or update the PR. The primary session remains the PM and does not
    write product code in parallel.
 5. **Review the exact PR head.** After the implementation worker submits a clean
    commit, the primary session must perform its own substantive review. Opus and
    the same ordered second-reviewer roster (native Kimi, then native Qwen, then
-   Gemini Pro) must also independently review that exact commit. A
+   Gemini 3.1 Pro through `agy`) must also independently review that exact
+   commit. A
    dispatcher-backed reviewer from a family different from the implementer runs
    the work item's required checks and records the formal agent-ops verdict;
    direct native reviewers are advisory when their CLI has no trusted agent-ops
