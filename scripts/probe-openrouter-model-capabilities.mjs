@@ -347,7 +347,7 @@ async function fetchOpenRouterTextModels(apiKey) {
 				: null;
 		})
 		.filter(Boolean)
-		.sort((left, right) => left.id.localeCompare(right.id));
+		.sort((left, right) => codeUnitCompare(left.id, right.id));
 }
 
 async function probeModel(model, apiKey, limiter, timeoutMs, previous, capabilityFilter, mode, onlyAffected) {
@@ -393,12 +393,12 @@ export function compactionReasoningCapabilitiesFromModelMetadata(model) {
 		// OpenRouter defines null as accepting every gateway effort value. Store
 		// the intersection with Phase 2's modelled ladder; see the reasoning guide:
 		// https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
-		support = { kind: "known", efforts: [...compactionReasoningEfforts].sort((left, right) => left.localeCompare(right)) };
+		support = { kind: "known", efforts: [...compactionReasoningEfforts].sort(codeUnitCompare) };
 	} else if (Array.isArray(reasoning.supported_efforts)) {
 		const observedEffortValues = uniqueStrings(reasoning.supported_efforts);
 		const observedModelledEfforts = observedEffortValues
 			.filter((effort) => compactionReasoningEfforts.has(effort))
-			.sort((left, right) => left.localeCompare(right));
+			.sort(codeUnitCompare);
 		const hasUnmodelledEffort = observedEffortValues.some((effort) => !compactionReasoningEfforts.has(effort));
 		if (reasoning.supported_efforts.length === 0) {
 			support = { kind: "unsupported" };
@@ -648,7 +648,7 @@ export async function writeGeneratedTable(filePath, entries) {
 }
 
 export function generatedTableText(entries) {
-	const sorted = [...entries].sort(([left], [right]) => left.localeCompare(right));
+	const sorted = [...entries].sort(([left], [right]) => codeUnitCompare(left, right));
 	const lines = [
 		"export type GeneratedCompactionReasoningEffort = \"minimal\" | \"low\" | \"medium\" | \"high\" | \"xhigh\";",
 		"",
@@ -677,11 +677,32 @@ export function generatedTableText(entries) {
 		"export type GeneratedOpenRouterModelCapabilityEntry = readonly [string, GeneratedOpenRouterModelCapabilities];",
 		"",
 		"export const generatedOpenRouterModelCapabilityEntries: readonly GeneratedOpenRouterModelCapabilityEntry[] = [",
-		...sorted.map(([model, capabilities], index) => `\t${JSON.stringify([model, capabilities])}${index === sorted.length - 1 ? "" : ","}`),
+		...sorted.map(([model, capabilities], index) => `\t${canonicalGeneratedJson([model, capabilities])}${index === sorted.length - 1 ? "" : ","}`),
 		"];",
 		"",
 	];
 	return lines.join("\n");
+}
+
+/** Stable across hosts regardless of their installed ICU locale data. */
+function codeUnitCompare(left, right) {
+	return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function canonicalGeneratedJson(value) {
+	return JSON.stringify(canonicalGeneratedValue(value));
+}
+
+function canonicalGeneratedValue(value) {
+	if (Array.isArray(value)) {
+		return value.map(canonicalGeneratedValue);
+	}
+	if (!value || typeof value !== "object") {
+		return value;
+	}
+	return Object.fromEntries(Object.entries(value)
+		.sort(([left], [right]) => codeUnitCompare(left, right))
+		.map(([key, child]) => [key, canonicalGeneratedValue(child)]));
 }
 
 class RequestLimiter {

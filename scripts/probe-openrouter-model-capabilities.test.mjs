@@ -151,9 +151,14 @@ describe('OpenRouter compaction reasoning metadata refresh', () => {
 		const entries = [
 			['z/model', baseCapabilities],
 			['a/model', { ...baseCapabilities, contextLength: 64_000 }],
+			['z_/model', { contextLength: 1, ...baseCapabilities }],
 		];
 
 		expect(generatedTableText([...entries])).toBe(generatedTableText([...entries].reverse()));
 		expect(generatedTableText([...entries])).toContain('["a/model"');
+		expect(generatedTableText([...entries]).indexOf('["z/model"'))
+			.toBeLessThan(generatedTableText([...entries]).indexOf('["z_/model"'));
+		expect(generatedTableText([['model', { z: true, A: true, a: true }]]))
+			.toContain('{"A":true,"a":true,"z":true}');
 	});
 });
