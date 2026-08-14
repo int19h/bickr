@@ -66,9 +66,9 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 
 function isInferenceGraphMaintenanceOperation(input: ServiceProxyInput): boolean {
 	if (input.service !== "agent-runtime" || input.method !== "POST") return false;
-	return /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate)$/.test(input.path) ||
+	return /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate|provider-default-barrier-sweep)$/.test(input.path) ||
 		/^\/users\/[^/]+\/inference-translation-role\/migrate$/.test(input.path) ||
-		/^\/inference-graph\/(?:cleanup|activate-lifecycle)$/.test(input.path);
+		/^\/inference-graph\/(?:cleanup|activate-lifecycle|provider-default-barrier-sweep)$/.test(input.path);
 }
 
 function parseServiceProxyInput(input: unknown): ServiceProxyInput {

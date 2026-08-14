@@ -7,6 +7,8 @@ import type {
 	InferenceImpactWarning,
 	InferenceParentImpact,
 	RedactedInferenceConfigurationDto,
+	RedactedInferenceFieldDto,
+	RedactedInferenceFieldDtoMap,
 } from "@bickr/shared/inference-configuration-owner";
 import {
 	InferenceConfigurationEditorScreen,
@@ -23,7 +25,6 @@ import {
 } from "./editor";
 import {
 	adjustmentText,
-	compactionRequestedText,
 	draftMapFromFields,
 	inferenceEditorFields,
 	inferenceFieldGroups,
@@ -31,14 +32,29 @@ import {
 import { childrenPath } from "./api";
 
 function fieldMap(): RedactedInferenceConfigurationDto["fields"] {
-	return Object.fromEntries(
-		inferenceEditorFields.map((field) => [field, {
+	const result = {} as RedactedInferenceFieldDtoMap;
+	for (const field of inferenceEditorFields) {
+		setField(result, field, {
 			override: { kind: "inherit" },
 			effective: null,
-			source: { kind: "bickr_default" },
+			provenance: { unset: null },
 			adjustment: null,
-		}]),
-	) as RedactedInferenceConfigurationDto["fields"];
+		});
+	}
+	return result;
+}
+
+function setField<K extends InferenceConfigurationField>(
+	fields: RedactedInferenceFieldDtoMap,
+	field: K,
+	dto: Omit<RedactedInferenceFieldDto<K>, "inherited" | "request"> & Partial<Pick<RedactedInferenceFieldDto<K>, "inherited" | "request">>,
+): void {
+	const request = dto.request ?? { kind: "value", value: dto.effective } as unknown as RedactedInferenceFieldDto<K>["request"];
+	Object.assign(fields, { [field]: {
+		...dto,
+		request,
+		inherited: dto.inherited ?? { request, effective: dto.effective, provenance: dto.provenance, adjustment: dto.adjustment },
+	} });
 }
 
 function customDto(overrides: Partial<RedactedInferenceConfigurationDto> = {}): RedactedInferenceConfigurationDto {
@@ -126,7 +142,14 @@ describe("editor field groups", () => {
 
 	it("starts every field draft from the loaded override map", () => {
 		const fields = fieldMap();
-		fields.temperature = { override: { kind: "value", value: 0 }, effective: 0, source: { kind: "bickr_default" }, adjustment: null };
+		fields.temperature = {
+			override: { kind: "value", value: 0 },
+			request: { value: 0 },
+			effective: 0,
+			provenance: { configured: { bickrDefault: null } },
+			adjustment: null,
+			inherited: { request: { value: 0 }, effective: 0, provenance: { configured: { bickrDefault: null } }, adjustment: null },
+		};
 		const drafts = draftMapFromFields(fields);
 		expect(drafts.temperature).toEqual({ mode: "explicit", state: "value", text: "0" });
 		expect(drafts.model).toEqual({ mode: "inherit" });
@@ -202,7 +225,14 @@ describe("delete confirmation", () => {
 describe("stale revision comparison", () => {
 	it("lists only the fields whose draft differs from the reloaded copy", () => {
 		const server = { fields: fieldMap() } as RedactedInferenceConfigurationDto;
-		server.fields.model = { override: { kind: "value", value: "anthropic/claude-opus-4" }, effective: "anthropic/claude-opus-4", source: { kind: "bickr_default" }, adjustment: null };
+		server.fields.model = {
+			override: { kind: "value", value: "anthropic/claude-opus-4" },
+			request: { value: "anthropic/claude-opus-4" },
+			effective: "anthropic/claude-opus-4",
+			provenance: { configured: { bickrDefault: null } },
+			adjustment: null,
+			inherited: { request: { value: "anthropic/claude-opus-4" }, effective: "anthropic/claude-opus-4", provenance: { configured: { bickrDefault: null } }, adjustment: null },
+		};
 		const drafts = draftMapFromFields(fieldMap());
 		expect(conflictingFieldLabels(drafts, server)).toEqual(["Model"]);
 		expect(conflictingFieldLabels(draftMapFromFields(server.fields), server)).toEqual([]);
@@ -210,7 +240,14 @@ describe("stale revision comparison", () => {
 
 	it("names the unsaved rename beside the differing fields", () => {
 		const server = customDto({ revision: 7 });
-		server.fields.model = { override: { kind: "value", value: "anthropic/claude-opus-4" }, effective: "anthropic/claude-opus-4", source: { kind: "bickr_default" }, adjustment: null };
+		server.fields.model = {
+			override: { kind: "value", value: "anthropic/claude-opus-4" },
+			request: { value: "anthropic/claude-opus-4" },
+			effective: "anthropic/claude-opus-4",
+			provenance: { configured: { bickrDefault: null } },
+			adjustment: null,
+			inherited: { request: { value: "anthropic/claude-opus-4" }, effective: "anthropic/claude-opus-4", provenance: { configured: { bickrDefault: null } }, adjustment: null },
+		};
 		const conflict = staleConflict(server, draftMapFromFields(fieldMap()), "Renamed here");
 		expect(conflict.server.revision).toBe(7);
 		expect(staleComparisonText(conflict)).toBe("Differs from the saved copy: Model, Name.");
@@ -246,36 +283,52 @@ describe("refresh decision", () => {
 });
 
 describe("compaction reasoning adjustment", () => {
-	it("explains a raised configuration request inline", () => {
+	it("leaves selected-decision presentation to the shared field presentation", () => {
 		const fields = fieldMap();
+		const resolution = {
+			kind: "selected",
+			decision: { kind: "safety_floor", floor: { kind: "explicit_effort", effort: "xhigh" } },
+			selection: { kind: "explicit_effort", effort: "xhigh" },
+			runtimeFallback: { kind: "none" },
+			provenance: {
+				configuration: { kind: "explicit_effort", effort: "high" },
+				modelDefault: { kind: "absent" },
+				safetyFloor: { kind: "explicit_effort", effort: "xhigh" },
+				learnedFloor: null,
+				baselineSelection: { kind: "model_default" },
+				support: "known",
+				policySource: "openrouter_generated",
+			},
+		} as const;
 		fields.compactionReasoning = {
 			override: { kind: "value", value: { kind: "explicit_effort", effort: "high" } },
-			effective: null,
-			source: { kind: "bickr_default" },
+			request: { value: { kind: "explicit_effort", effort: "high" } },
+			effective: resolution,
+			provenance: { configured: { bickrDefault: null } },
 			adjustment: {
 				kind: "compaction_policy",
-				resolution: {
-					kind: "selected",
-					selection: { kind: "explicit_effort", effort: "xhigh" },
-					runtimeFallback: { kind: "none" },
-					provenance: {
-						configuration: { kind: "explicit_effort", effort: "high" },
-						modelDefault: { kind: "absent" },
-						safetyFloor: { kind: "explicit_effort", effort: "xhigh" },
-						learnedFloor: null,
-						baselineSelection: { kind: "model_default" },
-						support: "known",
-						policySource: "openrouter_generated",
-					},
-				},
+				resolution,
 			},
-		} as RedactedInferenceConfigurationDto["fields"]["compactionReasoning"];
+			inherited: {
+				request: { value: { kind: "explicit_effort", effort: "high" } },
+				effective: resolution,
+				provenance: { configured: { bickrDefault: null } },
+				adjustment: { kind: "compaction_policy", resolution },
+			},
+		};
 		const policy = fields.compactionReasoning.adjustment;
 		if (!policy || policy.kind !== "compaction_policy") throw new Error("Expected compaction policy fixture.");
-		expect(compactionRequestedText(policy.resolution)).toBe("high");
-		expect(adjustmentText("compactionReasoning", policy)).toBe(
-			"Requested high; compaction policy applies xhigh because of the safety floor.",
-		);
+		expect(adjustmentText("compactionReasoning", policy)).toBeNull();
+	});
+});
+
+describe("Bickr automatic adjustment", () => {
+	it.each([
+		["reasoning", "minimal", "Bickr automatic applies Minimal."],
+		["compactionMode", "structured_output", "Bickr automatic applies Structured output."],
+		["promptCacheMode", "standard", "Bickr automatic applies standard."],
+	] as const)("shows the applied %s value", (field, effective, expected) => {
+		expect(adjustmentText(field, { kind: "bickr_automatic", effective })).toBe(expected);
 	});
 });
 

@@ -1,6 +1,8 @@
-import type {
-	CompactionReasoningResolution,
-	CompactionReasoningSelection,
+import {
+	isCompactionReasoningResolution,
+	type CompactionReasoningDecisionProvenance,
+	type CompactionReasoningResolution,
+	type CompactionReasoningSelection,
 } from "@bickr/shared/openrouter-model-capabilities";
 import type {
 	InferenceConfigurationField,
@@ -10,10 +12,12 @@ import type {
 	InferenceSource,
 } from "@bickr/shared/inference-configuration";
 import {
+	inferenceSourceFromRedactedProvenance,
 	inferenceFieldOverrideStates,
 	numericInferenceFieldDomains,
 	type InferenceConfigurationPathEntry,
 	type NumericInferenceFieldDomain,
+	type RedactedInferenceFieldDto,
 	type RedactedInferenceFieldDtoMap,
 } from "@bickr/shared/inference-configuration-owner";
 
@@ -47,6 +51,7 @@ export type InferenceFieldControl =
 export type InferenceEnumOption = { value: string; label: string };
 
 const reasoningOptions: readonly InferenceEnumOption[] = [
+	{ value: "bickr_automatic", label: "Bickr automatic" },
 	{ value: "provider_default", label: "Provider default" },
 	{ value: "none", label: "Disabled" },
 	{ value: "minimal", label: "Minimal" },
@@ -67,6 +72,7 @@ const compactionReasoningOptions: readonly InferenceEnumOption[] = [
 ];
 
 const toolCallOptions: readonly InferenceEnumOption[] = [
+	{ value: "bickr_automatic", label: "Bickr automatic" },
 	{ value: "provider_default", label: "Provider default" },
 	{ value: "require", label: "Require" },
 	{ value: "railroad", label: "Railroad" },
@@ -74,13 +80,14 @@ const toolCallOptions: readonly InferenceEnumOption[] = [
 ];
 
 const compactionModeOptions: readonly InferenceEnumOption[] = [
-	{ value: "provider_default", label: "Provider default" },
+	{ value: "bickr_automatic", label: "Bickr automatic" },
 	{ value: "structured_output", label: "Structured output" },
 	{ value: "tool_call", label: "Tool call" },
 	{ value: "tool_call_cache_friendly", label: "Tool call (cache-friendly)" },
 ];
 
 const promptCacheOptions: readonly InferenceEnumOption[] = [
+	{ value: "bickr_automatic", label: "Bickr automatic" },
 	{ value: "provider_default", label: "Provider default" },
 	{ value: "off", label: "Off" },
 	{ value: "openrouter_anthropic_5m", label: "Claude 5m (1.25x write)" },
@@ -196,6 +203,7 @@ function value(parsed: unknown): OverrideParseResult {
 function enumRequestValue(field: InferenceConfigurationField, option: string): unknown {
 	switch (field) {
 		case "reasoning":
+			if (option === "bickr_automatic") return { kind: "bickr_automatic" };
 			if (option === "provider_default") return { kind: "provider_default" };
 			if (option === "none") return { kind: "reasoning_disabled" };
 			return { kind: "explicit_effort", effort: option };
@@ -203,10 +211,17 @@ function enumRequestValue(field: InferenceConfigurationField, option: string): u
 			if (option === "reasoning_disabled" || option === "model_default") return { kind: option };
 			return { kind: "explicit_effort", effort: option };
 		case "toolCalls":
-			return option === "provider_default" ? { kind: "provider_default" } : { kind: "strategy", strategy: option };
+			return option === "bickr_automatic" || option === "provider_default"
+				? { kind: option }
+				: { kind: "strategy", strategy: option };
 		case "compactionMode":
+			return option === "bickr_automatic"
+				? { kind: option }
+				: { kind: "mode", mode: option };
 		case "promptCacheMode":
-			return option === "provider_default" ? { kind: "provider_default" } : { kind: "mode", mode: option };
+			return option === "bickr_automatic" || option === "provider_default"
+				? { kind: option }
+				: { kind: "mode", mode: option };
 		default:
 			return option;
 	}
@@ -223,10 +238,21 @@ export function fieldValueText(field: InferenceConfigurationField, fieldValue: u
 	}
 }
 
+export function explicitDraftForState(
+	field: InferenceConfigurationField,
+	state: InferenceExplicitState,
+	inheritedValue: unknown,
+): InferenceFieldDraft {
+	return state === "value"
+		? { mode: "explicit", state, text: fieldValueText(field, inheritedValue) }
+		: { mode: "explicit", state };
+}
+
 function enumOptionValue(field: InferenceConfigurationField, request: unknown): string {
 	if (!request || typeof request !== "object") return "";
 	const record = request as { kind?: string; effort?: string; strategy?: string; mode?: string };
 	switch (record.kind) {
+		case "bickr_automatic": return "bickr_automatic";
 		case "provider_default": return "provider_default";
 		case "reasoning_disabled": return field === "reasoning" ? "none" : "reasoning_disabled";
 		case "model_default": return "model_default";
@@ -360,9 +386,122 @@ export function sourceLabel(source: InferenceSource, path: readonly InferenceCon
 	return source.depth === 0 ? `${name} (set here)` : name;
 }
 
+export type InferenceFieldPresentation = {
+	status: string;
+	inheritOption: string;
+	inheritAnnouncement: string;
+};
+
+/**
+ * One presentation owns the visible status, enum inherit option, and live
+ * announcement. Compaction reasoning receives a two-part presentation because
+ * its configured request and its applied policy outcome have independent
+ * provenance.
+ */
+export function inferenceFieldPresentation<K extends InferenceConfigurationField>(
+	field: K,
+	dto: RedactedInferenceFieldDto<K>,
+	path: readonly InferenceConfigurationPathEntry[],
+	label: string = inferenceFieldLabels[field],
+): InferenceFieldPresentation {
+	let status: string;
+	let inheritedDescription: string;
+	if (field === "supportsPrefill" && dto.adjustment?.kind === "prefill_policy") {
+		status = prefillPresentation(dto.provenance, dto.request, dto.adjustment.policy, path);
+		inheritedDescription = fieldPresentationText(field, dto.inherited, path);
+	} else if (field === "compactionReasoning" && isCompactionReasoningResolution(dto.effective)) {
+		status = compactionReasoningPresentation(dto.provenance, dto.request, dto.effective, path);
+		inheritedDescription = fieldPresentationText(field, dto.inherited, path);
+	} else if (inferenceSourceFromRedactedProvenance(dto.provenance) === null || "unset" in dto.request) {
+		status = "No configured value; no configuration or Bickr default sets this field.";
+		inheritedDescription = fieldPresentationText(field, dto.inherited, path);
+	} else {
+		inheritedDescription = fieldPresentationText(field, dto.inherited, path);
+		status = `Configured ${fieldPresentationText(field, dto, path)}`;
+	}
+	return {
+		status,
+		inheritOption: `Inherit — ${inheritedDescription}`,
+		inheritAnnouncement: `${label} inherits: ${inheritedDescription}`,
+	};
+}
+
+function fieldPresentationText(
+	field: InferenceConfigurationField,
+	value: RedactedInferenceFieldDto<InferenceConfigurationField>["inherited"],
+	path: readonly InferenceConfigurationPathEntry[],
+): string {
+	if (field === "supportsPrefill" && value.adjustment?.kind === "prefill_policy") {
+		return prefillPresentation(value.provenance, value.request, value.adjustment.policy, path);
+	}
+	if (field === "compactionReasoning" && isCompactionReasoningResolution(value.effective)) {
+		return compactionReasoningPresentation(value.provenance, value.request, value.effective, path);
+	}
+	const source = inferenceSourceFromRedactedProvenance(value.provenance);
+	if (source === null || "unset" in value.request) {
+		return "No configured value; no configuration or Bickr default sets this field.";
+	}
+	return `${resolvedRequestText(field, value.request)} from ${sourceLabel(source, path)}`;
+}
+
+function prefillPresentation(
+	provenance: RedactedInferenceFieldDto<InferenceConfigurationField>["provenance"],
+	request: RedactedInferenceFieldDto<InferenceConfigurationField>["request"],
+	policy: Extract<NonNullable<InferenceFieldAdjustment>, { kind: "prefill_policy" }>["policy"],
+	path: readonly InferenceConfigurationPathEntry[],
+): string {
+	const source = inferenceSourceFromRedactedProvenance(provenance);
+	const raw = source === null || "unset" in request
+		? "Configuration unset; no configuration or Bickr default sets this field."
+		: `Configured ${resolvedRequestText("supportsPrefill", request)} from ${sourceLabel(source, path)}.`;
+	if (policy.request === null) return `${raw} Applied off because prefill is opt-in.`;
+	if (!policy.request) return `${raw} Applied off.`;
+	switch (policy.adjustment) {
+		case null: return `${raw} Applied on.`;
+		case "prefill_unsupported":
+			return policy.capability?.kind === "fallback_observation"
+				? `${raw} Applied off from the compatibility fallback because provider-specific prefill-with-tools evidence is incomplete.`
+				: `${raw} Applied off because this provider route does not support prefill with tools.`;
+		case "reasoning_shape_not_applicable": return `${raw} Applied off because this reasoning shape cannot be probed for prefill with tools.`;
+		case "provider_compatibility_incomplete": return `${raw} Applied off because prefill with tools is not known compatible across every eligible provider.`;
+	}
+}
+
+function compactionReasoningPresentation(
+	provenance: RedactedInferenceFieldDto<InferenceConfigurationField>["provenance"],
+	request: RedactedInferenceFieldDto<InferenceConfigurationField>["request"],
+	resolution: CompactionReasoningResolution,
+	path: readonly InferenceConfigurationPathEntry[],
+): string {
+	const source = inferenceSourceFromRedactedProvenance(provenance);
+	const raw = source === null || "unset" in request
+		? "Configuration unset; no configuration or Bickr default sets this field."
+		: "value" in request
+			? `Configured ${compactionSelectionText(request.value as CompactionReasoningSelection)} from ${sourceLabel(source, path)}.`
+			: `Configured request unavailable from ${sourceLabel(source, path)}.`;
+	if (resolution.kind === "refused") {
+		return `${raw} Compaction policy refuses the request; controlling input is ${compactionDecisionText(resolution.decision)}.`;
+	}
+	if (resolution.selection.kind === "model_default" && resolution.selection.effort === undefined &&
+		resolution.decision.kind === "model_default") {
+		return `${raw} Applied the model default.`;
+	}
+	return `${raw} Applied ${compactionSelectionText(resolution.selection)} from ${compactionDecisionText(resolution.decision)}.`;
+}
+
+function resolvedRequestText(
+	field: InferenceConfigurationField,
+	request: RedactedInferenceFieldDto<InferenceConfigurationField>["request"],
+): string {
+	if ("value" in request) return effectiveValueText(field, request.value);
+	if ("explicitNone" in request) return "explicitly no value";
+	if ("targetDefault" in request) return "the avatar target default";
+	return "no configured value";
+}
+
 export function effectiveValueText(field: InferenceConfigurationField, effective: unknown): string {
 	if (field === "compactionReasoning") {
-		return compactionReasoningEffectiveText(effective as CompactionReasoningResolution);
+		return compactionReasoningEffectiveText(isCompactionReasoningResolution(effective) ? effective : undefined);
 	}
 	if (effective === null || effective === undefined) return "no value";
 	const control = inferenceFieldControl(field);
@@ -384,7 +523,9 @@ export function compactionReasoningEffectiveText(resolution: CompactionReasoning
 export function compactionSelectionText(selection: CompactionReasoningSelection): string {
 	switch (selection.kind) {
 		case "reasoning_disabled": return "disabled";
-		case "model_default": return selection.effort ? `model default (${selection.effort})` : "model default";
+		// A resolved metadata effort is the applied provider request; the
+		// resolver decision beside it already carries model-default attribution.
+		case "model_default": return selection.effort ?? "model default";
 		case "explicit_effort": return selection.effort;
 	}
 }
@@ -394,8 +535,6 @@ export function compactionRefusalText(resolution: CompactionReasoningResolution)
 	switch (resolution.refusal.kind) {
 		case "support_unknown_for_required_effort":
 			return `This model has no published support for ${resolution.refusal.requiredEffort} compaction reasoning, so compaction would be refused.`;
-		case "model_default_order_unknown_for_required_effort":
-			return `This model's default reasoning effort cannot be compared with ${resolution.refusal.requiredEffort}, so compaction would be refused.`;
 		case "no_supported_effort":
 			return `This model supports ${resolution.refusal.supportedEfforts.join(", ") || "no"} compaction reasoning effort, which cannot satisfy ${resolution.refusal.required.effort}.`;
 	}
@@ -408,56 +547,56 @@ export function adjustmentText(field: InferenceConfigurationField, adjustment: I
 			return `${adjustment.requestedModel} cannot use the resolved provider credential, so ${adjustment.effectiveModel} is in effect.`;
 		case "provider_or_model_default":
 			return null;
+		case "bickr_automatic":
+			return `Bickr automatic applies ${effectiveValueText(field, adjustment.effective)}.`;
 		case "capability_adjustment":
 			return `Requested ${effectiveValueText(field, adjustment.requested)}; this model or provider uses ${effectiveValueText(field, adjustment.effective)}.`;
+		case "tool_call_policy": {
+			const policy = adjustment.policy;
+			if (policy.emission === "omit_tool_choice") return "Provider default leaves tool_choice unset.";
+			switch (policy.capability?.adjustment) {
+				case "required_tool_calls_unsupported":
+					return policy.capability.observation.kind === "fallback_observation"
+						? "Provider-specific evidence is incomplete, so the compatibility fallback applies Railroad."
+						: "This provider request shape does not support required tool calls, so Railroad is applied.";
+				case "reasoning_shape_not_applicable": return "Required tool calls do not apply to this reasoning shape, so Railroad is applied.";
+				case "provider_compatibility_incomplete": return "Required tool calls are not known compatible across every eligible provider, so Railroad is applied.";
+				case null:
+				case undefined:
+					return policy.intent.kind === "inherit" || policy.intent.kind === "bickr_automatic"
+						? `Bickr automatic applies ${effectiveValueText(field, policy.appliedStrategy)} to the ordinary loop.`
+						: null;
+			}
+			return null;
+		}
+		case "prefill_policy": {
+			switch (adjustment.policy.adjustment) {
+				case "prefill_unsupported":
+					return adjustment.policy.capability?.kind === "fallback_observation"
+						? "Prefill was requested, but provider-specific evidence is incomplete and the compatibility fallback applies Off."
+						: "Prefill was requested, but this provider route does not support prefill with tools, so Off is applied.";
+				case "reasoning_shape_not_applicable": return "Prefill was requested, but this reasoning shape cannot use the tested prefill-with-tools capability, so Off is applied.";
+				case "provider_compatibility_incomplete": return "Prefill was requested, but compatibility with tools is not known across every eligible provider, so Off is applied.";
+				case null: return null;
+			}
+		}
 		case "compaction_policy": {
 			const resolution = adjustment.resolution;
-			if (resolution.kind === "refused") return compactionRefusalText(resolution);
-			const requested = resolution.provenance.configuration;
-			if (!requested || compactionSelectionsMatch(requested, resolution.selection)) return null;
-			return `Requested ${compactionRequestedText(resolution)}; compaction policy applies ${compactionSelectionText(resolution.selection)} because of ${compactionPolicyContributors(resolution)}.`;
+			return resolution.kind === "refused" ? compactionRefusalText(resolution) : null;
 		}
 	}
 }
 
-/** Requested value for compaction reasoning, independent of the applied policy. */
-export function compactionRequestedText(resolution: CompactionReasoningResolution): string {
-	const configuration = resolution.provenance.configuration;
-	return configuration ? compactionSelectionText(configuration as CompactionReasoningSelection) : "not requested";
-}
-
-function compactionSelectionsMatch(
-	requested: CompactionReasoningSelection,
-	effective: CompactionReasoningSelection,
-): boolean {
-	if (requested.kind !== effective.kind) return false;
-	return requested.kind !== "explicit_effort" ||
-		(effective.kind === "explicit_effort" && requested.effort === effective.effort);
-}
-
-function compactionPolicyContributors(
-	resolution: Extract<CompactionReasoningResolution, { kind: "selected" }>,
-): string {
-	const contributors: string[] = [];
-	const { provenance, selection } = resolution;
-	if (compactionSelectionsMatch(provenance.safetyFloor, selection)) contributors.push("the safety floor");
-	if (provenance.learnedFloor && compactionSelectionsMatch(provenance.learnedFloor, selection)) {
-		contributors.push("the learned runtime floor");
+export function compactionDecisionText(decision: CompactionReasoningDecisionProvenance): string {
+	switch (decision.kind) {
+		case "configuration": return "the configured request";
+		case "model_default": return "the model default";
+		case "safety_floor": return "the safety floor";
+		case "learned_floor": return "the learned runtime floor";
+		case "supported_effort_normalization":
+			return `supported-effort normalization (${decision.requiredEffort} to ${decision.appliedEffort})`;
+		case "baseline": return "the model or provider policy baseline";
 	}
-	if (
-		(provenance.modelDefault.kind === "explicit_effort" &&
-			selection.kind === "explicit_effort" &&
-			provenance.modelDefault.effort === selection.effort) ||
-		(provenance.modelDefault.kind === "provider_default" && selection.kind === "model_default")
-	) {
-		contributors.push("the model default");
-	}
-	if (contributors.length === 0 && compactionSelectionsMatch(provenance.baselineSelection, selection)) {
-		contributors.push("the model or provider policy");
-	}
-	if (contributors.length === 0) return "the policy floor and supported effort levels";
-	if (contributors.length === 1) return contributors[0] ?? "the compaction policy";
-	return `${contributors.slice(0, -1).join(", ")} and ${contributors.at(-1)}`;
 }
 
 /**

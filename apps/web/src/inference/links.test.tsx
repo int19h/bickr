@@ -1,9 +1,40 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { RedactedInferenceConfigurationDto } from "@bickr/shared/inference-configuration-owner";
+import type { InferenceConfigurationField } from "@bickr/shared/inference-configuration";
+import type {
+	RedactedInferenceConfigurationDto,
+	RedactedInferenceFieldDto,
+	RedactedInferenceFieldDtoMap,
+} from "@bickr/shared/inference-configuration-owner";
 import { fixedConfigurationPath } from "./api";
 import { ConfigurationCardBody, ConfigurationLinkCard, FixedConfigurationAction } from "./links";
 import { inferenceEditorFields } from "./field-model";
+
+function fieldMap(): RedactedInferenceFieldDtoMap {
+	const result = {} as RedactedInferenceFieldDtoMap;
+	for (const field of inferenceEditorFields) {
+		setField(result, field, {
+			override: { kind: "inherit" },
+			effective: null,
+			provenance: { unset: null },
+			adjustment: null,
+		});
+	}
+	return result;
+}
+
+function setField<K extends InferenceConfigurationField>(
+	fields: RedactedInferenceFieldDtoMap,
+	field: K,
+	dto: Omit<RedactedInferenceFieldDto<K>, "inherited" | "request"> & Partial<Pick<RedactedInferenceFieldDto<K>, "inherited" | "request">>,
+): void {
+	const request = dto.request ?? { kind: "value", value: dto.effective } as unknown as RedactedInferenceFieldDto<K>["request"];
+	Object.assign(fields, { [field]: {
+		...dto,
+		request,
+		inherited: dto.inherited ?? { request, effective: dto.effective, provenance: dto.provenance, adjustment: dto.adjustment },
+	} });
+}
 
 function dto(): RedactedInferenceConfigurationDto {
 	return {
@@ -32,14 +63,7 @@ function dto(): RedactedInferenceConfigurationDto {
 			{ id: "cfg_bot", displayName: "u/scout", revision: 3, kind: "bot", identity: { kind: "bot", botId: "bot_scout", botHandle: "scout", homeWorldId: "wld_one", homeWorldHandle: "patch-notes" } },
 			{ id: "cfg_root", displayName: "Account default", revision: 7, kind: "account_default", identity: { kind: "account_default" } },
 		],
-		fields: Object.fromEntries(
-			inferenceEditorFields.map((field) => [field, {
-				override: { kind: "inherit" },
-				effective: null,
-				source: { kind: "bickr_default" },
-				adjustment: null,
-			}]),
-		) as RedactedInferenceConfigurationDto["fields"],
+		fields: fieldMap(),
 		graphRevision: 12,
 		fingerprint: "fp",
 	} as RedactedInferenceConfigurationDto;

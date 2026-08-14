@@ -70,8 +70,6 @@ export const providerRetryBaseDelayMs = 3_000;
 
 export const providerNoToolChoice = 'none' as const;
 
-export const providerTokenProbeToolChoice = 'auto' as const;
-
 export const providerParallelToolCalls = true;
 
 export const providerRailroadNoToolMaxAttempts = 5;

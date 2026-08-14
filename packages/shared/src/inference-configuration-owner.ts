@@ -13,8 +13,12 @@ import type {
 	InferenceCredentialResolution,
 	InferenceCredentialUnavailableReason,
 	InferenceFieldAdjustment,
+	InferenceFieldEffectiveValues,
+	InferenceFieldProvenance,
+	InferenceFieldResolvedRequest,
 	InferenceOverrideUpdate,
 	InferenceSource,
+	OwnerInferenceConfigurationFieldValue,
 	OwnerInferenceConfigurationOverrides,
 } from "./inference-configuration";
 import type { EffectiveImageSettings } from "./inference-configuration";
@@ -201,15 +205,80 @@ export type RedactedInferenceCredentialResolution =
 	| Extract<InferenceCredentialResolution, { kind: "explicit_none" | "unavailable" }>;
 
 /**
+ * Owner JSON uses single-key discriminants so portable MCP schemas can express
+ * the exact union with min/maxProperties, without oneOf or optional-source
+ * combinations that would weaken the contract.
+ */
+export type RedactedInferenceSource =
+	| { configuration: Omit<Extract<InferenceSource, { kind: "configuration" }>, "kind"> }
+	| { accountDefault: Omit<Extract<InferenceSource, { kind: "account_default" }>, "kind"> }
+	| { bickrDefault: null };
+
+export type RedactedInferenceFieldProvenance =
+	| { unset: null }
+	| { configured: RedactedInferenceSource };
+
+export type RedactedInferenceFieldResolvedRequest<K extends InferenceConfigurationField> =
+	| { value: OwnerInferenceConfigurationFieldValue<K> }
+	| { explicitNone: null }
+	| { targetDefault: null }
+	| { unset: null };
+
+export function redactedInferenceFieldResolvedRequest<K extends InferenceConfigurationField>(
+	request: InferenceFieldResolvedRequest<K>,
+): RedactedInferenceFieldResolvedRequest<K> {
+	switch (request.kind) {
+		case "value": return { value: request.value } as RedactedInferenceFieldResolvedRequest<K>;
+		case "explicit_none": return { explicitNone: null };
+		case "target_default": return { targetDefault: null };
+		case "unset": return { unset: null };
+	}
+}
+
+export function redactedInferenceFieldProvenance(
+	provenance: InferenceFieldProvenance,
+): RedactedInferenceFieldProvenance {
+	if (provenance.kind === "unset") return { unset: null };
+	switch (provenance.source.kind) {
+		case "configuration": {
+			const { kind: _kind, ...configuration } = provenance.source;
+			return { configured: { configuration } };
+		}
+		case "account_default": {
+			const { kind: _kind, ...accountDefault } = provenance.source;
+			return { configured: { accountDefault } };
+		}
+		case "bickr_default": return { configured: { bickrDefault: null } };
+	}
+}
+
+export function inferenceSourceFromRedactedProvenance(
+	provenance: RedactedInferenceFieldProvenance,
+): InferenceSource | null {
+	if ("unset" in provenance) return null;
+	const source = provenance.configured;
+	if ("configuration" in source) return { kind: "configuration", ...source.configuration };
+	if ("accountDefault" in source) return { kind: "account_default", ...source.accountDefault };
+	return { kind: "bickr_default" };
+}
+
+/**
  * This public shape is deliberately distinct from the internal resolution
  * types. Adding a secret-bearing member to the resolver cannot silently make
  * it serializable through an owner endpoint.
  */
 export type RedactedInferenceFieldDto<K extends InferenceConfigurationField> = {
 	override: InferenceOverrideUpdate<K>;
-	effective: unknown;
-	source: InferenceSource;
+	request: RedactedInferenceFieldResolvedRequest<K>;
+	effective: InferenceFieldEffectiveValues[K];
+	provenance: RedactedInferenceFieldProvenance;
 	adjustment: InferenceFieldAdjustment;
+	inherited: {
+		request: RedactedInferenceFieldResolvedRequest<K>;
+		effective: InferenceFieldEffectiveValues[K];
+		provenance: RedactedInferenceFieldProvenance;
+		adjustment: InferenceFieldAdjustment;
+	};
 };
 
 export type RedactedInferenceFieldDtoMap = {

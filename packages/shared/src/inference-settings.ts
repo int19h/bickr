@@ -1,10 +1,12 @@
 import {
 	effectiveCompactionModeForModel,
 	effectiveReasoningEffortForModel,
-	effectiveSupportsPrefillForModel,
-	effectiveToolCallsForModel,
+	resolvePrefillPolicyForModel,
 	effectiveStructuredToolCallsForModel,
 	modelSupportsPromptCacheControl,
+	resolveToolCallPolicyForModel,
+	type AppliedToolCallPolicy,
+	type AppliedPrefillPolicy,
 } from "./openrouter-model-capabilities";
 import {
 	defaultProviderBaseUrl,
@@ -15,9 +17,15 @@ import {
 	type BotCompactionReasoningRequest,
 	type BotDocument,
 	type BotInferenceReasoningEffort,
+	type BotInferenceReasoningIntent,
+	type BotInferenceReasoningRequest,
+	type BotInferencePrefillIntent,
 	type BotInferenceSettings,
 	type BotInferenceToolCalls,
+	type BotInferenceToolCallIntent,
+	type BotInferenceToolCallRequest,
 	type BotPromptCacheMode,
+	type BotPromptCacheIntent,
 	type JsonObject,
 	type UserDocument,
 } from "./model";
@@ -60,10 +68,17 @@ export type ProviderSettings = {
 	// the default until a configuration resolver supplies an explicit request.
 	compactionReasoning?: BotCompactionReasoningRequest;
 	promptCacheMode?: BotPromptCacheMode;
+	promptCacheRequest?: BotPromptCacheIntent;
 	providerRouting?: JsonObject;
 	reasoningEffort?: Exclude<BotInferenceReasoningEffort, "default">;
+	reasoningRequest?: BotInferenceReasoningIntent;
 	supportsPrefill?: boolean;
+	prefillRequest?: BotInferencePrefillIntent;
+	prefillPolicy?: AppliedPrefillPolicy;
 	toolCalls?: BotInferenceToolCalls;
+	toolCallRequest?: BotInferenceToolCallIntent;
+	/** Applied only to the autonomous ordinary loop; structured operations resolve their own reasoning shape. */
+	ordinaryLoopToolCalls?: AppliedToolCallPolicy;
 	temperature: number;
 	usesCustomBaseUrl?: boolean;
 	topK?: number;
@@ -74,8 +89,10 @@ export type ProviderSettings = {
 	repetitionPenalty?: number;
 };
 
-export type LegacyTranslationProviderSettings = Omit<ProviderSettings, "toolCalls"> & {
+export type LegacyTranslationProviderSettings = Omit<ProviderSettings, "toolCalls" | "toolCallRequest"> & {
 	toolCalls: Exclude<BotInferenceToolCalls, "at_will">;
+	/** The requested intent, always stated by the resolver; `toolCalls` above is the applied value. */
+	toolCallRequest: BotInferenceToolCallIntent;
 };
 
 export type BotProviderSettingSource =
@@ -193,10 +210,22 @@ export function resolveBotProviderSettings(
 	const reasoningEffort = reasoningEffortValue ?
 		capabilityResolvedSetting(reasoningEffortInput, reasoningEffortValue)
 	: undefined;
+	const reasoningRequest = providerReasoningRequestFromLegacyEffort(reasoningEffortInput?.effective);
 	const toolCallsInput = selectedOptionalSetting(botSettings.toolCalls, inheritedDefaults.toolCalls, botSource);
+	const toolCallRequest: BotInferenceToolCallRequest = toolCallsInput
+		? { kind: "strategy", strategy: toolCallsInput.effective }
+		: { kind: "bickr_automatic" };
+	const ordinaryLoopToolCalls = resolveToolCallPolicyForModel(
+		model.effective,
+		openRouter,
+		toolCallRequest,
+		providerRouting?.effective,
+		reasoningEffort?.effective === undefined ? "provider_default"
+			: reasoningEffort?.effective === "none" ? "reasoning_off" : "reasoning_on",
+	);
 	const toolCalls = capabilityResolvedSetting(
 		toolCallsInput,
-		effectiveToolCallsForModel(model.effective, openRouter, toolCallsInput?.effective, providerRouting?.effective),
+		ordinaryLoopToolCalls.appliedStrategy,
 	);
 	const compactionModeInput = selectedOptionalSetting(
 		botSettings.compactionMode,
@@ -221,10 +250,18 @@ export function resolveBotProviderSettings(
 		inheritedDefaults.supportsPrefill,
 		botSource,
 	);
-	const supportsPrefill = capabilityResolvedSetting(
-		supportsPrefillInput,
-		effectiveSupportsPrefillForModel(model.effective, openRouter, supportsPrefillInput?.effective, providerRouting?.effective),
+	const prefillRequest: BotInferencePrefillIntent = supportsPrefillInput
+		? { kind: "explicit", enabled: supportsPrefillInput.effective }
+		: { kind: "inherit" };
+	const prefillPolicy = resolvePrefillPolicyForModel(
+		model.effective,
+		openRouter,
+		prefillRequest.kind === "explicit" ? prefillRequest.enabled : undefined,
+		providerRouting?.effective,
+		reasoningEffort?.effective === undefined ? "provider_default"
+			: reasoningEffort.effective === "none" ? "reasoning_off" : "reasoning_on",
 	);
+	const supportsPrefill = capabilityResolvedSetting(supportsPrefillInput, prefillPolicy.applied);
 	const topK = selectedOptionalSetting(botSettings.topK, inheritedDefaults.topK, botSource);
 	const topP = selectedOptionalSetting(botSettings.topP, inheritedDefaults.topP, botSource);
 	const minP = selectedOptionalSetting(botSettings.minP, inheritedDefaults.minP, botSource);
@@ -253,8 +290,13 @@ export function resolveBotProviderSettings(
 			...(promptCacheMode.effective !== "off" ? { promptCacheMode: promptCacheMode.effective } : {}),
 			...(providerRouting ? { providerRouting: providerRouting.effective } : {}),
 			...(reasoningEffort ? { reasoningEffort: reasoningEffort.effective } : {}),
+			reasoningRequest,
 			supportsPrefill: supportsPrefill.effective,
+			prefillRequest,
+			prefillPolicy,
 			toolCalls: toolCalls.effective,
+			toolCallRequest,
+			ordinaryLoopToolCalls,
 			temperature: temperature.effective,
 			...(hasCustomBaseUrl ? { usesCustomBaseUrl: true } : {}),
 			...(topK ? { topK: topK.effective } : {}),
@@ -307,15 +349,26 @@ export function resolveLegacyTranslationProviderSettings(
 		baseUrl,
 		usingLoopSettings ? userSettings.providerRouting : translation.providerRouting,
 	);
+	const requestedReasoning = usingLoopSettings ? userSettings.reasoningEffort : translation.reasoningEffort;
 	const reasoningEffort = effectiveReasoningEffortForModel(
 		model,
 		openRouter,
-		usingLoopSettings ? userSettings.reasoningEffort : translation.reasoningEffort,
+		requestedReasoning,
+		providerRouting,
 	);
+	const reasoningRequest = providerReasoningRequestFromLegacyEffort(requestedReasoning);
+	const reasoningShape = reasoningEffort === undefined ? "provider_default"
+		: reasoningEffort === "none" ? "reasoning_off" : "reasoning_on";
+	const requestedToolCalls = usingLoopSettings ? userSettings.toolCalls : translation.toolCalls;
+	const toolCallRequest = requestedToolCalls !== undefined
+		? { kind: "strategy" as const, strategy: requestedToolCalls }
+		: { kind: "bickr_automatic" as const };
 	const toolCalls = effectiveStructuredToolCallsForModel(
 		model,
 		openRouter,
-		usingLoopSettings ? userSettings.toolCalls : translation.toolCalls,
+		toolCallRequest.kind === "strategy" ? toolCallRequest.strategy : undefined,
+		providerRouting,
+		reasoningShape,
 	);
 	return {
 		apiKey: userApiKey ?? (hasCustomBaseUrl ? undefined : trimmed(env.apiKey)),
@@ -323,7 +376,9 @@ export function resolveLegacyTranslationProviderSettings(
 		model,
 		...(providerRouting ? { providerRouting } : {}),
 		...(reasoningEffort ? { reasoningEffort } : {}),
+		reasoningRequest,
 		toolCalls,
+		toolCallRequest,
 		temperature: usingLoopSettings
 			? userSettings.temperature ?? defaultTextGenerationTemperature
 			: translation.temperature ?? 0,
@@ -331,6 +386,21 @@ export function resolveLegacyTranslationProviderSettings(
 			? optionalSamplingFields(userSettings)
 			: optionalSamplingFields(translation)),
 	};
+}
+
+export function providerReasoningRequestFromLegacyEffort(
+	value: BotInferenceReasoningEffort | undefined,
+): BotInferenceReasoningRequest {
+	switch (value) {
+		case undefined:
+		case "default": return { kind: "bickr_automatic" };
+		case "none": return { kind: "reasoning_disabled" };
+		case "minimal":
+		case "low":
+		case "medium":
+		case "high":
+		case "xhigh": return { kind: "explicit_effort", effort: value };
+	}
 }
 
 function optionalSamplingFields(settings: Pick<BotInferenceSettings,

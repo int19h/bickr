@@ -7,6 +7,8 @@ import {
 	requireMaintenanceDisabled,
 } from '../packages/shared/src/maintenance';
 import { internalServiceUrl } from '../packages/shared/src/internal-service';
+import { localizedText, schemaVersion } from '../packages/shared/src/model';
+import { upsertUserIndexProjection } from '../packages/shared/src/repository';
 import agentRuntimeWorker, { handleAgentRuntimeRequest } from '../workers/agent-runtime/src/routes';
 import { handleForumCoordinatorRequest } from '../workers/forum-coordinator/src/index';
 import { contextFor, describe, expect, it, jsonRequest, testEnv, testServiceProxy, vi } from './helpers/index-harness';
@@ -97,6 +99,20 @@ describe('maintenance control', () => {
 			path: '/bots/bot_1/stop',
 			headers: { 'x-bickr-scheduler': '1' },
 		})).toHaveProperty('status', 200);
+		for (const path of [
+			`/users/${maintenanceOwnerId}/inference-graph/provider-default-barrier-sweep`,
+			'/inference-graph/provider-default-barrier-sweep',
+		]) {
+			expect(await invoke({
+				service: 'agent-runtime',
+				method: 'POST',
+				path,
+				headers: {
+					'x-bickr-scheduler': '1',
+					'x-bickr-user-id': maintenanceOwnerId,
+				},
+			})).toHaveProperty('status', 200);
+		}
 		const blocked = await invoke({
 			service: 'agent-runtime',
 			method: 'POST',
@@ -108,6 +124,8 @@ describe('maintenance control', () => {
 		expect(proxiedRequests.map((request) => new URL(request.url).pathname)).toEqual([
 			'/health',
 			'/bots/bot_1/stop',
+			`/users/${maintenanceOwnerId}/inference-graph/provider-default-barrier-sweep`,
+			'/inference-graph/provider-default-barrier-sweep',
 		]);
 	});
 
@@ -176,20 +194,73 @@ describe('maintenance control', () => {
 				...(body === undefined ? {} : { body: JSON.stringify(body) }),
 			}) as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0];
 
-		for (const operation of ['migrate', 'rollback', 'reactivate']) {
+		for (const operation of ['migrate', 'provider-default-barrier-sweep', 'rollback', 'reactivate']) {
 			const response = await agentRuntimeWorker.fetch(
 				schedulerRequest(`/users/${maintenanceOwnerId}/inference-graph/${operation}`),
 				workerEnv,
 			);
 			expect(response.status).toBe(200);
 		}
-		expect(dispatched).toEqual(['migrate', 'rollback', 'reactivate'].map((operation) => ({
+		expect(dispatched).toEqual(['migrate', 'provider-default-barrier-sweep', 'rollback', 'reactivate'].map((operation) => ({
 			method: 'POST',
 			path: `/users/${maintenanceOwnerId}/inference-graph/${operation}`,
 			userId: maintenanceOwnerId,
 		})));
 
-		// The fleet operations dispatch directly, so a maintenance-enabled worker
+		const sweepNow = '2026-08-02T00:00:00.000Z';
+		const cleanupAt = '2099-08-02T00:00:00.000Z';
+		await upsertUserIndexProjection(testEnv.BICKR_D1, {
+			id: maintenanceOwnerId,
+			type: 'user',
+			schemaVersion,
+			revision: 1,
+			handle: 'maintenance-sweep',
+			language: null,
+			displayName: localizedText('Maintenance Sweep', null),
+			createdAt: sweepNow,
+			updatedAt: sweepNow,
+		});
+		await testEnv.BICKR_D1.batch([
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO inference_graph_users (
+					owner_user_id, writer_version, cutover_version, verified_cutover_at, created_at, updated_at
+				 ) VALUES (?, 1, 1, ?, ?, ?)`,
+			).bind(maintenanceOwnerId, sweepNow, sweepNow, sweepNow),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO inference_graph_migration_operations (
+					owner_user_id, migration_version, phase, revision,
+					created_at, updated_at, terminal_at, terminal_cleanup_at
+				 ) VALUES (?, 1, 'terminal', 1, ?, ?, ?, ?)`,
+			).bind(maintenanceOwnerId, sweepNow, sweepNow, sweepNow, cleanupAt),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO inference_graph_convergence (
+					owner_user_id, phase, d1_revision, kv_revision,
+					created_at, updated_at, terminal_cleanup_at
+				 ) VALUES (?, 'terminal', 0, 0, ?, ?, ?)`,
+			).bind(maintenanceOwnerId, sweepNow, sweepNow, cleanupAt),
+			testEnv.BICKR_D1.prepare(
+				`INSERT INTO inference_provider_default_barrier_sweeps
+				 (owner_user_id, phase, stage, created_at, updated_at) VALUES (?, 'pending', 'account', ?, ?)`,
+			).bind(maintenanceOwnerId, sweepNow, sweepNow),
+		]);
+
+		const statusRequest = new Request(internalServiceUrl('/inference-graph/provider-default-barrier-sweep/status?limit=1'), {
+			headers: { 'x-bickr-scheduler': '1' },
+		}) as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0];
+		const sweepStatus = await agentRuntimeWorker.fetch(statusRequest, workerEnv);
+		expect(sweepStatus.status).toBe(200);
+		expect(await sweepStatus.json()).toMatchObject({ data: { status: { items: [{ ownerUserId: maintenanceOwnerId, phase: 'pending' }] } } });
+		const fleetSweep = await agentRuntimeWorker.fetch(
+			schedulerRequest('/inference-graph/provider-default-barrier-sweep', { limit: 1 }),
+			workerEnv,
+		);
+		expect(fleetSweep.status).toBe(200);
+		expect(await fleetSweep.json()).toMatchObject({ data: { sweep: {
+			kind: 'inference_provider_default_barrier_fleet_sweep', processedOwners: 1, complete: false,
+			attempts: [{ ownerUserId: maintenanceOwnerId, status: 'accepted' }],
+		} } });
+
+		// The remaining fleet operations dispatch directly, so a maintenance-enabled worker
 		// entry must reach their handlers rather than the shared mutation gate.
 		const cleanup = await agentRuntimeWorker.fetch(schedulerRequest('/inference-graph/cleanup', { limit: 1 }), workerEnv);
 		expect(cleanup.status).toBe(200);
@@ -201,7 +272,7 @@ describe('maintenance control', () => {
 		for (const path of [
 			`/users/${maintenanceOwnerId}/translate`,
 			'/bots/bot_1/tick',
-			// Only the five maintenance operations are exempt; a neighboring
+			// Only the designated maintenance operations are exempt; a neighboring
 			// inference graph path keeps the shared maintenance rejection.
 			'/inference-graph/fleet-status',
 		]) {
@@ -209,7 +280,7 @@ describe('maintenance control', () => {
 			expect(blocked.status).toBe(503);
 			expect(await blocked.json()).toMatchObject({ error: 'maintenance' });
 		}
-		expect(dispatched).toHaveLength(3);
+		expect(dispatched).toHaveLength(5);
 	});
 
 	it('gates the coordinator entry with the same maintenance operation classification', async () => {
@@ -219,8 +290,10 @@ describe('maintenance control', () => {
 		// handler, which only runs once the shared mutation gate has let it past.
 		for (const path of [
 			`/users/${maintenanceOwnerId}/inference-graph/migrate`,
+			`/users/${maintenanceOwnerId}/inference-graph/provider-default-barrier-sweep`,
 			`/users/${maintenanceOwnerId}/inference-graph/rollback`,
 			`/users/${maintenanceOwnerId}/inference-graph/reactivate`,
+			'/inference-graph/provider-default-barrier-sweep',
 			'/inference-graph/cleanup',
 			'/inference-graph/activate-lifecycle',
 		]) {

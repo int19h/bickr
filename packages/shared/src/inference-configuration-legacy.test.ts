@@ -68,6 +68,13 @@ describe("legacy inference compatibility intent", () => {
 		});
 	});
 
+	it("preserves absent legacy translation controls as Bickr automatic intent", () => {
+		expect(inferenceOverridesFromLegacyTranslationSettings({ model: "translator/model" })).toMatchObject({
+			reasoning: { kind: "value", value: { kind: "bickr_automatic" } },
+			toolCalls: { kind: "value", value: { kind: "bickr_automatic" } },
+		});
+	});
+
 	it("treats an explicit nested clear as intent for every reusable nested field", () => {
 		const account = legacyInferenceCompatibilityFieldMask({ imageGeneration: null });
 		expect(account.fields).toEqual([

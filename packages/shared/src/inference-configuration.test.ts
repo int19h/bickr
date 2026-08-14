@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
 	applyInferenceOverridePatch,
 	assertInferenceOverridesAllowedForKind,
+	defaultBickrInferenceDefaults,
+	inferenceFieldAnnotations,
 	inferenceResolutionFingerprint,
 	ownerInferenceOverride,
 	parseInferenceConfigurationOverridePatch,
@@ -35,12 +37,77 @@ describe("canonical inference configuration resolution", () => {
 		expect(resolution.raw.temperature).toMatchObject({
 			state: "value",
 			value: 0,
-			source: { kind: "configuration", configurationId: selected.id, depth: 0 },
+			provenance: {
+				kind: "configured",
+				source: { kind: "configuration", configurationId: selected.id, depth: 0 },
+			},
 			override: { kind: "value", value: 0 },
 		});
 		expect(resolution.raw.supportsPrefill).toMatchObject({ state: "value", value: false });
 		expect(resolution.raw.providerRouting).toMatchObject({ state: "value", value: {} });
 		expect(resolution.effective.temperature).toBe(0);
+	});
+
+	it("keeps prefill opt-in unset, inherited On, local clamps, and explicit Off distinct", () => {
+		const empty = node("empty", "account_default", null, {});
+		const unset = resolveInferenceConfiguration([empty]);
+		expect(unset.raw.supportsPrefill).toEqual({
+			state: "absent",
+			provenance: { kind: "unset" },
+			override: null,
+		});
+		expect(unset.effective.prefillPolicy).toEqual({
+			request: null,
+			reasoningShape: "provider_default",
+			applied: false,
+			adjustment: null,
+			capability: null,
+		});
+		expect(unset.effective.prefillIntent).toEqual({ kind: "inherit" });
+
+		const customAccount = node("custom-account", "account_default", null, {
+			baseUrl: value("https://provider.example/v1"),
+			model: value("provider/model"),
+			supportsPrefill: value(true),
+		});
+		const inheritedChild = node("child", "custom", customAccount.id, {});
+		const inherited = resolveInferenceConfiguration([inheritedChild, customAccount]);
+		expect(inherited.raw.supportsPrefill).toMatchObject({
+			state: "value",
+			value: true,
+			provenance: { kind: "configured", source: { kind: "account_default", depth: 1 } },
+		});
+		expect(inherited.effective.prefillPolicy).toMatchObject({ request: true, applied: true, adjustment: null });
+		expect(inherited.effective.prefillIntent).toEqual({ kind: "explicit", enabled: true });
+
+		const unsupported = node("unsupported", "account_default", null, {
+			reasoning: value({ kind: "reasoning_disabled" }),
+			supportsPrefill: value(true),
+		});
+		const clamped = resolveInferenceConfiguration([unsupported], {
+			defaults: {
+				...defaultBickrInferenceDefaults,
+				fields: {
+					...defaultBickrInferenceDefaults.fields,
+					model: "deepseek/deepseek-v4-flash-0731",
+				},
+			},
+		});
+		expect(clamped.effective.prefillPolicy).toMatchObject({
+			request: true,
+			reasoningShape: "reasoning_off",
+			applied: false,
+			adjustment: "prefill_unsupported",
+		});
+
+		const explicitOff = node("off", "custom", customAccount.id, { supportsPrefill: value(false) });
+		expect(resolveInferenceConfiguration([explicitOff, customAccount]).effective.prefillPolicy).toEqual({
+			request: false,
+			reasoningShape: "reasoning_on",
+			applied: false,
+			adjustment: null,
+			capability: null,
+		});
 	});
 
 	it("keeps normal and compaction reasoning independent", () => {
@@ -66,6 +133,140 @@ describe("canonical inference configuration resolution", () => {
 		});
 	});
 
+	it("keeps an unset global compaction request distinct from a high model-default decision", () => {
+		expect(defaultBickrInferenceDefaults.fields).not.toHaveProperty("compactionReasoning");
+		const account = node("account", "account_default", null, {});
+		const defaults = {
+			...defaultBickrInferenceDefaults,
+			fields: {
+				...defaultBickrInferenceDefaults.fields,
+				model: "deepseek/deepseek-v4-flash-0731",
+			},
+		};
+		const resolution = resolveInferenceConfiguration([account], { defaults });
+
+		expect(resolution.raw.compactionReasoning).toEqual({
+			state: "absent",
+			provenance: { kind: "unset" },
+			override: null,
+		});
+		expect(resolution.effective.compactionReasoning).toMatchObject({
+			kind: "selected",
+			decision: {
+				kind: "model_default",
+				modelDefault: { kind: "explicit_effort", effort: "high" },
+			},
+			selection: { kind: "model_default", effort: "high" },
+			provenance: { configuration: null },
+		});
+		expect(inferenceFieldAnnotations(account.overrides, resolution).compactionReasoning).toMatchObject({
+			provenance: { kind: "unset" },
+			effective: {
+				kind: "selected",
+				decision: { kind: "model_default" },
+				selection: { kind: "model_default", effort: "high" },
+			},
+		});
+	});
+
+	it("keeps an inherited compaction request source separate from the applied policy decision", () => {
+		const account = node("account", "account_default", null, {
+			compactionReasoning: value({ kind: "explicit_effort", effort: "low" }),
+		});
+		const selected = node("selected", "custom", account.id, {});
+		const resolution = resolveInferenceConfiguration([selected, account], {
+			defaults: {
+				...defaultBickrInferenceDefaults,
+				fields: {
+					...defaultBickrInferenceDefaults.fields,
+					model: "deepseek/deepseek-v4-flash-0731",
+				},
+			},
+		});
+
+		expect(resolution.raw.compactionReasoning).toMatchObject({
+			state: "value",
+			value: { kind: "explicit_effort", effort: "low" },
+			provenance: {
+				kind: "configured",
+				source: { kind: "account_default", configurationId: account.id, depth: 1 },
+			},
+		});
+		expect(resolution.effective.compactionReasoning).toMatchObject({
+			kind: "selected",
+			decision: { kind: "configuration" },
+			selection: { kind: "explicit_effort", effort: "low" },
+			provenance: { configuration: { kind: "explicit_effort", effort: "low" } },
+		});
+	});
+
+	it("keeps Bickr automatic, provider omission, and explicit request intent distinct", () => {
+		const account = node("account", "account_default", null, {});
+		const automatic = node("automatic", "custom", account.id, {
+			reasoning: value({ kind: "bickr_automatic" }),
+			toolCalls: value({ kind: "bickr_automatic" }),
+		});
+		const automaticResolution = resolveInferenceConfiguration([automatic, account]);
+		expect(automaticResolution.raw.reasoning).toMatchObject({ state: "value", value: { kind: "bickr_automatic" } });
+		expect(automaticResolution.effective.ordinaryLoopToolCalls).toMatchObject({
+			intent: { kind: "bickr_automatic" }, emission: "emit_tool_choice",
+		});
+
+		const providerDefault = node("provider", "custom", account.id, {
+			reasoning: value({ kind: "provider_default" }),
+			toolCalls: value({ kind: "provider_default" }),
+		});
+		const providerResolution = resolveInferenceConfiguration([providerDefault, account]);
+		expect(providerResolution.effective.reasoningEffort).toBeUndefined();
+		expect(providerResolution.effective.ordinaryLoopToolCalls).toMatchObject({
+			intent: { kind: "provider_default" },
+			reasoningShape: "provider_default",
+			appliedStrategy: "at_will",
+			emission: "omit_tool_choice",
+			capability: null,
+		});
+		const inherited = resolveInferenceConfiguration([account]);
+		expect(inherited.raw.toolCalls).toMatchObject({ state: "absent", provenance: { kind: "unset" } });
+		expect(inherited.effective).toMatchObject({
+			reasoningIntent: { kind: "inherit" },
+			toolCallIntent: { kind: "inherit" },
+			promptCacheIntent: { kind: "inherit" },
+			ordinaryLoopToolCalls: { intent: { kind: "inherit" }, emission: "emit_tool_choice" },
+		});
+	});
+
+	it("attributes every all-inherited policy outcome without manufacturing raw configuration", () => {
+		const account = node("account", "account_default", null, {});
+		const resolution = resolveInferenceConfiguration([account]);
+		const fields = inferenceFieldAnnotations({}, resolution);
+
+		for (const field of ["reasoning", "compactionMode", "promptCacheMode"] as const) {
+			expect(fields[field]).toMatchObject({
+				request: { kind: "unset" },
+				provenance: { kind: "unset" },
+				adjustment: { kind: "bickr_automatic", effective: fields[field].effective },
+				inherited: {
+					request: { kind: "unset" },
+					provenance: { kind: "unset" },
+					adjustment: { kind: "bickr_automatic", effective: fields[field].effective },
+				},
+			});
+		}
+		expect(fields.toolCalls.adjustment).toMatchObject({
+			kind: "tool_call_policy",
+			policy: { intent: { kind: "inherit" }, emission: "emit_tool_choice" },
+		});
+		expect(fields.supportsPrefill.adjustment).toMatchObject({
+			kind: "prefill_policy",
+			policy: { request: null, applied: false },
+		});
+		expect(fields.compactionReasoning).toMatchObject({
+			request: { kind: "unset" },
+			provenance: { kind: "unset" },
+			adjustment: { kind: "compaction_policy" },
+		});
+	});
+
 	it("falls back from an unauthorized explicit model without mutating raw intent", () => {
 		const account = node("account", "account_default", null, {});
 		const selected = node("selected", "custom", account.id, {
@@ -76,7 +277,10 @@ describe("canonical inference configuration resolution", () => {
 		expect(resolution.raw.model).toMatchObject({
 			state: "value",
 			value: "openai/gpt-4.1",
-			source: { kind: "configuration", configurationId: selected.id },
+			provenance: {
+				kind: "configured",
+				source: { kind: "configuration", configurationId: selected.id },
+			},
 		});
 		expect(resolution.effective.model).toBe("openrouter/free");
 		expect(resolution.providerAuthorizationAdjustment).toMatchObject({
@@ -99,7 +303,10 @@ describe("canonical inference configuration resolution", () => {
 		expect(resolution.raw.model).toMatchObject({
 			state: "value",
 			value: "owner/child-model",
-			source: { kind: "configuration", configurationId: "child" },
+			provenance: {
+				kind: "configured",
+				source: { kind: "configuration", configurationId: "child" },
+			},
 		});
 		expect(resolution.effective.model).toBe(defaultProviderModel);
 		expect(resolution.providerAuthorizationAdjustment).toMatchObject({
@@ -259,11 +466,11 @@ describe("canonical inference configuration resolution", () => {
 		expect(resolution.raw.imageModel).toMatchObject({
 			state: "value",
 			value: historicalModel,
-			source: { kind: "bickr_default" },
+			provenance: { kind: "configured", source: { kind: "bickr_default" } },
 			override: { kind: "historical_bickr_default", value: historicalModel },
 		});
 		expect(resolveImageSettingsForTarget(resolution.effective.image, "participant").model).toBe(historicalModel);
-		expect(ownerInferenceOverride(stored.imageModel)).toEqual({ kind: "value", value: historicalModel });
+		expect(ownerInferenceOverride("imageModel", stored.imageModel)).toEqual({ kind: "value", value: historicalModel });
 
 		expect(applyInferenceOverridePatch(stored, { temperature: value(0.25) }).imageModel).toEqual(stored.imageModel);
 		expect(applyInferenceOverridePatch(stored, { imageModel: value(historicalModel) }).imageModel).toEqual(stored.imageModel);
@@ -307,6 +514,21 @@ describe("canonical inference configuration resolution", () => {
 			topK: value(1.5),
 			imageTopK: value(2.5),
 		});
+		const legacyCompactionDefault = {
+			compactionMode: { kind: "value", value: { kind: "provider_default" } },
+		} as const;
+		expect(parseStoredInferenceConfigurationOverrides(legacyCompactionDefault)).toEqual(legacyCompactionDefault);
+		expect(() => parseInferenceConfigurationOverrides(legacyCompactionDefault))
+			.toThrow("Invalid canonical compaction mode request");
+		expect(() => parseInferenceConfigurationOverridePatch(legacyCompactionDefault))
+			.toThrow("Invalid canonical compaction mode request");
+		const legacyAccount = node("legacy-account", "account_default", null, legacyCompactionDefault);
+		const legacyResolution = resolveInferenceConfiguration([legacyAccount]);
+		expect(inferenceFieldAnnotations(legacyCompactionDefault, legacyResolution).compactionMode).toMatchObject({
+			override: { kind: "value", value: { kind: "bickr_automatic" } },
+			request: { kind: "value", value: { kind: "bickr_automatic" } },
+			adjustment: { kind: "bickr_automatic" },
+		});
 	});
 
 	it("rejects broken, cyclic, and non-Account-default path endings", () => {
@@ -342,7 +564,7 @@ describe("canonical inference configuration resolution", () => {
 		expect(resolution.raw.baseUrl).toMatchObject({
 			state: "value",
 			value: "https://deployment.example/v1",
-			source: { kind: "bickr_default" },
+			provenance: { kind: "configured", source: { kind: "bickr_default" } },
 			override: null,
 		});
 		expect(resolution.effective.credential).toMatchObject({
@@ -377,7 +599,10 @@ describe("canonical inference configuration resolution", () => {
 		const resolution = resolveInferenceConfiguration([clone, source, account], { defaults: deploymentDefaults });
 
 		expect(resolution.effective.baseUrl).toBe("https://account.example/v1");
-		expect(resolution.raw.baseUrl.source).toMatchObject({ kind: "account_default", configurationId: account.id });
+		expect(resolution.raw.baseUrl.provenance).toMatchObject({
+			kind: "configured",
+			source: { kind: "account_default", configurationId: account.id },
+		});
 		expect(resolution.effective.credential).toMatchObject({
 			kind: "unavailable",
 			reason: "deployment_credential_suppressed_for_owner_base_url",

@@ -33,7 +33,7 @@ export type AgentRuntimeRouteEnv = Pick<
 	| "OPENROUTER_BASE_URL"
 	| "OPENROUTER_MODEL"
 > &
-	Partial<Pick<Env, "FORUM_COORDINATOR_SERVICE" | "INTERNAL_SERVICE_SECRET">>;
+	Partial<Pick<Env, "FORUM_COORDINATOR_SERVICE" | "INTERNAL_SERVICE_SECRET" | "USER_BOTS">>;
 
 export type AgentRuntimeRouteContext = {
 	request: Request;

@@ -1,5 +1,62 @@
 import { describe, expect, it } from "vitest";
 import { providerAvatarImageStreamChunk } from "../index";
+import { providerAvatarRequestedToolCalls, providerAvatarToolChoice } from "./provider";
+
+describe("provider avatar tool policy", () => {
+	it("covers every stored request strategy without losing provider omission intent", () => {
+		const settings = { baseUrl: "https://provider.example/v1", model: "provider/model" };
+		expect(providerAvatarRequestedToolCalls(
+			{ ...settings, toolCallRequest: { kind: "provider_default" } }, "reasoning_on",
+		)).toBe("railroad");
+		expect(providerAvatarRequestedToolCalls(
+			{ ...settings, toolCallRequest: { kind: "inherit" } }, "reasoning_on",
+		)).toBe("require");
+		expect(providerAvatarRequestedToolCalls(
+			{ ...settings, toolCallRequest: { kind: "bickr_automatic" } }, "reasoning_on",
+		)).toBe("require");
+		for (const [strategy, expected] of [
+			["require", "require"],
+			["railroad", "railroad"],
+			["at_will", "require"],
+		] as const) {
+			expect(providerAvatarRequestedToolCalls(
+				{ ...settings, toolCallRequest: { kind: "strategy", strategy } }, "reasoning_on",
+			)).toBe(expected);
+		}
+	});
+
+	it("resolves avatar automatic tool policy from the avatar reasoning shape", () => {
+		const settings = {
+			baseUrl: "https://openrouter.ai/api/v1",
+			model: "deepseek/deepseek-v3.2",
+			providerRouting: { only: ["atlas-cloud/fp8"], allow_fallbacks: false },
+			toolCallRequest: { kind: "bickr_automatic" as const },
+		};
+
+		expect(providerAvatarRequestedToolCalls(settings, "reasoning_off")).toBe("require");
+		expect(providerAvatarRequestedToolCalls(settings, "reasoning_on")).toBe("railroad");
+		expect(providerAvatarRequestedToolCalls({
+			...settings,
+			toolCallRequest: { kind: "strategy", strategy: "at_will" },
+		}, "reasoning_off")).toBe("require");
+		expect(providerAvatarRequestedToolCalls({
+			...settings,
+			toolCallRequest: { kind: "strategy", strategy: "at_will" },
+		}, "reasoning_on")).toBe("railroad");
+	});
+
+	it("covers every avatar response mode and structured tool strategy", () => {
+		const automatic = { toolCallRequest: { kind: "bickr_automatic" as const } };
+		const providerDefault = { toolCallRequest: { kind: "provider_default" as const } };
+		for (const mode of ["structured_output", "tool_call", "tool_call_cache_friendly"] as const) {
+			for (const strategy of ["require", "railroad"] as const) {
+				const expected = mode === "structured_output" ? undefined : strategy === "require" ? "required" : undefined;
+				expect(providerAvatarToolChoice(mode, automatic, strategy)).toBe(expected);
+				expect(providerAvatarToolChoice(mode, providerDefault, strategy)).toBeUndefined();
+			}
+		}
+	});
+});
 
 describe("provider avatar image streaming", () => {
 	it("extracts streamed assistant text, image URLs, usage, and provider metadata", () => {

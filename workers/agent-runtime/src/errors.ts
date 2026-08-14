@@ -1,5 +1,6 @@
 import type { BotInferenceSubmissionToolCall } from '@bickr/shared/model';
 import type {
+	CompactionReasoningDecisionProvenance,
 	CompactionReasoningProvenance,
 	CompactionReasoningRefusal,
 	CompactionReasoningSelection,
@@ -344,6 +345,7 @@ export class PersistentCompactionReductionFailureError extends Error {
 }
 
 export type CompactionReasoningDiagnostic = {
+	decision: CompactionReasoningDecisionProvenance;
 	selection: CompactionReasoningSelection;
 	provenance: CompactionReasoningProvenance;
 };

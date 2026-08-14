@@ -44,6 +44,7 @@ import migration0042 from "../../migrations/0042_inference_configuration_graph.s
 import migration0043 from "../../migrations/0043_translation_inference_role.sql?raw";
 import migration0044 from "../../migrations/0044_translation_role_transition_state.sql?raw";
 import migration0045 from "../../migrations/0045_forum_read_only.sql?raw";
+import migration0046 from "../../migrations/0046_inference_provider_default_barrier_sweep.sql?raw";
 
 const migrationSql = [
 	migration0001,
@@ -92,6 +93,7 @@ const migrationSql = [
 	migration0043,
 	migration0044,
 	migration0045,
+	migration0046,
 ];
 
 type D1SchemaRow = {
@@ -113,6 +115,24 @@ export async function applyD1Migrations(db: D1Database): Promise<void> {
 
 export async function applyD1LifecycleRecoveryMigration(db: D1Database): Promise<void> {
 	await execD1Statements(db, migration0040);
+}
+
+/**
+ * Replays migration 0046's seed statements against state built after the schema
+ * reset. The reset applies every migration to an empty database, so the seed
+ * finds no migrated owner; a test that migrates an owner afterwards gets the
+ * production seeding by running exactly the migration's own DML, never a
+ * hand-written copy of it.
+ */
+export async function seedProviderDefaultBarrierSweepMigration(db: D1Database): Promise<void> {
+	for (const statement of splitD1Statements(migration0046)) {
+		if (firstSqlKeyword(statement) === "CREATE" || !statement.trim()) continue;
+		await db.prepare(statement).run();
+	}
+}
+
+function firstSqlKeyword(statement: string): string {
+	return statement.replace(/--[^\n]*/gu, " ").trim().split(/\s+/u)[0]?.toUpperCase() ?? "";
 }
 
 export async function execD1Statements(db: D1Database, sql: string): Promise<void> {

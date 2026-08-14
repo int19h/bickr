@@ -5,6 +5,8 @@ import {
 	inferenceConfigurationFields,
 	inferenceLibrarySections,
 	maximumCanonicalInferenceAnnotationBatch,
+	redactedInferenceFieldProvenance,
+	redactedInferenceFieldResolvedRequest,
 	redactedOwnerDtoBrand,
 	type CredentialUpdate,
 	type CanonicalInferenceFixedReference,
@@ -436,7 +438,11 @@ export async function inferenceConfigurationOwnerDto(
 	const path = await loadInferenceConfigurationPath(db, ownerUserId, configurationId);
 	const selected = path[0];
 	const resolution = resolveInferenceConfiguration(path, { ...(defaults ? { defaults } : {}) });
-	const internalAnnotations = inferenceFieldAnnotations(selected.overrides, resolution);
+	const internalAnnotations = inferenceFieldAnnotations(
+		selected.overrides,
+		resolution,
+		{ ...(defaults ? { defaults } : {}) },
+	);
 	const control = await inferenceGraphReadVersion(db, ownerUserId);
 	// One bounded query names the whole ancestry. Owner clients label per-field
 	// provenance and the parent link from it instead of walking the graph.
@@ -471,9 +477,15 @@ export async function inferenceConfigurationOwnerDto(
 			const annotation = internalAnnotations[field];
 			return [field, {
 				override: annotation.override,
+				request: redactedInferenceFieldResolvedRequest(annotation.request),
 				effective: annotation.effective,
-				source: annotation.source,
+				provenance: redactedInferenceFieldProvenance(annotation.provenance),
 				adjustment: annotation.adjustment,
+				inherited: {
+					...annotation.inherited,
+					request: redactedInferenceFieldResolvedRequest(annotation.inherited.request),
+					provenance: redactedInferenceFieldProvenance(annotation.inherited.provenance),
+				},
 			}];
 		})) as RedactedInferenceFieldDtoMap,
 		graphRevision: control.graphRevision,
@@ -2065,6 +2077,8 @@ export async function accountConfigurationDeletionStatements(
 	const rootId = await accountDefaultConfigurationId(ownerUserId);
 	return [
 		db.prepare(`DELETE FROM inference_translation_selections WHERE owner_user_id = ?`).bind(ownerUserId),
+		db.prepare(`DELETE FROM inference_provider_default_barrier_candidates WHERE owner_user_id = ?`).bind(ownerUserId),
+		db.prepare(`DELETE FROM inference_provider_default_barrier_sweeps WHERE owner_user_id = ?`).bind(ownerUserId),
 		// The composite self-parent FK is ON DELETE RESTRICT and is checked
 		// immediately, so a chain such as root -> source bot -> linked clone would
 		// abort as soon as the parent row of a still-present child is deleted.

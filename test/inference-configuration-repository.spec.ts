@@ -88,10 +88,27 @@ describe("inference configuration D1 repository", () => {
 		expect(dto).not.toHaveProperty("resolution");
 		expect(dto.fields.temperature.effective).toBe(0);
 		expect(dto.fields.supportsPrefill.effective).toBe(false);
+		expect(dto.fields.supportsPrefill).toMatchObject({
+			request: { value: false },
+			provenance: { configured: { configuration: { configurationId: child.id, depth: 0 } } },
+			adjustment: {
+				kind: "prefill_policy",
+				policy: { request: false, applied: false, adjustment: null, capability: null },
+			},
+			inherited: {
+				request: { unset: null },
+				provenance: { unset: null },
+				adjustment: {
+					kind: "prefill_policy",
+					policy: { request: null, applied: false, adjustment: null, capability: null },
+				},
+			},
+		});
 		expect(dto.fields.temperature).toMatchObject({
 			override: { kind: "inherit" },
+			request: { value: 0 },
 			effective: 0,
-			source: { configurationId: parent.id },
+			provenance: { configured: { configuration: { configurationId: parent.id } } },
 		});
 		expect(Object.keys(dto.fields)).toHaveLength(27);
 		expect(dto.imagePreviews).toMatchObject({
@@ -124,7 +141,7 @@ describe("inference configuration D1 repository", () => {
 		expect(dto.fields.imageModel).toMatchObject({
 			override: { kind: "value", value: historicalModel },
 			effective: historicalModel,
-			source: { kind: "bickr_default" },
+			provenance: { configured: { bickrDefault: null } },
 		});
 		expect(dto.imagePreviews.participant.model).toBe(historicalModel);
 

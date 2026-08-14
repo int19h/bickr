@@ -90,12 +90,14 @@ import {
 	completeInferenceGraphCompatibilityWrite,
 	cleanupInferenceGraphTerminalState,
 	inferenceGraphMigrationStatus,
+	listInferenceProviderDefaultBarrierSweepFleetStatus,
 	listInferenceGraphFleetStatus,
 	markInferenceGraphCompatibilitySourceWritten,
 	pendingInferenceGraphCompatibilityWrite,
 	reactivateInferenceGraphCutover,
 	rollbackInferenceGraphCutover,
 	runInferenceGraphMigrationStep,
+	runInferenceProviderDefaultBarrierSweepStep,
 } from '@bickr/shared/inference-configuration-migration';
 import { addInternalServiceAuthHeader, internalServiceUrl, isTrustedInternalServiceRequest } from '@bickr/shared/internal-service';
 import { mutationMaintenanceResponse, readMaintenanceState } from '@bickr/shared/maintenance';
@@ -162,6 +164,10 @@ import { worldDocumentForAvatar } from './avatar/target';
 import { scheduledDispatchBudget, scheduledDispatchSelectLimit, scheduledDispatchTimeoutMs } from './constants';
 import { RuntimeOperationTimeoutError } from './errors';
 import { withAbortableTimeout } from './provider/sse';
+import {
+	runInferenceProviderDefaultBarrierFleetStep,
+	type InferenceProviderDefaultBarrierFleetStepResult,
+} from './runtime/provider-default-barrier-sweep';
 import {
 	agentRuntimeNotFoundResponse,
 	avatarPromptSettingsRuntime,
@@ -672,6 +678,22 @@ export const agentRuntimeRouteTable = [
 		},
 	},
 	{
+		id: 'run-inference-provider-default-barrier-sweep',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)\/inference-graph\/provider-default-barrier-sweep$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			requireSchedulerServiceRequest(context.request);
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			if (context.coordinator.ownerUserId !== userId) throw new RepositoryError('forbidden', 'Provider-default barrier sweep was dispatched to the wrong coordinator.', 403);
+			return ok({
+				sweep: await runInferenceProviderDefaultBarrierSweepStep(context.env, userId),
+				coordinator: context.objectId,
+			});
+		},
+	},
+	{
 		id: 'translation-role-migration-status',
 		method: 'GET',
 		pattern: /^\/users\/([^/]+)\/inference-translation-role\/migration$/,
@@ -1055,6 +1077,48 @@ export const agentRuntimeRouteTable = [
 				),
 				coordinator: context.objectId,
 			});
+		},
+	},
+	{
+		id: 'inference-provider-default-barrier-sweep-fleet-status',
+		method: 'GET',
+		pattern: /^\/inference-graph\/provider-default-barrier-sweep\/status$/,
+		dispatch: 'direct',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) {
+				throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			}
+			requireSchedulerServiceRequest(context.request);
+			const maintenance = await readMaintenanceState(context.env.BICKR_D1);
+			if (!maintenance.enabled) throw new RepositoryError('conflict', 'Provider-default barrier fleet status requires maintenance mode.', 409);
+			return ok({ status: await listInferenceProviderDefaultBarrierSweepFleetStatus(context.env.BICKR_D1, {
+				...(context.url.searchParams.get('cursor') ? { cursor: context.url.searchParams.get('cursor')! } : {}),
+				...(context.url.searchParams.get('limit') ? { limit: requiredPositiveInteger(context.url.searchParams.get('limit'), 'limit') } : {}),
+			}) });
+		},
+	},
+	{
+		id: 'run-inference-provider-default-barrier-sweep-fleet',
+		method: 'POST',
+		pattern: /^\/inference-graph\/provider-default-barrier-sweep$/,
+		dispatch: 'direct',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) {
+				throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			}
+			requireSchedulerServiceRequest(context.request);
+			const maintenance = await readMaintenanceState(context.env.BICKR_D1);
+			if (!maintenance.enabled) throw new RepositoryError('conflict', 'Provider-default barrier fleet sweep requires maintenance mode.', 409);
+			if (!context.env.USER_BOTS) throw new RepositoryError('server_error', 'User coordinator binding is unavailable.', 500);
+			const body = requiredRecord(await readOptionalJsonBody(context.request));
+			const requestedLimit = body.limit === undefined ? 25 : requiredPositiveInteger(body.limit, 'limit');
+			return ok({ sweep: await runInferenceProviderDefaultBarrierFleetStep({
+				BICKR_D1: context.env.BICKR_D1,
+				USER_BOTS: context.env.USER_BOTS,
+				...(context.env.INTERNAL_SERVICE_SECRET === undefined
+					? {}
+					: { INTERNAL_SERVICE_SECRET: context.env.INTERNAL_SERVICE_SECRET }),
+			}, { limit: requestedLimit }) });
 		},
 	},
 	{
@@ -2549,9 +2613,9 @@ function isInferenceGraphMaintenanceRequest(request: Request): boolean {
 		return false;
 	}
 	const pathname = new URL(request.url).pathname;
-	return /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate)$/.test(pathname) ||
+	return /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate|provider-default-barrier-sweep)$/.test(pathname) ||
 		/^\/users\/[^/]+\/inference-translation-role\/migrate$/.test(pathname) ||
-		/^\/inference-graph\/(?:cleanup|activate-lifecycle)$/.test(pathname);
+		/^\/inference-graph\/(?:cleanup|activate-lifecycle|provider-default-barrier-sweep)$/.test(pathname);
 }
 
 export async function handleAgentRuntimeRequest(
@@ -2756,11 +2820,40 @@ export default {
 	},
 } satisfies ExportedHandler<Env>;
 
-async function runScheduledAgentRuntimeTasks(env: Env, scheduledTime: number): Promise<void> {
+export type ScheduledAgentRuntimeTasksResult =
+	| { kind: 'maintenance'; sweep: InferenceProviderDefaultBarrierFleetStepResult }
+	| { kind: 'ordinary' };
+
+export async function runScheduledAgentRuntimeTasks(env: Env, scheduledTime: number): Promise<ScheduledAgentRuntimeTasksResult> {
 	const maintenance = await readMaintenanceState(env.BICKR_D1);
 	if (maintenance.enabled) {
-		console.log(JSON.stringify({ event: 'scheduled_tasks_deferred', reason: 'maintenance', scheduledTime }));
-		return;
+		try {
+			const sweep = await runInferenceProviderDefaultBarrierFleetStep({
+				BICKR_D1: env.BICKR_D1,
+				USER_BOTS: env.USER_BOTS,
+				...(env.INTERNAL_SERVICE_SECRET === undefined
+					? {}
+					: { INTERNAL_SERVICE_SECRET: env.INTERNAL_SERVICE_SECRET }),
+			}, { now: new Date(scheduledTime).toISOString() });
+			const failedOwners = sweep.attempts.filter((attempt) => attempt.status === 'failed').length;
+			const record = {
+				event: 'scheduled_provider_default_barrier_sweep',
+				scheduledTime,
+				outcome: failedOwners === 0 ? 'progress' : 'partial_failure',
+				failedOwners,
+				sweep,
+			};
+			(failedOwners === 0 ? console.log : console.error)(JSON.stringify(record));
+			return { kind: 'maintenance', sweep };
+		} catch (error) {
+			console.error(JSON.stringify({
+				event: 'scheduled_provider_default_barrier_sweep',
+				scheduledTime,
+				outcome: 'failed',
+				failure: { errorName: error instanceof Error ? error.name : 'UnknownError' },
+			}));
+			throw error;
+		}
 	}
 	await Promise.all([
 		dispatchDueBots(env, scheduledTime),
@@ -2774,6 +2867,7 @@ async function runScheduledAgentRuntimeTasks(env: Env, scheduledTime: number): P
 			console.warn('global inference cost stats refresh failed', error);
 		}),
 	]);
+	return { kind: 'ordinary' };
 }
 
 export async function dispatchDueBots(

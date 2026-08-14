@@ -57,13 +57,13 @@ export function inferenceOverridesFromLegacyTranslationSettings(
 	return {
 		model: { kind: "value", value: translation.model.trim() },
 		reasoning: { kind: "value", value: translation.reasoningEffort === undefined || translation.reasoningEffort === "default"
-			? { kind: "provider_default" }
+			? { kind: "bickr_automatic" }
 			: translation.reasoningEffort === "none"
 				? { kind: "reasoning_disabled" }
 				: { kind: "explicit_effort", effort: translation.reasoningEffort } },
 		toolCalls: { kind: "value", value: translation.toolCalls
 			? { kind: "strategy", strategy: translation.toolCalls }
-			: { kind: "provider_default" } },
+			: { kind: "bickr_automatic" } },
 		temperature: { kind: "value", value: translation.temperature ?? 0 },
 		providerRouting: legacyTextProviderRouting(translation.providerRouting),
 		topK: translation.topK === undefined ? { kind: "explicit_none" } : { kind: "value", value: translation.topK },
@@ -367,7 +367,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function legacyReasoning(reasoning: BotInferenceReasoningEffort): InferenceReasoningRequest {
 	switch (reasoning) {
-		case "default": return { kind: "provider_default" };
+		case "default": return { kind: "bickr_automatic" };
 		case "none": return { kind: "reasoning_disabled" };
 		case "minimal":
 		case "low":

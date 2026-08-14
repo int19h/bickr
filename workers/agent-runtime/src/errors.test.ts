@@ -40,10 +40,10 @@ describe('compaction reasoning refusal diagnostics', () => {
 		expect(JSON.stringify(runtimeErrorCause(error))).not.toMatch(/providerRouting|apiKey|prompt/i);
 	});
 
-	it('reports an incomparable provider default as a typed refusal', () => {
+	it('reports unknown effort support as a typed refusal', () => {
 		const error = new CompactionReasoningRefusalError(
 			{
-				kind: 'model_default_order_unknown_for_required_effort',
+				kind: 'support_unknown_for_required_effort',
 				requiredEffort: 'high',
 			},
 			{
@@ -52,7 +52,7 @@ describe('compaction reasoning refusal diagnostics', () => {
 				safetyFloor: { kind: 'reasoning_disabled' },
 				learnedFloor: null,
 				baselineSelection: { kind: 'reasoning_disabled' },
-				support: 'known',
+				support: 'unknown',
 				policySource: 'openrouter_generated',
 			},
 		);
@@ -60,7 +60,7 @@ describe('compaction reasoning refusal diagnostics', () => {
 		expect(runtimeErrorCause(error)).toMatchObject({
 			kind: 'compaction_reasoning_refusal',
 			refusal: {
-				kind: 'model_default_order_unknown_for_required_effort',
+				kind: 'support_unknown_for_required_effort',
 				requiredEffort: 'high',
 			},
 		});

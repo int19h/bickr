@@ -2076,7 +2076,7 @@ function inferenceFieldValueSchema(field: typeof inferenceConfigurationFields[nu
 			return { type: "boolean" };
 		case "reasoning":
 			return closedDiscriminatedValueSchema(
-				["provider_default", "reasoning_disabled", "explicit_effort"],
+				["bickr_automatic", "provider_default", "reasoning_disabled", "explicit_effort"],
 				{ effort: enumSchema(["minimal", "low", "medium", "high", "xhigh"], "Explicit reasoning effort.") },
 			);
 		case "compactionReasoning":
@@ -2086,17 +2086,17 @@ function inferenceFieldValueSchema(field: typeof inferenceConfigurationFields[nu
 			);
 		case "toolCalls":
 			return closedDiscriminatedValueSchema(
-				["provider_default", "strategy"],
+				["bickr_automatic", "provider_default", "strategy"],
 				{ strategy: enumSchema(["require", "railroad", "at_will"], "Tool-call strategy.") },
 			);
 		case "compactionMode":
 			return closedDiscriminatedValueSchema(
-				["provider_default", "mode"],
+				["bickr_automatic", "mode"],
 				{ mode: enumSchema(["structured_output", "tool_call", "tool_call_cache_friendly"], "Compaction mode.") },
 			);
 		case "promptCacheMode":
 			return closedDiscriminatedValueSchema(
-				["provider_default", "mode"],
+				["bickr_automatic", "provider_default", "mode"],
 				{ mode: enumSchema(["off", "openrouter_anthropic_5m", "openrouter_anthropic_1h"], "Prompt-cache mode.") },
 			);
 		default:
@@ -2280,7 +2280,63 @@ function inferenceConfigurationIdentityOutputSchema(): Record<string, unknown> {
 }
 
 function inferenceConfigurationFieldsOutputSchema(): Record<string, unknown> {
-	const fieldSchema = withRequired({
+	return withRequired({
+		type: "object",
+		properties: { supportsPrefill: prefillInferenceConfigurationFieldOutputSchema() },
+		propertyNames: { enum: [...inferenceConfigurationFields] },
+		additionalProperties: genericInferenceConfigurationFieldOutputSchema(),
+	}, [...inferenceConfigurationFields]);
+}
+
+function prefillInferenceConfigurationFieldOutputSchema(): Record<string, unknown> {
+	const policy = withRequired({
+		type: "object",
+		properties: {
+			request: { type: ["boolean", "null"] },
+			reasoningShape: { enum: ["provider_default", "reasoning_off", "reasoning_on"] },
+			applied: { type: "boolean" },
+			adjustment: { type: ["string", "null"] },
+			capability: { type: ["object", "null"] },
+		},
+		additionalProperties: false,
+	}, ["request", "reasoningShape", "applied", "adjustment", "capability"]);
+	return withRequired({
+		type: "object",
+		properties: {
+			effective: { type: "boolean" },
+			adjustment: withRequired({
+				type: "object",
+				properties: { kind: { enum: ["prefill_policy"] }, policy },
+				additionalProperties: false,
+			}, ["kind", "policy"]),
+		},
+		additionalProperties: true,
+	}, ["effective", "adjustment"]);
+}
+
+function genericInferenceConfigurationFieldOutputSchema(): Record<string, unknown> {
+	const outcomeProperties = {
+		request: singleKeyDiscriminatedSchema({
+			value: {},
+			explicitNone: { type: "null" },
+			targetDefault: { type: "null" },
+			unset: { type: "null" },
+		}),
+		effective: {},
+		provenance: inferenceFieldProvenanceOutputSchema(),
+		adjustment: { type: ["object", "null"], additionalProperties: true },
+	};
+	const inheritedOutcomeSchema = withRequired({
+		type: "object",
+		properties: {
+			request: { type: "object" },
+			effective: {},
+			provenance: { type: "object" },
+			adjustment: { type: ["object", "null"] },
+		},
+		additionalProperties: false,
+	}, ["request", "effective", "provenance", "adjustment"]);
+	return withRequired({
 		type: "object",
 		properties: {
 			override: withRequired({
@@ -2288,21 +2344,50 @@ function inferenceConfigurationFieldsOutputSchema(): Record<string, unknown> {
 				properties: { kind: { type: "string" } },
 				additionalProperties: true,
 			}, ["kind"]),
-			effective: {},
-			source: withRequired({
-				type: "object",
-				properties: { kind: enumSchema(["configuration", "account_default", "bickr_default"], "Effective-value source.") },
-				additionalProperties: true,
-			}, ["kind"]),
-			adjustment: { type: ["object", "null"], additionalProperties: true },
+			...outcomeProperties,
+			inherited: inheritedOutcomeSchema,
 		},
 		additionalProperties: false,
-	}, ["override", "effective", "source", "adjustment"]);
-	return withRequired({
+	}, ["override", "request", "effective", "provenance", "adjustment", "inherited"]);
+}
+
+function inferenceFieldProvenanceOutputSchema(): Record<string, unknown> {
+	const configurationSource = withRequired({
 		type: "object",
-		propertyNames: { enum: [...inferenceConfigurationFields] },
-		additionalProperties: fieldSchema,
-	}, [...inferenceConfigurationFields]);
+		properties: {
+			configurationId: { type: "string" },
+			configurationKind: enumSchema(["translation", "world", "bot", "custom"], "Source configuration kind."),
+			depth: { type: "integer", minimum: 0 },
+		},
+		additionalProperties: false,
+	}, ["configurationId", "configurationKind", "depth"]);
+	const accountDefaultSource = withRequired({
+		type: "object",
+		properties: {
+			configurationId: { type: "string" },
+			depth: { type: "integer", minimum: 0 },
+		},
+		additionalProperties: false,
+	}, ["configurationId", "depth"]);
+	const source = singleKeyDiscriminatedSchema({
+		configuration: configurationSource,
+		accountDefault: accountDefaultSource,
+		bickrDefault: { type: "null" },
+	});
+	return singleKeyDiscriminatedSchema({
+		unset: { type: "null" },
+		configured: source,
+	});
+}
+
+function singleKeyDiscriminatedSchema(properties: Record<string, unknown>): Record<string, unknown> {
+	return {
+		type: "object",
+		properties,
+		additionalProperties: false,
+		minProperties: 1,
+		maxProperties: 1,
+	};
 }
 
 function inferenceConfigurationPathEntryOutputSchema(): Record<string, unknown> {
@@ -2311,7 +2396,10 @@ function inferenceConfigurationPathEntryOutputSchema(): Record<string, unknown> 
 		properties: {
 			id: { type: "string" }, displayName: { type: "string" }, revision: { type: "integer", minimum: 1 },
 			kind: enumSchema(["account_default", "translation", "world", "bot", "custom"], "Path entry kind."),
-			identity: inferenceConfigurationIdentityOutputSchema(),
+			// The selected configuration already carries the fully typed identity.
+			// Repeating that schema for every path item breaches MCP's portable
+			// schema bound because this subset cannot use $ref.
+			identity: { type: "object" },
 		},
 		additionalProperties: false,
 	}, ["id", "displayName", "revision", "kind", "identity"]);

@@ -1,14 +1,17 @@
 import {
 	effectiveCompactionModeForModel,
 	effectiveReasoningEffortForModel,
-	effectiveSupportsPrefillForModel,
-	effectiveToolCallsForModel,
+	resolvePrefillPolicyForModel,
+	resolveToolCallPolicyForModel,
 	modelSupportsPromptCacheControl,
 	compactionReasoningCapabilitiesForModel,
 	compactionReasoningPolicyForModel,
 	resolveCompactionReasoningSelection,
 	type CompactionReasoningFloor,
 	type CompactionReasoningResolution,
+	type AppliedToolCallPolicy,
+	type AppliedPrefillPolicy,
+	type RequiredToolCallReasoningShape,
 } from "./openrouter-model-capabilities";
 import {
 	defaultProviderBaseUrl,
@@ -18,11 +21,21 @@ import {
 	worldAvatarImageGenerationSettingsWithDefaults,
 	type BotImageGenerationSettings,
 	type BotCompactionMode,
+	type BotCompactionModeIntent,
+	type BotCompactionModeRequest,
 	type BotCompactionReasoningEffort,
 	type BotCompactionReasoningRequest,
 	type BotInferenceReasoningEffort,
+	type BotInferenceReasoningIntent,
+	type BotInferencePrefillIntent,
+	type BotInferenceReasoningRequest,
 	type BotInferenceToolCalls,
+	type BotInferenceToolCallIntent,
+	type BotInferenceToolCallRequest,
 	type BotPromptCacheMode,
+	type BotPromptCacheIntent,
+	type BotPromptCacheRequest,
+	type LegacyBotCompactionModeRequest,
 	type JsonObject,
 } from "./model";
 import {
@@ -36,7 +49,7 @@ import { isOpenRouterProviderBaseUrl } from "./inference-settings";
 import { sha256Hex } from "./ids";
 
 export const inferenceGraphSchemaVersion = 1;
-export const inferenceGraphCapabilityVersion = 1;
+export const inferenceGraphCapabilityVersion = 2;
 export const inferenceGraphGlobalDefaultsVersion = 1;
 // Public fingerprints use this non-secret deployment token for the global
 // credential. Bump it with every global credential rotation.
@@ -65,22 +78,10 @@ export function inferenceConfigurationKindFromStorage(
 }
 export type InferenceCredentialMode = "inherit" | "account_default" | "value" | "none";
 
-export type InferenceReasoningRequest =
-	| { kind: "provider_default" }
-	| { kind: "reasoning_disabled" }
-	| { kind: "explicit_effort"; effort: BotCompactionReasoningEffort };
-
-export type InferenceToolCallRequest =
-	| { kind: "provider_default" }
-	| { kind: "strategy"; strategy: BotInferenceToolCalls };
-
-export type InferenceCompactionModeRequest =
-	| { kind: "provider_default" }
-	| { kind: "mode"; mode: BotCompactionMode };
-
-export type InferencePromptCacheRequest =
-	| { kind: "provider_default" }
-	| { kind: "mode"; mode: BotPromptCacheMode };
+export type InferenceReasoningRequest = BotInferenceReasoningRequest;
+export type InferenceToolCallRequest = BotInferenceToolCallRequest;
+export type InferenceCompactionModeRequest = LegacyBotCompactionModeRequest;
+export type InferencePromptCacheRequest = BotPromptCacheRequest;
 
 export type InferenceConfigurationFieldValues = {
 	baseUrl: string;
@@ -155,8 +156,12 @@ export type StoredInferenceOverride<K extends InferenceConfigurationField> =
 	| (K extends "imageModel" ? { kind: "historical_bickr_default"; value: HistoricalBickrDefaultImageModel } : never)
 	| (K extends AccountDefaultResumableField ? { kind: "account_default" } : never);
 
+export type OwnerInferenceConfigurationFieldValue<K extends InferenceConfigurationField> =
+	K extends "compactionMode" ? BotCompactionModeRequest : InferenceConfigurationFieldValues[K];
+
 export type OwnerInferenceOverride<K extends InferenceConfigurationField> =
-	Exclude<StoredInferenceOverride<K>, { kind: "historical_bickr_default" }>;
+	| { kind: "value"; value: OwnerInferenceConfigurationFieldValue<K> }
+	| Exclude<StoredInferenceOverride<K>, { kind: "value" } | { kind: "historical_bickr_default" }>;
 
 export type InferenceOverrideUpdate<K extends InferenceConfigurationField> =
 	| { kind: "inherit" }
@@ -205,24 +210,33 @@ export type InferenceSource =
 	| { kind: "account_default"; configurationId: string; depth: number }
 	| { kind: "bickr_default" };
 
+/**
+ * Raw configuration provenance is intentionally distinct from runtime policy
+ * provenance. An unset field has no source; assigning Bickr as its source
+ * would falsely claim that Bickr supplied a value.
+ */
+export type InferenceFieldProvenance =
+	| { kind: "unset" }
+	| { kind: "configured"; source: InferenceSource };
+
 export type ResolvedRawInferenceField<K extends InferenceConfigurationField> =
 	| {
 			state: "value";
 			value: InferenceConfigurationFieldValues[K];
-			source: InferenceSource;
+			provenance: Extract<InferenceFieldProvenance, { kind: "configured" }>;
 			override: StoredInferenceOverride<K> | null;
 	  }
 	| {
 			state: "explicit_none";
-			source: InferenceSource;
+			provenance: Extract<InferenceFieldProvenance, { kind: "configured" }>;
 			override: Extract<StoredInferenceOverride<K>, { kind: "explicit_none" }>;
 	  }
 	| {
 			state: "target_default";
-			source: InferenceSource;
+			provenance: Extract<InferenceFieldProvenance, { kind: "configured" }>;
 			override: Extract<StoredInferenceOverride<K>, { kind: "target_default" }>;
 	  }
-	| { state: "absent"; source: { kind: "bickr_default" }; override: null };
+	| { state: "absent"; provenance: Extract<InferenceFieldProvenance, { kind: "unset" }>; override: null };
 
 export type ResolvedRawInferenceFields = {
 	[K in InferenceConfigurationField]: ResolvedRawInferenceField<K>;
@@ -255,11 +269,17 @@ export type EffectiveInferenceSettings = {
 	credential: InferenceCredentialResolution;
 	providerRouting?: JsonObject;
 	reasoningEffort?: Exclude<BotInferenceReasoningEffort, "default">;
+	reasoningIntent: BotInferenceReasoningIntent;
 	compactionReasoning: CompactionReasoningResolution;
 	toolCalls: BotInferenceToolCalls;
+	toolCallIntent: BotInferenceToolCallIntent;
+	ordinaryLoopToolCalls: AppliedToolCallPolicy;
 	compactionMode: BotCompactionMode;
 	promptCacheMode: BotPromptCacheMode;
+	promptCacheIntent: BotPromptCacheIntent;
 	supportsPrefill: boolean;
+	prefillIntent: BotInferencePrefillIntent;
+	prefillPolicy: AppliedPrefillPolicy;
 	temperature: number;
 	topK?: number;
 	topP?: number;
@@ -295,17 +315,66 @@ export type InferenceResolution = {
 export type InferenceFieldAdjustment =
 	| InferenceProviderAuthorizationAdjustment
 	| { kind: "provider_or_model_default"; effective: unknown }
+	| { kind: "bickr_automatic"; effective: unknown }
 	| { kind: "capability_adjustment"; requested: unknown; effective: unknown }
+	| { kind: "tool_call_policy"; policy: AppliedToolCallPolicy }
+	| { kind: "prefill_policy"; policy: AppliedPrefillPolicy }
 	| { kind: "compaction_policy"; resolution: CompactionReasoningResolution };
 
-export type InferenceFieldAnnotation = {
-	override: InferenceOverrideUpdate<InferenceConfigurationField>;
-	effective: unknown;
-	source: InferenceSource;
-	adjustment: InferenceFieldAdjustment;
+export type InferenceFieldEffectiveValues = {
+	baseUrl: string;
+	model: string;
+	providerRouting: JsonObject | null;
+	reasoning: Exclude<BotInferenceReasoningEffort, "default"> | null;
+	compactionReasoning: CompactionReasoningResolution;
+	toolCalls: BotInferenceToolCalls;
+	compactionMode: BotCompactionMode;
+	promptCacheMode: BotPromptCacheMode;
+	supportsPrefill: boolean;
+	temperature: number;
+	topK: number | null;
+	topP: number | null;
+	minP: number | null;
+	frequencyPenalty: number | null;
+	presencePenalty: number | null;
+	repetitionPenalty: number | null;
+	imageModel: string | null;
+	imageProviderRouting: JsonObject | null;
+	imageAspectRatio: string | null;
+	imageSize: string | null;
+	imageTemperature: number | null;
+	imageTopK: number | null;
+	imageTopP: number | null;
+	imageMinP: number | null;
+	imageFrequencyPenalty: number | null;
+	imagePresencePenalty: number | null;
+	imageRepetitionPenalty: number | null;
 };
 
-export type InferenceFieldAnnotationMap = Record<InferenceConfigurationField, InferenceFieldAnnotation>;
+/** The resolved stored/default request before provider policy is applied. */
+export type InferenceFieldResolvedRequest<K extends InferenceConfigurationField> =
+	| { kind: "value"; value: OwnerInferenceConfigurationFieldValue<K> }
+	| { kind: "explicit_none" }
+	| { kind: "target_default" }
+	| { kind: "unset" };
+
+export type InferenceFieldAnnotation<K extends InferenceConfigurationField> = {
+	override: InferenceOverrideUpdate<K>;
+	request: InferenceFieldResolvedRequest<K>;
+	effective: InferenceFieldEffectiveValues[K];
+	provenance: InferenceFieldProvenance;
+	adjustment: InferenceFieldAdjustment;
+	inherited: {
+		request: InferenceFieldResolvedRequest<K>;
+		effective: InferenceFieldEffectiveValues[K];
+		provenance: InferenceFieldProvenance;
+		adjustment: InferenceFieldAdjustment;
+	};
+};
+
+export type InferenceFieldAnnotationMap = {
+	[K in InferenceConfigurationField]: InferenceFieldAnnotation<K>;
+};
 
 export type BickrInferenceDefaults = {
 	fields: Partial<InferenceConfigurationFieldValues> & Pick<InferenceConfigurationFieldValues, "baseUrl" | "model" | "temperature">;
@@ -354,38 +423,54 @@ export function resolveInferenceConfiguration(
 	const effectiveModel = authorization.model;
 	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
 	const providerRouting = optionalRawValue(raw.providerRouting);
-	const reasoningRequest = optionalRawValue(raw.reasoning);
-	const reasoningEffort = effectiveReasoningEffortForModel(
+	const reasoningRequest: BotInferenceReasoningIntent = optionalRawValue(raw.reasoning) ?? { kind: "inherit" };
+	const reasoningEffort = reasoningRequest.kind === "provider_default"
+		? undefined
+		: effectiveReasoningEffortForModel(
+			effectiveModel,
+			openRouter,
+			legacyReasoningRequest(reasoningRequest),
+			providerRouting,
+		);
+	const toolCallRequest: BotInferenceToolCallIntent = optionalRawValue(raw.toolCalls) ?? { kind: "inherit" };
+	const reasoningShape: RequiredToolCallReasoningShape = reasoningRequest.kind === "provider_default" || reasoningEffort === undefined
+		? "provider_default"
+		: reasoningEffort === "none" ? "reasoning_off" : "reasoning_on";
+	const ordinaryLoopToolCalls = resolveToolCallPolicyForModel(
 		effectiveModel,
 		openRouter,
-		legacyReasoningRequest(reasoningRequest),
+		toolCallRequest,
 		providerRouting,
+		reasoningShape,
 	);
-	const toolCallRequest = optionalRawValue(raw.toolCalls);
-	const toolCalls = effectiveToolCallsForModel(
-		effectiveModel,
-		openRouter,
-		toolCallRequest?.kind === "strategy" ? toolCallRequest.strategy : undefined,
-		providerRouting,
-	);
-	const compactionModeRequest = optionalRawValue(raw.compactionMode);
+	const toolCalls = ordinaryLoopToolCalls.appliedStrategy;
+	const storedCompactionModeRequest = optionalRawValue(raw.compactionMode);
+	const compactionModeRequest: BotCompactionModeIntent = storedCompactionModeRequest?.kind === "provider_default"
+		? { kind: "bickr_automatic" }
+		: storedCompactionModeRequest ?? { kind: "inherit" };
 	const compactionMode = effectiveCompactionModeForModel(
 		effectiveModel,
 		openRouter,
-		compactionModeRequest?.kind === "mode" ? compactionModeRequest.mode : undefined,
+		compactionModeRequest.kind === "mode" ? compactionModeRequest.mode : undefined,
 		providerRouting,
 	);
-	const promptCacheRequest = optionalRawValue(raw.promptCacheMode);
-	const requestedPromptCacheMode = promptCacheRequest?.kind === "mode" ? promptCacheRequest.mode : "off";
+	const promptCacheRequest: BotPromptCacheIntent = optionalRawValue(raw.promptCacheMode) ?? { kind: "inherit" };
+	const requestedPromptCacheMode = promptCacheRequest.kind === "mode" ? promptCacheRequest.mode : "off";
 	const promptCacheMode = modelSupportsPromptCacheControl(effectiveModel, openRouter)
 		? requestedPromptCacheMode
 		: "off";
-	const supportsPrefill = effectiveSupportsPrefillForModel(
+	const configuredPrefill = optionalRawValue(raw.supportsPrefill);
+	const prefillIntent: BotInferencePrefillIntent = configuredPrefill === undefined
+		? { kind: "inherit" }
+		: { kind: "explicit", enabled: configuredPrefill };
+	const prefillPolicy = resolvePrefillPolicyForModel(
 		effectiveModel,
 		openRouter,
-		optionalRawValue(raw.supportsPrefill),
+		prefillIntent.kind === "explicit" ? prefillIntent.enabled : undefined,
 		providerRouting,
+		reasoningShape,
 	);
+	const supportsPrefill = prefillPolicy.applied;
 	const compactionPolicy = compactionReasoningPolicyForModel(effectiveModel, openRouter, providerRouting);
 	const compactionReasoning = resolveCompactionReasoningSelection({
 		policy: compactionPolicy,
@@ -405,11 +490,17 @@ export function resolveInferenceConfiguration(
 			credential,
 			...(providerRouting ? { providerRouting } : {}),
 			...(reasoningEffort ? { reasoningEffort } : {}),
+			reasoningIntent: reasoningRequest,
 			compactionReasoning,
 			toolCalls,
+			toolCallIntent: toolCallRequest,
+			ordinaryLoopToolCalls,
 			compactionMode,
 			promptCacheMode,
+			promptCacheIntent: promptCacheRequest,
 			supportsPrefill,
+			prefillIntent,
+			prefillPolicy,
 			temperature: optionalRawValue(raw.temperature) ?? defaultTextGenerationTemperature,
 			...(optionalNumber(raw.topK) !== undefined ? { topK: optionalNumber(raw.topK) } : {}),
 			...(optionalNumber(raw.topP) !== undefined ? { topP: optionalNumber(raw.topP) } : {}),
@@ -510,7 +601,7 @@ export function parseStoredInferenceConfigurationOverrides(value: string | unkno
 
 function parseInferenceConfigurationOverridesWithAccess(
 	value: string | unknown,
-	allowHistoricalBickrDefault: boolean,
+	allowMigrationOnlyStates: boolean,
 ): InferenceConfigurationOverrides {
 	let parsed: unknown = value;
 	if (typeof value === "string") {
@@ -528,7 +619,7 @@ function parseInferenceConfigurationOverridesWithAccess(
 		if (!isInferenceConfigurationField(key)) {
 			throw new InferenceConfigurationDataError("invalid_overrides", `Unknown inference configuration field ${JSON.stringify(key)}.`);
 		}
-		result[key] = parseInferenceOverride(key, override, allowHistoricalBickrDefault);
+		result[key] = parseInferenceOverride(key, override, allowMigrationOnlyStates);
 	}
 	return result as InferenceConfigurationOverrides;
 }
@@ -620,10 +711,15 @@ export async function inferenceResolutionFingerprint(
 			model: resolution.effective.model,
 			providerRouting: resolution.effective.providerRouting ?? null,
 			reasoningEffort: resolution.effective.reasoningEffort ?? null,
+			reasoningIntent: resolution.effective.reasoningIntent,
 			toolCalls: resolution.effective.toolCalls,
+			toolCallIntent: resolution.effective.toolCallIntent,
+			ordinaryLoopToolCalls: resolution.effective.ordinaryLoopToolCalls,
 			compactionMode: resolution.effective.compactionMode,
 			promptCacheMode: resolution.effective.promptCacheMode,
+			promptCacheIntent: resolution.effective.promptCacheIntent,
 			supportsPrefill: resolution.effective.supportsPrefill,
+			prefillPolicy: resolution.effective.prefillPolicy,
 			temperature: resolution.effective.temperature,
 			topK: resolution.effective.topK ?? null,
 			topP: resolution.effective.topP ?? null,
@@ -644,27 +740,82 @@ export async function inferenceResolutionFingerprint(
 export function inferenceFieldAnnotations(
 	selectedOverrides: InferenceConfigurationOverrides,
 	resolution: InferenceResolution,
+	options: ResolveInferenceConfigurationOptions = {},
 ): InferenceFieldAnnotationMap {
+	const effectiveFields = effectiveInferenceFields(resolution);
 	return Object.fromEntries(inferenceConfigurationFields.map((field) => {
-		const raw = resolution.raw[field] as AnyResolvedRawInferenceField;
-		const effective = effectiveInferenceField(resolution, field);
+		const raw = resolution.raw[field];
+		const effective = effectiveFields[field];
+		const inheritedResolution = resolutionWithoutSelectedOverride(resolution, field, options);
+		const inheritedRaw = inheritedResolution.raw[field];
+		const inheritedEffective = effectiveInferenceFields(inheritedResolution)[field];
 		return [field, {
-			override: ownerInferenceOverride(selectedOverrides[field]),
+			override: ownerInferenceOverride(field, selectedOverrides[field]),
+			request: resolvedInferenceFieldRequest(field, raw),
 			effective,
-			source: raw.source,
+			provenance: raw.provenance,
 			adjustment: inferenceFieldAdjustment(resolution, field, raw, effective),
+			inherited: {
+				request: resolvedInferenceFieldRequest(field, inheritedRaw),
+				effective: inheritedEffective,
+				provenance: inheritedRaw.provenance,
+				adjustment: inferenceFieldAdjustment(inheritedResolution, field, inheritedRaw, inheritedEffective),
+			},
 		}];
 	})) as InferenceFieldAnnotationMap;
 }
 
+function resolvedInferenceFieldRequest<K extends InferenceConfigurationField>(
+	field: K,
+	raw: ResolvedRawInferenceField<K>,
+): InferenceFieldResolvedRequest<K> {
+	switch (raw.state) {
+		case "value": return {
+			kind: "value",
+			value: normalizedOwnerCompactionModeRequest(field, raw.value),
+		};
+		case "explicit_none": return { kind: "explicit_none" };
+		case "target_default": return { kind: "target_default" };
+		case "absent": return { kind: "unset" };
+	}
+}
+
+function resolutionWithoutSelectedOverride(
+	resolution: InferenceResolution,
+	field: InferenceConfigurationField,
+	options: ResolveInferenceConfigurationOptions,
+): InferenceResolution {
+	const selected = resolution.path[0];
+	if (!selected.overrides[field]) return resolution;
+	const overrides = { ...selected.overrides };
+	delete overrides[field];
+	const path = [{ ...selected, overrides }, ...resolution.path.slice(1)] as InferenceConfigurationPath;
+	return resolveInferenceConfiguration(path, options);
+}
+
 export function ownerInferenceOverride<K extends InferenceConfigurationField>(
+	field: K,
 	override: StoredInferenceOverride<K> | undefined,
 ): InferenceOverrideUpdate<K> {
 	if (!override) return { kind: "inherit" };
 	if (override.kind === "historical_bickr_default") {
 		return { kind: "value", value: override.value } as InferenceOverrideUpdate<K>;
 	}
-	return override as InferenceOverrideUpdate<K>;
+	return override.kind === "value"
+		? { kind: "value", value: normalizedOwnerCompactionModeRequest(field, override.value) }
+		: override as InferenceOverrideUpdate<K>;
+}
+
+function normalizedOwnerCompactionModeRequest<K extends InferenceConfigurationField>(
+	field: K,
+	value: InferenceConfigurationFieldValues[K],
+): OwnerInferenceConfigurationFieldValue<K> {
+	// Migration 0046 is the retirement path for this projection. Until its
+	// bounded sweep reaches an owner, the legacy stored label is never exposed as
+	// a provider-owned choice because compaction mode has always been Bickr-owned.
+	return field === "compactionMode" && (value as InferenceCompactionModeRequest).kind === "provider_default"
+		? { kind: "bickr_automatic" } as OwnerInferenceConfigurationFieldValue<K>
+		: value as OwnerInferenceConfigurationFieldValue<K>;
 }
 
 export function ownerInferenceConfigurationOverrides(
@@ -672,43 +823,45 @@ export function ownerInferenceConfigurationOverrides(
 ): OwnerInferenceConfigurationOverrides {
 	return Object.fromEntries(inferenceConfigurationFields.flatMap((field) => {
 		const override = overrides[field];
-		return override ? [[field, ownerInferenceOverride(override)]] : [];
+		return override ? [[field, ownerInferenceOverride(field, override)]] : [];
 	})) as OwnerInferenceConfigurationOverrides;
 }
 
-function effectiveInferenceField(resolution: InferenceResolution, field: InferenceConfigurationField): unknown {
-	switch (field) {
-		case "baseUrl": return resolution.effective.baseUrl;
-		case "model": return resolution.effective.model;
-		case "providerRouting": return resolution.effective.providerRouting ?? null;
-		case "reasoning": return resolution.effective.reasoningEffort ?? null;
-		case "compactionReasoning": return resolution.effective.compactionReasoning;
-		case "toolCalls": return resolution.effective.toolCalls;
-		case "compactionMode": return resolution.effective.compactionMode;
-		case "promptCacheMode": return resolution.effective.promptCacheMode;
-		case "supportsPrefill": return resolution.effective.supportsPrefill;
-		case "temperature": return resolution.effective.temperature;
-		case "topK": return resolution.effective.topK ?? null;
-		case "topP": return resolution.effective.topP ?? null;
-		case "minP": return resolution.effective.minP ?? null;
-		case "frequencyPenalty": return resolution.effective.frequencyPenalty ?? null;
-		case "presencePenalty": return resolution.effective.presencePenalty ?? null;
-		case "repetitionPenalty": return resolution.effective.repetitionPenalty ?? null;
-		case "imageModel": return rawEffectiveValue(resolution.raw.imageModel);
-		case "imageProviderRouting": return rawEffectiveValue(resolution.raw.imageProviderRouting);
-		case "imageAspectRatio": return rawEffectiveValue(resolution.raw.imageAspectRatio);
-		case "imageSize": return rawEffectiveValue(resolution.raw.imageSize);
-		case "imageTemperature": return rawEffectiveValue(resolution.raw.imageTemperature);
-		case "imageTopK": return rawEffectiveValue(resolution.raw.imageTopK);
-		case "imageTopP": return rawEffectiveValue(resolution.raw.imageTopP);
-		case "imageMinP": return rawEffectiveValue(resolution.raw.imageMinP);
-		case "imageFrequencyPenalty": return rawEffectiveValue(resolution.raw.imageFrequencyPenalty);
-		case "imagePresencePenalty": return rawEffectiveValue(resolution.raw.imagePresencePenalty);
-		case "imageRepetitionPenalty": return rawEffectiveValue(resolution.raw.imageRepetitionPenalty);
-	}
+function effectiveInferenceFields(resolution: InferenceResolution): InferenceFieldEffectiveValues {
+	return {
+		baseUrl: resolution.effective.baseUrl,
+		model: resolution.effective.model,
+		providerRouting: resolution.effective.providerRouting ?? null,
+		reasoning: resolution.effective.reasoningEffort ?? null,
+		compactionReasoning: resolution.effective.compactionReasoning,
+		toolCalls: resolution.effective.toolCalls,
+		compactionMode: resolution.effective.compactionMode,
+		promptCacheMode: resolution.effective.promptCacheMode,
+		supportsPrefill: resolution.effective.supportsPrefill,
+		temperature: resolution.effective.temperature,
+		topK: resolution.effective.topK ?? null,
+		topP: resolution.effective.topP ?? null,
+		minP: resolution.effective.minP ?? null,
+		frequencyPenalty: resolution.effective.frequencyPenalty ?? null,
+		presencePenalty: resolution.effective.presencePenalty ?? null,
+		repetitionPenalty: resolution.effective.repetitionPenalty ?? null,
+		imageModel: rawEffectiveValue(resolution.raw.imageModel),
+		imageProviderRouting: rawEffectiveValue(resolution.raw.imageProviderRouting),
+		imageAspectRatio: rawEffectiveValue(resolution.raw.imageAspectRatio),
+		imageSize: rawEffectiveValue(resolution.raw.imageSize),
+		imageTemperature: rawEffectiveValue(resolution.raw.imageTemperature),
+		imageTopK: rawEffectiveValue(resolution.raw.imageTopK),
+		imageTopP: rawEffectiveValue(resolution.raw.imageTopP),
+		imageMinP: rawEffectiveValue(resolution.raw.imageMinP),
+		imageFrequencyPenalty: rawEffectiveValue(resolution.raw.imageFrequencyPenalty),
+		imagePresencePenalty: rawEffectiveValue(resolution.raw.imagePresencePenalty),
+		imageRepetitionPenalty: rawEffectiveValue(resolution.raw.imageRepetitionPenalty),
+	};
 }
 
-function rawEffectiveValue(raw: AnyResolvedRawInferenceField): unknown {
+function rawEffectiveValue<K extends InferenceConfigurationField>(
+	raw: ResolvedRawInferenceField<K>,
+): InferenceConfigurationFieldValues[K] | null {
 	return raw.state === "value" ? raw.value : null;
 }
 
@@ -722,34 +875,55 @@ function inferenceFieldAdjustment(
 	if (field === "compactionReasoning") {
 		return { kind: "compaction_policy", resolution: resolution.effective.compactionReasoning };
 	}
+	if (field === "toolCalls") return { kind: "tool_call_policy", policy: resolution.effective.ordinaryLoopToolCalls };
+	if (field === "supportsPrefill") return { kind: "prefill_policy", policy: resolution.effective.prefillPolicy };
 	const requested = normalizedRawRequest(field, raw);
 	if (requested.kind === "provider_default") return { kind: "provider_or_model_default", effective };
+	if (requested.kind === "bickr_automatic") return { kind: "bickr_automatic", effective };
 	return canonicalJson(requested.value) === canonicalJson(effective)
 		? null
 		: { kind: "capability_adjustment", requested: requested.value, effective };
 }
 
+const bickrAutomaticUnsetRequestFields = new Set<InferenceConfigurationField>([
+	"reasoning",
+	"toolCalls",
+	"compactionMode",
+	"promptCacheMode",
+]);
+
 function normalizedRawRequest(
 	field: InferenceConfigurationField,
 	raw: AnyResolvedRawInferenceField,
-): { kind: "value"; value: unknown } | { kind: "provider_default" } {
-	if (raw.state !== "value") return { kind: "value", value: null };
+): { kind: "value"; value: unknown } | { kind: "provider_default" } | { kind: "bickr_automatic" } {
+	if (raw.state !== "value") {
+		return bickrAutomaticUnsetRequestFields.has(field)
+			? { kind: "bickr_automatic" }
+			: { kind: "value", value: null };
+	}
 	if (field === "reasoning") {
 		const request = raw.value as InferenceReasoningRequest;
 		if (request.kind === "provider_default") return { kind: "provider_default" };
+		if (request.kind === "bickr_automatic") return { kind: "bickr_automatic" };
 		return { kind: "value", value: request.kind === "reasoning_disabled" ? "none" : request.effort };
 	}
 	if (field === "toolCalls") {
 		const request = raw.value as InferenceToolCallRequest;
-		return request.kind === "provider_default" ? { kind: "provider_default" } : { kind: "value", value: request.strategy };
+		return request.kind === "provider_default" ? { kind: "provider_default" }
+			: request.kind === "bickr_automatic" ? { kind: "bickr_automatic" }
+			: { kind: "value", value: request.strategy };
 	}
 	if (field === "compactionMode") {
 		const request = raw.value as InferenceCompactionModeRequest;
-		return request.kind === "provider_default" ? { kind: "provider_default" } : { kind: "value", value: request.mode };
+		return request.kind === "provider_default" || request.kind === "bickr_automatic"
+			? { kind: "bickr_automatic" }
+			: { kind: "value", value: request.mode };
 	}
 	if (field === "promptCacheMode") {
 		const request = raw.value as InferencePromptCacheRequest;
-		return request.kind === "provider_default" ? { kind: "provider_default" } : { kind: "value", value: request.mode };
+		return request.kind === "provider_default" ? { kind: "provider_default" }
+			: request.kind === "bickr_automatic" ? { kind: "bickr_automatic" }
+			: { kind: "value", value: request.mode };
 	}
 	return { kind: "value", value: raw.value };
 }
@@ -784,10 +958,23 @@ type AnyStoredInferenceOverride =
 	| { kind: "account_default" };
 
 type AnyResolvedRawInferenceField =
-	| { state: "value"; value: InferenceConfigurationFieldValues[InferenceConfigurationField]; source: InferenceSource; override: AnyStoredInferenceOverride | null }
-	| { state: "explicit_none"; source: InferenceSource; override: { kind: "explicit_none" } }
-	| { state: "target_default"; source: InferenceSource; override: { kind: "target_default" } }
-	| { state: "absent"; source: { kind: "bickr_default" }; override: null };
+	| {
+			state: "value";
+			value: InferenceConfigurationFieldValues[InferenceConfigurationField];
+			provenance: Extract<InferenceFieldProvenance, { kind: "configured" }>;
+			override: AnyStoredInferenceOverride | null;
+	  }
+	| {
+			state: "explicit_none";
+			provenance: Extract<InferenceFieldProvenance, { kind: "configured" }>;
+			override: { kind: "explicit_none" };
+	  }
+	| {
+			state: "target_default";
+			provenance: Extract<InferenceFieldProvenance, { kind: "configured" }>;
+			override: { kind: "target_default" };
+	  }
+	| { state: "absent"; provenance: Extract<InferenceFieldProvenance, { kind: "unset" }>; override: null };
 
 function resolveRawInferenceField(
 	path: InferenceConfigurationPath,
@@ -821,20 +1008,30 @@ function resolveRawInferenceFieldFromDepth(
 			return resolveRawInferenceFieldFromDepth(path, field, defaultValue, path.length - 1);
 		}
 		if (override.kind === "historical_bickr_default") {
-			return { state: "value", value: override.value, source: { kind: "bickr_default" }, override };
+			return {
+				state: "value",
+				value: override.value,
+				provenance: { kind: "configured", source: { kind: "bickr_default" } },
+				override,
+			};
 		}
 		const source = sourceForEntry(entry, depth);
 		if (override.kind === "explicit_none") {
-			return { state: "explicit_none", source, override };
+			return { state: "explicit_none", provenance: { kind: "configured", source }, override };
 		}
 		if (override.kind === "target_default") {
-			return { state: "target_default", source, override };
+			return { state: "target_default", provenance: { kind: "configured", source }, override };
 		}
-		return { state: "value", value: override.value, source, override };
+		return { state: "value", value: override.value, provenance: { kind: "configured", source }, override };
 	}
 	return defaultValue === undefined
-		? { state: "absent", source: { kind: "bickr_default" }, override: null }
-		: { state: "value", value: defaultValue, source: { kind: "bickr_default" }, override: null };
+		? { state: "absent", provenance: { kind: "unset" }, override: null }
+		: {
+				state: "value",
+				value: defaultValue,
+				provenance: { kind: "configured", source: { kind: "bickr_default" } },
+				override: null,
+			};
 }
 
 function resolveCredential(
@@ -886,9 +1083,10 @@ function credentialAuthorizedForBaseUrl(
 	baseUrl: ResolvedRawInferenceField<"baseUrl">,
 	credential: InferenceCredentialResolution,
 ): InferenceCredentialResolution {
+	const baseUrlSource = configuredRawInferenceFieldSource(baseUrl, "base URL");
 	// Source provenance, not URL-string equality, defines the trust boundary.
 	// A deployment key must never be sent to a base URL selected by an owner.
-	if (baseUrl.source.kind !== "bickr_default" &&
+	if (baseUrlSource.kind !== "bickr_default" &&
 		credential.kind === "available" && credential.source.kind === "bickr_default") {
 		return {
 			kind: "unavailable",
@@ -910,8 +1108,9 @@ function authorizedModel(
 	adjustment: InferenceProviderAuthorizationAdjustment;
 } {
 	const requestedModel = requiredRawValue(model, "model");
-	if (model.source.kind === "bickr_default" || ownerProviderIsAvailable(baseUrl, credential)) {
-		return { model: requestedModel, source: model.source, adjustment: null };
+	const modelSource = configuredRawInferenceFieldSource(model, "model");
+	if (modelSource.kind === "bickr_default" || ownerProviderIsAvailable(baseUrl, credential)) {
+		return { model: requestedModel, source: modelSource, adjustment: null };
 	}
 	// Provider authorization is resolved for the effective base URL and
 	// credential pair. If that pair cannot authorize the nearest owner-defined
@@ -924,7 +1123,7 @@ function authorizedModel(
 		adjustment: {
 			kind: "model_fell_back",
 			requestedModel,
-			requestedSource: model.source,
+			requestedSource: modelSource,
 			effectiveModel: defaults.fields.model,
 			effectiveSource: { kind: "bickr_default" },
 			reason: "owner_provider_unavailable",
@@ -936,7 +1135,7 @@ function ownerProviderIsAvailable(
 	baseUrl: ResolvedRawInferenceField<"baseUrl">,
 	credential: InferenceCredentialResolution,
 ): boolean {
-	return baseUrl.source.kind !== "bickr_default" ||
+	return configuredRawInferenceFieldSource(baseUrl, "base URL").kind !== "bickr_default" ||
 		(credential.kind === "available" && credential.source.kind !== "bickr_default");
 }
 
@@ -969,10 +1168,11 @@ function validateInferenceConfigurationPath(path: InferenceConfigurationPath): v
 }
 
 function legacyReasoningRequest(
-	request: InferenceReasoningRequest | undefined,
+	request: BotInferenceReasoningIntent,
 ): BotInferenceReasoningEffort | undefined {
-	switch (request?.kind) {
-		case undefined:
+	switch (request.kind) {
+		case "inherit":
+		case "bickr_automatic": return "default";
 		case "provider_default": return undefined;
 		case "reasoning_disabled": return "none";
 		case "explicit_effort": return request.effort;
@@ -987,6 +1187,16 @@ function requiredRawValue<K extends Extract<ValueOnlyField, "baseUrl" | "model">
 		throw new InferenceConfigurationDataError("invalid_path", `Resolved inference ${label} is absent.`);
 	}
 	return field.value;
+}
+
+export function configuredRawInferenceFieldSource<K extends InferenceConfigurationField>(
+	field: ResolvedRawInferenceField<K>,
+	label: string,
+): InferenceSource {
+	if (field.provenance.kind !== "configured") {
+		throw new InferenceConfigurationDataError("invalid_path", `Resolved inference ${label} is unset.`);
+	}
+	return field.provenance.source;
 }
 
 function optionalRawValue<K extends InferenceConfigurationField>(
@@ -1005,7 +1215,7 @@ function optionalNumber<K extends InferenceConfigurationField>(
 function parseInferenceOverride<K extends InferenceConfigurationField>(
 	field: K,
 	value: unknown,
-	allowHistoricalBickrDefault: boolean,
+	allowMigrationOnlyStates: boolean,
 ): StoredInferenceOverride<K> {
 	if (!isRecord(value) || typeof value.kind !== "string") {
 		throw invalidOverride(field);
@@ -1019,7 +1229,7 @@ function parseInferenceOverride<K extends InferenceConfigurationField>(
 		return { kind: "target_default" } as StoredInferenceOverride<K>;
 	}
 	if (value.kind === "historical_bickr_default") {
-		if (!allowHistoricalBickrDefault || field !== "imageModel" ||
+		if (!allowMigrationOnlyStates || field !== "imageModel" ||
 			Object.keys(value).some((key) => key !== "kind" && key !== "value") ||
 			!isHistoricalBickrDefaultImageModel(value.value)) throw invalidOverride(field);
 		return { kind: "historical_bickr_default", value: value.value } as StoredInferenceOverride<K>;
@@ -1031,13 +1241,14 @@ function parseInferenceOverride<K extends InferenceConfigurationField>(
 	if (value.kind !== "value" || Object.keys(value).some((key) => key !== "kind" && key !== "value")) {
 		throw invalidOverride(field);
 	}
-	const parsed = parseFieldValue(field, value.value);
+	const parsed = parseFieldValue(field, value.value, allowMigrationOnlyStates);
 	return { kind: "value", value: parsed } as StoredInferenceOverride<K>;
 }
 
 function parseFieldValue<K extends InferenceConfigurationField>(
 	field: K,
 	value: unknown,
+	allowMigrationOnlyStates: boolean,
 ): InferenceConfigurationFieldValues[K] {
 	if (stringFields.has(field)) {
 		if (typeof value !== "string" || !value.trim()) throw invalidOverride(field);
@@ -1062,7 +1273,7 @@ function parseFieldValue<K extends InferenceConfigurationField>(
 	if (field === "reasoning") return parseReasoningRequest(value) as InferenceConfigurationFieldValues[K];
 	if (field === "compactionReasoning") return parseCompactionReasoning(value) as InferenceConfigurationFieldValues[K];
 	if (field === "toolCalls") return parseToolCallRequest(value) as InferenceConfigurationFieldValues[K];
-	if (field === "compactionMode") return parseCompactionModeRequest(value) as InferenceConfigurationFieldValues[K];
+	if (field === "compactionMode") return parseCompactionModeRequest(value, allowMigrationOnlyStates) as InferenceConfigurationFieldValues[K];
 	if (field === "promptCacheMode") return parsePromptCacheRequest(value) as InferenceConfigurationFieldValues[K];
 	throw invalidOverride(field);
 }
@@ -1070,6 +1281,7 @@ function parseFieldValue<K extends InferenceConfigurationField>(
 function parseReasoningRequest(value: unknown): InferenceReasoningRequest {
 	if (!isRecord(value) || typeof value.kind !== "string") throw invalidNestedValue("reasoning");
 	switch (value.kind) {
+		case "bickr_automatic":
 		case "provider_default":
 		case "reasoning_disabled":
 			if (Object.keys(value).length !== 1) throw invalidNestedValue("reasoning");
@@ -1101,16 +1313,21 @@ function parseCompactionReasoning(value: unknown): BotCompactionReasoningRequest
 
 function parseToolCallRequest(value: unknown): InferenceToolCallRequest {
 	if (!isRecord(value) || typeof value.kind !== "string") throw invalidNestedValue("tool calls");
-	if (value.kind === "provider_default" && Object.keys(value).length === 1) return { kind: "provider_default" };
+	if ((value.kind === "bickr_automatic" || value.kind === "provider_default") && Object.keys(value).length === 1) {
+		return { kind: value.kind };
+	}
 	if (value.kind === "strategy" && Object.keys(value).every((key) => key === "kind" || key === "strategy") && toolCallStrategies.has(value.strategy)) {
 		return { kind: "strategy", strategy: value.strategy as BotInferenceToolCalls };
 	}
 	throw invalidNestedValue("tool calls");
 }
 
-function parseCompactionModeRequest(value: unknown): InferenceCompactionModeRequest {
+function parseCompactionModeRequest(value: unknown, allowLegacyProviderDefault: boolean): InferenceCompactionModeRequest {
 	if (!isRecord(value) || typeof value.kind !== "string") throw invalidNestedValue("compaction mode");
-	if (value.kind === "provider_default" && Object.keys(value).length === 1) return { kind: "provider_default" };
+	if (value.kind === "bickr_automatic" && Object.keys(value).length === 1) return { kind: value.kind };
+	if (allowLegacyProviderDefault && value.kind === "provider_default" && Object.keys(value).length === 1) {
+		return { kind: value.kind };
+	}
 	if (value.kind === "mode" && Object.keys(value).every((key) => key === "kind" || key === "mode") && compactionModes.has(value.mode)) {
 		return { kind: "mode", mode: value.mode as BotCompactionMode };
 	}
@@ -1119,7 +1336,9 @@ function parseCompactionModeRequest(value: unknown): InferenceCompactionModeRequ
 
 function parsePromptCacheRequest(value: unknown): InferencePromptCacheRequest {
 	if (!isRecord(value) || typeof value.kind !== "string") throw invalidNestedValue("prompt cache mode");
-	if (value.kind === "provider_default" && Object.keys(value).length === 1) return { kind: "provider_default" };
+	if ((value.kind === "bickr_automatic" || value.kind === "provider_default") && Object.keys(value).length === 1) {
+		return { kind: value.kind };
+	}
 	if (value.kind === "mode" && Object.keys(value).every((key) => key === "kind" || key === "mode") && promptCacheModes.has(value.mode)) {
 		return { kind: "mode", mode: value.mode as BotPromptCacheMode };
 	}

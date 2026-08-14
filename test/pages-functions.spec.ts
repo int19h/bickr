@@ -3779,12 +3779,15 @@ describe("Pages functions", () => {
 		});
 		expect(worldRecurringChanged.cached).toBe(false);
 		expect(calls).toHaveLength(6);
-		expect(calls[3]?.messages.at(-1)).toEqual({
-			role: "assistant",
-			content:
-				"I remember the world's shared counting rule.\n\n" +
-				"I'm u/count-sage. I need to think about how I feel and what I want to do next.",
-		});
+		expect(calls[3]?.messages.slice(-2)).toEqual([
+			{
+				role: "assistant",
+				content:
+					"I remember the world's shared counting rule.\n\n" +
+					"I'm u/count-sage. I need to think about how I feel and what I want to do next.",
+			},
+			{ role: "user", content: "Bickr Terminal is ready for my next step." },
+		]);
 
 		const changed = await promptContextBudget(created.data.bot.id, {
 			prompt: "Stay brief with exact counts.",
@@ -4227,24 +4230,24 @@ describe("Pages functions", () => {
 				),
 			),
 		);
-			expect(profileResponse.status).toBe(200);
-			const profilePayload = (await profileResponse.json()) as { data: { profile: UserProfile } };
-			const providerRequests: Request[] = [];
-			const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-				const request = new Request(input, init);
-				providerRequests.push(request);
-				return Response.json({
-					choices: [{
-						message: {
-							tool_calls: [{
-								id: "call_translation",
-								type: "function",
-								function: { name: "save_translation", arguments: JSON.stringify({ translation: "Bonjour." }) },
-							}],
-						},
-					}],
-				});
+		expect(profileResponse.status).toBe(200);
+		const profilePayload = (await profileResponse.json()) as { data: { profile: UserProfile } };
+		const providerRequests: Request[] = [];
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const request = new Request(input, init);
+			providerRequests.push(request);
+			return Response.json({
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_translation",
+							type: "function",
+							function: { name: "save_translation", arguments: JSON.stringify({ translation: "Bonjour." }) },
+						}],
+					},
+				}],
 			});
+		});
 		try {
 			const response = await translateText(
 				contextFor<typeof translateText>(
@@ -4286,16 +4289,19 @@ describe("Pages functions", () => {
 						prompt: 0.2,
 						completion: 0.4,
 					},
-					},
-					stream: false,
-					temperature: 0,
-					tool_choice: "required",
-				});
-				expect((providerBody.tools as Array<{ function?: { name?: string } }>)[0]?.function?.name).toBe("save_translation");
-			} finally {
-				fetchSpy.mockRestore();
-			}
-		});
+				},
+				stream: false,
+				temperature: 0,
+			});
+			// No stored tool-call strategy: the profile translation role resolves the
+			// Bickr-automatic intent against the model's capabilities, and this model
+			// supports required tool calls, so the request pins tool_choice.
+			expect(providerBody.tool_choice).toBe("required");
+			expect((providerBody.tools as Array<{ function?: { name?: string } }>)[0]?.function?.name).toBe("save_translation");
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
 
 	it("creates, edits, lists, and deletes world-scoped bot groups with owned and other-owned bots", async () => {
 		const cookie = await authCookie();

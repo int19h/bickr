@@ -57,6 +57,7 @@ import {
 	providerMessagesWithReasoningPrefill,
 	providerResponseWithContent,
 	providerTokenProbeRequest,
+	providerTranslationRequest,
 	providerSelfAuthor,
 	providerSerializationContext,
 	providerToolResultPayload,
@@ -1408,7 +1409,22 @@ describe("Provider requests", () => {
 				role: "assistant",
 				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			},
+			{ role: "user", content: "Bickr Terminal is ready for my next step." },
 		]);
+		expect(providerChatCompletionRequest(
+			{
+				baseUrl: customProviderBaseUrl,
+				model: "test-model",
+				supportsPrefill: true,
+				temperature: 0.2,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+			"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
+		).messages.at(-1)).toEqual({
+			role: "assistant",
+			content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
+		});
 		expect(
 			providerChatCompletionRequest(
 				{
@@ -1447,10 +1463,73 @@ describe("Provider requests", () => {
 				role: "assistant",
 				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			},
+			{ role: "user", content: "Bickr Terminal is ready for my next step." },
 		]);
 		expect("frequency_penalty" in request).toBe(false);
 		expect("presence_penalty" in request).toBe(false);
 		expect("repetition_penalty" in request).toBe(false);
+
+		const providerDefaultRequest = providerChatCompletionRequest(
+			{
+				baseUrl: customProviderBaseUrl,
+				model: "test-model",
+				reasoningRequest: { kind: "provider_default" },
+				toolCallRequest: { kind: "provider_default" },
+				temperature: 0.2,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+		);
+		expect("reasoning" in providerDefaultRequest).toBe(false);
+		expect("tool_choice" in providerDefaultRequest).toBe(false);
+		const providerDefaultCompaction = providerCompactionRequest(
+			{
+				baseUrl: customProviderBaseUrl,
+				model: "test-model",
+				toolCallRequest: { kind: "provider_default" },
+			},
+			[{ role: "user", content: "Compact this." }],
+			undefined,
+			undefined,
+			"tool_call",
+		);
+		expect("tool_choice" in providerDefaultCompaction).toBe(false);
+		const providerDefaultStructuredCompaction = providerCompactionRequest(
+			{
+				baseUrl: customProviderBaseUrl,
+				model: "test-model",
+				toolCallRequest: { kind: "provider_default" },
+			},
+			[{ role: "user", content: "Compact this." }],
+		);
+		expect(providerDefaultStructuredCompaction.tool_choice).toBe("none");
+
+		const automaticRequest = providerChatCompletionRequest(
+			{
+				baseUrl: customProviderBaseUrl,
+				model: "test-model",
+				reasoningRequest: { kind: "bickr_automatic" },
+				toolCallRequest: { kind: "bickr_automatic" },
+				temperature: 0.2,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+		);
+		expect(automaticRequest.reasoning).toEqual({ effort: "minimal", exclude: false });
+		expect(automaticRequest.tool_choice).toBe("required");
+		const inheritedRequest = providerChatCompletionRequest(
+			{
+				baseUrl: customProviderBaseUrl,
+				model: "test-model",
+				reasoningRequest: { kind: "inherit" },
+				toolCallRequest: { kind: "inherit" },
+				temperature: 0.2,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+		);
+		expect(inheritedRequest.reasoning).toEqual({ effort: "minimal", exclude: false });
+		expect(inheritedRequest.tool_choice).toBe("required");
 
 		const railroadRequest = providerChatCompletionRequest(
 			{
@@ -1512,6 +1591,39 @@ describe("Provider requests", () => {
 		expect(claudeCacheRequest.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 		expect(claudeCacheRequest.session_id).toBe("bot:cache-test");
 
+		const providerDefaultCacheRequest = providerChatCompletionRequest(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "~anthropic/claude-sonnet-latest",
+				promptCacheMode: "openrouter_anthropic_1h",
+				promptCacheRequest: { kind: "provider_default" },
+				temperature: 0.2,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+			undefined,
+			"railroad",
+			"bot:cache-test",
+		);
+		expect("cache_control" in providerDefaultCacheRequest).toBe(false);
+		expect("session_id" in providerDefaultCacheRequest).toBe(false);
+
+		const explicitOffCacheRequest = providerChatCompletionRequest(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "~anthropic/claude-sonnet-latest",
+				promptCacheMode: "openrouter_anthropic_1h",
+				promptCacheRequest: { kind: "mode", mode: "off" },
+				temperature: 0.2,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+			undefined,
+			"railroad",
+			"bot:cache-test",
+		);
+		expect("cache_control" in explicitOffCacheRequest).toBe(false);
+
 		const nonClaudeCacheRequest = providerChatCompletionRequest(
 			{
 				baseUrl: "https://openrouter.ai/api/v1",
@@ -1527,6 +1639,94 @@ describe("Provider requests", () => {
 		);
 		expect("cache_control" in nonClaudeCacheRequest).toBe(false);
 		expect("session_id" in nonClaudeCacheRequest).toBe(false);
+	});
+
+	it("resolves compaction tool and prefill intent against each actual reasoning shape", () => {
+		const messages = [{ role: "assistant" as const, content: "Retained summary." }];
+		const ordinaryReasoningOn = effectiveProviderSettingsForBot({
+			inferenceSettings: {
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "deepseek/deepseek-v3.2",
+				providerRouting: { only: ["atlas-cloud/fp8"], allow_fallbacks: false },
+				reasoningEffort: "minimal",
+			},
+		}, { inferenceSettings: {} }, {});
+		expect(ordinaryReasoningOn).toMatchObject({
+			toolCallRequest: { kind: "bickr_automatic" },
+			toolCalls: "railroad",
+		});
+		const reasoningOff = providerCompactionRequest(
+			ordinaryReasoningOn,
+			messages,
+			undefined,
+			undefined,
+			"tool_call",
+			{ effort: "none", exclude: false },
+		);
+		const reasoningOn = providerCompactionRequest(
+			ordinaryReasoningOn,
+			messages,
+			undefined,
+			undefined,
+			"tool_call",
+			{ effort: "minimal", exclude: false },
+		);
+
+		expect(reasoningOff.tool_choice).toBe("required");
+		expect(reasoningOn.tool_choice).toBeUndefined();
+		expect(providerCompactionRequest({
+			baseUrl: customProviderBaseUrl,
+			model: "test-model",
+			toolCallRequest: { kind: "provider_default" },
+		}, messages).tool_choice).toBe("none");
+
+		const shapeDivergentPrefill = effectiveProviderSettingsForBot({
+			inferenceSettings: {
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "deepseek/deepseek-v3.2",
+				providerRouting: { only: ["digitalocean"], allow_fallbacks: false },
+				reasoningEffort: "minimal",
+				supportsPrefill: true,
+			},
+		}, { inferenceSettings: {} }, {});
+		expect(shapeDivergentPrefill).toMatchObject({
+			prefillRequest: { kind: "explicit", enabled: true },
+			supportsPrefill: false,
+		});
+		expect(providerCompactionRequest(
+			shapeDivergentPrefill,
+			messages,
+			undefined,
+			undefined,
+			"tool_call",
+			{ effort: "none", exclude: false },
+		).messages.at(-1)?.role).toBe("assistant");
+		expect(providerCompactionRequest(
+			shapeDivergentPrefill,
+			messages,
+			undefined,
+			undefined,
+			"tool_call",
+			{ effort: "minimal", exclude: false },
+		).messages.at(-1)?.role).toBe("user");
+
+		// The same Bickr-automatic request the ordinary loop settings above carry,
+		// stated here rather than copied, because the translation request boundary
+		// takes the requested intent and never an applied value.
+		const translationBase = {
+			baseUrl: ordinaryReasoningOn.baseUrl,
+			model: ordinaryReasoningOn.model,
+			providerRouting: ordinaryReasoningOn.providerRouting,
+			toolCallRequest: { kind: "bickr_automatic" } as const,
+			prompt: "Translate.",
+			temperature: 0,
+		};
+		expect(providerTranslationRequest(
+			{ ...translationBase, reasoningEffort: "none" }, "Hello.",
+		).tool_choice).toBe("required");
+		expect(providerTranslationRequest(
+			{ ...translationBase, reasoningEffort: "minimal" }, "Hello.",
+		).tool_choice).toBeUndefined();
 	});
 
 	it("applies conservative request policy for unknown OpenRouter models", () => {
@@ -1716,24 +1916,63 @@ describe("Provider requests", () => {
 		]);
 	});
 
-	it("builds minimal provider probes for exact prompt-token counts", () => {
-		const request = providerTokenProbeRequest(
-			{
-				baseUrl: customProviderBaseUrl,
-				model: "test-model",
-				providerRouting: { ignore: ["deepinfra"] },
-				temperature: 0.2,
-			},
-			[{ role: "system", content: "Count this." }],
-			toolDefinitions,
-		);
+	it("builds minimal provider probes that mirror the ordinary loop tool-choice decision", () => {
+		const probeMessages = [{ role: "system" as const, content: "Count this." }];
+		const automaticSettings = {
+			baseUrl: customProviderBaseUrl,
+			model: "test-model",
+			providerRouting: { ignore: ["deepinfra"] },
+			temperature: 0.2,
+		};
+		const request = providerTokenProbeRequest(automaticSettings, probeMessages, toolDefinitions);
 
 			expect(request.stream).toBe(false);
 			expect(request.max_tokens).toBe(1);
 			expect(request.reasoning).toEqual({ effort: "minimal", exclude: false });
 		expect(request.provider).toEqual({ ignore: ["deepinfra"] });
-		expect(request.tool_choice).toBe("auto");
 		expect(request.tools).toBe(toolDefinitions);
+		// The probe measures the ordinary loop's own prompt, so it must emit that
+		// request's tool-call decision for the same reasoning shape rather than a
+		// tool_choice of its own.
+		expect(request.tool_choice).toBe("required");
+		expect(request.tool_choice).toBe(
+			providerChatCompletionRequest(automaticSettings, probeMessages, toolDefinitions).tool_choice,
+		);
+
+		// Provider default is an omission intent: the owner asked for no tool_choice
+		// on the wire, so the probe must not reintroduce one. The tools stay present
+		// because they are part of the prompt being counted.
+		const providerDefaultSettings = {
+			baseUrl: customProviderBaseUrl,
+			model: "test-model",
+			toolCallRequest: { kind: "provider_default" as const },
+			temperature: 0.2,
+		};
+		const providerDefaultProbe = providerTokenProbeRequest(providerDefaultSettings, probeMessages, toolDefinitions);
+		expect("tool_choice" in providerDefaultProbe).toBe(false);
+		expect(providerDefaultProbe.tools).toBe(toolDefinitions);
+		expect(
+			"tool_choice" in providerChatCompletionRequest(providerDefaultSettings, probeMessages, toolDefinitions),
+		).toBe(false);
+
+		// Capability-driven omission: this provider rejects required tool calls while
+		// thinking, so the resolved policy applies railroad and neither the loop nor
+		// the probe puts tool_choice on the wire.
+		const capabilityDowngraded = effectiveProviderSettingsForBot({
+			inferenceSettings: {
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "deepseek/deepseek-v3.2",
+				providerRouting: { only: ["atlas-cloud/fp8"], allow_fallbacks: false },
+				reasoningEffort: "minimal",
+			},
+		}, { inferenceSettings: {} }, {});
+		expect(capabilityDowngraded).toMatchObject({ toolCalls: "railroad" });
+		const capabilityProbe = providerTokenProbeRequest(capabilityDowngraded, probeMessages, toolDefinitions);
+		expect("tool_choice" in capabilityProbe).toBe(false);
+		expect(capabilityProbe.tools).toBe(toolDefinitions);
+		expect(
+			"tool_choice" in providerChatCompletionRequest(capabilityDowngraded, probeMessages, toolDefinitions),
+		).toBe(false);
 
 		const tunedRequest = providerTokenProbeRequest(
 			{
@@ -1759,16 +1998,16 @@ describe("Provider requests", () => {
 	it("normalizes OpenRouter model capabilities for generated, unknown, free, and custom models", () => {
 		const known = openRouterModelPolicy(capableOpenRouterModel);
 		expect(known).toMatchObject({
-			prefill: true,
+			prefill: { kind: "provider_matrix", version: 2 },
 			structuredOutputs: true,
 			structuredOutputCompaction: true,
 			compactionReasoningFloor: { kind: "reasoning_disabled" },
-			requiredToolCalls: true,
+			requiredToolCalls: { fallback: { supported: true } },
 			disabledReasoning: true,
 			defaultCompactionMode: "structured_output",
-			defaultReasoningEffort: "minimal",
 			defaultToolCalls: "require",
 		});
+		expect(known.defaultReasoningEffort).toBeUndefined();
 		expect(modelSupportsPrefill(capableOpenRouterModel, true)).toBe(true);
 		expect(modelSupportsRequiredToolCalls(capableOpenRouterModel, true)).toBe(true);
 		expect(modelSupportsStructuredOutputs(capableOpenRouterModel, true)).toBe(true);
@@ -1782,10 +2021,10 @@ describe("Provider requests", () => {
 
 		const unknown = openRouterModelPolicy("unknown/provider-model");
 		expect(unknown).toMatchObject({
-			prefill: false,
+			prefill: { kind: "provider_matrix", version: 2, providers: [] },
 			structuredOutputs: false,
 			compactionReasoningFloor: { kind: "model_default" },
-			requiredToolCalls: false,
+			requiredToolCalls: { fallback: { supported: false } },
 			disabledReasoning: false,
 			defaultCompactionMode: "tool_call_cache_friendly",
 			defaultToolCalls: "railroad",
@@ -1803,11 +2042,11 @@ describe("Provider requests", () => {
 
 		const free = openRouterModelPolicy(openRouterFreeModel);
 		expect(free).toMatchObject({
-			prefill: false,
+			prefill: { kind: "provider_matrix", version: 2, providers: [] },
 			structuredOutputs: false,
 			structuredOutputCompaction: false,
 			compactionReasoningFloor: { kind: "model_default" },
-			requiredToolCalls: false,
+			requiredToolCalls: { fallback: { supported: false } },
 			disabledReasoning: false,
 			defaultCompactionMode: "tool_call_cache_friendly",
 			defaultToolCalls: "railroad",
@@ -1831,7 +2070,7 @@ describe("Provider requests", () => {
 			structuredOutputs: true,
 			structuredOutputCompaction: false,
 			compactionReasoningFloor: { kind: "model_default" },
-			requiredToolCalls: true,
+			requiredToolCalls: { fallback: { supported: true } },
 			defaultCompactionMode: "tool_call_cache_friendly",
 			defaultToolCalls: "require",
 		});
@@ -1855,7 +2094,8 @@ describe("Provider requests", () => {
 
 		expect(effectiveCompactionModeForModel("local/model", false, undefined)).toBe("structured_output");
 		expect(effectiveReasoningEffortForModel("local/model", false, undefined)).toBe("minimal");
-		expect(effectiveSupportsPrefillForModel("local/model", false, undefined)).toBe(true);
+		expect(effectiveSupportsPrefillForModel("local/model", false, undefined)).toBe(false);
+		expect(effectiveSupportsPrefillForModel("local/model", false, true)).toBe(true);
 		expect(effectiveToolCallsForModel("local/model", false, undefined)).toBe("require");
 		expect(compactionReasoningPolicyForModel("local/model", false)).toMatchObject({
 			floor: { kind: "reasoning_disabled" },
@@ -1925,6 +2165,18 @@ describe("Provider requests", () => {
 				{},
 			)?.toolCalls,
 		).toBe("railroad");
+		const automaticTranslation = effectiveProviderSettingsForTranslation(
+			{ inferenceSettings: { translation: { enabled: true, model: "openai/gpt-4o-mini" } } },
+			{},
+		);
+		expect(automaticTranslation).toMatchObject({
+			reasoningRequest: { kind: "bickr_automatic" },
+			toolCallRequest: { kind: "bickr_automatic" },
+			toolCalls: "require",
+		});
+		const automaticRequest = providerTranslationRequest(automaticTranslation!, "Hello.");
+		expect("reasoning" in automaticRequest).toBe(false);
+		expect(automaticRequest.tool_choice).toBe("required");
 	});
 
 	it("resolves compaction mode and prefill support settings from bot overrides before profile defaults", () => {
@@ -1946,7 +2198,33 @@ describe("Provider requests", () => {
 			),
 		).toMatchObject({
 			compactionMode: "structured_output",
-			supportsPrefill: true,
+			supportsPrefill: false,
+		});
+		expect(
+			effectiveProviderSettingsForBot(
+				{ inferenceSettings: { supportsPrefill: true } },
+				{ inferenceSettings: {} },
+				{ OPENROUTER_BASE_URL: customProviderBaseUrl },
+			),
+		).toMatchObject({ supportsPrefill: true });
+		const deepSeekEnv = { OPENROUTER_MODEL: "deepseek/deepseek-v4-flash-0731" };
+		expect(effectiveProviderSettingsForBot(
+			{ inferenceSettings: { reasoningEffort: "none", supportsPrefill: true } },
+			{ inferenceSettings: {} },
+			deepSeekEnv,
+		).prefillPolicy).toMatchObject({
+			request: true,
+			reasoningShape: "reasoning_off",
+			applied: false,
+		});
+		expect(effectiveProviderSettingsForBot(
+			{ inferenceSettings: { reasoningEffort: "low", supportsPrefill: true } },
+			{ inferenceSettings: {} },
+			deepSeekEnv,
+		).prefillPolicy).toMatchObject({
+			request: true,
+			reasoningShape: "reasoning_on",
+			applied: false,
 		});
 		expect(
 			effectiveProviderSettingsForBot(
