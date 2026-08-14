@@ -1913,24 +1913,63 @@ describe("Provider requests", () => {
 		]);
 	});
 
-	it("builds minimal provider probes for exact prompt-token counts", () => {
-		const request = providerTokenProbeRequest(
-			{
-				baseUrl: customProviderBaseUrl,
-				model: "test-model",
-				providerRouting: { ignore: ["deepinfra"] },
-				temperature: 0.2,
-			},
-			[{ role: "system", content: "Count this." }],
-			toolDefinitions,
-		);
+	it("builds minimal provider probes that mirror the ordinary loop tool-choice decision", () => {
+		const probeMessages = [{ role: "system" as const, content: "Count this." }];
+		const automaticSettings = {
+			baseUrl: customProviderBaseUrl,
+			model: "test-model",
+			providerRouting: { ignore: ["deepinfra"] },
+			temperature: 0.2,
+		};
+		const request = providerTokenProbeRequest(automaticSettings, probeMessages, toolDefinitions);
 
 			expect(request.stream).toBe(false);
 			expect(request.max_tokens).toBe(1);
 			expect(request.reasoning).toEqual({ effort: "minimal", exclude: false });
 		expect(request.provider).toEqual({ ignore: ["deepinfra"] });
-		expect(request.tool_choice).toBe("auto");
 		expect(request.tools).toBe(toolDefinitions);
+		// The probe measures the ordinary loop's own prompt, so it must emit that
+		// request's tool-call decision for the same reasoning shape rather than a
+		// tool_choice of its own.
+		expect(request.tool_choice).toBe("required");
+		expect(request.tool_choice).toBe(
+			providerChatCompletionRequest(automaticSettings, probeMessages, toolDefinitions).tool_choice,
+		);
+
+		// Provider default is an omission intent: the owner asked for no tool_choice
+		// on the wire, so the probe must not reintroduce one. The tools stay present
+		// because they are part of the prompt being counted.
+		const providerDefaultSettings = {
+			baseUrl: customProviderBaseUrl,
+			model: "test-model",
+			toolCallRequest: { kind: "provider_default" as const },
+			temperature: 0.2,
+		};
+		const providerDefaultProbe = providerTokenProbeRequest(providerDefaultSettings, probeMessages, toolDefinitions);
+		expect("tool_choice" in providerDefaultProbe).toBe(false);
+		expect(providerDefaultProbe.tools).toBe(toolDefinitions);
+		expect(
+			"tool_choice" in providerChatCompletionRequest(providerDefaultSettings, probeMessages, toolDefinitions),
+		).toBe(false);
+
+		// Capability-driven omission: this provider rejects required tool calls while
+		// thinking, so the resolved policy applies railroad and neither the loop nor
+		// the probe puts tool_choice on the wire.
+		const capabilityDowngraded = effectiveProviderSettingsForBot({
+			inferenceSettings: {
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "deepseek/deepseek-v3.2",
+				providerRouting: { only: ["atlas-cloud/fp8"], allow_fallbacks: false },
+				reasoningEffort: "minimal",
+			},
+		}, { inferenceSettings: {} }, {});
+		expect(capabilityDowngraded).toMatchObject({ toolCalls: "railroad" });
+		const capabilityProbe = providerTokenProbeRequest(capabilityDowngraded, probeMessages, toolDefinitions);
+		expect("tool_choice" in capabilityProbe).toBe(false);
+		expect(capabilityProbe.tools).toBe(toolDefinitions);
+		expect(
+			"tool_choice" in providerChatCompletionRequest(capabilityDowngraded, probeMessages, toolDefinitions),
+		).toBe(false);
 
 		const tunedRequest = providerTokenProbeRequest(
 			{

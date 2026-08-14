@@ -359,7 +359,6 @@ import {
 	cloudflareBindingRetryMaxDelayMs,
 	providerMaxAttempts,
 	providerNoToolChoice,
-	providerTokenProbeToolChoice,
 	providerParallelToolCalls,
 	providerRailroadNoToolMaxAttempts,
 	providerPromptCompactionMaxAttempts,
@@ -479,7 +478,7 @@ type ProviderTokenProbeRequest = {
 	messages: ChatMessage[];
 	provider?: JsonObject;
 	tools: ProviderToolDefinition[];
-	tool_choice: typeof providerTokenProbeToolChoice;
+	tool_choice?: typeof providerRequiredToolChoice;
 	parallel_tool_calls: typeof providerParallelToolCalls;
 	stream: false;
 	max_tokens: 1;
@@ -1221,12 +1220,22 @@ export function providerTokenProbeRequest(
 	tools: ProviderToolDefinition[],
 ): ProviderTokenProbeRequest {
 	const reasoning = providerReasoningForSettings(settings);
+	// The probe exists to count the prompt tokens of the ordinary loop's own
+	// request, so it must carry that request's tool-call decision rather than a
+	// tool_choice of its own: the tools stay on the wire because they are part of
+	// the prompt being measured, but `tool_choice` is emitted only when the loop
+	// would emit it. Reading the decision from the shared ordinary-loop helper
+	// resolves it against the exact reasoning shape emitted below, so Provider
+	// default and capability-driven omission drop the field here too. Providers
+	// that validate tool_choice against thinking mode otherwise reject the
+	// owner-facing context-budget probe while the loop request itself succeeds.
+	const { toolChoice } = providerToolChoiceEmissionForSettings(settings);
 	return {
 		model: settings.model,
 		messages: sanitizeProviderMessagesForRequest(providerMessagesWithPrefillCompatibility(settings, messages)),
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		tools,
-		tool_choice: providerTokenProbeToolChoice,
+		...(toolChoice ? { tool_choice: toolChoice } : {}),
 		parallel_tool_calls: providerParallelToolCalls,
 		stream: false,
 		max_tokens: 1,
