@@ -4230,24 +4230,24 @@ describe("Pages functions", () => {
 				),
 			),
 		);
-			expect(profileResponse.status).toBe(200);
-			const profilePayload = (await profileResponse.json()) as { data: { profile: UserProfile } };
-			const providerRequests: Request[] = [];
-			const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-				const request = new Request(input, init);
-				providerRequests.push(request);
-				return Response.json({
-					choices: [{
-						message: {
-							tool_calls: [{
-								id: "call_translation",
-								type: "function",
-								function: { name: "save_translation", arguments: JSON.stringify({ translation: "Bonjour." }) },
-							}],
-						},
-					}],
-				});
+		expect(profileResponse.status).toBe(200);
+		const profilePayload = (await profileResponse.json()) as { data: { profile: UserProfile } };
+		const providerRequests: Request[] = [];
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const request = new Request(input, init);
+			providerRequests.push(request);
+			return Response.json({
+				choices: [{
+					message: {
+						tool_calls: [{
+							id: "call_translation",
+							type: "function",
+							function: { name: "save_translation", arguments: JSON.stringify({ translation: "Bonjour." }) },
+						}],
+					},
+				}],
 			});
+		});
 		try {
 			const response = await translateText(
 				contextFor<typeof translateText>(
@@ -4293,12 +4293,15 @@ describe("Pages functions", () => {
 				stream: false,
 				temperature: 0,
 			});
-			expect("tool_choice" in providerBody).toBe(false);
+			// No stored tool-call strategy: the profile translation role resolves the
+			// Bickr-automatic intent against the model's capabilities, and this model
+			// supports required tool calls, so the request pins tool_choice.
+			expect(providerBody.tool_choice).toBe("required");
 			expect((providerBody.tools as Array<{ function?: { name?: string } }>)[0]?.function?.name).toBe("save_translation");
 		} finally {
 			fetchSpy.mockRestore();
 		}
-		});
+	});
 
 	it("creates, edits, lists, and deletes world-scoped bot groups with owned and other-owned bots", async () => {
 		const cookie = await authCookie();

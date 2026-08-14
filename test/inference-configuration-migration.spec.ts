@@ -366,12 +366,15 @@ describe("restartable inference graph migration", () => {
 			await userIndexProjectionStatement(testEnv.BICKR_D1, {
 				...migrationUser(), id: owner, handle: `handle-${owner}`,
 			}).run();
+			// A sweep only exists for an owner already cut over to the canonical
+			// graph, and the schema requires a verified cutover for any nonzero
+			// cutover version.
 			await testEnv.BICKR_D1.prepare(
 				`INSERT INTO inference_graph_users (
 					owner_user_id, writer_version, cutover_version, graph_revision,
-					translation_role_state_version, created_at, updated_at
-				 ) VALUES (?, 1, 1, 0, 0, ?, ?)`,
-			).bind(owner, now, now).run();
+					translation_role_state_version, verified_cutover_at, created_at, updated_at
+				 ) VALUES (?, 1, 1, 0, 0, ?, ?, ?)`,
+			).bind(owner, now, now, now).run();
 			await testEnv.BICKR_D1.prepare(
 				`INSERT INTO inference_provider_default_barrier_sweeps
 				 (owner_user_id, phase, stage, created_at, updated_at)
@@ -465,14 +468,15 @@ describe("restartable inference graph migration", () => {
 	});
 
 	it("keeps a pending sweep visible for a non-active owner until deletion is terminal", async () => {
+		// The sweep row is created the way production creates it — by the sweep
+		// migration, for an owner the graph migration already cut over — so it
+		// carries the owner state its foreign key requires. Deletion starts only
+		// afterwards.
+		await migrateToCutover(deploymentEnv);
+		await seedProviderDefaultBarrierSweepMigration(testEnv.BICKR_D1);
 		await testEnv.BICKR_D1.prepare(
 			`UPDATE users_index SET lifecycle_state = 'deleting' WHERE user_id = ? AND deleted_at IS NULL`,
 		).bind(ownerId).run();
-		await testEnv.BICKR_D1.prepare(
-			`INSERT INTO inference_provider_default_barrier_sweeps
-			 (owner_user_id, phase, stage, created_at, updated_at)
-			 VALUES (?, 'pending', 'account', ?, ?)`,
-		).bind(ownerId, now, now).run();
 
 		const page = await listInferenceProviderDefaultBarrierSweepFleetStatus(testEnv.BICKR_D1, {
 			phase: "pending",

@@ -180,6 +180,16 @@ describe("serialized entity mutation import boundary", () => {
 			"test/inference-configuration-migration.spec.ts",
 			"workers/agent-runtime/src/routes.ts",
 		]);
+		// The scheduled fleet driver is not a second migration entry point: it
+		// claims fleet-queue rows and then dispatches each owner's sweep into the
+		// UserBotsCoordinator route that owns the configuration writes. It is
+		// therefore allowed exactly the claim, by name — importing any migration
+		// writer here would be the side door this rule exists to prevent.
+		const migrationFleetDispatchModule = "workers/agent-runtime/src/runtime/provider-default-barrier-sweep.ts";
+		const migrationFleetDispatchImports = new Set([
+			"claimInferenceProviderDefaultBarrierSweepFleetOwners",
+			"InferenceProviderDefaultBarrierSweepFleetClaim",
+		]);
 		const graphSqlWriterModules = new Set([
 			"packages/shared/src/inference-configuration-migration.ts",
 			"packages/shared/src/inference-configuration-repository.ts",
@@ -195,7 +205,17 @@ describe("serialized entity mutation import boundary", () => {
 			}
 			if (/from\s*['"]@bickr\/shared\/inference-configuration-migration['"]/.test(source) &&
 				!migrationAdapterModules.has(relativeFilename)) {
-				result.push(`${relativeFilename}: imports the inference migration adapter outside UserBotsCoordinator or its focused test`);
+				if (relativeFilename === migrationFleetDispatchModule) {
+					const escaped = importedModuleNames(filename, source, "@bickr/shared/inference-configuration-migration")
+						.filter((name) => !migrationFleetDispatchImports.has(name));
+					if (escaped.length > 0) {
+						result.push(
+							`${relativeFilename}: imports migration adapter members ${escaped.sort().join(", ")} beyond the fleet claim`,
+						);
+					}
+				} else {
+					result.push(`${relativeFilename}: imports the inference migration adapter outside UserBotsCoordinator or its focused test`);
+				}
 			}
 			if (!relativeFilename.includes(".test.") && !relativeFilename.startsWith("test/") &&
 				/(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+inference_configurations\b/i.test(source) &&
@@ -375,6 +395,27 @@ function capabilityMembers(source: string, name: string): string[] {
 		}
 	}
 	expect.fail(`Missing mutation capability ${name}`);
+}
+
+/**
+ * Names a module imports from one specifier. A default or namespace import
+ * carries the whole module, so it is reported as `*` and can never satisfy a
+ * name-scoped allowance.
+ */
+function importedModuleNames(filename: string, source: string, specifier: string): string[] {
+	const sourceFile = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, scriptKind(filename));
+	const names: string[] = [];
+	for (const statement of sourceFile.statements) {
+		if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
+		if (statement.moduleSpecifier.text !== specifier || !statement.importClause) continue;
+		const bindings = statement.importClause.namedBindings;
+		if (statement.importClause.name || bindings && ts.isNamespaceImport(bindings)) {
+			names.push("*");
+		} else if (bindings && ts.isNamedImports(bindings)) {
+			for (const element of bindings.elements) names.push((element.propertyName ?? element.name).text);
+		}
+	}
+	return [...new Set(names)];
 }
 
 type MutationModuleKind = "repository" | "governance";

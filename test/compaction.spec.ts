@@ -39,6 +39,7 @@ import {
 	ProviderCompactionRequestError,
 	type CompactionReasoningDiagnostic,
 } from "../workers/agent-runtime/src/errors";
+import { providerCompactionRequiredCompletionTokens } from "../workers/agent-runtime/src/compaction/limits";
 
 const learnedMinimalCompactionReasoning = {
 	decision: { kind: "learned_floor", floor: { kind: "explicit_effort", effort: "minimal" } },
@@ -312,9 +313,33 @@ describe("Compaction", () => {
 
 		it("excludes a prefix group that would leave too little compaction output budget", () => {
 			const text = (char: string, length: number) => char.repeat(length);
+			const calibration = { tokensPerCharacter: 0.325, sampleCount: 50 };
+			const tools = toolDefinitionsForProviderRound();
+			const prompt = "Long persona. ".repeat(900);
+			const compactionMaxCharacters = 20_000;
+			// The fixed compaction request overhead — persona, standard prompt, tools,
+			// and response format — is measured from the production limits instead of
+			// being assumed, and the context window is then sized so that a known
+			// amount of compacted input still leaves a full summary plus the safety
+			// margin. That keeps the scenario about the selection rule: prompt or tool
+			// text growing elsewhere moves the window with it rather than silently
+			// turning this into a different case.
+			const overheadProbe = fakeBotDocument({ contextWindowTokens: 200_000, compactionMaxCharacters, prompt });
+			const probeLimits = providerCompactionSummaryLimitsForChat(overheadProbe, [], calibration, tools, "structured_output");
+			const requestOverheadTokens = 200_000 - probeLimits.maxCompletionTokens;
+			const outputHeadroomTokens = 4_000;
+			const headroomCharacters = Math.floor(outputHeadroomTokens / calibration.tokensPerCharacter);
+			const bot = fakeBotDocument({
+				contextWindowTokens:
+					requestOverheadTokens + providerCompactionRequiredCompletionTokens(probeLimits) + outputHeadroomTokens,
+				compactionMaxCharacters,
+				prompt,
+			});
+			// Rows 1 and 2 together spend 80% of that headroom, so they fit; the first
+			// tool-call group spends another 50% and cannot.
 			const rows = [
-				loopMessageRowForMessage(1, { role: "assistant", content: text("a", 3_200) }),
-				loopMessageRowForMessage(2, { role: "assistant", content: text("b", 420) }),
+				loopMessageRowForMessage(1, { role: "assistant", content: text("a", Math.floor(headroomCharacters * 0.5)) }),
+				loopMessageRowForMessage(2, { role: "assistant", content: text("b", Math.floor(headroomCharacters * 0.3)) }),
 				loopMessageRowForMessage(3, {
 					role: "assistant",
 					content: "",
@@ -326,7 +351,11 @@ describe("Compaction", () => {
 						},
 					],
 				}),
-				loopMessageRowForMessage(4, { role: "tool", tool_call_id: "call-hot", content: text("c", 8_000) }, "tool_result"),
+				loopMessageRowForMessage(
+					4,
+					{ role: "tool", tool_call_id: "call-hot", content: text("c", Math.floor(headroomCharacters * 0.5)) },
+					"tool_result",
+				),
 				loopMessageRowForMessage(5, {
 					role: "assistant",
 					content: "",
@@ -338,15 +367,12 @@ describe("Compaction", () => {
 						},
 					],
 				}),
-				loopMessageRowForMessage(6, { role: "tool", tool_call_id: "call-read", content: text("d", 10_500) }, "tool_result"),
+				loopMessageRowForMessage(
+					6,
+					{ role: "tool", tool_call_id: "call-read", content: text("d", Math.floor(headroomCharacters * 0.5)) },
+					"tool_result",
+				),
 			];
-			const calibration = { tokensPerCharacter: 0.325, sampleCount: 50 };
-			const tools = toolDefinitionsForProviderRound();
-			const bot = fakeBotDocument({
-				contextWindowTokens: 20_500,
-				compactionMaxCharacters: 20_000,
-				prompt: "Long persona. ".repeat(900),
-			});
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				activeLoopMessageRows: () => rows,
 				textTokenCalibration: () => calibration,
