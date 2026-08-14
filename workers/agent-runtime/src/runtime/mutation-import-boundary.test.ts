@@ -73,6 +73,9 @@ const accountBootstrapReservationModule = "workers/agent-runtime/src/lifecycle/a
 const repositoryModule = "packages/shared/src/repository.ts";
 const governanceModule = "packages/shared/src/governance.ts";
 const inferenceConfigurationRepositoryModule = "packages/shared/src/inference-configuration-repository.ts";
+const inferenceMigrationAdapterModule = "packages/shared/src/inference-configuration-migration.ts";
+const inferenceMigrationAdapterSpecifier = "@bickr/shared/inference-configuration-migration";
+const migrationFleetDispatchModule = "workers/agent-runtime/src/runtime/provider-default-barrier-sweep.ts";
 const translationInferenceLifecycleModule = "packages/shared/src/inference-translation-role.ts";
 const inferenceConfigurationMutationModules = new Set([
 	"workers/agent-runtime/src/routes.ts",
@@ -183,9 +186,10 @@ describe("serialized entity mutation import boundary", () => {
 		// The scheduled fleet driver is not a second migration entry point: it
 		// claims fleet-queue rows and then dispatches each owner's sweep into the
 		// UserBotsCoordinator route that owns the configuration writes. It is
-		// therefore allowed exactly the claim, by name — importing any migration
-		// writer here would be the side door this rule exists to prevent.
-		const migrationFleetDispatchModule = "workers/agent-runtime/src/runtime/provider-default-barrier-sweep.ts";
+		// therefore allowed exactly these two names as static named imports and
+		// nothing else — no other member, and no whole-module shape (default,
+		// namespace, re-export, dynamic import, require, import-equals) that would
+		// carry the migration writers in without naming them.
 		const migrationFleetDispatchImports = new Set([
 			"claimInferenceProviderDefaultBarrierSweepFleetOwners",
 			"InferenceProviderDefaultBarrierSweepFleetClaim",
@@ -203,19 +207,10 @@ describe("serialized entity mutation import boundary", () => {
 				!legacyAdapterModules.has(relativeFilename)) {
 				result.push(`${relativeFilename}: imports the legacy inference adapter outside lifecycle/migration/UserBotsCoordinator`);
 			}
-			if (/from\s*['"]@bickr\/shared\/inference-configuration-migration['"]/.test(source) &&
-				!migrationAdapterModules.has(relativeFilename)) {
-				if (relativeFilename === migrationFleetDispatchModule) {
-					const escaped = importedModuleNames(filename, source, "@bickr/shared/inference-configuration-migration")
-						.filter((name) => !migrationFleetDispatchImports.has(name));
-					if (escaped.length > 0) {
-						result.push(
-							`${relativeFilename}: imports migration adapter members ${escaped.sort().join(", ")} beyond the fleet claim`,
-						);
-					}
-				} else {
-					result.push(`${relativeFilename}: imports the inference migration adapter outside UserBotsCoordinator or its focused test`);
-				}
+			if (relativeFilename === migrationFleetDispatchModule) {
+				result.push(...inferenceMigrationImportViolations(filename, source, migrationFleetDispatchImports));
+			} else if (relativeFilename !== inferenceMigrationAdapterModule && !migrationAdapterModules.has(relativeFilename)) {
+				result.push(...inferenceMigrationImportViolations(filename, source, null));
 			}
 			if (!relativeFilename.includes(".test.") && !relativeFilename.startsWith("test/") &&
 				/(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+inference_configurations\b/i.test(source) &&
@@ -225,6 +220,82 @@ describe("serialized entity mutation import boundary", () => {
 			return result;
 		});
 		expect(violations).toEqual([]);
+	});
+
+	it("rejects every migration adapter shape the fleet claim allowance does not name", () => {
+		const fleetModule = resolve(process.cwd(), migrationFleetDispatchModule);
+		const allowance = new Set([
+			"claimInferenceProviderDefaultBarrierSweepFleetOwners",
+			"InferenceProviderDefaultBarrierSweepFleetClaim",
+		]);
+		const compliant = [
+			"import {",
+			"	claimInferenceProviderDefaultBarrierSweepFleetOwners,",
+			"	type InferenceProviderDefaultBarrierSweepFleetClaim,",
+			'} from "@bickr/shared/inference-configuration-migration";',
+		].join("\n");
+		const violationsFor = (source: string): string[] =>
+			inferenceMigrationImportViolations(fleetModule, source, allowance);
+		const escapes = (shape: string): string =>
+			`${migrationFleetDispatchModule}: reaches the migration adapter through ${shape} instead of the named fleet claim`;
+
+		expect(violationsFor(compliant)).toEqual([]);
+		expect(violationsFor("")).toEqual([
+			`${migrationFleetDispatchModule}: no longer imports the allowed fleet claim members ` +
+				"InferenceProviderDefaultBarrierSweepFleetClaim, claimInferenceProviderDefaultBarrierSweepFleetOwners",
+		]);
+
+		expect(violationsFor(`${compliant}\nexport { migrateOwnerProviderDefaultBarrier } from "@bickr/shared/inference-configuration-migration";`))
+			.toContain(escapes("a re-export"));
+		expect(violationsFor(`${compliant}\nexport { claimInferenceProviderDefaultBarrierSweepFleetOwners } from "@bickr/shared/inference-configuration-migration";`))
+			.toContain(escapes("a re-export"));
+		expect(violationsFor(`${compliant}\nexport * from "@bickr/shared/inference-configuration-migration";`))
+			.toContain(escapes("a namespace re-export"));
+		expect(violationsFor(`${compliant}\nexport * as migration from "@bickr/shared/inference-configuration-migration";`))
+			.toContain(escapes("a namespace re-export"));
+		expect(violationsFor(`${compliant}\nconst load = () => import("@bickr/shared/inference-configuration-migration");`))
+			.toContain(escapes("a dynamic import"));
+		expect(violationsFor(`${compliant}\nconst migration = require("@bickr/shared/inference-configuration-migration");`))
+			.toContain(escapes("a require"));
+		expect(violationsFor(`${compliant}\nimport migration = require("@bickr/shared/inference-configuration-migration");`))
+			.toContain(escapes("an import-equals"));
+		expect(violationsFor('import migration from "@bickr/shared/inference-configuration-migration";'))
+			.toContain(escapes("a default import"));
+		expect(violationsFor('import * as migration from "@bickr/shared/inference-configuration-migration";'))
+			.toContain(escapes("a namespace import"));
+		expect(violationsFor(`${compliant}\nimport "@bickr/shared/inference-configuration-migration";`))
+			.toContain(escapes("a bare side-effect import"));
+		expect(violationsFor(`${compliant}\nconst load = () => import(chooseMigrationModule());`))
+			.toContain(escapes("a computed dynamic import"));
+		expect(violationsFor(`${compliant}\nconst migration = require(chooseMigrationModule());`))
+			.toContain(escapes("a computed require"));
+
+		// A relative specifier reaches the same file, and an alias cannot dress a
+		// migration writer up as the allowed claim: the exported name is reported.
+		const beyondClaim =
+			`${migrationFleetDispatchModule}: imports migration adapter members migrateOwnerProviderDefaultBarrier beyond the fleet claim`;
+		expect(violationsFor(
+			'import { migrateOwnerProviderDefaultBarrier } from "../../../../packages/shared/src/inference-configuration-migration";',
+		)).toContain(beyondClaim);
+		expect(violationsFor(`${compliant}\nimport { migrateOwnerProviderDefaultBarrier as ` +
+			'claimInferenceProviderDefaultBarrierSweepFleetOwners } from "@bickr/shared/inference-configuration-migration";',
+		)).toContain(beyondClaim);
+
+		// Outside the allowance any shape at all is the side door, including the
+		// ones that name nothing.
+		const outsider = resolve(process.cwd(), "workers/agent-runtime/src/runtime/virtual-migration-consumer.ts");
+		const outsiderViolation =
+			"workers/agent-runtime/src/runtime/virtual-migration-consumer.ts: imports the inference migration adapter outside UserBotsCoordinator or its focused test";
+		for (const source of [
+			compliant,
+			'export * from "@bickr/shared/inference-configuration-migration";',
+			'const load = () => import("@bickr/shared/inference-configuration-migration");',
+			'const migration = require("@bickr/shared/inference-configuration-migration");',
+			'import migration = require("@bickr/shared/inference-configuration-migration");',
+		]) {
+			expect(inferenceMigrationImportViolations(outsider, source, null)).toEqual([outsiderViolation]);
+		}
+		expect(inferenceMigrationImportViolations(outsider, "const load = () => import(chooseModule());", null)).toEqual([]);
 	});
 
 	it("keeps fixed-entry configuration addressing on the authenticated server side", () => {
@@ -398,24 +469,119 @@ function capabilityMembers(source: string, name: string): string[] {
 }
 
 /**
- * Names a module imports from one specifier. A default or namespace import
- * carries the whole module, so it is reported as `*` and can never satisfy a
- * name-scoped allowance.
+ * Every way a module reaches the inference migration adapter, split by shape.
+ * `namedImports` holds the exported names static named imports bind, taking the
+ * exported name over any local alias so that renaming a migration writer to look
+ * like the fleet claim still reports the writer. Nothing else names what it
+ * carries: a default or namespace import, a re-export, a dynamic import, a
+ * require, and an import-equals all take the whole module, so they can never
+ * satisfy a name-scoped allowance and are reported as escapes instead. A
+ * specifier this scan cannot read at all is reported separately, because only a
+ * module under a name-scoped allowance is required to keep its specifiers
+ * literal.
  */
-function importedModuleNames(filename: string, source: string, specifier: string): string[] {
+function inferenceMigrationReferences(filename: string, source: string): {
+	namedImports: string[];
+	escapes: string[];
+	computed: string[];
+} {
 	const sourceFile = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, scriptKind(filename));
-	const names: string[] = [];
+	const namedImports: string[] = [];
+	const escapes: string[] = [];
+	const computed: string[] = [];
+	const targetsAdapter = (specifier: string): boolean => isInferenceMigrationSpecifier(filename, specifier);
 	for (const statement of sourceFile.statements) {
-		if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
-		if (statement.moduleSpecifier.text !== specifier || !statement.importClause) continue;
-		const bindings = statement.importClause.namedBindings;
-		if (statement.importClause.name || bindings && ts.isNamespaceImport(bindings)) {
-			names.push("*");
-		} else if (bindings && ts.isNamedImports(bindings)) {
-			for (const element of bindings.elements) names.push((element.propertyName ?? element.name).text);
+		if (ts.isImportDeclaration(statement) && ts.isStringLiteralLike(statement.moduleSpecifier) &&
+			targetsAdapter(statement.moduleSpecifier.text)) {
+			const clause = statement.importClause;
+			if (!clause) {
+				escapes.push("a bare side-effect import");
+			} else {
+				if (clause.name) escapes.push("a default import");
+				const bindings = clause.namedBindings;
+				if (bindings && ts.isNamespaceImport(bindings)) {
+					escapes.push("a namespace import");
+				} else if (bindings && ts.isNamedImports(bindings)) {
+					for (const element of bindings.elements) namedImports.push((element.propertyName ?? element.name).text);
+				}
+			}
+		}
+		if (ts.isExportDeclaration(statement) && statement.moduleSpecifier &&
+			ts.isStringLiteralLike(statement.moduleSpecifier) && targetsAdapter(statement.moduleSpecifier.text)) {
+			escapes.push(statement.exportClause && ts.isNamedExports(statement.exportClause)
+				? "a re-export"
+				: "a namespace re-export");
+		}
+		if (ts.isImportEqualsDeclaration(statement) && ts.isExternalModuleReference(statement.moduleReference)) {
+			const expression = statement.moduleReference.expression;
+			if (!expression || !ts.isStringLiteralLike(expression)) {
+				computed.push("a computed import-equals");
+			} else if (targetsAdapter(expression.text)) {
+				escapes.push("an import-equals");
+			}
 		}
 	}
-	return [...new Set(names)];
+	const visit = (node: ts.Node): void => {
+		if (ts.isCallExpression(node)) {
+			const dynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+			const commonJsRequire = ts.isIdentifier(node.expression) && node.expression.text === "require";
+			if (dynamicImport || commonJsRequire) {
+				const argument = node.arguments.length === 1 ? node.arguments[0] : undefined;
+				if (!argument || !ts.isStringLiteralLike(argument)) {
+					computed.push(dynamicImport ? "a computed dynamic import" : "a computed require");
+				} else if (targetsAdapter(argument.text)) {
+					escapes.push(dynamicImport ? "a dynamic import" : "a require");
+				}
+			}
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(sourceFile);
+	return {
+		namedImports: [...new Set(namedImports)],
+		escapes: [...new Set(escapes)],
+		computed: [...new Set(computed)],
+	};
+}
+
+/**
+ * With no allowance the adapter must not be reached at all. With one, the module
+ * must hold exactly the allowed names as static named imports: extra members,
+ * missing members, whole-module shapes, and specifiers this scan cannot read all
+ * fail, so a side door cannot be opened without changing the allowance itself.
+ */
+function inferenceMigrationImportViolations(
+	filename: string,
+	source: string,
+	allowance: ReadonlySet<string> | null,
+): string[] {
+	const path = relativePath(filename);
+	const { namedImports, escapes, computed } = inferenceMigrationReferences(filename, source);
+	if (!allowance) {
+		return namedImports.length > 0 || escapes.length > 0
+			? [`${path}: imports the inference migration adapter outside UserBotsCoordinator or its focused test`]
+			: [];
+	}
+	const violations: string[] = [];
+	for (const shape of [...escapes, ...computed]) {
+		violations.push(`${path}: reaches the migration adapter through ${shape} instead of the named fleet claim`);
+	}
+	const beyond = namedImports.filter((name) => !allowance.has(name));
+	if (beyond.length > 0) {
+		violations.push(`${path}: imports migration adapter members ${beyond.sort().join(", ")} beyond the fleet claim`);
+	}
+	const missing = [...allowance].filter((name) => !namedImports.includes(name));
+	if (missing.length > 0) {
+		violations.push(`${path}: no longer imports the allowed fleet claim members ${missing.sort().join(", ")}`);
+	}
+	return [...new Set(violations)];
+}
+
+function isInferenceMigrationSpecifier(filename: string, specifier: string): boolean {
+	if (specifier === inferenceMigrationAdapterSpecifier) return true;
+	if (!specifier.startsWith(".")) return false;
+	const resolved = resolve(dirname(filename), specifier).replace(/\.(?:[cm]?[jt]s)$/u, "");
+	return resolved === resolve(process.cwd(), inferenceMigrationAdapterModule).replace(/\.ts$/u, "");
 }
 
 type MutationModuleKind = "repository" | "governance";

@@ -6,6 +6,7 @@ import type {
 	BotInferenceSubmissionMessage,
 	BotInferenceSubmissionPurpose,
 	BotInferenceSubmissionToolCall,
+	BotInferenceToolCallIntent,
 	BotLoopMessageLogEncoding,
 	BotLoopMessageLogKind,
 	BotLoopMessageOrigin,
@@ -588,12 +589,21 @@ export type PromptContextBudgetFingerprintParts = {
 	worldPromptFingerprint?: string;
 };
 
+/**
+ * `toolCallRequest` is the requested typed intent and `toolCalls` is the
+ * structured-role value a translation-aware resolver already applied. The
+ * request is required here so the translation request builder never has to
+ * reconstruct intent from an applied value: both production resolvers carry the
+ * typed request, and a caller that cannot state one has no requested intent to
+ * honour.
+ */
 export type TranslationProviderSettings = Omit<Pick<ProviderSettings,
 	'apiKey' | 'baseUrl' | 'model' | 'providerRouting' | 'reasoningEffort' | 'reasoningRequest' |
 	'toolCalls' | 'toolCallRequest' | 'temperature' | 'topK' | 'topP' | 'minP' |
 	'frequencyPenalty' | 'presencePenalty' | 'repetitionPenalty'
->, 'toolCalls'> & {
+>, 'toolCalls' | 'toolCallRequest'> & {
 	toolCalls?: BotStructuredToolCalls;
+	toolCallRequest: BotInferenceToolCallIntent;
 	prompt: string;
 };
 

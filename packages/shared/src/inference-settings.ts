@@ -89,8 +89,10 @@ export type ProviderSettings = {
 	repetitionPenalty?: number;
 };
 
-export type LegacyTranslationProviderSettings = Omit<ProviderSettings, "toolCalls"> & {
+export type LegacyTranslationProviderSettings = Omit<ProviderSettings, "toolCalls" | "toolCallRequest"> & {
 	toolCalls: Exclude<BotInferenceToolCalls, "at_will">;
+	/** The requested intent, always stated by the resolver; `toolCalls` above is the applied value. */
+	toolCallRequest: BotInferenceToolCallIntent;
 };
 
 export type BotProviderSettingSource =

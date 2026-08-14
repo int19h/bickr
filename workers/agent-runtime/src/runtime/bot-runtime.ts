@@ -123,7 +123,6 @@ import {
 	type BotInferenceSettings,
 	type BotInferenceSettingsInput,
 	type BotInferencePrefillIntent,
-	type BotInferenceToolCallIntent,
 	type BotInferenceToolCalls,
 	type BotProfileRelationshipSummary,
 	type BotRuntimeEvent,
@@ -1252,33 +1251,20 @@ export function providerTokenProbeRequest(
 }
 
 /**
- * Translation settings reach this builder from two shapes. Canonical graph and
- * version-0 compatibility resolvers both carry a typed `toolCallRequest`, which
- * is authoritative. Callers that predate the typed request carry only the
- * translation-narrowed `toolCalls` strategy a translation-aware resolver already
- * chose, so that strategy is the intent — collapsing it to `inherit` would
- * silently re-resolve a stored `railroad` back to the model's capability default
- * and put `tool_choice: required` on the wire. Nothing here consults an
- * ordinary-loop applied strategy: `TranslationProviderSettings.toolCalls` is
- * structured-role state. This derivation retires with the version-0 reader, once
- * every translation caller supplies the typed request.
+ * The requested intent is `settings.toolCallRequest`, which the canonical graph
+ * and version-0 compatibility resolvers both state, and which the type requires.
+ * Nothing here reads `settings.toolCalls`: that is the applied structured-role
+ * value a translation-aware resolver already chose, and re-reading it as a
+ * request would put an applied strategy back through resolution as though the
+ * owner had asked for it.
  */
-function translationToolCallIntent(
-	settings: Pick<TranslationProviderSettings, 'toolCalls' | 'toolCallRequest'>,
-): BotInferenceToolCallIntent {
-	if (settings.toolCallRequest) return settings.toolCallRequest;
-	return settings.toolCalls === undefined
-		? { kind: 'inherit' }
-		: { kind: 'strategy', strategy: settings.toolCalls };
-}
-
 export function providerTranslationRequest(settings: TranslationProviderSettings, text: string): ProviderTranslationRequest {
 	const reasoning = providerReasoningForSettings(settings);
 	const reasoningShape = providerReasoningShapeForSettings(settings);
 	const toolCallPolicy = resolveToolCallPolicyForModel(
 		settings.model,
 		settingsUseOpenRouter(settings),
-		translationToolCallIntent(settings),
+		settings.toolCallRequest,
 		settings.providerRouting,
 		reasoningShape,
 	);
@@ -7605,7 +7591,11 @@ export async function translateForUser(
 		settings = graph ? {
 			...graph.providerSettings,
 			prompt,
+			// The applied structured-role value narrows from the resolved graph
+			// settings; the requested intent is taken from the resolution itself,
+			// where it is a required typed field rather than an optional one.
 			toolCalls: translationToolCallStrategy(graph.providerSettings.toolCalls),
+			toolCallRequest: graph.resolution.effective.toolCallIntent,
 		} : null;
 	}
 	if (!settings) {

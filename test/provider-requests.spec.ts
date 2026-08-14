@@ -1710,11 +1710,14 @@ describe("Provider requests", () => {
 			{ effort: "minimal", exclude: false },
 		).messages.at(-1)?.role).toBe("user");
 
+		// The same Bickr-automatic request the ordinary loop settings above carry,
+		// stated here rather than copied, because the translation request boundary
+		// takes the requested intent and never an applied value.
 		const translationBase = {
 			baseUrl: ordinaryReasoningOn.baseUrl,
 			model: ordinaryReasoningOn.model,
 			providerRouting: ordinaryReasoningOn.providerRouting,
-			toolCallRequest: ordinaryReasoningOn.toolCallRequest,
+			toolCallRequest: { kind: "bickr_automatic" } as const,
 			prompt: "Translate.",
 			temperature: 0,
 		};

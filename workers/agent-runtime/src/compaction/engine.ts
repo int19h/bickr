@@ -203,12 +203,16 @@ const compactionImmediateSummaryInstruction =
 	"Don't spend any time thinking about this; respond immediately with JSON summary.";
 
 /**
- * Only a request that actually disables reasoning asks for the summary without
- * thinking. The selection also records who chose the effort — a configured
- * request, a safety or learned floor, or the model's own default — and that
- * provenance must not change the instruction: every one of those is reasoning
- * on, and telling a thinking model not to think would defeat the compaction
- * reasoning floor that selected the effort in the first place.
+ * Only a selection that explicitly disables reasoning asks for the summary
+ * without thinking. The selection also records who chose the effort — a
+ * configured request, a safety or learned floor, or the model's own default —
+ * and that provenance must not change the instruction. `model_default` is not
+ * known to be reasoning on: it leaves the decision to the model, and this code
+ * never learns which way that went. What every selection other than
+ * `reasoning_disabled` does share is that nothing asked for reasoning off, so
+ * none of them may carry a contradictory no-thinking instruction — that would
+ * work against the compaction reasoning floor that chose the effort, or against
+ * a model default this code never inspected.
  */
 function compactionRequestsImmediateSummary(reasoning: CompactionReasoningSelection): boolean {
 	return reasoning.kind === 'reasoning_disabled';

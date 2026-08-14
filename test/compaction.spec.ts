@@ -1716,6 +1716,7 @@ describe("Compaction", () => {
 					prompt: "Translate to Pirate.",
 					reasoningEffort: "low",
 					temperature: 0,
+					toolCallRequest: { kind: "bickr_automatic" },
 				},
 				"Hello world.",
 			);
@@ -1752,6 +1753,9 @@ describe("Compaction", () => {
 					model: "openai/gpt-4o-mini",
 					prompt: "Translate to Pirate.",
 					temperature: 0,
+					// Requested railroad, and already applied as railroad by the
+					// translation-aware resolver: the request must stay railroad.
+					toolCallRequest: { kind: "strategy", strategy: "railroad" },
 					toolCalls: "railroad",
 				},
 				"Hello world.",
@@ -1772,6 +1776,24 @@ describe("Compaction", () => {
 			);
 			expect("reasoning" in providerDefaultRequest).toBe(false);
 			expect("tool_choice" in providerDefaultRequest).toBe(false);
+
+			// The applied structured-role value is not a request: a Bickr-automatic
+			// request still resolves to required even when the role already narrowed
+			// the applied strategy to railroad.
+			const automaticRequestWithAppliedRailroad = providerTranslationRequest(
+				{
+					baseUrl: customProviderBaseUrl,
+					model: "openai/gpt-4o-mini",
+					providerRouting: { max_price: { prompt: 0.2, completion: 0.4 } },
+					prompt: "Translate to Pirate.",
+					reasoningEffort: "low",
+					temperature: 0,
+					toolCallRequest: { kind: "bickr_automatic" },
+					toolCalls: "railroad",
+				},
+				"Hello world.",
+			);
+			expect(automaticRequestWithAppliedRailroad.tool_choice).toBe("required");
 		});
 
 		it("compacts old context from local token estimates before provider inference", async () => {
