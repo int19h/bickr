@@ -229,7 +229,6 @@ export function providerSettingsFromResolution(resolution: InferenceResolution):
 		baseUrl: effective.baseUrl,
 		model: effective.model,
 		compactionMode: effective.compactionMode,
-		compactionModeRequest: effective.compactionModeIntent,
 		...(compactionReasoning ? { compactionReasoning } : {}),
 		...(effective.promptCacheMode !== "off" ? { promptCacheMode: effective.promptCacheMode } : {}),
 		promptCacheRequest: effective.promptCacheIntent,

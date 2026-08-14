@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -99,7 +100,7 @@ async function main() {
 	const onlyAffected = booleanOption(args, "only-affected");
 	const allowRemovals = booleanOption(args, "allow-removals");
 	const batchSize = positiveIntegerOption(args, "batch-size", Number.POSITIVE_INFINITY);
-	const checkpointPath = path.resolve(stringOption(args, "checkpoint", path.join("/build/bickr/scratch/issue-171", "openrouter-capability-checkpoint.json")));
+	const checkpointPath = path.resolve(stringOption(args, "checkpoint", path.join(os.tmpdir(), "bickr-openrouter-capability-checkpoint.json")));
 	const artifactPath = stringOption(args, "artifact", "");
 	if (booleanOption(args, "reset-checkpoint")) await fs.rm(checkpointPath, { force: true });
 	const capabilityFilter = capabilityFilterOption(args);

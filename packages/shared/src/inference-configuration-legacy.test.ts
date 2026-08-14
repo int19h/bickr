@@ -68,10 +68,10 @@ describe("legacy inference compatibility intent", () => {
 		});
 	});
 
-	it("preserves absent legacy translation controls as provider-default intent", () => {
+	it("preserves absent legacy translation controls as Bickr automatic intent", () => {
 		expect(inferenceOverridesFromLegacyTranslationSettings({ model: "translator/model" })).toMatchObject({
-			reasoning: { kind: "value", value: { kind: "provider_default" } },
-			toolCalls: { kind: "value", value: { kind: "provider_default" } },
+			reasoning: { kind: "value", value: { kind: "bickr_automatic" } },
+			toolCalls: { kind: "value", value: { kind: "bickr_automatic" } },
 		});
 	});
 

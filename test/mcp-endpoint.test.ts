@@ -1683,6 +1683,10 @@ describe("MCP endpoint", () => {
 		expect(schemaProperties(reasoningValue).kind).toMatchObject({
 			enum: ["bickr_automatic", "provider_default", "reasoning_disabled", "explicit_effort"],
 		});
+		const compactionModeValue = schemaProperties(
+			schemaProperties(schemaProperty(byName, "update_inference_configuration", "overrides")).compactionMode as Record<string, unknown>,
+		).value as Record<string, unknown>;
+		expect(schemaProperties(compactionModeValue).kind).toMatchObject({ enum: ["bickr_automatic", "mode"] });
 		const credential = schemaProperty(byName, "create_inference_configuration", "credential");
 		expect(credential).toMatchObject({ additionalProperties: false, required: ["mode"] });
 		expect(schemaProperties(credential).mode).toMatchObject({ enum: ["inherit", "account_default", "none", "value"] });

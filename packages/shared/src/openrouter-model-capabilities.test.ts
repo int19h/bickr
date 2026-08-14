@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
 	compactionReasoningCapabilitiesForModel,
 	compactionReasoningPolicyForModel,
+	compactAppliedPrefillPolicy,
+	compactAppliedToolCallPolicy,
 	isCompactionReasoningResolution,
 	openRouterFreeModel,
 	openRouterModelCapabilities,
@@ -60,7 +62,16 @@ describe("required tool-call request-shape evidence", () => {
 		expect(requiredToolCallResolution(capabilities, "require", "reasoning_on", { ignore: ["deepseek"] }))
 			.toMatchObject({ applied: "require", adjustment: null });
 		expect(requiredToolCallResolution(capabilities, "require", "reasoning_on", { only: ["unobserved/provider"] }))
-			.toMatchObject({ applied: "railroad", adjustment: "provider_compatibility_incomplete", observation: { status: "unknown" } });
+			.toMatchObject({
+				applied: "require",
+				adjustment: null,
+				observation: {
+					kind: "fallback_observation",
+					status: "supported",
+					observedStatus: "unknown",
+					source: "legacy_boolean",
+				},
+			});
 	});
 
 	it("keeps the exact Decart-supported/DeepSeek-reasoning-on-unsupported split conservative", () => {
@@ -86,7 +97,11 @@ describe("required tool-call request-shape evidence", () => {
 			observation: { kind: "fallback", status: "supported", source: "legacy_boolean" },
 		});
 		expect(requiredToolCallResolution(empty, "require", "provider_default", { only: ["unknown/provider"] }))
-			.toMatchObject({ applied: "railroad", adjustment: "provider_compatibility_incomplete" });
+			.toMatchObject({
+				applied: "require",
+				adjustment: null,
+				observation: { kind: "fallback_observation", status: "supported", observedStatus: "unknown" },
+			});
 	});
 });
 
@@ -126,6 +141,46 @@ describe("prefill-plus-tools request-shape evidence", () => {
 			adjustment: null,
 			capability: null,
 		});
+	});
+
+	it("compacts provider-request observability without persisting provider rows", () => {
+		const capability = requiredToolCallResolution(
+			capabilities,
+			"require",
+			"reasoning_on",
+			{ only: ["decart/fp4", "deepseek/fp8"] },
+		);
+		const toolPolicy = compactAppliedToolCallPolicy({
+			intent: { kind: "bickr_automatic" },
+			reasoningShape: "reasoning_on",
+			requestedStrategy: "require",
+			appliedStrategy: capability.applied,
+			emission: "emit_tool_choice",
+			capability,
+		});
+		expect(toolPolicy.capability?.observation).toEqual({
+			kind: "provider_aggregate",
+			status: "unsupported",
+			candidateProviderCount: 2,
+			observedProviderCount: 2,
+		});
+		expect(JSON.stringify(toolPolicy)).not.toContain("deepseek/fp8");
+
+		const prefill = compactAppliedPrefillPolicy(resolvePrefillPolicy(
+			{ ...capabilities, fallback: { supported: true, source: "legacy_boolean" } },
+			true,
+			{ only: ["unobserved/provider"] },
+			"reasoning_on",
+		));
+		expect(prefill.capability).toEqual({
+			kind: "fallback_observation",
+			status: "supported",
+			observedStatus: "unknown",
+			source: "legacy_boolean",
+			candidateProviderCount: 1,
+			observedProviderCount: 0,
+		});
+		expect(JSON.stringify(prefill)).not.toContain("unobserved/provider");
 	});
 
 	it("keeps the exact Decart-supported/DeepSeek-unsupported Off and Low evidence provider-scoped", () => {
@@ -169,7 +224,12 @@ describe("prefill-plus-tools request-shape evidence", () => {
 		});
 		expect(resolvePrefillPolicy(split, true, undefined, "provider_default")).toMatchObject({
 			applied: false,
-			adjustment: "provider_compatibility_incomplete",
+			adjustment: "prefill_unsupported",
+			capability: {
+				kind: "fallback_observation",
+				status: "unsupported",
+				observedStatus: "unknown",
+			},
 		});
 	});
 
@@ -181,7 +241,11 @@ describe("prefill-plus-tools request-shape evidence", () => {
 			capability: { kind: "fallback", status: "supported", source: "legacy_boolean" },
 		});
 		expect(resolvePrefillPolicy(empty, true, { only: ["unknown/provider"] }, "provider_default"))
-			.toMatchObject({ applied: false, adjustment: "provider_compatibility_incomplete" });
+			.toMatchObject({
+				applied: true,
+				adjustment: null,
+				capability: { kind: "fallback_observation", status: "supported", observedStatus: "unknown" },
+			});
 	});
 });
 

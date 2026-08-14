@@ -15,9 +15,9 @@ import {
 	booleanCycleFromDraft,
 	draftFromBooleanCycleState,
 	effectiveValueText,
+	explicitDraftForState,
 	explicitStateLabel,
 	explicitStatesForField,
-	fieldValueText,
 	inferenceFieldPresentation,
 	inferenceFieldControl,
 	inferenceFieldLabels,
@@ -232,7 +232,7 @@ function TextualInferenceField(
 				? { mode: "inherit" }
 				// Seeding copies what is inherited today and records it explicitly, so
 				// a later parent change cannot silently move this value.
-				: { mode: "explicit", state: "value", text: fieldValueText(props.field, props.dto.inherited.effective) },
+				: explicitDraftForState(props.field, "value", props.dto.inherited.effective),
 		);
 	}
 
@@ -312,8 +312,7 @@ function TextualInferenceField(
 }
 
 function explicitDraft(props: InferenceFieldProps, state: InferenceExplicitState): InferenceFieldDraft {
-	if (state !== "value") return { mode: "explicit", state };
-	return { mode: "explicit", state: "value", text: fieldValueText(props.field, props.dto.effective) };
+	return explicitDraftForState(props.field, state, props.dto.inherited.effective);
 }
 
 export type CredentialAction = "replace" | "inherit" | "account_default" | "none";

@@ -2091,7 +2091,7 @@ function inferenceFieldValueSchema(field: typeof inferenceConfigurationFields[nu
 			);
 		case "compactionMode":
 			return closedDiscriminatedValueSchema(
-				["bickr_automatic", "provider_default", "mode"],
+				["bickr_automatic", "mode"],
 				{ mode: enumSchema(["structured_output", "tool_call", "tool_call_cache_friendly"], "Compaction mode.") },
 			);
 		case "promptCacheMode":

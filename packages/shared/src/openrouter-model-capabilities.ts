@@ -60,6 +60,13 @@ export type PrefillCapabilityResolution =
 			providers: readonly PrefillProviderEvidence[];
 	  }
 	| {
+			kind: "fallback_observation";
+			status: "supported" | "unsupported";
+			observedStatus: "unknown";
+			source: OpenRouterPrefillCapabilities["fallback"]["source"];
+			providers: readonly PrefillProviderEvidence[];
+	  }
+	| {
 			kind: "fallback";
 			status: "supported" | "unsupported";
 			source: OpenRouterPrefillCapabilities["fallback"]["source"];
@@ -131,6 +138,13 @@ export type RequiredToolCallResolutionObservation =
 			providers: readonly RequiredToolCallProviderEvidence[];
 	  }
 	| {
+			kind: "fallback_observation";
+			status: "supported" | "unsupported";
+			observedStatus: "unknown";
+			source: OpenRouterRequiredToolCallCapabilities["fallback"]["source"];
+			providers: readonly RequiredToolCallProviderEvidence[];
+	  }
+	| {
 			kind: "fallback";
 			status: "supported" | "unsupported";
 			source: OpenRouterRequiredToolCallCapabilities["fallback"]["source"];
@@ -160,6 +174,46 @@ export type AppliedToolCallPolicy = {
 	emission: "omit_tool_choice" | "emit_tool_choice";
 	capability: RequiredToolCallResolution | null;
 };
+
+export type CompactCapabilityOutcome =
+	| {
+			kind: "provider_aggregate";
+			status: RequiredToolCallObservationStatus;
+			candidateProviderCount: number;
+			observedProviderCount: number;
+	  }
+	| {
+			kind: "fallback_observation";
+			status: "supported" | "unsupported";
+			observedStatus: "unknown";
+			source: Exclude<RequiredToolCallObservationSource, "probe">;
+			candidateProviderCount: number;
+			observedProviderCount: number;
+	  }
+	| {
+			kind: "fallback";
+			status: "supported" | "unsupported";
+			source: Exclude<RequiredToolCallObservationSource, "probe">;
+	  }
+	| {
+			kind: "fixed_policy";
+			status: "supported" | "unsupported";
+			source: "custom_provider_policy" | "conservative_policy";
+	  };
+
+export type CompactRequiredToolCallResolution = Omit<RequiredToolCallResolution, "observation"> & {
+	observation: CompactCapabilityOutcome;
+};
+
+export type CompactAppliedToolCallPolicy = Omit<AppliedToolCallPolicy, "capability"> & {
+	capability: CompactRequiredToolCallResolution | null;
+};
+
+export type CompactAppliedPrefillPolicy =
+	| Extract<AppliedPrefillPolicy, { capability: null }>
+	| (Omit<Extract<AppliedPrefillPolicy, { request: true }>, "capability"> & {
+			capability: CompactCapabilityOutcome;
+	  });
 
 export type OpenRouterModelPolicy = OpenRouterModelCapabilities & {
 	compactionReasoningFloor: CompactionReasoningFloor;
@@ -710,6 +764,49 @@ export function resolvePrefillPolicy(
 	}
 }
 
+export function compactAppliedToolCallPolicy(policy: AppliedToolCallPolicy): CompactAppliedToolCallPolicy {
+	return {
+		...policy,
+		capability: policy.capability ? {
+			...policy.capability,
+			observation: compactCapabilityOutcome(policy.capability.observation),
+		} : null,
+	};
+}
+
+export function compactAppliedPrefillPolicy(policy: AppliedPrefillPolicy): CompactAppliedPrefillPolicy {
+	if (policy.capability === null) return policy;
+	return {
+		...policy,
+		capability: compactCapabilityOutcome(policy.capability),
+	};
+}
+
+function compactCapabilityOutcome(
+	capability: RequiredToolCallResolutionObservation | PrefillCapabilityResolution,
+): CompactCapabilityOutcome {
+	switch (capability.kind) {
+		case "provider_aggregate":
+			return {
+				kind: capability.kind,
+				status: capability.status,
+				candidateProviderCount: capability.providers.length,
+				observedProviderCount: capability.providers.filter((provider) => provider.kind === "observed").length,
+			};
+		case "fallback_observation":
+			return {
+				kind: capability.kind,
+				status: capability.status,
+				observedStatus: capability.observedStatus,
+				source: capability.source,
+				candidateProviderCount: capability.providers.length,
+				observedProviderCount: capability.providers.filter((provider) => provider.kind === "observed").length,
+			};
+		case "fallback":
+		case "fixed_policy": return capability;
+	}
+}
+
 export function effectiveCompactionModeForModel(
 	model: string | undefined,
 	openRouter: boolean,
@@ -853,13 +950,16 @@ function requiredToolCallResolutionObservation(
 			: { kind: "unobserved", provider };
 	});
 	const statuses = providers.map((provider) => provider.kind === "observed" ? provider.observation.status : "unknown");
-	const status: RequiredToolCallObservationStatus = statuses.length === 0 || statuses.includes("unknown")
-		? "unknown"
-		: statuses.includes("unsupported")
-			? "unsupported"
-			: statuses.includes("not_applicable")
-				? "not_applicable"
-				: "supported";
+	const status = aggregateProviderObservationStatus(statuses);
+	if (status === "unknown") {
+		return {
+			kind: "fallback_observation",
+			status: capabilities.fallback.supported ? "supported" : "unsupported",
+			observedStatus: status,
+			source: capabilities.fallback.source,
+			providers,
+		};
+	}
 	return { kind: "provider_aggregate", status, providers };
 }
 
@@ -891,11 +991,26 @@ function prefillCapabilityResolution(
 			: { kind: "unobserved", provider };
 	});
 	const statuses = providers.map((provider) => provider.kind === "observed" ? provider.observation.status : "unknown");
-	const status: RequiredToolCallObservationStatus = statuses.length === 0 || statuses.includes("unknown")
-		? "unknown"
-		: statuses.includes("unsupported") ? "unsupported"
-			: statuses.includes("not_applicable") ? "not_applicable" : "supported";
+	const status = aggregateProviderObservationStatus(statuses);
+	if (status === "unknown") {
+		return {
+			kind: "fallback_observation",
+			status: capabilities.fallback.supported ? "supported" : "unsupported",
+			observedStatus: status,
+			source: capabilities.fallback.source,
+			providers,
+		};
+	}
 	return { kind: "provider_aggregate", status, providers };
+}
+
+function aggregateProviderObservationStatus(
+	statuses: readonly RequiredToolCallObservationStatus[],
+): RequiredToolCallObservationStatus {
+	if (statuses.includes("unsupported")) return "unsupported";
+	if (statuses.includes("not_applicable")) return "not_applicable";
+	if (statuses.length === 0 || statuses.includes("unknown")) return "unknown";
+	return "supported";
 }
 
 function providerCapabilityCandidateNames(

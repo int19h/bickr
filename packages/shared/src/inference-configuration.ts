@@ -34,6 +34,7 @@ import {
 	type BotPromptCacheMode,
 	type BotPromptCacheIntent,
 	type BotPromptCacheRequest,
+	type LegacyBotCompactionModeRequest,
 	type JsonObject,
 } from "./model";
 import {
@@ -78,7 +79,7 @@ export type InferenceCredentialMode = "inherit" | "account_default" | "value" | 
 
 export type InferenceReasoningRequest = BotInferenceReasoningRequest;
 export type InferenceToolCallRequest = BotInferenceToolCallRequest;
-export type InferenceCompactionModeRequest = BotCompactionModeRequest;
+export type InferenceCompactionModeRequest = LegacyBotCompactionModeRequest;
 export type InferencePromptCacheRequest = BotPromptCacheRequest;
 
 export type InferenceConfigurationFieldValues = {
@@ -154,8 +155,12 @@ export type StoredInferenceOverride<K extends InferenceConfigurationField> =
 	| (K extends "imageModel" ? { kind: "historical_bickr_default"; value: HistoricalBickrDefaultImageModel } : never)
 	| (K extends AccountDefaultResumableField ? { kind: "account_default" } : never);
 
+export type OwnerInferenceConfigurationFieldValue<K extends InferenceConfigurationField> =
+	K extends "compactionMode" ? BotCompactionModeRequest : InferenceConfigurationFieldValues[K];
+
 export type OwnerInferenceOverride<K extends InferenceConfigurationField> =
-	Exclude<StoredInferenceOverride<K>, { kind: "historical_bickr_default" }>;
+	| { kind: "value"; value: OwnerInferenceConfigurationFieldValue<K> }
+	| Exclude<StoredInferenceOverride<K>, { kind: "value" } | { kind: "historical_bickr_default" }>;
 
 export type InferenceOverrideUpdate<K extends InferenceConfigurationField> =
 	| { kind: "inherit" }
@@ -269,7 +274,6 @@ export type EffectiveInferenceSettings = {
 	toolCallIntent: BotInferenceToolCallIntent;
 	ordinaryLoopToolCalls: AppliedToolCallPolicy;
 	compactionMode: BotCompactionMode;
-	compactionModeIntent: BotCompactionModeIntent;
 	promptCacheMode: BotPromptCacheMode;
 	promptCacheIntent: BotPromptCacheIntent;
 	supportsPrefill: boolean;
@@ -347,7 +351,7 @@ export type InferenceFieldEffectiveValues = {
 
 /** The resolved stored/default request before provider policy is applied. */
 export type InferenceFieldResolvedRequest<K extends InferenceConfigurationField> =
-	| { kind: "value"; value: InferenceConfigurationFieldValues[K] }
+	| { kind: "value"; value: OwnerInferenceConfigurationFieldValue<K> }
 	| { kind: "explicit_none" }
 	| { kind: "target_default" }
 	| { kind: "unset" };
@@ -438,7 +442,10 @@ export function resolveInferenceConfiguration(
 		reasoningShape,
 	);
 	const toolCalls = ordinaryLoopToolCalls.appliedStrategy;
-	const compactionModeRequest: BotCompactionModeIntent = optionalRawValue(raw.compactionMode) ?? { kind: "inherit" };
+	const storedCompactionModeRequest = optionalRawValue(raw.compactionMode);
+	const compactionModeRequest: BotCompactionModeIntent = storedCompactionModeRequest?.kind === "provider_default"
+		? { kind: "bickr_automatic" }
+		: storedCompactionModeRequest ?? { kind: "inherit" };
 	const compactionMode = effectiveCompactionModeForModel(
 		effectiveModel,
 		openRouter,
@@ -483,7 +490,6 @@ export function resolveInferenceConfiguration(
 			toolCallIntent: toolCallRequest,
 			ordinaryLoopToolCalls,
 			compactionMode,
-			compactionModeIntent: compactionModeRequest,
 			promptCacheMode,
 			promptCacheIntent: promptCacheRequest,
 			supportsPrefill,
@@ -588,7 +594,7 @@ export function parseStoredInferenceConfigurationOverrides(value: string | unkno
 
 function parseInferenceConfigurationOverridesWithAccess(
 	value: string | unknown,
-	allowHistoricalBickrDefault: boolean,
+	allowMigrationOnlyStates: boolean,
 ): InferenceConfigurationOverrides {
 	let parsed: unknown = value;
 	if (typeof value === "string") {
@@ -606,7 +612,7 @@ function parseInferenceConfigurationOverridesWithAccess(
 		if (!isInferenceConfigurationField(key)) {
 			throw new InferenceConfigurationDataError("invalid_overrides", `Unknown inference configuration field ${JSON.stringify(key)}.`);
 		}
-		result[key] = parseInferenceOverride(key, override, allowHistoricalBickrDefault);
+		result[key] = parseInferenceOverride(key, override, allowMigrationOnlyStates);
 	}
 	return result as InferenceConfigurationOverrides;
 }
@@ -703,7 +709,6 @@ export async function inferenceResolutionFingerprint(
 			toolCallIntent: resolution.effective.toolCallIntent,
 			ordinaryLoopToolCalls: resolution.effective.ordinaryLoopToolCalls,
 			compactionMode: resolution.effective.compactionMode,
-			compactionModeIntent: resolution.effective.compactionModeIntent,
 			promptCacheMode: resolution.effective.promptCacheMode,
 			promptCacheIntent: resolution.effective.promptCacheIntent,
 			supportsPrefill: resolution.effective.supportsPrefill,
@@ -738,13 +743,13 @@ export function inferenceFieldAnnotations(
 		const inheritedRaw = inheritedResolution.raw[field];
 		const inheritedEffective = effectiveInferenceFields(inheritedResolution)[field];
 		return [field, {
-			override: ownerInferenceOverride(selectedOverrides[field]),
-			request: resolvedInferenceFieldRequest(raw),
+			override: ownerInferenceOverride(field, selectedOverrides[field]),
+			request: resolvedInferenceFieldRequest(field, raw),
 			effective,
 			provenance: raw.provenance,
 			adjustment: inferenceFieldAdjustment(resolution, field, raw, effective),
 			inherited: {
-				request: resolvedInferenceFieldRequest(inheritedRaw),
+				request: resolvedInferenceFieldRequest(field, inheritedRaw),
 				effective: inheritedEffective,
 				provenance: inheritedRaw.provenance,
 				adjustment: inferenceFieldAdjustment(inheritedResolution, field, inheritedRaw, inheritedEffective),
@@ -754,10 +759,14 @@ export function inferenceFieldAnnotations(
 }
 
 function resolvedInferenceFieldRequest<K extends InferenceConfigurationField>(
+	field: K,
 	raw: ResolvedRawInferenceField<K>,
 ): InferenceFieldResolvedRequest<K> {
 	switch (raw.state) {
-		case "value": return { kind: "value", value: raw.value };
+		case "value": return {
+			kind: "value",
+			value: normalizedOwnerCompactionModeRequest(field, raw.value),
+		};
 		case "explicit_none": return { kind: "explicit_none" };
 		case "target_default": return { kind: "target_default" };
 		case "absent": return { kind: "unset" };
@@ -778,13 +787,28 @@ function resolutionWithoutSelectedOverride(
 }
 
 export function ownerInferenceOverride<K extends InferenceConfigurationField>(
+	field: K,
 	override: StoredInferenceOverride<K> | undefined,
 ): InferenceOverrideUpdate<K> {
 	if (!override) return { kind: "inherit" };
 	if (override.kind === "historical_bickr_default") {
 		return { kind: "value", value: override.value } as InferenceOverrideUpdate<K>;
 	}
-	return override as InferenceOverrideUpdate<K>;
+	return override.kind === "value"
+		? { kind: "value", value: normalizedOwnerCompactionModeRequest(field, override.value) }
+		: override as InferenceOverrideUpdate<K>;
+}
+
+function normalizedOwnerCompactionModeRequest<K extends InferenceConfigurationField>(
+	field: K,
+	value: InferenceConfigurationFieldValues[K],
+): OwnerInferenceConfigurationFieldValue<K> {
+	// Migration 0046 is the retirement path for this projection. Until its
+	// bounded sweep reaches an owner, the legacy stored label is never exposed as
+	// a provider-owned choice because compaction mode has always been Bickr-owned.
+	return field === "compactionMode" && (value as InferenceCompactionModeRequest).kind === "provider_default"
+		? { kind: "bickr_automatic" } as OwnerInferenceConfigurationFieldValue<K>
+		: value as OwnerInferenceConfigurationFieldValue<K>;
 }
 
 export function ownerInferenceConfigurationOverrides(
@@ -792,7 +816,7 @@ export function ownerInferenceConfigurationOverrides(
 ): OwnerInferenceConfigurationOverrides {
 	return Object.fromEntries(inferenceConfigurationFields.flatMap((field) => {
 		const override = overrides[field];
-		return override ? [[field, ownerInferenceOverride(override)]] : [];
+		return override ? [[field, ownerInferenceOverride(field, override)]] : [];
 	})) as OwnerInferenceConfigurationOverrides;
 }
 
@@ -884,8 +908,8 @@ function normalizedRawRequest(
 	}
 	if (field === "compactionMode") {
 		const request = raw.value as InferenceCompactionModeRequest;
-		return request.kind === "provider_default" ? { kind: "provider_default" }
-			: request.kind === "bickr_automatic" ? { kind: "bickr_automatic" }
+		return request.kind === "provider_default" || request.kind === "bickr_automatic"
+			? { kind: "bickr_automatic" }
 			: { kind: "value", value: request.mode };
 	}
 	if (field === "promptCacheMode") {
@@ -1184,7 +1208,7 @@ function optionalNumber<K extends InferenceConfigurationField>(
 function parseInferenceOverride<K extends InferenceConfigurationField>(
 	field: K,
 	value: unknown,
-	allowHistoricalBickrDefault: boolean,
+	allowMigrationOnlyStates: boolean,
 ): StoredInferenceOverride<K> {
 	if (!isRecord(value) || typeof value.kind !== "string") {
 		throw invalidOverride(field);
@@ -1198,7 +1222,7 @@ function parseInferenceOverride<K extends InferenceConfigurationField>(
 		return { kind: "target_default" } as StoredInferenceOverride<K>;
 	}
 	if (value.kind === "historical_bickr_default") {
-		if (!allowHistoricalBickrDefault || field !== "imageModel" ||
+		if (!allowMigrationOnlyStates || field !== "imageModel" ||
 			Object.keys(value).some((key) => key !== "kind" && key !== "value") ||
 			!isHistoricalBickrDefaultImageModel(value.value)) throw invalidOverride(field);
 		return { kind: "historical_bickr_default", value: value.value } as StoredInferenceOverride<K>;
@@ -1210,13 +1234,14 @@ function parseInferenceOverride<K extends InferenceConfigurationField>(
 	if (value.kind !== "value" || Object.keys(value).some((key) => key !== "kind" && key !== "value")) {
 		throw invalidOverride(field);
 	}
-	const parsed = parseFieldValue(field, value.value);
+	const parsed = parseFieldValue(field, value.value, allowMigrationOnlyStates);
 	return { kind: "value", value: parsed } as StoredInferenceOverride<K>;
 }
 
 function parseFieldValue<K extends InferenceConfigurationField>(
 	field: K,
 	value: unknown,
+	allowMigrationOnlyStates: boolean,
 ): InferenceConfigurationFieldValues[K] {
 	if (stringFields.has(field)) {
 		if (typeof value !== "string" || !value.trim()) throw invalidOverride(field);
@@ -1241,7 +1266,7 @@ function parseFieldValue<K extends InferenceConfigurationField>(
 	if (field === "reasoning") return parseReasoningRequest(value) as InferenceConfigurationFieldValues[K];
 	if (field === "compactionReasoning") return parseCompactionReasoning(value) as InferenceConfigurationFieldValues[K];
 	if (field === "toolCalls") return parseToolCallRequest(value) as InferenceConfigurationFieldValues[K];
-	if (field === "compactionMode") return parseCompactionModeRequest(value) as InferenceConfigurationFieldValues[K];
+	if (field === "compactionMode") return parseCompactionModeRequest(value, allowMigrationOnlyStates) as InferenceConfigurationFieldValues[K];
 	if (field === "promptCacheMode") return parsePromptCacheRequest(value) as InferenceConfigurationFieldValues[K];
 	throw invalidOverride(field);
 }
@@ -1290,9 +1315,10 @@ function parseToolCallRequest(value: unknown): InferenceToolCallRequest {
 	throw invalidNestedValue("tool calls");
 }
 
-function parseCompactionModeRequest(value: unknown): InferenceCompactionModeRequest {
+function parseCompactionModeRequest(value: unknown, allowLegacyProviderDefault: boolean): InferenceCompactionModeRequest {
 	if (!isRecord(value) || typeof value.kind !== "string") throw invalidNestedValue("compaction mode");
-	if ((value.kind === "bickr_automatic" || value.kind === "provider_default") && Object.keys(value).length === 1) {
+	if (value.kind === "bickr_automatic" && Object.keys(value).length === 1) return { kind: value.kind };
+	if (allowLegacyProviderDefault && value.kind === "provider_default" && Object.keys(value).length === 1) {
 		return { kind: value.kind };
 	}
 	if (value.kind === "mode" && Object.keys(value).every((key) => key === "kind" || key === "mode") && compactionModes.has(value.mode)) {

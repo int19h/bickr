@@ -1591,6 +1591,39 @@ describe("Provider requests", () => {
 		expect(claudeCacheRequest.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 		expect(claudeCacheRequest.session_id).toBe("bot:cache-test");
 
+		const providerDefaultCacheRequest = providerChatCompletionRequest(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "~anthropic/claude-sonnet-latest",
+				promptCacheMode: "openrouter_anthropic_1h",
+				promptCacheRequest: { kind: "provider_default" },
+				temperature: 0.2,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+			undefined,
+			"railroad",
+			"bot:cache-test",
+		);
+		expect("cache_control" in providerDefaultCacheRequest).toBe(false);
+		expect("session_id" in providerDefaultCacheRequest).toBe(false);
+
+		const explicitOffCacheRequest = providerChatCompletionRequest(
+			{
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "~anthropic/claude-sonnet-latest",
+				promptCacheMode: "openrouter_anthropic_1h",
+				promptCacheRequest: { kind: "mode", mode: "off" },
+				temperature: 0.2,
+			},
+			[{ role: "user", content: "hello" }],
+			toolDefinitions,
+			undefined,
+			"railroad",
+			"bot:cache-test",
+		);
+		expect("cache_control" in explicitOffCacheRequest).toBe(false);
+
 		const nonClaudeCacheRequest = providerChatCompletionRequest(
 			{
 				baseUrl: "https://openrouter.ai/api/v1",
@@ -2005,18 +2038,18 @@ describe("Provider requests", () => {
 				{},
 			)?.toolCalls,
 		).toBe("railroad");
-		const providerDefaultTranslation = effectiveProviderSettingsForTranslation(
+		const automaticTranslation = effectiveProviderSettingsForTranslation(
 			{ inferenceSettings: { translation: { enabled: true, model: "openai/gpt-4o-mini" } } },
 			{},
 		);
-		expect(providerDefaultTranslation).toMatchObject({
-			reasoningRequest: { kind: "provider_default" },
-			toolCallRequest: { kind: "provider_default" },
-			toolCalls: "railroad",
+		expect(automaticTranslation).toMatchObject({
+			reasoningRequest: { kind: "bickr_automatic" },
+			toolCallRequest: { kind: "bickr_automatic" },
+			toolCalls: "require",
 		});
-		const providerDefaultRequest = providerTranslationRequest(providerDefaultTranslation!, "Hello.");
-		expect("reasoning" in providerDefaultRequest).toBe(false);
-		expect("tool_choice" in providerDefaultRequest).toBe(false);
+		const automaticRequest = providerTranslationRequest(automaticTranslation!, "Hello.");
+		expect("reasoning" in automaticRequest).toBe(false);
+		expect(automaticRequest.tool_choice).toBe("required");
 	});
 
 	it("resolves compaction mode and prefill support settings from bot overrides before profile defaults", () => {

@@ -8,7 +8,6 @@
  */
 import type {
 	InferenceConfigurationField,
-	InferenceConfigurationFieldValues,
 	InferenceConfigurationKind,
 	InferenceCredentialMode,
 	InferenceCredentialResolution,
@@ -19,6 +18,7 @@ import type {
 	InferenceFieldResolvedRequest,
 	InferenceOverrideUpdate,
 	InferenceSource,
+	OwnerInferenceConfigurationFieldValue,
 	OwnerInferenceConfigurationOverrides,
 } from "./inference-configuration";
 import type { EffectiveImageSettings } from "./inference-configuration";
@@ -219,7 +219,7 @@ export type RedactedInferenceFieldProvenance =
 	| { configured: RedactedInferenceSource };
 
 export type RedactedInferenceFieldResolvedRequest<K extends InferenceConfigurationField> =
-	| { value: InferenceConfigurationFieldValues[K] }
+	| { value: OwnerInferenceConfigurationFieldValue<K> }
 	| { explicitNone: null }
 	| { targetDefault: null }
 	| { unset: null };

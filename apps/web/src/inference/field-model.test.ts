@@ -15,6 +15,7 @@ import {
 	draftFromBooleanCycleState,
 	draftFromOverride,
 	effectiveValueText,
+	explicitDraftForState,
 	explicitStatesForField,
 	fieldValueText,
 	inferenceEditorFields,
@@ -159,6 +160,18 @@ describe("boolean inheritance cycle", () => {
 });
 
 describe("override protocol drafts", () => {
+	it("seeds every explicit-value entry path from the inherited candidate", () => {
+		expect(explicitDraftForState("temperature", "value", 0.3)).toEqual({
+			mode: "explicit",
+			state: "value",
+			text: "0.3",
+		});
+		expect(explicitDraftForState("temperature", "explicit_none", 0.3)).toEqual({
+			mode: "explicit",
+			state: "explicit_none",
+		});
+	});
+
 	it("preserves explicit zero, empty routing, provider default, absence, and target default", () => {
 		const cases: [InferenceConfigurationField, InferenceOverrideUpdate<InferenceConfigurationField>][] = [
 			["temperature", { kind: "value", value: 0 }],
@@ -380,6 +393,44 @@ describe("provenance and effective text", () => {
 			inheritAnnouncement: "Compaction reasoning inherits: Configuration unset; no configuration or Bickr default sets this field. Applied high from the model default.",
 		});
 		expect(presentation.status).not.toContain("from Bickr defaults");
+	});
+
+	it.each([
+		{ kind: "absent" as const },
+		{ kind: "provider_default" as const, relativeOrder: "unknown" as const },
+	])("does not attribute an unresolved $kind model baseline to itself", (modelDefault) => {
+		const resolution = {
+			kind: "selected",
+			decision: { kind: "model_default", modelDefault },
+			selection: { kind: "model_default" },
+			runtimeFallback: { kind: "none" },
+			provenance: {
+				configuration: null,
+				modelDefault,
+				safetyFloor: { kind: "reasoning_disabled" },
+				learnedFloor: null,
+				baselineSelection: { kind: "model_default" },
+				support: "unknown",
+				policySource: "openrouter_generated",
+			},
+		} as const;
+		const presentation = inferenceFieldPresentation("compactionReasoning", {
+			override: { kind: "inherit" },
+			request: { unset: null },
+			effective: resolution,
+			provenance: { unset: null },
+			adjustment: { kind: "compaction_policy", resolution },
+			inherited: {
+				request: { unset: null },
+				effective: resolution,
+				provenance: { unset: null },
+				adjustment: { kind: "compaction_policy", resolution },
+			},
+		}, path);
+		expect(presentation.status).toBe(
+			"Configuration unset; no configuration or Bickr default sets this field. Applied the model default.",
+		);
+		expect(presentation.status).not.toContain("from the model default");
 	});
 
 	it("presents an inherited configured request separately from a learned-floor outcome", () => {

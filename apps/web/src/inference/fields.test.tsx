@@ -195,6 +195,17 @@ describe("enum inheritance control", () => {
 		expect(html).toContain('<option value="require" selected="">Require</option>');
 	});
 
+	it("does not offer a provider-owned state for Bickr compaction mode", () => {
+		const html = render("compactionMode", { mode: "inherit" }, dto({
+			request: { unset: null },
+			effective: "tool_call_cache_friendly",
+			provenance: { unset: null },
+			adjustment: { kind: "bickr_automatic", effective: "tool_call_cache_friendly" },
+		}));
+		expect(html).toContain(">Bickr automatic<");
+		expect(html).not.toContain(">Provider default<");
+	});
+
 	it("keeps current applied status separate from the inherit option", () => {
 		const html = render("toolCalls", { mode: "explicit", state: "value", text: "require" }, dto({
 			request: { value: { kind: "strategy", strategy: "require" } },
@@ -329,6 +340,35 @@ describe("text and number inheritance controls", () => {
 		}));
 		expect(html).toContain("Bickr automatic applies Minimal.");
 		expect(html).not.toContain("this model or provider uses");
+	});
+
+	it("keeps the applied ordinary-loop tool-call policy visible while raw configuration is unset", () => {
+		const policy = {
+			intent: { kind: "inherit" },
+			reasoningShape: "reasoning_on",
+			requestedStrategy: "require",
+			appliedStrategy: "require",
+			emission: "emit_tool_choice",
+			capability: {
+				shape: "reasoning_on",
+				observation: { kind: "fixed_policy", status: "supported", source: "custom_provider_policy" },
+				applied: "require",
+				adjustment: null,
+			},
+		} as const;
+		const html = render("toolCalls", { mode: "inherit" }, dto({
+			request: { unset: null },
+			effective: "require",
+			provenance: { unset: null },
+			adjustment: { kind: "tool_call_policy", policy },
+			inherited: {
+				request: { unset: null },
+				effective: "require",
+				provenance: { unset: null },
+				adjustment: { kind: "tool_call_policy", policy },
+			},
+		}));
+		expect(html).toContain("Bickr automatic applies Require to the ordinary loop.");
 	});
 
 	it("shows a raised compaction request beside its effective value and source", () => {

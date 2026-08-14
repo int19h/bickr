@@ -76,6 +76,8 @@ import {
 } from '@bickr/shared/validation';
 import {
 	classifyUnknownModelCompactionReasoningFailure,
+	compactAppliedPrefillPolicy,
+	compactAppliedToolCallPolicy,
 	compactionReasoningCapabilitiesForModel,
 	compactionReasoningPolicyForModel,
 	effectiveCompactionModeForModel,
@@ -819,15 +821,19 @@ function compactionReasoningSelectionLabel(
 }
 
 function providerPromptCacheControl(
-	settings: Pick<ProviderSettings, 'baseUrl' | 'model' | 'promptCacheMode'>,
+	settings: Pick<ProviderSettings, 'baseUrl' | 'model' | 'promptCacheMode' | 'promptCacheRequest'>,
 ): ProviderPromptCacheControl | undefined {
-	if (settings.promptCacheMode === undefined || settings.promptCacheMode === 'off') {
+	if (settings.promptCacheRequest?.kind === 'provider_default') {
 		return undefined;
 	}
+	const mode = settings.promptCacheRequest?.kind === 'mode'
+		? settings.promptCacheRequest.mode
+		: settings.promptCacheMode;
+	if (mode === undefined || mode === 'off') return undefined;
 	if (!modelSupportsPromptCacheControl(settings.model, settingsUseOpenRouter(settings))) {
 		return undefined;
 	}
-	return settings.promptCacheMode === 'openrouter_anthropic_1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' };
+	return mode === 'openrouter_anthropic_1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' };
 }
 
 function providerPromptCacheSessionId(botId: string): string {
@@ -915,8 +921,12 @@ function providerLoopRequestEventPayload(input: ProviderLoopRequestEventPayloadI
 		messageCount: input.requestMessages.length,
 		toolCount: input.providerTools.length,
 		toolCalls: input.toolCallsMode,
-		...(input.settings.ordinaryLoopToolCalls ? { toolCallPolicy: input.settings.ordinaryLoopToolCalls } : {}),
-		...(input.settings.prefillPolicy ? { prefillPolicy: input.settings.prefillPolicy } : {}),
+		...(input.settings.ordinaryLoopToolCalls
+			? { toolCallPolicy: compactAppliedToolCallPolicy(input.settings.ordinaryLoopToolCalls) }
+			: {}),
+		...(input.settings.prefillPolicy
+			? { prefillPolicy: compactAppliedPrefillPolicy(input.settings.prefillPolicy) }
+			: {}),
 		...(toolChoice ? { toolChoice } : {}),
 		parallelToolCalls: providerParallelToolCalls,
 		contextWindowTokens: input.requestContextWindowTokens,

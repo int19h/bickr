@@ -7,6 +7,7 @@ import {
 	cleanupInferenceGraphTerminalState,
 	inferenceGraphMigrationStatus,
 	listInferenceGraphFleetStatus,
+	listInferenceProviderDefaultBarrierSweepFleetStatus,
 	markInferenceGraphCompatibilitySourceWritten,
 	pendingInferenceGraphCompatibilityWrite,
 	reactivateInferenceGraphCutover,
@@ -96,6 +97,24 @@ describe("restartable inference graph migration", () => {
 			 SET overrides_json = ?, configuration_revision = 1
 			 WHERE owner_user_id = ? AND configuration_id = ?`,
 		).bind(JSON.stringify(overrides), ownerId, configurationId).run();
+		const translationSelection = await testEnv.BICKR_D1.prepare(
+			`SELECT configuration_id AS configurationId
+			 FROM inference_translation_selections WHERE owner_user_id = ? LIMIT 1`,
+		).bind(ownerId).first<{ configurationId: string }>();
+		const translationConfiguration = (await configuration(translationSelection!.configurationId))!;
+		const translationOverrides = JSON.parse(translationConfiguration.overridesJson);
+		translationOverrides.reasoning = { kind: "value", value: { kind: "provider_default" } };
+		translationOverrides.toolCalls = { kind: "value", value: { kind: "provider_default" } };
+		const translationLegacyJson = JSON.stringify(translationOverrides);
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE inference_configurations SET overrides_json = ?, revision = 1, updated_at = ?
+			 WHERE owner_user_id = ? AND configuration_id = ?`,
+		).bind(translationLegacyJson, now, ownerId, translationSelection!.configurationId).run();
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE inference_graph_legacy_projection_entries
+			 SET overrides_json = ?, configuration_revision = 1
+			 WHERE owner_user_id = ? AND configuration_id = ?`,
+		).bind(translationLegacyJson, ownerId, translationSelection!.configurationId).run();
 		const accountConfigurationId = await accountDefaultConfigurationId(ownerId);
 		const accountOverrides = JSON.parse((await configuration(accountConfigurationId))!.overridesJson);
 		accountOverrides.compactionMode = { kind: "value", value: { kind: "provider_default" } };
@@ -114,7 +133,7 @@ describe("restartable inference graph migration", () => {
 		expect(await runInferenceProviderDefaultBarrierSweepStep(testEnv, ownerId, now))
 			.toMatchObject({ phase: "pending", processedConfigurations: 1, appliedCount: 4, skippedCount: 0 });
 		const result = await runInferenceProviderDefaultBarrierSweepStep(testEnv, ownerId, now);
-		expect(result).toMatchObject({ phase: "terminal", processedConfigurations: 1, appliedCount: 4, skippedCount: 0 });
+		expect(result).toMatchObject({ phase: "terminal", processedConfigurations: 1, appliedCount: 6, skippedCount: 0 });
 		const canonical = JSON.parse((await configuration(configurationId))!.overridesJson);
 		expect(canonical.reasoning.value).toEqual({ kind: "bickr_automatic" });
 		expect(canonical.toolCalls.value).toEqual({ kind: "bickr_automatic" });
@@ -122,6 +141,14 @@ describe("restartable inference graph migration", () => {
 		expect(canonical.promptCacheMode.value).toEqual({ kind: "bickr_automatic" });
 		expect(JSON.parse((await configuration(accountConfigurationId))!.overridesJson).compactionMode.value)
 			.toEqual({ kind: "provider_default" });
+		const correctedTranslation = JSON.parse((await configuration(translationSelection!.configurationId))!.overridesJson);
+		expect(correctedTranslation.reasoning.value).toEqual({ kind: "bickr_automatic" });
+		expect(correctedTranslation.toolCalls.value).toEqual({ kind: "bickr_automatic" });
+		const translationProjection = await testEnv.BICKR_D1.prepare(
+			`SELECT overrides_json AS overridesJson FROM inference_graph_legacy_projection_entries
+			 WHERE owner_user_id = ? AND configuration_id = ? LIMIT 1`,
+		).bind(ownerId, translationSelection!.configurationId).first<{ overridesJson: string }>();
+		expect(JSON.parse(translationProjection!.overridesJson)).toEqual(correctedTranslation);
 		const projection = await testEnv.BICKR_D1.prepare(
 			`SELECT overrides_json AS overridesJson FROM inference_graph_legacy_projection_entries
 			 WHERE owner_user_id = ? AND configuration_id = ? LIMIT 1`,
@@ -132,9 +159,9 @@ describe("restartable inference graph migration", () => {
 		await reactivateInferenceGraphCutover(testEnv.BICKR_D1, ownerId, "2026-08-04T00:00:02.000Z");
 		expect((await inferenceGraphReadVersion(testEnv.BICKR_D1, ownerId)).cutoverVersion).toBe(1);
 		expect(await runInferenceProviderDefaultBarrierSweepStep(testEnv, ownerId, now))
-			.toMatchObject({ phase: "terminal", processedConfigurations: 0, appliedCount: 4 });
+			.toMatchObject({ phase: "terminal", processedConfigurations: 0, appliedCount: 6 });
 		expect(await cleanupInferenceGraphTerminalState(testEnv.BICKR_D1, "2026-09-04T00:00:00.000Z", 10))
-			.toMatchObject({ providerDefaultBarrierCandidates: 4, providerDefaultBarrierSweeps: 1 });
+			.toMatchObject({ providerDefaultBarrierCandidates: 6, providerDefaultBarrierSweeps: 1 });
 		expect(await testEnv.BICKR_D1.prepare(
 			`SELECT owner_user_id FROM inference_provider_default_barrier_sweeps WHERE owner_user_id = ?`,
 		).bind(ownerId).first()).toBeNull();
@@ -180,6 +207,23 @@ describe("restartable inference graph migration", () => {
 			`SELECT configuration_id FROM inference_graph_legacy_projection_entries
 			 WHERE owner_user_id = ? AND configuration_id = ?`,
 		).bind(ownerId, configurationId).first()).toBeNull();
+	});
+
+	it("keeps a pending sweep visible for a non-active owner until deletion is terminal", async () => {
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE users_index SET lifecycle_state = 'deleting' WHERE user_id = ? AND deleted_at IS NULL`,
+		).bind(ownerId).run();
+		await testEnv.BICKR_D1.prepare(
+			`INSERT INTO inference_provider_default_barrier_sweeps
+			 (owner_user_id, phase, stage, created_at, updated_at)
+			 VALUES (?, 'pending', 'account', ?, ?)`,
+		).bind(ownerId, now, now).run();
+
+		const page = await listInferenceProviderDefaultBarrierSweepFleetStatus(testEnv.BICKR_D1, {
+			phase: "pending",
+			limit: 10,
+		});
+		expect(page.items).toMatchObject([{ ownerUserId: ownerId, phase: "pending", stage: "account" }]);
 	});
 
 	it("matches the v1 bot prefill barrier while removing only the four misattributed defaults", async () => {
@@ -251,6 +295,23 @@ describe("restartable inference graph migration", () => {
 			 WHERE owner_user_id = ? AND configuration_id = ?`,
 		).bind(ownerId, configurationId).first<{ overridesJson: string; revision: number }>();
 		expect(legacyProjection).toEqual({ overridesJson: legacyJson, revision: before.revision });
+		const translationSelection = await testEnv.BICKR_D1.prepare(
+			`SELECT configuration_id AS configurationId
+			 FROM inference_translation_selections WHERE owner_user_id = ? LIMIT 1`,
+		).bind(ownerId).first<{ configurationId: string }>();
+		const translationBefore = (await configuration(translationSelection!.configurationId))!;
+		const translationOverrides = JSON.parse(translationBefore.overridesJson);
+		translationOverrides.reasoning = { kind: "value", value: { kind: "provider_default" } };
+		translationOverrides.toolCalls = { kind: "value", value: { kind: "provider_default" } };
+		const translationLegacyJson = JSON.stringify(translationOverrides);
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE inference_configurations SET overrides_json = ?, updated_at = ?
+			 WHERE owner_user_id = ? AND configuration_id = ?`,
+		).bind(translationLegacyJson, now, ownerId, translationSelection!.configurationId).run();
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE inference_graph_legacy_projection_entries SET overrides_json = ?
+			 WHERE owner_user_id = ? AND configuration_id = ?`,
+		).bind(translationLegacyJson, ownerId, translationSelection!.configurationId).run();
 
 		const normalized = await runInferenceGraphMigrationStep(migrationEnv, ownerId, now);
 		expect(normalized.phase).toBe("cutover");
@@ -266,6 +327,14 @@ describe("restartable inference graph migration", () => {
 		expect(JSON.parse(projection!.overridesJson)).toEqual(canonical);
 		expect(projection!.revision).toBe(before.revision + 1);
 		expect((await configuration(configurationId))!.revision).toBe(before.revision + 1);
+		const normalizedTranslation = JSON.parse((await configuration(translationSelection!.configurationId))!.overridesJson);
+		expect(normalizedTranslation.reasoning.value).toEqual({ kind: "bickr_automatic" });
+		expect(normalizedTranslation.toolCalls.value).toEqual({ kind: "bickr_automatic" });
+		const normalizedTranslationProjection = await testEnv.BICKR_D1.prepare(
+			`SELECT overrides_json AS overridesJson FROM inference_graph_legacy_projection_entries
+			 WHERE owner_user_id = ? AND configuration_id = ? LIMIT 1`,
+		).bind(ownerId, translationSelection!.configurationId).first<{ overridesJson: string }>();
+		expect(JSON.parse(normalizedTranslationProjection!.overridesJson)).toEqual(normalizedTranslation);
 		expect((await runInferenceGraphMigrationStep(migrationEnv, ownerId, now)).phase).toBe("terminal");
 	});
 
@@ -633,6 +702,8 @@ describe("restartable inference graph migration", () => {
 		expect(translation).toMatchObject({ kind: "custom", parentId: rootId });
 		expect(JSON.parse(translation!.overridesJson)).toMatchObject({
 			model: { kind: "value", value: "translator/model" },
+			reasoning: { kind: "value", value: { kind: "bickr_automatic" } },
+			toolCalls: { kind: "value", value: { kind: "bickr_automatic" } },
 			temperature: { kind: "value", value: 0 },
 			providerRouting: { kind: "explicit_none" },
 		});

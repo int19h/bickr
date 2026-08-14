@@ -95,7 +95,7 @@ describe("canonical inference configuration resolution", () => {
 			request: true,
 			reasoningShape: "reasoning_off",
 			applied: false,
-			adjustment: "provider_compatibility_incomplete",
+			adjustment: "prefill_unsupported",
 		});
 
 		const explicitOff = node("off", "custom", customAccount.id, { supportsPrefill: value(false) });
@@ -228,7 +228,6 @@ describe("canonical inference configuration resolution", () => {
 		expect(inherited.effective).toMatchObject({
 			reasoningIntent: { kind: "inherit" },
 			toolCallIntent: { kind: "inherit" },
-			compactionModeIntent: { kind: "inherit" },
 			promptCacheIntent: { kind: "inherit" },
 			ordinaryLoopToolCalls: { intent: { kind: "inherit" }, emission: "emit_tool_choice" },
 		});
@@ -469,7 +468,7 @@ describe("canonical inference configuration resolution", () => {
 			override: { kind: "historical_bickr_default", value: historicalModel },
 		});
 		expect(resolveImageSettingsForTarget(resolution.effective.image, "participant").model).toBe(historicalModel);
-		expect(ownerInferenceOverride(stored.imageModel)).toEqual({ kind: "value", value: historicalModel });
+		expect(ownerInferenceOverride("imageModel", stored.imageModel)).toEqual({ kind: "value", value: historicalModel });
 
 		expect(applyInferenceOverridePatch(stored, { temperature: value(0.25) }).imageModel).toEqual(stored.imageModel);
 		expect(applyInferenceOverridePatch(stored, { imageModel: value(historicalModel) }).imageModel).toEqual(stored.imageModel);
@@ -512,6 +511,21 @@ describe("canonical inference configuration resolution", () => {
 		})).toMatchObject({
 			topK: value(1.5),
 			imageTopK: value(2.5),
+		});
+		const legacyCompactionDefault = {
+			compactionMode: { kind: "value", value: { kind: "provider_default" } },
+		} as const;
+		expect(parseStoredInferenceConfigurationOverrides(legacyCompactionDefault)).toEqual(legacyCompactionDefault);
+		expect(() => parseInferenceConfigurationOverrides(legacyCompactionDefault))
+			.toThrow("Invalid canonical compaction mode request");
+		expect(() => parseInferenceConfigurationOverridePatch(legacyCompactionDefault))
+			.toThrow("Invalid canonical compaction mode request");
+		const legacyAccount = node("legacy-account", "account_default", null, legacyCompactionDefault);
+		const legacyResolution = resolveInferenceConfiguration([legacyAccount]);
+		expect(inferenceFieldAnnotations(legacyCompactionDefault, legacyResolution).compactionMode).toMatchObject({
+			override: { kind: "value", value: { kind: "bickr_automatic" } },
+			request: { kind: "value", value: { kind: "bickr_automatic" } },
+			adjustment: { kind: "bickr_automatic" },
 		});
 	});
 

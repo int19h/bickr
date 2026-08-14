@@ -597,10 +597,6 @@ async function normalizeInFlightProviderDefaultBarriers(
 					AND projection.configuration_id = configuration.configuration_id
 			WHERE configuration.owner_user_id = ?
 				AND migration.phase NOT IN ('terminal', 'terminal_failed')
-				-- Missing controls on a dedicated legacy translation model are true
-				-- provider-default intent, not one of the manufactured account/bot
-				-- barriers this in-flight correction removes.
-				AND configuration.configuration_id IS NOT migration.migrated_translation_configuration_id
 				AND (
 					json_extract(configuration.overrides_json, '$.reasoning.value.kind') = 'provider_default'
 					OR json_extract(configuration.overrides_json, '$.toolCalls.value.kind') = 'provider_default'
@@ -2004,7 +2000,10 @@ export async function listInferenceProviderDefaultBarrierSweepFleetStatus(
 			sweep.skipped_count AS skippedCount
 		 FROM inference_provider_default_barrier_sweeps AS sweep
 		 JOIN users_index AS users ON users.user_id = sweep.owner_user_id
-		 WHERE users.lifecycle_state = 'active' AND users.deleted_at IS NULL
+		 -- A lifecycle state may hide normal work without ending ownership. Only
+		 -- terminal deletion removes sweep state, so every nondeleted owner remains
+		 -- eligible and cannot strand migration cleanup indefinitely.
+		 WHERE users.deleted_at IS NULL
 			AND sweep.owner_user_id > ? AND (? IS NULL OR sweep.phase = ?)
 		 ORDER BY sweep.owner_user_id ASC LIMIT ?`,
 	).bind(cursor, phase, phase, limit + 1).all<InferenceProviderDefaultBarrierSweepFleetStatus>();

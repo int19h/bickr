@@ -81,7 +81,6 @@ const toolCallOptions: readonly InferenceEnumOption[] = [
 
 const compactionModeOptions: readonly InferenceEnumOption[] = [
 	{ value: "bickr_automatic", label: "Bickr automatic" },
-	{ value: "provider_default", label: "Provider default" },
 	{ value: "structured_output", label: "Structured output" },
 	{ value: "tool_call", label: "Tool call" },
 	{ value: "tool_call_cache_friendly", label: "Tool call (cache-friendly)" },
@@ -216,6 +215,9 @@ function enumRequestValue(field: InferenceConfigurationField, option: string): u
 				? { kind: option }
 				: { kind: "strategy", strategy: option };
 		case "compactionMode":
+			return option === "bickr_automatic"
+				? { kind: option }
+				: { kind: "mode", mode: option };
 		case "promptCacheMode":
 			return option === "bickr_automatic" || option === "provider_default"
 				? { kind: option }
@@ -234,6 +236,16 @@ export function fieldValueText(field: InferenceConfigurationField, fieldValue: u
 		case "enum": return enumOptionValue(field, fieldValue);
 		default: return fieldValue === null || fieldValue === undefined ? "" : String(fieldValue);
 	}
+}
+
+export function explicitDraftForState(
+	field: InferenceConfigurationField,
+	state: InferenceExplicitState,
+	inheritedValue: unknown,
+): InferenceFieldDraft {
+	return state === "value"
+		? { mode: "explicit", state, text: fieldValueText(field, inheritedValue) }
+		: { mode: "explicit", state };
 }
 
 function enumOptionValue(field: InferenceConfigurationField, request: unknown): string {
@@ -446,7 +458,10 @@ function prefillPresentation(
 	if (!policy.request) return `${raw} Applied off.`;
 	switch (policy.adjustment) {
 		case null: return `${raw} Applied on.`;
-		case "prefill_unsupported": return `${raw} Applied off because this provider route does not support prefill with tools.`;
+		case "prefill_unsupported":
+			return policy.capability?.kind === "fallback_observation"
+				? `${raw} Applied off from the compatibility fallback because provider-specific prefill-with-tools evidence is incomplete.`
+				: `${raw} Applied off because this provider route does not support prefill with tools.`;
 		case "reasoning_shape_not_applicable": return `${raw} Applied off because this reasoning shape cannot be probed for prefill with tools.`;
 		case "provider_compatibility_incomplete": return `${raw} Applied off because prefill with tools is not known compatible across every eligible provider.`;
 	}
@@ -466,6 +481,10 @@ function compactionReasoningPresentation(
 			: `Configured request unavailable from ${sourceLabel(source, path)}.`;
 	if (resolution.kind === "refused") {
 		return `${raw} Compaction policy refuses the request; controlling input is ${compactionDecisionText(resolution.decision)}.`;
+	}
+	if (resolution.selection.kind === "model_default" && resolution.selection.effort === undefined &&
+		resolution.decision.kind === "model_default") {
+		return `${raw} Applied the model default.`;
 	}
 	return `${raw} Applied ${compactionSelectionText(resolution.selection)} from ${compactionDecisionText(resolution.decision)}.`;
 }
@@ -536,17 +555,26 @@ export function adjustmentText(field: InferenceConfigurationField, adjustment: I
 			const policy = adjustment.policy;
 			if (policy.emission === "omit_tool_choice") return "Provider default leaves tool_choice unset.";
 			switch (policy.capability?.adjustment) {
-				case "required_tool_calls_unsupported": return "This provider request shape does not support required tool calls, so Railroad is applied.";
+				case "required_tool_calls_unsupported":
+					return policy.capability.observation.kind === "fallback_observation"
+						? "Provider-specific evidence is incomplete, so the compatibility fallback applies Railroad."
+						: "This provider request shape does not support required tool calls, so Railroad is applied.";
 				case "reasoning_shape_not_applicable": return "Required tool calls do not apply to this reasoning shape, so Railroad is applied.";
 				case "provider_compatibility_incomplete": return "Required tool calls are not known compatible across every eligible provider, so Railroad is applied.";
 				case null:
-				case undefined: return null;
+				case undefined:
+					return policy.intent.kind === "inherit" || policy.intent.kind === "bickr_automatic"
+						? `Bickr automatic applies ${effectiveValueText(field, policy.appliedStrategy)} to the ordinary loop.`
+						: null;
 			}
 			return null;
 		}
 		case "prefill_policy": {
 			switch (adjustment.policy.adjustment) {
-				case "prefill_unsupported": return "Prefill was requested, but this provider route does not support prefill with tools, so Off is applied.";
+				case "prefill_unsupported":
+					return adjustment.policy.capability?.kind === "fallback_observation"
+						? "Prefill was requested, but provider-specific evidence is incomplete and the compatibility fallback applies Off."
+						: "Prefill was requested, but this provider route does not support prefill with tools, so Off is applied.";
 				case "reasoning_shape_not_applicable": return "Prefill was requested, but this reasoning shape cannot use the tested prefill-with-tools capability, so Off is applied.";
 				case "provider_compatibility_incomplete": return "Prefill was requested, but compatibility with tools is not known across every eligible provider, so Off is applied.";
 				case null: return null;

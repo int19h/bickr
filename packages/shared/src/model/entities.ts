@@ -335,9 +335,16 @@ export type BotStructuredToolCalls = Exclude<BotInferenceToolCalls, "at_will">;
 export type BotCompactionMode = "structured_output" | "tool_call" | "tool_call_cache_friendly";
 export type BotCompactionModeRequest =
 	| { kind: "bickr_automatic" }
-	| { kind: "provider_default" }
 	| { kind: "mode"; mode: BotCompactionMode };
 export type BotCompactionModeIntent = { kind: "inherit" } | BotCompactionModeRequest;
+/**
+ * Migration-v1 stored this impossible provider-owned state. New owner writes
+ * reject it; migration 0046 rewrites provenance-proven rows and this boundary
+ * keeps unswept rows readable until that bounded sweep completes. Once fleet
+ * status has no pending rows, bump the graph schema and delete this alias and
+ * its storage-parser branch.
+ */
+export type LegacyBotCompactionModeRequest = BotCompactionModeRequest | { kind: "provider_default" };
 export type BotPromptCacheMode = "off" | "openrouter_anthropic_5m" | "openrouter_anthropic_1h";
 export type BotPromptCacheRequest =
 	| { kind: "bickr_automatic" }

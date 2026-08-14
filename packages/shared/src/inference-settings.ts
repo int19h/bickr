@@ -14,7 +14,6 @@ import {
 	defaultTextGenerationTemperature,
 	legacyDefaultTextGenerationTemperature,
 	type BotCompactionMode,
-	type BotCompactionModeIntent,
 	type BotCompactionReasoningRequest,
 	type BotDocument,
 	type BotInferenceReasoningEffort,
@@ -63,7 +62,6 @@ export type ProviderSettings = {
 	baseUrl: string;
 	model: string;
 	compactionMode?: BotCompactionMode;
-	compactionModeRequest?: BotCompactionModeIntent;
 	// This request is intentionally separate from reasoningEffort. Legacy
 	// settings leave it absent so the established compaction policy still owns
 	// the default until a configuration resolver supplies an explicit request.
@@ -218,7 +216,7 @@ export function resolveBotProviderSettings(
 		openRouter,
 		toolCallRequest,
 		providerRouting?.effective,
-		reasoningRequest.kind === "provider_default" || reasoningEffort?.effective === undefined ? "provider_default"
+		reasoningEffort?.effective === undefined ? "provider_default"
 			: reasoningEffort?.effective === "none" ? "reasoning_off" : "reasoning_on",
 	);
 	const toolCalls = capabilityResolvedSetting(
@@ -253,7 +251,7 @@ export function resolveBotProviderSettings(
 		openRouter,
 		supportsPrefillInput?.effective,
 		providerRouting?.effective,
-		reasoningRequest.kind === "provider_default" || reasoningEffort?.effective === undefined ? "provider_default"
+		reasoningEffort?.effective === undefined ? "provider_default"
 			: reasoningEffort.effective === "none" ? "reasoning_off" : "reasoning_on",
 	);
 	const supportsPrefill = capabilityResolvedSetting(supportsPrefillInput, prefillPolicy.applied);
@@ -350,20 +348,17 @@ export function resolveLegacyTranslationProviderSettings(
 		requestedReasoning,
 		providerRouting,
 	);
-	const reasoningRequest = !usingLoopSettings && (requestedReasoning === undefined || requestedReasoning === "default")
-		? { kind: "provider_default" as const }
-		: providerReasoningRequestFromLegacyEffort(requestedReasoning);
-	const reasoningShape = reasoningRequest.kind === "provider_default" || reasoningEffort === undefined ? "provider_default"
+	const reasoningRequest = providerReasoningRequestFromLegacyEffort(requestedReasoning);
+	const reasoningShape = reasoningEffort === undefined ? "provider_default"
 		: reasoningEffort === "none" ? "reasoning_off" : "reasoning_on";
 	const requestedToolCalls = usingLoopSettings ? userSettings.toolCalls : translation.toolCalls;
 	const toolCallRequest = requestedToolCalls !== undefined
 		? { kind: "strategy" as const, strategy: requestedToolCalls }
-		: usingLoopSettings ? { kind: "bickr_automatic" as const } : { kind: "provider_default" as const };
+		: { kind: "bickr_automatic" as const };
 	const toolCalls = effectiveStructuredToolCallsForModel(
 		model,
 		openRouter,
-		toolCallRequest.kind === "strategy" ? toolCallRequest.strategy
-			: toolCallRequest.kind === "provider_default" ? "at_will" : undefined,
+		toolCallRequest.kind === "strategy" ? toolCallRequest.strategy : undefined,
 		providerRouting,
 		reasoningShape,
 	);
