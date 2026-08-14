@@ -1641,6 +1641,91 @@ describe("Provider requests", () => {
 		expect("session_id" in nonClaudeCacheRequest).toBe(false);
 	});
 
+	it("resolves compaction tool and prefill intent against each actual reasoning shape", () => {
+		const messages = [{ role: "assistant" as const, content: "Retained summary." }];
+		const ordinaryReasoningOn = effectiveProviderSettingsForBot({
+			inferenceSettings: {
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "deepseek/deepseek-v3.2",
+				providerRouting: { only: ["atlas-cloud/fp8"], allow_fallbacks: false },
+				reasoningEffort: "minimal",
+			},
+		}, { inferenceSettings: {} }, {});
+		expect(ordinaryReasoningOn).toMatchObject({
+			toolCallRequest: { kind: "bickr_automatic" },
+			toolCalls: "railroad",
+		});
+		const reasoningOff = providerCompactionRequest(
+			ordinaryReasoningOn,
+			messages,
+			undefined,
+			undefined,
+			"tool_call",
+			{ effort: "none", exclude: false },
+		);
+		const reasoningOn = providerCompactionRequest(
+			ordinaryReasoningOn,
+			messages,
+			undefined,
+			undefined,
+			"tool_call",
+			{ effort: "minimal", exclude: false },
+		);
+
+		expect(reasoningOff.tool_choice).toBe("required");
+		expect(reasoningOn.tool_choice).toBeUndefined();
+		expect(providerCompactionRequest({
+			baseUrl: customProviderBaseUrl,
+			model: "test-model",
+			toolCallRequest: { kind: "provider_default" },
+		}, messages).tool_choice).toBe("none");
+
+		const shapeDivergentPrefill = effectiveProviderSettingsForBot({
+			inferenceSettings: {
+				baseUrl: "https://openrouter.ai/api/v1",
+				model: "deepseek/deepseek-v3.2",
+				providerRouting: { only: ["digitalocean"], allow_fallbacks: false },
+				reasoningEffort: "minimal",
+				supportsPrefill: true,
+			},
+		}, { inferenceSettings: {} }, {});
+		expect(shapeDivergentPrefill).toMatchObject({
+			prefillRequest: { kind: "explicit", enabled: true },
+			supportsPrefill: false,
+		});
+		expect(providerCompactionRequest(
+			shapeDivergentPrefill,
+			messages,
+			undefined,
+			undefined,
+			"tool_call",
+			{ effort: "none", exclude: false },
+		).messages.at(-1)?.role).toBe("assistant");
+		expect(providerCompactionRequest(
+			shapeDivergentPrefill,
+			messages,
+			undefined,
+			undefined,
+			"tool_call",
+			{ effort: "minimal", exclude: false },
+		).messages.at(-1)?.role).toBe("user");
+
+		const translationBase = {
+			baseUrl: ordinaryReasoningOn.baseUrl,
+			model: ordinaryReasoningOn.model,
+			providerRouting: ordinaryReasoningOn.providerRouting,
+			toolCallRequest: ordinaryReasoningOn.toolCallRequest,
+			prompt: "Translate.",
+			temperature: 0,
+		};
+		expect(providerTranslationRequest(
+			{ ...translationBase, reasoningEffort: "none" }, "Hello.",
+		).tool_choice).toBe("required");
+		expect(providerTranslationRequest(
+			{ ...translationBase, reasoningEffort: "minimal" }, "Hello.",
+		).tool_choice).toBeUndefined();
+	});
+
 	it("applies conservative request policy for unknown OpenRouter models", () => {
 		const request = providerChatCompletionRequest(
 			{

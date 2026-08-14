@@ -27,6 +27,7 @@ import {
 	type BotCompactionReasoningRequest,
 	type BotInferenceReasoningEffort,
 	type BotInferenceReasoningIntent,
+	type BotInferencePrefillIntent,
 	type BotInferenceReasoningRequest,
 	type BotInferenceToolCalls,
 	type BotInferenceToolCallIntent,
@@ -277,6 +278,7 @@ export type EffectiveInferenceSettings = {
 	promptCacheMode: BotPromptCacheMode;
 	promptCacheIntent: BotPromptCacheIntent;
 	supportsPrefill: boolean;
+	prefillIntent: BotInferencePrefillIntent;
 	prefillPolicy: AppliedPrefillPolicy;
 	temperature: number;
 	topK?: number;
@@ -457,10 +459,14 @@ export function resolveInferenceConfiguration(
 	const promptCacheMode = modelSupportsPromptCacheControl(effectiveModel, openRouter)
 		? requestedPromptCacheMode
 		: "off";
+	const configuredPrefill = optionalRawValue(raw.supportsPrefill);
+	const prefillIntent: BotInferencePrefillIntent = configuredPrefill === undefined
+		? { kind: "inherit" }
+		: { kind: "explicit", enabled: configuredPrefill };
 	const prefillPolicy = resolvePrefillPolicyForModel(
 		effectiveModel,
 		openRouter,
-		optionalRawValue(raw.supportsPrefill),
+		prefillIntent.kind === "explicit" ? prefillIntent.enabled : undefined,
 		providerRouting,
 		reasoningShape,
 	);
@@ -493,6 +499,7 @@ export function resolveInferenceConfiguration(
 			promptCacheMode,
 			promptCacheIntent: promptCacheRequest,
 			supportsPrefill,
+			prefillIntent,
 			prefillPolicy,
 			temperature: optionalRawValue(raw.temperature) ?? defaultTextGenerationTemperature,
 			...(optionalNumber(raw.topK) !== undefined ? { topK: optionalNumber(raw.topK) } : {}),

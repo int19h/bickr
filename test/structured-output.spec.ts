@@ -218,7 +218,7 @@ describe("Structured output", () => {
 			const railroadRequest = providerCompactionRequest(
 				{
 					model: "test-model",
-					toolCalls: "railroad",
+					toolCallRequest: { kind: "strategy", strategy: "railroad" },
 				},
 				messages,
 				limits,
@@ -228,7 +228,7 @@ describe("Structured output", () => {
 			const coercedAtWillRequest = providerCompactionRequest(
 				{
 					model: "test-model",
-					toolCalls: "at_will",
+					toolCallRequest: { kind: "strategy", strategy: "at_will" },
 				},
 				messages,
 				limits,

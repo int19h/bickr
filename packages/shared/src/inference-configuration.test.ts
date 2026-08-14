@@ -63,6 +63,7 @@ describe("canonical inference configuration resolution", () => {
 			adjustment: null,
 			capability: null,
 		});
+		expect(unset.effective.prefillIntent).toEqual({ kind: "inherit" });
 
 		const customAccount = node("custom-account", "account_default", null, {
 			baseUrl: value("https://provider.example/v1"),
@@ -77,6 +78,7 @@ describe("canonical inference configuration resolution", () => {
 			provenance: { kind: "configured", source: { kind: "account_default", depth: 1 } },
 		});
 		expect(inherited.effective.prefillPolicy).toMatchObject({ request: true, applied: true, adjustment: null });
+		expect(inherited.effective.prefillIntent).toEqual({ kind: "explicit", enabled: true });
 
 		const unsupported = node("unsupported", "account_default", null, {
 			reasoning: value({ kind: "reasoning_disabled" }),

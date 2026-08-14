@@ -2,7 +2,7 @@ import { worldAvatarMembersPromptUserContent } from '@bickr/shared/avatar-prompt
 import { avatarContentTypeFromBytes, avatarMaxBytes, validateAvatarDataUrl } from '@bickr/shared/avatar-storage';
 import { isOpenRouterProviderBaseUrl } from '@bickr/shared/inference-settings';
 import {
-	effectiveStructuredToolCallsForModel,
+	resolveToolCallPolicyForModel,
 	type RequiredToolCallReasoningShape,
 } from '@bickr/shared/openrouter-model-capabilities';
 import {
@@ -131,23 +131,24 @@ const currentWorldAvatarDescriptionSystemPrompt =
 	'Describe the supplied public world image as a highly detailed text prompt for a refreshed Bickr world avatar. Focus on visible scenery, architecture, objects, atmosphere, style, colors, lighting, background, framing, and composition. Return only the description text.';
 
 export function providerAvatarRequestedToolCalls(
-	settings: Pick<ProviderSettings, "toolCallRequest" | "toolCalls">,
-): "require" | "railroad" | "at_will" {
-	const request = settings.toolCallRequest;
-	switch (request?.kind) {
-		case "provider_default": return "at_will";
-		case "strategy":
-			switch (request.strategy) {
-				case "railroad": return "railroad";
-				case "require":
-				case "at_will": return "require";
-				default: return unreachableAvatarValue(request.strategy);
-			}
-		case undefined:
-		case "inherit":
-		case "bickr_automatic": return settings.toolCalls === "railroad" ? "railroad" : "require";
-		default: return unreachableAvatarValue(request);
-	}
+	settings: Pick<ProviderSettings, "baseUrl" | "model" | "providerRouting" | "toolCallRequest">,
+	reasoningShape: RequiredToolCallReasoningShape,
+): "require" | "railroad" {
+	const request = settings.toolCallRequest ?? { kind: "inherit" as const };
+	// Avatar descriptions are structured operations. An owner-facing at-will
+	// request still needs a tool result here, so preserve the established
+	// operation baseline before applying the actual request-shape capability.
+	const operationRequest = request.kind === "strategy" && request.strategy === "at_will"
+		? { kind: "strategy" as const, strategy: "require" as const }
+		: request;
+	const policy = resolveToolCallPolicyForModel(
+		settings.model,
+		settingsUseOpenRouter(settings),
+		operationRequest,
+		settings.providerRouting,
+		reasoningShape,
+	);
+	return policy.appliedStrategy === "require" ? "require" : "railroad";
 }
 
 export function providerAvatarToolChoice(
@@ -1032,14 +1033,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 			: runtime.reasoningForSettings(settings);
 		const reasoningShape: RequiredToolCallReasoningShape = !reasoning ? 'provider_default'
 			: 'effort' in reasoning && reasoning.effort === 'none' ? 'reasoning_off' : 'reasoning_on';
-		const requestedToolCalls = providerAvatarRequestedToolCalls(settings);
-		const toolCalls = effectiveStructuredToolCallsForModel(
-			settings.model,
-			settingsUseOpenRouter(settings),
-			requestedToolCalls,
-			settings.providerRouting,
-			reasoningShape,
-		);
+		const toolCalls = providerAvatarRequestedToolCalls(settings, reasoningShape);
 		const toolChoice = providerAvatarToolChoice(mode, settings, toolCalls);
 		const finalInstruction =
 			mode === 'structured_output'

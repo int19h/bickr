@@ -236,6 +236,7 @@ export function providerSettingsFromResolution(resolution: InferenceResolution):
 		...(effective.reasoningEffort ? { reasoningEffort: effective.reasoningEffort } : {}),
 		reasoningRequest: effective.reasoningIntent,
 		supportsPrefill: effective.supportsPrefill,
+		prefillRequest: effective.prefillIntent,
 		prefillPolicy: effective.prefillPolicy,
 		toolCalls: effective.toolCalls,
 		toolCallRequest: effective.toolCallIntent,

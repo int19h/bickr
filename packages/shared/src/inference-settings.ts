@@ -19,6 +19,7 @@ import {
 	type BotInferenceReasoningEffort,
 	type BotInferenceReasoningIntent,
 	type BotInferenceReasoningRequest,
+	type BotInferencePrefillIntent,
 	type BotInferenceSettings,
 	type BotInferenceToolCalls,
 	type BotInferenceToolCallIntent,
@@ -72,6 +73,7 @@ export type ProviderSettings = {
 	reasoningEffort?: Exclude<BotInferenceReasoningEffort, "default">;
 	reasoningRequest?: BotInferenceReasoningIntent;
 	supportsPrefill?: boolean;
+	prefillRequest?: BotInferencePrefillIntent;
 	prefillPolicy?: AppliedPrefillPolicy;
 	toolCalls?: BotInferenceToolCalls;
 	toolCallRequest?: BotInferenceToolCallIntent;
@@ -246,10 +248,13 @@ export function resolveBotProviderSettings(
 		inheritedDefaults.supportsPrefill,
 		botSource,
 	);
+	const prefillRequest: BotInferencePrefillIntent = supportsPrefillInput
+		? { kind: "explicit", enabled: supportsPrefillInput.effective }
+		: { kind: "inherit" };
 	const prefillPolicy = resolvePrefillPolicyForModel(
 		model.effective,
 		openRouter,
-		supportsPrefillInput?.effective,
+		prefillRequest.kind === "explicit" ? prefillRequest.enabled : undefined,
 		providerRouting?.effective,
 		reasoningEffort?.effective === undefined ? "provider_default"
 			: reasoningEffort.effective === "none" ? "reasoning_off" : "reasoning_on",
@@ -285,6 +290,7 @@ export function resolveBotProviderSettings(
 			...(reasoningEffort ? { reasoningEffort: reasoningEffort.effective } : {}),
 			reasoningRequest,
 			supportsPrefill: supportsPrefill.effective,
+			prefillRequest,
 			prefillPolicy,
 			toolCalls: toolCalls.effective,
 			toolCallRequest,

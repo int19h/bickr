@@ -331,6 +331,10 @@ export type BotInferenceToolCallRequest =
 	| { kind: "provider_default" }
 	| { kind: "strategy"; strategy: BotInferenceToolCalls };
 export type BotInferenceToolCallIntent = { kind: "inherit" } | BotInferenceToolCallRequest;
+/** Raw prefill intent is retained until the request's reasoning shape is known. */
+export type BotInferencePrefillIntent =
+	| { kind: "inherit" }
+	| { kind: "explicit"; enabled: boolean };
 export type BotStructuredToolCalls = Exclude<BotInferenceToolCalls, "at_will">;
 export type BotCompactionMode = "structured_output" | "tool_call" | "tool_call_cache_friendly";
 export type BotCompactionModeRequest =

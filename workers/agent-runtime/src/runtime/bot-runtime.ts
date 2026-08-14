@@ -83,7 +83,6 @@ import {
 	effectiveCompactionModeForModel,
 	effectiveReasoningEffortForModel,
 	effectiveContextWindowForModel,
-	effectiveStructuredToolCallsForModel,
 	effectiveToolCallsForModel,
 	modelSupportsPromptCacheControl,
 	resolveCompactionReasoningSelection,
@@ -123,6 +122,7 @@ import {
 	type BotEffectivePostingSettings,
 	type BotInferenceSettings,
 	type BotInferenceSettingsInput,
+	type BotInferencePrefillIntent,
 	type BotInferenceToolCalls,
 	type BotProfileRelationshipSummary,
 	type BotRuntimeEvent,
@@ -866,6 +866,14 @@ function providerReasoningShapeForSettings(
 	return 'effort' in reasoning && reasoning.effort === 'none' ? 'reasoning_off' : 'reasoning_on';
 }
 
+function providerPrefillRequestValue(request: BotInferencePrefillIntent | undefined): boolean | undefined {
+	switch (request?.kind) {
+		case undefined:
+		case 'inherit': return undefined;
+		case 'explicit': return request.enabled;
+	}
+}
+
 function providerFunctionToolsForBot(
 	bot: Pick<BotDocument, 'postingSettings' | 'tickSettings'> & { effectivePostingSettings?: BotEffectivePostingSettings },
 	settings?: Pick<ProviderSettings, 'compactionMode'>,
@@ -1028,7 +1036,9 @@ function providerLoopMaxCompletionTokens(contextWindowTokens: number, estimatedP
 }
 
 export function providerCompactionRequest(
-	settings: Pick<ProviderSettings, 'model' | 'providerRouting' | 'reasoningEffort' | 'reasoningRequest' | 'supportsPrefill' | 'toolCalls' | 'toolCallRequest'> & { baseUrl?: string },
+	settings: Pick<ProviderSettings,
+		'model' | 'prefillRequest' | 'providerRouting' | 'reasoningEffort' | 'reasoningRequest' |
+		'toolCallRequest'> & { baseUrl?: string },
 	messages: ChatMessage[],
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength' | 'maxCompletionTokens'> = defaultProviderCompactionSummaryLimits,
 	providerTools?: ProviderToolDefinition[],
@@ -1038,21 +1048,25 @@ export function providerCompactionRequest(
 	const effectiveMode = effectiveCompactionModeForModel(settings.model, settingsUseOpenRouter(settings), mode, settings.providerRouting);
 	const reasoningShape: RequiredToolCallReasoningShape = !reasoning ? 'provider_default'
 		: 'effort' in reasoning && reasoning.effort === 'none' ? 'reasoning_off' : 'reasoning_on';
-	const requestedToolCalls = settings.toolCallRequest?.kind === 'strategy'
-		? settings.toolCallRequest.strategy
-		: settings.toolCallRequest?.kind === 'provider_default' ? 'at_will'
-		: settings.toolCalls ?? 'require';
-	const toolCalls = effectiveStructuredToolCallsForModel(
+	const toolCallPolicy = resolveToolCallPolicyForModel(
 		settings.model,
 		settingsUseOpenRouter(settings),
-		requestedToolCalls,
+		settings.toolCallRequest ?? { kind: 'inherit' },
+		settings.providerRouting,
+		reasoningShape,
+	);
+	const toolCalls = toolCallPolicy.appliedStrategy === 'require' ? 'require' : 'railroad';
+	const prefillPolicy = resolvePrefillPolicyForModel(
+		settings.model,
+		settingsUseOpenRouter(settings),
+		providerPrefillRequestValue(settings.prefillRequest),
 		settings.providerRouting,
 		reasoningShape,
 	);
 	const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(limits, undefined, effectiveMode);
 	const toolChoice = effectiveMode === 'structured_output'
 		? providerNoToolChoice
-		: settings.toolCallRequest?.kind === 'provider_default' ? undefined : providerToolChoiceForMode(toolCalls);
+		: toolCallPolicy.emission === 'omit_tool_choice' ? undefined : providerToolChoiceForMode(toolCalls);
 	const responseFormat = providerCompactionResponseFormat(limits.maxLength, effectiveMode);
 	const toolRequestFields =
 		effectiveProviderTools.length > 0
@@ -1064,7 +1078,10 @@ export function providerCompactionRequest(
 			: {};
 	return {
 		model: settings.model,
-		messages: sanitizeProviderMessagesForRequest(providerMessagesWithPrefillCompatibility(settings, messages)),
+		messages: sanitizeProviderMessagesForRequest(providerMessagesWithPrefillCompatibility(
+			{ baseUrl: settings.baseUrl, model: settings.model, supportsPrefill: prefillPolicy.applied },
+			messages,
+		)),
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		stream: false,
 		...toolRequestFields,
@@ -1215,14 +1232,15 @@ export function providerTokenProbeRequest(
 export function providerTranslationRequest(settings: TranslationProviderSettings, text: string): ProviderTranslationRequest {
 	const reasoning = providerReasoningForSettings(settings);
 	const reasoningShape = providerReasoningShapeForSettings(settings);
-	const requestedToolCalls = settings.toolCallRequest?.kind === 'strategy'
-		? settings.toolCallRequest.strategy
-		: settings.toolCallRequest?.kind === 'provider_default' ? 'at_will'
-		: settings.toolCalls ?? 'require';
-	const toolCalls = effectiveStructuredToolCallsForModel(
-		settings.model, settingsUseOpenRouter(settings), requestedToolCalls, settings.providerRouting, reasoningShape,
+	const toolCallPolicy = resolveToolCallPolicyForModel(
+		settings.model,
+		settingsUseOpenRouter(settings),
+		settings.toolCallRequest ?? { kind: 'inherit' },
+		settings.providerRouting,
+		reasoningShape,
 	);
-	const toolChoice = settings.toolCallRequest?.kind === 'provider_default' ? undefined : providerToolChoiceForMode(toolCalls);
+	const toolCalls = toolCallPolicy.appliedStrategy === 'require' ? 'require' : 'railroad';
+	const toolChoice = toolCallPolicy.emission === 'omit_tool_choice' ? undefined : providerToolChoiceForMode(toolCalls);
 	const tools = providerTranslationToolDefinitions();
 	return {
 		model: settings.model,
@@ -1360,6 +1378,9 @@ function effectiveProviderSettingsForWorldPrompt(
 		reasoningShape,
 	);
 	const supportsPrefill = prefillPolicy.applied;
+	const prefillRequest: BotInferencePrefillIntent = requestSettings.supportsPrefill === undefined
+		? { kind: 'inherit' }
+		: { kind: 'explicit', enabled: requestSettings.supportsPrefill };
 	return {
 		apiKey: requestApiKey ?? (requestBaseUrl ? undefined : envApiKey),
 		baseUrl,
@@ -1369,6 +1390,7 @@ function effectiveProviderSettingsForWorldPrompt(
 		...(reasoningEffort ? { reasoningEffort } : {}),
 		reasoningRequest,
 		supportsPrefill,
+		prefillRequest,
 		prefillPolicy,
 		toolCalls,
 		toolCallRequest,
