@@ -222,6 +222,40 @@ describe("Deferred spotlight visits", () => {
 		expect(harness.runs.filter((run) => run.mode === "spotlight")).toHaveLength(1);
 	});
 
+	it("completes without a second visit when a retry re-ticks an injection already read", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "deferred-retick");
+		const author = await createBotForTest(cookie, "retick-author");
+		const participant = await createBotForTest(cookie, "retick-participant", { enabled: true });
+		const thread = await createThreadForTest(forum.id, author.id, "Retick thread", "Look at this.");
+		const harness = deferredHarness();
+		const spotlightId = "spt_retick";
+
+		const injected = (await (
+			await harness.fetch(
+				runtimeRequest(participant.id, "inject", {
+					text: JSON.stringify(spotlightContext(thread.id, thread.rootCommentId)),
+					kind: "spotlight",
+					sourceId: spotlightId,
+					spotlightId,
+				}),
+			)
+		).json()) as { data: { injectionId: string } };
+		const injectionId = injected.data.injectionId;
+		const body = { mode: "spotlight", injectionIds: [injectionId], spotlightId };
+
+		expect((await runPayload(await harness.fetch(runtimeRequest(participant.id, "tick", body)))).status).toBe("completed");
+		expect(harness.runs).toHaveLength(1);
+
+		// The sender never saw that answer and asks again. The injection is
+		// already read, so the visit has nothing to do and says so.
+		const retry = await runPayload(await harness.fetch(runtimeRequest(participant.id, "tick", body)));
+
+		expect(retry.status).toBe("completed");
+		expect(harness.runs).toHaveLength(1);
+	});
+
 	it("refuses to defer a visit that names no injection to read", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);

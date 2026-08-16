@@ -735,22 +735,31 @@ export type SpotlightSendResult = {
 };
 
 /**
- * Whether a result means the participant is done with this spotlight and can be
- * dropped from a retry. Exhaustive by construction so a new member forces every
- * client through this decision instead of defaulting to "success".
+ * Why a participant is still owed this spotlight, or `null` when it is not.
+ *
+ * The single place the union is taken apart, so a new member forces one
+ * decision rather than several that could disagree: the owner's failure list,
+ * the stored delivery row, and "may a retry drop this participant" are all the
+ * same question. `injected_tick_failed` answers it as a failure on purpose —
+ * the injection landed, but nothing is confirmed to read it.
  */
-export function spotlightDeliverySucceeded(delivery: SpotlightDeliveryResult): boolean {
+export function spotlightDeliveryFailureMessage(delivery: SpotlightDeliveryResult): string | null {
 	switch (delivery.status) {
+		case "not_injected":
+		case "injected_tick_failed":
+			return delivery.message;
 		case "tick_started":
 		case "tick_pending":
 		case "already_delivered":
-			return true;
-		case "not_injected":
-		case "injected_tick_failed":
-			return false;
+			return null;
 		default:
 			return assertNeverSpotlightDelivery(delivery);
 	}
+}
+
+/** Whether the participant is done with this spotlight and a retry may skip it. */
+export function spotlightDeliverySucceeded(delivery: SpotlightDeliveryResult): boolean {
+	return spotlightDeliveryFailureMessage(delivery) === null;
 }
 
 function assertNeverSpotlightDelivery(delivery: never): never {

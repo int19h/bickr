@@ -52,6 +52,7 @@ import {
 	isSpotlightStaleReadCause,
 	maxSpotlightSendBots,
 	spotlightDeliveryCompletedStatuses,
+	spotlightDeliveryFailureMessage,
 	type SpotlightDeliveryResult,
 	type SpotlightErrorCause,
 	type SpotlightIncludedContent,
@@ -4746,29 +4747,45 @@ export async function sendSpotlightBatch(
 		focusText,
 		now,
 	};
-	const settled = await Promise.allSettled([
-		...plan.pausedBotIds.map(async (botId): Promise<SpotlightDeliveryResult> => {
-			const result: SpotlightDeliveryResult = {
-				status: "not_injected",
-				botId,
-				cause: "paused",
-				message: "This participant is paused, so it cannot receive a spotlight.",
-			};
-			await recordSpotlightDelivery(db, { ...row, botId, injectedText: "", result });
-			return result;
-		}),
-		...plan.drafts.map((draft) => deliverSpotlightToBot(db, { row, draft, input, handlers })),
-	]);
-	for (const outcome of settled) {
-		if (outcome.status === "fulfilled") {
-			deliveries.set(outcome.value.botId, outcome.value);
-			continue;
-		}
-		// A unit rejecting is a defect rather than a delivery outcome, but it must
-		// not cost its siblings their results, and the participant it belongs to
-		// has to stay retryable rather than silently vanish from the response.
-		throw outcome.reason;
-	}
+	const units: Array<{ botId: string; run: () => Promise<SpotlightDeliveryResult> }> = [
+		...plan.pausedBotIds.map((botId) => ({
+			botId,
+			run: async (): Promise<SpotlightDeliveryResult> => {
+				const result: SpotlightDeliveryResult = {
+					status: "not_injected",
+					botId,
+					cause: "paused",
+					message: "This participant is paused, so it cannot receive a spotlight.",
+				};
+				await recordSpotlightDelivery(db, { ...row, botId, injectedText: "", result });
+				return result;
+			},
+		})),
+		...plan.drafts.map((draft) => ({
+			botId: draft.bot.id,
+			run: () => deliverSpotlightToBot(db, { row, draft, input, handlers }),
+		})),
+	];
+	// Units run against distinct Durable Objects and are settled rather than
+	// raced: one participant's failure, however unexpected, must not take its
+	// siblings' outcomes down with it — those participants really were
+	// spotlighted, and the response is what tells the client to stop retrying
+	// them.
+	const settled = await Promise.allSettled(units.map((unit) => unit.run()));
+	settled.forEach((outcome, index) => {
+		const botId = units[index]?.botId ?? "";
+		deliveries.set(
+			botId,
+			outcome.status === "fulfilled" ? outcome.value : (
+				{
+					status: "not_injected",
+					botId,
+					cause: "inject_error",
+					message: outcome.reason instanceof Error ? outcome.reason.message : "The spotlight could not be delivered.",
+				}
+			),
+		);
+	});
 	return {
 		spotlightId,
 		deliveries: botIds.flatMap((botId) => {
@@ -4801,56 +4818,64 @@ async function deliverSpotlightToBot(
 		return result;
 	}
 
-	await markBotSeenContent(
-		db,
-		botId,
-		[
-			...[...new Set(draft.content.map((item) => item.threadId))].map((id) => ({ type: "thread" as const, id })),
-			...draft.content.map((item) => ({ type: item.type, id: item.id })),
-			...autoProfileSeenItems(draft.content),
-		],
-		"spotlight",
-		row.spotlightId,
-		row.now,
-	);
-
-	// The row is written before the visit starts, and written pessimistically:
-	// the visit runs in the background and looks this row up to attribute its
-	// owner notifications, and a crash between here and the outcome update has
-	// to leave a state that a retry redoes rather than one that reads as done.
 	const injectedTickFailed = (message: string): SpotlightDeliveryResult => ({
 		status: "injected_tick_failed",
 		botId,
 		injectionId: injected.injectionId,
 		message,
 	});
-	await recordSpotlightDelivery(db, {
-		...row,
-		botId,
-		injectedText: draft.injectedText,
-		result: injectedTickFailed("The spotlight was injected, but its visit was never confirmed."),
-	});
+	// Past the injection, every remaining failure means the same thing to the
+	// owner and to a retry: this participant holds a spotlight that nothing has
+	// been confirmed to read. Reporting it as such keeps it selected instead of
+	// letting a storage error read as a delivery.
+	try {
+		await markBotSeenContent(
+			db,
+			botId,
+			[
+				...[...new Set(draft.content.map((item) => item.threadId))].map((id) => ({ type: "thread" as const, id })),
+				...draft.content.map((item) => ({ type: item.type, id: item.id })),
+				...autoProfileSeenItems(draft.content),
+			],
+			"spotlight",
+			row.spotlightId,
+			row.now,
+		);
 
-	const tick = await handlers.startTick({
-		botId,
-		injectionId: injected.injectionId,
-		spotlightId: row.spotlightId,
-		deferred: input.autoStartTick === false,
-	});
-	const result = ((): SpotlightDeliveryResult => {
-		switch (tick.kind) {
-			case "started":
-				return { status: "tick_started", botId, injectionId: injected.injectionId };
-			case "pending":
-				return { status: "tick_pending", botId, injectionId: injected.injectionId, reason: tick.reason };
-			case "failed":
-				return injectedTickFailed(tick.message);
-			default:
-				return assertNeverSpotlightTickOutcome(tick);
-		}
-	})();
-	await recordSpotlightDelivery(db, { ...row, botId, injectedText: draft.injectedText, result });
-	return result;
+		// The row is written before the visit starts, and written pessimistically:
+		// the visit runs in the background and looks this row up to attribute its
+		// owner notifications, and a crash between here and the outcome update has
+		// to leave a state that a retry redoes rather than one that reads as done.
+		await recordSpotlightDelivery(db, {
+			...row,
+			botId,
+			injectedText: draft.injectedText,
+			result: injectedTickFailed("The spotlight was injected, but its visit was never confirmed."),
+		});
+
+		const tick = await handlers.startTick({
+			botId,
+			injectionId: injected.injectionId,
+			spotlightId: row.spotlightId,
+			deferred: input.autoStartTick === false,
+		});
+		const result = ((): SpotlightDeliveryResult => {
+			switch (tick.kind) {
+				case "started":
+					return { status: "tick_started", botId, injectionId: injected.injectionId };
+				case "pending":
+					return { status: "tick_pending", botId, injectionId: injected.injectionId, reason: tick.reason };
+				case "failed":
+					return injectedTickFailed(tick.message);
+				default:
+					return assertNeverSpotlightTickOutcome(tick);
+			}
+		})();
+		await recordSpotlightDelivery(db, { ...row, botId, injectedText: draft.injectedText, result });
+		return result;
+	} catch (error) {
+		return injectedTickFailed(error instanceof Error ? error.message : "The spotlight visit could not be started.");
+	}
 }
 
 function assertNeverSpotlightTickOutcome(outcome: never): never {
@@ -4907,7 +4932,7 @@ async function recordSpotlightDelivery(
 				input.focusText,
 				input.injectedText,
 				input.result.status,
-				spotlightDeliveryErrorMessage(input.result),
+				spotlightDeliveryFailureMessage(input.result),
 				input.now,
 			)
 			.run();
@@ -4922,24 +4947,6 @@ async function recordSpotlightDelivery(
 		}
 		throw error;
 	}
-}
-
-function spotlightDeliveryErrorMessage(result: SpotlightDeliveryResult): string | null {
-	switch (result.status) {
-		case "not_injected":
-		case "injected_tick_failed":
-			return result.message;
-		case "tick_started":
-		case "tick_pending":
-		case "already_delivered":
-			return null;
-		default:
-			return assertNeverSpotlightDeliveryResult(result);
-	}
-}
-
-function assertNeverSpotlightDeliveryResult(result: never): never {
-	throw new Error(`Unhandled spotlight delivery result: ${JSON.stringify(result)}`);
 }
 
 /**

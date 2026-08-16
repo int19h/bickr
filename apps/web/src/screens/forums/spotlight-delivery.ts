@@ -1,7 +1,7 @@
 import {
 	maxSpotlightSendBots,
+	spotlightDeliveryFailureMessage,
 	spotlightDeliverySucceeded,
-	type SpotlightDeliveryResult,
 	type SpotlightSendResult,
 	type SpotlightTargetType,
 } from "@bickr/shared/model";
@@ -109,30 +109,6 @@ export async function sendSpotlightInBatches(input: {
 		});
 	}
 	return { kind: "completed" };
-}
-
-/**
- * The owner-facing reason a participant is still waiting, or `null` when it is
- * not. `injected_tick_failed` is a failure on purpose: the injection landed but
- * nothing will read it, which is exactly the case that used to look like
- * success.
- */
-export function spotlightDeliveryFailureMessage(delivery: SpotlightDeliveryResult): string | null {
-	switch (delivery.status) {
-		case "not_injected":
-		case "injected_tick_failed":
-			return delivery.message;
-		case "tick_started":
-		case "tick_pending":
-		case "already_delivered":
-			return null;
-		default:
-			return assertNeverDelivery(delivery);
-	}
-}
-
-function assertNeverDelivery(delivery: never): never {
-	throw new Error(`Unhandled spotlight delivery result: ${JSON.stringify(delivery)}`);
 }
 
 function spotlightSendBody(target: SpotlightSendTarget, botIds: string[], spotlightId: string | undefined) {
