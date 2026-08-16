@@ -2,26 +2,39 @@
 import { basename, dirname } from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
+import { isMadeId, makeId } from "@bickr/shared/ids";
 import {
+	maxSpotlightSendBots,
+	spotlightDeliveryFailureMessage,
+	spotlightDeliverySucceeded,
 	type BotGroupSummary,
 	type BotSummary,
 	type ForumSummary,
 	type LanguageTag,
 	type LocalizedText,
 	type SearchResult,
+	type SpotlightDeliveryResult,
 	type ThreadDocument,
 	type ThreadSummary,
 	type UserProfile,
 	type WorldListSummary,
 } from "@bickr/shared/model";
-import { flagBoolean, flagString, parseCommandOptions, parseGlobalArgs, CliUsageError, type GlobalOptions } from "./args.ts";
+import { flagBoolean, flagString, flagStrings, parseCommandOptions, parseGlobalArgs, CliUsageError, type GlobalOptions } from "./args.ts";
 import { BickrClient, ApiError, unwrap, type ApiEnvelope } from "./client.ts";
 import { deleteToken, runtimeConfig, saveToken } from "./config.ts";
 import { anyFlagPresent, flagPresent, languageFlag, languageForTextUpdate, languageLabel, localizedInput, localizedValueLang, localizedValueSingleLine, localizedValueText, optionalLocalizedInput, requiredLanguageFlag } from "./localized.ts";
 import { openBrowser } from "./open.ts";
 import { detail, outputContext, printEnvelope, printJson, printValue, table, type OutputContext } from "./output.ts";
 import { parseRange } from "./range.ts";
-import { botIdForRef, forumPartsForRef, parseBickrPath, resolveRef, threadPartsForRef, worldHandleForRef } from "./ref.ts";
+import { botIdForRef, forumPartsForRef, parseBickrPath, resolveBotTargets, resolveRef, threadPartsForRef, worldHandleForRef } from "./ref.ts";
+import {
+	defaultSpotlightTimeoutMs,
+	sendSpotlightInBatches,
+	spotlightTargetFromRefs,
+	type SpotlightDocument,
+	type SpotlightRunFailure,
+	type SpotlightSkippedParticipant,
+} from "./spotlight.ts";
 
 type CommandContext = {
 	client: BickrClient;
@@ -75,6 +88,9 @@ async function main(argv: string[]): Promise<void> {
 			break;
 		case "groups":
 			await groupsCommand(ctx, rest);
+			break;
+		case "spotlight":
+			await spotlightCommand(ctx, rest);
 			break;
 		case "export":
 			await exportCommand(ctx, rest);
@@ -411,6 +427,9 @@ async function botsBulkCommand(ctx: CommandContext, args: string[]): Promise<voi
 	}
 	const envelope = await ctx.client.request<{ bulk: { dryRun: boolean; bots: unknown[]; updatedCount?: number; failedCount?: number; targetCount: number } }>("/cli/bulk/bots", {
 		body: {
+			// With --all the positionals narrow the fleet by world instead of
+			// naming the selection; the server enforces that they are worlds.
+			all: flagBoolean(options.flags, "all"),
 			targets: options.positionals,
 			update: { inferenceSettings: modelPatch },
 			apply: flagBoolean(options.flags, "yes"),
@@ -587,7 +606,13 @@ async function groupsCommand(ctx: CommandContext, args: string[]): Promise<void>
 	if (subcommand === "add-bots") {
 		const worldHandle = await worldHandleForRef(ctx.client, requiredPosition(options.positionals, 0, "world reference"));
 		const groupId = requiredPosition(options.positionals, 1, "group id");
-		const botIds = await Promise.all(options.positionals.slice(2).map((ref) => botIdForRef(ctx.client, ref)));
+		const botTargets = options.positionals.slice(2);
+		if (botTargets.length === 0) {
+			throw new CliUsageError("Usage: bickr groups add-bots w/world GROUP_ID <bot-target...>");
+		}
+		// The same grammar bulk updates and spotlight use, so a group can be
+		// filled from another group, a whole world, or single participants.
+		const botIds = (await resolveBotTargets(ctx.client, { targets: botTargets })).map((bot) => bot.id);
 		await printMutation(ctx, ctx.client.request(`/worlds/${encodeURIComponent(worldHandle)}/groups/${encodeURIComponent(groupId)}/bots`, {
 			body: { botIds },
 			method: "POST",
@@ -602,6 +627,175 @@ async function groupsCommand(ctx: CommandContext, args: string[]): Promise<void>
 		return;
 	}
 	throw new CliUsageError("Usage: bickr groups <list|create|update|delete|add-bots|remove-bot>");
+}
+
+const spotlightUsage =
+	"Usage: bickr spotlight send <thread-or-comment-ref...> [--to BOT-TARGET]... [--all] [--focus TEXT] [--no-tick] [--batch-size 1-8] [--timeout 5-300] [--spotlight-id spt_ID]";
+
+async function spotlightCommand(ctx: CommandContext, args: string[]): Promise<void> {
+	const [subcommand, ...rest] = args;
+	if (subcommand !== "send") {
+		throw new CliUsageError(spotlightUsage);
+	}
+	const options = parseCommandOptions(rest, new Set([...commandBooleanFlags, "no-tick"]));
+	if (options.positionals.length === 0) {
+		throw new CliUsageError(spotlightUsage);
+	}
+	// Every flag is read and range-checked here, before the first request. A
+	// malformed command has no outcome to report — not even the empty-selection
+	// document below, which is an outcome of a valid run — so no validity check
+	// may sit downstream of a branch that prints one.
+	const botTargets = flagStrings(options.flags, "to");
+	const wholeWorld = flagBoolean(options.flags, "all");
+	if (botTargets.length === 0 && !wholeWorld) {
+		throw new CliUsageError("Spotlight requires --to BOT-TARGET (repeatable) or --all.");
+	}
+	const batchSize = integerFlagInRange(options.flags, "batch-size", 1, maxSpotlightSendBots) ?? maxSpotlightSendBots;
+	const timeoutSeconds = integerFlagInRange(options.flags, "timeout", 5, 300);
+	const spotlightId = spotlightRunId(options.flags);
+	const target = spotlightTargetFromRefs(await Promise.all(
+		options.positionals.map(async (ref) => ({ ref, resolved: await resolveRef(ctx.client, ref) })),
+	));
+	// `--all` means the forum's world, not the whole fleet: a spotlight can only
+	// reach participants who live where the thread does.
+	const selected = await resolveBotTargets(ctx.client, {
+		targets: wholeWorld ? [...botTargets, `w/${target.worldHandle}`] : botTargets,
+	});
+	const foreign = selected.filter((bot) => bot.homeWorldHandle !== target.worldHandle);
+	if (foreign.length > 0) {
+		throw new CliUsageError(
+			`Spotlight participants must live in w/${target.worldHandle}, but these do not: ${foreign.map(botRefText).join(", ")}.`,
+		);
+	}
+	// Paused participants never read an injection, so they are dropped here with
+	// a notice rather than sent and reported back as failures — the same
+	// eligibility the panel applies to its list.
+	const eligible = selected.filter((bot) => bot.tickSettings.enabled);
+	const skipped: SpotlightSkippedParticipant[] = selected
+		.filter((bot) => !bot.tickSettings.enabled)
+		.map((bot) => ({ botId: bot.id, ref: botRefText(bot), reason: "paused" }));
+	for (const participant of skipped) {
+		process.stderr.write(`Skipping ${participant.ref}: paused participants cannot receive a spotlight.\n`);
+	}
+	if (eligible.length === 0) {
+		// Still an outcome of this run, not a crash: the document is written the
+		// same way it would be for a delivery that failed, so `--json` never has
+		// to be told apart from a program that died before printing.
+		printSpotlight(ctx, {
+			spotlightId,
+			deliveries: [],
+			skipped,
+			failure: emptySelectionFailure(selected.length === 0),
+		}, 0, new Map());
+		process.exitCode = 1;
+		return;
+	}
+	const handleById = new Map(eligible.map((bot) => [bot.id, botRefText(bot)]));
+	process.stderr.write(
+		`Spotlight ${spotlightId}: ${eligible.length} participant${eligible.length === 1 ? "" : "s"} in batches of ${Math.min(batchSize, maxSpotlightSendBots)}.\n`,
+	);
+	const result = await sendSpotlightInBatches({
+		autoStartTick: !flagBoolean(options.flags, "no-tick"),
+		batchSize,
+		botIds: eligible.map((bot) => bot.id),
+		client: ctx.client,
+		focusText: flagString(options.flags, "focus") ?? "",
+		spotlightId,
+		target,
+		timeoutMs: timeoutSeconds === undefined ? defaultSpotlightTimeoutMs : timeoutSeconds * 1_000,
+		onBatch: (progress) => {
+			const failed = progress.deliveries.filter((delivery) => spotlightDeliveryFailureMessage(delivery) !== null).length;
+			process.stderr.write(
+				`Batch ${progress.batch}/${progress.batchCount}: ${progress.deliveries.length - failed} delivered, ${failed} failed.\n`,
+			);
+			for (const delivery of progress.deliveries) {
+				const failure = spotlightDeliveryFailureMessage(delivery);
+				if (failure !== null) {
+					process.stderr.write(`  ${handleById.get(delivery.botId) ?? delivery.botId}: ${failure}\n`);
+				}
+			}
+		},
+	});
+	if (result.failure) {
+		process.stderr.write(`Spotlight stopped: ${result.failure.code}: ${result.failure.message}\n`);
+	}
+	// A participant is still owed the spotlight whether its own delivery failed
+	// or its batch never ran. Naming the run id here is the only way a rerun can
+	// pick up where this one stopped: the server recognises the continuation and
+	// skips whoever was already reached, and nothing else remembers the id.
+	const owed = eligible.length - spotlightDeliveredCount(result);
+	if (owed > 0) {
+		process.stderr.write(
+			`${owed} participant${owed === 1 ? "" : "s"} still owed this spotlight. Rerun the same command with --spotlight-id ${spotlightId}; participants already reached are skipped.\n`,
+		);
+	}
+	printSpotlight(ctx, { ...result, skipped }, eligible.length, handleById);
+	if (owed > 0) {
+		process.exitCode = 1;
+	}
+}
+
+/**
+ * Why a run had nobody to send to. Both endings are ordinary — an owner may
+ * name a group whose members are all resting — so they are typed causes in the
+ * document rather than an exception.
+ */
+function emptySelectionFailure(nothingMatched: boolean): SpotlightRunFailure {
+	return nothingMatched ?
+		{ code: "no_participants_matched", message: "No participants matched the spotlight targets.", botIds: [] }
+	:	{
+			code: "all_participants_paused",
+			message: "Every participant matched by the spotlight targets is paused.",
+			botIds: [],
+		};
+}
+
+function spotlightRunId(flags: Map<string, string | boolean | string[]>): string {
+	const given = flagString(flags, "spotlight-id");
+	if (given === undefined) {
+		// Minted before the first request, so a response that never arrives can
+		// still be retried as this same run instead of spotlighting everyone twice.
+		return makeId("spt");
+	}
+	if (!isMadeId("spt", given)) {
+		throw new CliUsageError("--spotlight-id must be a spotlight id from an earlier run.");
+	}
+	return given;
+}
+
+function spotlightDeliveredCount(document: { deliveries: SpotlightDeliveryResult[] }): number {
+	return document.deliveries.filter(spotlightDeliverySucceeded).length;
+}
+
+function printSpotlight(ctx: CommandContext, document: SpotlightDocument, total: number, refById: Map<string, string>): void {
+	printValue(ctx.output, document, () => renderSpotlight(document, total, refById));
+}
+
+function renderSpotlight(document: SpotlightDocument, total: number, refById: Map<string, string>): string {
+	const delivered = spotlightDeliveredCount(document);
+	const rows = document.deliveries.map((delivery: SpotlightDeliveryResult) => ({
+		ref: refById.get(delivery.botId) ?? delivery.botId,
+		status: delivery.status,
+		message: spotlightDeliveryFailureMessage(delivery) ?? "",
+	}));
+	const header =
+		total === 0 ? `Spotlight ${document.spotlightId}: nothing sent. ${document.failure?.message ?? ""}`.trim()
+		: delivered === total ? `Spotlight ${document.spotlightId}: ${delivered} delivered.`
+		: `Spotlight ${document.spotlightId}: ${delivered} of ${total} delivered, ${total - delivered} still owed.`;
+	const skipped =
+		document.skipped.length === 0 ? ""
+		:	`\n\nSkipped\n${table(document.skipped, [
+				{ key: "ref", header: "Participant", value: (row) => row.ref },
+				{ key: "reason", header: "Reason", value: (row) => row.reason },
+			])}`;
+	const deliveries =
+		total === 0 ? ""
+		:	`\n${table(rows, [
+				{ key: "ref", header: "Participant", value: (row) => row.ref },
+				{ key: "status", header: "Status", value: (row) => row.status },
+				{ key: "message", header: "Detail", value: (row) => row.message },
+			])}`;
+	return `${header}${deliveries}${skipped}`;
 }
 
 async function exportCommand(ctx: CommandContext, args: string[]): Promise<void> {
@@ -950,9 +1144,13 @@ async function pipeResponse(response: Response): Promise<void> {
 	}
 }
 
+function botRefText(bot: Pick<BotSummary, "homeWorldHandle" | "handle">): string {
+	return `w/${bot.homeWorldHandle}/u/${bot.handle}`;
+}
+
 function renderBots(bots: BotSummary[]): string {
 	return table(bots, [
-		{ key: "ref", header: "Ref", value: (bot) => `w/${bot.homeWorldHandle}/u/${bot.handle}` },
+		{ key: "ref", header: "Ref", value: (bot) => botRefText(bot) },
 		{ key: "language", header: "Lang", value: (bot) => languageLabel(bot.language) },
 		{ key: "name", header: "Name", value: (bot) => bot.displayName },
 		{ key: "model", header: "Model", value: (bot) => bot.inferenceSettings.model },
@@ -1034,6 +1232,23 @@ function requiredFlag(flags: Map<string, string | boolean | string[]>, name: str
 	const value = flagString(flags, name);
 	if (!value) {
 		throw new CliUsageError(`--${name} is required.`);
+	}
+	return value;
+}
+
+function integerFlagInRange(
+	flags: Map<string, string | boolean | string[]>,
+	name: string,
+	min: number,
+	max: number,
+): number | undefined {
+	const raw = flagString(flags, name);
+	if (raw === undefined) {
+		return undefined;
+	}
+	const value = Number(raw);
+	if (!Number.isInteger(value) || value < min || value > max) {
+		throw new CliUsageError(`--${name} must be an integer between ${min} and ${max}.`);
 	}
 	return value;
 }
@@ -1140,13 +1355,34 @@ Core commands:
   bickr threads get w/world/f/forum/t/thread
   bickr bots list [w/world]
   bickr bots get u/name
-  bickr bots bulk update w/world --model MODEL [--yes]
+  bickr bots bulk update <bot-target...> --model MODEL [--yes]
+  bickr bots bulk update --all [w/world ...] --model MODEL [--yes]
+  bickr groups add-bots w/world GROUP_ID <bot-target...>
+  bickr spotlight send w/world/f/forum/t/thread --to <bot-target> [--focus TEXT]
 	  bickr inference list [--section account|custom|world|bot] [--kind KINDS] [--query TEXT]
 	  bickr inference get cfg_ID
 	  bickr inference children cfg_ID [--query TEXT]
   bickr export thread w/world/f/forum/t/thread --format json
   bickr export forum w/world/f/forum --range 1-500 --format ndjson
   bickr api GET /session
+
+Bot targets:
+  Commands that act on a set of participants share one grammar, expanded by the
+  server: bot_ID, u/handle, w/world/u/handle, w/world (every owned participant
+  there), and w/world/g/GROUP (a group id or the exact group title). Repeat or
+  list targets to union them. On bots bulk update, --all means the whole fleet,
+  narrowed to the worlds listed alongside it; note that on threads list, --all
+  means "every page" instead.
+
+Spotlight:
+  bickr spotlight send <thread-or-comment-ref...> [--to BOT-TARGET]... [--all]
+      [--focus TEXT] [--no-tick] [--batch-size 1-8] [--timeout 5-300]
+      [--spotlight-id spt_ID] [--json]
+  Targets are one forum's threads, or comments within a single thread. --all
+  selects every owned unpaused participant in the forum's world; paused ones are
+  skipped with a notice. Progress goes to stderr, the result document to stdout,
+  and an incomplete run exits 1 — rerun it with the printed --spotlight-id to
+  reach only the participants still owed it.
 
 Text writes:
   Use --language LANG or --lang LANG with create commands and text updates.`;

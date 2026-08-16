@@ -17,6 +17,13 @@ export type RequestOptions = {
 	body?: unknown;
 	headers?: HeadersInit;
 	auth?: boolean;
+	/** Caller-owned cancellation, e.g. a run the owner interrupted. */
+	signal?: AbortSignal;
+	/**
+	 * Upper bound on the exchange — the request and the part of the response this
+	 * client reads — after which it is reported as a timeout.
+	 */
+	timeoutMs?: number;
 };
 
 export class BickrClient {
@@ -29,35 +36,41 @@ export class BickrClient {
 	}
 
 	async request<T>(path: string, options: RequestOptions = {}): Promise<ApiEnvelope<T>> {
-		const response = await fetch(this.apiUrl(path), this.fetchInit(options));
-		const contentType = response.headers.get("content-type") ?? "";
-		const payload = contentType.includes("application/json") ?
-			await response.json() as unknown
-		:	undefined;
-		if (isApiEnvelope<T>(payload)) {
-			return payload;
-		}
-		if (!response.ok) {
-			throw new ApiError("server_error", response.statusText || `HTTP ${response.status}`, response.status);
-		}
-		throw new ApiError("server_error", "Bickr API response was not JSON.", response.status);
+		// The body is read inside the deadline: a response whose headers arrive
+		// promptly and whose body then never finishes has not answered, and a
+		// caller waiting on it is exactly what the timeout exists to end.
+		return this.send(this.apiUrl(path), options, async (response) => {
+			const contentType = response.headers.get("content-type") ?? "";
+			const payload = contentType.includes("application/json") ?
+				await response.json() as unknown
+			:	undefined;
+			if (isApiEnvelope<T>(payload)) {
+				return payload;
+			}
+			if (!response.ok) {
+				throw new ApiError("server_error", response.statusText || `HTTP ${response.status}`, response.status);
+			}
+			throw new ApiError("server_error", "Bickr API response was not JSON.", response.status);
+		});
 	}
 
 	async stream(path: string, options: RequestOptions = {}): Promise<Response> {
-		const response = await fetch(this.apiUrl(path), this.fetchInit(options));
-		if (!response.ok) {
-			const text = await response.text();
-			throw new ApiError("server_error", text || response.statusText || `HTTP ${response.status}`, response.status);
-		}
-		return response;
+		return this.send(this.apiUrl(path), options, async (response) => {
+			if (!response.ok) {
+				const text = await response.text();
+				throw new ApiError("server_error", text || response.statusText || `HTTP ${response.status}`, response.status);
+			}
+			return response;
+		});
 	}
 
 	async download(url: string): Promise<Response> {
-		const response = await fetch(url);
-		if (!response.ok) {
-			throw new ApiError("download_failed", `Download failed with HTTP ${response.status}.`, response.status);
-		}
-		return response;
+		return this.send(url, { auth: false }, async (response) => {
+			if (!response.ok) {
+				throw new ApiError("download_failed", `Download failed with HTTP ${response.status}.`, response.status);
+			}
+			return response;
+		});
 	}
 
 	apiUrl(path: string): string {
@@ -65,6 +78,63 @@ export class BickrClient {
 			throw new Error("API path must start with '/'.");
 		}
 		return `${this.host}/api${path}`;
+	}
+
+	/**
+	 * One exchange, with the caller's cancellation and its deadline folded into a
+	 * single controller rather than `AbortSignal.any`, so the failure can say
+	 * which of the two fired: a run the owner stopped is not the same outcome as
+	 * one that ran out of time, and a spotlight batch reports them differently.
+	 *
+	 * `receive` runs while the deadline is still armed, so it bounds as much of
+	 * the response as this client actually reads. `stream` and `download` hand
+	 * back an unread body for the caller to consume, and no deadline here can
+	 * cover reading that.
+	 */
+	private async send<T>(
+		url: string,
+		options: RequestOptions,
+		receive: (response: Response) => Promise<T>,
+	): Promise<T> {
+		const controller = new AbortController();
+		let timedOut = false;
+		// Set once the server answered, so a failure raised while reading that
+		// answer is not mistaken for one that stopped the exchange reaching it.
+		let responseStatus: number | undefined;
+		const deadline =
+			options.timeoutMs === undefined ? undefined : (
+				setTimeout(() => {
+					timedOut = true;
+					controller.abort();
+				}, options.timeoutMs)
+			);
+		const abortFromCaller = () => controller.abort();
+		options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+		if (options.signal?.aborted) {
+			controller.abort();
+		}
+		try {
+			const response = await fetch(url, { ...this.fetchInit(options), signal: controller.signal });
+			responseStatus = response.status;
+			return await receive(response);
+		} catch (error) {
+			// A typed failure the response itself produced already says what went
+			// wrong; only a failure of the exchange is diagnosed here.
+			if (error instanceof ApiError) {
+				throw error;
+			}
+			throw requestFailure(error, {
+				timedOut,
+				cancelled: Boolean(options.signal?.aborted),
+				timeoutMs: options.timeoutMs,
+				responseStatus,
+			});
+		} finally {
+			if (deadline !== undefined) {
+				clearTimeout(deadline);
+			}
+			options.signal?.removeEventListener("abort", abortFromCaller);
+		}
 	}
 
 	private fetchInit(options: RequestOptions): RequestInit {
@@ -96,6 +166,40 @@ export function unwrap<T>(envelope: ApiEnvelope<T>): T {
 	throw new ApiError(envelope.error, envelope.message, 1, envelope.details);
 }
 
+/**
+ * Why a request produced no usable answer. The distinction is the caller's to
+ * act on — a timeout may be worth a longer `--timeout`, a cancellation is what
+ * the owner asked for, an unreachable host is worth retrying elsewhere, and a
+ * response that arrived but could not be read is none of those — so it is
+ * decided here where the cause is known, not read back out of a message later.
+ *
+ * `responseStatus` is what separates the last two: the server answered, so
+ * calling the run a connectivity failure would send the owner after the wrong
+ * problem.
+ */
+function requestFailure(
+	error: unknown,
+	context: { timedOut: boolean; cancelled: boolean; timeoutMs?: number; responseStatus?: number },
+): ApiError {
+	if (context.timedOut) {
+		const seconds = Math.round((context.timeoutMs ?? 0) / 1_000);
+		return new ApiError("timeout", `The request took longer than ${seconds}s and was stopped.`, 0);
+	}
+	if (context.cancelled) {
+		return new ApiError("aborted", "The request was cancelled.", 0);
+	}
+	const detail = error instanceof Error ? error.message : "the body could not be read";
+	if (context.responseStatus !== undefined) {
+		return new ApiError(
+			"bad_response",
+			`The Bickr API answered with HTTP ${context.responseStatus}, but the response could not be read: ${detail}`,
+			context.responseStatus,
+		);
+	}
+	return new ApiError("network_error", error instanceof Error ? error.message : "Network request failed.", 0);
+}
+
+/** `status` is 0 when the failure happened before any response arrived. */
 export class ApiError extends Error {
 	readonly code: string;
 	readonly status: number;

@@ -1,3 +1,4 @@
+import type { BotSummary } from "@bickr/shared/model";
 import { BickrClient, unwrap } from "./client.ts";
 
 export type ResolvedRef = {
@@ -53,6 +54,25 @@ export async function threadPartsForRef(client: BickrClient, ref: string): Promi
 		throw new Error("Resolved thread reference was invalid.");
 	}
 	return { worldHandle: parts.worldHandle, forumHandle: parts.forumHandle, threadId: parts.threadId };
+}
+
+/**
+ * Expands bot target references — worlds, groups, handles, ids, or the whole
+ * fleet — into the bots they name.
+ *
+ * The expansion happens on the server, which is also where bulk updates expand
+ * the same strings: a group's membership is not something two implementations
+ * should each have an opinion about.
+ */
+export async function resolveBotTargets(
+	client: BickrClient,
+	selection: { targets: string[]; all?: boolean },
+): Promise<BotSummary[]> {
+	const data = unwrap(await client.request<{ bots: BotSummary[] }>("/cli/resolve/bots", {
+		body: { targets: selection.targets, all: selection.all === true },
+		method: "POST",
+	}));
+	return data.bots;
 }
 
 export async function botIdForRef(client: BickrClient, ref: string): Promise<string> {

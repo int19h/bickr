@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CliUsageError, flagBoolean, flagString, parseCommandOptions, parseGlobalArgs } from "./args.ts";
+import { CliUsageError, flagBoolean, flagString, flagStrings, parseCommandOptions, parseGlobalArgs } from "./args.ts";
 
 describe("CLI argument parsing", () => {
 	it("extracts global output and host flags without consuming command arguments", () => {
@@ -18,6 +18,18 @@ describe("CLI argument parsing", () => {
 		expect(parsed.positionals).toEqual(["w/main"]);
 		expect(flagString(parsed.flags, "model")).toBe("openai/gpt-5");
 		expect(flagBoolean(parsed.flags, "yes")).toBe(true);
+	});
+
+	it("keeps every value of a repeatable flag, which flagString cannot", () => {
+		const parsed = parseCommandOptions(["--to", "u/alice", "--to=w/main/g/critics", "--to", "bot_7"]);
+		expect(flagStrings(parsed.flags, "to")).toEqual(["u/alice", "w/main/g/critics", "bot_7"]);
+		expect(flagString(parsed.flags, "to")).toBe("bot_7");
+	});
+
+	it("reads a once-given repeatable flag as a single-value list", () => {
+		const parsed = parseCommandOptions(["--to", "u/alice"]);
+		expect(flagStrings(parsed.flags, "to")).toEqual(["u/alice"]);
+		expect(flagStrings(parsed.flags, "missing")).toEqual([]);
 	});
 
 	it("parses no-open as an auth login boolean flag", () => {

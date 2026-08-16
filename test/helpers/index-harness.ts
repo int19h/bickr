@@ -76,6 +76,8 @@ import {
 import { onRequestDelete as deleteCommentRoute } from "../../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/threads/[threadId]/comments/[commentId]";
 import { onRequestGet as commentVotes } from "../../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/threads/[threadId]/comments/[commentId]/votes";
 import { onRequestPost as spotlightSend } from "../../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/spotlight/send";
+import { onRequestPost as bulkBotsRoute } from "../../apps/web/functions/api/cli/bulk/bots";
+import { onRequestPost as resolveBotsRoute } from "../../apps/web/functions/api/cli/resolve/bots";
 import {
 	onRequestGet as worldBots,
 	onRequestPost as createBot,
@@ -295,6 +297,7 @@ export {
 	BotRuntime,
 	buildRuntimeLoopInput,
 	buildServiceRequest,
+	bulkBotsRoute,
 	cachedGlobalInferenceCostStats,
 	chirperPreview,
 	clearKv,
@@ -437,6 +440,7 @@ export {
 	relinkBotCloneRoute,
 	removeBotGroupMemberRoute,
 	resetD1Schema,
+	resolveBotsRoute,
 	routePath,
 	runtimeErrorLoopMessageContent,
 	runtimeFailureLogs,
