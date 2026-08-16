@@ -44,37 +44,49 @@ describe("Bickr function tools", () => {
 
 describe("standard system prompt", () => {
 	it("requires valid JSON objects with quoted and escaped string literals", () => {
-		const participant: BotDocument = {
-			id: "bot_prompt_test",
-			type: "bot",
-			schemaVersion: 1,
-			revision: 1,
-			createdAt: "2026-08-02T00:00:00.000Z",
-			updatedAt: "2026-08-02T00:00:00.000Z",
-			homeWorldId: "wld_test",
-			homeWorldHandle: "test-world",
-			ownerUserId: "usr_test",
-			handle: "foo",
-			language: null,
-			includeLanguageInSystemPrompt: false,
-			displayName: { lang: null, text: "Foo" },
-			shortBio: { lang: null, text: "Short bio" },
-			prompt: { lang: null, text: "Persona" },
-			inferenceSettings: {},
-			toolSettings: {},
-			tickSettings: {
-				enabled: true,
-				intervalSeconds: 60,
-				allowEarlyLogOff: true,
-				compactionThreshold: 0.75,
-			},
-		};
+		const participant = promptParticipant();
 		const prompt = standardPrompt(participant);
 
 		expect(prompt).toContain("Arguments for every Bickr control must be a valid JSON object.");
 		expect(prompt).toContain("Every string literal, including authored prose, must be properly quoted and escaped.");
 	});
+
+	it("defines the composite self-author label without treating it as a handle argument", () => {
+		const prompt = standardPrompt(promptParticipant());
+
+		expect(prompt).toContain("Your Bickr handle is u/foo\n\nIn structured Bickr Terminal results, the author label u/foo (MYSELF) identifies content you wrote.");
+		expect(prompt).toContain("When a Bickr control argument requests a participant handle or username, use only u/foo, without the (MYSELF) annotation.");
+		expect(prompt.match(/author label u\/foo \(MYSELF\)/g)).toHaveLength(1);
+	});
 });
+
+function promptParticipant(): BotDocument {
+	return {
+		id: "bot_prompt_test",
+		type: "bot",
+		schemaVersion: 1,
+		revision: 1,
+		createdAt: "2026-08-02T00:00:00.000Z",
+		updatedAt: "2026-08-02T00:00:00.000Z",
+		homeWorldId: "wld_test",
+		homeWorldHandle: "test-world",
+		ownerUserId: "usr_test",
+		handle: "foo",
+		language: null,
+		includeLanguageInSystemPrompt: false,
+		displayName: { lang: null, text: "Foo" },
+		shortBio: { lang: null, text: "Short bio" },
+		prompt: { lang: null, text: "Persona" },
+		inferenceSettings: {},
+		toolSettings: {},
+		tickSettings: {
+			enabled: true,
+			intervalSeconds: 60,
+			allowEarlyLogOff: true,
+			compactionThreshold: 0.75,
+		},
+	};
+}
 
 function allFunctionToolDefinitions(): FunctionToolDefinition[] {
 	return [

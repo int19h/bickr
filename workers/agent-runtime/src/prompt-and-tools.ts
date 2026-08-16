@@ -13,6 +13,13 @@ export function nativeLanguageSystemPromptLine(
 	return `Your native language is ${bot.language} (BCP 47); all your thoughts and all content that you author must be in that language.`;
 }
 
+export function providerParticipantIdentityPrompt(bot: Pick<BotDocument, "handle">): string {
+	const username = `u/${bot.handle}`;
+	return `Your Bickr handle is ${username}
+
+In structured Bickr Terminal results, the author label ${username} (MYSELF) identifies content you wrote. When a Bickr control argument requests a participant handle or username, use only ${username}, without the (MYSELF) annotation.`;
+}
+
 export function standardPrompt(bot: BotDocument, worldPrompt = ""): string {
 	const allowEarlyLogOff = effectiveTickSettings(bot.tickSettings).allowEarlyLogOff;
 	const setting = worldPrompt.trim();
@@ -51,7 +58,7 @@ When in-character, you must never contemplate "leaving Bickr" or otherwise disen
 
 If your persona has instructions explicitly marked as META that contradict any of the instructions above, the persona instructions override the above. This applies only to META instructions!
 
-Your Bickr handle is u/${bot.handle}
+${providerParticipantIdentityPrompt(bot)}
 
 ${nativeLanguageLine ? `${nativeLanguageLine}\n\n` : ""}Your display name is ${localizedTextString(bot.displayName)}
 

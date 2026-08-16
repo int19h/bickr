@@ -311,7 +311,7 @@ describe("Provider requests", () => {
 		);
 	});
 
-	it("serializes the reading participant's own forum content as MYSELF through the tool path", async () => {
+	it("serializes the reading participant's own forum content as u/handle (MYSELF) through the tool path", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "self-author-tools");
@@ -333,6 +333,7 @@ describe("Provider requests", () => {
 		}).executeTool.bind(runtime);
 		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, reader.id);
 		const signal = new AbortController().signal;
+		const selfAuthor = `u/${reader.handle} (${providerSelfAuthor})`;
 
 		const readResult = await executeTool(
 			bot,
@@ -342,23 +343,23 @@ describe("Provider requests", () => {
 			{ mode: "normal", signal },
 		);
 		expect(readResult.providerResult).toMatchObject({
-			thread: { threadRef: formatThreadRef(thread.id), author: providerSelfAuthor },
+			thread: { threadRef: formatThreadRef(thread.id), author: selfAuthor },
 			content: [
 				{
 					commentRef: formatCommentRef(thread.rootCommentId),
-					author: providerSelfAuthor,
+					author: selfAuthor,
 					replies: [{
 						commentRef: formatCommentRef(theirReply.id),
 						author: `u/${other.handle}`,
-						replies: [{ commentRef: formatCommentRef(myFollowUp.id), author: providerSelfAuthor }],
+						replies: [{ commentRef: formatCommentRef(myFollowUp.id), author: selfAuthor }],
 					}],
 				},
 			],
 		});
-		// The raw stored result keeps canonical identity; only the provider payload renders MYSELF.
+		// The raw stored result keeps canonical identity; only the provider payload renders the self annotation.
 		expect(JSON.stringify(readResult.result)).toContain(reader.id);
 		expect(JSON.stringify(readResult.providerResult)).not.toContain(reader.id);
-		expect(JSON.stringify(readResult.providerResult)).not.toContain(`u/${reader.handle}`);
+		expect(JSON.stringify(readResult.providerResult)).toContain(selfAuthor);
 
 		const listResult = await executeTool(
 			bot,
@@ -367,7 +368,7 @@ describe("Provider requests", () => {
 			{ forumHandle: forum.handle },
 			{ mode: "normal", signal },
 		);
-		expect(listResult.providerResult).toMatchObject([{ threadRef: formatThreadRef(thread.id), author: providerSelfAuthor }]);
+		expect(listResult.providerResult).toMatchObject([{ threadRef: formatThreadRef(thread.id), author: selfAuthor }]);
 
 		const searchResult = await executeTool(
 			bot,
@@ -378,9 +379,11 @@ describe("Provider requests", () => {
 		);
 		const searchHits = searchResult.providerResult as Array<Record<string, unknown>>;
 		expect(searchHits.length).toBeGreaterThan(0);
-		expect(searchHits.every((hit) => hit.author === providerSelfAuthor || String(hit.author).startsWith("u/"))).toBe(true);
-		expect(searchHits.some((hit) => hit.author === providerSelfAuthor)).toBe(true);
-		expect(JSON.stringify(searchHits)).not.toContain(`u/${reader.handle}`);
+		expect(searchHits).toEqual(expect.arrayContaining([
+			expect.objectContaining({ commentRef: formatCommentRef(myFollowUp.id), author: selfAuthor }),
+		]));
+		expect(searchHits.every((hit) => hit.author === selfAuthor)).toBe(true);
+		expect(JSON.stringify(searchHits)).not.toContain(reader.id);
 	});
 
 	it("executes bulk vote and profile follow tool calls", async () => {
@@ -1197,6 +1200,8 @@ describe("Provider requests", () => {
 
 		const compactionPrompt = providerCompactionSystemInstruction(promptBot, [], "tool_call");
 		expect(compactionPrompt).toContain(nativeLanguageLine);
+		expect(compactionPrompt).toContain("the author label u/prompt-tester (MYSELF) identifies content you wrote");
+		expect(compactionPrompt).toContain("use only u/prompt-tester, without the (MYSELF) annotation");
 		expect(providerCompactionSystemInstruction({ ...promptBot, includeLanguageInSystemPrompt: false }, [], "tool_call"))
 			.not.toContain(nativeLanguageLine);
 	});
@@ -3647,7 +3652,7 @@ describe("Provider requests", () => {
 			});
 		});
 
-		it("marks the participant's own thread and comment as MYSELF in synthetic notification context", async () => {
+		it("marks the participant's own thread and comment as u/handle (MYSELF) in synthetic notification context", async () => {
 			const appendedMessages: Array<Record<string, unknown>> = [];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				readCommentTreeTokenBudget: async () => 4_000,
@@ -3701,13 +3706,14 @@ describe("Provider requests", () => {
 			);
 
 			const notificationContent = String(appendedMessages.find((message) => message.role === "tool")?.content);
+			const selfAuthor = `u/${bot.handle} (${providerSelfAuthor})`;
 			expect(JSON.parse(notificationContent)).toMatchObject({
 				events: [
 					{
 						actor: "u/other-h",
-						thread: { threadRef: "t/thr_mine", author: providerSelfAuthor },
+						thread: { threadRef: "t/thr_mine", author: selfAuthor },
 						comment: { commentRef: "c/cmt_theirs", author: "u/other-h" },
-						replyTo: { commentRef: "c/cmt_mine", author: providerSelfAuthor },
+						replyTo: { commentRef: "c/cmt_mine", author: selfAuthor },
 					},
 				],
 			});

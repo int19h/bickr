@@ -156,8 +156,9 @@ export type ProviderContextContentScope = {
 
 /**
  * Identity of the participant whose provider context is being composed. Forum content authored by
- * this participant is serialized as {@link providerSelfAuthor} instead of a `u/<handle>` reference,
- * so the participant cannot mistake its own thread or comment for somebody else's.
+ * this participant is serialized with a {@link providerSelfAuthor} annotation on its usable
+ * `u/<handle>` reference, or the standalone marker when no usable handle exists, so the participant
+ * cannot mistake its own thread or comment for somebody else's.
  */
 export type ProviderSelfParticipant = {
 	readonly botId: string;
@@ -707,13 +708,17 @@ function providerAuthorBotId(record: Record<string, unknown>): string | undefine
 }
 
 /**
- * The single author-rendering decision for every provider-facing forum-content surface: content the
- * reading participant wrote is `MYSELF`, everything else is `u/<handle>`. Internal bot ids are never
- * emitted.
+ * The single author-rendering decision for every provider-facing forum-content surface. Canonical
+ * self-authorship adds `(MYSELF)` to a usable `u/<handle>` and otherwise falls back to `MYSELF`;
+ * everyone else remains `u/<handle>`. Internal bot ids are never emitted.
  */
 function providerAuthorRef(record: Record<string, unknown>, self: ProviderSelfParticipant): string | undefined {
 	const authorBotId = providerAuthorBotId(record);
-	return authorBotId && authorBotId === self.botId ? providerSelfAuthor : providerAuthorUsername(record);
+	const username = providerAuthorUsername(record);
+	if (!authorBotId || authorBotId !== self.botId) {
+		return username;
+	}
+	return username ? `${username} (${providerSelfAuthor})` : providerSelfAuthor;
 }
 
 function providerForumName(value: unknown): string | undefined {
@@ -1536,8 +1541,9 @@ function collapsedReadReplyCount(content: ReadContentItem[]): number {
 	}, 0);
 }
 
-// The budget estimate renders through the same serializer as emission — including the self-author
-// decision, which shortens `u/<handle>` to `MYSELF` — so a pruned tree really fits its budget.
+// The budget estimate renders through the same serializer as emission — including the longer
+// `u/<handle> (MYSELF)` label and its standalone fallback. Self-heavy trees may therefore prune at a
+// slightly earlier threshold, but the emitted tree still fits the budget computed for it.
 function providerReadContentTreeTokenEstimate(content: ReadContentItem[], self: ProviderSelfParticipant): number {
 	const providerContent = providerReadContentTree(
 		content.map((item) => item as unknown as Record<string, unknown>),
