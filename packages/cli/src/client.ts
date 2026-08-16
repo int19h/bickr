@@ -98,6 +98,9 @@ export class BickrClient {
 	): Promise<T> {
 		const controller = new AbortController();
 		let timedOut = false;
+		// Set once the server answered, so a failure raised while reading that
+		// answer is not mistaken for one that stopped the exchange reaching it.
+		let responseStatus: number | undefined;
 		const deadline =
 			options.timeoutMs === undefined ? undefined : (
 				setTimeout(() => {
@@ -111,14 +114,21 @@ export class BickrClient {
 			controller.abort();
 		}
 		try {
-			return await receive(await fetch(url, { ...this.fetchInit(options), signal: controller.signal }));
+			const response = await fetch(url, { ...this.fetchInit(options), signal: controller.signal });
+			responseStatus = response.status;
+			return await receive(response);
 		} catch (error) {
 			// A typed failure the response itself produced already says what went
 			// wrong; only a failure of the exchange is diagnosed here.
 			if (error instanceof ApiError) {
 				throw error;
 			}
-			throw requestFailure(error, { timedOut, cancelled: Boolean(options.signal?.aborted), timeoutMs: options.timeoutMs });
+			throw requestFailure(error, {
+				timedOut,
+				cancelled: Boolean(options.signal?.aborted),
+				timeoutMs: options.timeoutMs,
+				responseStatus,
+			});
 		} finally {
 			if (deadline !== undefined) {
 				clearTimeout(deadline);
@@ -157,14 +167,19 @@ export function unwrap<T>(envelope: ApiEnvelope<T>): T {
 }
 
 /**
- * Why a request produced no response at all. The distinction is the caller's to
+ * Why a request produced no usable answer. The distinction is the caller's to
  * act on — a timeout may be worth a longer `--timeout`, a cancellation is what
- * the owner asked for, and a network failure is neither — so it is decided here
- * where the cause is known, not read back out of a message later.
+ * the owner asked for, an unreachable host is worth retrying elsewhere, and a
+ * response that arrived but could not be read is none of those — so it is
+ * decided here where the cause is known, not read back out of a message later.
+ *
+ * `responseStatus` is what separates the last two: the server answered, so
+ * calling the run a connectivity failure would send the owner after the wrong
+ * problem.
  */
 function requestFailure(
 	error: unknown,
-	context: { timedOut: boolean; cancelled: boolean; timeoutMs?: number },
+	context: { timedOut: boolean; cancelled: boolean; timeoutMs?: number; responseStatus?: number },
 ): ApiError {
 	if (context.timedOut) {
 		const seconds = Math.round((context.timeoutMs ?? 0) / 1_000);
@@ -172,6 +187,14 @@ function requestFailure(
 	}
 	if (context.cancelled) {
 		return new ApiError("aborted", "The request was cancelled.", 0);
+	}
+	const detail = error instanceof Error ? error.message : "the body could not be read";
+	if (context.responseStatus !== undefined) {
+		return new ApiError(
+			"bad_response",
+			`The Bickr API answered with HTTP ${context.responseStatus}, but the response could not be read: ${detail}`,
+			context.responseStatus,
+		);
 	}
 	return new ApiError("network_error", error instanceof Error ? error.message : "Network request failed.", 0);
 }

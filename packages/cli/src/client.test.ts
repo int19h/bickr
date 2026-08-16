@@ -63,6 +63,15 @@ describe("CLI client request failures", () => {
 		expect(error.message).toContain("ECONNREFUSED");
 	});
 
+	it("reports a corrupt body from a successful exchange as a bad response, not a network failure", async () => {
+		globalThis.fetch = (() =>
+			Promise.resolve(new Response('{"ok":true,"data"', { headers: { "content-type": "application/json" } }))
+		) as unknown as typeof fetch;
+		const error = await client().request("/session").catch((caught: unknown) => caught) as ApiError;
+		expect(error.code).toBe("bad_response");
+		expect(error.status).toBe(200);
+	});
+
 	it("passes a typed API failure through as an envelope rather than a client failure", async () => {
 		globalThis.fetch = (() =>
 			Promise.resolve(Response.json({ ok: false, error: "conflict", message: "Reference is ambiguous." }, { status: 409 }))

@@ -641,14 +641,21 @@ async function spotlightCommand(ctx: CommandContext, args: string[]): Promise<vo
 	if (options.positionals.length === 0) {
 		throw new CliUsageError(spotlightUsage);
 	}
-	const target = spotlightTargetFromRefs(await Promise.all(
-		options.positionals.map(async (ref) => ({ ref, resolved: await resolveRef(ctx.client, ref) })),
-	));
+	// Every flag is read and range-checked here, before the first request. A
+	// malformed command has no outcome to report — not even the empty-selection
+	// document below, which is an outcome of a valid run — so no validity check
+	// may sit downstream of a branch that prints one.
 	const botTargets = flagStrings(options.flags, "to");
 	const wholeWorld = flagBoolean(options.flags, "all");
 	if (botTargets.length === 0 && !wholeWorld) {
 		throw new CliUsageError("Spotlight requires --to BOT-TARGET (repeatable) or --all.");
 	}
+	const batchSize = integerFlagInRange(options.flags, "batch-size", 1, maxSpotlightSendBots) ?? maxSpotlightSendBots;
+	const timeoutSeconds = integerFlagInRange(options.flags, "timeout", 5, 300);
+	const spotlightId = spotlightRunId(options.flags);
+	const target = spotlightTargetFromRefs(await Promise.all(
+		options.positionals.map(async (ref) => ({ ref, resolved: await resolveRef(ctx.client, ref) })),
+	));
 	// `--all` means the forum's world, not the whole fleet: a spotlight can only
 	// reach participants who live where the thread does.
 	const selected = await resolveBotTargets(ctx.client, {
@@ -670,7 +677,6 @@ async function spotlightCommand(ctx: CommandContext, args: string[]): Promise<vo
 	for (const participant of skipped) {
 		process.stderr.write(`Skipping ${participant.ref}: paused participants cannot receive a spotlight.\n`);
 	}
-	const spotlightId = spotlightRunId(options.flags);
 	if (eligible.length === 0) {
 		// Still an outcome of this run, not a crash: the document is written the
 		// same way it would be for a delivery that failed, so `--json` never has
@@ -684,8 +690,6 @@ async function spotlightCommand(ctx: CommandContext, args: string[]): Promise<vo
 		process.exitCode = 1;
 		return;
 	}
-	const batchSize = integerFlagInRange(options.flags, "batch-size", 1, maxSpotlightSendBots) ?? maxSpotlightSendBots;
-	const timeoutSeconds = integerFlagInRange(options.flags, "timeout", 5, 300);
 	const handleById = new Map(eligible.map((bot) => [bot.id, botRefText(bot)]));
 	process.stderr.write(
 		`Spotlight ${spotlightId}: ${eligible.length} participant${eligible.length === 1 ? "" : "s"} in batches of ${Math.min(batchSize, maxSpotlightSendBots)}.\n`,

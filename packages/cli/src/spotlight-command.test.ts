@@ -282,6 +282,20 @@ describe("bickr spotlight send", () => {
 		expect(running.sends).toEqual([]);
 	}, 30_000);
 
+	it("fails a malformed command as usage even when its selection would have been empty", async () => {
+		// The empty-selection document is an outcome of a valid run. A command that
+		// never was valid must not borrow it: stdout stays empty and the range
+		// explanation goes to stderr, whatever the selection would have held.
+		const running = await startStub({ bots: [{ id: "bot_1", handle: "resting", enabled: false }] });
+		const result = await runCli(running.port, ["spotlight", "send", "t/abc", "--all", "--batch-size", "9", "--json"]);
+
+		expect(result.code).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("--batch-size must be an integer between 1 and 8.");
+		expect(running.resolves).toEqual([]);
+		expect(running.sends).toEqual([]);
+	}, 30_000);
+
 	it("requires participants to be named", async () => {
 		const running = await startStub({ bots: [] });
 		const result = await runCli(running.port, ["spotlight", "send", "t/abc"]);
