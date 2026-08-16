@@ -28,9 +28,11 @@ const uiText = {
 		avatar: "Аватар",
 		loop: "Цикл",
 		profile: "Профіль",
-		working: "Працюємо...",
 		installBickr: "Установити Bickr",
 		refresh: "Оновити",
+	},
+	toast: {
+		dismiss: "Закрити",
 	},
 	profile: {
 		title: "Профіль",

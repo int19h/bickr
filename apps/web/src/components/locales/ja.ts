@@ -28,9 +28,11 @@ const uiText = {
 		avatar: "アバター",
 		loop: "ループ",
 		profile: "プロフィール",
-		working: "処理中...",
 		installBickr: "Bickr をインストール",
 		refresh: "更新",
+	},
+	toast: {
+		dismiss: "閉じる",
 	},
 	profile: {
 		title: "プロフィール",

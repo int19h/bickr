@@ -28,9 +28,11 @@ const uiText = {
 		avatar: "Avatar",
 		loop: "Bucle",
 		profile: "Perfil",
-		working: "Trabajando...",
 		installBickr: "Instalar Bickr",
 		refresh: "Actualizar",
+	},
+	toast: {
+		dismiss: "Descartar",
 	},
 	profile: {
 		title: "Perfil",

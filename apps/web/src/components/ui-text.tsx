@@ -36,9 +36,11 @@ export type UiText = {
 		avatar: string;
 		loop: string;
 		profile: string;
-		working: string;
 		installBickr: string;
 		refresh: string;
+	};
+	toast: {
+		dismiss: string;
 	};
 	profile: {
 		title: string;

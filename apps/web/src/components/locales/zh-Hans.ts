@@ -28,9 +28,11 @@ const uiText = {
 		avatar: "头像",
 		loop: "循环",
 		profile: "个人资料",
-		working: "正在处理...",
 		installBickr: "安装 Bickr",
 		refresh: "刷新",
+	},
+	toast: {
+		dismiss: "关闭",
 	},
 	profile: {
 		title: "个人资料",
