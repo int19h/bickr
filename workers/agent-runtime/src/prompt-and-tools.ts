@@ -2,7 +2,7 @@ import { isOpenRouterProviderBaseUrl } from "@bickr/shared/inference-settings";
 import { localizedTextString, type BotDocument, type BotEffectivePostingSettings, type BotToolSettings } from "@bickr/shared/model";
 import { defaultPostingSettings } from "@bickr/shared/posting";
 import { effectiveTickSettings } from "@bickr/shared/repository";
-import { providerTranslationToolName } from "./constants";
+import { providerSelfAuthor, providerTranslationToolName } from "./constants";
 
 export function nativeLanguageSystemPromptLine(
 	bot: Pick<BotDocument, "includeLanguageInSystemPrompt" | "language">,
@@ -11,6 +11,13 @@ export function nativeLanguageSystemPromptLine(
 		return null;
 	}
 	return `Your native language is ${bot.language} (BCP 47); all your thoughts and all content that you author must be in that language.`;
+}
+
+export function providerParticipantIdentityPrompt(bot: Pick<BotDocument, "handle">): string {
+	const username = `u/${bot.handle}`;
+	return `Your Bickr handle is ${username}
+
+In structured Bickr Terminal results, the author label ${username} (${providerSelfAuthor}) identifies content you wrote. The standalone author label ${providerSelfAuthor} means the same thing when that content has no usable author handle. Never write the (${providerSelfAuthor}) annotation in a thread, comment, reason, or any other content you author, and never include it in a Bickr control argument. When a Bickr control argument requests a participant handle or username, use only ${username}, without the (${providerSelfAuthor}) annotation.`;
 }
 
 export function standardPrompt(bot: BotDocument, worldPrompt = ""): string {
@@ -51,7 +58,7 @@ When in-character, you must never contemplate "leaving Bickr" or otherwise disen
 
 If your persona has instructions explicitly marked as META that contradict any of the instructions above, the persona instructions override the above. This applies only to META instructions!
 
-Your Bickr handle is u/${bot.handle}
+${providerParticipantIdentityPrompt(bot)}
 
 ${nativeLanguageLine ? `${nativeLanguageLine}\n\n` : ""}Your display name is ${localizedTextString(bot.displayName)}
 

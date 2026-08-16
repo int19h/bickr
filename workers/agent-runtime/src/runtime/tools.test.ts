@@ -7,6 +7,7 @@ import type {
 	ThreadDocument,
 } from "@bickr/shared/model";
 import { RepositoryError } from "@bickr/shared/repository";
+import { ToolCallArgumentValidationError } from "../errors";
 import {
 	apiErrorPayload,
 	repositoryErrorCode,
@@ -15,6 +16,7 @@ import {
 	type ToolFailurePayload,
 } from "../index";
 import type { RuntimeRow } from "../types";
+import { normalizeToolArgs } from "./tool-args";
 import {
 	assertNoDuplicateReplyInToolResultRows,
 	DuplicateReplyError,
@@ -181,6 +183,29 @@ describe("redundant post and reply self-corrections", () => {
 	});
 });
 
+describe("tool argument failure guidance", () => {
+	it("uses typed guidance when a composite self-author label is pasted as a username", () => {
+		const error = caughtError(() => normalizeToolArgs("view_activity", { username: "u/alice (MYSELF)" }));
+		expect(error).toBeInstanceOf(ToolCallArgumentValidationError);
+
+		const failure = toolFailurePayload("view_activity", { username: "u/alice (MYSELF)" }, error);
+
+		expect(failure.code).toBe("self_author_annotation_in_handle");
+		expect(failure.guidance).toBe("Use only u/handle without the (MYSELF) annotation in handle or username arguments.");
+	});
+
+	it("does not infer annotation guidance from generic error prose", () => {
+		const failure = toolFailurePayload(
+			"view_activity",
+			{ username: "alice" },
+			new Error("A generic failure happened to mention (MYSELF)."),
+		);
+
+		expect(failure.code).toBe("tool_error");
+		expect(failure.guidance).toBe("Use a username like alice or u/alice.");
+	});
+});
+
 function profile(id: string, handle: string): BotPublicProfile {
 	return {
 		id,
@@ -202,6 +227,15 @@ function toolFailure(fields: Partial<ToolFailurePayload> & Pick<ToolFailurePaylo
 		args: {},
 		...fields,
 	};
+}
+
+function caughtError(action: () => unknown): unknown {
+	try {
+		action();
+	} catch (error) {
+		return error;
+	}
+	throw new Error("Expected action to throw.");
 }
 
 describe("forum coordinator error details across the service boundary", () => {

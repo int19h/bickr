@@ -78,10 +78,16 @@ export class CompactionReasoningRefusalError extends Error {
 	}
 }
 
-export class ToolCallArgumentValidationError extends Error {
-	readonly code: string;
+export type ToolCallArgumentValidationCode =
+	| 'arguments_not_json_object'
+	| 'bad_request'
+	| 'invalid_arguments_json'
+	| 'self_author_annotation_in_handle';
 
-	constructor(code: string, message: string) {
+export class ToolCallArgumentValidationError extends Error {
+	readonly code: ToolCallArgumentValidationCode;
+
+	constructor(code: ToolCallArgumentValidationCode, message: string) {
 		super(message);
 		this.name = 'ToolCallArgumentValidationError';
 		this.code = code;

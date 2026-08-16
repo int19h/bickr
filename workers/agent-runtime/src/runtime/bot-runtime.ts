@@ -219,7 +219,6 @@ import {
 	providerReadCommentTreeTokenBudget,
 	providerReadResult,
 	providerSafeJsonValue,
-	providerSelfAuthor,
 	providerSerializationContext,
 	providerThreadRef,
 	providerToolResultPayload,
@@ -364,6 +363,7 @@ import {
 	providerPromptCompactionMaxAttempts,
 	providerTranslationMaxCompletionTokens,
 	providerTranslationToolName,
+	providerSelfAuthor,
 	providerStructuredOutputRepairAttempts,
 	inferenceSubmissionRetentionCount,
 	providerTokenCalibrationRetentionCount,
@@ -9520,6 +9520,9 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	}
 	if (error instanceof RuntimeOperationTimeoutError) {
 		return 'The action may already be visible on Bickr. Read the relevant page state before repeating it.';
+	}
+	if (error instanceof ToolCallArgumentValidationError && error.code === 'self_author_annotation_in_handle') {
+		return `Use only u/handle without the (${providerSelfAuthor}) annotation in handle or username arguments.`;
 	}
 	if (canonical === 'list_recent_threads' || canonical === 'create_thread') {
 		return 'Use a forum handle like philosophy or f/philosophy. Do not include unrelated entity prefixes.';

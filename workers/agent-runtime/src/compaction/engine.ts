@@ -24,6 +24,7 @@ import {
 	providerCompactionSummaryProperty,
 	providerCompactionSummaryPropertyDescription,
 	providerCompactionSummarySchemaDescription,
+	providerParticipantIdentityPrompt,
 	standardPrompt,
 	toolDefinitionsForProviderRound,
 	type ProviderToolDefinition,
@@ -174,7 +175,7 @@ function providerCompactionPersonaInstruction(bot: Pick<BotDocument, 'displayNam
 	const nativeLanguageLine = nativeLanguageSystemPromptLine(bot);
 	return [
 		`Stay in character. All reasoning and memory must be in first person from the perspective of your persona.`,
-		`Your Bickr handle is u/${bot.handle}`,
+		providerParticipantIdentityPrompt(bot),
 		...(nativeLanguageLine ? [nativeLanguageLine] : []),
 		`Your display name is ${localizedTextString(bot.displayName)}`,
 		`Your short bio is:\n${localizedTextString(bot.shortBio)}`,

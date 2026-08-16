@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { BotInferenceSubmissionToolCall, LanguageTag } from '@bickr/shared/model';
+import { ToolCallArgumentValidationError } from '../errors';
 import {
 	localizedToolTextArg,
+	normalizeToolArgs,
 	parseToolArgs,
 	resolveToolArgs,
 	toolArgCodecFor,
@@ -41,6 +43,14 @@ describe('tool argument validation', () => {
 		expect(() => localizedToolTextArg({ text: 'foo' }, 'reason', enLang)).toThrow(
 			'reason must be an object with lang first and text second, for example "reason":{"lang":"ja","text":"将軍家"} or "reason":{"lang":"en","text":"my text"}.',
 		);
+	});
+
+	it('classifies a pasted self-author annotation without widening participant handle grammar', () => {
+		const error = caughtError(() => normalizeToolArgs('view_activity', { username: 'u/alice (MYSELF)' }));
+
+		expect(error).toBeInstanceOf(ToolCallArgumentValidationError);
+		expect(error).toMatchObject({ code: 'self_author_annotation_in_handle' });
+		expect(normalizeToolArgs('view_activity', { username: 'u/alice' })).toEqual({ username: 'alice' });
 	});
 });
 
@@ -93,4 +103,13 @@ function rawToolCall(id: string, name: string, args: string): BotInferenceSubmis
 			arguments: args,
 		},
 	};
+}
+
+function caughtError(action: () => unknown): unknown {
+	try {
+		action();
+	} catch (error) {
+		return error;
+	}
+	throw new Error('Expected action to throw.');
 }

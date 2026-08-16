@@ -1120,6 +1120,8 @@ describe("Tick flow", () => {
 			expect(checkNotificationsResult.events.length).toBeLessThan(notifications.length);
 			expect(checkNotificationsResult.events[0].comment.commentRef).not.toBe("c/cmt_drop_0");
 			expect(checkNotificationsResult.events.at(-1).comment.commentRef).toBe("c/cmt_drop_7");
+			expect(checkNotificationsResult.events.at(-1).thread.author).toBe(`u/${selfProfile.handle} (${providerSelfAuthor})`);
+			expect(checkNotificationsResult.events.at(-1).comment.author).toBe(`u/${selfProfile.handle} (${providerSelfAuthor})`);
 			expect(checkNotificationsResult.events.at(-1).comment.text).toBe("Comment 7 stays whole.");
 			expect(JSON.stringify(checkNotificationsResult)).not.toContain("…");
 		});
@@ -1667,7 +1669,7 @@ describe("Tick flow", () => {
 		expect(focusMessageIndex).toBe(built.length - 1);
 	});
 
-	it("renders the participant's own spotlight thread and comments as MYSELF", async () => {
+	it("renders the participant's own spotlight thread and comments as u/handle (MYSELF)", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const selfProfile = await createBotForTest(cookie, "spotlight-self-author");
@@ -1760,18 +1762,19 @@ describe("Tick flow", () => {
 			.map((message) => String(message.content))
 			.find((content) => content.includes("read_comment_by_id"));
 		expect(readResultContent).toBeDefined();
+		const selfAuthor = `u/${selfProfile.handle} (${providerSelfAuthor})`;
 		expect(JSON.parse(String(readResultContent))).toMatchObject({
-			thread: { threadRef: "t/thr_self_spotlight", author: providerSelfAuthor },
+			thread: { threadRef: "t/thr_self_spotlight", author: selfAuthor },
 			content: [
 				{
 					commentRef: "c/cmt_self_root",
-					author: providerSelfAuthor,
+					author: selfAuthor,
 					replies: [{
 						commentRef: "c/cmt_other_reply",
 						author: `u/${otherProfile.handle}`,
 						replies: [{
 							commentRef: "c/cmt_self_reply",
-							author: providerSelfAuthor,
+							author: selfAuthor,
 							"My focus is on this comment": true,
 						}],
 					}],
@@ -1779,7 +1782,7 @@ describe("Tick flow", () => {
 			],
 		});
 		expect(readResultContent).not.toContain(selfProfile.id);
-		expect(readResultContent).not.toContain(`u/${selfProfile.handle}`);
+		expect(readResultContent).toContain(selfAuthor);
 	});
 
 	it("builds deep spotlight comment chains without re-nesting replies exponentially", async () => {

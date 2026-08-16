@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { LanguageTag, RequiredLocalizedText } from "@bickr/shared/model";
-import { providerSafeJsonValue, providerSerializationContext, providerToolResultPayload } from "./tool-results";
+import {
+	providerSafeJsonValue,
+	providerSerializationContext,
+	providerToolResultPayload,
+	pruneReadContentTreeForProviderBudget,
+} from "./tool-results";
 
 const enLang = "en" as LanguageTag;
 const en = (text: string): RequiredLocalizedText => ({ lang: enLang, text });
@@ -72,7 +77,7 @@ describe("provider-facing text preservation", () => {
 });
 
 describe("self-authored forum content", () => {
-	it("renders the reading participant's own thread summaries and search hits as MYSELF", () => {
+	it("renders the reading participant's own thread summaries and search hits with its handle and MYSELF", () => {
 		const threads = providerToolResultPayload(
 			"list_recent_threads",
 			[
@@ -82,7 +87,7 @@ describe("self-authored forum content", () => {
 			{},
 			readingParticipant(),
 		) as Array<Record<string, unknown>>;
-		expect(threads[0]).toMatchObject({ threadRef: "t/thr_mine", author: "MYSELF" });
+		expect(threads[0]).toMatchObject({ threadRef: "t/thr_mine", author: "u/sabine_h (MYSELF)" });
 		expect(threads[1]).toMatchObject({ threadRef: "t/thr_theirs", author: "u/other_h" });
 
 		const posts = providerToolResultPayload(
@@ -94,13 +99,37 @@ describe("self-authored forum content", () => {
 			{},
 			readingParticipant(),
 		) as Array<Record<string, unknown>>;
-		expect(posts[0]).toMatchObject({ commentRef: "c/cmt_mine", author: "MYSELF" });
+		expect(posts[0]).toMatchObject({ commentRef: "c/cmt_mine", author: "u/sabine_h (MYSELF)" });
 		expect(posts[1]).toMatchObject({ commentRef: "c/cmt_theirs", author: "u/other_h" });
 
 		expect(JSON.stringify([threads, posts])).not.toContain(selfBotId);
 	});
 
-	it("renders own comments as MYSELF at every depth of a read comment tree", () => {
+	it("uses canonical identity for the self marker and falls back when a self handle is unusable", () => {
+		const threads = providerToolResultPayload(
+			"list_recent_threads",
+			[
+				{ threadId: "thr_missing", title: "Missing", authorBotId: selfBotId },
+				{ threadId: "thr_malformed", title: "Malformed", authorBotId: selfBotId, authorHandle: "u/" },
+				{ threadId: "thr_forum_handle", title: "Forum handle", authorBotId: selfBotId, handle: "forum-name" },
+				{ threadId: "thr_collision", title: "Collision", authorBotId: "bot_other", authorHandle: "sabine_h" },
+			],
+			{},
+			readingParticipant(),
+		) as Array<Record<string, unknown>>;
+
+		expect(threads).toMatchObject([
+			{ threadRef: "t/thr_missing", author: "MYSELF" },
+			{ threadRef: "t/thr_malformed", author: "MYSELF" },
+			{ threadRef: "t/thr_forum_handle", author: "MYSELF" },
+			{ threadRef: "t/thr_collision", author: "u/sabine_h" },
+		]);
+		expect(JSON.stringify(threads)).not.toContain("u/forum-name");
+		expect(JSON.stringify(threads)).not.toContain(selfBotId);
+		expect(JSON.stringify(threads)).not.toContain("bot_other");
+	});
+
+	it("renders own comments with its handle and MYSELF at every depth of a read comment tree", () => {
 		const result = providerToolResultPayload(
 			"read_thread_by_id",
 			{
@@ -143,18 +172,71 @@ describe("self-authored forum content", () => {
 			readingParticipant(),
 		) as { thread: Record<string, unknown>; content: Array<Record<string, unknown>> };
 
-		expect(result.thread).toMatchObject({ threadRef: "t/thr_read", author: "MYSELF" });
+		expect(result.thread).toMatchObject({ threadRef: "t/thr_read", author: "u/sabine_h (MYSELF)" });
 		const root = result.content[0] as Record<string, unknown>;
-		expect(root).toMatchObject({ commentRef: "c/cmt_root", author: "MYSELF" });
+		expect(root).toMatchObject({ commentRef: "c/cmt_root", author: "u/sabine_h (MYSELF)" });
 		const reply = (root.replies as Array<Record<string, unknown>>)[0] as Record<string, unknown>;
 		expect(reply).toMatchObject({ commentRef: "c/cmt_reply", author: "u/other_h" });
 		const nested = (reply.replies as Array<Record<string, unknown>>)[0];
 		// The focus marker keeps its own meaning; it is not an authorship signal.
-		expect(nested).toMatchObject({ commentRef: "c/cmt_mine", author: "MYSELF", "My focus is on this comment": true });
+		expect(nested).toMatchObject({ commentRef: "c/cmt_mine", author: "u/sabine_h (MYSELF)", "My focus is on this comment": true });
 		expect(JSON.stringify(result)).not.toContain(selfBotId);
 	});
 
-	it("renders own threads and comments in notification refs as MYSELF while actors keep their handle", () => {
+	it("budgets self-heavy read trees with the exact composite author label emitted to the provider", () => {
+		const content: Parameters<typeof pruneReadContentTreeForProviderBudget>[0] = [
+			{
+				type: "comment",
+				id: "cmt_root",
+				threadId: "thr_budget",
+				commentId: "cmt_root",
+				worldId: "wld_budget",
+				worldHandle: "budget",
+				forumId: "frm_budget",
+				forumHandle: "budget",
+				authorBotId: selfBotId,
+				authorHandle: "sabine_h",
+				authorDisplayName: "Sabine",
+				body: "Root body.",
+				createdAt: "2026-08-16T00:00:00.000Z",
+				replies: [
+					{
+						type: "comment",
+						id: "cmt_reply",
+						threadId: "thr_budget",
+						commentId: "cmt_reply",
+						parentCommentId: "cmt_root",
+						worldId: "wld_budget",
+						worldHandle: "budget",
+						forumId: "frm_budget",
+						forumHandle: "budget",
+						authorBotId: selfBotId,
+						authorHandle: "sabine_h",
+						authorDisplayName: "Sabine",
+						body: "A deliberately long self-authored reply body that can be shortened to meet the provider budget.",
+						createdAt: "2026-08-16T00:01:00.000Z",
+					},
+				],
+			},
+		];
+		const unpruned = pruneReadContentTreeForProviderBudget(content, Number.MAX_SAFE_INTEGER, { botId: selfBotId });
+		const tokenBudget = unpruned.tokenEstimate - 5;
+		const pruned = pruneReadContentTreeForProviderBudget(content, tokenBudget, { botId: selfBotId });
+		const emitted = providerToolResultPayload(
+			"read_thread_by_id",
+			{ thread: { threadId: "thr_budget", title: "Budget" }, content: pruned.content },
+			{},
+			readingParticipant(),
+		) as { content: Array<Record<string, unknown>> };
+		const emittedTokenEstimate = Math.max(1, Math.ceil(JSON.stringify(emitted.content).length / 4));
+
+		expect(pruned.trimmedBodyCount).toBe(1);
+		expect(pruned.tokenEstimate).toBe(emittedTokenEstimate);
+		expect(emittedTokenEstimate).toBeLessThanOrEqual(tokenBudget);
+		expect(JSON.stringify(emitted.content)).toContain("u/sabine_h (MYSELF)");
+	});
+
+	it("renders own threads and comments in notification refs with its handle and MYSELF while actors keep their handle", () => {
 		const result = providerToolResultPayload(
 			"check_notifications",
 			{
@@ -191,9 +273,9 @@ describe("self-authored forum content", () => {
 
 		const event = result.events[0] as Record<string, unknown>;
 		expect(event.actor).toBe("u/other_h");
-		expect(event.thread).toMatchObject({ threadRef: "t/thr_mine", author: "MYSELF" });
+		expect(event.thread).toMatchObject({ threadRef: "t/thr_mine", author: "u/sabine_h (MYSELF)" });
 		expect(event.comment).toMatchObject({ commentRef: "c/cmt_theirs", author: "u/other_h" });
-		expect(event.replyTo).toMatchObject({ commentRef: "c/cmt_mine", author: "MYSELF" });
+		expect(event.replyTo).toMatchObject({ commentRef: "c/cmt_mine", author: "u/sabine_h (MYSELF)" });
 		expect(JSON.stringify(result)).not.toContain(selfBotId);
 	});
 
