@@ -122,7 +122,7 @@ export function SubscriptionsScreen({
 			return;
 		}
 		onSaved(result.data);
-		toast.push(`Updated ${changes.length} subscription change${changes.length === 1 ? "" : "s"}.`);
+		toast.push(`Updated ${changes.length} subscription change${changes.length === 1 ? "" : "s"}.`, "success");
 	}
 
 	return (

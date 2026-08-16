@@ -109,6 +109,7 @@ export function SpotlightPanel({
 			autoStartTick ?
 				`Spotlight sent to ${result.data.deliveries.length} bot${result.data.deliveries.length === 1 ? "" : "s"}.`
 			:	`Spotlight queued for ${result.data.deliveries.length} bot${result.data.deliveries.length === 1 ? "" : "s"}.`,
+			"success",
 		);
 		onClear();
 	}

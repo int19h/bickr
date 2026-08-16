@@ -140,7 +140,7 @@ export function WorldEditPage({
 		if (readonly) {
 			return;
 		}
-		const ok = await onSave({
+		await onSave({
 			handle,
 			language: savedLanguage,
 			name: localizedDraft(name, language),
@@ -155,25 +155,18 @@ export function WorldEditPage({
 			},
 			threadSettings: { commentLimit: threadCommentLimitValue },
 		});
-		if (ok) {
-			toast.push(
-				<>
-					Saved <Reference kind="world" name={handle} />
-				</>,
-			);
-		}
 	}
 
 	async function deleteAvatar(): Promise<void> {
 		const target = worldAvatarTarget(world);
-		const result = await runApiAction((message) => toast.push(message), () => api<WorldMutationResponse>(target.endpoints.clear, {
+		const result = await runApiAction((message) => toast.push(message, "error"), () => api<WorldMutationResponse>(target.endpoints.clear, {
 			method: "DELETE",
 		}));
 		if (!result) {
 			return;
 		}
 		onWorldUpdated(result.data.world);
-		toast.push("Deleted world avatar.");
+		toast.push("Deleted world avatar.", "success");
 	}
 
 	return (

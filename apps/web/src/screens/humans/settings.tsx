@@ -127,7 +127,6 @@ export function ProfileScreen({
 		if (saved) {
 			setProfile(saved);
 			setDraft(profileDraftFromProfile(saved));
-			toast.push(t.profile.savedProfile);
 		}
 	}
 
@@ -135,7 +134,6 @@ export function ProfileScreen({
 		const saved = await onAuthIdentityUnlink(provider);
 		if (saved) {
 			setProfile((current) => profileWithPreservedTranslationInference(current, saved));
-			toast.push(`Unlinked ${authProviderLabel(provider)}`);
 		}
 	}
 
@@ -152,7 +150,7 @@ export function ProfileScreen({
 		}
 		applySavedAvatarProfile(result.data.profile);
 		setDeleteAvatarConfirm(false);
-		toast.push("Deleted avatar");
+		toast.push("Deleted avatar", "success");
 	}
 
 	return (

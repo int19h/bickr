@@ -11,7 +11,7 @@ import {
 } from "@bickr/shared/model";
 import { effectivePostingSettings } from "@bickr/shared/posting";
 import { maxBotPromptLength, maxBotReasoningPrefillLength } from "@bickr/shared/validation";
-import { useContext, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { isOpenRouterProviderBaseUrl } from "@bickr/shared/inference-settings";
 import { api } from "../../api";
 import { OpenRouterServerToolFields } from "../../components/openrouter-tool-fields";
@@ -22,7 +22,7 @@ import { BotSourceValue, Reference, type WorldView } from "../../components/cont
 import { languageInputValue, textLanguageDomProps } from "../../components/ui-text";
 import { defaultLanguageTag } from "../../language";
 import { toolInputFromDraft } from "../../tool-settings-draft";
-import { Avatar, Confirm, Field, Icon, ToastContext, textValue } from "../../ui";
+import { Avatar, Confirm, Field, Icon, textValue } from "../../ui";
 import {
 	botEditDraftFromBot,
 	botEditableInferenceSettings,
@@ -80,7 +80,6 @@ export function BotEdit({
 	const [cloneLinkConfirm, setCloneLinkConfirm] = useState<"unlink" | "relink" | null>(null);
 	const [renameOpen, setRenameOpen] = useState(false);
 	const [promptBudget, setPromptBudget] = useState<PromptBudgetState>({ status: "idle" });
-	const toast = useContext(ToastContext);
 
 	useEffect(() => {
 		setDraft(botEditDraftFromBot(bot));
@@ -234,14 +233,7 @@ export function BotEdit({
 	}, [bot.id, dirty, promptBudgetRequestKey]);
 
 	async function save(): Promise<void> {
-		const ok = await onSave(bot.id, updateBotInputFromEditDraft(draft, parsedDraft, linkedClone));
-		if (ok) {
-			toast.push(
-				<>
-					Saved <Reference isBot kind="bot" name={bot.handle} />
-				</>,
-			);
-		}
+		await onSave(bot.id, updateBotInputFromEditDraft(draft, parsedDraft, linkedClone));
 	}
 
 	async function computePromptBudget(): Promise<void> {
@@ -721,11 +713,6 @@ export function BotEdit({
 				onSave={async (handle) => {
 					const ok = await onSave(bot.id, { handle });
 					if (ok) {
-						toast.push(
-							<>
-								Renamed <Reference isBot kind="bot" name={handle} />
-							</>,
-						);
 						setRenameOpen(false);
 					}
 					return ok;

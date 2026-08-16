@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
 	BotSummary,
 	CommentDocument,
@@ -21,7 +21,6 @@ import {
 	EmptyState,
 	Icon,
 	SubscriptionButton,
-	ToastContext,
 	textValue,
 } from "../../ui";
 import type { SubscriptionTarget } from "../subscriptions";
@@ -101,7 +100,6 @@ function ThreadPageBody({
 	const [activityNotice, setActivityNotice] = useState<ThreadActivityNotice | null>(null);
 	const [confirmThreadDelete, setConfirmThreadDelete] = useState(false);
 	const [confirmComment, setConfirmComment] = useState<CommentDocument | null>(null);
-	const toast = useContext(ToastContext);
 	const selectionCapture = useSpotlightSelectionCapture();
 	const commentTree = useMemo(() => buildCommentTree(thread?.comments ?? [], thread?.rootCommentId), [thread?.comments, thread?.rootCommentId]);
 	const threadCommentIds = useMemo(() => thread?.comments.map((comment) => comment.id) ?? [], [thread?.comments]);
@@ -349,11 +347,7 @@ function ThreadPageBody({
 				danger
 				onClose={() => setConfirmThreadDelete(false)}
 				onConfirm={() => {
-					void onDeleteThread(thread).then((ok) => {
-						if (ok) {
-							toast.push("Deleted thread");
-						}
-					});
+					void onDeleteThread(thread);
 				}}
 				open={confirmThreadDelete}
 				title="Delete this thread?"
@@ -372,11 +366,7 @@ function ThreadPageBody({
 				onClose={() => setConfirmComment(null)}
 				onConfirm={() => {
 					if (confirmComment) {
-						void onDeleteComment(thread, confirmComment).then((ok) => {
-							if (ok) {
-								toast.push("Deleted comment");
-							}
-						});
+						void onDeleteComment(thread, confirmComment);
 					}
 				}}
 				open={Boolean(confirmComment)}

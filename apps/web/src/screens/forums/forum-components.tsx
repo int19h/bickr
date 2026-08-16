@@ -3,7 +3,7 @@ import type {
 	UpdateForumInput,
 } from "@bickr/shared/model";
 import { effectiveThreadSettings } from "@bickr/shared/thread-policy";
-import { useCallback, useContext, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ForumReadOnlyBadge, Reference, TranslatableText, type WorldView } from "../../components/content";
 import {
 	LanguageField,
@@ -21,7 +21,6 @@ import {
 	Field,
 	Icon,
 	Modal,
-	ToastContext,
 	textValue,
 } from "../../ui";
 import { parseOptionalPositiveInteger } from "../../components/record-display";
@@ -45,7 +44,6 @@ export function EditForumModal({
 	const [threadCommentLimit, setThreadCommentLimit] = useState("");
 	const [readOnly, setReadOnly] = useState(false);
 	const [renameOpen, setRenameOpen] = useState(false);
-	const toast = useContext(ToastContext);
 	const closeEditModal = useCallback(() => {
 		if (renameOpen) {
 			setRenameOpen(false);
@@ -88,11 +86,6 @@ export function EditForumModal({
 				readOnly,
 			});
 		if (ok) {
-			toast.push(
-				<>
-					Saved <Reference kind="forum" name={activeForum.handle} />
-				</>,
-			);
 			onClose();
 		}
 	}
@@ -162,11 +155,6 @@ export function EditForumModal({
 				onSave={async (handle) => {
 					const ok = await onSave(activeForum, { handle });
 					if (ok) {
-						toast.push(
-							<>
-								Renamed <Reference kind="forum" name={handle} />
-							</>,
-						);
 						setRenameOpen(false);
 						onClose();
 					}

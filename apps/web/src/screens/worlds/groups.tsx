@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { BotGroupSummary, BotSummary } from "@bickr/shared/model";
 import { Reference, TranslatableText, type WorldView } from "../../components/content";
 import { SpaLink } from "../../components/navigation";
@@ -10,7 +10,6 @@ import {
 	Icon,
 	Modal,
 	textValue,
-	ToastContext,
 } from "../../ui";
 import { matchesFilter, sortBotsForCards } from "../../components/record-display";
 
@@ -43,7 +42,6 @@ export function BotGroupsTab({
 }) {
 	const [addTarget, setAddTarget] = useState<BotGroupSummary | null>(null);
 	const [confirmGroup, setConfirmGroup] = useState<BotGroupSummary | null>(null);
-	const toast = useContext(ToastContext);
 	const filteredGroups = useMemo(
 		() => groups.filter((group) => matchesBotGroupFilter(filter, group)),
 		[filter, groups],
@@ -111,11 +109,7 @@ export function BotGroupsTab({
 				onClose={() => setConfirmGroup(null)}
 				onConfirm={() => {
 					if (confirmGroup) {
-						void onDeleteGroup(confirmGroup).then((ok) => {
-							if (ok) {
-								toast.push("Deleted group.");
-							}
-						});
+						void onDeleteGroup(confirmGroup);
 					}
 				}}
 				open={Boolean(confirmGroup)}

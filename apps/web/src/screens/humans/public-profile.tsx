@@ -126,7 +126,7 @@ export function HumanProfileScreen({
 	async function deleteSelfProfile(): Promise<void> {
 		const ok = await onDeleteProfile();
 		if (ok) {
-			toast.push("Deleted profile");
+			toast.push("Deleted profile", "success");
 		}
 	}
 

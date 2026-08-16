@@ -1,6 +1,6 @@
 import type { BotSummary, BotTickSpreadResult, BotTokenSpendSummary } from "@bickr/shared/model";
 import type { CSSProperties, ReactNode } from "react";
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { Reference, TranslatableText, type WorldView } from "../../components/content";
 import { SpaLink } from "../../components/navigation";
@@ -21,7 +21,7 @@ import { useBotEffectiveModels } from "../../inference/bot-models";
 import { formatAverageDays, formatTokenCost, formatTokenCostParts } from "../bots/token-usage";
 import { formatFullDate } from "../chrome";
 import { BotProfileHoverLink } from "../search";
-import { Avatar, Confirm, EmptyState, FilterBox, Icon, ToastContext, textValue } from "../../ui";
+import { Avatar, Confirm, EmptyState, FilterBox, Icon, textValue } from "../../ui";
 import {
 	TimeAgoLabel,
 	TimeUntilLabel,
@@ -59,7 +59,6 @@ export function MyBotsScreen({
 	const [sort, setSort] = useState<MyBotsSortState>(() => readMyBotsSortState());
 	const [spendByBotId, setSpendByBotId] = useState<Record<string, MyBotSpendLoadState>>({});
 	const selectAllRef = useRef<HTMLInputElement>(null);
-	const toast = useContext(ToastContext);
 	const spendFetchKey = useMemo(() => bots.map((bot) => bot.id).sort(compareHandles).join("\u0000"), [bots]);
 
 	// The current model is whatever the graph resolves for each participant, so
@@ -245,7 +244,6 @@ export function MyBotsScreen({
 				}
 				return next;
 			});
-			toast.push(`Deleted ${result.deleted.length} bot${result.deleted.length === 1 ? "" : "s"}.`);
 		}
 	}
 
@@ -260,11 +258,7 @@ export function MyBotsScreen({
 		if (enabledBotCount === 0) {
 			return;
 		}
-		const result = await onSpreadBotTicks();
-		if (result) {
-			const skipped = result.skipped.paused + result.skipped.running;
-			toast.push(`Spread ticks for ${result.scheduled.length} bot${result.scheduled.length === 1 ? "" : "s"}${skipped ? `; ${skipped} unchanged` : ""}.`);
-		}
+		await onSpreadBotTicks();
 	}
 
 	return (
