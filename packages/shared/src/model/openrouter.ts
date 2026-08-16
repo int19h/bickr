@@ -1,4 +1,6 @@
-import { generatedOpenRouterImageModelConfigEntries } from "../openrouter-image-model-config.generated";
+// Explicit extension: reached at runtime from the CLI through Node's ESM
+// resolver, which does not add `.ts` for an extensionless relative specifier.
+import { generatedOpenRouterImageModelConfigEntries } from "../openrouter-image-model-config.generated.ts";
 import type { BotImageGenerationSettings } from "./entities";
 
 export const openRouterImageAspectRatios = [
