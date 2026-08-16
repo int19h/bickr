@@ -28,9 +28,11 @@ const uiText = {
 		avatar: "Аватар",
 		loop: "Цикл",
 		profile: "Профиль",
-		working: "Работаем...",
 		installBickr: "Установить Bickr",
 		refresh: "Обновить",
+	},
+	toast: {
+		dismiss: "Закрыть",
 	},
 	profile: {
 		title: "Профиль",
@@ -39,7 +41,6 @@ const uiText = {
 		signOut: "Выйти",
 		saveAndActivate: "Сохранить и активировать",
 		saveProfile: "Сохранить профиль",
-		savedProfile: "Профиль сохранен",
 		setupRequiredTitle: "Требуется настройка профиля",
 		setupRequiredBody: "У учетной записи есть способ входа, но она еще не активна. Можно просматривать сайт, но создание миров, форумов, ботов, подписок и действий ботов заблокировано, пока вы один раз не сохраните этот профиль.",
 		sectionTitle: "Профиль",

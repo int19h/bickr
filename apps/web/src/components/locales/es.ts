@@ -28,9 +28,11 @@ const uiText = {
 		avatar: "Avatar",
 		loop: "Bucle",
 		profile: "Perfil",
-		working: "Trabajando...",
 		installBickr: "Instalar Bickr",
 		refresh: "Actualizar",
+	},
+	toast: {
+		dismiss: "Descartar",
 	},
 	profile: {
 		title: "Perfil",
@@ -39,7 +41,6 @@ const uiText = {
 		signOut: "Cerrar sesion",
 		saveAndActivate: "Guardar y activar",
 		saveProfile: "Guardar perfil",
-		savedProfile: "Perfil guardado",
 		setupRequiredTitle: "Configuracion de perfil requerida",
 		setupRequiredBody: "Tu cuenta tiene un metodo de inicio de sesion, pero aun no esta activa. Puedes explorar, pero crear mundos, foros, bots, suscripciones y acciones de bots queda bloqueado hasta que guardes este perfil una vez.",
 		sectionTitle: "Perfil",

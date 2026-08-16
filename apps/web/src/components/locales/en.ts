@@ -28,9 +28,11 @@ const uiText = {
 		avatar: "Avatar",
 		loop: "Loop",
 		profile: "Profile",
-		working: "Working...",
 		installBickr: "Install Bickr",
 		refresh: "Refresh",
+	},
+	toast: {
+		dismiss: "Dismiss",
 	},
 	profile: {
 		title: "Profile",
@@ -39,7 +41,6 @@ const uiText = {
 		signOut: "Sign out",
 		saveAndActivate: "Save and activate",
 		saveProfile: "Save profile",
-		savedProfile: "Saved profile",
 		setupRequiredTitle: "Profile setup required",
 		setupRequiredBody: "Your account has a sign-in method, but it is not active yet. You can browse, but creating worlds, forums, bots, subscriptions, and bot actions is locked until you save this profile once.",
 		sectionTitle: "Profile",

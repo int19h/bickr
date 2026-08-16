@@ -251,7 +251,7 @@ export function InferenceConfigurationEditorScreen({
 		apply(result.data, { drafts: "reset", name: nameDirty ? "keep" : "adopt" });
 		onInferenceChanged?.();
 		setMessage("Saved. Effective values below are recomputed from the server.");
-		toast.push("Saved inference configuration");
+		toast.push("Saved inference configuration", "success");
 	}
 
 	async function handleMutationFailure(failure: ApiFailure): Promise<void> {
@@ -307,7 +307,7 @@ export function InferenceConfigurationEditorScreen({
 		// allowed to replace the name draft.
 		apply(result.data, { drafts: "keep", name: "adopt" });
 		onInferenceChanged?.();
-		toast.push("Renamed configuration");
+		toast.push("Renamed configuration", "success");
 	}
 
 	async function saveParent(parentId: string): Promise<void> {
@@ -324,7 +324,7 @@ export function InferenceConfigurationEditorScreen({
 		onInferenceChanged?.();
 		setParentPickerOpen(false);
 		setMessage("Inheritance source changed. Inherited values below are recomputed from the server.");
-		toast.push("Changed inheritance source");
+		toast.push("Changed inheritance source", "success");
 	}
 
 	async function confirmDelete(): Promise<void> {
@@ -338,7 +338,7 @@ export function InferenceConfigurationEditorScreen({
 			return;
 		}
 		onInferenceChanged?.();
-		toast.push(`Deleted ${dto.displayName}`);
+		toast.push(`Deleted ${dto.displayName}`, "success");
 		onNavigate({ route: "inference-library", ...(returnTo ? { returnTo } : {}) });
 	}
 
@@ -362,7 +362,7 @@ export function InferenceConfigurationEditorScreen({
 		}
 		apply(result.data, { drafts: "keep", name: "keep" });
 		onInferenceChanged?.();
-		toast.push("Updated provider credential");
+		toast.push("Updated provider credential", "success");
 	}
 
 	function patchDraft(field: InferenceConfigurationField, draft: InferenceFieldDraft): void {

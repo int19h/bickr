@@ -1073,19 +1073,6 @@ body.bickr-test-environment .shell {
 	color: var(--ink);
 }
 
-.status-chip {
-	border: 1px solid var(--rule);
-	border-radius: var(--radius);
-	color: var(--ink-3);
-	font-size: calc(12px * var(--font-scale));
-	line-height: 1;
-	max-width: 180px;
-	overflow: hidden;
-	padding: 7px 9px;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
 .account-btn {
 	align-items: center;
 	background: var(--paper);
@@ -1569,6 +1556,17 @@ button:disabled {
 @keyframes spin {
 	to {
 		transform: rotate(360deg);
+	}
+}
+
+.icon-spin {
+	animation: spin 900ms linear infinite;
+	transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.icon-spin {
+		animation-duration: 2400ms;
 	}
 }
 
@@ -5295,8 +5293,44 @@ fieldset {
 	display: flex;
 	font-size: calc(13px * var(--font-scale));
 	gap: 8px;
+	max-width: min(520px, calc(100vw - 32px));
 	padding: 9px 14px;
 	pointer-events: auto;
+}
+
+.toast-message {
+	overflow-wrap: anywhere;
+}
+
+/*
+ * Toasts invert the page (`--ink` background, `--paper` text), so severity is a
+ * tint of that inversion rather than a fixed color: mixing against `--ink`
+ * keeps the text contrast in both themes without per-theme overrides.
+ */
+.toast-success {
+	background: color-mix(in oklab, var(--positive) 55%, var(--ink));
+}
+
+.toast-error {
+	background: color-mix(in oklab, var(--danger) 60%, var(--ink));
+}
+
+.toast-dismiss {
+	align-items: center;
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	color: inherit;
+	cursor: pointer;
+	display: inline-flex;
+	flex: none;
+	justify-content: center;
+	opacity: 0.8;
+	padding: 2px;
+}
+
+.toast-dismiss:hover {
+	opacity: 1;
 }
 
 @keyframes toast-in {
@@ -5635,8 +5669,7 @@ fieldset {
 		display: none;
 	}
 
-	.search,
-	.status-chip {
+	.search {
 		display: none;
 	}
 
@@ -7383,12 +7416,6 @@ button.avatar-large-preview:not(:disabled),
 	position: absolute;
 	width: 34px;
 	z-index: 2;
-}
-
-@keyframes spin {
-	to {
-		transform: rotate(360deg);
-	}
 }
 
 .activity-title {

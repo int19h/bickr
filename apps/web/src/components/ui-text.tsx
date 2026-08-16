@@ -36,9 +36,11 @@ export type UiText = {
 		avatar: string;
 		loop: string;
 		profile: string;
-		working: string;
 		installBickr: string;
 		refresh: string;
+	};
+	toast: {
+		dismiss: string;
 	};
 	profile: {
 		title: string;
@@ -47,7 +49,6 @@ export type UiText = {
 		signOut: string;
 		saveAndActivate: string;
 		saveProfile: string;
-		savedProfile: string;
 		setupRequiredTitle: string;
 		setupRequiredBody: string;
 		sectionTitle: string;

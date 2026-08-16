@@ -102,8 +102,8 @@ export function Topbar({
 	onRefresh,
 	onRefreshNotifications,
 	onTheme,
+	refreshing,
 	route,
-	status,
 	themePreference,
 	thread,
 	user,
@@ -125,8 +125,8 @@ export function Topbar({
 	onRefresh: () => void;
 	onRefreshNotifications: (status?: "unread" | "all") => void;
 	onTheme: (preference: ThemePreference) => void;
+	refreshing: boolean;
 	route: Route;
-	status: string;
 	themePreference: ThemePreference;
 	thread: ThreadDocument | null;
 	user: PublicUser | null;
@@ -266,9 +266,6 @@ export function Topbar({
 			</div>
 			<div className="right">
 				<GlobalSearchBox />
-				<span className="status-chip" title={status}>
-					{busy ? t.topbar.working : status}
-				</span>
 				<ThemeSwitch onChange={onTheme} value={themePreference} />
 				<FontScaleSwitch onChange={onFontScale} value={fontScalePercent} />
 				{installAvailable && (
@@ -276,8 +273,14 @@ export function Topbar({
 						<Icon name="install" size={15} />
 					</button>
 				)}
-				<button className="icon-btn topbar-refresh" disabled={busy} onClick={onRefresh} title={t.topbar.refresh} type="button">
-					<Icon name="refresh" size={15} />
+				<button
+					className="icon-btn topbar-refresh"
+					disabled={busy || refreshing}
+					onClick={onRefresh}
+					title={t.topbar.refresh}
+					type="button"
+				>
+					<Icon className={refreshing ? "icon-spin" : undefined} name="refresh" size={15} />
 				</button>
 				{user && (
 					<NotificationBell

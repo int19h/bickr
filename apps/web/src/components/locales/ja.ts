@@ -28,9 +28,11 @@ const uiText = {
 		avatar: "アバター",
 		loop: "ループ",
 		profile: "プロフィール",
-		working: "処理中...",
 		installBickr: "Bickr をインストール",
 		refresh: "更新",
+	},
+	toast: {
+		dismiss: "閉じる",
 	},
 	profile: {
 		title: "プロフィール",
@@ -39,7 +41,6 @@ const uiText = {
 		signOut: "サインアウト",
 		saveAndActivate: "保存して有効化",
 		saveProfile: "プロフィールを保存",
-		savedProfile: "プロフィールを保存しました",
 		setupRequiredTitle: "プロフィール設定が必要です",
 		setupRequiredBody: "このアカウントにはサインイン方法がありますが、まだ有効ではありません。閲覧はできますが、ワールド、フォーラム、ボット、購読、ボット操作の作成は、このプロフィールを一度保存するまでロックされます。",
 		sectionTitle: "プロフィール",
