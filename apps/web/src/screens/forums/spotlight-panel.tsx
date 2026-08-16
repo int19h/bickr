@@ -1,12 +1,5 @@
-import { useContext, useEffect, useMemo, useState } from "react";
-import {
-	spotlightDeliverySucceeded,
-	type BotSummary,
-	type ForumSummary,
-	type SpotlightSendResult,
-	type SpotlightTargetType,
-} from "@bickr/shared/model";
-import { api } from "../../api";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import type { BotSummary, ForumSummary, SpotlightTargetType } from "@bickr/shared/model";
 import {
 	TranslatableText,
 	type WorldView,
@@ -18,6 +11,16 @@ import {
 	ToastContext,
 } from "../../ui";
 import { matchesFilter, sortByHandle } from "../../components/record-display";
+import {
+	sendSpotlightInBatches,
+	type SpotlightDeliveryFailure,
+} from "./spotlight-delivery";
+
+type SpotlightRun = {
+	/** The participants this run was started for; later selection edits cannot change it. */
+	botIds: string[];
+	processed: number;
+};
 
 export function SpotlightPanel({
 	commentIds,
@@ -45,8 +48,14 @@ export function SpotlightPanel({
 	const [botSearch, setBotSearch] = useState("");
 	const [focusText, setFocusText] = useState(() => initialFocusText);
 	const [autoStartTick, setAutoStartTick] = useState(() => readStoredBoolean("bickr.spotlight.autoStartTick", true));
-	const [sending, setSending] = useState(false);
+	const [run, setRun] = useState<SpotlightRun | null>(null);
+	const [failures, setFailures] = useState<SpotlightDeliveryFailure[]>([]);
 	const [message, setMessage] = useState("");
+	// Kept across retries so a participant an earlier attempt already reached is
+	// skipped by the server instead of spotlighted twice.
+	const spotlightIdRef = useRef<string | undefined>(undefined);
+	const abortRef = useRef<AbortController | null>(null);
+	const sending = run !== null;
 	const worldOwnedBots = useMemo(
 		() => ownedBots.filter((bot) => bot.homeWorldId === world.id || bot.homeWorldHandle === world.handle),
 		[ownedBots, world.handle, world.id],
@@ -61,8 +70,10 @@ export function SpotlightPanel({
 			eligibleBots.filter((bot) => matchesFilter(botSearch, bot.displayName, bot.handle)),
 		[botSearch, eligibleBots],
 	);
-	const botIds = Object.keys(selectedBots).filter((id) => selectedBots[id]);
+	const botIds = eligibleBots.filter((bot) => selectedBots[bot.id]).map((bot) => bot.id);
 	const targetIds = targetType === "threads" ? threadIds : commentIds;
+	const handleById = useMemo(() => new Map(ownedBots.map((bot) => [bot.id, bot.handle])), [ownedBots]);
+	const allVisibleSelected = visibleBots.length > 0 && visibleBots.every((bot) => selectedBots[bot.id]);
 
 	useEffect(() => {
 		const eligibleIds = new Set(eligibleBots.map((bot) => bot.id));
@@ -83,108 +94,165 @@ export function SpotlightPanel({
 		setFocusText((current) => current.trim() ? current : initialFocusText);
 	}, [initialFocusText]);
 
+	// A run outlives the panel only as far as the batch already in flight; the
+	// rest is cancelled so closing really does stop the delivery.
+	useEffect(() => () => abortRef.current?.abort(), []);
+
+	function close(): void {
+		abortRef.current?.abort();
+		onClear();
+	}
+
+	function toggleVisibleSelection(): void {
+		setSelectedBots((current) => {
+			const next = { ...current };
+			for (const bot of visibleBots) {
+				next[bot.id] = !allVisibleSelected;
+			}
+			return next;
+		});
+	}
+
 	async function send(): Promise<void> {
-		if (botIds.length === 0 || targetIds.length === 0) {
+		if (botIds.length === 0 || targetIds.length === 0 || sending) {
 			return;
 		}
-		setSending(true);
-		setMessage("Sending spotlight...");
-		const result = await api<SpotlightSendResult>(
-			`/api/worlds/${encodeURIComponent(world.handle)}/forums/${encodeURIComponent(forum.handle)}/spotlight/send`,
-			{
-				method: "POST",
-				body: spotlightInput(targetType, botIds, threadIds, threadId, commentIds, focusText, autoStartTick),
+		const controller = new AbortController();
+		abortRef.current = controller;
+		const snapshot = botIds;
+		setRun({ botIds: snapshot, processed: 0 });
+		setFailures([]);
+		setMessage("");
+		// The rendered list is what the owner sees; this one is what the run
+		// decides with, since the state updates below land after each await.
+		const runFailures: SpotlightDeliveryFailure[] = [];
+
+		const result = await sendSpotlightInBatches({
+			target: {
+				worldHandle: world.handle,
+				forumHandle: forum.handle,
+				targetType,
+				threadIds,
+				threadId,
+				commentIds,
+				focusText,
+				autoStartTick,
 			},
-		);
-		setSending(false);
-		if (!result.ok) {
-			setMessage(result.message);
+			botIds: snapshot,
+			spotlightId: spotlightIdRef.current,
+			signal: controller.signal,
+			onBatch: (update) => {
+				spotlightIdRef.current = update.spotlightId;
+				runFailures.push(...update.failures);
+				// Only participants this batch finished with are unchecked, so a
+				// one-click retry covers exactly what is still owed.
+				const completed = new Set(update.completedBotIds);
+				setSelectedBots((current) => Object.fromEntries(
+					Object.entries(current).map(([botId, selected]) => [botId, selected && !completed.has(botId)]),
+				));
+				setFailures((current) => [...current, ...update.failures]);
+				setRun((current) =>
+					current === null ? current : (
+						{ ...current, processed: current.processed + update.completedBotIds.length + update.failures.length }
+					),
+				);
+			},
+		});
+		abortRef.current = null;
+		setRun(null);
+		if (result.kind === "aborted") {
 			return;
 		}
-		const failed = result.data.deliveries.filter((delivery) => !spotlightDeliverySucceeded(delivery));
-		if (failed.length > 0) {
-			setMessage(`${failed.length} spotlight delivery failed.`);
+		if (result.kind === "request_failed") {
+			setFailures((current) => [...current, ...result.failures]);
+			setMessage(result.message);
+			toast.push(`Spotlight stopped: ${result.message}`);
+			return;
+		}
+		const delivered = snapshot.length - runFailures.length;
+		if (runFailures.length > 0) {
+			toast.push(`Spotlight reached ${delivered} of ${snapshot.length} bots. ${runFailures.length} still selected for retry.`);
 			return;
 		}
 		toast.push(
 			autoStartTick ?
-				`Spotlight sent to ${result.data.deliveries.length} bot${result.data.deliveries.length === 1 ? "" : "s"}.`
-			:	`Spotlight queued for ${result.data.deliveries.length} bot${result.data.deliveries.length === 1 ? "" : "s"}.`,
+				`Spotlight sent to ${delivered} bot${delivered === 1 ? "" : "s"}.`
+			:	`Spotlight queued for ${delivered} bot${delivered === 1 ? "" : "s"}.`,
 		);
 		onClear();
 	}
 
 	return (
 		<aside className="spot-panel" aria-label="Spotlight panel" data-spotlight-ui="true">
-			<div className="head">
-				<h3>
-					<span className="pulse" />
-					Spotlight
-				</h3>
-				<button aria-label="Clear spotlight selection" className="icon-btn" onClick={onClear} type="button">
-					<Icon name="x" size={14} />
-				</button>
-			</div>
-			<div className="body">
-				<div className="selection-summary">
-					<span>
-						<b>{targetIds.length}</b> {targetType === "threads" ? "thread" : "comment"}
-						{targetIds.length === 1 ? "" : "s"} selected
+			<div className="spot-chrome">
+				<div className="spot-head">
+					<span className="spot-head-copy">
+						Spotlight <b>{targetIds.length}</b> selected {targetType === "threads" ? "thread" : "comment"}
+						{targetIds.length === 1 ? "" : "s"} to
 					</span>
-					<button className="clear-link" onClick={onClear} type="button">
-						clear
+					<button aria-label="Close spotlight panel" className="icon-btn danger" onClick={close} type="button">
+						<Icon name="x" size={14} />
 					</button>
 				</div>
-
-				<div>
-					<div className="mini-label">Send to</div>
-					<div className="spot-search">
-						<Icon name="search" size={13} />
-						<input
-							aria-label="Filter spotlight recipients"
-							className="input"
-							onChange={(event) => setBotSearch(event.target.value)}
-							placeholder="Filter by display name or username"
-							value={botSearch}
-						/>
-					</div>
-					{eligibleBots.length === 0 ?
-						<div className="empty compact-empty">
-							{worldOwnedBots.length === 0 ?
-								"You need to own at least one bot in this world before sending a spotlight."
-							:	"All owned bots in this world are paused. Unpause one before sending a spotlight."}
-						</div>
-					: visibleBots.length === 0 ?
-						<div className="empty compact-empty">No unpaused bots match this filter.</div>
-					:	<div className="bot-pick-list">
-							{visibleBots.map((bot) => {
-								const showHomeWorld = bot.homeWorldId !== world.id && bot.homeWorldHandle !== world.handle;
-								return (
-									<label className={`bot-pick-row ${selectedBots[bot.id] ? "checked" : ""}`} key={bot.id}>
-										<input
-											checked={Boolean(selectedBots[bot.id])}
-											className="cb"
-											onChange={(event) => setSelectedBots((current) => ({ ...current, [bot.id]: event.target.checked }))}
-											type="checkbox"
-										/>
-											<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={42} imageUrl={bot.avatarUrl} name={bot.displayName} size="sm" />
-											<span className="bot-pick-copy">
-												<TranslatableText as="span" className="nm" text={bot.displayName} />
-											<span className="hd">
-												u/{bot.handle}
-												{showHomeWorld ? ` / w/${bot.homeWorldHandle}` : ""}
-											</span>
-										</span>
-									</label>
-								);
-							})}
-						</div>
-					}
+				<div className="spot-search">
+					<Icon name="search" size={13} />
+					<input
+						aria-label="Filter spotlight recipients"
+						className="input"
+						disabled={sending}
+						onChange={(event) => setBotSearch(event.target.value)}
+						placeholder="Filter by display name or username"
+						value={botSearch}
+					/>
 				</div>
+			</div>
 
+			{eligibleBots.length === 0 ?
+				<div className="empty compact-empty spot-list-empty">
+					{worldOwnedBots.length === 0 ?
+						"You need to own at least one bot in this world before sending a spotlight."
+					:	"All owned bots in this world are paused. Unpause one before sending a spotlight."}
+				</div>
+			: visibleBots.length === 0 ?
+				<div className="empty compact-empty spot-list-empty">No unpaused bots match this filter.</div>
+			:	<div className="bot-pick-list">
+					{visibleBots.map((bot) => {
+						const showHomeWorld = bot.homeWorldId !== world.id && bot.homeWorldHandle !== world.handle;
+						return (
+							<label className={`bot-pick-row ${selectedBots[bot.id] ? "checked" : ""}`} key={bot.id}>
+								<input
+									checked={Boolean(selectedBots[bot.id])}
+									className="cb"
+									disabled={sending}
+									onChange={(event) => setSelectedBots((current) => ({ ...current, [bot.id]: event.target.checked }))}
+									type="checkbox"
+								/>
+									<Avatar actor="bot" colorSeed={bot.handle} crop={bot.avatarCrop} displayPixels={42} imageUrl={bot.avatarUrl} name={bot.displayName} size="sm" />
+									<span className="bot-pick-copy">
+										<TranslatableText as="span" className="nm" text={bot.displayName} />
+									<span className="hd">
+										u/{bot.handle}
+										{showHomeWorld ? ` / w/${bot.homeWorldHandle}` : ""}
+									</span>
+								</span>
+							</label>
+						);
+					})}
+					{/* Last in the list, as asked for, but stuck to the bottom of the
+					    scroll region so a long fleet cannot hide it. */}
+					<div className="bot-pick-all">
+						<button className="clear-link" disabled={sending} onClick={toggleVisibleSelection} type="button">
+							{allVisibleSelected ? `Unselect all (${visibleBots.length})` : `Select all (${visibleBots.length})`}
+						</button>
+					</div>
+				</div>
+			}
+
+			<div className="spot-controls">
 				<label className="switch-row spot-switch">
 					<input
 						checked={autoStartTick}
+						disabled={sending}
 						onChange={(event) => setAutoStartTick(event.target.checked)}
 						type="checkbox"
 					/>
@@ -194,7 +262,7 @@ export function SpotlightPanel({
 						<span className="switch-desc">
 							{autoStartTick ?
 								"Spotlight starts a loop run now."
-							:	"Spotlight waits for the next natural tick."}
+							:	"Spotlight is processed after this bot's next visit."}
 						</span>
 					</span>
 				</label>
@@ -202,6 +270,7 @@ export function SpotlightPanel({
 				<Field label="Focus thought">
 					<textarea
 						className="textarea"
+						disabled={sending}
 						onChange={(event) => setFocusText(event.target.value)}
 						placeholder="Optional note for the bot's attention. This is injected privately, not posted."
 						rows={2}
@@ -209,32 +278,57 @@ export function SpotlightPanel({
 					/>
 				</Field>
 
-				{message && (
-					<div className="spot-status">
-						<div className="runtime-message">{message}</div>
-					</div>
-				)}
+				<div aria-live="polite" className="spot-results">
+					{message && <div className="spot-status">{message}</div>}
+					{failures.length > 0 && (
+						<div className="spot-failures">
+							{failures.map((failure) => (
+								<div className="spot-failure" key={failure.botId}>
+									<b>u/{handleById.get(failure.botId) ?? failure.botId}</b> {failure.message}
+								</div>
+							))}
+						</div>
+					)}
+				</div>
 			</div>
+
 			<div className="foot">
 				<span className="leftnote">
 					{eligibleBots.length === 0 ? "No eligible owned bots in this world."
+					: sending ? "Delivering. Close to stop the rest."
 					: botIds.length === 0 ? "Pick at least one bot."
 					: autoStartTick ?
 						`Will inject and start ${botIds.length} tick${botIds.length === 1 ? "" : "s"}.`
 					:	`Will queue for ${botIds.length} bot${botIds.length === 1 ? "" : "s"}.`}
 				</span>
-				<button className="btn ghost" onClick={onClear} type="button">
-					Cancel
-				</button>
-				<button
-					className="btn primary"
-					disabled={eligibleBots.length === 0 || botIds.length === 0 || sending || targetIds.length === 0}
-					onClick={() => void send()}
-					type="button"
-				>
-					<Icon name="sparkles" size={13} />
-					{sending ? "Sending" : "Send"}
-				</button>
+				{run ?
+					<div
+						aria-label="Spotlight delivery progress"
+						aria-valuemax={run.botIds.length}
+						aria-valuemin={0}
+						aria-valuenow={run.processed}
+						className="spot-progress"
+						role="progressbar"
+					>
+						<span
+							className="spot-progress-fill"
+							style={{ width: `${run.botIds.length === 0 ? 0 : Math.round((run.processed / run.botIds.length) * 100)}%` }}
+						/>
+						<span className="spot-progress-copy">
+							<span className="spinner" />
+							{run.processed} / {run.botIds.length}
+						</span>
+					</div>
+				:	<button
+						className="btn primary"
+						disabled={eligibleBots.length === 0 || botIds.length === 0 || targetIds.length === 0}
+						onClick={() => void send()}
+						type="button"
+					>
+						<Icon name="sparkles" size={13} />
+						{failures.length > 0 ? "Retry" : "Send"}
+					</button>
+				}
 			</div>
 		</aside>
 	);
@@ -249,22 +343,4 @@ function readStoredBoolean(key: string, fallback: boolean): boolean {
 		return false;
 	}
 	return fallback;
-}
-
-function spotlightInput(
-	targetType: SpotlightTargetType,
-	botIds: string[],
-	threadIds: string[],
-	threadId: string | undefined,
-	commentIds: string[],
-	focusText: string,
-	autoStartTick?: boolean,
-) {
-	return {
-		targetType,
-		botIds,
-		...(targetType === "threads" ? { threadIds } : { threadId, commentIds }),
-		...(focusText.trim() ? { focusText: focusText.trim() } : {}),
-		...(typeof autoStartTick === "boolean" ? { autoStartTick } : {}),
-	};
 }

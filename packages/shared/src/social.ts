@@ -4873,9 +4873,14 @@ async function recordSpotlightDelivery(
 	db: D1DatabaseLike,
 	input: SpotlightDeliveryRowInput & { botId: string; injectedText: string; result: SpotlightDeliveryResult },
 ): Promise<void> {
-	// Retention: one row per (spotlight, participant), swept with the owner's
-	// spotlight history by the notification retention job in `sweep.ts`. The
-	// upsert is what makes a replayed batch safe — the primary key is the
+	// Retention: one row per (spotlight, participant), and no sweep prunes them
+	// today — the table predates this change and grows only with spotlights an
+	// owner sends by hand, which no path can produce automatically. Batching
+	// does not add rows per spotlight, only spreads the same rows across
+	// requests. Every read of the table is keyed by `spotlight_id`, so growth
+	// costs storage rather than query time.
+	//
+	// The upsert is what makes a replayed batch safe: the primary key is the
 	// idempotency key, so a retry after a lost response updates rather than
 	// collides.
 	try {

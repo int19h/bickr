@@ -7464,7 +7464,12 @@ button.avatar-large-preview:not(:disabled),
 	background: var(--paper);
 	border: 1px solid var(--rule);
 	border-radius: var(--radius-lg);
-	box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.2);
+	/* Two layers: a wide soft cast that lifts the panel off a busy thread, and
+	   a tight one that keeps its edge readable in dark themes, where the wide
+	   layer alone all but disappears. */
+	box-shadow:
+		0 24px 60px -20px rgba(0, 0, 0, 0.32),
+		0 4px 14px -6px rgba(0, 0, 0, 0.34);
 	display: flex;
 	flex-direction: column;
 	height: calc(100vh - 84px);
@@ -7488,66 +7493,28 @@ button.avatar-large-preview:not(:disabled),
 	}
 }
 
-.spot-panel .head {
-	align-items: center;
+/* Everything except the participant list is fixed chrome: the controls the
+   owner needs while scrolling a long fleet must not scroll away with it. */
+.spot-chrome {
 	background: linear-gradient(to bottom, var(--paper-2), var(--paper));
 	border-bottom: 1px solid var(--rule);
-	display: flex;
-	justify-content: space-between;
-	padding: 12px 14px;
+	padding: 10px 14px;
 }
 
-.spot-panel .head h3 {
+.spot-head {
 	align-items: center;
 	display: flex;
-	font-size: calc(13px * var(--font-scale));
-	font-weight: 600;
 	gap: 8px;
-	letter-spacing: 0.06em;
-	margin: 0;
-	text-transform: uppercase;
-}
-
-.spot-panel .pulse {
-	animation: pulse 1.6s infinite;
-	background: var(--accent);
-	border-radius: 50%;
-	height: 7px;
-	width: 7px;
-}
-
-@keyframes pulse {
-	0% {
-		box-shadow: 0 0 0 0 color-mix(in oklch, var(--accent) 40%, transparent);
-	}
-	70% {
-		box-shadow: 0 0 0 8px color-mix(in oklch, var(--accent) 0%, transparent);
-	}
-	100% {
-		box-shadow: 0 0 0 0 color-mix(in oklch, var(--accent) 0%, transparent);
-	}
-}
-
-.spot-panel .body {
-	display: flex;
-	flex: 1 1 auto;
-	flex-direction: column;
-	gap: 14px;
-	min-height: 0;
-	overflow-y: auto;
-	padding: 14px;
-}
-
-.spot-panel .selection-summary {
-	align-items: center;
-	background: var(--paper-2);
-	border: 1px solid var(--rule-soft);
-	border-radius: var(--radius);
-	color: var(--ink-2);
-	display: flex;
-	font-size: calc(12.5px * var(--font-scale));
 	justify-content: space-between;
-	padding: 8px 10px;
+}
+
+.spot-head-copy {
+	color: var(--ink-2);
+	font-size: calc(12.5px * var(--font-scale));
+}
+
+.spot-head-copy b {
+	color: var(--ink);
 }
 
 .spot-panel .clear-link {
@@ -7569,6 +7536,99 @@ button.avatar-large-preview:not(:disabled),
 	gap: 8px;
 	grid-template-columns: auto minmax(0, 1fr);
 	margin: 6px 0 8px;
+}
+
+/* The panel's own chrome supplies the spacing below the search field. */
+.spot-panel .spot-search {
+	margin: 8px 0 0;
+}
+
+.spot-panel .bot-pick-list {
+	border: none;
+	border-radius: 0;
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+}
+
+/* Last row of the list, as the owner asked, and pinned so it stays reachable
+   however long the list is. */
+.spot-panel .bot-pick-all {
+	background: var(--paper);
+	border-top: 1px solid var(--rule-soft);
+	bottom: 0;
+	display: flex;
+	justify-content: center;
+	padding: 7px 10px;
+	position: sticky;
+}
+
+.spot-list-empty {
+	flex: 1 1 auto;
+	margin: 0;
+}
+
+.spot-controls {
+	border-top: 1px solid var(--rule);
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 12px 14px;
+}
+
+.spot-results:empty {
+	display: none;
+}
+
+.spot-failures {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	max-height: 132px;
+	overflow-y: auto;
+}
+
+.spot-failure {
+	background: color-mix(in oklch, var(--danger) 8%, var(--paper));
+	border: 1px solid color-mix(in oklch, var(--danger) 26%, var(--rule));
+	border-radius: var(--radius);
+	color: var(--ink-2);
+	font-size: calc(12px * var(--font-scale));
+	line-height: 1.5;
+	padding: 7px 9px;
+}
+
+.spot-failure b {
+	color: var(--ink);
+}
+
+.spot-progress {
+	align-items: center;
+	background: var(--paper);
+	border: 1px solid var(--rule);
+	border-radius: var(--radius);
+	display: flex;
+	height: 30px;
+	justify-content: center;
+	min-width: 104px;
+	overflow: hidden;
+	position: relative;
+}
+
+.spot-progress-fill {
+	background: color-mix(in oklch, var(--accent) 22%, transparent);
+	inset: 0 auto 0 0;
+	position: absolute;
+	transition: width 200ms ease-out;
+}
+
+.spot-progress-copy {
+	align-items: center;
+	color: var(--ink-2);
+	display: flex;
+	font-size: calc(12.5px * var(--font-scale));
+	gap: 8px;
+	position: relative;
 }
 
 .spot-search svg {
@@ -7687,6 +7747,7 @@ button.avatar-large-preview:not(:disabled),
 	color: var(--ink-2);
 	font-size: calc(12.5px * var(--font-scale));
 	line-height: 1.55;
+	margin-bottom: 6px;
 	padding: 10px 12px;
 }
 
