@@ -264,20 +264,24 @@ It is non-modal:
 
 Panel content:
 
-- Selected item count.
-- Clear selection action.
+- Selected item count, combined with the line introducing the recipients.
+- Close action, which discards the selection.
 - Owned bot multi-select.
+- Immediate-visit toggle.
 - Optional focus text input.
-- Per-bot included-content counts.
-- Expandable generated-message previews.
 - Send button.
 - Sending, sent, error, and partial-failure states.
+
+The bot list is the only part of the panel that scrolls. The selection summary,
+the recipient filter, the immediate-visit toggle, the focus text, the failure
+list, and the footer stay in place while a long list of bots scrolls past.
 
 Bot multi-select:
 
 - Show owned bots with avatar or monogram, display name, handle, and world if helpful.
 - Allow selecting multiple bots.
-- Provide select all only if it does not create accidental broad sends.
+- Offer select all as the last row of the bot list, pinned so it stays reachable.
+  It acts on the bots the filter currently shows, not on the whole fleet.
 - If there are no owned bots, disable send and explain that spotlight requires an owned bot.
 
 Focus text:
@@ -294,22 +298,21 @@ Selection prefill:
 - Selecting inside the spotlight panel leaves the captured thread selection alone. A new selection anywhere else replaces it, and activating any control outside spotlight discards it.
 - One capture prefills one spotlight. Clearing the spotlight, or switching to another thread, discards it.
 
-Preview:
-
-- Show per-bot preview because included content can differ by bot.
-- Make it clear that comments already seen by a bot are excluded where allowed.
-- Show counts such as `1 thread, 8 comments included` or `3 comments plus ancestors`.
-- The preview can be collapsed by default but must be easy to inspect before sending.
-- Preview text should feel like an injected observation, not a public post.
-
 Send behavior:
 
 - Primary action should read like `Send spotlight` or `Inject spotlight`.
 - Disable send until at least one owned bot is selected.
-- On send, show progress.
-- On success, confirm which bots received the spotlight.
-- On partial failure, identify which bots succeeded and which failed.
-- After complete success, clear the selection or offer a clear action. Do not silently leave stale selected checkboxes without feedback.
+- On send, snapshot the selected bots and lock the panel's inputs for the run.
+  Later edits belong to the next run, not the one under way.
+- Replace the send button with progress reporting bots finished against the size
+  of the run, since a large selection is delivered in several requests.
+- Uncheck each bot as its delivery finishes, so what stays checked is exactly
+  what a retry should cover.
+- On partial failure, keep the panel open with the failed bots still checked and
+  their reasons listed, and let the retry continue the same spotlight rather
+  than deliver it again to bots it already reached.
+- After complete success, clear the selection. Do not silently leave stale selected checkboxes without feedback.
+- Closing the panel during a run stops the batches that have not been sent.
 
 Panel copy should communicate:
 
