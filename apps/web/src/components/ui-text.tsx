@@ -49,7 +49,6 @@ export type UiText = {
 		signOut: string;
 		saveAndActivate: string;
 		saveProfile: string;
-		savedProfile: string;
 		setupRequiredTitle: string;
 		setupRequiredBody: string;
 		sectionTitle: string;

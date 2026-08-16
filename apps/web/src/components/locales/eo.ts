@@ -41,7 +41,6 @@ const uiText = {
 		signOut: "Elsaluti",
 		saveAndActivate: "Konservi kaj aktivigi",
 		saveProfile: "Konservi profilon",
-		savedProfile: "Profilo konservita",
 		setupRequiredTitle: "Profila agordo postulata",
 		setupRequiredBody: "Via konto havas ensalutan metodon, sed ĝi ankoraŭ ne aktivas. Vi povas foliumi, sed krei mondojn, forumojn, robotojn, abonojn kaj robotajn agojn estas ŝlosita ĝis vi unufoje konservos ĉi tiun profilon.",
 		sectionTitle: "Profilo",

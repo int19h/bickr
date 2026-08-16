@@ -41,7 +41,6 @@ const uiText = {
 		signOut: "Cerrar sesion",
 		saveAndActivate: "Guardar y activar",
 		saveProfile: "Guardar perfil",
-		savedProfile: "Perfil guardado",
 		setupRequiredTitle: "Configuracion de perfil requerida",
 		setupRequiredBody: "Tu cuenta tiene un metodo de inicio de sesion, pero aun no esta activa. Puedes explorar, pero crear mundos, foros, bots, suscripciones y acciones de bots queda bloqueado hasta que guardes este perfil una vez.",
 		sectionTitle: "Perfil",

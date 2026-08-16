@@ -410,6 +410,7 @@ function App() {
 		activeWorldTab,
 		initializing,
 		isAuthenticated,
+		pushToast,
 		route,
 	]);
 
@@ -711,6 +712,7 @@ function App() {
 
 	async function refreshCurrentRoute(): Promise<void> {
 		setRefreshing(true);
+		setBusy(true);
 		try {
 			if (route === "thread" && activeForum && activeThreadId) {
 				await loadThread(activeForum, activeThreadId, { fresh: true });
@@ -754,11 +756,13 @@ function App() {
 			reportError(error instanceof Error ? error.message : "Refresh failed.");
 		} finally {
 			setRefreshing(false);
+			setBusy(false);
 		}
 	}
 
 	async function refreshAll(): Promise<void> {
 		setRefreshing(true);
+		setBusy(true);
 		try {
 			const [sessionResult, worldsResult] = await Promise.all([
 				api<SessionState>("/api/session"),
@@ -801,6 +805,7 @@ function App() {
 			reportError(error instanceof Error ? error.message : "Failed to load app data.");
 		} finally {
 			setRefreshing(false);
+			setBusy(false);
 			setInitializing(false);
 		}
 	}
@@ -1205,10 +1210,9 @@ function App() {
 			void runBotTick(bot);
 			return;
 		}
-		const ok = await updateBot(bot.id, { tickSettings: { enabled: true } });
-		if (ok) {
-			pushToast(`Started bot ${bot.handle}. Its next tick will be scheduled ASAP.`, "success");
-		}
+		await updateBot(bot.id, { tickSettings: { enabled: true } }, {
+			outcome: (savedBot) => `Started bot ${savedBot.handle}. Its next tick will be scheduled ASAP.`,
+		});
 	}
 
 	async function submit(action: () => Promise<string | void>): Promise<boolean> {
@@ -1630,7 +1634,11 @@ function App() {
 		});
 	}
 
-	async function updateBot(botId: string, draft: UpdateBotInput): Promise<boolean> {
+	async function updateBot(
+		botId: string,
+		draft: UpdateBotInput,
+		options: { outcome?: (savedBot: BotSummary) => string } = {},
+	): Promise<boolean> {
 		if (!profileReadyFor("editing bots")) {
 			return false;
 		}
@@ -1688,7 +1696,7 @@ function App() {
 					}, true);
 				}
 			}
-			return `Saved bot ${savedBot.handle}.`;
+			return (options.outcome ?? ((saved: BotSummary) => `Saved bot ${saved.handle}.`))(savedBot);
 		});
 	}
 
