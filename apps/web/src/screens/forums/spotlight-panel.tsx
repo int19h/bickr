@@ -1,4 +1,5 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { makeId } from "@bickr/shared/ids";
 import type { BotSummary, ForumSummary, SpotlightTargetType } from "@bickr/shared/model";
 import {
 	TranslatableText,
@@ -49,11 +50,20 @@ export function SpotlightPanel({
 	const [focusText, setFocusText] = useState(() => initialFocusText);
 	const [autoStartTick, setAutoStartTick] = useState(() => readStoredBoolean("bickr.spotlight.autoStartTick", true));
 	const [run, setRun] = useState<SpotlightRun | null>(null);
-	const [failures, setFailures] = useState<SpotlightDeliveryFailure[]>([]);
+	// Keyed by participant rather than accumulated: a participant has one
+	// current reason for still being owed the spotlight, and a retry replaces it
+	// rather than listing it again beside the reason it superseded.
+	const [failures, setFailures] = useState<Record<string, string>>({});
 	const [message, setMessage] = useState("");
-	// Kept across retries so a participant an earlier attempt already reached is
-	// skipped by the server instead of spotlighted twice.
-	const spotlightIdRef = useRef<string | undefined>(undefined);
+	// The run's identity, minted here rather than by the server: a first batch
+	// whose response is lost has to be retryable under the same id, and the
+	// server can only recognise the retry as the same run if the id predates the
+	// request. Retained across retries so a participant an earlier attempt
+	// already reached is skipped instead of spotlighted twice, and re-minted
+	// when the spotlight itself changes — a different selection or focus is a
+	// different run, and the server refuses to continue one under the other's
+	// id.
+	const spotlightRunRef = useRef<{ key: string; spotlightId: string } | null>(null);
 	const abortRef = useRef<AbortController | null>(null);
 	const sending = run !== null;
 	const worldOwnedBots = useMemo(
@@ -73,6 +83,7 @@ export function SpotlightPanel({
 	const botIds = eligibleBots.filter((bot) => selectedBots[bot.id]).map((bot) => bot.id);
 	const targetIds = targetType === "threads" ? threadIds : commentIds;
 	const handleById = useMemo(() => new Map(ownedBots.map((bot) => [bot.id, bot.handle])), [ownedBots]);
+	const failureEntries = Object.entries(failures);
 	const allVisibleSelected = visibleBots.length > 0 && visibleBots.every((bot) => selectedBots[bot.id]);
 
 	useEffect(() => {
@@ -120,8 +131,13 @@ export function SpotlightPanel({
 		const controller = new AbortController();
 		abortRef.current = controller;
 		const snapshot = botIds;
+		const runKey = JSON.stringify([targetType, [...targetIds].sort(), focusText.trim()]);
+		if (spotlightRunRef.current?.key !== runKey) {
+			spotlightRunRef.current = { key: runKey, spotlightId: makeId("spt") };
+		}
+		const spotlightId = spotlightRunRef.current.spotlightId;
 		setRun({ botIds: snapshot, processed: 0 });
-		setFailures([]);
+		setFailures({});
 		setMessage("");
 		// The rendered list is what the owner sees; this one is what the run
 		// decides with, since the state updates below land after each await.
@@ -139,10 +155,9 @@ export function SpotlightPanel({
 				autoStartTick,
 			},
 			botIds: snapshot,
-			spotlightId: spotlightIdRef.current,
+			spotlightId,
 			signal: controller.signal,
 			onBatch: (update) => {
-				spotlightIdRef.current = update.spotlightId;
 				runFailures.push(...update.failures);
 				// Only participants this batch finished with are unchecked, so a
 				// one-click retry covers exactly what is still owed.
@@ -150,7 +165,7 @@ export function SpotlightPanel({
 				setSelectedBots((current) => Object.fromEntries(
 					Object.entries(current).map(([botId, selected]) => [botId, selected && !completed.has(botId)]),
 				));
-				setFailures((current) => [...current, ...update.failures]);
+				setFailures((current) => ({ ...current, ...failuresByBotId(update.failures) }));
 				setRun((current) =>
 					current === null ? current : (
 						{ ...current, processed: current.processed + update.completedBotIds.length + update.failures.length }
@@ -164,7 +179,7 @@ export function SpotlightPanel({
 			return;
 		}
 		if (result.kind === "request_failed") {
-			setFailures((current) => [...current, ...result.failures]);
+			setFailures((current) => ({ ...current, ...failuresByBotId(result.failures) }));
 			setMessage(result.message);
 			toast.push(`Spotlight stopped: ${result.message}`);
 			return;
@@ -280,11 +295,11 @@ export function SpotlightPanel({
 
 				<div aria-live="polite" className="spot-results">
 					{message && <div className="spot-status">{message}</div>}
-					{failures.length > 0 && (
+					{failureEntries.length > 0 && (
 						<div className="spot-failures">
-							{failures.map((failure) => (
-								<div className="spot-failure" key={failure.botId}>
-									<b>u/{handleById.get(failure.botId) ?? failure.botId}</b> {failure.message}
+							{failureEntries.map(([botId, failure]) => (
+								<div className="spot-failure" key={botId}>
+									<b>u/{handleById.get(botId) ?? botId}</b> {failure}
 								</div>
 							))}
 						</div>
@@ -326,12 +341,16 @@ export function SpotlightPanel({
 						type="button"
 					>
 						<Icon name="sparkles" size={13} />
-						{failures.length > 0 ? "Retry" : "Send"}
+						{failureEntries.length > 0 ? "Retry" : "Send"}
 					</button>
 				}
 			</div>
 		</aside>
 	);
+}
+
+function failuresByBotId(failures: SpotlightDeliveryFailure[]): Record<string, string> {
+	return Object.fromEntries(failures.map((failure) => [failure.botId, failure.message]));
 }
 
 function readStoredBoolean(key: string, fallback: boolean): boolean {

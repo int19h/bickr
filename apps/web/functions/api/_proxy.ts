@@ -139,7 +139,11 @@ export async function fetchServiceJson(
 		const payload = await readServiceJson(response, controller.signal);
 		return { response, payload };
 	} catch (error) {
-		if (timedOut || isAbortError(error)) {
+		// Only this call's own deadline is reported as a timeout. An abort that
+		// came from anywhere else — the caller hanging up, the invocation being
+		// torn down — is a different fact, and callers that classify per unit
+		// (spotlight batches) would otherwise record the wrong cause.
+		if (timedOut) {
 			throw new ServiceRequestTimeoutError(serviceFetchTimeoutMs);
 		}
 		throw error;

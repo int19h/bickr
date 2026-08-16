@@ -49,14 +49,46 @@ function runtimeStub(options: { tickFailsFor?: Set<string> } = {}): RuntimeStub 
 	return stub;
 }
 
-async function sendSpotlight(cookie: string, body: Record<string, unknown>, runtime: RuntimeStub): Promise<Response> {
+async function sendSpotlight(
+	cookie: string,
+	body: Record<string, unknown>,
+	runtime: RuntimeStub,
+	overrides: Partial<{ BICKR_D1: D1Database }> = {},
+): Promise<Response> {
 	return spotlightSend(
 		contextFor<typeof spotlightSend>(
 			jsonRequest("http://example.com/api/worlds/patch-notes/forums/spotlights/spotlight/send", "POST", body, cookie),
 			{ worldHandle: "patch-notes", forumHandle: "spotlights" },
-			{ AGENT_RUNTIME: runtime.fetcher },
+			{ AGENT_RUNTIME: runtime.fetcher, ...overrides },
 		),
 	);
+}
+
+/** Reads normally; refuses to record a delivery, the way an outage would. */
+function databaseRefusingDeliveryWrites(): D1Database {
+	return new Proxy(testEnv.BICKR_D1, {
+		get(target, property, receiver) {
+			if (property !== "prepare") {
+				return Reflect.get(target, property, receiver) as unknown;
+			}
+			return ((sql: string) => {
+				const statement = target.prepare(sql);
+				if (!/INSERT INTO spotlight_deliveries/.test(sql)) {
+					return statement;
+				}
+				return new Proxy(statement, {
+					get(statementTarget, statementProperty, statementReceiver) {
+						if (statementProperty === "bind") {
+							return () => ({
+								run: () => Promise.reject(new Error("D1_ERROR: database is unavailable")),
+							});
+						}
+						return Reflect.get(statementTarget, statementProperty, statementReceiver) as unknown;
+					},
+				});
+			}) as D1Database["prepare"];
+		},
+	}) as D1Database;
 }
 
 async function payloadOf(response: Response): Promise<SpotlightSendPayload["data"]> {
@@ -164,6 +196,68 @@ describe("Spotlight batches", () => {
 		).resolves.toEqual({ status: "tick_started" });
 	});
 
+	it("stays retryable when storage fails after the injection landed", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "spotlights");
+		const bot = await createBotForTest(cookie, "batch-storage", { enabled: true });
+		const thread = await createThreadForTest(forum.id, bot.id, "Worth attention", "Root context.");
+		const runtime = runtimeStub();
+		const spotlightId = "spt_11111111-1111-4111-8111-111111111111";
+		const body = { targetType: "threads", threadIds: [thread.id], botIds: [bot.id], spotlightId };
+
+		// The injection lands, and then the delivery row cannot be written, so the
+		// run has recorded nothing at all about a participant the runtime is
+		// already holding a spotlight for.
+		const failed = await sendSpotlight(cookie, body, runtime, {
+			BICKR_D1: databaseRefusingDeliveryWrites(),
+		});
+		expect(failed.status).toBe(200);
+		expect((await payloadOf(failed)).deliveries).toEqual([
+			expect.objectContaining({ status: "injected_tick_failed", botId: bot.id }),
+		]);
+		await expect(
+			testEnv.BICKR_D1.prepare(`SELECT COUNT(*) AS count FROM spotlight_deliveries WHERE spotlight_id = ?`)
+				.bind(spotlightId)
+				.first<{ count: number }>(),
+		).resolves.toEqual({ count: 0 });
+
+		// The retry names the same run. Nothing recorded under that id is not a
+		// mismatched continuation — it is the state that has to be recoverable,
+		// or the injection would be stranded for good.
+		const retry = await sendSpotlight(cookie, body, runtime);
+
+		expect(retry.status).toBe(200);
+		expect((await payloadOf(retry)).deliveries).toEqual([
+			{ status: "tick_started", botId: bot.id, injectionId: `inj-${bot.id}` },
+		]);
+		expect(runtime.ticks).toEqual([bot.id]);
+		await expect(
+			testEnv.BICKR_D1.prepare(`SELECT status FROM spotlight_deliveries WHERE spotlight_id = ? AND bot_id = ?`)
+				.bind(spotlightId, bot.id)
+				.first<{ status: string }>(),
+		).resolves.toEqual({ status: "tick_started" });
+	});
+
+	it("refuses a spotlight id it could not have minted", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "spotlights");
+		const bot = await createBotForTest(cookie, "batch-id-format", { enabled: true });
+		const thread = await createThreadForTest(forum.id, bot.id, "Worth attention", "Root context.");
+		const runtime = runtimeStub();
+
+		const response = await sendSpotlight(
+			cookie,
+			{ targetType: "threads", threadIds: [thread.id], botIds: [bot.id], spotlightId: "mine" },
+			runtime,
+		);
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({ details: { spotlightCause: "invalid_spotlight_id" } });
+		expect(runtime.injects).toEqual([]);
+	});
+
 	it("refuses a continuation that changes the run's targets, focus, or owner", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -208,13 +302,6 @@ describe("Spotlight batches", () => {
 			runtime,
 		);
 		expect(differentFocus.status).toBe(409);
-
-		const unknownRun = await sendSpotlight(
-			cookie,
-			{ targetType: "threads", threadIds: [thread.id], botIds: [other.id], focusText: "Look here.", spotlightId: "spt_unknown" },
-			runtime,
-		);
-		expect(unknownRun.status).toBe(409);
 
 		// A second owner cannot extend someone else's run even by guessing its id.
 		const intruderCookie = await authCookieFor({ subject: "gh-intruder", login: "intruder", displayName: "Intruder" });

@@ -948,6 +948,7 @@ export type SpotlightErrorCause =
 	| "bot_not_owned"
 	| "bot_outside_world"
 	| "continuation_mismatch"
+	| "invalid_spotlight_id"
 	| "delivery_conflict";
 
 const spotlightStaleReadCauses: ReadonlySet<SpotlightErrorCause> = new Set([

@@ -247,10 +247,11 @@ describe("Spotlight panel", () => {
 		await settle();
 
 		expect(harness.calls.map((call) => call.botIds.length)).toEqual([maxSpotlightSendBots, 2]);
-		expect(harness.calls[0]?.spotlightId).toBeUndefined();
-		// Every later batch continues the run the first one opened, which is what
-		// makes a replay idempotent per participant.
-		expect(harness.calls[1]?.spotlightId).toBe("spt_run");
+		// The run is named by the client, from the very first batch, and every
+		// batch carries that same name — which is what makes a replay idempotent
+		// per participant even when a response goes missing.
+		expect(harness.calls[0]?.spotlightId).toMatch(/^spt_[0-9a-f-]{36}$/);
+		expect(harness.calls[1]?.spotlightId).toBe(harness.calls[0]?.spotlightId);
 		expect(toasts).toEqual([`Spotlight sent to ${bots.length} bots.`]);
 		expect(cleared).toBe(1);
 	});
@@ -307,7 +308,7 @@ describe("Spotlight panel", () => {
 		clickText("Retry");
 		await settle();
 
-		expect(harness.calls[1]).toMatchObject({ botIds: ["bot_2"], spotlightId: "spt_run" });
+		expect(harness.calls[1]).toMatchObject({ botIds: ["bot_2"], spotlightId: harness.calls[0]?.spotlightId });
 		expect(cleared).toBe(1);
 	});
 
@@ -322,6 +323,99 @@ describe("Spotlight panel", () => {
 		expect(checkboxes().map((box) => box.checked)).toEqual([true]);
 		expect(container().querySelector(".spot-status")?.textContent).toBe("Delivery service is down.");
 		expect(container().querySelector(".spot-failures")?.textContent).toContain("Delivery service is down.");
+	});
+
+	it("replaces a participant's reason on retry rather than listing it twice", async () => {
+		const harness = stubFetch((call) => ({
+			spotlightId: call.spotlightId,
+			deliveries: call.botIds.map((botId) => ({
+				status: "not_injected" as const,
+				botId,
+				cause: "timeout" as const,
+				message: `Attempt ${harness.calls.length}: no answer.`,
+			})),
+		}));
+		mountPanel([bot(1)]);
+		clickText("Select all (1)");
+		clickText("Send");
+		await settle();
+		clickText("Retry");
+		await settle();
+
+		// One participant, one current reason — the superseded attempt is gone,
+		// not stacked beneath the new one.
+		expect(container().querySelectorAll(".spot-failure")).toHaveLength(1);
+		expect(container().querySelector(".spot-failure")?.textContent).toContain("Attempt 2");
+	});
+
+	it("retries a first batch whose response never arrived under the same run", async () => {
+		// The request reaches the server and its participants really are
+		// spotlighted; only the answer is lost. Retrying under a fresh run id
+		// would spotlight them a second time, because the server's dedupe has
+		// nothing but the id to recognise the repeat by.
+		const calls: SendCall[] = [];
+		let answered = false;
+		globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+			const body = JSON.parse(String(init?.body)) as SendCall;
+			calls.push(body);
+			if (!answered) {
+				answered = true;
+				throw new TypeError("network error");
+			}
+			return new Response(
+				JSON.stringify({
+					ok: true,
+					data: { spotlightId: body.spotlightId, deliveries: body.botIds.map(started) },
+				}),
+				{ status: 200, headers: { "content-type": "application/json" } },
+			);
+		}) as typeof fetch;
+		mountPanel([bot(1)]);
+
+		clickText("Select all (1)");
+		clickText("Send");
+		await settle();
+		expect(checkboxes().map((box) => box.checked)).toEqual([true]);
+
+		clickText("Retry");
+		await settle();
+
+		expect(calls).toHaveLength(2);
+		expect(calls[1]?.spotlightId).toBe(calls[0]?.spotlightId);
+		expect(calls[1]?.botIds).toEqual(calls[0]?.botIds);
+		expect(cleared).toBe(1);
+	});
+
+	it("names a changed spotlight as a new run rather than continuing the old one", async () => {
+		// A different focus is a different spotlight, and the server refuses to
+		// continue one run under another's id. Re-minting here is what keeps an
+		// edited retry from coming back as a continuation conflict.
+		const harness = stubFetch((call, index) => ({
+			spotlightId: call.spotlightId,
+			deliveries: call.botIds.map((botId) =>
+				index === 0 ?
+					{ status: "not_injected", botId, cause: "timeout", message: "The participant did not answer." }
+				:	started(botId),
+			),
+		}));
+		mountPanel([bot(1)]);
+		clickText("Select all (1)");
+		clickText("Send");
+		await settle();
+		expect(checkboxes().map((box) => box.checked)).toEqual([true]);
+
+		const focus = container().querySelector<HTMLTextAreaElement>(".textarea");
+		act(() => {
+			if (focus) {
+				Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(focus, "Look here instead.");
+				focus.dispatchEvent(new Event("input", { bubbles: true }));
+			}
+		});
+		clickText("Retry");
+		await settle();
+
+		expect(harness.calls).toHaveLength(2);
+		expect(harness.calls[1]?.spotlightId).not.toBe(harness.calls[0]?.spotlightId);
 	});
 
 	it("stops the batches that have not been sent when the panel is closed mid-run", async () => {

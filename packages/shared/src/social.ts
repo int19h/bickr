@@ -1,5 +1,5 @@
 import { isD1UniqueConstraintError } from "./d1-errors";
-import { formatCommentRef, formatThreadRef, isShortContentId, makeId, makeShortContentId, parseObjectRef } from "./ids";
+import { formatCommentRef, formatThreadRef, isMadeId, isShortContentId, makeId, makeShortContentId, parseObjectRef } from "./ids";
 import { entityIndexVersions } from "./index-versions";
 import { legacyToolResultEnvelope } from "./legacy-tool-result-adapter";
 import {
@@ -4713,7 +4713,15 @@ export async function sendSpotlightBatch(
 
 	const targetIdsJson = JSON.stringify(spotlightTargetIds(input));
 	const focusText = trimmedFocus(input.focusText) ?? null;
+	// The caller names its own run, so the id exists before the first request
+	// does. A first response that never arrives is then still retryable under
+	// the same id, which is the only thing the runtime's per-spotlight
+	// injection dedupe can key on. A server-minted id would be knowable only
+	// from the response that was lost.
 	const spotlightId = input.spotlightId ?? makeId("spt");
+	if (!isMadeId("spt", spotlightId)) {
+		throw spotlightError("bad_request", "Spotlight id is not a spotlight identifier.", 400, "invalid_spotlight_id");
+	}
 	const completedBotIds =
 		input.spotlightId ?
 			await assertSpotlightContinuation(db, {
@@ -4937,6 +4945,9 @@ async function recordSpotlightDelivery(
 			)
 			.run();
 	} catch (error) {
+		// Defense in depth, and unreachable as written: the only unique key on
+		// this table is the primary key the upsert already absorbs. It stays so
+		// that a future index cannot turn a conflict into a 500 (AGENTS.md).
 		if (isD1UniqueConstraintError(error)) {
 			throw spotlightError(
 				"conflict",
@@ -4959,10 +4970,16 @@ function spotlightTargetIds(input: SpotlightTargetInput): string[] {
 }
 
 /**
- * A continuation may only extend the run it names: same owner, same targets,
- * same focus. Combined with an unguessable id this is what lets later batches
- * carry the id in plain request bodies — the worst a mismatched continuation
- * can do is be rejected.
+ * A request may only extend the run it names: same owner, same targets, same
+ * focus. Combined with an unguessable id this is what lets every batch carry
+ * the id in a plain request body — the worst a mismatched one can do is be
+ * rejected.
+ *
+ * An id with no rows yet is a run that has not recorded anything, not a
+ * mismatch. That is the ordinary first batch, and it is also what a batch
+ * leaves behind when storage fails between a successful injection and the
+ * delivery row: refusing it there would strand the injection the runtime is
+ * already holding, since only a request under the same id can ever reclaim it.
  *
  * Returns the batch's participants that this spotlight already reached.
  */
@@ -4986,8 +5003,10 @@ async function assertSpotlightContinuation(
 		)
 		.bind(input.spotlightId)
 		.first<{ userId: string; targetType: string; targetIdsJson: string; focusText: string | null }>();
+	if (!first) {
+		return new Set<string>();
+	}
 	const mismatched =
-		!first ||
 		first.userId !== input.userId ||
 		first.targetType !== input.targetType ||
 		first.targetIdsJson !== input.targetIdsJson ||

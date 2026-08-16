@@ -21,6 +21,19 @@ export function makeId(prefix: IdPrefix): string {
 	return `${prefix}_${crypto.randomUUID()}`;
 }
 
+const madeIdBodyPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * Whether a value is an id this module would have minted.
+ *
+ * Only needed where a *caller* supplies an id — a spotlight run names itself so
+ * a lost first response stays retryable — and the receiver must still know that
+ * the id is opaque and unguessable rather than something the caller chose.
+ */
+export function isMadeId(prefix: IdPrefix, value: string): boolean {
+	return value.startsWith(`${prefix}_`) && madeIdBodyPattern.test(value.slice(prefix.length + 1).toLowerCase());
+}
+
 export async function deterministicId(prefix: IdPrefix, namespace: string): Promise<string> {
 	const digest = await sha256Hex(namespace);
 	// IDs remain opaque while repeated bootstrap dispatches resolve to the same

@@ -40,7 +40,6 @@ export type SpotlightDeliveryFailure = {
 };
 
 export type SpotlightBatchUpdate = {
-	spotlightId: string;
 	/** Participants this batch finished with; a retry must exclude them. */
 	completedBotIds: string[];
 	failures: SpotlightDeliveryFailure[];
@@ -68,12 +67,17 @@ export function spotlightBatches(botIds: string[]): string[][] {
 export async function sendSpotlightInBatches(input: {
 	target: SpotlightSendTarget;
 	botIds: string[];
-	/** Reuses a run started earlier, which makes a retry idempotent per participant. */
-	spotlightId?: string;
+	/**
+	 * Names the run, including its very first batch. The id has to exist before
+	 * the first request does: if that request's response is lost after the
+	 * server injected, only a retry under the same id can be recognised as the
+	 * same run, and the server's dedupe has nothing else to key on.
+	 */
+	spotlightId: string;
 	signal: AbortSignal;
 	onBatch: (update: SpotlightBatchUpdate) => void;
 }): Promise<SpotlightRunResult> {
-	let spotlightId = input.spotlightId;
+	const spotlightId = input.spotlightId;
 	for (const batch of spotlightBatches(input.botIds)) {
 		if (input.signal.aborted) {
 			return { kind: "aborted" };
@@ -97,13 +101,11 @@ export async function sendSpotlightInBatches(input: {
 				failures: batch.map((botId) => ({ botId, message: result.message })),
 			};
 		}
-		spotlightId = result.data.spotlightId;
 		const batchFailures = result.data.deliveries.flatMap((delivery) => {
 			const message = spotlightDeliveryFailureMessage(delivery);
 			return message === null ? [] : [{ botId: delivery.botId, message }];
 		});
 		input.onBatch({
-			spotlightId,
 			completedBotIds: result.data.deliveries.filter(spotlightDeliverySucceeded).map((delivery) => delivery.botId),
 			failures: batchFailures,
 		});
@@ -111,7 +113,7 @@ export async function sendSpotlightInBatches(input: {
 	return { kind: "completed" };
 }
 
-function spotlightSendBody(target: SpotlightSendTarget, botIds: string[], spotlightId: string | undefined) {
+function spotlightSendBody(target: SpotlightSendTarget, botIds: string[], spotlightId: string) {
 	return {
 		targetType: target.targetType,
 		botIds,
@@ -120,6 +122,6 @@ function spotlightSendBody(target: SpotlightSendTarget, botIds: string[], spotli
 		:	{ threadId: target.threadId, commentIds: target.commentIds }),
 		...(target.focusText.trim() ? { focusText: target.focusText.trim() } : {}),
 		autoStartTick: target.autoStartTick,
-		...(spotlightId ? { spotlightId } : {}),
+		spotlightId,
 	};
 }
