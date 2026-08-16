@@ -748,6 +748,10 @@ function App() {
 				return;
 			}
 			await refreshAll();
+		} catch (error) {
+			// `loadBots` throws rather than reporting, so without this a failed
+			// my-bots refresh was an unhandled rejection and the user saw nothing.
+			reportError(error instanceof Error ? error.message : "Refresh failed.");
 		} finally {
 			setRefreshing(false);
 		}
