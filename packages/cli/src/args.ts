@@ -108,6 +108,21 @@ export function flagString(flags: Map<string, string | boolean | string[]>, name
 	return typeof value === "string" ? value : undefined;
 }
 
+/**
+ * Every value given for a repeatable flag, in the order they were written.
+ *
+ * `flagString` answers "what did the owner finally set this to", which is right
+ * for a flag that names one thing and wrong for one that accumulates: `--to`
+ * given three times names three sets of participants, not the third.
+ */
+export function flagStrings(flags: Map<string, string | boolean | string[]>, name: string): string[] {
+	const value = flags.get(name);
+	if (Array.isArray(value)) {
+		return value.filter((entry) => typeof entry === "string");
+	}
+	return typeof value === "string" ? [value] : [];
+}
+
 export function flagBoolean(flags: Map<string, string | boolean | string[]>, name: string): boolean {
 	return flags.get(name) === true;
 }

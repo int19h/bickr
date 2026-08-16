@@ -17,6 +17,10 @@ export type RequestOptions = {
 	body?: unknown;
 	headers?: HeadersInit;
 	auth?: boolean;
+	/** Caller-owned cancellation, e.g. a run the owner interrupted. */
+	signal?: AbortSignal;
+	/** Upper bound on the whole request, after which it is reported as a timeout. */
+	timeoutMs?: number;
 };
 
 export class BickrClient {
@@ -29,7 +33,7 @@ export class BickrClient {
 	}
 
 	async request<T>(path: string, options: RequestOptions = {}): Promise<ApiEnvelope<T>> {
-		const response = await fetch(this.apiUrl(path), this.fetchInit(options));
+		const response = await this.send(this.apiUrl(path), options);
 		const contentType = response.headers.get("content-type") ?? "";
 		const payload = contentType.includes("application/json") ?
 			await response.json() as unknown
@@ -44,7 +48,7 @@ export class BickrClient {
 	}
 
 	async stream(path: string, options: RequestOptions = {}): Promise<Response> {
-		const response = await fetch(this.apiUrl(path), this.fetchInit(options));
+		const response = await this.send(this.apiUrl(path), options);
 		if (!response.ok) {
 			const text = await response.text();
 			throw new ApiError("server_error", text || response.statusText || `HTTP ${response.status}`, response.status);
@@ -53,7 +57,7 @@ export class BickrClient {
 	}
 
 	async download(url: string): Promise<Response> {
-		const response = await fetch(url);
+		const response = await this.send(url, { auth: false });
 		if (!response.ok) {
 			throw new ApiError("download_failed", `Download failed with HTTP ${response.status}.`, response.status);
 		}
@@ -65,6 +69,39 @@ export class BickrClient {
 			throw new Error("API path must start with '/'.");
 		}
 		return `${this.host}/api${path}`;
+	}
+
+	/**
+	 * One request, with the caller's cancellation and its deadline folded into a
+	 * single controller rather than `AbortSignal.any`, so the failure can say
+	 * which of the two fired: a run the owner stopped is not the same outcome as
+	 * one that ran out of time, and a spotlight batch reports them differently.
+	 */
+	private async send(url: string, options: RequestOptions): Promise<Response> {
+		const controller = new AbortController();
+		let timedOut = false;
+		const deadline =
+			options.timeoutMs === undefined ? undefined : (
+				setTimeout(() => {
+					timedOut = true;
+					controller.abort();
+				}, options.timeoutMs)
+			);
+		const abortFromCaller = () => controller.abort();
+		options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+		if (options.signal?.aborted) {
+			controller.abort();
+		}
+		try {
+			return await fetch(url, { ...this.fetchInit(options), signal: controller.signal });
+		} catch (error) {
+			throw requestFailure(error, { timedOut, cancelled: Boolean(options.signal?.aborted), timeoutMs: options.timeoutMs });
+		} finally {
+			if (deadline !== undefined) {
+				clearTimeout(deadline);
+			}
+			options.signal?.removeEventListener("abort", abortFromCaller);
+		}
 	}
 
 	private fetchInit(options: RequestOptions): RequestInit {
@@ -96,6 +133,27 @@ export function unwrap<T>(envelope: ApiEnvelope<T>): T {
 	throw new ApiError(envelope.error, envelope.message, 1, envelope.details);
 }
 
+/**
+ * Why a request produced no response at all. The distinction is the caller's to
+ * act on — a timeout may be worth a longer `--timeout`, a cancellation is what
+ * the owner asked for, and a network failure is neither — so it is decided here
+ * where the cause is known, not read back out of a message later.
+ */
+function requestFailure(
+	error: unknown,
+	context: { timedOut: boolean; cancelled: boolean; timeoutMs?: number },
+): ApiError {
+	if (context.timedOut) {
+		const seconds = Math.round((context.timeoutMs ?? 0) / 1_000);
+		return new ApiError("timeout", `The request took longer than ${seconds}s and was stopped.`, 0);
+	}
+	if (context.cancelled) {
+		return new ApiError("aborted", "The request was cancelled.", 0);
+	}
+	return new ApiError("network_error", error instanceof Error ? error.message : "Network request failed.", 0);
+}
+
+/** `status` is 0 when the failure happened before any response arrived. */
 export class ApiError extends Error {
 	readonly code: string;
 	readonly status: number;
