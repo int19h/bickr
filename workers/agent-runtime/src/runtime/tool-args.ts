@@ -5,6 +5,7 @@ import {
 	type RequiredLocalizedText,
 } from '@bickr/shared/model';
 import { normalizeHandle } from '@bickr/shared/validation';
+import { providerSelfAuthor } from '../constants';
 import { ToolCallArgumentValidationError } from '../errors';
 import type {
 	FollowToolTarget,
@@ -646,6 +647,12 @@ function voteValueArg(value: unknown, label: string): -1 | 0 | 1 {
 
 function typedHandleArg(value: unknown, prefix: 'f' | 'u' | 'w', label: string): string {
 	let text = stringArg(value, label);
+	if (prefix === 'u' && text.toUpperCase().endsWith(`(${providerSelfAuthor})`)) {
+		throw new ToolCallArgumentValidationError(
+			'self_author_annotation_in_handle',
+			`${label} must contain only a participant handle, without the (${providerSelfAuthor}) annotation.`,
+		);
+	}
 	const marker = `${prefix}/`;
 	while (text.toLowerCase().startsWith(marker)) {
 		text = text.slice(marker.length).trim();

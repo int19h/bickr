@@ -111,6 +111,7 @@ describe("self-authored forum content", () => {
 			[
 				{ threadId: "thr_missing", title: "Missing", authorBotId: selfBotId },
 				{ threadId: "thr_malformed", title: "Malformed", authorBotId: selfBotId, authorHandle: "u/" },
+				{ threadId: "thr_forum_handle", title: "Forum handle", authorBotId: selfBotId, handle: "forum-name" },
 				{ threadId: "thr_collision", title: "Collision", authorBotId: "bot_other", authorHandle: "sabine_h" },
 			],
 			{},
@@ -120,8 +121,10 @@ describe("self-authored forum content", () => {
 		expect(threads).toMatchObject([
 			{ threadRef: "t/thr_missing", author: "MYSELF" },
 			{ threadRef: "t/thr_malformed", author: "MYSELF" },
+			{ threadRef: "t/thr_forum_handle", author: "MYSELF" },
 			{ threadRef: "t/thr_collision", author: "u/sabine_h" },
 		]);
+		expect(JSON.stringify(threads)).not.toContain("u/forum-name");
 		expect(JSON.stringify(threads)).not.toContain(selfBotId);
 		expect(JSON.stringify(threads)).not.toContain("bot_other");
 	});

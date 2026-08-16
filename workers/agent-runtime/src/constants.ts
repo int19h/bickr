@@ -80,6 +80,8 @@ export const providerTranslationMaxCompletionTokens = 8_192;
 
 export const providerTranslationToolName = 'save_translation';
 
+export const providerSelfAuthor = 'MYSELF';
+
 export const providerStructuredOutputRepairAttempts = 4;
 
 export const inferenceSubmissionRetentionCount = 50;

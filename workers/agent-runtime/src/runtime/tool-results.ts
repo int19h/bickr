@@ -15,6 +15,7 @@ import type {
 	ReadContentItem,
 	ReadPruneResult,
 } from '../types';
+import { providerSelfAuthor } from '../constants';
 import { canonicalToolName, localizedArgumentText } from './tool-args';
 
 export function providerToolResultPayload(
@@ -164,7 +165,7 @@ export type ProviderSelfParticipant = {
 	readonly botId: string;
 };
 
-export const providerSelfAuthor = 'MYSELF';
+export { providerSelfAuthor };
 
 /**
  * Everything provider-facing forum serialization needs beyond the raw result: who is reading, and
@@ -694,7 +695,7 @@ function providerProfileUsername(record: Record<string, unknown>): string | unde
 
 function providerAuthorUsername(record: Record<string, unknown>): string | undefined {
 	const author = runtimeRecord(record.author);
-	return providerProfileUsername(author) ?? providerUsername(record.authorHandle) ?? providerUsername(record.handle);
+	return providerProfileUsername(author) ?? providerUsername(record.authorHandle);
 }
 
 /**

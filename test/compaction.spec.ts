@@ -238,7 +238,7 @@ describe("Compaction", () => {
 			const selected = compactionRowSelectionForEstimatedBudget(
 				// Keep the first tiny group well below the prompt limit so this fixture
 				// exercises atomic-group fallback rather than the target-fraction cutoff.
-				fakeBotDocument({ contextWindowTokens: 12_000 }),
+				fakeBotDocument({ contextWindowTokens: 15_000 }),
 				toolDefinitionsForProviderRound(),
 				"tool_call_cache_friendly",
 			);

@@ -1200,8 +1200,10 @@ describe("Provider requests", () => {
 
 		const compactionPrompt = providerCompactionSystemInstruction(promptBot, [], "tool_call");
 		expect(compactionPrompt).toContain(nativeLanguageLine);
-		expect(compactionPrompt).toContain("the author label u/prompt-tester (MYSELF) identifies content you wrote");
-		expect(compactionPrompt).toContain("use only u/prompt-tester, without the (MYSELF) annotation");
+		expect(compactionPrompt).toContain(`the author label u/prompt-tester (${providerSelfAuthor}) identifies content you wrote`);
+		expect(compactionPrompt).toContain(`The standalone author label ${providerSelfAuthor} means the same thing when that content has no usable author handle.`);
+		expect(compactionPrompt).toContain(`Never write the (${providerSelfAuthor}) annotation in a thread, comment, reason, or any other content you author, and never include it in a Bickr control argument.`);
+		expect(compactionPrompt).toContain(`use only u/prompt-tester, without the (${providerSelfAuthor}) annotation`);
 		expect(providerCompactionSystemInstruction({ ...promptBot, includeLanguageInSystemPrompt: false }, [], "tool_call"))
 			.not.toContain(nativeLanguageLine);
 	});

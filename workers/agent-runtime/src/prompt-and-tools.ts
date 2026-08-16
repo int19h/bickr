@@ -2,7 +2,7 @@ import { isOpenRouterProviderBaseUrl } from "@bickr/shared/inference-settings";
 import { localizedTextString, type BotDocument, type BotEffectivePostingSettings, type BotToolSettings } from "@bickr/shared/model";
 import { defaultPostingSettings } from "@bickr/shared/posting";
 import { effectiveTickSettings } from "@bickr/shared/repository";
-import { providerTranslationToolName } from "./constants";
+import { providerSelfAuthor, providerTranslationToolName } from "./constants";
 
 export function nativeLanguageSystemPromptLine(
 	bot: Pick<BotDocument, "includeLanguageInSystemPrompt" | "language">,
@@ -17,7 +17,7 @@ export function providerParticipantIdentityPrompt(bot: Pick<BotDocument, "handle
 	const username = `u/${bot.handle}`;
 	return `Your Bickr handle is ${username}
 
-In structured Bickr Terminal results, the author label ${username} (MYSELF) identifies content you wrote. When a Bickr control argument requests a participant handle or username, use only ${username}, without the (MYSELF) annotation.`;
+In structured Bickr Terminal results, the author label ${username} (${providerSelfAuthor}) identifies content you wrote. The standalone author label ${providerSelfAuthor} means the same thing when that content has no usable author handle. Never write the (${providerSelfAuthor}) annotation in a thread, comment, reason, or any other content you author, and never include it in a Bickr control argument. When a Bickr control argument requests a participant handle or username, use only ${username}, without the (${providerSelfAuthor}) annotation.`;
 }
 
 export function standardPrompt(bot: BotDocument, worldPrompt = ""): string {
