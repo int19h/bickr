@@ -5,9 +5,51 @@ export type ApiSuccess<T> = { ok: true; data: T };
 export type ApiFailure = { ok: false; error: string; message: string; details?: ApiErrorDetails };
 export type ApiResult<T> = ApiSuccess<T> | ApiFailure;
 
+export type ApiRequestOptions = {
+	method?: string;
+	body?: unknown;
+	/** Caller-owned cancellation, e.g. a panel closing mid-request. */
+	signal?: AbortSignal;
+	/** Upper bound on the whole request, after which it is reported as a timeout. */
+	timeoutMs?: number;
+};
+
 export async function api<T = unknown>(
 	path: string,
-	options?: { method?: string; body?: unknown },
+	options?: ApiRequestOptions,
+): Promise<ApiResult<T>> {
+	// The caller's signal and the deadline are folded into one controller rather
+	// than `AbortSignal.any`, so the result can say which of the two fired: a
+	// request the caller cancelled is not the same failure as one that ran out.
+	const controller = new AbortController();
+	let timedOut = false;
+	const timeout =
+		options?.timeoutMs === undefined ? undefined : (
+			setTimeout(() => {
+				timedOut = true;
+				controller.abort();
+			}, options.timeoutMs)
+		);
+	const abortFromCaller = () => controller.abort();
+	options?.signal?.addEventListener("abort", abortFromCaller, { once: true });
+	if (options?.signal?.aborted) {
+		controller.abort();
+	}
+	try {
+		return await requestJson<T>(path, options, controller.signal, () => timedOut);
+	} finally {
+		if (timeout !== undefined) {
+			clearTimeout(timeout);
+		}
+		options?.signal?.removeEventListener("abort", abortFromCaller);
+	}
+}
+
+async function requestJson<T>(
+	path: string,
+	options: ApiRequestOptions | undefined,
+	signal: AbortSignal,
+	timedOut: () => boolean,
 ): Promise<ApiResult<T>> {
 	const hasBody = options ? Object.prototype.hasOwnProperty.call(options, "body") && options.body !== undefined : false;
 	const body =
@@ -21,23 +63,16 @@ export async function api<T = unknown>(
 			body,
 			headers,
 			method: options?.method ?? "GET",
+			signal,
 		});
 	} catch {
-		return {
-			ok: false,
-			error: "network_error",
-			message: "Network request failed.",
-		};
+		return abortedOrNetworkFailure(timedOut(), signal, "Network request failed.");
 	}
 	let text: string;
 	try {
 		text = await response.text();
 	} catch {
-		return {
-			ok: false,
-			error: "network_error",
-			message: "Network response could not be read.",
-		};
+		return abortedOrNetworkFailure(timedOut(), signal, "Network response could not be read.");
 	}
 	let payload: unknown = null;
 	try {
@@ -56,6 +91,16 @@ export async function api<T = unknown>(
 		return { ok: true, data: payload as T };
 	}
 	return { ok: false, error: "server_error", message: response.statusText || "Request failed." };
+}
+
+function abortedOrNetworkFailure(timedOut: boolean, signal: AbortSignal, networkMessage: string): ApiFailure {
+	if (timedOut) {
+		return { ok: false, error: "timeout", message: "The request took too long and was stopped." };
+	}
+	if (signal.aborted) {
+		return { ok: false, error: "aborted", message: "The request was cancelled." };
+	}
+	return { ok: false, error: "network_error", message: networkMessage };
 }
 
 export async function apiResponseErrorMessage(response: Response): Promise<string> {

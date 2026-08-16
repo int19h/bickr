@@ -1575,6 +1575,83 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * The owner's bots for a known, small set of ids.
+ *
+ * Fan-out callers (spotlight batches) need ownership plus the same
+ * `BotSummary` shape as the fleet listing, but must not pay for the whole
+ * fleet: `listUserBots` reads every owned bot document out of KV, which is the
+ * dominant cost of a batch that touches at most a handful of them. Ids missing
+ * from the result are not the caller's, deleted, or not active — the caller
+ * decides what that means.
+ */
+export async function listUserBotsByIds(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	userId: string,
+	botIds: string[],
+): Promise<BotSummary[]> {
+	const selected = [...new Set(botIds)];
+	if (selected.length === 0) {
+		return [];
+	}
+	const placeholders = selected.map(() => "?").join(", ");
+	const result = await db
+		.prepare(
+			`WITH selected AS (
+				SELECT bot_id AS id
+				FROM bots_index
+				WHERE owner_user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
+				  AND bot_id IN (${placeholders})
+			 ),
+			 activity AS (
+				SELECT threads.author_bot_id AS bot_id, threads.created_at AS active_at
+				FROM threads_index threads
+				JOIN selected ON selected.id = threads.author_bot_id
+				WHERE threads.deleted_at IS NULL
+				UNION ALL
+				SELECT comments.author_bot_id AS bot_id, comments.created_at AS active_at
+				FROM comments_index comments
+				JOIN selected ON selected.id = comments.author_bot_id
+				WHERE comments.deleted_at IS NULL
+				UNION ALL
+				SELECT votes.bot_id AS bot_id, votes.updated_at AS active_at
+				FROM votes
+				JOIN selected ON selected.id = votes.bot_id
+				UNION ALL
+				SELECT follows.follower_bot_id AS bot_id, follows.created_at AS active_at
+				FROM follows
+				JOIN selected ON selected.id = follows.follower_bot_id
+			 )
+			 SELECT
+				selected.id AS id,
+				runtime.next_due_at AS nextDueAt,
+				MAX(activity.active_at) AS lastActiveAt
+			 FROM selected
+			 LEFT JOIN bot_runtime_index runtime ON runtime.bot_id = selected.id
+			 LEFT JOIN activity ON activity.bot_id = selected.id
+			 GROUP BY selected.id, runtime.next_due_at`,
+		)
+		.bind(userId, ...selected)
+		.all<{ id: string; nextDueAt: string | null; lastActiveAt: string | null }>();
+	const rows = result.results ?? [];
+	const documents = await Promise.all(rows.map((row) => readJson<BotDocument>(kv, kvKeys.bot(row.id))));
+	const activeBots = documents
+		.filter((bot): bot is BotDocument => Boolean(bot && !bot.deletedAt))
+		.map((bot) => normalizeBotDefaults(bot));
+	const effectiveBots = await effectiveBotDocuments(kv, db, activeBots);
+	const worldPostingSettings = await worldPostingSettingsByIds(db, effectiveBots.map((bot) => bot.homeWorldId));
+	const runtimeById = new Map(rows.map((row) => [row.id, row]));
+	return attachBotOwners(db, effectiveBots.map((bot) => {
+		const runtime = runtimeById.get(bot.id);
+		return botSummaryWithLastActive(bot, runtime?.lastActiveAt, {
+			includeToolSettings: true,
+			nextDueAt: runtime?.nextDueAt ?? null,
+			worldPostingSettings: worldPostingSettings.get(bot.homeWorldId),
+		});
+	}));
+}
+
 type UserBotRuntimeSpreadRow = {
 	botId: string;
 	handle: string;
