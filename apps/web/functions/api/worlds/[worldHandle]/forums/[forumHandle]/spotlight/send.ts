@@ -1,11 +1,9 @@
 import { ok, readJsonBody } from "@bickr/shared/api";
-import { type SpotlightDeliveryResult } from "@bickr/shared/model";
-import { RepositoryError } from "@bickr/shared/repository";
-import { forumByHandle, sendSpotlight } from "@bickr/shared/social";
+import { forumByHandle, sendSpotlightBatch, type SpotlightTickOutcome } from "@bickr/shared/social";
 import { normalizeHandleParam } from "@bickr/shared/validation";
 import { requireCompleteUser, type AppEnv } from "../../../../../_auth";
 import { pageErrorResponse } from "../../../../../_errors";
-import { fetchServiceJson, serviceRequest } from "../../../../../_proxy";
+import { fetchServiceJson, ServiceRequestTimeoutError, serviceRequest } from "../../../../../_proxy";
 import { parseSpotlightSendInput } from "./_input";
 
 export const onRequestPost: PagesFunction<AppEnv, "worldHandle" | "forumHandle"> = async ({
@@ -19,14 +17,9 @@ export const onRequestPost: PagesFunction<AppEnv, "worldHandle" | "forumHandle">
 		const forumHandle = normalizeHandleParam(params.forumHandle, "Forum handle");
 		const forum = await forumByHandle(env.BICKR_KV, env.BICKR_D1, worldHandle, forumHandle);
 		const input = parseSpotlightSendInput(await readJsonBody(request));
-		const result = await sendSpotlightWithStaleReadRetry(() =>
-			sendSpotlight(
-				env.BICKR_KV,
-				env.BICKR_D1,
-				user.id,
-				forum,
-				input,
-				async (botId, text, spotlightId) => {
+		const result = await sendSpotlightBatch(env.BICKR_KV, env.BICKR_D1, user.id, forum, input, {
+			inject: async ({ botId, text, spotlightId }) => {
+				try {
 					const { response, payload } = await fetchServiceJson(
 						env.AGENT_RUNTIME,
 						serviceRequest(
@@ -37,126 +30,93 @@ export const onRequestPost: PagesFunction<AppEnv, "worldHandle" | "forumHandle">
 							JSON.stringify({ text, kind: "spotlight", sourceId: spotlightId, spotlightId }),
 						),
 					);
-					const body = payload as {
-						ok?: boolean;
-						data?: { injectionId?: string };
-						message?: string;
+					const body = payload as { ok?: boolean; data?: { injectionId?: string }; message?: string };
+					const injectionId = body.data?.injectionId;
+					if (!response.ok || body.ok === false || !injectionId) {
+						return {
+							kind: "failed",
+							cause: "inject_error",
+							message: body.message ?? `Injection failed with status ${response.status}.`,
+						};
+					}
+					return { kind: "injected", injectionId };
+				} catch (error) {
+					if (error instanceof ServiceRequestTimeoutError) {
+						return { kind: "failed", cause: "timeout", message: error.message };
+					}
+					return {
+						kind: "failed",
+						cause: "inject_error",
+						message: error instanceof Error ? error.message : "Spotlight injection failed.",
 					};
-					if (!response.ok || body.ok === false) {
-						throw new Error(body.message ?? `Injection failed with status ${response.status}.`);
-					}
-					return { injectionId: body.data?.injectionId };
-				},
-			),
-		);
-		if (input.autoStartTick ?? true) {
-			await Promise.all(result.deliveries
-				.filter((delivery) => delivery.ok && delivery.injectionId)
-				.map(async (delivery) => {
-					const tick = await startSpotlightTick(env, request, user.id, delivery.botId, delivery.injectionId!, delivery.spotlightId);
-					delivery.tickStatus = tick.status;
-					if (tick.error) {
-						delivery.tickError = tick.error;
-					}
-				}));
-		} else {
-			for (const delivery of result.deliveries) {
-				if (delivery.ok && delivery.injectionId) {
-					delivery.tickStatus = "queued";
 				}
-			}
-		}
+			},
+			startTick: async ({ botId, injectionId, spotlightId, deferred }) =>
+				startSpotlightTick(env, request, user.id, { botId, injectionId, spotlightId, deferred }),
+		});
 		return ok(result);
 	} catch (error) {
 		return pageErrorResponse(error);
 	}
 };
 
-const staleReadRetryDelaysMs = [250, 500, 1000] as const;
-
-type SpotlightSendResult = Awaited<ReturnType<typeof sendSpotlight>>;
-
-async function sendSpotlightWithStaleReadRetry(run: () => Promise<SpotlightSendResult>): Promise<SpotlightSendResult> {
-	let lastError: unknown;
-	for (let attempt = 0; attempt <= staleReadRetryDelaysMs.length; attempt += 1) {
-		try {
-			return await run();
-		} catch (error) {
-			lastError = error;
-			const delay = staleReadRetryDelaysMs[attempt];
-			if (delay === undefined || !isRetryableSpotlightReadError(error)) {
-				throw error;
-			}
-			await sleepBeforeSpotlightRetry(delay);
-		}
-	}
-	throw lastError;
-}
-
-function isRetryableSpotlightReadError(error: unknown): boolean {
-	if (!(error instanceof RepositoryError)) {
-		return false;
-	}
-	if (error.code === "not_found") {
-		return error.message === "Thread not found." || error.message === "Thread not found in this forum.";
-	}
-	return error.code === "bad_request" && error.message === "Selected comment was not found in this thread.";
-}
-
-async function sleepBeforeSpotlightRetry(milliseconds: number): Promise<void> {
-	const workerScheduler = (globalThis as typeof globalThis & {
-		scheduler?: { wait: (delay: number) => Promise<void> };
-	}).scheduler;
-	if (workerScheduler) {
-		await workerScheduler.wait(milliseconds);
-		return;
-	}
-	await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
-}
-
 async function startSpotlightTick(
 	env: AppEnv,
 	request: Request,
 	userId: string,
-	botId: string,
-	injectionId: string,
-	spotlightId: string,
-): Promise<{ status: NonNullable<SpotlightDeliveryResult["tickStatus"]>; error?: string }> {
-	const { response, payload } = await fetchServiceJson(
-		env.AGENT_RUNTIME,
-		serviceRequest(
-			env,
-			request,
-			`/bots/${encodeURIComponent(botId)}/tick`,
-			userId,
-			JSON.stringify({ mode: "spotlight", injectionIds: [injectionId], spotlightId, background: true }),
-		),
-	);
-	const body = payload as {
-		ok?: boolean;
-		data?: { run?: { status?: string; error?: string } };
-		message?: string;
-	};
-	if (!response.ok || body.ok === false) {
-		return { status: "failed", error: body.message ?? `Tick start failed with status ${response.status}.` };
+	input: { botId: string; injectionId: string; spotlightId: string; deferred: boolean },
+): Promise<SpotlightTickOutcome> {
+	try {
+		const { response, payload } = await fetchServiceJson(
+			env.AGENT_RUNTIME,
+			serviceRequest(
+				env,
+				request,
+				`/bots/${encodeURIComponent(input.botId)}/tick`,
+				userId,
+				JSON.stringify({
+					mode: "spotlight",
+					injectionIds: [input.injectionId],
+					spotlightId: input.spotlightId,
+					...(input.deferred ? { deferred: true } : { background: true }),
+				}),
+			),
+		);
+		const body = payload as {
+			ok?: boolean;
+			data?: { run?: { status?: string; error?: string } };
+			message?: string;
+		};
+		if (!response.ok || body.ok === false) {
+			return { kind: "failed", message: body.message ?? `Tick start failed with status ${response.status}.` };
+		}
+		return spotlightTickOutcome(body.data?.run, input.deferred);
+	} catch (error) {
+		return { kind: "failed", message: error instanceof Error ? error.message : "Tick start failed." };
 	}
-	const run = body.data?.run;
-	return {
-		status: spotlightTickStatus(run?.status),
-		...(run?.error ? { error: run.error } : {}),
-	};
 }
 
-function spotlightTickStatus(status: string | undefined): NonNullable<SpotlightDeliveryResult["tickStatus"]> {
-	switch (status) {
-		case "already_running":
-		case "completed":
-		case "failed":
-		case "paused":
-		case "queued":
+function spotlightTickOutcome(
+	run: { status?: string; error?: string } | undefined,
+	deferred: boolean,
+): SpotlightTickOutcome {
+	switch (run?.status) {
 		case "started":
-			return status;
+		case "completed":
+			return { kind: "started" };
+		case "queued":
+			// A deferred request is queued by definition; an immediate one is queued
+			// only because the participant is mid-visit. Both are read at the end of
+			// the visit that is running or due, but the owner-facing reasons differ.
+			return { kind: "pending", reason: deferred ? "deferred" : "queued_behind_run" };
+		case "already_running":
+			return {
+				kind: "failed",
+				message: "This participant is already in a visit that will not read the spotlight.",
+			};
+		case "paused":
+			return { kind: "failed", message: "This participant is paused, so its spotlight visit did not start." };
 		default:
-			return "failed";
+			return { kind: "failed", message: run?.error ?? "The spotlight visit did not start." };
 	}
 }

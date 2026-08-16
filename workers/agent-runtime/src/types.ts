@@ -405,6 +405,13 @@ export type TickOptions = {
 	injectionIds?: string[];
 	spotlightId?: string;
 	background?: boolean;
+	/**
+	 * Queue the spotlight visit durably instead of starting one now. The
+	 * participant's next completed visit drains it. Without this, an injection
+	 * whose sender asked for no immediate visit would never be read at all:
+	 * ordinary visits deliberately skip spotlight injections.
+	 */
+	deferred?: boolean;
 };
 
 export type AdmittedTick = {

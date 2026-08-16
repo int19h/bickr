@@ -1,9 +1,10 @@
 import { useContext, useEffect, useMemo, useState } from "react";
-import type {
-	BotSummary,
-	ForumSummary,
-	SpotlightDeliveryResult,
-	SpotlightTargetType,
+import {
+	spotlightDeliverySucceeded,
+	type BotSummary,
+	type ForumSummary,
+	type SpotlightSendResult,
+	type SpotlightTargetType,
 } from "@bickr/shared/model";
 import { api } from "../../api";
 import {
@@ -88,7 +89,7 @@ export function SpotlightPanel({
 		}
 		setSending(true);
 		setMessage("Sending spotlight...");
-		const result = await api<{ deliveries: SpotlightDeliveryResult[] }>(
+		const result = await api<SpotlightSendResult>(
 			`/api/worlds/${encodeURIComponent(world.handle)}/forums/${encodeURIComponent(forum.handle)}/spotlight/send`,
 			{
 				method: "POST",
@@ -100,7 +101,7 @@ export function SpotlightPanel({
 			setMessage(result.message);
 			return;
 		}
-		const failed = result.data.deliveries.filter((delivery) => !delivery.ok);
+		const failed = result.data.deliveries.filter((delivery) => !spotlightDeliverySucceeded(delivery));
 		if (failed.length > 0) {
 			setMessage(`${failed.length} spotlight delivery failed.`);
 			return;

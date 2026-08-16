@@ -1626,6 +1626,12 @@ export class BotRuntime {
 		if (!columns.has('spotlight_id')) {
 			this.state.storage.sql.exec(`ALTER TABLE injections ADD COLUMN spotlight_id TEXT`);
 		}
+		// The index has to be created here rather than in the schema block: on a
+		// participant that predates the column, the block runs before the ALTER
+		// above. It backs the per-spotlight lookup that makes injection
+		// idempotent, so a replayed batch never gives one participant the same
+		// spotlight twice.
+		this.state.storage.sql.exec(`CREATE INDEX IF NOT EXISTS injections_spotlight ON injections (spotlight_id)`);
 	}
 
 	private ensureProviderUsageColumns(): void {
@@ -2026,6 +2032,9 @@ export class BotRuntime {
 			await this.requireOwnerOrInternal(request, botId);
 			const options = await readTickOptions(request);
 			const trigger = options.mode === 'spotlight' ? 'spotlight' : request.headers.get('x-bickr-scheduler') ? 'cron' : 'manual';
+			if (options.deferred && options.mode === 'spotlight') {
+				return ok({ run: this.deferSpotlightTick(options) });
+			}
 			if (options.background) {
 				const run = await this.startBackgroundTick(botId, trigger, options);
 				return ok({ run });
@@ -2053,12 +2062,17 @@ export class BotRuntime {
 		if (!text) {
 			throw new InputError('Injection text is required.');
 		}
-		const event = this.injectThought(text, {
+		const injected = this.injectThought(text, {
 			kind: stringValue(bodyRecord.kind) ?? 'manual',
 			sourceId: stringValue(bodyRecord.sourceId),
 			spotlightId: stringValue(bodyRecord.spotlightId),
 		});
-		return ok({ event, injectionId: stringValue(runtimeRecord(event.payload).injectionId) });
+		// `event` is absent when an idempotent spotlight retry matched an existing
+		// injection: nothing new happened, so there is nothing new to report.
+		return ok({
+			...(injected.event ? { event: injected.event } : {}),
+			injectionId: injected.injectionId,
+		});
 	}
 
 	private async handleRuntimeMonitorRequest(request: Request, url: URL, botId: string): Promise<Response | null> {
@@ -2092,8 +2106,8 @@ export class BotRuntime {
 				return;
 			}
 			if (payload.type === 'inject' && payload.text?.trim()) {
-				const event = this.injectThought(payload.text.trim());
-				ws.send(JSON.stringify({ type: 'event', event }));
+				const injected = this.injectThought(payload.text.trim());
+				ws.send(JSON.stringify({ type: 'event', event: injected.event }));
 			}
 		} catch (error) {
 			ws.send(JSON.stringify({ type: 'error', message: error instanceof Error ? error.message : 'Bad message.' }));
@@ -2456,8 +2470,30 @@ export class BotRuntime {
 	}
 
 	private queuePendingSpotlightTick(activeRunId: string, options: TickOptions): TickRunResult | null {
-		if (options.mode !== 'spotlight' || !options.spotlightId || !options.injectionIds?.length) {
+		if (!this.enqueuePendingSpotlightTick(options)) {
 			return null;
+		}
+		return { runId: activeRunId, status: 'queued' };
+	}
+
+	/**
+	 * Queue a spotlight visit without attempting admission at all.
+	 *
+	 * This is the "not now" path: the owner asked for the spotlight to wait for
+	 * the participant's own rhythm. It shares the collision path's durable queue,
+	 * which the after-run drain already consumes, so the injection is read at the
+	 * next completed visit instead of sitting unread forever.
+	 */
+	private deferSpotlightTick(options: TickOptions): TickRunResult {
+		if (!this.enqueuePendingSpotlightTick(options)) {
+			return { runId: 'deferred', status: 'failed', error: 'A deferred spotlight visit needs a spotlight id and injection.' };
+		}
+		return { runId: 'deferred', status: 'queued' };
+	}
+
+	private enqueuePendingSpotlightTick(options: TickOptions): boolean {
+		if (options.mode !== 'spotlight' || !options.spotlightId || !options.injectionIds?.length) {
+			return false;
 		}
 
 		const spotlightId = options.spotlightId;
@@ -2474,7 +2510,7 @@ export class BotRuntime {
 		if (additions.length > 0) {
 			this.writePendingSpotlightTickEntries([...existing, ...additions]);
 		}
-		return { runId: activeRunId, status: 'queued' };
+		return true;
 	}
 
 	private startQueuedSpotlightTick(botId: string): void {
@@ -5736,7 +5772,24 @@ export class BotRuntime {
 		return rows.map((row) => row.text);
 	}
 
-	private injectThought(text: string, metadata: InjectionMetadata = {}): BotRuntimeEvent {
+	/**
+	 * Record a private thought for the next visit.
+	 *
+	 * A spotlight injection is idempotent in its `spotlightId`: the sender may
+	 * retry a batch whose response was lost, and this object is single-threaded,
+	 * so the existing row decides. Whether an injection already exists is
+	 * knowable only here — the sender's own delivery row can be behind — which
+	 * makes this the authority for "was this participant already told".
+	 */
+	private injectThought(text: string, metadata: InjectionMetadata = {}): { event: BotRuntimeEvent | null; injectionId: string } {
+		if (metadata.spotlightId) {
+			const existing = this.state.storage.sql
+				.exec<{ id: string }>(`SELECT id FROM injections WHERE spotlight_id = ? LIMIT 1`, metadata.spotlightId)
+				.toArray()[0];
+			if (existing) {
+				return { event: null, injectionId: existing.id };
+			}
+		}
 		const now = new Date().toISOString();
 		const id = crypto.randomUUID();
 		this.state.storage.sql.exec(
@@ -5749,13 +5802,14 @@ export class BotRuntime {
 			metadata.spotlightId ?? null,
 			now,
 		);
-		return this.appendEvent('injection', 'thought_injected', {
+		const event = this.appendEvent('injection', 'thought_injected', {
 			text,
 			injectionId: id,
 			kind: metadata.kind ?? 'manual',
 			...(metadata.sourceId ? { sourceId: metadata.sourceId } : {}),
 			...(metadata.spotlightId ? { spotlightId: metadata.spotlightId } : {}),
 		});
+		return { event, injectionId: id };
 	}
 
 	private async compactIfNeeded(bot: BotDocument, settings: ProviderSettings, runId: string, signal: AbortSignal): Promise<void> {
@@ -9395,11 +9449,13 @@ async function readTickOptions(request: Request): Promise<TickOptions> {
 		: undefined;
 	const spotlightId = stringValue(record.spotlightId);
 	const background = record.background === true;
+	const deferred = record.deferred === true;
 	return {
 		mode,
 		...(injectionIds ? { injectionIds } : {}),
 		...(spotlightId ? { spotlightId } : {}),
 		...(background ? { background } : {}),
+		...(deferred ? { deferred } : {}),
 	};
 }
 

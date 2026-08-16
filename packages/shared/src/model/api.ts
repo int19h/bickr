@@ -638,7 +638,15 @@ export type BotFollowUsernameQueryResult = {
 
 export type SpotlightTargetType = "threads" | "comments";
 
-export type SpotlightPreviewInput = {
+/**
+ * Bots a single spotlight send request may target. Delivery is a client-driven
+ * batch loop: each request injects into at most this many participants and
+ * starts their ticks, so one Pages Function invocation always finishes well
+ * inside its limits no matter how large the owner's selection is.
+ */
+export const maxSpotlightSendBots = 8;
+
+export type SpotlightTargetInput = {
 	targetType: SpotlightTargetType;
 	threadIds?: string[];
 	threadId?: string;
@@ -647,8 +655,14 @@ export type SpotlightPreviewInput = {
 	focusText?: string;
 };
 
-export type SpotlightSendInput = SpotlightPreviewInput & {
+export type SpotlightSendInput = SpotlightTargetInput & {
 	autoStartTick?: boolean;
+	/**
+	 * Continuation of a run started by an earlier batch. Absent on the first
+	 * batch, which mints the id; later batches must repeat the same targets and
+	 * focus, and the per-bot delivery unit is idempotent under it.
+	 */
+	spotlightId?: string;
 };
 
 export type SpotlightIncludedContent = {
@@ -671,15 +685,6 @@ export type SpotlightIncludedContent = {
 	alreadySeen?: boolean;
 };
 
-export type SpotlightBotPreview = {
-	bot: BotSummary;
-	included: {
-		threadCount: number;
-		commentCount: number;
-		excludedSeenCount: number;
-	};
-};
-
 export type SpotlightSyntheticContext = {
 	kind: "spotlight_context";
 	world: NotificationWorldRef;
@@ -695,24 +700,71 @@ export type SpotlightSyntheticContext = {
 	content: SpotlightIncludedContent[];
 };
 
-export type SpotlightPreview = {
-	spotlightId?: string;
-	targetType: SpotlightTargetType;
-	worldHandle: string;
-	forumHandle: string;
-	threadId?: string;
-	botPreviews: SpotlightBotPreview[];
+/**
+ * Why a participant never received the spotlight injection. Set at the throw
+ * site of the delivery unit; clients branch on this, never on `message`.
+ */
+export type SpotlightNotInjectedCause = "paused" | "timeout" | "inject_error";
+
+/** Why a started tick has not begun running yet. */
+export type SpotlightTickPendingReason =
+	/** The owner asked for no immediate tick; the bot's next visit drains it. */
+	| "deferred"
+	/** The bot was mid-run, so the injection is queued behind that run. */
+	| "queued_behind_run";
+
+/**
+ * One participant's outcome inside a spotlight batch, keyed by how far the
+ * delivery got. The phases are separate members because they differ in what a
+ * client may do next: only `tick_started`, `tick_pending`, and
+ * `already_delivered` are terminal successes. `injected_tick_failed` in
+ * particular must stay selected for retry — the injection landed but nothing
+ * will ever read it, which is the silent failure this contract exists to
+ * surface.
+ */
+export type SpotlightDeliveryResult =
+	| { status: "not_injected"; botId: string; cause: SpotlightNotInjectedCause; message: string }
+	| { status: "injected_tick_failed"; botId: string; injectionId: string; message: string }
+	| { status: "tick_started"; botId: string; injectionId: string }
+	| { status: "tick_pending"; botId: string; injectionId: string; reason: SpotlightTickPendingReason }
+	| { status: "already_delivered"; botId: string };
+
+export type SpotlightSendResult = {
+	spotlightId: string;
+	deliveries: SpotlightDeliveryResult[];
 };
 
-export type SpotlightDeliveryResult = {
-	spotlightId: string;
-	botId: string;
-	ok: boolean;
-	error?: string;
-	injectionId?: string;
-	tickStatus?: "already_running" | "completed" | "failed" | "paused" | "queued" | "started";
-	tickError?: string;
-};
+/**
+ * Whether a result means the participant is done with this spotlight and can be
+ * dropped from a retry. Exhaustive by construction so a new member forces every
+ * client through this decision instead of defaulting to "success".
+ */
+export function spotlightDeliverySucceeded(delivery: SpotlightDeliveryResult): boolean {
+	switch (delivery.status) {
+		case "tick_started":
+		case "tick_pending":
+		case "already_delivered":
+			return true;
+		case "not_injected":
+		case "injected_tick_failed":
+			return false;
+		default:
+			return assertNeverSpotlightDelivery(delivery);
+	}
+}
+
+function assertNeverSpotlightDelivery(delivery: never): never {
+	throw new Error(`Unhandled spotlight delivery result: ${JSON.stringify(delivery)}`);
+}
+
+/**
+ * Statuses stored in `spotlight_deliveries.status` that mean the unit is done.
+ * A continuation batch skips these bots without touching the runtime. Rows
+ * written before the typed union carried `sent`/`failed`; they are absent here
+ * on purpose, so replaying such an id re-runs the (idempotent) unit rather than
+ * teaching this vocabulary a second, legacy spelling.
+ */
+export const spotlightDeliveryCompletedStatuses = ["tick_started", "tick_pending"] as const;
 
 export type ChirperImportPreview = {
 	handle: string;
@@ -859,9 +911,49 @@ export type ApiErrorDetails = {
 	 * message, which is composed at each generation site.
 	 */
 	forumWriteCause?: ForumWriteErrorCause;
+	/**
+	 * Typed cause for a rejected spotlight request. The send route's stale-read
+	 * retry and the owner UI both branch on this instead of the message text.
+	 */
+	spotlightCause?: SpotlightErrorCause;
 	profileDeleteBlockers?: HumanProfileDeleteBlocker[];
 	references?: string[];
 };
+
+/**
+ * Typed spotlight rejection causes, attached where the request is refused.
+ *
+ * `thread_not_found`, `thread_outside_forum`, and `comment_not_found` are the
+ * ones a just-created thread or comment can produce from a KV read that has not
+ * converged yet; the send route retries exactly those and nothing else.
+ */
+export type SpotlightErrorCause =
+	| "thread_not_found"
+	| "thread_outside_forum"
+	| "comment_not_found"
+	| "no_threads_selected"
+	| "no_comments_selected"
+	| "thread_id_required"
+	| "no_bots_selected"
+	| "too_many_bots"
+	| "bot_not_owned"
+	| "bot_outside_world"
+	| "continuation_mismatch"
+	| "delivery_conflict";
+
+const spotlightStaleReadCauses: ReadonlySet<SpotlightErrorCause> = new Set([
+	"thread_not_found",
+	"thread_outside_forum",
+	"comment_not_found",
+]);
+
+/**
+ * Whether a rejected spotlight plan build may simply be behind the write that
+ * created its target, and so is worth retrying with the same input.
+ */
+export function isSpotlightStaleReadCause(cause: SpotlightErrorCause | undefined): boolean {
+	return cause !== undefined && spotlightStaleReadCauses.has(cause);
+}
 
 /**
  * Typed forum content-write rejection causes. Attached at the throw site inside

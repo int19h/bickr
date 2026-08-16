@@ -75,7 +75,6 @@ import {
 } from "../../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/threads/[threadId]";
 import { onRequestDelete as deleteCommentRoute } from "../../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/threads/[threadId]/comments/[commentId]";
 import { onRequestGet as commentVotes } from "../../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/threads/[threadId]/comments/[commentId]/votes";
-import { onRequestPost as spotlightPreview } from "../../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/spotlight/preview";
 import { onRequestPost as spotlightSend } from "../../apps/web/functions/api/worlds/[worldHandle]/forums/[forumHandle]/spotlight/send";
 import {
 	onRequestGet as worldBots,
@@ -234,7 +233,9 @@ import {
 	type NotificationEvent,
 	type RequiredLocalizedText,
 	type SearchResponse,
+	type SpotlightDeliveryResult,
 	type SpotlightIncludedContent,
+	type SpotlightSendResult,
 	type SpotlightSyntheticContext,
 	type ThreadDocument,
 	type UserDocument,
@@ -452,7 +453,6 @@ export {
 	session,
 	sessionCookieName,
 	setVote,
-	spotlightPreview,
 	spotlightSend,
 	spotlightInjectedText,
 	spreadBotTicksRoute,
@@ -518,7 +518,9 @@ export type {
 	RequiredLocalizedText,
 	SearchResponse,
 	SearchVectorEnv,
+	SpotlightDeliveryResult,
 	SpotlightIncludedContent,
+	SpotlightSendResult,
 	SpotlightSyntheticContext,
 	ThreadDocument,
 	UserProfile,
@@ -684,31 +686,8 @@ export type ThreadDetailPayload = {
 	};
 };
 
-export type SpotlightPreviewPayload = {
-	data: {
-		preview: {
-			botPreviews: Array<{
-				bot: { id: string };
-				included: {
-					threadCount: number;
-					commentCount: number;
-					excludedSeenCount: number;
-				};
-			}>;
-		};
-	};
-};
-
 export type SpotlightSendPayload = {
-	data: {
-		preview: SpotlightPreviewPayload["data"]["preview"];
-		deliveries: Array<{
-			botId: string;
-			ok: boolean;
-			injectionId?: string;
-			tickStatus?: string;
-		}>;
-	};
+	data: SpotlightSendResult;
 };
 
 type TestCoordinatorHandler = (name: string, request: Request) => Promise<Response>;
@@ -1534,9 +1513,30 @@ export function runtimeEvent(
 	};
 }
 
+export type MemoryInjectionRow = {
+	id: string;
+	text: string;
+	kind: string;
+	sourceId: string | null;
+	spotlightId: string | null;
+	createdAt: string;
+	consumedAt: string | null;
+};
+
+/**
+ * The runtime's own SQL surface, in memory.
+ *
+ * `runtime_state` and `injections` are backed by real rows because the
+ * spotlight queue's whole behavior is which injections are still unconsumed;
+ * a stub that always answers the same thing could not tell a drained queue
+ * from a stuck one. `unconsumedInjections` keeps the older, row-free callers
+ * working: when it is given, it answers that question instead of the rows.
+ */
 export function memoryRuntimeSql(options: { unconsumedInjections?: ReadonlySet<string> } = {}) {
 	const values = new Map<string, string>();
+	const injections: MemoryInjectionRow[] = [];
 	return {
+		injections: (): readonly MemoryInjectionRow[] => injections,
 		exec<T>(sql: string, ...params: unknown[]) {
 			if (/SELECT value_json FROM runtime_state WHERE key = \?/.test(sql)) {
 				const value = values.get(String(params[0]));
@@ -1545,10 +1545,45 @@ export function memoryRuntimeSql(options: { unconsumedInjections?: ReadonlySet<s
 				};
 			}
 			if (/SELECT 1 AS found\s+FROM injections\s+WHERE id = \? AND consumed_at IS NULL/.test(sql)) {
-				const found = options.unconsumedInjections?.has(String(params[0])) ?? false;
+				const id = String(params[0]);
+				const found =
+					options.unconsumedInjections ?
+						options.unconsumedInjections.has(id)
+					:	injections.some((row) => row.id === id && row.consumedAt === null);
 				return {
 					toArray: () => (found ? [{ found: 1 } as T] : []),
 				};
+			}
+			if (/SELECT id FROM injections WHERE spotlight_id = \? LIMIT 1/.test(sql)) {
+				const existing = injections.find((row) => row.spotlightId === String(params[0]));
+				return { toArray: () => (existing ? [{ id: existing.id } as T] : []) };
+			}
+			if (/FROM injections\s+WHERE consumed_at IS NULL AND id = \?/.test(sql)) {
+				const row = injections.find((item) => item.id === String(params[0]) && item.consumedAt === null);
+				return { toArray: () => (row ? [memoryInjectionSelection(row) as T] : []) };
+			}
+			if (/FROM injections\s+WHERE consumed_at IS NULL\s+AND kind != 'spotlight'/.test(sql)) {
+				const rows = injections
+					.filter((row) => row.consumedAt === null && row.kind !== "spotlight")
+					.map((row) => memoryInjectionSelection(row) as T);
+				return { toArray: () => rows };
+			}
+			if (/INSERT INTO injections/.test(sql)) {
+				injections.push({
+					id: String(params[0]),
+					text: String(params[1]),
+					kind: String(params[2]),
+					sourceId: params[3] === null ? null : String(params[3]),
+					spotlightId: params[4] === null ? null : String(params[4]),
+					createdAt: String(params[5]),
+					consumedAt: null,
+				});
+			}
+			if (/UPDATE injections SET consumed_at = \? WHERE id = \?/.test(sql)) {
+				const row = injections.find((item) => item.id === String(params[1]));
+				if (row) {
+					row.consumedAt = String(params[0]);
+				}
 			}
 			if (/INSERT INTO runtime_state/.test(sql)) {
 				values.set(String(params[0]), String(params[1]));
@@ -1561,6 +1596,16 @@ export function memoryRuntimeSql(options: { unconsumedInjections?: ReadonlySet<s
 				toArray: () => [],
 			};
 		},
+	};
+}
+
+function memoryInjectionSelection(row: MemoryInjectionRow) {
+	return {
+		id: row.id,
+		text: row.text,
+		kind: row.kind,
+		sourceId: row.sourceId,
+		spotlightId: row.spotlightId,
 	};
 }
 

@@ -1,3 +1,4 @@
+import { isD1UniqueConstraintError } from "./d1-errors";
 import { formatCommentRef, formatThreadRef, isShortContentId, makeId, makeShortContentId, parseObjectRef } from "./ids";
 import { entityIndexVersions } from "./index-versions";
 import { legacyToolResultEnvelope } from "./legacy-tool-result-adapter";
@@ -48,12 +49,18 @@ import {
 	type NotificationProfileRef,
 	type RequiredLocalizedText,
 	type SearchThreadResult,
-	type SpotlightBotPreview,
+	isSpotlightStaleReadCause,
+	maxSpotlightSendBots,
+	spotlightDeliveryCompletedStatuses,
 	type SpotlightDeliveryResult,
+	type SpotlightErrorCause,
 	type SpotlightIncludedContent,
-	type SpotlightPreview,
-	type SpotlightPreviewInput,
+	type SpotlightNotInjectedCause,
 	type SpotlightSendInput,
+	type SpotlightSendResult,
+	type SpotlightTargetInput,
+	type SpotlightTargetType,
+	type SpotlightTickPendingReason,
 	type SpotlightSyntheticContext,
 	type ThreadDocument,
 	type ThreadSummary,
@@ -73,7 +80,7 @@ import {
 	botPublicProfile,
 	defaultInitialBotNotification,
 	introForumHandle,
-	listUserBots,
+	listUserBotsByIds,
 	normalizeForumDefaults,
 	normalizeWorldDefaults,
 	RepositoryError,
@@ -4628,96 +4635,403 @@ function seenItemsForThread(thread: ThreadDocument): SeenContentItem[] {
 	];
 }
 
-export async function buildSpotlightPreview(
-	kv: KVNamespaceLike,
-	db: D1DatabaseLike,
-	userId: string,
-	forum: ForumDocument,
-	input: SpotlightPreviewInput,
-	now = new Date().toISOString(),
-): Promise<SpotlightPreview> {
-	const botPreviews = await buildSpotlightBotPreviews(kv, db, userId, forum, input, now);
-	return {
-		targetType: input.targetType,
-		worldHandle: forum.worldHandle,
-		forumHandle: forum.handle,
-		...(input.threadId ? { threadId: input.threadId } : {}),
-		botPreviews,
-	};
-}
+/**
+ * One participant's share of a spotlight batch: the content it has not seen
+ * yet, and the exact bytes to inject for it.
+ */
+export type SpotlightBotDraft = {
+	bot: BotSummary;
+	content: SpotlightIncludedContent[];
+	injectedText: string;
+};
 
-export async function sendSpotlight(
+/**
+ * What a batch will do, resolved once per request against the current forum
+ * state. Paused participants are carried separately rather than rejected: a
+ * batch must isolate one participant's problem from its siblings.
+ */
+export type SpotlightPlan = {
+	drafts: SpotlightBotDraft[];
+	pausedBotIds: string[];
+	threadId: string | null;
+};
+
+export type SpotlightInjectOutcome =
+	| { kind: "injected"; injectionId: string }
+	| { kind: "failed"; cause: SpotlightNotInjectedCause; message: string };
+
+export type SpotlightTickOutcome =
+	| { kind: "started" }
+	| { kind: "pending"; reason: SpotlightTickPendingReason }
+	| { kind: "failed"; message: string };
+
+export type SpotlightDeliveryHandlers = {
+	inject: (input: { botId: string; text: string; spotlightId: string }) => Promise<SpotlightInjectOutcome>;
+	/**
+	 * `deferred` asks the runtime to durably queue the spotlight visit instead of
+	 * starting one now; the participant's next completed visit drains it.
+	 */
+	startTick: (input: {
+		botId: string;
+		injectionId: string;
+		spotlightId: string;
+		deferred: boolean;
+	}) => Promise<SpotlightTickOutcome>;
+};
+
+/**
+ * Deliver one batch of a spotlight run.
+ *
+ * The caller chunks its selection into batches of at most
+ * `maxSpotlightSendBots` and calls this once per batch, passing back the
+ * `spotlightId` the first batch returned. Every per-participant unit is
+ * idempotent under that id — a lost response can always be retried — and each
+ * unit starts its own visit immediately rather than waiting for its siblings.
+ */
+export async function sendSpotlightBatch(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	userId: string,
 	forum: ForumDocument,
 	input: SpotlightSendInput,
-	inject: (botId: string, text: string, spotlightId: string) => Promise<{ injectionId?: string }>,
+	handlers: SpotlightDeliveryHandlers,
 	now = new Date().toISOString(),
-): Promise<{ preview: SpotlightPreview; deliveries: SpotlightDeliveryResult[] }> {
-	const spotlightId = makeId("spt");
-	const botDrafts = await buildSpotlightBotDrafts(kv, db, userId, forum, input, now);
-	const deliveries: SpotlightDeliveryResult[] = [];
-	for (const draft of botDrafts) {
-		let status = "sent";
-		let errorMessage: string | undefined;
-		let injectionId: string | undefined;
-		try {
-			const injected = await inject(draft.bot.id, draft.injectedText, spotlightId);
-			injectionId = injected.injectionId;
-			await markBotSeenContent(
-				db,
-				draft.bot.id,
-				[
-					...[...new Set(draft.content.map((item) => item.threadId))].map((id) => ({ type: "thread" as const, id })),
-					...draft.content.map((item) => ({ type: item.type, id: item.id })),
-					...autoProfileSeenItems(draft.content),
-				],
-				"spotlight",
-				spotlightId,
-				now,
-			);
-			deliveries.push({ spotlightId, botId: draft.bot.id, ok: true, ...(injectionId ? { injectionId } : {}) });
-		} catch (error) {
-			status = "failed";
-			errorMessage = error instanceof Error ? error.message : "Spotlight injection failed.";
-			deliveries.push({ spotlightId, botId: draft.bot.id, ok: false, error: errorMessage });
+): Promise<SpotlightSendResult> {
+	const botIds = [...new Set(input.botIds)];
+	if (botIds.length === 0) {
+		throw spotlightError("bad_request", "Select at least one owned bot.", 400, "no_bots_selected");
+	}
+	if (botIds.length > maxSpotlightSendBots) {
+		throw spotlightError(
+			"bad_request",
+			`A spotlight request can target at most ${maxSpotlightSendBots} participants at a time.`,
+			400,
+			"too_many_bots",
+		);
+	}
+
+	const targetIdsJson = JSON.stringify(spotlightTargetIds(input));
+	const focusText = trimmedFocus(input.focusText) ?? null;
+	const spotlightId = input.spotlightId ?? makeId("spt");
+	const completedBotIds =
+		input.spotlightId ?
+			await assertSpotlightContinuation(db, {
+				spotlightId: input.spotlightId,
+				userId,
+				targetType: input.targetType,
+				targetIdsJson,
+				focusText,
+				botIds,
+			})
+		:	new Set<string>();
+
+	const pending = botIds.filter((botId) => !completedBotIds.has(botId));
+	const plan =
+		pending.length > 0 ?
+			await withSpotlightStaleReadRetry(() => buildSpotlightPlan(kv, db, userId, forum, { ...input, botIds: pending }, now))
+		:	{ drafts: [], pausedBotIds: [], threadId: null };
+
+	const deliveries = new Map<string, SpotlightDeliveryResult>();
+	for (const botId of completedBotIds) {
+		deliveries.set(botId, { status: "already_delivered", botId });
+	}
+	const row = {
+		spotlightId,
+		userId,
+		worldId: forum.worldId,
+		forumId: forum.id,
+		threadId: input.threadId ?? plan.threadId,
+		targetType: input.targetType,
+		targetIdsJson,
+		focusText,
+		now,
+	};
+	const settled = await Promise.allSettled([
+		...plan.pausedBotIds.map(async (botId): Promise<SpotlightDeliveryResult> => {
+			const result: SpotlightDeliveryResult = {
+				status: "not_injected",
+				botId,
+				cause: "paused",
+				message: "This participant is paused, so it cannot receive a spotlight.",
+			};
+			await recordSpotlightDelivery(db, { ...row, botId, injectedText: "", result });
+			return result;
+		}),
+		...plan.drafts.map((draft) => deliverSpotlightToBot(db, { row, draft, input, handlers })),
+	]);
+	for (const outcome of settled) {
+		if (outcome.status === "fulfilled") {
+			deliveries.set(outcome.value.botId, outcome.value);
+			continue;
 		}
+		// A unit rejecting is a defect rather than a delivery outcome, but it must
+		// not cost its siblings their results, and the participant it belongs to
+		// has to stay retryable rather than silently vanish from the response.
+		throw outcome.reason;
+	}
+	return {
+		spotlightId,
+		deliveries: botIds.flatMap((botId) => {
+			const delivery = deliveries.get(botId);
+			return delivery ? [delivery] : [];
+		}),
+	};
+}
+
+async function deliverSpotlightToBot(
+	db: D1DatabaseLike,
+	context: {
+		row: SpotlightDeliveryRowInput;
+		draft: SpotlightBotDraft;
+		input: SpotlightSendInput;
+		handlers: SpotlightDeliveryHandlers;
+	},
+): Promise<SpotlightDeliveryResult> {
+	const { row, draft, input, handlers } = context;
+	const botId = draft.bot.id;
+	const injected = await handlers.inject({ botId, text: draft.injectedText, spotlightId: row.spotlightId });
+	if (injected.kind === "failed") {
+		const result: SpotlightDeliveryResult = {
+			status: "not_injected",
+			botId,
+			cause: injected.cause,
+			message: injected.message,
+		};
+		await recordSpotlightDelivery(db, { ...row, botId, injectedText: draft.injectedText, result });
+		return result;
+	}
+
+	await markBotSeenContent(
+		db,
+		botId,
+		[
+			...[...new Set(draft.content.map((item) => item.threadId))].map((id) => ({ type: "thread" as const, id })),
+			...draft.content.map((item) => ({ type: item.type, id: item.id })),
+			...autoProfileSeenItems(draft.content),
+		],
+		"spotlight",
+		row.spotlightId,
+		row.now,
+	);
+
+	// The row is written before the visit starts, and written pessimistically:
+	// the visit runs in the background and looks this row up to attribute its
+	// owner notifications, and a crash between here and the outcome update has
+	// to leave a state that a retry redoes rather than one that reads as done.
+	const injectedTickFailed = (message: string): SpotlightDeliveryResult => ({
+		status: "injected_tick_failed",
+		botId,
+		injectionId: injected.injectionId,
+		message,
+	});
+	await recordSpotlightDelivery(db, {
+		...row,
+		botId,
+		injectedText: draft.injectedText,
+		result: injectedTickFailed("The spotlight was injected, but its visit was never confirmed."),
+	});
+
+	const tick = await handlers.startTick({
+		botId,
+		injectionId: injected.injectionId,
+		spotlightId: row.spotlightId,
+		deferred: input.autoStartTick === false,
+	});
+	const result = ((): SpotlightDeliveryResult => {
+		switch (tick.kind) {
+			case "started":
+				return { status: "tick_started", botId, injectionId: injected.injectionId };
+			case "pending":
+				return { status: "tick_pending", botId, injectionId: injected.injectionId, reason: tick.reason };
+			case "failed":
+				return injectedTickFailed(tick.message);
+			default:
+				return assertNeverSpotlightTickOutcome(tick);
+		}
+	})();
+	await recordSpotlightDelivery(db, { ...row, botId, injectedText: draft.injectedText, result });
+	return result;
+}
+
+function assertNeverSpotlightTickOutcome(outcome: never): never {
+	throw new Error(`Unhandled spotlight tick outcome: ${JSON.stringify(outcome)}`);
+}
+
+type SpotlightDeliveryRowInput = {
+	spotlightId: string;
+	userId: string;
+	worldId: string;
+	forumId: string;
+	threadId: string | null;
+	targetType: SpotlightTargetType;
+	targetIdsJson: string;
+	focusText: string | null;
+	now: string;
+};
+
+async function recordSpotlightDelivery(
+	db: D1DatabaseLike,
+	input: SpotlightDeliveryRowInput & { botId: string; injectedText: string; result: SpotlightDeliveryResult },
+): Promise<void> {
+	// Retention: one row per (spotlight, participant), swept with the owner's
+	// spotlight history by the notification retention job in `sweep.ts`. The
+	// upsert is what makes a replayed batch safe — the primary key is the
+	// idempotency key, so a retry after a lost response updates rather than
+	// collides.
+	try {
 		await db
 			.prepare(
 				`INSERT INTO spotlight_deliveries (
 					spotlight_id, user_id, bot_id, world_id, forum_id, thread_id, target_type,
 					target_ids_json, focus_text, injected_text, status, error_message, created_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT(spotlight_id, bot_id) DO UPDATE SET
+					injected_text = excluded.injected_text,
+					status = excluded.status,
+					error_message = excluded.error_message`,
 			)
 			.bind(
-				spotlightId,
-				userId,
-				draft.bot.id,
-				forum.worldId,
-				forum.id,
-				input.threadId ?? draft.content[0]?.threadId ?? null,
+				input.spotlightId,
+				input.userId,
+				input.botId,
+				input.worldId,
+				input.forumId,
+				input.threadId,
 				input.targetType,
-				JSON.stringify(input.targetType === "threads" ? input.threadIds ?? [] : input.commentIds ?? []),
-				trimmedFocus(input.focusText) ?? null,
-				draft.injectedText,
-				status,
-				errorMessage ?? null,
-				now,
+				input.targetIdsJson,
+				input.focusText,
+				input.injectedText,
+				input.result.status,
+				spotlightDeliveryErrorMessage(input.result),
+				input.now,
 			)
 			.run();
+	} catch (error) {
+		if (isD1UniqueConstraintError(error)) {
+			throw spotlightError(
+				"conflict",
+				"This spotlight is already being delivered to that participant.",
+				409,
+				"delivery_conflict",
+			);
+		}
+		throw error;
 	}
-	return {
-		preview: {
-			spotlightId,
-			targetType: input.targetType,
-			worldHandle: forum.worldHandle,
-			forumHandle: forum.handle,
-			...(input.threadId ? { threadId: input.threadId } : {}),
-			botPreviews: botDrafts.map(spotlightPreviewFromDraft),
-		},
-		deliveries,
-	};
+}
+
+function spotlightDeliveryErrorMessage(result: SpotlightDeliveryResult): string | null {
+	switch (result.status) {
+		case "not_injected":
+		case "injected_tick_failed":
+			return result.message;
+		case "tick_started":
+		case "tick_pending":
+		case "already_delivered":
+			return null;
+		default:
+			return assertNeverSpotlightDeliveryResult(result);
+	}
+}
+
+function assertNeverSpotlightDeliveryResult(result: never): never {
+	throw new Error(`Unhandled spotlight delivery result: ${JSON.stringify(result)}`);
+}
+
+/**
+ * Canonical identity of a spotlight's targets, so a continuation batch that
+ * repeats the same selection in a different order still matches its first
+ * batch.
+ */
+function spotlightTargetIds(input: SpotlightTargetInput): string[] {
+	return [...new Set(input.targetType === "threads" ? input.threadIds ?? [] : input.commentIds ?? [])].sort();
+}
+
+/**
+ * A continuation may only extend the run it names: same owner, same targets,
+ * same focus. Combined with an unguessable id this is what lets later batches
+ * carry the id in plain request bodies — the worst a mismatched continuation
+ * can do is be rejected.
+ *
+ * Returns the batch's participants that this spotlight already reached.
+ */
+async function assertSpotlightContinuation(
+	db: D1DatabaseLike,
+	input: {
+		spotlightId: string;
+		userId: string;
+		targetType: SpotlightTargetType;
+		targetIdsJson: string;
+		focusText: string | null;
+		botIds: string[];
+	},
+): Promise<Set<string>> {
+	const first = await db
+		.prepare(
+			`SELECT user_id AS userId, target_type AS targetType, target_ids_json AS targetIdsJson, focus_text AS focusText
+			 FROM spotlight_deliveries
+			 WHERE spotlight_id = ?
+			 LIMIT 1`,
+		)
+		.bind(input.spotlightId)
+		.first<{ userId: string; targetType: string; targetIdsJson: string; focusText: string | null }>();
+	const mismatched =
+		!first ||
+		first.userId !== input.userId ||
+		first.targetType !== input.targetType ||
+		first.targetIdsJson !== input.targetIdsJson ||
+		(first.focusText ?? null) !== input.focusText;
+	if (mismatched) {
+		throw spotlightError(
+			"conflict",
+			"This spotlight was started with a different selection. Start a new spotlight instead.",
+			409,
+			"continuation_mismatch",
+		);
+	}
+	const completed = await db
+		.prepare(
+			`SELECT bot_id AS botId
+			 FROM spotlight_deliveries
+			 WHERE spotlight_id = ?
+			   AND bot_id IN (${input.botIds.map(() => "?").join(", ")})
+			   AND status IN (${spotlightDeliveryCompletedStatuses.map(() => "?").join(", ")})`,
+		)
+		.bind(input.spotlightId, ...input.botIds, ...spotlightDeliveryCompletedStatuses)
+		.all<{ botId: string }>();
+	return new Set((completed.results ?? []).map((row) => row.botId));
+}
+
+const spotlightStaleReadRetryDelaysMs = [250, 500, 1000] as const;
+
+/**
+ * A spotlight is sent seconds after the content it points at was written, so
+ * the plan build can read a KV replica that has not caught up yet. Only the
+ * plan build is retried: it completes before anything is injected, so a retry
+ * can never deliver twice.
+ */
+async function withSpotlightStaleReadRetry<T>(run: () => Promise<T>): Promise<T> {
+	for (let attempt = 0; ; attempt += 1) {
+		try {
+			return await run();
+		} catch (error) {
+			const delay = spotlightStaleReadRetryDelaysMs[attempt];
+			if (delay === undefined || !(error instanceof RepositoryError) || !isSpotlightStaleReadCause(error.details?.spotlightCause)) {
+				throw error;
+			}
+			await sleepBeforeSpotlightRetry(delay);
+		}
+	}
+}
+
+async function sleepBeforeSpotlightRetry(milliseconds: number): Promise<void> {
+	const workerScheduler = (globalThis as typeof globalThis & {
+		scheduler?: { wait: (delay: number) => Promise<void> };
+	}).scheduler;
+	if (workerScheduler) {
+		await workerScheduler.wait(milliseconds);
+		return;
+	}
+	await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
 export async function ensureBootstrapNotification(
@@ -5927,11 +6241,6 @@ async function countNewCommentsForThreads(
 	return counts;
 }
 
-type SpotlightBotDraft = SpotlightBotPreview & {
-	content: SpotlightIncludedContent[];
-	injectedText: string;
-};
-
 type SpotlightContentDraft = {
 	content: SpotlightIncludedContent[];
 	excludedSeenCount: number;
@@ -5986,36 +6295,35 @@ async function seenSetsForBots(
 	return seenByBotId;
 }
 
-async function buildSpotlightBotPreviews(
+/**
+ * Resolve a batch into per-participant injection drafts.
+ *
+ * Ownership and world membership are batch-level authorization: getting them
+ * wrong means the request itself is illegitimate, so they reject the whole
+ * batch. A paused participant is not that — it is one participant's state, and
+ * it is reported per participant so its siblings still receive the spotlight.
+ */
+export async function buildSpotlightPlan(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	userId: string,
 	forum: ForumDocument,
-	input: SpotlightPreviewInput,
+	input: SpotlightTargetInput,
 	now: string,
-): Promise<SpotlightBotPreview[]> {
-	return (await buildSpotlightBotDrafts(kv, db, userId, forum, input, now)).map(spotlightPreviewFromDraft);
-}
-
-async function buildSpotlightBotDrafts(
-	kv: KVNamespaceLike,
-	db: D1DatabaseLike,
-	userId: string,
-	forum: ForumDocument,
-	input: SpotlightPreviewInput,
-	now: string,
-): Promise<SpotlightBotDraft[]> {
+): Promise<SpotlightPlan> {
 	const selectedBots = await ownedSpotlightBots(kv, db, userId, forum, input.botIds);
-	if (selectedBots.length === 0) {
-		throw repositoryError("bad_request", "Select at least one owned bot.", 400);
+	const eligibleBots = selectedBots.filter((bot) => bot.tickSettings.enabled);
+	const pausedBotIds = selectedBots.filter((bot) => !bot.tickSettings.enabled).map((bot) => bot.id);
+	if (eligibleBots.length === 0) {
+		return { drafts: [], pausedBotIds, threadId: null };
 	}
 	const threads = await spotlightThreads(kv, forum, input);
 	const plan = spotlightContentPlan(threads, input);
-	const seenByBotId = await seenSetsForBots(db, selectedBots.map((bot) => bot.id), plan.seenItems);
+	const seenByBotId = await seenSetsForBots(db, eligibleBots.map((bot) => bot.id), plan.seenItems);
 	const focus = trimmedFocus(input.focusText);
 
 	const drafts: SpotlightBotDraft[] = [];
-	for (const bot of selectedBots) {
+	for (const bot of eligibleBots) {
 		const seen = seenByBotId.get(bot.id) ?? new Set<string>();
 		const draft = spotlightContentForBot(plan, seen);
 		const content = await addAuthorShortBiosToContext(
@@ -6028,23 +6336,11 @@ async function buildSpotlightBotDrafts(
 		);
 		drafts.push({
 			bot,
-			included: {
-				threadCount: threads.length,
-				commentCount: content.filter((item) => item.type === "comment").length,
-				excludedSeenCount: draft.excludedSeenCount,
-			},
 			content,
 			injectedText: spotlightInjectedText(spotlightSyntheticContext(forum, input, threads, content, focus)),
 		});
 	}
-	return drafts;
-}
-
-function spotlightPreviewFromDraft(draft: SpotlightBotDraft): SpotlightBotPreview {
-	return {
-		bot: draft.bot,
-		included: draft.included,
-	};
+	return { drafts, pausedBotIds, threadId: threads[0]?.id ?? null };
 }
 
 async function ownedSpotlightBots(
@@ -6055,17 +6351,14 @@ async function ownedSpotlightBots(
 	botIds: string[],
 ): Promise<BotSummary[]> {
 	const uniqueBotIds = [...new Set(botIds)];
-	const owned = await listUserBots(kv, db, userId);
+	const owned = await listUserBotsByIds(kv, db, userId, uniqueBotIds);
 	const ownedById = new Map(owned.map((bot) => [bot.id, bot]));
 	const selected = uniqueBotIds.map((botId) => ownedById.get(botId)).filter((bot): bot is BotSummary => Boolean(bot));
 	if (selected.length !== uniqueBotIds.length) {
-		throw repositoryError("forbidden", "Spotlight can only target bots you own.", 403);
+		throw spotlightError("forbidden", "Spotlight can only target bots you own.", 403, "bot_not_owned");
 	}
 	if (selected.some((bot) => bot.homeWorldId !== forum.worldId)) {
-		throw repositoryError("forbidden", "Spotlight bots must be in the same world as the forum.", 403);
-	}
-	if (selected.some((bot) => !bot.tickSettings.enabled)) {
-		throw repositoryError("bad_request", "Spotlight can only target unpaused participants.", 400);
+		throw spotlightError("forbidden", "Spotlight bots must be in the same world as the forum.", 403, "bot_outside_world");
 	}
 	return selected;
 }
@@ -6157,14 +6450,14 @@ export async function buildNotificationForumContext(
 async function spotlightThreads(
 	kv: KVNamespaceLike,
 	forum: ForumDocument,
-	input: SpotlightPreviewInput,
+	input: SpotlightTargetInput,
 ): Promise<ThreadDocument[]> {
 	if (input.targetType === "threads") {
 		const ids = [...new Set(input.threadIds ?? [])];
 		if (ids.length === 0) {
-			throw repositoryError("bad_request", "Select at least one thread.", 400);
+			throw spotlightError("bad_request", "Select at least one thread.", 400, "no_threads_selected");
 		}
-		const threads = await Promise.all(ids.map((id) => readThread(kv, id)));
+		const threads = await Promise.all(ids.map((id) => readSpotlightThread(kv, id)));
 		for (const thread of threads) {
 			assertThreadInForum(thread, forum);
 		}
@@ -6172,30 +6465,46 @@ async function spotlightThreads(
 	}
 
 	if (!input.threadId) {
-		throw repositoryError("bad_request", "Comment spotlight requires a thread ID.", 400);
+		throw spotlightError("bad_request", "Comment spotlight requires a thread ID.", 400, "thread_id_required");
 	}
 	const commentIds = [...new Set(input.commentIds ?? [])];
 	if (commentIds.length === 0) {
-		throw repositoryError("bad_request", "Select at least one comment.", 400);
+		throw spotlightError("bad_request", "Select at least one comment.", 400, "no_comments_selected");
 	}
-	const thread = await readThread(kv, input.threadId);
+	const thread = await readSpotlightThread(kv, input.threadId);
 	assertThreadInForum(thread, forum);
 	const available = new Set(thread.comments.map((comment) => comment.id));
 	if (!commentIds.every((id) => available.has(id))) {
-		throw repositoryError("bad_request", "Selected comment was not found in this thread.", 400);
+		throw spotlightError("bad_request", "Selected comment was not found in this thread.", 400, "comment_not_found");
 	}
 	return [thread];
 }
 
+/**
+ * The three ways a spotlight target can be missing all carry a typed cause,
+ * because the send route retries exactly these — a spotlight is usually sent
+ * seconds after the content it points at was written.
+ */
+async function readSpotlightThread(kv: KVNamespaceLike, threadId: string): Promise<ThreadDocument> {
+	try {
+		return await readThread(kv, threadId);
+	} catch (error) {
+		if (error instanceof RepositoryError && error.code === "not_found") {
+			throw spotlightError("not_found", error.message, 404, "thread_not_found");
+		}
+		throw error;
+	}
+}
+
 function assertThreadInForum(thread: ThreadDocument, forum: ForumDocument): void {
 	if (thread.forumId !== forum.id) {
-		throw repositoryError("not_found", "Thread not found in this forum.", 404);
+		throw spotlightError("not_found", "Thread not found in this forum.", 404, "thread_outside_forum");
 	}
 }
 
 function spotlightContentPlan(
 	threads: ThreadDocument[],
-	input: SpotlightPreviewInput,
+	input: SpotlightTargetInput,
 ): SpotlightContentPlan {
 	const commentIdsByThreadId = new Map<string, string[]>();
 	const seenItems: SeenContentItem[] = [];
@@ -6450,7 +6759,7 @@ async function readThreadIfAvailable(
 
 function spotlightSyntheticContext(
 	forum: ForumDocument,
-	input: SpotlightPreviewInput,
+	input: SpotlightTargetInput,
 	threads: ThreadDocument[],
 	content: SpotlightIncludedContent[],
 	focus: string | undefined,
@@ -6676,4 +6985,14 @@ function repositoryError(
 	details?: RepositoryErrorDetails,
 ): RepositoryError {
 	return new RepositoryError(code, message, status, details);
+}
+
+/** A spotlight rejection, always carrying the typed cause its callers match on. */
+function spotlightError(
+	code: RepositoryError["code"],
+	message: string,
+	status: number,
+	cause: SpotlightErrorCause,
+): RepositoryError {
+	return new RepositoryError(code, message, status, { spotlightCause: cause });
 }

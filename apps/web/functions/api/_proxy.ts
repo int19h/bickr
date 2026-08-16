@@ -109,6 +109,21 @@ export function streamingServiceRequest(
 const serviceFetchTimeoutMs = 30_000;
 const serviceJsonBodyMaxBytes = 1_000_000;
 
+/**
+ * A service call that ran out its own budget. Typed so callers that treat a
+ * slow participant differently from a broken one — spotlight batches report it
+ * per participant — branch on the class rather than the message.
+ */
+export class ServiceRequestTimeoutError extends Error {
+	readonly timeoutMs: number;
+
+	constructor(timeoutMs: number) {
+		super(`Bickr service request did not finish within ${Math.round(timeoutMs / 1000)} seconds.`);
+		this.name = "ServiceRequestTimeoutError";
+		this.timeoutMs = timeoutMs;
+	}
+}
+
 export async function fetchServiceJson(
 	service: Fetcher,
 	request: Request,
@@ -125,7 +140,7 @@ export async function fetchServiceJson(
 		return { response, payload };
 	} catch (error) {
 		if (timedOut || isAbortError(error)) {
-			throw new Error(`Bickr service request did not finish within ${Math.round(serviceFetchTimeoutMs / 1000)} seconds.`);
+			throw new ServiceRequestTimeoutError(serviceFetchTimeoutMs);
 		}
 		throw error;
 	} finally {
