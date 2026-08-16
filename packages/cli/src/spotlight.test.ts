@@ -199,6 +199,17 @@ describe("spotlight target references", () => {
 		])).toThrow(expect.objectContaining({ problem: "mixed_types" }));
 	});
 
+	it("rejects an incomplete resolution wherever it appears in the list", () => {
+		expect(() => spotlightTargetFromRefs([
+			threadRef("t/abc", "/w/main/f/lounge/t/thr_1"),
+			threadRef("t/def", "/w/main/f/lounge"),
+		])).toThrow(expect.objectContaining({ problem: "unsupported_ref" }));
+		expect(() => spotlightTargetFromRefs([
+			commentRef("c/aa", "/w/main/f/lounge/t/thr_1/c/cmt_1", "cmt_1"),
+			{ ref: "c/bb", resolved: { path: "/w/main/f/lounge/t/thr_1", type: "comment" } },
+		])).toThrow(expect.objectContaining({ problem: "unsupported_ref" }));
+	});
+
 	it("rejects references that are not content", () => {
 		expect(() => spotlightTargetFromRefs([{ ref: "u/alice", resolved: { id: "bot_1", path: "/w/main/u/alice", type: "bot" } }]))
 			.toThrow(expect.objectContaining({ problem: "unsupported_ref" }));

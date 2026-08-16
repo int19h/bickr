@@ -78,13 +78,29 @@ export function spotlightTargetFromRefs(refs: { ref: string; resolved: ResolvedR
 			`Spotlight targets must be all threads or all comments, but ${mixed.ref} is a ${mixed.resolved.type} reference.`,
 		);
 	}
-	const parts = refs.map((entry) => ({ ref: entry.ref, parts: parseBickrPath(entry.resolved.path), id: entry.resolved.id }));
+	// Every resolution is checked, not just the one the rest are compared
+	// against: a later reference missing a part would otherwise pass an empty
+	// thread or comment id to the server as though the owner had asked for it.
+	const parts = refs.map((entry) => {
+		const parsed = parseBickrPath(entry.resolved.path);
+		const commentId = parsed.commentId ?? entry.resolved.id;
+		if (!parsed.worldHandle || !parsed.forumHandle || !parsed.threadId || (targetType === "comments" && !commentId)) {
+			throw new SpotlightTargetError("unsupported_ref", `Resolved spotlight reference was incomplete: ${entry.ref}`);
+		}
+		return {
+			ref: entry.ref,
+			worldHandle: parsed.worldHandle,
+			forumHandle: parsed.forumHandle,
+			threadId: parsed.threadId,
+			commentId,
+		};
+	});
 	const first = parts[0];
-	if (!first?.parts.worldHandle || !first.parts.forumHandle || !first.parts.threadId) {
-		throw new SpotlightTargetError("unsupported_ref", `Resolved spotlight reference was invalid: ${first?.ref ?? ""}`);
+	if (!first) {
+		throw new SpotlightTargetError("no_targets", "Spotlight requires at least one thread or comment reference.");
 	}
 	const foreign = parts.find((entry) =>
-		entry.parts.worldHandle !== first.parts.worldHandle || entry.parts.forumHandle !== first.parts.forumHandle);
+		entry.worldHandle !== first.worldHandle || entry.forumHandle !== first.forumHandle);
 	if (foreign) {
 		throw new SpotlightTargetError(
 			"mixed_forums",
@@ -92,25 +108,25 @@ export function spotlightTargetFromRefs(refs: { ref: string; resolved: ResolvedR
 		);
 	}
 	const target: SpotlightTarget = {
-		worldHandle: first.parts.worldHandle,
-		forumHandle: first.parts.forumHandle,
+		worldHandle: first.worldHandle,
+		forumHandle: first.forumHandle,
 		targetType,
 		threadIds: [],
 		commentIds: [],
 	};
 	if (targetType === "threads") {
-		target.threadIds = [...new Set(parts.map((entry) => entry.parts.threadId ?? ""))];
+		target.threadIds = [...new Set(parts.map((entry) => entry.threadId))];
 		return target;
 	}
-	const otherThread = parts.find((entry) => entry.parts.threadId !== first.parts.threadId);
+	const otherThread = parts.find((entry) => entry.threadId !== first.threadId);
 	if (otherThread) {
 		throw new SpotlightTargetError(
 			"mixed_threads",
 			`Spotlight comments must all be in one thread, but ${otherThread.ref} is in another.`,
 		);
 	}
-	target.threadId = first.parts.threadId;
-	target.commentIds = [...new Set(parts.map((entry) => entry.parts.commentId ?? entry.id ?? ""))];
+	target.threadId = first.threadId;
+	target.commentIds = [...new Set(parts.map((entry) => entry.commentId ?? ""))];
 	return target;
 }
 
@@ -145,6 +161,29 @@ export type SpotlightRunFailure = {
 export type SpotlightRunResult = {
 	spotlightId: string;
 	deliveries: SpotlightDeliveryResult[];
+	failure: SpotlightRunFailure | null;
+};
+
+/** A participant the run left out before sending, and why. */
+export type SpotlightSkippedParticipant = {
+	botId: string;
+	ref: string;
+	reason: "paused";
+};
+
+/**
+ * Everything one `spotlight send` did, as the single document the command
+ * writes to stdout.
+ *
+ * Every ending produces one — including the ones that send nothing, such as a
+ * selection whose participants are all paused. A caller reading `--json` should
+ * never have to tell "the run failed" apart from "the program died" by finding
+ * stdout empty.
+ */
+export type SpotlightDocument = {
+	spotlightId: string;
+	deliveries: SpotlightDeliveryResult[];
+	skipped: SpotlightSkippedParticipant[];
 	failure: SpotlightRunFailure | null;
 };
 

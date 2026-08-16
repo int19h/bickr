@@ -200,14 +200,17 @@ async function resolveGroup(
  * the owner naming a group after an identifier rather than a real collision.
  * Titles are compared case-insensitively but otherwise exactly, so two groups
  * sharing one title are reported as ambiguous instead of one being guessed.
+ *
+ * The folding is `toLowerCase`, not the locale-sensitive form: which groups a
+ * reference names must not depend on where the server happens to be running.
  */
 function matchGroups(groups: OwnedGroup[], groupRef: string): OwnedGroup[] {
 	const byId = groups.filter((group) => group.id === groupRef);
 	if (byId.length > 0) {
 		return byId;
 	}
-	const folded = groupRef.toLocaleLowerCase();
-	return groups.filter((group) => group.customTitle !== null && group.customTitle.trim().toLocaleLowerCase() === folded);
+	const folded = groupRef.toLowerCase();
+	return groups.filter((group) => group.customTitle !== null && group.customTitle.trim().toLowerCase() === folded);
 }
 
 type OwnedGroup = {

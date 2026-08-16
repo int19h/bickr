@@ -32,6 +32,21 @@ describe("CLI client request failures", () => {
 		expect((error as ApiError).message).toContain("0s");
 	});
 
+	it("holds the deadline over the body, not only the headers", async () => {
+		globalThis.fetch = ((_url: string, init: RequestInit) =>
+			Promise.resolve(new Response(
+				new ReadableStream({
+					start(controller) {
+						controller.enqueue(new TextEncoder().encode('{"ok":true,'));
+						init.signal?.addEventListener("abort", () => controller.error(new Error("This operation was aborted")));
+					},
+				}),
+				{ headers: { "content-type": "application/json" } },
+			))) as unknown as typeof fetch;
+		const error = await client().request("/session", { timeoutMs: 20 }).catch((caught: unknown) => caught) as ApiError;
+		expect(error.code).toBe("timeout");
+	});
+
 	it("reports a request the caller cancelled as aborted, not as a timeout", async () => {
 		neverAnswers();
 		const controller = new AbortController();

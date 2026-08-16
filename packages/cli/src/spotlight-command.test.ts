@@ -1,8 +1,6 @@
-import { spawn } from "node:child_process";
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SpotlightDeliveryResult } from "@bickr/shared/model";
+import { runCli, startStubApi, type StubApi } from "./test-harness.ts";
 
 /**
  * The spotlight command as a program: what it writes where, and what it exits
@@ -10,8 +8,6 @@ import type { SpotlightDeliveryResult } from "@bickr/shared/model";
  * test of the batching loop can see — `--json` promising one document on stdout
  * is only true if the progress really went to stderr.
  */
-
-const entry = join(import.meta.dirname, "index.ts");
 
 type SendCall = {
 	botIds: string[];
@@ -26,24 +22,20 @@ type SendCall = {
 
 type StubBot = { id: string; handle: string; enabled: boolean };
 
-type Stub = {
-	server: Server;
-	port: number;
+type Stub = StubApi & {
 	sends: SendCall[];
 	resolves: { targets: string[]; all: boolean }[];
 };
 
-let stub: Stub | null = null;
+let stub: StubApi | null = null;
 
 afterEach(async () => {
 	const running = stub;
 	stub = null;
-	if (running) {
-		await new Promise<void>((resolve) => running.server.close(() => resolve()));
-	}
+	await running?.close();
 });
 
-function startStub(input: {
+async function startStub(input: {
 	bots: StubBot[];
 	refType?: "thread" | "comment" | "bot";
 	refPath?: (ref: string) => string;
@@ -51,19 +43,11 @@ function startStub(input: {
 }): Promise<Stub> {
 	const sends: SendCall[] = [];
 	const resolves: { targets: string[]; all: boolean }[] = [];
-	const server = createServer((request: IncomingMessage, response: ServerResponse) => {
-		const url = new URL(request.url ?? "/", "http://127.0.0.1");
-		const chunks: Buffer[] = [];
-		request.on("data", (chunk: Buffer) => chunks.push(chunk));
-		request.on("end", () => {
-			const body = chunks.length > 0 ? JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown> : {};
-			const json = (status: number, payload: unknown) => {
-				response.writeHead(status, { "content-type": "application/json" });
-				response.end(JSON.stringify(payload));
-			};
-			if (url.pathname === "/api/cli/refs") {
-				const ref = url.searchParams.get("ref") ?? "";
-				json(200, {
+	const api = await startStubApi((request) => {
+		if (request.pathname === "/api/cli/refs") {
+			const ref = request.searchParams.get("ref") ?? "";
+			return {
+				body: {
 					ok: true,
 					data: {
 						ref: {
@@ -72,12 +56,13 @@ function startStub(input: {
 							type: input.refType ?? "thread",
 						},
 					},
-				});
-				return;
-			}
-			if (url.pathname === "/api/cli/resolve/bots") {
-				resolves.push({ targets: body.targets as string[], all: body.all === true });
-				json(200, {
+				},
+			};
+		}
+		if (request.pathname === "/api/cli/resolve/bots") {
+			resolves.push({ targets: request.body.targets as string[], all: request.body.all === true });
+			return {
+				body: {
 					ok: true,
 					data: {
 						bots: input.bots.map((bot) => ({
@@ -87,53 +72,23 @@ function startStub(input: {
 							tickSettings: { enabled: bot.enabled },
 						})),
 					},
-				});
-				return;
-			}
-			if (url.pathname === "/api/worlds/main/forums/lounge/spotlight/send") {
-				const call = body as unknown as SendCall;
-				sends.push(call);
-				const answer = input.deliver ?
-					input.deliver(call)
-				:	call.botIds.map((botId): SpotlightDeliveryResult => ({ status: "tick_started", botId, injectionId: `inj_${botId}` }));
-				if (Array.isArray(answer)) {
-					json(200, { ok: true, data: { spotlightId: call.spotlightId, deliveries: answer } });
-					return;
-				}
-				json(answer.status, answer.body);
-				return;
-			}
-			json(404, { ok: false, error: "not_found", message: `No stub for ${url.pathname}` });
-		});
+				},
+			};
+		}
+		if (request.pathname === "/api/worlds/main/forums/lounge/spotlight/send") {
+			const call = request.body as unknown as SendCall;
+			sends.push(call);
+			const answer = input.deliver ?
+				input.deliver(call)
+			:	call.botIds.map((botId): SpotlightDeliveryResult => ({ status: "tick_started", botId, injectionId: `inj_${botId}` }));
+			return Array.isArray(answer) ?
+				{ body: { ok: true, data: { spotlightId: call.spotlightId, deliveries: answer } } }
+			:	{ status: answer.status, body: answer.body };
+		}
+		return undefined;
 	});
-	return new Promise((resolve) => {
-		server.listen(0, "127.0.0.1", () => {
-			const address = server.address();
-			const port = typeof address === "object" && address ? address.port : 0;
-			stub = { server, port, sends, resolves };
-			resolve(stub);
-		});
-	});
-}
-
-function runCli(port: number, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-	return new Promise((resolve, reject) => {
-		const child = spawn(process.execPath, ["--experimental-strip-types", entry, ...args], {
-			env: {
-				...process.env,
-				BICKR_HOST: `http://127.0.0.1:${port}`,
-				BICKR_TOKEN: "test-token",
-				// Never read or write the developer's own CLI configuration.
-				BICKR_CONFIG: join(import.meta.dirname, "no-such-cli-config.json"),
-			},
-		});
-		let stdout = "";
-		let stderr = "";
-		child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
-		child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
-		child.on("error", reject);
-		child.on("close", (code) => resolve({ code: code ?? 0, stdout, stderr }));
-	});
+	stub = api;
+	return { ...api, sends, resolves };
 }
 
 describe("bickr spotlight send", () => {
@@ -202,6 +157,54 @@ describe("bickr spotlight send", () => {
 		expect(result.stderr).toContain("The runtime refused it.");
 	}, 30_000);
 
+	it("still writes the document when every matched participant is paused", async () => {
+		const running = await startStub({
+			bots: [
+				{ id: "bot_1", handle: "resting", enabled: false },
+				{ id: "bot_2", handle: "dozing", enabled: false },
+			],
+		});
+		const result = await runCli(running.port, ["spotlight", "send", "t/abc", "--all", "--json"]);
+
+		expect(result.code).toBe(1);
+		expect(running.sends).toEqual([]);
+		const document = JSON.parse(result.stdout) as {
+			spotlightId: string;
+			deliveries: unknown[];
+			skipped: { ref: string }[];
+			failure: { code: string };
+		};
+		expect(document.spotlightId).toMatch(/^spt_[0-9a-f-]{36}$/);
+		expect(document.deliveries).toEqual([]);
+		expect(document.skipped.map((participant) => participant.ref)).toEqual(["w/main/u/resting", "w/main/u/dozing"]);
+		expect(document.failure.code).toBe("all_participants_paused");
+	}, 30_000);
+
+	it("reports an all-paused selection to a human on stdout, with the participants it skipped", async () => {
+		const running = await startStub({ bots: [{ id: "bot_1", handle: "resting", enabled: false }] });
+		const result = await runCli(running.port, ["spotlight", "send", "t/abc", "--all", "--format", "human"]);
+
+		expect(result.code).toBe(1);
+		expect(result.stdout).toContain("nothing sent");
+		expect(result.stdout).toContain("Every participant matched by the spotlight targets is paused.");
+		expect(result.stdout).toContain("w/main/u/resting");
+	}, 30_000);
+
+	it("still writes the document when the targets match no participant at all", async () => {
+		const running = await startStub({ bots: [] });
+		const jsonResult = await runCli(running.port, ["spotlight", "send", "t/abc", "--to", "w/main/g/empty", "--json"]);
+
+		expect(jsonResult.code).toBe(1);
+		expect(running.sends).toEqual([]);
+		const document = JSON.parse(jsonResult.stdout) as { deliveries: unknown[]; skipped: unknown[]; failure: { code: string } };
+		expect(document).toMatchObject({ deliveries: [], skipped: [] });
+		expect(document.failure.code).toBe("no_participants_matched");
+
+		const humanResult = await runCli(running.port, ["spotlight", "send", "t/abc", "--to", "w/main/g/empty", "--format", "human"]);
+		expect(humanResult.code).toBe(1);
+		expect(humanResult.stdout).toContain("No participants matched the spotlight targets.");
+	}, 30_000);
+
 	it("stops on a refused batch and names the run id to retry it with", async () => {
 		const running = await startStub({
 			bots: [
@@ -260,6 +263,22 @@ describe("bickr spotlight send", () => {
 		expect(result.code).toBe(1);
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain("one thread");
+		expect(running.sends).toEqual([]);
+	}, 30_000);
+
+	it("refuses a batch size or timeout outside the range it documents", async () => {
+		const running = await startStub({ bots: [{ id: "bot_1", handle: "alpha", enabled: true }] });
+
+		const tooLarge = await runCli(running.port, ["spotlight", "send", "t/abc", "--all", "--batch-size", "9"]);
+		expect(tooLarge.code).toBe(1);
+		expect(tooLarge.stderr).toContain("--batch-size must be an integer between 1 and 8.");
+
+		const tooShort = await runCli(running.port, ["spotlight", "send", "t/abc", "--all", "--timeout", "4"]);
+		expect(tooShort.code).toBe(1);
+		expect(tooShort.stderr).toContain("--timeout must be an integer between 5 and 300.");
+
+		const fractional = await runCli(running.port, ["spotlight", "send", "t/abc", "--all", "--batch-size", "2.5"]);
+		expect(fractional.code).toBe(1);
 		expect(running.sends).toEqual([]);
 	}, 30_000);
 

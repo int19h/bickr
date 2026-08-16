@@ -31,7 +31,9 @@ import {
 	defaultSpotlightTimeoutMs,
 	sendSpotlightInBatches,
 	spotlightTargetFromRefs,
-	type SpotlightRunResult,
+	type SpotlightDocument,
+	type SpotlightRunFailure,
+	type SpotlightSkippedParticipant,
 } from "./spotlight.ts";
 
 type CommandContext = {
@@ -661,19 +663,27 @@ async function spotlightCommand(ctx: CommandContext, args: string[]): Promise<vo
 	// Paused participants never read an injection, so they are dropped here with
 	// a notice rather than sent and reported back as failures — the same
 	// eligibility the panel applies to its list.
-	const skipped = selected.filter((bot) => !bot.tickSettings.enabled);
 	const eligible = selected.filter((bot) => bot.tickSettings.enabled);
-	for (const bot of skipped) {
-		process.stderr.write(`Skipping ${botRefText(bot)}: paused participants cannot receive a spotlight.\n`);
-	}
-	if (eligible.length === 0) {
-		throw new Error(
-			selected.length === 0 ?
-				"No participants matched the spotlight targets."
-			:	"Every participant matched by the spotlight targets is paused.",
-		);
+	const skipped: SpotlightSkippedParticipant[] = selected
+		.filter((bot) => !bot.tickSettings.enabled)
+		.map((bot) => ({ botId: bot.id, ref: botRefText(bot), reason: "paused" }));
+	for (const participant of skipped) {
+		process.stderr.write(`Skipping ${participant.ref}: paused participants cannot receive a spotlight.\n`);
 	}
 	const spotlightId = spotlightRunId(options.flags);
+	if (eligible.length === 0) {
+		// Still an outcome of this run, not a crash: the document is written the
+		// same way it would be for a delivery that failed, so `--json` never has
+		// to be told apart from a program that died before printing.
+		printSpotlight(ctx, {
+			spotlightId,
+			deliveries: [],
+			skipped,
+			failure: emptySelectionFailure(selected.length === 0),
+		}, 0, new Map());
+		process.exitCode = 1;
+		return;
+	}
 	const batchSize = integerFlagInRange(options.flags, "batch-size", 1, maxSpotlightSendBots) ?? maxSpotlightSendBots;
 	const timeoutSeconds = integerFlagInRange(options.flags, "timeout", 5, 300);
 	const handleById = new Map(eligible.map((bot) => [bot.id, botRefText(bot)]));
@@ -715,16 +725,25 @@ async function spotlightCommand(ctx: CommandContext, args: string[]): Promise<vo
 			`${owed} participant${owed === 1 ? "" : "s"} still owed this spotlight. Rerun the same command with --spotlight-id ${spotlightId}; participants already reached are skipped.\n`,
 		);
 	}
-	const document = {
-		spotlightId: result.spotlightId,
-		deliveries: result.deliveries,
-		skipped: skipped.map((bot) => ({ botId: bot.id, ref: botRefText(bot), reason: "paused" as const })),
-		failure: result.failure,
-	};
-	printValue(ctx.output, document, () => renderSpotlight(result, eligible.length, handleById));
+	printSpotlight(ctx, { ...result, skipped }, eligible.length, handleById);
 	if (owed > 0) {
 		process.exitCode = 1;
 	}
+}
+
+/**
+ * Why a run had nobody to send to. Both endings are ordinary — an owner may
+ * name a group whose members are all resting — so they are typed causes in the
+ * document rather than an exception.
+ */
+function emptySelectionFailure(nothingMatched: boolean): SpotlightRunFailure {
+	return nothingMatched ?
+		{ code: "no_participants_matched", message: "No participants matched the spotlight targets.", botIds: [] }
+	:	{
+			code: "all_participants_paused",
+			message: "Every participant matched by the spotlight targets is paused.",
+			botIds: [],
+		};
 }
 
 function spotlightRunId(flags: Map<string, string | boolean | string[]>): string {
@@ -740,26 +759,39 @@ function spotlightRunId(flags: Map<string, string | boolean | string[]>): string
 	return given;
 }
 
-function spotlightDeliveredCount(result: SpotlightRunResult): number {
-	return result.deliveries.filter(spotlightDeliverySucceeded).length;
+function spotlightDeliveredCount(document: { deliveries: SpotlightDeliveryResult[] }): number {
+	return document.deliveries.filter(spotlightDeliverySucceeded).length;
 }
 
-function renderSpotlight(result: SpotlightRunResult, total: number, refById: Map<string, string>): string {
-	const delivered = spotlightDeliveredCount(result);
-	const rows = result.deliveries.map((delivery: SpotlightDeliveryResult) => ({
+function printSpotlight(ctx: CommandContext, document: SpotlightDocument, total: number, refById: Map<string, string>): void {
+	printValue(ctx.output, document, () => renderSpotlight(document, total, refById));
+}
+
+function renderSpotlight(document: SpotlightDocument, total: number, refById: Map<string, string>): string {
+	const delivered = spotlightDeliveredCount(document);
+	const rows = document.deliveries.map((delivery: SpotlightDeliveryResult) => ({
 		ref: refById.get(delivery.botId) ?? delivery.botId,
 		status: delivery.status,
 		message: spotlightDeliveryFailureMessage(delivery) ?? "",
 	}));
 	const header =
-		delivered === total ?
-			`Spotlight ${result.spotlightId}: ${delivered} delivered.`
-		:	`Spotlight ${result.spotlightId}: ${delivered} of ${total} delivered, ${total - delivered} still owed.`;
-	return `${header}\n${table(rows, [
-		{ key: "ref", header: "Participant", value: (row) => row.ref },
-		{ key: "status", header: "Status", value: (row) => row.status },
-		{ key: "message", header: "Detail", value: (row) => row.message },
-	])}`;
+		total === 0 ? `Spotlight ${document.spotlightId}: nothing sent. ${document.failure?.message ?? ""}`.trim()
+		: delivered === total ? `Spotlight ${document.spotlightId}: ${delivered} delivered.`
+		: `Spotlight ${document.spotlightId}: ${delivered} of ${total} delivered, ${total - delivered} still owed.`;
+	const skipped =
+		document.skipped.length === 0 ? ""
+		:	`\n\nSkipped\n${table(document.skipped, [
+				{ key: "ref", header: "Participant", value: (row) => row.ref },
+				{ key: "reason", header: "Reason", value: (row) => row.reason },
+			])}`;
+	const deliveries =
+		total === 0 ? ""
+		:	`\n${table(rows, [
+				{ key: "ref", header: "Participant", value: (row) => row.ref },
+				{ key: "status", header: "Status", value: (row) => row.status },
+				{ key: "message", header: "Detail", value: (row) => row.message },
+			])}`;
+	return `${header}${deliveries}${skipped}`;
 }
 
 async function exportCommand(ctx: CommandContext, args: string[]): Promise<void> {
