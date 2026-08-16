@@ -1,13 +1,13 @@
 import type { BotSummary, ChirperImportPreview } from "@bickr/shared/model";
 import { maxBotPromptLength } from "@bickr/shared/validation";
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api";
 import { LanguageField, textLang } from "../../components/form-fields";
 import { matchesFilter, sortBotsForCards } from "../../components/record-display";
 import { Reference, TranslatableText, type WorldView } from "../../components/content";
 import { languageDraftValue } from "../../components/ui-text";
 import { defaultLanguageTag } from "../../language";
-import { Avatar, Field, Icon, Modal, ToastContext, textValue } from "../../ui";
+import { Avatar, Field, Icon, Modal, textValue } from "../../ui";
 import { runApiAction } from "../../use-api";
 import {
 	botDraftFromExistingBot,
@@ -46,7 +46,6 @@ export function CreateBotModal({
 	const [importState, setImportState] = useState<ImportState>("idle");
 	const [importError, setImportError] = useState("");
 		const [importDraft, setImportDraft] = useState<BotDraft>(() => emptyBotDraftForLanguage(world?.language));
-	const toast = useContext(ToastContext);
 	const cloneSources = useMemo(
 		() =>
 			world ?
@@ -130,11 +129,6 @@ export function CreateBotModal({
 	async function submitDraft(draft: BotDraft): Promise<void> {
 		const ok = await onCreate({ ...draft, handle: slugify(draft.handle) });
 		if (ok) {
-			toast.push(
-				<>
-					Created <Reference isBot kind="bot" name={draft.handle} />
-				</>,
-			);
 			onClose();
 		}
 	}

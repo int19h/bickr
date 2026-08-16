@@ -193,6 +193,7 @@ export function SpotlightPanel({
 			autoStartTick ?
 				`Spotlight sent to ${delivered} bot${delivered === 1 ? "" : "s"}.`
 			:	`Spotlight queued for ${delivered} bot${delivered === 1 ? "" : "s"}.`,
+			"success",
 		);
 		onClear();
 	}

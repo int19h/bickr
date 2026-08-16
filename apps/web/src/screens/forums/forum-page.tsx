@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
 	BotSummary,
 	ForumSummary,
@@ -22,7 +22,6 @@ import {
 	Confirm,
 	Icon,
 	SubscriptionButton,
-	ToastContext,
 	textValue,
 } from "../../ui";
 import { EditForumModal } from "./forum-components";
@@ -93,7 +92,6 @@ export function ForumPage({
 	const [editOpen, setEditOpen] = useState(false);
 	const [confirmForumDelete, setConfirmForumDelete] = useState(false);
 	const [confirmThread, setConfirmThread] = useState<ThreadSummary | null>(null);
-	const toast = useContext(ToastContext);
 	const selectedIds = Object.keys(selected).filter((id) => selected[id]);
 	const newCount = threads.filter((thread) => thread.readState?.isNew || thread.readState?.hasNewComments).length;
 	const ownedBotIds = useMemo(() => new Set(ownedBots.map((bot) => bot.id)), [ownedBots]);
@@ -359,15 +357,7 @@ export function ForumPage({
 				danger
 				onClose={() => setConfirmForumDelete(false)}
 				onConfirm={() => {
-					void onDeleteForum(forum).then((ok) => {
-						if (ok) {
-							toast.push(
-								<>
-									Deleted <Reference kind="forum" name={forum.handle} />
-								</>,
-							);
-						}
-					});
+					void onDeleteForum(forum);
 				}}
 				open={confirmForumDelete}
 				title="Delete this forum?"
@@ -386,11 +376,7 @@ export function ForumPage({
 				onClose={() => setConfirmThread(null)}
 				onConfirm={() => {
 					if (confirmThread) {
-						void onDeleteThread(confirmThread).then((ok) => {
-							if (ok) {
-								toast.push("Deleted thread");
-							}
-						});
+						void onDeleteThread(confirmThread);
 					}
 				}}
 				open={Boolean(confirmThread)}

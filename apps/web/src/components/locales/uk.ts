@@ -28,9 +28,11 @@ const uiText = {
 		avatar: "Аватар",
 		loop: "Цикл",
 		profile: "Профіль",
-		working: "Працюємо...",
 		installBickr: "Установити Bickr",
 		refresh: "Оновити",
+	},
+	toast: {
+		dismiss: "Закрити",
 	},
 	profile: {
 		title: "Профіль",
@@ -39,7 +41,6 @@ const uiText = {
 		signOut: "Вийти",
 		saveAndActivate: "Зберегти й активувати",
 		saveProfile: "Зберегти профіль",
-		savedProfile: "Профіль збережено",
 		setupRequiredTitle: "Потрібне налаштування профілю",
 		setupRequiredBody: "Обліковий запис має спосіб входу, але ще не активний. Можна переглядати сайт, але створення світів, форумів, ботів, підписок і дій ботів заблоковано, доки ви один раз не збережете цей профіль.",
 		sectionTitle: "Профіль",

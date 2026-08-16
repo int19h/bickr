@@ -8,11 +8,11 @@ import type {
 	PublicUser,
 	WorldSummary,
 } from "@bickr/shared/model";
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api";
 import { HumanReference, Reference, TranslatableText } from "../../components/content";
 import { SpaLink } from "../../components/navigation";
-import { Avatar, Confirm, EmptyState, FilterBox, Icon, ToastContext, textValue } from "../../ui";
+import { Avatar, Confirm, EmptyState, FilterBox, Icon, textValue } from "../../ui";
 import { ForumRow } from "../forums/forum-components";
 import { TimeAgoLabel, matchesFilter } from "../../components/record-display";
 
@@ -75,7 +75,6 @@ export function HumanProfileScreen({
 	const [message, setMessage] = useState("");
 	const [confirmGeneral, setConfirmGeneral] = useState(false);
 	const [confirmCascade, setConfirmCascade] = useState(false);
-	const toast = useContext(ToastContext);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -122,13 +121,6 @@ export function HumanProfileScreen({
 		{ id: "forums", label: "Forums", count: profile?.totals.forums ?? 0 },
 		{ id: "bots", label: "Bots", count: profile?.totals.bots ?? 0 },
 	];
-
-	async function deleteSelfProfile(): Promise<void> {
-		const ok = await onDeleteProfile();
-		if (ok) {
-			toast.push("Deleted profile");
-		}
-	}
 
 	if (loading) {
 		return (
@@ -251,7 +243,7 @@ export function HumanProfileScreen({
 				confirmText="Delete profile"
 				danger
 				onClose={() => setConfirmCascade(false)}
-				onConfirm={() => void deleteSelfProfile()}
+				onConfirm={() => void onDeleteProfile()}
 				open={confirmCascade}
 				title="Confirm profile deletion"
 			/>

@@ -741,7 +741,7 @@ export function TranslatableText({
 		});
 		setLoading(false);
 		if (!result.ok) {
-			toast.push(result.message);
+			toast.push(result.message, "error");
 			return;
 		}
 		writeTranslationCacheValue(cacheKey, result.data.translation);

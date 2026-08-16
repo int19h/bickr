@@ -131,8 +131,10 @@ import {
 	Avatar,
 	EmptyState,
 	PermissionState,
-	ToastProvider,
+	ToastContext,
+	ToastStack,
 	hash,
+	useToasts,
 } from "./ui";
 import { runApiAction } from "./use-api";
 
@@ -199,6 +201,14 @@ type SessionState = {
 	user: PublicUser | null;
 };
 
+/**
+ * The boot screen is the only place status text still renders: everything the
+ * app has to say after boot goes to a toast. Init failures are reported as an
+ * error toast because `refreshAll` always finishes initialization, so the boot
+ * screen is already gone by the time the failure is known.
+ */
+const bootStatusText = "Loading local data...";
+
 function App() {
 	const initialRoute = useMemo(() => parseBrowserRoute(), []);
 	const [initializing, setInitializing] = useState(true);
@@ -228,8 +238,8 @@ function App() {
 	const [activeSearch, setActiveSearch] = useState<SearchRouteState>(initialRoute.search ?? defaultSearchRouteState);
 	const [activeWorldTab, setActiveWorldTab] = useState<WorldTab>(initialRoute.worldTab ?? "forums");
 	const [createBotWorldHandle, setCreateBotWorldHandle] = useState<string | null>(null);
-	const [status, setStatus] = useState("Loading local data...");
 	const [busy, setBusy] = useState(false);
+	const [refreshing, setRefreshing] = useState(false);
 	const [threadsLoading, setThreadsLoading] = useState(false);
 	const [threadLoading, setThreadLoading] = useState(false);
 	const [themePreference, setThemePreference] = useState<ThemePreference>(() => readThemePreference());
@@ -250,6 +260,13 @@ function App() {
 	const [standaloneDisplay, setStandaloneDisplay] = useState(() => isStandaloneDisplayMode());
 	const dismissingHumanNotificationRequests = useRef(new Map<string, Promise<boolean>>());
 	const pendingFreshThreadIds = useRef(new Set<string>());
+	const { dismiss: dismissToast, handle: toastHandle, toasts } = useToasts();
+	const pushToast = toastHandle.push;
+
+	/** Every former `setStatus` failure path reports here; nothing fails silently. */
+	function reportError(message: string): void {
+		pushToast(message, "error");
+	}
 
 	useEffect(() => {
 		void refreshAll();
@@ -377,7 +394,7 @@ function App() {
 			return;
 		}
 		if (normalized.status) {
-			setStatus(normalized.status);
+			pushToast(normalized.status);
 		}
 		navigate(normalized.route, true);
 	}, [
@@ -393,6 +410,7 @@ function App() {
 		activeWorldTab,
 		initializing,
 		isAuthenticated,
+		pushToast,
 		route,
 	]);
 
@@ -632,7 +650,7 @@ function App() {
 
 	async function openContentRef(type: ContentRefType, id: string, options: OpenContentRefOptions = {}): Promise<void> {
 		const result = await runApiAction(
-			setStatus,
+			reportError,
 			() => api<{ path: string }>(`/api/content-refs/${type}/${encodeURIComponent(id)}`),
 		);
 		if (!result) {
@@ -643,16 +661,14 @@ function App() {
 			navigate(parsed, options.replace ?? false);
 			return;
 		}
-		setStatus("Content link resolved to an unsupported route.");
+		reportError("Content link resolved to an unsupported route.");
 	}
 
 	useEffect(() => {
 		if (route === "comment-ref" && activeCommentId) {
-			setStatus("Opening link...");
 			void openContentRef("comment", activeCommentId, { replace: true });
 		}
 		if (route === "thread-ref" && activeThreadId) {
-			setStatus("Opening link...");
 			void openContentRef("thread", activeThreadId, { replace: true });
 		}
 	}, [route, activeCommentId, activeThreadId]);
@@ -695,16 +711,15 @@ function App() {
 	}
 
 	async function refreshCurrentRoute(): Promise<void> {
+		setRefreshing(true);
 		setBusy(true);
 		try {
 			if (route === "thread" && activeForum && activeThreadId) {
 				await loadThread(activeForum, activeThreadId, { fresh: true });
-				setStatus("Thread refreshed");
 				return;
 			}
 			if (route === "forum" && activeForum) {
 				await loadThreads(activeForum);
-				setStatus("Forum refreshed");
 				return;
 			}
 			if (
@@ -720,31 +735,33 @@ function App() {
 				activeWorld
 			) {
 				await Promise.all([loadForums(activeWorld.handle), loadWorldBots(activeWorld.handle)]);
-				setStatus("World refreshed");
 				return;
 			}
 			if (route === "my-bots") {
 				await loadBots();
-				setStatus("Bots refreshed");
 				return;
 			}
 			if (route === "notifications") {
 				await loadHumanNotifications("all");
-				setStatus("Notifications refreshed");
 				return;
 			}
 			if (route === "subscriptions") {
 				await loadSubscriptionTree();
-				setStatus("Subscriptions refreshed");
 				return;
 			}
 			await refreshAll();
+		} catch (error) {
+			// `loadBots` throws rather than reporting, so without this a failed
+			// my-bots refresh was an unhandled rejection and the user saw nothing.
+			reportError(error instanceof Error ? error.message : "Refresh failed.");
 		} finally {
+			setRefreshing(false);
 			setBusy(false);
 		}
 	}
 
 	async function refreshAll(): Promise<void> {
+		setRefreshing(true);
 		setBusy(true);
 		try {
 			const [sessionResult, worldsResult] = await Promise.all([
@@ -784,10 +801,10 @@ function App() {
 			} else {
 				setBots([]);
 			}
-			setStatus("Ready");
 		} catch (error) {
-			setStatus(error instanceof Error ? error.message : "Failed to load app data.");
+			reportError(error instanceof Error ? error.message : "Failed to load app data.");
 		} finally {
+			setRefreshing(false);
 			setBusy(false);
 			setInitializing(false);
 		}
@@ -798,7 +815,7 @@ function App() {
 			`/api/worlds/${encodeURIComponent(worldHandle)}/forums`,
 		);
 		if (!result.ok) {
-			setStatus(result.message);
+			reportError(result.message);
 			return [];
 		}
 		setForumsByWorld((current) => ({ ...current, [worldHandle]: result.data.forums }));
@@ -815,7 +832,7 @@ function App() {
 			`/api/worlds/${encodeURIComponent(worldHandle)}/bots`,
 		);
 		if (!result.ok) {
-			setStatus(result.message);
+			reportError(result.message);
 			return [];
 		}
 		setBotsByWorld((current) => ({ ...current, [worldHandle]: result.data.bots }));
@@ -833,7 +850,7 @@ function App() {
 		);
 		if (!result.ok) {
 			if (result.error !== "unauthorized" && result.error !== "forbidden") {
-				setStatus(result.message);
+				reportError(result.message);
 			}
 			setBotGroupsByWorld((current) => ({ ...current, [worldHandle]: [] }));
 			return [];
@@ -849,7 +866,7 @@ function App() {
 		);
 		setThreadsLoading(false);
 		if (!result.ok) {
-			setStatus(result.message);
+			reportError(result.message);
 			return [];
 		}
 		setThreadsByForum((current) => ({ ...current, [forum.id]: result.data.threads }));
@@ -871,7 +888,7 @@ function App() {
 		);
 		setThreadLoading(false);
 		if (!result.ok) {
-			setStatus(result.message);
+			reportError(result.message);
 			return null;
 		}
 		setThreadDocuments((current) => ({ ...current, [result.data.thread.id]: result.data.thread }));
@@ -904,7 +921,7 @@ function App() {
 			setUserProfile(null);
 			return null;
 		}
-		setStatus(result.message);
+		reportError(result.message);
 		return null;
 	}
 
@@ -929,7 +946,7 @@ function App() {
 		if (result.ok) {
 			return result.data;
 		}
-		setStatus(result.message);
+		reportError(result.message);
 		return null;
 	}
 
@@ -960,7 +977,7 @@ function App() {
 			setSubscriptions(result.data.subscriptions);
 			return result.data;
 		}
-		setStatus(result.message);
+		reportError(result.message);
 		return null;
 	}
 
@@ -1003,7 +1020,7 @@ function App() {
 		});
 		if (!result.ok) {
 			setSubscriptions(previous);
-			setStatus(result.message);
+			reportError(result.message);
 			return;
 		}
 		if (active && result.data.subscription) {
@@ -1024,7 +1041,7 @@ function App() {
 		notification: HumanNotification,
 		options: { removeUnread?: boolean } = { removeUnread: true },
 	): Promise<string | null> {
-		const result = await runApiAction(setStatus, () => api(`/api/me/notifications/${encodeURIComponent(notification.id)}`, {
+		const result = await runApiAction(reportError, () => api(`/api/me/notifications/${encodeURIComponent(notification.id)}`, {
 			method: "PATCH",
 			body: { read: true },
 		}));
@@ -1053,7 +1070,7 @@ function App() {
 			return existing;
 		}
 		const request = (async () => {
-			const result = await runApiAction(setStatus, () => api(`/api/me/notifications/${encodeURIComponent(notification.id)}`, {
+			const result = await runApiAction(reportError, () => api(`/api/me/notifications/${encodeURIComponent(notification.id)}`, {
 				method: "PATCH",
 				body: { archived: true },
 			}));
@@ -1088,7 +1105,7 @@ function App() {
 		if (!profileReadyFor("managing notifications")) {
 			return null;
 		}
-		const result = await runApiAction(setStatus, () => api<{ readAll: true; readCount: number }>("/api/me/notifications/read-all", {
+		const result = await runApiAction(reportError, () => api<{ readAll: true; readCount: number }>("/api/me/notifications/read-all", {
 			method: "POST",
 			body: scope,
 		}));
@@ -1132,21 +1149,24 @@ function App() {
 		if (!profileReadyFor("running bot actions")) {
 			return;
 		}
-		setStatus(`Starting tick for u/${bot.handle}...`);
 		const result = await startBotTick(bot);
 		if (result.status === "started") {
-			setStatus(`Started tick for u/${bot.handle}.`);
+			pushToast(`Started tick for u/${bot.handle}.`, "success");
 			return;
 		}
 		if (result.status === "already_running") {
-			setStatus(`u/${bot.handle} already has a tick running.`);
+			pushToast(`u/${bot.handle} already has a tick running.`);
 			return;
 		}
 		if (result.status === "paused") {
-			setStatus(`u/${bot.handle} is paused. Unpause it before starting a loop run.`);
+			pushToast(`u/${bot.handle} is paused. Unpause it before starting a loop run.`);
 			return;
 		}
-		setStatus(result.error ? `Could not start tick for u/${bot.handle}: ${result.error}` : `Tick ${result.status} for u/${bot.handle}.`);
+		if (result.error) {
+			reportError(`Could not start tick for u/${bot.handle}: ${result.error}`);
+			return;
+		}
+		pushToast(`Tick ${result.status} for u/${bot.handle}.`);
 	}
 
 	async function runBotTicks(label: string, targetBots: BotSummary[]): Promise<void> {
@@ -1154,17 +1174,17 @@ function App() {
 			return;
 		}
 		if (targetBots.length === 0) {
-			setStatus(`No bots selected for ${label}.`);
+			pushToast(`No bots selected for ${label}.`);
 			return;
 		}
-		setStatus(`Starting ticks for ${targetBots.length} bot${targetBots.length === 1 ? "" : "s"} in ${label}...`);
 		const results = await Promise.all(targetBots.map((bot) => startBotTick(bot)));
 		const started = results.filter((result) => result.status === "started").length;
 		const alreadyRunning = results.filter((result) => result.status === "already_running").length;
 		const paused = results.filter((result) => result.status === "paused").length;
 		const failed = results.filter((result) => !["started", "already_running", "paused"].includes(result.status)).length;
-		setStatus(
+		pushToast(
 			`${label}: ${started} started${alreadyRunning ? `, ${alreadyRunning} already running` : ""}${paused ? `, ${paused} paused` : ""}${failed ? `, ${failed} failed` : ""}.`,
+			failed > 0 ? "error" : "success",
 		);
 	}
 
@@ -1190,10 +1210,9 @@ function App() {
 			void runBotTick(bot);
 			return;
 		}
-		const ok = await updateBot(bot.id, { tickSettings: { enabled: true } });
-		if (ok) {
-			setStatus(`Started bot ${bot.handle}. Its next tick will be scheduled ASAP.`);
-		}
+		await updateBot(bot.id, { tickSettings: { enabled: true } }, {
+			outcome: (savedBot) => `Started bot ${savedBot.handle}. Its next tick will be scheduled ASAP.`,
+		});
 	}
 
 	async function submit(action: () => Promise<string | void>): Promise<boolean> {
@@ -1201,11 +1220,11 @@ function App() {
 		try {
 			const message = await action();
 			if (message) {
-				setStatus(message);
+				pushToast(message, "success");
 			}
 			return true;
 		} catch (error) {
-			setStatus(error instanceof Error ? error.message : "Request failed.");
+			reportError(error instanceof Error ? error.message : "Request failed.");
 			return false;
 		} finally {
 			setBusy(false);
@@ -1555,10 +1574,10 @@ function App() {
 				botHandle: createdBot.handle,
 			});
 			void loadForums(worldHandle).catch((error) => {
-				setStatus(error instanceof Error ? error.message : "Could not refresh forums after creating bot.");
+				reportError(error instanceof Error ? error.message : "Could not refresh forums after creating bot.");
 			});
 			void loadSubscriptions().catch((error) => {
-				setStatus(error instanceof Error ? error.message : "Could not refresh subscriptions after creating bot.");
+				reportError(error instanceof Error ? error.message : "Could not refresh subscriptions after creating bot.");
 			});
 			return `Created bot ${createdBot.handle}. It starts paused; open Loop and unpause it when setup is ready.`;
 		});
@@ -1615,7 +1634,11 @@ function App() {
 		});
 	}
 
-	async function updateBot(botId: string, draft: UpdateBotInput): Promise<boolean> {
+	async function updateBot(
+		botId: string,
+		draft: UpdateBotInput,
+		options: { outcome?: (savedBot: BotSummary) => string } = {},
+	): Promise<boolean> {
 		if (!profileReadyFor("editing bots")) {
 			return false;
 		}
@@ -1673,7 +1696,7 @@ function App() {
 					}, true);
 				}
 			}
-			return `Saved bot ${savedBot.handle}.`;
+			return (options.outcome ?? ((saved: BotSummary) => `Saved bot ${saved.handle}.`))(savedBot);
 		});
 	}
 
@@ -1892,7 +1915,7 @@ function App() {
 			return { deleted: [], failed: targetBots };
 		}
 		if (targetBots.length === 0) {
-			setStatus("No bots selected for deletion.");
+			pushToast("No bots selected for deletion.");
 			return { deleted: [], failed: [] };
 		}
 		setBusy(true);
@@ -1916,10 +1939,11 @@ function App() {
 			removeDeletedBots(deleted);
 			const deletedLabel = `${deleted.length} bot${deleted.length === 1 ? "" : "s"}`;
 			const failedLabel = `${failed.length} failed`;
-			setStatus(
+			pushToast(
 				failed.length > 0 ?
 					`Deleted ${deletedLabel}; ${failedLabel}.`
 				:	`Deleted ${deletedLabel}.`,
+				failed.length > 0 ? "error" : "success",
 			);
 			return { deleted, failed };
 		} finally {
@@ -1967,7 +1991,7 @@ function App() {
 			return;
 		}
 		if (!world) {
-			setStatus("Create or select a world first.");
+			pushToast("Create or select a world first.");
 			return;
 		}
 		setCreateBotWorldHandle(world.handle);
@@ -1975,13 +1999,13 @@ function App() {
 
 	function profileReadyFor(action: string): boolean {
 		if (!session.user) {
-			setStatus(`Sign in before ${action}.`);
+			pushToast(`Sign in before ${action}.`);
 			return false;
 		}
 		if (session.user.profileComplete) {
 			return true;
 		}
-		setStatus(`Complete your profile before ${action}.`);
+		pushToast(`Complete your profile before ${action}.`);
 		navigate({ route: "profile" });
 		return false;
 	}
@@ -1996,25 +2020,16 @@ function App() {
 			await promptEvent.prompt();
 			await promptEvent.userChoice;
 		} catch {
-			setStatus("Install prompt could not be opened.");
+			reportError("Install prompt could not be opened.");
 		} finally {
 			setStandaloneDisplay(isStandaloneDisplayMode());
 		}
 	}
 
-	if (initializing) {
-		return (
-			<UiTextContext.Provider value={uiText}>
-				<ToastProvider>
-					<LoadingScreen status={status} />
-				</ToastProvider>
-			</UiTextContext.Provider>
-		);
-	}
-
-	return (
-		<UiTextContext.Provider value={uiText}>
-			<ToastProvider>
+	const content =
+		initializing ?
+			<LoadingScreen status={bootStatusText} />
+		:	(
 				<NavigationContext.Provider value={{ navigate, openContentRef }}>
 				<ReferenceDataContext.Provider value={referenceData}>
 					<HoverTooltipContext.Provider value={hoverTooltip}>
@@ -2037,8 +2052,8 @@ function App() {
 					onRefreshNotifications={(status) => void loadHumanNotifications(status)}
 					onTheme={setThemePreference}
 					notifications={humanNotifications}
+					refreshing={refreshing}
 					route={route}
-					status={status}
 					themePreference={themePreference}
 					thread={activeThread}
 					user={currentUser}
@@ -2395,7 +2410,14 @@ function App() {
 					</HoverTooltipContext.Provider>
 				</ReferenceDataContext.Provider>
 			</NavigationContext.Provider>
-			</ToastProvider>
+			);
+
+	return (
+		<UiTextContext.Provider value={uiText}>
+			<ToastContext.Provider value={toastHandle}>
+				{content}
+				<ToastStack dismiss={dismissToast} toasts={toasts} />
+			</ToastContext.Provider>
 		</UiTextContext.Provider>
 	);
 }

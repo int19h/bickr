@@ -1,4 +1,4 @@
-import { useContext, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { CreateWorldInput } from "@bickr/shared/model";
 import { handleHelpText } from "@bickr/shared/validation";
 import { cloudflareImageUrl } from "../../avatar-image-urls";
@@ -14,7 +14,6 @@ import {
 	Icon,
 	Modal,
 	textValue,
-	ToastContext,
 } from "../../ui";
 import { LanguageField, localizedDraft } from "../../components/form-fields";
 import { isValidHandle, slugify } from "../bots/bot-drafts";
@@ -144,7 +143,6 @@ function CreateWorldModal({
 	const [name, setName] = useState("");
 	const [description, setDescription] = useState("");
 	const [touchedHandle, setTouchedHandle] = useState(false);
-	const toast = useContext(ToastContext);
 
 	useEffect(() => {
 		if (!touchedHandle) {
@@ -172,12 +170,6 @@ function CreateWorldModal({
 			description: localizedDraft(description, language),
 		});
 		if (ok) {
-			toast.push(
-				<>
-					<span>Created</span>
-					<Reference kind="world" name={handle} />
-				</>,
-			);
 			onClose();
 		}
 	}

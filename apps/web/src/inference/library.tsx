@@ -129,7 +129,7 @@ export function InferenceLibraryScreen({
 					onClose={() => setCreateOpen(false)}
 					onCreated={(configurationId, name) => {
 						setCreateOpen(false);
-						toast.push(`Created ${name}`);
+						toast.push(`Created ${name}`, "success");
 						onNavigate({ route: "inference-configuration", configurationId, ...(returnTo ? { returnTo } : {}) });
 					}}
 				/>

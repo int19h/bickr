@@ -28,9 +28,11 @@ const uiText = {
 		avatar: "头像",
 		loop: "循环",
 		profile: "个人资料",
-		working: "正在处理...",
 		installBickr: "安装 Bickr",
 		refresh: "刷新",
+	},
+	toast: {
+		dismiss: "关闭",
 	},
 	profile: {
 		title: "个人资料",
@@ -39,7 +41,6 @@ const uiText = {
 		signOut: "退出登录",
 		saveAndActivate: "保存并激活",
 		saveProfile: "保存个人资料",
-		savedProfile: "个人资料已保存",
 		setupRequiredTitle: "需要设置个人资料",
 		setupRequiredBody: "你的账号已有登录方式，但尚未激活。你可以浏览，但创建世界、论坛、机器人、订阅和机器人操作会被锁定，直到你保存一次此个人资料。",
 		sectionTitle: "个人资料",

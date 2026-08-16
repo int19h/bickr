@@ -1,6 +1,7 @@
-import { createContext, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createContext, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { localizedTextString, type AvatarCrop, type LocalizedText } from "@bickr/shared/model";
 import { avatarCropImageStyle } from "./avatar-crop";
+import { useUiText } from "./components/ui-text";
 import {
 	avatarCroppedThumbnailUrl,
 	avatarDisplayPixels,
@@ -253,8 +254,9 @@ export function useViewportConstrainedPopout<T extends HTMLElement>(active: bool
 	return ref;
 }
 
-export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
+export function Icon({ className, name, size = 16 }: { className?: string; name: IconName; size?: number }) {
 	const stroke = {
+		className,
 		fill: "none",
 		stroke: "currentColor",
 		strokeLinecap: "round" as const,
@@ -349,17 +351,17 @@ export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
 			</svg>
 		),
 		github: (
-			<svg fill="currentColor" height={size} viewBox="0 0 24 24" width={size}>
+			<svg className={className} fill="currentColor" height={size} viewBox="0 0 24 24" width={size}>
 				<path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.78-.25.78-.55v-2c-3.2.7-3.87-1.36-3.87-1.36-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.69 1.25 3.34.96.1-.74.4-1.25.72-1.54-2.55-.29-5.23-1.27-5.23-5.66 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.46.11-3.05 0 0 .96-.31 3.15 1.17a11 11 0 0 1 5.74 0c2.18-1.48 3.14-1.17 3.14-1.17.62 1.59.23 2.76.11 3.05.74.8 1.18 1.82 1.18 3.07 0 4.4-2.68 5.36-5.24 5.65.42.36.79 1.06.79 2.13v3.16c0 .31.21.66.79.55C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z" />
 			</svg>
 		),
 		discord: (
-			<svg fill="currentColor" height={size} viewBox="-4 -12 72 72" width={size}>
+			<svg className={className} fill="currentColor" height={size} viewBox="-4 -12 72 72" width={size}>
 				<path d="M40.575 0C39.9562 1.09866 39.4006 2.2352 38.8954 3.397C34.0967 2.67719 29.2096 2.67719 24.3982 3.397C23.9057 2.2352 23.3374 1.09866 22.7186 0C18.2104 0.770324 13.8157 2.12155 9.64839 4.02841C1.38951 16.2652 -0.845688 28.1863 0.265599 39.9432C5.10222 43.517 10.5197 46.2447 16.2909 47.9874C17.5916 46.2447 18.7407 44.3883 19.7257 42.4562C17.8568 41.7616 16.0509 40.8903 14.3208 39.88C14.7755 39.5517 15.2175 39.2107 15.6468 38.8824C25.7873 43.6559 37.5316 43.6559 47.6847 38.8824C48.1141 39.236 48.5561 39.577 49.0107 39.88C47.2806 40.9029 45.4748 41.7616 43.5931 42.4688C44.5781 44.4009 45.7273 46.2573 47.028 48C52.7991 46.2573 58.2167 43.5422 63.0533 39.9684C64.3666 26.3299 60.8055 14.5099 53.6452 4.04104C49.4905 2.13418 45.0959 0.782952 40.5876 0.0252565L40.575 0ZM21.1401 32.7072C18.0209 32.7072 15.4321 29.8785 15.4321 26.3804C15.4321 22.8824 17.9199 20.041 21.1275 20.041C24.3351 20.041 26.886 22.895 26.8354 26.3804C26.7849 29.8658 24.3224 32.7072 21.1401 32.7072ZM42.1788 32.7072C39.047 32.7072 36.4834 29.8785 36.4834 26.3804C36.4834 22.8824 38.9712 20.041 42.1788 20.041C45.3864 20.041 47.9246 22.895 47.8741 26.3804C47.8236 29.8658 45.3611 32.7072 42.1788 32.7072Z" />
 			</svg>
 		),
 		google: (
-			<svg fill="currentColor" height={size} viewBox="0 0 24 24" width={size}>
+			<svg className={className} fill="currentColor" height={size} viewBox="0 0 24 24" width={size}>
 				<path d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.8h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.3z" />
 				<path d="M12 22c2.7 0 5-0.9 6.6-2.5L15.4 17c-.9.6-2 .9-3.4.9-2.6 0-4.8-1.8-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22z" />
 				<path d="M6.4 13.8a6 6 0 0 1 0-3.6V7.6H3.1a10 10 0 0 0 0 8.8z" />
@@ -541,30 +543,88 @@ export function avatarStyle(seed: string | number): CSSProperties {
 	};
 }
 
-export const ToastContext = createContext<{ push: (message: ReactNode) => void }>({ push: () => undefined });
+export type ToastSeverity = "error" | "info" | "success";
 
-export function ToastProvider({ children }: { children: ReactNode }) {
-	const [toasts, setToasts] = useState<Array<{ id: string; message: ReactNode }>>([]);
+export type ActiveToast = { id: string; message: ReactNode; severity: ToastSeverity };
 
-	function push(message: ReactNode): void {
+export type ToastHandle = { push: (message: ReactNode, severity?: ToastSeverity) => void };
+
+/**
+ * Errors are the only surface for failed requests now that the top-bar status
+ * chip is gone, so they have to stay up long enough to read an API message and
+ * can be dismissed early; confirmations stay transient.
+ */
+export const toastDurationMs: Record<ToastSeverity, number> = {
+	error: 10_000,
+	info: 2_400,
+	success: 2_400,
+};
+
+export const ToastContext = createContext<ToastHandle>({ push: () => undefined });
+
+/**
+ * Toast state lives in a hook rather than a provider component so the owner of
+ * the state (`App`) can both publish toasts and provide the context: a provider
+ * rendered by `App` could never be consumed by `App` itself.
+ */
+export function useToasts(): { dismiss: (id: string) => void; handle: ToastHandle; toasts: ActiveToast[] } {
+	const [toasts, setToasts] = useState<ActiveToast[]>([]);
+	const timers = useRef(new Map<string, number>());
+
+	const dismiss = useCallback((id: string): void => {
+		const timer = timers.current.get(id);
+		if (timer !== undefined) {
+			window.clearTimeout(timer);
+			timers.current.delete(id);
+		}
+		setToasts((current) => current.filter((toast) => toast.id !== id));
+	}, []);
+
+	const push = useCallback((message: ReactNode, severity: ToastSeverity = "info"): void => {
 		const id = crypto.randomUUID();
-		setToasts((current) => [...current, { id, message }]);
-		window.setTimeout(() => {
-			setToasts((current) => current.filter((toast) => toast.id !== id));
-		}, 2400);
-	}
+		setToasts((current) => [...current, { id, message, severity }]);
+		timers.current.set(id, window.setTimeout(() => dismiss(id), toastDurationMs[severity]));
+	}, [dismiss]);
 
+	useEffect(() => {
+		const pending = timers.current;
+		return () => {
+			for (const timer of pending.values()) {
+				window.clearTimeout(timer);
+			}
+			pending.clear();
+		};
+	}, []);
+
+	const handle = useMemo<ToastHandle>(() => ({ push }), [push]);
+	return { dismiss, handle, toasts };
+}
+
+export function ToastStack({ dismiss, toasts }: { dismiss: (id: string) => void; toasts: ActiveToast[] }) {
+	const t = useUiText();
 	return (
-		<ToastContext.Provider value={{ push }}>
-			{children}
-			<div className="toast-stack">
-				{toasts.map((toast) => (
-					<div className="toast" key={toast.id}>
-						{toast.message}
-					</div>
-				))}
-			</div>
-		</ToastContext.Provider>
+		<div className="toast-stack">
+			{toasts.map((toast) => (
+				<div
+					className={`toast toast-${toast.severity}`}
+					key={toast.id}
+					role={toast.severity === "error" ? "alert" : "status"}
+				>
+					<span className="toast-message">{toast.message}</span>
+					{toast.severity === "error" && (
+						<button
+							aria-label={t.toast.dismiss}
+							className="toast-dismiss"
+							onClick={() => dismiss(toast.id)}
+							title={t.toast.dismiss}
+							type="button"
+						>
+							<Icon name="x" size={13} />
+						</button>
+					)}
+				</div>
+			))}
+		</div>
 	);
 }
 

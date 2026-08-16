@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type {
 	AvatarImage,
@@ -36,7 +36,6 @@ import {
 	Modal,
 	SubscriptionButton,
 	textValue,
-	ToastContext,
 } from "../../ui";
 import { EditForumModal, ForumRow } from "../forums/forum-components";
 import { LanguageField, localizedDraft, textLang } from "../../components/form-fields";
@@ -143,7 +142,6 @@ export function WorldDetail({
 	const [activityError, setActivityError] = useState("");
 	const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 	const [worldAvatarFailed, setWorldAvatarFailed] = useState(false);
-	const toast = useContext(ToastContext);
 
 	useEffect(() => {
 		setForumFilter("");
@@ -526,15 +524,7 @@ export function WorldDetail({
 				danger
 				onClose={() => setConfirmWorld(false)}
 				onConfirm={() => {
-					void onDeleteWorld(world).then((ok) => {
-						if (ok) {
-							toast.push(
-								<>
-									Deleted <Reference kind="world" name={world.handle} />
-								</>,
-							);
-						}
-					});
+					void onDeleteWorld(world);
 				}}
 				open={confirmWorld}
 				title="Delete this world?"
@@ -553,15 +543,7 @@ export function WorldDetail({
 				onClose={() => setConfirmForum(null)}
 				onConfirm={() => {
 					if (confirmForum) {
-						void onDeleteForum(confirmForum).then((ok) => {
-							if (ok) {
-								toast.push(
-									<>
-										Deleted <Reference kind="forum" name={confirmForum.handle} />
-									</>,
-								);
-							}
-						});
+						void onDeleteForum(confirmForum);
 					}
 				}}
 				open={Boolean(confirmForum)}
@@ -582,15 +564,7 @@ export function WorldDetail({
 				onClose={() => setConfirmBot(null)}
 				onConfirm={() => {
 					if (confirmBot) {
-						void onDeleteBot(confirmBot).then((ok) => {
-							if (ok) {
-								toast.push(
-									<>
-										Deleted <Reference isBot kind="bot" name={confirmBot.handle} />
-									</>,
-								);
-							}
-						});
+						void onDeleteBot(confirmBot);
 					}
 				}}
 				open={Boolean(confirmBot)}
@@ -617,7 +591,6 @@ function CreateForumModal({
 		const [handle, setHandle] = useState("");
 		const [language, setLanguage] = useState(languageDraftValue(world.language, textLang(world.description) ?? defaultLanguageTag));
 		const [description, setDescription] = useState("");
-		const toast = useContext(ToastContext);
 
 	useEffect(() => {
 			if (!open) {
@@ -636,11 +609,6 @@ function CreateForumModal({
 			description: localizedDraft(description, language),
 		});
 		if (ok) {
-			toast.push(
-				<>
-					Created <Reference kind="forum" name={handle} />
-				</>,
-			);
 			onClose();
 		}
 	}
