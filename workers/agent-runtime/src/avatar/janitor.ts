@@ -87,7 +87,15 @@ export type AvatarJanitorBudgetOverrun = {
 
 export type AvatarJanitorFailure =
 	| { kind: 'read_error'; phase: 'mark' | 'sweep'; errorName: string }
+	/** A live indexed entity has no KV document, so its avatar is unknowable. */
+	| { kind: 'missing_document'; entity: EntityKind; id: string }
+	/** A live linked clone's inherited avatar could not be resolved. */
+	| { kind: 'unresolved_clone_chain'; reason: CloneChainFailureReason; botId: string; sourceBotId: string }
+	/** R2 said there was more to list but gave no usable way to ask for it. */
+	| { kind: 'list_cursor'; reason: 'missing' | 'repeated'; listed: number }
 	| { kind: 'delete_volume'; deletable: number; limit: number };
+
+export type CloneChainFailureReason = 'missing_source' | 'cycle' | 'depth_exhausted';
 
 export type AvatarJanitorResult =
 	| { kind: 'avatar_janitor'; status: 'skipped_not_due'; lastRunAt: string; dueAt: string }
@@ -112,7 +120,7 @@ type AvatarEntityRow = { id: string; avatarUrl: string | null };
 
 type CloneSourceRow = { botId: string; sourceBotId: string; linked: number };
 
-type EntityKind = 'bot' | 'world' | 'user';
+export type EntityKind = 'bot' | 'world' | 'user';
 
 const entityWalks: Record<EntityKind, { table: string; idColumn: string }> = {
 	bot: { table: 'bots_index', idColumn: 'bot_id' },
@@ -134,10 +142,22 @@ const entityWalks: Record<EntityKind, { table: string; idColumn: string }> = {
  *
  * Everything about this is fail-closed. Any read, list, or resolution error
  * aborts the deletion phase for the run — a week of unreclaimed objects costs
- * nothing, and deleting a referenced avatar is unrecoverable. An aborted run
- * leaves the weekly marker alone so tomorrow's cron retries it; a run skipped
- * for exceeding the budget writes the marker, because retrying an unchanged
- * fleet daily would only repeat the same refusal.
+ * nothing, and deleting a referenced avatar is unrecoverable. So does anything
+ * that leaves the referenced set incomplete rather than merely empty: a live
+ * indexed entity whose KV document is missing, a clone chain that cannot be
+ * walked to its end, an R2 listing that says it is truncated but cannot be
+ * continued. "No avatar" and "an avatar this run cannot see" are the same
+ * observation to the mark phase and opposite instructions to the sweep.
+ *
+ * An aborted run deliberately does *not* write the weekly marker, including for
+ * the states above that no retry can clear on its own. That is the point: an
+ * inconsistency between an index row and its document is an owner's problem,
+ * and the daily cron re-deriving and re-logging the same refusal is how the
+ * evidence stays in front of somebody until one of them intervenes. Claiming
+ * the week instead would silence it for six days and reclaim nothing anyway. A
+ * run skipped for exceeding the budget does write the marker, because there the
+ * fleet is consistent and only the design has run out — repeating that refusal
+ * daily adds nothing to the first one.
  */
 export async function runAvatarJanitor(
 	env: AvatarJanitorEnv,
@@ -191,6 +211,13 @@ export async function runAvatarJanitor(
 			await writeJanitorMarker(env.BICKR_KV, now);
 			return { kind: 'avatar_janitor', status: 'skipped_over_budget', overrun: listed.overrun };
 		}
+		if (listed.kind === 'unusable_cursor') {
+			return {
+				kind: 'avatar_janitor',
+				status: 'aborted',
+				failure: { kind: 'list_cursor', reason: listed.reason, listed: listed.listed },
+			};
+		}
 		objects = listed.objects;
 	} catch (error) {
 		return {
@@ -213,6 +240,9 @@ export async function runAvatarJanitor(
 	if (mark.kind === 'over_budget') {
 		await writeJanitorMarker(env.BICKR_KV, now);
 		return { kind: 'avatar_janitor', status: 'skipped_over_budget', overrun: mark.overrun };
+	}
+	if (mark.kind === 'unresolved') {
+		return { kind: 'avatar_janitor', status: 'aborted', failure: mark.failure };
 	}
 
 	const graceCutoffMs = nowMs - avatarJanitorGraceMs;
@@ -265,6 +295,7 @@ export async function runAvatarJanitor(
 
 type MarkPhaseResult =
 	| { kind: 'over_budget'; overrun: AvatarJanitorBudgetOverrun }
+	| { kind: 'unresolved'; failure: AvatarJanitorFailure }
 	| { kind: 'marked'; referencedKeys: Set<string>; cloneSources: number };
 
 async function markReferencedAvatars(env: AvatarJanitorEnv): Promise<MarkPhaseResult> {
@@ -287,17 +318,29 @@ async function markReferencedAvatars(env: AvatarJanitorEnv): Promise<MarkPhaseRe
 			for (let index = 0; index < batch.length; index += 1) {
 				const document = documents[index];
 				const id = batch[index];
-				if (kind === 'bot' && id !== undefined) {
-					botDocuments.set(id, (document as BotDocument | null) ?? null);
+				if (id === undefined) {
+					continue;
 				}
-				const key = document?.avatar?.key;
+				// An index row with no document is not "an entity with no avatar": it
+				// is an entity whose avatar this run cannot see, and marking from an
+				// incomplete set is how a referenced object gets deleted. Whatever
+				// produced the divergence — an interrupted write, a lost KV value, an
+				// index row that outlived its document — the sweep has no business
+				// guessing, so the whole run refuses.
+				if (document === null) {
+					return { kind: 'unresolved', failure: { kind: 'missing_document', entity: kind, id } };
+				}
+				if (kind === 'bot') {
+					botDocuments.set(id, document as BotDocument);
+				}
+				const key = document.avatar?.key;
 				if (key) {
 					referencedKeys.add(key);
 				}
 				// `localOverrides.avatar` is normally derived at read time and equals
 				// the document's own avatar, but the stored shape permits it. Marking
 				// it costs one set insertion and removes a way to be wrong.
-				const overriddenKey = (document as BotDocument | null)?.localOverrides?.avatar?.key;
+				const overriddenKey = (document as BotDocument).localOverrides?.avatar?.key;
 				if (overriddenKey) {
 					referencedKeys.add(overriddenKey);
 				}
@@ -329,13 +372,28 @@ async function markReferencedAvatars(env: AvatarJanitorEnv): Promise<MarkPhaseRe
 			continue;
 		}
 		const inherited = await inheritedAvatarKey(env.BICKR_KV, botDocuments, sourceByBotId, clone.sourceBotId);
-		if (inherited) {
-			referencedKeys.add(inherited);
+		if (inherited.kind === 'unresolved') {
+			return {
+				kind: 'unresolved',
+				failure: {
+					kind: 'unresolved_clone_chain',
+					reason: inherited.reason,
+					botId,
+					sourceBotId: inherited.sourceBotId,
+				},
+			};
+		}
+		if (inherited.key) {
+			referencedKeys.add(inherited.key);
 		}
 	}
 
 	return { kind: 'marked', referencedKeys, cloneSources: cloneSources.length };
 }
+
+type CloneChainResolution =
+	| { kind: 'resolved'; key: string | null }
+	| { kind: 'unresolved'; reason: CloneChainFailureReason; sourceBotId: string };
 
 /**
  * Walk a clone chain with a tombstone-capable loader.
@@ -344,18 +402,29 @@ async function markReferencedAvatars(env: AvatarJanitorEnv): Promise<MarkPhaseRe
  * turns that refusal into a 500 (#192) — neither can answer the question the
  * janitor is asking, which is what a live clone currently renders. The KV
  * document is read directly, ignoring lifecycle state entirely.
+ *
+ * A chain that simply ends — a source with neither an avatar of its own nor an
+ * onward link — resolves to no key. A chain that cannot be walked to its end
+ * does not: a missing source document, a cycle, or a chain longer than the
+ * repository's own resolution limit each leave an avatar this run cannot see,
+ * and the caller turns that into a refusal rather than into a deletion.
  */
 async function inheritedAvatarKey(
 	kv: KVNamespaceLike,
 	botDocuments: Map<string, BotDocument | null>,
 	sourceByBotId: Map<string, CloneSourceRow>,
 	sourceBotId: string,
-): Promise<string | null> {
+): Promise<CloneChainResolution> {
 	const visited = new Set<string>();
 	let currentId: string | undefined = sourceBotId;
-	for (let depth = 0; depth < avatarJanitorMaxCloneChainDepth && currentId; depth += 1) {
+	let depth = 0;
+	while (currentId !== undefined) {
+		if (depth >= avatarJanitorMaxCloneChainDepth) {
+			return { kind: 'unresolved', reason: 'depth_exhausted', sourceBotId: currentId };
+		}
+		depth += 1;
 		if (visited.has(currentId)) {
-			return null;
+			return { kind: 'unresolved', reason: 'cycle', sourceBotId: currentId };
 		}
 		visited.add(currentId);
 		let document = botDocuments.get(currentId);
@@ -363,17 +432,19 @@ async function inheritedAvatarKey(
 			document = await readJson<BotDocument>(kv, kvKeys.bot(currentId)) ?? null;
 			botDocuments.set(currentId, document);
 		}
-		const key = document?.avatar?.key;
+		if (document === null) {
+			return { kind: 'unresolved', reason: 'missing_source', sourceBotId: currentId };
+		}
+		const key = document.avatar?.key;
 		if (key) {
-			return key;
+			return { kind: 'resolved', key };
 		}
 		// A source with no avatar of its own inherits from its own source, exactly
-		// as effective-document resolution would. A missing document ends the walk:
-		// there is no key to protect behind it.
-		const next: CloneSourceRow | undefined = document ? sourceByBotId.get(currentId) : undefined;
+		// as effective-document resolution would.
+		const next = sourceByBotId.get(currentId);
 		currentId = next && next.linked !== 0 ? next.sourceBotId : undefined;
 	}
-	return null;
+	return { kind: 'resolved', key: null };
 }
 
 async function liveEntityCounts(db: D1DatabaseLike): Promise<{ bots: number; worlds: number; users: number }> {
@@ -474,12 +545,26 @@ async function readEntityDocument(
 
 type ListResult =
 	| { kind: 'over_budget'; overrun: AvatarJanitorBudgetOverrun }
+	| { kind: 'unusable_cursor'; reason: 'missing' | 'repeated'; listed: number }
 	| { kind: 'listed'; objects: readonly { key: string; uploaded: Date }[] };
 
+/**
+ * Enumerate the bucket, or refuse to.
+ *
+ * A truncated page with no cursor, or with one already used, means the listing
+ * cannot be completed. Stopping there would hand the sweep a partial bucket,
+ * which is the same shape of mistake as a partial referenced set: it silently
+ * reduces what the run considers, and then the run claims the week as swept. A
+ * repeated cursor would also spin forever, so it is checked rather than merely
+ * bounded.
+ */
 async function listAllObjects(bucket: AvatarJanitorBucket): Promise<ListResult> {
 	const objects: { key: string; uploaded: Date }[] = [];
+	const usedCursors = new Set<string>();
 	let cursor: string | undefined;
-	do {
+	// Every exit is a return: the loop ends by finishing the listing, by refusing
+	// it, or by outgrowing the budget, never by running out of cursor.
+	for (;;) {
 		const page = await bucket.list({ limit: 1_000, ...(cursor ? { cursor } : {}) });
 		objects.push(...page.objects);
 		if (objects.length > avatarJanitorMaxObjects) {
@@ -488,9 +573,19 @@ async function listAllObjects(bucket: AvatarJanitorBucket): Promise<ListResult> 
 				overrun: { kind: 'objects', counted: objects.length, limit: avatarJanitorMaxObjects },
 			};
 		}
-		cursor = page.truncated ? page.cursor : undefined;
-	} while (cursor);
-	return { kind: 'listed', objects };
+		if (!page.truncated) {
+			return { kind: 'listed', objects };
+		}
+		const next = page.cursor;
+		if (!next) {
+			return { kind: 'unusable_cursor', reason: 'missing', listed: objects.length };
+		}
+		if (usedCursors.has(next)) {
+			return { kind: 'unusable_cursor', reason: 'repeated', listed: objects.length };
+		}
+		usedCursors.add(next);
+		cursor = next;
+	}
 }
 
 /**

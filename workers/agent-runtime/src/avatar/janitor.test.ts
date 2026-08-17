@@ -7,6 +7,7 @@ import {
 	avatarJanitorMaxEntities,
 	runAvatarJanitor,
 	type AvatarJanitorEnv,
+	type EntityKind,
 } from './janitor';
 
 const now = '2026-08-17T03:23:00.000Z';
@@ -28,6 +29,8 @@ type Fixture = {
 	failD1?: (sql: string) => boolean;
 	failKv?: (key: string) => boolean;
 	failList?: boolean;
+	/** Report every page as truncated, with a cursor the janitor cannot use. */
+	brokenListCursor?: 'missing' | 'repeated';
 	failDelete?: boolean;
 };
 
@@ -149,6 +152,13 @@ function harness(fixture: Fixture): JanitorHarness {
 				const limit = options?.limit ?? 1_000;
 				const page = objects.slice(start, start + limit);
 				const next = start + page.length;
+				if (fixture.brokenListCursor === 'missing') {
+					return { objects: page, truncated: true as const };
+				}
+				if (fixture.brokenListCursor === 'repeated') {
+					// A cursor that never advances: the same page, forever.
+					return { objects: page, truncated: true as const, cursor: 'stuck' };
+				}
 				return next < objects.length
 					? { objects: page, truncated: true as const, cursor: String(next) }
 					: { objects: page, truncated: false as const };
@@ -363,6 +373,135 @@ describe('R2 avatar janitor', () => {
 			failure: { kind: 'read_error', phase: 'sweep' },
 		});
 		expect(markerOf(deleteFailure.kvValues)).toBeUndefined();
+	});
+
+	it('resolves a clone chain that simply ends, and keeps sweeping', async () => {
+		// The distinction the refusals below depend on: a source with no avatar and
+		// no source of its own is a complete answer, not an unresolved one.
+		const test = harness({
+			bots: [bot('bot_clone')],
+			clones: [{ botId: 'bot_clone', sourceBotId: 'bot_source', linked: 1 }],
+			documents: {
+				[kvKeys.bot('bot_clone')]: botDocument('bot_clone'),
+				[kvKeys.bot('bot_source')]: botDocument('bot_source', { deletedAt: '2026-08-16T00:00:00.000Z' }),
+			},
+			objects: [{ key: 'worlds/w1/bots/bot_a/avatars/orphan.png', agedDays: 30 }],
+		});
+
+		expect(await runAvatarJanitor(test.env, { now })).toMatchObject({ status: 'swept', deleted: 1 });
+		expect(markerOf(test.kvValues)).toBe(now);
+	});
+
+	it('aborts without deleting when a live indexed entity has no document', async () => {
+		const objects = [{ key: 'worlds/w1/bots/bot_a/avatars/orphan.png', agedDays: 30 }];
+		// An index row with no document is an avatar this run cannot see, which is
+		// not the same observation as an entity that has none.
+		const cases: { entity: EntityKind; id: string; fixture: Fixture }[] = [
+			{ entity: 'bot', id: 'bot_a', fixture: { bots: [bot('bot_a')] } },
+			{ entity: 'world', id: 'w1', fixture: { worlds: [bot('w1')] } },
+			{ entity: 'user', id: 'usr_1', fixture: { users: [bot('usr_1')] } },
+		];
+
+		for (const { entity, id, fixture } of cases) {
+			const test = harness({ ...fixture, objects });
+			expect(await runAvatarJanitor(test.env, { now })).toMatchObject({
+				status: 'aborted',
+				failure: { kind: 'missing_document', entity, id },
+			});
+			expect(test.deleted).toEqual([]);
+			// No marker: the refusal is re-derived and re-logged daily until an owner
+			// reconciles the index with the documents.
+			expect(markerOf(test.kvValues)).toBeUndefined();
+		}
+	});
+
+	it('aborts without deleting when a clone chain cannot be resolved', async () => {
+		const objects = [{ key: 'worlds/w1/bots/bot_a/avatars/orphan.png', agedDays: 30 }];
+
+		const missingSource = harness({
+			bots: [bot('bot_clone')],
+			clones: [{ botId: 'bot_clone', sourceBotId: 'bot_source', linked: 1 }],
+			documents: { [kvKeys.bot('bot_clone')]: botDocument('bot_clone') },
+			objects,
+		});
+		expect(await runAvatarJanitor(missingSource.env, { now })).toMatchObject({
+			status: 'aborted',
+			failure: {
+				kind: 'unresolved_clone_chain',
+				reason: 'missing_source',
+				botId: 'bot_clone',
+				sourceBotId: 'bot_source',
+			},
+		});
+		expect(missingSource.deleted).toEqual([]);
+		expect(markerOf(missingSource.kvValues)).toBeUndefined();
+
+		const cycle = harness({
+			bots: [bot('bot_clone')],
+			clones: [
+				{ botId: 'bot_clone', sourceBotId: 'bot_left', linked: 1 },
+				{ botId: 'bot_left', sourceBotId: 'bot_right', linked: 1 },
+				{ botId: 'bot_right', sourceBotId: 'bot_left', linked: 1 },
+			],
+			documents: {
+				[kvKeys.bot('bot_clone')]: botDocument('bot_clone'),
+				[kvKeys.bot('bot_left')]: botDocument('bot_left'),
+				[kvKeys.bot('bot_right')]: botDocument('bot_right'),
+			},
+			objects,
+		});
+		expect(await runAvatarJanitor(cycle.env, { now })).toMatchObject({
+			status: 'aborted',
+			failure: { kind: 'unresolved_clone_chain', reason: 'cycle', botId: 'bot_clone' },
+		});
+		expect(cycle.deleted).toEqual([]);
+		expect(markerOf(cycle.kvValues)).toBeUndefined();
+
+		// A chain longer than the repository's own effective-document limit: the
+		// janitor cannot see where it ends, so it does not guess that it ends here.
+		const links = Array.from({ length: 40 }, (_item, index) => `bot_link_${String(index).padStart(2, '0')}`);
+		const deepChain = harness({
+			bots: [bot('bot_clone')],
+			clones: [
+				{ botId: 'bot_clone', sourceBotId: links[0] ?? '', linked: 1 },
+				...links.slice(0, -1).map((id, index) => ({ botId: id, sourceBotId: links[index + 1] ?? '', linked: 1 })),
+			],
+			documents: {
+				[kvKeys.bot('bot_clone')]: botDocument('bot_clone'),
+				...Object.fromEntries(links.map((id) => [kvKeys.bot(id), botDocument(id)])),
+			},
+			objects,
+		});
+		expect(await runAvatarJanitor(deepChain.env, { now })).toMatchObject({
+			status: 'aborted',
+			failure: { kind: 'unresolved_clone_chain', reason: 'depth_exhausted', botId: 'bot_clone' },
+		});
+		expect(deepChain.deleted).toEqual([]);
+		expect(markerOf(deepChain.kvValues)).toBeUndefined();
+	});
+
+	it('aborts a truncated listing it cannot continue', async () => {
+		const objects = [{ key: 'worlds/w1/bots/bot_a/avatars/orphan.png', agedDays: 30 }];
+
+		const missing = harness({ objects, brokenListCursor: 'missing' });
+		expect(await runAvatarJanitor(missing.env, { now })).toMatchObject({
+			status: 'aborted',
+			failure: { kind: 'list_cursor', reason: 'missing', listed: 1 },
+		});
+		expect(missing.listCalls).toBe(1);
+		expect(missing.deleted).toEqual([]);
+		expect(markerOf(missing.kvValues)).toBeUndefined();
+
+		// A cursor that does not advance would otherwise spin until the invocation
+		// is killed, or sweep against a bucket listed twice and truncated anyway.
+		const repeated = harness({ objects, brokenListCursor: 'repeated' });
+		expect(await runAvatarJanitor(repeated.env, { now })).toMatchObject({
+			status: 'aborted',
+			failure: { kind: 'list_cursor', reason: 'repeated' },
+		});
+		expect(repeated.listCalls).toBe(2);
+		expect(repeated.deleted).toEqual([]);
+		expect(markerOf(repeated.kvValues)).toBeUndefined();
 	});
 
 	it('skips the week when the fleet exceeds the single-invocation budget', async () => {

@@ -9,22 +9,23 @@ import {
 	describe,
 	expect,
 	fakeR2Bucket,
+	handleForumCoordinatorRequest,
 	it,
 	jsonRequest,
 	kvKeys,
 	pngAvatarBytes,
 	readThread,
+	requiredLt,
 	seedWorld,
 	storeAvatarImage,
 	testEnv,
 	threadDetail,
 	updateBotAvatar,
 	userIdForHandle,
-	vi,
 	webpAvatarBytes,
 } from "./helpers/index-harness";
 import type { AvatarCrop, AvatarImage, CommentDocument, ThreadDocument } from "../packages/shared/src/model";
-import { writeJson } from "../packages/shared/src/storage";
+import { writeJson, type D1DatabaseLike, type KVNamespaceLike } from "../packages/shared/src/storage";
 import {
 	createMcpAuthorizationCode,
 	exchangeMcpAuthorizationCode,
@@ -67,6 +68,82 @@ async function persistLegacyAvatars(threadId: string): Promise<ThreadDocument> {
 	return legacy;
 }
 
+type CoordinatorEnv = Parameters<typeof handleForumCoordinatorRequest>[1];
+type CoordinatorPayload = { thread: ServedThread; comment?: ServedComment };
+
+/** The `bots_index` read that resolves the avatar overlay, and nothing else. */
+const avatarLookupFragment = "avatar_crop AS avatarCrop";
+
+/** Delegate every member except the one being intercepted. */
+function intercept<T extends object>(target: T, member: keyof T, replacement: unknown): T {
+	return new Proxy(target, {
+		get(object, property, receiver) {
+			if (property === member) {
+				return replacement;
+			}
+			const value = Reflect.get(object, property, receiver) as unknown;
+			return typeof value === "function" ? value.bind(object) : value;
+		},
+	});
+}
+
+/**
+ * A coordinator env that records when the avatar overlay is resolved relative
+ * to the KV write that commits a mutation, and can fail the lookup on demand.
+ */
+function tracedCoordinatorEnv(
+	events: string[],
+	options: { failAvatarLookup?: () => boolean } = {},
+): CoordinatorEnv {
+	const db: D1DatabaseLike = testEnv.BICKR_D1;
+	const kv: KVNamespaceLike = testEnv.BICKR_KV;
+	return {
+		...testEnv,
+		BICKR_D1: intercept(testEnv.BICKR_D1, "prepare", (query: string) => {
+			if (query.includes(avatarLookupFragment)) {
+				if (options.failAvatarLookup?.()) {
+					throw new Error("bots_index avatar lookup failed.");
+				}
+				events.push("avatar-lookup");
+			}
+			return db.prepare(query);
+		}),
+		BICKR_KV: intercept(testEnv.BICKR_KV, "put", (key: string, value: string, putOptions?: { expirationTtl?: number }) => {
+			if (key.startsWith(kvKeys.thread(""))) {
+				events.push("thread-write");
+			}
+			return kv.put(key, value, putOptions);
+		}),
+	};
+}
+
+async function createCommentThroughCoordinator(
+	threadId: string,
+	botId: string,
+	body: string,
+	env: CoordinatorEnv = testEnv,
+): Promise<{ status: number; payload: CoordinatorPayload }> {
+	const response = await handleForumCoordinatorRequest(
+		jsonRequest(`http://example.com/threads/${threadId}/comments`, "POST", { body: requiredLt(body) }, undefined, {
+			"x-bickr-bot-id": botId,
+		}),
+		env,
+	);
+	const responseBody = (await response.json()) as { data?: CoordinatorPayload };
+	return { status: response.status, payload: responseBody.data ?? { thread: { comments: [] } } };
+}
+
+/** The thread document the coordinator serves for its own read route. */
+async function coordinatorThreadDocument(threadId: string): Promise<ServedThread> {
+	const response = await handleForumCoordinatorRequest(
+		new Request(`http://example.com/threads/${threadId}`),
+		testEnv,
+	);
+	expect(response.status, await response.clone().text()).toBe(200);
+	const payload = (await response.json()) as { data: { thread: ServedThread } };
+	return payload.data.thread;
+}
+
 async function mcpAccessToken(userId: string): Promise<string> {
 	const now = new Date();
 	const client = await registerMcpClient(testEnv.BICKR_KV, {
@@ -99,22 +176,25 @@ async function mcpAccessToken(userId: string): Promise<string> {
 	return tokens.accessToken;
 }
 
+/**
+ * Read a thread the way the web app does, through the KV path or, with
+ * `fresh`, through the real forum coordinator.
+ *
+ * The fresh path deliberately uses the coordinator service rather than a stub:
+ * hydration lives in the coordinator's response boundary and the web function
+ * no longer repeats it, so a stubbed coordinator would only test the stub.
+ */
 async function servedThread(
 	forumHandle: string,
 	threadId: string,
-	options: { fresh?: ThreadDocument } = {},
+	options: { fresh?: boolean } = {},
 ): Promise<ServedThread> {
-	const freshDocument = options.fresh;
-	const coordinator = {
-		fetch: vi.fn(async () => Response.json({ ok: true, data: { thread: freshDocument } })),
-	} as unknown as Fetcher;
 	const response = await threadDetail(
 		contextFor<typeof threadDetail>(
 			new Request(
-				`http://example.com/api/worlds/patch-notes/forums/${forumHandle}/threads/${threadId}${freshDocument ? "?fresh=1" : ""}`,
+				`http://example.com/api/worlds/patch-notes/forums/${forumHandle}/threads/${threadId}${options.fresh ? "?fresh=1" : ""}`,
 			),
 			{ worldHandle: "patch-notes", forumHandle, threadId },
-			freshDocument ? { FORUM_COORDINATOR_SERVICE: coordinator } : {},
 		),
 	);
 	expect(response.status, await response.clone().text()).toBe(200);
@@ -167,7 +247,7 @@ describe("comment avatar hydration", () => {
 		const author = await createBotForTest(cookie, "deleted-author");
 		await botAvatar(author.id, author.homeWorldId, pngAvatarBytes(), "image/png");
 		const thread = await createThreadForTest(forum.id, author.id, "Deleted authors", "A deleted author keeps no avatar.");
-		const legacy = await persistLegacyAvatars(thread.id);
+		await persistLegacyAvatars(thread.id);
 
 		const deletion = await deleteBot(
 			contextFor<typeof deleteBot>(
@@ -182,7 +262,7 @@ describe("comment avatar hydration", () => {
 		expect(served.comments[0]?.authorAvatarCrop).toBeUndefined();
 
 		// Same document, served through the coordinator-fresh path.
-		const fresh = await servedThread(forum.handle, thread.id, { fresh: legacy });
+		const fresh = await servedThread(forum.handle, thread.id, { fresh: true });
 		expect(fresh.comments[0]?.authorAvatarUrl).toBeUndefined();
 		expect(fresh.comments[0]?.authorAvatarCrop).toBeUndefined();
 	});
@@ -194,11 +274,31 @@ describe("comment avatar hydration", () => {
 		const author = await createBotForTest(cookie, "fresh-author");
 		const avatar = await botAvatar(author.id, author.homeWorldId, pngAvatarBytes(), "image/png");
 		const thread = await createThreadForTest(forum.id, author.id, "Fresh avatars", "The fresh path hydrates too.");
-		const legacy = await persistLegacyAvatars(thread.id);
+		await persistLegacyAvatars(thread.id);
 
-		const served = await servedThread(forum.handle, thread.id, { fresh: legacy });
+		const served = await servedThread(forum.handle, thread.id, { fresh: true });
 		expect(served.comments[0]?.authorAvatarUrl).toBe(avatar.url);
 		expect(served.comments[0]?.authorAvatarCrop).toBeUndefined();
+	});
+
+	it("hydrates the fresh path once, in the coordinator", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "avatar-fresh-once");
+		const author = await createBotForTest(cookie, "fresh-once-author");
+		const avatar = await botAvatar(author.id, author.homeWorldId, pngAvatarBytes(), "image/png");
+		const thread = await createThreadForTest(forum.id, author.id, "Fresh once", "One hydration is enough.");
+		await persistLegacyAvatars(thread.id);
+
+		// The web function must add nothing of its own to the document the
+		// coordinator hands it: a second hydration would be a second `bots_index`
+		// read per fresh thread view, for a document that is already hydrated.
+		const coordinatorThread = await coordinatorThreadDocument(thread.id);
+		expect(coordinatorThread.comments[0]?.authorAvatarUrl).toBe(avatar.url);
+		const served = await servedThread(forum.handle, thread.id, { fresh: true });
+		expect(served.comments.map((comment) => comment.authorAvatarUrl)).toEqual(
+			coordinatorThread.comments.map((comment) => comment.authorAvatarUrl),
+		);
 	});
 
 	it("hydrates comments returned by the coordinator's own mutation responses", async () => {
@@ -211,6 +311,74 @@ describe("comment avatar hydration", () => {
 		const thread = await createThreadForTest(forum.id, author.id, "Mutation avatars", "Creation responses hydrate.");
 		const created = thread as unknown as ServedThread;
 		expect(created.comments[0]?.authorAvatarUrl).toBe(avatar.url);
+	});
+
+	it("hydrates the comment a mutation names, not just its copy inside the thread", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "avatar-sibling");
+		const author = await createBotForTest(cookie, "sibling-author");
+		const avatar = await botAvatar(author.id, author.homeWorldId, pngAvatarBytes(), "image/png");
+		const thread = await createThreadForTest(forum.id, author.id, "Sibling avatars", "Both representations agree.");
+		await persistLegacyAvatars(thread.id);
+
+		const { status, payload } = await createCommentThroughCoordinator(thread.id, author.id, "A reply.");
+		expect(status).toBe(201);
+		const named = payload.comment;
+		expect(named?.authorAvatarUrl).toBe(avatar.url);
+		expect(named?.authorAvatarCrop).toBeUndefined();
+		// The same comment, reached through the thread, must be the same document.
+		const inThread = payload.thread.comments.find((comment) => comment.id === named?.id);
+		expect(inThread).toEqual(named);
+		// And the root comment's stale stored avatar is gone from both.
+		for (const comment of payload.thread.comments) {
+			expect(comment.authorAvatarUrl).toBe(avatar.url);
+		}
+	});
+
+	it("resolves a mutation's avatars before it commits, so no lookup can fail after the write", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "avatar-precommit");
+		const author = await createBotForTest(cookie, "precommit-author");
+		const avatar = await botAvatar(author.id, author.homeWorldId, pngAvatarBytes(), "image/png");
+		const thread = await createThreadForTest(forum.id, author.id, "Pre-commit avatars", "The lookup precedes the write.");
+
+		// The lookup starts failing the moment the mutation's own document write
+		// lands. A coordinator that hydrated afterwards would turn a committed
+		// comment into a 500, and its caller would retry the post into a duplicate.
+		const events: string[] = [];
+		const env = tracedCoordinatorEnv(events, { failAvatarLookup: () => events.includes("thread-write") });
+		const { status, payload } = await createCommentThroughCoordinator(thread.id, author.id, "A committed reply.", env);
+
+		expect(status).toBe(201);
+		expect(payload.comment?.authorAvatarUrl).toBe(avatar.url);
+		expect(events.indexOf("avatar-lookup")).toBeGreaterThanOrEqual(0);
+		expect(events.indexOf("avatar-lookup")).toBeLessThan(events.indexOf("thread-write"));
+		// Exactly one comment was written, and it is the one the response named.
+		const stored = await readThread(testEnv.BICKR_KV, thread.id);
+		expect(stored.comments).toHaveLength(2);
+		expect(stored.comments.map((comment) => comment.id)).toContain(payload.comment?.id);
+	});
+
+	it("fails a mutation before it commits when the avatar lookup is unavailable", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "avatar-precommit-fail");
+		const author = await createBotForTest(cookie, "precommit-fail-author");
+		await botAvatar(author.id, author.homeWorldId, pngAvatarBytes(), "image/png");
+		const thread = await createThreadForTest(forum.id, author.id, "Failed lookup", "A failure here is retryable.");
+
+		const events: string[] = [];
+		const env = tracedCoordinatorEnv(events, { failAvatarLookup: () => true });
+		const { status } = await createCommentThroughCoordinator(thread.id, author.id, "Never posted.", env);
+
+		// The failure is a plain 500, but nothing was written, so the caller's
+		// retry posts the comment once rather than twice.
+		expect(status).toBe(500);
+		expect(events).not.toContain("thread-write");
+		const stored = await readThread(testEnv.BICKR_KV, thread.id);
+		expect(stored.comments).toHaveLength(1);
 	});
 
 	it("hydrates MCP thread reads", async () => {

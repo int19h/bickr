@@ -17,9 +17,10 @@ import { parseOwnerWorldMutation } from "@bickr/shared/owner-world-mutation";
 import type { WorldLifecycleMutationResult } from "@bickr/shared/world-lifecycle-protocol";
 import { deleteSearchVector, upsertForumSearchVector, upsertWorldSearchVector } from "@bickr/shared/search";
 import {
+	commentAvatarOverlay,
+	commentWithCurrentAvatar,
 	createComment,
 	createThread,
-	hydrateThreadForRead,
 	normalizeThreadDefaults,
 	pruneExpiredBotSeenContent,
 	pruneExpiredNotifications,
@@ -27,6 +28,8 @@ import {
 	refreshThreadHotScores,
 	setVote,
 	softDeleteThreadForForum,
+	threadWithCurrentAvatars,
+	type CommentAvatarOverlay,
 } from "@bickr/shared/social";
 import { pruneBotInferenceUsage } from "@bickr/shared/token-spend";
 import { type CommentDocument, type ThreadDocument, type WorldDocument } from "@bickr/shared/model";
@@ -587,12 +590,14 @@ async function handleThreadCoordinatorMutation(
 		const actor = requireBotActor(request);
 		const forumId = decodeURIComponent(threadCreateMatch[1] ?? "");
 		const input = parseCreateThreadInput(await readJsonBody(request));
+		// A new thread's only comment is its root, authored by the actor.
+		const overlay = await mutationAvatarOverlay(env, null, actor.botId);
 		const thread = await createThread(env.BICKR_KV, env.BICKR_D1, {
 			...input,
 			forumId,
 			authorBotId: actor.botId,
 		});
-		return okThread(env, coordinator, { thread }, { status: 201 });
+		return okThread(coordinator, overlay, { thread }, { status: 201 });
 	}
 
 	const threadDeleteMatch = /^\/forums\/([^/]+)\/threads\/([^/]+)$/.exec(url.pathname);
@@ -602,12 +607,13 @@ async function handleThreadCoordinatorMutation(
 	const userId = requireUserHeader(request);
 	const forumId = decodeURIComponent(threadDeleteMatch[1] ?? "");
 	const threadId = decodeURIComponent(threadDeleteMatch[2] ?? "");
-	const latestThread = await readFreshThread(coordinator, threadId);
+	const latestThread = await threadBeforeMutation(env, coordinator, threadId);
+	const overlay = await mutationAvatarOverlay(env, latestThread);
 	const thread = await deleteThread(env.BICKR_KV, env.BICKR_D1, forumId, threadId, userId, undefined, {
 		...(latestThread ? { thread: latestThread } : {}),
 	});
 	await writeFreshThread(coordinator, thread);
-	return okThread(env, coordinator, { thread });
+	return okThread(coordinator, overlay, { thread });
 }
 
 async function handleCommentCoordinatorMutation(
@@ -621,7 +627,8 @@ async function handleCommentCoordinatorMutation(
 		const actor = requireBotActor(request);
 		const threadId = decodeURIComponent(commentCreateMatch[1] ?? "");
 		const input = parseCreateCommentInput(await readJsonBody(request));
-		const latestThread = await readFreshThread(coordinator, threadId);
+		const latestThread = await threadBeforeMutation(env, coordinator, threadId);
+		const overlay = await mutationAvatarOverlay(env, latestThread, actor.botId);
 		const { thread, comment } = await createComment(env.BICKR_KV, env.BICKR_D1, {
 			...input,
 			threadId,
@@ -630,7 +637,7 @@ async function handleCommentCoordinatorMutation(
 			...(latestThread ? { thread: latestThread } : {}),
 		});
 		await writeFreshThread(coordinator, thread);
-		return okThread(env, coordinator, { thread, comment }, { status: 201 });
+		return okThread(coordinator, overlay, { thread, comment }, { status: 201 });
 	}
 
 	const commentReplyMatch = /^\/comments\/([^/]+)\/replies$/.exec(url.pathname);
@@ -646,12 +653,13 @@ async function handleCommentCoordinatorMutation(
 	const forumId = decodeURIComponent(commentDeleteMatch[1] ?? "");
 	const threadId = decodeURIComponent(commentDeleteMatch[2] ?? "");
 	const commentId = decodeURIComponent(commentDeleteMatch[3] ?? "");
-	const latestThread = await readFreshThread(coordinator, threadId);
+	const latestThread = await threadBeforeMutation(env, coordinator, threadId);
+	const overlay = await mutationAvatarOverlay(env, latestThread);
 	const thread = await deleteComment(env.BICKR_KV, env.BICKR_D1, forumId, threadId, commentId, userId, undefined, {
 		...(latestThread ? { thread: latestThread } : {}),
 	});
 	await writeFreshThread(coordinator, thread);
-	return okThread(env, coordinator, { thread });
+	return okThread(coordinator, overlay, { thread });
 }
 
 async function createCommentReply(
@@ -673,7 +681,8 @@ async function createCommentReply(
 	if (!row) {
 		throw new RepositoryError("not_found", "Parent comment not found.", 404);
 	}
-	const latestThread = await readFreshThread(coordinator, row.threadId);
+	const latestThread = await threadBeforeMutation(env, coordinator, row.threadId);
+	const overlay = await mutationAvatarOverlay(env, latestThread, actor.botId);
 	const { thread, comment } = await createComment(env.BICKR_KV, env.BICKR_D1, {
 		...input,
 		threadId: row.threadId,
@@ -683,7 +692,7 @@ async function createCommentReply(
 		...(latestThread ? { thread: latestThread } : {}),
 	});
 	await writeFreshThread(coordinator, thread);
-	return okThread(env, coordinator, { thread, comment }, { status: 201 });
+	return okThread(coordinator, overlay, { thread, comment }, { status: 201 });
 }
 
 async function handleThreadCoordinatorRead(
@@ -698,7 +707,10 @@ async function handleThreadCoordinatorRead(
 	}
 	const threadId = decodeURIComponent(threadReadMatch[1] ?? "");
 	const thread = await readFreshThread(coordinator, threadId) ?? await readThread(env.BICKR_KV, threadId);
-	return okThread(env, coordinator, { thread });
+	// A read writes nothing, so its overlay may be resolved afterwards and a
+	// failure here is safely retryable.
+	const overlay = await commentAvatarOverlay(env.BICKR_D1, thread.comments.map((comment) => comment.authorBotId));
+	return okThread(coordinator, overlay, { thread });
 }
 
 /**
@@ -706,22 +718,83 @@ async function handleThreadCoordinatorRead(
  *
  * Stored comment avatars are dead data, so a response that passed a document
  * straight back would hand its consumer a URL that may already point at a
- * garbage-collected R2 object. Hydration happens here, at the response
- * boundary, and never before `writeFreshThread`: the overlay must not reach
- * the coordinator's document or KV.
+ * garbage-collected R2 object. The overlay is applied here, at the response
+ * boundary, and never before `writeFreshThread`: it must not reach the
+ * coordinator's document or KV.
+ *
+ * This is deliberately synchronous and total. Its callers include mutations
+ * that have already committed, and nothing on the way out of a committed
+ * mutation may fail — see `mutationAvatarOverlay`.
  */
-async function okThread(
-	env: ForumCoordinatorEnv,
+function okThread(
 	coordinator: CoordinatorContext,
+	overlay: CommentAvatarOverlay,
 	payload: { thread: ThreadDocument; comment?: CommentDocument },
 	init?: ResponseInit,
-): Promise<Response> {
-	const { thread, ...rest } = payload;
+): Response {
+	const thread = threadWithCurrentAvatars(payload.thread, overlay);
+	// A response that names a single comment names one that is also in the
+	// thread, and consumers do compare the two. It is taken from the hydrated
+	// thread so the two representations cannot disagree; the fallback covers a
+	// mutation that somehow returns a comment its own thread does not contain.
+	const named = payload.comment;
+	const comment = named === undefined ? undefined
+		: thread.comments.find((item) => item.id === named.id) ?? commentWithCurrentAvatar(named, overlay);
 	return ok({
-		thread: await hydrateThreadForRead(env.BICKR_D1, thread),
-		...rest,
+		thread,
+		...(comment === undefined ? {} : { comment }),
 		coordinator: coordinator.objectId,
 	}, init);
+}
+
+/**
+ * Resolve the avatar overlay a mutation response will need, *before* the
+ * mutation runs.
+ *
+ * Thread mutations are not idempotent: once `createComment` has written its
+ * document, a failure on the way out turns a committed post into a 500, and
+ * the caller retries it into a duplicate comment. Deriving avatars reads D1,
+ * so that read cannot happen after the write.
+ *
+ * The authors a mutation can leave in its result are the thread's current
+ * authors plus the acting participant — no mutation here adds a comment by
+ * anybody else — so an overlay resolved from those covers whatever the write
+ * returns. A superset costs one extra row; a missing entry would silently drop
+ * an avatar, which is why the pre-read below does not settle for a cache miss.
+ */
+async function mutationAvatarOverlay(
+	env: ForumCoordinatorEnv,
+	thread: ThreadDocument | null,
+	actorBotId?: string,
+): Promise<CommentAvatarOverlay> {
+	const authorBotIds = new Set(thread?.comments.map((comment) => comment.authorBotId) ?? []);
+	if (actorBotId !== undefined) {
+		authorBotIds.add(actorBotId);
+	}
+	return commentAvatarOverlay(env.BICKR_D1, authorBotIds);
+}
+
+/**
+ * The thread a mutation is about to change, from the coordinator's fresh cache
+ * or, on a cache miss, from KV.
+ *
+ * The write paths accept this document as `options.thread` and skip their own
+ * read, so falling back to KV here costs nothing; what it buys is a complete
+ * pre-write author set for `mutationAvatarOverlay`, which a cold cache would
+ * otherwise leave empty. A thread that is missing or already tombstoned yields
+ * null and the write raises its own `not_found`, exactly as before.
+ */
+async function threadBeforeMutation(
+	env: ForumCoordinatorEnv,
+	coordinator: CoordinatorContext,
+	threadId: string,
+): Promise<ThreadDocument | null> {
+	const fresh = await readFreshThread(coordinator, threadId);
+	if (fresh) {
+		return fresh;
+	}
+	const stored = await readJson<ThreadDocument>(env.BICKR_KV, kvKeys.thread(threadId));
+	return stored && stored.id === threadId && !stored.deletedAt ? normalizeThreadDefaults(stored) : null;
 }
 
 async function handleVoteCoordinatorMutation(
@@ -737,8 +810,13 @@ async function handleVoteCoordinatorMutation(
 	const body = await readJsonBody(request);
 	const input = parseVoteInput(body);
 	const spotlightId = spotlightIdFromRequestBody(body);
-	const threadId = request.headers.get("x-bickr-thread-id");
-	const latestThread = threadId ? await readFreshThread(coordinator, threadId) : null;
+	// Routing sets the header; a request that reached this object without going
+	// through it still has to name the thread, because the response's avatar
+	// overlay has to be resolved from the pre-write document.
+	const threadId = request.headers.get("x-bickr-thread-id") ?? await voteCoordinatorName(env.BICKR_D1, input);
+	const latestThread = await threadBeforeMutation(env, coordinator, threadId);
+	// A vote adds no comment, so the pre-write authors are the only ones.
+	const overlay = await mutationAvatarOverlay(env, latestThread);
 	const thread = await setVote(env.BICKR_KV, env.BICKR_D1, {
 		...input,
 		botId: actor.botId,
@@ -747,7 +825,7 @@ async function handleVoteCoordinatorMutation(
 		...(spotlightId ? { spotlightId } : {}),
 	});
 	await writeFreshThread(coordinator, thread);
-	return okThread(env, coordinator, { thread });
+	return okThread(coordinator, overlay, { thread });
 }
 
 function spotlightIdFromRequestBody(body: unknown): string | undefined {
