@@ -55,7 +55,14 @@ describe('scheduled cron dispatch', () => {
 				async delete() {},
 			},
 			BICKR_D1: {
+				async batch(statements: unknown[]) {
+					calls.push('d1_batch');
+					return statements.map(() => ({ success: true, results: [], meta: { changes: 0 } }));
+				},
 				prepare(sql: string) {
+					if (sql.includes('inference_provider_default_barrier_candidates')) {
+						calls.push('inference_graph_cleanup_query');
+					}
 					if (sql.includes('FROM maintenance_control')) {
 						const statement = {
 							bind: () => statement,
@@ -123,7 +130,7 @@ describe('scheduled cron dispatch', () => {
 		return { env: env as unknown as Parameters<typeof runScheduledAgentRuntimeTasks>[0], calls };
 	}
 
-	it('routes the daily trigger to the retention sweep and never to bot dispatch', async () => {
+	it('routes the daily trigger to every daily step and never to bot dispatch', async () => {
 		vi.spyOn(console, 'log').mockImplementation(() => undefined);
 		const { env, calls } = dispatchEnv();
 
@@ -133,9 +140,80 @@ describe('scheduled cron dispatch', () => {
 			agentRuntimeDailyCronExpression,
 		);
 
-		expect(result).toMatchObject({ kind: 'daily', retention: { kind: 'bot_runtime_retention_sweep', scanned: 0 } });
+		// The daily set is these three steps and nothing else; each reports its own
+		// result so a step that silently stopped running is visible here.
+		expect(result).toMatchObject({
+			kind: 'daily',
+			retention: { kind: 'bot_runtime_retention_sweep', scanned: 0 },
+			janitor: { kind: 'avatar_janitor' },
+			inferenceGraphCleanup: { operations: 0 },
+		});
 		expect(calls).toContain('retention_sweep_query');
+		expect(calls).toContain('inference_graph_cleanup_query');
 		expect(calls).not.toContain('due_dispatch_query');
+		vi.restoreAllMocks();
+	});
+
+	it('runs the inference-graph terminal-state cleanup as a daily step, outside maintenance mode', async () => {
+		// The daily cron defers itself whenever maintenance is enabled, so this
+		// step only ever runs with maintenance off: the fixture reports disabled.
+		const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+		const { env, calls } = dispatchEnv();
+
+		const result = await runScheduledAgentRuntimeTasks(
+			env,
+			Date.parse('2026-08-17T03:23:00.000Z'),
+			agentRuntimeDailyCronExpression,
+		);
+
+		expect(calls).toContain('inference_graph_cleanup_query');
+		expect(result).toMatchObject({
+			kind: 'daily',
+			inferenceGraphCleanup: {
+				operations: 0,
+				projections: 0,
+				convergence: 0,
+				providerDefaultBarrierCandidates: 0,
+				providerDefaultBarrierSweeps: 0,
+			},
+		});
+		const summary = consoleLog.mock.calls
+			.map(([message]) => JSON.parse(String(message)) as Record<string, unknown>)
+			.find((payload) => payload.event === 'scheduled_daily_maintenance');
+		expect(summary).toMatchObject({ inferenceGraphCleanup: { operations: 0 } });
+		vi.restoreAllMocks();
+	});
+
+	it('keeps every daily step running when one of them fails, then rethrows', async () => {
+		const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		const { env, calls } = dispatchEnv();
+		const database = (env as unknown as { BICKR_D1: { batch: () => Promise<unknown> } }).BICKR_D1;
+		database.batch = async () => {
+			throw new Error('inference graph cleanup exploded');
+		};
+
+		await expect(runScheduledAgentRuntimeTasks(
+			env,
+			Date.parse('2026-08-17T03:23:00.000Z'),
+			agentRuntimeDailyCronExpression,
+		)).rejects.toThrow('inference graph cleanup exploded');
+
+		// The sibling steps still ran, and every step's counters were logged before
+		// the failure propagated. A rejected step escalates the whole daily record
+		// to error level, so the summary is not on console.log at all.
+		expect(calls).toContain('retention_sweep_query');
+		expect(consoleLog.mock.calls
+			.map(([message]) => JSON.parse(String(message)) as Record<string, unknown>)
+			.find((payload) => payload.event === 'scheduled_daily_maintenance')).toBeUndefined();
+		const summary = consoleError.mock.calls
+			.map(([message]) => JSON.parse(String(message)) as Record<string, unknown>)
+			.find((payload) => payload.event === 'scheduled_daily_maintenance');
+		expect(summary).toMatchObject({
+			retention: { kind: 'bot_runtime_retention_sweep' },
+			janitor: { kind: 'avatar_janitor' },
+			inferenceGraphCleanup: { status: 'failed', errorName: 'Error' },
+		});
 		vi.restoreAllMocks();
 	});
 

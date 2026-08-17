@@ -99,10 +99,14 @@ import type {
 import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
 import {
 	bootstrapNotificationId,
+	humanNotificationRetentionDays,
 	pruneExpiredBotSeenContent,
+	pruneExpiredHumanNotifications,
 	pruneExpiredNotifications,
+	pruneExpiredSpotlightDeliveries,
 	selectTombstonedBotsAfterCursorSql,
 	selectTombstonedBotsFirstPageSql,
+	spotlightDeliveryRetentionDays,
 } from "@bickr/shared/social";
 import {
 	forumCoordinatorDailyCronExpression,
@@ -275,30 +279,6 @@ function kvWithScriptedDeletes(failingKeys: ReadonlySet<string> = new Set()): KV
 	};
 }
 
-async function insertHumanNotificationForRetention(id: string, createdAt: string): Promise<void> {
-	await testEnv.BICKR_D1.prepare(
-		`INSERT INTO human_notifications (
-			notification_id, user_id, world_id, event_key, notification_type,
-			actor_bot_id, actor_handle, actor_display_name, title, body, url_path, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-	)
-		.bind(
-			id,
-			"usr_retention",
-			"wld_retention",
-			`retention:${id}`,
-			"thread_created",
-			"bot_retention",
-			"retention-bot",
-			"Retention Bot",
-			"Old human notification",
-			"Out of scope",
-			"/",
-			createdAt,
-		)
-		.run();
-}
-
 async function humanNotificationExists(id: string): Promise<boolean> {
 	const row = await testEnv.BICKR_D1.prepare(
 		`SELECT notification_id AS id
@@ -398,6 +378,65 @@ async function botInferenceUsageSourceIds(): Promise<number[]> {
 		 ORDER BY source_usage_id`,
 	).all<{ sourceUsageId: number }>();
 	return (result.results ?? []).map((row) => row.sourceUsageId);
+}
+
+async function insertSpotlightDeliveryForRetention(input: {
+	spotlightId: string;
+	createdAt: string;
+	botId?: string;
+	status?: string;
+}): Promise<void> {
+	await testEnv.BICKR_D1.prepare(
+		`INSERT INTO spotlight_deliveries (
+			spotlight_id, user_id, bot_id, world_id, forum_id, thread_id,
+			target_type, target_ids_json, focus_text, injected_text, status, error_message, created_at
+		) VALUES (?, 'usr_retention', ?, 'wld_retention', 'frm_retention', NULL,
+			'thread', '["thr_retention"]', NULL, 'Injected text', ?, NULL, ?)`,
+	)
+		.bind(input.spotlightId, input.botId ?? "bot_retention_spotlight", input.status ?? "injected", input.createdAt)
+		.run();
+}
+
+async function spotlightDeliverySpotlightIds(): Promise<string[]> {
+	const result = await testEnv.BICKR_D1.prepare(
+		`SELECT spotlight_id AS id FROM spotlight_deliveries ORDER BY spotlight_id`,
+	).all<{ id: string }>();
+	return (result.results ?? []).map((row) => row.id);
+}
+
+async function insertHumanNotificationForRetention(input: {
+	id: string;
+	createdAt: string;
+	readAt?: string | null;
+	archivedAt?: string | null;
+	eventKey?: string;
+	notificationType?: string;
+}): Promise<void> {
+	await testEnv.BICKR_D1.prepare(
+		`INSERT INTO human_notifications (
+			notification_id, user_id, world_id, event_key, notification_type,
+			actor_bot_id, actor_handle, actor_display_name, source_type, source_id,
+			target_type, target_id, title, body, url_path, spotlight_id, spotlight_label,
+			created_at, read_at, archived_at
+		) VALUES (?, 'usr_retention', 'wld_retention', ?, ?, NULL, NULL, NULL, NULL, NULL,
+			NULL, NULL, 'Title', 'Body', '/', NULL, NULL, ?, ?, ?)`,
+	)
+		.bind(
+			input.id,
+			input.eventKey ?? `event:${input.id}`,
+			input.notificationType ?? "mention",
+			input.createdAt,
+			input.readAt ?? null,
+			input.archivedAt ?? null,
+		)
+		.run();
+}
+
+async function humanNotificationRowIds(): Promise<string[]> {
+	const result = await testEnv.BICKR_D1.prepare(
+		`SELECT notification_id AS id FROM human_notifications ORDER BY notification_id`,
+	).all<{ id: string }>();
+	return (result.results ?? []).map((row) => row.id);
 }
 
 function daysBefore(now: string, days: number): string {
@@ -1005,7 +1044,7 @@ describe("Forum coordinator", () => {
 			status: "pending",
 			createdAt: daysBefore(now, 13),
 		});
-		await insertHumanNotificationForRetention("hnt_old_out_of_scope", daysBefore(now, 120));
+		await insertHumanNotificationForRetention({ id: "hnt_old_out_of_scope", createdAt: daysBefore(now, 120) });
 
 		const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
 		let pruneLog: Record<string, unknown> | undefined;
@@ -1055,6 +1094,23 @@ describe("Forum coordinator", () => {
 			sourceUsageId: 2,
 			createdAt: daysBefore(now, botInferenceUsageRetentionDays - 1),
 		});
+		await insertSpotlightDeliveryForRetention({
+			spotlightId: "spl_daily_expired",
+			createdAt: daysBefore(now, spotlightDeliveryRetentionDays + 1),
+		});
+		await insertSpotlightDeliveryForRetention({
+			spotlightId: "spl_daily_retained",
+			createdAt: daysBefore(now, spotlightDeliveryRetentionDays - 1),
+		});
+		await insertHumanNotificationForRetention({
+			id: "hnt_daily_expired",
+			createdAt: daysBefore(now, humanNotificationRetentionDays + 1),
+			readAt: daysBefore(now, humanNotificationRetentionDays + 1),
+		});
+		await insertHumanNotificationForRetention({
+			id: "hnt_daily_retained",
+			createdAt: daysBefore(now, humanNotificationRetentionDays - 1),
+		});
 
 		const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
 		let retentionLog: Record<string, unknown> | undefined;
@@ -1070,6 +1126,8 @@ describe("Forum coordinator", () => {
 		expect(await botNotificationRowIds()).toEqual(["ntf_expired_for_daily_run"]);
 		expect(await botSeenContentRowIds()).toEqual(["thr_seen_retained"]);
 		expect(await botInferenceUsageSourceIds()).toEqual([2]);
+		expect(await spotlightDeliverySpotlightIds()).toEqual(["spl_daily_retained"]);
+		expect(await humanNotificationRowIds()).toEqual(["hnt_daily_retained"]);
 		expect(retentionLog).toMatchObject({
 			event: "retention_prune",
 			hotScores: { recentCommentCountsRefreshed: true },
@@ -1078,6 +1136,14 @@ describe("Forum coordinator", () => {
 			},
 			inferenceUsagePrune: {
 				deletedRows: 1,
+			},
+			spotlightDeliveryPrune: {
+				deletedRows: 1,
+				budgetExhausted: false,
+			},
+			humanNotificationPrune: {
+				deletedRows: 1,
+				budgetExhausted: false,
 			},
 			indexRepair: {
 				scanned: 0,
@@ -1155,6 +1221,133 @@ describe("Forum coordinator", () => {
 			budgetExhausted: false,
 		});
 		expect(await botSeenContentRowIds()).toEqual(["thr_cutoff_seen", "thr_recent_seen"]);
+	});
+
+	it("prunes spotlight deliveries older than the retention cutoff", async () => {
+		const now = "2026-07-01T00:00:00.000Z";
+		await insertSpotlightDeliveryForRetention({
+			spotlightId: "spl_old",
+			createdAt: daysBefore(now, spotlightDeliveryRetentionDays + 1),
+		});
+		await insertSpotlightDeliveryForRetention({
+			spotlightId: "spl_cutoff",
+			createdAt: daysBefore(now, spotlightDeliveryRetentionDays),
+		});
+		await insertSpotlightDeliveryForRetention({
+			spotlightId: "spl_recent",
+			createdAt: daysBefore(now, spotlightDeliveryRetentionDays - 1),
+		});
+
+		const result = await pruneExpiredSpotlightDeliveries(testEnv.BICKR_D1, {
+			now,
+			batchSize: 10,
+			maxRowsPerRun: 10,
+		});
+
+		// Exactly at the cutoff is retained: the predicate is strictly older-than.
+		expect(result).toEqual({ deletedRows: 1, batches: 1, budgetExhausted: false });
+		expect(await spotlightDeliverySpotlightIds()).toEqual(["spl_cutoff", "spl_recent"]);
+	});
+
+	it("resumes spotlight delivery pruning after hitting the per-run row budget", async () => {
+		const now = "2026-07-01T00:00:00.000Z";
+		for (let index = 0; index < 5; index += 1) {
+			await insertSpotlightDeliveryForRetention({
+				spotlightId: `spl_budget_${index}`,
+				createdAt: daysBefore(now, 30 + index),
+			});
+		}
+		await insertSpotlightDeliveryForRetention({ spotlightId: "spl_budget_recent", createdAt: now });
+
+		const firstRun = await pruneExpiredSpotlightDeliveries(testEnv.BICKR_D1, {
+			now,
+			batchSize: 2,
+			maxRowsPerRun: 3,
+		});
+		expect(firstRun).toEqual({ deletedRows: 3, batches: 2, budgetExhausted: true });
+
+		const secondRun = await pruneExpiredSpotlightDeliveries(testEnv.BICKR_D1, {
+			now,
+			batchSize: 2,
+			maxRowsPerRun: 3,
+		});
+		expect(secondRun).toEqual({ deletedRows: 2, batches: 1, budgetExhausted: false });
+		expect(await spotlightDeliverySpotlightIds()).toEqual(["spl_budget_recent"]);
+	});
+
+	it("prunes human notifications older than the cutoff regardless of read or archived state", async () => {
+		const now = "2026-07-01T00:00:00.000Z";
+		const expired = daysBefore(now, humanNotificationRetentionDays + 1);
+		await insertHumanNotificationForRetention({ id: "hnt_old_unread", createdAt: expired });
+		await insertHumanNotificationForRetention({ id: "hnt_old_read", createdAt: expired, readAt: expired });
+		await insertHumanNotificationForRetention({ id: "hnt_old_archived", createdAt: expired, archivedAt: expired });
+		await insertHumanNotificationForRetention({
+			id: "hnt_cutoff",
+			createdAt: daysBefore(now, humanNotificationRetentionDays),
+		});
+		await insertHumanNotificationForRetention({
+			id: "hnt_recent",
+			createdAt: daysBefore(now, humanNotificationRetentionDays - 1),
+		});
+
+		const result = await pruneExpiredHumanNotifications(testEnv.BICKR_D1, {
+			now,
+			batchSize: 10,
+			maxRowsPerRun: 10,
+		});
+
+		expect(result).toEqual({ deletedRows: 3, batches: 1, budgetExhausted: false });
+		expect(await humanNotificationRowIds()).toEqual(["hnt_cutoff", "hnt_recent"]);
+	});
+
+	it("frees an aged-out human notification event key for a fresh notification", async () => {
+		// Accepted behavior change (§2.6): bot_followed event keys are id-scoped, so
+		// deleting the expired row lets an unfollow -> re-follow after the retention
+		// window notify again instead of being suppressed forever.
+		const now = "2026-07-01T00:00:00.000Z";
+		const eventKey = "bot_followed:bot_follower:bot_followed";
+		await insertHumanNotificationForRetention({
+			id: "hnt_first_follow",
+			createdAt: daysBefore(now, humanNotificationRetentionDays + 1),
+			eventKey,
+			notificationType: "bot_followed",
+		});
+
+		await pruneExpiredHumanNotifications(testEnv.BICKR_D1, { now, batchSize: 10, maxRowsPerRun: 10 });
+
+		await insertHumanNotificationForRetention({
+			id: "hnt_second_follow",
+			createdAt: now,
+			eventKey,
+			notificationType: "bot_followed",
+		});
+		expect(await humanNotificationRowIds()).toEqual(["hnt_second_follow"]);
+	});
+
+	it("resumes human notification pruning after hitting the per-run row budget", async () => {
+		const now = "2026-07-01T00:00:00.000Z";
+		for (let index = 0; index < 5; index += 1) {
+			await insertHumanNotificationForRetention({
+				id: `hnt_budget_${index}`,
+				createdAt: daysBefore(now, 40 + index),
+			});
+		}
+		await insertHumanNotificationForRetention({ id: "hnt_budget_recent", createdAt: now });
+
+		const firstRun = await pruneExpiredHumanNotifications(testEnv.BICKR_D1, {
+			now,
+			batchSize: 2,
+			maxRowsPerRun: 3,
+		});
+		expect(firstRun).toEqual({ deletedRows: 3, batches: 2, budgetExhausted: true });
+
+		const secondRun = await pruneExpiredHumanNotifications(testEnv.BICKR_D1, {
+			now,
+			batchSize: 2,
+			maxRowsPerRun: 3,
+		});
+		expect(secondRun).toEqual({ deletedRows: 2, batches: 1, budgetExhausted: false });
+		expect(await humanNotificationRowIds()).toEqual(["hnt_budget_recent"]);
 	});
 
 	it("resumes bot seen-content pruning after hitting the per-run row budget", async () => {

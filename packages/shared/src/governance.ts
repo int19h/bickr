@@ -10,6 +10,7 @@ import {
 	type WorldSummary,
 } from "./model";
 import { tombstoneHandle } from "./handles";
+import { humanSubscriptionScopeDeleteStatements } from "./human-subscriptions";
 import { isD1UniqueConstraintError } from "./d1-errors";
 import { objectIndexScopeStaleStatement } from "./object-index-scope";
 import { entityIndexVersions } from "./index-versions";
@@ -227,10 +228,16 @@ async function deleteWorld(
 	await softDeleteBotGroupsForWorld(db, world.id, deleted.deletedAt);
 	await writeJson(kv, kvKeys.world(deleted.id), deleted);
 	await deleteOptions.checkpoint?.("world.delete.kv");
-	await db
-		.prepare(`UPDATE worlds_index SET handle = ?, updated_at = ?, deleted_at = ? WHERE world_id = ?`)
-		.bind(tombstonedHandle, deleted.updatedAt, deleted.deletedAt, deleted.id)
-		.run();
+	// The tombstone and the subscription rows it orphans go in one batch, so a
+	// crash between them cannot strand rows on a world nothing can reach. Only
+	// the world's own scope, for the same reason as the forum delete: the forums
+	// under it are deleted by the world lifecycle's own cascade.
+	await db.batch([
+		db
+			.prepare(`UPDATE worlds_index SET handle = ?, updated_at = ?, deleted_at = ? WHERE world_id = ?`)
+			.bind(tombstonedHandle, deleted.updatedAt, deleted.deletedAt, deleted.id),
+		...humanSubscriptionScopeDeleteStatements(db, [{ scopeType: "world", scopeId: deleted.id }]),
+	]);
 	await upsertWorldSearchIndex(db, deleted);
 	await putObjectIndex(db, deleted, "world", entityIndexVersions.world, deleted.id);
 	await deleteOptions.checkpoint?.("world.delete.indexes.d1");
@@ -429,10 +436,16 @@ async function markForumDeleted(
 		deletedAt: now,
 	};
 	await writeJson(kv, kvKeys.forum(deleted.id), deleted);
-	await db
-		.prepare(`UPDATE forums_index SET handle = ?, updated_at = ?, deleted_at = ? WHERE forum_id = ? AND deleted_at IS NULL`)
-		.bind(tombstonedHandle, now, now, deleted.id)
-		.run();
+	// One batch, so the tombstone and the rows it orphans land together. Only the
+	// forum's own scope: its threads (and their comments) are soft deleted by the
+	// governance deletion sweep this delete schedules, and each of those clears
+	// its own scopes.
+	await db.batch([
+		db
+			.prepare(`UPDATE forums_index SET handle = ?, updated_at = ?, deleted_at = ? WHERE forum_id = ? AND deleted_at IS NULL`)
+			.bind(tombstonedHandle, now, now, deleted.id),
+		...humanSubscriptionScopeDeleteStatements(db, [{ scopeType: "forum", scopeId: deleted.id }]),
+	]);
 	await upsertForumSearchIndex(db, deleted);
 	await putObjectIndex(db, deleted, "forum", entityIndexVersions.forum, deleted.worldId);
 	return deleted;

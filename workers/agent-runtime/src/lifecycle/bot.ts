@@ -35,6 +35,7 @@ import {
 	accountDefaultConfigurationId,
 	botConfigurationId,
 } from "@bickr/shared/inference-configuration-repository";
+import { humanSubscriptionScopeDeleteStatements } from "@bickr/shared/human-subscriptions";
 import { deterministicId, makeId } from "@bickr/shared/ids";
 import type { BotDocument, BotSummary, CreateBotInput } from "@bickr/shared/model";
 import {
@@ -309,7 +310,7 @@ async function compensateBotCreate(
 	const db = context.env.BICKR_D1;
 	await finalizeLifecycleCompensation(db, operation, [
 		db.prepare(deleteBotGroupMembershipsByBotSql).bind(request.botId),
-		db.prepare("DELETE FROM human_subscriptions WHERE scope_type = 'bot' AND scope_id = ?").bind(request.botId),
+		...humanSubscriptionScopeDeleteStatements(db, [{ scopeType: "bot", scopeId: request.botId }]),
 		db.prepare("DELETE FROM bot_clone_sources WHERE bot_id = ?").bind(request.botId),
 		db.prepare("DELETE FROM bot_imports WHERE bot_id = ?").bind(request.botId),
 		db.prepare("DELETE FROM bot_runtime_index WHERE bot_id = ?").bind(request.botId),

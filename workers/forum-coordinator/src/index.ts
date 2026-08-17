@@ -23,7 +23,9 @@ import {
 	createThread,
 	normalizeThreadDefaults,
 	pruneExpiredBotSeenContent,
+	pruneExpiredHumanNotifications,
 	pruneExpiredNotifications,
+	pruneExpiredSpotlightDeliveries,
 	readThread,
 	refreshThreadHotScores,
 	setVote,
@@ -876,10 +878,19 @@ async function runDailyForumCoordinatorMaintenance(env: Env, now: string): Promi
 		console.log(JSON.stringify({ event: "scheduled_tasks_deferred", reason: "maintenance", scheduledTime: now }));
 		return;
 	}
-	const [hotScores, botSeenContentPrune, inferenceUsagePrune, indexRepair] = await Promise.allSettled([
+	const [
+		hotScores,
+		botSeenContentPrune,
+		inferenceUsagePrune,
+		spotlightDeliveryPrune,
+		humanNotificationPrune,
+		indexRepair,
+	] = await Promise.allSettled([
 		refreshThreadHotScores(env.BICKR_D1, now),
 		pruneExpiredBotSeenContent(env.BICKR_D1, { now }),
 		pruneBotInferenceUsage(env.BICKR_D1, new Date(now)),
+		pruneExpiredSpotlightDeliveries(env.BICKR_D1, { now }),
+		pruneExpiredHumanNotifications(env.BICKR_D1, { now }),
 		repairObjectIndexes(env),
 	]);
 	// Log unconditionally and before failures propagate: the 2026-07-11 run
@@ -890,10 +901,18 @@ async function runDailyForumCoordinatorMaintenance(env: Env, now: string): Promi
 		hotScores: settledMaintenanceResult(hotScores, () => ({ recentCommentCountsRefreshed: true })),
 		botSeenContentPrune: settledMaintenanceResult(botSeenContentPrune, (value) => value),
 		inferenceUsagePrune: settledMaintenanceResult(inferenceUsagePrune, (value) => value),
+		spotlightDeliveryPrune: settledMaintenanceResult(spotlightDeliveryPrune, (value) => value),
+		humanNotificationPrune: settledMaintenanceResult(humanNotificationPrune, (value) => value),
 		indexRepair: settledMaintenanceResult(indexRepair, (value) => value),
 	}));
-	const failure = [hotScores, botSeenContentPrune, inferenceUsagePrune, indexRepair]
-		.find((result): result is PromiseRejectedResult => result.status === "rejected");
+	const failure = [
+		hotScores,
+		botSeenContentPrune,
+		inferenceUsagePrune,
+		spotlightDeliveryPrune,
+		humanNotificationPrune,
+		indexRepair,
+	].find((result): result is PromiseRejectedResult => result.status === "rejected");
 	if (failure) {
 		throw failure.reason;
 	}
