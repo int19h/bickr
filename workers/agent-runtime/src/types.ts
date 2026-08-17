@@ -398,6 +398,15 @@ export type LoopSetupMode = 'new_iteration' | 'continuation' | 'spotlight';
 
 export type RuntimeReleaseStatus = 'idle' | 'failed';
 
+/**
+ * Why a run was admitted. Recorded on the runtime index row for as long as the
+ * run holds the lease, because the paths that release a run — the tick's own
+ * completion, an out-of-band stop, the stale-run reaper — can run long after the
+ * request that knew why the run started, and a spotlight visit has to leave the
+ * participant's standing schedule alone where an ordinary visit reschedules it.
+ */
+export type RuntimeRunTrigger = 'cron' | 'manual' | 'spotlight';
+
 export type ActiveMaintenanceOperation = 'clear_history' | 'manual_compaction';
 
 export type TickOptions = {

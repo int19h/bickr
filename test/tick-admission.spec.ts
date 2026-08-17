@@ -15,6 +15,7 @@ import {
 	type LanguageTag,
 	type UserDocument,
 } from "../packages/shared/src/model";
+import type { RuntimeRunTrigger } from "../workers/agent-runtime/src/types";
 import { kvKeys } from "../packages/shared/src/storage";
 
 const testLanguage = "en" as LanguageTag;
@@ -160,7 +161,7 @@ describe("runtime D1 claim helpers", () => {
 	it("claims idle rows, rejects live leases, claims expired leases, and ignores stale releases", async () => {
 		await seedBotRuntimeRow({ botId: "bot_claim_idle", status: "idle" });
 		await expect(
-			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_idle", "run-idle", "2026-07-09T20:15:00.000Z", now),
+			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_idle", "run-idle", "2026-07-09T20:15:00.000Z", now, "cron"),
 		).resolves.toBe(true);
 		await expect(runtimeIndexRow("bot_claim_idle")).resolves.toMatchObject({
 			status: "running",
@@ -175,7 +176,7 @@ describe("runtime D1 claim helpers", () => {
 			leaseExpiresAt: "2026-07-09T20:30:00.000Z",
 		});
 		await expect(
-			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_live", "run-contender", "2026-07-09T20:45:00.000Z", now),
+			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_live", "run-contender", "2026-07-09T20:45:00.000Z", now, "cron"),
 		).resolves.toBe(false);
 		await expect(runtimeIndexRow("bot_claim_live")).resolves.toMatchObject({
 			status: "running",
@@ -190,7 +191,7 @@ describe("runtime D1 claim helpers", () => {
 			leaseExpiresAt: "2026-07-09T19:59:59.000Z",
 		});
 		await expect(
-			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_expired", "run-successor", "2026-07-09T20:45:00.000Z", now),
+			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_expired", "run-successor", "2026-07-09T20:45:00.000Z", now, "cron"),
 		).resolves.toBe(true);
 		await expect(runtimeIndexRow("bot_claim_expired")).resolves.toMatchObject({
 			status: "running",
@@ -230,7 +231,7 @@ describe("runtime D1 claim helpers", () => {
 		await pauseRuntimeIndexRows("bot_claim_paused_idle", "bot_claim_paused_expired");
 
 		await expect(
-			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_paused_idle", "run-paused", "2026-07-09T20:15:00.000Z", now),
+			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_paused_idle", "run-paused", "2026-07-09T20:15:00.000Z", now, "cron"),
 		).resolves.toBe(false);
 		await expect(runtimeIndexRow("bot_claim_paused_idle")).resolves.toMatchObject({
 			enabled: 0,
@@ -241,7 +242,7 @@ describe("runtime D1 claim helpers", () => {
 		});
 
 		await expect(
-			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_paused_expired", "run-successor", "2026-07-09T20:15:00.000Z", now),
+			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_paused_expired", "run-successor", "2026-07-09T20:15:00.000Z", now, "cron"),
 		).resolves.toBe(false);
 		await expect(runtimeIndexRow("bot_claim_paused_expired")).resolves.toMatchObject({
 			enabled: 0,
@@ -427,6 +428,7 @@ describe("runtime scheduling against a concurrent owner pause", () => {
 			enabled: 1,
 			status: "idle",
 			activeRunId: null,
+			activeRunTrigger: null,
 			leaseExpiresAt: null,
 			nextDueAt: resumed.nextDueAt,
 		});
@@ -440,29 +442,198 @@ describe("runtime scheduling against a concurrent owner pause", () => {
 			nextDueAt: null,
 		});
 		await pauseRuntimeIndexRows(botId);
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			env: { BICKR_D1: stalelyEnabledD1(), BICKR_KV: testEnv.BICKR_KV },
-		}) as unknown as {
-			setRuntimeIndex(
-				bot: BotDocument,
-				status: "idle" | "failed",
-				lastError: string | undefined,
-				now: string,
-				ownedByRunId: string,
-			): Promise<string | null>;
-		};
+		const runtime = releasingRuntime(stalelyEnabledD1());
 
-		await runtime.setRuntimeIndex(testBotDocument(), "idle", undefined, now, "run-live");
+		await runtime.setRuntimeIndex(testBotDocument(), "idle", undefined, now, "run-live", "cron");
 
 		await expect(runtimeIndexRow(botId)).resolves.toEqual({
 			enabled: 0,
 			status: "idle",
 			activeRunId: null,
+			activeRunTrigger: null,
 			leaseExpiresAt: null,
 			nextDueAt: null,
 		});
 	});
 });
+
+describe("spotlight visits against the participant's own schedule", () => {
+	// Already due, and reached by the participant's own rhythm rather than by any
+	// spotlight: every assertion below is about whether this survives the visit.
+	const standingDueAt = "2026-07-09T19:58:00.000Z";
+	const leaseExpiresAt = "2026-07-09T20:15:00.000Z";
+
+	it("records the trigger and leaves the standing schedule alone when a spotlight claims the row", async () => {
+		await seedBotRuntimeRow({ status: "idle", nextDueAt: standingDueAt });
+
+		await expect(
+			claimRuntimeRun(testEnv.BICKR_D1, botId, "run-spotlight", leaseExpiresAt, now, "spotlight"),
+		).resolves.toBe(true);
+
+		// The live lease is what keeps the scheduler off the row while the visit
+		// runs, so a schedule left in the past cannot double-dispatch.
+		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({
+			status: "running",
+			activeRunId: "run-spotlight",
+			activeRunTrigger: "spotlight",
+			leaseExpiresAt,
+			nextDueAt: standingDueAt,
+		});
+	});
+
+	it("pushes the schedule out to the lease when an ordinary visit claims the row", async () => {
+		await seedBotRuntimeRow({ status: "idle", nextDueAt: standingDueAt });
+
+		await expect(claimRuntimeRun(testEnv.BICKR_D1, botId, "run-cron", leaseExpiresAt, now, "cron"),).resolves.toBe(true);
+
+		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({
+			activeRunTrigger: "cron",
+			nextDueAt: leaseExpiresAt,
+		});
+	});
+
+	// Success, the no-injection early return, and every failure branch release the
+	// run through this one call, so the trigger decides the schedule for all of
+	// them at once.
+	it.each([
+		{ label: "completes", status: "idle" as const, lastError: undefined },
+		{ label: "fails", status: "failed" as const, lastError: "Provider gave up." },
+	])("leaves the standing schedule untouched when a spotlight visit $label", async ({ status, lastError }) => {
+		await seedBotRuntimeRow({
+			status: "running",
+			activeRunId: "run-spotlight",
+			activeRunTrigger: "spotlight",
+			leaseExpiresAt,
+			nextDueAt: standingDueAt,
+		});
+
+		const proposed = await releasingRuntime().setRuntimeIndex(
+			testBotDocument(),
+			status,
+			lastError,
+			"2026-07-09T20:03:00.000Z",
+			"run-spotlight",
+			"spotlight",
+		);
+
+		expect(proposed).toBeNull();
+		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({
+			enabled: 1,
+			status,
+			activeRunId: null,
+			activeRunTrigger: null,
+			leaseExpiresAt: null,
+			nextDueAt: standingDueAt,
+		});
+	});
+
+	it.each([
+		{ label: "completes", status: "idle" as const, lastError: undefined, expected: "2026-07-09T20:04:00.000Z" },
+		// A failed ordinary visit waits out a lease timeout instead of its own
+		// interval, which is 15 minutes past the release below.
+		{ label: "fails", status: "failed" as const, lastError: "Provider gave up.", expected: "2026-07-09T20:18:00.000Z" },
+	])("reschedules from the release when an ordinary visit $label", async ({ status, lastError, expected }) => {
+		await seedBotRuntimeRow({
+			status: "running",
+			activeRunId: "run-cron",
+			activeRunTrigger: "cron",
+			leaseExpiresAt,
+			nextDueAt: leaseExpiresAt,
+		});
+
+		const proposed = await releasingRuntime().setRuntimeIndex(
+			testBotDocument(),
+			status,
+			lastError,
+			"2026-07-09T20:03:00.000Z",
+			"run-cron",
+			"cron",
+		);
+
+		expect(proposed).toBe(expected);
+		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({ status, nextDueAt: expected });
+	});
+
+	// The out-of-band stop: this instance no longer owns the run, so the trigger
+	// can only come from the row the claim recorded it on.
+	it("leaves the standing schedule untouched when a spotlight visit is stopped out of band", async () => {
+		await seedBotRuntimeRow({
+			status: "running",
+			activeRunId: "run-spotlight",
+			activeRunTrigger: "spotlight",
+			leaseExpiresAt: "2027-01-01T00:00:00.000Z",
+			nextDueAt: standingDueAt,
+		});
+		await seedBotDocuments();
+
+		await expect(stoppingRuntime().stopTick(botId)).resolves.toMatchObject({
+			stopped: true,
+			runId: "run-spotlight",
+			status: "idle",
+		});
+
+		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({
+			status: "idle",
+			activeRunId: null,
+			activeRunTrigger: null,
+			nextDueAt: standingDueAt,
+		});
+	});
+
+	it.each([
+		{ label: "an ordinary", activeRunTrigger: "cron" as const },
+		// A row claimed before the column existed carries no trigger at all, and is
+		// read as the ordinary tick it most likely was.
+		{ label: "an unrecorded", activeRunTrigger: null },
+	])("reschedules from the stop when $label visit is stopped out of band", async ({ activeRunTrigger }) => {
+		await seedBotRuntimeRow({
+			status: "running",
+			activeRunId: "run-cron",
+			activeRunTrigger,
+			leaseExpiresAt: "2027-01-01T00:00:00.000Z",
+			nextDueAt: standingDueAt,
+		});
+		await seedBotDocuments();
+
+		await expect(stoppingRuntime().stopTick(botId)).resolves.toMatchObject({ stopped: true, runId: "run-cron" });
+
+		const row = await runtimeIndexRow(botId);
+		expect(row).toMatchObject({ status: "idle", activeRunId: null, activeRunTrigger: null });
+		// The stop reschedules from its own clock, an interval out from real now.
+		expect(Date.parse(row.nextDueAt!)).toBeGreaterThan(Date.now());
+	});
+});
+
+// setRuntimeIndex and stopTick reach D1 and KV only, so a prototype instance with
+// the surrounding event stream stubbed out exercises the real schedule decision
+// without standing up a Durable Object.
+function releasingRuntime(db: D1Database = testEnv.BICKR_D1): {
+	setRuntimeIndex(
+		bot: BotDocument,
+		status: "idle" | "failed",
+		lastError: string | undefined,
+		now: string,
+		ownedByRunId: string,
+		trigger: RuntimeRunTrigger,
+	): Promise<string | null>;
+} {
+	return Object.assign(Object.create(BotRuntime.prototype), {
+		env: { BICKR_D1: db, BICKR_KV: testEnv.BICKR_KV },
+	});
+}
+
+function stoppingRuntime(): { stopTick(botId: string): Promise<{ stopped: boolean; runId?: string; status: string }> } {
+	return Object.assign(releasingRuntime(), {
+		activeRunId: null,
+		activeAbortController: null,
+		reapStaleRun: async () => false,
+		appendEvent: () => ({ createdAt: now }),
+		setStopRequest: () => {},
+		clearStopRequest: () => {},
+		markPendingCompactionEventsFailed: () => {},
+		hasTerminalEvent: () => false,
+	}) as unknown as { stopTick(botId: string): Promise<{ stopped: boolean; runId?: string; status: string }> };
+}
 
 function testRuntimeHarness(): RuntimeHarness {
 	const tickStarted = deferred<string>();
@@ -658,6 +829,9 @@ async function seedBotRuntimeRow(input: {
 	botId?: string;
 	status: "idle" | "running" | "failed";
 	activeRunId?: string | null;
+	// Left null by default so the seeded row also models one claimed by a
+	// deployment older than the column, which every reader treats as a cron tick.
+	activeRunTrigger?: RuntimeRunTrigger | null;
 	leaseExpiresAt?: string | null;
 	nextDueAt?: string | null;
 }): Promise<void> {
@@ -668,8 +842,8 @@ async function seedBotRuntimeRow(input: {
 			compaction_threshold, compaction_summary_percent, compaction_max_characters,
 			max_tool_calls_per_tick, max_successful_tool_calls_per_iteration,
 			max_generated_tokens_per_tick, max_generated_tokens_per_iteration,
-			next_due_at, status, active_run_id, lease_expires_at, last_error, created_at, updated_at
-		) VALUES (?, ?, ?, 1, 60, NULL, 0.75, 10, 4000, 10, 8, 15000, 30000, ?, ?, ?, ?, NULL, ?, ?)`,
+			next_due_at, status, active_run_id, active_run_trigger, lease_expires_at, last_error, created_at, updated_at
+		) VALUES (?, ?, ?, 1, 60, NULL, 0.75, 10, 4000, 10, 8, 15000, 30000, ?, ?, ?, ?, ?, NULL, ?, ?)`,
 	)
 		.bind(
 			rowBotId,
@@ -678,6 +852,7 @@ async function seedBotRuntimeRow(input: {
 			input.nextDueAt === undefined ? now : input.nextDueAt,
 			input.status,
 			input.activeRunId ?? null,
+			input.activeRunTrigger ?? null,
 			input.leaseExpiresAt ?? null,
 			now,
 			now,
@@ -689,6 +864,7 @@ type RuntimeIndexRow = {
 	enabled: number;
 	status: string;
 	activeRunId: string | null;
+	activeRunTrigger: string | null;
 	leaseExpiresAt: string | null;
 	nextDueAt: string | null;
 };
@@ -703,7 +879,7 @@ async function pauseRuntimeIndexRows(...rowBotIds: string[]): Promise<void> {
 
 async function runtimeIndexRow(rowBotId: string): Promise<RuntimeIndexRow> {
 	const row = await testEnv.BICKR_D1.prepare(
-		`SELECT enabled, status, active_run_id AS activeRunId,
+		`SELECT enabled, status, active_run_id AS activeRunId, active_run_trigger AS activeRunTrigger,
 			lease_expires_at AS leaseExpiresAt, next_due_at AS nextDueAt
 		 FROM bot_runtime_index
 		 WHERE bot_id = ?`,

@@ -42,6 +42,8 @@ type DeferredHarness = {
 	events: BotRuntimeEvent[];
 	runs: SimulatedRun[];
 	settle(): Promise<void>;
+	/** Makes the next simulated visit throw, so the release runs its failure path. */
+	failNextRun(message: string): void;
 };
 
 function spotlightContext(threadId: string, rootCommentId: string): SpotlightSyntheticContext {
@@ -61,6 +63,7 @@ function deferredHarness(): DeferredHarness {
 	const runs: SimulatedRun[] = [];
 	const background: Array<Promise<unknown>> = [];
 	let eventSeq = 0;
+	let nextRunFailure: string | null = null;
 	const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 		activeAbortController: null,
 		activeMaintenanceOperation: null,
@@ -113,6 +116,11 @@ function deferredHarness(): DeferredHarness {
 			input: { spotlightContexts: unknown[]; injections: unknown[] },
 			runContext: { mode: string; spotlightId?: string },
 		) => {
+			if (nextRunFailure !== null) {
+				const message = nextRunFailure;
+				nextRunFailure = null;
+				throw new Error(message);
+			}
 			runs.push({
 				runId,
 				mode: runContext.mode,
@@ -133,6 +141,9 @@ function deferredHarness(): DeferredHarness {
 		sql,
 		events,
 		runs,
+		failNextRun: (message: string) => {
+			nextRunFailure = message;
+		},
 		settle: async () => {
 			// Queued spotlight visits are started through `waitUntil`, so nothing is
 			// observable until the object's background work has finished.
@@ -159,6 +170,127 @@ async function runPayload(response: Response): Promise<{ runId: string; status: 
 	const payload = (await response.json()) as { data: { run: { runId: string; status: string } } };
 	return payload.data.run;
 }
+
+async function setStandingSchedule(botId: string, nextDueAt: string): Promise<void> {
+	await testEnv.BICKR_D1.prepare(`UPDATE bot_runtime_index SET next_due_at = ? WHERE bot_id = ?`).bind(nextDueAt, botId).run();
+}
+
+async function standingSchedule(botId: string): Promise<string | null> {
+	const row = await testEnv.BICKR_D1.prepare(`SELECT next_due_at AS nextDueAt FROM bot_runtime_index WHERE bot_id = ?`)
+		.bind(botId)
+		.first<{ nextDueAt: string | null }>();
+	if (!row) {
+		throw new Error(`Missing runtime index row for ${botId}.`);
+	}
+	return row.nextDueAt;
+}
+
+/**
+ * The spotlight timer.
+ *
+ * A spotlight visit interrupts a participant on a human's schedule, so it must
+ * leave the participant's own rhythm exactly where it found it — at the claim,
+ * which used to push the schedule out to the lease, and at the release, which
+ * used to reschedule from completion. These run both kinds of visit end to end
+ * over the same row so the difference between them is the assertion.
+ */
+describe("Spotlight visits and the tick timer", () => {
+	// Already due: the participant's own visit is owed and must stay owed.
+	const standingDueAt = "2026-08-11T00:00:00.000Z";
+
+	it("leaves the standing schedule alone across a spotlight visit and reschedules after an ordinary one", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "spotlight-timer");
+		const author = await createBotForTest(cookie, "timer-author");
+		const participant = await createBotForTest(cookie, "timer-participant", { enabled: true });
+		const thread = await createThreadForTest(forum.id, author.id, "Timer thread", "Please look at this.");
+		const harness = deferredHarness();
+		const spotlightId = "spt_timer";
+		await setStandingSchedule(participant.id, standingDueAt);
+
+		const injected = (await (
+			await harness.fetch(
+				runtimeRequest(participant.id, "inject", {
+					text: JSON.stringify(spotlightContext(thread.id, thread.rootCommentId)),
+					kind: "spotlight",
+					sourceId: spotlightId,
+					spotlightId,
+				}),
+			)
+		).json()) as { data: { injectionId: string } };
+		const body = { mode: "spotlight", injectionIds: [injected.data.injectionId], spotlightId };
+
+		const spotlight = await runPayload(await harness.fetch(runtimeRequest(participant.id, "tick", body)));
+		await harness.settle();
+
+		expect(spotlight.status).toBe("completed");
+		expect(harness.runs).toEqual([
+			{ runId: spotlight.runId, mode: "spotlight", spotlightId, spotlightContexts: 1, injections: 0 },
+		]);
+		await expect(standingSchedule(participant.id)).resolves.toBe(standingDueAt);
+
+		// The same request again: the injection is already read, so the visit takes
+		// the no-injection early return — which releases the run too.
+		const replay = await runPayload(await harness.fetch(runtimeRequest(participant.id, "tick", body)));
+		await harness.settle();
+
+		expect(replay.status).toBe("completed");
+		expect(harness.runs).toHaveLength(1);
+		await expect(standingSchedule(participant.id)).resolves.toBe(standingDueAt);
+
+		// The participant's own visit still moves the schedule on, from its own
+		// completion rather than from the schedule it just consumed.
+		const natural = await runPayload(await harness.fetch(runtimeRequest(participant.id, "tick", {})));
+		await harness.settle();
+
+		expect(natural.status).toBe("completed");
+		const rescheduled = await standingSchedule(participant.id);
+		expect(rescheduled).not.toBe(standingDueAt);
+		expect(Date.parse(rescheduled!)).toBeGreaterThan(Date.now());
+	});
+
+	it("leaves the standing schedule alone when a spotlight visit fails", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "spotlight-timer-failure");
+		const author = await createBotForTest(cookie, "timer-failure-author");
+		const participant = await createBotForTest(cookie, "timer-failure-participant", { enabled: true });
+		const thread = await createThreadForTest(forum.id, author.id, "Timer failure thread", "Please look at this.");
+		const harness = deferredHarness();
+		const spotlightId = "spt_timer_failure";
+		await setStandingSchedule(participant.id, standingDueAt);
+		harness.failNextRun("The Bickr page fell over.");
+
+		const injected = (await (
+			await harness.fetch(
+				runtimeRequest(participant.id, "inject", {
+					text: JSON.stringify(spotlightContext(thread.id, thread.rootCommentId)),
+					kind: "spotlight",
+					sourceId: spotlightId,
+					spotlightId,
+				}),
+			)
+		).json()) as { data: { injectionId: string } };
+
+		const spotlight = await runPayload(
+			await harness.fetch(
+				runtimeRequest(participant.id, "tick", {
+					mode: "spotlight",
+					injectionIds: [injected.data.injectionId],
+					spotlightId,
+				}),
+			),
+		);
+		await harness.settle();
+
+		// A failed interruption is not a failure of the participant's own rhythm:
+		// where an ordinary failure waits out a lease timeout, this one changes
+		// nothing about when the participant visits next.
+		expect(spotlight.status).toBe("failed");
+		await expect(standingSchedule(participant.id)).resolves.toBe(standingDueAt);
+	});
+});
 
 describe("Deferred spotlight visits", () => {
 	it("queues the visit durably and drains it at the participant's next completed visit", async () => {
