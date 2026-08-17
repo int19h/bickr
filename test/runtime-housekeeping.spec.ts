@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { botInferenceUsageRetentionDays } from "@bickr/shared/token-spend";
 import { BotRuntime, dispatchDueBots } from "../workers/agent-runtime/src/index";
+import type { RuntimeStorageRetentionResult } from "../workers/agent-runtime/src/types";
 
 type RuntimeEventFixtureRow = {
 	seq: number;
@@ -33,7 +34,7 @@ type RuntimeInternals = {
 	latestSuccessfulLogOffToolResultSeq(): number;
 	loopGeneratedTokenCountSinceLastLogOff(): number;
 	prematureLogOffCorrectedSinceLastLogOff(): boolean;
-	pruneRuntimeStorageAfterTick(activeRunId: string, now?: Date): { events: number; providerUsage: number };
+	pruneRuntimeStorageAfterTick(activeRunId: string, now?: Date): RuntimeStorageRetentionResult;
 	successfulMutatingToolCallSinceLastLogOff(): boolean;
 	successfulToolCallCountSinceLastLogOff(): number;
 };
@@ -309,9 +310,13 @@ describe("runtime housekeeping", () => {
 			},
 		});
 
-		expect(runtimeForSql(sql).pruneRuntimeStorageAfterTick("active-run", new Date(now))).toEqual({
+		// The loop-history and injection passes are exercised against real SQLite in
+		// the message-store and spotlight-queue specs; here they only have to run
+		// beside the event and usage prunes without disturbing them.
+		expect(runtimeForSql(sql).pruneRuntimeStorageAfterTick("active-run", new Date(now))).toMatchObject({
 			events: 2,
 			providerUsage: 1,
+			loopMessages: { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0, pendingMore: false },
 		});
 		expect(sql.events.map((row) => row.seq)).toEqual([2, 4, 5, 6]);
 		expect(sql.providerUsage.map((row) => row.id)).toEqual([2, 3, 4]);

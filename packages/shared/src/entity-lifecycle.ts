@@ -194,6 +194,7 @@ export type LifecycleFailurePoint =
 	| "bot.delete.kv"
 	| "bot.delete.indexes.d1"
 	| "bot.delete.runtime_vector"
+	| "bot.delete.runtime_storage"
 	| "bot.delete.finish.d1"
 	| "clone.reserve.d1"
 	| "clone.materialize.kv"
@@ -205,6 +206,7 @@ export type LifecycleFailurePoint =
 	| "clone.delete.kv"
 	| "clone.delete.indexes.d1"
 	| "clone.delete.runtime_vector"
+	| "clone.delete.runtime_storage"
 	| "clone.delete.finish.d1";
 
 export type LifecycleFailureInjector = {
@@ -231,10 +233,12 @@ const lifecycleFailurePointValues = new Set<string>([
 	"world.delete.hide.d1", "world.delete.kv", "world.delete.indexes.d1", "world.delete.forum_search", "world.delete.finish.d1",
 	"bot.reserve.d1", "bot.materialize.kv", "bot.materialize.personal_forum",
 	"bot.materialize.indexes.d1", "bot.materialize.import_avatar", "bot.materialize.vector", "bot.activate.d1",
-	"bot.delete.hide.d1", "bot.delete.kv", "bot.delete.indexes.d1", "bot.delete.runtime_vector", "bot.delete.finish.d1",
+	"bot.delete.hide.d1", "bot.delete.kv", "bot.delete.indexes.d1", "bot.delete.runtime_vector",
+	"bot.delete.runtime_storage", "bot.delete.finish.d1",
 	"clone.reserve.d1", "clone.materialize.kv", "clone.materialize.personal_forum",
 	"clone.materialize.indexes.d1", "clone.materialize.vector", "clone.activate.d1",
-	"clone.delete.hide.d1", "clone.delete.kv", "clone.delete.indexes.d1", "clone.delete.runtime_vector", "clone.delete.finish.d1",
+	"clone.delete.hide.d1", "clone.delete.kv", "clone.delete.indexes.d1", "clone.delete.runtime_vector",
+	"clone.delete.runtime_storage", "clone.delete.finish.d1",
 ]);
 
 export function serializedInjectedLifecycleFailure(error: InjectedLifecycleFailure): {
