@@ -542,7 +542,12 @@ export type ReadPruneResult = {
 
 export type ProviderNotificationPruneResult = {
 	events: Array<{ notificationIds: string[]; payload: Record<string, unknown> }>;
-	omittedEventCount: number;
+	/**
+	 * Notifications, not rendered events: one dropped event can carry several
+	 * merged or coalesced notifications, and what stays pending is the count the
+	 * recipient is told about.
+	 */
+	omittedNotificationCount: number;
 	tokenEstimate: number;
 };
 

@@ -248,19 +248,19 @@ export function providerCheckNotificationsResultWithInclusions(
 
 function providerNotificationResultPayload(
 	events: Record<string, unknown>[],
-	pruned?: Pick<ProviderNotificationPruneResult, 'omittedEventCount'>,
+	pruned?: Pick<ProviderNotificationPruneResult, 'omittedNotificationCount'>,
 ): Record<string, unknown> {
 	return removeUndefinedProperties({
-		...(pruned && pruned.omittedEventCount > 0 ? { context: providerNotificationResultContext(pruned) } : {}),
+		...(pruned && pruned.omittedNotificationCount > 0 ? { context: providerNotificationResultContext(pruned) } : {}),
 		events,
 	});
 }
 
-function providerNotificationResultContext(pruned: Pick<ProviderNotificationPruneResult, 'omittedEventCount'>): string {
+function providerNotificationResultContext(pruned: Pick<ProviderNotificationPruneResult, 'omittedNotificationCount'>): string {
 	const parts: string[] = [];
-	if (pruned.omittedEventCount > 0) {
+	if (pruned.omittedNotificationCount > 0) {
 		parts.push(
-			`${pruned.omittedEventCount} lower-priority or older notification${pruned.omittedEventCount === 1 ? ' was' : 's were'} omitted; they remain pending`,
+			`${pruned.omittedNotificationCount} lower-priority or older notification${pruned.omittedNotificationCount === 1 ? ' was' : 's were'} omitted; they remain pending`,
 		);
 	}
 	return `Result of checking notifications. ${parts.join('. ')}.`;
@@ -274,7 +274,10 @@ function providerNotificationResultContext(pruned: Pick<ProviderNotificationPrun
  * exists to surface.
  *
  * Omitted events keep their D1 rows and documents: only what is included is
- * reported delivered, and therefore only what is included is deleted.
+ * reported delivered, and therefore only what is included is deleted. The count
+ * the note carries is therefore of notifications, not of rendered events: a
+ * merged or coalesced group holds several notification ids, and every one of
+ * them stays pending when its group is dropped.
  */
 function pruneProviderNotificationEventsForBudget(
 	events: Array<{ notificationIds: string[]; payload: Record<string, unknown> }>,
@@ -285,29 +288,31 @@ function pruneProviderNotificationEventsForBudget(
 		notificationIds: [...event.notificationIds],
 		payload: JSON.parse(JSON.stringify(event.payload)) as Record<string, unknown>,
 	}));
-	let omittedEventCount = 0;
+	let omittedNotificationCount = 0;
 	let tokenEstimate = providerNotificationTokenEstimate(
 		prunedEvents.map((event) => event.payload),
-		{ omittedEventCount },
+		{ omittedNotificationCount },
 	);
 	while (prunedEvents.length > 0 && tokenEstimate > budget) {
-		prunedEvents.pop();
-		omittedEventCount += 1;
+		const dropped = prunedEvents.pop();
+		// A group with no ids is an event whose document carried none; it is still
+		// one notification the recipient did not get.
+		omittedNotificationCount += Math.max(1, dropped?.notificationIds.length ?? 1);
 		tokenEstimate = providerNotificationTokenEstimate(
 			prunedEvents.map((event) => event.payload),
-			{ omittedEventCount },
+			{ omittedNotificationCount },
 		);
 	}
 	return {
 		events: prunedEvents,
-		omittedEventCount,
+		omittedNotificationCount,
 		tokenEstimate,
 	};
 }
 
 function providerNotificationTokenEstimate(
 	events: Record<string, unknown>[],
-	pruned: Pick<ProviderNotificationPruneResult, 'omittedEventCount'>,
+	pruned: Pick<ProviderNotificationPruneResult, 'omittedNotificationCount'>,
 ): number {
 	return estimateTextTokens(JSON.stringify(providerNotificationResultPayload(events, pruned)));
 }

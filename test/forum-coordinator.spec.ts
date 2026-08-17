@@ -1291,8 +1291,10 @@ describe("Forum coordinator", () => {
 			status: "pending",
 			createdAt: "2026-06-01T00:00:00.000Z",
 		});
-		// A bootstrap row left behind by the retired delivered status prunes like
-		// any other leftover: it was handed over, so nothing is owed.
+		// A bootstrap row carrying a retired status is left alone too. During a
+		// deploy window an old-build instance can still be marking a bootstrap
+		// delivered, and deleting that row at any age would leave the adoption shim
+		// nothing to adopt and let the bootstrap be created a second time.
 		await insertBotNotificationForRetention({
 			id: "ntf_bootstrap_delivered",
 			notificationType: "bootstrap",
@@ -1314,21 +1316,19 @@ describe("Forum coordinator", () => {
 		});
 
 		expect(result).toMatchObject({
-			deletedRows: 2,
-			selectedRows: 2,
+			deletedRows: 1,
+			selectedRows: 1,
 			kvDeleteFailures: 0,
 		});
 		// The pending bootstrap document carries no TTL, so a deleted row would
 		// strand it behind a flag that blocks any replacement.
-		expect(await botNotificationRowIds()).toEqual(["ntf_bootstrap_pending"]);
-		expect(kv.deletedKeys).toEqual([
-			botNotificationKvKey("ntf_bootstrap_delivered"),
-			botNotificationKvKey("ntf_system_pending"),
-		]);
+		expect(await botNotificationRowIds()).toEqual(["ntf_bootstrap_delivered", "ntf_bootstrap_pending"]);
+		expect(kv.deletedKeys).toEqual([botNotificationKvKey("ntf_system_pending")]);
 		expect(await botNotificationKvExists("ntf_bootstrap_pending")).toBe(true);
+		expect(await botNotificationKvExists("ntf_bootstrap_delivered")).toBe(true);
 	});
 
-	it("deletes every notification of a missing or tombstoned bot, at any age or type", async () => {
+	it("deletes every notification of a tombstoned bot, at any age or type", async () => {
 		const now = "2026-07-01T00:00:00.000Z";
 		const tombstoned = "bot_tombstoned";
 		const missing = "bot_missing_index_row";
@@ -1343,6 +1343,10 @@ describe("Forum coordinator", () => {
 			.prepare(`UPDATE bots_index SET deleted_at = ? WHERE bot_id = ?`)
 			.bind(daysBefore(now, 1), tombstoned)
 			.run();
+		// A bot whose index row was hard-deleted cannot be enumerated from the bot
+		// side at all, so this pass leaves it alone: that residue predates soft
+		// deletion and is the one-off's (O2, epic #184) to clear. Its pending row
+		// still expires on the ordinary fourteen-day cutoff.
 		await insertBotNotificationForRetention({
 			id: "ntf_missing_bot_recent",
 			botId: missing,
@@ -1371,16 +1375,148 @@ describe("Forum coordinator", () => {
 		});
 
 		expect(result).toMatchObject({
-			deletedRows: 2,
-			orphanedBotRows: 2,
+			deletedRows: 1,
+			orphanedBotRows: 1,
 			kvDeleteFailures: 0,
 			tombstonedBotsSwept: 1,
 		});
-		expect(await botNotificationRowIds()).toEqual(["ntf_live_bot_recent"]);
+		expect(await botNotificationRowIds()).toEqual(["ntf_live_bot_recent", "ntf_missing_bot_recent"]);
 		expect(await botNotificationKvExists("ntf_tombstoned_bootstrap", tombstoned)).toBe(false);
-		expect(await botNotificationKvExists("ntf_missing_bot_recent", missing)).toBe(false);
 		expect(await botNotificationKvExists(rowlessBootstrapId, tombstoned)).toBe(false);
 		expect(await botNotificationKvExists("ntf_live_bot_recent")).toBe(true);
+		expect(await botNotificationKvExists("ntf_missing_bot_recent", missing)).toBe(true);
+	});
+
+	it("pages the retired-status arm across every status in one run", async () => {
+		const now = "2026-07-01T00:00:00.000Z";
+		// Statuses spanning the arm's keyset order, with two rows each so a page
+		// boundary falls inside a status as well as between statuses.
+		const leftovers: Array<{ id: string; status: BotNotificationStatus }> = [
+			{ id: "ntf_leftover_archived_1", status: "archived" },
+			{ id: "ntf_leftover_archived_2", status: "archived" },
+			{ id: "ntf_leftover_delivered_1", status: "delivered_to_loop" },
+			{ id: "ntf_leftover_delivered_2", status: "delivered_to_loop" },
+			{ id: "ntf_leftover_read_1", status: "read_or_consumed" },
+			{ id: "ntf_leftover_read_2", status: "read_or_consumed" },
+		];
+		for (const [index, leftover] of leftovers.entries()) {
+			await insertBotNotificationForRetention({
+				id: leftover.id,
+				status: leftover.status,
+				// Recent on purpose: a retired status is a pre-redesign leftover and
+				// expired whatever its age.
+				createdAt: new Date(Date.parse(daysBefore(now, 1)) + index * 1000).toISOString(),
+			});
+		}
+		await insertBotNotificationForRetention({
+			id: "ntf_leftover_control_pending",
+			status: "pending",
+			createdAt: daysBefore(now, 1),
+		});
+
+		const result = await pruneExpiredNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+			now,
+			selectLimit: 2,
+			maxRowsPerRun: 100,
+		});
+
+		// Three pages of two, then a page that selects nothing: the keyset carries
+		// the status, so pagination advances instead of restarting at the first one.
+		expect(result).toMatchObject({
+			selectedRows: 6,
+			deletedRows: 6,
+			batches: 3,
+			budgetExhausted: false,
+		});
+		expect(await botNotificationRowIds()).toEqual(["ntf_leftover_control_pending"]);
+	});
+
+	it("rotates the tombstoned-bot pass across invocations instead of reselecting its head", async () => {
+		const now = "2026-07-01T00:00:00.000Z";
+		// More tombstoned bots than one invocation walks: without a persisted
+		// cursor every invocation would sweep the same oldest prefix forever and
+		// the rest would never be reached.
+		const tombstonedBots = ["bot_gone_a", "bot_gone_b", "bot_gone_c", "bot_gone_d", "bot_gone_e"];
+		for (const [index, botId] of tombstonedBots.entries()) {
+			await insertBotNotificationForRetention({
+				id: `ntf_${botId}`,
+				botId,
+				notificationType: "bootstrap",
+				status: "pending",
+				createdAt: daysBefore(now, 1),
+			});
+			await testEnv.BICKR_D1
+				.prepare(`UPDATE bots_index SET deleted_at = ? WHERE bot_id = ?`)
+				// Distinct tombstone timestamps, oldest first, so the rotation order is
+				// the one the cursor claims to follow.
+				.bind(new Date(Date.parse(daysBefore(now, 2)) + index * 1000).toISOString(), botId)
+				.run();
+		}
+		const sweepTwoBots = { now, selectLimit: 10, maxRowsPerRun: 10, tombstonedBotsPerRun: 2 };
+		const cursorKey = kvKeys.notificationTombstonedBotSweepCursor;
+
+		const firstRun = await pruneExpiredNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, sweepTwoBots);
+		expect(firstRun).toMatchObject({ orphanedBotRows: 2, tombstonedBotsSwept: 2 });
+		expect(await testEnv.BICKR_KV.get(cursorKey, { type: "json" })).toMatchObject({ botId: "bot_gone_b" });
+		expect(await botNotificationRowIds()).toEqual([
+			"ntf_bot_gone_c",
+			"ntf_bot_gone_d",
+			"ntf_bot_gone_e",
+		]);
+
+		const secondRun = await pruneExpiredNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, sweepTwoBots);
+		expect(secondRun).toMatchObject({ orphanedBotRows: 2, tombstonedBotsSwept: 2 });
+		expect(await testEnv.BICKR_KV.get(cursorKey, { type: "json" })).toMatchObject({ botId: "bot_gone_d" });
+		expect(await botNotificationRowIds()).toEqual(["ntf_bot_gone_e"]);
+
+		// The last page ends the rotation, so the cursor is removed and the next
+		// invocation starts again from the oldest tombstone.
+		const thirdRun = await pruneExpiredNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, sweepTwoBots);
+		expect(thirdRun).toMatchObject({ orphanedBotRows: 1, tombstonedBotsSwept: 1 });
+		expect(await testEnv.BICKR_KV.get(cursorKey, { type: "json" })).toBeNull();
+		expect(await botNotificationRowIds()).toEqual([]);
+
+		const fourthRun = await pruneExpiredNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, sweepTwoBots);
+		expect(fourthRun).toMatchObject({ orphanedBotRows: 0, tombstonedBotsSwept: 2 });
+	});
+
+	it("keeps expiry progressing when a deleted bot's backlog exceeds the orphan sub-budget", async () => {
+		const now = "2026-07-01T00:00:00.000Z";
+		const tombstoned = "bot_gone_backlog";
+		for (let index = 0; index < 4; index += 1) {
+			await insertBotNotificationForRetention({
+				id: `ntf_gone_${index}`,
+				botId: tombstoned,
+				status: "pending",
+				createdAt: daysBefore(now, 1),
+			});
+		}
+		await testEnv.BICKR_D1
+			.prepare(`UPDATE bots_index SET deleted_at = ? WHERE bot_id = ?`)
+			.bind(daysBefore(now, 1), tombstoned)
+			.run();
+		await insertBotNotificationForRetention({
+			id: "ntf_expired_behind_backlog",
+			status: "pending",
+			createdAt: daysBefore(now, 30),
+		});
+
+		const result = await pruneExpiredNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+			now,
+			selectLimit: 2,
+			maxRowsPerRun: 10,
+			orphanMaxRowsPerRun: 2,
+		});
+
+		// The deleted bot's backlog is capped at its sub-budget, so the ordinary
+		// expiry pass still runs in the same invocation instead of waiting for as
+		// many invocations as that backlog lasts.
+		expect(result).toMatchObject({
+			orphanedBotRows: 2,
+			deletedRows: 3,
+			budgetExhausted: false,
+		});
+		expect(await botNotificationRowIds()).toEqual(["ntf_gone_2", "ntf_gone_3"]);
 	});
 
 	it("resumes bot notification pruning after hitting the per-run row budget", async () => {

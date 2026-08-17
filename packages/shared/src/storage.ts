@@ -54,6 +54,10 @@ export const kvKeys = {
 	// The vector reindex cursor is retained only until a complete pass over the
 	// searchable entity indexes finishes, then deleted before the next pass.
 	searchVectorReindexCursor: "v1:maintenance:search-vector-reindex-cursor",
+	// One bounded cursor rotating the notification prune through the tombstoned
+	// rows of bots_index. It is retained only while a rotation is incomplete: the
+	// prune deletes it on the pass that reaches the last tombstone.
+	notificationTombstonedBotSweepCursor: "v1:maintenance:notification-tombstoned-bot-sweep-cursor",
 	notification: (botId: string, notificationId: string) =>
 		`v1:notification:${botId}:${notificationId}`,
 };

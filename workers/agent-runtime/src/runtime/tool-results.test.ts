@@ -544,6 +544,48 @@ describe("delivered notification payloads", () => {
 		);
 	});
 
+	it("counts every notification of a dropped group in the omission note", () => {
+		const notice = (id: string, commentId: string, threadId: string, title: string): NotificationEvent => ({
+			id,
+			createdAt: "2026-08-17T00:00:00.000Z",
+			kind: "comment_notice",
+			type: "comment_created",
+			deliveryReasons: ["followed_profile_activity"],
+			sourceObjectId: `c/${commentId}`,
+			actor,
+			thread: { id: threadId, title: en(title) },
+			comment: { id: commentId, threadId },
+		});
+		// Two notices from one actor coalesce into a single rendered event carrying
+		// both notification ids, so dropping that event leaves two rows pending.
+		const events = [
+			{
+				id: "ntf_reply",
+				createdAt: "2026-08-17T00:00:00.000Z",
+				kind: "reply",
+				type: "comment_created",
+				deliveryReasons: ["direct_reply"],
+				actor,
+				thread: { id: "thr_reply", title: en("Reply thread") },
+				comment: { id: "cmt_reply", threadId: "thr_reply", author: actor, text: en("A reply to you.") },
+				replyTo: { id: "cmt_mine", threadId: "thr_reply", author: self, text: en("My comment.") },
+			},
+			notice("ntf_notice_a", "cmt_a", "thr_one", "Thread one"),
+			notice("ntf_notice_b", "cmt_b", "thr_two", "Thread two"),
+		] satisfies NotificationEvent[];
+
+		const unpruned = providerCheckNotificationsResultWithInclusions(events, readingParticipant());
+		const budget = Math.ceil(JSON.stringify(unpruned.payload).length / 4) - 1;
+		const pruned = providerCheckNotificationsResultWithInclusions(events, readingParticipant(), budget);
+		const payload = pruned.payload as { context?: string; events: Array<Record<string, unknown>> };
+
+		expect(pruned.includedEventIds).toEqual(["ntf_reply"]);
+		expect(payload.events.map((event) => event.deliveryReasons)).toEqual([["direct_reply"]]);
+		expect(payload.context).toBe(
+			"Result of checking notifications. 2 lower-priority or older notifications were omitted; they remain pending.",
+		);
+	});
+
 	it("orders known delivery reasons and keeps unknown ones after them", () => {
 		expect(orderedProviderDeliveryReasons([
 			"followed_profile_activity",
