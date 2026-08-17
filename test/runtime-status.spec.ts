@@ -144,6 +144,46 @@ describe("BotRuntime stale-run reaper scheduling", () => {
 		expect(Date.parse(row.nextDueAt!)).toBeGreaterThan(Date.now());
 	});
 
+	it("keeps a spotlight visit's standing schedule when its provider stream goes stale", async () => {
+		const botId = await seedRunningRun("reap-stale-spotlight", "run-stale-spotlight", {
+			// Live, so only the stale-stream branch can act on this row.
+			leaseExpiresAt: "2099-01-01T00:00:00.000Z",
+			trigger: "spotlight",
+		});
+		const harness = runtimeHarness(testEnv.BICKR_D1, { staleStream: true });
+
+		await expect(harness.runtime.reapStaleRun(botId)).resolves.toBe(true);
+
+		await expect(runtimeSchedule(botId)).resolves.toEqual({
+			status: "failed",
+			activeRunTrigger: null,
+			nextDueAt: standingDueAt,
+		});
+	});
+
+	// The reaper reads the row, then releases it, and the owner's own scheduling
+	// runs against the same row in between. Preserving a standing schedule means
+	// preserving whatever the column holds at the moment of the release, not
+	// re-writing the snapshot the reaper happened to read first: a spotlight visit
+	// never owned that column, so it may not put a stale value back into it.
+	it("keeps a schedule written between the reaper's read and its release of a spotlight visit", async () => {
+		const botId = await seedRunningRun("reap-stale-race", "run-stale-race", {
+			leaseExpiresAt: "2099-01-01T00:00:00.000Z",
+			trigger: "spotlight",
+		});
+		const concurrentDueAt = "2030-06-01T00:00:00.000Z";
+		const db = d1ReschedulingBeforeRelease(testEnv.BICKR_D1, botId, concurrentDueAt);
+		const harness = runtimeHarness(db, { staleStream: true });
+
+		await expect(harness.runtime.reapStaleRun(botId)).resolves.toBe(true);
+
+		await expect(runtimeSchedule(botId)).resolves.toEqual({
+			status: "failed",
+			activeRunTrigger: null,
+			nextDueAt: concurrentDueAt,
+		});
+	});
+
 	// A run claimed before the trigger column existed reads as a cron tick, which
 	// is the pre-existing behaviour for every run in flight at deploy time.
 	it("reschedules a run with no recorded trigger", async () => {
@@ -160,7 +200,7 @@ describe("BotRuntime stale-run reaper scheduling", () => {
 
 function runtimeHarness(
 	db: D1Database,
-	options: { stopRequested?: boolean } = {},
+	options: { stopRequested?: boolean; staleStream?: boolean } = {},
 ): { runtime: TestRuntime; failureEvents: FailureEvent[] } {
 	const failureEvents: FailureEvent[] = [];
 	const terminalRuns = new Set<string>();
@@ -173,7 +213,8 @@ function runtimeHarness(
 		activeRunId: null,
 		activeStreamActivity: new Map<string, string>(),
 		hasStopRequest: () => options.stopRequested === true,
-		staleProviderStream: () => null,
+		staleProviderStream: () =>
+			options.staleStream === true ? { type: "provider_request", created_at: "2026-08-11T00:00:00.000Z" } : null,
 		hasTerminalEvent: (runId: string) => terminalRuns.has(runId),
 		recordTickFailure: (runId: string, payload: Record<string, unknown>) => {
 			terminalRuns.add(runId);
@@ -249,6 +290,39 @@ async function runtimeIndexState(botId: string): Promise<{
 		throw new Error(`Missing runtime index row for ${botId}.`);
 	}
 	return row;
+}
+
+/**
+ * A D1 that reschedules the row just before the reaper's release lands.
+ *
+ * The reaper's read and its release are two statements with an await between
+ * them, so anything that writes `next_due_at` in that window — an owner
+ * resuming, an ordinary tick claiming — commits after the snapshot was taken and
+ * before the release decides what to write. Wrapping the release statement is
+ * how that window is made deterministic: the interleaving is the subject, so it
+ * cannot be left to chance.
+ */
+function d1ReschedulingBeforeRelease(delegate: D1Database, botId: string, nextDueAt: string): D1Database {
+	// The ownership compare-and-set is unique to releaseRuntimeRun, so matching on
+	// it cannot catch the reaper's read or any other statement by accident.
+	const isRelease = (query: string): boolean => query.includes("active_run_id IS ?");
+	const wrap = (statement: D1PreparedStatement, intercept: boolean): D1PreparedStatement =>
+		({
+			bind: (...values: unknown[]) => wrap(statement.bind(...values), intercept),
+			first: statement.first.bind(statement),
+			run: async (...args: []) => {
+				if (intercept) {
+					await delegate
+						.prepare(`UPDATE bot_runtime_index SET next_due_at = ? WHERE bot_id = ?`)
+						.bind(nextDueAt, botId)
+						.run();
+				}
+				return statement.run(...args);
+			},
+		}) as unknown as D1PreparedStatement;
+	return {
+		prepare: (query: string) => wrap(delegate.prepare(query), isRelease(query)),
+	} as unknown as D1Database;
 }
 
 function d1WithWriteCount(delegate: D1Database): { db: D1Database; writeCount: () => number } {

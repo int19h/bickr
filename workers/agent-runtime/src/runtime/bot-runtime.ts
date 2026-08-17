@@ -6876,7 +6876,13 @@ export class BotRuntime {
 					botId,
 					runId,
 					status: 'failed',
-					nextDueAt: row.nextDueAt,
+					// Proposing nothing is not the same as proposing what the row said
+					// when this reaper read it: the snapshot is already stale by the time
+					// the release lands, so re-writing it would clobber whatever an owner
+					// scheduled in between with a value that visit had no business owning.
+					// A spotlight never owned the standing schedule at all, so it always
+					// falls through to the column.
+					nextDueAt: keepsStandingSchedule ? null : row.nextDueAt,
 					lastError: message,
 					now: new Date().toISOString(),
 				});

@@ -484,7 +484,7 @@ describe("spotlight visits against the participant's own schedule", () => {
 	it("pushes the schedule out to the lease when an ordinary visit claims the row", async () => {
 		await seedBotRuntimeRow({ status: "idle", nextDueAt: standingDueAt });
 
-		await expect(claimRuntimeRun(testEnv.BICKR_D1, botId, "run-cron", leaseExpiresAt, now, "cron"),).resolves.toBe(true);
+		await expect(claimRuntimeRun(testEnv.BICKR_D1, botId, "run-cron", leaseExpiresAt, now, "cron")).resolves.toBe(true);
 
 		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({
 			activeRunTrigger: "cron",
@@ -527,16 +527,27 @@ describe("spotlight visits against the participant's own schedule", () => {
 		});
 	});
 
+	const completesAt = "2026-07-09T20:04:00.000Z";
+	// A failed ordinary visit waits out a lease timeout instead of its own
+	// interval, which is 15 minutes past the release below.
+	const failsAt = "2026-07-09T20:18:00.000Z";
+
+	// 'manual' is only a human starting the participant's own visit early, so it
+	// is an ordinary visit in every way that matters here — the run belongs to the
+	// participant's rhythm and reschedules it. Only 'spotlight' is the exception,
+	// and the arms below are what keep the two from being confused for each other.
 	it.each([
-		{ label: "completes", status: "idle" as const, lastError: undefined, expected: "2026-07-09T20:04:00.000Z" },
-		// A failed ordinary visit waits out a lease timeout instead of its own
-		// interval, which is 15 minutes past the release below.
-		{ label: "fails", status: "failed" as const, lastError: "Provider gave up.", expected: "2026-07-09T20:18:00.000Z" },
-	])("reschedules from the release when an ordinary visit $label", async ({ status, lastError, expected }) => {
+		{ label: "a cron visit completes", trigger: "cron" as const, status: "idle" as const, expected: completesAt },
+		{ label: "a cron visit fails", trigger: "cron" as const, status: "failed" as const, expected: failsAt },
+		{ label: "a manual visit completes", trigger: "manual" as const, status: "idle" as const, expected: completesAt },
+		{ label: "a manual visit fails", trigger: "manual" as const, status: "failed" as const, expected: failsAt },
+	])("reschedules from the release when $label", async ({ trigger, status, expected }) => {
+		const runId = `run-${trigger}`;
+		const lastError = status === "failed" ? "Provider gave up." : undefined;
 		await seedBotRuntimeRow({
 			status: "running",
-			activeRunId: "run-cron",
-			activeRunTrigger: "cron",
+			activeRunId: runId,
+			activeRunTrigger: trigger,
 			leaseExpiresAt,
 			nextDueAt: leaseExpiresAt,
 		});
@@ -546,8 +557,8 @@ describe("spotlight visits against the participant's own schedule", () => {
 			status,
 			lastError,
 			"2026-07-09T20:03:00.000Z",
-			"run-cron",
-			"cron",
+			runId,
+			trigger,
 		);
 
 		expect(proposed).toBe(expected);

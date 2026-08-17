@@ -2,9 +2,11 @@ import {
 	authCookie,
 	botById,
 	BotRuntime,
+	contextFor,
 	createBotForTest,
 	createForumForTest,
 	createThreadForTest,
+	deleteBot,
 	describe,
 	ExclusiveOperationQueue,
 	expect,
@@ -185,6 +187,31 @@ async function standingSchedule(botId: string): Promise<string | null> {
 	return row.nextDueAt;
 }
 
+async function setLiveSpotlightRun(botId: string, runId: string, leaseExpiresAt: string): Promise<void> {
+	await testEnv.BICKR_D1.prepare(
+		`UPDATE bot_runtime_index
+		 SET status = 'running', active_run_id = ?, active_run_trigger = 'spotlight', lease_expires_at = ?
+		 WHERE bot_id = ?`,
+	)
+		.bind(runId, leaseExpiresAt, botId)
+		.run();
+}
+
+async function runtimeRunState(botId: string): Promise<Record<string, unknown>> {
+	const row = await testEnv.BICKR_D1.prepare(
+		`SELECT enabled, status, active_run_id AS activeRunId, active_run_trigger AS activeRunTrigger,
+		        lease_expires_at AS leaseExpiresAt, next_due_at AS nextDueAt
+		 FROM bot_runtime_index
+		 WHERE bot_id = ?`,
+	)
+		.bind(botId)
+		.first<Record<string, unknown>>();
+	if (!row) {
+		throw new Error(`Missing runtime index row for ${botId}.`);
+	}
+	return row;
+}
+
 /**
  * The spotlight timer.
  *
@@ -289,6 +316,35 @@ describe("Spotlight visits and the tick timer", () => {
 		// nothing about when the participant visits next.
 		expect(spotlight.status).toBe("failed");
 		await expect(standingSchedule(participant.id)).resolves.toBe(standingDueAt);
+	});
+
+	// Deleting a participant retires the runtime row rather than removing it, so
+	// every column describing the run in flight has to go with the run. The
+	// trigger is the one the spotlight work added, and leaving it behind would let
+	// a row with no run at all still answer "spotlight" to whatever reads it next.
+	it("clears a live spotlight run's trigger when the participant is deleted", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const participant = await createBotForTest(cookie, "timer-deleted-participant", { enabled: true });
+		await setStandingSchedule(participant.id, standingDueAt);
+		await setLiveSpotlightRun(participant.id, "run-deleted-spotlight", "2099-01-01T00:00:00.000Z");
+
+		const response = await deleteBot(
+			contextFor<typeof deleteBot>(
+				new Request(`http://example.com/api/me/bots/${participant.id}`, { method: "DELETE", headers: { cookie } }),
+				{ botId: participant.id },
+			),
+		);
+
+		expect(response.status, await response.clone().text()).toBe(200);
+		await expect(runtimeRunState(participant.id)).resolves.toEqual({
+			enabled: 0,
+			status: "idle",
+			activeRunId: null,
+			activeRunTrigger: null,
+			leaseExpiresAt: null,
+			nextDueAt: null,
+		});
 	});
 });
 
