@@ -47,6 +47,7 @@ import {
 } from "@bickr/shared/repository";
 import { deleteKey, kvKeys, readJson } from "@bickr/shared/storage";
 import { deleteBotVector, requireAvatarBucket, upsertBotVector } from "../runtime/bot-runtime";
+import { clearBotRuntimeStorage } from "../runtime/runtime-storage-retention";
 import { scheduleUserLifecycleAlarm } from "./common";
 import type { AgentRuntimeRouteEnv, LifecycleReservationContext, LifecycleRuntimeContext } from "./types";
 
@@ -392,6 +393,14 @@ export async function runBotDeleteOperation(
 		});
 		await deleteBotVector(context.env, request.botId);
 		await lifecycleCheckpoint(context.coordinator.failureInjector, `${prefix}.delete.runtime_vector` as LifecycleFailurePoint);
+		// A deleted participant keeps its runtime row and therefore its Durable
+		// Object, whose loop history now has no reader at all. Clearing it here is
+		// what keeps deleted participants from retaining their inner loop forever;
+		// a clear that the object refuses (a visit still running) or that fails
+		// leaves the marker unset, so this deletion retries and, failing that, the
+		// daily retention sweep finishes the job.
+		await clearDeletedBotRuntimeStorage(context.env, request.botId);
+		await lifecycleCheckpoint(context.coordinator.failureInjector, `${prefix}.delete.runtime_storage` as LifecycleFailurePoint);
 		const finalizedAt = new Date().toISOString();
 		const graphDeletion = await lifecycleUsesInferenceGraph(context.env.BICKR_D1);
 		await finalizeLifecycleDeletion(context.env.BICKR_D1, operation, graphDeletion ? {
@@ -427,6 +436,35 @@ export async function runBotDeleteOperation(
 		}
 		await scheduleUserLifecycleAlarm(context.coordinator);
 		throw error;
+	}
+}
+
+/**
+ * Erase the participant's runtime storage as part of its deletion.
+ *
+ * A failure here is logged rather than raised: the object refuses the clear
+ * while a visit is still in flight, and the daily retention sweep treats every
+ * tombstoned participant as a full-clear target until the marker is set. Losing
+ * a day of retention is a far better outcome than a deletion that cannot
+ * finalize.
+ */
+async function clearDeletedBotRuntimeStorage(
+	env: Pick<AgentRuntimeRouteEnv, "BICKR_D1" | "BOT_RUNTIME" | "INTERNAL_SERVICE_SECRET">,
+	botId: string,
+): Promise<void> {
+	const botRuntime = env.BOT_RUNTIME;
+	if (!botRuntime) {
+		// Same rule as the search-vector bindings: a harness without the namespace
+		// binding cannot reach the object, and deletion must not depend on it.
+		return;
+	}
+	const attempt = await clearBotRuntimeStorage({ ...env, BOT_RUNTIME: botRuntime }, botId);
+	if (attempt.status === "failed") {
+		console.warn(JSON.stringify({
+			event: "bot_delete_runtime_storage_clear_failed",
+			botId,
+			failure: attempt.failure,
+		}));
 	}
 }
 

@@ -54,6 +54,11 @@ export const kvKeys = {
 	// The vector reindex cursor is retained only until a complete pass over the
 	// searchable entity indexes finishes, then deleted before the next pass.
 	searchVectorReindexCursor: "v1:maintenance:search-vector-reindex-cursor",
+	// One cursor carrying the daily BotRuntime retention sweep's position in
+	// bot_runtime_index. Retained only while a pass is incomplete: the sweep
+	// deletes it on reaching the end so the next pass restarts from the first
+	// participant.
+	botRuntimeRetentionSweepCursor: "v1:maintenance:bot-runtime-retention-sweep-cursor",
 	notification: (botId: string, notificationId: string) =>
 		`v1:notification:${botId}:${notificationId}`,
 };

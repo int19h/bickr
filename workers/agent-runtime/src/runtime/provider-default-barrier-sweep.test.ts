@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { agentRuntimeFrequentCronExpression } from './cron';
 import { runScheduledAgentRuntimeTasks } from '../routes';
 
 describe('scheduled provider-default barrier maintenance', () => {
@@ -84,7 +85,7 @@ describe('scheduled provider-default barrier maintenance', () => {
 			return Response.json({ ok: true });
 		});
 
-		const result = await runScheduledAgentRuntimeTasks(env, Date.parse('2026-08-14T00:00:00.000Z'));
+		const result = await runScheduledAgentRuntimeTasks(env, Date.parse('2026-08-14T00:00:00.000Z'), agentRuntimeFrequentCronExpression);
 
 		expect(result).toMatchObject({
 			kind: 'maintenance',
@@ -109,7 +110,7 @@ describe('scheduled provider-default barrier maintenance', () => {
 		vi.spyOn(console, 'log').mockImplementation(() => undefined);
 		const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 		const noWork = maintenanceEnv([], async () => Response.json({ ok: true }));
-		const terminalResult = await runScheduledAgentRuntimeTasks(noWork.env, Date.parse('2026-08-14T00:05:00.000Z'));
+		const terminalResult = await runScheduledAgentRuntimeTasks(noWork.env, Date.parse('2026-08-14T00:05:00.000Z'), agentRuntimeFrequentCronExpression);
 		expect(terminalResult).toMatchObject({
 			kind: 'maintenance',
 			sweep: { processedOwners: 0, complete: true, attempts: [] },
@@ -121,7 +122,7 @@ describe('scheduled provider-default barrier maintenance', () => {
 			attempt += 1;
 			return attempt === 1 ? new Response('retry', { status: 503 }) : Response.json({ ok: true });
 		});
-		const failed = await runScheduledAgentRuntimeTasks(retry.env, Date.parse('2026-08-14T00:10:00.000Z'));
+		const failed = await runScheduledAgentRuntimeTasks(retry.env, Date.parse('2026-08-14T00:10:00.000Z'), agentRuntimeFrequentCronExpression);
 		expect(failed).toMatchObject({
 			kind: 'maintenance',
 			sweep: {
@@ -138,7 +139,7 @@ describe('scheduled provider-default barrier maintenance', () => {
 			outcome: 'partial_failure',
 			failedOwners: 1,
 		});
-		const retried = await runScheduledAgentRuntimeTasks(retry.env, Date.parse('2026-08-14T00:15:00.000Z'));
+		const retried = await runScheduledAgentRuntimeTasks(retry.env, Date.parse('2026-08-14T00:15:00.000Z'), agentRuntimeFrequentCronExpression);
 		expect(retried).toMatchObject({
 			kind: 'maintenance',
 			sweep: { attempts: [{ ownerUserId: pendingOwner.ownerUserId, status: 'accepted' }] },

@@ -195,6 +195,7 @@ import {
 import { createProviderStructuredOutput } from '../provider/structured-output';
 import { RuntimeEventsStore } from './events';
 import { RuntimeMessageStore } from './message-store';
+import { RuntimeSpotlightTickQueue } from './spotlight-tick-queue';
 import {
 	canonicalToolName,
 	followToolArgsWithTargets,
@@ -336,10 +337,10 @@ import {
 	providerContextCompletionReserveTokens,
 	stopRequestStateKey,
 	toolUseRecoveryStateKey,
-	pendingSpotlightTicksStateKey,
 	compactionReasoningFallbackStateKey,
 	centralProviderUsageExportCursorStateKey,
 	lastLogOffSeqStateKey,
+	runtimeStorageClearedStateKey,
 	logOffBackfillPageSize,
 	contextBudgetCacheStateKey,
 	runtimeRunLeaseTimeoutMs,
@@ -355,6 +356,11 @@ import {
 	serviceBindingResponseBodyMaxBytes,
 	providerUsageExportBatchSize,
 	runtimeEventRetentionDays,
+	compactedLoopMessageRetentionDays,
+	compactionSummaryLoopMessageRetentionDays,
+	deletedLoopMessageRetentionDays,
+	postTickLoopMessageRetentionLimit,
+	sweepLoopMessageRetentionLimit,
 	vectorBindingTimeoutMs,
 	cloudflareBindingRetryMaxAttempts,
 	cloudflareBindingRetryInitialDelayMs,
@@ -422,8 +428,8 @@ import type {
 	RuntimeLoopMessages,
 	InjectionMetadata,
 	InjectionRow,
-	QueuedSpotlightTick,
-	PendingSpotlightTick,
+	RuntimeStorageClearResult,
+	RuntimeStorageRetentionResult,
 	RunContext,
 	ProviderMessageStatus,
 	ProviderStreamActivity,
@@ -1584,6 +1590,10 @@ CREATE TABLE IF NOT EXISTS inference_submissions (
 );
 CREATE INDEX IF NOT EXISTS inference_submissions_created_at ON inference_submissions (created_at);
 CREATE INDEX IF NOT EXISTS inference_submissions_run ON inference_submissions (run_id, event_seq);
+-- Retention: rows a compaction has absorbed are deleted after
+-- ${compactedLoopMessageRetentionDays} days (${compactionSummaryLoopMessageRetentionDays} days for the summaries themselves) and
+-- owner-deleted rows after ${deletedLoopMessageRetentionDays} days. The active context — compacted_by IS NULL AND
+-- deleted_at IS NULL — is never pruned by age.
 CREATE TABLE IF NOT EXISTS loop_messages (
 	seq INTEGER PRIMARY KEY AUTOINCREMENT,
 	position INTEGER NOT NULL,
@@ -1597,6 +1607,11 @@ CREATE TABLE IF NOT EXISTS loop_messages (
 	display_event_seq INTEGER,
 	compacted_by INTEGER,
 	deleted_at TEXT,
+	-- Set on a compaction summary when retention physically deleted rows it had
+	-- absorbed. The data model records no absorbed-child count, so this is the
+	-- only durable evidence that un-compacting the summary can no longer restore
+	-- what it stands for.
+	ledger_pruned_at TEXT,
 	created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS loop_messages_active ON loop_messages (compacted_by, position, seq);
@@ -1624,6 +1639,14 @@ CREATE TABLE IF NOT EXISTS loop_message_log_chunks (
 );
 `;
 
+/**
+ * Every table in `runtimeSchema`, read out of the schema itself so a table added
+ * later cannot be silently left behind by a full storage clear.
+ */
+const runtimeStorageTables: readonly string[] = [...runtimeSchema.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g)]
+	.map((match) => match[1])
+	.filter((name): name is string => Boolean(name));
+
 export class BotRuntime {
 	private readonly state: DurableObjectState;
 	private readonly env: Env;
@@ -1633,26 +1656,52 @@ export class BotRuntime {
 	private readonly activeStreamActivity = new Map<string, string>();
 	private ephemeralStreamSeq = 0;
 	private transitionQueue = new ExclusiveOperationQueue();
+	/**
+	 * When this object's storage was fully cleared, or null while it is live.
+	 *
+	 * Cached in memory as well as persisted so that the window inside
+	 * `clearRuntimeStorage` — after `deleteAll` has dropped the tables and before
+	 * the rebuilt schema can hold the tombstone again — is still closed to
+	 * mutations rather than answering them with a raw SQL failure.
+	 */
+	private runtimeStorageClearedAt: string | null = null;
 
 	constructor(state: DurableObjectState, env: Env) {
 		this.state = state;
 		this.env = env;
 		this.state.blockConcurrencyWhile(async () => {
-			for (const statement of runtimeSchema.split(';')) {
-				const sql = statement.trim();
-				if (sql) {
-					this.state.storage.sql.exec(sql);
-				}
+			this.initializeRuntimeStorage();
+			this.runtimeStorageClearedAt = stringValue(this.runtimeStateValue(runtimeStorageClearedStateKey)) ?? null;
+			// A cleared object that is evicted and rebuilt runs this block again. Each
+			// migration stamps a "done" marker into `runtime_state` even when it finds
+			// nothing to migrate, so on erased storage they would write rows back for
+			// no gain: there is nothing legacy left in it, and never will be.
+			if (!this.runtimeStorageClearedAt) {
+				this.migrateLegacyLoopMessages();
+				this.migrateLegacyProviderToolCallHistory();
+				this.observeProviderToolCallHistoryInvariantAfterStartupMigration();
+				this.backfillProviderTokenCalibrationSamples();
 			}
-			this.ensureInjectionColumns();
-			this.ensureProviderUsageColumns();
-			this.ensureInferenceSubmissionColumns();
-			this.ensureLoopMessageColumns();
-			this.migrateLegacyLoopMessages();
-			this.migrateLegacyProviderToolCallHistory();
-			this.observeProviderToolCallHistoryInvariantAfterStartupMigration();
-			this.backfillProviderTokenCalibrationSamples();
 		});
+	}
+
+	/**
+	 * Bring this object's storage up to the current schema. Idempotent, and used
+	 * both at construction and after a full clear drops the database outright.
+	 * Excludes the one-time legacy data migrations: they are startup work, and
+	 * storage that was just emptied has nothing legacy left in it.
+	 */
+	private initializeRuntimeStorage(): void {
+		for (const statement of runtimeSchema.split(';')) {
+			const sql = statement.trim();
+			if (sql) {
+				this.state.storage.sql.exec(sql);
+			}
+		}
+		this.ensureInjectionColumns();
+		this.ensureProviderUsageColumns();
+		this.ensureInferenceSubmissionColumns();
+		this.ensureLoopMessageColumns();
 	}
 
 	private ensureInjectionColumns(): void {
@@ -1719,8 +1768,17 @@ export class BotRuntime {
 		if (!columns.has('display_event_seq')) {
 			this.state.storage.sql.exec(`ALTER TABLE loop_messages ADD COLUMN display_event_seq INTEGER`);
 		}
+		if (!columns.has('ledger_pruned_at')) {
+			this.state.storage.sql.exec(`ALTER TABLE loop_messages ADD COLUMN ledger_pruned_at TEXT`);
+		}
 		this.state.storage.sql.exec(
 			`CREATE INDEX IF NOT EXISTS loop_messages_visible ON loop_messages (deleted_at, compacted_by, position, seq)`,
+		);
+		// Retention scans a created_at range and stops at its batch limit. Without
+		// this index every prune — including the no-op prune after every visit —
+		// would scan the whole table, which is the largest table in the object.
+		this.state.storage.sql.exec(
+			`CREATE INDEX IF NOT EXISTS loop_messages_retention ON loop_messages (created_at, seq)`,
 		);
 	}
 
@@ -2093,6 +2151,19 @@ export class BotRuntime {
 			const stop = await this.stopTick(botId);
 			return ok({ stop });
 		}
+
+		// Retention and the full clear are fleet maintenance, not owner actions: the
+		// owner-facing equivalents are erase-history and participant deletion, both
+		// of which have their own routes and their own confirmations.
+		if (request.method === 'POST' && url.pathname.endsWith('/retention')) {
+			this.requireInternalMaintenance(request);
+			return ok({ retention: this.runRetentionPass(this.activeRunId) });
+		}
+
+		if (request.method === 'DELETE' && url.pathname.endsWith('/storage')) {
+			this.requireInternalMaintenance(request);
+			return ok({ cleared: await this.clearRuntimeStorage(botId) });
+		}
 		return null;
 	}
 
@@ -2155,7 +2226,16 @@ export class BotRuntime {
 				ws.send(JSON.stringify({ type: 'event', event: injected.event }));
 			}
 		} catch (error) {
-			ws.send(JSON.stringify({ type: 'error', message: error instanceof Error ? error.message : 'Bad message.' }));
+			// A socket accepted before a full clear stays connected until the close
+			// frame lands, so its rejection carries the same typed cause the HTTP
+			// routes answer with rather than only prose the client cannot branch on.
+			const details = error instanceof RepositoryError ? error.details : undefined;
+			ws.send(JSON.stringify({
+				type: 'error',
+				message: error instanceof Error ? error.message : 'Bad message.',
+				...(error instanceof RepositoryError ? { code: error.code } : {}),
+				...(details?.runtimeStorageCause ? { runtimeStorageCause: details.runtimeStorageCause } : {}),
+			}));
 		}
 	}
 
@@ -2185,6 +2265,11 @@ export class BotRuntime {
 
 	private async admitTick(botId: string, trigger: RuntimeRunTrigger, options: TickOptions): Promise<TickAdmission> {
 		return this.runtimeTransitionQueue().run(async () => {
+			// Inside the transition queue, which a clear also holds, so a tick can
+			// neither slip between the clear's guards and its writes nor start against
+			// storage the clear has already erased. Everything a run does — events,
+			// loop messages, injection consumption — is a write.
+			this.requireWritableRuntimeStorage();
 			await this.reapStaleRun(botId);
 			const current = await this.readStatus(botId);
 			if (this.activeRunId || this.activeMaintenanceOperation) {
@@ -2463,7 +2548,13 @@ export class BotRuntime {
 				console.warn('central provider usage export failed', botId, error);
 			}
 			try {
-				this.pruneRuntimeStorageAfterTick(runId);
+				const pruned = this.pruneRuntimeStorageAfterTick(runId);
+				// Logged only when the pass changed something: the rollout needs
+				// per-participant evidence that loop retention is making progress, and a
+				// line after every visit of every participant would bury it.
+				if (retentionPruneChangeCount(pruned) > 0) {
+					console.log(JSON.stringify({ event: 'bot_runtime_retention_prune', botId, runId, pruned }));
+				}
 			} catch (error) {
 				console.warn('bot runtime local retention prune failed', botId, error);
 			}
@@ -2484,6 +2575,13 @@ export class BotRuntime {
 
 	private async beginMaintenanceOperation(botId: string, operation: ActiveMaintenanceOperation, conflictMessage: string): Promise<void> {
 		await this.runtimeTransitionQueue().run(async () => {
+			// The full clear is the one operation erased storage still accepts. The
+			// sweep retries a clear whose confirmation it lost, and re-clearing an
+			// already empty object is the no-op that finally lets it stamp its marker;
+			// compaction and erase-history, by contrast, would both write.
+			if (operation !== 'clear_storage') {
+				this.requireWritableRuntimeStorage();
+			}
 			await this.reapStaleRun(botId);
 			const current = await this.readStatus(botId);
 			if (current.status === 'running' || this.activeRunId || this.activeMaintenanceOperation) {
@@ -2544,26 +2642,22 @@ export class BotRuntime {
 		if (options.mode !== 'spotlight' || !options.spotlightId || !options.injectionIds?.length) {
 			return false;
 		}
-
-		const spotlightId = options.spotlightId;
-		const now = new Date().toISOString();
-		const existing = this.pendingSpotlightTickEntries();
-		const existingInjectionIds = new Set(existing.map((entry) => entry.injectionId));
-		const additions = uniqueStrings(options.injectionIds)
-			.filter((injectionId) => !existingInjectionIds.has(injectionId))
-			.map((injectionId) => ({
-				injectionId,
-				spotlightId,
-				createdAt: now,
-			}));
-		if (additions.length > 0) {
-			this.writePendingSpotlightTickEntries([...existing, ...additions]);
-		}
+		// The queue lives in `runtime_state`, so queueing is itself a write.
+		this.requireWritableRuntimeStorage();
+		this.spotlightTickQueue().append(options.spotlightId, uniqueStrings(options.injectionIds), new Date().toISOString());
 		return true;
 	}
 
 	private startQueuedSpotlightTick(botId: string): void {
-		const pending = this.takeNextPendingSpotlightTick();
+		// The drain both reads and rewrites the queue, and prepends its entries back
+		// when the visit does not start. On erased storage there is nothing left to
+		// drain and nothing that may be written back, so it stops before touching
+		// either — rather than letting `admitTick` refuse and the catch re-queue.
+		if (this.runtimeStorageClearedAt) {
+			return;
+		}
+		const queue = this.spotlightTickQueue();
+		const pending = queue.takeNext();
 		if (!pending) {
 			return;
 		}
@@ -2575,99 +2669,18 @@ export class BotRuntime {
 		})
 			.then((result) => {
 				if (result.status === 'paused') {
-					this.prependPendingSpotlightTickEntries(pending.entries);
+					queue.prepend(pending.entries);
 				}
 			})
 			.catch((error) => {
-				this.prependPendingSpotlightTickEntries(pending.entries);
+				queue.prepend(pending.entries);
 				console.error('queued spotlight tick failed to start', error);
 			});
 		this.state.waitUntil(tick);
 	}
 
-	private takeNextPendingSpotlightTick(): PendingSpotlightTick | null {
-		const unconsumed = this.pendingSpotlightTickEntries().filter((entry) => this.hasUnconsumedInjection(entry.injectionId));
-		if (unconsumed.length === 0) {
-			this.clearPendingSpotlightTickEntries();
-			return null;
-		}
-		const spotlightId = unconsumed[0]?.spotlightId;
-		if (!spotlightId) {
-			this.clearPendingSpotlightTickEntries();
-			return null;
-		}
-		const entries = unconsumed.filter((entry) => entry.spotlightId === spotlightId);
-		const remaining = unconsumed.filter((entry) => entry.spotlightId !== spotlightId);
-		this.writePendingSpotlightTickEntries(remaining);
-		return {
-			spotlightId,
-			injectionIds: entries.map((entry) => entry.injectionId),
-			entries,
-		};
-	}
-
-	private pendingSpotlightTickEntries(): QueuedSpotlightTick[] {
-		const row = this.state.storage.sql
-			.exec<{ value_json: string }>(`SELECT value_json FROM runtime_state WHERE key = ?`, pendingSpotlightTicksStateKey)
-			.toArray()[0];
-		if (!row) {
-			return [];
-		}
-		try {
-			const parsed = runtimeRecord(JSON.parse(row.value_json) as unknown);
-			const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
-			return entries
-				.map((entry) => runtimeRecord(entry))
-				.map((entry) => ({
-					injectionId: stringValue(entry.injectionId) ?? '',
-					spotlightId: stringValue(entry.spotlightId) ?? '',
-					createdAt: stringValue(entry.createdAt) ?? '',
-				}))
-				.filter((entry) => entry.injectionId && entry.spotlightId && entry.createdAt);
-		} catch {
-			this.clearPendingSpotlightTickEntries();
-			return [];
-		}
-	}
-
-	private prependPendingSpotlightTickEntries(entries: QueuedSpotlightTick[]): void {
-		if (entries.length === 0) {
-			return;
-		}
-		const existing = this.pendingSpotlightTickEntries();
-		const prependedInjectionIds = new Set(entries.map((entry) => entry.injectionId));
-		this.writePendingSpotlightTickEntries([...entries, ...existing.filter((entry) => !prependedInjectionIds.has(entry.injectionId))]);
-	}
-
-	private writePendingSpotlightTickEntries(entries: QueuedSpotlightTick[]): void {
-		if (entries.length === 0) {
-			this.clearPendingSpotlightTickEntries();
-			return;
-		}
-		this.state.storage.sql.exec(
-			`INSERT INTO runtime_state (key, value_json)
-			 VALUES (?, ?)
-			 ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
-			pendingSpotlightTicksStateKey,
-			JSON.stringify({ entries }),
-		);
-	}
-
-	private clearPendingSpotlightTickEntries(): void {
-		this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key = ?`, pendingSpotlightTicksStateKey);
-	}
-
-	private hasUnconsumedInjection(injectionId: string): boolean {
-		const row = this.state.storage.sql
-			.exec<{ found: number }>(
-				`SELECT 1 AS found
-				 FROM injections
-				 WHERE id = ? AND consumed_at IS NULL
-				 LIMIT 1`,
-				injectionId,
-			)
-			.toArray()[0];
-		return Boolean(row);
+	private spotlightTickQueue(): RuntimeSpotlightTickQueue {
+		return new RuntimeSpotlightTickQueue(this.state.storage);
 	}
 
 	private async stopTick(botId: string): Promise<{ stopped: boolean; runId?: string; status: BotRuntimeStatus['status'] }> {
@@ -4576,6 +4589,11 @@ export class BotRuntime {
 	}
 
 	private async promptContextBudget(botId: string, input: BotContextBudgetInput): Promise<BotContextBudget> {
+		// Refused up front as well as at the write below: computing the budget bills
+		// the owner for three provider probes, and a participant whose storage was
+		// erased is one that no longer exists. The check at the write is what closes
+		// the race; this one only keeps a request that already lost it from paying.
+		this.requireWritableRuntimeStorage();
 		const budget = await this.promptContextBudgetForInput(botId, input, true);
 		if (!budget) {
 			throw new Error('Prompt context budget was not available after computation.');
@@ -4823,6 +4841,11 @@ export class BotRuntime {
 		fingerprint: string,
 		counts: Pick<PromptContextBudgetCounts, 'fixedSystemTokens' | 'personaPromptTokens' | 'worldPromptTokens'>,
 	): void {
+		// The counts come from provider probes, so the request parks on the network
+		// between its own guards and this insert — long enough for a clear to land in
+		// between. This cache lives in `runtime_state`, which makes writing it a
+		// repopulation of erased storage like any other.
+		this.requireWritableRuntimeStorage();
 		this.state.storage.sql.exec(
 			`INSERT INTO runtime_state (key, value_json)
 			 VALUES (?, ?)
@@ -5760,7 +5783,11 @@ export class BotRuntime {
 		}
 	}
 
-	private pruneRuntimeStorageAfterTick(activeRunId: string, now = new Date()): { events: number; providerUsage: number } {
+	private pruneRuntimeStorageAfterTick(
+		activeRunId: string,
+		now = new Date(),
+		options: { loopMessageLimit?: number } = {},
+	): RuntimeStorageRetentionResult {
 		const lastLogOffSeq = this.latestSuccessfulLogOffToolResultSeq();
 		const events = this.runtimeEventsStore().pruneEventsAfterTick(activeRunId, lastLogOffSeq, now);
 
@@ -5780,7 +5807,134 @@ export class BotRuntime {
 			providerUsage = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
 		}
 
-		return { events, providerUsage };
+		// Loop history is the object's largest store, so its retention rides the
+		// same post-visit pass as events and usage — bounded per run, with the daily
+		// fleet sweep behind it for participants that stopped ticking.
+		const loopMessages = this.runtimeMessageStore().pruneExpiredLoopMessages({
+			now,
+			limit: options.loopMessageLimit ?? postTickLoopMessageRetentionLimit,
+		});
+		const injections = this.spotlightTickQueue().pruneExpiredInjections({ now });
+
+		return { events, providerUsage, loopMessages, injections };
+	}
+
+	/**
+	 * Retention for one participant, driven by the daily fleet sweep. The visit
+	 * path prunes the same way, but a paused, disabled, or rarely scheduled
+	 * participant never reaches it.
+	 */
+	private runRetentionPass(activeRunId: string | null, now = new Date()): RuntimeStorageRetentionResult {
+		// Erased storage has nothing left to prune, and the pass is not read-only: it
+		// memoizes the last log-off sequence into `runtime_state` on its first run,
+		// which on a cleared object would be a repopulating write. The sweep can
+		// still reach this route for a participant cleared after its chunk was
+		// picked, so the answer is an empty pass rather than a conflict — nothing
+		// failed, there was simply nothing there.
+		if (this.runtimeStorageClearedAt) {
+			return {
+				events: 0,
+				providerUsage: 0,
+				loopMessages: { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0, pendingMore: false },
+				injections: { deletedInjections: 0, droppedQueueEntries: 0 },
+			};
+		}
+		return this.pruneRuntimeStorageAfterTick(
+			// A run in flight keeps its own rows exempt exactly as the post-visit pass
+			// does. With no run there is nothing to exempt, and the empty string cannot
+			// collide: every run id is a generated non-empty value.
+			activeRunId ?? '',
+			now,
+			{ loopMessageLimit: sweepLoopMessageRetentionLimit },
+		);
+	}
+
+	/**
+	 * Erase this object's whole storage.
+	 *
+	 * Deleting a participant leaves its runtime object behind, holding the whole
+	 * inner loop forever (design §2.4). The bot-delete lifecycle and the sweep's
+	 * backlog pass both come through here; the caller stamps
+	 * `bot_runtime_index.runtime_storage_cleared_at` only after this returns, so a
+	 * failed clear is retried instead of being marked done.
+	 *
+	 * `deleteAll` rather than a table-by-table delete: it drops the object's
+	 * private SQLite database outright, which is what actually returns the pages to
+	 * Cloudflare instead of leaving them as free space inside a file that is still
+	 * billed at its high-water mark. The schema is then rebuilt empty, so this live
+	 * instance and anything that reaches it later still find their tables.
+	 */
+	private async clearRuntimeStorage(botId: string): Promise<RuntimeStorageClearResult> {
+		await this.beginMaintenanceOperation(botId, 'clear_storage', 'Cannot clear runtime storage while the bot is running.');
+		try {
+			const deletedRowsByTable = this.state.storage.transactionSync(() => {
+				const counted: Record<string, number> = {};
+				// Table names come from this module's own schema text, never from input.
+				for (const table of runtimeStorageTables) {
+					counted[table] = this.state.storage.sql.exec<{ count: number }>(`SELECT COUNT(*) AS count FROM ${table}`).one().count;
+				}
+				return counted;
+			});
+			// Set before the first await, and never unset. From here on every mutation
+			// path refuses, which covers both the window where the tables do not exist
+			// and the far longer window afterwards: `deleteAll` leaves storage
+			// indistinguishable from a new object's, while the caller is about to stamp
+			// `runtime_storage_cleared_at` and permanently exclude this participant from
+			// the sweep. A clear that failed halfway stays refused for the same reason —
+			// the object belongs to a participant that is already gone, so there is
+			// nothing legitimate left to write and the retry re-runs this whole method.
+			this.runtimeStorageClearedAt = new Date().toISOString();
+			await this.state.storage.deleteAll();
+			this.initializeRuntimeStorage();
+			this.setRuntimeState(runtimeStorageClearedStateKey, this.runtimeStorageClearedAt);
+			this.broadcastControl({ type: 'history_cleared', botId });
+			// An accepted monitor socket can inject, so leaving one open would leave a
+			// writer holding a reference to storage that must never be written again.
+			// The refusal above already covers it; closing is what tells the client.
+			this.closeMonitorSockets();
+			return {
+				deletedRowsByTable,
+				deletedRows: Object.values(deletedRowsByTable).reduce((total, count) => total + count, 0),
+				clearedAt: this.runtimeStorageClearedAt,
+			};
+		} finally {
+			this.finishMaintenanceOperation('clear_storage');
+		}
+	}
+
+	/**
+	 * Refuse a write to storage a full clear has already erased.
+	 *
+	 * Every mutation path calls this immediately before its own write, with no
+	 * await in between, so the answer cannot go stale between the check and the
+	 * insert. The rejection is a typed conflict rather than a not-found: the
+	 * caller's request was well formed and reached the right object, and the
+	 * typed cause tells it the state is terminal rather than transient.
+	 */
+	private requireWritableRuntimeStorage(): void {
+		// Truthiness, not a null check: the tombstone is always a non-empty
+		// timestamp, and the same tolerance the other storage helpers show for a
+		// prototype-built instance without initialized fields applies here.
+		if (!this.runtimeStorageClearedAt) {
+			return;
+		}
+		throw new RepositoryError(
+			'conflict',
+			'This participant’s runtime storage has been erased and cannot accept new activity.',
+			409,
+			{ runtimeStorageCause: 'storage_cleared' },
+		);
+	}
+
+	private closeMonitorSockets(): void {
+		const sockets = typeof this.state.getWebSockets === 'function' ? this.state.getWebSockets() : [];
+		for (const socket of sockets) {
+			try {
+				socket.close(1001, 'Runtime storage was erased.');
+			} catch (error) {
+				console.warn('bot runtime monitor socket close failed', error);
+			}
+		}
 	}
 
 	private latestCompactionSummary(): string {
@@ -5840,6 +5994,11 @@ export class BotRuntime {
 	 * makes this the authority for "was this participant already told".
 	 */
 	private injectThought(text: string, metadata: InjectionMetadata = {}): { event: BotRuntimeEvent | null; injectionId: string } {
+		// The single choke point for both writers that can reach an erased object:
+		// the HTTP `/inject` route, whose guards it may have passed before the clear,
+		// and a monitor socket accepted before it. This method is synchronous from
+		// here to its insert, so the check and the write cannot be separated.
+		this.requireWritableRuntimeStorage();
 		if (metadata.spotlightId) {
 			const existing = this.state.storage.sql
 				.exec<{ id: string }>(`SELECT id FROM injections WHERE spotlight_id = ? LIMIT 1`, metadata.spotlightId)
@@ -7071,6 +7230,18 @@ export class BotRuntime {
 			.bind(botId)
 			.first<{ enabled: number }>();
 		return row ? row.enabled === 1 : fallback;
+	}
+
+	/**
+	 * Maintenance routes are reachable only by this deployment's own schedulers
+	 * and lifecycle operations. `fetch` has already established that the request
+	 * carries the internal service secret; this additionally refuses a request
+	 * forwarded on an owner's behalf, which no owner route ever sets.
+	 */
+	private requireInternalMaintenance(request: Request): void {
+		if (request.headers.get('x-bickr-scheduler') !== '1') {
+			throw new RepositoryError('forbidden', 'Runtime maintenance is internal only.', 403);
+		}
 	}
 
 	private async requireOwnerOrInternal(request: Request, botId: string): Promise<void> {
@@ -9839,6 +10010,11 @@ function inferenceSubmissionDisplayMessagesFromRow(row: InferenceSubmissionRow):
 	}
 	const parsed = JSON.parse(row.display_messages_json) as unknown;
 	return Array.isArray(parsed) ? { displayMessages: parsed as BotInferenceSubmissionMessage[] } : {};
+}
+
+function retentionPruneChangeCount(pruned: RuntimeStorageRetentionResult): number {
+	return pruned.events + pruned.providerUsage + pruned.loopMessages.deletedMessages + pruned.loopMessages.deletedLogs +
+		pruned.loopMessages.stampedSummaries + pruned.injections.deletedInjections + pruned.injections.droppedQueueEntries;
 }
 
 function botIdFromPath(pathname: string): string {

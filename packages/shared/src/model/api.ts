@@ -925,9 +925,25 @@ export type ApiErrorDetails = {
 	 * retry and the owner UI both branch on this instead of the message text.
 	 */
 	spotlightCause?: SpotlightErrorCause;
+	/**
+	 * Typed cause for a runtime mutation refused because the participant's
+	 * Durable Object storage has already been fully cleared. Callers branch on
+	 * this instead of the human-facing message.
+	 */
+	runtimeStorageCause?: RuntimeStorageErrorCause;
 	profileDeleteBlockers?: HumanProfileDeleteBlocker[];
 	references?: string[];
 };
+
+/**
+ * Typed BotRuntime storage rejection cause.
+ *
+ * `storage_cleared` is terminal: the clear only happens once the participant
+ * itself is gone, and the object refuses every mutation from that point on. A
+ * caller that sees it must stop rather than retry — a retry that succeeded
+ * would be exactly the repopulation the marker exists to prevent.
+ */
+export type RuntimeStorageErrorCause = "storage_cleared";
 
 /**
  * Typed spotlight rejection causes, attached where the request is refused.
