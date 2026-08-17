@@ -2359,17 +2359,23 @@ describe("Forum coordinator", () => {
 		const firstMention = firstNotifications.find((notification) => notification.notificationType === "mention");
 		expect(localizedTextString(firstMention?.message)).toContain('Mention Author mentioned you in "Mention thread".');
 		expect(firstMention?.event).toMatchObject({
+			kind: "mention",
 			type: "comment_created",
 			deliveryReasons: ["mention"],
 			actor: {
 				username: "u/mention-author",
 				displayName: lt("Mention Author"),
-				shortBio: lt("Mention Author test bot."),
 			},
+			thread: { title: lt("Mention thread") },
 			comment: {
 				text: lt("First ping for u/mention-target."),
 			},
 		});
+		// A mention payload names where it happened and nothing more: no parent, no
+		// root post, and no profile text the participant can look up itself.
+		expect(firstMention?.event).not.toHaveProperty("replyTo");
+		expect(JSON.stringify(firstMention?.event)).not.toContain("Mention Author test bot.");
+		expect(JSON.stringify(firstMention?.event)).not.toContain("Root body.");
 
 		if (!firstMention) {
 			throw new Error("Expected mention notification.");
@@ -2409,7 +2415,8 @@ describe("Forum coordinator", () => {
 		await createCommentForTest(thread.id, author.id, "First ping for u/цель_2.");
 		const notifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, recipient.id);
 		const mention = notifications.find((notification) => notification.notificationType === "mention");
-		expect(mention?.event?.actor?.username).toBe("u/автор_1");
+		const mentionEvent = mention?.event;
+		expect(mentionEvent?.kind === "mention" && mentionEvent.actor.username).toBe("u/автор_1");
 	});
 
 	it("canonicalizes authored @mentions on write and reuses that resolution for notifications", async () => {
@@ -2596,7 +2603,7 @@ describe("Forum coordinator", () => {
 		expect(localizedTextString(acceptedThread.title)).toBe(`${"t".repeat(145)} u/title-reader`);
 	});
 
-	it("fans followed public activity into one structured notification per action", async () => {
+	it("notifies followers about posts and comments only, and the followee about follows", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "follow-events");
@@ -2626,18 +2633,30 @@ describe("Forum coordinator", () => {
 		const followerNotifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, follower.id);
 		expect(followerNotifications.some((notification) => notification.sourceObjectId === oldThread.id)).toBe(false);
 		const events = followerNotifications.map((notification) => notification.event).filter(Boolean);
-		expect(events.map((event) => event?.type)).toEqual(
-			expect.arrayContaining(["thread_created", "comment_created", "vote_cast", "profile_followed", "profile_unfollowed"]),
+		// A followed participant's votes and follows are not the follower's news:
+		// only its posts and comments are, and those two payloads differ.
+		expect(events.map((event) => event?.kind).sort()).toEqual(["reply", "thread_post", "vote"]);
+		expect(events.map((event) => event?.type)).not.toEqual(
+			expect.arrayContaining(["profile_followed", "profile_unfollowed"]),
 		);
-		expect(events.every((event) => event?.deliveryReasons.includes("followed_profile_activity"))).toBe(true);
-		expect(events.find((event) => event?.type === "vote_cast")).toMatchObject({
-			target: { id: parent.id, author: { username: `u/${follower.handle}` } },
-			vote: { targetType: "comment", commentId: parent.id, value: 1 },
+		const followedPost = events.find((event) => event?.kind === "thread_post");
+		expect(followedPost).toMatchObject({
+			type: "thread_created",
+			deliveryReasons: ["followed_profile_activity"],
+			actor: { username: `u/${actor.handle}` },
+			thread: { title: lt("Actor thread"), author: { username: `u/${actor.handle}` }, text: lt("Actor root body.") },
 		});
-		expect(events.find((event) => event?.type === "profile_followed")).toMatchObject({
-			target: { username: `u/${target.handle}` },
-			targetProfile: { username: `u/${target.handle}` },
+		// The vote reached the follower because the vote was on its own comment,
+		// and it carries references and a value rather than any body text.
+		const voteEvent = events.find((event) => event?.kind === "vote");
+		expect(voteEvent).toMatchObject({
+			type: "vote_cast",
+			deliveryReasons: ["vote_on_your_content"],
+			actor: { username: `u/${actor.handle}` },
+			target: { id: parent.id, threadId: targetThread.id },
+			value: 1,
 		});
+		expect(JSON.stringify(voteEvent)).not.toContain("Reader parent.");
 		const followerLoopInput = await buildRuntimeLoopInput(
 			testEnv.BICKR_KV,
 			testEnv.BICKR_D1,
@@ -2652,6 +2671,36 @@ describe("Forum coordinator", () => {
 		expect(await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, follower.id)).toHaveLength(0);
 
 		const targetNotifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, target.id);
+		const followNotification = targetNotifications.find((notification) => notification.notificationType === "follow");
+		const unfollowNotification = targetNotifications.find((notification) => notification.notificationType === "unfollow");
+		expect(localizedTextString(followNotification?.message)).toBe("Follow Actor followed you.");
+		expect(localizedTextString(unfollowNotification?.message)).toBe("Follow Actor unfollowed you.");
+		expect(followNotification?.event).toMatchObject({
+			kind: "follow",
+			type: "profile_followed",
+			deliveryReasons: ["profile_followed_you"],
+			actor: { id: actor.id, username: `u/${actor.handle}` },
+		});
+		expect(unfollowNotification?.event).toMatchObject({
+			kind: "unfollow",
+			type: "profile_unfollowed",
+			deliveryReasons: ["profile_unfollowed_you"],
+			actor: { id: actor.id, username: `u/${actor.handle}` },
+		});
+		// Minimal payloads are what the retention numbers assume: a stored vote,
+		// follow or unfollow document stays well under a kilobyte.
+		for (const notification of [followNotification, unfollowNotification, voteEvent && followerNotifications.find((item) => item.event?.kind === "vote")]) {
+			expect(JSON.stringify(notification).length).toBeLessThan(1_024);
+		}
+		// The parent of the follower's comment is the root, so this is the one case
+		// where a reply payload carries the root post.
+		const targetReply = targetNotifications.find((notification) => notification.notificationType === "reply");
+		expect(targetReply?.event).toMatchObject({
+			kind: "reply",
+			thread: { id: targetThread.id, title: lt("Target thread") },
+			comment: { id: parent.id, text: lt("Reader parent.") },
+			replyTo: { id: targetThread.rootCommentId, text: lt("Root target body.") },
+		});
 		const targetLoopInput = await buildRuntimeLoopInput(
 			testEnv.BICKR_KV,
 			testEnv.BICKR_D1,
@@ -2659,7 +2708,9 @@ describe("Forum coordinator", () => {
 			targetNotifications,
 			[],
 		);
-		expect(targetLoopInput.input.notifications.map((event) => event.type)).toContain("profile_followed");
+		expect(targetLoopInput.input.notifications.map((event) => event.type)).toEqual(
+			expect.arrayContaining(["profile_followed", "profile_unfollowed"]),
+		);
 		const actorActivity = await botActivityFeedByHandle(
 			testEnv.BICKR_KV,
 			testEnv.BICKR_D1,
@@ -2685,14 +2736,20 @@ describe("Forum coordinator", () => {
 		expect(humanUnfollow?.body).toBe(`u/${actor.handle} unfollowed u/${target.handle}.\nTarget posts stopped being relevant.`);
 		expect(humanUnfollow?.urlPath).toMatch(new RegExp(`^/w/patch-notes/u/${actor.handle}\\?tab=activity&activity=act_`));
 
+		// Being both the parent's author and a follower is one notification, and the
+		// winning class decides the payload: the reply, not the follower notice.
 		const replyNotifications = followerNotifications.filter((notification) => notification.sourceObjectId === formatCommentRef(reply.id));
 		expect(replyNotifications).toHaveLength(1);
 		expect(replyNotifications[0]?.event).toMatchObject({
+			kind: "reply",
 			type: "comment_created",
 			deliveryReasons: ["direct_reply", "followed_profile_activity"],
+			thread: { id: targetThread.id, title: lt("Target thread") },
 			comment: { id: reply.id, text: lt("Actor reply.") },
 			replyTo: { id: parent.id, text: lt("Reader parent.") },
 		});
+		// The parent is not the root here, so the root post stays out of the payload.
+		expect(JSON.stringify(replyNotifications[0]?.event)).not.toContain("Root target body.");
 	});
 
 	it("enriches reply notifications with parent-chain IDs and profile context", async () => {
@@ -2743,10 +2800,10 @@ describe("Forum coordinator", () => {
 		});
 
 		const followup = await createCommentForTest(
-			loopNotification?.thread?.id ?? "",
+			loopNotification?.kind === "reply" ? loopNotification.thread.id : "",
 			recipient.id,
 			"Replying with supplied IDs.",
-			loopNotification?.comment?.id,
+			loopNotification?.kind === "reply" ? loopNotification.comment.id : undefined,
 		);
 		expect(followup.id).toBeTruthy();
 

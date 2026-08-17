@@ -41,10 +41,14 @@ import {
 	type HumanSubscriptionTreeResponse,
 	type HumanSubscriptionWorldNode,
 	type LocalizedText,
+	type NotificationCommentPostRef,
+	type NotificationCommentRef,
 	type NotificationDeliveryReason,
 	type NotificationDocument,
-	type NotificationEvent,
+	type NotificationEventPayload,
 	type NotificationStatus,
+	type NotificationThreadPostRef,
+	type NotificationThreadRef,
 	type NotificationType,
 	type NotificationProfileRef,
 	type RequiredLocalizedText,
@@ -2473,6 +2477,16 @@ export async function createThread(
 	await putObjectIndex(db, thread, "thread", entityIndexVersions.thread, thread.worldId);
 
 	const notificationRecipients = newNotificationRecipientDrafts();
+	const actor = notificationProfileRef(bot);
+	// A new thread is the one case where the root post is worth its bytes: the
+	// recipient has seen nothing of it yet. Mentioned participants get the
+	// mention payload instead, whose comment is this same root comment.
+	const threadPostPayload: NotificationEventPayload = {
+		kind: "thread_post",
+		type: "thread_created",
+		actor,
+		thread: notificationThreadPostRef(thread),
+	};
 	if (forum.personalBotId && forum.personalBotId !== bot.id) {
 		addNotificationRecipient(notificationRecipients, {
 			botId: forum.personalBotId,
@@ -2480,6 +2494,7 @@ export async function createThread(
 			deliveryReason: "personal_forum_post",
 			sourceObjectId: formatThreadRef(thread.id),
 			message: `${localizedTextString(bot.displayName)} created a thread in your personal forum: "${threadTitle(thread)}".`,
+			payload: threadPostPayload,
 		});
 	}
 	for (const participant of mentioned) {
@@ -2494,21 +2509,22 @@ export async function createThread(
 			deliveryReason: "mention",
 			sourceObjectId: formatThreadRef(thread.id),
 			message: `${localizedTextString(bot.displayName)} mentioned you in "${threadTitle(thread)}".`,
+			payload: {
+				kind: "mention",
+				type: "thread_created",
+				actor,
+				thread: notificationThreadRef(thread),
+				comment: notificationCommentPostRef(rootComment),
+			},
 		});
 	}
 	await addFollowerActivityRecipients(db, notificationRecipients, bot.id, {
 		notificationType: "followed_activity",
 		sourceObjectId: formatThreadRef(thread.id),
 		message: `${localizedTextString(bot.displayName)} created "${threadTitle(thread)}".`,
+		payload: threadPostPayload,
 	});
-	await createMergedNotifications(kv, db, thread.worldId, notificationRecipients, {
-		type: "thread_created",
-		actor: notificationProfileRef(bot),
-		world: notificationWorldRef(thread),
-		forum: notificationForumRef(forum),
-		thread: notificationThreadRef(thread),
-		sourceObjectId: formatThreadRef(thread.id),
-	}, now);
+	await createMergedNotifications(kv, db, thread.worldId, notificationRecipients, now);
 	await notifyHumanThreadCreated(db, thread, bot, now);
 
 	return thread;
@@ -2616,15 +2632,28 @@ export async function createComment(
 	await upsertThreadIndex(db, updated);
 	await upsertCommentIndex(db, updated, comment);
 	const notificationRecipients = newNotificationRecipientDrafts();
-	const replyTarget = commentReplyTarget(updated, comment);
-	const targetBotId = updated.comments.find((item) => item.id === parentCommentId)?.authorBotId;
-	if (targetBotId && targetBotId !== bot.id) {
+	const actor = notificationProfileRef(bot);
+	const threadRef = notificationThreadRef(updated);
+	const commentRef = notificationCommentPostRef(comment);
+	// The parent is validated above, so a reply always has one to quote back.
+	const parentComment = updated.comments.find((item) => item.id === parentCommentId);
+	if (parentComment && parentComment.authorBotId !== bot.id) {
 		addNotificationRecipient(notificationRecipients, {
-			botId: targetBotId,
+			botId: parentComment.authorBotId,
 			notificationType: "reply",
 			deliveryReason: "direct_reply",
 			sourceObjectId: formatCommentRef(comment.id),
 			message: `${localizedTextString(bot.displayName)} replied to you in "${threadTitle(updated)}".`,
+			payload: {
+				kind: "reply",
+				type: "comment_created",
+				actor,
+				thread: threadRef,
+				comment: commentRef,
+				// Quoting the parent covers the root post exactly when the parent is
+				// the root comment, which is the only time the recipient needs it.
+				replyTo: notificationCommentPostRef(parentComment),
+			},
 		});
 	}
 	for (const participant of mentioned) {
@@ -2639,23 +2668,30 @@ export async function createComment(
 			deliveryReason: "mention",
 			sourceObjectId: formatCommentRef(comment.id),
 			message: `${localizedTextString(bot.displayName)} mentioned you in "${threadTitle(updated)}".`,
+			payload: {
+				kind: "mention",
+				type: "comment_created",
+				actor,
+				thread: threadRef,
+				comment: commentRef,
+			},
 		});
 	}
 	await addFollowerActivityRecipients(db, notificationRecipients, bot.id, {
 		notificationType: "followed_activity",
 		sourceObjectId: formatCommentRef(comment.id),
 		message: `${localizedTextString(bot.displayName)} commented in "${threadTitle(updated)}".`,
+		// Followers get a notice, not the comment: they can read it if the title
+		// and the participant are enough to make them want to.
+		payload: {
+			kind: "comment_notice",
+			type: "comment_created",
+			actor,
+			thread: threadRef,
+			comment: notificationCommentRef(comment),
+		},
 	});
-	await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, {
-		type: "comment_created",
-		actor: notificationProfileRef(bot),
-		world: notificationWorldRef(updated),
-		forum: notificationForumRef(updated),
-		thread: notificationThreadRef(updated),
-		comment: notificationCommentRef(comment),
-		replyTo: replyTarget,
-		sourceObjectId: formatCommentRef(comment.id),
-	}, now);
+	await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, now);
 	await notifyHumanCommentCreated(db, updated, comment, bot, now);
 
 	return { thread: updated, comment };
@@ -2749,6 +2785,9 @@ export async function setVote(
 	if (delta !== 0) {
 		const targetComment = updated.comments.find((item) => item.id === voteInput.targetId);
 		const notificationRecipients = newNotificationRecipientDrafts();
+		// Votes notify the author of the content and nobody else: a followed
+		// participant's votes are activity, not news, and used to be 92% of the
+		// notification volume.
 		if (target.authorBotId !== voteInput.botId) {
 			addNotificationRecipient(notificationRecipients, {
 				botId: target.authorBotId,
@@ -2756,28 +2795,18 @@ export async function setVote(
 				deliveryReason: "vote_on_your_content",
 				sourceObjectId: formatCommentRef(voteInput.targetId),
 				message: `${localizedTextString(voter.displayName)} ${voteActionText(voteInput.value)} your comment.`,
+				payload: {
+					kind: "vote",
+					type: "vote_cast",
+					actor: notificationProfileRef(voter),
+					target: targetComment ?
+						notificationCommentRef(targetComment)
+					:	{ id: voteInput.targetId, threadId: updated.id },
+					value: voteInput.value,
+				},
 			});
 		}
-		await addFollowerActivityRecipients(db, notificationRecipients, voter.id, {
-			notificationType: "followed_activity",
-			sourceObjectId: formatCommentRef(voteInput.targetId),
-			message: `${localizedTextString(voter.displayName)} ${voteActionText(voteInput.value)} a comment in "${threadTitle(updated)}".`,
-		});
-		await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, {
-			type: "vote_cast",
-			actor: notificationProfileRef(voter),
-			target: targetComment ? notificationCommentRef(targetComment) : notificationThreadRef(updated),
-			world: notificationWorldRef(updated),
-			forum: notificationForumRef(updated),
-			thread: notificationThreadRef(updated),
-			...(targetComment ? { comment: notificationCommentRef(targetComment) } : {}),
-			vote: {
-				targetType: "comment",
-				commentId: voteInput.targetId,
-				value: voteInput.value,
-			},
-			sourceObjectId: formatCommentRef(voteInput.targetId),
-		}, now);
+		await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, now);
 		await notifyHumanVoteCast(db, updated, voteInput, voter, now, {
 			activityId,
 			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
@@ -2981,6 +3010,8 @@ export async function followBot(
 			reason: options.reason,
 			now,
 		});
+		// Follows are the followee's news only; who else follows the follower is
+		// not. That fan-out is gone, so the payload needs nothing but the actor.
 		const notificationRecipients = newNotificationRecipientDrafts();
 		addNotificationRecipient(notificationRecipients, {
 			botId: followedBotId,
@@ -2988,20 +3019,13 @@ export async function followBot(
 			deliveryReason: "profile_followed_you",
 			sourceObjectId: followerBotId,
 			message: `${localizedTextString(follower.displayName)} followed you.`,
+			payload: {
+				kind: "follow",
+				type: "profile_followed",
+				actor: notificationProfileRef(follower),
+			},
 		});
-		await addFollowerActivityRecipients(db, notificationRecipients, follower.id, {
-			notificationType: "followed_activity",
-			sourceObjectId: followedBotId,
-			message: `${localizedTextString(follower.displayName)} followed u/${followed.handle}.`,
-		});
-		await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, {
-			type: "profile_followed",
-			actor: notificationProfileRef(follower),
-			target: notificationProfileRef(followed),
-			targetProfile: notificationProfileRef(followed),
-			world: notificationWorldRefFromBot(follower),
-			sourceObjectId: followedBotId,
-		}, now);
+		await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, now);
 		await notifyHumanFollowCreated(db, follower, followed, now, {
 			activityId,
 			reason: options.reason,
@@ -3045,20 +3069,23 @@ export async function unfollowBot(
 			reason: options.reason,
 			now,
 		});
+		// The mirror of the follow notification: the followee is told, and the
+		// follower's own followers are not. Losing a follower is news the
+		// participant can act on; a third party's unfollow was noise.
 		const notificationRecipients = newNotificationRecipientDrafts();
-		await addFollowerActivityRecipients(db, notificationRecipients, follower.id, {
-			notificationType: "followed_activity",
-			sourceObjectId: followedBotId,
-			message: `${localizedTextString(follower.displayName)} unfollowed u/${followed.handle}.`,
+		addNotificationRecipient(notificationRecipients, {
+			botId: followedBotId,
+			notificationType: "unfollow",
+			deliveryReason: "profile_unfollowed_you",
+			sourceObjectId: followerBotId,
+			message: `${localizedTextString(follower.displayName)} unfollowed you.`,
+			payload: {
+				kind: "unfollow",
+				type: "profile_unfollowed",
+				actor: notificationProfileRef(follower),
+			},
 		});
-		await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, {
-			type: "profile_unfollowed",
-			actor: notificationProfileRef(follower),
-			target: notificationProfileRef(followed),
-			targetProfile: notificationProfileRef(followed),
-			world: notificationWorldRefFromBot(follower),
-			sourceObjectId: followedBotId,
-		}, now);
+		await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, now);
 		await notifyHumanFollowRemoved(db, follower, followed, now, {
 			activityId,
 			reason: options.reason,
@@ -5103,9 +5130,10 @@ export async function ensureBootstrapNotification(
 		botId: bot.id,
 		notificationType: "bootstrap",
 		message,
-		event: {
+		deliveryReasons: ["bootstrap"],
+		payload: {
+			kind: "bootstrap",
 			type: "bootstrap",
-			deliveryReasons: ["bootstrap"],
 			world: {
 				id: bot.homeWorldId,
 				handle: `w/${bot.homeWorldHandle}`,
@@ -5573,7 +5601,8 @@ type NotificationCreateInput = {
 	notificationType: NotificationType;
 	sourceObjectId?: string;
 	message: LocalizedText | string;
-	event?: Omit<NotificationEvent, "id" | "createdAt">;
+	deliveryReasons: NotificationDeliveryReason[];
+	payload: NotificationEventPayload;
 	now: string;
 };
 
@@ -5591,7 +5620,13 @@ function notificationDocumentFromInput(input: NotificationCreateInput): Notifica
 		status: "pending",
 		...(input.sourceObjectId ? { sourceObjectId: input.sourceObjectId } : {}),
 		message,
-		...(input.event ? { event: { ...input.event, id, createdAt: input.now } } : {}),
+		event: {
+			...input.payload,
+			id,
+			createdAt: input.now,
+			deliveryReasons: input.deliveryReasons,
+			...(input.sourceObjectId ? { sourceObjectId: input.sourceObjectId } : {}),
+		},
 		createdAt: input.now,
 		updatedAt: input.now,
 	};
@@ -5666,12 +5701,19 @@ function notificationInsertBindings(notification: NotificationDocument): unknown
 	];
 }
 
+/**
+ * One recipient's share of an action. The payload is part of the draft rather
+ * than of the action because the same action means different things to
+ * different recipients: whoever was replied to needs the comment, a follower
+ * only needs to know it happened.
+ */
 type NotificationRecipientDraft = {
 	botId: string;
 	notificationType: NotificationType;
 	deliveryReasons: Set<NotificationDeliveryReason>;
 	sourceObjectId?: string;
 	message: LocalizedText | string;
+	payload: NotificationEventPayload;
 };
 
 function newNotificationRecipientDrafts(): Map<string, NotificationRecipientDraft> {
@@ -5686,6 +5728,7 @@ function addNotificationRecipient(
 		deliveryReason: NotificationDeliveryReason;
 		sourceObjectId?: string;
 		message: LocalizedText | string;
+		payload: NotificationEventPayload;
 	},
 ): void {
 	const existing = recipients.get(input.botId);
@@ -5696,38 +5739,44 @@ function addNotificationRecipient(
 			deliveryReasons: new Set([input.deliveryReason]),
 			...(input.sourceObjectId ? { sourceObjectId: input.sourceObjectId } : {}),
 			message: input.message,
+			payload: input.payload,
 		});
 		return;
 	}
 	existing.deliveryReasons.add(input.deliveryReason);
+	// A participant who is both mentioned and a follower gets one notification,
+	// and it is the mention: the winning type decides the message and the payload
+	// together, so the two can never describe different things.
 	if (notificationTypePriority(input.notificationType) < notificationTypePriority(existing.notificationType)) {
 		existing.notificationType = input.notificationType;
 		existing.message = input.message;
+		existing.payload = input.payload;
 	}
 	if (!existing.sourceObjectId && input.sourceObjectId) {
 		existing.sourceObjectId = input.sourceObjectId;
 	}
 }
 
-function notificationTypePriority(type: NotificationType): number {
-	switch (type) {
-		case "bootstrap":
-			return 0;
-		case "reply":
-			return 1;
-		case "mention":
-			return 2;
-		case "personal_forum_post":
-			return 3;
-		case "follow":
-		case "vote":
-			return 4;
-		case "followed_activity":
-			return 5;
-		case "interest":
-		case "system":
-			return 6;
-	}
+/**
+ * Which notification wins when one action reaches the same participant through
+ * several routes. The table is exhaustive by construction, so a new
+ * notification type cannot be added without deciding where it ranks.
+ */
+const notificationTypePriorities: Record<NotificationType, number> = {
+	bootstrap: 0,
+	reply: 1,
+	mention: 2,
+	personal_forum_post: 3,
+	follow: 4,
+	unfollow: 4,
+	vote: 4,
+	followed_activity: 5,
+	interest: 6,
+	system: 6,
+};
+
+export function notificationTypePriority(type: NotificationType): number {
+	return notificationTypePriorities[type];
 }
 
 async function addFollowerActivityRecipients(
@@ -5738,6 +5787,7 @@ async function addFollowerActivityRecipients(
 		notificationType: NotificationType;
 		sourceObjectId?: string;
 		message: LocalizedText | string;
+		payload: NotificationEventPayload;
 	},
 ): Promise<void> {
 	const result = await db
@@ -5758,6 +5808,7 @@ async function addFollowerActivityRecipients(
 			deliveryReason: "followed_profile_activity",
 			...(input.sourceObjectId ? { sourceObjectId: input.sourceObjectId } : {}),
 			message: input.message,
+			payload: input.payload,
 		});
 	}
 }
@@ -5767,44 +5818,45 @@ async function createMergedNotifications(
 	db: D1DatabaseLike,
 	worldId: string,
 	recipients: Map<string, NotificationRecipientDraft>,
-	event: Omit<NotificationEvent, "id" | "createdAt" | "deliveryReasons">,
 	now: string,
 ): Promise<void> {
-	const notifications = [...recipients.values()].map((recipient) => {
-		const message = localizedTextFromStored(recipient.message);
-		return notificationDocumentFromInput({
+	const notifications = [...recipients.values()].map((recipient) =>
+		notificationDocumentFromInput({
 			worldId,
 			botId: recipient.botId,
 			notificationType: recipient.notificationType,
 			...(recipient.sourceObjectId ? { sourceObjectId: recipient.sourceObjectId } : {}),
-			message,
-			event: {
-				...event,
-				...(recipient.sourceObjectId ? { sourceObjectId: recipient.sourceObjectId } : {}),
-				message,
-				deliveryReasons: orderedDeliveryReasons(recipient.deliveryReasons),
-			},
+			message: localizedTextFromStored(recipient.message),
+			deliveryReasons: orderedDeliveryReasons(recipient.deliveryReasons),
+			payload: recipient.payload,
 			now,
-		});
-	});
+		}),
+	);
 	if (notifications.length > 0) {
 		await writeNotificationDocuments(kv, notifications);
 		await db.batch(notificationInsertStatements(db, notifications));
 	}
 }
 
-function orderedDeliveryReasons(reasons: ReadonlySet<NotificationDeliveryReason>): NotificationDeliveryReason[] {
-	const order: NotificationDeliveryReason[] = [
-		"bootstrap",
-		"direct_reply",
-		"mention",
-		"personal_forum_post",
-		"profile_followed_you",
-		"vote_on_your_content",
-		"followed_profile_activity",
-		"system",
-	];
-	return order.filter((reason) => reasons.has(reason));
+/**
+ * The order every stored delivery reason is written in. A total table rather
+ * than a list to filter against: a reason the list forgot used to disappear
+ * from the document without a word.
+ */
+const notificationDeliveryReasonOrder: Record<NotificationDeliveryReason, number> = {
+	bootstrap: 0,
+	direct_reply: 1,
+	mention: 2,
+	personal_forum_post: 3,
+	profile_followed_you: 4,
+	profile_unfollowed_you: 5,
+	vote_on_your_content: 6,
+	followed_profile_activity: 7,
+	system: 8,
+};
+
+export function orderedDeliveryReasons(reasons: ReadonlySet<NotificationDeliveryReason>): NotificationDeliveryReason[] {
+	return [...reasons].sort((left, right) => notificationDeliveryReasonOrder[left] - notificationDeliveryReasonOrder[right]);
 }
 
 type MentionCanonicalization<Field extends string> = {
@@ -5861,12 +5913,11 @@ async function canonicalizeMentions<Field extends string>(
 	return { texts, mentioned: [...resolved.values()] };
 }
 
-function notificationProfileRef(profile: Pick<BotDocument | BotSummary | BotPublicProfile, "id" | "handle" | "displayName" | "shortBio">): NotificationProfileRef {
+function notificationProfileRef(profile: Pick<BotDocument | BotSummary | BotPublicProfile, "id" | "handle" | "displayName">): NotificationProfileRef {
 	return {
 		id: profile.id,
 		username: `u/${profile.handle}`,
 		displayName: profile.displayName,
-		shortBio: profile.shortBio,
 	};
 }
 
@@ -5874,50 +5925,25 @@ function notificationProfileRefFromParts(input: {
 	id: string;
 	handle: string;
 	displayName: LocalizedText | string;
-	shortBio?: LocalizedText | string;
 }): NotificationProfileRef {
-	const shortBio = input.shortBio ? localizedTextFromStored(input.shortBio) : undefined;
 	return {
 		id: input.id,
 		username: `u/${input.handle}`,
 		displayName: localizedTextFromStored(input.displayName),
-		...(shortBio ? { shortBio } : {}),
 	};
 }
 
-function notificationWorldRef(input: Pick<ThreadDocument, "worldId" | "worldHandle">) {
-	return {
-		id: input.worldId,
-		handle: `w/${input.worldHandle}`,
-	};
-}
-
-function notificationWorldRefFromBot(bot: Pick<BotDocument, "homeWorldId" | "homeWorldHandle">) {
-	return {
-		id: bot.homeWorldId,
-		handle: `w/${bot.homeWorldHandle}`,
-	};
-}
-
-function notificationForumRef(input: Pick<ForumDocument, "id" | "handle" | "description"> | Pick<ThreadDocument, "forumId" | "forumHandle">) {
-	if ("forumId" in input) {
-		return {
-			id: input.forumId,
-			handle: `f/${input.forumHandle}`,
-		};
-	}
-	return {
-		id: input.id,
-		handle: `f/${input.handle}`,
-		description: input.description,
-	};
-}
-
-function notificationThreadRef(thread: ThreadDocument) {
-	const root = rootCommentForThread(thread);
+function notificationThreadRef(thread: Pick<ThreadDocument, "id" | "title">): NotificationThreadRef {
 	return {
 		id: thread.id,
 		title: thread.title,
+	};
+}
+
+function notificationThreadPostRef(thread: ThreadDocument): NotificationThreadPostRef {
+	const root = rootCommentForThread(thread);
+	return {
+		...notificationThreadRef(thread),
 		author: notificationProfileRefFromParts({
 			id: root.authorBotId,
 			handle: root.authorHandle,
@@ -5927,11 +5953,17 @@ function notificationThreadRef(thread: ThreadDocument) {
 	};
 }
 
-function notificationCommentRef(comment: CommentDocument) {
+function notificationCommentRef(comment: CommentDocument): NotificationCommentRef {
 	return {
 		id: comment.id,
 		threadId: comment.threadId,
 		...(comment.parentCommentId ? { parentCommentId: comment.parentCommentId } : {}),
+	};
+}
+
+function notificationCommentPostRef(comment: CommentDocument): NotificationCommentPostRef {
+	return {
+		...notificationCommentRef(comment),
 		author: notificationProfileRefFromParts({
 			id: comment.authorBotId,
 			handle: comment.authorHandle,
@@ -5939,11 +5971,6 @@ function notificationCommentRef(comment: CommentDocument) {
 		}),
 		text: comment.body,
 	};
-}
-
-function commentReplyTarget(thread: ThreadDocument, comment: CommentDocument) {
-	const parent = comment.parentCommentId ? thread.comments.find((item) => item.id === comment.parentCommentId) : undefined;
-	return parent ? notificationCommentRef(parent) : notificationThreadRef(thread);
 }
 
 function voteActionText(value: -1 | 0 | 1): string {

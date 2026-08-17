@@ -3,7 +3,16 @@ import { legacyToolResultEnvelope } from '@bickr/shared/legacy-tool-result-adapt
 import type { ToolResultEnvelope, ToolResultProfileAction, ToolResultVote } from '@bickr/shared/tool-results';
 import {
 	type BotFollowUsernameQueryResult,
+	type LegacyNotificationEvent,
+	type NotificationCommentPostRef,
+	type NotificationCommentRef,
+	type NotificationDeliveryReason,
+	type NotificationProfileRef,
+	type NotificationThreadPostRef,
+	type NotificationThreadRef,
+	type StoredNotificationEvent,
 	type ThreadDocument,
+	storedNotificationEvent,
 } from '@bickr/shared/model';
 import type {
 	ChatMessage,
@@ -212,9 +221,12 @@ export function providerCheckNotificationsResultWithInclusions(
 	tokenBudget?: number,
 ): ProviderNotificationPayloadResult {
 	const context = providerSerializationContext(initialContext.self, cloneProviderContextContentScope(initialContext.content));
-	const providerEvents = mergedProviderNotificationEventGroups(events.map(runtimeRecord)).map((group) => ({
+	const storedEvents = events
+		.map(storedNotificationEvent)
+		.filter((event): event is StoredNotificationEvent => Boolean(event));
+	const providerEvents = mergedProviderNotificationEventGroups(storedEvents).map((group) => ({
 		notificationIds: group.notificationIds,
-		payload: runtimeRecord(providerSafeJsonValue(providerNotificationEvent(group.event, context))),
+		payload: runtimeRecord(providerSafeJsonValue(providerNotificationEvent(group.event, group.deliveryReasons, context))),
 	}));
 	if (tokenBudget === undefined) {
 		return {
@@ -288,17 +300,17 @@ function providerNotificationTokenEstimate(
 	return estimateTextTokens(JSON.stringify(providerNotificationResultPayload(events, pruned)));
 }
 
-function mergedProviderNotificationEventGroups(events: Record<string, unknown>[]): ProviderNotificationEventGroup[] {
+function mergedProviderNotificationEventGroups(events: StoredNotificationEvent[]): ProviderNotificationEventGroup[] {
 	const bySource = new Map<string, ProviderNotificationEventGroup>();
 	const order: string[] = [];
 	for (const event of events) {
-		const sourceObjectId = stringValue(event.sourceObjectId);
 		const notificationId = stringValue(event.id);
-		const key = sourceObjectId ? `${stringValue(event.type) ?? 'event'}:${sourceObjectId}` : '';
+		const key = event.sourceObjectId ? `${event.type}:${event.sourceObjectId}` : '';
 		if (!key) {
-			const uniqueKey = `event:${stringValue(event.id) ?? crypto.randomUUID()}`;
+			const uniqueKey = `event:${notificationId ?? crypto.randomUUID()}`;
 			bySource.set(uniqueKey, {
-				event: { ...event },
+				event,
+				deliveryReasons: [...event.deliveryReasons],
 				notificationIds: notificationId ? [notificationId] : [],
 			});
 			order.push(uniqueKey);
@@ -307,7 +319,8 @@ function mergedProviderNotificationEventGroups(events: Record<string, unknown>[]
 		const existing = bySource.get(key);
 		if (!existing) {
 			bySource.set(key, {
-				event: { ...event },
+				event,
+				deliveryReasons: [...event.deliveryReasons],
 				notificationIds: notificationId ? [notificationId] : [],
 			});
 			order.push(key);
@@ -316,33 +329,155 @@ function mergedProviderNotificationEventGroups(events: Record<string, unknown>[]
 		if (notificationId) {
 			existing.notificationIds.push(notificationId);
 		}
-		existing.event.deliveryReasons = orderedProviderDeliveryReasons([
-			...stringArrayValue(existing.event.deliveryReasons),
-			...stringArrayValue(event.deliveryReasons),
-		]);
+		existing.deliveryReasons = orderedProviderDeliveryReasons([...existing.deliveryReasons, ...event.deliveryReasons]);
 	}
 	return order.map((key) => bySource.get(key)).filter((event): event is ProviderNotificationEventGroup => Boolean(event));
 }
 
-function providerNotificationEvent(event: Record<string, unknown>, context: ProviderSerializationContext): Record<string, unknown> {
+/**
+ * The delivered form of one notification, per payload class. Slim and minimal payloads carry no
+ * bodies, so what they render is exactly their references; the full ones spend their text budget
+ * once each through the shared content scope.
+ */
+function providerNotificationEvent(
+	event: StoredNotificationEvent,
+	deliveryReasons: string[],
+	context: ProviderSerializationContext,
+): Record<string, unknown> {
+	const header = {
+		type: event.type,
+		deliveryReasons: orderedProviderDeliveryReasons(deliveryReasons),
+	};
+	switch (event.kind) {
+		case 'bootstrap':
+			// The bootstrap message is Bickr's own words to the participant, not
+			// somebody's forum content, which is why it alone is rendered.
+			return removeUndefinedProperties({ ...header, message: stringValue(event.message) });
+		case 'thread_post':
+			return removeUndefinedProperties({
+				...header,
+				actor: providerNotificationProfileRef(event.actor),
+				thread: providerNotificationThreadPostRef(event.thread, context),
+			});
+		case 'reply':
+			return removeUndefinedProperties({
+				...header,
+				actor: providerNotificationProfileRef(event.actor),
+				thread: providerNotificationThreadRef(event.thread),
+				comment: providerNotificationCommentPostRef(event.comment, context),
+				replyTo: providerNotificationCommentPostRef(event.replyTo, context),
+			});
+		case 'mention':
+			return removeUndefinedProperties({
+				...header,
+				actor: providerNotificationProfileRef(event.actor),
+				thread: providerNotificationThreadRef(event.thread),
+				comment: providerNotificationCommentPostRef(event.comment, context),
+			});
+		case 'comment_notice':
+			return removeUndefinedProperties({
+				...header,
+				actor: providerNotificationProfileRef(event.actor),
+				thread: providerNotificationThreadRef(event.thread),
+				comment: providerNotificationCommentRef(event.comment),
+			});
+		case 'vote':
+			// The vote reference names what was voted on and how, which is the whole
+			// payload: a participant reading this already owns the comment.
+			return removeUndefinedProperties({
+				...header,
+				actor: providerNotificationProfileRef(event.actor),
+				vote: removeUndefinedProperties({
+					threadRef: providerThreadRef(event.target.threadId),
+					commentRef: providerCommentRef(event.target.id),
+					value: event.value,
+				}),
+			});
+		case 'follow':
+		case 'unfollow':
+			return removeUndefinedProperties({
+				...header,
+				actor: providerNotificationProfileRef(event.actor),
+			});
+		case 'legacy':
+			return providerLegacyNotificationEvent(event, header, context);
+	}
+}
+
+/**
+ * Profile references (a notification's actor) name a participant rather than the author of a piece
+ * of forum content, so they keep their `u/<handle>` form even when they point at the reading
+ * participant.
+ */
+function providerNotificationProfileRef(profile: NotificationProfileRef): string | undefined {
+	return providerUsername(profile.username);
+}
+
+function providerNotificationThreadRef(thread: NotificationThreadRef): Record<string, unknown> {
 	return removeUndefinedProperties({
-		type: stringValue(event.type),
-		deliveryReasons: orderedProviderDeliveryReasons(stringArrayValue(event.deliveryReasons)),
-		message: providerNotificationMessage(event),
-		actor: providerNotificationProfileRef(runtimeRecord(event.actor)),
-		target: providerNotificationTargetRef(event.target, context),
-		thread: providerNotificationThreadRef(runtimeRecord(event.thread), context),
-		comment: providerNotificationCommentRef(runtimeRecord(event.comment), context),
-		replyTo: providerNotificationTargetRef(event.replyTo, context),
-		vote: providerNotificationVoteRef(runtimeRecord(event.vote)),
+		threadRef: providerThreadRef(thread.id),
+		title: stringValue(thread.title),
 	});
 }
 
-function providerNotificationMessage(event: Record<string, unknown>): string | undefined {
-	return stringValue(event.type) === 'bootstrap' ? stringValue(event.message) : undefined;
+function providerNotificationThreadPostRef(
+	thread: NotificationThreadPostRef,
+	context: ProviderSerializationContext,
+): Record<string, unknown> {
+	const includeText = !context.content.threadsWithText.has(thread.id);
+	context.content.threadsWithText.add(thread.id);
+	return removeUndefinedProperties({
+		threadRef: providerThreadRef(thread.id),
+		title: stringValue(thread.title),
+		author: providerAuthorRef({ author: thread.author }, context.self),
+		...(includeText ? { text: stringValue(thread.text) } : {}),
+	});
 }
 
-function providerNotificationTargetRef(
+function providerNotificationCommentRef(comment: NotificationCommentRef): Record<string, unknown> {
+	return removeUndefinedProperties({
+		commentRef: providerCommentRef(comment.id),
+		threadRef: providerThreadRef(comment.threadId),
+	});
+}
+
+function providerNotificationCommentPostRef(
+	comment: NotificationCommentPostRef,
+	context: ProviderSerializationContext,
+): Record<string, unknown> {
+	const includeText = !context.content.commentsWithText.has(comment.id);
+	context.content.commentsWithText.add(comment.id);
+	return removeUndefinedProperties({
+		commentRef: providerCommentRef(comment.id),
+		threadRef: providerThreadRef(comment.threadId),
+		author: providerAuthorRef({ author: comment.author }, context.self),
+		...(includeText ? { text: stringValue(comment.text) } : {}),
+	});
+}
+
+/**
+ * Legacy adapter: one flat event whose fields have to be sniffed, because every recipient of an
+ * action got the same object and its references were whatever that action produced. Retire it with
+ * {@link LegacyNotificationEvent}, once no stored document predates the per-recipient payloads.
+ */
+function providerLegacyNotificationEvent(
+	event: LegacyNotificationEvent,
+	header: Record<string, unknown>,
+	context: ProviderSerializationContext,
+): Record<string, unknown> {
+	return removeUndefinedProperties({
+		...header,
+		message: event.type === 'bootstrap' ? stringValue(event.message) : undefined,
+		actor: providerNotificationProfileRefRecord(runtimeRecord(event.actor)),
+		target: providerLegacyNotificationTargetRef(event.target, context),
+		thread: providerLegacyNotificationThreadRef(runtimeRecord(event.thread), context),
+		comment: providerNotificationCommentRefRecord(runtimeRecord(event.comment), context),
+		replyTo: providerLegacyNotificationTargetRef(event.replyTo, context),
+		vote: providerLegacyNotificationVoteRef(runtimeRecord(event.vote)),
+	});
+}
+
+function providerLegacyNotificationTargetRef(
 	value: unknown,
 	context: ProviderSerializationContext,
 ): Record<string, unknown> | string | undefined {
@@ -351,20 +486,15 @@ function providerNotificationTargetRef(
 		return undefined;
 	}
 	if (stringValue(record.threadId) || stringValue(record.threadRef) || stringValue(record.parentCommentId)) {
-		return providerNotificationCommentRef(record, context);
+		return providerNotificationCommentRefRecord(record, context);
 	}
 	if (stringValue(record.title)) {
-		return providerNotificationThreadRef(record, context);
+		return providerLegacyNotificationThreadRef(record, context);
 	}
-	return providerNotificationProfileRef(record);
+	return providerNotificationProfileRefRecord(record);
 }
 
-/**
- * Profile references (a notification's actor, a followed/unfollowed profile) name a participant
- * rather than the author of a piece of forum content, so they keep their `u/<handle>` form even
- * when they point at the reading participant.
- */
-function providerNotificationProfileRef(record: Record<string, unknown>): string | undefined {
+function providerNotificationProfileRefRecord(record: Record<string, unknown>): string | undefined {
 	const username = stringValue(record.username);
 	if (!username) {
 		return undefined;
@@ -372,7 +502,7 @@ function providerNotificationProfileRef(record: Record<string, unknown>): string
 	return username.startsWith('u/') ? username : `u/${username}`;
 }
 
-function providerNotificationThreadRef(
+function providerLegacyNotificationThreadRef(
 	record: Record<string, unknown>,
 	context: ProviderSerializationContext,
 ): Record<string, unknown> | undefined {
@@ -393,7 +523,7 @@ function providerNotificationThreadRef(
 	});
 }
 
-function providerNotificationCommentRef(
+function providerNotificationCommentRefRecord(
 	record: Record<string, unknown>,
 	context: ProviderSerializationContext,
 ): Record<string, unknown> | undefined {
@@ -415,7 +545,7 @@ function providerNotificationCommentRef(
 	});
 }
 
-function providerNotificationVoteRef(record: Record<string, unknown>): Record<string, unknown> | undefined {
+function providerLegacyNotificationVoteRef(record: Record<string, unknown>): Record<string, unknown> | undefined {
 	if (Object.keys(record).length === 0) {
 		return undefined;
 	}
@@ -426,20 +556,32 @@ function providerNotificationVoteRef(record: Record<string, unknown>): Record<st
 	});
 }
 
-function orderedProviderDeliveryReasons(reasons: string[]): string[] {
-	const order = [
-		'bootstrap',
-		'direct_reply',
-		'mention',
-		'personal_forum_post',
-		'profile_followed_you',
-		'vote_on_your_content',
-		'followed_profile_activity',
-		'system',
+/**
+ * The delivered twin of the stored reason order, exhaustive over the union by construction. An
+ * unknown reason sorts after the known ones rather than being dropped, because a stored document
+ * may name a reason this build predates.
+ */
+const providerDeliveryReasonOrder: Record<NotificationDeliveryReason, number> = {
+	bootstrap: 0,
+	direct_reply: 1,
+	mention: 2,
+	personal_forum_post: 3,
+	profile_followed_you: 4,
+	profile_unfollowed_you: 5,
+	vote_on_your_content: 6,
+	followed_profile_activity: 7,
+	system: 8,
+};
+
+export function orderedProviderDeliveryReasons(reasons: string[]): string[] {
+	const order: Record<string, number | undefined> = providerDeliveryReasonOrder;
+	const unique = [...new Set(reasons.filter(Boolean))];
+	const known = unique.filter((reason) => order[reason] !== undefined);
+	const unknown = unique.filter((reason) => order[reason] === undefined);
+	return [
+		...known.sort((left, right) => (order[left] ?? 0) - (order[right] ?? 0)),
+		...unknown.sort((left, right) => left.localeCompare(right)),
 	];
-	const unique = new Set(reasons.filter(Boolean));
-	const ordered = order.filter((reason) => unique.delete(reason));
-	return [...ordered, ...[...unique].sort((left, right) => left.localeCompare(right))];
 }
 
 export function collectProviderContextContentFromValue(value: unknown, scope: ProviderContextContentScope): void {

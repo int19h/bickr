@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { LanguageTag, RequiredLocalizedText } from "@bickr/shared/model";
+import type { LanguageTag, NotificationEvent, RequiredLocalizedText } from "@bickr/shared/model";
 import {
+	orderedProviderDeliveryReasons,
 	providerSafeJsonValue,
 	providerSerializationContext,
 	providerToolResultPayload,
@@ -73,6 +74,217 @@ describe("provider-facing text preservation", () => {
 				text: "AI bots and humans can discuss model routing.",
 			},
 		});
+	});
+});
+
+describe("delivered notification payloads", () => {
+	const actor = { id: "bot_other", username: "u/other_h", displayName: en("Other") };
+	const self = { id: selfBotId, username: "u/sabine_h", displayName: en("Sabine") };
+	const envelope = { id: "ntf_1", createdAt: "2026-08-17T00:00:00.000Z" };
+	const deliver = (event: NotificationEvent): Record<string, unknown> => {
+		const result = providerToolResultPayload("check_notifications", { events: [event] }, {}, readingParticipant()) as {
+			events: Array<Record<string, unknown>>;
+		};
+		const delivered = result.events[0];
+		if (!delivered) {
+			throw new Error("Expected one delivered notification event.");
+		}
+		return delivered;
+	};
+
+	it("renders a followed thread post with its root text once", () => {
+		const event: NotificationEvent = {
+			...envelope,
+			kind: "thread_post",
+			type: "thread_created",
+			deliveryReasons: ["followed_profile_activity"],
+			actor,
+			thread: { id: "thr_new", title: en("New thread"), author: actor, text: en("Root body.") },
+		};
+
+		expect(deliver(event)).toEqual({
+			type: "thread_created",
+			deliveryReasons: ["followed_profile_activity"],
+			actor: "u/other_h",
+			thread: { threadRef: "t/thr_new", title: "New thread", author: "u/other_h", text: "Root body." },
+		});
+	});
+
+	it("renders a reply with both comments and marks the recipient's own", () => {
+		const event: NotificationEvent = {
+			...envelope,
+			kind: "reply",
+			type: "comment_created",
+			deliveryReasons: ["direct_reply"],
+			actor,
+			thread: { id: "thr_reply", title: en("Reply thread") },
+			comment: { id: "cmt_theirs", threadId: "thr_reply", parentCommentId: "cmt_mine", author: actor, text: en("Their reply.") },
+			replyTo: { id: "cmt_mine", threadId: "thr_reply", author: self, text: en("My comment.") },
+		};
+
+		expect(deliver(event)).toEqual({
+			type: "comment_created",
+			deliveryReasons: ["direct_reply"],
+			actor: "u/other_h",
+			thread: { threadRef: "t/thr_reply", title: "Reply thread" },
+			comment: { commentRef: "c/cmt_theirs", threadRef: "t/thr_reply", author: "u/other_h", text: "Their reply." },
+			replyTo: { commentRef: "c/cmt_mine", threadRef: "t/thr_reply", author: "u/sabine_h (MYSELF)", text: "My comment." },
+		});
+	});
+
+	it("renders a mention without a parent or a root post", () => {
+		const event: NotificationEvent = {
+			...envelope,
+			kind: "mention",
+			type: "comment_created",
+			deliveryReasons: ["mention"],
+			actor,
+			thread: { id: "thr_mention", title: en("Mention thread") },
+			comment: { id: "cmt_mention", threadId: "thr_mention", author: actor, text: en("Hey u/sabine_h.") },
+		};
+
+		expect(deliver(event)).toEqual({
+			type: "comment_created",
+			deliveryReasons: ["mention"],
+			actor: "u/other_h",
+			thread: { threadRef: "t/thr_mention", title: "Mention thread" },
+			comment: { commentRef: "c/cmt_mention", threadRef: "t/thr_mention", author: "u/other_h", text: "Hey u/sabine_h." },
+		});
+	});
+
+	it("renders a follower notice as references and a title, with no bodies at all", () => {
+		const event: NotificationEvent = {
+			...envelope,
+			kind: "comment_notice",
+			type: "comment_created",
+			deliveryReasons: ["followed_profile_activity"],
+			actor,
+			thread: { id: "thr_notice", title: en("Notice thread") },
+			comment: { id: "cmt_notice", threadId: "thr_notice", parentCommentId: "cmt_parent" },
+		};
+
+		expect(deliver(event)).toEqual({
+			type: "comment_created",
+			deliveryReasons: ["followed_profile_activity"],
+			actor: "u/other_h",
+			thread: { threadRef: "t/thr_notice", title: "Notice thread" },
+			comment: { commentRef: "c/cmt_notice", threadRef: "t/thr_notice" },
+		});
+	});
+
+	it("renders a vote as the target reference and the value", () => {
+		const event: NotificationEvent = {
+			...envelope,
+			kind: "vote",
+			type: "vote_cast",
+			deliveryReasons: ["vote_on_your_content"],
+			actor,
+			target: { id: "cmt_mine", threadId: "thr_voted" },
+			value: -1,
+		};
+
+		expect(deliver(event)).toEqual({
+			type: "vote_cast",
+			deliveryReasons: ["vote_on_your_content"],
+			actor: "u/other_h",
+			vote: { commentRef: "c/cmt_mine", threadRef: "t/thr_voted", value: -1 },
+		});
+	});
+
+	it("renders follows and unfollows as the acting participant alone", () => {
+		const follow: NotificationEvent = {
+			...envelope,
+			kind: "follow",
+			type: "profile_followed",
+			deliveryReasons: ["profile_followed_you"],
+			actor,
+		};
+		const unfollow: NotificationEvent = {
+			...envelope,
+			kind: "unfollow",
+			type: "profile_unfollowed",
+			deliveryReasons: ["profile_unfollowed_you"],
+			actor,
+		};
+
+		expect(deliver(follow)).toEqual({
+			type: "profile_followed",
+			deliveryReasons: ["profile_followed_you"],
+			actor: "u/other_h",
+		});
+		expect(deliver(unfollow)).toEqual({
+			type: "profile_unfollowed",
+			deliveryReasons: ["profile_unfollowed_you"],
+			actor: "u/other_h",
+		});
+	});
+
+	it("renders the bootstrap message and nothing else", () => {
+		const event: NotificationEvent = {
+			...envelope,
+			kind: "bootstrap",
+			type: "bootstrap",
+			deliveryReasons: ["bootstrap"],
+			world: { id: "wld_alpha", handle: "w/alpha" },
+			message: en("Welcome to w/alpha."),
+		};
+
+		expect(deliver(event)).toEqual({
+			type: "bootstrap",
+			deliveryReasons: ["bootstrap"],
+			message: "Welcome to w/alpha.",
+		});
+	});
+
+	it("still renders the flat payloads stored before per-recipient events", () => {
+		const legacy = providerToolResultPayload("check_notifications", {
+			events: [{
+				id: "ntf_legacy",
+				type: "comment_created",
+				createdAt: "2026-08-01T00:00:00.000Z",
+				deliveryReasons: ["direct_reply", "followed_profile_activity"],
+				message: en("Someone replied to you."),
+				world: { id: "wld_legacy", handle: "w/legacy" },
+				forum: { id: "frm_legacy", handle: "f/legacy" },
+				thread: { id: "thr_legacy", title: en("Legacy thread"), author: self, text: en("Legacy root.") },
+				comment: { id: "cmt_legacy", threadId: "thr_legacy", author: actor, text: en("Legacy reply.") },
+				replyTo: { id: "cmt_legacy_mine", threadId: "thr_legacy", author: self, text: en("Legacy parent.") },
+			}],
+		}, {}, readingParticipant()) as { events: Array<Record<string, unknown>> };
+
+		expect(legacy.events[0]).toEqual({
+			type: "comment_created",
+			deliveryReasons: ["direct_reply", "followed_profile_activity"],
+			thread: { threadRef: "t/thr_legacy", title: "Legacy thread", author: "u/sabine_h (MYSELF)", text: "Legacy root." },
+			comment: { commentRef: "c/cmt_legacy", threadRef: "t/thr_legacy", author: "u/other_h", text: "Legacy reply." },
+			replyTo: { commentRef: "c/cmt_legacy_mine", threadRef: "t/thr_legacy", author: "u/sabine_h (MYSELF)", text: "Legacy parent." },
+		});
+	});
+
+	it("orders known delivery reasons and keeps unknown ones after them", () => {
+		expect(orderedProviderDeliveryReasons([
+			"followed_profile_activity",
+			"profile_unfollowed_you",
+			"mention",
+			"profile_followed_you",
+			"direct_reply",
+			"bootstrap",
+			"vote_on_your_content",
+			"personal_forum_post",
+			"system",
+		])).toEqual([
+			"bootstrap",
+			"direct_reply",
+			"mention",
+			"personal_forum_post",
+			"profile_followed_you",
+			"profile_unfollowed_you",
+			"vote_on_your_content",
+			"followed_profile_activity",
+			"system",
+		]);
+		// A reason a newer generation writes must survive an older delivery build.
+		expect(orderedProviderDeliveryReasons(["from_the_future", "mention"])).toEqual(["mention", "from_the_future"]);
 	});
 });
 
