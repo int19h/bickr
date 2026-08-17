@@ -4692,8 +4692,17 @@ function shouldRescheduleBotRuntime(
 async function disableBotRuntime(db: D1DatabaseLike, botId: string, now: string): Promise<void> {
 	await db
 		.prepare(
+			// active_run_trigger is cleared alongside active_run_id: the two describe
+			// one run, and a row left carrying the trigger of a run it no longer has
+			// would hand a stale 'spotlight' to anything that later reads the column.
 			`UPDATE bot_runtime_index
-			 SET enabled = 0, status = 'idle', active_run_id = NULL, lease_expires_at = NULL, next_due_at = NULL, updated_at = ?
+			 SET enabled = 0,
+			     status = 'idle',
+			     active_run_id = NULL,
+			     active_run_trigger = NULL,
+			     lease_expires_at = NULL,
+			     next_due_at = NULL,
+			     updated_at = ?
 			 WHERE bot_id = ?`,
 		)
 		.bind(now, botId)

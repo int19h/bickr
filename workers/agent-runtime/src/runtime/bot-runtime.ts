@@ -408,6 +408,7 @@ import type {
 	TickMode,
 	LoopSetupMode,
 	RuntimeReleaseStatus,
+	RuntimeRunTrigger,
 	ActiveMaintenanceOperation,
 	TickOptions,
 	AdmittedTick,
@@ -567,11 +568,40 @@ type RuntimeStatusIndexRow = {
 	enabled: number;
 	status: 'idle' | 'running' | 'failed';
 	activeRunId: string | null;
+	activeRunTrigger: string | null;
 	leaseExpiresAt: string | null;
 	nextDueAt: string | null;
 	lastError: string | null;
 	tickIntervalSeconds: number;
 };
+
+/**
+ * Reads the trigger a live run was claimed with off its index row.
+ *
+ * A run claimed by a deployment older than the `active_run_trigger` column
+ * carries NULL, which is read as `cron`: the ordinary tick behaviour, so at most
+ * one in-flight spotlight visit per participant gets a final schedule reset at
+ * deploy time instead of the column needing a two-phase rollout. The column's
+ * CHECK constraint keeps the stored domain to the trigger values themselves.
+ */
+function recordedRunTrigger(stored: string | null): RuntimeRunTrigger {
+	return stored === 'spotlight' || stored === 'manual' ? stored : 'cron';
+}
+
+/**
+ * Whether a run must leave `next_due_at` exactly as it found it.
+ *
+ * A spotlight visit interrupts the participant on a *human's* schedule, not its
+ * own, so neither claiming nor releasing it may move the standing schedule —
+ * otherwise every spotlight drags the next organic visit out by a lease timeout
+ * on claim and by a full interval on release. Nothing is lost by leaving the
+ * column alone while the run is live: `dispatchDueBots` skips any row holding an
+ * unexpired lease, so the lease alone guards against double dispatch, and a run
+ * that dies without releasing is picked up by the stale-run reaper.
+ */
+function runKeepsStandingSchedule(trigger: RuntimeRunTrigger): boolean {
+	return trigger === 'spotlight';
+}
 
 export async function claimRuntimeRun(
 	db: D1DatabaseLike,
@@ -579,7 +609,11 @@ export async function claimRuntimeRun(
 	runId: string,
 	leaseExpiresAt: string,
 	now: string,
+	trigger: RuntimeRunTrigger,
 ): Promise<boolean> {
+	// A run that keeps the standing schedule proposes nothing, so COALESCE leaves
+	// whatever the owner's own rhythm had already scheduled in place.
+	const proposedNextDueAt = runKeepsStandingSchedule(trigger) ? null : leaseExpiresAt;
 	const result = await db
 		.prepare(
 			// `enabled = 1` is a guard condition, not a filter the caller can hoist:
@@ -592,15 +626,16 @@ export async function claimRuntimeRun(
 			`UPDATE bot_runtime_index
 			 SET status = 'running',
 			     active_run_id = ?,
+			     active_run_trigger = ?,
 			     lease_expires_at = ?,
 			     last_error = NULL,
-			     next_due_at = ?,
+			     next_due_at = COALESCE(?, next_due_at),
 			     updated_at = ?
 			 WHERE bot_id = ?
 			   AND enabled = 1
 			   AND (status != 'running' OR lease_expires_at IS NULL OR lease_expires_at <= ?)`,
 		)
-		.bind(runId, leaseExpiresAt, leaseExpiresAt, now, botId, now)
+		.bind(runId, trigger, leaseExpiresAt, proposedNextDueAt, now, botId, now)
 		.run();
 	return result.meta?.changes === 1;
 }
@@ -639,9 +674,16 @@ export async function releaseRuntimeRun(
 			// statement, the same way claimRuntimeRun decides admission inside its
 			// WHERE. The status columns stay unconditional: neither transition may
 			// strand a finished run as running.
+			//
+			// A spotlight release proposes null for the same reason: the standing
+			// schedule is the participant's own and the visit was never part of it.
+			// An enabled row always carries a schedule — enabling writes one when the
+			// column is empty, and only a pause clears it — so falling through to the
+			// column cannot leave an enabled participant with nothing due.
 			`UPDATE bot_runtime_index
 			 SET status = ?,
 			     active_run_id = NULL,
+			     active_run_trigger = NULL,
 			     lease_expires_at = NULL,
 			     last_error = ?,
 			     next_due_at = CASE WHEN enabled = 1 THEN COALESCE(?, next_due_at) ELSE NULL END,
@@ -2118,7 +2160,7 @@ export class BotRuntime {
 		console.error('bot runtime monitor WebSocket error', error);
 	}
 
-	private async startBackgroundTick(botId: string, trigger: 'cron' | 'manual' | 'spotlight', options: TickOptions): Promise<TickRunResult> {
+	private async startBackgroundTick(botId: string, trigger: RuntimeRunTrigger, options: TickOptions): Promise<TickRunResult> {
 		const admission = await this.admitTick(botId, trigger, { ...options, background: false });
 		if (!admission.admitted) {
 			return admission.result;
@@ -2130,7 +2172,7 @@ export class BotRuntime {
 		return { runId: 'background', status: 'started' };
 	}
 
-	private async runTick(botId: string, trigger: 'cron' | 'manual' | 'spotlight', options: TickOptions = {}): Promise<TickRunResult> {
+	private async runTick(botId: string, trigger: RuntimeRunTrigger, options: TickOptions = {}): Promise<TickRunResult> {
 		const admission = await this.admitTick(botId, trigger, options);
 		if (!admission.admitted) {
 			return admission.result;
@@ -2138,7 +2180,7 @@ export class BotRuntime {
 		return this.runAdmittedTick(botId, trigger, options, admission.tick);
 	}
 
-	private async admitTick(botId: string, trigger: 'cron' | 'manual' | 'spotlight', options: TickOptions): Promise<TickAdmission> {
+	private async admitTick(botId: string, trigger: RuntimeRunTrigger, options: TickOptions): Promise<TickAdmission> {
 		return this.runtimeTransitionQueue().run(async () => {
 			await this.reapStaleRun(botId);
 			const current = await this.readStatus(botId);
@@ -2158,7 +2200,7 @@ export class BotRuntime {
 			const runId = crypto.randomUUID();
 			const now = new Date().toISOString();
 			const leaseExpiresAt = new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString();
-			const claimed = await claimRuntimeRun(this.env.BICKR_D1, bot.id, runId, leaseExpiresAt, now);
+			const claimed = await claimRuntimeRun(this.env.BICKR_D1, bot.id, runId, leaseExpiresAt, now, trigger);
 			if (!claimed) {
 				// The claim refuses both a live run and a paused participant, so the
 				// caller-facing answer comes from re-running the guards above against
@@ -2175,7 +2217,11 @@ export class BotRuntime {
 			this.activeAbortController = abortController;
 			this.activeRunId = runId;
 			this.clearStopRequest();
-			const mode: TickMode = options.mode === 'spotlight' ? 'spotlight' : 'normal';
+			// The trigger the claim recorded is the single source of truth for whether
+			// this is a spotlight visit. Deriving the mode from it rather than reading
+			// `options.mode` a second time keeps the run that skips rescheduling and
+			// the run that reads spotlight injections from ever being different runs.
+			const mode: TickMode = trigger === 'spotlight' ? 'spotlight' : 'normal';
 			const setupMode: LoopSetupMode =
 				mode === 'spotlight' ? 'spotlight' : this.currentIterationStartedSinceLastLogOff() ? 'continuation' : 'new_iteration';
 			return {
@@ -2194,7 +2240,7 @@ export class BotRuntime {
 
 	private async runAdmittedTick(
 		botId: string,
-		trigger: 'cron' | 'manual' | 'spotlight',
+		trigger: RuntimeRunTrigger,
 		options: TickOptions,
 		admitted: AdmittedTick,
 	): Promise<TickRunResult> {
@@ -2222,7 +2268,7 @@ export class BotRuntime {
 			this.throwIfStopped(runId, abortController.signal);
 			const injections = this.consumeInjections(mode === 'spotlight' ? (options.injectionIds ?? []) : undefined);
 			if (mode === 'spotlight' && injections.length === 0) {
-				const nextDueAt = await this.setRuntimeIndex(bot, 'idle', undefined, new Date().toISOString(), runId);
+				const nextDueAt = await this.setRuntimeIndex(bot, 'idle', undefined, new Date().toISOString(), runId, trigger);
 				this.appendEvent(runId, 'tick_completed', {
 					...(nextDueAt ? { nextDueAt } : {}),
 					note: 'No pending spotlight injection was available.',
@@ -2281,7 +2327,7 @@ export class BotRuntime {
 			}
 
 			await this.compactIfNeeded(bot, providerSettings, runId, abortController.signal);
-			const nextDueAt = await this.setRuntimeIndex(bot, 'idle', undefined, new Date().toISOString(), runId);
+			const nextDueAt = await this.setRuntimeIndex(bot, 'idle', undefined, new Date().toISOString(), runId, trigger);
 			this.appendEvent(runId, 'tick_completed', { ...(nextDueAt ? { nextDueAt } : {}) });
 			startQueuedSpotlightAfterRun = true;
 			return { runId, status: 'completed' };
@@ -2291,7 +2337,7 @@ export class BotRuntime {
 				if (!this.hasTerminalEvent(runId)) {
 					this.appendEvent(runId, 'tick_stopped', { message: 'This Bickr visit was stopped.' });
 				}
-				await this.setRuntimeIndex(bot, 'idle', undefined, new Date().toISOString(), runId);
+				await this.setRuntimeIndex(bot, 'idle', undefined, new Date().toISOString(), runId, trigger);
 				return { runId, status: 'stopped' };
 			}
 				if (error instanceof PersistentToolFailureError) {
@@ -2304,7 +2350,7 @@ export class BotRuntime {
 							failure: error.failure,
 						}, [], { cause });
 					}
-					await this.setRuntimeIndex(bot, 'failed', message, new Date().toISOString(), runId);
+					await this.setRuntimeIndex(bot, 'failed', message, new Date().toISOString(), runId, trigger);
 					try {
 						await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 							bot,
@@ -2334,7 +2380,7 @@ export class BotRuntime {
 							toolNames: error.toolNames,
 						}, [], { cause });
 					}
-					await this.setRuntimeIndex(bot, 'failed', message, new Date().toISOString(), runId);
+					await this.setRuntimeIndex(bot, 'failed', message, new Date().toISOString(), runId, trigger);
 					try {
 						await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 							bot,
@@ -2367,7 +2413,7 @@ export class BotRuntime {
 					}
 					const failedAt = new Date().toISOString();
 					await this.pauseBotAfterPersistentCompactionFailure(bot, message, failedAt);
-					await this.setRuntimeIndex(bot, 'failed', message, failedAt, runId);
+					await this.setRuntimeIndex(bot, 'failed', message, failedAt, runId, trigger);
 					try {
 						await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 							bot,
@@ -2384,7 +2430,7 @@ export class BotRuntime {
 				if (!this.hasTerminalEvent(runId)) {
 					this.recordTickFailure(runId, { message }, runtimeFailureLogs(error), { cause });
 				}
-				await this.setRuntimeIndex(bot, 'failed', message, new Date().toISOString(), runId);
+				await this.setRuntimeIndex(bot, 'failed', message, new Date().toISOString(), runId, trigger);
 				try {
 					await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 						bot,
@@ -2457,7 +2503,7 @@ export class BotRuntime {
 		return this.transitionQueue;
 	}
 
-	private busyTickResult(current: BotRuntimeStatus, trigger: 'cron' | 'manual' | 'spotlight', options: TickOptions): TickRunResult {
+	private busyTickResult(current: BotRuntimeStatus, trigger: RuntimeRunTrigger, options: TickOptions): TickRunResult {
 		const runId = this.activeRunId ?? current.activeRunId ?? 'active';
 		const spotlightRequested = trigger === 'spotlight' || options.mode === 'spotlight';
 		if (spotlightRequested) {
@@ -2623,20 +2669,23 @@ export class BotRuntime {
 
 	private async stopTick(botId: string): Promise<{ stopped: boolean; runId?: string; status: BotRuntimeStatus['status'] }> {
 		await this.reapStaleRun(botId);
-		const current = await this.readStatus(botId);
-		const runId = current.activeRunId ?? this.activeRunId ?? undefined;
-		if (current.status !== 'running' || !runId) {
-			return { stopped: false, status: current.status };
+		// The index row rather than readStatus, because releasing a run this instance
+		// does not own needs the trigger it was claimed with, and only the row knows.
+		const current = await this.runtimeStatusIndexRow(botId);
+		const status = current?.status ?? 'idle';
+		const runId = current?.activeRunId ?? this.activeRunId ?? undefined;
+		if (status !== 'running' || !runId) {
+			return { stopped: false, status };
 		}
 
 		this.setStopRequest(runId);
 		this.appendEvent(runId, 'tick_stop_requested', { message: 'This Bickr visit was asked to stop.' });
 		if (this.activeRunId === runId && this.activeAbortController && !this.activeAbortController.signal.aborted) {
 			this.activeAbortController.abort();
-			return { stopped: true, runId, status: current.status };
+			return { stopped: true, runId, status };
 		}
 		const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
-		await this.markRunStopped(bot, runId);
+		await this.markRunStopped(bot, runId, recordedRunTrigger(current?.activeRunTrigger ?? null));
 		return { stopped: true, runId, status: 'idle' };
 	}
 
@@ -2772,12 +2821,12 @@ export class BotRuntime {
 		});
 	}
 
-	private async markRunStopped(bot: BotDocument, runId: string): Promise<string | null> {
+	private async markRunStopped(bot: BotDocument, runId: string, trigger: RuntimeRunTrigger): Promise<string | null> {
 		this.markPendingCompactionEventsFailed(runId, 'This Bickr visit was stopped.');
 		if (!this.hasTerminalEvent(runId)) {
 			this.appendEvent(runId, 'tick_stopped', { message: 'This Bickr visit was stopped.' });
 		}
-		const nextDueAt = await this.setRuntimeIndex(bot, 'idle', undefined, new Date().toISOString(), runId);
+		const nextDueAt = await this.setRuntimeIndex(bot, 'idle', undefined, new Date().toISOString(), runId, trigger);
 		this.clearStopRequest(runId);
 		return nextDueAt;
 	}
@@ -6755,6 +6804,7 @@ export class BotRuntime {
 				enabled,
 				status,
 				active_run_id AS activeRunId,
+				active_run_trigger AS activeRunTrigger,
 				lease_expires_at AS leaseExpiresAt,
 				next_due_at AS nextDueAt,
 				last_error AS lastError,
@@ -6789,9 +6839,16 @@ export class BotRuntime {
 		// idempotent and leaves exactly one winner to append a terminal event.
 		const enabled = row.enabled === 1;
 		const runId = row.activeRunId;
+		// Reaping is a release like any other, so the run's recorded trigger decides
+		// the schedule here too: a spotlight visit that was stopped or ran past its
+		// lease must leave the participant's own rhythm where it found it. Proposing
+		// nothing is what preserves it (see releaseRuntimeRun).
+		const keepsStandingSchedule = runKeepsStandingSchedule(recordedRunTrigger(row.activeRunTrigger));
+		const rescheduleAfterReap = (now: string): string | null =>
+			enabled && !keepsStandingSchedule ? new Date(Date.parse(now) + row.tickIntervalSeconds * 1000).toISOString() : null;
 		if (runId && this.hasStopRequest(runId) && this.activeRunId !== runId) {
 			const now = new Date().toISOString();
-			const nextDueAt = enabled ? new Date(Date.parse(now) + row.tickIntervalSeconds * 1000).toISOString() : null;
+			const nextDueAt = rescheduleAfterReap(now);
 			const reaped = await releaseRuntimeRun(this.env.BICKR_D1, {
 				botId,
 				runId,
@@ -6819,7 +6876,13 @@ export class BotRuntime {
 					botId,
 					runId,
 					status: 'failed',
-					nextDueAt: row.nextDueAt,
+					// Proposing nothing is not the same as proposing what the row said
+					// when this reaper read it: the snapshot is already stale by the time
+					// the release lands, so re-writing it would clobber whatever an owner
+					// scheduled in between with a value that visit had no business owning.
+					// A spotlight never owned the standing schedule at all, so it always
+					// falls through to the column.
+					nextDueAt: keepsStandingSchedule ? null : row.nextDueAt,
 					lastError: message,
 					now: new Date().toISOString(),
 				});
@@ -6850,7 +6913,7 @@ export class BotRuntime {
 		}
 		const message = 'This Bickr visit took too long and closed before completion.';
 		const now = new Date().toISOString();
-		const nextDueAt = enabled ? new Date(Date.parse(now) + row.tickIntervalSeconds * 1000).toISOString() : null;
+		const nextDueAt = rescheduleAfterReap(now);
 		const reaped = await releaseRuntimeRun(this.env.BICKR_D1, {
 			botId,
 			runId,
@@ -6931,13 +6994,18 @@ export class BotRuntime {
 		lastError: string | undefined,
 		now: string,
 		ownedByRunId: string,
+		trigger: RuntimeRunTrigger,
 	): Promise<string | null> {
 		const enabled = await this.runtimeIndexEnabled(bot.id, bot.tickSettings.enabled);
 		// A participant read as paused proposes nothing; releaseRuntimeRun decides
-		// what that means for a row whose `enabled` moved since this read. A failed
-		// run waits out a lease timeout rather than the participant's own interval.
+		// what that means for a row whose `enabled` moved since this read. A run that
+		// keeps the standing schedule proposes nothing either, however it ended: a
+		// spotlight failure is a failure of the interruption, not of the
+		// participant's own rhythm, so it must not move the next organic visit. A
+		// failed ordinary run waits out a lease timeout rather than the
+		// participant's own interval.
 		let nextDueAt: string | null;
-		if (!enabled) {
+		if (!enabled || runKeepsStandingSchedule(trigger)) {
 			nextDueAt = null;
 		} else if (status === 'idle') {
 			nextDueAt = this.nextDue(bot, now);
