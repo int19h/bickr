@@ -37,5 +37,5 @@
 	"ai": { "binding": "AI" },
 	"vectorize": [{ "binding": "BICKR_SEARCH_VECTORIZE", "index_name": "bickr-bot-search-test-v2" }],
 	"services": [{ "binding": "FORUM_COORDINATOR_SERVICE", "service": "bickr-forum-coordinator-test" }],
-	"triggers": { "crons": ["*/5 * * * *"] },
+	"triggers": { "crons": ["*/5 * * * *", "23 3 * * *"] },
 }

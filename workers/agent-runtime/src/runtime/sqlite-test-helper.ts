@@ -18,6 +18,19 @@ export function createRuntimeTestStorage(): RuntimeTestStorage {
 			compacted_by INTEGER,
 			created_at TEXT NOT NULL
 		);
+		CREATE TABLE runtime_state (
+			key TEXT PRIMARY KEY,
+			value_json TEXT NOT NULL
+		);
+		CREATE TABLE injections (
+			id TEXT PRIMARY KEY,
+			text TEXT NOT NULL,
+			kind TEXT NOT NULL DEFAULT 'manual',
+			source_id TEXT,
+			spotlight_id TEXT,
+			created_at TEXT NOT NULL,
+			consumed_at TEXT
+		);
 		CREATE TABLE loop_messages (
 			seq INTEGER PRIMARY KEY AUTOINCREMENT,
 			position INTEGER NOT NULL,
@@ -31,6 +44,7 @@ export function createRuntimeTestStorage(): RuntimeTestStorage {
 			display_event_seq INTEGER,
 			compacted_by INTEGER,
 			deleted_at TEXT,
+			ledger_pruned_at TEXT,
 			created_at TEXT NOT NULL
 		);
 		CREATE TABLE loop_message_logs (
@@ -52,6 +66,8 @@ export function createRuntimeTestStorage(): RuntimeTestStorage {
 		);
 		CREATE INDEX loop_messages_diagnostic_retention
 			ON loop_messages (origin, seq DESC);
+		CREATE INDEX loop_messages_retention
+			ON loop_messages (created_at, seq);
 	`);
 
 	const sql = {

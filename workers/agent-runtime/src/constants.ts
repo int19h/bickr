@@ -52,6 +52,49 @@ export const providerUsageExportBatchSize = 100;
 
 export const runtimeEventRetentionDays = 30;
 
+/**
+ * Loop retention (design §2.4). The active context — `compacted_by IS NULL AND
+ * deleted_at IS NULL` — is never touched by any of these: only rows a
+ * compaction has already absorbed, or that the owner has already deleted, age
+ * out. Owner-visible loop history is therefore bounded to roughly the
+ * compaction window plus 14 days, which is an accepted product cost.
+ */
+export const compactedLoopMessageRetentionDays = 14;
+
+/**
+ * Compaction summaries outlive their absorbed children by a wide margin: a
+ * summary still stands in for everything under it, so it stays readable long
+ * after the raw messages are gone.
+ */
+export const compactionSummaryLoopMessageRetentionDays = 180;
+
+export const deletedLoopMessageRetentionDays = 14;
+
+/**
+ * Injections age out on the same 14-day cutoff as `spotlight_deliveries`
+ * (§2.6), so a deferred spotlight visit dies coherently in both stores.
+ * Unconsumed `manual` injections are exempt: they are owner input waiting for a
+ * paused participant to resume, and their volume is owner-bounded.
+ */
+export const injectionRetentionDays = 14;
+
+/**
+ * One retention batch. Every batch is one synchronous Durable Object
+ * transaction, so this bounds how much work a single input-gate hold does.
+ */
+export const loopMessageRetentionBatchSize = 250;
+
+/** Post-tick retention stays at one batch: it runs on every completed visit. */
+export const postTickLoopMessageRetentionLimit = loopMessageRetentionBatchSize;
+
+/**
+ * The daily fleet sweep visits each participant at most once, so its per-object
+ * allowance is what burns down the pre-retention backlog (§2.8 O6). It is still
+ * bounded: a participant with more expired history than this keeps the rest for
+ * the next cycle.
+ */
+export const sweepLoopMessageRetentionLimit = 2_000;
+
 export const scheduledDispatchSelectLimit = 20;
 
 export const scheduledDispatchBudget = 2_000;

@@ -101,8 +101,32 @@ export type LoopMessageRow = {
 	display_event_payload_json?: string | null;
 	compacted_by: number | null;
 	deleted_at: string | null;
+	// Projected only where the ledger-prune provenance matters (§2.4): a
+	// compaction summary carrying this stamp has had absorbed children physically
+	// deleted, so it can no longer be un-compacted back into readable history.
+	ledger_pruned_at?: string | null;
 	created_at: string;
 	has_logs?: number;
+};
+
+export type LoopMessageRetentionResult = {
+	deletedMessages: number;
+	deletedLogs: number;
+	stampedSummaries: number;
+	/** Expired rows remained beyond this pass's batch allowance. */
+	pendingMore: boolean;
+};
+
+export type InjectionRetentionResult = {
+	deletedInjections: number;
+	droppedQueueEntries: number;
+};
+
+export type RuntimeStorageRetentionResult = {
+	events: number;
+	providerUsage: number;
+	loopMessages: LoopMessageRetentionResult;
+	injections: InjectionRetentionResult;
 };
 
 export type LoopMessagePageDescriptor = {
@@ -407,7 +431,12 @@ export type RuntimeReleaseStatus = 'idle' | 'failed';
  */
 export type RuntimeRunTrigger = 'cron' | 'manual' | 'spotlight';
 
-export type ActiveMaintenanceOperation = 'clear_history' | 'manual_compaction';
+export type ActiveMaintenanceOperation = 'clear_history' | 'clear_storage' | 'manual_compaction';
+
+export type RuntimeStorageClearResult = {
+	deletedRowsByTable: Record<string, number>;
+	deletedRows: number;
+};
 
 export type TickOptions = {
 	mode?: TickMode;

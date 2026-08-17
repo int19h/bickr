@@ -12,10 +12,16 @@ import type {
 	BotRuntimeEventType,
 } from '@bickr/shared/model';
 import { RepositoryError } from '@bickr/shared/repository';
+import { chunks as chunked } from '@bickr/shared/storage';
 import {
+	compactedLoopMessageRetentionDays,
+	compactionSummaryLoopMessageRetentionDays,
+	dayMs,
+	deletedLoopMessageRetentionDays,
 	loopMessageLogChunkLength,
 	loopMessageLogRetentionCount,
 	loopMessagePageIndexLimit,
+	loopMessageRetentionBatchSize,
 	runtimeDiagnosticLoopMessageOrigins,
 	runtimeDiagnosticLoopMessageRetentionCount,
 	type RuntimeDiagnosticLoopMessageOrigin,
@@ -27,8 +33,21 @@ import type {
 	LoopMessageLogRow,
 	LoopMessagePageDescriptor,
 	LoopMessagePageIndex,
+	LoopMessageRetentionResult,
 	LoopMessageRow,
 } from '../types';
+
+/**
+ * Deletes are chunked into statements of this many bound sequence numbers. The
+ * batch allowance is a retention decision; this is only a SQL statement width.
+ */
+const loopMessageDeleteStatementWidth = 100;
+
+type ExpiredLoopMessageRow = {
+	seq: number;
+	compactedBy: number | null;
+	origin: LoopMessageRow['origin'];
+};
 
 export type RuntimeStorage = Pick<DurableObjectStorage, 'sql' | 'transactionSync'>;
 
@@ -185,6 +204,20 @@ export class RuntimeMessageStore {
 			}
 			const effectiveDeletedAt = row.deleted_at ?? deletedAt;
 			if (!row.deleted_at) {
+				if (row.origin === 'compaction' && row.ledger_pruned_at) {
+					// Deleting a summary restores its absorbed children so the history
+					// stays reachable. Retention has physically deleted some of this
+					// summary's children, so there is nothing left to restore: the
+					// summary's own text is now the only record of that stretch of
+					// history, and removing it would drop the history instead of
+					// un-compacting it. Reactivating a stamped summary stays allowed —
+					// its text legitimately stands in for the rows that are gone.
+					throw new RepositoryError(
+						'conflict',
+						'Retention has already deleted the messages this summary absorbed, so the summary cannot be deleted without losing that history. Erase the chat history instead.',
+						409,
+					);
+				}
 				if (row.origin === 'compaction') {
 					// Compaction summaries are page-index anchors. Restore their children
 					// so deleting an anchor cannot make otherwise-live history unreachable.
@@ -402,7 +435,8 @@ export class RuntimeMessageStore {
 			.exec<LoopMessageRow>(
 				`SELECT m.seq, m.position, m.run_id, m.role, m.message_json, m.origin, m.status,
 				        m.token_estimate, m.stream_seq, m.display_event_seq, display.type AS display_event_type,
-				        display.payload_json AS display_event_payload_json, m.compacted_by, m.deleted_at, m.created_at,
+				        display.payload_json AS display_event_payload_json, m.compacted_by, m.deleted_at,
+				        m.ledger_pruned_at, m.created_at,
 				        CASE WHEN EXISTS (SELECT 1 FROM loop_message_logs l WHERE l.message_seq = m.seq) THEN 1 ELSE 0 END AS has_logs
 				 FROM loop_messages m
 				 LEFT JOIN events display ON display.seq = m.display_event_seq
@@ -598,6 +632,60 @@ export class RuntimeMessageStore {
 		}
 	}
 
+	/**
+	 * Physically delete history that retention has released (design §2.4).
+	 *
+	 * The active context — `compacted_by IS NULL AND deleted_at IS NULL` — can
+	 * never match any of these predicates, so a live provider window is never
+	 * touched no matter how old it is. Bounded by `limit`: `pendingMore` reports
+	 * that expired rows remain for the next pass.
+	 */
+	pruneExpiredLoopMessages(options: { now?: Date; limit?: number } = {}): LoopMessageRetentionResult {
+		const now = options.now ?? new Date();
+		const limit = positiveInteger(options.limit) ?? loopMessageRetentionBatchSize;
+		const compactedCutoff = new Date(now.getTime() - compactedLoopMessageRetentionDays * dayMs).toISOString();
+		const summaryCutoff = new Date(now.getTime() - compactionSummaryLoopMessageRetentionDays * dayMs).toISOString();
+		const deletedCutoff = new Date(now.getTime() - deletedLoopMessageRetentionDays * dayMs).toISOString();
+		// The widest of the three cutoffs bounds the range scan. Each branch still
+		// carries its own cutoff, so this stays a pure index bound and no branch can
+		// widen when the retention constants change independently.
+		const widestCutoff = [compactedCutoff, summaryCutoff, deletedCutoff].reduce(
+			(widest, cutoff) => (cutoff > widest ? cutoff : widest),
+		);
+		const expired = this.storage.sql
+			.exec<ExpiredLoopMessageRow>(
+				// Bounding the whole predicate by the widest cutoff lets
+				// loop_messages_retention answer it as one created_at range scan in
+				// index order, stopping at the limit, instead of a full table scan.
+				`SELECT seq, compacted_by AS compactedBy, origin
+				 FROM loop_messages
+				 WHERE created_at < ?
+				   AND (
+					(compacted_by IS NOT NULL AND origin != 'compaction' AND created_at < ?)
+					OR (compacted_by IS NOT NULL AND origin = 'compaction' AND created_at < ?)
+					OR (deleted_at IS NOT NULL AND created_at < ?)
+				   )
+				 ORDER BY created_at ASC, seq ASC
+				 LIMIT ?`,
+				widestCutoff,
+				compactedCutoff,
+				summaryCutoff,
+				deletedCutoff,
+				limit,
+			)
+			.toArray()
+			// The withholding guard below reads children before their summary, which
+			// is sequence order rather than the index order this batch arrived in.
+			.sort((left, right) => left.seq - right.seq);
+		if (expired.length === 0) {
+			return { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0, pendingMore: false };
+		}
+		const prune = (): Omit<LoopMessageRetentionResult, 'pendingMore'> =>
+			this.physicallyDeleteLoopMessages(expired, now.toISOString());
+		const deleted = typeof this.storage.transactionSync === 'function' ? this.storage.transactionSync(prune) : prune();
+		return { ...deleted, pendingMore: expired.length >= limit };
+	}
+
 	private pruneRuntimeDiagnosticLoopMessages(): number {
 		let deletedCount = 0;
 		for (const origin of runtimeDiagnosticLoopMessageOrigins) {
@@ -607,52 +695,152 @@ export class RuntimeMessageStore {
 	}
 
 	private physicallyDeleteExpiredRuntimeDiagnosticLoopMessages(origin: RuntimeDiagnosticLoopMessageOrigin): number {
-		const expiredMessageSeqsSql = `SELECT seq
-			FROM loop_messages
-			WHERE origin = ?
-			ORDER BY seq DESC
-			LIMIT -1 OFFSET ?`;
-		const queryParameters = [origin, runtimeDiagnosticLoopMessageRetentionCount] as const;
-		const expiredCount = this.storage.sql
-			.exec<{ count: number }>(`SELECT COUNT(*) AS count FROM (${expiredMessageSeqsSql})`, ...queryParameters)
-			.one().count;
-		if (expiredCount === 0) {
-			return 0;
-		}
-		const survivingDependentLogIds = this.storage.sql
-			.exec<{ id: number }>(
-				`SELECT dependent.id
-				 FROM loop_message_logs dependent
-				 JOIN loop_message_logs expired_base ON expired_base.id = dependent.base_log_id
-				 WHERE expired_base.message_seq IN (${expiredMessageSeqsSql})
-				   AND dependent.message_seq NOT IN (${expiredMessageSeqsSql})
-				 ORDER BY dependent.id ASC`,
-				...queryParameters,
-				...queryParameters,
+		const expired = this.storage.sql
+			.exec<ExpiredLoopMessageRow>(
+				`SELECT seq, compacted_by AS compactedBy, origin
+				 FROM loop_messages
+				 WHERE origin = ?
+				 ORDER BY seq DESC
+				 LIMIT -1 OFFSET ?`,
+				origin,
+				runtimeDiagnosticLoopMessageRetentionCount,
 			)
 			.toArray()
-			.map((row) => row.id);
-		for (const logId of survivingDependentLogIds) {
-			// Delta logs may cross message ownership. Materialize every surviving
-			// direct dependent before its expired base and chunks are removed.
-			this.materializeLoopMessageLog(logId);
+			.sort((left, right) => left.seq - right.seq);
+		if (expired.length === 0) {
+			return 0;
 		}
-		this.storage.sql.exec(
-			`DELETE FROM loop_message_log_chunks
-			 WHERE log_id IN (
-				SELECT id FROM loop_message_logs WHERE message_seq IN (${expiredMessageSeqsSql})
-			 )`,
-			...queryParameters,
-		);
-		this.storage.sql.exec(
-			`DELETE FROM loop_message_logs WHERE message_seq IN (${expiredMessageSeqsSql})`,
-			...queryParameters,
-		);
-		this.storage.sql.exec(
-			`DELETE FROM loop_messages WHERE seq IN (${expiredMessageSeqsSql})`,
-			...queryParameters,
-		);
-		return expiredCount;
+		// Compaction deliberately absorbs diagnostic rows that never contributed to
+		// provider history, so an expired diagnostic row can belong to a ledger.
+		// This path therefore stamps its summaries exactly like the retention pass;
+		// the shared deletion applies both invariants in one place.
+		return this.physicallyDeleteLoopMessages(expired, new Date().toISOString()).deletedMessages;
+	}
+
+	/**
+	 * Delete loop messages together with their logs, inside the caller's
+	 * transaction, preserving two stored invariants:
+	 *
+	 * - Delta logs chain across message ownership, so every surviving log whose
+	 *   base is about to disappear is materialized first.
+	 * - A compaction summary that keeps a child must record that some of its
+	 *   children are gone, so `ledger_pruned_at` is stamped in the same
+	 *   transaction as the deletion that pruned them.
+	 */
+	private physicallyDeleteLoopMessages(
+		expired: readonly ExpiredLoopMessageRow[],
+		prunedAt: string,
+	): Omit<LoopMessageRetentionResult, 'pendingMore'> {
+		const deletable = this.loopMessagesWithoutSurvivingChildren(expired);
+		if (deletable.length === 0) {
+			return { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0 };
+		}
+		const deletedSeqs = deletable.map((row) => row.seq);
+		const stampedSummaries = this.stampPrunedCompactionLedgers(deletable, prunedAt);
+		const deletedLogs = this.deleteLoopMessageLogs(deletedSeqs);
+		for (const chunk of chunked(deletedSeqs, loopMessageDeleteStatementWidth)) {
+			this.storage.sql.exec(`DELETE FROM loop_messages WHERE seq IN (${sqlPlaceholders(chunk.length)})`, ...chunk);
+		}
+		return { deletedMessages: deletedSeqs.length, deletedLogs, stampedSummaries };
+	}
+
+	/**
+	 * Withhold any summary in the batch that would leave a child behind. Children
+	 * always expire before the summary that absorbed them, so this only bites at
+	 * a batch boundary or when a child was resurrected — but deleting a summary
+	 * whose child survives would make that child unreachable from the page index
+	 * instead of deleting it.
+	 */
+	private loopMessagesWithoutSurvivingChildren(expired: readonly ExpiredLoopMessageRow[]): ExpiredLoopMessageRow[] {
+		const expiredChildrenByParent = new Map<number, number[]>();
+		for (const row of expired) {
+			if (row.compactedBy === null) {
+				continue;
+			}
+			expiredChildrenByParent.set(row.compactedBy, [...(expiredChildrenByParent.get(row.compactedBy) ?? []), row.seq]);
+		}
+		const summaries = expired.filter((row) => row.origin === 'compaction').map((row) => row.seq);
+		const childCountByParent = new Map<number, number>();
+		for (const chunk of chunked(summaries, loopMessageDeleteStatementWidth)) {
+			for (const row of this.storage.sql
+				.exec<{ parentSeq: number; childCount: number }>(
+					`SELECT compacted_by AS parentSeq, COUNT(*) AS childCount
+					 FROM loop_messages
+					 WHERE compacted_by IN (${sqlPlaceholders(chunk.length)})
+					 GROUP BY compacted_by`,
+					...chunk,
+				)
+				.toArray()) {
+				childCountByParent.set(row.parentSeq, row.childCount);
+			}
+		}
+		// In ascending sequence order a child is always decided before the summary
+		// that absorbed it, so withholding cascades up a summary chain in one pass.
+		const withheld = new Set<number>();
+		for (const row of expired) {
+			const childCount = childCountByParent.get(row.seq) ?? 0;
+			if (childCount === 0) {
+				continue;
+			}
+			const expiring = (expiredChildrenByParent.get(row.seq) ?? []).filter((seq) => !withheld.has(seq)).length;
+			if (childCount > expiring) {
+				withheld.add(row.seq);
+			}
+		}
+		return withheld.size === 0 ? [...expired] : expired.filter((row) => !withheld.has(row.seq));
+	}
+
+	private stampPrunedCompactionLedgers(deletable: readonly ExpiredLoopMessageRow[], prunedAt: string): number {
+		const deletedSeqs = new Set(deletable.map((row) => row.seq));
+		const summarySeqs = [
+			...new Set(
+				deletable
+					.map((row) => row.compactedBy)
+					.filter((seq): seq is number => seq !== null && !deletedSeqs.has(seq)),
+			),
+		];
+		let stamped = 0;
+		for (const chunk of chunked(summarySeqs, loopMessageDeleteStatementWidth)) {
+			// Keep the first prune's timestamp: it is the moment the summary stopped
+			// being a complete record, and later prunes do not make it less true.
+			this.storage.sql.exec(
+				`UPDATE loop_messages
+				 SET ledger_pruned_at = ?
+				 WHERE seq IN (${sqlPlaceholders(chunk.length)})
+				   AND ledger_pruned_at IS NULL`,
+				prunedAt,
+				...chunk,
+			);
+			stamped += this.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
+		}
+		return stamped;
+	}
+
+	private deleteLoopMessageLogs(deletedSeqs: readonly number[]): number {
+		const deleting = new Set(deletedSeqs);
+		const logRows = this.storage.sql
+			.exec<LoopMessageLogRow>(
+				`SELECT id, message_seq, kind, encoding, base_log_id, prefix_length, text_length, chunk_count, created_at
+				 FROM loop_message_logs ORDER BY id ASC`,
+			)
+			.toArray();
+		const deleteIds = new Set(logRows.filter((row) => deleting.has(row.message_seq)).map((row) => row.id));
+		for (const row of logRows) {
+			// Delta logs may cross message ownership. Materialize every surviving
+			// direct dependent before its expired base and chunks are removed. Log id
+			// order guarantees a base is materialized before anything built on it.
+			if (deleteIds.has(row.id) || !row.base_log_id || !deleteIds.has(row.base_log_id)) {
+				continue;
+			}
+			this.materializeLoopMessageLog(row.id);
+		}
+		const ids = [...deleteIds];
+		for (const chunk of chunked(ids, loopMessageDeleteStatementWidth)) {
+			const placeholders = sqlPlaceholders(chunk.length);
+			this.storage.sql.exec(`DELETE FROM loop_message_log_chunks WHERE log_id IN (${placeholders})`, ...chunk);
+			this.storage.sql.exec(`DELETE FROM loop_message_logs WHERE id IN (${placeholders})`, ...chunk);
+		}
+		return ids.length;
 	}
 
 	private materializeLoopMessageLog(logId: number): void {
@@ -786,6 +974,10 @@ function chunkText(text: string, chunkLength: number): string[] {
 		chunks.push(text.slice(index, index + chunkLength));
 	}
 	return chunks;
+}
+
+function sqlPlaceholders(count: number): string {
+	return new Array(count).fill('?').join(', ');
 }
 
 function positiveInteger(value: number | undefined): number | undefined {

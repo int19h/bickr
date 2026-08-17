@@ -164,10 +164,15 @@ import { worldDocumentForAvatar } from './avatar/target';
 import { scheduledDispatchBudget, scheduledDispatchSelectLimit, scheduledDispatchTimeoutMs } from './constants';
 import { RuntimeOperationTimeoutError } from './errors';
 import { withAbortableTimeout } from './provider/sse';
+import { agentRuntimeCronTaskSet } from './runtime/cron';
 import {
 	runInferenceProviderDefaultBarrierFleetStep,
 	type InferenceProviderDefaultBarrierFleetStepResult,
 } from './runtime/provider-default-barrier-sweep';
+import {
+	runBotRuntimeRetentionSweep,
+	type BotRuntimeRetentionSweepResult,
+} from './runtime/runtime-storage-retention';
 import {
 	agentRuntimeNotFoundResponse,
 	avatarPromptSettingsRuntime,
@@ -2816,15 +2821,73 @@ export default {
 	},
 
 	async scheduled(event, env, ctx) {
-		ctx.waitUntil(runScheduledAgentRuntimeTasks(env, event.scheduledTime));
+		ctx.waitUntil(runScheduledAgentRuntimeTasks(env, event.scheduledTime, event.cron));
 	},
 } satisfies ExportedHandler<Env>;
 
 export type ScheduledAgentRuntimeTasksResult =
 	| { kind: 'maintenance'; sweep: InferenceProviderDefaultBarrierFleetStepResult }
-	| { kind: 'ordinary' };
+	| { kind: 'ordinary' }
+	| { kind: 'daily'; retention: BotRuntimeRetentionSweepResult }
+	| { kind: 'daily_deferred' };
 
-export async function runScheduledAgentRuntimeTasks(env: Env, scheduledTime: number): Promise<ScheduledAgentRuntimeTasksResult> {
+export async function runScheduledAgentRuntimeTasks(
+	env: Env,
+	scheduledTime: number,
+	cron?: string,
+): Promise<ScheduledAgentRuntimeTasksResult> {
+	const taskSet = agentRuntimeCronTaskSet(cron);
+	if (taskSet === null) {
+		// A trigger this deployment does not recognize means the configuration and
+		// the code have diverged. Falling back to the frequent set keeps the fleet
+		// ticking, which is the failure that would be noticed in minutes; a daily
+		// retention pass skipped for a day is not. The cron test exists so this
+		// stays a theoretical path.
+		console.error(JSON.stringify({ event: 'scheduled_unrecognized_cron', cron: cron ?? null, scheduledTime }));
+	}
+	switch (taskSet ?? 'frequent') {
+		case 'frequent':
+			return await runFrequentScheduledAgentRuntimeTasks(env, scheduledTime);
+		case 'daily':
+			return await runDailyScheduledAgentRuntimeTasks(env, scheduledTime);
+	}
+}
+
+/**
+ * Daily maintenance that must run from agent-runtime because it needs the
+ * BOT_RUNTIME namespace binding, which no other Worker has.
+ */
+async function runDailyScheduledAgentRuntimeTasks(env: Env, scheduledTime: number): Promise<ScheduledAgentRuntimeTasksResult> {
+	const now = new Date(scheduledTime).toISOString();
+	if ((await readMaintenanceState(env.BICKR_D1)).enabled) {
+		console.log(JSON.stringify({ event: 'scheduled_daily_tasks_deferred', reason: 'maintenance', scheduledTime }));
+		return { kind: 'daily_deferred' };
+	}
+	// Steps are independent and each is individually capped, so one failure must
+	// not cost the others their run. There is one step today; #190 adds the
+	// inference-graph terminal-state cleanup beside it.
+	const [retention] = await Promise.allSettled([
+		runBotRuntimeRetentionSweep({
+			BICKR_D1: env.BICKR_D1,
+			BICKR_KV: env.BICKR_KV,
+			BOT_RUNTIME: env.BOT_RUNTIME,
+			...(env.INTERNAL_SERVICE_SECRET === undefined ? {} : { INTERNAL_SERVICE_SECRET: env.INTERNAL_SERVICE_SECRET }),
+		}, { now }),
+	]);
+	console.log(JSON.stringify({
+		event: 'scheduled_daily_maintenance',
+		scheduledTime,
+		retention: retention.status === 'fulfilled'
+			? retention.value
+			: { status: 'failed', errorName: retention.reason instanceof Error ? retention.reason.name : 'UnknownError' },
+	}));
+	if (retention.status === 'rejected') {
+		throw retention.reason;
+	}
+	return { kind: 'daily', retention: retention.value };
+}
+
+async function runFrequentScheduledAgentRuntimeTasks(env: Env, scheduledTime: number): Promise<ScheduledAgentRuntimeTasksResult> {
 	const maintenance = await readMaintenanceState(env.BICKR_D1);
 	if (maintenance.enabled) {
 		try {

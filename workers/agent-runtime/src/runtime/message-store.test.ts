@@ -87,6 +87,139 @@ describe('RuntimeMessageStore', () => {
 		expect(reachableSeqs).toEqual(liveSeqs);
 	});
 
+	describe('loop retention', () => {
+		const now = new Date('2026-08-17T00:00:00.000Z');
+		const daysAgo = (days: number): string => new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+
+		it('leaves the active context alone however old it is', () => {
+			insertMessage(storage, 1, 1, { createdAt: daysAgo(400) });
+			insertMessage(storage, 2, 2, { createdAt: daysAgo(400), origin: 'compaction' });
+			insertMessage(storage, 3, 3, { createdAt: daysAgo(30) });
+
+			expect(store.pruneExpiredLoopMessages({ now })).toEqual({
+				deletedMessages: 0,
+				deletedLogs: 0,
+				stampedSummaries: 0,
+				pendingMore: false,
+			});
+			expect(liveSeqs(storage)).toEqual([1, 2, 3]);
+		});
+
+		it('deletes compacted rows at 14 days, their summaries only at 180, and owner-deleted rows at 14', () => {
+			insertMessage(storage, 1, 1, { createdAt: daysAgo(200), compactedBy: 3 });
+			insertMessage(storage, 2, 2, { createdAt: daysAgo(15), compactedBy: 30 });
+			insertMessage(storage, 3, 3, { createdAt: daysAgo(190), compactedBy: 30, origin: 'compaction' });
+			insertMessage(storage, 4, 4, { createdAt: daysAgo(20), compactedBy: 30, origin: 'compaction' });
+			insertMessage(storage, 5, 5, { createdAt: daysAgo(13), compactedBy: 30 });
+			insertMessage(storage, 6, 6, { createdAt: daysAgo(20), deletedAt: daysAgo(1) });
+			insertMessage(storage, 7, 7, { createdAt: daysAgo(13), deletedAt: daysAgo(1) });
+			insertMessage(storage, 30, 30, { createdAt: daysAgo(10), origin: 'compaction' });
+
+			const result = store.pruneExpiredLoopMessages({ now });
+
+			// 3 goes with its own child 1; 4 is a summary inside its retention window;
+			// 5 and 7 are inside the 14-day window.
+			expect(result).toMatchObject({ deletedMessages: 4, pendingMore: false });
+			expect(liveSeqs(storage)).toEqual([4, 5, 7, 30]);
+		});
+
+		it('stamps every summary that keeps a child of a pruned batch and refuses to delete it afterwards', () => {
+			insertMessage(storage, 1, 1, { createdAt: daysAgo(20), compactedBy: 10 });
+			insertMessage(storage, 2, 2, { createdAt: daysAgo(20), compactedBy: 10 });
+			insertMessage(storage, 10, 10, { createdAt: daysAgo(20), origin: 'compaction' });
+
+			expect(store.pruneExpiredLoopMessages({ now })).toMatchObject({ deletedMessages: 2, stampedSummaries: 1 });
+			expect(ledgerPrunedAt(storage, 10)).toBe(now.toISOString());
+
+			expect(() => store.softDeleteLoopMessage(10)).toThrowError(/Erase the chat history instead/);
+			expect(liveSeqs(storage)).toEqual([10]);
+			// A stamped summary stays reactivatable: only deleting it is refused.
+			storage.database.prepare(`UPDATE loop_messages SET compacted_by = 99 WHERE seq = 10`).run();
+			storage.database.prepare(`UPDATE loop_messages SET compacted_by = NULL WHERE seq = 10`).run();
+			expect(store.activeLoopMessageRows().map((row) => row.seq)).toEqual([10]);
+		});
+
+		it('keeps the first prune stamp and still allows deleting an intact summary', () => {
+			insertMessage(storage, 1, 1, { createdAt: daysAgo(20), compactedBy: 10 });
+			insertMessage(storage, 10, 10, { createdAt: daysAgo(20), origin: 'compaction', ledgerPrunedAt: daysAgo(5) });
+			// Summary 20 keeps every row it absorbed, so it is still a complete record.
+			insertMessage(storage, 2, 2, { createdAt: daysAgo(5), compactedBy: 20 });
+			insertMessage(storage, 20, 20, { createdAt: daysAgo(4), origin: 'compaction' });
+
+			store.pruneExpiredLoopMessages({ now });
+
+			expect(ledgerPrunedAt(storage, 10)).toBe(daysAgo(5));
+			expect(store.softDeleteLoopMessage(20, daysAgo(0))).toMatchObject({ row: { seq: 20 } });
+		});
+
+		it('withholds a summary whose child survives the batch and takes it on the next pass', () => {
+			insertMessage(storage, 1, 1, { createdAt: daysAgo(200), compactedBy: 10 });
+			insertMessage(storage, 10, 10, { createdAt: daysAgo(190), compactedBy: 20, origin: 'compaction' });
+			// Absorbed later than the summary that holds it — a resurrected row that
+			// a subsequent compaction pulled back in — so a batch can reach the
+			// summary before its child.
+			insertMessage(storage, 2, 2, { createdAt: daysAgo(150), compactedBy: 10 });
+			insertMessage(storage, 20, 20, { createdAt: daysAgo(1), origin: 'compaction' });
+
+			const first = store.pruneExpiredLoopMessages({ now, limit: 2 });
+
+			// The batch stopped below the summary, so the summary is held back rather
+			// than orphaning the child that is still there.
+			expect(first).toMatchObject({ deletedMessages: 1, stampedSummaries: 1, pendingMore: true });
+			expect(liveSeqs(storage)).toEqual([2, 10, 20]);
+
+			expect(store.pruneExpiredLoopMessages({ now, limit: 2 })).toMatchObject({ deletedMessages: 2 });
+			expect(liveSeqs(storage)).toEqual([20]);
+		});
+
+		it('materializes surviving delta logs before deleting the messages their base belongs to', () => {
+			const base = store.appendLoopMessage('run-1', { role: 'assistant', content: `${'A'.repeat(400)} base tail` }, 'provider_response');
+			const dependent = store.appendLoopMessage(
+				'run-2',
+				{ role: 'assistant', content: `${'A'.repeat(400)} dependent tail` },
+				'provider_response',
+			);
+			const dependentLogs = logRows(storage, dependent.seq);
+			expect(dependentLogs.map((log) => log.encoding)).toEqual(['replace_tail']);
+			const dependentText = store.reconstructLoopMessageLogText(dependentLogs[0]!.id);
+			storage.database.prepare(`UPDATE loop_messages SET compacted_by = 99, created_at = ? WHERE seq = ?`)
+				.run(daysAgo(20), base.seq);
+
+			expect(store.pruneExpiredLoopMessages({ now })).toMatchObject({ deletedMessages: 1, deletedLogs: 1 });
+
+			expect(logRows(storage, base.seq)).toEqual([]);
+			expect(logRows(storage, dependent.seq)).toEqual([
+				expect.objectContaining({ encoding: 'full', base_log_id: null }),
+			]);
+			expect(store.reconstructLoopMessageLogText(dependentLogs[0]!.id)).toBe(dependentText);
+		});
+
+		it('stamps the summaries of diagnostic rows the append-time cap deletes', () => {
+			const seeded: number[] = [];
+			for (let index = 0; index < runtimeDiagnosticLoopMessageRetentionCount; index += 1) {
+				seeded.push(store.appendLoopMessage(
+					'run-diagnostic',
+					{ role: 'user', content: `Bickr Terminal reported failure ${index}.` },
+					'runtime_error',
+				).seq);
+			}
+			const oldest = seeded[0]!;
+			// Compaction deliberately absorbs diagnostics that never reached the
+			// provider, so the capped row can already belong to a ledger.
+			insertMessage(storage, 900, 900, { createdAt: daysAgo(1), origin: 'compaction' });
+			storage.database.prepare(`UPDATE loop_messages SET compacted_by = 900 WHERE seq = ?`).run(oldest);
+
+			store.appendLoopMessage(
+				'run-diagnostic',
+				{ role: 'user', content: 'Bickr Terminal reported one more failure.' },
+				'runtime_error',
+			);
+
+			expect(store.loopMessageRow(oldest)).toBeUndefined();
+			expect(ledgerPrunedAt(storage, 900)).not.toBeNull();
+		});
+	});
+
 	it('repositions active rows in the requested order without moving compacted or deleted rows', () => {
 		insertMessage(storage, 1, 10);
 		insertMessage(storage, 2, 20);
@@ -378,13 +511,19 @@ function insertMessage(
 	storage: RuntimeTestStorage,
 	seq: number,
 	position: number,
-	options: { compactedBy?: number; deletedAt?: string; origin?: BotLoopMessage['origin'] } = {},
+	options: {
+		compactedBy?: number;
+		deletedAt?: string;
+		origin?: BotLoopMessage['origin'];
+		createdAt?: string;
+		ledgerPrunedAt?: string;
+	} = {},
 ): void {
 	storage.database.prepare(
 		`INSERT INTO loop_messages (
 			seq, position, run_id, role, message_json, origin, status, token_estimate,
-			stream_seq, display_event_seq, compacted_by, deleted_at, created_at
-		) VALUES (?, ?, 'run-test', 'user', ?, ?, 'complete', 1, NULL, NULL, ?, ?, '2026-07-10T00:00:00.000Z')`,
+			stream_seq, display_event_seq, compacted_by, deleted_at, ledger_pruned_at, created_at
+		) VALUES (?, ?, 'run-test', 'user', ?, ?, 'complete', 1, NULL, NULL, ?, ?, ?, ?)`,
 	).run(
 		seq,
 		position,
@@ -392,7 +531,24 @@ function insertMessage(
 		options.origin ?? 'input',
 		options.compactedBy ?? null,
 		options.deletedAt ?? null,
+		options.ledgerPrunedAt ?? null,
+		options.createdAt ?? '2026-07-10T00:00:00.000Z',
 	);
+}
+
+function liveSeqs(storage: RuntimeTestStorage): number[] {
+	return storage.database.prepare(`SELECT seq FROM loop_messages ORDER BY seq ASC`).all().map((row) => row.seq as number);
+}
+
+function ledgerPrunedAt(storage: RuntimeTestStorage, seq: number): string | null {
+	return storage.database.prepare(`SELECT ledger_pruned_at FROM loop_messages WHERE seq = ?`)
+		.get(seq)?.ledger_pruned_at as string | null;
+}
+
+function logRows(storage: RuntimeTestStorage, messageSeq: number): Array<{ id: number; encoding: string; base_log_id: number | null }> {
+	return storage.database
+		.prepare(`SELECT id, encoding, base_log_id FROM loop_message_logs WHERE message_seq = ? ORDER BY id ASC`)
+		.all(messageSeq) as Array<{ id: number; encoding: string; base_log_id: number | null }>;
 }
 
 function messagePosition(storage: RuntimeTestStorage, seq: number): number {
