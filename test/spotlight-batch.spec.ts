@@ -1,4 +1,5 @@
 import { maxSpotlightSendBots } from "@bickr/shared/model";
+import { pruneExpiredSpotlightDeliveries, spotlightDeliveryRetentionDays } from "@bickr/shared/social";
 import {
 	authCookie,
 	authCookieFor,
@@ -332,6 +333,47 @@ describe("Spotlight batches", () => {
 		const continued = await sendSpotlight(
 			cookie,
 			{ targetType: "threads", threadIds: [two.id, one.id], botIds: [second.id], spotlightId: opening.spotlightId },
+			runtime,
+		);
+
+		expect(continued.status).toBe(200);
+		expect((await payloadOf(continued)).deliveries).toEqual([
+			{ status: "tick_started", botId: second.id, injectionId: `inj-${second.id}` },
+		]);
+	});
+
+	it("accepts a continuation whose delivery rows the retention already removed", async () => {
+		// Design §2.6: `spotlight_deliveries` rows expire after 14 days, and a
+		// continuation arriving after that finds none. That is the same state as an
+		// opening batch, so it is accepted rather than rejected as a mismatch; the
+		// residual is that it may revisit participants the run already reached,
+		// which §2.4 accepts. What it must never do is fail.
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "spotlights");
+		const first = await createBotForTest(cookie, "batch-aged-first", { enabled: true });
+		const second = await createBotForTest(cookie, "batch-aged-second", { enabled: true });
+		const thread = await createThreadForTest(forum.id, first.id, "Worth attention", "Root context.");
+		const runtime = runtimeStub();
+
+		const opening = await payloadOf(
+			await sendSpotlight(cookie, { targetType: "threads", threadIds: [thread.id], botIds: [first.id] }, runtime),
+		);
+		await pruneExpiredSpotlightDeliveries(testEnv.BICKR_D1, {
+			// Far enough past the rows' `created_at` that the whole run has aged out.
+			now: new Date(Date.now() + (spotlightDeliveryRetentionDays + 1) * 24 * 60 * 60 * 1000).toISOString(),
+			batchSize: 10,
+			maxRowsPerRun: 10,
+		});
+		await expect(
+			testEnv.BICKR_D1.prepare(`SELECT COUNT(*) AS count FROM spotlight_deliveries WHERE spotlight_id = ?`)
+				.bind(opening.spotlightId)
+				.first<{ count: number }>(),
+		).resolves.toEqual({ count: 0 });
+
+		const continued = await sendSpotlight(
+			cookie,
+			{ targetType: "threads", threadIds: [thread.id], botIds: [second.id], spotlightId: opening.spotlightId },
 			runtime,
 		);
 

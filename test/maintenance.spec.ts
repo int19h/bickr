@@ -283,6 +283,37 @@ describe('maintenance control', () => {
 		expect(dispatched).toHaveLength(5);
 	});
 
+	it('runs the inference graph cleanup with maintenance disabled, still behind internal-service auth', async () => {
+		// #190 lifted the cleanup route's maintenance requirement so the daily cron
+		// — which only runs while maintenance is OFF — can call it. Everything it
+		// deletes is terminal-phase and past its recorded cleanup timestamp, so no
+		// live write can reach those rows.
+		await setMaintenance(false);
+		const workerEnv = {
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+		} as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1];
+		const cleanupRequest = (headers: Record<string, string>) =>
+			new Request(internalServiceUrl('/inference-graph/cleanup'), {
+				method: 'POST',
+				headers: { 'content-type': 'application/json', ...headers },
+				body: JSON.stringify({ limit: 1 }),
+			}) as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0];
+
+		const cleanup = await agentRuntimeWorker.fetch(cleanupRequest({ 'x-bickr-scheduler': '1' }), workerEnv);
+		expect(cleanup.status).toBe(200);
+		expect(await cleanup.json()).toMatchObject({ data: { cleanup: { convergence: 0, operations: 0, projections: 0 } } });
+
+		// Lifting the maintenance gate did not loosen anything else: the route is
+		// still internal-secret and scheduler-service only.
+		const unauthenticated = await handleAgentRuntimeRequest(
+			new Request(internalServiceUrl('/inference-graph/cleanup'), { method: 'POST' }),
+			{ BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV },
+		);
+		expect(unauthenticated.status).toBe(401);
+		expect(await unauthenticated.json()).toMatchObject({ error: 'unauthorized' });
+	});
+
 	it('gates the coordinator entry with the same maintenance operation classification', async () => {
 		await setMaintenance(true);
 		const agentEnv = { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV };

@@ -16,6 +16,7 @@
 		"./governance": "./src/governance.ts",
 		"./governance-deletion-sweep": "./src/governance-deletion-sweep.ts",
 		"./handles": "./src/handles.ts",
+		"./human-subscriptions": "./src/human-subscriptions.ts",
 		"./ids": "./src/ids.ts",
 		"./inference-settings": "./src/inference-settings.ts",
 		"./inference-configuration": "./src/inference-configuration.ts",

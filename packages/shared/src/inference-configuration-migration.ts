@@ -2092,17 +2092,19 @@ export async function completeInferenceGraphCompatibilityWrite(
 	}
 }
 
-export async function cleanupInferenceGraphTerminalState(
-	db: D1DatabaseLike,
-	now: string,
-	limit = 100,
-): Promise<{
+export type InferenceGraphTerminalStateCleanupResult = {
 	operations: number;
 	projections: number;
 	convergence: number;
 	providerDefaultBarrierCandidates: number;
 	providerDefaultBarrierSweeps: number;
-}> {
+};
+
+export async function cleanupInferenceGraphTerminalState(
+	db: D1DatabaseLike,
+	now: string,
+	limit = 100,
+): Promise<InferenceGraphTerminalStateCleanupResult> {
 	const boundedLimit = Math.max(1, Math.min(500, Math.floor(limit)));
 	const [barrierCandidates, barrierSweeps] = await db.batch([
 		db.prepare(

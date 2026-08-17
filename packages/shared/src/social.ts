@@ -92,6 +92,10 @@ import {
 	worldSummariesByIds,
 } from "./repository";
 import {
+	humanSubscriptionScopeDeleteStatements,
+	type HumanSubscriptionScopeRef,
+} from "./human-subscriptions";
+import {
 	effectivePostingSettings,
 	postingHardLimit,
 } from "./posting";
@@ -215,10 +219,45 @@ export type NotificationPruneResult = {
 export const botSeenContentPruneBatchSize = 1_000;
 export const botSeenContentPruneMaxRowsPerRun = 100_000;
 
-export type BotSeenContentPruneResult = {
+/**
+ * The two retentions added to the daily cron by design §2.6 get smaller run caps
+ * than the seen-content sweep. The forum-coordinator daily invocation already
+ * sits near its paid subrequest budget, and each batch costs one subrequest, so
+ * these two together add at most ~40 — not the ~200 a 100k cap would.
+ *
+ * The backlog these caps do not cover is drained once by the O3 one-off (§2.8),
+ * which runs over the REST API and has no subrequest ceiling. From then on the
+ * daily arrivals are far under one run's cap.
+ */
+export const spotlightDeliveryPruneBatchSize = 1_000;
+export const spotlightDeliveryPruneMaxRowsPerRun = 20_000;
+export const humanNotificationPruneBatchSize = 1_000;
+export const humanNotificationPruneMaxRowsPerRun = 20_000;
+
+export type AgeCutoffPruneOptions = {
+	now?: string;
+	batchSize?: number;
+	maxRowsPerRun?: number;
+};
+
+export type AgeCutoffPruneResult = {
 	deletedRows: number;
 	batches: number;
+	/** The per-run cap stopped this run before the table was drained. */
 	budgetExhausted: boolean;
+};
+
+/**
+ * The table and timestamp column are interpolated into the delete statement, so
+ * they are literal unions rather than strings: adding a retention means adding
+ * its table here, and nothing else can reach the SQL.
+ */
+type AgeCutoffRetention = {
+	table: "bot_seen_content" | "spotlight_deliveries" | "human_notifications";
+	column: "last_seen_at" | "created_at";
+	retentionDays: number;
+	defaultBatchSize: number;
+	defaultMaxRowsPerRun: number;
 };
 
 type ExpiredNotificationRow = {
@@ -2940,24 +2979,43 @@ export async function softDeleteThread(
 	};
 	await writeJson(kv, kvKeys.thread(deleted.id), deleted);
 	await upsertThreadIndex(db, deleted);
-	await db
-		.prepare(`UPDATE comments_index SET deleted_at = ? WHERE thread_id = ? AND deleted_at IS NULL`)
-		.bind(now, deleted.id)
-		.run();
-	await db
-		.prepare(`DELETE FROM votes WHERE target_type = 'thread' AND target_id = ?`)
-		.bind(deleted.id)
-		.run();
-	await db
-		.prepare(
-			`DELETE FROM votes
-			 WHERE target_type = 'comment'
-			   AND target_id IN (SELECT comment_id FROM comments_index WHERE thread_id = ?)`,
-		)
-		.bind(deleted.id)
-		.run();
+	// One batch, so the comment tombstones, the votes, and the subscription rows
+	// that only the thread made addressable all die together: a crash partway
+	// through would otherwise leave rows nothing can ever reach again. Every
+	// statement is unconditional or `IS NULL`-guarded, so a retried delete is
+	// idempotent. The comment-vote delete reads `comments_index`, so it has to
+	// precede any statement that could remove those rows — none here does.
+	await db.batch([
+		db
+			.prepare(`UPDATE comments_index SET deleted_at = ? WHERE thread_id = ? AND deleted_at IS NULL`)
+			.bind(now, deleted.id),
+		db.prepare(`DELETE FROM votes WHERE target_type = 'thread' AND target_id = ?`).bind(deleted.id),
+		db
+			.prepare(
+				`DELETE FROM votes
+				 WHERE target_type = 'comment'
+				   AND target_id IN (SELECT comment_id FROM comments_index WHERE thread_id = ?)`,
+			)
+			.bind(deleted.id),
+		...humanSubscriptionScopeDeleteStatements(db, threadSubscriptionScopes(deleted)),
+	]);
 	await putObjectIndex(db, deleted, "thread", entityIndexVersions.thread, deleted.worldId);
 	return deleted;
+}
+
+/**
+ * A deleted thread takes the subscriptions on its comments with it: a `comment`
+ * scope is only ever reachable through its thread.
+ *
+ * The ids come from the thread document rather than `comments_index` because the
+ * document is the source of truth and the index can lag behind a just-written
+ * comment — reading the index here would leave the newest comments' rows behind.
+ */
+function threadSubscriptionScopes(thread: ThreadDocument): HumanSubscriptionScopeRef[] {
+	return [
+		{ scopeType: "thread", scopeId: thread.id },
+		...thread.comments.map((comment) => ({ scopeType: "comment" as const, scopeId: comment.id })),
+	];
 }
 
 export async function softDeleteThreadForForum(
@@ -3032,17 +3090,21 @@ export async function softDeleteComment(
 
 	await writeJson(kv, kvKeys.thread(updated.id), updated);
 	await upsertThreadIndex(db, updated);
-	await db
-		.prepare(`UPDATE comments_index SET deleted_at = ? WHERE comment_id = ? AND deleted_at IS NULL`)
-		.bind(now, commentId)
-		.run();
+	// One batch for everything the deleted comment takes with it, so a crash
+	// cannot leave its subscription rows behind the tombstone that made them
+	// unreachable. Only the deleted comment's own scope is cleared: its children
+	// are reparented, not deleted, so subscriptions on them still point at live
+	// comments.
+	await db.batch([
+		db
+			.prepare(`UPDATE comments_index SET deleted_at = ? WHERE comment_id = ? AND deleted_at IS NULL`)
+			.bind(now, commentId),
+		db.prepare(`DELETE FROM votes WHERE target_type = 'comment' AND target_id = ?`).bind(commentId),
+		...humanSubscriptionScopeDeleteStatements(db, [{ scopeType: "comment", scopeId: commentId }]),
+	]);
 	for (const child of reparentedChildren) {
 		await upsertCommentIndex(db, updated, child);
 	}
-	await db
-		.prepare(`DELETE FROM votes WHERE target_type = 'comment' AND target_id = ?`)
-		.bind(commentId)
-		.run();
 	await putObjectIndex(db, updated, "thread", entityIndexVersions.thread, updated.worldId);
 	return updated;
 }
@@ -5780,17 +5842,89 @@ async function pruneTombstonedBotNotifications(
 
 export async function pruneExpiredBotSeenContent(
 	db: D1DatabaseLike,
-	options: {
-		now?: string;
-		batchSize?: number;
-		maxRowsPerRun?: number;
-	} = {},
-): Promise<BotSeenContentPruneResult> {
+	options: AgeCutoffPruneOptions = {},
+): Promise<AgeCutoffPruneResult> {
+	return runAgeCutoffPrune(db, options, {
+		table: "bot_seen_content",
+		column: "last_seen_at",
+		retentionDays: botSeenContentRetentionDays,
+		defaultBatchSize: botSeenContentPruneBatchSize,
+		defaultMaxRowsPerRun: botSeenContentPruneMaxRowsPerRun,
+	});
+}
+
+/**
+ * `spotlight_deliveries` records which participants a spotlight already reached,
+ * and every read of it is a `spotlight_id`-keyed point lookup made while that
+ * spotlight is still in flight (see {@link assertSpotlightContinuation}). Once a
+ * spotlight is older than the matching injection retention the runtime applies
+ * to the same batch (`injectionRetentionDays` in agent-runtime, design §2.6),
+ * nothing can address those rows again.
+ *
+ * A continuation whose rows have aged out is therefore an ordinary zero-row
+ * start, not a mismatch: `assertSpotlightContinuation` already treats "no rows
+ * for this id" as a run that has recorded nothing, and that stays correct here.
+ * The residual is that such a continuation may revisit targets it already
+ * reached, which §2.4 accepts.
+ */
+export async function pruneExpiredSpotlightDeliveries(
+	db: D1DatabaseLike,
+	options: AgeCutoffPruneOptions = {},
+): Promise<AgeCutoffPruneResult> {
+	return runAgeCutoffPrune(db, options, {
+		table: "spotlight_deliveries",
+		column: "created_at",
+		retentionDays: spotlightDeliveryRetentionDays,
+		defaultBatchSize: spotlightDeliveryPruneBatchSize,
+		defaultMaxRowsPerRun: spotlightDeliveryPruneMaxRowsPerRun,
+	});
+}
+
+/**
+ * Human notifications expire on age alone, read or unread, archived or not: the
+ * notification list is a feed of recent activity, and a 30-day-old row is not
+ * something a reader is still going to act on.
+ *
+ * Accepted behavior change (design §2.6): `human_notifications` rows double as
+ * the dedup key for their event, and `bot_followed:{follower}:{followed}` keys
+ * are id-scoped rather than occurrence-scoped. Deleting the old row therefore
+ * un-suppresses the event, so an unfollow followed by a re-follow more than 30
+ * days later produces a fresh "X followed you" instead of being silently
+ * swallowed forever by a row from the first follow. That is the correct
+ * behavior — the second follow really is new activity — and the suppression it
+ * replaces was an artifact of the rows never being deleted.
+ */
+export async function pruneExpiredHumanNotifications(
+	db: D1DatabaseLike,
+	options: AgeCutoffPruneOptions = {},
+): Promise<AgeCutoffPruneResult> {
+	return runAgeCutoffPrune(db, options, {
+		table: "human_notifications",
+		column: "created_at",
+		retentionDays: humanNotificationRetentionDays,
+		defaultBatchSize: humanNotificationPruneBatchSize,
+		defaultMaxRowsPerRun: humanNotificationPruneMaxRowsPerRun,
+	});
+}
+
+/**
+ * The shape every plain age-cutoff retention on this Worker shares: delete in
+ * fixed batches until the table has nothing older than the cutoff left, or the
+ * per-run row cap is reached, whichever comes first. The cap is what keeps a
+ * large backlog from spending the whole daily invocation on one table; the run
+ * after it picks up where this one stopped, because the predicate is the age
+ * cutoff itself and needs no cursor.
+ */
+async function runAgeCutoffPrune(
+	db: D1DatabaseLike,
+	options: AgeCutoffPruneOptions,
+	retention: AgeCutoffRetention,
+): Promise<AgeCutoffPruneResult> {
 	const now = options.now ?? new Date().toISOString();
-	const cutoff = botSeenContentRetentionCutoff(now);
-	const batchSize = positiveIntegerOption(options.batchSize ?? botSeenContentPruneBatchSize, "batchSize");
-	const maxRowsPerRun = nonNegativeIntegerOption(options.maxRowsPerRun ?? botSeenContentPruneMaxRowsPerRun, "maxRowsPerRun");
-	const result: BotSeenContentPruneResult = {
+	const cutoff = retentionCutoff(now, retention.retentionDays, retention.table);
+	const batchSize = positiveIntegerOption(options.batchSize ?? retention.defaultBatchSize, "batchSize");
+	const maxRowsPerRun = nonNegativeIntegerOption(options.maxRowsPerRun ?? retention.defaultMaxRowsPerRun, "maxRowsPerRun");
+	const result: AgeCutoffPruneResult = {
 		deletedRows: 0,
 		batches: 0,
 		budgetExhausted: false,
@@ -5800,8 +5934,8 @@ export async function pruneExpiredBotSeenContent(
 		const limit = Math.min(batchSize, maxRowsPerRun - result.deletedRows);
 		const deleteResult = await db
 			.prepare(
-				`DELETE FROM bot_seen_content
-				 WHERE last_seen_at < ?
+				`DELETE FROM ${retention.table}
+				 WHERE ${retention.column} < ?
 				 LIMIT ?`,
 			)
 			.bind(cutoff, limit)
@@ -5821,12 +5955,12 @@ export async function pruneExpiredBotSeenContent(
 	return result;
 }
 
-function botSeenContentRetentionCutoff(now: string): string {
+function retentionCutoff(now: string, retentionDays: number, label: string): string {
 	const nowMs = Date.parse(now);
 	if (!Number.isFinite(nowMs)) {
-		throw new Error(`Invalid bot seen-content retention timestamp: ${now}`);
+		throw new Error(`Invalid ${label} retention timestamp: ${now}`);
 	}
-	return new Date(nowMs - botSeenContentRetentionDays * secondsPerDay * 1000).toISOString();
+	return new Date(nowMs - retentionDays * secondsPerDay * 1000).toISOString();
 }
 
 function notificationRetentionCutoff(now: string): string {
@@ -6518,6 +6652,20 @@ function voteActionText(value: -1 | 0 | 1): string {
 // before this retention window; fresher seen rows keep their current behavior.
 export const botSeenContentRetentionDays = 90;
 
+/**
+ * Matches `injectionRetentionDays` in agent-runtime: a spotlight's delivery rows
+ * and the injections it produced age out together, so a deferred spotlight visit
+ * dies coherently in both stores rather than leaving one half addressable.
+ */
+export const spotlightDeliveryRetentionDays = 14;
+
+/**
+ * How far back the human notification list goes. See
+ * {@link pruneExpiredHumanNotifications} for the dedup-key consequence of
+ * deleting these rows.
+ */
+export const humanNotificationRetentionDays = 30;
+
 async function botSeenRecentlySet(
 	db: D1DatabaseLike,
 	botId: string,
@@ -6593,26 +6741,39 @@ async function markThreadIndexesDeleted(
 	threadId: string,
 	now: string,
 ): Promise<void> {
-	await db
-		.prepare(`UPDATE threads_index SET deleted_at = ? WHERE thread_id = ? AND deleted_at IS NULL`)
-		.bind(now, threadId)
-		.run();
-	await db
-		.prepare(`UPDATE comments_index SET deleted_at = ? WHERE thread_id = ? AND deleted_at IS NULL`)
-		.bind(now, threadId)
-		.run();
-	await db
-		.prepare(`DELETE FROM votes WHERE target_type = 'thread' AND target_id = ?`)
+	// This is the arm that runs when the thread document is already gone, so
+	// unlike softDeleteThread there is no comment list to read; the index is the
+	// only remaining record of which comment scopes died with the thread. The
+	// row count is bounded by the forum's comment limit, same as the comment-vote
+	// delete in the batch below. The read has to precede that batch, so it cannot
+	// join it.
+	const comments = await db
+		.prepare(`SELECT comment_id AS commentId FROM comments_index WHERE thread_id = ?`)
 		.bind(threadId)
-		.run();
-	await db
-		.prepare(
-			`DELETE FROM votes
-			 WHERE target_type = 'comment'
-			   AND target_id IN (SELECT comment_id FROM comments_index WHERE thread_id = ?)`,
-		)
-		.bind(threadId)
-		.run();
+		.all<{ commentId: string }>();
+	// One batch, for the same reason as softDeleteThread: the tombstones and the
+	// rows they orphan have to land together, and every statement is idempotent
+	// on the retry this path can take.
+	await db.batch([
+		db
+			.prepare(`UPDATE threads_index SET deleted_at = ? WHERE thread_id = ? AND deleted_at IS NULL`)
+			.bind(now, threadId),
+		db
+			.prepare(`UPDATE comments_index SET deleted_at = ? WHERE thread_id = ? AND deleted_at IS NULL`)
+			.bind(now, threadId),
+		db.prepare(`DELETE FROM votes WHERE target_type = 'thread' AND target_id = ?`).bind(threadId),
+		db
+			.prepare(
+				`DELETE FROM votes
+				 WHERE target_type = 'comment'
+				   AND target_id IN (SELECT comment_id FROM comments_index WHERE thread_id = ?)`,
+			)
+			.bind(threadId),
+		...humanSubscriptionScopeDeleteStatements(db, [
+			{ scopeType: "thread", scopeId: threadId },
+			...(comments.results ?? []).map((row) => ({ scopeType: "comment" as const, scopeId: row.commentId })),
+		]),
+	]);
 }
 
 function latestThreadActivityAt(comments: CommentDocument[]): string {

@@ -89,6 +89,7 @@ import {
 	beginInferenceGraphCompatibilityWrite,
 	completeInferenceGraphCompatibilityWrite,
 	cleanupInferenceGraphTerminalState,
+	type InferenceGraphTerminalStateCleanupResult,
 	inferenceGraphMigrationStatus,
 	listInferenceProviderDefaultBarrierSweepFleetStatus,
 	listInferenceGraphFleetStatus,
@@ -1153,8 +1154,15 @@ export const agentRuntimeRouteTable = [
 				throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
 			}
 			requireSchedulerServiceRequest(context.request);
-			const maintenance = await readMaintenanceState(context.env.BICKR_D1);
-			if (!maintenance.enabled) throw new RepositoryError('conflict', 'Inference graph cleanup requires maintenance mode.', 409);
+			// No maintenance-mode requirement, unlike its sibling inference-graph
+			// operations (design §2.6). Those move live configuration between
+			// representations; this one only deletes migration bookkeeping that is
+			// already in a terminal phase and past its recorded
+			// `terminal_cleanup_at`, at most 500 rows per call — nothing an
+			// in-flight request could still read or write. Keeping the requirement
+			// would have made the cleanup unreachable from the daily cron, which
+			// defers itself for exactly as long as maintenance is on. The
+			// internal-secret and scheduler-service checks above are unchanged.
 			const body = requiredRecord(await readJsonBody(context.request));
 			return ok({ cleanup: await cleanupInferenceGraphTerminalState(
 				context.env.BICKR_D1,
@@ -2609,10 +2617,20 @@ function parseAvatarCrop(value: unknown, avatar: AvatarImage): AvatarCrop {
 
 /**
  * The scheduler-authenticated inference graph operations are the maintenance
- * work itself: every one of them requires maintenance mode inside its own
- * handler, behind internal-service and scheduler auth. The agent Worker entry
- * and the coordinator entry share this single classification so neither gate
- * can reject a request the other is built to accept.
+ * work itself, so the shared mutation gate must not reject them; each one
+ * enforces its own stricter rule inside its handler, behind internal-service and
+ * scheduler auth. The agent Worker entry and the coordinator entry share this
+ * single classification so neither gate can reject a request the other is built
+ * to accept.
+ *
+ * All of them but one require maintenance mode in that handler. The exception is
+ * `POST /inference-graph/cleanup`, which requires nothing beyond its auth
+ * (design §2.6): unlike its siblings it moves no live configuration between
+ * representations, only deleting terminal-phase migration bookkeeping past its
+ * recorded `terminal_cleanup_at`. Requiring maintenance mode there would have
+ * made the cleanup unreachable from the daily cron, which defers itself for
+ * exactly as long as maintenance is on. It is still listed here because the
+ * shared gate would otherwise reject it as an ordinary mutation.
  */
 function isInferenceGraphMaintenanceRequest(request: Request): boolean {
 	if (request.method !== 'POST') {
@@ -2829,7 +2847,12 @@ export default {
 export type ScheduledAgentRuntimeTasksResult =
 	| { kind: 'maintenance'; sweep: InferenceProviderDefaultBarrierFleetStepResult }
 	| { kind: 'ordinary' }
-	| { kind: 'daily'; retention: BotRuntimeRetentionSweepResult; janitor: AvatarJanitorResult }
+	| {
+		kind: 'daily';
+		retention: BotRuntimeRetentionSweepResult;
+		janitor: AvatarJanitorResult;
+		inferenceGraphCleanup: InferenceGraphTerminalStateCleanupResult;
+	}
 	| { kind: 'daily_deferred' };
 
 export async function runScheduledAgentRuntimeTasks(
@@ -2865,9 +2888,13 @@ async function runDailyScheduledAgentRuntimeTasks(env: Env, scheduledTime: numbe
 		return { kind: 'daily_deferred' };
 	}
 	// Steps are independent and each is individually capped, so one failure must
-	// not cost the others their run. #190 adds the inference-graph terminal-state
-	// cleanup beside these two.
-	const [retention, janitor] = await Promise.allSettled([
+	// not cost the others their run.
+	//
+	// The inference-graph cleanup runs from here rather than from the
+	// forum-coordinator's daily cron because the enforced writer boundary keeps
+	// the graph migration writers inside agent-runtime
+	// (`mutation-import-boundary.test.ts`).
+	const [retention, janitor, inferenceGraphCleanup] = await Promise.allSettled([
 		runBotRuntimeRetentionSweep({
 			BICKR_D1: env.BICKR_D1,
 			BICKR_KV: env.BICKR_KV,
@@ -2882,23 +2909,22 @@ async function runDailyScheduledAgentRuntimeTasks(env: Env, scheduledTime: numbe
 			...(env.BICKR_R2 === undefined ? {} : { BICKR_R2: env.BICKR_R2 }),
 			...(env.BICKR_R2_PUBLIC_BASE_URL === undefined ? {} : { BICKR_R2_PUBLIC_BASE_URL: env.BICKR_R2_PUBLIC_BASE_URL }),
 		}, { now }),
+		cleanupInferenceGraphTerminalState(env.BICKR_D1, now),
 	]);
 	const record = {
 		event: 'scheduled_daily_maintenance',
 		scheduledTime,
-		retention: retention.status === 'fulfilled'
-			? retention.value
-			: { status: 'failed', errorName: retention.reason instanceof Error ? retention.reason.name : 'UnknownError' },
-		janitor: janitor.status === 'fulfilled'
-			? janitor.value
-			: { status: 'failed', errorName: janitor.reason instanceof Error ? janitor.reason.name : 'UnknownError' },
+		retention: settledDailyMaintenanceResult(retention),
+		janitor: settledDailyMaintenanceResult(janitor),
+		inferenceGraphCleanup: settledDailyMaintenanceResult(inferenceGraphCleanup),
 	};
 	// A janitor run that refused to sweep is not a failed invocation, but it is
 	// the signal that the fleet outgrew the single-invocation design, so it is
 	// logged at error level rather than buried in the daily record.
 	const janitorRefused = janitor.status === 'fulfilled' &&
 		(janitor.value.status === 'skipped_over_budget' || janitor.value.status === 'aborted');
-	(retention.status === 'rejected' || janitor.status === 'rejected' || janitorRefused ? console.error : console.log)(
+	(retention.status === 'rejected' || janitor.status === 'rejected' ||
+		inferenceGraphCleanup.status === 'rejected' || janitorRefused ? console.error : console.log)(
 		JSON.stringify(record),
 	);
 	if (retention.status === 'rejected') {
@@ -2907,7 +2933,25 @@ async function runDailyScheduledAgentRuntimeTasks(env: Env, scheduledTime: numbe
 	if (janitor.status === 'rejected') {
 		throw janitor.reason;
 	}
-	return { kind: 'daily', retention: retention.value, janitor: janitor.value };
+	if (inferenceGraphCleanup.status === 'rejected') {
+		throw inferenceGraphCleanup.reason;
+	}
+	return {
+		kind: 'daily',
+		retention: retention.value,
+		janitor: janitor.value,
+		inferenceGraphCleanup: inferenceGraphCleanup.value,
+	};
+}
+
+/**
+ * A partial run's counters are the only evidence of how far it got, so every
+ * step is summarized before the first failure is rethrown.
+ */
+function settledDailyMaintenanceResult<T>(result: PromiseSettledResult<T>): T | { status: 'failed'; errorName: string } {
+	return result.status === 'fulfilled'
+		? result.value
+		: { status: 'failed', errorName: result.reason instanceof Error ? result.reason.name : 'UnknownError' };
 }
 
 async function runFrequentScheduledAgentRuntimeTasks(env: Env, scheduledTime: number): Promise<ScheduledAgentRuntimeTasksResult> {

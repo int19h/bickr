@@ -5,6 +5,10 @@ import { objectIndexScopeStaleStatement } from "./object-index-scope";
 import { entityIndexVersions } from "./index-versions";
 import { tombstoneHandle } from "./handles";
 import {
+	deleteHumanSubscriptionsForUserSql,
+	humanSubscriptionScopeDeleteStatements,
+} from "./human-subscriptions";
+import {
 	schemaVersion,
 	authProviders,
 	avatarCropFromJson,
@@ -2111,8 +2115,16 @@ async function deleteBot(
 
 	await writeJson(kv, kvKeys.bot(deleted.id), deleted);
 	await deleteOptions.checkpoint?.(`${deleteOptions.failurePrefix ?? "bot"}.delete.kv` as LifecycleFailurePoint);
-	await upsertBotIndex(db, deleted, { lifecycleState: "deleting" });
-	await deleteBotGroupMembershipsForBot(db, deleted.id);
+	// One batch, so the tombstone lands with everything that only pointed at a
+	// live participant: group memberships and subscription rows. A crash between
+	// them would otherwise strand rows on a participant nothing can address.
+	// Every statement is an unconditional write, so the lifecycle retry is
+	// idempotent.
+	await db.batch([
+		botIndexProjectionStatement(db, deleted, { lifecycleState: "deleting" }),
+		db.prepare(deleteBotGroupMembershipsByBotSql).bind(deleted.id),
+		...humanSubscriptionScopeDeleteStatements(db, [{ scopeType: "bot", scopeId: deleted.id }]),
+	]);
 	await disableBotRuntime(db, deleted.id, now);
 	await upsertBotSearchIndex(db, deleted);
 	await putObjectIndex(db, deleted, "bot", entityIndexVersions.bot, deleted.homeWorldId);
@@ -2679,10 +2691,6 @@ async function removeBotGroupMember(
 
 export const deleteBotGroupMembershipsByBotSql = "DELETE FROM bot_group_members WHERE bot_id = ?";
 
-async function deleteBotGroupMembershipsForBot(db: D1DatabaseLike, botId: string): Promise<void> {
-	await db.prepare(deleteBotGroupMembershipsByBotSql).bind(botId).run();
-}
-
 export async function softDeleteBotGroupsForWorld(
 	db: D1DatabaseLike,
 	worldId: string,
@@ -3103,15 +3111,23 @@ async function softDeleteUserProfile(
 	await writeJson(kv, kvKeys.user(deleted.id), deleted);
 	await deleteOptions.checkpoint?.("account.delete.kv");
 	await softDeleteBotGroupsForOwner(db, deleted.id, deleted.deletedAt);
-	await db
-		.prepare(
-			`UPDATE users_index
-			 SET handle = ?, updated_at = ?, deleted_at = ?
-			 WHERE user_id = ?`,
-		)
-		.bind(tombstonedHandle, deleted.updatedAt, deleted.deletedAt, deleted.id)
-		.run();
-	await db.prepare(`DELETE FROM provider_identities WHERE user_id = ?`).bind(deleted.id).run();
+	// One batch, so the tombstone lands with everything keyed to the account that
+	// nothing can consult once it is gone. The subscriptions here are the
+	// account's own: the scope rows of the participants, forums, and worlds it
+	// owned are cleared by the deletions the account cascade already ran before
+	// reaching this point, so what is left is what this account subscribed to on
+	// entities that outlive it.
+	await db.batch([
+		db
+			.prepare(
+				`UPDATE users_index
+				 SET handle = ?, updated_at = ?, deleted_at = ?
+				 WHERE user_id = ?`,
+			)
+			.bind(tombstonedHandle, deleted.updatedAt, deleted.deletedAt, deleted.id),
+		db.prepare(`DELETE FROM provider_identities WHERE user_id = ?`).bind(deleted.id),
+		db.prepare(deleteHumanSubscriptionsForUserSql).bind(deleted.id),
+	]);
 	await putObjectIndex(db, deleted, "user", entityIndexVersions.user);
 	await deleteOptions.checkpoint?.("account.delete.indexes.d1");
 	return publicUser(deleted);
