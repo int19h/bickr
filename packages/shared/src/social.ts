@@ -1,5 +1,5 @@
 import { isD1UniqueConstraintError } from "./d1-errors";
-import { formatCommentRef, formatThreadRef, isMadeId, isShortContentId, makeId, makeShortContentId, parseObjectRef } from "./ids";
+import { deterministicId, formatCommentRef, formatThreadRef, isMadeId, isShortContentId, makeId, makeShortContentId, parseObjectRef } from "./ids";
 import { entityIndexVersions } from "./index-versions";
 import { legacyToolResultEnvelope } from "./legacy-tool-result-adapter";
 import {
@@ -5065,22 +5065,23 @@ async function sleepBeforeSpotlightRetry(milliseconds: number): Promise<void> {
 	await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
+/**
+ * The id of a bot's bootstrap notification is derived from the bot id, so every
+ * retry of an interrupted creation addresses the same KV document and the same
+ * D1 row. That is what makes the two-store write below safe to repeat, and it
+ * also bounds a bot whose bots_index row is gone to a single bootstrap.
+ */
+export function bootstrapNotificationId(botId: string): Promise<string> {
+	return deterministicId("ntf", `bootstrap:${botId}`);
+}
+
 export async function ensureBootstrapNotification(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	bot: BotDocument,
 	now = new Date().toISOString(),
 ): Promise<void> {
-	const existing = await db
-		.prepare(
-			`SELECT notification_id AS id
-			 FROM notifications
-			 WHERE bot_id = ? AND type = 'bootstrap'
-			 LIMIT 1`,
-		)
-		.bind(bot.id)
-		.first<{ id: string }>();
-	if (existing) {
+	if (await bootstrapAlreadyNotified(db, bot.id)) {
 		return;
 	}
 
@@ -5096,7 +5097,8 @@ export async function ensureBootstrapNotification(
 		.bind(bot.homeWorldId, introForumHandle)
 		.first<{ id: string }>();
 	const message = botInitialNotification(world?.initialBotNotification ?? localizedText(defaultInitialBotNotification, null), Boolean(intro));
-	await createNotification(kv, db, {
+	const notification = notificationDocumentFromInput({
+		id: await bootstrapNotificationId(bot.id),
 		worldId: bot.homeWorldId,
 		botId: bot.id,
 		notificationType: "bootstrap",
@@ -5113,6 +5115,74 @@ export async function ensureBootstrapNotification(
 		},
 		now,
 	});
+	// The KV document is written first: a crash before the batch leaves a
+	// document with no row, which nothing reads and the retry overwrites in
+	// place. The reverse order would publish a row whose document is missing.
+	await writeNotificationDocuments(kv, [notification]);
+	// One batch, so the flag can never be set without the row that backs it.
+	// INSERT OR IGNORE absorbs the retry after a crash between the two writes.
+	await db.batch([
+		...notificationInsertStatements(db, [notification]),
+		db
+			.prepare(
+				`UPDATE bots_index
+				 SET bootstrap_notified_at = ?
+				 WHERE bot_id = ?`,
+			)
+			.bind(notification.createdAt, bot.id),
+	]);
+}
+
+async function bootstrapAlreadyNotified(db: D1DatabaseLike, botId: string): Promise<boolean> {
+	const row = await db
+		.prepare(
+			`SELECT bootstrap_notified_at AS bootstrapNotifiedAt
+			 FROM bots_index
+			 WHERE bot_id = ?
+			 LIMIT 1`,
+		)
+		.bind(botId)
+		.first<{ bootstrapNotifiedAt: string | null }>();
+	if (row?.bootstrapNotifiedAt) {
+		return true;
+	}
+	return adoptLegacyBootstrapRow(db, botId);
+}
+
+/**
+ * TEMPORARY deploy-window shim (design doc §2.1). Migration 0047 backfills the
+ * flag, but a bot bootstrapped by the old code between the migration applying
+ * and this worker activating holds a bootstrap row with a NULL flag, and would
+ * otherwise be bootstrapped a second time. Each such bot costs one legacy
+ * existence check, once, after which its flag answers on its own.
+ *
+ * Retirement is gated, not scheduled: O2's step-0 reconciliation re-runs the
+ * flag backfill for every bot holding any bootstrap row and verifies that zero
+ * bootstrap rows belong to NULL-flag bots. This function is deleted once that
+ * invariant holds and stays stable across one deploy cycle.
+ */
+async function adoptLegacyBootstrapRow(db: D1DatabaseLike, botId: string): Promise<boolean> {
+	const legacy = await db
+		.prepare(
+			`SELECT MIN(created_at) AS createdAt
+			 FROM notifications
+			 WHERE bot_id = ? AND type = 'bootstrap'`,
+		)
+		.bind(botId)
+		.first<{ createdAt: string | null }>();
+	const createdAt = legacy?.createdAt;
+	if (!createdAt) {
+		return false;
+	}
+	await db
+		.prepare(
+			`UPDATE bots_index
+			 SET bootstrap_notified_at = ?
+			 WHERE bot_id = ?`,
+		)
+		.bind(createdAt, botId)
+		.run();
+	return true;
 }
 
 function botInitialNotification(base: LocalizedText, hasIntroForum: boolean): LocalizedText {
@@ -5452,6 +5522,9 @@ function nonNegativeIntegerOption(value: number, name: string): number {
 }
 
 type NotificationCreateInput = {
+	// Only supplied where the notification must be idempotent across retries; see
+	// bootstrapNotificationId.
+	id?: string;
 	worldId: string;
 	botId: string;
 	notificationType: NotificationType;
@@ -5461,19 +5534,8 @@ type NotificationCreateInput = {
 	now: string;
 };
 
-async function createNotification(
-	kv: KVNamespaceLike,
-	db: D1DatabaseLike,
-	input: NotificationCreateInput,
-): Promise<NotificationDocument> {
-	const notification = notificationDocumentFromInput(input);
-	await writeNotificationDocuments(kv, [notification]);
-	await insertNotificationRows(db, [notification], "insert");
-	return notification;
-}
-
 function notificationDocumentFromInput(input: NotificationCreateInput): NotificationDocument {
-	const id = makeId("ntf");
+	const id = input.id ?? makeId("ntf");
 	const message = localizedTextFromStored(input.message);
 	return {
 		id,
@@ -5496,43 +5558,55 @@ async function writeNotificationDocuments(
 	kv: KVNamespaceLike,
 	notifications: NotificationDocument[],
 ): Promise<void> {
-	// Bot notifications are retained from creation: delivered/read/archived rows
-	// are pruned after 30 days, pending rows after 90 days. KV mirrors use the
-	// max retention TTL so new documents self-clean even if a prune run is delayed.
 	for (const batch of chunks(notifications, notificationKvWriteChunkSize)) {
 		await Promise.all(
 			batch.map((notification) =>
-				writeJson(kv, kvKeys.notification(notification.botId, notification.id), notification, {
-					expirationTtl: notificationKvExpirationTtlSeconds,
-				}),
+				writeJson(
+					kv,
+					kvKeys.notification(notification.botId, notification.id),
+					notification,
+					notificationKvPutOptions(notification),
+				),
 			),
 		);
 	}
 }
 
-async function insertNotificationRows(
+/**
+ * Bot notifications are retained from creation: delivered/read/archived rows are
+ * pruned after 30 days, pending rows after 90 days. KV mirrors use the max
+ * retention TTL so new documents self-clean even if a prune run is delayed.
+ *
+ * Retention exception: a pending bootstrap document carries NO TTL. A bot paused
+ * longer than the pending retention would otherwise lose its undelivered
+ * bootstrap while `bots_index.bootstrap_notified_at` permanently blocks a new
+ * one. The exemption ends at delivery: markNotificationsDelivered rewrites the
+ * document with the delivered TTL, which is also what bounds it.
+ */
+function notificationKvPutOptions(notification: NotificationDocument): { expirationTtl?: number } | undefined {
+	if (notification.notificationType === "bootstrap" && notification.status === "pending") {
+		return undefined;
+	}
+	return { expirationTtl: notificationKvExpirationTtlSeconds };
+}
+
+function notificationInsertStatements(
 	db: D1DatabaseLike,
 	notifications: NotificationDocument[],
-	mode: "insert" | "insertOrIgnore",
-): Promise<void> {
-	if (notifications.length === 0) {
-		return;
-	}
+): D1PreparedStatementLike[] {
 	const parametersPerRow = 9;
 	const maxRowsPerStatement = Math.floor(d1MaxBoundParameters / parametersPerRow);
-	const insertMode = mode === "insertOrIgnore" ? "INSERT OR IGNORE" : "INSERT";
-	const statements = chunks(notifications, maxRowsPerStatement).map((batch) => {
+	return chunks(notifications, maxRowsPerStatement).map((batch) => {
 		const values = batch.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)").join(", ");
 		return db
 			.prepare(
-				`${insertMode} INTO notifications (
+				`INSERT OR IGNORE INTO notifications (
 					notification_id, world_id, bot_id, type, source_object_id, status, message, message_lang,
 					created_at, delivered_at, read_at
 				) VALUES ${values}`,
 			)
 			.bind(...batch.flatMap(notificationInsertBindings));
 	});
-	await db.batch(statements);
 }
 
 function notificationInsertBindings(notification: NotificationDocument): unknown[] {
@@ -5672,7 +5746,7 @@ async function createMergedNotifications(
 	});
 	if (notifications.length > 0) {
 		await writeNotificationDocuments(kv, notifications);
-		await insertNotificationRows(db, notifications, "insertOrIgnore");
+		await db.batch(notificationInsertStatements(db, notifications));
 	}
 }
 
