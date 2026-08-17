@@ -8,6 +8,7 @@ import {
 	parseThreadRef,
 } from "./ids";
 import {
+	bootstrapNotificationId,
 	createComment,
 	createThread,
 	ensureBootstrapNotification,
@@ -534,16 +535,16 @@ describe("mention canonicalization at the write boundary", () => {
 });
 
 describe("bot notification retention", () => {
-	it("writes notification documents with the maximum retention TTL", async () => {
-		const { db, kv, bot } = fixture({ existingThreads: [] });
+	it("writes the pending bootstrap document without a TTL", async () => {
+		const { db, kv, bot } = bootstrapFixture();
 
 		await ensureBootstrapNotification(kv, db, bot, now);
 
-		const notificationPutIndex = kv.puts.findIndex((key) => key.startsWith(`v1:notification:${bot.id}:`));
-		expect(notificationPutIndex).toBeGreaterThanOrEqual(0);
-		expect(kv.putOptions[notificationPutIndex]).toEqual({
-			expirationTtl: notificationKvExpirationTtlSeconds,
-		});
+		// Retention exception: a bot paused past the pending retention would lose
+		// the bootstrap document it never received, and the flag would block a
+		// replacement forever.
+		expect(kv.puts).toEqual([kvKeys.notification(bot.id, await bootstrapNotificationId(bot.id))]);
+		expect(kv.putOptions).toEqual([undefined]);
 	});
 
 	it("re-arms the retention TTL when marking notifications delivered", async () => {
@@ -626,6 +627,160 @@ describe("bot notification retention", () => {
 		const notificationInserts = db.runs.filter((run) => run.query.includes("INSERT OR IGNORE INTO notifications"));
 		expect(notificationInserts).toHaveLength(1);
 		expect(notificationInserts[0]?.bindings).toHaveLength(18);
+	});
+});
+
+describe("ensureBootstrapNotification", () => {
+	const later = "2026-05-07T12:00:00.000Z";
+
+	it("bootstraps a never-notified bot exactly once and records the flag", async () => {
+		const { db, kv, bot } = bootstrapFixture();
+		const notificationId = await bootstrapNotificationId(bot.id);
+
+		await ensureBootstrapNotification(kv, db, bot, now);
+
+		expect(db.notifications).toEqual([
+			{ id: notificationId, botId: bot.id, type: "bootstrap", status: "pending", createdAt: now },
+		]);
+		expect(db.bootstrapNotifiedAt).toBe(now);
+
+		const queriesBefore = db.queries.length;
+		await ensureBootstrapNotification(kv, db, bot, later);
+
+		expect(db.notifications).toHaveLength(1);
+		expect(kv.puts).toHaveLength(1);
+		expect(db.queries.slice(queriesBefore).some((query) => query.includes("FROM notifications"))).toBe(false);
+		expect(db.bootstrapNotifiedAt).toBe(now);
+	});
+
+	it("answers from the flag alone, without reading the prunable notification row", async () => {
+		const { db, kv, bot } = bootstrapFixture({ bootstrapNotifiedAt: "2026-04-01T00:00:00.000Z" });
+
+		await ensureBootstrapNotification(kv, db, bot, now);
+
+		expect(db.notifications).toEqual([]);
+		expect(kv.puts).toEqual([]);
+		expect(db.queries.some((query) => query.includes("FROM notifications"))).toBe(false);
+		expect(db.bootstrapNotifiedAt).toBe("2026-04-01T00:00:00.000Z");
+	});
+
+	it("adopts a bootstrap row left by the previous deployment instead of duplicating it", async () => {
+		const legacy = { id: "ntf_legacy", createdAt: "2026-04-01T00:00:00.000Z" };
+		const { db, kv, bot } = bootstrapFixture({ legacyBootstrap: legacy });
+
+		await ensureBootstrapNotification(kv, db, bot, now);
+		await ensureBootstrapNotification(kv, db, bot, later);
+
+		expect(db.notifications.map((notification) => notification.id)).toEqual([legacy.id]);
+		expect(kv.puts).toEqual([]);
+		// The flag carries the notification's own creation time, and the shim's
+		// legacy lookup runs at most once per bot.
+		expect(db.bootstrapNotifiedAt).toBe(legacy.createdAt);
+		expect(db.queries.filter(isLegacyBootstrapLookup)).toHaveLength(1);
+	});
+
+	it("strips the legacy TTL from the adopted bootstrap document", async () => {
+		const legacy = { id: "ntf_legacy", createdAt: "2026-04-01T00:00:00.000Z" };
+		const { db, kv, bot } = bootstrapFixture({ legacyBootstrap: legacy });
+		const key = kvKeys.notification(bot.id, legacy.id);
+		// Written by the previous deployment, which still gave pending bootstrap
+		// documents the 90-day retention TTL.
+		await kv.put(key, JSON.stringify({
+			id: legacy.id,
+			type: "notification",
+			schemaVersion,
+			revision: 1,
+			worldId: bot.homeWorldId,
+			botId: bot.id,
+			notificationType: "bootstrap",
+			status: "pending",
+			message: en("Welcome."),
+			createdAt: legacy.createdAt,
+			updatedAt: legacy.createdAt,
+		}), { expirationTtl: notificationKvExpirationTtlSeconds });
+		kv.puts.length = 0;
+		kv.putOptions.length = 0;
+
+		await ensureBootstrapNotification(kv, db, bot, now);
+
+		// The adopted flag never expires, so the document it points at must not
+		// either — otherwise the flag outlives the bootstrap it promises.
+		expect(kv.puts).toEqual([key]);
+		expect(kv.putOptions).toEqual([undefined]);
+		expect(db.notifications.map((notification) => notification.id)).toEqual([legacy.id]);
+		expect(db.bootstrapNotifiedAt).toBe(legacy.createdAt);
+	});
+
+	it("leaves an already-delivered legacy document on its TTL", async () => {
+		const legacy = { id: "ntf_legacy", createdAt: "2026-04-01T00:00:00.000Z" };
+		const { db, kv, bot } = bootstrapFixture({ legacyBootstrap: legacy });
+		await kv.put(kvKeys.notification(bot.id, legacy.id), JSON.stringify({
+			id: legacy.id,
+			botId: bot.id,
+			notificationType: "bootstrap",
+			status: "delivered_to_loop",
+			createdAt: legacy.createdAt,
+		}), { expirationTtl: notificationKvExpirationTtlSeconds });
+		kv.puts.length = 0;
+		kv.putOptions.length = 0;
+
+		await ensureBootstrapNotification(kv, db, bot, now);
+
+		// Delivery is what bounds a bootstrap document; the exemption is over.
+		expect(kv.puts).toEqual([]);
+		expect(db.bootstrapNotifiedAt).toBe(legacy.createdAt);
+	});
+
+	it("bootstraps a bot with no bots_index row exactly once, without a flag to stamp", async () => {
+		const { db, kv, bot } = bootstrapFixture({ missingBotsIndexRow: true });
+		const notificationId = await bootstrapNotificationId(bot.id);
+		const key = kvKeys.notification(bot.id, notificationId);
+
+		await ensureBootstrapNotification(kv, db, bot, now);
+		await ensureBootstrapNotification(kv, db, bot, later);
+
+		// With no row to stamp, the deterministic id is the only thing bounding the
+		// bootstrap: the second attempt adopts the row the first one wrote and
+		// rewrites the same document instead of creating a second one.
+		expect(db.notifications).toEqual([
+			{ id: notificationId, botId: bot.id, type: "bootstrap", status: "pending", createdAt: now },
+		]);
+		expect(kv.puts).toEqual([key, key]);
+		expect(kv.putOptions).toEqual([undefined, undefined]);
+		expect(db.bootstrapNotifiedAt).toBeNull();
+	});
+
+	it("retries a crash between the KV document and the D1 batch without duplicating anything", async () => {
+		const { db, kv, bot } = bootstrapFixture({ failBatchOnce: true });
+		const notificationId = await bootstrapNotificationId(bot.id);
+		const key = kvKeys.notification(bot.id, notificationId);
+
+		await expect(ensureBootstrapNotification(kv, db, bot, now)).rejects.toThrow("D1 batch failed");
+
+		// The document is already stored, but nothing points at it yet.
+		expect(kv.puts).toEqual([key]);
+		expect(db.notifications).toEqual([]);
+		expect(db.bootstrapNotifiedAt).toBeNull();
+
+		await ensureBootstrapNotification(kv, db, bot, later);
+
+		// The retry rewrites the same deterministic key rather than orphaning it.
+		expect(kv.puts).toEqual([key, key]);
+		expect(db.notifications).toEqual([
+			{ id: notificationId, botId: bot.id, type: "bootstrap", status: "pending", createdAt: later },
+		]);
+		expect(db.bootstrapNotifiedAt).toBe(later);
+		const insert = db.runs.find((run) => run.query.includes("INTO notifications"));
+		expect(insert?.query).toContain("INSERT OR IGNORE");
+		expect(insert?.bindings[0]).toBe(notificationId);
+	});
+
+	it("keeps the flag unset when the batch fails, so the bootstrap is still owed", async () => {
+		const { db, kv, bot } = bootstrapFixture({ failBatchOnce: true });
+
+		await expect(ensureBootstrapNotification(kv, db, bot, now)).rejects.toThrow("D1 batch failed");
+
+		expect(db.runs.some((run) => run.query.includes("UPDATE bots_index"))).toBe(false);
 	});
 });
 
@@ -810,6 +965,154 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV; bot: BotDoc
 		kv,
 		bot,
 	};
+}
+
+type BootstrapFixtureOptions = {
+	bootstrapNotifiedAt?: string;
+	legacyBootstrap?: { id: string; createdAt: string };
+	failBatchOnce?: boolean;
+	/** Models a bot whose bots_index projection is gone: no row to read or stamp. */
+	missingBotsIndexRow?: boolean;
+};
+
+function bootstrapFixture(options: BootstrapFixtureOptions = {}): { db: FakeBootstrapD1; kv: FakeKV; bot: BotDocument } {
+	const { kv, bot } = fixture({ existingThreads: [] });
+	kv.puts.length = 0;
+	kv.putOptions.length = 0;
+	return { db: new FakeBootstrapD1(bot.id, options), kv, bot };
+}
+
+/** The deploy-window shim's one legacy read, which must not repeat per bot. */
+function isLegacyBootstrapLookup(query: string): boolean {
+	return query.includes("FROM notifications") && query.includes("type = 'bootstrap'");
+}
+
+type BootstrapNotificationRow = {
+	id: string;
+	botId: string;
+	type: string;
+	status: string;
+	createdAt: string;
+};
+
+/**
+ * Models the only two pieces of state the bootstrap path reads and writes: the
+ * notifications rows keyed by their own id, and bots_index.bootstrap_notified_at.
+ * The batch can be failed once to reproduce a crash between the KV document and
+ * the D1 writes.
+ */
+class FakeBootstrapD1 implements D1DatabaseLike {
+	readonly queries: string[] = [];
+	readonly runs: Array<{ query: string; bindings: unknown[] }> = [];
+	readonly notifications: BootstrapNotificationRow[] = [];
+	bootstrapNotifiedAt: string | null;
+	private readonly botId: string;
+	private readonly hasBotsIndexRow: boolean;
+	private failNextBatch: boolean;
+
+	constructor(botId: string, options: BootstrapFixtureOptions) {
+		this.botId = botId;
+		this.bootstrapNotifiedAt = options.bootstrapNotifiedAt ?? null;
+		this.hasBotsIndexRow = !options.missingBotsIndexRow;
+		this.failNextBatch = options.failBatchOnce ?? false;
+		if (options.legacyBootstrap) {
+			this.notifications.push({
+				id: options.legacyBootstrap.id,
+				botId,
+				type: "bootstrap",
+				status: "pending",
+				createdAt: options.legacyBootstrap.createdAt,
+			});
+		}
+	}
+
+	prepare(query: string): D1PreparedStatementLike {
+		this.queries.push(query);
+		return new FakeBootstrapStatement(this, query);
+	}
+
+	async batch(statements: D1PreparedStatementLike[]): Promise<Array<D1Result>> {
+		if (this.failNextBatch) {
+			this.failNextBatch = false;
+			throw new Error("D1 batch failed");
+		}
+		const results: D1Result[] = [];
+		for (const statement of statements) {
+			results.push(await statement.run());
+		}
+		return results;
+	}
+
+	first<T>(query: string, bindings: unknown[]): T | null {
+		if (query.includes("FROM bots_index") && query.includes("bootstrap_notified_at")) {
+			if (!this.hasBotsIndexRow || bindings[0] !== this.botId) {
+				return null;
+			}
+			return { bootstrapNotifiedAt: this.bootstrapNotifiedAt } as T;
+		}
+		if (query.includes("FROM notifications") && query.includes("type = 'bootstrap'")) {
+			// ORDER BY created_at ASC, notification_id ASC LIMIT 1.
+			const [earliest] = this.notifications
+				.filter((row) => row.botId === bindings[0] && row.type === "bootstrap")
+				.sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
+			return (earliest ? { id: earliest.id, createdAt: earliest.createdAt } : null) as T | null;
+		}
+		return null;
+	}
+
+	run(query: string, bindings: unknown[]): void {
+		this.runs.push({ query, bindings });
+		if (query.includes("UPDATE bots_index") && query.includes("bootstrap_notified_at")) {
+			// WHERE bot_id = ? AND bootstrap_notified_at IS NULL: an absent row or an
+			// already-stamped flag matches nothing, so the stamp happens exactly once.
+			if (this.hasBotsIndexRow && bindings[1] === this.botId && this.bootstrapNotifiedAt === null) {
+				this.bootstrapNotifiedAt = String(bindings[0]);
+			}
+			return;
+		}
+		if (query.includes("INSERT OR IGNORE INTO notifications")) {
+			const [id, , botId, type, , status, , , createdAt] = bindings;
+			if (this.notifications.some((row) => row.id === id)) {
+				return;
+			}
+			this.notifications.push({
+				id: String(id),
+				botId: String(botId),
+				type: String(type),
+				status: String(status),
+				createdAt: String(createdAt),
+			});
+		}
+	}
+}
+
+class FakeBootstrapStatement implements D1PreparedStatementLike {
+	private bindings: unknown[] = [];
+	private readonly db: FakeBootstrapD1;
+	private readonly query: string;
+
+	constructor(db: FakeBootstrapD1, query: string) {
+		this.db = db;
+		this.query = query;
+	}
+
+	bind(...values: unknown[]): D1PreparedStatementLike {
+		this.bindings = values;
+		return this;
+	}
+
+	async first<T = unknown>(): Promise<T | null> {
+		return this.db.first<T>(this.query, this.bindings);
+	}
+
+	async all<T = unknown>(): Promise<D1Result<T>> {
+		return { success: true, results: [] };
+	}
+
+	async run(): Promise<D1Result> {
+		this.db.run(this.query, this.bindings);
+		return { success: true, meta: { changes: 1 } };
+	}
 }
 
 function mockRandomBytes(sequences: number[][]): () => void {

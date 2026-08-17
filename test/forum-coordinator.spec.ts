@@ -157,11 +157,14 @@ async function insertBotNotificationForRetention(input: {
 	status: BotNotificationStatus;
 	createdAt: string;
 	botId?: string;
+	notificationType?: string;
 }): Promise<void> {
 	const botId = input.botId ?? "bot_retention";
+	const notificationType = input.notificationType ?? "system";
 	await testEnv.BICKR_KV.put(kvKeys.notification(botId, input.id), JSON.stringify({
 		id: input.id,
 		type: "notification",
+		notificationType,
 		botId,
 		status: input.status,
 		createdAt: input.createdAt,
@@ -176,7 +179,7 @@ async function insertBotNotificationForRetention(input: {
 			input.id,
 			"wld_retention",
 			botId,
-			"system",
+			notificationType,
 			input.status,
 			`Notification ${input.id}`,
 			input.createdAt,
@@ -1235,6 +1238,76 @@ describe("Forum coordinator", () => {
 		});
 		expect(await botNotificationRowIds()).toEqual([]);
 		expect(await botNotificationKvExists("ntf_failed_kv_delete")).toBe(false);
+	});
+
+	it("exempts pending bootstrap notifications from expiry in both prune phases", async () => {
+		// Late enough that the 90-day pending cutoff lands after the TTL cutover, so
+		// one pending bootstrap is expired on each side of it: phase 1 owns the row
+		// at or after the cutover, phase 2 owns the legacy row before it.
+		const now = "2026-12-01T00:00:00.000Z";
+		await insertBotNotificationForRetention({
+			id: "ntf_bootstrap_pending_ttl",
+			notificationType: "bootstrap",
+			status: "pending",
+			createdAt: "2026-08-01T00:00:00.000Z",
+		});
+		await insertBotNotificationForRetention({
+			id: "ntf_bootstrap_pending_legacy",
+			notificationType: "bootstrap",
+			status: "pending",
+			createdAt: "2026-06-01T00:00:00.000Z",
+		});
+		// Delivery ends the exemption: these prune like any other row.
+		await insertBotNotificationForRetention({
+			id: "ntf_bootstrap_delivered_ttl",
+			notificationType: "bootstrap",
+			status: "delivered_to_loop",
+			createdAt: "2026-08-01T00:00:00.000Z",
+		});
+		await insertBotNotificationForRetention({
+			id: "ntf_bootstrap_delivered_legacy",
+			notificationType: "bootstrap",
+			status: "delivered_to_loop",
+			createdAt: "2026-06-01T00:00:00.000Z",
+		});
+		// Controls: pending rows of every other type still expire on both sides.
+		await insertBotNotificationForRetention({
+			id: "ntf_system_pending_ttl",
+			status: "pending",
+			createdAt: "2026-08-01T00:00:00.000Z",
+		});
+		await insertBotNotificationForRetention({
+			id: "ntf_system_pending_legacy",
+			status: "pending",
+			createdAt: "2026-06-02T00:00:00.000Z",
+		});
+		const kv = kvWithScriptedDeletes();
+
+		const result = await pruneExpiredNotifications(kv, testEnv.BICKR_D1, {
+			now,
+			selectLimit: 10,
+			maxRowsPerRun: 10,
+		});
+
+		expect(result).toMatchObject({
+			deletedRows: 4,
+			phase1DeletedRows: 2,
+			phase2DeletedRows: 2,
+			selectedRows: 2,
+			kvDeleteFailures: 0,
+		});
+		// The pending bootstrap documents carry no TTL, so a deleted row would leave
+		// them stranded behind a flag that blocks any replacement.
+		expect(await botNotificationRowIds()).toEqual([
+			"ntf_bootstrap_pending_legacy",
+			"ntf_bootstrap_pending_ttl",
+		]);
+		expect(kv.deletedKeys).toEqual([
+			botNotificationKvKey("ntf_bootstrap_delivered_legacy"),
+			botNotificationKvKey("ntf_system_pending_legacy"),
+		]);
+		expect(await botNotificationKvExists("ntf_bootstrap_pending_ttl")).toBe(true);
+		expect(await botNotificationKvExists("ntf_bootstrap_pending_legacy")).toBe(true);
 	});
 
 	it("resumes bot notification pruning after hitting the per-run row budget", async () => {

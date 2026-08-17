@@ -1,0 +1,11 @@
+-- The single bootstrap notification a participant ever receives is recorded on
+-- the participant row itself, because the notification row it used to be read
+-- from is prunable: once pruned, the next new-iteration tick re-created the
+-- bootstrap (288 of 435 production bootstrap rows are such re-creations).
+-- Retention: a nullable column on bots_index lives exactly as long as the bot
+-- row it annotates, so there is nothing separate to prune.
+--
+-- The ALTER stands alone, because it is the one statement here that is not
+-- reentrant: bundling it with the backfill would mean a backfill failure retries
+-- into "duplicate column name" and bricks the migration. 0048 does the backfill.
+ALTER TABLE bots_index ADD COLUMN bootstrap_notified_at TEXT;
