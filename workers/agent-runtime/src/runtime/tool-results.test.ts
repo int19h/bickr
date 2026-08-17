@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { LanguageTag, NotificationEvent, RequiredLocalizedText } from "@bickr/shared/model";
 import {
 	orderedProviderDeliveryReasons,
+	providerCheckNotificationsResultWithInclusions,
 	providerSafeJsonValue,
 	providerSerializationContext,
 	providerToolResultPayload,
@@ -90,6 +91,18 @@ describe("delivered notification payloads", () => {
 			throw new Error("Expected one delivered notification event.");
 		}
 		return delivered;
+	};
+	/**
+	 * What the participant is shown alongside which notifications that display marks delivered: a
+	 * group that renders one payload marks every notification in it, so the two have to be read
+	 * together.
+	 */
+	const deliverAll = (events: unknown[]): { events: Array<Record<string, unknown>>; includedEventIds: string[] } => {
+		const result = providerCheckNotificationsResultWithInclusions(events, readingParticipant());
+		return {
+			events: (result.payload as { events: Array<Record<string, unknown>> }).events,
+			includedEventIds: result.includedEventIds,
+		};
 	};
 
 	it("renders a followed thread post with its root text once", () => {
@@ -259,6 +272,189 @@ describe("delivered notification payloads", () => {
 			comment: { commentRef: "c/cmt_legacy", threadRef: "t/thr_legacy", author: "u/other_h", text: "Legacy reply." },
 			replyTo: { commentRef: "c/cmt_legacy_mine", threadRef: "t/thr_legacy", author: "u/sabine_h (MYSELF)", text: "Legacy parent." },
 		});
+	});
+
+	it("keeps every voter on one comment distinct instead of collapsing them into the first", () => {
+		const voterA = { id: "bot_a", username: "u/voter_a", displayName: en("Voter A") };
+		const voterB = { id: "bot_b", username: "u/voter_b", displayName: en("Voter B") };
+		const vote = (id: string, voter: typeof voterA, value: -1 | 0 | 1): NotificationEvent => ({
+			id,
+			createdAt: "2026-08-17T00:00:00.000Z",
+			kind: "vote",
+			type: "vote_cast",
+			deliveryReasons: ["vote_on_your_content"],
+			sourceObjectId: "c/cmt_mine",
+			actor: voter,
+			target: { id: "cmt_mine", threadId: "thr_voted" },
+			value,
+		});
+
+		expect(deliverAll([vote("ntf_a", voterA, 1), vote("ntf_b", voterB, -1)])).toEqual({
+			events: [
+				{
+					type: "vote_cast",
+					deliveryReasons: ["vote_on_your_content"],
+					actor: "u/voter_a",
+					vote: { commentRef: "c/cmt_mine", threadRef: "t/thr_voted", value: 1 },
+				},
+				{
+					type: "vote_cast",
+					deliveryReasons: ["vote_on_your_content"],
+					actor: "u/voter_b",
+					vote: { commentRef: "c/cmt_mine", threadRef: "t/thr_voted", value: -1 },
+				},
+			],
+			includedEventIds: ["ntf_a", "ntf_b"],
+		});
+	});
+
+	it("keeps one voter's value transitions distinct and in order", () => {
+		const voter = { id: "bot_a", username: "u/voter_a", displayName: en("Voter A") };
+		const vote = (id: string, value: -1 | 0 | 1): NotificationEvent => ({
+			id,
+			createdAt: "2026-08-17T00:00:00.000Z",
+			kind: "vote",
+			type: "vote_cast",
+			deliveryReasons: ["vote_on_your_content"],
+			sourceObjectId: "c/cmt_mine",
+			actor: voter,
+			target: { id: "cmt_mine", threadId: "thr_voted" },
+			value,
+		});
+		const delivered = deliverAll([vote("ntf_up", 1), vote("ntf_clear", 0), vote("ntf_down", -1)]);
+
+		expect(delivered.events.map((event) => (event.vote as { value: number }).value)).toEqual([1, 0, -1]);
+		expect(delivered.includedEventIds).toEqual(["ntf_up", "ntf_clear", "ntf_down"]);
+	});
+
+	it("keeps a follow, unfollow and re-follow from one participant distinct and in order", () => {
+		const followAction = (id: string, followed: boolean): NotificationEvent => ({
+			id,
+			createdAt: "2026-08-17T00:00:00.000Z",
+			deliveryReasons: [followed ? "profile_followed_you" : "profile_unfollowed_you"],
+			sourceObjectId: actor.id,
+			actor,
+			...(followed ? { kind: "follow" as const, type: "profile_followed" as const } : { kind: "unfollow" as const, type: "profile_unfollowed" as const }),
+		});
+		const delivered = deliverAll([followAction("ntf_follow", true), followAction("ntf_unfollow", false), followAction("ntf_refollow", true)]);
+
+		expect(delivered.events).toEqual([
+			{ type: "profile_followed", deliveryReasons: ["profile_followed_you"], actor: "u/other_h" },
+			{ type: "profile_unfollowed", deliveryReasons: ["profile_unfollowed_you"], actor: "u/other_h" },
+			{ type: "profile_followed", deliveryReasons: ["profile_followed_you"], actor: "u/other_h" },
+		]);
+		expect(delivered.includedEventIds).toEqual(["ntf_follow", "ntf_unfollow", "ntf_refollow"]);
+	});
+
+	it("keeps repeatable actions distinct in the flat payloads stored before per-recipient events", () => {
+		const legacyVote = (id: string, username: string, value: number) => ({
+			id,
+			type: "vote_cast",
+			createdAt: "2026-08-01T00:00:00.000Z",
+			deliveryReasons: ["vote_on_your_content"],
+			sourceObjectId: "c/cmt_legacy_mine",
+			actor: { username },
+			vote: { targetType: "comment", commentId: "cmt_legacy_mine", threadId: "thr_legacy", value },
+		});
+		const legacyFollow = (id: string, type: string) => ({
+			id,
+			type,
+			createdAt: "2026-08-01T00:00:00.000Z",
+			deliveryReasons: [type === "profile_followed" ? "profile_followed_you" : "profile_unfollowed_you"],
+			sourceObjectId: "bot_other",
+			actor: { username: "u/other_h" },
+		});
+
+		// Two voters on one comment, then the same voter's transitions.
+		const votes = deliverAll([
+			legacyVote("ntf_a", "u/voter_a", 1),
+			legacyVote("ntf_b", "u/voter_b", -1),
+			legacyVote("ntf_a_clear", "u/voter_a", 0),
+		]);
+		expect(votes.events).toEqual([
+			{
+				type: "vote_cast",
+				deliveryReasons: ["vote_on_your_content"],
+				actor: "u/voter_a",
+				vote: { commentRef: "c/cmt_legacy_mine", threadRef: "t/thr_legacy", value: 1 },
+			},
+			{
+				type: "vote_cast",
+				deliveryReasons: ["vote_on_your_content"],
+				actor: "u/voter_b",
+				vote: { commentRef: "c/cmt_legacy_mine", threadRef: "t/thr_legacy", value: -1 },
+			},
+			{
+				type: "vote_cast",
+				deliveryReasons: ["vote_on_your_content"],
+				actor: "u/voter_a",
+				vote: { commentRef: "c/cmt_legacy_mine", threadRef: "t/thr_legacy", value: 0 },
+			},
+		]);
+		expect(votes.includedEventIds).toEqual(["ntf_a", "ntf_b", "ntf_a_clear"]);
+
+		const follows = deliverAll([
+			legacyFollow("ntf_follow", "profile_followed"),
+			legacyFollow("ntf_unfollow", "profile_unfollowed"),
+			legacyFollow("ntf_refollow", "profile_followed"),
+		]);
+		expect(follows.events.map((event) => event.type)).toEqual(["profile_followed", "profile_unfollowed", "profile_followed"]);
+		expect(follows.includedEventIds).toEqual(["ntf_follow", "ntf_unfollow", "ntf_refollow"]);
+
+		// The vocabulary older documents used for the same three actions.
+		const olderVocabulary = deliverAll([
+			{ ...legacyVote("ntf_old_up", "u/voter_a", 1), type: "vote" },
+			{ ...legacyVote("ntf_old_down", "u/voter_a", -1), type: "vote" },
+			{ ...legacyFollow("ntf_old_follow", "profile_followed"), type: "follow" },
+			{ ...legacyFollow("ntf_old_unfollow", "profile_unfollowed"), type: "unfollow" },
+			{ ...legacyFollow("ntf_old_refollow", "profile_followed"), type: "follow" },
+		]);
+		expect(olderVocabulary.events.map((event) => event.type)).toEqual(["vote", "vote", "follow", "unfollow", "follow"]);
+		expect(olderVocabulary.includedEventIds).toEqual([
+			"ntf_old_up",
+			"ntf_old_down",
+			"ntf_old_follow",
+			"ntf_old_unfollow",
+			"ntf_old_refollow",
+		]);
+	});
+
+	it("still merges the recipient classes notified about one piece of new content", () => {
+		const merged = deliverAll([
+			{
+				id: "ntf_notice",
+				createdAt: "2026-08-17T00:00:00.000Z",
+				kind: "comment_notice",
+				type: "comment_created",
+				deliveryReasons: ["followed_profile_activity"],
+				sourceObjectId: "c/cmt_theirs",
+				actor,
+				thread: { id: "thr_shared", title: en("Shared thread") },
+				comment: { id: "cmt_theirs", threadId: "thr_shared" },
+			},
+			{
+				id: "ntf_mention",
+				createdAt: "2026-08-17T00:00:00.000Z",
+				kind: "mention",
+				type: "comment_created",
+				deliveryReasons: ["mention"],
+				sourceObjectId: "c/cmt_theirs",
+				actor,
+				thread: { id: "thr_shared", title: en("Shared thread") },
+				comment: { id: "cmt_theirs", threadId: "thr_shared", author: actor, text: en("Hey u/sabine_h.") },
+			},
+		]);
+
+		expect(merged.events).toEqual([
+			{
+				type: "comment_created",
+				deliveryReasons: ["mention", "followed_profile_activity"],
+				actor: "u/other_h",
+				thread: { threadRef: "t/thr_shared", title: "Shared thread" },
+				comment: { commentRef: "c/cmt_theirs", threadRef: "t/thr_shared" },
+			},
+		]);
+		expect(merged.includedEventIds).toEqual(["ntf_notice", "ntf_mention"]);
 	});
 
 	it("orders known delivery reasons and keeps unknown ones after them", () => {

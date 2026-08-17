@@ -300,14 +300,60 @@ function providerNotificationTokenEstimate(
 	return estimateTextTokens(JSON.stringify(providerNotificationResultPayload(events, pruned)));
 }
 
+/**
+ * Which stored events may collapse into one delivered payload. Content creation is immutable: a
+ * comment is the same comment however many recipient classes were notified about it, so several
+ * notifications naming one source object render once with their reasons unioned.
+ *
+ * Repeatable actions are not immutable. Two participants voting on one comment, one participant
+ * moving from +1 to -1, and a follow/unfollow/follow sequence all share a source object while
+ * differing in actor, value or direction — merging them would render the first payload alone while
+ * marking every grouped notification delivered, so the rest would be silently lost. They stay one
+ * group per notification.
+ */
+function providerNotificationEventMergesBySource(event: StoredNotificationEvent): boolean {
+	switch (event.kind) {
+		case 'thread_post':
+		case 'reply':
+		case 'mention':
+		case 'comment_notice':
+			return true;
+		case 'bootstrap':
+		case 'vote':
+		case 'follow':
+		case 'unfollow':
+			return false;
+		case 'legacy':
+			// Legacy documents predate the payload kinds and carry only a type string, written by
+			// several generations of writers: merge the content-creation vocabularies of all of
+			// them and leave everything else — repeatable actions, and anything this build does
+			// not recognize — distinct.
+			return legacyMergeableNotificationTypes.has(event.type);
+	}
+}
+
+const legacyMergeableNotificationTypes: ReadonlySet<string> = new Set([
+	'thread_created',
+	'comment_created',
+	'reply',
+	'mention',
+	'personal_forum_post',
+	'followed_activity',
+]);
+
 function mergedProviderNotificationEventGroups(events: StoredNotificationEvent[]): ProviderNotificationEventGroup[] {
 	const bySource = new Map<string, ProviderNotificationEventGroup>();
 	const order: string[] = [];
+	let position = 0;
 	for (const event of events) {
 		const notificationId = stringValue(event.id);
-		const key = event.sourceObjectId ? `${event.type}:${event.sourceObjectId}` : '';
+		position += 1;
+		const key =
+			event.sourceObjectId && providerNotificationEventMergesBySource(event) ? `source:${event.type}:${event.sourceObjectId}` : '';
 		if (!key) {
-			const uniqueKey = `event:${notificationId ?? crypto.randomUUID()}`;
+			// Position, not notification id: unique by construction, so an event with no id — or a
+			// repeated one — still gets a group of its own rather than overwriting somebody else's.
+			const uniqueKey = `event:${position}`;
 			bySource.set(uniqueKey, {
 				event,
 				deliveryReasons: [...event.deliveryReasons],
