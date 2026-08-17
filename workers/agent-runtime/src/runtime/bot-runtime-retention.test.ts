@@ -1,8 +1,10 @@
 /// <reference types="node" />
 
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { addInternalServiceAuthHeader, internalServiceUrl } from '@bickr/shared/internal-service';
+import type { BotDocument, UserDocument } from '@bickr/shared/model';
+import { kvKeys, type KVNamespaceLike } from '@bickr/shared/storage';
 import { BotRuntime } from './bot-runtime';
 
 /**
@@ -25,10 +27,13 @@ describe('BotRuntime storage retention', () => {
 		sockets = [];
 	});
 
-	afterEach(() => database.close());
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		database.close();
+	});
 
 	function construct(options: { onOwnerLookup?: () => Promise<void> } = {}): BotRuntime {
-		return new BotRuntime(runtimeState(database, sockets), runtimeEnv(options) as never);
+		return new BotRuntime(runtimeState(database, sockets), runtimeEnv(botId, options) as never);
 	}
 
 	async function maintenanceRequest(runtime: BotRuntime, method: 'POST' | 'DELETE', path: string, internal = true): Promise<Response> {
@@ -45,6 +50,27 @@ describe('BotRuntime storage retention', () => {
 			headers,
 			body: JSON.stringify({ text }),
 		}));
+	}
+
+	async function ownerContextBudget(runtime: BotRuntime, prompt: string): Promise<Response> {
+		const headers = new Headers({ 'x-bickr-user-id': 'usr-owner', 'content-type': 'application/json' });
+		addInternalServiceAuthHeader(headers, internalServiceSecret);
+		return await runtime.fetch(new Request(internalServiceUrl(`/bots/${botId}/context-budget`), {
+			method: 'POST',
+			headers,
+			body: JSON.stringify({ prompt }),
+		}));
+	}
+
+	/** Answers the three prompt token probes an exact context budget costs. */
+	function stubTokenProbes(options: { onProbe?: () => Promise<void> } = {}): () => number {
+		let probes = 0;
+		vi.stubGlobal('fetch', async (): Promise<Response> => {
+			probes += 1;
+			await options.onProbe?.();
+			return Response.json({ usage: { prompt_tokens: 120, completion_tokens: 0, total_tokens: 120 } });
+		});
+		return () => probes;
 	}
 
 	it('adds the ledger column and the retention index to storage that predates them', () => {
@@ -200,6 +226,81 @@ describe('BotRuntime storage retention', () => {
 		expect(clearedTombstones()).toHaveLength(1);
 	});
 
+	it('caches the probed token counts while storage is live', async () => {
+		const probeCount = stubTokenProbes();
+
+		const response = await ownerContextBudget(construct(), 'Persona under test');
+
+		expect(response.status).toBe(200);
+		expect(probeCount()).toBe(3);
+		// The counted probes are what the cache row is for, and its presence here is
+		// what makes its absence after a clear meaningful.
+		expect(rows<{ key: string }>(`SELECT key FROM runtime_state`).map((row) => row.key)).toContainEqual(
+			expect.stringMatching(/^context_budget:/),
+		);
+	});
+
+	it('refuses a context-budget computation that was in flight when the clear ran', async () => {
+		// Unlike the injection above, this request parks on the provider itself:
+		// three token probes, each a network round trip, between its own guards and
+		// the write that caches their counts. The cache lives in `runtime_state`, so
+		// writing it after the clear recreates storage the sweep will never revisit.
+		const reachedProbe = deferred<void>();
+		const releaseProbe = deferred<void>();
+		const probeCount = stubTokenProbes({
+			onProbe: async () => {
+				reachedProbe.resolve();
+				await releaseProbe.promise;
+			},
+		});
+		const runtime = construct();
+
+		const budget = ownerContextBudget(runtime, 'Persona from before the clear');
+		await reachedProbe.promise;
+		expect((await maintenanceRequest(runtime, 'DELETE', 'storage')).status).toBe(200);
+		releaseProbe.resolve();
+
+		const response = await budget;
+
+		// The probes did run: the refusal comes from the check at the write, which is
+		// the only one the clear can land behind.
+		expect(probeCount()).toBeGreaterThan(0);
+		expect(response.status).toBe(409);
+		expect(await response.json()).toMatchObject({
+			ok: false,
+			error: 'conflict',
+			details: { runtimeStorageCause: 'storage_cleared' },
+		});
+		expect(rows<{ key: string }>(`SELECT key FROM runtime_state`).map((row) => row.key)).toEqual(['runtime_storage_cleared_at']);
+	});
+
+	it('refuses a context-budget computation after the clear without paying for probes', async () => {
+		const runtime = construct();
+		expect((await maintenanceRequest(runtime, 'DELETE', 'storage')).status).toBe(200);
+		const probeCount = stubTokenProbes();
+
+		const response = await ownerContextBudget(runtime, 'Persona after the clear');
+
+		expect(response.status).toBe(409);
+		expect(probeCount()).toBe(0);
+	});
+
+	it('runs an empty retention pass on cleared storage instead of stamping its marker', async () => {
+		const runtime = construct();
+		expect((await maintenanceRequest(runtime, 'DELETE', 'storage')).status).toBe(200);
+
+		// The sweep can still reach a participant cleared after its chunk was picked,
+		// so the pass answers rather than conflicts — but the log-off sequence it
+		// memoizes on first use would be a repopulating write of its own.
+		const response = await maintenanceRequest(runtime, 'POST', 'retention');
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			data: { retention: { events: 0, providerUsage: 0, loopMessages: { deletedMessages: 0 }, injections: { deletedInjections: 0 } } },
+		});
+		expect(rows<{ key: string }>(`SELECT key FROM runtime_state`).map((row) => row.key)).toEqual(['runtime_storage_cleared_at']);
+	});
+
 	it('refuses a visit and a deferred spotlight after the clear', async () => {
 		const runtime = construct();
 		expect((await maintenanceRequest(runtime, 'DELETE', 'storage')).status).toBe(200);
@@ -229,6 +330,10 @@ describe('BotRuntime storage retention', () => {
 
 		expect(response.status).toBe(409);
 		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM injections`)[0]?.count).toBe(0);
+		// The rebuild runs the startup migrations again, and each one stamps a "done"
+		// marker even when it migrates nothing. On erased storage that is one more
+		// way to write rows back, for data that cannot exist any more.
+		expect(rows<{ key: string }>(`SELECT key FROM runtime_state`).map((row) => row.key)).toEqual(['runtime_storage_cleared_at']);
 	});
 
 	it('still accepts a repeated clear so the sweep can retry one it could not confirm', async () => {
@@ -389,9 +494,15 @@ function runtimeState(database: DatabaseSync, sockets: FakeSocket[] = []) {
 	} as unknown as DurableObjectState;
 }
 
-function runtimeEnv(options: { onOwnerLookup?: () => Promise<void> } = {}) {
+function runtimeEnv(botId: string, options: { onOwnerLookup?: () => Promise<void> } = {}) {
 	return {
 		INTERNAL_SERVICE_SECRET: internalServiceSecret,
+		// A custom provider base URL, so the context-budget routes reach their token
+		// probes — which the tests that need them answer with a stubbed fetch.
+		OPENROUTER_BASE_URL: 'https://provider.test/v1',
+		OPENROUTER_API_KEY: 'test-provider-key',
+		OPENROUTER_MODEL: 'test/model',
+		BICKR_KV: runtimeKv(botId),
 		BICKR_D1: {
 			prepare(query: string) {
 				const statement = {
@@ -425,5 +536,52 @@ function runtimeEnv(options: { onOwnerLookup?: () => Promise<void> } = {}) {
 				return statement;
 			},
 		},
+	};
+}
+
+/** The participant and its owner, which the context-budget routes load per call. */
+function runtimeKv(botId: string): KVNamespaceLike {
+	const owner: UserDocument = {
+		id: 'usr-owner',
+		type: 'user',
+		schemaVersion: 1,
+		revision: 1,
+		createdAt: '2026-08-01T00:00:00.000Z',
+		updatedAt: '2026-08-01T00:00:00.000Z',
+		handle: 'owner',
+		language: null,
+		displayName: { lang: null, text: 'Owner' },
+		inferenceSettings: {},
+	};
+	const bot: BotDocument = {
+		id: botId,
+		type: 'bot',
+		schemaVersion: 1,
+		revision: 1,
+		createdAt: '2026-08-01T00:00:00.000Z',
+		updatedAt: '2026-08-01T00:00:00.000Z',
+		homeWorldId: 'wld-retention',
+		homeWorldHandle: 'retention-world',
+		ownerUserId: owner.id,
+		handle: 'participant',
+		language: null,
+		includeLanguageInSystemPrompt: false,
+		displayName: { lang: null, text: 'Participant' },
+		shortBio: { lang: null, text: 'Short bio' },
+		prompt: { lang: null, text: 'Persona' },
+		inferenceSettings: {},
+		toolSettings: {},
+		tickSettings: { enabled: true, intervalSeconds: 60, allowEarlyLogOff: true, compactionThreshold: 0.75 },
+	};
+	const documents = new Map<string, unknown>([
+		[kvKeys.bot(bot.id), bot],
+		[kvKeys.user(owner.id), owner],
+	]);
+	return {
+		async get(key: string): Promise<unknown> {
+			return documents.get(key) ?? null;
+		},
+		async put(): Promise<void> {},
+		async delete(): Promise<void> {},
 	};
 }

@@ -1669,10 +1669,16 @@ export class BotRuntime {
 		this.state.blockConcurrencyWhile(async () => {
 			this.initializeRuntimeStorage();
 			this.runtimeStorageClearedAt = stringValue(this.runtimeStateValue(runtimeStorageClearedStateKey)) ?? null;
-			this.migrateLegacyLoopMessages();
-			this.migrateLegacyProviderToolCallHistory();
-			this.observeProviderToolCallHistoryInvariantAfterStartupMigration();
-			this.backfillProviderTokenCalibrationSamples();
+			// A cleared object that is evicted and rebuilt runs this block again. Each
+			// migration stamps a "done" marker into `runtime_state` even when it finds
+			// nothing to migrate, so on erased storage they would write rows back for
+			// no gain: there is nothing legacy left in it, and never will be.
+			if (!this.runtimeStorageClearedAt) {
+				this.migrateLegacyLoopMessages();
+				this.migrateLegacyProviderToolCallHistory();
+				this.observeProviderToolCallHistoryInvariantAfterStartupMigration();
+				this.backfillProviderTokenCalibrationSamples();
+			}
 		});
 	}
 
@@ -4580,6 +4586,11 @@ export class BotRuntime {
 	}
 
 	private async promptContextBudget(botId: string, input: BotContextBudgetInput): Promise<BotContextBudget> {
+		// Refused up front as well as at the write below: computing the budget bills
+		// the owner for three provider probes, and a participant whose storage was
+		// erased is one that no longer exists. The check at the write is what closes
+		// the race; this one only keeps a request that already lost it from paying.
+		this.requireWritableRuntimeStorage();
 		const budget = await this.promptContextBudgetForInput(botId, input, true);
 		if (!budget) {
 			throw new Error('Prompt context budget was not available after computation.');
@@ -4827,6 +4838,11 @@ export class BotRuntime {
 		fingerprint: string,
 		counts: Pick<PromptContextBudgetCounts, 'fixedSystemTokens' | 'personaPromptTokens' | 'worldPromptTokens'>,
 	): void {
+		// The counts come from provider probes, so the request parks on the network
+		// between its own guards and this insert — long enough for a clear to land in
+		// between. This cache lives in `runtime_state`, which makes writing it a
+		// repopulation of erased storage like any other.
+		this.requireWritableRuntimeStorage();
 		this.state.storage.sql.exec(
 			`INSERT INTO runtime_state (key, value_json)
 			 VALUES (?, ?)
@@ -5800,6 +5816,20 @@ export class BotRuntime {
 	 * participant never reaches it.
 	 */
 	private runRetentionPass(activeRunId: string | null, now = new Date()): RuntimeStorageRetentionResult {
+		// Erased storage has nothing left to prune, and the pass is not read-only: it
+		// memoizes the last log-off sequence into `runtime_state` on its first run,
+		// which on a cleared object would be a repopulating write. The sweep can
+		// still reach this route for a participant cleared after its chunk was
+		// picked, so the answer is an empty pass rather than a conflict — nothing
+		// failed, there was simply nothing there.
+		if (this.runtimeStorageClearedAt) {
+			return {
+				events: 0,
+				providerUsage: 0,
+				loopMessages: { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0, pendingMore: false },
+				injections: { deletedInjections: 0, droppedQueueEntries: 0 },
+			};
+		}
 		return this.pruneRuntimeStorageAfterTick(
 			// A run in flight keeps its own rows exempt exactly as the post-visit pass
 			// does. With no run there is nothing to exempt, and the empty string cannot
