@@ -642,6 +642,7 @@ export type NotificationType =
 	| "mention"
 	| "personal_forum_post"
 	| "follow"
+	| "unfollow"
 	| "followed_activity"
 	| "vote"
 	| "interest"
@@ -656,6 +657,7 @@ export type NotificationDeliveryReason =
 	| "personal_forum_post"
 	| "followed_profile_activity"
 	| "profile_followed_you"
+	| "profile_unfollowed_you"
 	| "vote_on_your_content"
 	| "system";
 
@@ -663,7 +665,6 @@ export type NotificationProfileRef = {
 	id: string;
 	username: string;
 	displayName: LocalizedText;
-	shortBio?: LocalizedText;
 };
 
 export type NotificationWorldRef = {
@@ -678,53 +679,187 @@ export type NotificationForumRef = {
 	description?: LocalizedText;
 };
 
+/** Where a piece of content lives. Carries no body text of its own. */
 export type NotificationThreadRef = {
 	id: string;
 	title: LocalizedText;
-	author?: NotificationProfileRef;
-	text?: LocalizedText;
 };
 
-export type NotificationCommentRef = {
-	id: string;
-	threadId: string;
-	parentCommentId?: string;
+/** A thread plus its root post: only full payloads pay for the body. */
+export type NotificationThreadPostRef = NotificationThreadRef & {
 	author: NotificationProfileRef;
 	text: LocalizedText;
 };
 
-export type NotificationVoteRef = {
-	targetType: "comment";
-	commentId: string;
-	value: -1 | 0 | 1;
+/** Identity of a comment, without its body. */
+export type NotificationCommentRef = {
+	id: string;
+	threadId: string;
+	parentCommentId?: string;
 };
 
-export type NotificationEventType =
-	| "bootstrap"
-	| "thread_created"
-	| "comment_created"
-	| "vote_cast"
-	| "profile_followed"
-	| "profile_unfollowed"
-	| "system";
+/** A comment plus its body: reply and mention payloads only. */
+export type NotificationCommentPostRef = NotificationCommentRef & {
+	author: NotificationProfileRef;
+	text: LocalizedText;
+};
 
-export type NotificationEvent = {
+/**
+ * The payload of a stored notification, built per recipient class rather than
+ * per action: one new comment yields a full reply payload for the parent's
+ * author, a mention payload for every mentioned participant, and a body-free
+ * notice for the author's followers.
+ *
+ * `kind` is that recipient class and decides which references the payload
+ * carries; `type` is what happened in the forum and is what the participant is
+ * shown. The two are separate because a mention can arrive with either a new
+ * thread or a new comment while carrying the same references.
+ */
+export type NotificationEventPayload =
+	| {
+			kind: "bootstrap";
+			type: "bootstrap";
+			world: NotificationWorldRef;
+			message: LocalizedText;
+		}
+	| {
+			/** A followed participant opened a thread, or one landed in a personal forum. */
+			kind: "thread_post";
+			type: "thread_created";
+			actor: NotificationProfileRef;
+			thread: NotificationThreadPostRef;
+		}
+	| {
+			kind: "reply";
+			type: "comment_created";
+			actor: NotificationProfileRef;
+			thread: NotificationThreadRef;
+			comment: NotificationCommentPostRef;
+			/**
+			 * The recipient's own comment, the one that was replied to. When it is the
+			 * thread's root comment this is also the root post, which is the only case
+			 * where a reply payload carries the root text.
+			 */
+			replyTo: NotificationCommentPostRef;
+		}
+	| {
+			kind: "mention";
+			/** Root-comment mentions arrive with a new thread; every other one with a comment. */
+			type: "thread_created" | "comment_created";
+			actor: NotificationProfileRef;
+			thread: NotificationThreadRef;
+			/** The mentioning comment, which for a new thread is its root comment. */
+			comment: NotificationCommentPostRef;
+		}
+	| {
+			/** Slim follower notice: references and a thread title, no bodies. */
+			kind: "comment_notice";
+			type: "comment_created";
+			actor: NotificationProfileRef;
+			thread: NotificationThreadRef;
+			comment: NotificationCommentRef;
+		}
+	| {
+			kind: "vote";
+			type: "vote_cast";
+			actor: NotificationProfileRef;
+			/** The recipient's own comment that was voted on. */
+			target: NotificationCommentRef;
+			value: -1 | 0 | 1;
+		}
+	| {
+			kind: "follow";
+			type: "profile_followed";
+			actor: NotificationProfileRef;
+		}
+	| {
+			kind: "unfollow";
+			type: "profile_unfollowed";
+			actor: NotificationProfileRef;
+		};
+
+export type NotificationEventKind = NotificationEventPayload["kind"];
+
+export type NotificationEventEnvelope = {
+	/** The id of the notification document this payload was built for. */
 	id: string;
-	type: NotificationEventType;
 	createdAt: string;
 	deliveryReasons: NotificationDeliveryReason[];
-	actor?: NotificationProfileRef;
-	target?: NotificationProfileRef | NotificationThreadRef | NotificationCommentRef;
-	targetProfile?: NotificationProfileRef;
-	world?: NotificationWorldRef;
-	forum?: NotificationForumRef;
-	thread?: NotificationThreadRef;
-	comment?: NotificationCommentRef;
-	replyTo?: NotificationCommentRef | NotificationThreadRef;
-	vote?: NotificationVoteRef;
-	message?: LocalizedText;
 	sourceObjectId?: string;
 };
+
+export type NotificationEvent = NotificationEventEnvelope & NotificationEventPayload;
+
+/**
+ * Legacy adapter (single, marked, and temporary): every notification stored
+ * before the per-recipient payload redesign holds one flat optional-field event
+ * that was copied verbatim to all recipients. Nothing writes this shape any
+ * more, and the fields are typed as `unknown` because several generations of
+ * writers produced them; the serializer reads them defensively.
+ *
+ * Retirement: pending notifications are pruned on a retention window, so this
+ * variant — and the reader branches that switch on it — go away once no stored
+ * document predates the redesign.
+ */
+export type LegacyNotificationEvent = {
+	kind: "legacy";
+	id: string;
+	type: string;
+	createdAt: string;
+	deliveryReasons: string[];
+	sourceObjectId?: string;
+	message?: unknown;
+	actor?: unknown;
+	target?: unknown;
+	targetProfile?: unknown;
+	world?: unknown;
+	forum?: unknown;
+	thread?: unknown;
+	comment?: unknown;
+	replyTo?: unknown;
+	vote?: unknown;
+};
+
+/** What a reader of stored notification documents has to handle. */
+export type StoredNotificationEvent = NotificationEvent | LegacyNotificationEvent;
+
+const notificationEventKinds: readonly string[] = [
+	"bootstrap",
+	"thread_post",
+	"reply",
+	"mention",
+	"comment_notice",
+	"vote",
+	"follow",
+	"unfollow",
+] satisfies readonly NotificationEventKind[];
+
+/**
+ * The one place a stored notification event is classified. Documents written by
+ * the current generation path carry their payload `kind`; anything else predates
+ * it and is tagged as legacy so consumers can switch exhaustively instead of
+ * sniffing shapes on their own.
+ */
+export function storedNotificationEvent(value: unknown): StoredNotificationEvent | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return undefined;
+	}
+	const record = value as Record<string, unknown>;
+	if (typeof record.kind === "string" && notificationEventKinds.includes(record.kind)) {
+		return value as NotificationEvent;
+	}
+	return {
+		...record,
+		kind: "legacy",
+		id: typeof record.id === "string" ? record.id : "",
+		type: typeof record.type === "string" ? record.type : "system",
+		createdAt: typeof record.createdAt === "string" ? record.createdAt : "",
+		deliveryReasons: Array.isArray(record.deliveryReasons) ?
+			record.deliveryReasons.filter((reason): reason is string => typeof reason === "string")
+		:	[],
+		...(typeof record.sourceObjectId === "string" ? { sourceObjectId: record.sourceObjectId } : {}),
+	};
+}
 
 export type NotificationDocument = EntityDocument & {
 	type: "notification";
@@ -734,7 +869,12 @@ export type NotificationDocument = EntityDocument & {
 	status: NotificationStatus;
 	sourceObjectId?: string;
 	message: LocalizedText;
-	event?: NotificationEvent;
+	/**
+	 * Absent only on documents old enough to predate stored events. Read it
+	 * through {@link storedNotificationEvent}: a document written before the
+	 * per-recipient redesign holds a {@link LegacyNotificationEvent}.
+	 */
+	event?: StoredNotificationEvent;
 	deliveredAt?: string;
 	readAt?: string;
 };

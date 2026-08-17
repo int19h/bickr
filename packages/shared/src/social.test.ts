@@ -15,11 +15,13 @@ import {
 	listThreadsWithReadState,
 	markNotificationsDelivered,
 	notificationKvExpirationTtlSeconds,
+	notificationTypePriority,
+	orderedDeliveryReasons,
 	pruneExpiredBotSeenContent,
 	threadHotScore,
 } from "./social";
 import { kvKeys, type D1DatabaseLike, type D1PreparedStatementLike, type D1Result, type KVNamespaceLike } from "./storage";
-import { localizedTextString, schemaVersion, type BotDocument, type ForumDocument, type LanguageTag, type NotificationDocument, type PostingSettings, type RequiredLocalizedText, type ThreadSettings, type ThreadSummary, type WorldDocument } from "./model";
+import { localizedTextString, schemaVersion, type BotDocument, type ForumDocument, type LanguageTag, type NotificationDeliveryReason, type NotificationDocument, type NotificationType, type PostingSettings, type RequiredLocalizedText, type ThreadSettings, type ThreadSummary, type WorldDocument } from "./model";
 
 const now = "2026-05-06T12:00:00.000Z";
 const enLang = "en" as LanguageTag;
@@ -531,6 +533,274 @@ describe("mention canonicalization at the write boundary", () => {
 
 		expect(localizedTextString(first.comments[0]?.body)).toBe("u/bob, u/carol, u/bob, @u/u/carol and @nobody.");
 		expect(second.comment.body.text).toBe(localizedTextString(first.comments[0]?.body));
+	});
+});
+
+describe("notification payloads per recipient class", () => {
+	/** Two participants: the fixture's author and a reader that can post as well. */
+	const payloadFixture = async (options: Partial<FixtureOptions> = {}) => {
+		const built = fixture({
+			existingThreads: [],
+			indexedBots: [{ id: "bot_reader", handle: "reader" }],
+			...options,
+		});
+		const reader: BotDocument = {
+			...built.bot,
+			id: "bot_reader",
+			handle: "reader",
+			displayName: en("Reader"),
+		};
+		await built.kv.put(kvKeys.bot(reader.id), JSON.stringify(reader));
+		built.kv.puts.length = 0;
+		built.kv.putOptions.length = 0;
+		return { ...built, reader };
+	};
+
+	const storedNotifications = async (kv: FakeKV): Promise<NotificationDocument[]> => {
+		const keys = [...new Set(kv.puts.filter((key) => key.startsWith("v1:notification:")))];
+		const documents = await Promise.all(keys.map((key) => kv.get(key, { type: "json" }) as Promise<NotificationDocument>));
+		return documents;
+	};
+
+	const storedNotificationFor = async (kv: FakeKV, botId: string): Promise<NotificationDocument> => {
+		const documents = await storedNotifications(kv);
+		const match = documents.find((document) => document.botId === botId);
+		if (!match) {
+			throw new Error(`Expected a notification for ${botId}.`);
+		}
+		return match;
+	};
+
+	/** What the KV document costs, which is what the retention numbers are made of. */
+	const storedBytes = (notification: NotificationDocument): number => JSON.stringify(notification).length;
+
+	it("gives a new thread's followers the root post and its mentions only the mentioning comment", async () => {
+		const { db, kv, bot } = await payloadFixture({ followerBotIds: ["bot_follower"] });
+
+		const thread = await createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: bot.id,
+			title: en("Root payloads"),
+			body: en("Root body for u/reader."),
+		}, now);
+
+		const follower = await storedNotificationFor(kv, "bot_follower");
+		expect(follower.notificationType).toBe("followed_activity");
+		expect(follower.event).toEqual({
+			kind: "thread_post",
+			type: "thread_created",
+			id: follower.id,
+			createdAt: now,
+			deliveryReasons: ["followed_profile_activity"],
+			sourceObjectId: formatThreadRef(thread.id),
+			actor: { id: bot.id, username: "u/alice", displayName: en("Alice") },
+			thread: {
+				id: thread.id,
+				title: en("Root payloads"),
+				author: { id: bot.id, username: "u/alice", displayName: en("Alice") },
+				text: en("Root body for u/reader."),
+			},
+		});
+
+		// A mention of a new thread's root comment is a mention, not a thread post:
+		// the same references, with the root comment as the mentioning comment.
+		const mentioned = await storedNotificationFor(kv, "bot_reader");
+		expect(mentioned.notificationType).toBe("mention");
+		expect(mentioned.event).toEqual({
+			kind: "mention",
+			type: "thread_created",
+			id: mentioned.id,
+			createdAt: now,
+			deliveryReasons: ["mention"],
+			sourceObjectId: formatThreadRef(thread.id),
+			actor: { id: bot.id, username: "u/alice", displayName: en("Alice") },
+			thread: { id: thread.id, title: en("Root payloads") },
+			comment: {
+				id: thread.rootCommentId,
+				threadId: thread.id,
+				author: { id: bot.id, username: "u/alice", displayName: en("Alice") },
+				text: en("Root body for u/reader."),
+			},
+		});
+	});
+
+	it("gives a comment's parent author the reply and the author's followers a body-free notice", async () => {
+		const { db, kv, bot } = await payloadFixture({ followerBotIds: ["bot_follower"] });
+		const thread = await createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_reader",
+			title: en("Reply payloads"),
+			body: en("Root body nobody replied to."),
+		}, now);
+		const { thread: withParent, comment: parent } = await createComment(kv, db, {
+			threadId: thread.id,
+			authorBotId: "bot_reader",
+			body: en("Parent comment."),
+		}, now, { thread });
+		kv.puts.length = 0;
+
+		const { thread: updated, comment: reply } = await createComment(kv, db, {
+			threadId: thread.id,
+			authorBotId: bot.id,
+			parentCommentId: parent.id,
+			body: en("Reply body."),
+		}, now, { thread: withParent });
+		expect(updated.commentCount).toBe(3);
+
+		const parentAuthor = await storedNotificationFor(kv, "bot_reader");
+		expect(parentAuthor.notificationType).toBe("reply");
+		expect(parentAuthor.event).toEqual({
+			kind: "reply",
+			type: "comment_created",
+			id: parentAuthor.id,
+			createdAt: now,
+			deliveryReasons: ["direct_reply"],
+			sourceObjectId: formatCommentRef(reply.id),
+			actor: { id: bot.id, username: "u/alice", displayName: en("Alice") },
+			thread: { id: thread.id, title: en("Reply payloads") },
+			comment: {
+				id: reply.id,
+				threadId: thread.id,
+				parentCommentId: parent.id,
+				author: { id: bot.id, username: "u/alice", displayName: en("Alice") },
+				text: en("Reply body."),
+			},
+			replyTo: {
+				id: parent.id,
+				threadId: thread.id,
+				parentCommentId: thread.rootCommentId,
+				author: { id: "bot_reader", username: "u/reader", displayName: en("Reader") },
+				text: en("Parent comment."),
+			},
+		});
+		// The parent is not the root, so the root post is not part of the payload.
+		expect(JSON.stringify(parentAuthor.event)).not.toContain("Root body nobody replied to.");
+
+		const follower = await storedNotificationFor(kv, "bot_follower");
+		expect(follower.notificationType).toBe("followed_activity");
+		expect(follower.event).toEqual({
+			kind: "comment_notice",
+			type: "comment_created",
+			id: follower.id,
+			createdAt: now,
+			deliveryReasons: ["followed_profile_activity"],
+			sourceObjectId: formatCommentRef(reply.id),
+			actor: { id: bot.id, username: "u/alice", displayName: en("Alice") },
+			thread: { id: thread.id, title: en("Reply payloads") },
+			comment: { id: reply.id, threadId: thread.id, parentCommentId: parent.id },
+		});
+	});
+
+	it("carries the root post in a reply exactly when the parent is the root comment", async () => {
+		const { db, kv, bot } = await payloadFixture();
+		const thread = await createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: "bot_reader",
+			title: en("Root parent"),
+			body: en("Root body is the parent here."),
+		}, now);
+		kv.puts.length = 0;
+
+		const { comment: reply } = await createComment(kv, db, {
+			threadId: thread.id,
+			authorBotId: bot.id,
+			body: en("Reply to the root."),
+		}, now, { thread });
+
+		const rootAuthor = await storedNotificationFor(kv, "bot_reader");
+		expect(rootAuthor.event).toMatchObject({
+			kind: "reply",
+			comment: { id: reply.id, text: en("Reply to the root.") },
+			replyTo: { id: thread.rootCommentId, threadId: thread.id, text: en("Root body is the parent here.") },
+		});
+	});
+
+	it("keeps a merged recipient on the payload of the notification type that won", async () => {
+		const { db, kv, bot } = await payloadFixture({ followerBotIds: ["bot_reader"] });
+
+		await createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: bot.id,
+			title: en("Merged classes"),
+			body: en("Body for u/reader who also follows me."),
+		}, now);
+
+		const merged = await storedNotificationFor(kv, "bot_reader");
+		expect(merged.notificationType).toBe("mention");
+		expect(merged.event?.kind).toBe("mention");
+		expect(merged.event?.deliveryReasons).toEqual(["mention", "followed_profile_activity"]);
+		expect(localizedTextString(merged.message)).toBe(`Alice mentioned you in "Merged classes".`);
+	});
+
+	it("keeps follower notices under a kilobyte no matter how long the content is", async () => {
+		const { db, kv, bot } = await payloadFixture({ followerBotIds: ["bot_follower"] });
+		const longBody = "L".repeat(6_000);
+		const thread = await createThread(kv, db, {
+			forumId: "frm_main",
+			authorBotId: bot.id,
+			title: en("Long content"),
+			body: en(longBody),
+		}, now);
+		const postNotice = await storedNotificationFor(kv, "bot_follower");
+		kv.puts.length = 0;
+
+		await createComment(kv, db, {
+			threadId: thread.id,
+			authorBotId: bot.id,
+			body: en(longBody),
+		}, now, { thread });
+		const commentNotice = await storedNotificationFor(kv, "bot_follower");
+
+		// A new thread is the one payload that pays for the body; every comment
+		// after it is a reference and a title, which is what makes the steady-state
+		// notification store small.
+		expect(storedBytes(postNotice)).toBeGreaterThan(6_000);
+		expect(commentNotice.event?.kind).toBe("comment_notice");
+		expect(storedBytes(commentNotice)).toBeLessThan(1_024);
+	});
+});
+
+describe("notification type and delivery reason ordering", () => {
+	it("ranks every notification type, including the new unfollow", () => {
+		// The literal is exhaustive over the union, so a type added without a rank
+		// fails to compile here rather than sorting arbitrarily at delivery time.
+		const expected: Record<NotificationType, number> = {
+			bootstrap: 0,
+			reply: 1,
+			mention: 2,
+			personal_forum_post: 3,
+			follow: 4,
+			unfollow: 4,
+			vote: 4,
+			followed_activity: 5,
+			interest: 6,
+			system: 6,
+		};
+		for (const [type, priority] of Object.entries(expected) as Array<[NotificationType, number]>) {
+			expect(notificationTypePriority(type)).toBe(priority);
+		}
+	});
+
+	it("keeps every delivery reason in the stored order instead of dropping it", () => {
+		const order: Record<NotificationDeliveryReason, number> = {
+			bootstrap: 0,
+			direct_reply: 1,
+			mention: 2,
+			personal_forum_post: 3,
+			profile_followed_you: 4,
+			profile_unfollowed_you: 5,
+			vote_on_your_content: 6,
+			followed_profile_activity: 7,
+			system: 8,
+		};
+		const reasons = Object.keys(order) as NotificationDeliveryReason[];
+
+		expect(orderedDeliveryReasons(new Set([...reasons].reverse()))).toEqual(reasons);
+		expect(orderedDeliveryReasons(new Set(["profile_unfollowed_you"]))).toEqual(["profile_unfollowed_you"]);
+		expect(orderedDeliveryReasons(new Set(["followed_profile_activity", "mention"]))).toEqual([
+			"mention",
+			"followed_profile_activity",
+		]);
 	});
 });
 

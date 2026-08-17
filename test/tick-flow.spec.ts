@@ -25,6 +25,7 @@ import {
 	metaCompactionToolName,
 	parseSpotlightSyntheticContext,
 	providerCompactionSummaryProperty,
+	providerNotificationEventVisibleForBot,
 	providerResponseWithContent,
 	providerResponseWithRawToolCalls,
 	providerResponseWithToolCall,
@@ -307,28 +308,74 @@ describe("Tick flow", () => {
 			spotlightContexts: [],
 			notifications: [
 				{
+					kind: "reply",
 					id: "ntf_read",
 					type: "comment_created",
 					createdAt: "2026-01-01T00:00:00.000Z",
 					deliveryReasons: ["direct_reply"],
-						message: lt("Someone replied."),
-						thread: {
-							id: "thr_read",
-							title: lt("Is it real?"),
-						},
-						comment: {
-							id: "cmt_read",
-							threadId: "thr_read",
-							author: { id: "bot_alice", username: "u/alice", displayName: lt("Alice") },
-							text: lt("Hello there."),
-						},
+					actor: { id: "bot_alice", username: "u/alice", displayName: lt("Alice") },
+					thread: {
+						id: "thr_read",
+						title: lt("Is it real?"),
+					},
+					comment: {
+						id: "cmt_read",
+						threadId: "thr_read",
+						author: { id: "bot_alice", username: "u/alice", displayName: lt("Alice") },
+						text: lt("Hello there."),
+					},
+					replyTo: {
+						id: "cmt_mine",
+						threadId: "thr_read",
+						author: { id: "bot_self", username: "u/self", displayName: lt("Self") },
+						text: lt("My earlier comment."),
+					},
 				},
 			],
 		});
 		expect(currentInput).toContain("Bickr Terminal prepared 1 structured notification event.");
-		expect(currentInput).toContain("comment_created notification ntf_read");
-		expect(currentInput).toContain("Someone replied.");
+		// Payloads store no prose any more, so the remembered line is composed from
+		// the references the payload does carry.
+		expect(currentInput).toContain(`comment_created notification ntf_read: u/alice replied to me in "Is it real?"`);
 		expect(currentInput).not.toContain("{");
+	});
+
+	it("shows every per-recipient payload and hides only legacy third-party follow fan-out", () => {
+		const actor = { id: "bot_actor", username: "u/actor", displayName: lt("Actor") };
+		const reader = "bot_reader";
+		const envelope = { id: "ntf_visible", createdAt: "2026-08-17T00:00:00.000Z" };
+		const follow: NotificationEvent = {
+			...envelope,
+			kind: "follow",
+			type: "profile_followed",
+			deliveryReasons: ["profile_followed_you"],
+			actor,
+		};
+		const unfollow: NotificationEvent = {
+			...envelope,
+			kind: "unfollow",
+			type: "profile_unfollowed",
+			deliveryReasons: ["profile_unfollowed_you"],
+			actor,
+		};
+
+		// Current payloads exist per recipient, so they are always the reader's.
+		expect(providerNotificationEventVisibleForBot(follow, reader)).toBe(true);
+		expect(providerNotificationEventVisibleForBot(unfollow, reader)).toBe(true);
+
+		const legacyFanOut = {
+			kind: "legacy" as const,
+			...envelope,
+			type: "profile_unfollowed",
+			deliveryReasons: ["followed_profile_activity"],
+			actor,
+			target: { id: "bot_third_party", username: "u/third-party", displayName: lt("Third Party") },
+		};
+		// Documents stored before the redesign still carry somebody else's unfollow
+		// of a third party, and those stay hidden.
+		expect(providerNotificationEventVisibleForBot(legacyFanOut, reader)).toBe(false);
+		expect(providerNotificationEventVisibleForBot({ ...legacyFanOut, target: { id: reader, username: "u/reader" } }, reader)).toBe(true);
+		expect(providerNotificationEventVisibleForBot({ ...legacyFanOut, deliveryReasons: ["profile_unfollowed_you"] }, reader)).toBe(true);
 	});
 
 	it("builds a recovery reminder after no-tool ticks", () => {
@@ -705,17 +752,18 @@ describe("Tick flow", () => {
 		const referencedProfile = await createBotForTest(cookie, "notice-alice");
 		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
 		const notification: NotificationEvent = {
+			kind: "comment_notice",
 			id: "ntf_profile_context",
 			type: "comment_created",
 			createdAt: "2026-05-01T00:00:00.000Z",
 			deliveryReasons: ["followed_profile_activity"],
 			actor: {
-					id: referencedProfile.id,
-					username: `u/${referencedProfile.handle}`,
-					displayName: lt(referencedProfile.displayName),
-					shortBio: lt("Repeated inside the raw notification."),
-				},
-				message: lt("Notice Alice commented."),
+				id: referencedProfile.id,
+				username: `u/${referencedProfile.handle}`,
+				displayName: lt(referencedProfile.displayName),
+			},
+			thread: { id: "thr_profile_context", title: lt("Notice thread") },
+			comment: { id: "cmt_profile_context", threadId: "thr_profile_context" },
 		};
 		const profileToolRow = {
 			seq: 1,
@@ -796,7 +844,10 @@ describe("Tick flow", () => {
 		expect(checkNotificationsResult).toMatchObject({
 			events: [{ type: "comment_created", actor: `u/${referencedProfile.handle}` }],
 		});
-		expect(JSON.stringify(checkNotificationsResult.events[0])).not.toContain("Repeated inside the raw notification.");
+		// A follower notice names the participant and nothing else about them; the
+		// profile itself arrives through the view_profiles call above.
+		expect(checkNotificationsResult.events[0]).not.toHaveProperty("message");
+		expect(JSON.stringify(checkNotificationsResult.events[0])).not.toContain(localizedTextString(referencedProfile.displayName));
 		const profileToolResult = afterCompaction
 			.filter((message) => message.role === "tool")
 			.map((message) => JSON.parse(String(message.content)))
@@ -812,85 +863,63 @@ describe("Tick flow", () => {
 		const selfProfile = await createBotForTest(cookie, "notice-dedupe-self");
 		const referencedProfile = await createBotForTest(cookie, "notice-dedupe-source");
 		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
+		const author = {
+			id: referencedProfile.id,
+			username: `u/${referencedProfile.handle}`,
+			displayName: lt(referencedProfile.displayName),
+		};
 		const baseEvent = {
 			type: "comment_created" as const,
 			createdAt: "2026-05-01T00:00:00.000Z",
-			actor: {
-					id: referencedProfile.id,
-					username: `u/${referencedProfile.handle}`,
-					displayName: lt(referencedProfile.displayName),
-					shortBio: lt("Raw notification bio should not be shown here."),
-				},
-			world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
-			forum: { id: "frm_notice_dedupe", handle: "f/notice-dedupe" },
+			actor: author,
+			thread: { id: "thr_seen", title: lt("Already scoped thread") },
 		};
 		const notifications: NotificationEvent[] = [
 			{
 				...baseEvent,
-					id: "ntf_direct",
-					deliveryReasons: ["direct_reply"],
-					sourceObjectId: "cmt_seen",
-					message: lt("First delivery."),
-					thread: {
-						id: "thr_seen",
-						title: lt("Already scoped thread"),
-						author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: lt(referencedProfile.displayName) },
-						text: lt("Thread text was already shown."),
-					},
-					comment: {
+				kind: "reply",
+				id: "ntf_direct",
+				deliveryReasons: ["direct_reply"],
+				sourceObjectId: "cmt_seen",
+				comment: {
 					id: "cmt_seen",
-						threadId: "thr_seen",
-						author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: lt(referencedProfile.displayName) },
-						text: lt("Comment text was already shown."),
-					},
-					replyTo: {
-						id: "thr_seen",
-						title: lt("Already scoped thread"),
-						text: lt("Thread text was already shown."),
-					},
+					threadId: "thr_seen",
+					author,
+					text: lt("Comment text was already shown."),
 				},
+				replyTo: {
+					id: "cmt_parent",
+					threadId: "thr_seen",
+					author,
+					text: lt("Parent text was already shown."),
+				},
+			},
 			{
 				...baseEvent,
-					id: "ntf_mention",
-					deliveryReasons: ["mention"],
-					sourceObjectId: "cmt_seen",
-					message: lt("Duplicate delivery reason."),
-					thread: {
-						id: "thr_seen",
-						title: lt("Already scoped thread"),
-						text: lt("Thread text was already shown."),
-					},
-					comment: {
+				kind: "mention",
+				id: "ntf_mention",
+				deliveryReasons: ["mention"],
+				sourceObjectId: "cmt_seen",
+				comment: {
 					id: "cmt_seen",
-						threadId: "thr_seen",
-						author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: lt(referencedProfile.displayName) },
-						text: lt("Comment text was already shown."),
-					},
+					threadId: "thr_seen",
+					author,
+					text: lt("Comment text was already shown."),
 				},
+			},
 			{
 				...baseEvent,
-					id: "ntf_new",
-					deliveryReasons: ["followed_profile_activity"],
-					sourceObjectId: "cmt_new",
-					message: lt("New comment in already scoped thread."),
-					thread: {
-						id: "thr_seen",
-						title: lt("Already scoped thread"),
-						text: lt("Thread text was already shown."),
-					},
+				kind: "mention",
+				id: "ntf_new",
+				deliveryReasons: ["followed_profile_activity"],
+				sourceObjectId: "cmt_new",
 				comment: {
 					id: "cmt_new",
 					threadId: "thr_seen",
-						parentCommentId: "cmt_seen",
-						author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: lt(referencedProfile.displayName) },
-						text: lt("This new comment should be shown once."),
-					},
-					replyTo: {
-					id: "cmt_seen",
-						threadId: "thr_seen",
-						author: { id: referencedProfile.id, username: `u/${referencedProfile.handle}`, displayName: lt(referencedProfile.displayName) },
-						text: lt("Comment text was already shown."),
-					},
+					parentCommentId: "cmt_seen",
+					author,
+					text: lt("This new comment should be shown once."),
+				},
 			},
 		];
 		const activeRows = [
@@ -926,6 +955,7 @@ describe("Tick flow", () => {
 					content: JSON.stringify({
 						content: [
 							{ type: "thread", id: "thr_seen", threadId: "thr_seen", body: "Thread text was already shown." },
+							{ type: "comment", id: "cmt_parent", commentId: "cmt_parent", threadId: "thr_seen", body: "Parent text was already shown." },
 							{ type: "comment", id: "cmt_seen", commentId: "cmt_seen", threadId: "thr_seen", body: "Comment text was already shown." },
 						],
 					}),
@@ -981,7 +1011,7 @@ describe("Tick flow", () => {
 			deliveryReasons: ["direct_reply", "mention"],
 			thread: { threadRef: "t/thr_seen", title: "Already scoped thread" },
 			comment: { commentRef: "c/cmt_seen", threadRef: "t/thr_seen" },
-			replyTo: { title: "Already scoped thread" },
+			replyTo: { commentRef: "c/cmt_parent", threadRef: "t/thr_seen" },
 			actor: `u/${referencedProfile.handle}`,
 		});
 		expect(checkNotificationsResult.events[0]).not.toHaveProperty("id");
@@ -989,13 +1019,14 @@ describe("Tick flow", () => {
 		expect(checkNotificationsResult.events[0]).not.toHaveProperty("sourceObjectId");
 		expect(checkNotificationsResult.events[0]).not.toHaveProperty("world");
 		expect(checkNotificationsResult.events[0]).not.toHaveProperty("forum");
-		expect(checkNotificationsResult.events[0].thread.text).toBeUndefined();
+		// Thread references never carry the root post outside a thread-post payload.
+		expect(checkNotificationsResult.events[0].thread).not.toHaveProperty("text");
 		expect(checkNotificationsResult.events[0].comment.text).toBeUndefined();
 		expect(checkNotificationsResult.events[0].replyTo.text).toBeUndefined();
-		expect(checkNotificationsResult.events[1].thread.text).toBeUndefined();
+		expect(checkNotificationsResult.events[1].thread).not.toHaveProperty("text");
 		expect(checkNotificationsResult.events[1].comment).not.toHaveProperty("parentCommentId");
 		expect(checkNotificationsResult.events[1].comment.text).toBe("This new comment should be shown once.");
-		expect(checkNotificationsResult.events[1].replyTo.text).toBeUndefined();
+		expect(checkNotificationsResult.events[1]).not.toHaveProperty("replyTo");
 	});
 
 		it("omits oversized notification events instead of trimming notification text", async () => {
@@ -1028,22 +1059,20 @@ describe("Tick flow", () => {
 				inputCreatedAt: string,
 			) => Promise<Array<Record<string, unknown>>>;
 		}).buildMessages.bind(runtime);
-		const longThreadText = "T".repeat(1_600);
 		const longCommentText = "C".repeat(1_600);
 		await buildMessages(
 			bot,
 			{
 				notifications: [{
+					kind: "mention",
 					id: "ntf_budget",
 					type: "comment_created",
 					createdAt: "2026-05-01T00:00:00.000Z",
-					deliveryReasons: ["followed_profile_activity"],
+					deliveryReasons: ["mention"],
 					sourceObjectId: "cmt_budget",
-						message: lt("Long notification."),
-						world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
-						forum: { id: "frm_budget", handle: "f/budget" },
-						thread: { id: "thr_budget", title: lt("Budget thread"), author, text: lt(longThreadText) },
-						comment: { id: "cmt_budget", threadId: "thr_budget", author, text: lt(longCommentText) },
+					actor: author,
+					thread: { id: "thr_budget", title: lt("Budget thread") },
+					comment: { id: "cmt_budget", threadId: "thr_budget", author, text: lt(longCommentText) },
 				} satisfies NotificationEvent],
 				injections: [],
 				spotlightContexts: [],
@@ -1059,7 +1088,6 @@ describe("Tick flow", () => {
 			expect(Math.ceil(JSON.stringify(checkNotificationsResult).length / 4)).toBeLessThanOrEqual(tokenBudget);
 			expect(checkNotificationsResult.context).toContain("1 older notification event was omitted");
 			expect(checkNotificationsResult.events).toHaveLength(0);
-			expect(JSON.stringify(checkNotificationsResult)).not.toContain(longThreadText);
 			expect(JSON.stringify(checkNotificationsResult)).not.toContain(longCommentText);
 			expect(JSON.stringify(checkNotificationsResult)).not.toContain("…");
 		});
@@ -1094,16 +1122,19 @@ describe("Tick flow", () => {
 				inputCreatedAt: string,
 			) => Promise<Array<Record<string, unknown>>>;
 		}).buildMessages.bind(runtime);
+		const replier = { id: "bot_drop_other", username: "u/notice-drop-other", displayName: lt("Notice Drop Other") };
 		const notifications: NotificationEvent[] = Array.from({ length: 8 }, (_, index) => ({
+			kind: "reply",
 			id: `ntf_drop_${index}`,
 			type: "comment_created",
-				createdAt: `2026-05-01T00:00:0${index}.000Z`,
-				deliveryReasons: ["followed_profile_activity"],
-				sourceObjectId: `cmt_drop_${index}`,
-					message: lt(`Long notification ${index}.`),
-					thread: { id: `thr_drop_${index}`, title: lt(`Budget thread ${index}`), author, text: lt(`Thread ${index} stays whole.`) },
-					comment: { id: `cmt_drop_${index}`, threadId: `thr_drop_${index}`, author, text: lt(`Comment ${index} stays whole.`) },
-			}));
+			createdAt: `2026-05-01T00:00:0${index}.000Z`,
+			deliveryReasons: ["direct_reply"],
+			sourceObjectId: `cmt_drop_${index}`,
+			actor: replier,
+			thread: { id: `thr_drop_${index}`, title: lt(`Budget thread ${index}`) },
+			comment: { id: `cmt_drop_${index}`, threadId: `thr_drop_${index}`, author: replier, text: lt(`Comment ${index} stays whole.`) },
+			replyTo: { id: `cmt_mine_${index}`, threadId: `thr_drop_${index}`, author, text: lt(`My comment ${index} stays whole.`) },
+		}));
 		await buildMessages(
 			bot,
 			{ notifications, injections: [], spotlightContexts: [], ping: false },
@@ -1120,8 +1151,8 @@ describe("Tick flow", () => {
 			expect(checkNotificationsResult.events.length).toBeLessThan(notifications.length);
 			expect(checkNotificationsResult.events[0].comment.commentRef).not.toBe("c/cmt_drop_0");
 			expect(checkNotificationsResult.events.at(-1).comment.commentRef).toBe("c/cmt_drop_7");
-			expect(checkNotificationsResult.events.at(-1).thread.author).toBe(`u/${selfProfile.handle} (${providerSelfAuthor})`);
-			expect(checkNotificationsResult.events.at(-1).comment.author).toBe(`u/${selfProfile.handle} (${providerSelfAuthor})`);
+			expect(checkNotificationsResult.events.at(-1).comment.author).toBe(replier.username);
+			expect(checkNotificationsResult.events.at(-1).replyTo.author).toBe(`u/${selfProfile.handle} (${providerSelfAuthor})`);
 			expect(checkNotificationsResult.events.at(-1).comment.text).toBe("Comment 7 stays whole.");
 			expect(JSON.stringify(checkNotificationsResult)).not.toContain("…");
 		});

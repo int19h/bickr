@@ -19,7 +19,7 @@ import type {
 	ForumWriteErrorCause,
 	JsonObject,
 	LocalizedText,
-	NotificationEvent,
+	StoredNotificationEvent,
 	RequiredLocalizedText,
 	SpotlightSyntheticContext,
 } from '@bickr/shared/model';
@@ -442,7 +442,11 @@ export type TickAdmission =
 			result: TickRunResult;
 		};
 
-export type LoopNotification = NotificationEvent;
+/**
+ * A notification as the loop sees it: current per-recipient payloads plus the
+ * legacy shape stored documents may still hold.
+ */
+export type LoopNotification = StoredNotificationEvent;
 
 export type LoopInput = {
 	notifications: LoopNotification[];
@@ -545,7 +549,9 @@ export type ProviderNotificationPayloadResult = {
 };
 
 export type ProviderNotificationEventGroup = {
-	event: Record<string, unknown>;
+	event: StoredNotificationEvent;
+	/** Reasons of every notification merged into this group, in stored order. */
+	deliveryReasons: string[];
 	notificationIds: string[];
 };
 

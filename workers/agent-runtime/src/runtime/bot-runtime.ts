@@ -139,15 +139,18 @@ import {
 	type ForumWriteErrorCause,
 	type JsonObject,
 	type LanguageTag,
+	type LegacyNotificationEvent,
 	type LocalizedText,
 	type NotificationDocument,
-	type NotificationEvent,
+	type NotificationProfileRef,
+	type StoredNotificationEvent,
 		type SpotlightIncludedContent,
 		type SpotlightSyntheticContext,
 	type UserDocument,
 	type WorldDocument,
 	localizedTextLang,
 	localizedTextString,
+	storedNotificationEvent,
 } from '@bickr/shared/model';
 import {
 	bickrFunctionToolArgumentExample,
@@ -5175,13 +5178,19 @@ export class BotRuntime {
 	private async runLocalSimulation(
 		bot: BotDocument,
 		runId: string,
-		input: { notifications: Array<{ message?: unknown }>; ping: boolean },
+		input: { notifications: LoopNotification[]; ping: boolean },
 		runContext: RunContext,
 	): Promise<ProviderLoopOutcome> {
 		this.throwIfStopped(runId, runContext.signal);
 		const hot = await listHotThreads(this.env.BICKR_D1, bot.homeWorldId, 10);
 		const replyTarget = hot.find((thread) => thread.authorBotId !== bot.id);
-		if (replyTarget && !input.notifications.some((notification) => stringValue(notification.message)?.includes('first time'))) {
+		// A welcoming notification means this is the participant's first iteration,
+		// and only the payloads that carry a message can be one.
+		const introducing = input.notifications.some((notification) =>
+			(notification.kind === 'bootstrap' || notification.kind === 'legacy') &&
+			stringValue(notification.message)?.includes('first time'),
+		);
+		if (replyTarget && !introducing) {
 			this.throwIfStopped(runId, runContext.signal);
 			this.appendLoopMessage(
 				runId,
@@ -7113,7 +7122,7 @@ export async function buildRuntimeLoopInput(
 			autoProfileSeenItems.set(item.id, item);
 			notificationSeenItems.set(`${item.type}:${item.id}`, item);
 		}
-		const event = notification.event ?? legacyNotificationEvent(notification, forumContext);
+		const event = storedNotificationEvent(notification.event) ?? legacyNotificationEvent(notification, forumContext);
 		if (providerNotificationEventVisibleForBot(event, botId)) {
 			messages.push(event);
 			notificationSeenItemsById[event.id] = [...notificationSeenItems.values()];
@@ -7170,12 +7179,20 @@ function spotlightScopeHandle(value: string | undefined): string | undefined {
 	return stripped ? normalizeHandleText(stripped) : undefined;
 }
 
-function providerNotificationEventVisibleForBot(event: NotificationEvent, botId: string): boolean {
+/**
+ * Current payloads are built for exactly one recipient, so they are always
+ * theirs to see. Only the pre-redesign fan-out could put somebody else's
+ * follow or unfollow of a third party in a participant's list, and those
+ * documents are hidden unless the participant is the one who was followed.
+ */
+export function providerNotificationEventVisibleForBot(event: StoredNotificationEvent, botId: string): boolean {
+	if (event.kind !== 'legacy') {
+		return true;
+	}
 	if (event.type !== 'profile_followed' && event.type !== 'profile_unfollowed') {
 		return true;
 	}
-	const deliveryReasons = event.deliveryReasons ?? [];
-	if (deliveryReasons.some((reason) => reason !== 'followed_profile_activity')) {
+	if (event.deliveryReasons.some((reason) => reason !== 'followed_profile_activity')) {
 		return true;
 	}
 	const target = runtimeRecord(event.target);
@@ -7183,12 +7200,18 @@ function providerNotificationEventVisibleForBot(event: NotificationEvent, botId:
 	return stringValue(target.id) === botId || stringValue(targetProfile.id) === botId;
 }
 
-function legacyNotificationEvent(notification: NotificationDocument, context: ForumContextResult | null): NotificationEvent {
+/**
+ * Documents old enough to hold no stored event at all: the payload is rebuilt
+ * from the forum context and stays in the legacy shape, which is the only one
+ * that can express "whatever the notification type implies".
+ */
+function legacyNotificationEvent(notification: NotificationDocument, context: ForumContextResult | null): LegacyNotificationEvent {
 	const content = context?.content ?? [];
 	const rootCommentItem = content.find((item) => item.threadId === context?.threadId && !item.parentCommentId);
 	const commentItem = context?.commentId ? content.find((item) => item.id === context.commentId) : undefined;
 	const actorItem = commentItem ?? rootCommentItem;
 	return {
+		kind: 'legacy',
 		id: notification.id,
 		type: legacyNotificationEventType(notification.notificationType),
 		createdAt: notification.createdAt,
@@ -7232,7 +7255,7 @@ function legacyNotificationEvent(notification: NotificationDocument, context: Fo
 	};
 }
 
-function legacyNotificationEventType(type: NotificationDocument['notificationType']): NotificationEvent['type'] {
+function legacyNotificationEventType(type: NotificationDocument['notificationType']): string {
 	switch (type) {
 		case 'reply':
 		case 'mention':
@@ -7241,6 +7264,8 @@ function legacyNotificationEventType(type: NotificationDocument['notificationTyp
 			return 'thread_created';
 		case 'follow':
 			return 'profile_followed';
+		case 'unfollow':
+			return 'profile_unfollowed';
 		case 'vote':
 			return 'vote_cast';
 		case 'bootstrap':
@@ -7252,7 +7277,7 @@ function legacyNotificationEventType(type: NotificationDocument['notificationTyp
 	}
 }
 
-function legacyNotificationDeliveryReason(type: NotificationDocument['notificationType']): NotificationEvent['deliveryReasons'][number] {
+function legacyNotificationDeliveryReason(type: NotificationDocument['notificationType']): string {
 	switch (type) {
 		case 'reply':
 			return 'direct_reply';
@@ -7262,6 +7287,8 @@ function legacyNotificationDeliveryReason(type: NotificationDocument['notificati
 			return 'personal_forum_post';
 		case 'follow':
 			return 'profile_followed_you';
+		case 'unfollow':
+			return 'profile_unfollowed_you';
 		case 'vote':
 			return 'vote_on_your_content';
 		case 'followed_activity':
@@ -7274,12 +7301,11 @@ function legacyNotificationDeliveryReason(type: NotificationDocument['notificati
 	}
 }
 
-function notificationProfileRefFromReadContent(item: SpotlightIncludedContent): NonNullable<NotificationEvent['actor']> {
+function notificationProfileRefFromReadContent(item: SpotlightIncludedContent): NotificationProfileRef {
 	return {
 		id: item.authorBotId,
 		username: `u/${item.authorHandle}`,
 		displayName: item.authorDisplayName,
-		...(item.authorShortBio ? { shortBio: item.authorShortBio } : {}),
 	};
 }
 
@@ -8783,23 +8809,66 @@ function inputHistorySummary(payload: Record<string, unknown>): string {
 	return `${parts.join(', ')}.${notificationText ? ` I saw: ${notificationText}.` : ''}`;
 }
 
-function notificationSummary(notification: Record<string, unknown>): string {
+/**
+ * One remembered notification, in the participant's own voice. Current payloads
+ * store no prose, so the sentence is composed here from what the payload
+ * actually carries rather than echoing a stored message.
+ */
+function notificationSummary(value: unknown): string {
+	const notification = runtimeRecord(value);
+	const event = storedNotificationEvent(value);
 	const id = stringValue(notification.id);
-	const type = stringValue(notification.type) ?? 'general';
-	const message = safeContextText(stringValue(notification.message) ?? '', 260);
-	const targets = [
-		stringValue(notification.threadId) ? `thread ${stringValue(notification.threadId)}` : '',
-		stringValue(notification.commentId) ? `comment ${stringValue(notification.commentId)}` : '',
-		stringValue(notification.parentCommentId) ? `parent comment ${stringValue(notification.parentCommentId)}` : '',
-	].filter(Boolean);
+	const type = event?.type ?? stringValue(notification.type) ?? 'general';
+	const detail = event ? notificationSummaryDetail(event) : '';
+	const targets =
+		event && event.kind !== 'legacy' ?
+			[]
+		:	[
+				stringValue(notification.threadId) ? `thread ${stringValue(notification.threadId)}` : '',
+				stringValue(notification.commentId) ? `comment ${stringValue(notification.commentId)}` : '',
+				stringValue(notification.parentCommentId) ? `parent comment ${stringValue(notification.parentCommentId)}` : '',
+			].filter(Boolean);
 	const context = notificationContextSummary(runtimeRecord(notification.context));
 	return [
-		`${type} notification${id ? ` ${id}` : ''}: ${message || 'no message'}`,
+		`${type} notification${id ? ` ${id}` : ''}: ${detail || 'no message'}`,
 		targets.length > 0 ? `It pointed at ${targets.join(', ')}.` : '',
 		context,
 	]
 		.filter(Boolean)
 		.join(' ');
+}
+
+function notificationSummaryDetail(event: StoredNotificationEvent): string {
+	switch (event.kind) {
+		case 'bootstrap':
+			return safeContextText(localizedTextString(event.message), 260);
+		case 'thread_post':
+			return `${event.actor.username} posted ${quoteForContext(localizedTextString(event.thread.title), 120)}`;
+		case 'reply':
+			return `${event.actor.username} replied to me in ${quoteForContext(localizedTextString(event.thread.title), 120)}`;
+		case 'mention':
+			return `${event.actor.username} mentioned me in ${quoteForContext(localizedTextString(event.thread.title), 120)}`;
+		case 'comment_notice':
+			return `${event.actor.username} commented in ${quoteForContext(localizedTextString(event.thread.title), 120)}`;
+		case 'vote':
+			return `${event.actor.username} ${notificationVoteSummaryVerb(event.value)} my comment ${formatCommentRef(event.target.id)}`;
+		case 'follow':
+			return `${event.actor.username} followed me`;
+		case 'unfollow':
+			return `${event.actor.username} unfollowed me`;
+		case 'legacy':
+			return safeContextText(stringValue(event.message) ?? '', 260);
+	}
+}
+
+function notificationVoteSummaryVerb(value: -1 | 0 | 1): string {
+	if (value > 0) {
+		return 'upvoted';
+	}
+	if (value < 0) {
+		return 'downvoted';
+	}
+	return 'cleared their vote on';
 }
 
 function notificationContextSummary(context: Record<string, unknown>): string {
