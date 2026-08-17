@@ -49,6 +49,7 @@ import migration0047 from "../../migrations/0047_bootstrap_notified_flag.sql?raw
 import migration0048 from "../../migrations/0048_backfill_bootstrap_notified_flag.sql?raw";
 import migration0049 from "../../migrations/0049_runtime_active_run_trigger.sql?raw";
 import migration0050 from "../../migrations/0050_runtime_storage_cleared.sql?raw";
+import migration0051 from "../../migrations/0051_tombstoned_bot_sweep_index.sql?raw";
 
 const migrationSql = [
 	migration0001,
@@ -102,6 +103,7 @@ const migrationSql = [
 	migration0048,
 	migration0049,
 	migration0050,
+	migration0051,
 ];
 
 type D1SchemaRow = {

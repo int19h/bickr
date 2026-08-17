@@ -7,6 +7,7 @@ import {
 	type NotificationCommentPostRef,
 	type NotificationCommentRef,
 	type NotificationDeliveryReason,
+	type NotificationEvent,
 	type NotificationProfileRef,
 	type NotificationThreadPostRef,
 	type NotificationThreadRef,
@@ -16,6 +17,7 @@ import {
 } from '@bickr/shared/model';
 import type {
 	ChatMessage,
+	DeliveredNotificationEvent,
 	ProviderNotificationEventGroup,
 	ProviderNotificationPayloadResult,
 	ProviderNotificationPruneResult,
@@ -224,7 +226,7 @@ export function providerCheckNotificationsResultWithInclusions(
 	const storedEvents = events
 		.map(storedNotificationEvent)
 		.filter((event): event is StoredNotificationEvent => Boolean(event));
-	const providerEvents = mergedProviderNotificationEventGroups(storedEvents).map((group) => ({
+	const providerEvents = coalescedCommentNoticeGroups(mergedProviderNotificationEventGroups(storedEvents)).map((group) => ({
 		notificationIds: group.notificationIds,
 		payload: runtimeRecord(providerSafeJsonValue(providerNotificationEvent(group.event, group.deliveryReasons, context))),
 	}));
@@ -246,24 +248,37 @@ export function providerCheckNotificationsResultWithInclusions(
 
 function providerNotificationResultPayload(
 	events: Record<string, unknown>[],
-	pruned?: Pick<ProviderNotificationPruneResult, 'omittedEventCount'>,
+	pruned?: Pick<ProviderNotificationPruneResult, 'omittedNotificationCount'>,
 ): Record<string, unknown> {
 	return removeUndefinedProperties({
-		...(pruned && pruned.omittedEventCount > 0 ? { context: providerNotificationResultContext(pruned) } : {}),
+		...(pruned && pruned.omittedNotificationCount > 0 ? { context: providerNotificationResultContext(pruned) } : {}),
 		events,
 	});
 }
 
-function providerNotificationResultContext(pruned: Pick<ProviderNotificationPruneResult, 'omittedEventCount'>): string {
+function providerNotificationResultContext(pruned: Pick<ProviderNotificationPruneResult, 'omittedNotificationCount'>): string {
 	const parts: string[] = [];
-	if (pruned.omittedEventCount > 0) {
+	if (pruned.omittedNotificationCount > 0) {
 		parts.push(
-			`${pruned.omittedEventCount} older notification event${pruned.omittedEventCount === 1 ? ' was' : 's were'} omitted to keep this result compact`,
+			`${pruned.omittedNotificationCount} lower-priority or older notification${pruned.omittedNotificationCount === 1 ? ' was' : 's were'} omitted; they remain pending`,
 		);
 	}
 	return `Result of checking notifications. ${parts.join('. ')}.`;
 }
 
+/**
+ * Events arrive in delivery order — most important first, newest first within a
+ * rank — so the budget is spent from the front and whatever does not fit is
+ * dropped from the END. Dropping from the front, as this did while the query
+ * ordered oldest-first, would now discard exactly the notifications the ordering
+ * exists to surface.
+ *
+ * Omitted events keep their D1 rows and documents: only what is included is
+ * reported delivered, and therefore only what is included is deleted. The count
+ * the note carries is therefore of notifications, not of rendered events: a
+ * merged or coalesced group holds several notification ids, and every one of
+ * them stays pending when its group is dropped.
+ */
 function pruneProviderNotificationEventsForBudget(
 	events: Array<{ notificationIds: string[]; payload: Record<string, unknown> }>,
 	tokenBudget: number,
@@ -273,29 +288,31 @@ function pruneProviderNotificationEventsForBudget(
 		notificationIds: [...event.notificationIds],
 		payload: JSON.parse(JSON.stringify(event.payload)) as Record<string, unknown>,
 	}));
-	let omittedEventCount = 0;
+	let omittedNotificationCount = 0;
 	let tokenEstimate = providerNotificationTokenEstimate(
 		prunedEvents.map((event) => event.payload),
-		{ omittedEventCount },
+		{ omittedNotificationCount },
 	);
 	while (prunedEvents.length > 0 && tokenEstimate > budget) {
-		prunedEvents.shift();
-		omittedEventCount += 1;
+		const dropped = prunedEvents.pop();
+		// A group with no ids is an event whose document carried none; it is still
+		// one notification the recipient did not get.
+		omittedNotificationCount += Math.max(1, dropped?.notificationIds.length ?? 1);
 		tokenEstimate = providerNotificationTokenEstimate(
 			prunedEvents.map((event) => event.payload),
-			{ omittedEventCount },
+			{ omittedNotificationCount },
 		);
 	}
 	return {
 		events: prunedEvents,
-		omittedEventCount,
+		omittedNotificationCount,
 		tokenEstimate,
 	};
 }
 
 function providerNotificationTokenEstimate(
 	events: Record<string, unknown>[],
-	pruned: Pick<ProviderNotificationPruneResult, 'omittedEventCount'>,
+	pruned: Pick<ProviderNotificationPruneResult, 'omittedNotificationCount'>,
 ): number {
 	return estimateTextTokens(JSON.stringify(providerNotificationResultPayload(events, pruned)));
 }
@@ -381,12 +398,69 @@ function mergedProviderNotificationEventGroups(events: StoredNotificationEvent[]
 }
 
 /**
+ * Per-actor coalescing at delivery time (design doc §2.3). One busy account a participant follows
+ * can otherwise fill the whole delivery window with near-identical notices, each spending its slot
+ * to say the same thing about a different comment. Two or more slim notices from the same actor
+ * therefore render as one event enumerating their comments — they carry no bodies, so enumerating
+ * them loses nothing that was in the payload.
+ *
+ * A lone notice keeps its ordinary shape, and the coalesced event takes the position of the actor's
+ * first notice, so delivery order is preserved. Every merged notification id travels with it: the
+ * inclusion list is what the caller deletes, and a lost id would leave an undeliverable row behind.
+ */
+function coalescedCommentNoticeGroups(groups: ProviderNotificationEventGroup[]): ProviderNotificationEventGroup[] {
+	const noticesByActor = new Map<string, Array<{ index: number; group: ProviderNotificationEventGroup; event: CommentNoticeEvent }>>();
+	groups.forEach((group, index) => {
+		if (group.event.kind !== 'comment_notice') {
+			return;
+		}
+		const notices = noticesByActor.get(group.event.actor.id);
+		const notice = { index, group, event: group.event };
+		if (notices) {
+			notices.push(notice);
+		} else {
+			noticesByActor.set(group.event.actor.id, [notice]);
+		}
+	});
+	const coalesced = new Map<number, ProviderNotificationEventGroup>();
+	const superseded = new Set<number>();
+	for (const notices of noticesByActor.values()) {
+		if (notices.length < 2) {
+			continue;
+		}
+		const first = notices[0];
+		if (!first) {
+			continue;
+		}
+		coalesced.set(first.index, {
+			event: {
+				kind: 'coalesced_comment_notice',
+				type: 'comment_created',
+				actor: first.event.actor,
+				notices: notices.map((notice) => ({ thread: notice.event.thread, comment: notice.event.comment })),
+			},
+			deliveryReasons: orderedProviderDeliveryReasons(notices.flatMap((notice) => notice.group.deliveryReasons)),
+			notificationIds: notices.flatMap((notice) => notice.group.notificationIds),
+		});
+		for (const notice of notices.slice(1)) {
+			superseded.add(notice.index);
+		}
+	}
+	if (coalesced.size === 0) {
+		return groups;
+	}
+	return groups.map((group, index) => coalesced.get(index) ?? group).filter((_, index) => !superseded.has(index));
+}
+
+type CommentNoticeEvent = Extract<NotificationEvent, { kind: 'comment_notice' }>;
+
+/**
  * The delivered form of one notification, per payload class. Slim and minimal payloads carry no
  * bodies, so what they render is exactly their references; the full ones spend their text budget
  * once each through the shared content scope.
  */
 function providerNotificationEvent(
-	event: StoredNotificationEvent,
+	event: DeliveredNotificationEvent,
 	deliveryReasons: string[],
 	context: ProviderSerializationContext,
 ): Record<string, unknown> {
@@ -426,6 +500,19 @@ function providerNotificationEvent(
 				actor: providerNotificationProfileRef(event.actor),
 				thread: providerNotificationThreadRef(event.thread),
 				comment: providerNotificationCommentRef(event.comment),
+			});
+		case 'coalesced_comment_notice':
+			// One actor, several comments: the thread title travels with each entry
+			// because notices from one actor routinely span threads.
+			return removeUndefinedProperties({
+				...header,
+				actor: providerNotificationProfileRef(event.actor),
+				comments: event.notices.map((notice) =>
+					removeUndefinedProperties({
+						...providerNotificationCommentRef(notice.comment),
+						title: stringValue(notice.thread.title),
+					}),
+				),
 			});
 		case 'vote':
 			// The vote reference names what was voted on and how, which is the whole

@@ -48,10 +48,10 @@ import {
 	botProfileRelationshipSummaries,
 	botPublicProfilesByHandles,
 	buildNotificationForumContext,
+	deleteDeliveredNotifications,
 	listHotThreads,
 	listPendingNotifications,
 	markBotSeenContent,
-	markNotificationsDelivered,
 	recordBotRuntimeFailureHumanNotification,
 	recordSpotlightFailureHumanNotification,
 	recordSpotlightNoReactionHumanNotification,
@@ -2384,7 +2384,9 @@ export class BotRuntime {
 					[...deliveredNotificationIds].flatMap((id) => builtInput.notificationSeenItemsById[id] ?? []),
 				);
 				await markBotSeenContent(this.env.BICKR_D1, bot.id, deliveredSeenItems, 'notification', runId);
-				await markNotificationsDelivered(
+				// Delivery is destructive: what the visit was handed is deleted from
+				// both stores, so the next visit sees only what is new.
+				await deleteDeliveredNotifications(
 					this.env.BICKR_KV,
 					this.env.BICKR_D1,
 					notifications.filter((notification) => deliveredNotificationIds.has(notification.id)),

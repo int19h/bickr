@@ -11,9 +11,9 @@ import {
 	bootstrapNotificationId,
 	createComment,
 	createThread,
+	deleteDeliveredNotifications,
 	ensureBootstrapNotification,
 	listThreadsWithReadState,
-	markNotificationsDelivered,
 	notificationKvExpirationTtlSeconds,
 	notificationTypePriority,
 	orderedDeliveryReasons,
@@ -817,10 +817,10 @@ describe("bot notification retention", () => {
 		expect(kv.putOptions).toEqual([undefined]);
 	});
 
-	it("re-arms the retention TTL when marking notifications delivered", async () => {
+	it("deletes a delivered notification from D1 before KV", async () => {
 		const { db, kv, bot } = fixture({ existingThreads: [] });
 		const notification: NotificationDocument = {
-			id: "ntf_delivery-ttl",
+			id: "ntf_delivered",
 			type: "notification",
 			schemaVersion,
 			revision: 1,
@@ -832,16 +832,30 @@ describe("bot notification retention", () => {
 			createdAt: now,
 			updatedAt: now,
 		};
+		const operations: string[] = [];
+		db.operationLog = operations;
+		kv.operationLog = operations;
 
-		await markNotificationsDelivered(kv, db, [notification], now);
+		await deleteDeliveredNotifications(kv, db, [notification]);
 
-		const deliveryPutIndex = kv.puts.findIndex((key) => key === `v1:notification:${bot.id}:${notification.id}`);
-		expect(deliveryPutIndex).toBeGreaterThanOrEqual(0);
-		// KV put replaces the entry including its expiration; without re-arming
-		// the TTL here, delivered documents would outlive their D1 rows forever.
-		expect(kv.putOptions[deliveryPutIndex]).toEqual({
-			expirationTtl: notificationKvExpirationTtlSeconds,
-		});
+		// Row first: a row whose document is already gone is a ghost that holds a
+		// slot in the delivery window until the self-heal reaps it, while a document
+		// whose row is gone is invisible and expires on its own TTL.
+		expect(operations).toEqual([
+			"d1:DELETE FROM notifications WHERE notification_id IN (?)",
+			`kv:delete:${kvKeys.notification(bot.id, notification.id)}`,
+		]);
+	});
+
+	it("does nothing when a visit was handed no notifications", async () => {
+		const { db, kv } = fixture({ existingThreads: [] });
+		const operations: string[] = [];
+		db.operationLog = operations;
+		kv.operationLog = operations;
+
+		await deleteDeliveredNotifications(kv, db, []);
+
+		expect(operations).toEqual([]);
 	});
 
 	it("batches merged bot notification fan-out without changing recipient messages or TTLs", async () => {
@@ -1398,6 +1412,9 @@ function mockRandomBytes(sequences: number[][]): () => void {
 class FakeKV implements KVNamespaceLike {
 	readonly puts: string[] = [];
 	readonly putOptions: Array<{ expirationTtl?: number } | undefined> = [];
+	readonly deletes: string[] = [];
+	/** Shared with the D1 fake when a test cares about the order across both stores. */
+	operationLog?: string[];
 	private readonly data: Map<string, unknown>;
 
 	constructor(data: Map<string, unknown>) {
@@ -1419,12 +1436,16 @@ class FakeKV implements KVNamespaceLike {
 	}
 
 	async delete(key: string): Promise<void> {
+		this.deletes.push(key);
+		this.operationLog?.push(`kv:delete:${key}`);
 		this.data.delete(key);
 	}
 }
 
 class FakeD1 implements D1DatabaseLike {
 	readonly runs: Array<{ query: string; bindings: unknown[] }> = [];
+	/** Shared with the KV fake when a test cares about the order across both stores. */
+	operationLog?: string[];
 	readonly mentionLookups: unknown[][] = [];
 	readonly contentIds: Set<string>;
 	private readonly existingThreads: ExistingThread[];
@@ -1538,6 +1559,7 @@ class FakeStatement implements D1PreparedStatementLike {
 
 	async run(): Promise<D1Result> {
 		this.db.runs.push({ query: this.query, bindings: this.bindings });
+		this.db.operationLog?.push(`d1:${this.query.trim().split("\n")[0]?.trim() ?? ""}`);
 		if (this.query.includes("INSERT OR IGNORE INTO content_ids")) {
 			const id = String(this.bindings[0]);
 			if (this.db.contentIds.has(id)) {

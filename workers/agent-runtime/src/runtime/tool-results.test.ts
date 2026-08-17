@@ -457,6 +457,135 @@ describe("delivered notification payloads", () => {
 		expect(merged.includedEventIds).toEqual(["ntf_notice", "ntf_mention"]);
 	});
 
+	it("coalesces one actor's follower notices into a single enumerating event", () => {
+		const otherActor = { id: "bot_third", username: "u/third_h", displayName: en("Third") };
+		const notice = (id: string, commentId: string, threadId: string, title: string, noticeActor = actor): NotificationEvent => ({
+			id,
+			createdAt: "2026-08-17T00:00:00.000Z",
+			kind: "comment_notice",
+			type: "comment_created",
+			deliveryReasons: ["followed_profile_activity"],
+			sourceObjectId: `c/${commentId}`,
+			actor: noticeActor,
+			thread: { id: threadId, title: en(title) },
+			comment: { id: commentId, threadId },
+		});
+
+		const delivered = deliverAll([
+			notice("ntf_notice_a", "cmt_a", "thr_one", "Thread one"),
+			notice("ntf_other_actor", "cmt_c", "thr_three", "Thread three", otherActor),
+			notice("ntf_notice_b", "cmt_b", "thr_two", "Thread two"),
+		]);
+
+		// The coalesced event takes the position of the actor's first notice, and a
+		// lone notice from another actor keeps its ordinary shape.
+		expect(delivered.events).toEqual([
+			{
+				type: "comment_created",
+				deliveryReasons: ["followed_profile_activity"],
+				actor: "u/other_h",
+				comments: [
+					{ commentRef: "c/cmt_a", threadRef: "t/thr_one", title: "Thread one" },
+					{ commentRef: "c/cmt_b", threadRef: "t/thr_two", title: "Thread two" },
+				],
+			},
+			{
+				type: "comment_created",
+				deliveryReasons: ["followed_profile_activity"],
+				actor: "u/third_h",
+				thread: { threadRef: "t/thr_three", title: "Thread three" },
+				comment: { commentRef: "c/cmt_c", threadRef: "t/thr_three" },
+			},
+		]);
+		// Every coalesced notification is reported delivered: what is not included
+		// is not deleted, and a lost id would leave an undeliverable row behind.
+		expect(delivered.includedEventIds).toEqual(["ntf_notice_a", "ntf_notice_b", "ntf_other_actor"]);
+	});
+
+	it("drops the lowest-priority end of the batch when the token budget is exceeded", () => {
+		// Delivery order is the caller's: the query hands over the most important
+		// notifications first, so the budget is spent from the front.
+		const events = [
+			{
+				id: "ntf_reply",
+				createdAt: "2026-08-17T00:00:00.000Z",
+				kind: "reply",
+				type: "comment_created",
+				deliveryReasons: ["direct_reply"],
+				actor,
+				thread: { id: "thr_reply", title: en("Reply thread") },
+				comment: { id: "cmt_reply", threadId: "thr_reply", author: actor, text: en("A reply to you.") },
+				replyTo: { id: "cmt_mine", threadId: "thr_reply", author: self, text: en("My comment.") },
+			},
+			{
+				id: "ntf_notice",
+				createdAt: "2026-08-17T00:00:00.000Z",
+				kind: "comment_notice",
+				type: "comment_created",
+				deliveryReasons: ["followed_profile_activity"],
+				actor,
+				thread: { id: "thr_notice", title: en("Notice thread") },
+				comment: { id: "cmt_notice", threadId: "thr_notice" },
+			},
+		] satisfies NotificationEvent[];
+
+		const unpruned = providerCheckNotificationsResultWithInclusions(events, readingParticipant());
+		// One token below what both events cost, so exactly one has to go.
+		const budget = Math.ceil(JSON.stringify(unpruned.payload).length / 4) - 1;
+		const pruned = providerCheckNotificationsResultWithInclusions(events, readingParticipant(), budget);
+		const payload = pruned.payload as { context?: string; events: Array<Record<string, unknown>> };
+
+		expect(payload.events.map((event) => event.deliveryReasons)).toEqual([["direct_reply"]]);
+		expect(pruned.includedEventIds).toEqual(["ntf_reply"]);
+		// The omitted notifications are still pending: only what was included is
+		// deleted by the caller.
+		expect(payload.context).toBe(
+			"Result of checking notifications. 1 lower-priority or older notification was omitted; they remain pending.",
+		);
+	});
+
+	it("counts every notification of a dropped group in the omission note", () => {
+		const notice = (id: string, commentId: string, threadId: string, title: string): NotificationEvent => ({
+			id,
+			createdAt: "2026-08-17T00:00:00.000Z",
+			kind: "comment_notice",
+			type: "comment_created",
+			deliveryReasons: ["followed_profile_activity"],
+			sourceObjectId: `c/${commentId}`,
+			actor,
+			thread: { id: threadId, title: en(title) },
+			comment: { id: commentId, threadId },
+		});
+		// Two notices from one actor coalesce into a single rendered event carrying
+		// both notification ids, so dropping that event leaves two rows pending.
+		const events = [
+			{
+				id: "ntf_reply",
+				createdAt: "2026-08-17T00:00:00.000Z",
+				kind: "reply",
+				type: "comment_created",
+				deliveryReasons: ["direct_reply"],
+				actor,
+				thread: { id: "thr_reply", title: en("Reply thread") },
+				comment: { id: "cmt_reply", threadId: "thr_reply", author: actor, text: en("A reply to you.") },
+				replyTo: { id: "cmt_mine", threadId: "thr_reply", author: self, text: en("My comment.") },
+			},
+			notice("ntf_notice_a", "cmt_a", "thr_one", "Thread one"),
+			notice("ntf_notice_b", "cmt_b", "thr_two", "Thread two"),
+		] satisfies NotificationEvent[];
+
+		const unpruned = providerCheckNotificationsResultWithInclusions(events, readingParticipant());
+		const budget = Math.ceil(JSON.stringify(unpruned.payload).length / 4) - 1;
+		const pruned = providerCheckNotificationsResultWithInclusions(events, readingParticipant(), budget);
+		const payload = pruned.payload as { context?: string; events: Array<Record<string, unknown>> };
+
+		expect(pruned.includedEventIds).toEqual(["ntf_reply"]);
+		expect(payload.events.map((event) => event.deliveryReasons)).toEqual([["direct_reply"]]);
+		expect(payload.context).toBe(
+			"Result of checking notifications. 2 lower-priority or older notifications were omitted; they remain pending.",
+		);
+	});
+
 	it("orders known delivery reasons and keeps unknown ones after them", () => {
 		expect(orderedProviderDeliveryReasons([
 			"followed_profile_activity",

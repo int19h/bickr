@@ -19,6 +19,9 @@ import type {
 	ForumWriteErrorCause,
 	JsonObject,
 	LocalizedText,
+	NotificationCommentRef,
+	NotificationProfileRef,
+	NotificationThreadRef,
 	StoredNotificationEvent,
 	RequiredLocalizedText,
 	SpotlightSyntheticContext,
@@ -570,7 +573,12 @@ export type ReadPruneResult = {
 
 export type ProviderNotificationPruneResult = {
 	events: Array<{ notificationIds: string[]; payload: Record<string, unknown> }>;
-	omittedEventCount: number;
+	/**
+	 * Notifications, not rendered events: one dropped event can carry several
+	 * merged or coalesced notifications, and what stays pending is the count the
+	 * recipient is told about.
+	 */
+	omittedNotificationCount: number;
 	tokenEstimate: number;
 };
 
@@ -579,8 +587,26 @@ export type ProviderNotificationPayloadResult = {
 	includedEventIds: string[];
 };
 
+/**
+ * Several slim comment notices from one actor, rendered as one event that
+ * enumerates the comments. This shape exists only between delivery-time
+ * coalescing and serialization: nothing stores it, and no reader of stored
+ * documents ever sees it. Coalescing at delivery rather than mutating the stored
+ * documents at creation is deliberate — a creation-time merge races the delivery
+ * that is reading those documents.
+ */
+export type CoalescedCommentNoticeEvent = {
+	kind: 'coalesced_comment_notice';
+	type: 'comment_created';
+	actor: NotificationProfileRef;
+	notices: Array<{ thread: NotificationThreadRef; comment: NotificationCommentRef }>;
+};
+
+/** What the provider serializer renders: a stored event, or a coalesced group of them. */
+export type DeliveredNotificationEvent = StoredNotificationEvent | CoalescedCommentNoticeEvent;
+
 export type ProviderNotificationEventGroup = {
-	event: StoredNotificationEvent;
+	event: DeliveredNotificationEvent;
 	/** Reasons of every notification merged into this group, in stored order. */
 	deliveryReasons: string[];
 	notificationIds: string[];
