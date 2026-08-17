@@ -5081,7 +5081,7 @@ export async function ensureBootstrapNotification(
 	bot: BotDocument,
 	now = new Date().toISOString(),
 ): Promise<void> {
-	if (await bootstrapAlreadyNotified(db, bot.id)) {
+	if (await bootstrapAlreadyNotified(kv, db, bot.id)) {
 		return;
 	}
 
@@ -5121,19 +5121,21 @@ export async function ensureBootstrapNotification(
 	await writeNotificationDocuments(kv, [notification]);
 	// One batch, so the flag can never be set without the row that backs it.
 	// INSERT OR IGNORE absorbs the retry after a crash between the two writes.
+	// The IS NULL guard makes stamp-once structural: whoever gets there first owns
+	// the timestamp, so a concurrent tick cannot overwrite it with a later one.
 	await db.batch([
 		...notificationInsertStatements(db, [notification]),
 		db
 			.prepare(
 				`UPDATE bots_index
 				 SET bootstrap_notified_at = ?
-				 WHERE bot_id = ?`,
+				 WHERE bot_id = ? AND bootstrap_notified_at IS NULL`,
 			)
 			.bind(notification.createdAt, bot.id),
 	]);
 }
 
-async function bootstrapAlreadyNotified(db: D1DatabaseLike, botId: string): Promise<boolean> {
+async function bootstrapAlreadyNotified(kv: KVNamespaceLike, db: D1DatabaseLike, botId: string): Promise<boolean> {
 	const row = await db
 		.prepare(
 			`SELECT bootstrap_notified_at AS bootstrapNotifiedAt
@@ -5146,7 +5148,7 @@ async function bootstrapAlreadyNotified(db: D1DatabaseLike, botId: string): Prom
 	if (row?.bootstrapNotifiedAt) {
 		return true;
 	}
-	return adoptLegacyBootstrapRow(db, botId);
+	return adoptLegacyBootstrapRow(kv, db, botId);
 }
 
 /**
@@ -5161,28 +5163,54 @@ async function bootstrapAlreadyNotified(db: D1DatabaseLike, botId: string): Prom
  * bootstrap rows belong to NULL-flag bots. This function is deleted once that
  * invariant holds and stays stable across one deploy cycle.
  */
-async function adoptLegacyBootstrapRow(db: D1DatabaseLike, botId: string): Promise<boolean> {
+async function adoptLegacyBootstrapRow(kv: KVNamespaceLike, db: D1DatabaseLike, botId: string): Promise<boolean> {
 	const legacy = await db
 		.prepare(
-			`SELECT MIN(created_at) AS createdAt
+			`SELECT notification_id AS id, created_at AS createdAt
 			 FROM notifications
-			 WHERE bot_id = ? AND type = 'bootstrap'`,
+			 WHERE bot_id = ? AND type = 'bootstrap'
+			 ORDER BY created_at ASC, notification_id ASC
+			 LIMIT 1`,
 		)
 		.bind(botId)
-		.first<{ createdAt: string | null }>();
-	const createdAt = legacy?.createdAt;
-	if (!createdAt) {
+		.first<{ id: string; createdAt: string }>();
+	if (!legacy) {
 		return false;
 	}
+	// Old code wrote this document with the 90-day pending TTL, and adopting the
+	// row sets a flag that never expires: without stripping the TTL the document
+	// would vanish while the flag permanently blocks a replacement. Rewritten
+	// before the flag update, so a crash in between simply replays both.
+	await stripAdoptedBootstrapKvTtl(kv, botId, legacy.id);
 	await db
 		.prepare(
 			`UPDATE bots_index
 			 SET bootstrap_notified_at = ?
-			 WHERE bot_id = ?`,
+			 WHERE bot_id = ? AND bootstrap_notified_at IS NULL`,
 		)
-		.bind(createdAt, botId)
+		.bind(legacy.createdAt, botId)
 		.run();
 	return true;
+}
+
+/**
+ * Accepted residual: this only reaches documents whose bot actually ticks during
+ * the deploy window. Bots stamped by the 0048 backfill keep their legacy TTL on
+ * disk, because the shim never runs for them — their flag is already set. PR-3's
+ * ghost self-heal (a missing document deletes the row and resets the flag, so the
+ * bootstrap is recreated) and O2's step-0 reconciliation are what close that gap;
+ * until they land, an expired pre-cutover pending bootstrap is a lost bootstrap
+ * for a bot paused past its TTL, which is the pre-existing behaviour, not a
+ * regression this PR introduces.
+ */
+async function stripAdoptedBootstrapKvTtl(kv: KVNamespaceLike, botId: string, notificationId: string): Promise<void> {
+	const document = await readJson<NotificationDocument>(kv, kvKeys.notification(botId, notificationId));
+	if (document?.status !== "pending") {
+		// Already delivered (TTL-backed and correctly so), or a ghost document that
+		// only PR-3's self-heal can resolve.
+		return;
+	}
+	await writeNotificationDocuments(kv, [document]);
 }
 
 function botInitialNotification(base: LocalizedText, hasIntroForum: boolean): LocalizedText {

@@ -676,7 +676,78 @@ describe("ensureBootstrapNotification", () => {
 		// The flag carries the notification's own creation time, and the shim's
 		// legacy lookup runs at most once per bot.
 		expect(db.bootstrapNotifiedAt).toBe(legacy.createdAt);
-		expect(db.queries.filter((query) => query.includes("MIN(created_at)"))).toHaveLength(1);
+		expect(db.queries.filter(isLegacyBootstrapLookup)).toHaveLength(1);
+	});
+
+	it("strips the legacy TTL from the adopted bootstrap document", async () => {
+		const legacy = { id: "ntf_legacy", createdAt: "2026-04-01T00:00:00.000Z" };
+		const { db, kv, bot } = bootstrapFixture({ legacyBootstrap: legacy });
+		const key = kvKeys.notification(bot.id, legacy.id);
+		// Written by the previous deployment, which still gave pending bootstrap
+		// documents the 90-day retention TTL.
+		await kv.put(key, JSON.stringify({
+			id: legacy.id,
+			type: "notification",
+			schemaVersion,
+			revision: 1,
+			worldId: bot.homeWorldId,
+			botId: bot.id,
+			notificationType: "bootstrap",
+			status: "pending",
+			message: en("Welcome."),
+			createdAt: legacy.createdAt,
+			updatedAt: legacy.createdAt,
+		}), { expirationTtl: notificationKvExpirationTtlSeconds });
+		kv.puts.length = 0;
+		kv.putOptions.length = 0;
+
+		await ensureBootstrapNotification(kv, db, bot, now);
+
+		// The adopted flag never expires, so the document it points at must not
+		// either — otherwise the flag outlives the bootstrap it promises.
+		expect(kv.puts).toEqual([key]);
+		expect(kv.putOptions).toEqual([undefined]);
+		expect(db.notifications.map((notification) => notification.id)).toEqual([legacy.id]);
+		expect(db.bootstrapNotifiedAt).toBe(legacy.createdAt);
+	});
+
+	it("leaves an already-delivered legacy document on its TTL", async () => {
+		const legacy = { id: "ntf_legacy", createdAt: "2026-04-01T00:00:00.000Z" };
+		const { db, kv, bot } = bootstrapFixture({ legacyBootstrap: legacy });
+		await kv.put(kvKeys.notification(bot.id, legacy.id), JSON.stringify({
+			id: legacy.id,
+			botId: bot.id,
+			notificationType: "bootstrap",
+			status: "delivered_to_loop",
+			createdAt: legacy.createdAt,
+		}), { expirationTtl: notificationKvExpirationTtlSeconds });
+		kv.puts.length = 0;
+		kv.putOptions.length = 0;
+
+		await ensureBootstrapNotification(kv, db, bot, now);
+
+		// Delivery is what bounds a bootstrap document; the exemption is over.
+		expect(kv.puts).toEqual([]);
+		expect(db.bootstrapNotifiedAt).toBe(legacy.createdAt);
+	});
+
+	it("bootstraps a bot with no bots_index row exactly once, without a flag to stamp", async () => {
+		const { db, kv, bot } = bootstrapFixture({ missingBotsIndexRow: true });
+		const notificationId = await bootstrapNotificationId(bot.id);
+		const key = kvKeys.notification(bot.id, notificationId);
+
+		await ensureBootstrapNotification(kv, db, bot, now);
+		await ensureBootstrapNotification(kv, db, bot, later);
+
+		// With no row to stamp, the deterministic id is the only thing bounding the
+		// bootstrap: the second attempt adopts the row the first one wrote and
+		// rewrites the same document instead of creating a second one.
+		expect(db.notifications).toEqual([
+			{ id: notificationId, botId: bot.id, type: "bootstrap", status: "pending", createdAt: now },
+		]);
+		expect(kv.puts).toEqual([key, key]);
+		expect(kv.putOptions).toEqual([undefined, undefined]);
+		expect(db.bootstrapNotifiedAt).toBeNull();
 	});
 
 	it("retries a crash between the KV document and the D1 batch without duplicating anything", async () => {
@@ -900,6 +971,8 @@ type BootstrapFixtureOptions = {
 	bootstrapNotifiedAt?: string;
 	legacyBootstrap?: { id: string; createdAt: string };
 	failBatchOnce?: boolean;
+	/** Models a bot whose bots_index projection is gone: no row to read or stamp. */
+	missingBotsIndexRow?: boolean;
 };
 
 function bootstrapFixture(options: BootstrapFixtureOptions = {}): { db: FakeBootstrapD1; kv: FakeKV; bot: BotDocument } {
@@ -907,6 +980,11 @@ function bootstrapFixture(options: BootstrapFixtureOptions = {}): { db: FakeBoot
 	kv.puts.length = 0;
 	kv.putOptions.length = 0;
 	return { db: new FakeBootstrapD1(bot.id, options), kv, bot };
+}
+
+/** The deploy-window shim's one legacy read, which must not repeat per bot. */
+function isLegacyBootstrapLookup(query: string): boolean {
+	return query.includes("FROM notifications") && query.includes("type = 'bootstrap'");
 }
 
 type BootstrapNotificationRow = {
@@ -929,11 +1007,13 @@ class FakeBootstrapD1 implements D1DatabaseLike {
 	readonly notifications: BootstrapNotificationRow[] = [];
 	bootstrapNotifiedAt: string | null;
 	private readonly botId: string;
+	private readonly hasBotsIndexRow: boolean;
 	private failNextBatch: boolean;
 
 	constructor(botId: string, options: BootstrapFixtureOptions) {
 		this.botId = botId;
 		this.bootstrapNotifiedAt = options.bootstrapNotifiedAt ?? null;
+		this.hasBotsIndexRow = !options.missingBotsIndexRow;
 		this.failNextBatch = options.failBatchOnce ?? false;
 		if (options.legacyBootstrap) {
 			this.notifications.push({
@@ -965,14 +1045,17 @@ class FakeBootstrapD1 implements D1DatabaseLike {
 
 	first<T>(query: string, bindings: unknown[]): T | null {
 		if (query.includes("FROM bots_index") && query.includes("bootstrap_notified_at")) {
-			return bindings[0] === this.botId ? ({ bootstrapNotifiedAt: this.bootstrapNotifiedAt } as T) : null;
+			if (!this.hasBotsIndexRow || bindings[0] !== this.botId) {
+				return null;
+			}
+			return { bootstrapNotifiedAt: this.bootstrapNotifiedAt } as T;
 		}
-		if (query.includes("FROM notifications") && query.includes("MIN(created_at)")) {
-			const created = this.notifications
+		if (query.includes("FROM notifications") && query.includes("type = 'bootstrap'")) {
+			// ORDER BY created_at ASC, notification_id ASC LIMIT 1.
+			const [earliest] = this.notifications
 				.filter((row) => row.botId === bindings[0] && row.type === "bootstrap")
-				.map((row) => row.createdAt)
-				.sort();
-			return { createdAt: created[0] ?? null } as T;
+				.sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
+			return (earliest ? { id: earliest.id, createdAt: earliest.createdAt } : null) as T | null;
 		}
 		return null;
 	}
@@ -980,7 +1063,9 @@ class FakeBootstrapD1 implements D1DatabaseLike {
 	run(query: string, bindings: unknown[]): void {
 		this.runs.push({ query, bindings });
 		if (query.includes("UPDATE bots_index") && query.includes("bootstrap_notified_at")) {
-			if (bindings[1] === this.botId) {
+			// WHERE bot_id = ? AND bootstrap_notified_at IS NULL: an absent row or an
+			// already-stamped flag matches nothing, so the stamp happens exactly once.
+			if (this.hasBotsIndexRow && bindings[1] === this.botId && this.bootstrapNotifiedAt === null) {
 				this.bootstrapNotifiedAt = String(bindings[0]);
 			}
 			return;
