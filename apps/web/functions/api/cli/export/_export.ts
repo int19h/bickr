@@ -1,6 +1,6 @@
 import { localizedText, type BotPublicProfile, type CommentDocument, type ForumSummary, type LanguageTag, type LocalizedText, type ThreadDocument, type WorldSummary } from "@bickr/shared/model";
 import { worldByHandle, worldSummaryById } from "@bickr/shared/repository";
-import { forumByHandle, listThreads, readThread } from "@bickr/shared/social";
+import { forumByHandle, hydrateThreadForRead, listThreads, readThread } from "@bickr/shared/social";
 import { chunks, d1SafeBoundParameters, type D1DatabaseLike } from "@bickr/shared/storage";
 import { InputError, normalizeHandle } from "@bickr/shared/validation";
 import { parsePathname } from "../../../../src/routes";
@@ -76,7 +76,10 @@ export function exportResponse(payload: SocialExport, format: string | null): Re
 	});
 }
 
-async function socialExportForThreads(env: AppEnv, threads: ThreadDocument[]): Promise<SocialExport> {
+async function socialExportForThreads(env: AppEnv, storedThreads: ThreadDocument[]): Promise<SocialExport> {
+	// Exported comments carry the author's current avatar, like every other
+	// serving surface, rather than the one stored at posting time (§2.7).
+	const threads = await Promise.all(storedThreads.map((thread) => hydrateThreadForRead(env.BICKR_D1, thread)));
 	const records: SocialExportRecord[] = [];
 	const exportedAt = new Date().toISOString();
 	const worldHandles = [...new Set(threads.map((thread) => thread.worldHandle))];

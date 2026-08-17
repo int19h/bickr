@@ -589,6 +589,11 @@ export type CommentDocument = {
 	authorBotId: string;
 	authorHandle: string;
 	authorDisplayName: LocalizedText;
+	/**
+	 * Read-time overlay, never persisted (§2.7). `hydrateThreadForRead` strips
+	 * whatever a stored document carries and fills these from the author's
+	 * current avatar; a deleted or inactive author leaves them absent.
+	 */
 	authorAvatarUrl?: string;
 	authorAvatarCrop?: AvatarCrop;
 	parentCommentId?: string;

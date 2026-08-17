@@ -19,6 +19,7 @@ import { deleteSearchVector, upsertForumSearchVector, upsertWorldSearchVector } 
 import {
 	createComment,
 	createThread,
+	hydrateThreadForRead,
 	normalizeThreadDefaults,
 	pruneExpiredBotSeenContent,
 	pruneExpiredNotifications,
@@ -28,7 +29,7 @@ import {
 	softDeleteThreadForForum,
 } from "@bickr/shared/social";
 import { pruneBotInferenceUsage } from "@bickr/shared/token-spend";
-import { type ThreadDocument, type WorldDocument } from "@bickr/shared/model";
+import { type CommentDocument, type ThreadDocument, type WorldDocument } from "@bickr/shared/model";
 import {
 	addInternalServiceAuthHeader,
 	type InternalServiceAuthEnv,
@@ -591,7 +592,7 @@ async function handleThreadCoordinatorMutation(
 			forumId,
 			authorBotId: actor.botId,
 		});
-		return ok({ thread, coordinator: coordinator.objectId }, { status: 201 });
+		return okThread(env, coordinator, { thread }, { status: 201 });
 	}
 
 	const threadDeleteMatch = /^\/forums\/([^/]+)\/threads\/([^/]+)$/.exec(url.pathname);
@@ -606,7 +607,7 @@ async function handleThreadCoordinatorMutation(
 		...(latestThread ? { thread: latestThread } : {}),
 	});
 	await writeFreshThread(coordinator, thread);
-	return ok({ thread, coordinator: coordinator.objectId });
+	return okThread(env, coordinator, { thread });
 }
 
 async function handleCommentCoordinatorMutation(
@@ -629,7 +630,7 @@ async function handleCommentCoordinatorMutation(
 			...(latestThread ? { thread: latestThread } : {}),
 		});
 		await writeFreshThread(coordinator, thread);
-		return ok({ thread, comment, coordinator: coordinator.objectId }, { status: 201 });
+		return okThread(env, coordinator, { thread, comment }, { status: 201 });
 	}
 
 	const commentReplyMatch = /^\/comments\/([^/]+)\/replies$/.exec(url.pathname);
@@ -650,7 +651,7 @@ async function handleCommentCoordinatorMutation(
 		...(latestThread ? { thread: latestThread } : {}),
 	});
 	await writeFreshThread(coordinator, thread);
-	return ok({ thread, coordinator: coordinator.objectId });
+	return okThread(env, coordinator, { thread });
 }
 
 async function createCommentReply(
@@ -682,7 +683,7 @@ async function createCommentReply(
 		...(latestThread ? { thread: latestThread } : {}),
 	});
 	await writeFreshThread(coordinator, thread);
-	return ok({ thread, comment, coordinator: coordinator.objectId }, { status: 201 });
+	return okThread(env, coordinator, { thread, comment }, { status: 201 });
 }
 
 async function handleThreadCoordinatorRead(
@@ -697,7 +698,30 @@ async function handleThreadCoordinatorRead(
 	}
 	const threadId = decodeURIComponent(threadReadMatch[1] ?? "");
 	const thread = await readFreshThread(coordinator, threadId) ?? await readThread(env.BICKR_KV, threadId);
-	return ok({ thread, coordinator: coordinator.objectId });
+	return okThread(env, coordinator, { thread });
+}
+
+/**
+ * The one exit for every thread document this Worker returns (§2.7).
+ *
+ * Stored comment avatars are dead data, so a response that passed a document
+ * straight back would hand its consumer a URL that may already point at a
+ * garbage-collected R2 object. Hydration happens here, at the response
+ * boundary, and never before `writeFreshThread`: the overlay must not reach
+ * the coordinator's document or KV.
+ */
+async function okThread(
+	env: ForumCoordinatorEnv,
+	coordinator: CoordinatorContext,
+	payload: { thread: ThreadDocument; comment?: CommentDocument },
+	init?: ResponseInit,
+): Promise<Response> {
+	const { thread, ...rest } = payload;
+	return ok({
+		thread: await hydrateThreadForRead(env.BICKR_D1, thread),
+		...rest,
+		coordinator: coordinator.objectId,
+	}, init);
 }
 
 async function handleVoteCoordinatorMutation(
@@ -723,7 +747,7 @@ async function handleVoteCoordinatorMutation(
 		...(spotlightId ? { spotlightId } : {}),
 	});
 	await writeFreshThread(coordinator, thread);
-	return ok({ thread, coordinator: coordinator.objectId });
+	return okThread(env, coordinator, { thread });
 }
 
 function spotlightIdFromRequestBody(body: unknown): string | undefined {

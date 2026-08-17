@@ -2,7 +2,7 @@ import { ok } from "@bickr/shared/api";
 import { addInternalServiceAuthHeader, internalServiceUrl } from "@bickr/shared/internal-service";
 import { type ApiErrorCode, type ThreadDocument } from "@bickr/shared/model";
 import { RepositoryError } from "@bickr/shared/repository";
-import { forumByHandle, readThreadWithReadState, recordThreadRead, threadWithReadState } from "@bickr/shared/social";
+import { forumByHandle, hydrateThreadForRead, readThreadWithReadState, recordThreadRead, threadWithReadState } from "@bickr/shared/social";
 import { normalizeHandleParam } from "@bickr/shared/validation";
 import { currentUser, requireCompleteUser, type AppEnv } from "../../../../../_auth";
 import { pageErrorResponse } from "../../../../../_errors";
@@ -24,7 +24,10 @@ export const onRequestGet: PagesFunction<
 			fresh ?
 				await threadWithReadState(
 					env.BICKR_D1,
-					await readCoordinatorThread(env, request, threadId),
+					// The coordinator's document is served as-is otherwise, so the
+					// avatar hydration the KV path gets from readThreadWithReadState
+					// has to happen here too (§2.7).
+					await hydrateThreadForRead(env.BICKR_D1, await readCoordinatorThread(env, request, threadId)),
 					user?.id ?? null,
 				)
 			:	await readThreadWithReadState(env.BICKR_KV, env.BICKR_D1, threadId, user?.id ?? null);

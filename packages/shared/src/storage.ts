@@ -59,6 +59,11 @@ export const kvKeys = {
 	// deletes it on reaching the end so the next pass restarts from the first
 	// participant.
 	botRuntimeRetentionSweepCursor: "v1:maintenance:bot-runtime-retention-sweep-cursor",
+	// One fixed key holding the last completed R2 avatar janitor run. The
+	// janitor is weekly but its cron is daily, so the gate needs a marker that
+	// survives invocations. Overwritten in place and retained indefinitely: one
+	// key, not a growing prefix.
+	avatarJanitorLastRun: "v1:maintenance:avatar-janitor-last-run",
 	notification: (botId: string, notificationId: string) =>
 		`v1:notification:${botId}:${notificationId}`,
 };

@@ -160,6 +160,7 @@ import {
 	streamAvatarPrompt,
 	worldAvatarPromptSettings as resolvedWorldAvatarPromptSettings,
 } from './avatar/service';
+import { runAvatarJanitor, type AvatarJanitorResult } from './avatar/janitor';
 import { worldDocumentForAvatar } from './avatar/target';
 import { scheduledDispatchBudget, scheduledDispatchSelectLimit, scheduledDispatchTimeoutMs } from './constants';
 import { RuntimeOperationTimeoutError } from './errors';
@@ -2828,7 +2829,7 @@ export default {
 export type ScheduledAgentRuntimeTasksResult =
 	| { kind: 'maintenance'; sweep: InferenceProviderDefaultBarrierFleetStepResult }
 	| { kind: 'ordinary' }
-	| { kind: 'daily'; retention: BotRuntimeRetentionSweepResult }
+	| { kind: 'daily'; retention: BotRuntimeRetentionSweepResult; janitor: AvatarJanitorResult }
 	| { kind: 'daily_deferred' };
 
 export async function runScheduledAgentRuntimeTasks(
@@ -2864,27 +2865,49 @@ async function runDailyScheduledAgentRuntimeTasks(env: Env, scheduledTime: numbe
 		return { kind: 'daily_deferred' };
 	}
 	// Steps are independent and each is individually capped, so one failure must
-	// not cost the others their run. There is one step today; #190 adds the
-	// inference-graph terminal-state cleanup beside it.
-	const [retention] = await Promise.allSettled([
+	// not cost the others their run. #190 adds the inference-graph terminal-state
+	// cleanup beside these two.
+	const [retention, janitor] = await Promise.allSettled([
 		runBotRuntimeRetentionSweep({
 			BICKR_D1: env.BICKR_D1,
 			BICKR_KV: env.BICKR_KV,
 			BOT_RUNTIME: env.BOT_RUNTIME,
 			...(env.INTERNAL_SERVICE_SECRET === undefined ? {} : { INTERNAL_SERVICE_SECRET: env.INTERNAL_SERVICE_SECRET }),
 		}, { now }),
+		// Weekly, but gated on its own KV marker rather than on the schedule: this
+		// cron is daily and six of every seven janitor calls do nothing (§2.7).
+		runAvatarJanitor({
+			BICKR_D1: env.BICKR_D1,
+			BICKR_KV: env.BICKR_KV,
+			...(env.BICKR_R2 === undefined ? {} : { BICKR_R2: env.BICKR_R2 }),
+			...(env.BICKR_R2_PUBLIC_BASE_URL === undefined ? {} : { BICKR_R2_PUBLIC_BASE_URL: env.BICKR_R2_PUBLIC_BASE_URL }),
+		}, { now }),
 	]);
-	console.log(JSON.stringify({
+	const record = {
 		event: 'scheduled_daily_maintenance',
 		scheduledTime,
 		retention: retention.status === 'fulfilled'
 			? retention.value
 			: { status: 'failed', errorName: retention.reason instanceof Error ? retention.reason.name : 'UnknownError' },
-	}));
+		janitor: janitor.status === 'fulfilled'
+			? janitor.value
+			: { status: 'failed', errorName: janitor.reason instanceof Error ? janitor.reason.name : 'UnknownError' },
+	};
+	// A janitor run that refused to sweep is not a failed invocation, but it is
+	// the signal that the fleet outgrew the single-invocation design, so it is
+	// logged at error level rather than buried in the daily record.
+	const janitorRefused = janitor.status === 'fulfilled' &&
+		(janitor.value.status === 'skipped_over_budget' || janitor.value.status === 'aborted');
+	(retention.status === 'rejected' || janitor.status === 'rejected' || janitorRefused ? console.error : console.log)(
+		JSON.stringify(record),
+	);
 	if (retention.status === 'rejected') {
 		throw retention.reason;
 	}
-	return { kind: 'daily', retention: retention.value };
+	if (janitor.status === 'rejected') {
+		throw janitor.reason;
+	}
+	return { kind: 'daily', retention: retention.value, janitor: janitor.value };
 }
 
 async function runFrequentScheduledAgentRuntimeTasks(env: Env, scheduledTime: number): Promise<ScheduledAgentRuntimeTasksResult> {
