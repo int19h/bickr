@@ -1,5 +1,6 @@
 import { addInternalServiceAuthHeader, internalServiceUrl } from '@bickr/shared/internal-service';
 import {
+	chunks,
 	deleteKey,
 	kvKeys,
 	readJson,
@@ -58,14 +59,33 @@ export type BotRuntimeMaintenanceDispatch =
  */
 export const botRuntimeRetentionSweepReportedFailureLimit = 20;
 
+/**
+ * Participants the retry backlog carries between runs.
+ *
+ * The chunks select strictly `bot_id > cursor`, so a participant that failed
+ * once is otherwise not seen again until the walk wraps the whole fleet — a
+ * clear refused with 409 because a visit was running would sit unreclaimed for
+ * a full cycle. The backlog is what makes the next run retry it instead. It is
+ * bounded because a fleet-wide outage would otherwise persist every failure of
+ * every run: past this many, the excess is dropped and counted, and those
+ * participants fall back to the wrap-around they had before.
+ */
+export const botRuntimeRetentionSweepMaxRetryBacklog = 100;
+
 export type BotRuntimeRetentionSweepResult = {
 	kind: 'bot_runtime_retention_sweep';
 	scanned: number;
 	pruned: number;
 	cleared: number;
 	failed: number;
-	/** The pass reached the end of bot_runtime_index and reset its cursor. */
+	/** The pass reached the end of bot_runtime_index. */
 	complete: boolean;
+	/** Participants revisited out of a previous run's retry backlog. */
+	retried: number;
+	/** Failures this run handed to the next one's retry backlog. */
+	retryBacklog: number;
+	/** Failures the bounded backlog could not carry. */
+	retriesDropped: number;
 	failures: BotRuntimeMaintenanceDispatch[];
 	failuresOmitted: number;
 };
@@ -76,7 +96,16 @@ type BotRuntimeRetentionRow = {
 	botMissing: number;
 };
 
-type BotRuntimeRetentionSweepCursor = { afterBotId: string };
+type BotRuntimeRetentionSweepCursor = {
+	/** Keyset position in `bot_runtime_index`; absent once the walk has wrapped. */
+	afterBotId?: string;
+	/**
+	 * Participants an earlier run dispatched to and could not confirm. The next
+	 * run revisits these before resuming the walk, because the walk itself has
+	 * already moved past them.
+	 */
+	retryBotIds?: string[];
+};
 
 /**
  * Daily retention pass over the whole runtime fleet (design §2.4).
@@ -91,6 +120,11 @@ type BotRuntimeRetentionSweepCursor = { afterBotId: string };
  * The walk is a real keyset cursor persisted in KV: a pass that runs out of
  * budget resumes at the participant after the last one it handled, and only a
  * pass that reaches the end clears the cursor.
+ *
+ * A participant the object refused or that timed out is not left to the
+ * wrap-around, because the walk only ever moves forward: its id rides the same
+ * cursor as a bounded retry backlog, which the next run spends before resuming
+ * the walk and out of the same wake-up budget.
  */
 export async function runBotRuntimeRetentionSweep<ObjectId>(
 	env: BotRuntimeRetentionSweepEnv<ObjectId>,
@@ -111,48 +145,111 @@ export async function runBotRuntimeRetentionSweep<ObjectId>(
 	let pruned = 0;
 	let cleared = 0;
 	let failed = 0;
+	let retriesDropped = 0;
 	const failures: BotRuntimeMaintenanceDispatch[] = [];
-	const iteration = await runBoundedSweep<BotRuntimeRetentionRow, string>({
-		chunkSize,
-		maxItemsPerRun: maxBotsPerRun,
-		...(storedCursor ? { initialCursor: storedCursor.afterBotId } : {}),
-		loadChunk: (cursor, limit) => loadRuntimeIndexChunk(env.BICKR_D1, cursor, limit),
-		processChunk: async (rows) => {
-			const attempts = await Promise.all(rows.map((row) =>
-				row.botDeletedAt === null && row.botMissing === 0
-					? pruneBotRuntimeStorage(env, row.botId)
-					: clearBotRuntimeStorage(env, row.botId, { now }),
-			));
-			for (const attempt of attempts) {
-				if (attempt.status === 'failed') {
-					failed += 1;
-					if (failures.length < botRuntimeRetentionSweepReportedFailureLimit) {
-						failures.push(attempt);
-					}
+	// Ordered and deduplicated: a participant that fails in both the retry pass
+	// and the walk of the same run is one entry, and the oldest failures stay at
+	// the front so the bound drops the newest rather than starving the oldest.
+	const pendingRetries: string[] = [];
+	let walkCursor = storedCursor?.afterBotId;
+	// Only `complete` sets this. A run whose budget the retry pass consumed
+	// entirely never walks at all, and must not be mistaken for one that reached
+	// the end of the fleet and may drop its position.
+	let walkComplete = false;
+
+	const persistCursor = async (): Promise<void> => {
+		const cursor: BotRuntimeRetentionSweepCursor = {
+			...(walkComplete || !walkCursor ? {} : { afterBotId: walkCursor }),
+			...(pendingRetries.length > 0 ? { retryBotIds: [...pendingRetries] } : {}),
+		};
+		if (cursor.afterBotId === undefined && cursor.retryBotIds === undefined) {
+			await deleteKey(env.BICKR_KV, kvKeys.botRuntimeRetentionSweepCursor);
+			return;
+		}
+		await writeJson(env.BICKR_KV, kvKeys.botRuntimeRetentionSweepCursor, cursor);
+	};
+
+	const recordAttempts = (attempts: readonly BotRuntimeMaintenanceDispatch[]): void => {
+		for (const attempt of attempts) {
+			if (attempt.status === 'failed') {
+				failed += 1;
+				if (failures.length < botRuntimeRetentionSweepReportedFailureLimit) {
+					failures.push(attempt);
+				}
+				if (pendingRetries.includes(attempt.botId)) {
 					continue;
 				}
-				if (attempt.status === 'cleared') {
-					cleared += 1;
-				} else {
-					pruned += 1;
+				if (pendingRetries.length >= botRuntimeRetentionSweepMaxRetryBacklog) {
+					retriesDropped += 1;
+					continue;
 				}
+				pendingRetries.push(attempt.botId);
+				continue;
 			}
+			if (attempt.status === 'cleared') {
+				cleared += 1;
+			} else {
+				pruned += 1;
+			}
+		}
+	};
+
+	const dispatchRows = async (rows: readonly BotRuntimeRetentionRow[]): Promise<void> => {
+		recordAttempts(await Promise.all(rows.map((row) =>
+			row.botDeletedAt === null && row.botMissing === 0
+				? pruneBotRuntimeStorage(env, row.botId)
+				: clearBotRuntimeStorage(env, row.botId, { now }),
+		)));
+	};
+
+	// The retry backlog runs first and out of the same budget, so revisiting
+	// failures can never push a run past its wake-up allowance — it only shifts
+	// how much of the walk this run gets to.
+	let retried = 0;
+	for (const chunk of chunks(storedCursor?.retryBotIds ?? [], chunkSize)) {
+		if (retried >= maxBotsPerRun) {
+			break;
+		}
+		// A participant whose marker was set in the meantime, or whose index row is
+		// gone, drops out of the backlog here rather than costing a wake-up.
+		const rows = (await loadRuntimeIndexRows(env.BICKR_D1, chunk)).slice(0, maxBotsPerRun - retried);
+		retried += rows.length;
+		await dispatchRows(rows);
+	}
+
+	const iteration = await runBoundedSweep<BotRuntimeRetentionRow, string>({
+		chunkSize,
+		maxItemsPerRun: Math.max(0, maxBotsPerRun - retried),
+		...(walkCursor ? { initialCursor: walkCursor } : {}),
+		loadChunk: (cursor, limit) => loadRuntimeIndexChunk(env.BICKR_D1, cursor, limit),
+		processChunk: async (rows) => {
+			await dispatchRows(rows);
 			return { kind: 'continue' };
 		},
-		checkpoint: (afterBotId) => writeJson(
-			env.BICKR_KV,
-			kvKeys.botRuntimeRetentionSweepCursor,
-			{ afterBotId } satisfies BotRuntimeRetentionSweepCursor,
-		),
-		complete: () => deleteKey(env.BICKR_KV, kvKeys.botRuntimeRetentionSweepCursor),
+		checkpoint: async (afterBotId) => {
+			walkCursor = afterBotId;
+			await persistCursor();
+		},
+		complete: async () => {
+			walkComplete = true;
+			await persistCursor();
+		},
 	});
+	// The walk's own checkpoints cannot cover a run that never entered the loop
+	// because the retry pass spent its budget, nor failures recorded after the
+	// last checkpoint. One reconciling write closes both.
+	await persistCursor();
+
 	return {
 		kind: 'bot_runtime_retention_sweep',
-		scanned: iteration.scanned,
+		scanned: retried + iteration.scanned,
 		pruned,
 		cleared,
 		failed,
-		complete: !iteration.budgetExhausted,
+		complete: walkComplete,
+		retried,
+		retryBacklog: pendingRetries.length,
+		retriesDropped,
 		failures,
 		failuresOmitted: failed - failures.length,
 	};
@@ -230,19 +327,39 @@ async function dispatchRuntimeMaintenance<ObjectId>(
 	}
 }
 
+/**
+ * The retry backlog's participants, as the walk would have loaded them.
+ *
+ * Ids whose row has since been marked cleared, or whose row is gone, simply do
+ * not come back: the backlog is a list of ids rather than a snapshot of rows,
+ * so their disposition is re-decided here against current state.
+ */
+async function loadRuntimeIndexRows(db: D1DatabaseLike, botIds: readonly string[]): Promise<BotRuntimeRetentionRow[]> {
+	if (botIds.length === 0) {
+		return [];
+	}
+	const result = await db
+		.prepare(`${runtimeIndexSelection} AND runtime.bot_id IN (${botIds.map(() => '?').join(', ')}) ORDER BY runtime.bot_id ASC`)
+		.bind(...botIds)
+		.all<BotRuntimeRetentionRow>();
+	return result.results ?? [];
+}
+
+// A runtime row with no bots_index row at all is orphaned runtime state, which
+// has the same disposition as a tombstoned participant: nothing can read it.
+const runtimeIndexSelection = `SELECT runtime.bot_id AS botId,
+		bots.deleted_at AS botDeletedAt,
+		CASE WHEN bots.bot_id IS NULL THEN 1 ELSE 0 END AS botMissing
+	 FROM bot_runtime_index runtime
+	 LEFT JOIN bots_index bots ON bots.bot_id = runtime.bot_id
+	 WHERE runtime.runtime_storage_cleared_at IS NULL`;
+
 async function loadRuntimeIndexChunk(
 	db: D1DatabaseLike,
 	cursor: string | undefined,
 	limit: number,
 ) {
-	// A runtime row with no bots_index row at all is orphaned runtime state, which
-	// has the same disposition as a tombstoned participant: nothing can read it.
-	const selection = `SELECT runtime.bot_id AS botId,
-			bots.deleted_at AS botDeletedAt,
-			CASE WHEN bots.bot_id IS NULL THEN 1 ELSE 0 END AS botMissing
-		 FROM bot_runtime_index runtime
-		 LEFT JOIN bots_index bots ON bots.bot_id = runtime.bot_id
-		 WHERE runtime.runtime_storage_cleared_at IS NULL`;
+	const selection = runtimeIndexSelection;
 	const statement = cursor
 		? db.prepare(`${selection} AND runtime.bot_id > ? ORDER BY runtime.bot_id ASC LIMIT ?`).bind(cursor, limit)
 		: db.prepare(`${selection} ORDER BY runtime.bot_id ASC LIMIT ?`).bind(limit);
@@ -261,8 +378,19 @@ async function readSweepCursor(kv: KVNamespaceLike): Promise<BotRuntimeRetention
 	if (!value || typeof value !== 'object' || Array.isArray(value)) {
 		return null;
 	}
-	const afterBotId = (value as Record<string, unknown>).afterBotId;
-	return typeof afterBotId === 'string' && afterBotId.length > 0 ? { afterBotId } : null;
+	const record = value as Record<string, unknown>;
+	const afterBotId = record.afterBotId;
+	const retryBotIds = [
+		...new Set(
+			(Array.isArray(record.retryBotIds) ? record.retryBotIds : [])
+				.filter((botId): botId is string => typeof botId === 'string' && botId.length > 0),
+		),
+	].slice(0, botRuntimeRetentionSweepMaxRetryBacklog);
+	const cursor: BotRuntimeRetentionSweepCursor = {
+		...(typeof afterBotId === 'string' && afterBotId.length > 0 ? { afterBotId } : {}),
+		...(retryBotIds.length > 0 ? { retryBotIds } : {}),
+	};
+	return cursor.afterBotId === undefined && cursor.retryBotIds === undefined ? null : cursor;
 }
 
 function boundedPositiveInteger(value: number, name: string, maximum: number): number {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { kvKeys } from '@bickr/shared/storage';
 import {
+	botRuntimeRetentionSweepMaxRetryBacklog,
 	botRuntimeRetentionSweepReportedFailureLimit,
 	runBotRuntimeRetentionSweep,
 } from './runtime-storage-retention';
@@ -19,6 +20,8 @@ function sweepEnv(
 	rows: FleetRow[],
 	options: { fail?: (botId: string, path: string) => boolean; cursor?: string } = {},
 ): SweepEnv {
+	// `fail` is read per dispatch rather than captured, so a test can make a
+	// participant fail in one pass and succeed in the next.
 	const requests: string[] = [];
 	const kvValues = new Map<string, string>();
 	if (options.cursor) {
@@ -55,6 +58,23 @@ function sweepEnv(
 										rows.splice(rows.indexOf(row), 1);
 									}
 									return { success: true };
+								},
+							};
+						},
+					};
+				}
+				// Checked before the keyset branch: both mention the same table, and
+				// this is the retry backlog's re-read of specific ids.
+				if (sql.includes('runtime.bot_id IN (')) {
+					return {
+						bind(...botIds: unknown[]) {
+							return {
+								async all<T>() {
+									const wanted = new Set(botIds.map(String));
+									const page = [...rows]
+										.filter((row) => wanted.has(row.botId))
+										.sort((left, right) => left.botId.localeCompare(right.botId));
+									return { success: true, results: page as T[] };
 								},
 							};
 						},
@@ -167,6 +187,88 @@ describe('BotRuntime retention fleet sweep', () => {
 		});
 		expect(env.requests).not.toContain(`mark:bot-busy@${now}`);
 		expect(env.rows.map((row) => row.botId)).toEqual(['bot-busy']);
+		// The id is carried rather than left to the next wrap of the whole fleet.
+		expect(result.retryBacklog).toBe(1);
+		expect(JSON.parse(String(env.kvValues.get(kvKeys.botRuntimeRetentionSweepCursor)))).toEqual({ retryBotIds: ['bot-busy'] });
+	});
+
+	it('retries a participant that failed in an earlier pass before resuming the walk', async () => {
+		// The keyset walk selects strictly bot_id > cursor, so bot-1 is behind the
+		// cursor from the moment its chunk is checkpointed. Only the retry backlog
+		// can bring it back before the walk wraps the entire fleet.
+		const rows: FleetRow[] = [
+			{ botId: 'bot-1', botDeletedAt: '2026-07-01T00:00:00.000Z', botMissing: 0 },
+			...['bot-2', 'bot-3', 'bot-4', 'bot-5'].map(liveBot),
+		];
+		let refuseClear = true;
+		const env = sweepEnv(rows, { fail: (botId, path) => refuseClear && botId === 'bot-1' && path === 'storage' });
+
+		const first = await runBotRuntimeRetentionSweep(env, { now, maxBotsPerRun: 2, chunkSize: 2 });
+
+		expect(first).toMatchObject({ scanned: 2, pruned: 1, cleared: 0, failed: 1, retried: 0, retryBacklog: 1, complete: false });
+		expect(env.requests).toEqual(['DELETE bot-1/storage', 'POST bot-2/retention']);
+		expect(JSON.parse(String(env.kvValues.get(kvKeys.botRuntimeRetentionSweepCursor))))
+			.toEqual({ afterBotId: 'bot-2', retryBotIds: ['bot-1'] });
+
+		env.requests.length = 0;
+		refuseClear = false;
+		const second = await runBotRuntimeRetentionSweep(env, { now, maxBotsPerRun: 2, chunkSize: 2 });
+
+		// The retry runs first and out of the same budget, so this pass reaches one
+		// new participant rather than two — the walk is delayed, never skipped.
+		expect(second).toMatchObject({ scanned: 2, pruned: 1, cleared: 1, failed: 0, retried: 1, retryBacklog: 0 });
+		expect(env.requests).toEqual(['DELETE bot-1/storage', `mark:bot-1@${now}`, 'POST bot-3/retention']);
+		expect(JSON.parse(String(env.kvValues.get(kvKeys.botRuntimeRetentionSweepCursor)))).toEqual({ afterBotId: 'bot-3' });
+
+		env.requests.length = 0;
+		const third = await runBotRuntimeRetentionSweep(env, { now, maxBotsPerRun: 2, chunkSize: 2 });
+
+		expect(third).toMatchObject({ scanned: 2, retried: 0, failed: 0, complete: false });
+		expect(env.requests).toEqual(['POST bot-4/retention', 'POST bot-5/retention']);
+		expect(JSON.parse(String(env.kvValues.get(kvKeys.botRuntimeRetentionSweepCursor)))).toEqual({ afterBotId: 'bot-5' });
+
+		env.requests.length = 0;
+		const fourth = await runBotRuntimeRetentionSweep(env, { now, maxBotsPerRun: 2, chunkSize: 2 });
+
+		expect(fourth).toMatchObject({ scanned: 0, complete: true });
+		expect(env.requests).toEqual([]);
+		expect(env.kvValues.get(kvKeys.botRuntimeRetentionSweepCursor)).toBeUndefined();
+	});
+
+	it('drops a backlog entry whose participant no longer needs the work', async () => {
+		// The backlog carries ids, not rows, so a participant another path already
+		// cleared and marked simply does not come back and costs no wake-up.
+		const env = sweepEnv([liveBot('bot-live')], { cursor: 'bot-live' });
+		env.kvValues.set(
+			kvKeys.botRuntimeRetentionSweepCursor,
+			JSON.stringify({ afterBotId: 'bot-live', retryBotIds: ['bot-gone'] }),
+		);
+
+		const result = await runBotRuntimeRetentionSweep(env, { now });
+
+		expect(result).toMatchObject({ scanned: 0, retried: 0, failed: 0, retryBacklog: 0, complete: true });
+		expect(env.requests).toEqual([]);
+		expect(env.kvValues.get(kvKeys.botRuntimeRetentionSweepCursor)).toBeUndefined();
+	});
+
+	it('bounds the retry backlog it carries and counts what it dropped', async () => {
+		const overflow = 20;
+		const rows = Array.from(
+			{ length: botRuntimeRetentionSweepMaxRetryBacklog + overflow },
+			(_, index) => liveBot(`bot-${String(index).padStart(3, '0')}`),
+		);
+		const env = sweepEnv(rows, { fail: () => true });
+
+		const result = await runBotRuntimeRetentionSweep(env, { now });
+
+		expect(result).toMatchObject({
+			failed: rows.length,
+			retryBacklog: botRuntimeRetentionSweepMaxRetryBacklog,
+			retriesDropped: overflow,
+		});
+		const cursor = JSON.parse(String(env.kvValues.get(kvKeys.botRuntimeRetentionSweepCursor))) as { retryBotIds: string[] };
+		// Oldest failures are kept: the bound drops the newest so nothing starves.
+		expect(cursor.retryBotIds).toEqual(rows.slice(0, botRuntimeRetentionSweepMaxRetryBacklog).map((row) => row.botId));
 	});
 
 	it('reports a failed prune without losing the rest of the chunk', async () => {

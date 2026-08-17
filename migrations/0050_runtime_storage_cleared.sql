@@ -7,8 +7,14 @@
 --
 -- Set only after a clear that the object itself confirmed, by the bot-delete
 -- lifecycle or by the sweep working through the backlog of participants deleted
--- before that step existed. A failed clear leaves the marker NULL so the next
--- pass retries it.
+-- before that step existed. A failed clear leaves the marker NULL, and the
+-- sweep carries the participant's id in its own retry backlog, so the next run
+-- revisits it rather than waiting for the keyset walk to wrap the whole fleet.
+--
+-- The marker is terminal for the object too: a confirmed clear leaves a
+-- tombstone inside the rebuilt Durable Object storage, so nothing that still
+-- holds a reference to the object can repopulate storage this column has
+-- already excluded from every later pass.
 --
 -- Retention: bot_runtime_index holds exactly one row per participant for that
 -- participant's lifetime. This column adds no rows and no new retention

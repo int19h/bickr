@@ -436,6 +436,8 @@ export type ActiveMaintenanceOperation = 'clear_history' | 'clear_storage' | 'ma
 export type RuntimeStorageClearResult = {
 	deletedRowsByTable: Record<string, number>;
 	deletedRows: number;
+	/** When the object recorded its terminal cleared tombstone. */
+	clearedAt: string;
 };
 
 export type TickOptions = {

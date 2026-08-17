@@ -18,21 +18,33 @@ describe('BotRuntime storage retention', () => {
 	const daysAgo = (days: number): string => new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
 
 	let database: DatabaseSync;
+	let sockets: FakeSocket[];
 
 	beforeEach(() => {
 		database = new DatabaseSync(':memory:');
+		sockets = [];
 	});
 
 	afterEach(() => database.close());
 
-	function construct(): BotRuntime {
-		return new BotRuntime(runtimeState(database), runtimeEnv() as never);
+	function construct(options: { onOwnerLookup?: () => Promise<void> } = {}): BotRuntime {
+		return new BotRuntime(runtimeState(database, sockets), runtimeEnv(options) as never);
 	}
 
 	async function maintenanceRequest(runtime: BotRuntime, method: 'POST' | 'DELETE', path: string, internal = true): Promise<Response> {
 		const headers = new Headers(internal ? { 'x-bickr-scheduler': '1' } : { 'x-bickr-user-id': 'usr-owner' });
 		addInternalServiceAuthHeader(headers, internalServiceSecret);
 		return await runtime.fetch(new Request(internalServiceUrl(`/bots/${botId}/${path}`), { method, headers }));
+	}
+
+	async function ownerInjection(runtime: BotRuntime, text: string): Promise<Response> {
+		const headers = new Headers({ 'x-bickr-user-id': 'usr-owner', 'content-type': 'application/json' });
+		addInternalServiceAuthHeader(headers, internalServiceSecret);
+		return await runtime.fetch(new Request(internalServiceUrl(`/bots/${botId}/inject`), {
+			method: 'POST',
+			headers,
+			body: JSON.stringify({ text }),
+		}));
 	}
 
 	it('adds the ledger column and the retention index to storage that predates them', () => {
@@ -109,19 +121,125 @@ describe('BotRuntime storage retention', () => {
 		const response = await maintenanceRequest(runtime, 'DELETE', 'storage');
 
 		expect(response.status).toBe(200);
-		const body = await response.json() as { data: { cleared: { deletedRowsByTable: Record<string, number>; deletedRows: number } } };
+		const body = await response.json() as {
+			data: { cleared: { deletedRowsByTable: Record<string, number>; deletedRows: number; clearedAt: string } };
+		};
 		// The clear is derived from the schema, so it must account for every table
 		// the schema created — a table added later cannot be left behind.
 		expect(Object.keys(body.data.cleared.deletedRowsByTable).sort()).toEqual(tableNames().sort());
 		expect(body.data.cleared.deletedRows).toBeGreaterThan(0);
 		for (const table of tableNames()) {
-			expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM ${table}`)[0]?.count).toBe(0);
+			// The cleared tombstone is the one row the rebuilt storage keeps: it is
+			// what the object itself remembers about the clear.
+			expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM ${table}`)[0]?.count).toBe(table === 'runtime_state' ? 1 : 0);
 		}
+		expect(rows<{ key: string; value_json: string }>(`SELECT key, value_json FROM runtime_state`)).toEqual([
+			{ key: 'runtime_storage_cleared_at', value_json: JSON.stringify(body.data.cleared.clearedAt) },
+		]);
 		// The clear drops the database itself, so the empty schema — columns and
 		// indexes — has to come back for this instance to keep working.
 		expect(columnNames('loop_messages')).toContain('ledger_pruned_at');
 		expect(indexNames('loop_messages')).toContain('loop_messages_retention');
 		expect(indexNames('injections')).toContain('injections_spotlight');
+	});
+
+	it('refuses an injection that was already in flight when the clear ran', async () => {
+		// The real race: the request passed its ownership guard before the clear and
+		// resumes after it, with `bot_runtime_index.runtime_storage_cleared_at`
+		// already stamped. Anything it writes now recreates storage no later sweep
+		// will ever look at again. The ownership lookup is the await it parks on.
+		const reachedOwnerLookup = deferred<void>();
+		const releaseOwnerLookup = deferred<void>();
+		const runtime = construct({
+			onOwnerLookup: async () => {
+				reachedOwnerLookup.resolve();
+				await releaseOwnerLookup.promise;
+			},
+		});
+
+		const injection = ownerInjection(runtime, 'thought from before the clear');
+		await reachedOwnerLookup.promise;
+		const clear = await maintenanceRequest(runtime, 'DELETE', 'storage');
+		expect(clear.status).toBe(200);
+		releaseOwnerLookup.resolve();
+
+		const response = await injection;
+
+		expect(response.status).toBe(409);
+		expect(await response.json()).toMatchObject({
+			ok: false,
+			error: 'conflict',
+			details: { runtimeStorageCause: 'storage_cleared' },
+		});
+		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM injections`)[0]?.count).toBe(0);
+		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM events`)[0]?.count).toBe(0);
+		expect(clearedTombstones()).toHaveLength(1);
+	});
+
+	it('refuses an injection from a monitor socket opened before the clear, and closes it', async () => {
+		const runtime = construct();
+		const socket = fakeSocket();
+		sockets.push(socket);
+
+		expect((await maintenanceRequest(runtime, 'DELETE', 'storage')).status).toBe(200);
+
+		// The clear tells the client before the refusal ever has to: the socket is
+		// notified and closed rather than left holding a writable-looking handle.
+		expect(socket.sent.map((message) => (JSON.parse(message) as { type: string }).type)).toEqual(['history_cleared']);
+		expect(socket.closes).toEqual([{ code: 1001, reason: 'Runtime storage was erased.' }]);
+
+		// A frame already in flight still arrives on a socket the close has not
+		// reached yet, so the refusal — not the close — is what protects storage.
+		socket.sent.length = 0;
+		await runtime.webSocketMessage(socket as unknown as WebSocket, JSON.stringify({ type: 'inject', text: 'late thought' }));
+
+		expect(socket.sent.map((message) => JSON.parse(message) as Record<string, unknown>)).toEqual([
+			expect.objectContaining({ type: 'error', code: 'conflict', runtimeStorageCause: 'storage_cleared' }),
+		]);
+		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM injections`)[0]?.count).toBe(0);
+		expect(clearedTombstones()).toHaveLength(1);
+	});
+
+	it('refuses a visit and a deferred spotlight after the clear', async () => {
+		const runtime = construct();
+		expect((await maintenanceRequest(runtime, 'DELETE', 'storage')).status).toBe(200);
+
+		for (const body of [{}, { mode: 'spotlight', deferred: true, spotlightId: 'spot-1', injectionIds: ['inj-1'] }]) {
+			const headers = new Headers({ 'x-bickr-scheduler': '1', 'content-type': 'application/json' });
+			addInternalServiceAuthHeader(headers, internalServiceSecret);
+			const response = await runtime.fetch(new Request(internalServiceUrl(`/bots/${botId}/tick`), {
+				method: 'POST',
+				headers,
+				body: JSON.stringify(body),
+			}));
+			expect(response.status).toBe(409);
+			expect(await response.json()).toMatchObject({ error: 'conflict', details: { runtimeStorageCause: 'storage_cleared' } });
+		}
+		// The spotlight queue lives in runtime_state, so a queued visit would be a
+		// repopulating write of its own.
+		expect(rows<{ key: string }>(`SELECT key FROM runtime_state`).map((row) => row.key)).toEqual(['runtime_storage_cleared_at']);
+	});
+
+	it('survives a restart of the object: the tombstone outlives the instance', async () => {
+		expect((await maintenanceRequest(construct(), 'DELETE', 'storage')).status).toBe(200);
+
+		// A fresh instance rebuilds from the same storage, which is what a real
+		// eviction between the clear and a late write looks like.
+		const response = await ownerInjection(construct(), 'thought after a restart');
+
+		expect(response.status).toBe(409);
+		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM injections`)[0]?.count).toBe(0);
+	});
+
+	it('still accepts a repeated clear so the sweep can retry one it could not confirm', async () => {
+		const runtime = construct();
+		expect((await maintenanceRequest(runtime, 'DELETE', 'storage')).status).toBe(200);
+
+		const repeated = await maintenanceRequest(runtime, 'DELETE', 'storage');
+
+		expect(repeated.status).toBe(200);
+		expect(await repeated.json()).toMatchObject({ data: { cleared: { deletedRows: 1 } } });
+		expect(clearedTombstones()).toHaveLength(1);
 	});
 
 	it('refuses the maintenance routes for a request made on an owner’s behalf', async () => {
@@ -166,6 +284,10 @@ describe('BotRuntime storage retention', () => {
 		return database.prepare(sql).all(...bindings) as T[];
 	}
 
+	function clearedTombstones(): Array<{ value_json: string }> {
+		return rows<{ value_json: string }>(`SELECT value_json FROM runtime_state WHERE key = 'runtime_storage_cleared_at'`);
+	}
+
 	function tableNames(): string[] {
 		return rows<{ name: string }>(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)
 			.map((row) => row.name);
@@ -181,7 +303,39 @@ describe('BotRuntime storage retention', () => {
 	}
 });
 
-function runtimeState(database: DatabaseSync) {
+type FakeSocket = {
+	readyState: number;
+	sent: string[];
+	closes: Array<{ code: number; reason: string }>;
+	send(data: string): void;
+	close(code: number, reason: string): void;
+};
+
+function fakeSocket(): FakeSocket {
+	const socket: FakeSocket = {
+		readyState: 1,
+		sent: [],
+		closes: [],
+		send(data: string): void {
+			socket.sent.push(data);
+		},
+		close(code: number, reason: string): void {
+			socket.closes.push({ code, reason });
+			socket.readyState = 3;
+		},
+	};
+	return socket;
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((settle) => {
+		resolve = settle;
+	});
+	return { promise, resolve };
+}
+
+function runtimeState(database: DatabaseSync, sockets: FakeSocket[] = []) {
 	const sql = {
 		exec<T>(query: string, ...bindings: unknown[]) {
 			const statement = database.prepare(query);
@@ -228,11 +382,14 @@ function runtimeState(database: DatabaseSync) {
 		async blockConcurrencyWhile<T>(closure: () => Promise<T>): Promise<T> {
 			return await closure();
 		},
+		getWebSockets(): FakeSocket[] {
+			return sockets;
+		},
 		waitUntil(): void {},
 	} as unknown as DurableObjectState;
 }
 
-function runtimeEnv() {
+function runtimeEnv(options: { onOwnerLookup?: () => Promise<void> } = {}) {
 	return {
 		INTERNAL_SERVICE_SECRET: internalServiceSecret,
 		BICKR_D1: {
@@ -247,6 +404,12 @@ function runtimeEnv() {
 								activatedAt: null,
 								updatedAt: '2026-08-17T00:00:00.000Z',
 							} as T;
+						}
+						if (query.includes('FROM bots_index')) {
+							// The owner check is the last await before an injection writes,
+							// which makes it the point a racing request parks on.
+							await options.onOwnerLookup?.();
+							return { ownerUserId: 'usr-owner' } as T;
 						}
 						// No runtime index row: the object is idle, which is what the
 						// maintenance gate needs to admit a clear.

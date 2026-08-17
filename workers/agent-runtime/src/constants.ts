@@ -18,6 +18,19 @@ export const centralProviderUsageExportCursorStateKey = 'central_provider_usage_
 
 export const lastLogOffSeqStateKey = 'last_log_off_seq';
 
+/**
+ * Terminal tombstone written into the storage a full clear rebuilds.
+ *
+ * The clear erases the object's whole database and re-creates the schema empty,
+ * which leaves nothing to distinguish a cleared participant from a brand new
+ * one. Anything still holding a reference to the object — an in-flight
+ * injection, an open monitor socket, a queued spotlight visit — would otherwise
+ * repopulate it, and `bot_runtime_index.runtime_storage_cleared_at` has already
+ * excluded the row from every later sweep, so the recreated storage would never
+ * be reclaimed. This row is the object's own record that the clear happened.
+ */
+export const runtimeStorageClearedStateKey = 'runtime_storage_cleared_at';
+
 export const logOffBackfillPageSize = 100;
 
 export const contextBudgetCacheStateKey = (fingerprint: string): string => `context_budget:${fingerprint}`;
