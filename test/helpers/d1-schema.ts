@@ -46,6 +46,7 @@ import migration0044 from "../../migrations/0044_translation_role_transition_sta
 import migration0045 from "../../migrations/0045_forum_read_only.sql?raw";
 import migration0046 from "../../migrations/0046_inference_provider_default_barrier_sweep.sql?raw";
 import migration0047 from "../../migrations/0047_bootstrap_notified_flag.sql?raw";
+import migration0048 from "../../migrations/0048_backfill_bootstrap_notified_flag.sql?raw";
 
 const migrationSql = [
 	migration0001,
@@ -96,6 +97,7 @@ const migrationSql = [
 	migration0045,
 	migration0046,
 	migration0047,
+	migration0048,
 ];
 
 type D1SchemaRow = {
@@ -134,15 +136,14 @@ export async function seedProviderDefaultBarrierSweepMigration(db: D1Database): 
 }
 
 /**
- * Replays migration 0047's backfill against state built after the schema reset,
- * which already added the column to an empty table. Tests that create bots and
- * bootstrap rows afterwards get the production backfill by running exactly the
- * migration's own DML, and can run it twice to prove it is idempotent.
+ * Replays migration 0048 against state built after the schema reset, which
+ * already ran it against an empty table. Tests that create bots and bootstrap
+ * rows afterwards get the production backfill by running exactly the migration's
+ * own DML, and can run it twice to prove it is idempotent.
  */
 export async function backfillBootstrapNotifiedMigration(db: D1Database): Promise<void> {
-	for (const statement of splitD1Statements(migration0047)) {
-		if (firstSqlKeyword(statement) === "ALTER" || !statement.trim()) continue;
-		await db.prepare(statement).run();
+	for (const statement of splitD1Statements(migration0048)) {
+		if (statement.trim()) await db.prepare(statement).run();
 	}
 }
 
