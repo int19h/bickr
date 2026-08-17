@@ -5418,7 +5418,8 @@ async function deleteTtlBackedNotificationRows(
 				`DELETE FROM notifications
 				 WHERE status = ?
 				   AND created_at <= ?
-				   AND created_at >= ?`,
+				   AND created_at >= ?
+				   ${status === "pending" ? pendingBootstrapPruneExclusion : ""}`,
 			)
 			.bind(status, cutoffs[status], notificationKvTtlSince)
 			.run();
@@ -5426,6 +5427,20 @@ async function deleteTtlBackedNotificationRows(
 	}
 	return deletedRows;
 }
+
+/**
+ * Pending bootstrap rows are exempt from expiry (design doc §2.1). Their KV
+ * documents are written without a TTL precisely so a bot paused past the pending
+ * retention still receives the bootstrap it was never handed; deleting the row
+ * would strand that document while `bots_index.bootstrap_notified_at` blocks a
+ * replacement forever. Only the pending arm is exempt — once delivered, read, or
+ * archived, a bootstrap row prunes like any other.
+ *
+ * Transition guard until #187: that PR makes the bootstrap lifecycle
+ * self-cleaning (ghost self-heal resets the flag, and prune reaps notifications
+ * of missing or tombstoned bots), which is what lets this exclusion be narrowed.
+ */
+const pendingBootstrapPruneExclusion = `AND type != 'bootstrap'`;
 
 const notificationStatuses: readonly NotificationStatus[] = [
 	"pending",
@@ -5454,7 +5469,7 @@ async function selectLegacyExpiredNotifications(
 			`WITH expired_notifications AS (
 				SELECT notification_id AS id, bot_id AS botId, created_at AS createdAt
 				FROM notifications
-				WHERE status = 'pending' AND created_at <= ? AND created_at < ?
+				WHERE status = 'pending' AND created_at <= ? AND created_at < ? ${pendingBootstrapPruneExclusion}
 				UNION ALL
 				SELECT notification_id AS id, bot_id AS botId, created_at AS createdAt
 				FROM notifications
