@@ -36,6 +36,7 @@ import {
 	isTrustedInternalServiceRequest,
 } from "@bickr/shared/internal-service";
 import { deferAlarmDuringMaintenance, mutationMaintenanceResponse, readMaintenanceState } from "@bickr/shared/maintenance";
+import { forumCoordinatorCronTaskSet } from "./cron";
 import {
 	InputError,
 	normalizeHandle,
@@ -744,10 +745,28 @@ export default {
 	},
 
 	async scheduled(event, env, ctx) {
-		const now = new Date(event.scheduledTime).toISOString();
-		ctx.waitUntil(runDailyForumCoordinatorMaintenance(env, now));
+		ctx.waitUntil(runScheduledForumCoordinatorTasks(env, event.scheduledTime, event.cron));
 	},
 } satisfies ExportedHandler<Env>;
+
+export async function runScheduledForumCoordinatorTasks(env: Env, scheduledTime: number, cron?: string): Promise<void> {
+	const now = new Date(scheduledTime).toISOString();
+	const taskSet = forumCoordinatorCronTaskSet(cron);
+	if (taskSet === null) {
+		// A trigger this deployment does not recognize means the configuration and
+		// the code have diverged. Running the daily set keeps the visible work
+		// (hot scores, index repair) going; a prune invocation skipped for six
+		// hours costs nothing that the next one cannot catch up on. The cron test
+		// exists so this stays a theoretical path.
+		console.error(JSON.stringify({ event: "scheduled_unrecognized_cron", cron: cron ?? null, scheduledTime }));
+	}
+	switch (taskSet ?? "daily") {
+		case "daily":
+			return await runDailyForumCoordinatorMaintenance(env, now);
+		case "notification_prune":
+			return await runForumCoordinatorNotificationPrune(env, now);
+	}
+}
 
 async function runDailyForumCoordinatorMaintenance(env: Env, now: string): Promise<void> {
 	const maintenance = await readMaintenanceState(env.BICKR_D1);
@@ -755,9 +774,8 @@ async function runDailyForumCoordinatorMaintenance(env: Env, now: string): Promi
 		console.log(JSON.stringify({ event: "scheduled_tasks_deferred", reason: "maintenance", scheduledTime: now }));
 		return;
 	}
-	const [hotScores, notificationPrune, botSeenContentPrune, inferenceUsagePrune, indexRepair] = await Promise.allSettled([
+	const [hotScores, botSeenContentPrune, inferenceUsagePrune, indexRepair] = await Promise.allSettled([
 		refreshThreadHotScores(env.BICKR_D1, now),
-		pruneExpiredNotifications(env.BICKR_KV, env.BICKR_D1, { now }),
 		pruneExpiredBotSeenContent(env.BICKR_D1, { now }),
 		pruneBotInferenceUsage(env.BICKR_D1, new Date(now)),
 		repairObjectIndexes(env),
@@ -768,15 +786,38 @@ async function runDailyForumCoordinatorMaintenance(env: Env, now: string): Promi
 	console.log(JSON.stringify({
 		event: "retention_prune",
 		hotScores: settledMaintenanceResult(hotScores, () => ({ recentCommentCountsRefreshed: true })),
-		notificationPrune: settledMaintenanceResult(notificationPrune, (value) => value),
 		botSeenContentPrune: settledMaintenanceResult(botSeenContentPrune, (value) => value),
 		inferenceUsagePrune: settledMaintenanceResult(inferenceUsagePrune, (value) => value),
 		indexRepair: settledMaintenanceResult(indexRepair, (value) => value),
 	}));
-	const failure = [hotScores, notificationPrune, botSeenContentPrune, inferenceUsagePrune, indexRepair]
+	const failure = [hotScores, botSeenContentPrune, inferenceUsagePrune, indexRepair]
 		.find((result): result is PromiseRejectedResult => result.status === "rejected");
 	if (failure) {
 		throw failure.reason;
+	}
+}
+
+/**
+ * The notification prune has a trigger of its own so that its per-invocation row
+ * cap is backed by a subrequest budget of its own, four times a day, instead of
+ * competing with the daily sweeps for one.
+ */
+async function runForumCoordinatorNotificationPrune(env: Env, now: string): Promise<void> {
+	const maintenance = await readMaintenanceState(env.BICKR_D1);
+	if (maintenance.enabled) {
+		console.log(JSON.stringify({ event: "scheduled_tasks_deferred", reason: "maintenance", scheduledTime: now }));
+		return;
+	}
+	// Settled, then logged, then rethrown: a partial run's counters are the only
+	// evidence of how far it got, and a throw would otherwise take them with it.
+	const [prune] = await Promise.allSettled([pruneExpiredNotifications(env.BICKR_KV, env.BICKR_D1, { now })]);
+	console.log(JSON.stringify({
+		event: "notification_prune",
+		scheduledTime: now,
+		notificationPrune: settledMaintenanceResult(prune, (value) => value),
+	}));
+	if (prune.status === "rejected") {
+		throw prune.reason;
 	}
 }
 

@@ -3567,23 +3567,25 @@ describe("Provider requests", () => {
 			}
 		});
 
-		it("omits older notification events without trimming notification text", () => {
+		it("omits the trailing notification events without trimming notification text", () => {
+			// Delivery order: the caller passes the most important notifications
+			// first, so the budget is spent from the front.
 			const notifications = [
 				{
-					id: "ntf_old",
+					id: "ntf_leading",
 					type: "comment_created",
 					deliveryReasons: ["mention"],
-					sourceObjectId: "cmt_old",
-					actor: { username: "u/old" },
-					comment: { id: "cmt_old", threadId: "thr_old", text: "Old text that should be omitted rather than shortened. " + "x".repeat(400) },
+					sourceObjectId: "cmt_leading",
+					actor: { username: "u/leading" },
+					comment: { id: "cmt_leading", threadId: "thr_leading", text: "Leading notification text stays whole." },
 				},
 				{
-					id: "ntf_new",
+					id: "ntf_trailing",
 					type: "comment_created",
 					deliveryReasons: ["mention"],
-					sourceObjectId: "cmt_new",
-					actor: { username: "u/new" },
-					comment: { id: "cmt_new", threadId: "thr_new", text: "Newest notification text stays whole." },
+					sourceObjectId: "cmt_trailing",
+					actor: { username: "u/trailing" },
+					comment: { id: "cmt_trailing", threadId: "thr_trailing", text: "Trailing text that should be omitted rather than shortened. " + "x".repeat(400) },
 				},
 			];
 			const notificationResult = providerToolResultPayload(
@@ -3594,13 +3596,13 @@ describe("Provider requests", () => {
 				{ tokenBudget: 90 },
 			) as { context?: string; events: Array<Record<string, unknown>> };
 
-			expect(notificationResult.context).toContain("1 older notification event was omitted");
-			expect(JSON.stringify(notificationResult)).not.toContain("Old text that should be omitted");
+			expect(notificationResult.context).toContain("1 lower-priority or older notification was omitted; they remain pending");
+			expect(JSON.stringify(notificationResult)).not.toContain("Trailing text that should be omitted");
 			expect(JSON.stringify(notificationResult)).not.toContain("…");
 			expect(notificationResult.events).toHaveLength(1);
 			expect(notificationResult.events[0]).toMatchObject({
-				actor: "u/new",
-				comment: { commentRef: "c/cmt_new", text: "Newest notification text stays whole." },
+				actor: "u/leading",
+				comment: { commentRef: "c/cmt_leading", text: "Leading notification text stays whole." },
 			});
 		});
 
@@ -3627,30 +3629,32 @@ describe("Provider requests", () => {
 				"run-notification-prune",
 				[
 					{
-						id: "ntf_old",
+						id: "ntf_leading",
 						type: "comment_created",
 						deliveryReasons: ["mention"],
-						sourceObjectId: "cmt_old",
-						actor: { username: "u/old" },
-						comment: { id: "cmt_old", threadId: "thr_old", text: "Old text " + "x".repeat(400) },
+						sourceObjectId: "cmt_leading",
+						actor: { username: "u/leading" },
+						comment: { id: "cmt_leading", threadId: "thr_leading", text: "Leading notification text stays whole." },
 					},
 					{
-						id: "ntf_new",
+						id: "ntf_trailing",
 						type: "comment_created",
 						deliveryReasons: ["mention"],
-						sourceObjectId: "cmt_new",
-						actor: { username: "u/new" },
-						comment: { id: "cmt_new", threadId: "thr_new", text: "Newest notification text stays whole." },
+						sourceObjectId: "cmt_trailing",
+						actor: { username: "u/trailing" },
+						comment: { id: "cmt_trailing", threadId: "thr_trailing", text: "Trailing text " + "x".repeat(400) },
 					},
 				],
-				new Set(["new"]),
+				new Set(["leading"]),
 				{ commentsWithText: new Set<string>(), threadsWithText: new Set<string>() },
 			);
 
-			expect(includedIds).toEqual(["ntf_new"]);
+			// Only the included ids are reported, and only those are deleted: what
+			// the budget dropped stays pending for the next visit.
+			expect(includedIds).toEqual(["ntf_leading"]);
 			const checkNotificationResult = appendedMessages.find((message) => message.role === "tool");
 			expect(JSON.parse(String(checkNotificationResult?.content))).toMatchObject({
-				events: [{ actor: "u/new" }],
+				events: [{ actor: "u/leading" }],
 			});
 		});
 

@@ -648,7 +648,15 @@ export type NotificationType =
 	| "interest"
 	| "system";
 
-export type NotificationStatus = "pending" | "delivered_to_loop" | "read_or_consumed" | "archived";
+/**
+ * Delivery deletes a notification from both stores instead of transitioning it
+ * (design doc §2.3), so `pending` is the only status this build writes, reads or
+ * selects on. The retired `delivered_to_loop`/`read_or_consumed`/`archived`
+ * values still sit in D1 rows written by earlier builds until the prune drains
+ * them, which is why the prune matches them as "not pending" rather than by
+ * name, and why readers of pre-redesign documents compare the stored string.
+ */
+export type NotificationStatus = "pending";
 
 export type NotificationDeliveryReason =
 	| "bootstrap"
@@ -875,6 +883,4 @@ export type NotificationDocument = EntityDocument & {
 	 * per-recipient redesign holds a {@link LegacyNotificationEvent}.
 	 */
 	event?: StoredNotificationEvent;
-	deliveredAt?: string;
-	readAt?: string;
 };

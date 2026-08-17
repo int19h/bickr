@@ -46,7 +46,6 @@ import {
 	type NotificationDeliveryReason,
 	type NotificationDocument,
 	type NotificationEventPayload,
-	type NotificationStatus,
 	type NotificationThreadPostRef,
 	type NotificationThreadRef,
 	type NotificationType,
@@ -150,26 +149,45 @@ const threadLockCommentLimitSql = `CASE
 END`;
 const secondsPerDay = 24 * 60 * 60;
 
-export const notificationRetentionSecondsByStatus: Readonly<Record<NotificationStatus, number>> = {
-	pending: 90 * secondsPerDay,
-	delivered_to_loop: 30 * secondsPerDay,
-	read_or_consumed: 30 * secondsPerDay,
-	archived: 30 * secondsPerDay,
-};
+/**
+ * Delivery deletes a notification outright (see {@link deleteDeliveredNotifications}),
+ * so retention only has to bound what is never delivered: notifications of a
+ * participant that stopped ticking. Fourteen days is well past the point where
+ * an undelivered notification is worth reading.
+ *
+ * Exception: pending bootstrap rows never expire, and their documents are
+ * written without a TTL — see {@link notificationKvPutOptions}.
+ */
+const notificationPendingRetentionSeconds = 14 * secondsPerDay;
 
-export const notificationKvExpirationTtlSeconds = Math.max(...Object.values(notificationRetentionSecondsByStatus));
-// This cutover is intentionally after the expected PR deployment time. Too late
-// is harmless because some TTL-backed rows get extra legacy KV deletes; too early
-// would permanently strand pre-TTL KV documents once their D1 rows are removed.
-export const notificationKvTtlSince = new Date("2026-07-12T00:00:00Z").toISOString();
+/**
+ * KV documents get the same window as their rows. The prune deletes every
+ * document it prunes explicitly, so this TTL is only the backstop for a document
+ * whose delete failed after its row was already gone.
+ */
+export const notificationKvExpirationTtlSeconds = notificationPendingRetentionSeconds;
 export const notificationPruneSelectLimit = 500;
-// Phase 2 only drains the finite pre-TTL legacy set. Live inflow was measured at
-// about 7k rows/day, so the old all-rows 1,900/day design could never catch up.
-// Current Workers docs count KV and D1 calls as subrequests; 8k legacy rows fit
-// under the paid 10k default with 16 selects and about 80 D1 delete batches.
+// Current Workers docs count KV and D1 calls as subrequests, so a row costs one
+// KV delete: 8k rows fit under the paid 10k default alongside ~16 selects, ~80
+// D1 delete batches and the tombstoned-bot sweep below. The prune runs on its
+// own 6-hourly trigger (workers/forum-coordinator/src/cron.ts), so this is 32k
+// rows/day of capacity against a measured 5-10k rows/day of expiry.
 export const notificationPruneMaxRowsPerRun = 8_000;
 export const notificationPruneKvDeleteChunkSize = 50;
 const notificationKvWriteChunkSize = 50;
+
+/**
+ * A deleted bot's bootstrap document can outlive every row that names it: the
+ * document is written before the D1 batch and carries no TTL, so a crash in
+ * between followed by bot deletion strands it where no row-driven pass can see
+ * it. The prune therefore also deletes the deterministic bootstrap key of
+ * recently tombstoned bots directly. The window is what bounds that sweep — a
+ * bot tombstoned now is swept by every prune invocation for the next seven days,
+ * i.e. 28 chances — and the row limit is what keeps its subrequests inside the
+ * invocation budget.
+ */
+const tombstonedBotBootstrapSweepWindowSeconds = 7 * secondsPerDay;
+const tombstonedBotBootstrapSweepLimit = 500;
 
 export type NotificationPruneResult = {
 	selectedRows: number;
@@ -177,8 +195,10 @@ export type NotificationPruneResult = {
 	kvDeleteFailures: number;
 	batches: number;
 	budgetExhausted: boolean;
-	phase1DeletedRows: number;
-	phase2DeletedRows: number;
+	/** Rows deleted because their bot is missing from `bots_index` or tombstoned. */
+	orphanedBotRows: number;
+	/** Tombstoned bots whose deterministic bootstrap document was deleted by key. */
+	tombstonedBotsSwept: number;
 };
 
 // Cloudflare's D1 limits guidance recommends batching large UPDATE/DELETE work;
@@ -5233,9 +5253,12 @@ async function adoptLegacyBootstrapRow(kv: KVNamespaceLike, db: D1DatabaseLike, 
  */
 async function stripAdoptedBootstrapKvTtl(kv: KVNamespaceLike, botId: string, notificationId: string): Promise<void> {
 	const document = await readJson<NotificationDocument>(kv, kvKeys.notification(botId, notificationId));
-	if (document?.status !== "pending") {
-		// Already delivered (TTL-backed and correctly so), or a ghost document that
-		// only PR-3's self-heal can resolve.
+	// The status is compared as a stored string because a document written before
+	// delete-on-delivery can still carry one of the retired statuses, which
+	// NotificationStatus no longer names. Such a document was already delivered —
+	// TTL-backed and correctly so. A missing document is a ghost, which the
+	// self-heal in listPendingNotifications resolves.
+	if (!document || (document.status as string) !== "pending") {
 		return;
 	}
 	await writeNotificationDocuments(kv, [document]);
@@ -5251,66 +5274,213 @@ function botInitialNotification(base: LocalizedText, hasIntroForum: boolean): Lo
 	].join("\n\n"), null);
 }
 
+/** How many notifications one visit can be handed. */
+const notificationDeliveryWindow = 20;
+
+/** The rank of a stored type this build does not know; see {@link notificationDeliveryPriorities}. */
+const unknownNotificationTypeDeliveryPriority = 7;
+
+/**
+ * Delivery order, most important first. A participant that has been away long
+ * enough to overflow the window should read what matters to it and what is
+ * current, rather than the twenty oldest things that happened while it was gone
+ * — so this ranks by kind first and by recency second (see
+ * {@link pendingNotificationOrderBy}).
+ *
+ * Deliberately separate from {@link notificationTypePriority}, which answers a
+ * different question: which single notification one action becomes when it
+ * reaches the same participant through several routes. The two tables agree on
+ * the shape of the ordering but not on its ties, and merging them would make one
+ * question's ranking hostage to the other's.
+ *
+ * Exhaustive over the union by construction, so a new notification type cannot
+ * be added without deciding where it is delivered.
+ */
+const notificationDeliveryPriorities: Record<NotificationType, number> = {
+	bootstrap: 0,
+	reply: 1,
+	mention: 2,
+	personal_forum_post: 3,
+	follow: 4,
+	unfollow: 4,
+	vote: 5,
+	followed_activity: 6,
+	// Vocabularies nothing writes any more. They rank with the unknown types the
+	// ELSE arm catches, which is where a retired type belongs.
+	interest: unknownNotificationTypeDeliveryPriority,
+	system: unknownNotificationTypeDeliveryPriority,
+};
+
+/**
+ * The delivery order as SQL. The ELSE arm is load-bearing: `type` is a stored
+ * string, and a CASE without one yields NULL for anything it does not list,
+ * which SQLite sorts FIRST — a row written by a future or long-retired build
+ * would take over the window. The type names are compile-time literals of an
+ * exhaustive record, never caller input.
+ *
+ * The `notification_id` tie-break keeps the window stable across the re-queries
+ * the ghost self-heal issues.
+ */
+const pendingNotificationOrderBy = `CASE type
+		${Object.entries(notificationDeliveryPriorities)
+			.map(([type, priority]) => `WHEN '${type}' THEN ${priority}`)
+			.join("\n\t\t")}
+		ELSE ${unknownNotificationTypeDeliveryPriority}
+	END ASC, created_at DESC, notification_id ASC`;
+
+/**
+ * KV negative lookups can be cached for about a minute, and a cross-location
+ * write propagates asynchronously, so a document that is missing right after its
+ * row was written is not evidence that the document is gone. Only rows older
+ * than this are treated as ghosts; younger misses are paged past untouched.
+ */
+const notificationGhostMinimumAgeMs = 60 * 60 * 1000;
+/** Per-call self-heal budget: healing continues on the next visit and in the prune. */
+const notificationGhostRefillRounds = 3;
+const notificationGhostScanLimit = 60;
+
+type PendingNotificationRow = {
+	id: string;
+	type: string;
+	createdAt: string;
+};
+
+/**
+ * The notifications one visit is handed, in delivery order.
+ *
+ * Rows whose KV document is missing are deleted inline rather than filtered
+ * silently: up to a full window of ghosts can otherwise sit at the head of the
+ * order forever and starve real notifications. Deleting them costs a re-query to
+ * refill the window, which is bounded by {@link notificationGhostRefillRounds}
+ * and {@link notificationGhostScanLimit} — an exhausted budget returns a partial
+ * batch, and the next visit picks up where this one stopped.
+ */
 export async function listPendingNotifications(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	botId: string,
-	limit = 20,
+	limit = notificationDeliveryWindow,
+	options: { now?: string } = {},
 ): Promise<NotificationDocument[]> {
-	const result = await db
-		.prepare(
-			`SELECT notification_id AS id
-			 FROM notifications
-			 WHERE bot_id = ? AND status = 'pending'
-			 ORDER BY created_at ASC
-			 LIMIT ?`,
-		)
-		.bind(botId, limit)
-		.all<{ id: string }>();
-	const notifications = await Promise.all(
-		(result.results ?? []).map((row) => readJson<NotificationDocument>(kv, kvKeys.notification(botId, row.id))),
-	);
-	return notifications.filter((notification): notification is NotificationDocument =>
-		Boolean(notification && !notification.deletedAt),
-	);
+	const now = options.now ?? new Date().toISOString();
+	const nowMs = Date.parse(now);
+	if (!Number.isFinite(nowMs)) {
+		throw new Error(`Invalid notification delivery timestamp: ${now}`);
+	}
+	const ghostCutoff = new Date(nowMs - notificationGhostMinimumAgeMs).toISOString();
+	const delivered: NotificationDocument[] = [];
+	// Every row this call has already accounted for: delivered, deleted as a
+	// ghost, or paged past as a young miss. The refill query has to exclude them
+	// because it is ordered newest-first — an unexcluded young miss would be
+	// selected again on every round and the refill would never terminate.
+	const scannedIds: string[] = [];
+	for (let round = 0; round <= notificationGhostRefillRounds; round += 1) {
+		const budget = Math.min(limit - delivered.length, notificationGhostScanLimit - scannedIds.length);
+		if (budget <= 0) {
+			break;
+		}
+		const rows = await selectPendingNotificationRows(db, botId, budget, scannedIds);
+		if (rows.length === 0) {
+			break;
+		}
+		const documents = await Promise.all(
+			rows.map((row) => readJson<NotificationDocument>(kv, kvKeys.notification(botId, row.id))),
+		);
+		const ghosts: PendingNotificationRow[] = [];
+		rows.forEach((row, index) => {
+			scannedIds.push(row.id);
+			const document = documents[index];
+			if (document && !document.deletedAt) {
+				delivered.push(document);
+				return;
+			}
+			if (row.createdAt < ghostCutoff) {
+				ghosts.push(row);
+			}
+		});
+		if (ghosts.length > 0) {
+			await deleteGhostNotificationRows(db, botId, ghosts);
+		}
+		if (rows.length < budget) {
+			// The query ran out of rows rather than out of window, so a refill would
+			// select nothing new.
+			break;
+		}
+	}
+	return delivered;
 }
 
-export async function markNotificationsDelivered(
+async function selectPendingNotificationRows(
+	db: D1DatabaseLike,
+	botId: string,
+	limit: number,
+	excludedIds: readonly string[],
+): Promise<PendingNotificationRow[]> {
+	// Bounded by notificationGhostScanLimit, which is what keeps the exclusion
+	// list (plus the bot id and the limit) inside D1's bound-parameter ceiling.
+	const exclusion = excludedIds.length > 0 ? `AND notification_id NOT IN (${excludedIds.map(() => "?").join(", ")})` : "";
+	const result = await db
+		.prepare(
+			`SELECT notification_id AS id, type, created_at AS createdAt
+			 FROM notifications
+			 WHERE bot_id = ? AND status = 'pending' ${exclusion}
+			 ORDER BY ${pendingNotificationOrderBy}
+			 LIMIT ?`,
+		)
+		.bind(botId, ...excludedIds, limit)
+		.all<PendingNotificationRow>();
+	return result.results ?? [];
+}
+
+async function deleteGhostNotificationRows(
+	db: D1DatabaseLike,
+	botId: string,
+	rows: PendingNotificationRow[],
+): Promise<void> {
+	const statements = [
+		db
+			.prepare(`DELETE FROM notifications WHERE bot_id = ? AND notification_id IN (${rows.map(() => "?").join(", ")})`)
+			.bind(botId, ...rows.map((row) => row.id)),
+	];
+	if (rows.some((row) => row.type === "bootstrap")) {
+		// A bootstrap whose document is gone is a bootstrap this participant will
+		// never receive, and `bootstrap_notified_at` would block a replacement for
+		// the rest of its life. Clearing the flag in the same batch as the row keeps
+		// the two facts consistent: no row and no flag means the next visit creates
+		// the bootstrap again.
+		statements.push(db.prepare(`UPDATE bots_index SET bootstrap_notified_at = NULL WHERE bot_id = ?`).bind(botId));
+	}
+	await db.batch(statements);
+}
+
+/**
+ * Delivery is destructive (design doc §2.3): a notification handed to the loop
+ * is deleted from both stores rather than transitioned to a delivered status.
+ *
+ * D1 rows go FIRST. A row whose document is already gone is a ghost that holds a
+ * slot in the delivery window until the self-heal above reaps it an hour later,
+ * whereas a document whose row is gone is invisible to every reader and expires
+ * on its own TTL.
+ *
+ * The KV deletes are best effort for that reason — with one declared exception:
+ * bootstrap documents carry no TTL (see {@link notificationKvPutOptions}), so a
+ * failed bootstrap delete leaves a permanent ~8 KB orphan. Accepted as
+ * negligible; the prune reaps it when the bot is deleted.
+ */
+export async function deleteDeliveredNotifications(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	notifications: NotificationDocument[],
-	now = new Date().toISOString(),
 ): Promise<void> {
-	const updatedNotifications = notifications.map((notification) => ({
-		...notification,
-		status: "delivered_to_loop" as const,
-		deliveredAt: now,
-		revision: notification.revision + 1,
-		updatedAt: now,
-	}));
-	await Promise.all(
-		updatedNotifications.map((notification) =>
-			// KV put replaces the entry including its expiration, so this rewrite
-			// must re-arm the retention TTL or delivered documents would outlive
-			// their phase-1 D1 rows forever.
-			writeJson(kv, kvKeys.notification(notification.botId, notification.id), notification, {
-				expirationTtl: notificationKvExpirationTtlSeconds,
-			}),
-		),
-	);
-	const maxNotificationsPerQuery = d1MaxBoundParameters - 2;
-	for (let index = 0; index < updatedNotifications.length; index += maxNotificationsPerQuery) {
-		const batch = updatedNotifications.slice(index, index + maxNotificationsPerQuery);
-		const placeholders = batch.map(() => "?").join(", ");
-		await db
-			.prepare(
-				`UPDATE notifications
-				 SET status = ?, delivered_at = ?
-				 WHERE notification_id IN (${placeholders})`,
-			)
-			.bind("delivered_to_loop", now, ...batch.map((notification) => notification.id))
-			.run();
+	if (notifications.length === 0) {
+		return;
 	}
+	await deleteNotificationRows(db, notifications.map((notification) => notification.id));
+	await deleteNotificationKvDocuments(
+		kv,
+		notifications.map((notification) => ({ id: notification.id, botId: notification.botId })),
+		notificationPruneKvDeleteChunkSize,
+	);
 }
 
 export async function pruneExpiredNotifications(
@@ -5324,7 +5494,7 @@ export async function pruneExpiredNotifications(
 	} = {},
 ): Promise<NotificationPruneResult> {
 	const now = options.now ?? new Date().toISOString();
-	const cutoffs = notificationRetentionCutoffs(now);
+	const cutoff = notificationRetentionCutoff(now);
 	const selectLimit = positiveIntegerOption(options.selectLimit ?? notificationPruneSelectLimit, "selectLimit");
 	const maxRowsPerRun = nonNegativeIntegerOption(options.maxRowsPerRun ?? notificationPruneMaxRowsPerRun, "maxRowsPerRun");
 	const kvDeleteChunkSize = positiveIntegerOption(
@@ -5337,38 +5507,74 @@ export async function pruneExpiredNotifications(
 		kvDeleteFailures: 0,
 		batches: 0,
 		budgetExhausted: false,
-		phase1DeletedRows: 0,
-		phase2DeletedRows: 0,
+		orphanedBotRows: 0,
+		tombstonedBotsSwept: 0,
 	};
 
-	result.phase1DeletedRows = await deleteTtlBackedNotificationRows(db, cutoffs);
-	result.deletedRows += result.phase1DeletedRows;
-
-	let cursor: ExpiredNotificationCursor | undefined;
+	// Orphans first. Their set is small and bounded by how often bots are deleted,
+	// while expired rows are the bulk — and a large expired backlog (the state
+	// before O2 runs) would starve this pass for weeks if it went second.
+	let orphanCursor: string | undefined;
 	while (result.selectedRows < maxRowsPerRun) {
-		const remainingBudget = maxRowsPerRun - result.selectedRows;
-		const limit = Math.min(selectLimit, remainingBudget);
-		const rows = await selectLegacyExpiredNotifications(db, cutoffs, limit, cursor);
+		const limit = Math.min(selectLimit, maxRowsPerRun - result.selectedRows);
+		const rows = await selectOrphanedBotNotifications(db, limit, orphanCursor);
 		if (rows.length === 0) {
 			break;
 		}
-
 		result.batches += 1;
 		result.selectedRows += rows.length;
-		cursor = legacyNotificationCursor(rows[rows.length - 1]);
-		const kvDeleteResult = await deleteExpiredNotificationKvDocuments(kv, rows, kvDeleteChunkSize);
-		result.kvDeleteFailures += kvDeleteResult.failures;
-		const phase2DeletedRows = await deleteNotificationRows(db, kvDeleteResult.deletedRows.map((row) => row.id));
-		result.phase2DeletedRows += phase2DeletedRows;
-		result.deletedRows += phase2DeletedRows;
-
+		orphanCursor = rows[rows.length - 1]?.id;
+		const deletedRows = await prunePassRows(kv, db, rows, kvDeleteChunkSize, result);
+		result.deletedRows += deletedRows;
+		result.orphanedBotRows += deletedRows;
 		if (rows.length < limit) {
 			break;
 		}
 	}
 
+	let expiredCursor: ExpiredNotificationCursor | undefined;
+	while (result.selectedRows < maxRowsPerRun) {
+		const limit = Math.min(selectLimit, maxRowsPerRun - result.selectedRows);
+		const rows = await selectExpiredNotifications(db, cutoff, limit, expiredCursor);
+		if (rows.length === 0) {
+			break;
+		}
+		result.batches += 1;
+		result.selectedRows += rows.length;
+		expiredCursor = expiredNotificationCursor(rows[rows.length - 1]);
+		result.deletedRows += await prunePassRows(kv, db, rows, kvDeleteChunkSize, result);
+		if (rows.length < limit) {
+			break;
+		}
+	}
+
+	result.tombstonedBotsSwept = await sweepTombstonedBotBootstrapDocuments(kv, db, now, kvDeleteChunkSize);
 	result.budgetExhausted = maxRowsPerRun > 0 && result.selectedRows >= maxRowsPerRun;
 	return result;
+}
+
+/**
+ * One pass's deletes: KV documents first, then only the rows whose document is
+ * actually gone.
+ *
+ * This is the reverse of {@link deleteDeliveredNotifications}, for the reason
+ * that makes each order right where it is used. Delivery must not leave ghost
+ * rows in the selection window, so it deletes rows first. The prune is what
+ * retries — a row it keeps is a row it selects again next invocation, which is
+ * the only thing that ever recovers a failed KV delete. Losing the row first
+ * would strand the document, and for a TTL-free bootstrap document that means
+ * forever.
+ */
+async function prunePassRows(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	rows: ExpiredNotificationRow[],
+	kvDeleteChunkSize: number,
+	result: NotificationPruneResult,
+): Promise<number> {
+	const kvDeleteResult = await deleteNotificationKvDocuments(kv, rows, kvDeleteChunkSize);
+	result.kvDeleteFailures += kvDeleteResult.failures;
+	return await deleteNotificationRows(db, kvDeleteResult.deletedRows.map((row) => row.id));
 }
 
 export async function pruneExpiredBotSeenContent(
@@ -5422,73 +5628,39 @@ function botSeenContentRetentionCutoff(now: string): string {
 	return new Date(nowMs - botSeenContentRetentionDays * secondsPerDay * 1000).toISOString();
 }
 
-function notificationRetentionCutoffs(now: string): Readonly<Record<NotificationStatus, string>> {
+function notificationRetentionCutoff(now: string): string {
 	const nowMs = Date.parse(now);
 	if (!Number.isFinite(nowMs)) {
 		throw new Error(`Invalid notification retention timestamp: ${now}`);
 	}
-	return {
-		pending: new Date(nowMs - notificationRetentionSecondsByStatus.pending * 1000).toISOString(),
-		delivered_to_loop: new Date(nowMs - notificationRetentionSecondsByStatus.delivered_to_loop * 1000).toISOString(),
-		read_or_consumed: new Date(nowMs - notificationRetentionSecondsByStatus.read_or_consumed * 1000).toISOString(),
-		archived: new Date(nowMs - notificationRetentionSecondsByStatus.archived * 1000).toISOString(),
-	};
-}
-
-async function deleteTtlBackedNotificationRows(
-	db: D1DatabaseLike,
-	cutoffs: Readonly<Record<NotificationStatus, string>>,
-): Promise<number> {
-	let deletedRows = 0;
-	for (const status of notificationStatuses) {
-		const result = await db
-			.prepare(
-				`DELETE FROM notifications
-				 WHERE status = ?
-				   AND created_at <= ?
-				   AND created_at >= ?
-				   ${status === "pending" ? pendingBootstrapPruneExclusion : ""}`,
-			)
-			.bind(status, cutoffs[status], notificationKvTtlSince)
-			.run();
-		deletedRows += result.meta?.changes ?? 0;
-	}
-	return deletedRows;
+	return new Date(nowMs - notificationPendingRetentionSeconds * 1000).toISOString();
 }
 
 /**
  * Pending bootstrap rows are exempt from expiry (design doc §2.1). Their KV
- * documents are written without a TTL precisely so a bot paused past the pending
- * retention still receives the bootstrap it was never handed; deleting the row
- * would strand that document while `bots_index.bootstrap_notified_at` blocks a
- * replacement forever. Only the pending arm is exempt — once delivered, read, or
- * archived, a bootstrap row prunes like any other.
+ * documents are written without a TTL precisely so a participant paused past the
+ * retention window still receives the bootstrap it was never handed; deleting
+ * the row would strand that document while `bots_index.bootstrap_notified_at`
+ * blocks a replacement forever.
  *
- * Transition guard until #187: that PR makes the bootstrap lifecycle
- * self-cleaning (ghost self-heal resets the flag, and prune reaps notifications
- * of missing or tombstoned bots), which is what lets this exclusion be narrowed.
+ * What bounds them instead: delivery deletes them, the ghost self-heal deletes
+ * the row and clears the flag when the document goes missing, and the orphan
+ * pass below deletes them outright once their bot is gone.
  */
 const pendingBootstrapPruneExclusion = `AND type != 'bootstrap'`;
-
-const notificationStatuses: readonly NotificationStatus[] = [
-	"pending",
-	"delivered_to_loop",
-	"read_or_consumed",
-	"archived",
-];
 
 type ExpiredNotificationCursor = {
 	createdAt: string;
 	id: string;
 };
 
-function legacyNotificationCursor(row: ExpiredNotificationRow | undefined): ExpiredNotificationCursor | undefined {
+function expiredNotificationCursor(row: ExpiredNotificationRow | undefined): ExpiredNotificationCursor | undefined {
 	return row ? { createdAt: row.createdAt, id: row.id } : undefined;
 }
 
-async function selectLegacyExpiredNotifications(
+async function selectExpiredNotifications(
 	db: D1DatabaseLike,
-	cutoffs: Readonly<Record<NotificationStatus, string>>,
+	cutoff: string,
 	limit: number,
 	cursor?: ExpiredNotificationCursor,
 ): Promise<ExpiredNotificationRow[]> {
@@ -5497,19 +5669,16 @@ async function selectLegacyExpiredNotifications(
 			`WITH expired_notifications AS (
 				SELECT notification_id AS id, bot_id AS botId, created_at AS createdAt
 				FROM notifications
-				WHERE status = 'pending' AND created_at <= ? AND created_at < ? ${pendingBootstrapPruneExclusion}
+				WHERE status = 'pending' AND created_at <= ? ${pendingBootstrapPruneExclusion}
 				UNION ALL
+				-- Rows the retired delivered/read/archived statuses left behind.
+				-- Delivery deletes rows now, so a row that is not pending is by
+				-- definition a pre-redesign leftover and expired whatever its age. O2
+				-- clears the bulk of them in one pass; this arm is what drains the
+				-- remainder if that script slips.
 				SELECT notification_id AS id, bot_id AS botId, created_at AS createdAt
 				FROM notifications
-				WHERE status = 'delivered_to_loop' AND created_at <= ? AND created_at < ?
-				UNION ALL
-				SELECT notification_id AS id, bot_id AS botId, created_at AS createdAt
-				FROM notifications
-				WHERE status = 'read_or_consumed' AND created_at <= ? AND created_at < ?
-				UNION ALL
-				SELECT notification_id AS id, bot_id AS botId, created_at AS createdAt
-				FROM notifications
-				WHERE status = 'archived' AND created_at <= ? AND created_at < ?
+				WHERE status <> 'pending'
 			)
 			SELECT id, botId, createdAt
 			FROM expired_notifications
@@ -5518,14 +5687,7 @@ async function selectLegacyExpiredNotifications(
 			LIMIT ?`,
 		)
 		.bind(
-			cutoffs.pending,
-			notificationKvTtlSince,
-			cutoffs.delivered_to_loop,
-			notificationKvTtlSince,
-			cutoffs.read_or_consumed,
-			notificationKvTtlSince,
-			cutoffs.archived,
-			notificationKvTtlSince,
+			cutoff,
 			cursor?.createdAt ?? null,
 			cursor?.createdAt ?? null,
 			cursor?.createdAt ?? null,
@@ -5536,13 +5698,98 @@ async function selectLegacyExpiredNotifications(
 	return result.results ?? [];
 }
 
-async function deleteExpiredNotificationKvDocuments(
+/**
+ * Notifications of a bot that is gone, at any age, type or status — bootstrap
+ * rows included. Bot deletion never removed notifications, and a TTL-free
+ * bootstrap document of a deleted bot would otherwise live forever.
+ *
+ * Driving this from the notification side is what makes it complete: a bot whose
+ * `bots_index` row was hard-deleted cannot be enumerated from the bot side at
+ * all. The join probes `bots_index` by primary key, the table it scans is bounded
+ * by the retention above, and the cursor is what guarantees progress when a row
+ * survives its pass because its KV delete failed.
+ */
+async function selectOrphanedBotNotifications(
+	db: D1DatabaseLike,
+	limit: number,
+	cursor?: string,
+): Promise<ExpiredNotificationRow[]> {
+	const result = await db
+		.prepare(
+			`SELECT n.notification_id AS id, n.bot_id AS botId, n.created_at AS createdAt
+			 FROM notifications n
+			 LEFT JOIN bots_index b ON b.bot_id = n.bot_id
+			 WHERE (b.bot_id IS NULL OR b.deleted_at IS NOT NULL)
+			   AND (? IS NULL OR n.notification_id > ?)
+			 ORDER BY n.notification_id ASC
+			 LIMIT ?`,
+		)
+		.bind(cursor ?? null, cursor ?? null, limit)
+		.all<ExpiredNotificationRow>();
+	return result.results ?? [];
+}
+
+/**
+ * The rowless half of the orphan cleanup. `ensureBootstrapNotification` writes
+ * the bootstrap document before the D1 batch that inserts its row, so a crash in
+ * between leaves a TTL-free document that no row names; if the bot is then
+ * deleted, nothing driven by rows can ever see it again. Its key is derivable
+ * from the bot id, so the sweep computes it and deletes it unconditionally —
+ * deleting an absent key is a no-op, which is cheaper than proving whether one
+ * of these documents exists.
+ *
+ * Only bots tombstoned inside the sweep window are considered; see
+ * {@link tombstonedBotBootstrapSweepWindowSeconds}. A bot hard-deleted from
+ * `bots_index` cannot be enumerated here at all — that residue is O2's, and is
+ * bounded by the same one-off.
+ */
+async function sweepTombstonedBotBootstrapDocuments(
 	kv: KVNamespaceLike,
-	rows: ExpiredNotificationRow[],
+	db: D1DatabaseLike,
+	now: string,
 	chunkSize: number,
-): Promise<{ deletedRows: ExpiredNotificationRow[]; failures: number }> {
+): Promise<number> {
+	const nowMs = Date.parse(now);
+	if (!Number.isFinite(nowMs)) {
+		throw new Error(`Invalid notification retention timestamp: ${now}`);
+	}
+	const windowStart = new Date(nowMs - tombstonedBotBootstrapSweepWindowSeconds * 1000).toISOString();
+	const result = await db
+		.prepare(
+			`SELECT bot_id AS botId
+			 FROM bots_index
+			 WHERE deleted_at IS NOT NULL AND deleted_at >= ?
+			 ORDER BY deleted_at ASC
+			 LIMIT ?`,
+		)
+		.bind(windowStart, tombstonedBotBootstrapSweepLimit)
+		.all<{ botId: string }>();
+	const botIds = (result.results ?? []).map((row) => row.botId);
+	let swept = 0;
+	for (const batch of chunks(botIds, chunkSize)) {
+		const outcomes = await Promise.all(
+			batch.map(async (botId) => {
+				try {
+					await deleteKey(kv, kvKeys.notification(botId, await bootstrapNotificationId(botId)));
+					return true;
+				} catch {
+					// Best effort: the next invocation inside the window retries.
+					return false;
+				}
+			}),
+		);
+		swept += outcomes.filter(Boolean).length;
+	}
+	return swept;
+}
+
+async function deleteNotificationKvDocuments<Row extends { id: string; botId: string }>(
+	kv: KVNamespaceLike,
+	rows: Row[],
+	chunkSize: number,
+): Promise<{ deletedRows: Row[]; failures: number }> {
 	let failures = 0;
-	const deletedRows: ExpiredNotificationRow[] = [];
+	const deletedRows: Row[] = [];
 	for (const batch of chunks(rows, chunkSize)) {
 		const outcomes = await Promise.all(
 			batch.map(async (row) => {
@@ -5651,18 +5898,21 @@ async function writeNotificationDocuments(
 }
 
 /**
- * Bot notifications are retained from creation: delivered/read/archived rows are
- * pruned after 30 days, pending rows after 90 days. KV mirrors use the max
- * retention TTL so new documents self-clean even if a prune run is delayed.
+ * Bot notifications are retained for 14 days from creation, and delivery deletes
+ * them outright before that. The KV mirror carries the same window as a TTL so a
+ * document still self-cleans if its explicit delete is ever lost.
  *
- * Retention exception: a pending bootstrap document carries NO TTL. A bot paused
- * longer than the pending retention would otherwise lose its undelivered
- * bootstrap while `bots_index.bootstrap_notified_at` permanently blocks a new
- * one. The exemption ends at delivery: markNotificationsDelivered rewrites the
- * document with the delivered TTL, which is also what bounds it.
+ * Retention exception (declared here, per the AGENTS.md retention rule): a
+ * bootstrap document carries NO TTL. A participant paused longer than the
+ * retention window would otherwise lose its undelivered bootstrap while
+ * `bots_index.bootstrap_notified_at` permanently blocks a new one. What bounds
+ * these instead is {@link deleteDeliveredNotifications} on delivery, the ghost
+ * self-heal in {@link listPendingNotifications}, and the prune's orphan pass
+ * once the bot is deleted. The residual is a bootstrap document whose delete
+ * failed at delivery: an accepted, permanent ~8 KB orphan.
  */
 function notificationKvPutOptions(notification: NotificationDocument): { expirationTtl?: number } | undefined {
-	if (notification.notificationType === "bootstrap" && notification.status === "pending") {
+	if (notification.notificationType === "bootstrap") {
 		return undefined;
 	}
 	return { expirationTtl: notificationKvExpirationTtlSeconds };

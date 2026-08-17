@@ -1086,7 +1086,7 @@ describe("Tick flow", () => {
 				.map((message) => JSON.parse(String(message.content)))
 				.find((result) => Array.isArray(result.events));
 			expect(Math.ceil(JSON.stringify(checkNotificationsResult).length / 4)).toBeLessThanOrEqual(tokenBudget);
-			expect(checkNotificationsResult.context).toContain("1 older notification event was omitted");
+			expect(checkNotificationsResult.context).toContain("1 lower-priority or older notification was omitted; they remain pending");
 			expect(checkNotificationsResult.events).toHaveLength(0);
 			expect(JSON.stringify(checkNotificationsResult)).not.toContain(longCommentText);
 			expect(JSON.stringify(checkNotificationsResult)).not.toContain("…");
@@ -1146,14 +1146,16 @@ describe("Tick flow", () => {
 			.map((message) => JSON.parse(String(message.content)))
 			.find((result) => Array.isArray(result.events));
 		expect(Math.ceil(JSON.stringify(checkNotificationsResult).length / 4)).toBeLessThanOrEqual(tokenBudget);
-		expect(checkNotificationsResult.context).toContain("older notification");
+		expect(checkNotificationsResult.context).toContain("lower-priority or older notification");
 			expect(checkNotificationsResult.events.length).toBeGreaterThan(0);
 			expect(checkNotificationsResult.events.length).toBeLessThan(notifications.length);
-			expect(checkNotificationsResult.events[0].comment.commentRef).not.toBe("c/cmt_drop_0");
-			expect(checkNotificationsResult.events.at(-1).comment.commentRef).toBe("c/cmt_drop_7");
-			expect(checkNotificationsResult.events.at(-1).comment.author).toBe(replier.username);
-			expect(checkNotificationsResult.events.at(-1).replyTo.author).toBe(`u/${selfProfile.handle} (${providerSelfAuthor})`);
-			expect(checkNotificationsResult.events.at(-1).comment.text).toBe("Comment 7 stays whole.");
+			// The caller hands these over in delivery order, so the budget is spent
+			// from the front and the tail is what gets dropped.
+			expect(checkNotificationsResult.events[0].comment.commentRef).toBe("c/cmt_drop_0");
+			expect(checkNotificationsResult.events.at(-1).comment.commentRef).not.toBe("c/cmt_drop_7");
+			expect(checkNotificationsResult.events[0].comment.author).toBe(replier.username);
+			expect(checkNotificationsResult.events[0].replyTo.author).toBe(`u/${selfProfile.handle} (${providerSelfAuthor})`);
+			expect(checkNotificationsResult.events[0].comment.text).toBe("Comment 0 stays whole.");
 			expect(JSON.stringify(checkNotificationsResult)).not.toContain("…");
 		});
 

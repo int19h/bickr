@@ -24,6 +24,7 @@ import {
 	deferred,
 	deleteBot,
 	deleteCommentRoute,
+	deleteDeliveredNotifications,
 	deleteForumRoute,
 	deleteThreadRoute,
 	deleteWorldRoute,
@@ -49,7 +50,6 @@ import {
 	markAllNotificationsReadRoute,
 	markBotSeenContent,
 	markBotSeenFromResult,
-	markNotificationsDelivered,
 	meBots,
 	memoryDurableStorage,
 	patchForum,
@@ -97,7 +97,11 @@ import type {
 	ThreadListPayload,
 } from "./helpers/index-harness";
 import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
-import { notificationKvTtlSince, pruneExpiredBotSeenContent, pruneExpiredNotifications } from "@bickr/shared/social";
+import { bootstrapNotificationId, pruneExpiredBotSeenContent, pruneExpiredNotifications } from "@bickr/shared/social";
+import {
+	forumCoordinatorDailyCronExpression,
+	forumCoordinatorNotificationPruneCronExpression,
+} from "../workers/forum-coordinator/src/cron";
 import { botInferenceUsageRetentionDays } from "@bickr/shared/token-spend";
 import type { KVNamespaceLike } from "@bickr/shared/storage";
 import type { ForumDocument } from "@bickr/shared/model";
@@ -130,14 +134,17 @@ async function setForumThreadCommentLimit(forumId: string, commentLimit: number)
 	).bind(commentLimit, forumId).run();
 }
 
-async function runForumCoordinatorScheduled(scheduledTime: string): Promise<void> {
+async function runForumCoordinatorScheduled(
+	scheduledTime: string,
+	cron = forumCoordinatorDailyCronExpression,
+): Promise<void> {
 	if (!forumCoordinatorWorker.scheduled) {
 		throw new Error("Forum coordinator scheduled handler is missing.");
 	}
 	const pending: Array<Promise<unknown>> = [];
 	const controller = {
 		scheduledTime: Date.parse(scheduledTime),
-		cron: "0 0 * * *",
+		cron,
 		noRetry: () => {},
 	} as ScheduledController;
 	const ctx = {
@@ -150,7 +157,44 @@ async function runForumCoordinatorScheduled(scheduledTime: string): Promise<void
 	await Promise.all(pending);
 }
 
+function scheduledLogs(consoleLog: { mock: { calls: unknown[][] } }): Record<string, unknown>[] {
+	return consoleLog.mock.calls.map(([message]) => {
+		try {
+			return JSON.parse(String(message)) as Record<string, unknown>;
+		} catch {
+			return {};
+		}
+	});
+}
+
+/**
+ * `pending` is the only status this build writes. The retired ones are still
+ * inserted by these tests on purpose: rows carrying them exist in production
+ * until the prune drains them.
+ */
 type BotNotificationStatus = "pending" | "delivered_to_loop" | "read_or_consumed" | "archived";
+
+async function insertBotForRetention(botId: string, options: { deletedAt?: string } = {}): Promise<void> {
+	const now = "2026-01-01T00:00:00.000Z";
+	// bots_index enforces a live handle claim by trigger, so a fixture row needs
+	// one even though nothing in these tests reads the handle.
+	await testEnv.BICKR_D1.prepare(
+		`INSERT OR IGNORE INTO entity_lifecycle_identity_claims (
+			key_kind, key_scope, key_value, entity_kind, entity_id, owner_user_id,
+			claim_state, operation_id, created_at, updated_at
+		) VALUES ('bot_handle', 'wld_retention', ?, 'bot', ?, 'usr_retention', 'active', NULL, ?, ?)`,
+	)
+		.bind(`handle-${botId}`, botId, now, now)
+		.run();
+	await testEnv.BICKR_D1.prepare(
+		`INSERT OR IGNORE INTO bots_index (
+			bot_id, home_world_id, home_world_handle, handle, display_name,
+			owner_user_id, short_bio, created_at, updated_at, deleted_at, lifecycle_state
+		) VALUES (?, 'wld_retention', 'retention-world', ?, 'Retention bot', 'usr_retention', 'Bio', ?, ?, ?, 'active')`,
+	)
+		.bind(botId, `handle-${botId}`, now, now, options.deletedAt ?? null)
+		.run();
+}
 
 async function insertBotNotificationForRetention(input: {
 	id: string;
@@ -161,6 +205,9 @@ async function insertBotNotificationForRetention(input: {
 }): Promise<void> {
 	const botId = input.botId ?? "bot_retention";
 	const notificationType = input.notificationType ?? "system";
+	// The prune deletes notifications of a bot that is missing from bots_index, so
+	// a retention fixture needs a live bot unless it is testing exactly that.
+	await insertBotForRetention(botId);
 	await testEnv.BICKR_KV.put(kvKeys.notification(botId, input.id), JSON.stringify({
 		id: input.id,
 		type: "notification",
@@ -923,39 +970,69 @@ describe("Forum coordinator", () => {
 		}
 	});
 
-	it("prunes expired bot notifications from the forum coordinator cron", async () => {
+	it("prunes expired bot notifications from the dedicated prune cron", async () => {
 		const now = "2026-07-01T00:00:00.000Z";
 		await insertBotNotificationForRetention({
 			id: "ntf_expired_pending",
 			status: "pending",
-			createdAt: daysBefore(now, 91),
+			createdAt: daysBefore(now, 15),
 		});
+		// Rows the retired statuses left behind expire whatever their age: nothing
+		// writes them any more, and nothing can deliver them.
 		await insertBotNotificationForRetention({
 			id: "ntf_expired_delivered",
 			status: "delivered_to_loop",
-			createdAt: daysBefore(now, 31),
+			createdAt: daysBefore(now, 1),
 		});
 		await insertBotNotificationForRetention({
 			id: "ntf_expired_read",
 			status: "read_or_consumed",
-			createdAt: daysBefore(now, 31),
+			createdAt: daysBefore(now, 1),
 		});
 		await insertBotNotificationForRetention({
 			id: "ntf_expired_archived",
 			status: "archived",
-			createdAt: daysBefore(now, 31),
-		});
-		await insertBotNotificationForRetention({
-			id: "ntf_recent_delivered",
-			status: "delivered_to_loop",
-			createdAt: daysBefore(now, 29),
+			createdAt: daysBefore(now, 1),
 		});
 		await insertBotNotificationForRetention({
 			id: "ntf_young_pending",
 			status: "pending",
-			createdAt: daysBefore(now, 89),
+			createdAt: daysBefore(now, 13),
 		});
 		await insertHumanNotificationForRetention("hnt_old_out_of_scope", daysBefore(now, 120));
+
+		const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
+		let pruneLog: Record<string, unknown> | undefined;
+		try {
+			await runForumCoordinatorScheduled(now, forumCoordinatorNotificationPruneCronExpression);
+			pruneLog = scheduledLogs(consoleLog).find((payload) => payload.event === "notification_prune");
+		} finally {
+			consoleLog.mockRestore();
+		}
+
+		expect(await botNotificationRowIds()).toEqual(["ntf_young_pending"]);
+		for (const id of ["ntf_expired_pending", "ntf_expired_delivered", "ntf_expired_read", "ntf_expired_archived"]) {
+			expect(await botNotificationKvExists(id)).toBe(false);
+		}
+		expect(await botNotificationKvExists("ntf_young_pending")).toBe(true);
+		expect(await humanNotificationExists("hnt_old_out_of_scope")).toBe(true);
+		expect(pruneLog).toMatchObject({
+			event: "notification_prune",
+			notificationPrune: {
+				deletedRows: 4,
+				kvDeleteFailures: 0,
+				orphanedBotRows: 0,
+			},
+		});
+	});
+
+	it("keeps the notification prune off the daily maintenance cron", async () => {
+		const now = "2026-07-01T00:00:00.000Z";
+		await insertBotNotificationForRetention({
+			id: "ntf_expired_for_daily_run",
+			status: "pending",
+			createdAt: daysBefore(now, 15),
+		});
 		await insertBotSeenContentForRetention({
 			id: "thr_seen_expired",
 			lastSeenAt: daysBefore(now, 91),
@@ -977,35 +1054,19 @@ describe("Forum coordinator", () => {
 		let retentionLog: Record<string, unknown> | undefined;
 		try {
 			await runForumCoordinatorScheduled(now);
-			retentionLog = consoleLog.mock.calls
-				.map(([message]) => {
-					try {
-						return JSON.parse(String(message)) as Record<string, unknown>;
-					} catch {
-						return {};
-					}
-				})
-				.find((payload) => payload.event === "retention_prune");
+			retentionLog = scheduledLogs(consoleLog).find((payload) => payload.event === "retention_prune");
 		} finally {
 			consoleLog.mockRestore();
 		}
 
-		expect(await botNotificationRowIds()).toEqual(["ntf_recent_delivered", "ntf_young_pending"]);
-		for (const id of ["ntf_expired_pending", "ntf_expired_delivered", "ntf_expired_read", "ntf_expired_archived"]) {
-			expect(await botNotificationKvExists(id)).toBe(false);
-		}
-		expect(await botNotificationKvExists("ntf_recent_delivered")).toBe(true);
-		expect(await botNotificationKvExists("ntf_young_pending")).toBe(true);
-		expect(await humanNotificationExists("hnt_old_out_of_scope")).toBe(true);
+		// The daily run does its own sweeps and leaves notifications to the 6-hourly
+		// trigger, which is what gives that pass a subrequest budget of its own.
+		expect(await botNotificationRowIds()).toEqual(["ntf_expired_for_daily_run"]);
 		expect(await botSeenContentRowIds()).toEqual(["thr_seen_retained"]);
 		expect(await botInferenceUsageSourceIds()).toEqual([2]);
 		expect(retentionLog).toMatchObject({
 			event: "retention_prune",
 			hotScores: { recentCommentCountsRefreshed: true },
-			notificationPrune: {
-				deletedRows: 4,
-				kvDeleteFailures: 0,
-			},
 			botSeenContentPrune: {
 				deletedRows: 1,
 			},
@@ -1018,30 +1079,18 @@ describe("Forum coordinator", () => {
 				budgetExhausted: false,
 			},
 		});
+		expect(retentionLog).not.toHaveProperty("notificationPrune");
 	});
 
 	it("logs the retention_prune summary before a failed maintenance task propagates", async () => {
 		const now = "2026-07-01T00:00:00.000Z";
-		await insertBotNotificationForRetention({
-			id: "ntf_expired_for_failure_run",
-			status: "delivered_to_loop",
-			createdAt: daysBefore(now, 31),
-		});
 		await testEnv.BICKR_D1.prepare(`ALTER TABLE bot_seen_content RENAME TO bot_seen_content_hidden`).run();
 
 		const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
 		let retentionLog: Record<string, unknown> | undefined;
 		try {
 			await expect(runForumCoordinatorScheduled(now)).rejects.toThrow();
-			retentionLog = consoleLog.mock.calls
-				.map(([message]) => {
-					try {
-						return JSON.parse(String(message)) as Record<string, unknown>;
-					} catch {
-						return {};
-					}
-				})
-				.find((payload) => payload.event === "retention_prune");
+			retentionLog = scheduledLogs(consoleLog).find((payload) => payload.event === "retention_prune");
 		} finally {
 			consoleLog.mockRestore();
 			await testEnv.BICKR_D1.prepare(`ALTER TABLE bot_seen_content_hidden RENAME TO bot_seen_content`).run();
@@ -1049,10 +1098,28 @@ describe("Forum coordinator", () => {
 
 		expect(retentionLog).toMatchObject({
 			event: "retention_prune",
-			notificationPrune: { deletedRows: 1 },
 			indexRepair: { scanned: 0, repaired: 0, budgetExhausted: false },
 		});
 		expect((retentionLog?.botSeenContentPrune as { error?: string })?.error).toContain("bot_seen_content");
+	});
+
+	it("logs the notification prune counters before a failed prune propagates", async () => {
+		const now = "2026-07-01T00:00:00.000Z";
+		await testEnv.BICKR_D1.prepare(`ALTER TABLE notifications RENAME TO notifications_hidden`).run();
+
+		const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
+		let pruneLog: Record<string, unknown> | undefined;
+		try {
+			await expect(runForumCoordinatorScheduled(now, forumCoordinatorNotificationPruneCronExpression)).rejects.toThrow();
+			pruneLog = scheduledLogs(consoleLog).find((payload) => payload.event === "notification_prune");
+		} finally {
+			consoleLog.mockRestore();
+			await testEnv.BICKR_D1.prepare(`ALTER TABLE notifications_hidden RENAME TO notifications`).run();
+		}
+
+		// A partial run's counters are the only evidence of how far it got, so they
+		// are logged before the failure is rethrown.
+		expect((pruneLog?.notificationPrune as { error?: string })?.error).toContain("notifications");
 	});
 
 	it("prunes bot seen-content rows older than the retention cutoff", async () => {
@@ -1126,48 +1193,22 @@ describe("Forum coordinator", () => {
 		expect(await botSeenContentRowIds()).toEqual(["thr_seen_budget_recent"]);
 	});
 
-	it("uses D1-only pruning only for TTL-backed notification rows at or after the cutover", async () => {
+	it("deletes both stores for every expired notification, without a phase split", async () => {
 		const now = "2026-08-13T00:00:00.000Z";
 		await insertBotNotificationForRetention({
-			id: "ntf_pre_cutover",
-			status: "delivered_to_loop",
-			createdAt: "2026-07-11T23:59:59.999Z",
+			id: "ntf_expired_old",
+			status: "pending",
+			createdAt: daysBefore(now, 30),
 		});
 		await insertBotNotificationForRetention({
-			id: "ntf_at_cutover",
-			status: "delivered_to_loop",
-			createdAt: notificationKvTtlSince,
-		});
-
-		const result = await pruneExpiredNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, {
-			now,
-			maxRowsPerRun: 0,
-		});
-
-		expect(result).toMatchObject({
-			deletedRows: 1,
-			phase1DeletedRows: 1,
-			phase2DeletedRows: 0,
-			selectedRows: 0,
-			kvDeleteFailures: 0,
-			budgetExhausted: false,
-		});
-		expect(await botNotificationRowIds()).toEqual(["ntf_pre_cutover"]);
-		expect(await botNotificationKvExists("ntf_pre_cutover")).toBe(true);
-		expect(await botNotificationKvExists("ntf_at_cutover")).toBe(true);
-	});
-
-	it("keeps legacy KV deletes below the TTL cutover boundary", async () => {
-		const now = "2026-08-13T00:00:00.000Z";
-		await insertBotNotificationForRetention({
-			id: "ntf_legacy_boundary",
-			status: "delivered_to_loop",
-			createdAt: "2026-07-11T23:59:59.999Z",
+			id: "ntf_expired_recent",
+			status: "pending",
+			createdAt: daysBefore(now, 15),
 		});
 		await insertBotNotificationForRetention({
-			id: "ntf_ttl_boundary",
-			status: "delivered_to_loop",
-			createdAt: notificationKvTtlSince,
+			id: "ntf_inside_window",
+			status: "pending",
+			createdAt: daysBefore(now, 13),
 		});
 		const kv = kvWithScriptedDeletes();
 
@@ -1177,20 +1218,23 @@ describe("Forum coordinator", () => {
 			maxRowsPerRun: 10,
 		});
 
+		// Every pruned row's document is deleted explicitly; the KV TTL is only the
+		// backstop for a delete that failed.
 		expect(result).toMatchObject({
 			deletedRows: 2,
-			phase1DeletedRows: 1,
-			phase2DeletedRows: 1,
-			selectedRows: 1,
+			selectedRows: 2,
 			kvDeleteFailures: 0,
+			orphanedBotRows: 0,
+			budgetExhausted: false,
 		});
-		expect(kv.deletedKeys).toEqual([botNotificationKvKey("ntf_legacy_boundary")]);
-		expect(await botNotificationRowIds()).toEqual([]);
-		expect(await botNotificationKvExists("ntf_legacy_boundary")).toBe(false);
-		expect(await botNotificationKvExists("ntf_ttl_boundary")).toBe(true);
+		expect(kv.deletedKeys).toEqual([
+			botNotificationKvKey("ntf_expired_old"),
+			botNotificationKvKey("ntf_expired_recent"),
+		]);
+		expect(await botNotificationRowIds()).toEqual(["ntf_inside_window"]);
 	});
 
-	it("retains legacy D1 rows when their KV delete fails", async () => {
+	it("retains D1 rows when their KV delete fails", async () => {
 		const now = "2026-07-01T00:00:00.000Z";
 		const failedKey = botNotificationKvKey("ntf_failed_kv_delete");
 		await insertBotNotificationForRetention({
@@ -1212,11 +1256,11 @@ describe("Forum coordinator", () => {
 			kvDeleteChunkSize: 2,
 		});
 
+		// Documents go first in the prune precisely so the row survives to select
+		// the document again: the row is the only record that the document exists.
 		expect(firstRun).toMatchObject({
 			selectedRows: 2,
 			deletedRows: 1,
-			phase1DeletedRows: 0,
-			phase2DeletedRows: 1,
 			kvDeleteFailures: 1,
 			budgetExhausted: false,
 		});
@@ -1233,51 +1277,31 @@ describe("Forum coordinator", () => {
 		expect(retryRun).toMatchObject({
 			selectedRows: 1,
 			deletedRows: 1,
-			phase2DeletedRows: 1,
 			kvDeleteFailures: 0,
 		});
 		expect(await botNotificationRowIds()).toEqual([]);
 		expect(await botNotificationKvExists("ntf_failed_kv_delete")).toBe(false);
 	});
 
-	it("exempts pending bootstrap notifications from expiry in both prune phases", async () => {
-		// Late enough that the 90-day pending cutoff lands after the TTL cutover, so
-		// one pending bootstrap is expired on each side of it: phase 1 owns the row
-		// at or after the cutover, phase 2 owns the legacy row before it.
+	it("exempts pending bootstrap notifications from expiry", async () => {
 		const now = "2026-12-01T00:00:00.000Z";
 		await insertBotNotificationForRetention({
-			id: "ntf_bootstrap_pending_ttl",
-			notificationType: "bootstrap",
-			status: "pending",
-			createdAt: "2026-08-01T00:00:00.000Z",
-		});
-		await insertBotNotificationForRetention({
-			id: "ntf_bootstrap_pending_legacy",
+			id: "ntf_bootstrap_pending",
 			notificationType: "bootstrap",
 			status: "pending",
 			createdAt: "2026-06-01T00:00:00.000Z",
 		});
-		// Delivery ends the exemption: these prune like any other row.
+		// A bootstrap row left behind by the retired delivered status prunes like
+		// any other leftover: it was handed over, so nothing is owed.
 		await insertBotNotificationForRetention({
-			id: "ntf_bootstrap_delivered_ttl",
-			notificationType: "bootstrap",
-			status: "delivered_to_loop",
-			createdAt: "2026-08-01T00:00:00.000Z",
-		});
-		await insertBotNotificationForRetention({
-			id: "ntf_bootstrap_delivered_legacy",
+			id: "ntf_bootstrap_delivered",
 			notificationType: "bootstrap",
 			status: "delivered_to_loop",
 			createdAt: "2026-06-01T00:00:00.000Z",
 		});
-		// Controls: pending rows of every other type still expire on both sides.
+		// Control: pending rows of every other type still expire.
 		await insertBotNotificationForRetention({
-			id: "ntf_system_pending_ttl",
-			status: "pending",
-			createdAt: "2026-08-01T00:00:00.000Z",
-		});
-		await insertBotNotificationForRetention({
-			id: "ntf_system_pending_legacy",
+			id: "ntf_system_pending",
 			status: "pending",
 			createdAt: "2026-06-02T00:00:00.000Z",
 		});
@@ -1290,24 +1314,73 @@ describe("Forum coordinator", () => {
 		});
 
 		expect(result).toMatchObject({
-			deletedRows: 4,
-			phase1DeletedRows: 2,
-			phase2DeletedRows: 2,
+			deletedRows: 2,
 			selectedRows: 2,
 			kvDeleteFailures: 0,
 		});
-		// The pending bootstrap documents carry no TTL, so a deleted row would leave
-		// them stranded behind a flag that blocks any replacement.
-		expect(await botNotificationRowIds()).toEqual([
-			"ntf_bootstrap_pending_legacy",
-			"ntf_bootstrap_pending_ttl",
-		]);
+		// The pending bootstrap document carries no TTL, so a deleted row would
+		// strand it behind a flag that blocks any replacement.
+		expect(await botNotificationRowIds()).toEqual(["ntf_bootstrap_pending"]);
 		expect(kv.deletedKeys).toEqual([
-			botNotificationKvKey("ntf_bootstrap_delivered_legacy"),
-			botNotificationKvKey("ntf_system_pending_legacy"),
+			botNotificationKvKey("ntf_bootstrap_delivered"),
+			botNotificationKvKey("ntf_system_pending"),
 		]);
-		expect(await botNotificationKvExists("ntf_bootstrap_pending_ttl")).toBe(true);
-		expect(await botNotificationKvExists("ntf_bootstrap_pending_legacy")).toBe(true);
+		expect(await botNotificationKvExists("ntf_bootstrap_pending")).toBe(true);
+	});
+
+	it("deletes every notification of a missing or tombstoned bot, at any age or type", async () => {
+		const now = "2026-07-01T00:00:00.000Z";
+		const tombstoned = "bot_tombstoned";
+		const missing = "bot_missing_index_row";
+		await insertBotNotificationForRetention({
+			id: "ntf_tombstoned_bootstrap",
+			botId: tombstoned,
+			notificationType: "bootstrap",
+			status: "pending",
+			createdAt: daysBefore(now, 1),
+		});
+		await testEnv.BICKR_D1
+			.prepare(`UPDATE bots_index SET deleted_at = ? WHERE bot_id = ?`)
+			.bind(daysBefore(now, 1), tombstoned)
+			.run();
+		await insertBotNotificationForRetention({
+			id: "ntf_missing_bot_recent",
+			botId: missing,
+			status: "pending",
+			createdAt: daysBefore(now, 1),
+		});
+		await testEnv.BICKR_D1.prepare(`DELETE FROM bots_index WHERE bot_id = ?`).bind(missing).run();
+		// A live bot's fresh notification is untouched by both passes.
+		await insertBotNotificationForRetention({
+			id: "ntf_live_bot_recent",
+			status: "pending",
+			createdAt: daysBefore(now, 1),
+		});
+		// The rowless half: a crash between the TTL-free bootstrap document and its
+		// D1 batch leaves a document no row can ever name.
+		const rowlessBootstrapId = await bootstrapNotificationId(tombstoned);
+		await testEnv.BICKR_KV.put(
+			kvKeys.notification(tombstoned, rowlessBootstrapId),
+			JSON.stringify({ id: rowlessBootstrapId, botId: tombstoned, notificationType: "bootstrap", status: "pending" }),
+		);
+
+		const result = await pruneExpiredNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, {
+			now,
+			selectLimit: 10,
+			maxRowsPerRun: 10,
+		});
+
+		expect(result).toMatchObject({
+			deletedRows: 2,
+			orphanedBotRows: 2,
+			kvDeleteFailures: 0,
+			tombstonedBotsSwept: 1,
+		});
+		expect(await botNotificationRowIds()).toEqual(["ntf_live_bot_recent"]);
+		expect(await botNotificationKvExists("ntf_tombstoned_bootstrap", tombstoned)).toBe(false);
+		expect(await botNotificationKvExists("ntf_missing_bot_recent", missing)).toBe(false);
+		expect(await botNotificationKvExists(rowlessBootstrapId, tombstoned)).toBe(false);
+		expect(await botNotificationKvExists("ntf_live_bot_recent")).toBe(true);
 	});
 
 	it("resumes bot notification pruning after hitting the per-run row budget", async () => {
@@ -2667,7 +2740,7 @@ describe("Forum coordinator", () => {
 		expect(followerLoopInput.input.notifications.map((event) => event.type)).not.toEqual(
 			expect.arrayContaining(["profile_followed", "profile_unfollowed"]),
 		);
-		await markNotificationsDelivered(testEnv.BICKR_KV, testEnv.BICKR_D1, followerNotifications);
+		await deleteDeliveredNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, followerNotifications);
 		expect(await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, follower.id)).toHaveLength(0);
 
 		const targetNotifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, target.id);

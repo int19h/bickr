@@ -11,7 +11,14 @@ export default defineConfig({
 				test: {
 					name: "node",
 					environment: "node",
-					include: ["packages/cli/src/**/*.test.ts", "scripts/**/*.test.mjs", "workers/agent-runtime/src/runtime/**/*.test.ts"],
+					include: [
+						"packages/cli/src/**/*.test.ts",
+						"scripts/**/*.test.mjs",
+						"workers/agent-runtime/src/runtime/**/*.test.ts",
+						// Reads the Wrangler configurations from disk, which needs a real
+						// filesystem rather than the workerd pool.
+						"workers/forum-coordinator/src/**/*.test.ts",
+					],
 					exclude: [...configDefaults.exclude],
 				},
 			},
@@ -44,6 +51,7 @@ export default defineConfig({
 						"packages/cli/src/**/*.test.ts",
 						"scripts/**/*.test.mjs",
 						"workers/agent-runtime/src/runtime/**/*.test.ts",
+						"workers/forum-coordinator/src/**/*.test.ts",
 						domTests,
 					],
 				},
