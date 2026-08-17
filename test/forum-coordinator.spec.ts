@@ -97,7 +97,13 @@ import type {
 	ThreadListPayload,
 } from "./helpers/index-harness";
 import { internalServiceAuthHeader } from "@bickr/shared/internal-service";
-import { bootstrapNotificationId, pruneExpiredBotSeenContent, pruneExpiredNotifications } from "@bickr/shared/social";
+import {
+	bootstrapNotificationId,
+	pruneExpiredBotSeenContent,
+	pruneExpiredNotifications,
+	selectTombstonedBotsAfterCursorSql,
+	selectTombstonedBotsFirstPageSql,
+} from "@bickr/shared/social";
 import {
 	forumCoordinatorDailyCronExpression,
 	forumCoordinatorNotificationPruneCronExpression,
@@ -1478,6 +1484,66 @@ describe("Forum coordinator", () => {
 
 		const fourthRun = await pruneExpiredNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, sweepTwoBots);
 		expect(fourthRun).toMatchObject({ orphanedBotRows: 0, tombstonedBotsSwept: 2 });
+	});
+
+	it("pages the tombstone rotation by seeking the cursor, not by walking up to it", async () => {
+		// Enough tombstones that a page taken near the end of the rotation is far
+		// from its head. A seek reads its own page; a walk reads every tombstone
+		// ahead of the cursor as well, and only the second grows as bots are
+		// deleted — which is the cost this rotation exists to avoid paying.
+		const total = 60;
+		const pageSize = 5;
+		const botId = (index: number) => `bot_rotation_${String(index).padStart(3, "0")}`;
+		const deletedAt = (index: number) => new Date(Date.UTC(2026, 0, 1) + index * 1000).toISOString();
+		for (let index = 0; index < total; index += 1) {
+			await insertBotForRetention(botId(index), { deletedAt: deletedAt(index) });
+		}
+		// A live bot is not a tombstone: the partial index must not carry it, and
+		// no page may return it.
+		await insertBotForRetention("bot_rotation_live");
+
+		const firstPage = await testEnv.BICKR_D1
+			.prepare(selectTombstonedBotsFirstPageSql)
+			.bind(pageSize)
+			.all<{ botId: string; deletedAt: string }>();
+		expect(firstPage.results.map((row) => row.botId)).toEqual([0, 1, 2, 3, 4].map(botId));
+
+		const cursorIndex = total - pageSize - 1;
+		const resumed = await testEnv.BICKR_D1
+			.prepare(selectTombstonedBotsAfterCursorSql)
+			.bind(deletedAt(cursorIndex), deletedAt(cursorIndex), botId(cursorIndex), pageSize)
+			.all<{ botId: string; deletedAt: string }>();
+		expect(resumed.results.map((row) => row.botId)).toEqual([55, 56, 57, 58, 59].map(botId));
+
+		// `rows_read` counts the index entries the statement examined, so it is the
+		// page's real cost rather than a claim about its plan. Both pages must pay
+		// for their own rows only; a page that walked to the cursor would read the
+		// ~55 tombstones before it too. The plan string cannot make this
+		// distinction — a walk reports the same `SEARCH ... (deleted_at>?)`, since
+		// that seek is the `IS NOT NULL` term the partial index implies.
+		expect(firstPage.meta.rows_read).toBeLessThanOrEqual(pageSize + 1);
+		expect(resumed.meta.rows_read).toBeLessThanOrEqual(pageSize + 1);
+
+		const planDetails = async (sql: string, binds: unknown[]): Promise<string[]> => {
+			const plan = await testEnv.BICKR_D1
+				.prepare(`EXPLAIN QUERY PLAN ${sql}`)
+				.bind(...binds)
+				.all<{ detail: string }>();
+			return (plan.results ?? []).map((row) => row.detail);
+		};
+		for (const details of [
+			await planDetails(selectTombstonedBotsFirstPageSql, [pageSize]),
+			await planDetails(
+				selectTombstonedBotsAfterCursorSql,
+				[deletedAt(cursorIndex), deletedAt(cursorIndex), botId(cursorIndex), pageSize],
+			),
+		]) {
+			// Covering the index means the page never touches a bot's row, and
+			// ordering with it means the page is never sorted.
+			expect(details.some((detail) => detail.includes("bots_index_tombstoned"))).toBe(true);
+			expect(details.some((detail) => /\bSCAN bots_index\b/u.test(detail))).toBe(false);
+			expect(details.some((detail) => detail.includes("TEMP B-TREE"))).toBe(false);
+		}
 	});
 
 	it("keeps expiry progressing when a deleted bot's backlog exceeds the orphan sub-budget", async () => {

@@ -5883,26 +5883,46 @@ type TombstonedBot = {
  *
  * Ordering by `deleted_at` is what keeps a newly tombstoned bot ahead of the
  * cursor, so it is reached in the rotation already running rather than after it
- * wraps. `bots_index` has no index on `deleted_at`; this is a bounded page over
- * a table that grows only with bot creation, on a six-hourly trigger, and the
- * pass it feeds is the one that used to scan the notifications table instead.
+ * wraps. `bots_index_tombstoned` (migration 0051) covers exactly these two
+ * columns over exactly the tombstoned rows, so a page seeks straight to the
+ * cursor and walks `limit` index entries: no sort, and no read of a live bot.
+ *
+ * The resume page is a separate statement from the first page, and states its
+ * keyset as an indexable `deleted_at >= ?` bound plus a tie-break, rather than
+ * as the equivalent `deleted_at > ? OR (deleted_at = ? AND bot_id > ?)`. Both
+ * shapes report the same plan, because the seek SQLite names there is the
+ * `IS NOT NULL` term the partial index implies — but only the bound narrows the
+ * walk. Written either of the other ways, a page started at the oldest
+ * tombstone and re-walked every one the rotation had already passed, which is
+ * the cost the index was added to remove.
  */
+export const selectTombstonedBotsFirstPageSql =
+	`SELECT bot_id AS botId, deleted_at AS deletedAt
+	 FROM bots_index
+	 WHERE deleted_at IS NOT NULL
+	 ORDER BY deleted_at ASC, bot_id ASC
+	 LIMIT ?`;
+
+export const selectTombstonedBotsAfterCursorSql =
+	`SELECT bot_id AS botId, deleted_at AS deletedAt
+	 FROM bots_index
+	 WHERE deleted_at IS NOT NULL
+	   AND deleted_at >= ?
+	   AND (deleted_at > ? OR bot_id > ?)
+	 ORDER BY deleted_at ASC, bot_id ASC
+	 LIMIT ?`;
+
 async function selectTombstonedBots(
 	db: D1DatabaseLike,
 	limit: number,
 	cursor?: TombstonedBot,
 ): Promise<TombstonedBot[]> {
-	const result = await db
-		.prepare(
-			`SELECT bot_id AS botId, deleted_at AS deletedAt
-			 FROM bots_index
-			 WHERE deleted_at IS NOT NULL
-			   AND (? IS NULL OR deleted_at > ? OR (deleted_at = ? AND bot_id > ?))
-			 ORDER BY deleted_at ASC, bot_id ASC
-			 LIMIT ?`,
-		)
-		.bind(cursor?.deletedAt ?? null, cursor?.deletedAt ?? null, cursor?.deletedAt ?? null, cursor?.botId ?? null, limit)
-		.all<TombstonedBot>();
+	const result = cursor
+		? await db
+			.prepare(selectTombstonedBotsAfterCursorSql)
+			.bind(cursor.deletedAt, cursor.deletedAt, cursor.botId, limit)
+			.all<TombstonedBot>()
+		: await db.prepare(selectTombstonedBotsFirstPageSql).bind(limit).all<TombstonedBot>();
 	return result.results ?? [];
 }
 
