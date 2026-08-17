@@ -22,6 +22,9 @@ export const onRequestGet: PagesFunction<
 		const fresh = new URL(request.url).searchParams.get("fresh") === "1";
 		const thread =
 			fresh ?
+				// The coordinator hydrates every thread document it returns (§2.7),
+				// so this path only adds the read state the KV path gets from
+				// readThreadWithReadState.
 				await threadWithReadState(
 					env.BICKR_D1,
 					await readCoordinatorThread(env, request, threadId),

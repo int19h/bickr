@@ -186,7 +186,9 @@ async function threadMetadata(env: AppEnv, route: ParsedRoute): Promise<PageMeta
 		return notFoundMetadata("Comment");
 	}
 	const comment = targetComment ?? rootComment;
-	const imageUrl = comment ? comment.authorAvatarUrl ?? await botAvatarUrl(env.BICKR_D1, comment.authorBotId) : undefined;
+	// The author's current avatar, never the one stored on the comment: those
+	// are dead data now that every read path re-derives them (§2.7).
+	const imageUrl = comment ? await botAvatarUrl(env.BICKR_D1, comment.authorBotId) : undefined;
 	return {
 		title: pageTitle(targetComment ? `u/${targetComment.authorHandle} on ${localizedTextString(thread.title)}` : localizedTextString(thread.title)),
 		description: descriptionText(localizedTextString(comment?.body), `${localizedTextString(thread.title)} in f/${thread.forumHandle}.`),

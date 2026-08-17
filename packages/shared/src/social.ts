@@ -452,8 +452,16 @@ function isCurrentThreadDocumentShape(document: ThreadDocument): boolean {
 
 function normalizeCommentDocument(comment: CommentDocument): CommentDocument {
 	const raw = comment as CommentDocument & Record<string, unknown>;
+	// The avatar fields are not part of a stored comment (§2.7): they are a
+	// read-time overlay, and dropping them here is what retires the ones older
+	// documents still carry, whenever a schema bump next normalizes them.
+	const {
+		authorAvatarCrop: _storedAvatarCrop,
+		authorAvatarUrl: _storedAvatarUrl,
+		...stored
+	} = comment;
 	return {
-		...comment,
+		...stored,
 		authorDisplayName: localizedTextFromStored(raw.authorDisplayName),
 		body: localizedTextFromStored(raw.body),
 	};
@@ -728,17 +736,36 @@ export async function readThreadWithReadState(
 ): Promise<ThreadDocument> {
 	const thread = await readThread(kv, threadId);
 	await assertThreadForumIsLive(kv, db, thread);
-	const withAvatars = await threadWithAuthorAvatars(db, thread);
-	return threadWithReadState(db, withAvatars, userId);
+	return threadWithReadState(db, await hydrateThreadForRead(db, thread), userId);
 }
 
-async function threadWithAuthorAvatars(db: D1DatabaseLike, thread: ThreadDocument): Promise<ThreadDocument> {
-	const authorIds = [...new Set(thread.comments.map((comment) => comment.authorBotId))];
-	if (authorIds.length === 0) {
-		return thread;
-	}
+/**
+ * The avatar each comment author currently has, keyed by bot id (§2.7).
+ *
+ * Resolving one reads D1; applying one does not. Keeping those two halves
+ * separate is what lets a non-idempotent write resolve the overlay *before* it
+ * commits and still return a hydrated document afterwards — see `okThread` in
+ * the forum coordinator. An author missing from the map has no avatar to show.
+ */
+export type CommentAvatarOverlay = ReadonlyMap<string, { url: string; crop?: AvatarCrop }>;
+
+/**
+ * Read the current avatar of each of the given comment authors from
+ * `bots_index`, the same source thread listings derive theirs from.
+ *
+ * The fallible half of thread avatar hydration. Deleted and non-active authors
+ * simply produce no entry.
+ */
+export async function commentAvatarOverlay(
+	db: D1DatabaseLike,
+	authorBotIds: Iterable<string>,
+): Promise<CommentAvatarOverlay> {
 	const avatarsById = new Map<string, { url: string; crop?: AvatarCrop }>();
-	for (const batch of chunks(authorIds, d1SafeBoundParameters)) {
+	const ids = [...new Set(authorBotIds)];
+	if (ids.length === 0) {
+		return avatarsById;
+	}
+	for (const batch of chunks(ids, d1SafeBoundParameters)) {
 		const placeholders = batch.map(() => "?").join(", ");
 		const result = await db
 			.prepare(
@@ -755,17 +782,56 @@ async function threadWithAuthorAvatars(db: D1DatabaseLike, thread: ThreadDocumen
 			}
 		}
 	}
+	return avatarsById;
+}
+
+/**
+ * Replace whatever avatar a stored comment carries with the author's current
+ * one (§2.7).
+ *
+ * The strip is unconditional and precedes the overlay: an author that is
+ * deleted or not active has no entry to overlay from, and its comments must
+ * then render no avatar at all rather than the URL frozen into the document.
+ */
+export function commentWithCurrentAvatar(comment: CommentDocument, overlay: CommentAvatarOverlay): CommentDocument {
+	const {
+		authorAvatarCrop: _storedAvatarCrop,
+		authorAvatarUrl: _storedAvatarUrl,
+		...stripped
+	} = comment;
+	const avatar = overlay.get(comment.authorBotId);
+	return avatar ? {
+		...stripped,
+		authorAvatarUrl: avatar.url,
+		...(avatar.crop ? { authorAvatarCrop: avatar.crop } : {}),
+	} : stripped;
+}
+
+/** The pure half of thread avatar hydration. */
+export function threadWithCurrentAvatars(thread: ThreadDocument, overlay: CommentAvatarOverlay): ThreadDocument {
 	return {
 		...thread,
-		comments: thread.comments.map((comment) => {
-			const avatar = avatarsById.get(comment.authorBotId);
-			return avatar ? {
-				...comment,
-				authorAvatarUrl: avatar.url,
-				...(avatar.crop ? { authorAvatarCrop: avatar.crop } : {}),
-			} : comment;
-		}),
+		comments: thread.comments.map((comment) => commentWithCurrentAvatar(comment, overlay)),
 	};
+}
+
+/**
+ * Re-derive every comment's author avatar for a served thread document (§2.7).
+ *
+ * Comments used to denormalize the author's avatar into the thread document at
+ * creation time, so a replaced avatar stayed on screen forever and its R2
+ * object stayed referenced by data no avatar change could reach. Avatars are
+ * now derived on read from `bots_index`, and the stored fields are dead data.
+ *
+ * This is the hydrator for every surface that serves a thread document it has
+ * just read: the KV read path, MCP thread reads, and the CLI export. Surfaces
+ * that serve a document they have just *written* cannot afford a read that
+ * fails after the write, and compose the two halves above instead. Applying it
+ * twice is harmless — it always discards whatever avatar the input carried.
+ */
+export async function hydrateThreadForRead(db: D1DatabaseLike, thread: ThreadDocument): Promise<ThreadDocument> {
+	const overlay = await commentAvatarOverlay(db, thread.comments.map((comment) => comment.authorBotId));
+	return threadWithCurrentAvatars(thread, overlay);
 }
 
 export async function threadWithReadState(
@@ -2482,7 +2548,8 @@ export async function createThread(
 		authorBotId: bot.id,
 		authorHandle: bot.handle,
 		authorDisplayName: bot.displayName,
-		...(bot.avatar?.url ? { authorAvatarUrl: bot.avatar.url } : {}),
+		// No avatar is persisted: hydrateThreadForRead derives it on every read
+		// path from the author's current one (§2.7).
 		body,
 		voteScore: 0,
 		createdAt: now,
@@ -2647,7 +2714,8 @@ export async function createComment(
 		authorBotId: bot.id,
 		authorHandle: bot.handle,
 		authorDisplayName: bot.displayName,
-		...(bot.avatar?.url ? { authorAvatarUrl: bot.avatar.url } : {}),
+		// No avatar is persisted: hydrateThreadForRead derives it on every read
+		// path from the author's current one (§2.7).
 		parentCommentId,
 		body,
 		voteScore: 0,
