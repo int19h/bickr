@@ -341,6 +341,27 @@ describe("compaction reasoning policy", () => {
 		});
 	});
 
+	it("folds serviced reasoning-on probe observations into unknown compaction support", () => {
+		// xiaomi/mimo-v2.5 publishes no effort metadata, but every provider route
+		// serviced the reasoning-on probes at minimal; monotonic effort support
+		// then serves any explicit compaction effort instead of refusing.
+		expect(compactionReasoningCapabilitiesForModel("xiaomi/mimo-v2.5", true)).toEqual({
+			support: { kind: "partially_known", efforts: ["minimal"] },
+			modelDefault: { kind: "provider_default", relativeOrder: "unknown" },
+		});
+		expect(openRouterModelCapabilities("xiaomi/mimo-v2.5").compactionReasoning.support).toEqual({ kind: "unknown" });
+		expect(resolveCompactionReasoningSelection({
+			policy: compactionReasoningPolicyForModel("xiaomi/mimo-v2.5", true, { only: ["xiaomi/fp8"] }),
+			request: { kind: "explicit_effort", effort: "high" },
+			capabilities: compactionReasoningCapabilitiesForModel("xiaomi/mimo-v2.5", true, { only: ["xiaomi/fp8"] }),
+		})).toMatchObject({
+			kind: "selected",
+			decision: { kind: "configuration", request: { kind: "explicit_effort", effort: "high" } },
+			selection: { kind: "explicit_effort", effort: "high" },
+			provenance: { support: "partially_known" },
+		});
+	});
+
 	it("keeps the Xiaomi minimum route-sensitive and metadata-driven", () => {
 		expect(compactionReasoningPolicyForModel("xiaomi/mimo-v2.5", true, { only: ["xiaomi/fp8"] })).toMatchObject({
 			floor: { kind: "model_default" },
@@ -375,7 +396,10 @@ describe("canonical compaction reasoning resolution", () => {
 		});
 	});
 
-	it("selects the least known-supported effort at or above a joined requirement", () => {
+	it("accepts any effort at or above the weakest known-supported effort", () => {
+		// Effort support is monotonic: reasoning observed at low validates every
+		// stronger effort, so a gap in the observed set never rejects or rewrites
+		// a request above the weakest observation.
 		const resolution = resolveCompactionReasoningSelection({
 			policy: disabledBaselinePolicy(),
 			request: { kind: "explicit_effort", effort: "medium" },
@@ -384,12 +408,26 @@ describe("canonical compaction reasoning resolution", () => {
 
 		expect(resolution).toMatchObject({
 			kind: "selected",
+			decision: { kind: "configuration", request: { kind: "explicit_effort", effort: "medium" } },
+			selection: { kind: "explicit_effort", effort: "medium" },
+		});
+	});
+
+	it("normalizes a request below the weakest known-supported effort upward", () => {
+		const resolution = resolveCompactionReasoningSelection({
+			policy: disabledBaselinePolicy(),
+			request: { kind: "explicit_effort", effort: "minimal" },
+			capabilities: knownCapabilities(["xhigh", "low", "high"]),
+		});
+
+		expect(resolution).toMatchObject({
+			kind: "selected",
 			decision: {
 				kind: "supported_effort_normalization",
-				requiredEffort: "medium",
-				appliedEffort: "high",
+				requiredEffort: "minimal",
+				appliedEffort: "low",
 			},
-			selection: { kind: "explicit_effort", effort: "high" },
+			selection: { kind: "explicit_effort", effort: "low" },
 		});
 	});
 
@@ -598,7 +636,7 @@ describe("canonical compaction reasoning resolution", () => {
 		});
 	});
 
-	it("uses observed modelled efforts without treating a partial observation as complete", () => {
+	it("bounds requests below the weakest partial observation and accepts stronger efforts", () => {
 		const capabilities = {
 			support: { kind: "partially_known", efforts: ["high"] },
 			modelDefault: { kind: "provider_default", relativeOrder: "below_minimal" },
@@ -617,8 +655,8 @@ describe("canonical compaction reasoning resolution", () => {
 			request: { kind: "explicit_effort", effort: "xhigh" },
 			capabilities,
 		})).toMatchObject({
-			kind: "refused",
-			refusal: { kind: "support_unknown_for_required_effort", requiredEffort: "xhigh" },
+			kind: "selected",
+			selection: { kind: "explicit_effort", effort: "xhigh" },
 		});
 		expect(resolveCompactionReasoningSelection({
 			policy: disabledBaselinePolicy(),
@@ -633,25 +671,29 @@ describe("canonical compaction reasoning resolution", () => {
 		});
 	});
 
-	it("returns no_supported_effort for known and unsupported unsatisfiable requirements", () => {
-		for (const capabilities of [
-			knownCapabilities(["minimal", "low", "high"]),
-			{ support: { kind: "unsupported" }, modelDefault: { kind: "absent" } } as const,
-		]) {
-			const resolution = resolveCompactionReasoningSelection({
-				policy: disabledBaselinePolicy(),
-				request: { kind: "explicit_effort", effort: "xhigh" },
-				capabilities,
-			});
-
-			expect(resolution).toMatchObject({
-				kind: "refused",
-				refusal: {
-					kind: "no_supported_effort",
-					required: { kind: "explicit_effort", effort: "xhigh" },
-				},
-			});
-		}
+	it("returns no_supported_effort only when the model does not support reasoning", () => {
+		expect(resolveCompactionReasoningSelection({
+			policy: disabledBaselinePolicy(),
+			request: { kind: "explicit_effort", effort: "xhigh" },
+			capabilities: { support: { kind: "unsupported" }, modelDefault: { kind: "absent" } },
+		})).toMatchObject({
+			kind: "refused",
+			refusal: {
+				kind: "no_supported_effort",
+				required: { kind: "explicit_effort", effort: "xhigh" },
+				supportedEfforts: [],
+			},
+		});
+		// A known set that stops below the request is not a refusal: reasoning
+		// support is monotonic, so support at minimal implies support at xhigh.
+		expect(resolveCompactionReasoningSelection({
+			policy: disabledBaselinePolicy(),
+			request: { kind: "explicit_effort", effort: "xhigh" },
+			capabilities: knownCapabilities(["minimal", "low", "high"]),
+		})).toMatchObject({
+			kind: "selected",
+			selection: { kind: "explicit_effort", effort: "xhigh" },
+		});
 	});
 
 	it("normalizes unsupported explicit effort and raises disabled reasoning to the exact-model quality floor", () => {
@@ -727,14 +769,18 @@ describe("canonical compaction reasoning resolution", () => {
 			selection: { kind: "explicit_effort", effort: "minimal" },
 			provenance: { learnedFloor },
 		});
+		// The learned minimal floor proves the model reasons, and effort support
+		// is monotonic, so the stronger configured request is served as-is.
 		expect(resolveCompactionReasoningSelection({
 			policy: disabledBaselinePolicy(),
 			request: { kind: "explicit_effort", effort: "high" },
 			capabilities: { support: { kind: "unknown" }, modelDefault: { kind: "explicit_effort", effort: "minimal" } },
 			learnedFloor,
 		})).toMatchObject({
-			kind: "refused",
-			refusal: { kind: "support_unknown_for_required_effort", requiredEffort: "high" },
+			kind: "selected",
+			decision: { kind: "configuration", request: { kind: "explicit_effort", effort: "high" } },
+			selection: { kind: "explicit_effort", effort: "high" },
+			provenance: { learnedFloor },
 		});
 	});
 

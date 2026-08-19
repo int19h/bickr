@@ -99,7 +99,10 @@ describe("canonical inference consumers", () => {
 			model: "owner/account-model",
 		});
 		expect(translationToolCallStrategy(canonical!.providerSettings.toolCalls)).toBe("railroad");
-		expect(canonical?.resolution.effective.compactionReasoning.kind).toBe("refused");
+		expect(canonical?.resolution.effective.compactionReasoning).toMatchObject({
+			kind: "selected",
+			selection: { kind: "explicit_effort", effort: "high" },
+		});
 		expect(canonical?.providerSettings.compactionReasoning).toEqual({ kind: "explicit_effort", effort: "high" });
 
 		expect(await canonicalTranslationInferenceAnnotation(testEnv.BICKR_D1, ownerId, {}, false)).toEqual({ enabled: false });
