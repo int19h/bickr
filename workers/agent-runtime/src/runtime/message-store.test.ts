@@ -233,6 +233,10 @@ describe('RuntimeMessageStore', () => {
 			expect(result).toEqual({
 				loopMessages: { deletedMessages: 500, deletedLogs: 0, stampedSummaries: 0, pendingMore: true },
 				timeBudgetExhausted: false,
+				// The allowance went entirely on real deletions, so there is no position
+				// worth carrying: the next pass starts at the bottom, where the rows this
+				// one deleted are gone.
+				scanCursor: null,
 			});
 			// The allowance is what the visit spends, never what one input-gate hold
 			// covers: two batches of 250, two transactions.
@@ -272,6 +276,7 @@ describe('RuntimeMessageStore', () => {
 			expect(result).toEqual({
 				loopMessages: { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0, pendingMore: false },
 				timeBudgetExhausted: false,
+				scanCursor: null,
 			});
 			// A pass that never looked reports nothing, and touches nothing.
 			expect(batched.transactions()).toBe(0);
@@ -296,6 +301,9 @@ describe('RuntimeMessageStore', () => {
 			expect(result).toEqual({
 				loopMessages: { deletedMessages: 750, deletedLogs: 0, stampedSummaries: 0, pendingMore: true },
 				timeBudgetExhausted: true,
+				// The scan stopped mid-range, so the position it reached is what the
+				// caller persists for the next visit.
+				scanCursor: { createdAt: daysAgo(200), seq: 750 },
 			});
 			expect(batched.transactions()).toBe(3);
 			// A truncated pass is a partial success: the batches that committed stay
@@ -316,6 +324,7 @@ describe('RuntimeMessageStore', () => {
 			expect(result).toEqual({
 				loopMessages: { deletedMessages: 300, deletedLogs: 0, stampedSummaries: 0, pendingMore: false },
 				timeBudgetExhausted: false,
+				scanCursor: null,
 			});
 			expect(liveSeqs(storage)).toEqual([]);
 		});
@@ -346,6 +355,10 @@ describe('RuntimeMessageStore', () => {
 			expect(result).toEqual({
 				loopMessages: { deletedMessages: 100, deletedLogs: 0, stampedSummaries: 0, pendingMore: true },
 				timeBudgetExhausted: false,
+				// The scan itself ran out of candidates inside this pass, so the withheld
+				// prefix is re-examined from the bottom next time — by then some of those
+				// children may have aged out.
+				scanCursor: null,
 			});
 			expect(liveSeqs(storage)).toHaveLength(520);
 			expect(liveSeqs(storage).filter((seq) => seq >= 2_001)).toEqual([]);
@@ -357,18 +370,23 @@ describe('RuntimeMessageStore', () => {
 
 			// A full clear landing between batches is the case this stands in for: the
 			// pass keeps what it committed and stops rather than writing to an object
-			// that is on its way to being erased.
+			// that is on its way to being erased. The budget runs out on the very same
+			// yield, which is what makes the order of the two checks visible: a clear
+			// and a truncation are not the same answer, and the clear is the true one.
 			const result = await batched.store.pruneExpiredLoopMessagesWithinBudget({
 				now,
 				rowAllowance: 10_000,
-				timeBudgetMs: 60_000,
-				nowMs: () => 0,
+				timeBudgetMs: 8_000,
+				nowMs: () => batched.transactions() * 4_000,
 				shouldContinue: () => batched.transactions() < 2,
 			});
 
 			expect(result.loopMessages).toMatchObject({ deletedMessages: 500, pendingMore: true });
 			expect(result.timeBudgetExhausted).toBe(false);
 			expect(batched.transactions()).toBe(2);
+			// The position is still reported: it is the caller — which knows whether its
+			// storage survived — that decides whether keeping it means anything.
+			expect(result.scanCursor).toEqual({ createdAt: daysAgo(200), seq: 500 });
 		});
 	});
 

@@ -175,6 +175,78 @@ describe('BotRuntime storage retention', () => {
 			.toBe(2 * loopMessageRetentionBatchSize);
 	});
 
+	it('resumes the next visit where the budget stopped the scan, and deletes what was behind the prefix', async () => {
+		// The prefix is 500 expired summaries their live children hold in place, which
+		// is two full batches of candidates the pass cannot delete — more than one
+		// budget can traverse. Selection is deterministic, so without a position that
+		// outlives the pass every nightly visit would re-walk exactly this prefix and
+		// the 100 deletable rows behind it would never be reached at all.
+		const clock = batchYieldClock(sweepRetentionTimeBudgetMs / 2);
+		const runtime = construct();
+		for (const seq of range(1, 2 * loopMessageRetentionBatchSize)) {
+			insertMessage(seq, { createdAt: daysAgo(200), compactedBy: 9_000, origin: 'compaction' });
+			insertMessage(10_000 + seq, { createdAt: daysAgo(1), compactedBy: seq });
+		}
+		for (const seq of range(5_001, 5_100)) {
+			insertMessage(seq, { createdAt: daysAgo(150), deletedAt: daysAgo(150) });
+		}
+
+		const truncated = await retentionVisit(runtime);
+
+		expect(truncated).toMatchObject({
+			loopMessages: { deletedMessages: 0, pendingMore: true },
+			timeBudgetExhausted: true,
+		});
+		expect(clock.yields()).toBe(2);
+		// The position the two batches reached, persisted outside their transactions.
+		expect(scanCursorState()).toEqual({ createdAt: daysAgo(200), seq: 2 * loopMessageRetentionBatchSize });
+
+		// A fresh instance over the same storage: the next nightly visit, which the
+		// object has been evicted between.
+		const resumed = await retentionVisit(construct());
+
+		// Same clock, same budget, and the prefix has not changed — the only reason
+		// this visit reaches the rows behind it is the cursor it started from.
+		expect(resumed).toMatchObject({ loopMessages: { deletedMessages: 100 } });
+		expect(resumed).not.toHaveProperty('timeBudgetExhausted');
+		// The prefix and its children stand; only the rows behind them are gone.
+		expect(liveSeqs().filter((seq) => seq >= 5_001 && seq <= 5_100)).toEqual([]);
+		expect(liveSeqs()).toHaveLength(4 * loopMessageRetentionBatchSize);
+		// Its scan ran to the end of the range, so the position is dropped: the visit
+		// after this one goes back to the bottom and re-examines the withheld prefix
+		// against children that may have aged out by then.
+		expect(scanCursorState()).toBeUndefined();
+	});
+
+	it('drops the persisted position when a pass finishes its scan, so the visit after it wraps', async () => {
+		const runtime = construct();
+		// The position a previous night's truncated pass left behind.
+		database.prepare(`INSERT INTO runtime_state (key, value_json) VALUES ('sweep_retention_scan_cursor', ?)`)
+			.run(JSON.stringify({ createdAt: daysAgo(200), seq: 500 }));
+		// One expired row below that position — the shape of a row that became
+		// deletable after the cursor had already moved past it — and ten above.
+		insertMessage(1, { createdAt: daysAgo(300), deletedAt: daysAgo(300) });
+		for (const seq of range(5_001, 5_010)) {
+			insertMessage(seq, { createdAt: daysAgo(150), deletedAt: daysAgo(150) });
+		}
+
+		const resumed = await retentionVisit(runtime);
+
+		// The pass started at the cursor, so the row below it is untouched and the ten
+		// above it are gone.
+		expect(resumed).toMatchObject({ loopMessages: { deletedMessages: 10, pendingMore: false } });
+		expect(liveSeqs()).toEqual([1]);
+		expect(scanCursorState()).toBeUndefined();
+
+		const wrapped = await retentionVisit(construct());
+
+		// With nothing persisted the scan is back at the bottom, which is the only
+		// thing that ever reaches a row below a cursor. Same accepted semantics as
+		// the fleet sweep's own walk: below-cursor work waits for the wrap.
+		expect(wrapped).toMatchObject({ loopMessages: { deletedMessages: 1 } });
+		expect(liveSeqs()).toEqual([]);
+	});
+
 	it('keeps the post-visit pass at a single batch with no budget of its own', () => {
 		const runtime = construct();
 		for (const seq of range(1, 4 * loopMessageRetentionBatchSize)) {
@@ -452,6 +524,22 @@ describe('BotRuntime storage retention', () => {
 			options.deletedAt ?? null,
 			options.createdAt,
 		);
+	}
+
+	/** The sweep's retention route, unwrapped to the result it reports. */
+	async function retentionVisit(runtime: BotRuntime): Promise<RuntimeStorageRetentionResult> {
+		const response = await maintenanceRequest(runtime, 'POST', 'retention');
+		expect(response.status).toBe(200);
+		return ((await response.json()) as { data: { retention: RuntimeStorageRetentionResult } }).data.retention;
+	}
+
+	function scanCursorState(): unknown {
+		const row = rows<{ value_json: string }>(`SELECT value_json FROM runtime_state WHERE key = 'sweep_retention_scan_cursor'`)[0];
+		return row === undefined ? undefined : JSON.parse(row.value_json);
+	}
+
+	function liveSeqs(): number[] {
+		return rows<{ seq: number }>(`SELECT seq FROM loop_messages ORDER BY seq ASC`).map((row) => row.seq);
 	}
 
 	function insertInjection(id: string, options: { kind: string; createdAt: string }): void {

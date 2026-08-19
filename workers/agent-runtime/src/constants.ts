@@ -31,6 +31,25 @@ export const lastLogOffSeqStateKey = 'last_log_off_seq';
  */
 export const runtimeStorageClearedStateKey = 'runtime_storage_cleared_at';
 
+/**
+ * Where the sweep's retention scan stopped when its wall-clock budget ended a
+ * pass mid-scan (design §2.4).
+ *
+ * The batch loop's keyset continuation only lives as long as one pass. An
+ * expired prefix whose every candidate is withheld for a surviving child can be
+ * longer than one budget can traverse, and re-walking it from the bottom every
+ * night both burns the whole budget on rows it cannot delete and leaves the
+ * deletable rows behind it unreachable. This row carries the position between
+ * visits, exactly as the fleet sweep's KV cursor does one level up.
+ *
+ * Only a pass the budget truncated writes it; a pass that finishes its scan or
+ * spends its whole row allowance deletes it, so the next visit wraps to the
+ * bottom and re-examines what earlier passes withheld. Living in `runtime_state`
+ * means a full storage clear drops it with everything else, which is the correct
+ * disposition: the rows it pointed at are gone.
+ */
+export const sweepRetentionScanCursorStateKey = 'sweep_retention_scan_cursor';
+
 export const logOffBackfillPageSize = 100;
 
 export const contextBudgetCacheStateKey = (fingerprint: string): string => `context_budget:${fingerprint}`;

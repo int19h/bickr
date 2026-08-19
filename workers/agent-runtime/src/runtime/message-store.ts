@@ -33,6 +33,7 @@ import type {
 	LoopMessageLogRow,
 	LoopMessagePageDescriptor,
 	LoopMessagePageIndex,
+	LoopMessageRetentionCursor,
 	LoopMessageRetentionResult,
 	LoopMessageRow,
 	SweepLoopMessageRetentionResult,
@@ -52,16 +53,6 @@ type ExpiredLoopMessageRow = {
 
 /** A retention candidate, carrying the scan order's key so a batch can resume after it. */
 type ExpiredLoopMessageScanRow = ExpiredLoopMessageRow & { createdAt: string };
-
-/**
- * Keyset position in the retention scan's `(created_at, seq)` order.
- *
- * The scan is deterministic, so a batch that could delete none of what it
- * selected would otherwise be re-selected forever. Resuming strictly after the
- * last row it looked at is what lets a multi-batch pass step past candidates it
- * had to withhold and reach the deletable rows behind them.
- */
-type LoopMessageRetentionCursor = { createdAt: string; seq: number };
 
 type LoopMessageRetentionBatch = LoopMessageRetentionResult & {
 	/** Rows the batch selected, whether it went on to delete them or withheld them. */
@@ -772,6 +763,22 @@ export class RuntimeMessageStore {
 	 *   Even without the guard a later batch would select nothing from the
 	 *   rebuilt empty tables and so write nothing — the post-clear repopulation
 	 *   invariant holds either way — but stopping is the honest answer.
+	 *
+	 * The keyset continuation the batches share also survives the pass: a pass
+	 * stopped by the clock reports the position it reached as `scanCursor`, and
+	 * the caller seeds the next pass with it through `after`. Without that, an
+	 * expired prefix too long to traverse inside one budget — every candidate in
+	 * it withheld for a surviving child — would be re-walked from the bottom by
+	 * every nightly visit, and the deletable rows behind it would stay stranded
+	 * for as long as the prefix outlives the budget.
+	 *
+	 * `pendingMore` keeps its plain meaning either way: what this pass, over the
+	 * range it scanned, still sees expired. A resumed pass that drains to the end
+	 * of the range answers false without having looked below where it started,
+	 * which is honest about this pass and enough for the caller, because dropping
+	 * the cursor is exactly what makes the next one rescan from the bottom. The
+	 * alternative — carrying "I skipped a prefix" into the flag — would report
+	 * pending work no visit can act on until the wrap comes round anyway.
 	 */
 	async pruneExpiredLoopMessagesWithinBudget(
 		options: {
@@ -779,6 +786,8 @@ export class RuntimeMessageStore {
 			rowAllowance: number;
 			timeBudgetMs: number;
 			nowMs?: () => number;
+			/** Where to resume the scan: a previous pass's `scanCursor`, if it left one. */
+			after?: LoopMessageRetentionCursor;
 			/** Checked after each yield; false ends the pass with what it has. */
 			shouldContinue?: () => boolean;
 		},
@@ -793,7 +802,13 @@ export class RuntimeMessageStore {
 		// a pass that never looked has not learned anything to report.
 		const rowAllowance = positiveInteger(options.rowAllowance) ?? 0;
 		let timeBudgetExhausted = false;
-		let after: LoopMessageRetentionCursor | undefined;
+		// Seeded from the caller's persisted position, so a pass that ran out of
+		// budget mid-scan is continued rather than restarted.
+		let after = options.after;
+		// Non-null only on the paths that leave the scan unfinished with rows still
+		// behind it; every other exit hands back null, which tells the caller to
+		// drop any position it was holding and start the next pass at the bottom.
+		let scanCursor: LoopMessageRetentionCursor | null = null;
 		// Rows a batch selected but could not delete are still expired rows this
 		// object holds, so they keep `pendingMore` true even once the cursor has
 		// stepped past them.
@@ -813,7 +828,20 @@ export class RuntimeMessageStore {
 			withheldAny ||= batch.selected > batch.deletedMessages;
 			totals.pendingMore = batch.pendingMore || withheldAny;
 			remaining = rowAllowance - totals.deletedMessages;
-			if (!batch.pendingMore || batch.after === null || remaining <= 0) {
+			// The scan itself reached the end of the expired range. `pendingMore` may
+			// still be true from rows this pass withheld, but there is no position
+			// worth keeping: the next pass wants the bottom, where those same
+			// withheld rows are re-examined against children that may have aged out.
+			if (!batch.pendingMore || batch.after === null) {
+				break;
+			}
+			// The allowance ran out, so this pass spent all of it on real deletions:
+			// the rows it walked past are gone rather than skipped, and the next pass
+			// starting at the bottom makes progress instead of re-walking them. That
+			// wrap is also the only thing that re-examines rows below this position —
+			// ones withheld earlier in this pass, and ones that became deletable
+			// while it ran.
+			if (remaining <= 0) {
 				break;
 			}
 			// Advance past everything this batch looked at, deleted or not. A head
@@ -824,15 +852,21 @@ export class RuntimeMessageStore {
 			// terminates on its own even before the allowance and the clock.
 			after = batch.after;
 			await yieldBetweenLoopMessageRetentionBatches();
-			if (nowMs() - startedAtMs >= options.timeBudgetMs) {
-				timeBudgetExhausted = true;
+			// `shouldContinue` first: a yield during which both the budget ran out and
+			// the caller's storage stopped being writable is a clear-stop, not a
+			// truncated visit. Reporting it the other way round would count an object
+			// that is about to be erased as one whose backlog is still draining.
+			if (options.shouldContinue?.() === false) {
+				scanCursor = after;
 				break;
 			}
-			if (options.shouldContinue?.() === false) {
+			if (nowMs() - startedAtMs >= options.timeBudgetMs) {
+				timeBudgetExhausted = true;
+				scanCursor = after;
 				break;
 			}
 		}
-		return { loopMessages: totals, timeBudgetExhausted };
+		return { loopMessages: totals, timeBudgetExhausted, scanCursor };
 	}
 
 	private pruneRuntimeDiagnosticLoopMessages(): number {

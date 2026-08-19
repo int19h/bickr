@@ -125,10 +125,35 @@ export type InjectionRetentionResult = {
 	droppedQueueEntries: number;
 };
 
+/**
+ * Keyset position in the retention scan's `(created_at, seq)` order.
+ *
+ * The scan is deterministic, so a batch that could delete none of what it
+ * selected would otherwise be re-selected forever. Resuming strictly after the
+ * last row it looked at is what lets a multi-batch pass step past candidates it
+ * had to withhold and reach the deletable rows behind them.
+ */
+export type LoopMessageRetentionCursor = { createdAt: string; seq: number };
+
 export type SweepLoopMessageRetentionResult = {
 	loopMessages: LoopMessageRetentionResult;
 	/** The batches stopped at their wall-clock budget rather than at a bound of their own. */
 	timeBudgetExhausted: boolean;
+	/**
+	 * Where the next pass over this object should resume, or null to restart from
+	 * the bottom of the scan.
+	 *
+	 * Non-null only when the pass left its scan unfinished for a reason other
+	 * than having nothing left — the wall-clock budget or `shouldContinue`. A
+	 * pass that reached the end of the expired range, or that spent its whole row
+	 * allowance on real deletions, answers null: restarting at the bottom is then
+	 * both correct and necessary, because rows that became deletable below the
+	 * cursor are only reachable after that wrap.
+	 *
+	 * The caller owns persistence; this loop never writes it, so nothing about
+	 * the cursor lands inside a batch transaction.
+	 */
+	scanCursor: LoopMessageRetentionCursor | null;
 };
 
 export type RuntimeStorageRetentionResult = {
