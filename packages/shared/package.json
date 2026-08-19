@@ -35,6 +35,7 @@
 		"./maintenance": "./src/maintenance.ts",
 		"./mcp-auth": "./src/mcp-auth.ts",
 		"./model": "./src/model.ts",
+		"./notification-source-deletes": "./src/notification-source-deletes.ts",
 		"./openrouter-model-capabilities": "./src/openrouter-model-capabilities.ts",
 		"./owner-world-mutation": "./src/owner-world-mutation.ts",
 		"./personal-forum-description-sweep": "./src/personal-forum-description-sweep.ts",

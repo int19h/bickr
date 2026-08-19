@@ -58,6 +58,11 @@ export const kvKeys = {
 	// rows of bots_index. It is retained only while a rotation is incomplete: the
 	// prune deletes it on the pass that reaches the last tombstone.
 	notificationTombstonedBotSweepCursor: "v1:maintenance:notification-tombstoned-bot-sweep-cursor",
+	// One bounded cursor per orphan rotation, naming the arm it stopped in and
+	// its keyset position there. Retained only while a rotation is incomplete:
+	// the sweep deletes it on the pass that reaches the end of its last arm.
+	notificationSourceSweepCursor: "v1:maintenance:notification-source-sweep-cursor",
+	humanNotificationSourceSweepCursor: "v1:maintenance:human-notification-source-sweep-cursor",
 	// One cursor carrying the daily BotRuntime retention sweep's position in
 	// bot_runtime_index. Retained only while a pass is incomplete: the sweep
 	// deletes it on reaching the end so the next pass restarts from the first

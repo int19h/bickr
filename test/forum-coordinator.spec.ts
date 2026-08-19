@@ -1142,8 +1142,15 @@ describe("Forum coordinator", () => {
 				budgetExhausted: false,
 			},
 			humanNotificationPrune: {
-				deletedRows: 1,
-				budgetExhausted: false,
+				expired: {
+					deletedRows: 1,
+					budgetExhausted: false,
+				},
+				orphanedSources: {
+					scannedRows: 0,
+					deletedRows: 0,
+					budgetExhausted: false,
+				},
 			},
 			indexRepair: {
 				scanned: 0,
