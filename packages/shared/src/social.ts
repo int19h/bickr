@@ -1,5 +1,5 @@
 import { isD1UniqueConstraintError } from "./d1-errors";
-import { deterministicId, formatCommentRef, formatThreadRef, isMadeId, isShortContentId, makeId, makeShortContentId, parseObjectRef } from "./ids";
+import { deterministicId, formatCommentRef, formatThreadRef, isMadeId, isShortContentId, makeId, makeShortContentId, parseObjectRef, type ContentRef } from "./ids";
 import { entityIndexVersions } from "./index-versions";
 import { legacyToolResultEnvelope } from "./legacy-tool-result-adapter";
 import {
@@ -96,6 +96,10 @@ import {
 	type HumanSubscriptionScopeRef,
 } from "./human-subscriptions";
 import {
+	notificationSourceDeleteStatements,
+	threadIndexScopedNotificationDeleteStatements,
+} from "./notification-source-deletes";
+import {
 	effectivePostingSettings,
 	postingHardLimit,
 } from "./posting";
@@ -185,6 +189,14 @@ export const notificationPruneMaxRowsPerRun = 8_000;
  * invocations while the expiry pass keeps up with its 5-10k rows/day.
  */
 export const notificationOrphanPruneMaxRowsPerRun = 2_000;
+/**
+ * The source-orphan backstop's own caps, deliberately separate from the caps
+ * above: it runs last in both prunes, so a backlog of orphans can never spend
+ * the budget that ordinary expiry needs. Its pages are pure D1 — no KV delete
+ * per row — so a larger page costs a select and a delete, not 500 subrequests.
+ */
+export const notificationSourceSweepSelectLimit = 500;
+export const notificationSourceSweepMaxRowsPerRun = 5_000;
 export const notificationPruneKvDeleteChunkSize = 50;
 const notificationKvWriteChunkSize = 50;
 
@@ -201,6 +213,20 @@ const notificationKvWriteChunkSize = 50;
 const tombstonedBotSweepPageSize = 50;
 const tombstonedBotSweepBotsPerRun = 500;
 
+/**
+ * One run of a source-orphan rotation, in its own counters rather than folded
+ * into the surrounding prune's: the two have separate budgets, so a run that
+ * exhausted one and not the other has to be able to say so.
+ */
+export type OrphanNotificationSweepResult = {
+	/** Rows the rotation examined this run, orphaned or not. */
+	scannedRows: number;
+	/** Of those, the rows deleted because their source content is tombstoned. */
+	deletedRows: number;
+	/** The sweep's own per-run cap stopped this run with the rotation incomplete. */
+	budgetExhausted: boolean;
+};
+
 export type NotificationPruneResult = {
 	selectedRows: number;
 	deletedRows: number;
@@ -211,6 +237,19 @@ export type NotificationPruneResult = {
 	orphanedBotRows: number;
 	/** Tombstoned bots whose deterministic bootstrap document was deleted by key. */
 	tombstonedBotsSwept: number;
+	/** The backstop pass over rows whose source comment or thread is tombstoned. */
+	orphanedSources: OrphanNotificationSweepResult;
+};
+
+/**
+ * The daily human-notification maintenance: age-based expiry, then the source
+ * orphans the delete paths raced. Composed rather than merged, because
+ * {@link AgeCutoffPruneResult} is shared by three retentions that have no
+ * orphan pass at all.
+ */
+export type HumanNotificationPruneResult = {
+	expired: AgeCutoffPruneResult;
+	orphanedSources: OrphanNotificationSweepResult;
 };
 
 // Cloudflare's D1 limits guidance recommends batching large UPDATE/DELETE work;
@@ -2979,12 +3018,17 @@ export async function softDeleteThread(
 	};
 	await writeJson(kv, kvKeys.thread(deleted.id), deleted);
 	await upsertThreadIndex(db, deleted);
-	// One batch, so the comment tombstones, the votes, and the subscription rows
-	// that only the thread made addressable all die together: a crash partway
-	// through would otherwise leave rows nothing can ever reach again. Every
-	// statement is unconditional or `IS NULL`-guarded, so a retried delete is
-	// idempotent. The comment-vote delete reads `comments_index`, so it has to
-	// precede any statement that could remove those rows — none here does.
+	// One batch, so the comment tombstones, the votes, the subscription rows, and
+	// the notifications that only the thread made addressable all die together: a
+	// crash partway through would otherwise leave rows nothing can ever reach
+	// again. Every statement is unconditional or `IS NULL`-guarded, so a retried
+	// delete is idempotent. The comment-vote delete reads `comments_index`, so it
+	// has to precede any statement that could remove those rows — none here does.
+	//
+	// The thread-index tombstone is not in this batch: `upsertThreadIndex` above
+	// has already run it. The guarantee is therefore between the statements here,
+	// and the window between the two writes is closed by the idempotent retry of
+	// the delete path, exactly as it already is for the subscription rows.
 	await db.batch([
 		db
 			.prepare(`UPDATE comments_index SET deleted_at = ? WHERE thread_id = ? AND deleted_at IS NULL`)
@@ -2998,6 +3042,7 @@ export async function softDeleteThread(
 			)
 			.bind(deleted.id),
 		...humanSubscriptionScopeDeleteStatements(db, threadSubscriptionScopes(deleted)),
+		...notificationSourceDeleteStatements(db, threadNotificationSourceRefs(deleted)),
 	]);
 	await putObjectIndex(db, deleted, "thread", entityIndexVersions.thread, deleted.worldId);
 	return deleted;
@@ -3015,6 +3060,22 @@ function threadSubscriptionScopes(thread: ThreadDocument): HumanSubscriptionScop
 	return [
 		{ scopeType: "thread", scopeId: thread.id },
 		...thread.comments.map((comment) => ({ scopeType: "comment" as const, scopeId: comment.id })),
+	];
+}
+
+/**
+ * The notification refs a deleted thread retracts: its own, plus one per comment
+ * it carried.
+ *
+ * Read from the thread document for the same reason as the subscription scopes
+ * above — the document is the source of truth and `comments_index` can lag a
+ * just-written comment, so reading the index here would leave the newest
+ * comments' notifications behind.
+ */
+function threadNotificationSourceRefs(thread: ThreadDocument): ContentRef[] {
+	return [
+		{ type: "thread", id: thread.id },
+		...thread.comments.map((comment) => ({ type: "comment" as const, id: comment.id })),
 	];
 }
 
@@ -3091,16 +3152,17 @@ export async function softDeleteComment(
 	await writeJson(kv, kvKeys.thread(updated.id), updated);
 	await upsertThreadIndex(db, updated);
 	// One batch for everything the deleted comment takes with it, so a crash
-	// cannot leave its subscription rows behind the tombstone that made them
-	// unreachable. Only the deleted comment's own scope is cleared: its children
-	// are reparented, not deleted, so subscriptions on them still point at live
-	// comments.
+	// cannot leave its subscription or notification rows behind the tombstone that
+	// made them unreachable. Only the deleted comment's own scope is cleared: its
+	// children are reparented, not deleted, so subscriptions on them still point
+	// at live comments and their notifications are still about live content.
 	await db.batch([
 		db
 			.prepare(`UPDATE comments_index SET deleted_at = ? WHERE comment_id = ? AND deleted_at IS NULL`)
 			.bind(now, commentId),
 		db.prepare(`DELETE FROM votes WHERE target_type = 'comment' AND target_id = ?`).bind(commentId),
 		...humanSubscriptionScopeDeleteStatements(db, [{ scopeType: "comment", scopeId: commentId }]),
+		...notificationSourceDeleteStatements(db, [{ type: "comment", id: commentId }]),
 	]);
 	for (const child of reparentedChildren) {
 		await upsertCommentIndex(db, updated, child);
@@ -5641,6 +5703,7 @@ export async function pruneExpiredNotifications(
 		orphanMaxRowsPerRun?: number;
 		tombstonedBotsPerRun?: number;
 		kvDeleteChunkSize?: number;
+		sourceSweep?: OrphanNotificationSweepOptions;
 	} = {},
 ): Promise<NotificationPruneResult> {
 	const now = options.now ?? new Date().toISOString();
@@ -5670,6 +5733,7 @@ export async function pruneExpiredNotifications(
 		budgetExhausted: false,
 		orphanedBotRows: 0,
 		tombstonedBotsSwept: 0,
+		orphanedSources: { scannedRows: 0, deletedRows: 0, budgetExhausted: false },
 	};
 
 	// Tombstoned bots first. Their notifications are undeliverable at any age, and
@@ -5704,6 +5768,10 @@ export async function pruneExpiredNotifications(
 	});
 
 	result.budgetExhausted = maxRowsPerRun > 0 && result.selectedRows >= maxRowsPerRun;
+
+	// Last, on a budget of its own: the backstop is referential cleanup with no
+	// deadline, so it must never be able to displace the expiry passes above.
+	result.orphanedSources = await sweepOrphanedBotNotifications(kv, db, options.sourceSweep ?? {});
 	return result;
 }
 
@@ -5840,6 +5908,196 @@ async function pruneTombstonedBotNotifications(
 	}
 }
 
+/**
+ * The backstop for notifications whose source comment or thread is tombstoned:
+ * the race the forward deletes cannot close, plus whatever accrued on an
+ * environment before they shipped.
+ *
+ * The race is real and one-directional. `createComment` writes
+ * `comments_index` before it fans notifications out, which is what makes
+ * index-based matching sound everywhere else — but a delete interleaving
+ * between those two writes tombstones a comment whose notification rows do not
+ * exist yet, so the forward deletes find nothing and the rows land behind them.
+ *
+ * Driven from the notification side, never from the tombstones. Index rows are
+ * never reaped, so their tombstones are a permanently growing set: a
+ * tombstone-driven subquery would re-examine every comment ever deleted on every
+ * invocation just to prove there was nothing left to do. Paging the notification
+ * tables over the migration-0053 indexes instead makes a run cost what it
+ * examines, and the persisted cursor is what carries the rotation across runs.
+ *
+ * Only a tombstoned source is swept. A ref whose index row is missing entirely
+ * is index-repair lag, not a deleted source, and deleting on absence would
+ * retract notice of live content.
+ *
+ * D1 only, deliberately: this is the one notification delete path that does not
+ * touch KV. A document whose row is gone is invisible to every reader and
+ * expires on its own TTL, and the rows reachable here always have one — a
+ * bootstrap, the single TTL-free shape, carries no source ref.
+ */
+export async function sweepOrphanedBotNotifications(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	options: OrphanNotificationSweepOptions = {},
+): Promise<OrphanNotificationSweepResult> {
+	return sweepOrphanedNotificationArms(kv, db, botNotificationSourceSweepArms(db), {
+		cursorKey: kvKeys.notificationSourceSweepCursor,
+		selectLimit: positiveIntegerOption(options.selectLimit ?? notificationSourceSweepSelectLimit, "selectLimit"),
+		maxRows: nonNegativeIntegerOption(options.maxRowsPerRun ?? notificationSourceSweepMaxRowsPerRun, "maxRowsPerRun"),
+		deleteRows: (ids) => deleteNotificationRows(db, ids),
+	});
+}
+
+/**
+ * The same backstop for `human_notifications`, over the raw-id column pairs.
+ *
+ * A vote row reaches its comment through the target arm alone: its `source_id`
+ * is the composite `comment:<id>:<actor>` dedup key, which this sweep
+ * deliberately does not parse.
+ */
+export async function sweepOrphanedHumanNotifications(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	options: OrphanNotificationSweepOptions = {},
+): Promise<OrphanNotificationSweepResult> {
+	return sweepOrphanedNotificationArms(kv, db, humanNotificationSourceSweepArms(db), {
+		cursorKey: kvKeys.humanNotificationSourceSweepCursor,
+		selectLimit: positiveIntegerOption(options.selectLimit ?? notificationSourceSweepSelectLimit, "selectLimit"),
+		maxRows: nonNegativeIntegerOption(options.maxRowsPerRun ?? notificationSourceSweepMaxRowsPerRun, "maxRowsPerRun"),
+		deleteRows: (ids) => deleteHumanNotificationRows(db, ids),
+	});
+}
+
+/**
+ * One rotation over an ordered list of keyset arms, resuming from the persisted
+ * cursor and clearing it on the pass that reaches the end of the last arm.
+ *
+ * The cursor is written after every full page rather than once at the end, so a
+ * run stopped by its cap — or by a failure — resumes where it stopped instead of
+ * at the head of its arm. An arm that drains leaves the cursor where it is: the
+ * next run re-selects an empty page there and moves on, which is one query
+ * against re-walking the arms already done.
+ */
+async function sweepOrphanedNotificationArms(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	arms: readonly OrphanSweepArm[],
+	options: {
+		cursorKey: string;
+		selectLimit: number;
+		maxRows: number;
+		deleteRows: (notificationIds: string[]) => Promise<number>;
+	},
+): Promise<OrphanNotificationSweepResult> {
+	const result: OrphanNotificationSweepResult = { scannedRows: 0, deletedRows: 0, budgetExhausted: false };
+	if (options.maxRows === 0) {
+		return result;
+	}
+	const stored = await readOrphanSweepCursor(kv, options.cursorKey);
+	let cursorStored = stored !== undefined;
+	// A cursor naming an arm this deployment no longer has restarts the rotation
+	// rather than stalling it.
+	const startIndex = stored ? Math.max(0, arms.findIndex((arm) => arm.key === stored.arm)) : 0;
+	for (let index = startIndex; index < arms.length; index += 1) {
+		const arm = arms[index];
+		if (!arm) {
+			continue;
+		}
+		let position = stored && stored.arm === arm.key ? { value: stored.value, notificationId: stored.notificationId } : undefined;
+		while (result.scannedRows < options.maxRows) {
+			const limit = Math.min(options.selectLimit, options.maxRows - result.scannedRows);
+			const rows = await arm.select(limit, position);
+			const lastRow = rows[rows.length - 1];
+			if (!lastRow) {
+				break;
+			}
+			result.scannedRows += rows.length;
+			position = { value: lastRow.value, notificationId: lastRow.id };
+			result.deletedRows += await deleteTombstonedSourceRows(db, arm, rows, options.deleteRows);
+			if (rows.length < limit) {
+				// The arm ran out of rows rather than the run out of budget.
+				break;
+			}
+			await writeJson(kv, options.cursorKey, { arm: arm.key, ...position });
+			cursorStored = true;
+		}
+		if (result.scannedRows >= options.maxRows) {
+			result.budgetExhausted = true;
+			return result;
+		}
+	}
+	if (cursorStored) {
+		// The rotation reached the end of its last arm: the next run starts over.
+		await deleteKey(kv, options.cursorKey);
+	}
+	return result;
+}
+
+/** The rows of one page whose source content is tombstoned, deleted. */
+async function deleteTombstonedSourceRows(
+	db: D1DatabaseLike,
+	arm: OrphanSweepArm,
+	rows: readonly OrphanSweepRow[],
+	deleteRows: (notificationIds: string[]) => Promise<number>,
+): Promise<number> {
+	const refsByRow = new Map<string, ContentRef>();
+	for (const row of rows) {
+		const ref = arm.refOf(row.value);
+		if (ref) {
+			refsByRow.set(row.id, ref);
+		}
+	}
+	if (refsByRow.size === 0) {
+		return 0;
+	}
+	const tombstoned = await tombstonedContentRefKeys(db, [...refsByRow.values()]);
+	const orphaned = [...refsByRow]
+		.filter(([, ref]) => tombstoned.has(contentRefKey(ref)))
+		.map(([notificationId]) => notificationId);
+	return orphaned.length === 0 ? 0 : await deleteRows(orphaned);
+}
+
+/**
+ * Which of a page's refs name tombstoned content. Every probe is a primary-key
+ * `IN` list, so a page costs a bounded number of index seeks; the chunk size is
+ * D1's bound-parameter ceiling, which a page of 500 refs exceeds on its own.
+ */
+async function tombstonedContentRefKeys(db: D1DatabaseLike, refs: readonly ContentRef[]): Promise<Set<string>> {
+	const idsByType = new Map<ContentRef["type"], Set<string>>();
+	for (const ref of refs) {
+		const existing = idsByType.get(ref.type);
+		if (existing) {
+			existing.add(ref.id);
+			continue;
+		}
+		idsByType.set(ref.type, new Set([ref.id]));
+	}
+	const tombstoned = new Set<string>();
+	for (const [type, ids] of idsByType) {
+		const column = type === "comment" ? "comment_id" : "thread_id";
+		const table = type === "comment" ? "comments_index" : "threads_index";
+		for (const chunk of chunks([...ids], d1SafeBoundParameters)) {
+			const result = await db
+				.prepare(
+					`SELECT ${column} AS id
+					 FROM ${table}
+					 WHERE ${column} IN (${chunk.map(() => "?").join(", ")})
+					   AND deleted_at IS NOT NULL`,
+				)
+				.bind(...chunk)
+				.all<{ id: string }>();
+			for (const row of result.results ?? []) {
+				tombstoned.add(contentRefKey({ type, id: row.id }));
+			}
+		}
+	}
+	return tombstoned;
+}
+
+function contentRefKey(ref: ContentRef): string {
+	return `${ref.type}:${ref.id}`;
+}
+
 export async function pruneExpiredBotSeenContent(
 	db: D1DatabaseLike,
 	options: AgeCutoffPruneOptions = {},
@@ -5905,6 +6163,23 @@ export async function pruneExpiredHumanNotifications(
 		defaultBatchSize: humanNotificationPruneBatchSize,
 		defaultMaxRowsPerRun: humanNotificationPruneMaxRowsPerRun,
 	});
+}
+
+/**
+ * The daily entry point: age-based expiry, and then the source-orphan backstop
+ * on its own budget, in that order and for the same reason as on the bot side —
+ * referential cleanup has no deadline and retention does.
+ */
+export async function pruneHumanNotifications(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	options: AgeCutoffPruneOptions & { sourceSweep?: OrphanNotificationSweepOptions } = {},
+): Promise<HumanNotificationPruneResult> {
+	const { sourceSweep, ...expiryOptions } = options;
+	return {
+		expired: await pruneExpiredHumanNotifications(db, expiryOptions),
+		orphanedSources: await sweepOrphanedHumanNotifications(kv, db, sourceSweep ?? {}),
+	};
 }
 
 /**
@@ -6197,6 +6472,155 @@ async function readTombstonedBotSweepCursor(kv: KVNamespaceLike): Promise<Tombst
 		: undefined;
 }
 
+export type OrphanNotificationSweepOptions = {
+	selectLimit?: number;
+	maxRowsPerRun?: number;
+};
+
+/** One row of an orphan rotation: its primary key and its arm's keyset value. */
+type OrphanSweepRow = { id: string; value: string };
+
+/** Where a rotation stopped inside one arm. */
+type OrphanSweepPosition = { value: string; notificationId: string };
+
+/** That position plus the arm it belongs to, as persisted between runs. */
+type OrphanSweepCursor = OrphanSweepPosition & { arm: string };
+
+type OrphanSweepArm = {
+	/** Stable identity of the arm within its rotation; persisted in the cursor. */
+	key: string;
+	select: (limit: number, position: OrphanSweepPosition | undefined) => Promise<OrphanSweepRow[]>;
+	/** The content a selected row's keyset value refers to, if it refers to any. */
+	refOf: (value: string) => ContentRef | undefined;
+};
+
+/**
+ * The `source_object_id` shapes a content ref is stored under, as half-open
+ * ranges over `notifications_source`.
+ *
+ * `end` is `start` with its last character incremented, so a range is exactly
+ * "every value carrying this prefix". No bare short content id can fall inside
+ * one, because `/` and `_` are outside the short-id alphabet — which matters,
+ * since a bare short id is type-ambiguous. Refs this leaves out are the raw bot
+ * ids of follow and unfollow rows, which the tombstoned-bot pass owns.
+ */
+const notificationSourceRanges: readonly { start: string; end: string }[] = [
+	{ start: "c/", end: "c0" },
+	{ start: "t/", end: "t0" },
+	{ start: "cmt_", end: "cmt`" },
+	{ start: "thr_", end: "thr`" },
+];
+
+export const selectNotificationsInSourceRangeFirstPageSql =
+	`SELECT notification_id AS id, source_object_id AS value
+	 FROM notifications
+	 WHERE source_object_id >= ? AND source_object_id < ?
+	 ORDER BY source_object_id ASC, notification_id ASC
+	 LIMIT ?`;
+
+/**
+ * The resume page states its keyset as an indexable lower bound plus a
+ * tie-break, for the reason {@link selectTombstonedBotsAfterCursorSql} gives:
+ * written as the equivalent `>` comparison the page seeks to the range's head
+ * and re-walks everything the rotation already passed.
+ */
+export const selectNotificationsInSourceRangeAfterCursorSql =
+	`SELECT notification_id AS id, source_object_id AS value
+	 FROM notifications
+	 WHERE source_object_id >= ? AND source_object_id < ?
+	   AND (source_object_id > ? OR notification_id > ?)
+	 ORDER BY source_object_id ASC, notification_id ASC
+	 LIMIT ?`;
+
+function botNotificationSourceSweepArms(db: D1DatabaseLike): OrphanSweepArm[] {
+	return notificationSourceRanges.map((range) => ({
+		key: range.start,
+		select: async (limit, position) => {
+			const result = position ?
+				await db
+					.prepare(selectNotificationsInSourceRangeAfterCursorSql)
+					.bind(position.value, range.end, position.value, position.notificationId, limit)
+					.all<OrphanSweepRow>()
+			:	await db
+					.prepare(selectNotificationsInSourceRangeFirstPageSql)
+					.bind(range.start, range.end, limit)
+					.all<OrphanSweepRow>();
+			return result.results ?? [];
+		},
+		refOf: (value) => parseObjectRef(value),
+	}));
+}
+
+/**
+ * The ref-bearing column pairs of `human_notifications`, one arm per column pair
+ * and stored type. The column prefix is interpolated into the SQL, so it is a
+ * literal union rather than a string: adding an arm means adding it here, and
+ * nothing else can reach the statement.
+ */
+export type HumanNotificationSweepArm = {
+	column: "source" | "target";
+	refType: ContentRef["type"];
+};
+
+export const humanNotificationSweepArms: readonly HumanNotificationSweepArm[] = [
+	{ column: "source", refType: "comment" },
+	{ column: "source", refType: "thread" },
+	{ column: "target", refType: "comment" },
+	{ column: "target", refType: "thread" },
+];
+
+/**
+ * `human_notifications_source` and `human_notifications_target` lead with the
+ * type column, so a page bound to one type is an indexed range over its ids —
+ * and the id is the keyset, not `created_at`, so the rotation never sorts.
+ */
+export function selectHumanNotificationsOfArmSql(arm: HumanNotificationSweepArm, resume: boolean): string {
+	return `SELECT notification_id AS id, ${arm.column}_id AS value
+	 FROM human_notifications
+	 WHERE ${arm.column}_type = ?${resume ?
+		`
+	   AND ${arm.column}_id >= ?
+	   AND (${arm.column}_id > ? OR notification_id > ?)`
+	:	""}
+	 ORDER BY ${arm.column}_id ASC, notification_id ASC
+	 LIMIT ?`;
+}
+
+function humanNotificationSourceSweepArms(db: D1DatabaseLike): OrphanSweepArm[] {
+	return humanNotificationSweepArms.map((arm) => ({
+		key: `${arm.column}:${arm.refType}`,
+		select: async (limit, position) => {
+			const result = await db
+				.prepare(selectHumanNotificationsOfArmSql(arm, position !== undefined))
+				.bind(
+					arm.refType,
+					...(position ? [position.value, position.value, position.notificationId] : []),
+					limit,
+				)
+				.all<OrphanSweepRow>();
+			return result.results ?? [];
+		},
+		// The stored id is raw and the arm fixes its type, so there is nothing to
+		// parse: `source_type = 'comment'` means `source_id` is a comment id.
+		refOf: (value) => ({ type: arm.refType, id: value }),
+	}));
+}
+
+async function readOrphanSweepCursor(kv: KVNamespaceLike, key: string): Promise<OrphanSweepCursor | undefined> {
+	const stored = await readJson<unknown>(kv, key);
+	if (!stored || typeof stored !== "object" || Array.isArray(stored)) {
+		return undefined;
+	}
+	const { arm, value, notificationId } = stored as Record<string, unknown>;
+	return (
+			typeof arm === "string" && arm.length > 0 &&
+			typeof value === "string" && value.length > 0 &&
+			typeof notificationId === "string" && notificationId.length > 0
+		) ?
+			{ arm, value, notificationId }
+		:	undefined;
+}
+
 async function deleteNotificationKvDocuments<Row extends { id: string; botId: string }>(
 	kv: KVNamespaceLike,
 	rows: Row[],
@@ -6232,6 +6656,20 @@ async function deleteNotificationRows(db: D1DatabaseLike, notificationIds: strin
 		const placeholders = batch.map(() => "?").join(", ");
 		const result = await db
 			.prepare(`DELETE FROM notifications WHERE notification_id IN (${placeholders})`)
+			.bind(...batch)
+			.run();
+		deletedRows += result.meta?.changes ?? batch.length;
+	}
+	return deletedRows;
+}
+
+/** The `human_notifications` counterpart. These rows are D1-only: no KV mirror. */
+async function deleteHumanNotificationRows(db: D1DatabaseLike, notificationIds: string[]): Promise<number> {
+	let deletedRows = 0;
+	for (const batch of chunks(notificationIds, d1SafeBoundParameters)) {
+		const placeholders = batch.map(() => "?").join(", ");
+		const result = await db
+			.prepare(`DELETE FROM human_notifications WHERE notification_id IN (${placeholders})`)
 			.bind(...batch)
 			.run();
 		deletedRows += result.meta?.changes ?? batch.length;
@@ -6773,6 +7211,10 @@ async function markThreadIndexesDeleted(
 			{ scopeType: "thread", scopeId: threadId },
 			...(comments.results ?? []).map((row) => ({ scopeType: "comment" as const, scopeId: row.commentId })),
 		]),
+		// The index-subquery form, matching the comment-vote delete above: with the
+		// document gone the index is the only record of the refs, and a subquery
+		// costs a fixed number of statements however many comments the thread had.
+		...threadIndexScopedNotificationDeleteStatements(db, threadId),
 	]);
 }
 

@@ -23,9 +23,9 @@ import {
 	createThread,
 	normalizeThreadDefaults,
 	pruneExpiredBotSeenContent,
-	pruneExpiredHumanNotifications,
 	pruneExpiredNotifications,
 	pruneExpiredSpotlightDeliveries,
+	pruneHumanNotifications,
 	readThread,
 	refreshThreadHotScores,
 	setVote,
@@ -890,7 +890,7 @@ async function runDailyForumCoordinatorMaintenance(env: Env, now: string): Promi
 		pruneExpiredBotSeenContent(env.BICKR_D1, { now }),
 		pruneBotInferenceUsage(env.BICKR_D1, new Date(now)),
 		pruneExpiredSpotlightDeliveries(env.BICKR_D1, { now }),
-		pruneExpiredHumanNotifications(env.BICKR_D1, { now }),
+		pruneHumanNotifications(env.BICKR_KV, env.BICKR_D1, { now }),
 		repairObjectIndexes(env),
 	]);
 	// Log unconditionally and before failures propagate: the 2026-07-11 run
