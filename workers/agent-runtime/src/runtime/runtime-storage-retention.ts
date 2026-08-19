@@ -9,7 +9,7 @@ import {
 	type KVNamespaceLike,
 } from '@bickr/shared/storage';
 import { runBoundedSweep } from '@bickr/shared/sweep';
-import { scheduledDispatchTimeoutMs } from '../constants';
+import { runtimeMaintenanceDispatchTimeoutMs } from '../constants';
 import { RuntimeOperationTimeoutError } from '../errors';
 import { withAbortableTimeout } from '../provider/sse';
 
@@ -314,8 +314,8 @@ async function dispatchRuntimeMaintenance<ObjectId>(
 		const parentSignal = new AbortController().signal;
 		const response = await withAbortableTimeout(
 			parentSignal,
-			scheduledDispatchTimeoutMs,
-			() => new RuntimeOperationTimeoutError('Runtime storage maintenance dispatch', scheduledDispatchTimeoutMs),
+			runtimeMaintenanceDispatchTimeoutMs,
+			() => new RuntimeOperationTimeoutError('Runtime storage maintenance dispatch', runtimeMaintenanceDispatchTimeoutMs),
 			(signal) => env.BOT_RUNTIME.get(objectId).fetch(new Request(
 				internalServiceUrl(`/bots/${encodeURIComponent(botId)}/${path}`),
 				{ method, headers, signal },

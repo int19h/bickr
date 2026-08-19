@@ -35,6 +35,7 @@ import type {
 	LoopMessagePageIndex,
 	LoopMessageRetentionResult,
 	LoopMessageRow,
+	SweepLoopMessageRetentionResult,
 } from '../types';
 
 /**
@@ -684,6 +685,46 @@ export class RuntimeMessageStore {
 			this.physicallyDeleteLoopMessages(expired, now.toISOString());
 		const deleted = typeof this.storage.transactionSync === 'function' ? this.storage.transactionSync(prune) : prune();
 		return { ...deleted, pendingMore: expired.length >= limit };
+	}
+
+	/**
+	 * Spend a whole sweep allowance in batches (design §2.4).
+	 *
+	 * The sweep is the only path that prunes more than one batch, and it visits
+	 * participants whose backlog predates retention entirely. Spending the
+	 * allowance in one call would put thousands of rows under a single input-gate
+	 * hold; spending it batch by batch keeps every transaction short, and the
+	 * wall-clock budget keeps the visit itself short enough for its caller to
+	 * still be listening. Whichever bound stops the loop, the batches already
+	 * committed stand and `pendingMore` carries the remainder to the next cycle.
+	 */
+	pruneExpiredLoopMessagesWithinBudget(
+		options: { now?: Date; rowAllowance: number; timeBudgetMs: number; nowMs?: () => number },
+	): SweepLoopMessageRetentionResult {
+		const now = options.now ?? new Date();
+		const nowMs = options.nowMs ?? Date.now;
+		const startedAtMs = nowMs();
+		const totals = { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0, pendingMore: false };
+		let timeBudgetExhausted = false;
+		for (;;) {
+			const batch = this.pruneExpiredLoopMessages({ now, limit: loopMessageRetentionBatchSize });
+			totals.deletedMessages += batch.deletedMessages;
+			totals.deletedLogs += batch.deletedLogs;
+			totals.stampedSummaries += batch.stampedSummaries;
+			totals.pendingMore = batch.pendingMore;
+			// A batch that deleted nothing while reporting more is one whose every
+			// candidate is a summary withheld for a surviving child. Its selection is
+			// deterministic, so another batch would withhold exactly the same rows —
+			// they stay for the cycle that expires their children.
+			if (!batch.pendingMore || batch.deletedMessages === 0 || totals.deletedMessages >= options.rowAllowance) {
+				break;
+			}
+			if (nowMs() - startedAtMs >= options.timeBudgetMs) {
+				timeBudgetExhausted = true;
+				break;
+			}
+		}
+		return { loopMessages: totals, timeBudgetExhausted };
 	}
 
 	private pruneRuntimeDiagnosticLoopMessages(): number {

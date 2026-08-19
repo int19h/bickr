@@ -61,6 +61,18 @@ export const serviceBindingResponseBodyMaxBytes = 1_000_000;
 
 export const scheduledDispatchTimeoutMs = 10_000;
 
+/**
+ * Backstop for one fleet-maintenance dispatch, not the bound that ends a heavy
+ * visit: a retention pass self-bounds at `sweepRetentionTimeBudgetMs` and
+ * answers with what it deleted, so this only has to cover a cold object's
+ * start-up plus that budget. A timeout here therefore means a hung object
+ * rather than a deep backlog, which is what the retry backlog is for. The
+ * sweep's wall clock stays bounded by its fan-out instead: 25 visits run
+ * concurrently per chunk, so a 500-participant run is about
+ * (500 / 25) × ~9 s ≈ 3 minutes.
+ */
+export const runtimeMaintenanceDispatchTimeoutMs = 30_000;
+
 export const providerUsageExportBatchSize = 100;
 
 export const runtimeEventRetentionDays = 30;
@@ -102,13 +114,27 @@ export const postTickLoopMessageRetentionLimit = loopMessageRetentionBatchSize;
 
 /**
  * The daily fleet sweep visits each participant at most once, so its per-object
- * allowance is what burns down the pre-retention backlog (§2.8 O6). It is still
- * bounded: a participant with more expired history than this keeps the rest for
- * the next cycle, and each 250-row batch remains its own short transaction, so
- * a deeper visit holds the input gate no longer per batch — it just runs more
- * batches. Raised from 2,000 to speed the O6 drain (owner decision, 2026-08-19).
+ * allowance is what burns down the pre-retention backlog (§2.8 O6). The sweep's
+ * retention pass spends it in `loopMessageRetentionBatchSize` batches, each its
+ * own short transaction, so a deeper visit holds the input gate no longer per
+ * batch — it just runs more of them. A participant with more expired history
+ * than this keeps the rest for the next cycle. Raised from 2,000 to speed the
+ * O6 drain (owner decision, 2026-08-19).
  */
 export const sweepLoopMessageRetentionLimit = 10_000;
+
+/**
+ * Wall-clock budget for one sweep retention pass's loop-message batches.
+ *
+ * The row allowance alone cannot bound a visit's duration: the object may be
+ * cold, and the rows it has to materialize before deleting vary in size. The
+ * pass therefore stops at the first batch boundary past this budget and returns
+ * what it deleted, so a truncated visit is a 200 the sweep counts as done
+ * rather than a dispatch timeout that lands in the retry backlog. Stays
+ * comfortably under `runtimeMaintenanceDispatchTimeoutMs`, which has to cover
+ * this budget plus the object's start-up.
+ */
+export const sweepRetentionTimeBudgetMs = 8_000;
 
 export const scheduledDispatchSelectLimit = 20;
 

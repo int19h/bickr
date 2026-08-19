@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { addInternalServiceAuthHeader, internalServiceUrl } from '@bickr/shared/internal-service';
 import type { BotDocument, UserDocument } from '@bickr/shared/model';
 import { kvKeys, type KVNamespaceLike } from '@bickr/shared/storage';
+import { loopMessageRetentionBatchSize, sweepRetentionTimeBudgetMs } from '../constants';
+import type { RuntimeStorageRetentionResult } from '../types';
 import { BotRuntime } from './bot-runtime';
 
 /**
@@ -29,11 +31,12 @@ describe('BotRuntime storage retention', () => {
 
 	afterEach(() => {
 		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
 		database.close();
 	});
 
-	function construct(options: { onOwnerLookup?: () => Promise<void> } = {}): BotRuntime {
-		return new BotRuntime(runtimeState(database, sockets), runtimeEnv(botId, options) as never);
+	function construct(options: { onOwnerLookup?: () => Promise<void>; onTransaction?: () => void } = {}): BotRuntime {
+		return new BotRuntime(runtimeState(database, sockets, options), runtimeEnv(botId, options) as never);
 	}
 
 	async function maintenanceRequest(runtime: BotRuntime, method: 'POST' | 'DELETE', path: string, internal = true): Promise<Response> {
@@ -106,15 +109,60 @@ describe('BotRuntime storage retention', () => {
 		const response = await maintenanceRequest(runtime, 'POST', 'retention');
 
 		expect(response.status).toBe(200);
-		expect(await response.json()).toMatchObject({
-			data: { retention: {
-				loopMessages: { deletedMessages: 1, stampedSummaries: 1 },
-				injections: { deletedInjections: 1, droppedQueueEntries: 0 },
-			} },
+		const retention = ((await response.json()) as { data: { retention: RuntimeStorageRetentionResult } }).data.retention;
+		expect(retention).toMatchObject({
+			loopMessages: { deletedMessages: 1, stampedSummaries: 1, pendingMore: false },
+			injections: { deletedInjections: 1, droppedQueueEntries: 0 },
 		});
+		// A drained backlog is bounded by neither the allowance nor the clock, so the
+		// budget indicator stays absent.
+		expect(retention).not.toHaveProperty('timeBudgetExhausted');
 		// The 400-day-old row is still active context, so retention leaves it.
 		expect(rows<{ seq: number }>(`SELECT seq FROM loop_messages ORDER BY seq ASC`).map((row) => row.seq)).toEqual([10, 11]);
 		expect(rows<{ id: string }>(`SELECT id FROM injections`).map((row) => row.id)).toEqual(['fresh-manual']);
+	});
+
+	it('answers a sweep visit its time budget stopped with the batches it completed', async () => {
+		// Two batches' worth of budget, and four batches' worth of expired history:
+		// the visit has to return what it deleted rather than run to the caller's
+		// dispatch timeout with a transaction still open.
+		const perBatchMs = sweepRetentionTimeBudgetMs / 2;
+		let elapsedMs = 0;
+		vi.spyOn(Date, 'now').mockImplementation(() => now.getTime() + elapsedMs);
+		const runtime = construct({ onTransaction: () => { elapsedMs += perBatchMs; } });
+		for (const seq of range(1, 4 * loopMessageRetentionBatchSize)) {
+			insertMessage(seq, { createdAt: daysAgo(200), deletedAt: daysAgo(190) });
+		}
+
+		const response = await maintenanceRequest(runtime, 'POST', 'retention');
+
+		expect(response.status).toBe(200);
+		expect(((await response.json()) as { data: { retention: RuntimeStorageRetentionResult } }).data.retention).toMatchObject({
+			loopMessages: { deletedMessages: 2 * loopMessageRetentionBatchSize, pendingMore: true },
+			timeBudgetExhausted: true,
+		});
+		// The completed batches committed: a truncated visit is partial progress the
+		// next cycle continues, not work the sweep has to redo.
+		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM loop_messages`)[0]?.count)
+			.toBe(2 * loopMessageRetentionBatchSize);
+	});
+
+	it('keeps the post-visit pass at a single batch with no budget of its own', () => {
+		const runtime = construct();
+		for (const seq of range(1, 4 * loopMessageRetentionBatchSize)) {
+			insertMessage(seq, { createdAt: daysAgo(200), deletedAt: daysAgo(190) });
+		}
+
+		const pruned = (runtime as unknown as {
+			pruneRuntimeStorageAfterTick(activeRunId: string, now?: Date): RuntimeStorageRetentionResult;
+		}).pruneRuntimeStorageAfterTick('run-1');
+
+		// The visit path runs after every completed run, so it stays one batch with
+		// the rest left pending: spending a whole allowance is the sweep's job.
+		expect(pruned.loopMessages).toMatchObject({ deletedMessages: loopMessageRetentionBatchSize, pendingMore: true });
+		expect(pruned).not.toHaveProperty('timeBudgetExhausted');
+		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM loop_messages`)[0]?.count)
+			.toBe(3 * loopMessageRetentionBatchSize);
 	});
 
 	it('clears every table the runtime schema declares', async () => {
@@ -385,6 +433,10 @@ describe('BotRuntime storage retention', () => {
 		).run(id, `thought ${id}`, options.kind, options.kind === 'spotlight' ? `spot-${id}` : null, options.createdAt);
 	}
 
+	function range(start: number, end: number): number[] {
+		return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+	}
+
 	function rows<T>(sql: string, ...bindings: SQLInputValue[]): T[] {
 		return database.prepare(sql).all(...bindings) as T[];
 	}
@@ -440,7 +492,7 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 	return { promise, resolve };
 }
 
-function runtimeState(database: DatabaseSync, sockets: FakeSocket[] = []) {
+function runtimeState(database: DatabaseSync, sockets: FakeSocket[] = [], options: { onTransaction?: () => void } = {}) {
 	const sql = {
 		exec<T>(query: string, ...bindings: unknown[]) {
 			const statement = database.prepare(query);
@@ -460,6 +512,9 @@ function runtimeState(database: DatabaseSync, sockets: FakeSocket[] = []) {
 		storage: {
 			sql,
 			transactionSync<T>(closure: () => T): T {
+				// Every retention batch is one transaction, which is the hook a test
+				// needs to spend a visit's wall-clock budget deterministically.
+				options.onTransaction?.();
 				database.exec('BEGIN');
 				try {
 					const result = closure();

@@ -125,11 +125,23 @@ export type InjectionRetentionResult = {
 	droppedQueueEntries: number;
 };
 
+export type SweepLoopMessageRetentionResult = {
+	loopMessages: LoopMessageRetentionResult;
+	/** The batches stopped at their wall-clock budget rather than at a bound of their own. */
+	timeBudgetExhausted: boolean;
+};
+
 export type RuntimeStorageRetentionResult = {
 	events: number;
 	providerUsage: number;
 	loopMessages: LoopMessageRetentionResult;
 	injections: InjectionRetentionResult;
+	/**
+	 * Present only on a sweep pass the wall-clock budget stopped, which is a
+	 * partial visit rather than a failed one: `pendingMore` keeps its own meaning
+	 * of expired rows remaining, whichever bound ended the pass.
+	 */
+	timeBudgetExhausted?: boolean;
 };
 
 export type LoopMessagePageDescriptor = {

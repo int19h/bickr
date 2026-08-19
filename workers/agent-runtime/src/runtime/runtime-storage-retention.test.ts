@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { kvKeys } from '@bickr/shared/storage';
+import type { RuntimeStorageRetentionResult } from '../types';
 import {
 	botRuntimeRetentionSweepMaxRetryBacklog,
 	botRuntimeRetentionSweepReportedFailureLimit,
@@ -18,7 +19,11 @@ const now = '2026-08-17T03:23:00.000Z';
 
 function sweepEnv(
 	rows: FleetRow[],
-	options: { fail?: (botId: string, path: string) => boolean; cursor?: string } = {},
+	options: {
+		fail?: (botId: string, path: string) => boolean;
+		cursor?: string;
+		body?: (botId: string, path: string) => unknown;
+	} = {},
 ): SweepEnv {
 	// `fail` is read per dispatch rather than captured, so a test can make a
 	// participant fail in one pass and succeed in the next.
@@ -110,7 +115,7 @@ function sweepEnv(
 					expect(request.headers.get('x-bickr-scheduler')).toBe('1');
 					return options.fail?.(botId, path)
 						? new Response('busy', { status: 409 })
-						: Response.json({ ok: true });
+						: Response.json(options.body?.(botId, path) ?? { ok: true });
 				},
 			}),
 		},
@@ -139,6 +144,25 @@ describe('BotRuntime retention fleet sweep', () => {
 		expect(env.requests).toContain(`mark:bot-b@${now}`);
 		expect(env.requests).toContain(`mark:bot-c@${now}`);
 		// A completed pass leaves no cursor, so the next one starts at the front.
+		expect(env.kvValues.get(kvKeys.botRuntimeRetentionSweepCursor)).toBeUndefined();
+	});
+
+	it('counts a visit its own time budget truncated as pruned rather than retrying it', async () => {
+		// The visit self-bounds and answers 200 with what it deleted, so the sweep
+		// sees it exactly as it sees a drained one. That is the point: the remainder
+		// belongs to the next cycle, not to the retry backlog the raised caps filled.
+		const truncated: RuntimeStorageRetentionResult = {
+			events: 0,
+			providerUsage: 0,
+			loopMessages: { deletedMessages: 10_000, deletedLogs: 4, stampedSummaries: 12, pendingMore: true },
+			injections: { deletedInjections: 0, droppedQueueEntries: 0 },
+			timeBudgetExhausted: true,
+		};
+		const env = sweepEnv([liveBot('bot-deep')], { body: () => ({ ok: true, data: { retention: truncated } }) });
+
+		const result = await runBotRuntimeRetentionSweep(env, { now });
+
+		expect(result).toMatchObject({ scanned: 1, pruned: 1, failed: 0, retryBacklog: 0, complete: true });
 		expect(env.kvValues.get(kvKeys.botRuntimeRetentionSweepCursor)).toBeUndefined();
 	});
 

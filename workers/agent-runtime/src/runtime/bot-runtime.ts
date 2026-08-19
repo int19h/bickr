@@ -361,6 +361,7 @@ import {
 	deletedLoopMessageRetentionDays,
 	postTickLoopMessageRetentionLimit,
 	sweepLoopMessageRetentionLimit,
+	sweepRetentionTimeBudgetMs,
 	vectorBindingTimeoutMs,
 	cloudflareBindingRetryMaxAttempts,
 	cloudflareBindingRetryInitialDelayMs,
@@ -5785,11 +5786,22 @@ export class BotRuntime {
 		}
 	}
 
-	private pruneRuntimeStorageAfterTick(
-		activeRunId: string,
-		now = new Date(),
-		options: { loopMessageLimit?: number } = {},
-	): RuntimeStorageRetentionResult {
+	private pruneRuntimeStorageAfterTick(activeRunId: string, now = new Date()): RuntimeStorageRetentionResult {
+		const { events, providerUsage } = this.pruneExpiredEventsAndProviderUsage(activeRunId, now);
+
+		// Loop history is the object's largest store, so its retention rides the
+		// same post-visit pass as events and usage — one batch per run, with the
+		// daily fleet sweep behind it for participants that stopped ticking.
+		const loopMessages = this.runtimeMessageStore().pruneExpiredLoopMessages({
+			now,
+			limit: postTickLoopMessageRetentionLimit,
+		});
+		const injections = this.spotlightTickQueue().pruneExpiredInjections({ now });
+
+		return { events, providerUsage, loopMessages, injections };
+	}
+
+	private pruneExpiredEventsAndProviderUsage(activeRunId: string, now: Date): { events: number; providerUsage: number } {
 		const lastLogOffSeq = this.latestSuccessfulLogOffToolResultSeq();
 		const events = this.runtimeEventsStore().pruneEventsAfterTick(activeRunId, lastLogOffSeq, now);
 
@@ -5808,23 +5820,19 @@ export class BotRuntime {
 			);
 			providerUsage = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
 		}
-
-		// Loop history is the object's largest store, so its retention rides the
-		// same post-visit pass as events and usage — bounded per run, with the daily
-		// fleet sweep behind it for participants that stopped ticking.
-		const loopMessages = this.runtimeMessageStore().pruneExpiredLoopMessages({
-			now,
-			limit: options.loopMessageLimit ?? postTickLoopMessageRetentionLimit,
-		});
-		const injections = this.spotlightTickQueue().pruneExpiredInjections({ now });
-
-		return { events, providerUsage, loopMessages, injections };
+		return { events, providerUsage };
 	}
 
 	/**
 	 * Retention for one participant, driven by the daily fleet sweep. The visit
 	 * path prunes the same way, but a paused, disabled, or rarely scheduled
 	 * participant never reaches it.
+	 *
+	 * Unlike the visit path, this one spends a whole sweep allowance, so the
+	 * loop-message prune runs as repeated short batches under a wall-clock budget
+	 * of its own (§2.4). A pass that hits either bound is a partial success: it
+	 * answers with what it deleted rather than letting its caller time out and
+	 * count committed work as a failure.
 	 */
 	private runRetentionPass(activeRunId: string | null, now = new Date()): RuntimeStorageRetentionResult {
 		// Erased storage has nothing left to prune, and the pass is not read-only: it
@@ -5841,14 +5849,27 @@ export class BotRuntime {
 				injections: { deletedInjections: 0, droppedQueueEntries: 0 },
 			};
 		}
-		return this.pruneRuntimeStorageAfterTick(
-			// A run in flight keeps its own rows exempt exactly as the post-visit pass
-			// does. With no run there is nothing to exempt, and the empty string cannot
-			// collide: every run id is a generated non-empty value.
-			activeRunId ?? '',
+		// Events, usage, and injections are bounded single passes rather than backlog
+		// drains, so they run once ahead of the loop instead of competing with it for
+		// the budget.
+		//
+		// A run in flight keeps its own rows exempt exactly as the post-visit pass
+		// does. With no run there is nothing to exempt, and the empty string cannot
+		// collide: every run id is a generated non-empty value.
+		const { events, providerUsage } = this.pruneExpiredEventsAndProviderUsage(activeRunId ?? '', now);
+		const injections = this.spotlightTickQueue().pruneExpiredInjections({ now });
+		const { loopMessages, timeBudgetExhausted } = this.runtimeMessageStore().pruneExpiredLoopMessagesWithinBudget({
 			now,
-			{ loopMessageLimit: sweepLoopMessageRetentionLimit },
-		);
+			rowAllowance: sweepLoopMessageRetentionLimit,
+			timeBudgetMs: sweepRetentionTimeBudgetMs,
+		});
+		return {
+			events,
+			providerUsage,
+			loopMessages,
+			injections,
+			...(timeBudgetExhausted ? { timeBudgetExhausted } : {}),
+		};
 	}
 
 	/**

@@ -218,6 +218,94 @@ describe('RuntimeMessageStore', () => {
 			expect(store.loopMessageRow(oldest)).toBeUndefined();
 			expect(ledgerPrunedAt(storage, 900)).not.toBeNull();
 		});
+
+		it('spends a sweep allowance one short transaction at a time and leaves the rest pending', () => {
+			insertExpiredMessages(storage, 800, daysAgo(200));
+			const batched = countingStore(storage);
+
+			const result = batched.store.pruneExpiredLoopMessagesWithinBudget({
+				now,
+				rowAllowance: 500,
+				timeBudgetMs: 60_000,
+				nowMs: () => 0,
+			});
+
+			expect(result).toEqual({
+				loopMessages: { deletedMessages: 500, deletedLogs: 0, stampedSummaries: 0, pendingMore: true },
+				timeBudgetExhausted: false,
+			});
+			// The allowance is what the visit spends, never what one input-gate hold
+			// covers: two batches of 250, two transactions.
+			expect(batched.transactions()).toBe(2);
+			expect(liveSeqs(storage)).toHaveLength(300);
+		});
+
+		it('stops at the wall-clock budget and keeps everything its completed batches deleted', () => {
+			insertExpiredMessages(storage, 800, daysAgo(200));
+			const batched = countingStore(storage);
+			// Three seconds per reading: the loop reads once before the first batch
+			// and once after each, so the third batch is the one past the budget.
+			let elapsedMs = -3_000;
+
+			const result = batched.store.pruneExpiredLoopMessagesWithinBudget({
+				now,
+				rowAllowance: 10_000,
+				timeBudgetMs: 8_000,
+				nowMs: () => (elapsedMs += 3_000),
+			});
+
+			expect(result).toEqual({
+				loopMessages: { deletedMessages: 750, deletedLogs: 0, stampedSummaries: 0, pendingMore: true },
+				timeBudgetExhausted: true,
+			});
+			expect(batched.transactions()).toBe(3);
+			// A truncated pass is a partial success: the batches that committed stay
+			// committed, and the remainder is what `pendingMore` is for.
+			expect(liveSeqs(storage)).toHaveLength(50);
+		});
+
+		it('drains a backlog that fits inside both bounds and reports nothing pending', () => {
+			insertExpiredMessages(storage, 300, daysAgo(200));
+
+			const result = store.pruneExpiredLoopMessagesWithinBudget({
+				now,
+				rowAllowance: 10_000,
+				timeBudgetMs: 8_000,
+				nowMs: () => 0,
+			});
+
+			expect(result).toEqual({
+				loopMessages: { deletedMessages: 300, deletedLogs: 0, stampedSummaries: 0, pendingMore: false },
+				timeBudgetExhausted: false,
+			});
+			expect(liveSeqs(storage)).toEqual([]);
+		});
+
+		it('stops rather than spinning on a batch that can only withhold summaries', () => {
+			// Every candidate is a summary its live child holds in place, so the batch
+			// deletes nothing while still reporting expired rows behind it. The
+			// selection is deterministic, so another batch would withhold the same
+			// rows — and would do so until the time budget ran out.
+			for (const seq of range(1, 260)) {
+				insertMessage(storage, seq, seq, { createdAt: daysAgo(200), compactedBy: 9_000, origin: 'compaction' });
+				insertMessage(storage, 1_000 + seq, 1_000 + seq, { createdAt: daysAgo(1), compactedBy: seq });
+			}
+			const batched = countingStore(storage);
+
+			const result = batched.store.pruneExpiredLoopMessagesWithinBudget({
+				now,
+				rowAllowance: 10_000,
+				timeBudgetMs: 8_000,
+				nowMs: () => 0,
+			});
+
+			expect(result).toEqual({
+				loopMessages: { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0, pendingMore: true },
+				timeBudgetExhausted: false,
+			});
+			expect(batched.transactions()).toBe(1);
+			expect(liveSeqs(storage)).toHaveLength(520);
+		});
 	});
 
 	it('repositions active rows in the requested order without moving compacted or deleted rows', () => {
@@ -534,6 +622,28 @@ function insertMessage(
 		options.ledgerPrunedAt ?? null,
 		options.createdAt ?? '2026-07-10T00:00:00.000Z',
 	);
+}
+
+/** A sweep-sized backlog of owner-deleted rows, all expired by the same cutoff. */
+function insertExpiredMessages(storage: RuntimeTestStorage, count: number, createdAt: string): void {
+	for (const seq of range(1, count)) {
+		insertMessage(storage, seq, seq, { createdAt, deletedAt: createdAt });
+	}
+}
+
+/** A store whose transactions are counted, so a batching claim can be checked. */
+function countingStore(storage: RuntimeTestStorage): { store: RuntimeMessageStore; transactions: () => number } {
+	let transactions = 0;
+	return {
+		store: new RuntimeMessageStore({
+			sql: storage.sql,
+			transactionSync<T>(closure: () => T): T {
+				transactions += 1;
+				return storage.transactionSync(closure);
+			},
+		}),
+		transactions: () => transactions,
+	};
 }
 
 function liveSeqs(storage: RuntimeTestStorage): number[] {
