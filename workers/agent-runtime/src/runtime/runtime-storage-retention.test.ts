@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { kvKeys } from '@bickr/shared/storage';
+import type { RuntimeStorageRetentionResult } from '../types';
 import {
 	botRuntimeRetentionSweepMaxRetryBacklog,
 	botRuntimeRetentionSweepReportedFailureLimit,
@@ -18,7 +19,11 @@ const now = '2026-08-17T03:23:00.000Z';
 
 function sweepEnv(
 	rows: FleetRow[],
-	options: { fail?: (botId: string, path: string) => boolean; cursor?: string } = {},
+	options: {
+		fail?: (botId: string, path: string) => boolean;
+		cursor?: string;
+		body?: (botId: string, path: string) => unknown;
+	} = {},
 ): SweepEnv {
 	// `fail` is read per dispatch rather than captured, so a test can make a
 	// participant fail in one pass and succeed in the next.
@@ -108,9 +113,13 @@ function sweepEnv(
 					const path = new URL(request.url).pathname.split('/').at(-1) ?? '';
 					requests.push(`${request.method} ${botId}/${path}`);
 					expect(request.headers.get('x-bickr-scheduler')).toBe('1');
-					return options.fail?.(botId, path)
-						? new Response('busy', { status: 409 })
-						: Response.json({ ok: true });
+					if (options.fail?.(botId, path)) {
+						return new Response('busy', { status: 409 });
+					}
+					// `body` returning undefined stands for an object that answered 200
+					// with nothing at all, which the sweep has to tolerate.
+					const body = options.body ? options.body(botId, path) : { ok: true };
+					return body === undefined ? new Response(null, { status: 204 }) : Response.json(body);
 				},
 			}),
 		},
@@ -140,6 +149,45 @@ describe('BotRuntime retention fleet sweep', () => {
 		expect(env.requests).toContain(`mark:bot-c@${now}`);
 		// A completed pass leaves no cursor, so the next one starts at the front.
 		expect(env.kvValues.get(kvKeys.botRuntimeRetentionSweepCursor)).toBeUndefined();
+	});
+
+	it('counts a visit its own time budget truncated as pruned, and reports how many', async () => {
+		// The visit self-bounds and answers 200 with what it deleted, so the sweep
+		// sees it exactly as it sees a drained one. That is the point: the remainder
+		// belongs to the next cycle, not to the retry backlog the raised caps filled.
+		// It is still worth counting — a run full of truncated visits is the O6
+		// drain running behind, which nothing else in the result would show.
+		const truncated: RuntimeStorageRetentionResult = {
+			events: 0,
+			providerUsage: 0,
+			loopMessages: { deletedMessages: 10_000, deletedLogs: 4, stampedSummaries: 12, pendingMore: true },
+			injections: { deletedInjections: 0, droppedQueueEntries: 0 },
+			timeBudgetExhausted: true,
+		};
+		const env = sweepEnv([liveBot('bot-deep'), liveBot('bot-shallow')], {
+			body: (botId) => ({
+				ok: true,
+				data: { retention: botId === 'bot-deep' ? truncated : { ...truncated, timeBudgetExhausted: undefined } },
+			}),
+		});
+
+		const result = await runBotRuntimeRetentionSweep(env, { now });
+
+		expect(result).toMatchObject({ scanned: 2, pruned: 2, truncated: 1, failed: 0, retryBacklog: 0, complete: true });
+		expect(env.kvValues.get(kvKeys.botRuntimeRetentionSweepCursor)).toBeUndefined();
+	});
+
+	it('reads a visit that answered without a body it recognizes as not truncated', async () => {
+		// The counter is observability, not correctness: a 200 whose body the sweep
+		// cannot parse is still a successful visit, and must not be turned into a
+		// failure that lands in the retry backlog.
+		const env = sweepEnv([liveBot('bot-terse'), liveBot('bot-empty')], {
+			body: (botId) => (botId === 'bot-terse' ? { ok: true, data: {} } : undefined),
+		});
+
+		const result = await runBotRuntimeRetentionSweep(env, { now });
+
+		expect(result).toMatchObject({ scanned: 2, pruned: 2, truncated: 0, failed: 0, complete: true });
 	});
 
 	it('stops at its wake-up budget, persists a keyset cursor, and resumes behind it', async () => {

@@ -68,6 +68,8 @@ export function createRuntimeTestStorage(): RuntimeTestStorage {
 			ON loop_messages (origin, seq DESC);
 		CREATE INDEX loop_messages_retention
 			ON loop_messages (created_at, seq);
+		CREATE INDEX loop_message_logs_message
+			ON loop_message_logs (message_seq, id);
 	`);
 
 	const sql = {

@@ -9,7 +9,7 @@ import {
 	type KVNamespaceLike,
 } from '@bickr/shared/storage';
 import { runBoundedSweep } from '@bickr/shared/sweep';
-import { scheduledDispatchTimeoutMs } from '../constants';
+import { runtimeMaintenanceDispatchTimeoutMs } from '../constants';
 import { RuntimeOperationTimeoutError } from '../errors';
 import { withAbortableTimeout } from '../provider/sse';
 
@@ -49,7 +49,13 @@ type RuntimeMaintenanceFailure =
 	| { kind: 'dispatch_error'; errorName: string };
 
 export type BotRuntimeMaintenanceDispatch =
-	| { kind: 'runtime_retention_prune'; botId: string; status: 'pruned' }
+	| {
+		kind: 'runtime_retention_prune';
+		botId: string;
+		status: 'pruned';
+		/** The visit stopped at its own wall-clock budget with expired rows left. */
+		truncated: boolean;
+	}
 	| { kind: 'runtime_retention_prune'; botId: string; status: 'failed'; failure: RuntimeMaintenanceFailure }
 	| { kind: 'runtime_storage_clear'; botId: string; status: 'cleared' }
 	| { kind: 'runtime_storage_clear'; botId: string; status: 'failed'; failure: RuntimeMaintenanceFailure };
@@ -82,6 +88,16 @@ export type BotRuntimeRetentionSweepResult = {
 	failed: number;
 	/** The pass reached the end of bot_runtime_index. */
 	complete: boolean;
+	/**
+	 * Visits that ran out of wall-clock budget before draining their backlog.
+	 *
+	 * These are successes — the visit answered with what it deleted — but the
+	 * count is the fleet-wide view of how much of the pre-retention backlog is
+	 * still bound by time rather than by having nothing left to delete, which is
+	 * the O6 drain signal. A run where this stays high is one whose participants
+	 * need more nightly cycles than the count of them suggests.
+	 */
+	truncated: number;
 	/** Participants revisited out of a previous run's retry backlog. */
 	retried: number;
 	/** Failures this run handed to the next one's retry backlog. */
@@ -145,6 +161,7 @@ export async function runBotRuntimeRetentionSweep<ObjectId>(
 	);
 	const storedCursor = await readSweepCursor(env.BICKR_KV);
 	let pruned = 0;
+	let truncated = 0;
 	let cleared = 0;
 	let failed = 0;
 	let retriesDropped = 0;
@@ -190,8 +207,11 @@ export async function runBotRuntimeRetentionSweep<ObjectId>(
 			}
 			if (attempt.status === 'cleared') {
 				cleared += 1;
-			} else {
-				pruned += 1;
+				continue;
+			}
+			pruned += 1;
+			if (attempt.truncated) {
+				truncated += 1;
 			}
 		}
 	};
@@ -246,6 +266,7 @@ export async function runBotRuntimeRetentionSweep<ObjectId>(
 		kind: 'bot_runtime_retention_sweep',
 		scanned: retried + iteration.scanned,
 		pruned,
+		truncated,
 		cleared,
 		failed,
 		complete: walkComplete,
@@ -262,10 +283,29 @@ export async function pruneBotRuntimeStorage<ObjectId>(
 	env: Pick<BotRuntimeRetentionSweepEnv<ObjectId>, 'BOT_RUNTIME' | 'INTERNAL_SERVICE_SECRET'>,
 	botId: string,
 ): Promise<BotRuntimeMaintenanceDispatch> {
-	const failure = await dispatchRuntimeMaintenance(env, botId, 'POST', 'retention');
-	return failure === null
-		? { kind: 'runtime_retention_prune', botId, status: 'pruned' }
-		: { kind: 'runtime_retention_prune', botId, status: 'failed', failure };
+	const outcome = await dispatchRuntimeMaintenance(env, botId, 'POST', 'retention');
+	return outcome.ok
+		? { kind: 'runtime_retention_prune', botId, status: 'pruned', truncated: await retentionVisitTruncated(outcome.response) }
+		: { kind: 'runtime_retention_prune', botId, status: 'failed', failure: outcome.failure };
+}
+
+/**
+ * Whether the visit reported that its wall-clock budget, rather than a drained
+ * backlog, is what ended it.
+ *
+ * The visit already answered 200, so this only decides a counter. A body that
+ * is missing, unparseable, or shaped differently than this reader expects is
+ * therefore read as "not truncated" rather than turned into a failed prune: an
+ * observability signal must not be able to send a successful visit to the retry
+ * backlog.
+ */
+async function retentionVisitTruncated(response: Response): Promise<boolean> {
+	try {
+		const body = await response.json() as { data?: { retention?: { timeBudgetExhausted?: unknown } } } | null;
+		return body?.data?.retention?.timeBudgetExhausted === true;
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -281,9 +321,9 @@ export async function clearBotRuntimeStorage<ObjectId>(
 	botId: string,
 	options: { now?: string } = {},
 ): Promise<BotRuntimeMaintenanceDispatch> {
-	const failure = await dispatchRuntimeMaintenance(env, botId, 'DELETE', 'storage');
-	if (failure !== null) {
-		return { kind: 'runtime_storage_clear', botId, status: 'failed', failure };
+	const outcome = await dispatchRuntimeMaintenance(env, botId, 'DELETE', 'storage');
+	if (!outcome.ok) {
+		return { kind: 'runtime_storage_clear', botId, status: 'failed', failure: outcome.failure };
 	}
 	const clearedAt = options.now ?? new Date().toISOString();
 	await env.BICKR_D1
@@ -298,12 +338,16 @@ export async function clearBotRuntimeStorage<ObjectId>(
 	return { kind: 'runtime_storage_clear', botId, status: 'cleared' };
 }
 
+type RuntimeMaintenanceDispatchOutcome =
+	| { ok: true; response: Response }
+	| { ok: false; failure: RuntimeMaintenanceFailure };
+
 async function dispatchRuntimeMaintenance<ObjectId>(
 	env: Pick<BotRuntimeRetentionSweepEnv<ObjectId>, 'BOT_RUNTIME' | 'INTERNAL_SERVICE_SECRET'>,
 	botId: string,
 	method: 'POST' | 'DELETE',
 	path: 'retention' | 'storage',
-): Promise<RuntimeMaintenanceFailure | null> {
+): Promise<RuntimeMaintenanceDispatchOutcome> {
 	// A fresh bodyless internal request, never a forwarded one: nothing from an
 	// operator's or owner's request belongs on a fleet maintenance call.
 	const headers = new Headers();
@@ -314,18 +358,23 @@ async function dispatchRuntimeMaintenance<ObjectId>(
 		const parentSignal = new AbortController().signal;
 		const response = await withAbortableTimeout(
 			parentSignal,
-			scheduledDispatchTimeoutMs,
-			() => new RuntimeOperationTimeoutError('Runtime storage maintenance dispatch', scheduledDispatchTimeoutMs),
+			runtimeMaintenanceDispatchTimeoutMs,
+			() => new RuntimeOperationTimeoutError('Runtime storage maintenance dispatch', runtimeMaintenanceDispatchTimeoutMs),
 			(signal) => env.BOT_RUNTIME.get(objectId).fetch(new Request(
 				internalServiceUrl(`/bots/${encodeURIComponent(botId)}/${path}`),
 				{ method, headers, signal },
 			)),
 		);
-		return response.ok ? null : { kind: 'http_response', httpStatus: response.status };
+		return response.ok
+			? { ok: true, response }
+			: { ok: false, failure: { kind: 'http_response', httpStatus: response.status } };
 	} catch (error) {
-		return error instanceof RuntimeOperationTimeoutError
-			? { kind: 'timeout', timeoutMs: error.timeoutMs }
-			: { kind: 'dispatch_error', errorName: error instanceof Error ? error.name : 'UnknownError' };
+		return {
+			ok: false,
+			failure: error instanceof RuntimeOperationTimeoutError
+				? { kind: 'timeout', timeoutMs: error.timeoutMs }
+				: { kind: 'dispatch_error', errorName: error instanceof Error ? error.name : 'UnknownError' },
+		};
 	}
 }
 

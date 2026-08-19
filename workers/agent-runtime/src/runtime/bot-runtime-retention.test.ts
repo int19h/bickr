@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { addInternalServiceAuthHeader, internalServiceUrl } from '@bickr/shared/internal-service';
 import type { BotDocument, UserDocument } from '@bickr/shared/model';
 import { kvKeys, type KVNamespaceLike } from '@bickr/shared/storage';
+import { loopMessageRetentionBatchSize, sweepRetentionTimeBudgetMs } from '../constants';
+import type { RuntimeStorageRetentionResult } from '../types';
 import { BotRuntime } from './bot-runtime';
 
 /**
@@ -29,6 +31,7 @@ describe('BotRuntime storage retention', () => {
 
 	afterEach(() => {
 		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
 		database.close();
 	});
 
@@ -106,15 +109,160 @@ describe('BotRuntime storage retention', () => {
 		const response = await maintenanceRequest(runtime, 'POST', 'retention');
 
 		expect(response.status).toBe(200);
-		expect(await response.json()).toMatchObject({
-			data: { retention: {
-				loopMessages: { deletedMessages: 1, stampedSummaries: 1 },
-				injections: { deletedInjections: 1, droppedQueueEntries: 0 },
-			} },
+		const retention = ((await response.json()) as { data: { retention: RuntimeStorageRetentionResult } }).data.retention;
+		expect(retention).toMatchObject({
+			loopMessages: { deletedMessages: 1, stampedSummaries: 1, pendingMore: false },
+			injections: { deletedInjections: 1, droppedQueueEntries: 0 },
 		});
+		// A drained backlog is bounded by neither the allowance nor the clock, so the
+		// budget indicator stays absent.
+		expect(retention).not.toHaveProperty('timeBudgetExhausted');
 		// The 400-day-old row is still active context, so retention leaves it.
 		expect(rows<{ seq: number }>(`SELECT seq FROM loop_messages ORDER BY seq ASC`).map((row) => row.seq)).toEqual([10, 11]);
 		expect(rows<{ id: string }>(`SELECT id FROM injections`).map((row) => row.id)).toEqual(['fresh-manual']);
+	});
+
+	it('answers a sweep visit its time budget stopped with the batches it completed', async () => {
+		// Two batches' worth of budget, and four batches' worth of expired history:
+		// the visit has to return what it deleted rather than run to the caller's
+		// dispatch timeout with a transaction still open.
+		const clock = batchYieldClock(sweepRetentionTimeBudgetMs / 2);
+		const runtime = construct();
+		for (const seq of range(1, 4 * loopMessageRetentionBatchSize)) {
+			insertMessage(seq, { createdAt: daysAgo(200), deletedAt: daysAgo(190) });
+		}
+
+		const response = await maintenanceRequest(runtime, 'POST', 'retention');
+
+		expect(response.status).toBe(200);
+		expect(((await response.json()) as { data: { retention: RuntimeStorageRetentionResult } }).data.retention).toMatchObject({
+			loopMessages: { deletedMessages: 2 * loopMessageRetentionBatchSize, pendingMore: true },
+			timeBudgetExhausted: true,
+		});
+		// Two yields, because the third batch is the one whose clock reading is past
+		// the budget: the deployed runtime advances the clock nowhere else.
+		expect(clock.yields()).toBe(2);
+		// The completed batches committed: a truncated visit is partial progress the
+		// next cycle continues, not work the sweep has to redo.
+		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM loop_messages`)[0]?.count)
+			.toBe(2 * loopMessageRetentionBatchSize);
+	});
+
+	it('stops a sweep visit that a full clear lands in the middle of', async () => {
+		// The batches yield to each other, so a clear really can arrive mid-visit.
+		// It sets the tombstone before its first await, which is why checking it at
+		// the batch boundary is enough to keep the pass off erased storage.
+		const runtime = construct();
+		const clock = batchYieldClock(0, () => {
+			if (clock.yields() === 2) {
+				(runtime as unknown as { runtimeStorageClearedAt: string | null }).runtimeStorageClearedAt = now.toISOString();
+			}
+		});
+		for (const seq of range(1, 4 * loopMessageRetentionBatchSize)) {
+			insertMessage(seq, { createdAt: daysAgo(200), deletedAt: daysAgo(190) });
+		}
+
+		const response = await maintenanceRequest(runtime, 'POST', 'retention');
+
+		expect(response.status).toBe(200);
+		expect(((await response.json()) as { data: { retention: RuntimeStorageRetentionResult } }).data.retention).toMatchObject({
+			loopMessages: { deletedMessages: 2 * loopMessageRetentionBatchSize, pendingMore: true },
+		});
+		// The pass stopped at the boundary rather than running its allowance out
+		// against storage that is about to be dropped, and kept what it committed.
+		expect(clock.yields()).toBe(2);
+		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM loop_messages`)[0]?.count)
+			.toBe(2 * loopMessageRetentionBatchSize);
+	});
+
+	it('resumes the next visit where the budget stopped the scan, and deletes what was behind the prefix', async () => {
+		// The prefix is 500 expired summaries their live children hold in place, which
+		// is two full batches of candidates the pass cannot delete — more than one
+		// budget can traverse. Selection is deterministic, so without a position that
+		// outlives the pass every nightly visit would re-walk exactly this prefix and
+		// the 100 deletable rows behind it would never be reached at all.
+		const clock = batchYieldClock(sweepRetentionTimeBudgetMs / 2);
+		const runtime = construct();
+		for (const seq of range(1, 2 * loopMessageRetentionBatchSize)) {
+			insertMessage(seq, { createdAt: daysAgo(200), compactedBy: 9_000, origin: 'compaction' });
+			insertMessage(10_000 + seq, { createdAt: daysAgo(1), compactedBy: seq });
+		}
+		for (const seq of range(5_001, 5_100)) {
+			insertMessage(seq, { createdAt: daysAgo(150), deletedAt: daysAgo(150) });
+		}
+
+		const truncated = await retentionVisit(runtime);
+
+		expect(truncated).toMatchObject({
+			loopMessages: { deletedMessages: 0, pendingMore: true },
+			timeBudgetExhausted: true,
+		});
+		expect(clock.yields()).toBe(2);
+		// The position the two batches reached, persisted outside their transactions.
+		expect(scanCursorState()).toEqual({ createdAt: daysAgo(200), seq: 2 * loopMessageRetentionBatchSize });
+
+		// A fresh instance over the same storage: the next nightly visit, which the
+		// object has been evicted between.
+		const resumed = await retentionVisit(construct());
+
+		// Same clock, same budget, and the prefix has not changed — the only reason
+		// this visit reaches the rows behind it is the cursor it started from.
+		expect(resumed).toMatchObject({ loopMessages: { deletedMessages: 100 } });
+		expect(resumed).not.toHaveProperty('timeBudgetExhausted');
+		// The prefix and its children stand; only the rows behind them are gone.
+		expect(liveSeqs().filter((seq) => seq >= 5_001 && seq <= 5_100)).toEqual([]);
+		expect(liveSeqs()).toHaveLength(4 * loopMessageRetentionBatchSize);
+		// Its scan ran to the end of the range, so the position is dropped: the visit
+		// after this one goes back to the bottom and re-examines the withheld prefix
+		// against children that may have aged out by then.
+		expect(scanCursorState()).toBeUndefined();
+	});
+
+	it('drops the persisted position when a pass finishes its scan, so the visit after it wraps', async () => {
+		const runtime = construct();
+		// The position a previous night's truncated pass left behind.
+		database.prepare(`INSERT INTO runtime_state (key, value_json) VALUES ('sweep_retention_scan_cursor', ?)`)
+			.run(JSON.stringify({ createdAt: daysAgo(200), seq: 500 }));
+		// One expired row below that position — the shape of a row that became
+		// deletable after the cursor had already moved past it — and ten above.
+		insertMessage(1, { createdAt: daysAgo(300), deletedAt: daysAgo(300) });
+		for (const seq of range(5_001, 5_010)) {
+			insertMessage(seq, { createdAt: daysAgo(150), deletedAt: daysAgo(150) });
+		}
+
+		const resumed = await retentionVisit(runtime);
+
+		// The pass started at the cursor, so the row below it is untouched and the ten
+		// above it are gone.
+		expect(resumed).toMatchObject({ loopMessages: { deletedMessages: 10, pendingMore: false } });
+		expect(liveSeqs()).toEqual([1]);
+		expect(scanCursorState()).toBeUndefined();
+
+		const wrapped = await retentionVisit(construct());
+
+		// With nothing persisted the scan is back at the bottom, which is the only
+		// thing that ever reaches a row below a cursor. Same accepted semantics as
+		// the fleet sweep's own walk: below-cursor work waits for the wrap.
+		expect(wrapped).toMatchObject({ loopMessages: { deletedMessages: 1 } });
+		expect(liveSeqs()).toEqual([]);
+	});
+
+	it('keeps the post-visit pass at a single batch with no budget of its own', () => {
+		const runtime = construct();
+		for (const seq of range(1, 4 * loopMessageRetentionBatchSize)) {
+			insertMessage(seq, { createdAt: daysAgo(200), deletedAt: daysAgo(190) });
+		}
+
+		const pruned = (runtime as unknown as {
+			pruneRuntimeStorageAfterTick(activeRunId: string, now?: Date): RuntimeStorageRetentionResult;
+		}).pruneRuntimeStorageAfterTick('run-1');
+
+		// The visit path runs after every completed run, so it stays one batch with
+		// the rest left pending: spending a whole allowance is the sweep's job.
+		expect(pruned.loopMessages).toMatchObject({ deletedMessages: loopMessageRetentionBatchSize, pendingMore: true });
+		expect(pruned).not.toHaveProperty('timeBudgetExhausted');
+		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM loop_messages`)[0]?.count)
+			.toBe(3 * loopMessageRetentionBatchSize);
 	});
 
 	it('clears every table the runtime schema declares', async () => {
@@ -378,11 +526,57 @@ describe('BotRuntime storage retention', () => {
 		);
 	}
 
+	/** The sweep's retention route, unwrapped to the result it reports. */
+	async function retentionVisit(runtime: BotRuntime): Promise<RuntimeStorageRetentionResult> {
+		const response = await maintenanceRequest(runtime, 'POST', 'retention');
+		expect(response.status).toBe(200);
+		return ((await response.json()) as { data: { retention: RuntimeStorageRetentionResult } }).data.retention;
+	}
+
+	function scanCursorState(): unknown {
+		const row = rows<{ value_json: string }>(`SELECT value_json FROM runtime_state WHERE key = 'sweep_retention_scan_cursor'`)[0];
+		return row === undefined ? undefined : JSON.parse(row.value_json);
+	}
+
+	function liveSeqs(): number[] {
+		return rows<{ seq: number }>(`SELECT seq FROM loop_messages ORDER BY seq ASC`).map((row) => row.seq);
+	}
+
 	function insertInjection(id: string, options: { kind: string; createdAt: string }): void {
 		database.prepare(
 			`INSERT INTO injections (id, text, kind, source_id, spotlight_id, created_at, consumed_at)
 			 VALUES (?, ?, ?, NULL, ?, ?, NULL)`,
 		).run(id, `thought ${id}`, options.kind, options.kind === 'spotlight' ? `spot-${id}` : null, options.createdAt);
+	}
+
+	function range(start: number, end: number): number[] {
+		return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+	}
+
+	/**
+	 * A clock that only moves where the deployed runtime's does.
+	 *
+	 * Workers reports the time of the last I/O, so inside the retention pass the
+	 * only thing that advances `Date.now()` is the timer the batch loop yields on.
+	 * Driving the fake clock from that same timer is what keeps this test about a
+	 * mechanism production has rather than one only a mock can exhibit.
+	 */
+	function batchYieldClock(perBatchMs: number, onYield?: () => void): { yields: () => number } {
+		let yields = 0;
+		let elapsedMs = 0;
+		const realSetTimeout = globalThis.setTimeout;
+		vi.spyOn(Date, 'now').mockImplementation(() => now.getTime() + elapsedMs);
+		vi.stubGlobal('setTimeout', function stubbedSetTimeout(this: unknown, ...args: unknown[]): unknown {
+			// Only the batch loop's own zero-delay yield: anything else scheduled
+			// while the request is in flight is not an I/O this pass performed.
+			if (args[1] === 0) {
+				yields += 1;
+				elapsedMs += perBatchMs;
+				onYield?.();
+			}
+			return (realSetTimeout as unknown as (...passed: unknown[]) => unknown).apply(this, args);
+		} as unknown as typeof setTimeout);
+		return { yields: () => yields };
 	}
 
 	function rows<T>(sql: string, ...bindings: SQLInputValue[]): T[] {

@@ -341,6 +341,7 @@ import {
 	centralProviderUsageExportCursorStateKey,
 	lastLogOffSeqStateKey,
 	runtimeStorageClearedStateKey,
+	sweepRetentionScanCursorStateKey,
 	logOffBackfillPageSize,
 	contextBudgetCacheStateKey,
 	runtimeRunLeaseTimeoutMs,
@@ -361,6 +362,7 @@ import {
 	deletedLoopMessageRetentionDays,
 	postTickLoopMessageRetentionLimit,
 	sweepLoopMessageRetentionLimit,
+	sweepRetentionTimeBudgetMs,
 	vectorBindingTimeoutMs,
 	cloudflareBindingRetryMaxAttempts,
 	cloudflareBindingRetryInitialDelayMs,
@@ -428,6 +430,7 @@ import type {
 	RuntimeLoopMessages,
 	InjectionMetadata,
 	InjectionRow,
+	LoopMessageRetentionCursor,
 	RuntimeStorageClearResult,
 	RuntimeStorageRetentionResult,
 	RunContext,
@@ -2157,7 +2160,7 @@ export class BotRuntime {
 		// of which have their own routes and their own confirmations.
 		if (request.method === 'POST' && url.pathname.endsWith('/retention')) {
 			this.requireInternalMaintenance(request);
-			return ok({ retention: this.runRetentionPass(this.activeRunId) });
+			return ok({ retention: await this.runRetentionPass(this.activeRunId) });
 		}
 
 		if (request.method === 'DELETE' && url.pathname.endsWith('/storage')) {
@@ -5785,11 +5788,26 @@ export class BotRuntime {
 		}
 	}
 
-	private pruneRuntimeStorageAfterTick(
-		activeRunId: string,
-		now = new Date(),
-		options: { loopMessageLimit?: number } = {},
-	): RuntimeStorageRetentionResult {
+	private pruneRuntimeStorageAfterTick(activeRunId: string, now = new Date()): RuntimeStorageRetentionResult {
+		const { events, providerUsage } = this.pruneExpiredEventsAndProviderUsage(activeRunId, now);
+
+		// Loop history is the object's largest store, so its retention rides the
+		// same post-visit pass as events and usage — one batch per run, with the
+		// daily fleet sweep behind it for participants that stopped ticking. One
+		// batch always starts at the bottom of the scan: the sweep's persisted
+		// position belongs to the sweep's multi-batch pass, and a per-visit path
+		// that advanced it would let ticking participants skip their own oldest
+		// history.
+		const loopMessages = this.runtimeMessageStore().pruneExpiredLoopMessages({
+			now,
+			limit: postTickLoopMessageRetentionLimit,
+		});
+		const injections = this.spotlightTickQueue().pruneExpiredInjections({ now });
+
+		return { events, providerUsage, loopMessages, injections };
+	}
+
+	private pruneExpiredEventsAndProviderUsage(activeRunId: string, now: Date): { events: number; providerUsage: number } {
 		const lastLogOffSeq = this.latestSuccessfulLogOffToolResultSeq();
 		const events = this.runtimeEventsStore().pruneEventsAfterTick(activeRunId, lastLogOffSeq, now);
 
@@ -5808,25 +5826,28 @@ export class BotRuntime {
 			);
 			providerUsage = this.state.storage.sql.exec<{ count: number }>(`SELECT changes() AS count`).one().count;
 		}
-
-		// Loop history is the object's largest store, so its retention rides the
-		// same post-visit pass as events and usage — bounded per run, with the daily
-		// fleet sweep behind it for participants that stopped ticking.
-		const loopMessages = this.runtimeMessageStore().pruneExpiredLoopMessages({
-			now,
-			limit: options.loopMessageLimit ?? postTickLoopMessageRetentionLimit,
-		});
-		const injections = this.spotlightTickQueue().pruneExpiredInjections({ now });
-
-		return { events, providerUsage, loopMessages, injections };
+		return { events, providerUsage };
 	}
 
 	/**
 	 * Retention for one participant, driven by the daily fleet sweep. The visit
 	 * path prunes the same way, but a paused, disabled, or rarely scheduled
 	 * participant never reaches it.
+	 *
+	 * Unlike the visit path, this one spends a whole sweep allowance, so the
+	 * loop-message prune runs as repeated short batches under a wall-clock budget
+	 * of its own (§2.4). A pass that hits either bound is a partial success: it
+	 * answers with what it deleted rather than letting its caller time out and
+	 * count committed work as a failure. The batches yield to each other, so this
+	 * pass is the one retention path that other events can interleave with.
+	 *
+	 * It is also the only path with a scan position of its own: a pass the budget
+	 * truncates leaves its keyset cursor in `runtime_state` so the next nightly
+	 * visit continues the scan instead of re-walking a prefix it already knows it
+	 * cannot delete, and a pass that finishes drops the cursor so the visit after
+	 * it wraps to the bottom.
 	 */
-	private runRetentionPass(activeRunId: string | null, now = new Date()): RuntimeStorageRetentionResult {
+	private async runRetentionPass(activeRunId: string | null, now = new Date()): Promise<RuntimeStorageRetentionResult> {
 		// Erased storage has nothing left to prune, and the pass is not read-only: it
 		// memoizes the last log-off sequence into `runtime_state` on its first run,
 		// which on a cleared object would be a repopulating write. The sweep can
@@ -5841,14 +5862,83 @@ export class BotRuntime {
 				injections: { deletedInjections: 0, droppedQueueEntries: 0 },
 			};
 		}
-		return this.pruneRuntimeStorageAfterTick(
-			// A run in flight keeps its own rows exempt exactly as the post-visit pass
-			// does. With no run there is nothing to exempt, and the empty string cannot
-			// collide: every run id is a generated non-empty value.
-			activeRunId ?? '',
+		// Events, usage, and injections are bounded single passes rather than backlog
+		// drains, so they run once ahead of the loop instead of competing with it for
+		// the budget.
+		//
+		// A run in flight keeps its own rows exempt exactly as the post-visit pass
+		// does. With no run there is nothing to exempt, and the empty string cannot
+		// collide: every run id is a generated non-empty value.
+		const { events, providerUsage } = this.pruneExpiredEventsAndProviderUsage(activeRunId ?? '', now);
+		const injections = this.spotlightTickQueue().pruneExpiredInjections({ now });
+		// Where the last budget-truncated pass stopped, if there was one. Read before
+		// the pass and written after it, never inside a batch transaction: one small
+		// row on a path that just committed thousands of deletions.
+		const resumeFrom = this.sweepRetentionScanCursor();
+		const { loopMessages, timeBudgetExhausted, scanCursor } = await this.runtimeMessageStore().pruneExpiredLoopMessagesWithinBudget({
 			now,
-			{ loopMessageLimit: sweepLoopMessageRetentionLimit },
-		);
+			rowAllowance: sweepLoopMessageRetentionLimit,
+			timeBudgetMs: sweepRetentionTimeBudgetMs,
+			...(resumeFrom ? { after: resumeFrom } : {}),
+			// The batch loop yields, so a full clear can land in the middle of one of
+			// these passes — the tombstone is set before that clear's first await, so
+			// checking it between batches is what keeps the check above from going
+			// stale mid-pass.
+			shouldContinue: () => !this.runtimeStorageClearedAt,
+		});
+		this.recordSweepRetentionScanCursor(resumeFrom, scanCursor);
+		return {
+			events,
+			providerUsage,
+			loopMessages,
+			injections,
+			...(timeBudgetExhausted ? { timeBudgetExhausted } : {}),
+		};
+	}
+
+	/**
+	 * The position a previous budget-truncated sweep pass left behind, if any.
+	 *
+	 * A row that does not parse into a whole cursor is treated as absent: the
+	 * worst a lost position costs is one pass that restarts at the bottom, which
+	 * is the same wrap a completed pass asks for anyway.
+	 */
+	private sweepRetentionScanCursor(): LoopMessageRetentionCursor | undefined {
+		const record = this.runtimeStateRecord(sweepRetentionScanCursorStateKey);
+		const createdAt = stringValue(record?.createdAt);
+		const seq = integerValue(record?.seq);
+		return createdAt !== undefined && seq !== undefined ? { createdAt, seq } : undefined;
+	}
+
+	/**
+	 * Carry the scan position to the next visit, or drop it.
+	 *
+	 * Runs after the batch loop, outside every one of its transactions, and only
+	 * when there is something to change: the common pass — nothing persisted,
+	 * scan drained — writes nothing at all.
+	 *
+	 * Erased storage is refused here like at every other write. A pass the clear
+	 * stopped mid-scan does report a position, but recording it would recreate the
+	 * one `runtime_state` row the clear just dropped, for a scan over rows that no
+	 * longer exist.
+	 */
+	private recordSweepRetentionScanCursor(
+		previous: LoopMessageRetentionCursor | undefined,
+		next: LoopMessageRetentionCursor | null,
+	): void {
+		if (this.runtimeStorageClearedAt) {
+			return;
+		}
+		if (next === null) {
+			if (previous) {
+				this.deleteRuntimeState(sweepRetentionScanCursorStateKey);
+			}
+			return;
+		}
+		if (previous?.createdAt === next.createdAt && previous?.seq === next.seq) {
+			return;
+		}
+		this.setRuntimeState(sweepRetentionScanCursorStateKey, next);
 	}
 
 	/**
