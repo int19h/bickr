@@ -104,9 +104,11 @@ export const postTickLoopMessageRetentionLimit = loopMessageRetentionBatchSize;
  * The daily fleet sweep visits each participant at most once, so its per-object
  * allowance is what burns down the pre-retention backlog (§2.8 O6). It is still
  * bounded: a participant with more expired history than this keeps the rest for
- * the next cycle.
+ * the next cycle, and each 250-row batch remains its own short transaction, so
+ * a deeper visit holds the input gate no longer per batch — it just runs more
+ * batches. Raised from 2,000 to speed the O6 drain (owner decision, 2026-08-19).
  */
-export const sweepLoopMessageRetentionLimit = 2_000;
+export const sweepLoopMessageRetentionLimit = 10_000;
 
 export const scheduledDispatchSelectLimit = 20;
 

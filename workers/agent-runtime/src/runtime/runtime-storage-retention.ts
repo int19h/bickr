@@ -21,11 +21,13 @@ export const botRuntimeRetentionSweepChunkSize = 25;
 
 /**
  * Durable Object wake-ups allowed per invocation. Each wake-up is one
- * subrequest, so a full run stays two orders of magnitude below the paid
- * per-invocation subrequest allowance; the persisted cursor carries the rest of
- * the fleet into the following days.
+ * subrequest, so a full run stays an order of magnitude below the paid
+ * per-invocation subrequest allowance; the persisted cursor carries any
+ * remainder of the fleet into the following days. Raised from 250 to cover the
+ * current fleet in a single nightly run (owner decision, 2026-08-19) — the cap
+ * still exists so invocation cost stays O(cap) as the fleet grows.
  */
-export const botRuntimeRetentionSweepMaxBotsPerRun = 250;
+export const botRuntimeRetentionSweepMaxBotsPerRun = 500;
 
 type BotRuntimeNamespace<ObjectId> = {
 	idFromName(name: string): ObjectId;
