@@ -124,9 +124,12 @@ describe("canonical inference configuration resolution", () => {
 		const resolution = resolveInferenceConfiguration([selected, account]);
 
 		expect(resolution.effective.reasoningEffort).toBe("none");
+		// The permissive custom-provider policy advertises a minimal default
+		// effort, which establishes reasoning support; monotonic effort support
+		// then serves the stronger explicit request as configured.
 		expect(resolution.effective.compactionReasoning).toMatchObject({
-			kind: "refused",
-			refusal: { kind: "support_unknown_for_required_effort", requiredEffort: "low" },
+			kind: "selected",
+			selection: { kind: "explicit_effort", effort: "low" },
 			provenance: {
 				configuration: { kind: "explicit_effort", effort: "low" },
 			},

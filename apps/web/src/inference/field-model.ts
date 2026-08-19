@@ -534,9 +534,9 @@ export function compactionRefusalText(resolution: CompactionReasoningResolution)
 	if (resolution.kind !== "refused") return null;
 	switch (resolution.refusal.kind) {
 		case "support_unknown_for_required_effort":
-			return `This model has no published support for ${resolution.refusal.requiredEffort} compaction reasoning, so compaction would be refused.`;
+			return `Nothing establishes that this model supports reasoning, so ${resolution.refusal.requiredEffort} compaction reasoning would be refused.`;
 		case "no_supported_effort":
-			return `This model supports ${resolution.refusal.supportedEfforts.join(", ") || "no"} compaction reasoning effort, which cannot satisfy ${resolution.refusal.required.effort}.`;
+			return `This model does not support reasoning, which cannot satisfy ${resolution.refusal.required.effort} compaction reasoning.`;
 	}
 }
 

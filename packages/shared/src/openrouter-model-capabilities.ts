@@ -426,6 +426,7 @@ export function openRouterModelPolicy(model: string | undefined, providerRouting
 	).floor;
 	return {
 		...capabilities,
+		compactionReasoning: compactionReasoningCapabilitiesWithProbeEvidence(capabilities),
 		compactionReasoningFloor,
 		structuredOutputCompaction,
 		defaultCompactionMode: structuredOutputCompaction ? "structured_output" : "tool_call_cache_friendly",
@@ -556,39 +557,32 @@ export function resolveCompactionReasoningSelection(input: {
 	switch (input.capabilities.support.kind) {
 		case "known":
 		case "partially_known": {
-			const effort = leastSupportedCompactionReasoningEffortAtOrAbove(
-				input.capabilities.support.efforts,
-				requiredEffort,
-			);
-			if (effort) {
-				return selected(
-					{ kind: "explicit_effort", effort },
-					{ kind: "none" },
-					effort === requiredEffort ? undefined : {
-						kind: "supported_effort_normalization",
-						requiredEffort,
-						appliedEffort: effort,
-					},
-				);
-			}
-			if (input.capabilities.support.kind === "partially_known") {
+			// Reasoning-effort support is monotonic: a model that reasons at any
+			// effort accepts every stronger effort, so observed levels only bound
+			// a request from below. A gap or missing level above the weakest
+			// observation is a metadata artifact, never a per-level capability.
+			const observed = orderedCompactionReasoningEfforts(input.capabilities.support.efforts);
+			const minimumObserved = observed[0];
+			if (minimumObserved === undefined) {
 				return unknownCompactionReasoningSupportResolution(
 					requiredSelection,
-					input.learnedFloor,
+					input,
 					floorDecision,
 					provenance,
 				);
 			}
-			return {
-				kind: "refused",
-				decision: floorDecision,
-				refusal: {
-					kind: "no_supported_effort",
-					required: requiredSelection,
-					supportedEfforts: orderedCompactionReasoningEfforts(input.capabilities.support.efforts),
+			if (compactionReasoningEffortRank(requiredEffort) >= compactionReasoningEffortRank(minimumObserved)) {
+				return selected(requiredSelection, { kind: "none" });
+			}
+			return selected(
+				{ kind: "explicit_effort", effort: minimumObserved },
+				{ kind: "none" },
+				{
+					kind: "supported_effort_normalization",
+					requiredEffort,
+					appliedEffort: minimumObserved,
 				},
-				provenance,
-			};
+			);
 		}
 		case "unsupported":
 			return {
@@ -600,7 +594,7 @@ export function resolveCompactionReasoningSelection(input: {
 		case "unknown":
 			return unknownCompactionReasoningSupportResolution(
 				requiredSelection,
-				input.learnedFloor,
+				input,
 				floorDecision,
 				provenance,
 			);
@@ -1084,6 +1078,46 @@ function compactionReasoningKnownFailure(
 	return undefined;
 }
 
+function compactionReasoningCapabilitiesWithProbeEvidence(
+	capabilities: OpenRouterModelCapabilities,
+): CompactionReasoningCapabilities {
+	const declared = capabilities.compactionReasoning;
+	const supportIsEmpty = declared.support.kind === "unknown" ||
+		(declared.support.kind === "partially_known" && declared.support.efforts.length === 0);
+	if (!supportIsEmpty) {
+		return declared;
+	}
+	// Models like Xiaomi's publish no effort metadata, leaving declared support
+	// unknown even though the capability probes serviced reasoning-on requests
+	// on every route. Fold those observations in as partial support so an
+	// explicit compaction effort is not refused on a model already observed
+	// reasoning.
+	const observed = observedReasoningOnEfforts(capabilities);
+	if (observed.length === 0) {
+		return declared;
+	}
+	return { ...declared, support: { kind: "partially_known", efforts: observed } };
+}
+
+function observedReasoningOnEfforts(capabilities: OpenRouterModelCapabilities): readonly CompactionReasoningEffort[] {
+	const efforts = new Set<CompactionReasoningEffort>();
+	for (const matrix of [capabilities.prefill, capabilities.requiredToolCalls]) {
+		if (matrix.kind !== "provider_matrix") {
+			continue;
+		}
+		for (const { reasoningOn } of matrix.providers) {
+			// Both supported and unsupported follow a successfully serviced
+			// control request with reasoning at this effort — the status grades
+			// the probed feature, not reasoning itself. Only unknown and
+			// not_applicable carry no reasoning evidence.
+			if (reasoningOn.status === "supported" || reasoningOn.status === "unsupported") {
+				efforts.add(reasoningOn.effort);
+			}
+		}
+	}
+	return orderedCompactionReasoningEfforts([...efforts]);
+}
+
 const reasoningDisabledCompactionReasoningFloor = { kind: "reasoning_disabled" } as const satisfies CompactionReasoningFloor;
 const modelDefaultCompactionReasoningFloor = { kind: "model_default" } as const satisfies CompactionReasoningFloor;
 
@@ -1303,15 +1337,19 @@ function compactionReasoningDecisionForSelection(
 
 function unknownCompactionReasoningSupportResolution(
 	required: Extract<CompactionReasoningSelection, { kind: "explicit_effort" }>,
-	learnedFloor: CompactionReasoningFloor | undefined,
+	input: {
+		capabilities: CompactionReasoningCapabilities;
+		learnedFloor?: CompactionReasoningFloor;
+	},
 	decision: CompactionReasoningDecisionProvenance,
 	provenance: CompactionReasoningProvenance,
 ): CompactionReasoningResolution {
-	const learnedEffort = learnedFloor?.kind === "explicit_effort" ? learnedFloor.effort : undefined;
-	if (
-		learnedEffort &&
-		compactionReasoningEffortRank(learnedEffort) >= compactionReasoningEffortRank(required.effort)
-	) {
+	// With no observed efforts the only real question is whether the model
+	// reasons at all. Any evidence that it does — a learned runtime floor or
+	// an advertised default effort — validates every requested effort, because
+	// effort support is monotonic. Refuse only when nothing establishes that
+	// the model supports reasoning.
+	if (input.learnedFloor?.kind === "explicit_effort" || input.capabilities.modelDefault.kind === "explicit_effort") {
 		return selectedCompactionReasoningResolution(required, { kind: "none" }, decision, provenance);
 	}
 	return {
@@ -1320,14 +1358,6 @@ function unknownCompactionReasoningSupportResolution(
 		refusal: { kind: "support_unknown_for_required_effort", requiredEffort: required.effort },
 		provenance,
 	};
-}
-
-function leastSupportedCompactionReasoningEffortAtOrAbove(
-	efforts: readonly CompactionReasoningEffort[],
-	minimum: CompactionReasoningEffort,
-): CompactionReasoningEffort | undefined {
-	return orderedCompactionReasoningEfforts(efforts)
-		.find((effort) => compactionReasoningEffortRank(effort) >= compactionReasoningEffortRank(minimum));
 }
 
 function orderedCompactionReasoningEfforts(

@@ -207,13 +207,9 @@ export function botFacingRuntimeErrorMessage(error: RuntimeErrorCause | string |
 export function compactionReasoningRefusalMessage(refusal: CompactionReasoningRefusal): string {
 	switch (refusal.kind) {
 		case "support_unknown_for_required_effort":
-			return `Compaction requires reasoning effort ${refusal.requiredEffort}, but provider support for that effort is unknown.`;
-		case "no_supported_effort": {
-			const supported = refusal.supportedEfforts.length > 0
-				? ` Known supported efforts: ${refusal.supportedEfforts.join(", ")}.`
-				: " No supported compaction reasoning effort is known.";
-			return `Compaction requires reasoning effort ${refusal.required.effort}, but the provider has no supported selection at or above that requirement.${supported}`;
-		}
+			return `Compaction requires reasoning effort ${refusal.requiredEffort}, but nothing establishes that this model supports reasoning at all.`;
+		case "no_supported_effort":
+			return `Compaction requires reasoning effort ${refusal.required.effort}, but this model does not support reasoning.`;
 	}
 }
 
