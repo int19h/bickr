@@ -219,11 +219,11 @@ describe('RuntimeMessageStore', () => {
 			expect(ledgerPrunedAt(storage, 900)).not.toBeNull();
 		});
 
-		it('spends a sweep allowance one short transaction at a time and leaves the rest pending', () => {
+		it('spends a sweep allowance one short transaction at a time and leaves the rest pending', async () => {
 			insertExpiredMessages(storage, 800, daysAgo(200));
 			const batched = countingStore(storage);
 
-			const result = batched.store.pruneExpiredLoopMessagesWithinBudget({
+			const result = await batched.store.pruneExpiredLoopMessagesWithinBudget({
 				now,
 				rowAllowance: 500,
 				timeBudgetMs: 60_000,
@@ -240,18 +240,57 @@ describe('RuntimeMessageStore', () => {
 			expect(liveSeqs(storage)).toHaveLength(300);
 		});
 
-		it('stops at the wall-clock budget and keeps everything its completed batches deleted', () => {
+		it('spends an allowance that is not a whole number of batches without overshooting it', async () => {
 			insertExpiredMessages(storage, 800, daysAgo(200));
 			const batched = countingStore(storage);
-			// Three seconds per reading: the loop reads once before the first batch
-			// and once after each, so the third batch is the one past the budget.
-			let elapsedMs = -3_000;
 
-			const result = batched.store.pruneExpiredLoopMessagesWithinBudget({
+			const result = await batched.store.pruneExpiredLoopMessagesWithinBudget({
+				now,
+				rowAllowance: 251,
+				timeBudgetMs: 60_000,
+				nowMs: () => 0,
+			});
+
+			// The allowance is a row count, not a batch count: the second batch asks
+			// for the single row left of it rather than another full 250.
+			expect(result.loopMessages).toMatchObject({ deletedMessages: 251, pendingMore: true });
+			expect(batched.transactions()).toBe(2);
+			expect(liveSeqs(storage)).toHaveLength(549);
+		});
+
+		it('treats an allowance of zero as nothing to do rather than one batch', async () => {
+			insertExpiredMessages(storage, 800, daysAgo(200));
+			const batched = countingStore(storage);
+
+			const result = await batched.store.pruneExpiredLoopMessagesWithinBudget({
+				now,
+				rowAllowance: 0,
+				timeBudgetMs: 60_000,
+				nowMs: () => 0,
+			});
+
+			expect(result).toEqual({
+				loopMessages: { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0, pendingMore: false },
+				timeBudgetExhausted: false,
+			});
+			// A pass that never looked reports nothing, and touches nothing.
+			expect(batched.transactions()).toBe(0);
+			expect(liveSeqs(storage)).toHaveLength(800);
+		});
+
+		it('stops at the wall-clock budget and keeps everything its completed batches deleted', async () => {
+			insertExpiredMessages(storage, 800, daysAgo(200));
+			const batched = countingStore(storage);
+
+			const result = await batched.store.pruneExpiredLoopMessagesWithinBudget({
 				now,
 				rowAllowance: 10_000,
 				timeBudgetMs: 8_000,
-				nowMs: () => (elapsedMs += 3_000),
+				// Three seconds a batch, read off the committed batch count rather than
+				// off the number of times the loop happens to look: in the deployed
+				// runtime the clock only moves across the yield between batches, so it
+				// must not matter how often a batch reads it.
+				nowMs: () => batched.transactions() * 3_000,
 			});
 
 			expect(result).toEqual({
@@ -264,10 +303,10 @@ describe('RuntimeMessageStore', () => {
 			expect(liveSeqs(storage)).toHaveLength(50);
 		});
 
-		it('drains a backlog that fits inside both bounds and reports nothing pending', () => {
+		it('drains a backlog that fits inside both bounds and reports nothing pending', async () => {
 			insertExpiredMessages(storage, 300, daysAgo(200));
 
-			const result = store.pruneExpiredLoopMessagesWithinBudget({
+			const result = await store.pruneExpiredLoopMessagesWithinBudget({
 				now,
 				rowAllowance: 10_000,
 				timeBudgetMs: 8_000,
@@ -281,30 +320,55 @@ describe('RuntimeMessageStore', () => {
 			expect(liveSeqs(storage)).toEqual([]);
 		});
 
-		it('stops rather than spinning on a batch that can only withhold summaries', () => {
-			// Every candidate is a summary its live child holds in place, so the batch
-			// deletes nothing while still reporting expired rows behind it. The
-			// selection is deterministic, so another batch would withhold the same
-			// rows — and would do so until the time budget ran out.
+		it('steps past a head batch that can only withhold summaries and deletes what is behind it', async () => {
+			// The oldest 260 candidates are summaries their live children hold in
+			// place, so the head batch deletes nothing. Selection is deterministic, so
+			// re-selecting would jam this visit and every visit after it — the
+			// continuation is what reaches the deletable rows behind them.
 			for (const seq of range(1, 260)) {
 				insertMessage(storage, seq, seq, { createdAt: daysAgo(200), compactedBy: 9_000, origin: 'compaction' });
 				insertMessage(storage, 1_000 + seq, 1_000 + seq, { createdAt: daysAgo(1), compactedBy: seq });
 			}
+			for (const seq of range(2_001, 2_100)) {
+				insertMessage(storage, seq, seq, { createdAt: daysAgo(150), deletedAt: daysAgo(150) });
+			}
 			const batched = countingStore(storage);
 
-			const result = batched.store.pruneExpiredLoopMessagesWithinBudget({
+			const result = await batched.store.pruneExpiredLoopMessagesWithinBudget({
 				now,
 				rowAllowance: 10_000,
 				timeBudgetMs: 8_000,
 				nowMs: () => 0,
 			});
 
+			// The withheld summaries are expired rows this object still holds, so they
+			// keep `pendingMore` true even though the cursor has moved past them.
 			expect(result).toEqual({
-				loopMessages: { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0, pendingMore: true },
+				loopMessages: { deletedMessages: 100, deletedLogs: 0, stampedSummaries: 0, pendingMore: true },
 				timeBudgetExhausted: false,
 			});
-			expect(batched.transactions()).toBe(1);
 			expect(liveSeqs(storage)).toHaveLength(520);
+			expect(liveSeqs(storage).filter((seq) => seq >= 2_001)).toEqual([]);
+		});
+
+		it('ends the pass when the caller says its storage stopped being writable mid-visit', async () => {
+			insertExpiredMessages(storage, 800, daysAgo(200));
+			const batched = countingStore(storage);
+
+			// A full clear landing between batches is the case this stands in for: the
+			// pass keeps what it committed and stops rather than writing to an object
+			// that is on its way to being erased.
+			const result = await batched.store.pruneExpiredLoopMessagesWithinBudget({
+				now,
+				rowAllowance: 10_000,
+				timeBudgetMs: 60_000,
+				nowMs: () => 0,
+				shouldContinue: () => batched.transactions() < 2,
+			});
+
+			expect(result.loopMessages).toMatchObject({ deletedMessages: 500, pendingMore: true });
+			expect(result.timeBudgetExhausted).toBe(false);
+			expect(batched.transactions()).toBe(2);
 		});
 	});
 

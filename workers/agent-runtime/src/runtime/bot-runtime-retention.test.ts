@@ -35,8 +35,8 @@ describe('BotRuntime storage retention', () => {
 		database.close();
 	});
 
-	function construct(options: { onOwnerLookup?: () => Promise<void>; onTransaction?: () => void } = {}): BotRuntime {
-		return new BotRuntime(runtimeState(database, sockets, options), runtimeEnv(botId, options) as never);
+	function construct(options: { onOwnerLookup?: () => Promise<void> } = {}): BotRuntime {
+		return new BotRuntime(runtimeState(database, sockets), runtimeEnv(botId, options) as never);
 	}
 
 	async function maintenanceRequest(runtime: BotRuntime, method: 'POST' | 'DELETE', path: string, internal = true): Promise<Response> {
@@ -126,10 +126,8 @@ describe('BotRuntime storage retention', () => {
 		// Two batches' worth of budget, and four batches' worth of expired history:
 		// the visit has to return what it deleted rather than run to the caller's
 		// dispatch timeout with a transaction still open.
-		const perBatchMs = sweepRetentionTimeBudgetMs / 2;
-		let elapsedMs = 0;
-		vi.spyOn(Date, 'now').mockImplementation(() => now.getTime() + elapsedMs);
-		const runtime = construct({ onTransaction: () => { elapsedMs += perBatchMs; } });
+		const clock = batchYieldClock(sweepRetentionTimeBudgetMs / 2);
+		const runtime = construct();
 		for (const seq of range(1, 4 * loopMessageRetentionBatchSize)) {
 			insertMessage(seq, { createdAt: daysAgo(200), deletedAt: daysAgo(190) });
 		}
@@ -141,8 +139,38 @@ describe('BotRuntime storage retention', () => {
 			loopMessages: { deletedMessages: 2 * loopMessageRetentionBatchSize, pendingMore: true },
 			timeBudgetExhausted: true,
 		});
+		// Two yields, because the third batch is the one whose clock reading is past
+		// the budget: the deployed runtime advances the clock nowhere else.
+		expect(clock.yields()).toBe(2);
 		// The completed batches committed: a truncated visit is partial progress the
 		// next cycle continues, not work the sweep has to redo.
+		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM loop_messages`)[0]?.count)
+			.toBe(2 * loopMessageRetentionBatchSize);
+	});
+
+	it('stops a sweep visit that a full clear lands in the middle of', async () => {
+		// The batches yield to each other, so a clear really can arrive mid-visit.
+		// It sets the tombstone before its first await, which is why checking it at
+		// the batch boundary is enough to keep the pass off erased storage.
+		const runtime = construct();
+		const clock = batchYieldClock(0, () => {
+			if (clock.yields() === 2) {
+				(runtime as unknown as { runtimeStorageClearedAt: string | null }).runtimeStorageClearedAt = now.toISOString();
+			}
+		});
+		for (const seq of range(1, 4 * loopMessageRetentionBatchSize)) {
+			insertMessage(seq, { createdAt: daysAgo(200), deletedAt: daysAgo(190) });
+		}
+
+		const response = await maintenanceRequest(runtime, 'POST', 'retention');
+
+		expect(response.status).toBe(200);
+		expect(((await response.json()) as { data: { retention: RuntimeStorageRetentionResult } }).data.retention).toMatchObject({
+			loopMessages: { deletedMessages: 2 * loopMessageRetentionBatchSize, pendingMore: true },
+		});
+		// The pass stopped at the boundary rather than running its allowance out
+		// against storage that is about to be dropped, and kept what it committed.
+		expect(clock.yields()).toBe(2);
 		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM loop_messages`)[0]?.count)
 			.toBe(2 * loopMessageRetentionBatchSize);
 	});
@@ -437,6 +465,32 @@ describe('BotRuntime storage retention', () => {
 		return Array.from({ length: end - start + 1 }, (_, index) => start + index);
 	}
 
+	/**
+	 * A clock that only moves where the deployed runtime's does.
+	 *
+	 * Workers reports the time of the last I/O, so inside the retention pass the
+	 * only thing that advances `Date.now()` is the timer the batch loop yields on.
+	 * Driving the fake clock from that same timer is what keeps this test about a
+	 * mechanism production has rather than one only a mock can exhibit.
+	 */
+	function batchYieldClock(perBatchMs: number, onYield?: () => void): { yields: () => number } {
+		let yields = 0;
+		let elapsedMs = 0;
+		const realSetTimeout = globalThis.setTimeout;
+		vi.spyOn(Date, 'now').mockImplementation(() => now.getTime() + elapsedMs);
+		vi.stubGlobal('setTimeout', function stubbedSetTimeout(this: unknown, ...args: unknown[]): unknown {
+			// Only the batch loop's own zero-delay yield: anything else scheduled
+			// while the request is in flight is not an I/O this pass performed.
+			if (args[1] === 0) {
+				yields += 1;
+				elapsedMs += perBatchMs;
+				onYield?.();
+			}
+			return (realSetTimeout as unknown as (...passed: unknown[]) => unknown).apply(this, args);
+		} as unknown as typeof setTimeout);
+		return { yields: () => yields };
+	}
+
 	function rows<T>(sql: string, ...bindings: SQLInputValue[]): T[] {
 		return database.prepare(sql).all(...bindings) as T[];
 	}
@@ -492,7 +546,7 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 	return { promise, resolve };
 }
 
-function runtimeState(database: DatabaseSync, sockets: FakeSocket[] = [], options: { onTransaction?: () => void } = {}) {
+function runtimeState(database: DatabaseSync, sockets: FakeSocket[] = []) {
 	const sql = {
 		exec<T>(query: string, ...bindings: unknown[]) {
 			const statement = database.prepare(query);
@@ -512,9 +566,6 @@ function runtimeState(database: DatabaseSync, sockets: FakeSocket[] = [], option
 		storage: {
 			sql,
 			transactionSync<T>(closure: () => T): T {
-				// Every retention batch is one transaction, which is the hook a test
-				// needs to spend a visit's wall-clock budget deterministically.
-				options.onTransaction?.();
 				database.exec('BEGIN');
 				try {
 					const result = closure();

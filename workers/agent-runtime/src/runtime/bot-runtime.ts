@@ -2158,7 +2158,7 @@ export class BotRuntime {
 		// of which have their own routes and their own confirmations.
 		if (request.method === 'POST' && url.pathname.endsWith('/retention')) {
 			this.requireInternalMaintenance(request);
-			return ok({ retention: this.runRetentionPass(this.activeRunId) });
+			return ok({ retention: await this.runRetentionPass(this.activeRunId) });
 		}
 
 		if (request.method === 'DELETE' && url.pathname.endsWith('/storage')) {
@@ -5832,9 +5832,10 @@ export class BotRuntime {
 	 * loop-message prune runs as repeated short batches under a wall-clock budget
 	 * of its own (§2.4). A pass that hits either bound is a partial success: it
 	 * answers with what it deleted rather than letting its caller time out and
-	 * count committed work as a failure.
+	 * count committed work as a failure. The batches yield to each other, so this
+	 * pass is the one retention path that other events can interleave with.
 	 */
-	private runRetentionPass(activeRunId: string | null, now = new Date()): RuntimeStorageRetentionResult {
+	private async runRetentionPass(activeRunId: string | null, now = new Date()): Promise<RuntimeStorageRetentionResult> {
 		// Erased storage has nothing left to prune, and the pass is not read-only: it
 		// memoizes the last log-off sequence into `runtime_state` on its first run,
 		// which on a cleared object would be a repopulating write. The sweep can
@@ -5858,10 +5859,15 @@ export class BotRuntime {
 		// collide: every run id is a generated non-empty value.
 		const { events, providerUsage } = this.pruneExpiredEventsAndProviderUsage(activeRunId ?? '', now);
 		const injections = this.spotlightTickQueue().pruneExpiredInjections({ now });
-		const { loopMessages, timeBudgetExhausted } = this.runtimeMessageStore().pruneExpiredLoopMessagesWithinBudget({
+		const { loopMessages, timeBudgetExhausted } = await this.runtimeMessageStore().pruneExpiredLoopMessagesWithinBudget({
 			now,
 			rowAllowance: sweepLoopMessageRetentionLimit,
 			timeBudgetMs: sweepRetentionTimeBudgetMs,
+			// The batch loop yields, so a full clear can land in the middle of one of
+			// these passes — the tombstone is set before that clear's first await, so
+			// checking it between batches is what keeps the check above from going
+			// stale mid-pass.
+			shouldContinue: () => !this.runtimeStorageClearedAt,
 		});
 		return {
 			events,

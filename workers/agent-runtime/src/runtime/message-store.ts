@@ -50,6 +50,26 @@ type ExpiredLoopMessageRow = {
 	origin: LoopMessageRow['origin'];
 };
 
+/** A retention candidate, carrying the scan order's key so a batch can resume after it. */
+type ExpiredLoopMessageScanRow = ExpiredLoopMessageRow & { createdAt: string };
+
+/**
+ * Keyset position in the retention scan's `(created_at, seq)` order.
+ *
+ * The scan is deterministic, so a batch that could delete none of what it
+ * selected would otherwise be re-selected forever. Resuming strictly after the
+ * last row it looked at is what lets a multi-batch pass step past candidates it
+ * had to withhold and reach the deletable rows behind them.
+ */
+type LoopMessageRetentionCursor = { createdAt: string; seq: number };
+
+type LoopMessageRetentionBatch = LoopMessageRetentionResult & {
+	/** Rows the batch selected, whether it went on to delete them or withheld them. */
+	selected: number;
+	/** Where the next batch resumes, or null when this one selected nothing. */
+	after: LoopMessageRetentionCursor | null;
+};
+
 export type RuntimeStorage = Pick<DurableObjectStorage, 'sql' | 'transactionSync'>;
 
 export class RuntimeMessageStore {
@@ -642,6 +662,20 @@ export class RuntimeMessageStore {
 	 * that expired rows remain for the next pass.
 	 */
 	pruneExpiredLoopMessages(options: { now?: Date; limit?: number } = {}): LoopMessageRetentionResult {
+		const batch = this.pruneExpiredLoopMessageBatch(options);
+		// A single-batch caller has no continuation to resume from, so the scan
+		// bookkeeping stays inside this module.
+		return {
+			deletedMessages: batch.deletedMessages,
+			deletedLogs: batch.deletedLogs,
+			stampedSummaries: batch.stampedSummaries,
+			pendingMore: batch.pendingMore,
+		};
+	}
+
+	private pruneExpiredLoopMessageBatch(
+		options: { now?: Date; limit?: number; after?: LoopMessageRetentionCursor },
+	): LoopMessageRetentionBatch {
 		const now = options.now ?? new Date();
 		const limit = positiveInteger(options.limit) ?? loopMessageRetentionBatchSize;
 		const compactedCutoff = new Date(now.getTime() - compactedLoopMessageRetentionDays * dayMs).toISOString();
@@ -653,14 +687,23 @@ export class RuntimeMessageStore {
 		const widestCutoff = [compactedCutoff, summaryCutoff, deletedCutoff].reduce(
 			(widest, cutoff) => (cutoff > widest ? cutoff : widest),
 		);
-		const expired = this.storage.sql
-			.exec<ExpiredLoopMessageRow>(
+		// No continuation means starting at the bottom of the index. The empty
+		// string sorts below every ISO timestamp, so the sentinel needs no separate
+		// branch in the statement.
+		const afterCreatedAt = options.after?.createdAt ?? '';
+		const afterSeq = options.after?.seq ?? 0;
+		const selected = this.storage.sql
+			.exec<ExpiredLoopMessageScanRow>(
 				// Bounding the whole predicate by the widest cutoff lets
 				// loop_messages_retention answer it as one created_at range scan in
 				// index order, stopping at the limit, instead of a full table scan.
-				`SELECT seq, compacted_by AS compactedBy, origin
+				// The continuation is the same index's lower bound: the `>=` keeps the
+				// scan a range, and the tuple comparison makes it strict.
+				`SELECT seq, compacted_by AS compactedBy, origin, created_at AS createdAt
 				 FROM loop_messages
 				 WHERE created_at < ?
+				   AND created_at >= ?
+				   AND (created_at > ? OR (created_at = ? AND seq > ?))
 				   AND (
 					(compacted_by IS NOT NULL AND origin != 'compaction' AND created_at < ?)
 					OR (compacted_by IS NOT NULL AND origin = 'compaction' AND created_at < ?)
@@ -669,22 +712,30 @@ export class RuntimeMessageStore {
 				 ORDER BY created_at ASC, seq ASC
 				 LIMIT ?`,
 				widestCutoff,
+				afterCreatedAt,
+				afterCreatedAt,
+				afterCreatedAt,
+				afterSeq,
 				compactedCutoff,
 				summaryCutoff,
 				deletedCutoff,
 				limit,
 			)
-			.toArray()
-			// The withholding guard below reads children before their summary, which
-			// is sequence order rather than the index order this batch arrived in.
-			.sort((left, right) => left.seq - right.seq);
+			.toArray();
+		// Read in scan order, before the re-sort below reorders it: the continuation
+		// has to be the last row the index reached, not the highest sequence number.
+		const last = selected.at(-1);
+		const after = last ? { createdAt: last.createdAt, seq: last.seq } : null;
+		// The withholding guard below reads children before their summary, which
+		// is sequence order rather than the index order this batch arrived in.
+		const expired = selected.sort((left, right) => left.seq - right.seq);
 		if (expired.length === 0) {
-			return { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0, pendingMore: false };
+			return { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0, pendingMore: false, selected: 0, after };
 		}
 		const prune = (): Omit<LoopMessageRetentionResult, 'pendingMore'> =>
 			this.physicallyDeleteLoopMessages(expired, now.toISOString());
 		const deleted = typeof this.storage.transactionSync === 'function' ? this.storage.transactionSync(prune) : prune();
-		return { ...deleted, pendingMore: expired.length >= limit };
+		return { ...deleted, pendingMore: expired.length >= limit, selected: expired.length, after };
 	}
 
 	/**
@@ -697,30 +748,87 @@ export class RuntimeMessageStore {
 	 * wall-clock budget keeps the visit itself short enough for its caller to
 	 * still be listening. Whichever bound stops the loop, the batches already
 	 * committed stand and `pendingMore` carries the remainder to the next cycle.
+	 *
+	 * Yielding between batches is what makes both of those true, and it is why
+	 * this is async. The Workers runtime freezes the clock for the length of a
+	 * synchronous stretch — `Date.now()` reports the time of the last I/O — so a
+	 * loop that never awaited would read the same instant on every batch and
+	 * could never reach its budget; and the object's input gate would stay shut
+	 * for all forty batches, which is precisely the long hold the batching is
+	 * meant to avoid.
+	 *
+	 * Yielding also means other events reach the object mid-pass, so every batch
+	 * re-selects against current storage:
+	 *
+	 * - A tick that starts mid-pass writes rows stamped now, which are days
+	 *   inside every cutoff and cannot be selected by a later batch. Rows it
+	 *   compacts or soft-deletes become candidates only once their own cutoff
+	 *   passes, well after this visit ends.
+	 * - A full storage clear that lands mid-pass is caught by `shouldContinue`,
+	 *   which the caller backs with the tombstone the clear sets before its first
+	 *   await. That ordering matters: it means the loop can only ever resume
+	 *   either before the clear started or after the tombstone is visible, never
+	 *   in the window where the tables have been dropped and not yet rebuilt.
+	 *   Even without the guard a later batch would select nothing from the
+	 *   rebuilt empty tables and so write nothing — the post-clear repopulation
+	 *   invariant holds either way — but stopping is the honest answer.
 	 */
-	pruneExpiredLoopMessagesWithinBudget(
-		options: { now?: Date; rowAllowance: number; timeBudgetMs: number; nowMs?: () => number },
-	): SweepLoopMessageRetentionResult {
+	async pruneExpiredLoopMessagesWithinBudget(
+		options: {
+			now?: Date;
+			rowAllowance: number;
+			timeBudgetMs: number;
+			nowMs?: () => number;
+			/** Checked after each yield; false ends the pass with what it has. */
+			shouldContinue?: () => boolean;
+		},
+	): Promise<SweepLoopMessageRetentionResult> {
 		const now = options.now ?? new Date();
 		const nowMs = options.nowMs ?? Date.now;
 		const startedAtMs = nowMs();
 		const totals = { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0, pendingMore: false };
+		// An allowance that is not a positive row count is nothing to do rather
+		// than a batch's worth of work: the batch size is this loop's step, never
+		// its floor. The zero-row answer claims nothing about what is left, because
+		// a pass that never looked has not learned anything to report.
+		const rowAllowance = positiveInteger(options.rowAllowance) ?? 0;
 		let timeBudgetExhausted = false;
-		for (;;) {
-			const batch = this.pruneExpiredLoopMessages({ now, limit: loopMessageRetentionBatchSize });
+		let after: LoopMessageRetentionCursor | undefined;
+		// Rows a batch selected but could not delete are still expired rows this
+		// object holds, so they keep `pendingMore` true even once the cursor has
+		// stepped past them.
+		let withheldAny = false;
+		let remaining = rowAllowance;
+		while (remaining > 0) {
+			const batch = this.pruneExpiredLoopMessageBatch({
+				now,
+				// Never ask for more than the allowance still covers: the last batch
+				// of a pass is as short as what is left of it.
+				limit: Math.min(loopMessageRetentionBatchSize, remaining),
+				...(after ? { after } : {}),
+			});
 			totals.deletedMessages += batch.deletedMessages;
 			totals.deletedLogs += batch.deletedLogs;
 			totals.stampedSummaries += batch.stampedSummaries;
-			totals.pendingMore = batch.pendingMore;
-			// A batch that deleted nothing while reporting more is one whose every
-			// candidate is a summary withheld for a surviving child. Its selection is
-			// deterministic, so another batch would withhold exactly the same rows —
-			// they stay for the cycle that expires their children.
-			if (!batch.pendingMore || batch.deletedMessages === 0 || totals.deletedMessages >= options.rowAllowance) {
+			withheldAny ||= batch.selected > batch.deletedMessages;
+			totals.pendingMore = batch.pendingMore || withheldAny;
+			remaining = rowAllowance - totals.deletedMessages;
+			if (!batch.pendingMore || batch.after === null || remaining <= 0) {
 				break;
 			}
+			// Advance past everything this batch looked at, deleted or not. A head
+			// batch that could only withhold summaries whose children survive would
+			// otherwise be re-selected by every batch and every later visit, leaving
+			// the deletable rows behind it unreachable until those children expire.
+			// The cursor is strictly increasing over a finite table, so the loop
+			// terminates on its own even before the allowance and the clock.
+			after = batch.after;
+			await yieldBetweenLoopMessageRetentionBatches();
 			if (nowMs() - startedAtMs >= options.timeBudgetMs) {
 				timeBudgetExhausted = true;
+				break;
+			}
+			if (options.shouldContinue?.() === false) {
 				break;
 			}
 		}
@@ -857,7 +965,40 @@ export class RuntimeMessageStore {
 		return stamped;
 	}
 
+	/**
+	 * Whether any log belongs to these messages, answered from
+	 * `loop_message_logs_message` rather than by materializing the table.
+	 *
+	 * A false here is exactly the case where the full pass would find no ids to
+	 * delete, and so would materialize nothing: the delta-chain invariant only
+	 * has work to do when some log is about to disappear.
+	 */
+	private hasLoopMessageLogsFor(deletedSeqs: readonly number[]): boolean {
+		for (const chunk of chunked(deletedSeqs, loopMessageDeleteStatementWidth)) {
+			const found = this.storage.sql
+				.exec<{ found: number }>(
+					`SELECT EXISTS (
+						SELECT 1 FROM loop_message_logs WHERE message_seq IN (${sqlPlaceholders(chunk.length)})
+					 ) AS found`,
+					...chunk,
+				)
+				.one().found;
+			if (found) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private deleteLoopMessageLogs(deletedSeqs: readonly number[]): number {
+		// The materialization pass below has to read every log row, because a
+		// surviving delta can be based on any log that came before it. That whole
+		// scan is wasted when this batch's messages own no logs at all, which is the
+		// common case for a text-only backlog — and a sweep visit runs it once per
+		// batch, up to the full allowance, against a table that only grows.
+		if (!this.hasLoopMessageLogsFor(deletedSeqs)) {
+			return 0;
+		}
 		const deleting = new Set(deletedSeqs);
 		const logRows = this.storage.sql
 			.exec<LoopMessageLogRow>(
@@ -1019,6 +1160,20 @@ function chunkText(text: string, chunkLength: number): string[] {
 
 function sqlPlaceholders(count: number): string {
 	return new Array(count).fill('?').join(', ');
+}
+
+/**
+ * Hand the runtime a turn between retention batches.
+ *
+ * A real timer rather than a resolved promise: only I/O advances the Workers
+ * clock, and only a macrotask lets the object's input gate deliver anything
+ * else. A microtask would leave the batch loop both blind to its own budget and
+ * indistinguishable from one long hold.
+ */
+function yieldBetweenLoopMessageRetentionBatches(): Promise<void> {
+	return new Promise((resolve) => {
+		setTimeout(resolve, 0);
+	});
 }
 
 function positiveInteger(value: number | undefined): number | undefined {

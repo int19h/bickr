@@ -66,10 +66,22 @@ export const scheduledDispatchTimeoutMs = 10_000;
  * visit: a retention pass self-bounds at `sweepRetentionTimeBudgetMs` and
  * answers with what it deleted, so this only has to cover a cold object's
  * start-up plus that budget. A timeout here therefore means a hung object
- * rather than a deep backlog, which is what the retry backlog is for. The
- * sweep's wall clock stays bounded by its fan-out instead: 25 visits run
- * concurrently per chunk, so a 500-participant run is about
- * (500 / 25) × ~9 s ≈ 3 minutes.
+ * rather than a deep backlog, which is what the retry backlog is for.
+ *
+ * The two dispatch kinds it bounds have very different wall clocks, because
+ * only one of them self-bounds:
+ *
+ * - `POST /retention` visits cost about the budget plus start-up, ~9 s each, and
+ *   25 run concurrently per chunk. A 500-participant run of them is roughly
+ *   (500 / 25) × ~9 s ≈ 3 minutes.
+ * - `DELETE /storage` clears have no budget of their own — a `deleteAll` takes
+ *   what it takes. In the ordinary case they are far quicker than a deep prune,
+ *   but a chunk holding one hung object is bounded only by this timeout, so the
+ *   worst case is (500 / 25) × 30 s ≈ 10 minutes for a run of them.
+ *
+ * The second figure is what actually sizes this constant: raising it lengthens
+ * a pathological clear-heavy run proportionally, while the prune path would
+ * barely notice.
  */
 export const runtimeMaintenanceDispatchTimeoutMs = 30_000;
 
@@ -116,10 +128,11 @@ export const postTickLoopMessageRetentionLimit = loopMessageRetentionBatchSize;
  * The daily fleet sweep visits each participant at most once, so its per-object
  * allowance is what burns down the pre-retention backlog (§2.8 O6). The sweep's
  * retention pass spends it in `loopMessageRetentionBatchSize` batches, each its
- * own short transaction, so a deeper visit holds the input gate no longer per
- * batch — it just runs more of them. A participant with more expired history
- * than this keeps the rest for the next cycle. Raised from 2,000 to speed the
- * O6 drain (owner decision, 2026-08-19).
+ * own short transaction with a yield after it, so a deeper visit does not hold
+ * the object any longer at a stretch — it just runs more batches, and the object
+ * keeps serving between them. A participant with more expired history than this
+ * keeps the rest for the next cycle. Raised from 2,000 to speed the O6 drain
+ * (owner decision, 2026-08-19).
  */
 export const sweepLoopMessageRetentionLimit = 10_000;
 
@@ -133,6 +146,10 @@ export const sweepLoopMessageRetentionLimit = 10_000;
  * rather than a dispatch timeout that lands in the retry backlog. Stays
  * comfortably under `runtimeMaintenanceDispatchTimeoutMs`, which has to cover
  * this budget plus the object's start-up.
+ *
+ * Measurable only because the batch loop awaits a timer between batches: the
+ * Workers clock reports the time of the last I/O, so a budget spent inside one
+ * synchronous stretch would never appear to elapse at all.
  */
 export const sweepRetentionTimeBudgetMs = 8_000;
 
