@@ -27,7 +27,7 @@ import {
 	type ProviderEnvironmentBindings,
 	type ProviderSettings,
 } from "./inference-settings";
-import type { TranslationInferenceAnnotation } from "./model";
+import type { BotImageGenerationSettings, TranslationInferenceAnnotation } from "./model";
 import { RepositoryError } from "./repository";
 import type { D1DatabaseLike } from "./storage";
 
@@ -271,18 +271,68 @@ export function canonicalAvatarImageSettings(
 	const image = resolveImageSettingsForTarget(consumer.resolution.effective.image, target);
 	if (!image.model) return null;
 	const rawModel = consumer.resolution.effective.image.model;
-	const credential = consumer.resolution.effective.credential;
-	const ownerProviderAvailable = configuredRawInferenceFieldSource(
-		consumer.resolution.raw.baseUrl,
-		"base URL",
-	).kind !== "bickr_default" ||
-		credential.kind === "available" && credential.source.kind !== "bickr_default";
 	// Only an owner-stored model value is gated. target_default names Bickr's own
 	// per-target default, so the configuration that stores it is the location of
 	// the intent, not the origin of the model; treating it as owner-selected
 	// would refuse image generation that the same settings always allowed.
 	const ownerSelectedModel = rawModel.state === "value" && rawModel.provenance.source.kind !== "bickr_default";
-	if (ownerSelectedModel && !ownerProviderAvailable) return null;
+	return assembleAvatarImageSettings(consumer, { ...image, model: image.model }, ownerSelectedModel);
+}
+
+/**
+ * A request-carried one-shot bundle overlays the configuration's resolved
+ * image fields, so generation uses exactly what the owner's form showed:
+ * fields the bundle sets win, and everything else — provider plumbing
+ * included — still resolves through the selected graph entry. A model named
+ * in the bundle is the owner's own selection by definition, so it is gated on
+ * an owner provider exactly like an owner-stored model value; without one the
+ * resolved model keeps its stored provenance and gate.
+ */
+export function canonicalAvatarImageSettingsWithOverride(
+	consumer: CanonicalInferenceConsumerResolution,
+	target: AvatarInferenceTarget,
+	override: BotImageGenerationSettings,
+): CanonicalAvatarImageSettings | null {
+	const resolved = resolveImageSettingsForTarget(consumer.resolution.effective.image, target);
+	const overrideModel = override.model?.trim();
+	const image = {
+		...resolved,
+		...(overrideModel ? { model: overrideModel } : {}),
+		...(override.providerRouting !== undefined ? { providerRouting: override.providerRouting } : {}),
+		...(override.aspectRatio?.trim() ? { aspectRatio: override.aspectRatio.trim() } : {}),
+		...(override.imageSize?.trim() ? { imageSize: override.imageSize.trim() } : {}),
+		...(override.temperature !== undefined ? { temperature: override.temperature } : {}),
+		...(override.topK !== undefined ? { topK: override.topK } : {}),
+		...(override.topP !== undefined ? { topP: override.topP } : {}),
+		...(override.minP !== undefined ? { minP: override.minP } : {}),
+		...(override.frequencyPenalty !== undefined ? { frequencyPenalty: override.frequencyPenalty } : {}),
+		...(override.presencePenalty !== undefined ? { presencePenalty: override.presencePenalty } : {}),
+		...(override.repetitionPenalty !== undefined ? { repetitionPenalty: override.repetitionPenalty } : {}),
+	};
+	if (!image.model) return null;
+	const rawModel = consumer.resolution.effective.image.model;
+	const ownerSelectedModel = overrideModel
+		? true
+		: rawModel.state === "value" && rawModel.provenance.source.kind !== "bickr_default";
+	return assembleAvatarImageSettings(consumer, { ...image, model: image.model }, ownerSelectedModel);
+}
+
+/** An owner-selected model may only run on an owner-supplied provider. */
+export function consumerOwnerProviderAvailable(consumer: CanonicalInferenceConsumerResolution): boolean {
+	const credential = consumer.resolution.effective.credential;
+	return configuredRawInferenceFieldSource(
+		consumer.resolution.raw.baseUrl,
+		"base URL",
+	).kind !== "bickr_default" ||
+		credential.kind === "available" && credential.source.kind !== "bickr_default";
+}
+
+function assembleAvatarImageSettings(
+	consumer: CanonicalInferenceConsumerResolution,
+	image: Omit<BotImageGenerationSettings, "prompt"> & { model: string },
+	ownerSelectedModel: boolean,
+): CanonicalAvatarImageSettings | null {
+	if (ownerSelectedModel && !consumerOwnerProviderAvailable(consumer)) return null;
 	const providerRouting = image.providerRouting && Object.keys(image.providerRouting).length > 0 &&
 		isOpenRouterProviderBaseUrl(consumer.providerSettings.baseUrl)
 		? image.providerRouting

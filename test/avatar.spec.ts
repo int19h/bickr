@@ -76,6 +76,13 @@ import {
 	vi,
 	webpAvatarBytes,
 } from "./helpers/index-harness";
+import type { D1DatabaseLike } from "@bickr/shared/storage";
+import {
+	accountDefaultConfigurationId,
+	insertAccountDefaultConfigurationStatement,
+	insertFixedConfigurationStatement,
+	worldConfigurationId,
+} from "@bickr/shared/inference-configuration-repository";
 import type {
 	AppEnv,
 	AvatarCrop,
@@ -2491,6 +2498,99 @@ describe("Avatar", () => {
 			expect(response.status, await response.clone().text()).toBe(200);
 			const body = (await response.json()) as { data: { prompt: string } };
 			expect(body.data.prompt).toBe("A city rendered with overridden prompt-fill settings.");
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
+
+	it("overlays request prompt fill settings on canonical world inference after cutover", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const userId = await userIdForHandle("octocat");
+		const worldRow = await testEnv.BICKR_D1.prepare(
+			`SELECT world_id AS worldId FROM worlds_index WHERE handle = 'patch-notes' LIMIT 1`,
+		).first<{ worldId: string }>();
+		if (!worldRow) throw new Error("Seeded world missing from worlds_index");
+		const graphNow = new Date().toISOString();
+		const rootId = await accountDefaultConfigurationId(userId);
+		await (testEnv.BICKR_D1 as unknown as D1DatabaseLike).batch([
+			insertAccountDefaultConfigurationStatement(testEnv.BICKR_D1, {
+				configurationId: rootId,
+				ownerUserId: userId,
+				now: graphNow,
+				// An owner-stored base URL makes the owner provider available, which
+				// a request-named prompt fill model requires after cutover.
+				overrides: {
+					baseUrl: { kind: "value", value: "https://openrouter.ai/api/v1" },
+					model: { kind: "value", value: "owner/canonical-prompt-model" },
+				},
+			}),
+			insertFixedConfigurationStatement(testEnv.BICKR_D1, {
+				kind: "world",
+				configurationId: await worldConfigurationId(worldRow.worldId),
+				ownerUserId: userId,
+				parentId: rootId,
+				worldId: worldRow.worldId,
+				now: graphNow,
+			}),
+		]);
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE inference_graph_users
+			 SET writer_version = 1, cutover_version = 1, verified_cutover_at = ?, updated_at = ?
+			 WHERE owner_user_id = ?`,
+		).bind(graphNow, graphNow, userId).run();
+		const runtimeEnv = {
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+			OPENROUTER_API_KEY: "test-key",
+			OPENROUTER_MODEL: "env/default-model",
+		};
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (input, init) => {
+				expect(String(input)).toBe("https://openrouter.ai/api/v1/chat/completions");
+				const requestBody = JSON.parse(String(init?.body)) as { model?: string; temperature?: number };
+				expect(requestBody.model).toBe("override/world-prompt");
+				expect(requestBody.temperature).toBe(0.42);
+				return Response.json({
+					choices: [{ message: { content: "A city described with canonical overlay settings." } }],
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const response = await handleAgentRuntimeRequest(
+				serviceJsonRequest(
+					`/users/${encodeURIComponent(userId)}/worlds/patch-notes/avatar/prompt`,
+					userId,
+					{ mode: "description", settings: { model: "override/world-prompt", temperature: 0.42 } },
+				),
+				runtimeEnv,
+			);
+			expect(response.status, await response.clone().text()).toBe(200);
+			const body = (await response.json()) as { data: { prompt: string } };
+			expect(body.data.prompt).toBe("A city described with canonical overlay settings.");
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+
+			// Without an owner provider, a request-named model is the owner's own
+			// selection and is refused rather than run on deployment credentials.
+			await testEnv.BICKR_D1.prepare(
+				`UPDATE inference_configurations
+				 SET overrides_json = '{}', revision = revision + 1, updated_at = ?
+				 WHERE configuration_id = ?`,
+			).bind(graphNow, rootId).run();
+			const refused = await handleAgentRuntimeRequest(
+				serviceJsonRequest(
+					`/users/${encodeURIComponent(userId)}/worlds/patch-notes/avatar/prompt`,
+					userId,
+					{ mode: "description", settings: { model: "override/world-prompt" } },
+				),
+				runtimeEnv,
+			);
+			expect(refused.status).toBe(400);
+			const refusedBody = (await refused.json()) as { message: string };
+			expect(refusedBody.message).toContain("provider base URL or API key");
 			expect(fetchMock).toHaveBeenCalledTimes(1);
 		} finally {
 			vi.stubGlobal("fetch", originalFetch);

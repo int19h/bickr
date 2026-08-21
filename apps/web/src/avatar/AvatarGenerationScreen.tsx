@@ -6,7 +6,8 @@ import {
 	type LanguageTag,
 } from "@bickr/shared/model";
 
-import { api, apiResponseErrorMessage } from "../api";
+import { api, apiResponseErrorMessage, type ApiFailure } from "../api";
+import { inferenceGraphErrorCause, updateConfiguration } from "../inference/api";
 import { ConfigurationLinkCard, useFixedConfiguration } from "../inference/links";
 import type { InferenceReturnTarget } from "../routes";
 import {
@@ -18,6 +19,24 @@ import { avatarPreviewUrl } from "../avatar-image-urls";
 import { normalizeReadableText } from "../reasoning-formatting";
 import { FallbackImage, ImageLightbox } from "../ui";
 import { runApiAction, useApiQuery } from "../use-api";
+import {
+	avatarEffectiveDraftModel,
+	avatarImageSettingsFields,
+	avatarPromptFillSettingsFields,
+	avatarResetDrafts,
+	avatarSettingsChanged,
+	avatarSettingsError,
+	avatarSettingsOverridden,
+	avatarSettingsPatch,
+	imageSettingsRequestBundle,
+	promptFillSettingsRequestBundle,
+	type AvatarSettingsDrafts,
+} from "./generation-settings";
+import {
+	AvatarImageAdvancedFields,
+	AvatarImageBasicFields,
+	AvatarPromptFillFields,
+} from "./image-settings-fields";
 import type { AvatarPromptFillMode, AvatarTarget } from "./target";
 
 export type OpenRouterImageModel = {
@@ -119,6 +138,7 @@ export function AvatarGenerationScreen<TMutationResponse, TSaved>({
 	const modelsQuery = useApiQuery<{ models: OpenRouterImageModel[] }>("/api/openrouter/image-models", []);
 	const models = modelsQuery.data?.models ?? [];
 	const [prompt, setPrompt] = useState(target.generation.prompt);
+	const [settingsDrafts, setSettingsDrafts] = useState<AvatarSettingsDrafts>({});
 	const [includeCurrentAvatar, setIncludeCurrentAvatar] = useState(Boolean(target.owner.avatarUrl));
 	const [candidate, setCandidate] = useState<AvatarImage | null>(null);
 	const [chatEntries, setChatEntries] = useState<AvatarGenerationChatEntry[]>([]);
@@ -133,6 +153,10 @@ export function AvatarGenerationScreen<TMutationResponse, TSaved>({
 	const promptFillAbortRef = useRef<AbortController | null>(null);
 	const language = target.owner.language;
 	const effectiveImage = configuration.configuration?.imagePreviews[target.generation.imageTarget];
+	const configurationFields = configuration.configuration?.fields;
+	const editableFields = target.generation.editablePromptFillSettings
+		? [...avatarImageSettingsFields, ...avatarPromptFillSettingsFields]
+		: avatarImageSettingsFields;
 
 	useEffect(() => {
 		setPrompt(target.generation.prompt);
@@ -140,6 +164,7 @@ export function AvatarGenerationScreen<TMutationResponse, TSaved>({
 		setCurrentAvatarFailed(false);
 		setCandidate(null);
 		setChatEntries([]);
+		setSettingsDrafts({});
 		setMessage("");
 		setError("");
 	}, [target.generation.prompt, target.owner.avatarUrl, target.owner.key]);
@@ -151,7 +176,10 @@ export function AvatarGenerationScreen<TMutationResponse, TSaved>({
 		};
 	}, []);
 
-	const selectedModel = models.find((model) => model.id === effectiveImage?.model);
+	const effectiveModel = configurationFields
+		? avatarEffectiveDraftModel(settingsDrafts, configurationFields, "imageModel", effectiveImage?.model)
+		: effectiveImage?.model ?? "";
+	const selectedModel = models.find((model) => model.id === effectiveModel);
 	const selectedSupportsImageInput = Boolean(selectedModel?.inputModalities.includes("image"));
 	const selectedSupportsTextOutput = Boolean(selectedModel?.outputModalities.includes("text"));
 	const currentAvatarAvailable = Boolean(target.owner.avatarUrl && !currentAvatarFailed);
@@ -163,19 +191,21 @@ export function AvatarGenerationScreen<TMutationResponse, TSaved>({
 		setIncludeCurrentAvatar(true);
 	}, [currentAvatarAvailable, selectedSupportsImageInput]);
 
-	const model = effectiveImage?.model ?? "";
+	const model = effectiveModel;
 	const promptAllowed = prompt.trim().length > 0 || (includeCurrentAvatar && currentAvatarAvailable);
-	const generationSettingsError = modelsQuery.error;
+	const settingsDraftError = configurationFields ? avatarSettingsError(editableFields, settingsDrafts, configurationFields) : "";
+	const generationSettingsError = modelsQuery.error || settingsDraftError;
 	const candidateCost = generatedAvatarCost(candidate);
 	const promptFillActive = activePromptFill !== null;
 	const currentAvatarPromptFillAvailable = Boolean(
 		!prompt.trim() &&
 		currentAvatarAvailable &&
 		model &&
+		!settingsDraftError &&
 		selectedSupportsImageInput &&
 		selectedSupportsTextOutput,
 	);
-	const canGenerate = Boolean(model) && promptAllowed && !generating && !promptFillActive;
+	const canGenerate = Boolean(model) && promptAllowed && !settingsDraftError && !generating && !promptFillActive;
 
 	function promptFillAvailable(mode: AvatarPromptFillMode): boolean {
 		const option = target.generation.promptFillOptions.find((item) => item.mode === mode);
@@ -198,12 +228,19 @@ export function AvatarGenerationScreen<TMutationResponse, TSaved>({
 		let streamError = "";
 		let finalPrompt = "";
 		try {
-			// No `settings` bundle: prompt fill resolves inference from the target's
-			// own configuration on the server.
+			// Unsaved edits ride along as a one-shot `settings` bundle; with no
+			// edits the server resolves inference purely from the target's own
+			// configuration.
 			const textMode = mode === "persona" || mode === "description" || mode === "members";
+			const fillSettings = configurationFields === undefined ? undefined
+				: mode === "current_avatar" ? imageSettingsRequestBundle(settingsDrafts, configurationFields)
+				: mode === "description" || mode === "members"
+					? promptFillSettingsRequestBundle(settingsDrafts, configurationFields)
+					: undefined;
 			const body = {
 				mode,
 				...(textMode && prompt.trim() ? { prefill: prompt } : {}),
+				...(fillSettings ? { settings: fillSettings } : {}),
 			};
 			const response = await fetch(target.endpoints.prompt, {
 				method: "POST",
@@ -254,10 +291,17 @@ export function AvatarGenerationScreen<TMutationResponse, TSaved>({
 		setMessage("");
 		let streamError = "";
 		try {
+			const generationSettings = configurationFields
+				? imageSettingsRequestBundle(settingsDrafts, configurationFields)
+				: undefined;
 			const response = await fetch(target.endpoints.generate, {
 				method: "POST",
 				headers: { accept: "text/event-stream", "content-type": "application/json" },
-				body: JSON.stringify({ prompt, includeCurrentAvatar }),
+				body: JSON.stringify({
+					prompt,
+					includeCurrentAvatar,
+					...(generationSettings ? { settings: generationSettings } : {}),
+				}),
 				signal: controller.signal,
 			});
 			if (!response.ok || !response.headers.get("content-type")?.includes("text/event-stream")) {
@@ -300,11 +344,53 @@ export function AvatarGenerationScreen<TMutationResponse, TSaved>({
 		setChatEntries((current) => applyAvatarGenerationStreamEvent(current, { type: "aborted", message: "Prompt fill aborted." }));
 	}
 
+	/**
+	 * Writes the changed image (and, for worlds, prompt fill) field overrides
+	 * to the target's fixed configuration. Returns false when nothing was
+	 * saved because of a failure; an unchanged draft trivially succeeds.
+	 */
+	async function saveSettingsOverrides(): Promise<boolean> {
+		const dto = configuration.configuration;
+		if (!dto || !avatarSettingsChanged(editableFields, settingsDrafts, dto.fields)) {
+			return true;
+		}
+		const parsed = avatarSettingsPatch(editableFields, settingsDrafts, dto.fields);
+		if (!parsed.ok) {
+			setError(parsed.message);
+			return false;
+		}
+		const result = await updateConfiguration({
+			configurationId: dto.id,
+			expectedRevision: dto.revision,
+			overrides: parsed.patch,
+		});
+		if (!result.ok) {
+			setError(settingsSaveErrorMessage(result));
+			configuration.reload();
+			return false;
+		}
+		setSettingsDrafts({});
+		configuration.reload();
+		return true;
+	}
+
+	function settingsSaveErrorMessage(failure: ApiFailure): string {
+		// The generation screen holds no stale-comparison UI; the reload beside
+		// this message re-seeds the form from the newer revision, and unsaved
+		// drafts stay applied on top of it.
+		return inferenceGraphErrorCause(failure) === "stale_revision"
+			? "The configuration changed elsewhere; its newer values were reloaded. Review and save again."
+			: failure.message;
+	}
+
 	async function save(): Promise<void> {
 		setSaving(true);
 		setError("");
 		setMessage("");
 		try {
+			if (!(await saveSettingsOverrides())) {
+				return;
+			}
 			if (candidate) {
 				const promptToSave = candidate.source?.type === "generated" && candidate.source.prompt ? candidate.source.prompt : prompt;
 				const result = await runApiAction(throwApiError, () => api<TMutationResponse>(target.endpoints.apply, {
@@ -320,11 +406,54 @@ export function AvatarGenerationScreen<TMutationResponse, TSaved>({
 			} else {
 				const ok = await onSavePrompt(prompt, null);
 				if (ok) {
-					setMessage("Image prompt saved.");
+					setMessage("Image generation settings saved.");
 				}
 			}
 		} catch (caught) {
 			setError(caught instanceof Error ? caught.message : "Could not save avatar.");
+		} finally {
+			setSaving(false);
+		}
+	}
+
+	/**
+	 * Returns every editable field to inherit and saves that immediately, the
+	 * way the old Reset discarded the entity-owned settings bundle. Unsaved
+	 * field edits are discarded with it; the entity-owned prompt is untouched.
+	 */
+	async function resetSettings(): Promise<void> {
+		const dto = configuration.configuration;
+		if (!dto) {
+			return;
+		}
+		setSaving(true);
+		setError("");
+		setMessage("");
+		try {
+			const drafts = avatarResetDrafts(editableFields);
+			const parsed = avatarSettingsPatch(editableFields, drafts, dto.fields);
+			if (!parsed.ok) {
+				setError(parsed.message);
+				return;
+			}
+			if (Object.keys(parsed.patch).length === 0) {
+				setSettingsDrafts({});
+				setMessage(target.uiText.discardedSettings);
+				return;
+			}
+			const result = await updateConfiguration({
+				configurationId: dto.id,
+				expectedRevision: dto.revision,
+				overrides: parsed.patch,
+			});
+			if (!result.ok) {
+				setError(settingsSaveErrorMessage(result));
+				configuration.reload();
+				return;
+			}
+			setSettingsDrafts({});
+			configuration.reload();
+			setMessage(target.uiText.discardedSettings);
 		} finally {
 			setSaving(false);
 		}
@@ -340,11 +469,11 @@ export function AvatarGenerationScreen<TMutationResponse, TSaved>({
 				</div>
 				<div className="actions">
 					<button className="btn ghost" onClick={onBack} type="button">Back</button>
-					{/* The image prompt belongs to this entity, not to the linked
-					    configuration, so it stays savable even when no image model
-					    resolves — that is exactly when an owner writes the prompt
-					    first and chooses a model afterwards. */}
-					<button className="btn primary" disabled={saving} onClick={() => void save()} type="button">
+					{/* The image prompt belongs to this entity while the non-prompt
+					    fields save into the linked configuration; a prompt-only save
+					    still works when no image model resolves — that is exactly when
+					    an owner writes the prompt first and chooses a model afterwards. */}
+					<button className="btn primary" disabled={saving || Boolean(settingsDraftError)} onClick={() => void save()} type="button">
 						{saving ? "Saving..." : "Save"}
 					</button>
 				</div>
@@ -362,26 +491,79 @@ export function AvatarGenerationScreen<TMutationResponse, TSaved>({
 			<section className="section">
 				<div className="section-head">
 					<h2>Image Generation</h2>
-					<span className="meta">resolved by the linked configuration</span>
+					<button
+						className="btn ghost compact"
+						disabled={
+							saving ||
+							!configurationFields ||
+							!(avatarSettingsOverridden(editableFields, configurationFields) ||
+								avatarSettingsChanged(editableFields, settingsDrafts, configurationFields))
+						}
+						onClick={() => void resetSettings()}
+						type="button"
+					>
+						Reset
+					</button>
 				</div>
 				{generationSettingsError && <div className="runtime-message error">{generationSettingsError}</div>}
-				<div className="card runtime-card avatar-effective-image">
-					<div className="runtime-row">
-						<span className="label">Model</span>
-						<span className="value">{effectiveImage?.model ?? "no image model resolved"}</span>
-					</div>
-					<div className="runtime-row">
-						<span className="label">Aspect ratio</span>
-						<span className="value">{effectiveImage?.aspectRatio ?? "provider default"}</span>
-					</div>
-					<div className="runtime-row">
-						<span className="label">Image size</span>
-						<span className="value">{effectiveImage?.imageSize ?? "provider default"}</span>
-					</div>
-				</div>
+				{configurationFields ? (
+					<>
+						<AvatarImageBasicFields
+							drafts={settingsDrafts}
+							effectiveModel={effectiveModel}
+							fields={configurationFields}
+							models={models}
+							modelsError={modelsQuery.error}
+							onDraftChange={(field, draft) => setSettingsDrafts((current) => ({ ...current, [field]: draft }))}
+						/>
+						<details className="advanced-panel">
+							<summary>
+								<span className="advanced-panel-summary">
+									<span className="advanced-panel-chevron">
+										<svg fill="none" height={14} stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} viewBox="0 0 24 24" width={14}>
+											<path d="m9 6 6 6-6 6" />
+										</svg>
+									</span>
+									<span>Advanced generation parameters</span>
+								</span>
+							</summary>
+							<div className="advanced-panel-body">
+								<AvatarImageAdvancedFields
+									drafts={settingsDrafts}
+									effectiveModel={effectiveModel}
+									fields={configurationFields}
+									onDraftChange={(field, draft) => setSettingsDrafts((current) => ({ ...current, [field]: draft }))}
+								/>
+							</div>
+						</details>
+						{target.generation.editablePromptFillSettings && (
+							<details className="advanced-panel">
+								<summary>
+									<span className="advanced-panel-summary">
+										<span className="advanced-panel-chevron">
+											<svg fill="none" height={14} stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} viewBox="0 0 24 24" width={14}>
+												<path d="m9 6 6 6-6 6" />
+											</svg>
+										</span>
+										<span>Prompt fill inference</span>
+									</span>
+								</summary>
+								<div className="advanced-panel-body">
+									<AvatarPromptFillFields
+										drafts={settingsDrafts}
+										fields={configurationFields}
+										onDraftChange={(field, draft) => setSettingsDrafts((current) => ({ ...current, [field]: draft }))}
+									/>
+								</div>
+							</details>
+						)}
+					</>
+				) : configuration.loading ? (
+					<div className="empty compact-empty">Loading image generation settings...</div>
+				) : null}
 				{!model && !configuration.loading && (
 					<div className="runtime-message">
-						Choose an image model in the linked configuration before generating an avatar.
+						Choose an image model before generating an avatar.
 					</div>
 				)}
 				<div className="field avatar-prompt-field">

@@ -161,9 +161,17 @@ describe("canonical inference consumers", () => {
 			model: "owner/world-image",
 		}));
 		expect(effectiveProviderSettingsForAvatarImageGeneration(worldTarget, {})).not.toHaveProperty("aspectRatio");
+		// A request-carried bundle overlays the resolved fields for this one
+		// request. The model it names is owner-selected and this owner supplies
+		// a provider, so it is honored; fields the bundle leaves out still
+		// resolve through the graph.
 		expect(effectiveProviderSettingsForAvatarImageGeneration(accountTarget, {}, {
-			model: "legacy/request-bypass",
-		})).toMatchObject({ model: "owner/account-image" });
+			model: "owner/request-model",
+		})).toMatchObject({ model: "owner/request-model", baseUrl: "https://provider.example/v1" });
+		expect(effectiveProviderSettingsForAvatarImageGeneration(botTarget, {}, {
+			aspectRatio: "16:9",
+			temperature: 0.4,
+		})).toMatchObject({ model: "owner/bot-image", aspectRatio: "16:9", temperature: 0.4 });
 	});
 
 	it("keeps a Bickr target-default image model available while an owner-stored one still needs an owner provider", async () => {
@@ -223,6 +231,16 @@ describe("canonical inference consumers", () => {
 		}, now);
 		const ownerModelTarget = await resolveAvatarTarget(env, { kind: "bot", userId: ownerId, botId }, "generate");
 		expect(effectiveProviderSettingsForAvatarImageGeneration(ownerModelTarget, env)).toBeNull();
+
+		// A request-carried model is owner-selected by definition, so the
+		// deployment-only provider may not run it; a parameter-only bundle still
+		// overlays the deployment-authorized target default.
+		expect(effectiveProviderSettingsForAvatarImageGeneration(preservedTarget, env, {
+			model: "owner/request-model",
+		})).toBeNull();
+		expect(effectiveProviderSettingsForAvatarImageGeneration(preservedTarget, env, {
+			aspectRatio: "16:9",
+		})).toMatchObject({ aspectRatio: "16:9", apiKey: "deployment-only-secret", model: historicalModel });
 	});
 
 	it("never forwards the deployment credential through owner provider settings or avatar targets", async () => {

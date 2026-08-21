@@ -1489,6 +1489,66 @@ function effectiveProviderSettingsForWorldPrompt(
 	};
 }
 
+/**
+ * Overlays a request-carried prompt fill bundle on the canonical resolved
+ * settings for one call. Only the fields the avatar prompt request actually
+ * uses are overridable — model, reasoning, sampling, and provider routing;
+ * provider plumbing (base URL, credential) and every derived policy stay
+ * canonical. A null input field clears back to the provider default rather
+ * than to the canonical value, matching the legacy one-shot bundles.
+ */
+function canonicalPromptProviderSettingsWithOverride(
+	canonical: ProviderSettings,
+	override: BotInferenceSettingsInput,
+): ProviderSettings {
+	const model = trimmed(override.model ?? undefined) ?? canonical.model;
+	const openRouterBaseUrl = isOpenRouterProviderBaseUrl(canonical.baseUrl);
+	const providerRouting = override.providerRouting !== undefined
+		? openRouterProviderRouting(canonical.baseUrl, override.providerRouting ?? undefined)
+		: canonical.providerRouting;
+	const overrideEffort = override.reasoningEffort ?? undefined;
+	const reasoningEffort = override.reasoningEffort !== undefined
+		? effectiveReasoningEffortForModel(model, openRouterBaseUrl, overrideEffort, providerRouting)
+		: canonical.reasoningEffort;
+	const reasoningRequest = override.reasoningEffort !== undefined
+		? providerReasoningRequestFromLegacyEffort(overrideEffort)
+		: canonical.reasoningRequest;
+	const numberField = (input: number | null | undefined, base: number | undefined): number | undefined =>
+		input === undefined ? base : input ?? undefined;
+	const temperature = numberField(override.temperature, canonical.temperature);
+	const topK = numberField(override.topK, canonical.topK);
+	const topP = numberField(override.topP, canonical.topP);
+	const minP = numberField(override.minP, canonical.minP);
+	const frequencyPenalty = numberField(override.frequencyPenalty, canonical.frequencyPenalty);
+	const presencePenalty = numberField(override.presencePenalty, canonical.presencePenalty);
+	const repetitionPenalty = numberField(override.repetitionPenalty, canonical.repetitionPenalty);
+	const {
+		providerRouting: _providerRouting,
+		reasoningEffort: _reasoningEffort,
+		topK: _topK,
+		topP: _topP,
+		minP: _minP,
+		frequencyPenalty: _frequencyPenalty,
+		presencePenalty: _presencePenalty,
+		repetitionPenalty: _repetitionPenalty,
+		...base
+	} = canonical;
+	return {
+		...base,
+		model,
+		reasoningRequest,
+		temperature: temperature ?? defaultTextGenerationTemperature,
+		...(providerRouting ? { providerRouting } : {}),
+		...(reasoningEffort ? { reasoningEffort } : {}),
+		...(topK !== undefined ? { topK } : {}),
+		...(topP !== undefined ? { topP } : {}),
+		...(minP !== undefined ? { minP } : {}),
+		...(frequencyPenalty !== undefined ? { frequencyPenalty } : {}),
+		...(presencePenalty !== undefined ? { presencePenalty } : {}),
+		...(repetitionPenalty !== undefined ? { repetitionPenalty } : {}),
+	};
+}
+
 function publicPromptProviderSettings(settings: ProviderSettings): BotInferenceSettings {
 	return {
 		baseUrl: settings.baseUrl,
@@ -8134,6 +8194,7 @@ export function providerAvatarImageStreamChunk(chunk: unknown): ProviderAvatarIm
 export const avatarPromptSettingsRuntime = {
 	effectiveProviderSettingsForBot,
 	effectiveProviderSettingsForWorldPrompt,
+	canonicalPromptProviderSettingsWithOverride,
 	publicPromptProviderSettings,
 } satisfies AvatarPromptSettingsRuntime;
 

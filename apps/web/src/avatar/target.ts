@@ -19,8 +19,9 @@ export type AvatarTargetKind = "bot" | "user" | "world";
 export type AvatarPromptFillMode = "persona" | "description" | "members" | "current_avatar";
 
 /**
- * Prompt fill runs on the target's own configuration, so no option carries a
- * local parameter editor any more.
+ * Prompt fill runs on the target's own configuration; the world screen edits
+ * those fields directly on the configuration, so no option carries its own
+ * parameter dialog.
  */
 export type AvatarPromptFillOption = {
 	idleLabel: string;
@@ -53,6 +54,12 @@ export type AvatarTarget<TMutationResponse, TSaved> = {
 	generation: {
 		/** The fixed configuration whose resolved image fields this target uses. */
 		configuration: FixedInferenceConfigurationReference;
+		/**
+		 * Worlds expose the text-inference fields their description/members
+		 * prompt fill uses for direct editing on the generation screen; other
+		 * targets have no text fill that takes parameters there.
+		 */
+		editablePromptFillSettings: boolean;
 		imageTarget: AvatarInferenceTarget;
 		/** Entity-owned image prompt; prompts are never reusable inference. */
 		prompt: string;
@@ -63,6 +70,7 @@ export type AvatarTarget<TMutationResponse, TSaved> = {
 	readSaved(response: TMutationResponse): { affectedBots?: BotSummary[]; saved: TSaved };
 	uiText: {
 		cropEmpty: string;
+		discardedSettings: string;
 		handlePrefix: string;
 		promptId: string;
 	};
@@ -101,6 +109,7 @@ export function botAvatarTarget(bot: BotSummary): AvatarTarget<BotMutationRespon
 		},
 		generation: {
 			configuration: { kind: "bot", botId: bot.id },
+			editablePromptFillSettings: false,
 			imageTarget: "participant",
 			prompt: localizedTextString(bot.inferenceSettings.imageGeneration?.prompt),
 			promptFillOptions: [
@@ -116,6 +125,7 @@ export function botAvatarTarget(bot: BotSummary): AvatarTarget<BotMutationRespon
 		readSaved: (response) => ({ saved: response.bot, affectedBots: response.affectedBots }),
 		uiText: {
 			cropEmpty: "This participant does not have an avatar to crop.",
+			discardedSettings: "Participant image generation settings reset.",
 			handlePrefix: "u/",
 			promptId: "avatar-generation-prompt",
 		},
@@ -148,6 +158,7 @@ export function userAvatarTarget(profile: UserAvatarTargetInput): AvatarTarget<U
 		},
 		generation: {
 			configuration: { kind: "account_default" },
+			editablePromptFillSettings: false,
 			imageTarget: "participant",
 			prompt: localizedTextString(profile.inferenceSettings?.imageGeneration?.prompt),
 			promptFillOptions: [{ ...currentAvatarPromptFill, visibleWhenUnavailable: false }],
@@ -155,6 +166,7 @@ export function userAvatarTarget(profile: UserAvatarTargetInput): AvatarTarget<U
 		readSaved: (response) => ({ saved: response.profile }),
 		uiText: {
 			cropEmpty: "Your profile does not have an avatar to crop.",
+			discardedSettings: "Profile image generation settings reset.",
 			handlePrefix: "hu/",
 			promptId: "user-avatar-generation-prompt",
 		},
@@ -183,6 +195,7 @@ export function worldAvatarTarget(world: WorldSummary): AvatarTarget<WorldMutati
 		},
 		generation: {
 			configuration: { kind: "world", worldId: world.id },
+			editablePromptFillSettings: true,
 			imageTarget: "world",
 			prompt: localizedTextString(world.imageGeneration?.prompt),
 			promptFillOptions: [
@@ -204,6 +217,7 @@ export function worldAvatarTarget(world: WorldSummary): AvatarTarget<WorldMutati
 		readSaved: (response) => ({ saved: response.world }),
 		uiText: {
 			cropEmpty: "This world does not have an avatar to crop.",
+			discardedSettings: "World image generation settings reset.",
 			handlePrefix: "w/",
 			promptId: "world-avatar-generation-prompt",
 		},

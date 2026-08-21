@@ -226,22 +226,22 @@ export function ConfigurationCardBody({
 	const parent = configuration.path[1] ?? null;
 	return (
 		<div className="card runtime-card inference-link-card-body">
-			<div className="runtime-row">
-				<span className="label">Configuration</span>
-				<span className="value">
+			<div className="kvrow">
+				<div className="k">Configuration</div>
+				<div className="v">
 					<ConfigurationLink className="linklike" configurationId={configuration.id} returnTo={returnTo}>
 						{configuration.displayName}
 					</ConfigurationLink>
 					<KindBadge kind={configuration.kind} />
-				</span>
+				</div>
 			</div>
-			<div className="runtime-row">
-				<span className="label">Effective model</span>
-				<span className="value">{configuration.effectiveModel}</span>
+			<div className="kvrow">
+				<div className="k">Effective model</div>
+				<div className="v">{configuration.effectiveModel}</div>
 			</div>
-			<div className="runtime-row">
-				<span className="label">Inherit settings from</span>
-				<span className="value">
+			<div className="kvrow">
+				<div className="k">Inherit settings from</div>
+				<div className="v">
 					{parent ? (
 						<ConfigurationLink className="linklike" configurationId={parent.id} returnTo={returnTo}>
 							{parent.displayName}
@@ -249,11 +249,11 @@ export function ConfigurationCardBody({
 					) : (
 						"Bickr defaults"
 					)}
-				</span>
+				</div>
 			</div>
-			<div className="runtime-row">
-				<span className="label">Credential</span>
-				<span className="value">{credentialResolutionText(configuration.credential.resolution, configuration.path)}</span>
+			<div className="kvrow">
+				<div className="k">Credential</div>
+				<div className="v">{credentialResolutionText(configuration.credential.resolution, configuration.path)}</div>
 			</div>
 		</div>
 	);

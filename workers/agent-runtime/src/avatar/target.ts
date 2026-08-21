@@ -14,8 +14,10 @@ import { isOpenRouterProviderBaseUrl, type ProviderSettings } from '@bickr/share
 import {
 	canonicalAccountInference,
 	canonicalAvatarImageSettings,
+	canonicalAvatarImageSettingsWithOverride,
 	canonicalBotInference,
 	canonicalWorldInference,
+	type CanonicalInferenceConsumerResolution,
 } from '@bickr/shared/inference-configuration-consumers';
 import { botById, RepositoryError, userById, worldByHandle } from '@bickr/shared/repository';
 import { kvKeys, readJson, type D1DatabaseLike, type KVNamespaceLike } from '@bickr/shared/storage';
@@ -49,6 +51,7 @@ type AvatarTargetBase = {
 	language: LanguageTag | null;
 	owner: UserDocument;
 	settings: AvatarTargetSettings;
+	canonicalConsumer?: CanonicalInferenceConsumerResolution;
 	canonicalImageSettings?: ImageGenerationProviderSettings | null;
 	canonicalProviderSettings?: ProviderSettings;
 };
@@ -149,7 +152,7 @@ export async function resolveAvatarTarget(
 					provider: bot.inferenceSettings,
 					withDefaults: avatarImageGenerationSettingsWithDefaults,
 				},
-				...(canonical ? { canonicalImageSettings: canonicalImage, canonicalProviderSettings: canonical.providerSettings } : {}),
+				...(canonical ? { canonicalConsumer: canonical, canonicalImageSettings: canonicalImage, canonicalProviderSettings: canonical.providerSettings } : {}),
 				storage: { botId: bot.id, worldId: bot.homeWorldId },
 				capabilities: {
 					promptFill: ['persona', 'current_avatar'],
@@ -178,7 +181,7 @@ export async function resolveAvatarTarget(
 					provider: {},
 					withDefaults: avatarImageGenerationSettingsWithDefaults,
 				},
-				...(canonical ? { canonicalImageSettings: canonicalImage, canonicalProviderSettings: canonical.providerSettings } : {}),
+				...(canonical ? { canonicalConsumer: canonical, canonicalImageSettings: canonicalImage, canonicalProviderSettings: canonical.providerSettings } : {}),
 				storage: { target: 'user', userId: user.id },
 				capabilities: {
 					promptFill: ['current_avatar'],
@@ -207,7 +210,7 @@ export async function resolveAvatarTarget(
 					provider: {},
 					withDefaults: worldAvatarImageGenerationSettingsWithDefaults,
 				},
-				...(canonical ? { canonicalImageSettings: canonicalImage, canonicalProviderSettings: canonical.providerSettings } : {}),
+				...(canonical ? { canonicalConsumer: canonical, canonicalImageSettings: canonicalImage, canonicalProviderSettings: canonical.providerSettings } : {}),
 				storage: { target: 'world', worldId: world.id },
 				capabilities: {
 					promptFill: ['description', 'members', 'current_avatar'],
@@ -227,10 +230,21 @@ export function effectiveProviderSettingsForAvatarImageGeneration(
 	env: AvatarProviderEnvironment,
 	settingsOverride?: BotInferenceSettings['imageGeneration'],
 ): ImageGenerationProviderSettings | null {
-	// Presence of canonical provider settings is the stored cutover signal. Old
-	// one-shot request bundles must not bypass the selected graph entry, even
-	// when that entry intentionally resolves to no image model.
-	if (target.canonicalProviderSettings) return target.canonicalImageSettings ?? null;
+	// Presence of canonical provider settings is the stored cutover signal. An
+	// explicit request bundle is the owner's direct instruction for this one
+	// request and replaces the resolved image fields; provider plumbing and the
+	// owner-selected-model credential gate still come from the selected graph
+	// entry.
+	if (target.canonicalProviderSettings) {
+		if (settingsOverride && target.canonicalConsumer) {
+			return canonicalAvatarImageSettingsWithOverride(
+				target.canonicalConsumer,
+				target.capabilities.providerImageTarget,
+				settingsOverride,
+			);
+		}
+		return target.canonicalImageSettings ?? null;
+	}
 	const ownerSettings = target.settings.owner;
 	const targetProviderSettings = target.settings.provider;
 	const imageGeneration = target.settings.withDefaults(settingsOverride ?? target.settings.imageGeneration ?? ownerSettings.imageGeneration);

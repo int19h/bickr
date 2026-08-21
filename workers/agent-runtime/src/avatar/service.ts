@@ -25,6 +25,7 @@ import {
 	type WorldDocument,
 	type WorldSummary,
 } from '@bickr/shared/model';
+import { consumerOwnerProviderAvailable } from '@bickr/shared/inference-configuration-consumers';
 import { InputError, parseUpdateBotInput, requiredText } from '@bickr/shared/validation';
 import type { ProviderSettings } from '../provider-requests';
 import {
@@ -120,6 +121,10 @@ export type AvatarPromptSettingsRuntime = {
 		owner: Pick<UserDocument, 'inferenceSettings'>,
 		env: AvatarProviderEnvironment,
 		settingsOverride?: BotInferenceSettingsInput,
+	): ProviderSettings;
+	canonicalPromptProviderSettingsWithOverride(
+		canonical: ProviderSettings,
+		override: BotInferenceSettingsInput,
 	): ProviderSettings;
 	publicPromptProviderSettings(settings: ProviderSettings): BotInferenceSettings;
 };
@@ -492,8 +497,21 @@ async function prefillTextAvatarPrompt(
 			throw new InputError('Human avatar prompt fill only supports the current avatar.');
 		case 'world': {
 			const promptSettingsOverride = parseInferenceSettingsOverride(input.promptSettings, target.language);
-			const settings = target.canonicalProviderSettings ??
-				runtime.effectiveProviderSettingsForWorldPrompt(target.owner, env, promptSettingsOverride);
+			// A request-carried bundle overlays the canonical settings for this one
+			// call; a model it names is the owner's own selection, so it needs an
+			// owner provider exactly like an owner-stored model value.
+			if (
+				target.canonicalConsumer &&
+				promptSettingsOverride?.model?.trim() &&
+				!consumerOwnerProviderAvailable(target.canonicalConsumer)
+			) {
+				throw new InputError('Add a provider base URL or API key to the configuration before choosing a prompt fill model.');
+			}
+			const settings = target.canonicalProviderSettings
+				? promptSettingsOverride
+					? runtime.canonicalPromptProviderSettingsWithOverride(target.canonicalProviderSettings, promptSettingsOverride)
+					: target.canonicalProviderSettings
+				: runtime.effectiveProviderSettingsForWorldPrompt(target.owner, env, promptSettingsOverride);
 			if (input.mode === 'members') {
 				const members = await listWorldBots(env.BICKR_KV, env.BICKR_D1, target.world.handle);
 				return provider.describeWorldMembers(settings, target.world, members, { prefill: input.prefill, ...options });

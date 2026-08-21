@@ -13,8 +13,16 @@ import {
 	parseUpdateWorldInput,
 } from "@bickr/shared/validation";
 
+import type {
+	InferenceConfigurationField,
+	InferenceOverrideUpdate,
+} from "@bickr/shared/inference-configuration";
+import type { RedactedInferenceFieldDtoMap } from "@bickr/shared/inference-configuration-owner";
+
+import { inferenceEditorFields } from "../inference/field-model";
 import { AvatarCropModal } from "./AvatarCropModal";
 import { AvatarGenerationScreen } from "./AvatarGenerationScreen";
+import { AvatarImageBasicFields, AvatarPromptFillFields } from "./image-settings-fields";
 import { AvatarUploadModal } from "./AvatarUploadModal";
 import {
 	botAvatarTarget,
@@ -229,15 +237,14 @@ describe("parameterized avatar components", () => {
 		expect(generation).toContain("Fill from members");
 	});
 
-	it("shows the linked configuration instead of an image inference editor", () => {
+	it("links the fixed configuration beside the editable image settings", () => {
 		const [, , generation] = renderFamilies(worldAvatarTarget(world()));
 		expect(generation).toContain("Image inference configuration");
-		expect(generation).toContain("resolved by the linked configuration");
 		expect(generation).toContain("World avatars use this configuration");
-		// No local model picker, advanced parameter panel, or settings reset.
-		expect(generation).not.toContain("Advanced generation parameters");
-		expect(generation).not.toContain("Choose a model");
-		expect(generation).not.toContain(">Reset<");
+		// The editable settings replace the read-only resolved card; a Reset
+		// affordance is present even while the configuration is still loading.
+		expect(generation).not.toContain("resolved by the linked configuration");
+		expect(generation).toContain(">Reset<");
 	});
 
 	it("keeps the entity-owned image prompt in the generation screen", () => {
@@ -251,10 +258,66 @@ describe("parameterized avatar components", () => {
 	 * model — which is exactly the state an owner is in before choosing one.
 	 * Generating still needs a resolved model.
 	 */
+	it("exposes prompt fill settings editing for worlds only", () => {
+		expect(worldAvatarTarget(world()).generation.editablePromptFillSettings).toBe(true);
+		expect(botAvatarTarget(bot()).generation.editablePromptFillSettings).toBe(false);
+		expect(userAvatarTarget(user()).generation.editablePromptFillSettings).toBe(false);
+	});
+
+	it("seeds the editable image fields from the configuration's override and resolved states", () => {
+		const map = inferenceFieldMap({
+			overrides: { imageModel: { kind: "value", value: "owner/image" } },
+			effective: { imageAspectRatio: "21:9" },
+		});
+		const markup = renderToStaticMarkup(
+			<AvatarImageBasicFields
+				drafts={{}}
+				effectiveModel="owner/image"
+				fields={map}
+				models={[{ id: "owner/image", name: "Owner Image", inputModalities: ["text"], outputModalities: ["image"] }]}
+				modelsError=""
+				onDraftChange={() => undefined}
+			/>,
+		);
+		// The stored override is offered as the model value; the inherited
+		// aspect ratio renders as an empty input with the resolved placeholder.
+		expect(markup).toContain('<option value="owner/image" selected="">Owner Image (owner/image)</option>');
+		expect(markup).toContain("Inherit - no value");
+		expect(markup).toContain('placeholder="21:9"');
+	});
+
+	it("renders the world prompt fill fields against the same configuration map", () => {
+		const map = inferenceFieldMap({ effective: { model: "owner/prompt-model" } });
+		const markup = renderToStaticMarkup(
+			<AvatarPromptFillFields drafts={{}} fields={map} onDraftChange={() => undefined} />,
+		);
+		expect(markup).toContain('placeholder="owner/prompt-model"');
+		expect(markup).toContain("Reasoning");
+		expect(markup).toContain("Provider routing");
+	});
+
 	it("allows a prompt-only save when no image model resolves", () => {
 		const [, , generation] = renderFamilies(userAvatarTarget(user()));
-		expect(generation).toContain("no image model resolved");
 		expect(generation).toContain('<button class="btn primary" type="button">Save</button>');
 		expect(generation).toMatch(/generate-avatar-btn[^"]*" disabled=""/);
 	});
 });
+
+function inferenceFieldMap(seed: {
+	overrides?: Partial<Record<InferenceConfigurationField, InferenceOverrideUpdate<InferenceConfigurationField>>>;
+	effective?: Partial<Record<InferenceConfigurationField, unknown>>;
+} = {}): RedactedInferenceFieldDtoMap {
+	const result = {} as Record<InferenceConfigurationField, unknown>;
+	for (const field of inferenceEditorFields) {
+		const effective = seed.effective?.[field] ?? null;
+		const entry = {
+			override: seed.overrides?.[field] ?? { kind: "inherit" },
+			request: { kind: "value", value: effective },
+			effective,
+			provenance: { unset: null },
+			adjustment: null,
+		};
+		result[field] = { ...entry, inherited: entry };
+	}
+	return result as RedactedInferenceFieldDtoMap;
+}

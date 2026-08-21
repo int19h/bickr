@@ -8086,7 +8086,6 @@ button.avatar-large-preview:not(:disabled),
 	font-weight: 600;
 }
 
-.inference-link-card-body,
-.avatar-effective-image {
+.inference-link-card-body {
 	margin-top: 8px;
 }
