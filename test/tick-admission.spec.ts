@@ -516,7 +516,7 @@ describe("spotlight visits against the participant's own schedule", () => {
 			"spotlight",
 		);
 
-		expect(proposed).toBeNull();
+		expect(proposed).toEqual({ nextDueAt: null, released: true });
 		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({
 			enabled: 1,
 			status,
@@ -561,7 +561,7 @@ describe("spotlight visits against the participant's own schedule", () => {
 			trigger,
 		);
 
-		expect(proposed).toBe(expected);
+		expect(proposed).toEqual({ nextDueAt: expected, released: true });
 		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({ status, nextDueAt: expected });
 	});
 

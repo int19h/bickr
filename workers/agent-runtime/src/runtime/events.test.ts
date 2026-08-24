@@ -24,6 +24,19 @@ describe('RuntimeEventsStore', () => {
 		expect(broadcast).toHaveBeenCalledWith(event);
 	});
 
+	it('can finalize an event inside a larger transaction without publishing early', () => {
+		const broadcast = vi.fn();
+		store = new RuntimeEventsStore(storage, broadcast);
+		const event = store.appendEvent('run-transaction', 'compaction', { status: 'pending' });
+		broadcast.mockClear();
+
+		const updated = store.replaceEventPayloadWithoutBroadcast(event, { status: 'complete', summary: 'Published together.' });
+
+		expect(updated.payload).toEqual({ status: 'complete', summary: 'Published together.' });
+		expect(broadcast).not.toHaveBeenCalled();
+		expect(store.eventsAfter(0)[0]?.payload).toEqual({ status: 'complete', summary: 'Published together.' });
+	});
+
 	it('keeps reconnect catch-up based on the requested sequence instead of the initial cap', () => {
 		for (const seq of range(1, 150)) {
 			insertEvent(storage, seq);

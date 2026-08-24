@@ -16,8 +16,20 @@ describe('scheduled provider-default barrier maintenance', () => {
 		const claimedAttempts: string[] = [];
 		const env = {
 			INTERNAL_SERVICE_SECRET: 'test-secret',
+			BICKR_KV: {
+				async get() { return null; },
+				async put() {},
+				async delete() {},
+			},
 			BICKR_D1: {
 				prepare(sql: string) {
+					if (sql.includes("runtime.status = 'running'")) {
+						return {
+							bind() {
+								return { async all<T>() { return { success: true, results: [] as T[] }; } };
+							},
+						};
+					}
 					if (sql.includes('FROM maintenance_control')) {
 						const statement = {
 							bind() {
@@ -100,7 +112,10 @@ describe('scheduled provider-default barrier maintenance', () => {
 		// instead of restarting at the front of the owner-id order.
 		expect(claimedAttempts).toEqual([`${pendingOwner.ownerUserId}@2026-08-14T00:00:00.000Z`]);
 		expect(ordinaryDispatch).not.toHaveBeenCalled();
-		expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
+		const providerSweepLog = log.mock.calls
+			.map(([message]) => JSON.parse(String(message)) as Record<string, unknown>)
+			.find((payload) => payload.event === 'scheduled_provider_default_barrier_sweep');
+		expect(providerSweepLog).toMatchObject({
 			event: 'scheduled_provider_default_barrier_sweep',
 			outcome: 'progress',
 		});

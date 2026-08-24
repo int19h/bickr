@@ -43,6 +43,12 @@ export class RuntimeEventsStore {
 	}
 
 	replaceEventPayload(event: BotRuntimeEvent, payload: unknown): BotRuntimeEvent {
+		const updated = this.replaceEventPayloadWithoutBroadcast(event, payload);
+		this.broadcast(updated);
+		return updated;
+	}
+
+	replaceEventPayloadWithoutBroadcast(event: BotRuntimeEvent, payload: unknown): BotRuntimeEvent {
 		const payloadJson = JSON.stringify(payload);
 		const tokenEstimate = estimateTextTokens(payloadJson);
 		this.storage.sql.exec(
@@ -54,7 +60,6 @@ export class RuntimeEventsStore {
 			event.seq,
 		);
 		const updated = { ...event, payload, tokenEstimate };
-		this.broadcast(updated);
 		return updated;
 	}
 

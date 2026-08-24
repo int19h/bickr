@@ -86,6 +86,13 @@ export function isRuntimeStopRequest(request: Request): boolean {
 	return /^\/bots\/[^/]+\/stop$/.test(pathname) || /^\/api\/me\/bots\/[^/]+\/runtime\/stop$/.test(pathname);
 }
 
+export function isRuntimeStaleRunRecoveryRequest(request: Request): boolean {
+	if (request.method !== 'POST' || request.headers.get('x-bickr-scheduler') !== '1') {
+		return false;
+	}
+	return /^\/bots\/[^/]+\/recover-stale-run$/.test(new URL(request.url).pathname);
+}
+
 export function maintenanceFailureResponse(error: unknown): Response {
 	const enabled = error instanceof MaintenanceModeEnabledError;
 	const message = enabled ? error.message : 'Bickr cannot safely accept changes because the maintenance control is unavailable.';
@@ -108,9 +115,13 @@ export function maintenanceFailureResponse(error: unknown): Response {
 export async function mutationMaintenanceResponse(
 	request: Request,
 	db: D1DatabaseLike,
-	options: { allowRuntimeStop?: boolean } = {},
+	options: { allowRuntimeStop?: boolean; allowRuntimeStaleRunRecovery?: boolean } = {},
 ): Promise<Response | null> {
-	if (isSafeHttpMethod(request.method) || (options.allowRuntimeStop && isRuntimeStopRequest(request))) {
+	if (
+		isSafeHttpMethod(request.method) ||
+		(options.allowRuntimeStop && isRuntimeStopRequest(request)) ||
+		(options.allowRuntimeStaleRunRecovery && isRuntimeStaleRunRecoveryRequest(request))
+	) {
 		return null;
 	}
 	try {

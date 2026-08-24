@@ -1228,7 +1228,7 @@ describe("Provider requests", () => {
 			blockConcurrencyWhile: (callback: () => Promise<void>) => {
 				pending.push(callback());
 			},
-			storage: { sql },
+			storage: { sql, transactionSync: <T,>(closure: () => T) => closure() },
 		};
 
 		new BotRuntime(state as unknown as DurableObjectState, {} as never);

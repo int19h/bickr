@@ -53,6 +53,7 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 		// gate; every other mutation retains the shared maintenance rejection.
 		const maintenanceResponse = isInferenceGraphMaintenanceOperation(input) ? null : await mutationMaintenanceResponse(serviceRequest, env.BICKR_D1, {
 			allowRuntimeStop: true,
+			allowRuntimeStaleRunRecovery: true,
 		});
 		if (maintenanceResponse) {
 			return maintenanceResponse;

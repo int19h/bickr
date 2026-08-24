@@ -1089,18 +1089,28 @@ describe("Compaction", () => {
 				tokenEstimate: 1,
 				createdAt: "2026-05-01T00:00:01.000Z",
 			}));
-			const insertLoopMessage = vi.fn((input: { runId: string; message: unknown; position: number }) => ({
+			const publicationOrder: string[] = [];
+			const insertLoopMessage = vi.fn((input: { runId: string; message: unknown; position: number }) => {
+				publicationOrder.push("summary");
+				return ({
 				seq: 102,
 				runId: input.runId,
 				message: input.message,
 				position: input.position,
 				createdAt: "2026-05-01T00:00:02.000Z",
-			}));
-			const replaceEventPayload = vi.fn();
+				});
+			});
+			const replaceEventPayloadWithoutBroadcast = vi.fn();
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				env: {},
 				state: {
 					storage: {
+						transactionSync: <T,>(closure: () => T) => {
+							publicationOrder.push("transaction-begin");
+							const result = closure();
+							publicationOrder.push("transaction-commit");
+							return result;
+						},
 						sql: {
 							exec: vi.fn(() => ({ one: () => ({}), toArray: () => [] })),
 						},
@@ -1114,10 +1124,11 @@ describe("Compaction", () => {
 					requestBody: "{}",
 					rawResponse: "{}",
 				}),
-				replaceEventPayload,
+				replaceEventPayloadWithoutBroadcast,
 				insertLoopMessage,
 				recordLoopMessageLog: vi.fn(),
 				nextLoopMessagePosition: () => 50,
+				broadcastControl: vi.fn(() => publicationOrder.push("reset")),
 			});
 			const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
 				compactLoopMessageRows: (
@@ -1148,13 +1159,19 @@ describe("Compaction", () => {
 			);
 
 			expect(insertLoopMessage).toHaveBeenCalledWith(expect.objectContaining({
+				broadcast: false,
 				message: {
 					role: "assistant",
 					content: "I chose to follow up with Müller about concise release notes.",
 				},
 				position: 7,
 			}));
-			expect(replaceEventPayload).toHaveBeenLastCalledWith(expect.objectContaining({ seq: 101 }), expect.objectContaining({
+			expect(publicationOrder[0]).toBe("transaction-begin");
+			expect(publicationOrder.at(-2)).toBe("transaction-commit");
+			expect(publicationOrder.at(-1)).toBe("reset");
+			expect(runtime.broadcastControl).toHaveBeenCalledOnce();
+			expect(runtime.broadcastControl).toHaveBeenCalledWith({ type: "loop_messages_reset" });
+			expect(replaceEventPayloadWithoutBroadcast).toHaveBeenLastCalledWith(expect.objectContaining({ seq: 101 }), expect.objectContaining({
 				compactionReasoning: learnedMinimalCompactionReasoning,
 				status: "complete",
 				summary: "I chose to follow up with Müller about concise release notes.",
@@ -1241,6 +1258,7 @@ describe("Compaction", () => {
 				env: {},
 				state: {
 					storage: {
+						transactionSync: <T,>(closure: () => T) => closure(),
 						sql: {
 							exec: vi.fn(<T,>(sql: string, ...params: unknown[]) => {
 								if (/FROM loop_messages m\s+WHERE m\.compacted_by IS NULL/.test(sql)) {
@@ -1265,7 +1283,7 @@ describe("Compaction", () => {
 				appendEvent,
 				recordInferenceSubmission,
 				callProviderForCompaction,
-				replaceEventPayload: vi.fn(),
+				replaceEventPayloadWithoutBroadcast: vi.fn(),
 				insertLoopMessage: vi.fn((input: { runId: string; message: unknown; position: number }) => ({
 					seq: 102,
 					runId: input.runId,
@@ -1342,12 +1360,13 @@ describe("Compaction", () => {
 				.mockResolvedValueOnce(Response.json(validResponse));
 				vi.stubGlobal("fetch", fetchMock);
 				try {
-					const replaceEventPayload = vi.fn();
+					const replaceEventPayloadWithoutBroadcast = vi.fn();
 					const recordProviderTokenCalibrationSample = vi.fn();
 					const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 						env: { BICKR_SIMULATION_MODE: "provider" },
 					state: {
 						storage: {
+							transactionSync: <T,>(closure: () => T) => closure(),
 							sql: {
 								exec: vi.fn((sql: string, ...params: unknown[]) => {
 									if (/UPDATE loop_messages/i.test(sql)) {
@@ -1379,7 +1398,7 @@ describe("Compaction", () => {
 						recordProviderTokenCalibrationSample,
 						recordProviderUsage: vi.fn(),
 					repairDanglingCommentReferencesAfterCompaction: vi.fn(),
-					replaceEventPayload,
+					replaceEventPayloadWithoutBroadcast,
 					textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 					throwIfStopped: (_runId: string, signal: AbortSignal) => {
 						if (signal.aborted) {
@@ -1426,7 +1445,7 @@ describe("Compaction", () => {
 						attempt: 1,
 						usage: expect.objectContaining({ promptTokens: 80 }),
 					}));
-					expect(replaceEventPayload).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+					expect(replaceEventPayloadWithoutBroadcast).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
 					status: "complete",
 					fromSeq: 1,
 					toSeq: 1,
@@ -1473,11 +1492,12 @@ describe("Compaction", () => {
 				.mockResolvedValueOnce(Response.json(validResponse));
 			vi.stubGlobal("fetch", fetchMock);
 			try {
-				const replaceEventPayload = vi.fn();
+				const replaceEventPayloadWithoutBroadcast = vi.fn();
 				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 					env: { BICKR_SIMULATION_MODE: "provider" },
 					state: {
-						storage: {
+					storage: {
+						transactionSync: <T,>(closure: () => T) => closure(),
 							sql: {
 								exec: vi.fn((sql: string, ...params: unknown[]) => {
 									if (/UPDATE loop_messages/i.test(sql)) {
@@ -1509,7 +1529,7 @@ describe("Compaction", () => {
 					recordProviderTokenCalibrationSample: vi.fn(),
 					recordProviderUsage: vi.fn(),
 					repairDanglingCommentReferencesAfterCompaction: vi.fn(),
-					replaceEventPayload,
+					replaceEventPayloadWithoutBroadcast,
 					textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 0 }),
 					throwIfStopped: (_runId: string, signal: AbortSignal) => {
 						if (signal.aborted) {
@@ -1546,7 +1566,7 @@ describe("Compaction", () => {
 				expect(JSON.stringify(secondBody.messages)).toContain("Large read result");
 				expect(JSON.stringify(secondBody.messages)).not.toContain("Later context");
 				expect(rows.map((row) => row.compacted_by)).toEqual([901, 901, 901, null]);
-				expect(replaceEventPayload).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+				expect(replaceEventPayloadWithoutBroadcast).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
 					status: "complete",
 					fromSeq: 1,
 					toSeq: 3,

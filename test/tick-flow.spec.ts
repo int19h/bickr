@@ -56,6 +56,7 @@ import type {
 	SpotlightSyntheticContext,
 	WorldDocument,
 } from "./helpers/index-harness";
+import { TickStoppedError } from "../workers/agent-runtime/src/errors";
 
 describe("Tick flow", () => {
 	it("completes a keyless local-simulation tick by replying through the coordinator", async () => {
@@ -216,15 +217,138 @@ describe("Tick flow", () => {
 			expect.anything(),
 			expect.anything(),
 			expect.anything(),
-			expect.anything(),
-			expect.anything(),
-		);
+				expect.anything(),
+				expect.anything(),
+				expect.anything(),
+			);
 		const replyTool = refreshedProviderTools.find(
 			(tool) => tool.type === "function" && tool.function.name === "reply_to_comment",
 		);
 		expect(replyTool?.type === "function" ? replyTool.function.parameters.properties.body : undefined).toMatchObject({
 			properties: { text: { maxLength: 321 } },
 		});
+	});
+
+	it("persists a fully streamed provider response as interrupted when Stop lands after provider completion", async () => {
+		const controller = new AbortController();
+		const appendProviderMessages = vi.fn(async () => {});
+		const appended: Array<{ message: BotInferenceSubmissionMessage; origin: string; status?: string }> = [];
+		let eventSeq = 0;
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: (runId: string, type: BotRuntimeEvent["type"], payload: unknown) =>
+				runtimeEvent(++eventSeq, runId, type, payload),
+			appendLoopMessage: (_runId: string, message: BotInferenceSubmissionMessage, origin: string, status?: string) => {
+				appended.push({ message, origin, status });
+				return { seq: appended.length, message, origin, status };
+			},
+			appendLoopMessageGroup: (items: Array<{ message: BotInferenceSubmissionMessage; origin: string; status?: string }>) => {
+				appended.push(...items);
+				return [];
+			},
+			appendProviderMessages,
+			callProvider: async () => {
+				controller.abort();
+				return providerResponseWithContent("The streamed answer remains visible.");
+			},
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				maxCompletionTokens: 5_000,
+				promptTokens: 100,
+				providerTools: toolDefinitionsForProviderRound(),
+				requestMessages: [{ role: "system", content: "Context" }],
+			}),
+			loopGeneratedTokenCountSinceLastLogOff: () => 0,
+			prematureLogOffCorrectedSinceLastLogOff: () => false,
+			providerLoopInitialSuccessfulToolCallCount: () => 0,
+			recordDroppedProviderToolCalls: async () => {},
+			recordInferenceSubmission: () => {},
+			recordProviderUsage: async () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => false,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) throw new TickStoppedError();
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop(bot: BotDocument, settings: { baseUrl: string; model: string; temperature: number }, runId: string, messages: BotInferenceSubmissionMessage[], context: { mode: "normal"; signal: AbortSignal }): Promise<unknown>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(runProviderLoop(
+			fakeBotDocument(),
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			"run-provider-stop",
+			[],
+			{ mode: "normal", signal: controller.signal },
+		)).rejects.toBeInstanceOf(TickStoppedError);
+		expect(appendProviderMessages).toHaveBeenCalledWith(
+			"run-provider-stop",
+			expect.objectContaining({ content: "The streamed answer remains visible." }),
+			"interrupted",
+			expect.any(Number),
+		);
+		expect(appended).toContainEqual(expect.objectContaining({
+			origin: "provider_response",
+			status: "interrupted",
+			message: expect.objectContaining({ content: "The streamed answer remains visible." }),
+		}));
+	});
+
+	it("finishes the committed tool pair and interrupts remaining tools when Stop lands between tools", async () => {
+		const controller = new AbortController();
+		const groups: Array<Array<{ message: BotInferenceSubmissionMessage; origin: string; status?: string }>> = [];
+		const executed: string[] = [];
+		let eventSeq = 0;
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: (runId: string, type: BotRuntimeEvent["type"], payload: unknown) =>
+				runtimeEvent(++eventSeq, runId, type, payload),
+			appendLoopMessageGroup: (items: Array<{ message: BotInferenceSubmissionMessage; origin: string; status?: string }>) => {
+				groups.push(items);
+				return [];
+			},
+			appendProviderMessages: async () => {},
+			callProvider: async () => providerResponseWithToolCalls([
+				{ id: "call-first", name: "read_thread", args: { threadId: "thr_first" } },
+				{ id: "call-second", name: "read_thread", args: { threadId: "thr_second" } },
+			]),
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				maxCompletionTokens: 5_000,
+				promptTokens: 100,
+				providerTools: toolDefinitionsForProviderRound(),
+				requestMessages: [{ role: "system", content: "Context" }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+				executed.push(name);
+				controller.abort();
+				return { name, result: { ok: true }, providerResult: { ok: true } };
+			},
+			loopGeneratedTokenCountSinceLastLogOff: () => 0,
+			prematureLogOffCorrectedSinceLastLogOff: () => false,
+			providerLoopInitialSuccessfulToolCallCount: () => 0,
+			recordDroppedProviderToolCalls: async () => {},
+			recordInferenceSubmission: () => {},
+			recordProviderUsage: async () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => false,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) throw new TickStoppedError();
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop(bot: BotDocument, settings: { baseUrl: string; model: string; temperature: number }, runId: string, messages: BotInferenceSubmissionMessage[], context: { mode: "normal"; signal: AbortSignal }): Promise<unknown>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(runProviderLoop(
+			fakeBotDocument(),
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			"run-between-tools",
+			[],
+			{ mode: "normal", signal: controller.signal },
+		)).rejects.toBeInstanceOf(TickStoppedError);
+		expect(executed).toEqual(["read_thread"]);
+		const toolRows = groups.flat().filter((item) => item.message.role === "tool");
+		expect(toolRows).toEqual([
+			expect.objectContaining({ origin: "tool_result", status: "complete", message: expect.objectContaining({ tool_call_id: "call-first" }) }),
+			expect.objectContaining({ origin: "tool_failure", status: "interrupted", message: expect.objectContaining({ tool_call_id: "call-second" }) }),
+		]);
 	});
 
 	it("formats runtime history as first-person notes instead of transcript commands", () => {

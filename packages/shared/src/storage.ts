@@ -68,6 +68,11 @@ export const kvKeys = {
 	// deletes it on reaching the end so the next pass restarts from the first
 	// participant.
 	botRuntimeRetentionSweepCursor: "v1:maintenance:bot-runtime-retention-sweep-cursor",
+	// One cursor carrying the frequent stale-run recovery walk and its bounded
+	// retry backlog. Deleted when a complete running-set pass finishes; because
+	// the running set changes between invocations, the next pass starts at the
+	// beginning rather than retaining a stale terminal cursor indefinitely.
+	botRuntimeStaleRunRecoveryCursor: "v1:maintenance:bot-runtime-stale-run-recovery-cursor",
 	// One fixed key holding the last completed R2 avatar janitor run. The
 	// janitor is weekly but its cron is daily, so the gate needs a marker that
 	// survives invocations. Overwritten in place and retained indefinitely: one
