@@ -6,6 +6,7 @@ import {
 	createBotForTest,
 	createThreadForTest,
 	defaultReasoningPrefill,
+	deferred,
 	describe,
 	effectiveLoopRecurringPrompt,
 	effectiveReasoningPrefill,
@@ -56,6 +57,50 @@ import type {
 	SpotlightSyntheticContext,
 	WorldDocument,
 } from "./helpers/index-harness";
+import { TickStoppedError } from "../workers/agent-runtime/src/errors";
+import { claimRuntimeRun } from "../workers/agent-runtime/src/runtime/bot-runtime";
+
+type TerminalRaceMethods = {
+	renewProgressLease(botId: string, runId: string, signal: AbortSignal): Promise<void>;
+	completeRuntimeRunSerialized(
+		bot: BotDocument,
+		now: string,
+		runId: string,
+		trigger: "spotlight",
+		signal: AbortSignal,
+		payload: Record<string, unknown>,
+	): Promise<{ nextDueAt: string | null; released: boolean }>;
+	runAdmittedTick(
+		botId: string,
+		trigger: "spotlight",
+		options: Record<string, unknown>,
+		admitted: {
+			bot: BotDocument;
+			providerSettings: { baseUrl: string; model: string; temperature: number };
+			runId: string;
+			abortController: AbortController;
+			mode: "spotlight";
+			setupMode: "continuation";
+		},
+	): Promise<{ runId: string; status: string }>;
+	stopTick(botId: string): Promise<{
+		kind: "not_running" | "stop_requested" | "stopped";
+		stopped: boolean;
+		runId?: string;
+		status: string;
+	}>;
+};
+
+type TerminalTransitionRaceHarness = {
+	bot: BotDocument;
+	events: string[];
+	methods: TerminalRaceMethods;
+	queue: ExclusiveOperationQueue;
+	runId: string;
+	runtime: object;
+	run(): Promise<{ runId: string; status: string }>;
+	stop(): Promise<Awaited<ReturnType<TerminalRaceMethods["stopTick"]>>>;
+};
 
 describe("Tick flow", () => {
 	it("completes a keyless local-simulation tick by replying through the coordinator", async () => {
@@ -216,15 +261,242 @@ describe("Tick flow", () => {
 			expect.anything(),
 			expect.anything(),
 			expect.anything(),
-			expect.anything(),
-			expect.anything(),
-		);
+				expect.anything(),
+				expect.anything(),
+				expect.anything(),
+			);
 		const replyTool = refreshedProviderTools.find(
 			(tool) => tool.type === "function" && tool.function.name === "reply_to_comment",
 		);
 		expect(replyTool?.type === "function" ? replyTool.function.parameters.properties.body : undefined).toMatchObject({
 			properties: { text: { maxLength: 321 } },
 		});
+	});
+
+	it("persists a fully streamed provider response as interrupted when Stop lands after provider completion", async () => {
+		const controller = new AbortController();
+		const appendProviderMessages = vi.fn(async () => {});
+		const appended: Array<{ message: BotInferenceSubmissionMessage; origin: string; status?: string }> = [];
+		let eventSeq = 0;
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: (runId: string, type: BotRuntimeEvent["type"], payload: unknown) =>
+				runtimeEvent(++eventSeq, runId, type, payload),
+			appendLoopMessage: (_runId: string, message: BotInferenceSubmissionMessage, origin: string, status?: string) => {
+				appended.push({ message, origin, status });
+				return { seq: appended.length, message, origin, status };
+			},
+			appendLoopMessageGroup: (items: Array<{ message: BotInferenceSubmissionMessage; origin: string; status?: string }>) => {
+				appended.push(...items);
+				return [];
+			},
+			appendProviderMessages,
+			callProvider: async () => {
+				controller.abort();
+				return providerResponseWithContent("The streamed answer remains visible.");
+			},
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				maxCompletionTokens: 5_000,
+				promptTokens: 100,
+				providerTools: toolDefinitionsForProviderRound(),
+				requestMessages: [{ role: "system", content: "Context" }],
+			}),
+			loopGeneratedTokenCountSinceLastLogOff: () => 0,
+			prematureLogOffCorrectedSinceLastLogOff: () => false,
+			providerLoopInitialSuccessfulToolCallCount: () => 0,
+			recordDroppedProviderToolCalls: async () => {},
+			recordInferenceSubmission: () => {},
+			recordProviderUsage: async () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => false,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) throw new TickStoppedError();
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop(bot: BotDocument, settings: { baseUrl: string; model: string; temperature: number }, runId: string, messages: BotInferenceSubmissionMessage[], context: { mode: "normal"; signal: AbortSignal }): Promise<unknown>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(runProviderLoop(
+			fakeBotDocument(),
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			"run-provider-stop",
+			[],
+			{ mode: "normal", signal: controller.signal },
+		)).rejects.toBeInstanceOf(TickStoppedError);
+		expect(appendProviderMessages).toHaveBeenCalledWith(
+			"run-provider-stop",
+			expect.objectContaining({ content: "The streamed answer remains visible." }),
+			"interrupted",
+			expect.any(Number),
+		);
+		expect(appended).toContainEqual(expect.objectContaining({
+			origin: "provider_response",
+			status: "interrupted",
+			message: expect.objectContaining({ content: "The streamed answer remains visible." }),
+		}));
+	});
+
+	it("finishes the committed tool pair and interrupts remaining tools when Stop lands between tools", async () => {
+		const controller = new AbortController();
+		const groups: Array<Array<{ message: BotInferenceSubmissionMessage; origin: string; status?: string }>> = [];
+		const executed: string[] = [];
+		let eventSeq = 0;
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: (runId: string, type: BotRuntimeEvent["type"], payload: unknown) =>
+				runtimeEvent(++eventSeq, runId, type, payload),
+			appendLoopMessageGroup: (items: Array<{ message: BotInferenceSubmissionMessage; origin: string; status?: string }>) => {
+				groups.push(items);
+				return [];
+			},
+			appendProviderMessages: async () => {},
+			callProvider: async () => providerResponseWithToolCalls([
+				{ id: "call-first", name: "read_thread", args: { threadId: "thr_first" } },
+				{ id: "call-second", name: "read_thread", args: { threadId: "thr_second" } },
+			]),
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				maxCompletionTokens: 5_000,
+				promptTokens: 100,
+				providerTools: toolDefinitionsForProviderRound(),
+				requestMessages: [{ role: "system", content: "Context" }],
+			}),
+			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+				executed.push(name);
+				controller.abort();
+				return { name, result: { ok: true }, providerResult: { ok: true } };
+			},
+			loopGeneratedTokenCountSinceLastLogOff: () => 0,
+			prematureLogOffCorrectedSinceLastLogOff: () => false,
+			providerLoopInitialSuccessfulToolCallCount: () => 0,
+			recordDroppedProviderToolCalls: async () => {},
+			recordInferenceSubmission: () => {},
+			recordProviderUsage: async () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => false,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) throw new TickStoppedError();
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop(bot: BotDocument, settings: { baseUrl: string; model: string; temperature: number }, runId: string, messages: BotInferenceSubmissionMessage[], context: { mode: "normal"; signal: AbortSignal }): Promise<unknown>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(runProviderLoop(
+			fakeBotDocument(),
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			"run-between-tools",
+			[],
+			{ mode: "normal", signal: controller.signal },
+		)).rejects.toBeInstanceOf(TickStoppedError);
+		expect(executed).toEqual(["read_thread"]);
+		const toolRows = groups.flat().filter((item) => item.message.role === "tool");
+		expect(toolRows).toEqual([
+			expect.objectContaining({ origin: "tool_result", status: "complete", message: expect.objectContaining({ tool_call_id: "call-first" }) }),
+			expect.objectContaining({ origin: "tool_failure", status: "interrupted", message: expect.objectContaining({ tool_call_id: "call-second" }) }),
+		]);
+	});
+
+	it("checks cancellation before threshold compaction reads or mutates its generation", async () => {
+		const botWithCurrentRuntimeBudget = vi.fn();
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			renewProgressLease: vi.fn(async () => { throw new TickStoppedError(); }),
+			botWithCurrentRuntimeBudget,
+		});
+		const maybeCompact = (BotRuntime.prototype as unknown as {
+			maybeCompact(
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				signal: AbortSignal,
+				options: { reason: "threshold" },
+			): Promise<unknown>;
+		}).maybeCompact.bind(runtime);
+
+		await expect(maybeCompact(
+			fakeBotDocument(),
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			"run-threshold-stopped",
+			new AbortController().signal,
+			{ reason: "threshold" },
+		)).rejects.toBeInstanceOf(TickStoppedError);
+		expect(botWithCurrentRuntimeBudget).not.toHaveBeenCalled();
+	});
+
+	it("linearizes Stop before completion and emits only tick_stopped", async () => {
+		const harness = await terminalTransitionRaceHarness("stop-first");
+		const queueEntered = deferred<void>();
+		const releaseQueue = deferred<void>();
+		const blocker = harness.queue.run(async () => {
+			queueEntered.resolve();
+			await releaseQueue.promise;
+		});
+		await queueEntered.promise;
+
+		const renewed = deferred<void>();
+		const releaseRenewal = deferred<void>();
+		const renewProgressLease = harness.methods.renewProgressLease.bind(harness.runtime);
+		Object.assign(harness.runtime, {
+			renewProgressLease: async (botId: string, runId: string, signal: AbortSignal) => {
+				await renewProgressLease(botId, runId, signal);
+				renewed.resolve();
+				await releaseRenewal.promise;
+			},
+		});
+
+		const tick = harness.run();
+		await renewed.promise;
+		const stop = harness.stop();
+		// Stop is now queued behind the real queue blocker. Completion cannot queue
+		// until the already-successful renewal wrapper is allowed to return.
+		releaseRenewal.resolve();
+		await Promise.resolve();
+		releaseQueue.resolve();
+
+		await expect(stop).resolves.toEqual({
+			kind: "stop_requested",
+			stopped: false,
+			runId: harness.runId,
+			status: "running",
+		});
+		await expect(tick).resolves.toEqual({ runId: harness.runId, status: "stopped" });
+		await blocker;
+		expect(harness.events).toEqual(["tick_started", "tick_stop_requested", "tick_stopped"]);
+		expect(await runtimeIndexState(harness.bot.id)).toEqual({ status: "idle", activeRunId: null });
+	});
+
+	it("linearizes completion before Stop and reports the terminal D1 state", async () => {
+		const harness = await terminalTransitionRaceHarness("completion-first");
+		const queueEntered = deferred<void>();
+		const releaseQueue = deferred<void>();
+		const blocker = harness.queue.run(async () => {
+			queueEntered.resolve();
+			await releaseQueue.promise;
+		});
+		await queueEntered.promise;
+
+		const completionQueued = deferred<void>();
+		const completeRuntimeRunSerialized = harness.methods.completeRuntimeRunSerialized.bind(harness.runtime);
+		Object.assign(harness.runtime, {
+			completeRuntimeRunSerialized: (...args: Parameters<TerminalRaceMethods["completeRuntimeRunSerialized"]>) => {
+				const completion = completeRuntimeRunSerialized(...args);
+				completionQueued.resolve();
+				return completion;
+			},
+		});
+
+		const tick = harness.run();
+		await completionQueued.promise;
+		const stop = harness.stop();
+		releaseQueue.resolve();
+
+		await expect(tick).resolves.toEqual({ runId: harness.runId, status: "completed" });
+		await expect(stop).resolves.toMatchObject({
+			kind: "not_running",
+			stopped: false,
+			status: "idle",
+		});
+		await blocker;
+		expect(harness.events).toEqual(["tick_started", "tick_completed"]);
+		expect(await runtimeIndexState(harness.bot.id)).toEqual({ status: "idle", activeRunId: null });
 	});
 
 	it("formats runtime history as first-person notes instead of transcript commands", () => {
@@ -3256,3 +3528,84 @@ describe("Tick flow", () => {
 		}));
 	});
 });
+
+async function terminalTransitionRaceHarness(suffix: string): Promise<TerminalTransitionRaceHarness> {
+	const cookie = await authCookie();
+	await seedWorld(cookie);
+	const profile = await createBotForTest(cookie, `terminal-race-${suffix}`, { enabled: true });
+	const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, profile.id);
+	const runId = `run-terminal-race-${suffix}`;
+	const now = new Date().toISOString();
+	const claimed = await claimRuntimeRun(
+		testEnv.BICKR_D1,
+		bot.id,
+		runId,
+		new Date(Date.parse(now) + 15 * 60_000).toISOString(),
+		now,
+		"spotlight",
+	);
+	expect(claimed).toBe(true);
+
+	const queue = new ExclusiveOperationQueue();
+	const controller = new AbortController();
+	const events: string[] = [];
+	const sql = memoryRuntimeSql();
+	const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		activeAbortController: controller,
+		activeMaintenanceOperation: null,
+		activeRunId: runId,
+		transitionQueue: queue,
+		env: {
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+		},
+		state: {
+			storage: { sql },
+			waitUntil: () => {},
+		},
+		appendEvent: (_eventRunId: string, type: string) => {
+			events.push(type);
+			return { createdAt: new Date().toISOString() };
+		},
+		consumeInjections: () => [],
+		exportRecentProviderUsage: async () => {},
+		pruneRuntimeStorageAfterTick: () => ({
+			events: 0,
+			providerUsage: 0,
+			loopMessages: { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0, pendingMore: false },
+			injections: { deletedInjections: 0, droppedQueueEntries: 0, pendingMore: false },
+		}),
+		markPendingCompactionEventsFailed: () => {},
+		hasTerminalEvent: (eventRunId: string) =>
+			eventRunId === runId && events.some((type) => ["tick_completed", "tick_failed", "tick_stopped"].includes(type)),
+		startQueuedSpotlightTick: () => {},
+	});
+	const methods = BotRuntime.prototype as unknown as TerminalRaceMethods;
+	return {
+		bot,
+		events,
+		methods,
+		queue,
+		runId,
+		runtime,
+		run: () => methods.runAdmittedTick.call(runtime, bot.id, "spotlight", {}, {
+			bot,
+			providerSettings: { baseUrl: "https://provider.example.test/v1", model: "test-model", temperature: 0.2 },
+			runId,
+			abortController: controller,
+			mode: "spotlight",
+			setupMode: "continuation",
+		}),
+		stop: () => methods.stopTick.call(runtime, bot.id),
+	};
+}
+
+async function runtimeIndexState(botId: string): Promise<{ status: string; activeRunId: string | null } | null> {
+	return testEnv.BICKR_D1.prepare(
+		`SELECT status, active_run_id AS activeRunId
+		 FROM bot_runtime_index
+		 WHERE bot_id = ?`,
+	)
+		.bind(botId)
+		.first<{ status: string; activeRunId: string | null }>();
+}

@@ -573,11 +573,6 @@ export type RunContext = {
 
 export type ProviderMessageStatus = 'complete' | 'interrupted';
 
-export type ProviderStreamActivity = {
-	type: string;
-	created_at: string;
-};
-
 export type ReadContentItem = {
 	type: 'comment';
 	id: string;

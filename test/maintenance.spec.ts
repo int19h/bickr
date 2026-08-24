@@ -99,6 +99,12 @@ describe('maintenance control', () => {
 			path: '/bots/bot_1/stop',
 			headers: { 'x-bickr-scheduler': '1' },
 		})).toHaveProperty('status', 200);
+		expect(await invoke({
+			service: 'agent-runtime',
+			method: 'POST',
+			path: '/bots/bot_1/recover-stale-run',
+			headers: { 'x-bickr-scheduler': '1' },
+		})).toHaveProperty('status', 200);
 		for (const path of [
 			`/users/${maintenanceOwnerId}/inference-graph/provider-default-barrier-sweep`,
 			'/inference-graph/provider-default-barrier-sweep',
@@ -124,6 +130,7 @@ describe('maintenance control', () => {
 		expect(proxiedRequests.map((request) => new URL(request.url).pathname)).toEqual([
 			'/health',
 			'/bots/bot_1/stop',
+			'/bots/bot_1/recover-stale-run',
 			`/users/${maintenanceOwnerId}/inference-graph/provider-default-barrier-sweep`,
 			'/inference-graph/provider-default-barrier-sweep',
 		]);

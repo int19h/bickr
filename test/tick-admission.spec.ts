@@ -516,7 +516,7 @@ describe("spotlight visits against the participant's own schedule", () => {
 			"spotlight",
 		);
 
-		expect(proposed).toBeNull();
+		expect(proposed).toEqual({ nextDueAt: null, released: true });
 		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({
 			enabled: 1,
 			status,
@@ -561,7 +561,7 @@ describe("spotlight visits against the participant's own schedule", () => {
 			trigger,
 		);
 
-		expect(proposed).toBe(expected);
+		expect(proposed).toEqual({ nextDueAt: expected, released: true });
 		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({ status, nextDueAt: expected });
 	});
 
@@ -578,6 +578,7 @@ describe("spotlight visits against the participant's own schedule", () => {
 		await seedBotDocuments();
 
 		await expect(stoppingRuntime().stopTick(botId)).resolves.toMatchObject({
+			kind: "stopped",
 			stopped: true,
 			runId: "run-spotlight",
 			status: "idle",
@@ -606,7 +607,9 @@ describe("spotlight visits against the participant's own schedule", () => {
 		});
 		await seedBotDocuments();
 
-		await expect(stoppingRuntime().stopTick(botId)).resolves.toMatchObject({ stopped: true, runId: "run-cron" });
+		await expect(stoppingRuntime().stopTick(botId)).resolves.toMatchObject({
+			kind: "stopped", stopped: true, runId: "run-cron",
+		});
 
 		const row = await runtimeIndexRow(botId);
 		expect(row).toMatchObject({ status: "idle", activeRunId: null, activeRunTrigger: null });
@@ -660,7 +663,6 @@ function testRuntimeHarness(): RuntimeHarness {
 		activeAbortController: null,
 		activeRunId: null,
 		activeMaintenanceOperation: null,
-		activeStreamActivity: new Map<string, string>(),
 		ephemeralStreamSeq: 0,
 		transitionQueue: new ExclusiveOperationQueue(),
 		botWithEffectivePostingSettings: async (bot: BotDocument) => ({

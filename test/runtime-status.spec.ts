@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BotRuntime } from "../workers/agent-runtime/src/index";
+import { renewRuntimeRunLease } from "../workers/agent-runtime/src/runtime/bot-runtime";
 import type { RuntimeRunTrigger } from "../workers/agent-runtime/src/types";
 import {
 	authCookie,
@@ -21,6 +22,7 @@ type FailureEvent = {
 type TestRuntime = {
 	fetch(request: Request): Promise<Response>;
 	reapStaleRun(botId: string): Promise<boolean>;
+	recoverStaleRun(botId: string): Promise<{ kind: string; botId: string; runId?: string | null }>;
 };
 
 type RuntimeScheduleRow = {
@@ -30,6 +32,38 @@ type RuntimeScheduleRow = {
 };
 
 describe("BotRuntime status", () => {
+	it("renews only the current run's progress lease across an aggregate visit longer than 15 minutes", async () => {
+		const runId = "run-progress-renewal";
+		const botId = await seedExpiredRun("progress-renewal", runId);
+		for (const now of ["2026-08-23T00:14:00.000Z", "2026-08-23T00:28:00.000Z", "2026-08-23T00:42:00.000Z"]) {
+			await expect(renewRuntimeRunLease(testEnv.BICKR_D1, {
+				botId,
+				runId,
+				now,
+				leaseExpiresAt: new Date(Date.parse(now) + 15 * 60_000).toISOString(),
+			})).resolves.toBe(true);
+		}
+		const lease = await testEnv.BICKR_D1.prepare(
+			`SELECT lease_expires_at AS leaseExpiresAt FROM bot_runtime_index WHERE bot_id = ?`,
+		).bind(botId).first<{ leaseExpiresAt: string }>();
+		expect(lease?.leaseExpiresAt).toBe("2026-08-23T00:57:00.000Z");
+	});
+
+	it("loses lease renewal safely after another run owns the row", async () => {
+		const botId = await seedExpiredRun("renewal-cas-loss", "run-old");
+		await testEnv.BICKR_D1.prepare(
+			`UPDATE bot_runtime_index SET active_run_id = ?, lease_expires_at = ? WHERE bot_id = ?`,
+		).bind("run-new", "2099-01-01T00:00:00.000Z", botId).run();
+
+		await expect(renewRuntimeRunLease(testEnv.BICKR_D1, {
+			botId,
+			runId: "run-old",
+			now: "2026-08-23T00:00:00.000Z",
+			leaseExpiresAt: "2026-08-23T00:15:00.000Z",
+		})).resolves.toBe(false);
+		await expect(runtimeIndexState(botId)).resolves.toMatchObject({ status: "running", activeRunId: "run-new" });
+	});
+
 	it("keeps GET /status side-effect-free for an expired run", async () => {
 		const botId = await seedExpiredRun("status-read", "run-status-read");
 		const counted = d1WithWriteCount(testEnv.BICKR_D1);
@@ -81,6 +115,30 @@ describe("BotRuntime status", () => {
 			activeRunId: null,
 			lastError: "This Bickr visit took too long and closed before completion.",
 		});
+	});
+
+	it("recovers a null lease instead of leaving invalid running state immortal", async () => {
+		const botId = await seedRunningRun("null-lease-recovery", "run-null-lease", {
+			leaseExpiresAt: null,
+			trigger: "manual",
+		});
+		const harness = runtimeHarness(testEnv.BICKR_D1);
+
+		await expect(harness.runtime.recoverStaleRun(botId)).resolves.toEqual({
+			kind: "reaped", botId, runId: "run-null-lease",
+		});
+		await expect(runtimeIndexState(botId)).resolves.toMatchObject({ status: "idle", activeRunId: null });
+	});
+
+	it("releases cleared storage without recreating local history", async () => {
+		const botId = await seedExpiredRun("cleared-storage-recovery", "run-cleared-storage");
+		const harness = runtimeHarness(testEnv.BICKR_D1, { storageCleared: true });
+
+		await expect(harness.runtime.recoverStaleRun(botId)).resolves.toEqual({
+			kind: "released_storage_cleared", botId, runId: "run-cleared-storage",
+		});
+		expect(harness.failureEvents).toEqual([]);
+		await expect(runtimeIndexState(botId)).resolves.toMatchObject({ status: "idle", activeRunId: null });
 	});
 });
 
@@ -144,23 +202,6 @@ describe("BotRuntime stale-run reaper scheduling", () => {
 		expect(Date.parse(row.nextDueAt!)).toBeGreaterThan(Date.now());
 	});
 
-	it("keeps a spotlight visit's standing schedule when its provider stream goes stale", async () => {
-		const botId = await seedRunningRun("reap-stale-spotlight", "run-stale-spotlight", {
-			// Live, so only the stale-stream branch can act on this row.
-			leaseExpiresAt: "2099-01-01T00:00:00.000Z",
-			trigger: "spotlight",
-		});
-		const harness = runtimeHarness(testEnv.BICKR_D1, { staleStream: true });
-
-		await expect(harness.runtime.reapStaleRun(botId)).resolves.toBe(true);
-
-		await expect(runtimeSchedule(botId)).resolves.toEqual({
-			status: "failed",
-			activeRunTrigger: null,
-			nextDueAt: standingDueAt,
-		});
-	});
-
 	// The reaper reads the row, then releases it, and the owner's own scheduling
 	// runs against the same row in between. Preserving a standing schedule means
 	// preserving whatever the column holds at the moment of the release, not
@@ -168,19 +209,38 @@ describe("BotRuntime stale-run reaper scheduling", () => {
 	// never owned that column, so it may not put a stale value back into it.
 	it("keeps a schedule written between the reaper's read and its release of a spotlight visit", async () => {
 		const botId = await seedRunningRun("reap-stale-race", "run-stale-race", {
-			leaseExpiresAt: "2099-01-01T00:00:00.000Z",
+			leaseExpiresAt: "2020-01-01T00:00:00.000Z",
 			trigger: "spotlight",
 		});
 		const concurrentDueAt = "2030-06-01T00:00:00.000Z";
 		const db = d1ReschedulingBeforeRelease(testEnv.BICKR_D1, botId, concurrentDueAt);
-		const harness = runtimeHarness(db, { staleStream: true });
+		const harness = runtimeHarness(db);
 
 		await expect(harness.runtime.reapStaleRun(botId)).resolves.toBe(true);
 
 		await expect(runtimeSchedule(botId)).resolves.toEqual({
-			status: "failed",
+			status: "idle",
 			activeRunTrigger: null,
 			nextDueAt: concurrentDueAt,
+		});
+	});
+
+	it("lets a progress renewal win between the stale read and stale-release CAS", async () => {
+		const runId = "run-renewal-wins-reaper";
+		const botId = await seedExpiredRun("renewal-wins-reaper", runId, "cron");
+		const renewedLease = "2099-01-01T00:15:00.000Z";
+		const harness = runtimeHarness(d1RenewingBeforeStaleRelease(testEnv.BICKR_D1, botId, runId, renewedLease));
+
+		await expect(harness.runtime.reapStaleRun(botId)).resolves.toBe(false);
+
+		expect(harness.failureEvents).toEqual([]);
+		await expect(testEnv.BICKR_D1.prepare(
+			`SELECT status, active_run_id AS activeRunId, lease_expires_at AS leaseExpiresAt
+			 FROM bot_runtime_index WHERE bot_id = ?`,
+		).bind(botId).first()).resolves.toMatchObject({
+			status: "running",
+			activeRunId: runId,
+			leaseExpiresAt: renewedLease,
 		});
 	});
 
@@ -200,7 +260,7 @@ describe("BotRuntime stale-run reaper scheduling", () => {
 
 function runtimeHarness(
 	db: D1Database,
-	options: { stopRequested?: boolean; staleStream?: boolean } = {},
+	options: { stopRequested?: boolean; storageCleared?: boolean } = {},
 ): { runtime: TestRuntime; failureEvents: FailureEvent[] } {
 	const failureEvents: FailureEvent[] = [];
 	const terminalRuns = new Set<string>();
@@ -211,10 +271,8 @@ function runtimeHarness(
 		},
 		activeAbortController: null,
 		activeRunId: null,
-		activeStreamActivity: new Map<string, string>(),
+		runtimeStorageClearedAt: options.storageCleared ? "2026-08-23T00:00:00.000Z" : null,
 		hasStopRequest: () => options.stopRequested === true,
-		staleProviderStream: () =>
-			options.staleStream === true ? { type: "provider_request", created_at: "2026-08-11T00:00:00.000Z" } : null,
 		hasTerminalEvent: (runId: string) => terminalRuns.has(runId),
 		recordTickFailure: (runId: string, payload: Record<string, unknown>) => {
 			terminalRuns.add(runId);
@@ -238,7 +296,7 @@ async function seedExpiredRun(handle: string, runId: string, trigger: RuntimeRun
 async function seedRunningRun(
 	handle: string,
 	runId: string,
-	options: { leaseExpiresAt: string; trigger: RuntimeRunTrigger | null },
+	options: { leaseExpiresAt: string | null; trigger: RuntimeRunTrigger | null },
 ): Promise<string> {
 	const cookie = await authCookie();
 	await seedWorld(cookie);
@@ -322,6 +380,35 @@ function d1ReschedulingBeforeRelease(delegate: D1Database, botId: string, nextDu
 		}) as unknown as D1PreparedStatement;
 	return {
 		prepare: (query: string) => wrap(delegate.prepare(query), isRelease(query)),
+	} as unknown as D1Database;
+}
+
+function d1RenewingBeforeStaleRelease(
+	delegate: D1Database,
+	botId: string,
+	runId: string,
+	leaseExpiresAt: string,
+): D1Database {
+	const isStaleRelease = (query: string): boolean =>
+		query.includes("active_run_id IS ?") && query.includes("lease_expires_at IS NULL OR lease_expires_at <= ?");
+	const wrap = (statement: D1PreparedStatement, intercept: boolean): D1PreparedStatement =>
+		({
+			bind: (...values: unknown[]) => wrap(statement.bind(...values), intercept),
+			first: statement.first.bind(statement),
+			run: async (...args: []) => {
+				if (intercept) {
+					await renewRuntimeRunLease(delegate, {
+						botId,
+						runId,
+						now: "2099-01-01T00:00:00.000Z",
+						leaseExpiresAt,
+					});
+				}
+				return statement.run(...args);
+			},
+		}) as unknown as D1PreparedStatement;
+	return {
+		prepare: (query: string) => wrap(delegate.prepare(query), isStaleRelease(query)),
 	} as unknown as D1Database;
 }
 

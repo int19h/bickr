@@ -7,6 +7,8 @@ import {
 	agentRuntimeFrequentCronExpression,
 } from './cron';
 import { runScheduledAgentRuntimeTasks } from '../routes';
+import { scheduledDispatchBudget } from '../constants';
+import { staleRunRecoveryMaxBotsPerRun } from './stale-run-recovery';
 
 // Every agent-runtime Wrangler configuration that declares triggers, and the
 // environment it declares them for. A trigger set that drifts from the task-set
@@ -19,6 +21,12 @@ const triggerConfigurations = [
 ] as const;
 
 describe('agent-runtime cron triggers', () => {
+	it('keeps the combined frequent-cron Durable Object fan-out below the current paid-plan subrequest allowance', () => {
+		// Current Workers docs allow 10,000 subrequests per invocation on the paid
+		// plan. D1/KV work still has ample headroom after these two bounded fan-outs.
+		expect(scheduledDispatchBudget + staleRunRecoveryMaxBotsPerRun).toBeLessThan(10_000);
+	});
+
 	it.each(triggerConfigurations)('declares exactly the known task sets in the $label configuration', ({ path, ...rest }) => {
 		const environment = 'environment' in rest ? rest.environment : undefined;
 		const config = readConfig({ config: path, ...(environment ? { env: environment } : {}) }, { hideWarnings: true });
@@ -60,6 +68,12 @@ describe('scheduled cron dispatch', () => {
 					return statements.map(() => ({ success: true, results: [], meta: { changes: 0 } }));
 				},
 				prepare(sql: string) {
+					if (sql.includes('global_inference_cost_stats_cache')) {
+						calls.push('global_stats_query');
+					}
+					if (sql.includes("runtime.status = 'running'")) {
+						calls.push('stale_run_recovery_query');
+					}
 					if (sql.includes('inference_provider_default_barrier_candidates')) {
 						calls.push('inference_graph_cleanup_query');
 					}
@@ -226,9 +240,42 @@ describe('scheduled cron dispatch', () => {
 			agentRuntimeFrequentCronExpression,
 		);
 
-		expect(result).toEqual({ kind: 'ordinary' });
+		expect(result).toMatchObject({
+			kind: 'ordinary',
+			staleRunRecovery: { kind: 'completed', sweep: { kind: 'stale_run_recovery_sweep', scanned: 0 } },
+		});
+		expect(calls).toContain('stale_run_recovery_query');
 		expect(calls).toContain('due_dispatch_query');
 		expect(calls).not.toContain('retention_sweep_query');
+	});
+
+	it('isolates a sweep-level recovery failure from ordinary dispatch and stats', async () => {
+		const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		const { env, calls } = dispatchEnv();
+		const prepare = env.BICKR_D1.prepare.bind(env.BICKR_D1);
+		vi.spyOn(env.BICKR_D1, 'prepare').mockImplementation(((sql: string) => {
+			if (sql.includes("runtime.status = 'running'")) {
+				throw new TypeError('stale sweep unavailable');
+			}
+			return prepare(sql);
+		}) as typeof env.BICKR_D1.prepare);
+
+		const result = await runScheduledAgentRuntimeTasks(
+			env,
+			Date.parse('2026-08-17T00:05:00.000Z'),
+			agentRuntimeFrequentCronExpression,
+		);
+
+		expect(result).toMatchObject({
+			kind: 'ordinary',
+			staleRunRecovery: { kind: 'failed', failure: { kind: 'sweep_error', errorName: 'TypeError' } },
+		});
+		if (result.kind !== 'ordinary') throw new Error('Expected ordinary scheduled result.');
+		expect(calls).toContain('due_dispatch_query');
+		expect(calls).toContain('global_stats_query');
+		expect(error.mock.calls.map(([message]) => JSON.parse(String(message))))
+			.toContainEqual(expect.objectContaining({ event: 'scheduled_stale_run_recovery', outcome: result.staleRunRecovery }));
+		vi.restoreAllMocks();
 	});
 
 	it('falls back to the frequent set for an unrecognized expression and says so', async () => {
@@ -237,7 +284,10 @@ describe('scheduled cron dispatch', () => {
 
 		const result = await runScheduledAgentRuntimeTasks(env, Date.parse('2026-08-17T00:05:00.000Z'), '7 7 7 7 7');
 
-		expect(result).toEqual({ kind: 'ordinary' });
+		expect(result).toMatchObject({
+			kind: 'ordinary',
+			staleRunRecovery: { kind: 'completed', sweep: { kind: 'stale_run_recovery_sweep', scanned: 0 } },
+		});
 		expect(calls).toContain('due_dispatch_query');
 		expect(JSON.parse(String(error.mock.calls[0]?.[0]))).toMatchObject({
 			event: 'scheduled_unrecognized_cron',

@@ -128,6 +128,7 @@ import {
 	type BotRuntimeEvent,
 	type BotRuntimeEventType,
 	type BotRuntimeStatus,
+	type BotRuntimeStopResult,
 	type BotSearchResult,
 	type BotSummary,
 	type BotTokenUsageBucket,
@@ -196,6 +197,7 @@ import { createProviderStructuredOutput } from '../provider/structured-output';
 import { RuntimeEventsStore } from './events';
 import { RuntimeMessageStore } from './message-store';
 import { RuntimeSpotlightTickQueue } from './spotlight-tick-queue';
+import type { RuntimeStaleRunRecoveryResult } from './stale-run-recovery';
 import {
 	canonicalToolName,
 	followToolArgsWithTargets,
@@ -347,7 +349,6 @@ import {
 	runtimeRunLeaseTimeoutMs,
 	providerRequestTimeoutMs,
 	providerBodyReadTimeoutMs,
-	providerStreamIdleTimeoutMs,
 	providerResponseBodyMaxBytes,
 	openRouterGenerationMetadataMaxBytes,
 	openRouterGenerationMetadataTimeoutMs,
@@ -435,7 +436,6 @@ import type {
 	RuntimeStorageRetentionResult,
 	RunContext,
 	ProviderMessageStatus,
-	ProviderStreamActivity,
 	ReadContentItem,
 	ContextBudgetPromptParts,
 	ProviderPromptCacheControl,
@@ -587,6 +587,11 @@ type RuntimeStatusIndexRow = {
 	tickIntervalSeconds: number;
 };
 
+type StopRequestState = {
+	runId: string;
+	requestedAt: string;
+};
+
 /**
  * Reads the trigger a live run was claimed with off its index row.
  *
@@ -705,6 +710,66 @@ export async function releaseRuntimeRun(
 			   AND active_run_id IS ?`,
 		)
 		.bind(input.status, input.lastError, input.nextDueAt, input.now, input.botId, input.runId)
+		.run();
+	return result.meta?.changes === 1;
+}
+
+export async function releaseStaleRuntimeRun(
+	db: D1DatabaseLike,
+	input: {
+		botId: string;
+		runId: string | null;
+		status: RuntimeReleaseStatus;
+		nextDueAt: string | null;
+		lastError: string | null;
+		now: string;
+		staleCutoff: string;
+	},
+): Promise<boolean> {
+	const result = await db
+		.prepare(
+			// Recovery must prove both ownership and continued staleness in the
+			// releasing statement. A progress renewal can otherwise land after the
+			// recovery read and be incorrectly overwritten by a status/run-id-only CAS.
+			`UPDATE bot_runtime_index
+			 SET status = ?,
+			     active_run_id = NULL,
+			     active_run_trigger = NULL,
+			     lease_expires_at = NULL,
+			     last_error = ?,
+			     next_due_at = CASE WHEN enabled = 1 THEN COALESCE(?, next_due_at) ELSE NULL END,
+			     updated_at = ?
+			 WHERE bot_id = ?
+			   AND status = 'running'
+			   AND active_run_id IS ?
+			   AND (lease_expires_at IS NULL OR lease_expires_at <= ?)`,
+		)
+		.bind(
+			input.status,
+			input.lastError,
+			input.nextDueAt,
+			input.now,
+			input.botId,
+			input.runId,
+			input.staleCutoff,
+		)
+		.run();
+	return result.meta?.changes === 1;
+}
+
+export async function renewRuntimeRunLease(
+	db: D1DatabaseLike,
+	input: { botId: string; runId: string; leaseExpiresAt: string; now: string },
+): Promise<boolean> {
+	const result = await db
+		.prepare(
+			`UPDATE bot_runtime_index
+			 SET lease_expires_at = ?, updated_at = ?
+			 WHERE bot_id = ?
+			   AND status = 'running'
+			   AND active_run_id = ?`,
+		)
+		.bind(input.leaseExpiresAt, input.now, input.botId, input.runId)
 		.run();
 	return result.meta?.changes === 1;
 }
@@ -1716,7 +1781,6 @@ export class BotRuntime {
 	private activeAbortController: AbortController | null = null;
 	private activeRunId: string | null = null;
 	private activeMaintenanceOperation: ActiveMaintenanceOperation | null = null;
-	private readonly activeStreamActivity = new Map<string, string>();
 	private ephemeralStreamSeq = 0;
 	private transitionQueue = new ExclusiveOperationQueue();
 	/**
@@ -1734,6 +1798,7 @@ export class BotRuntime {
 		this.env = env;
 		this.state.blockConcurrencyWhile(async () => {
 			this.initializeRuntimeStorage();
+			this.migrateLegacyStopRequestState();
 			this.runtimeStorageClearedAt = stringValue(this.runtimeStateValue(runtimeStorageClearedStateKey)) ?? null;
 			// A cleared object that is evicted and rebuilt runs this block again. Each
 			// migration stamps a "done" marker into `runtime_state` even when it finds
@@ -1746,6 +1811,23 @@ export class BotRuntime {
 				this.backfillProviderTokenCalibrationSamples();
 			}
 		});
+	}
+
+	/**
+	 * Version-1 stored only a JSON run-id string. Convert it once at the writer
+	 * boundary so every later reader consumes the structured state directly.
+	 * This startup migration is the retirement path for the old shape; there is
+	 * no migrate-on-read fallback to stack with future versions.
+	 */
+	private migrateLegacyStopRequestState(): void {
+		const value = this.runtimeStateValue(stopRequestStateKey);
+		if (typeof value !== 'string' || value.length === 0) {
+			return;
+		}
+		this.setRuntimeState(stopRequestStateKey, {
+			runId: value,
+			requestedAt: new Date().toISOString(),
+		} satisfies StopRequestState);
 	}
 
 	/**
@@ -2029,10 +2111,7 @@ export class BotRuntime {
 	}
 
 	private runStorageTransactionSync<T>(closure: () => T): T {
-		// Some unit-test harnesses stub only the SQL surface; production SQLite
-		// Durable Object storage provides transactionSync.
-		const storage = (this as unknown as { state?: { storage?: { transactionSync?: <Result>(callback: () => Result) => Result } } }).state?.storage;
-		return typeof storage?.transactionSync === 'function' ? storage.transactionSync(closure) : closure();
+		return this.state.storage.transactionSync(closure);
 	}
 
 	private compactionReasoningForSettings(
@@ -2083,7 +2162,10 @@ export class BotRuntime {
 			if (!isTrustedInternalServiceRequest(request, this.env.INTERNAL_SERVICE_SECRET)) {
 				return agentRuntimeNotFoundResponse();
 			}
-			const maintenanceResponse = await mutationMaintenanceResponse(request, this.env.BICKR_D1, { allowRuntimeStop: true });
+			const maintenanceResponse = await mutationMaintenanceResponse(request, this.env.BICKR_D1, {
+				allowRuntimeStop: true,
+				allowRuntimeStaleRunRecovery: true,
+			});
 			if (maintenanceResponse) {
 				return maintenanceResponse;
 			}
@@ -2163,6 +2245,10 @@ export class BotRuntime {
 	}
 
 	private async handleRuntimeMutationRequest(request: Request, url: URL, botId: string): Promise<Response | null> {
+		if (request.method === 'POST' && url.pathname.endsWith('/recover-stale-run')) {
+			this.requireInternalMaintenance(request);
+			return ok({ recovery: await this.recoverStaleRun(botId) });
+		}
 		const messageSeq = messageSeqFromPath(url.pathname);
 		if (request.method === 'DELETE' && messageSeq !== null) {
 			await this.requireOwnerOrInternal(request, botId);
@@ -2228,6 +2314,45 @@ export class BotRuntime {
 			return ok({ cleared: await this.clearRuntimeStorage(botId) });
 		}
 		return null;
+	}
+
+	private async recoverStaleRun(botId: string): Promise<RuntimeStaleRunRecoveryResult> {
+		return this.runtimeTransitionQueue().run(async () => {
+			const row = await this.runtimeStatusIndexRow(botId);
+			if (row?.status !== 'running') {
+				return { kind: 'not_running', botId };
+			}
+			const runId = row.activeRunId;
+			const staleCutoff = new Date().toISOString();
+			if (row.leaseExpiresAt !== null && row.leaseExpiresAt > staleCutoff) {
+				return { kind: 'current', botId, runId, leaseExpiresAt: row.leaseExpiresAt };
+			}
+			if (this.runtimeStorageClearedAt) {
+				const released = await this.releaseStaleRuntimeRow(botId, row, null, staleCutoff);
+				if (released) {
+					return { kind: 'released_storage_cleared', botId, runId };
+				}
+				return this.recoveryResultAfterCasLoss(botId);
+			}
+			const reaped = await this.reapStaleRun(botId, staleCutoff);
+			if (reaped) {
+				return { kind: 'reaped', botId, runId };
+			}
+			return this.recoveryResultAfterCasLoss(botId);
+		});
+	}
+
+	private async recoveryResultAfterCasLoss(botId: string): Promise<RuntimeStaleRunRecoveryResult> {
+		const current = await this.runtimeStatusIndexRow(botId);
+		if (current?.status !== 'running') {
+			return { kind: 'not_running', botId };
+		}
+		return {
+			kind: 'current',
+			botId,
+			runId: current.activeRunId,
+			leaseExpiresAt: current.leaseExpiresAt,
+		};
 	}
 
 	private async handleRuntimeInjectionRequest(request: Request, url: URL, botId: string): Promise<Response | null> {
@@ -2419,11 +2544,18 @@ export class BotRuntime {
 			this.throwIfStopped(runId, abortController.signal);
 			const injections = this.consumeInjections(mode === 'spotlight' ? (options.injectionIds ?? []) : undefined);
 			if (mode === 'spotlight' && injections.length === 0) {
-				const nextDueAt = await this.setRuntimeIndex(bot, 'idle', undefined, new Date().toISOString(), runId, trigger);
-				this.appendEvent(runId, 'tick_completed', {
-					...(nextDueAt ? { nextDueAt } : {}),
-					note: 'No pending spotlight injection was available.',
-				});
+				await this.renewProgressLease(bot.id, runId, abortController.signal);
+				const release = await this.completeRuntimeRunSerialized(
+					bot,
+					new Date().toISOString(),
+					runId,
+					trigger,
+					abortController.signal,
+					{ note: 'No pending spotlight injection was available.' },
+				);
+				if (!release.released) {
+					throw new TickStoppedError();
+				}
 				startQueuedSpotlightAfterRun = true;
 				return { runId, status: 'completed' };
 			}
@@ -2480,22 +2612,38 @@ export class BotRuntime {
 			}
 
 			await this.compactIfNeeded(bot, providerSettings, runId, abortController.signal);
-			const nextDueAt = await this.setRuntimeIndex(bot, 'idle', undefined, new Date().toISOString(), runId, trigger);
-			this.appendEvent(runId, 'tick_completed', { ...(nextDueAt ? { nextDueAt } : {}) });
+			await this.renewProgressLease(bot.id, runId, abortController.signal);
+			const release = await this.completeRuntimeRunSerialized(
+				bot,
+				new Date().toISOString(),
+				runId,
+				trigger,
+				abortController.signal,
+				{},
+			);
+			if (!release.released) {
+				throw new TickStoppedError();
+			}
 			startQueuedSpotlightAfterRun = true;
 			return { runId, status: 'completed' };
 		} catch (error) {
 			if (error instanceof TickStoppedError || isAbortError(error)) {
-				this.markPendingCompactionEventsFailed(runId, 'This Bickr visit was stopped.');
-				if (!this.hasTerminalEvent(runId)) {
-					this.appendEvent(runId, 'tick_stopped', { message: 'This Bickr visit was stopped.' });
+				const release = await this.setRuntimeIndexSerialized(bot, 'idle', undefined, new Date().toISOString(), runId, trigger);
+				if (release.released) {
+					this.markPendingCompactionEventsFailed(runId, 'This Bickr visit was stopped.');
+					if (!this.hasTerminalEvent(runId)) {
+						this.appendEvent(runId, 'tick_stopped', { message: 'This Bickr visit was stopped.' });
+					}
 				}
-				await this.setRuntimeIndex(bot, 'idle', undefined, new Date().toISOString(), runId, trigger);
 				return { runId, status: 'stopped' };
 			}
 				if (error instanceof PersistentToolFailureError) {
 					const cause = runtimeErrorCause(error);
 					const message = ownerFacingRuntimeErrorMessage(cause) ?? error.message;
+					const release = await this.setRuntimeIndexSerialized(bot, 'failed', message, new Date().toISOString(), runId, trigger);
+					if (!release.released) {
+						return { runId, status: 'stopped' };
+					}
 					if (!this.hasTerminalEvent(runId)) {
 						this.recordTickFailure(runId, {
 							message,
@@ -2503,7 +2651,6 @@ export class BotRuntime {
 							failure: error.failure,
 						}, [], { cause });
 					}
-					await this.setRuntimeIndex(bot, 'failed', message, new Date().toISOString(), runId, trigger);
 					try {
 						await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 							bot,
@@ -2527,13 +2674,16 @@ export class BotRuntime {
 				if (error instanceof PersistentMissingToolCallError) {
 					const cause = runtimeErrorCause(error);
 					const message = ownerFacingRuntimeErrorMessage(cause) ?? error.message;
+					const release = await this.setRuntimeIndexSerialized(bot, 'failed', message, new Date().toISOString(), runId, trigger);
+					if (!release.released) {
+						return { runId, status: 'stopped' };
+					}
 					if (!this.hasTerminalEvent(runId)) {
 						this.recordTickFailure(runId, {
 							message,
 							toolNames: error.toolNames,
 						}, [], { cause });
 					}
-					await this.setRuntimeIndex(bot, 'failed', message, new Date().toISOString(), runId, trigger);
 					try {
 						await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 							bot,
@@ -2556,6 +2706,11 @@ export class BotRuntime {
 				if (error instanceof PersistentCompactionReductionFailureError) {
 					const cause = runtimeErrorCause(error);
 					const message = ownerFacingRuntimeErrorMessage(cause) ?? error.message;
+					const failedAt = new Date().toISOString();
+					const release = await this.setRuntimeIndexSerialized(bot, 'failed', message, failedAt, runId, trigger);
+					if (!release.released) {
+						return { runId, status: 'stopped' };
+					}
 					if (!this.hasTerminalEvent(runId)) {
 						this.recordTickFailure(runId, {
 							message,
@@ -2564,9 +2719,7 @@ export class BotRuntime {
 							attempts: error.attempts,
 						}, runtimeFailureLogs(error), { cause });
 					}
-					const failedAt = new Date().toISOString();
 					await this.pauseBotAfterPersistentCompactionFailure(bot, message, failedAt);
-					await this.setRuntimeIndex(bot, 'failed', message, failedAt, runId, trigger);
 					try {
 						await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 							bot,
@@ -2580,10 +2733,13 @@ export class BotRuntime {
 				}
 				const cause = runtimeErrorCause(error);
 				const message = ownerFacingRuntimeErrorMessage(cause) ?? 'Unexpected Bickr visit error.';
+				const release = await this.setRuntimeIndexSerialized(bot, 'failed', message, new Date().toISOString(), runId, trigger);
+				if (!release.released) {
+					return { runId, status: 'stopped' };
+				}
 				if (!this.hasTerminalEvent(runId)) {
 					this.recordTickFailure(runId, { message }, runtimeFailureLogs(error), { cause });
 				}
-				await this.setRuntimeIndex(bot, 'failed', message, new Date().toISOString(), runId, trigger);
 				try {
 					await recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, {
 						bot,
@@ -2748,44 +2904,70 @@ export class BotRuntime {
 		return new RuntimeSpotlightTickQueue(this.state.storage);
 	}
 
-	private async stopTick(botId: string): Promise<{ stopped: boolean; runId?: string; status: BotRuntimeStatus['status'] }> {
-		await this.reapStaleRun(botId);
-		// The index row rather than readStatus, because releasing a run this instance
-		// does not own needs the trigger it was claimed with, and only the row knows.
-		const current = await this.runtimeStatusIndexRow(botId);
-		const status = current?.status ?? 'idle';
-		const runId = current?.activeRunId ?? this.activeRunId ?? undefined;
-		if (status !== 'running' || !runId) {
-			return { stopped: false, status };
-		}
+	private async stopTick(botId: string): Promise<BotRuntimeStopResult> {
+		return this.runtimeTransitionQueue().run(async () => {
+			// The index row rather than readStatus, because releasing a run this
+			// instance does not own needs the trigger it was claimed with.
+			const current = await this.runtimeStatusIndexRow(botId);
+			const status = current?.status ?? 'idle';
+			const runId = current?.activeRunId ?? this.activeRunId ?? undefined;
+			if (status !== 'running' || !runId) {
+				return { kind: 'not_running', stopped: false, status, ...(runId ? { runId } : {}) };
+			}
 
-		this.setStopRequest(runId);
-		this.appendEvent(runId, 'tick_stop_requested', { message: 'This Bickr visit was asked to stop.' });
-		if (this.activeRunId === runId && this.activeAbortController && !this.activeAbortController.signal.aborted) {
-			this.activeAbortController.abort();
-			return { stopped: true, runId, status };
-		}
-		const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
-		await this.markRunStopped(bot, runId, recordedRunTrigger(current?.activeRunTrigger ?? null));
-		return { stopped: true, runId, status: 'idle' };
+			if (this.activeRunId === runId && this.activeAbortController) {
+				const created = this.setStopRequest(runId);
+				if (created) {
+					this.appendEvent(runId, 'tick_stop_requested', { message: 'This Bickr visit was asked to stop.' });
+				}
+				if (!this.activeAbortController.signal.aborted) {
+					this.activeAbortController.abort();
+				}
+				return { kind: 'stop_requested', stopped: false, runId, status: 'running' };
+			}
+
+			const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
+			const terminal = await this.markRunStopped(bot, runId, recordedRunTrigger(current?.activeRunTrigger ?? null));
+			if (terminal.released || terminal.confirmed) {
+				return { kind: 'stopped', stopped: true, runId, status: 'idle' };
+			}
+			const after = await this.runtimeStatusIndexRow(botId);
+			if (after?.status === 'running' && after.activeRunId === runId) {
+				const created = this.setStopRequest(runId);
+				if (created) {
+					this.appendEvent(runId, 'tick_stop_requested', { message: 'This Bickr visit was asked to stop.' });
+				}
+				return { kind: 'stop_requested', stopped: false, runId, status: 'running' };
+			}
+			return {
+				kind: 'not_running',
+				stopped: false,
+				runId,
+				status: after?.status ?? 'idle',
+			};
+		});
 	}
 
-	private setStopRequest(runId: string): void {
-		this.state.storage.sql.exec(
-			`INSERT INTO runtime_state (key, value_json)
-			 VALUES (?, ?)
-			 ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
-			stopRequestStateKey,
-			JSON.stringify(runId),
-		);
+	private setStopRequest(runId: string): boolean {
+		const current = this.stopRequestState();
+		if (current?.runId === runId) {
+			return false;
+		}
+		this.setRuntimeState(stopRequestStateKey, {
+			runId,
+			requestedAt: new Date().toISOString(),
+		} satisfies StopRequestState);
+		return true;
 	}
 
 	private clearStopRequest(runId?: string): void {
 		if (runId) {
-			this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key = ? AND value_json = ?`, stopRequestStateKey, JSON.stringify(runId));
+			if (this.stopRequestState()?.runId === runId) {
+				this.deleteRuntimeState(stopRequestStateKey);
+			}
 			return;
 		}
-		this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key = ?`, stopRequestStateKey);
+		this.deleteRuntimeState(stopRequestStateKey);
 	}
 
 	private throwIfStopped(runId: string, signal: AbortSignal): void {
@@ -2797,15 +2979,38 @@ export class BotRuntime {
 		}
 	}
 
-	private hasStopRequest(runId: string): boolean {
-		const row = this.state.storage.sql
-			.exec<{ value_json: string }>(`SELECT value_json FROM runtime_state WHERE key = ?`, stopRequestStateKey)
-			.toArray()[0];
-		if (!row) {
-			return false;
+	private async renewProgressLease(botId: string, runId: string, signal: AbortSignal): Promise<void> {
+		this.throwIfStopped(runId, signal);
+		// Manual compaction and focused subsystem tests may use these routines
+		// without owning a runtime-index lease. Only an execution admitted by
+		// runTick may renew the lease; all other callers still observe cancellation.
+		if (this.activeRunId !== runId) {
+			return;
 		}
-		const requestedRunId = stringValue(JSON.parse(row.value_json));
-		return requestedRunId === runId;
+		const now = new Date().toISOString();
+		const renewed = await renewRuntimeRunLease(this.env.BICKR_D1, {
+			botId,
+			runId,
+			leaseExpiresAt: new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString(),
+			now,
+		});
+		if (!renewed) {
+			// Ownership moved while this execution was suspended. Treat that exactly
+			// like cancellation so it cannot publish work for a newer visit.
+			throw new TickStoppedError();
+		}
+		this.throwIfStopped(runId, signal);
+	}
+
+	private hasStopRequest(runId: string): boolean {
+		return this.stopRequestState()?.runId === runId;
+	}
+
+	private stopRequestState(): StopRequestState | null {
+		const record = this.runtimeStateRecord(stopRequestStateKey);
+		const runId = stringValue(record?.runId);
+		const requestedAt = stringValue(record?.requestedAt);
+		return runId && requestedAt ? { runId, requestedAt } : null;
 	}
 
 	private pendingToolUseReminder(): string | undefined {
@@ -2902,14 +3107,24 @@ export class BotRuntime {
 		});
 	}
 
-	private async markRunStopped(bot: BotDocument, runId: string, trigger: RuntimeRunTrigger): Promise<string | null> {
+	private async markRunStopped(
+		bot: BotDocument,
+		runId: string,
+		trigger: RuntimeRunTrigger,
+	): Promise<{ released: boolean; confirmed: boolean }> {
+		const release = await this.setRuntimeIndex(bot, 'idle', undefined, new Date().toISOString(), runId, trigger);
+		if (!release.released) {
+			return { released: false, confirmed: this.hasTerminalEvent(runId) };
+		}
+		if (this.setStopRequest(runId)) {
+			this.appendEvent(runId, 'tick_stop_requested', { message: 'This Bickr visit was asked to stop.' });
+		}
 		this.markPendingCompactionEventsFailed(runId, 'This Bickr visit was stopped.');
 		if (!this.hasTerminalEvent(runId)) {
 			this.appendEvent(runId, 'tick_stopped', { message: 'This Bickr visit was stopped.' });
 		}
-		const nextDueAt = await this.setRuntimeIndex(bot, 'idle', undefined, new Date().toISOString(), runId, trigger);
 		this.clearStopRequest(runId);
-		return nextDueAt;
+		return { released: true, confirmed: true };
 	}
 
 	private async runProviderLoop(
@@ -2953,7 +3168,7 @@ export class BotRuntime {
 			return { logOffCalled: finishedByLogOff, spotlightMutationCount, toolCallCount };
 		};
 		while (toolRequestTurns < tickSettings.maxToolCallsPerTick) {
-			this.throwIfStopped(runId, runContext.signal);
+			await this.renewProgressLease(bot.id, runId, runContext.signal);
 			let { tools: providerTools, serverTools } = providerToolsForBotRound(bot, settings);
 			if (providerTools.length === 0) {
 				return finishProviderLoop();
@@ -3003,6 +3218,7 @@ export class BotRuntime {
 						runId,
 						requestEvent.seq,
 						runContext.signal,
+						bot.id,
 						toolCallsMode,
 						requestEvent.createdAt,
 						requestMaxCompletionTokens,
@@ -3013,6 +3229,16 @@ export class BotRuntime {
 						response = error.response;
 						responseStatus = 'interrupted';
 						interruptedError = error;
+					} else {
+						throw error;
+					}
+				}
+				try {
+					this.throwIfStopped(runId, runContext.signal);
+				} catch (error) {
+					if (error instanceof TickStoppedError || isAbortError(error)) {
+						responseStatus = 'interrupted';
+						interruptedError ??= new ProviderResponseInterruptedError(response, error);
 					} else {
 						throw error;
 					}
@@ -3047,6 +3273,16 @@ export class BotRuntime {
 						settings,
 						usage: response.usage,
 					});
+				}
+				try {
+					this.throwIfStopped(runId, runContext.signal);
+				} catch (error) {
+					if (error instanceof TickStoppedError || isAbortError(error)) {
+						responseStatus = 'interrupted';
+						interruptedError ??= new ProviderResponseInterruptedError(response, error);
+					} else {
+						throw error;
+					}
 				}
 				if (!allToolCallsDroppedResponse) {
 					break;
@@ -3160,6 +3396,8 @@ export class BotRuntime {
 							return content;
 						},
 					);
+				} else {
+					appendAssistantMessageWithoutToolCalls();
 				}
 				throw interruptedError?.originalError instanceof Error ? interruptedError.originalError : new TickStoppedError();
 			}
@@ -3268,6 +3506,7 @@ export class BotRuntime {
 				}
 				let result: ToolResult;
 				try {
+					await this.renewProgressLease(bot.id, runId, runContext.signal);
 					result = await this.executeTool(bot, runId, toolCall.function.name, args, runContext);
 					pendingToolCallIds.delete(toolCall.id);
 					consecutiveToolFailures = 0;
@@ -3315,6 +3554,17 @@ export class BotRuntime {
 					? toolCallWithArguments(toolCall, JSON.stringify(providerToolArgs(result.name, result.effectiveArgs)))
 					: toolCall;
 				appendAssistantToolResultPair(toolCall, toolMessage, 'tool_result', 'complete', { displayEventSeq: result.displayEventSeq }, recordedToolCall);
+				try {
+					await this.renewProgressLease(bot.id, runId, runContext.signal);
+				} catch (error) {
+					if (error instanceof TickStoppedError || isAbortError(error)) {
+						this.appendInterruptedToolMessages(runId, response.toolCalls, pendingToolCallIds, (interruptedToolCall, interruptedMessage, content) => {
+							appendAssistantToolResultPair(interruptedToolCall, interruptedMessage, 'tool_failure', 'interrupted', {}, interruptedToolCall);
+							return content;
+						});
+					}
+					throw error;
+				}
 				if (result.selfCorrectionMessages) {
 					selfCorrectionAcknowledgements.push(...result.selfCorrectionMessages);
 				}
@@ -3427,6 +3677,7 @@ export class BotRuntime {
 		runId: string,
 		streamSeq: number,
 		signal: AbortSignal,
+		botId: string,
 		toolCalls: BotInferenceToolCalls = providerToolCallsForSettings(settings),
 		createdAt = new Date().toISOString(),
 		maxCompletionTokens = providerContextCompletionReserveTokens,
@@ -3450,7 +3701,7 @@ export class BotRuntime {
 		let retryReason: string | null = null;
 		let calibrationAttempt = 0;
 		for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
-			this.throwIfStopped(runId, signal);
+			await this.renewProgressLease(botId, runId, signal);
 			if (attempt > 1) {
 				this.appendEvent(runId, 'provider_retry', {
 					attempt,
@@ -3461,6 +3712,7 @@ export class BotRuntime {
 				if (retryDelayMs > 0) {
 					await sleep(retryDelayMs, signal);
 				}
+				await this.renewProgressLease(botId, runId, signal);
 			}
 			const request = providerChatCompletionRequest(
 				requestSettings,
@@ -3671,7 +3923,11 @@ export class BotRuntime {
 		});
 		for (;;) {
 			const attemptState = plan.request();
-			this.throwIfStopped(runId, signal);
+			if (bot) {
+				await this.renewProgressLease(bot.id, runId, signal);
+			} else {
+				this.throwIfStopped(runId, signal);
+			}
 			if (attemptState.settingsPatch) {
 				requestSettings = { ...requestSettings, ...attemptState.settingsPatch };
 			}
@@ -3687,6 +3943,9 @@ export class BotRuntime {
 				});
 				if (attemptState.retry.delayMs > 0) {
 					await sleep(attemptState.retry.delayMs, signal);
+				}
+				if (bot) {
+					await this.renewProgressLease(bot.id, runId, signal);
 				}
 			}
 			const requestProviderTools = providerCompactionToolsForAttempt(limits, effectiveProviderTools, mode, attemptState.toolSet);
@@ -3795,8 +4054,6 @@ export class BotRuntime {
 				repairInvalidUnicodeText,
 				repairInvalidUnicodeValue,
 				isAbortError,
-				markProviderStreamActive: (activeRunId) => this.markProviderStreamActive(activeRunId),
-				clearProviderStreamActive: (activeRunId) => this.clearProviderStreamActive(activeRunId),
 				throwIfStopped: (activeRunId, activeSignal) => this.throwIfStopped(activeRunId, activeSignal),
 				broadcastProviderDelta: (activeRunId, activeStreamSeq, payload) =>
 					this.broadcastProviderDelta(activeRunId, activeStreamSeq, payload),
@@ -5099,14 +5356,6 @@ export class BotRuntime {
 		return this.state.storage.sql.exec<{ seq: number }>(`SELECT seq FROM events ORDER BY seq DESC LIMIT 1`).toArray()[0]?.seq ?? 0;
 	}
 
-	private markProviderStreamActive(runId: string): void {
-		this.activeStreamActivity.set(runId, new Date().toISOString());
-	}
-
-	private clearProviderStreamActive(runId: string): void {
-		this.activeStreamActivity.delete(runId);
-	}
-
 	private async fetchProviderResponse(
 		settings: ProviderSettings,
 		endpoint: string,
@@ -6209,9 +6458,9 @@ export class BotRuntime {
 		let providerTools = options.reason === 'prompt_budget' ? options.providerTools : undefined;
 		let compactionAttempts = 0;
 		for (;;) {
-			if (options.reason === 'prompt_budget') {
-				this.throwIfStopped(runId, signal);
-			}
+			// Both threshold and prompt-budget compaction mutate the authoritative
+			// transcript, so cancellation fences them identically.
+			await this.renewProgressLease(bot.id, runId, signal);
 			const budgetBot = await this.botWithCurrentRuntimeBudget(bot);
 			const tickSettings = effectiveTickSettings(budgetBot.tickSettings);
 			const requestContextWindowTokens = effectiveContextWindowTokensForModel(settings, tickSettings.contextWindowTokens);
@@ -6573,6 +6822,7 @@ export class BotRuntime {
 		mode: 'auto' | 'manual',
 		metrics: CompactionMetrics,
 	): Promise<LoopMessageRow[]> {
+		await this.renewProgressLease(bot.id, runId, signal);
 		let providerRows = compacted.filter((row) => loopMessageContributesToCompactionProviderInput(row));
 		if (providerRows.length === 0) {
 			return [];
@@ -6720,45 +6970,6 @@ export class BotRuntime {
 		}
 		const summary = response.content ? storedCompactionSummary(response.content) : deterministicCompactionSummary('', recentActivity);
 		const summaryPosition = providerRows[providerRows.length - 1]?.position ?? this.nextLoopMessagePosition();
-		const summaryMessage = this.insertLoopMessage({
-			runId,
-			message: { role: 'assistant', content: summary },
-			origin: 'compaction',
-			status: 'complete',
-			position: summaryPosition,
-			streamSeq: summaryEvent.seq,
-			broadcast: true,
-		});
-		for (const row of ledgerRows) {
-			this.state.storage.sql.exec(
-				`UPDATE loop_messages
-				 SET compacted_by = ?
-				 WHERE seq = ?
-				   AND compacted_by IS NULL`,
-				summaryMessage.seq,
-				row.seq,
-			);
-		}
-		this.recordLoopMessageLog(summaryMessage.seq, 'message', JSON.stringify(summaryMessage.message));
-		if (response.requestBody) {
-			this.recordLoopMessageLog(summaryMessage.seq, 'compaction_request', response.requestBody);
-		}
-		if (response.rawResponse) {
-			this.recordLoopMessageLog(summaryMessage.seq, 'compaction_response', response.rawResponse);
-		}
-		this.replaceEventPayload(summaryEvent, {
-			...compactionEventPayload,
-			compactionReasoning: compactionReasoningDiagnostic(response.compactionReasoning),
-			status: 'complete',
-			summary,
-			summaryMessageSeq: summaryMessage.seq,
-		});
-		if (providerActive) {
-			this.updateInferenceSubmissionDisplayMessages(summaryEvent.seq, [
-				{ role: 'user', content: 'Bickr Terminal condenses older memory notes.' },
-				{ role: 'assistant', content: summary },
-			]);
-		}
 		if (response.usage) {
 			await this.recordProviderUsage({
 				contextWindowTokens: effectiveContextWindowTokensForModel(
@@ -6775,12 +6986,55 @@ export class BotRuntime {
 				usage: response.usage,
 			});
 		}
-		this.repairDanglingCommentReferencesAfterCompaction(
-			summaryMessage.seq,
-			summaryPosition,
-			summaryMessage.message,
-			compactedCommentBodies,
-		);
+		await this.renewProgressLease(bot.id, runId, signal);
+		let summaryMessage!: BotLoopMessage;
+		this.runStorageTransactionSync(() => {
+			summaryMessage = this.insertLoopMessage({
+				runId,
+				message: { role: 'assistant', content: summary },
+				origin: 'compaction',
+				status: 'complete',
+				position: summaryPosition,
+				streamSeq: summaryEvent.seq,
+				broadcast: false,
+			});
+			for (const row of ledgerRows) {
+				this.state.storage.sql.exec(
+					`UPDATE loop_messages
+					 SET compacted_by = ?
+					 WHERE seq = ?
+					   AND compacted_by IS NULL`,
+					summaryMessage.seq,
+					row.seq,
+				);
+			}
+			this.recordLoopMessageLog(summaryMessage.seq, 'message', JSON.stringify(summaryMessage.message));
+			if (response.requestBody) {
+				this.recordLoopMessageLog(summaryMessage.seq, 'compaction_request', response.requestBody);
+			}
+			if (response.rawResponse) {
+				this.recordLoopMessageLog(summaryMessage.seq, 'compaction_response', response.rawResponse);
+			}
+			this.replaceEventPayloadWithoutBroadcast(summaryEvent, {
+				...compactionEventPayload,
+				compactionReasoning: compactionReasoningDiagnostic(response.compactionReasoning),
+				status: 'complete',
+				summary,
+				summaryMessageSeq: summaryMessage.seq,
+			});
+			if (providerActive) {
+				this.updateInferenceSubmissionDisplayMessages(summaryEvent.seq, [
+					{ role: 'user', content: 'Bickr Terminal condenses older memory notes.' },
+					{ role: 'assistant', content: summary },
+				]);
+			}
+			this.repairDanglingCommentReferencesAfterCompaction(
+				summaryMessage.seq,
+				summaryPosition,
+				summaryMessage.message,
+				compactedCommentBodies,
+			);
+		});
 		this.broadcastControl({ type: 'loop_messages_reset' });
 		return providerRows;
 	}
@@ -7018,6 +7272,10 @@ export class BotRuntime {
 		return this.runtimeEventsStore().replaceEventPayload(event, payload);
 	}
 
+	private replaceEventPayloadWithoutBroadcast(event: BotRuntimeEvent, payload: unknown): BotRuntimeEvent {
+		return this.runtimeEventsStore().replaceEventPayloadWithoutBroadcast(event, payload);
+	}
+
 	private async clearHistory(
 		botId: string,
 	): Promise<{ events: number; injections: number; runtimeState: number; submissions: number; messages: number; logs: number }> {
@@ -7139,17 +7397,25 @@ export class BotRuntime {
 	private async readStatus(botId: string): Promise<BotRuntimeStatus> {
 		const row = await this.runtimeStatusIndexRow(botId);
 		const enabled = row?.enabled === 1;
+		const stopRequest = this.stopRequestState();
+		const pendingStopRunId = row?.status === 'running' && row.activeRunId && stopRequest?.runId === row.activeRunId
+			? row.activeRunId
+			: undefined;
 		return {
 			botId,
 			enabled,
 			status: row?.status ?? 'idle',
 			...(row?.activeRunId ? { activeRunId: row.activeRunId } : {}),
+			...(pendingStopRunId ? {
+				pendingStopRunId,
+				stopState: this.activeRunId === pendingStopRunId ? 'stopping' as const : 'recovery_pending' as const,
+			} : {}),
 			...(enabled && row?.nextDueAt ? { nextDueAt: row.nextDueAt } : {}),
 			...(row?.lastError ? { lastError: row.lastError } : {}),
 		};
 	}
 
-	private async reapStaleRun(botId: string): Promise<boolean> {
+	private async reapStaleRun(botId: string, staleCutoff = new Date().toISOString()): Promise<boolean> {
 		const row = await this.runtimeStatusIndexRow(botId);
 		if (row?.status !== 'running') {
 			return false;
@@ -7188,59 +7454,20 @@ export class BotRuntime {
 			return true;
 		}
 
-		if (runId) {
-			const stale = this.staleProviderStream(runId);
-			if (stale) {
-				const message = `The Bickr page stopped responding after ${Math.round(providerStreamIdleTimeoutMs / 1000)} seconds.`;
-				const reaped = await releaseRuntimeRun(this.env.BICKR_D1, {
-					botId,
-					runId,
-					status: 'failed',
-					// Proposing nothing is not the same as proposing what the row said
-					// when this reaper read it: the snapshot is already stale by the time
-					// the release lands, so re-writing it would clobber whatever an owner
-					// scheduled in between with a value that visit had no business owning.
-					// A spotlight never owned the standing schedule at all, so it always
-					// falls through to the column.
-					nextDueAt: keepsStandingSchedule ? null : row.nextDueAt,
-					lastError: message,
-					now: new Date().toISOString(),
-				});
-				if (!reaped) {
-					return false;
-				}
-				if (!this.hasTerminalEvent(runId)) {
-					this.recordTickFailure(runId, {
-						message,
-						lastEventType: stale.type,
-						lastEventAt: stale.created_at,
-					});
-				}
-				if (this.activeRunId === runId) {
-					this.setStopRequest(runId);
-					if (this.activeAbortController && !this.activeAbortController.signal.aborted) {
-						this.activeAbortController.abort();
-					}
-					this.activeRunId = null;
-					this.activeAbortController = null;
-				}
-				return true;
-			}
-		}
-
-		if (!row.leaseExpiresAt || Date.parse(row.leaseExpiresAt) > Date.now()) {
+		if (row.leaseExpiresAt !== null && row.leaseExpiresAt > staleCutoff) {
 			return false;
 		}
 		const message = 'This Bickr visit took too long and closed before completion.';
 		const now = new Date().toISOString();
 		const nextDueAt = rescheduleAfterReap(now);
-		const reaped = await releaseRuntimeRun(this.env.BICKR_D1, {
+		const reaped = await releaseStaleRuntimeRun(this.env.BICKR_D1, {
 			botId,
 			runId,
 			status: 'idle',
 			nextDueAt,
 			lastError: message,
 			now,
+			staleCutoff,
 		});
 		if (!reaped) {
 			return false;
@@ -7263,29 +7490,26 @@ export class BotRuntime {
 		return true;
 	}
 
-	private staleProviderStream(runId: string): ProviderStreamActivity | null {
-		const activeAt = this.activeStreamActivity.get(runId);
-		if (activeAt) {
-			return Date.now() - Date.parse(activeAt) > providerStreamIdleTimeoutMs ? { type: 'provider_stream', created_at: activeAt } : null;
-		}
-		const row = this.state.storage.sql
-			.exec<RuntimeRow>(
-				`SELECT seq, run_id, type, payload_json, token_estimate, compacted_by, created_at
-				 FROM events
-				 WHERE run_id = ?
-				 ORDER BY seq DESC
-				 LIMIT 1`,
-				runId,
-			)
-			.toArray()[0];
-		if (!row || row.type !== 'provider_request') {
-			return null;
-		}
-		const lastEventAt = Date.parse(row.created_at);
-		if (!Number.isFinite(lastEventAt)) {
-			return null;
-		}
-		return Date.now() - lastEventAt > providerStreamIdleTimeoutMs ? { type: row.type, created_at: row.created_at } : null;
+	private async releaseStaleRuntimeRow(
+		botId: string,
+		row: RuntimeStatusIndexRow,
+		lastError: string | null,
+		staleCutoff: string,
+	): Promise<boolean> {
+		const now = new Date().toISOString();
+		const trigger = recordedRunTrigger(row.activeRunTrigger);
+		const nextDueAt = row.enabled === 1 && !runKeepsStandingSchedule(trigger)
+			? new Date(Date.parse(now) + row.tickIntervalSeconds * 1000).toISOString()
+			: null;
+		return releaseStaleRuntimeRun(this.env.BICKR_D1, {
+			botId,
+			runId: row.activeRunId,
+			status: 'idle',
+			nextDueAt,
+			lastError,
+			now,
+			staleCutoff,
+		});
 	}
 
 	private hasTerminalEvent(runId: string): boolean {
@@ -7308,6 +7532,41 @@ export class BotRuntime {
 	// every write goes through releaseRuntimeRun's ownership CAS. Keeping one
 	// writer is what keeps the concurrent-pause guard in a single statement instead
 	// of two copies that can drift apart.
+	private setRuntimeIndexSerialized(
+		bot: BotDocument,
+		status: RuntimeReleaseStatus,
+		lastError: string | undefined,
+		now: string,
+		ownedByRunId: string,
+		trigger: RuntimeRunTrigger,
+	): Promise<{ nextDueAt: string | null; released: boolean }> {
+		return this.runtimeTransitionQueue().run(
+			() => this.setRuntimeIndex(bot, status, lastError, now, ownedByRunId, trigger),
+		);
+	}
+
+	private completeRuntimeRunSerialized(
+		bot: BotDocument,
+		now: string,
+		ownedByRunId: string,
+		trigger: RuntimeRunTrigger,
+		signal: AbortSignal,
+		payload: Record<string, unknown>,
+	): Promise<{ nextDueAt: string | null; released: boolean }> {
+		return this.runtimeTransitionQueue().run(async () => {
+			const release = await this.setRuntimeIndex(bot, 'idle', undefined, now, ownedByRunId, trigger, () => {
+				this.throwIfStopped(ownedByRunId, signal);
+			});
+			if (release.released) {
+				this.appendEvent(ownedByRunId, 'tick_completed', {
+					...(release.nextDueAt ? { nextDueAt: release.nextDueAt } : {}),
+					...payload,
+				});
+			}
+			return release;
+		});
+	}
+
 	private async setRuntimeIndex(
 		bot: BotDocument,
 		status: RuntimeReleaseStatus,
@@ -7315,7 +7574,8 @@ export class BotRuntime {
 		now: string,
 		ownedByRunId: string,
 		trigger: RuntimeRunTrigger,
-	): Promise<string | null> {
+		beforeRelease?: () => void,
+	): Promise<{ nextDueAt: string | null; released: boolean }> {
 		const enabled = await this.runtimeIndexEnabled(bot.id, bot.tickSettings.enabled);
 		// A participant read as paused proposes nothing; releaseRuntimeRun decides
 		// what that means for a row whose `enabled` moved since this read. A run that
@@ -7332,7 +7592,12 @@ export class BotRuntime {
 		} else {
 			nextDueAt = new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString();
 		}
-		await releaseRuntimeRun(this.env.BICKR_D1, {
+		// Successful completion is linearized here: Stop and completion use the
+		// same in-instance queue, and no awaited work separates this fence from the
+		// D1 ownership CAS. Cleanup releases intentionally omit the fence so the
+		// cancellation path can relinquish the run it still owns.
+		beforeRelease?.();
+		const released = await releaseRuntimeRun(this.env.BICKR_D1, {
 			botId: bot.id,
 			runId: ownedByRunId,
 			status,
@@ -7343,7 +7608,7 @@ export class BotRuntime {
 		// The returned value stays the proposed schedule, which only annotates a
 		// runtime event; the row the write reconciled remains the authority
 		// readStatus reports from.
-		return nextDueAt;
+		return { nextDueAt, released };
 	}
 
 	private async pauseBotAfterPersistentCompactionFailure(bot: BotDocument, message: string, now: string): Promise<void> {

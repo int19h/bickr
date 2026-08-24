@@ -1113,8 +1113,6 @@ describe("Submissions and usage", () => {
 			broadcastProviderDelta: (_runId: string, streamSeq: number, event: Record<string, unknown>) => {
 				deltas.push({ ...event, streamSeq });
 			},
-			clearProviderStreamActive: () => {},
-			markProviderStreamActive: () => {},
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
 					throw new Error("Unexpected abort.");

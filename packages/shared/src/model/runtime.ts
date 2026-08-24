@@ -401,7 +401,32 @@ export type BotRuntimeStatus = {
 	enabled: boolean;
 	status: "idle" | "running" | "failed";
 	activeRunId?: string;
+	pendingStopRunId?: string;
+	stopState?: "stopping" | "recovery_pending";
 	lastRunAt?: string;
 	nextDueAt?: string | null;
 	lastError?: string;
 };
+
+export type BotRuntimeStopResult =
+	| {
+		kind: "not_running";
+		/** @deprecated Switch exhaustively on `kind`. */
+		stopped: false;
+		status: BotRuntimeStatus["status"];
+		runId?: string;
+	}
+	| {
+		kind: "stop_requested";
+		/** @deprecated Switch exhaustively on `kind`. */
+		stopped: false;
+		status: "running";
+		runId: string;
+	}
+	| {
+		kind: "stopped";
+		/** @deprecated Switch exhaustively on `kind`. */
+		stopped: true;
+		status: BotRuntimeStatus["status"];
+		runId: string;
+	};

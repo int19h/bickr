@@ -4,6 +4,7 @@ import type {
 	BotLoopMessagePage,
 	BotLoopMessagesResponse,
 	BotRuntimeEvent,
+	BotRuntimeStopResult,
 	BotRuntimeStatus,
 	BotSummary,
 	BotTokenUsageStats,
@@ -30,7 +31,6 @@ import {
 	formatTickIntervalMinutes,
 	latestLoopMessageSeq,
 	latestPersistentEventSeq,
-	mergeEvents,
 	mergeLoopMessages,
 	reconnectDelayMs,
 	runtimeCompactionMessage,
@@ -126,6 +126,12 @@ export function BotRuntimePanel({
 	const latestPersistentEventSeqRef = useRef(0);
 	const latestLoopMessageSeqRef = useRef(0);
 	const currentLoopPageRef = useRef(1);
+	const currentLoopSourceCompactionSeqRef = useRef<number | null>(null);
+	const statusRequestGenerationRef = useRef(0);
+	const eventsRequestGenerationRef = useRef(0);
+	const messagesRequestGenerationRef = useRef(0);
+	const usageRequestGenerationRef = useRef(0);
+	const trailingRefreshTimerRef = useRef<number | undefined>(undefined);
 	const reconnectAttemptRef = useRef(0);
 	const runtimeEnabled = status?.enabled ?? bot.tickSettings.enabled;
 	const toolCallsById = useMemo(() => loopToolCallsById(loopMessages), [loopMessages]);
@@ -145,6 +151,11 @@ export function BotRuntimePanel({
 		latestPersistentEventSeqRef.current = 0;
 		latestLoopMessageSeqRef.current = 0;
 		currentLoopPageRef.current = 1;
+		currentLoopSourceCompactionSeqRef.current = null;
+		statusRequestGenerationRef.current += 1;
+		eventsRequestGenerationRef.current += 1;
+		messagesRequestGenerationRef.current += 1;
+		usageRequestGenerationRef.current += 1;
 		reconnectAttemptRef.current = 0;
 		setStatus(null);
 		setEvents([]);
@@ -189,6 +200,7 @@ export function BotRuntimePanel({
 
 		function handleMonitorPayload(payload: RuntimeMonitorPayload): void {
 			if (payload.type === "history_cleared") {
+				invalidateRefreshes({ events: true, messages: true });
 				setEvents([]);
 				setLoopMessages([]);
 				setLoopMessagePage(null);
@@ -197,28 +209,36 @@ export function BotRuntimePanel({
 				latestPersistentEventSeqRef.current = 0;
 				latestLoopMessageSeqRef.current = 0;
 				currentLoopPageRef.current = 1;
+				currentLoopSourceCompactionSeqRef.current = null;
 				setMessage("Loop history erased.");
+				scheduleTrailingRefresh({ page: 1 });
 				return;
 			}
 			if (payload.type === "loop_messages_reset") {
+				invalidateRefreshes({ messages: true });
 				setOpenLoopMessageLogs(null);
 				setDeletingLoopMessageSeq(null);
 				latestLoopMessageSeqRef.current = 0;
-				currentLoopPageRef.current = 1;
-				void refresh({ page: 1, mode: "replace" });
+				// A compaction renumbers nested pages. Preserve the generation anchor
+				// and resolve its new page from the authoritative page-1 index.
+				scheduleTrailingRefresh();
 				return;
 			}
 			if (payload.type === "pong") {
 				return;
 			}
 			if (payload.type === "event_deleted" && Number.isInteger(payload.seq)) {
+				invalidateRefreshes({ events: true });
 				setEvents((current) => current.filter((item) => item.seq !== payload.seq));
+				scheduleTrailingRefresh();
 				return;
 			}
 			if (payload.type === "loop_message_deleted" && Number.isInteger(payload.seq)) {
+				invalidateRefreshes({ messages: true });
 				setLoopMessages((current) => current.filter((item) => item.seq !== payload.seq));
 				setOpenLoopMessageLogs((current) => current && current.message.seq === payload.seq ? null : current);
 				setDeletingLoopMessageSeq((current) => current === payload.seq ? null : current);
+				scheduleTrailingRefresh();
 				return;
 			}
 			if (payload.type === "loop_message" && payload.loopMessage) {
@@ -228,6 +248,7 @@ export function BotRuntimePanel({
 				rememberLoopMessageSeq(payload.loopMessage);
 				setLoopMessages((current) => upsertLoopMessage(removeLiveProviderLoopMessagesForFinalizedMessage(current, payload.loopMessage!), payload.loopMessage!));
 				void refreshTokenUsage();
+				scheduleTrailingRefresh();
 				return;
 			}
 			if (payload.type === "stream_delta" && payload.event) {
@@ -244,15 +265,17 @@ export function BotRuntimePanel({
 				if (compactionMessage) {
 					setMessage(compactionMessage);
 				}
-				if (["tick_completed", "tick_failed", "tick_stopped"].includes(payload.event.type)) {
+				const terminal = ["tick_completed", "tick_failed", "tick_stopped"].includes(payload.event.type);
+				invalidateRefreshes({ events: true, messages: terminal });
+				if (terminal) {
 					if (currentLoopPageRef.current === 1) {
 						setLoopMessages((current) => removeLiveProviderLoopMessagesForRun(current, payload.event!.runId));
-						void refresh();
 					}
 				}
-				if (payload.event.type === "compaction" && compactionMessage && currentLoopPageRef.current === 1) {
-					void refresh({ page: 1 });
-				}
+				// Persistent socket events are only an immediate view. Invalidating any
+				// in-flight older snapshot and scheduling one bounded replacement keeps
+				// reconnect cursors from advancing past an event the snapshot then drops.
+				scheduleTrailingRefresh();
 			}
 			if (payload.message) {
 				setMessage(payload.message);
@@ -287,7 +310,7 @@ export function BotRuntimePanel({
 				reconnectAttemptRef.current = 0;
 				lastMonitorMessageAt = Date.now();
 				setConnected(true);
-				void refresh();
+				void refreshAuthoritativeCurrentPage();
 				heartbeatTimer = window.setInterval(() => {
 					if (socket !== currentSocket || currentSocket.readyState !== WebSocket.OPEN) {
 						clearHeartbeatTimer();
@@ -304,7 +327,7 @@ export function BotRuntimePanel({
 				if (!closed && socket === currentSocket) {
 					setConnected(false);
 					clearHeartbeatTimer();
-					void refresh();
+					void refreshAuthoritativeCurrentPage();
 					scheduleReconnect();
 				}
 			};
@@ -332,6 +355,10 @@ export function BotRuntimePanel({
 			closed = true;
 			clearReconnectTimer();
 			clearHeartbeatTimer();
+			if (trailingRefreshTimerRef.current !== undefined) {
+				window.clearTimeout(trailingRefreshTimerRef.current);
+				trailingRefreshTimerRef.current = undefined;
+			}
 			socket?.close();
 		};
 	}, [bot.id]);
@@ -390,8 +417,40 @@ export function BotRuntimePanel({
 		shouldStickToBottomRef.current = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
 	}
 
-	async function refresh(options: { page?: number; mode?: "merge" | "replace" } = {}): Promise<void> {
-		const requestedPage = Math.max(1, Math.floor(options.page ?? currentLoopPageRef.current));
+	function invalidateRefreshes(parts: { events?: boolean; messages?: boolean }): void {
+		if (parts.events) eventsRequestGenerationRef.current += 1;
+		if (parts.messages) messagesRequestGenerationRef.current += 1;
+	}
+
+	function refreshAuthoritativeCurrentPage(): Promise<void> {
+		const sourceCompactionSeq = currentLoopSourceCompactionSeqRef.current;
+		return sourceCompactionSeq === null ?
+			refresh({ page: currentLoopPageRef.current })
+		: refresh({ sourceCompactionSeq });
+	}
+
+	function scheduleTrailingRefresh(options?: { page?: number }): void {
+		if (trailingRefreshTimerRef.current !== undefined) {
+			window.clearTimeout(trailingRefreshTimerRef.current);
+		}
+		trailingRefreshTimerRef.current = window.setTimeout(() => {
+			trailingRefreshTimerRef.current = undefined;
+			void (options?.page === undefined ? refreshAuthoritativeCurrentPage() : refresh({ page: options.page }));
+		}, 100);
+	}
+
+	async function refresh(options: {
+		page?: number;
+		sourceCompactionSeq?: number | null;
+		expectedSourceCompactionSeq?: number;
+		resolverAttempt?: number;
+	} = {}): Promise<void> {
+		const anchoredSource = options.sourceCompactionSeq;
+		const requestedPage = anchoredSource !== undefined ? 1 : Math.max(1, Math.floor(options.page ?? currentLoopPageRef.current));
+		const statusGeneration = ++statusRequestGenerationRef.current;
+		const eventsGeneration = ++eventsRequestGenerationRef.current;
+		const messagesGeneration = ++messagesRequestGenerationRef.current;
+		const usageGeneration = ++usageRequestGenerationRef.current;
 		const messageQuery = new URLSearchParams();
 		if (requestedPage > 1) {
 			messageQuery.set("page", String(requestedPage));
@@ -403,38 +462,68 @@ export function BotRuntimePanel({
 			api<BotLoopMessagesResponse>(messagePath),
 			api<{ usage: BotTokenUsageStats }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/token-usage`),
 		]);
-		if (statusResult.ok) {
+		if (statusResult.ok && statusGeneration === statusRequestGenerationRef.current) {
 			setStatus(statusResult.data.status);
 		}
-		if (eventsResult.ok) {
+		if (eventsResult.ok && eventsGeneration === eventsRequestGenerationRef.current) {
 			for (const event of eventsResult.data.events) {
 				rememberPersistentEventSeq(event);
 			}
-			setEvents((current) => mergeEvents(current, eventsResult.data.events));
+			// This endpoint returns a complete retained snapshot. WebSocket events
+			// remain additive, but a reconnect snapshot must remove rows whose delete
+			// or history-clear notification was missed while disconnected.
+			setEvents(eventsResult.data.events);
 		}
-		if (messagesResult.ok) {
+		if (messagesResult.ok && messagesGeneration === messagesRequestGenerationRef.current) {
 			const page = messagesResult.data.page;
+			const returnedSource = page.pages.find((item) => item.page === page.currentPage)?.sourceCompactionSeq ?? null;
+			if (options.expectedSourceCompactionSeq !== undefined && returnedSource !== options.expectedSourceCompactionSeq) {
+				if ((options.resolverAttempt ?? 0) < 1) {
+					void refresh({
+						sourceCompactionSeq: options.expectedSourceCompactionSeq,
+						resolverAttempt: (options.resolverAttempt ?? 0) + 1,
+					});
+				} else {
+					// The page map changed twice without yielding the requested generation.
+					// Clear the anchor and converge to page 1 instead of ping-ponging forever.
+					currentLoopPageRef.current = 1;
+					currentLoopSourceCompactionSeqRef.current = null;
+					void refresh({ page: 1 });
+				}
+				return;
+			}
+			if (anchoredSource !== undefined && anchoredSource !== null) {
+				const anchoredPage = page.compactionPageBySeq[String(anchoredSource)];
+				if (anchoredPage && anchoredPage !== 1) {
+					void refresh({
+						page: anchoredPage,
+						expectedSourceCompactionSeq: anchoredSource,
+						resolverAttempt: options.resolverAttempt ?? 0,
+					});
+					return;
+				}
+			}
 			currentLoopPageRef.current = page.currentPage;
+			currentLoopSourceCompactionSeqRef.current = returnedSource;
 			setLoopMessagePage(page);
 			if (page.currentPage === 1) {
 				for (const loopMessage of messagesResult.data.messages) {
 					rememberLoopMessageSeq(loopMessage);
 				}
-				setLoopMessages((current) =>
-					options.mode === "replace" ? messagesResult.data.messages : mergeLoopMessages(current, messagesResult.data.messages),
-				);
+				setLoopMessages((current) => mergeLoopMessages(current, messagesResult.data.messages));
 			} else {
 				setLoopMessages(messagesResult.data.messages);
 			}
 		}
-		if (tokenUsageResult.ok) {
+		if (tokenUsageResult.ok && usageGeneration === usageRequestGenerationRef.current) {
 			setTokenUsage(tokenUsageResult.data.usage);
 		}
 	}
 
 	async function refreshTokenUsage(): Promise<void> {
+		const generation = ++usageRequestGenerationRef.current;
 		const result = await api<{ usage: BotTokenUsageStats }>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/token-usage`);
-		if (result.ok) {
+		if (result.ok && generation === usageRequestGenerationRef.current) {
 			setTokenUsage(result.data.usage);
 		}
 	}
@@ -450,7 +539,7 @@ export function BotRuntimePanel({
 		setOpenLoopMessageLogs(null);
 		setLoopMessageLogError("");
 		setMessage(`Loading loop page ${targetPage}...`);
-		await refresh({ page: targetPage, mode: "replace" });
+		await refresh({ page: targetPage });
 		setMessage("");
 	}
 
@@ -473,7 +562,7 @@ export function BotRuntimePanel({
 				:	`Tick ${result.data.run.status}.`
 			:	result.message,
 		);
-		await refresh({ page: 1, mode: "replace" });
+		await refresh({ page: 1 });
 		window.setTimeout(() => void refresh({ page: 1 }), 750);
 	}
 
@@ -508,17 +597,26 @@ export function BotRuntimePanel({
 	}
 
 	async function stopTick(): Promise<void> {
-		setMessage("Stopping tick...");
-		const result = await api<{ stop: { stopped: boolean; runId?: string; status: string } }>(
+		setMessage("Stopping current visit...");
+		const result = await api<{ stop: BotRuntimeStopResult }>(
 			`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/stop`,
 			{ method: "POST" },
 		);
-		setMessage(
-			result.ok ?
-				result.data.stop.stopped ? "Stop requested."
-				: "No tick is running."
-			:	result.message,
-		);
+		if (!result.ok) {
+			setMessage(result.message);
+		} else {
+			switch (result.data.stop.kind) {
+				case "stop_requested":
+					setMessage("Stopping the current visit. Future scheduled visits are still enabled.");
+					break;
+				case "stopped":
+					setMessage("The current visit stopped. Future scheduled visits are still enabled.");
+					break;
+				case "not_running":
+					setMessage("No current visit is running.");
+					break;
+			}
+		}
 		await refresh();
 	}
 
@@ -563,9 +661,11 @@ export function BotRuntimePanel({
 		);
 		setDeletingLoopMessageSeq(null);
 		if (result.ok) {
+			invalidateRefreshes({ messages: true });
 			setLoopMessages((current) => current.filter((item) => item.seq !== loopMessage.seq));
 			setOpenLoopMessageLogs((current) => current && current.message.seq === loopMessage.seq ? null : current);
 			setMessage("Loop message deleted.");
+			scheduleTrailingRefresh();
 			return;
 		}
 		setMessage(result.message);
@@ -579,13 +679,15 @@ export function BotRuntimePanel({
 		);
 		setCompactConfirm(false);
 		if (result.ok) {
+			invalidateRefreshes({ messages: true });
 			const count = result.data.compacted.messageCount;
 			setMessage(count > 0 ? `Compacted ${count} loop chat message${count === 1 ? "" : "s"}.` : "There were no loop chat messages to compact.");
 			setLoopMessages([]);
 			setLoopMessagePage(null);
 			latestLoopMessageSeqRef.current = 0;
 			currentLoopPageRef.current = 1;
-			await refresh({ page: 1, mode: "replace" });
+			currentLoopSourceCompactionSeqRef.current = null;
+			await refresh({ page: 1 });
 			return;
 		}
 		setMessage(result.message);
@@ -598,6 +700,7 @@ export function BotRuntimePanel({
 			{ method: "DELETE" },
 		);
 		if (result.ok) {
+			invalidateRefreshes({ events: true, messages: true });
 			setEvents([]);
 			setLoopMessages([]);
 			setLoopMessagePage(null);
@@ -606,7 +709,9 @@ export function BotRuntimePanel({
 			latestPersistentEventSeqRef.current = 0;
 			latestLoopMessageSeqRef.current = 0;
 			currentLoopPageRef.current = 1;
+			currentLoopSourceCompactionSeqRef.current = null;
 			setMessage(`Reset ${result.data.cleared.messages ?? 0} loop chat messages and ${result.data.cleared.events} legacy events.`);
+			scheduleTrailingRefresh({ page: 1 });
 		} else {
 			setMessage(result.message);
 		}
@@ -629,14 +734,17 @@ export function BotRuntimePanel({
 						<span className="switch-title">Autonomous loop</span>
 						<span className="switch-desc">
 							{runtimeEnabled ?
-								"Active; scheduled, manual, and spotlight-started ticks can run."
-							:	"Paused. Review setup, then unpause before this participant can act."}
+								"Active; future scheduled, manual, and spotlight-started visits can run. Stop separately to end a current visit."
+							:	"Paused. Future visits are blocked, but a current visit continues until it finishes or is stopped."}
 						</span>
 					</span>
 				</label>
 				<RuntimeRow description="How often this bot wakes up to act." label="Tick interval" value={formatTickIntervalMinutes(bot.tickSettings.intervalSeconds)} />
 				<RuntimeRow label="Context budget" value={`${bot.effectiveTickSettings.contextWindowTokens} tokens`} />
-				<RuntimeRow label="Status" value={status?.status ?? "unknown"} />
+				<RuntimeRow
+					label="Status"
+					value={status?.stopState === "stopping" ? "stopping current visit" : status?.stopState === "recovery_pending" ? "stop recovery pending" : status?.status ?? "unknown"}
+				/>
 				<RuntimeRow label="Next tick" value={<NextDueAtLabel enabled={runtimeEnabled} loaded={Boolean(status)} value={status?.nextDueAt} />} />
 				<TokenUsagePanel currentModel={currentModel} usage={tokenUsage} />
 				<ContextWindowBar breakdown={tokenUsage?.contextWindow} loading={!tokenUsage} />
@@ -652,11 +760,12 @@ export function BotRuntimePanel({
 					</button>
 					<button
 						className="btn danger"
-						disabled={status?.status !== "running"}
+						disabled={status?.status !== "running" || Boolean(status.stopState)}
 						onClick={() => void stopTick()}
+						title="Stop only the current visit. This does not pause future scheduled visits."
 						type="button"
 					>
-						Stop tick
+						Stop current visit
 					</button>
 					<button className="btn ghost" onClick={() => void refresh()} type="button">
 						Refresh log
