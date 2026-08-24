@@ -60,8 +60,6 @@ export type ProviderSseRuntime = {
 	repairInvalidUnicodeText(text: string): string;
 	repairInvalidUnicodeValue<T>(value: T): { value: T };
 	isAbortError(error: unknown): boolean;
-	markProviderStreamActive(runId: string): void;
-	clearProviderStreamActive(runId: string): void;
 	throwIfStopped(runId: string, signal: AbortSignal): void;
 	broadcastProviderDelta(runId: string, streamSeq: number, payload: Record<string, unknown>): void;
 };
@@ -445,11 +443,9 @@ export async function consumeProviderResponse(
 	let responseProviderName: string | undefined;
 	let rawResponse = '';
 	let skippedRawResponse = '';
-	runtime.markProviderStreamActive(runId);
 	try {
 		for await (const event of readSse(stream, signal)) {
 			runtime.throwIfStopped(runId, signal);
-			runtime.markProviderStreamActive(runId);
 			const rawPreviewCaptured = providerResponsePartsAreEmpty(content, reasoning, reasoningDetails, [...toolCalls.values()]);
 			if (rawPreviewCaptured) {
 				rawResponse = appendRawResponsePreview(rawResponse, event.raw);
@@ -539,8 +535,6 @@ export async function consumeProviderResponse(
 			);
 		}
 		throw error;
-	} finally {
-		runtime.clearProviderStreamActive(runId);
 	}
 	const response = {
 		content: runtime.repairInvalidUnicodeText(content),

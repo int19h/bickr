@@ -351,6 +351,87 @@ describe("Tick flow", () => {
 		]);
 	});
 
+	it("checks cancellation before threshold compaction reads or mutates its generation", async () => {
+		const botWithCurrentRuntimeBudget = vi.fn();
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			renewProgressLease: vi.fn(async () => { throw new TickStoppedError(); }),
+			botWithCurrentRuntimeBudget,
+		});
+		const maybeCompact = (BotRuntime.prototype as unknown as {
+			maybeCompact(
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				signal: AbortSignal,
+				options: { reason: "threshold" },
+			): Promise<unknown>;
+		}).maybeCompact.bind(runtime);
+
+		await expect(maybeCompact(
+			fakeBotDocument(),
+			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			"run-threshold-stopped",
+			new AbortController().signal,
+			{ reason: "threshold" },
+		)).rejects.toBeInstanceOf(TickStoppedError);
+		expect(botWithCurrentRuntimeBudget).not.toHaveBeenCalled();
+	});
+
+	it("turns cancellation immediately before terminal release into stop, never completion", async () => {
+		const controller = new AbortController();
+		const events: string[] = [];
+		const release = vi.fn(async () => ({ released: true, nextDueAt: null }));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: {},
+			activeRunId: "run-terminal-fence",
+			activeAbortController: controller,
+			appendEvent: (_runId: string, type: string) => {
+				events.push(type);
+				return { createdAt: "2026-08-24T00:00:00.000Z" };
+			},
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) throw new TickStoppedError();
+			},
+			consumeInjections: () => [],
+			renewProgressLease: async () => {
+				controller.abort();
+				throw new TickStoppedError();
+			},
+			setRuntimeIndexSerialized: release,
+			markPendingCompactionEventsFailed: vi.fn(),
+			hasTerminalEvent: () => events.some((type) => ["tick_completed", "tick_failed", "tick_stopped"].includes(type)),
+			exportRecentProviderUsage: async () => {},
+			pruneRuntimeStorageAfterTick: () => ({
+				events: 0,
+				providerUsage: 0,
+				loopMessages: { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0, pendingMore: false },
+				injections: { deletedInjections: 0, droppedQueueEntries: 0, pendingMore: false },
+			}),
+			clearStopRequest: vi.fn(),
+			startQueuedSpotlightTick: vi.fn(),
+		});
+		const runAdmittedTick = (BotRuntime.prototype as unknown as {
+			runAdmittedTick(
+				botId: string,
+				trigger: "spotlight",
+				options: Record<string, unknown>,
+				admitted: Record<string, unknown>,
+			): Promise<{ status: string }>;
+		}).runAdmittedTick.bind(runtime);
+
+		await expect(runAdmittedTick("bot-terminal-fence", "spotlight", {}, {
+			bot: fakeBotDocument({ id: "bot-terminal-fence" }),
+			providerSettings: { baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			runId: "run-terminal-fence",
+			abortController: controller,
+			mode: "spotlight",
+			setupMode: "continuation",
+		})).resolves.toEqual({ runId: "run-terminal-fence", status: "stopped" });
+		expect(release).toHaveBeenCalledOnce();
+		expect(events).toContain("tick_stopped");
+		expect(events).not.toContain("tick_completed");
+	});
+
 	it("formats runtime history as first-person notes instead of transcript commands", () => {
 		const toolCall = formatRuntimeEventForContext("tool_call", {
 			name: "read_thread_by_id",

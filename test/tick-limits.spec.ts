@@ -1185,9 +1185,10 @@ describe("Tick limits and recovery", () => {
 				runId: string,
 				streamSeq: number,
 				signal: AbortSignal,
+				botId: string,
 			) => {
 				providerToolsByCall.push(tools.map((tool) => "function" in tool ? tool.function.name : tool.type));
-				return callProvider(settings, messages, tools, runId, streamSeq, signal);
+				return callProvider(settings, messages, tools, runId, streamSeq, signal, botId);
 			},
 			ensureProviderPromptWithinBudget: async (
 				bot: BotDocument,

@@ -37,6 +37,7 @@ import type {
 } from "./helpers/index-harness";
 import {
 	ProviderCompactionRequestError,
+	TickStoppedError,
 	type CompactionReasoningDiagnostic,
 } from "../workers/agent-runtime/src/errors";
 import { providerCompactionRequiredCompletionTokens } from "../workers/agent-runtime/src/compaction/limits";
@@ -1068,7 +1069,7 @@ describe("Compaction", () => {
 			expect(latestCompactionSummary()).toBe("I owe Müller a follow-up.");
 		});
 
-		it("stores provider compaction summaries without adding a memory prefix", async () => {
+		it("publishes compaction atomically and fences a stop before the completed generation", async () => {
 			const candidates = [
 				{
 					...loopMessageRowForTest(1, "run-compaction-success", "I read the changelog thread."),
@@ -1176,6 +1177,109 @@ describe("Compaction", () => {
 				status: "complete",
 				summary: "I chose to follow up with Müller about concise release notes.",
 			}));
+
+			const stopped = new AbortController();
+			runtime.callProviderForCompaction = async () => {
+				stopped.abort();
+				return {
+					compactionReasoning: learnedMinimalCompactionReasoning,
+					content: "This stopped summary must never become authoritative.",
+					requestBody: "{}",
+					rawResponse: "{}",
+				};
+			};
+			await expect(compactLoopMessageRows(
+				fakeBotDocument({ id: "bot_release" }),
+				{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-compaction-stopped",
+				stopped.signal,
+				candidates,
+				"auto",
+				{ estimatedContextTokens: 10_000, threshold: 80 },
+			)).rejects.toBeInstanceOf(TickStoppedError);
+			// The provider request is durable history, but no summary/retirement/event
+			// completion transaction or reset can publish after cancellation.
+			expect(insertLoopMessage).toHaveBeenCalledTimes(1);
+			expect(publicationOrder.filter((step) => step === "transaction-begin")).toHaveLength(1);
+			expect(runtime.broadcastControl).toHaveBeenCalledOnce();
+		});
+
+		it("rolls back summary and child retirement together when publication fails", async () => {
+			const candidates = [
+				{ ...loopMessageRowForTest(1, "run-rollback", "Old first message."), position: 1 },
+				{ ...loopMessageRowForTest(2, "run-rollback", "Old second message."), position: 2 },
+			];
+			let activeSeqs = [1, 2];
+			let summaryVisible = false;
+			const broadcastControl = vi.fn();
+			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				env: {},
+				state: {
+					storage: {
+						transactionSync: <T,>(closure: () => T) => {
+							const activeBefore = [...activeSeqs];
+							const summaryBefore = summaryVisible;
+							try {
+								return closure();
+							} catch (error) {
+								activeSeqs = activeBefore;
+								summaryVisible = summaryBefore;
+								throw error;
+							}
+						},
+						sql: {
+							exec: (sql: string, _summarySeq?: number, childSeq?: number) => {
+								if (sql.includes("UPDATE loop_messages")) {
+									activeSeqs = activeSeqs.filter((seq) => seq !== childSeq);
+									if (childSeq === 2) throw new Error("forced publication failure");
+								}
+								return { one: () => ({}), toArray: () => [] };
+							},
+						},
+					},
+				},
+				appendEvent: (_runId: string, type: string, payload: unknown) => ({
+					seq: 201, runId: "run-rollback", type, payload, tokenEstimate: 0, createdAt: "2026-08-24T00:00:00.000Z",
+				}),
+				recordInferenceSubmission: vi.fn(),
+				callProviderForCompaction: async () => ({
+					compactionReasoning: learnedMinimalCompactionReasoning,
+					content: "A summary that must roll back.",
+				}),
+				compactionLedgerRows: () => candidates,
+				insertLoopMessage: () => {
+					summaryVisible = true;
+					return { seq: 202, position: 2, message: { role: "assistant", content: "A summary that must roll back." } };
+				},
+				recordLoopMessageLog: vi.fn(),
+				replaceEventPayloadWithoutBroadcast: vi.fn(),
+				repairDanglingCommentReferencesAfterCompaction: vi.fn(),
+				broadcastControl,
+			});
+			const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
+				compactLoopMessageRows(
+					bot: BotDocument,
+					settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
+					runId: string,
+					signal: AbortSignal,
+					rows: unknown[],
+					mode: "auto",
+					metrics: Record<string, unknown>,
+				): Promise<void>;
+			}).compactLoopMessageRows.bind(runtime);
+
+			await expect(compactLoopMessageRows(
+				fakeBotDocument({ id: "bot-rollback" }),
+				{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-rollback",
+				new AbortController().signal,
+				candidates,
+				"auto",
+				{},
+			)).rejects.toThrow("forced publication failure");
+			expect(activeSeqs).toEqual([1, 2]);
+			expect(summaryVisible).toBe(false);
+			expect(broadcastControl).not.toHaveBeenCalled();
 		});
 
 		it("uses the real compaction ledger to sweep older non-history diagnostics while preserving newer ones", async () => {

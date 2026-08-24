@@ -950,9 +950,7 @@ describe("Structured output", () => {
 			const recordProviderTokenCalibrationSample = vi.fn();
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				broadcastProviderDelta: () => {},
-				clearProviderStreamActive: () => {},
 				fetchProviderResponse,
-				markProviderStreamActive: () => {},
 				recordProviderTokenCalibrationSample,
 				throwIfStopped: vi.fn(),
 			});
@@ -964,6 +962,7 @@ describe("Structured output", () => {
 					runId: string,
 					streamSeq: number,
 					signal: AbortSignal,
+					botId: string,
 				) => Promise<unknown>;
 			}).callProvider.bind(runtime);
 
@@ -976,6 +975,7 @@ describe("Structured output", () => {
 					"run-empty-provider-stream",
 					1,
 					new AbortController().signal,
+					"bot-empty-provider-stream",
 				);
 			} catch (error) {
 				thrown = error;

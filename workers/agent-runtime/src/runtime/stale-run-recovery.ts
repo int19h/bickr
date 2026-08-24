@@ -70,7 +70,7 @@ export type StaleRunRecoverySweepResult = {
 	failuresOmitted: number;
 };
 
-type StaleRunRow = {
+export type StaleRunRecoveryCandidate = {
 	botId: string;
 	status: string;
 	leaseExpiresAt: string | null;
@@ -156,9 +156,9 @@ export async function runStaleRunRecoverySweep<ObjectId>(
 		}
 	};
 
-	const dispatchRows = async (rows: readonly StaleRunRow[]): Promise<void> => {
+	const dispatchRows = async (rows: readonly StaleRunRecoveryCandidate[]): Promise<void> => {
 		selected += rows.length;
-		const liveRows: StaleRunRow[] = [];
+		const liveRows: StaleRunRecoveryCandidate[] = [];
 		for (const row of rows) {
 			if (row.botMissing === 1 || row.botDeletedAt !== null || row.botLifecycleState !== 'active') {
 				skippedNonLive += 1;
@@ -197,11 +197,11 @@ export async function runStaleRunRecoverySweep<ObjectId>(
 		}
 	}
 
-	const iteration = await runBoundedSweep<StaleRunRow, string>({
+	const iteration = await runBoundedSweep<StaleRunRecoveryCandidate, string>({
 		chunkSize,
 		maxItemsPerRun: Math.max(0, maxBotsPerRun - retried),
 		...(walkCursor ? { initialCursor: walkCursor } : {}),
-		loadChunk: (cursor, limit) => loadStaleRunChunk(env.BICKR_D1, now, cursor, limit),
+		loadChunk: (cursor, limit) => queryStaleRunRecoveryCandidates(env.BICKR_D1, { now, cursor, limit }),
 		processChunk: async (rows) => {
 			await dispatchRows(rows);
 			return { kind: 'continue' };
@@ -312,31 +312,30 @@ const runtimeRowSelection = `SELECT runtime.bot_id AS botId,
 	 FROM bot_runtime_index runtime
 	 LEFT JOIN bots_index bots ON bots.bot_id = runtime.bot_id`;
 
-async function loadStaleRunChunk(
+export async function queryStaleRunRecoveryCandidates(
 	db: D1DatabaseLike,
-	now: string,
-	cursor: string | undefined,
-	limit: number,
-) {
+	input: { now: string; cursor?: string; limit: number },
+): Promise<{ items: StaleRunRecoveryCandidate[]; done: boolean; nextCursor?: string }> {
+	const { now, cursor, limit } = input;
 	const predicate = `WHERE runtime.status = 'running'
 	   AND (runtime.lease_expires_at IS NULL OR runtime.lease_expires_at <= ?)`;
 	const statement = cursor
 		? db.prepare(`${runtimeRowSelection} ${predicate} AND runtime.bot_id > ? ORDER BY runtime.bot_id ASC LIMIT ?`).bind(now, cursor, limit)
 		: db.prepare(`${runtimeRowSelection} ${predicate} ORDER BY runtime.bot_id ASC LIMIT ?`).bind(now, limit);
-	const result = await statement.all<StaleRunRow>();
+	const result = await statement.all<StaleRunRecoveryCandidate>();
 	const items = result.results ?? [];
 	const nextCursor = items.at(-1)?.botId;
 	return { items, done: items.length < limit, ...(nextCursor ? { nextCursor } : {}) };
 }
 
-async function loadRowsById(db: D1DatabaseLike, botIds: readonly string[]): Promise<StaleRunRow[]> {
+async function loadRowsById(db: D1DatabaseLike, botIds: readonly string[]): Promise<StaleRunRecoveryCandidate[]> {
 	if (botIds.length === 0) {
 		return [];
 	}
 	const result = await db
 		.prepare(`${runtimeRowSelection} WHERE runtime.bot_id IN (${botIds.map(() => '?').join(', ')}) ORDER BY runtime.bot_id ASC`)
 		.bind(...botIds)
-		.all<StaleRunRow>();
+		.all<StaleRunRecoveryCandidate>();
 	return result.results ?? [];
 }
 

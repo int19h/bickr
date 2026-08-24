@@ -2527,9 +2527,7 @@ describe("Provider requests", () => {
 					};
 				},
 				broadcastProviderDelta: () => {},
-				clearProviderStreamActive: () => {},
 				fetchProviderResponse,
-				markProviderStreamActive: () => {},
 				throwIfStopped: (_runId: string, signal: AbortSignal) => {
 					if (signal.aborted) {
 						throw new Error("Unexpected abort.");
@@ -2544,6 +2542,7 @@ describe("Provider requests", () => {
 					runId: string,
 					streamSeq: number,
 					signal: AbortSignal,
+					botId: string,
 				) => Promise<{ content: string; toolCalls: unknown[] }>;
 			}).callProvider.bind(runtime);
 
@@ -2558,6 +2557,7 @@ describe("Provider requests", () => {
 				"run-stream-retry",
 				77,
 				new AbortController().signal,
+				"bot-stream-retry",
 			);
 			await vi.advanceTimersByTimeAsync(90_000);
 
@@ -2618,9 +2618,7 @@ describe("Provider requests", () => {
 					};
 				},
 				broadcastProviderDelta: () => {},
-				clearProviderStreamActive: () => {},
 				fetchProviderResponse,
-				markProviderStreamActive: () => {},
 				throwIfStopped: (_runId: string, signal: AbortSignal) => {
 					if (signal.aborted) {
 						throw new Error("Unexpected abort.");
@@ -2635,6 +2633,7 @@ describe("Provider requests", () => {
 					runId: string,
 					streamSeq: number,
 					signal: AbortSignal,
+					botId: string,
 				) => Promise<{ content: string; toolCalls: unknown[] }>;
 			}).callProvider.bind(runtime);
 
@@ -2649,6 +2648,7 @@ describe("Provider requests", () => {
 				"run-stream-provider-error-retry",
 				77,
 				new AbortController().signal,
+				"bot-stream-provider-error-retry",
 			);
 			await vi.advanceTimersByTimeAsync(90_000);
 
@@ -2689,9 +2689,7 @@ describe("Provider requests", () => {
 				};
 			},
 			broadcastProviderDelta: () => {},
-			clearProviderStreamActive: () => {},
 			fetchProviderResponse,
-			markProviderStreamActive: () => {},
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
 					throw new Error("Unexpected abort.");
@@ -2706,6 +2704,7 @@ describe("Provider requests", () => {
 				runId: string,
 				streamSeq: number,
 				signal: AbortSignal,
+				botId: string,
 			) => Promise<{ content: string; toolCalls: unknown[] }>;
 		}).callProvider.bind(runtime);
 
@@ -2720,6 +2719,7 @@ describe("Provider requests", () => {
 			"run-stream-provider-rate-limit",
 			77,
 			new AbortController().signal,
+			"bot-stream-provider-rate-limit",
 		);
 
 		expect(response).toMatchObject({ content: "Recovered.", toolCalls: [] });
@@ -2781,9 +2781,7 @@ describe("Provider requests", () => {
 					};
 				},
 				broadcastProviderDelta: () => {},
-				clearProviderStreamActive: () => {},
 				fetchProviderResponse,
-				markProviderStreamActive: () => {},
 				throwIfStopped: (_runId: string, signal: AbortSignal) => {
 					if (signal.aborted) {
 						throw new Error("Unexpected abort.");
@@ -2798,6 +2796,7 @@ describe("Provider requests", () => {
 					runId: string,
 					streamSeq: number,
 					signal: AbortSignal,
+					botId: string,
 				) => Promise<{ content: string; toolCalls: unknown[] }>;
 			}).callProvider.bind(runtime);
 
@@ -2812,6 +2811,7 @@ describe("Provider requests", () => {
 				"run-stream-provider-rate-limit-no-provider",
 				77,
 				new AbortController().signal,
+				"bot-stream-provider-rate-limit-no-provider",
 			);
 			await vi.advanceTimersByTimeAsync(90_000);
 
@@ -2856,9 +2856,7 @@ describe("Provider requests", () => {
 				createdAt: new Date().toISOString(),
 			}),
 			broadcastProviderDelta: () => {},
-			clearProviderStreamActive: () => {},
 			fetchProviderResponse,
-			markProviderStreamActive: () => {},
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
 					throw new Error("Unexpected abort.");
@@ -2873,6 +2871,7 @@ describe("Provider requests", () => {
 				runId: string,
 				streamSeq: number,
 				signal: AbortSignal,
+				botId: string,
 			) => Promise<{ content: string; toolCalls: unknown[] }>;
 		}).callProvider.bind(runtime);
 
@@ -2888,6 +2887,7 @@ describe("Provider requests", () => {
 			"run-stream-provider-rate-limit-accumulate",
 			77,
 			new AbortController().signal,
+			"bot-stream-provider-rate-limit-accumulate",
 		)).resolves.toMatchObject({ content: "Recovered.", toolCalls: [] });
 
 		const firstBody = JSON.parse(String(fetchProviderResponse.mock.calls[0]?.[2])) as { provider?: Record<string, unknown> };
@@ -2913,9 +2913,7 @@ describe("Provider requests", () => {
 				createdAt: new Date().toISOString(),
 			}),
 			broadcastProviderDelta: () => {},
-			clearProviderStreamActive: () => {},
 			fetchProviderResponse,
-			markProviderStreamActive: () => {},
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
 					throw new Error("Unexpected abort.");
@@ -2930,6 +2928,7 @@ describe("Provider requests", () => {
 				runId: string,
 				streamSeq: number,
 				signal: AbortSignal,
+				botId: string,
 			) => Promise<{ content: string; toolCalls: unknown[] }>;
 		}).callProvider.bind(runtime);
 
@@ -2946,6 +2945,7 @@ describe("Provider requests", () => {
 				"run-stream-provider-rate-limit-repeat",
 				77,
 				new AbortController().signal,
+				"bot-stream-provider-rate-limit-repeat",
 			);
 		} catch (error) {
 			thrown = error;
@@ -2988,9 +2988,7 @@ describe("Provider requests", () => {
 					};
 				},
 				broadcastProviderDelta: () => {},
-				clearProviderStreamActive: () => {},
 				fetchProviderResponse,
-				markProviderStreamActive: () => {},
 				throwIfStopped: (_runId: string, signal: AbortSignal) => {
 					if (signal.aborted) {
 						throw new Error("Unexpected abort.");
@@ -3005,6 +3003,7 @@ describe("Provider requests", () => {
 					runId: string,
 					streamSeq: number,
 					signal: AbortSignal,
+					botId: string,
 				) => Promise<{ content: string; toolCalls: unknown[] }>;
 			}).callProvider.bind(runtime);
 
@@ -3020,6 +3019,7 @@ describe("Provider requests", () => {
 				"run-stream-provider-error-exhausted",
 				77,
 				new AbortController().signal,
+				"bot-stream-provider-error-exhausted",
 			).catch((error: unknown) => {
 				thrown = error;
 			});
@@ -3053,8 +3053,6 @@ describe("Provider requests", () => {
 		};
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			broadcastProviderDelta: () => {},
-			clearProviderStreamActive: () => {},
-			markProviderStreamActive: () => {},
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) {
 					throw new Error("Unexpected abort.");

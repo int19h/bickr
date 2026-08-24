@@ -107,8 +107,6 @@ async function consumeProviderResponse(frames: string[]): Promise<TestProviderRe
 		repairInvalidUnicodeValue: <T>(value: T) => ({ value }),
 		isAbortError: (error: unknown) => Boolean(error && typeof error === "object" && "name" in error && error.name === "AbortError"),
 		broadcastProviderDelta: () => {},
-		clearProviderStreamActive: () => {},
-		markProviderStreamActive: () => {},
 		throwIfStopped: (_runId: string, signal: AbortSignal) => {
 			if (signal.aborted) {
 				throw new Error("Unexpected abort.");

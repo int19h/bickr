@@ -31,7 +31,6 @@ import {
 	formatTickIntervalMinutes,
 	latestLoopMessageSeq,
 	latestPersistentEventSeq,
-	mergeEvents,
 	mergeLoopMessages,
 	reconnectDelayMs,
 	runtimeCompactionMessage,
@@ -220,9 +219,9 @@ export function BotRuntimePanel({
 				setOpenLoopMessageLogs(null);
 				setDeletingLoopMessageSeq(null);
 				latestLoopMessageSeqRef.current = 0;
-				currentLoopPageRef.current = 1;
-				currentLoopSourceCompactionSeqRef.current = null;
-				scheduleTrailingRefresh({ page: 1 });
+				// A compaction renumbers nested pages. Preserve the generation anchor
+				// and resolve its new page from the authoritative page-1 index.
+				scheduleTrailingRefresh();
 				return;
 			}
 			if (payload.type === "pong") {
@@ -436,7 +435,12 @@ export function BotRuntimePanel({
 		}, 100);
 	}
 
-	async function refresh(options: { page?: number; sourceCompactionSeq?: number | null; expectedSourceCompactionSeq?: number } = {}): Promise<void> {
+	async function refresh(options: {
+		page?: number;
+		sourceCompactionSeq?: number | null;
+		expectedSourceCompactionSeq?: number;
+		resolverAttempt?: number;
+	} = {}): Promise<void> {
 		const anchoredSource = options.sourceCompactionSeq;
 		const requestedPage = anchoredSource !== undefined ? 1 : Math.max(1, Math.floor(options.page ?? currentLoopPageRef.current));
 		const statusGeneration = ++statusRequestGenerationRef.current;
@@ -461,19 +465,37 @@ export function BotRuntimePanel({
 			for (const event of eventsResult.data.events) {
 				rememberPersistentEventSeq(event);
 			}
-			setEvents((current) => mergeEvents(current, eventsResult.data.events));
+			// This endpoint returns a complete retained snapshot. WebSocket events
+			// remain additive, but a reconnect snapshot must remove rows whose delete
+			// or history-clear notification was missed while disconnected.
+			setEvents(eventsResult.data.events);
 		}
 		if (messagesResult.ok && messagesGeneration === messagesRequestGenerationRef.current) {
 			const page = messagesResult.data.page;
 			const returnedSource = page.pages.find((item) => item.page === page.currentPage)?.sourceCompactionSeq ?? null;
 			if (options.expectedSourceCompactionSeq !== undefined && returnedSource !== options.expectedSourceCompactionSeq) {
-				void refresh({ sourceCompactionSeq: options.expectedSourceCompactionSeq });
+				if ((options.resolverAttempt ?? 0) < 1) {
+					void refresh({
+						sourceCompactionSeq: options.expectedSourceCompactionSeq,
+						resolverAttempt: (options.resolverAttempt ?? 0) + 1,
+					});
+				} else {
+					// The page map changed twice without yielding the requested generation.
+					// Clear the anchor and converge to page 1 instead of ping-ponging forever.
+					currentLoopPageRef.current = 1;
+					currentLoopSourceCompactionSeqRef.current = null;
+					void refresh({ page: 1 });
+				}
 				return;
 			}
 			if (anchoredSource !== undefined && anchoredSource !== null) {
 				const anchoredPage = page.compactionPageBySeq[String(anchoredSource)];
 				if (anchoredPage && anchoredPage !== 1) {
-					void refresh({ page: anchoredPage, expectedSourceCompactionSeq: anchoredSource });
+					void refresh({
+						page: anchoredPage,
+						expectedSourceCompactionSeq: anchoredSource,
+						resolverAttempt: options.resolverAttempt ?? 0,
+					});
 					return;
 				}
 			}

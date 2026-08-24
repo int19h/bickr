@@ -1,10 +1,13 @@
-import type { BotLoopMessage, BotSummary } from '@bickr/shared/model';
+import type { BotLoopMessage, BotLoopMessagePage, BotSummary } from '@bickr/shared/model';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BotRuntimePanel } from './runtime';
 
-type PendingMessages = (messages: BotLoopMessage[]) => void;
+type PendingMessages = {
+	path: string;
+	resolve: (response: { messages: BotLoopMessage[]; page: BotLoopMessagePage }) => void;
+};
 
 class MonitorSocket {
 	static readonly CONNECTING = 0;
@@ -86,18 +89,10 @@ beforeEach(async () => {
 		}
 		if (path.includes('/runtime/messages')) {
 			return new Promise<Response>((resolve) => {
-				pendingMessages.push((messages) => resolve(json({
+				pendingMessages.push({ path, resolve: ({ messages, page }) => resolve(json({
 					ok: true,
-					data: {
-						messages,
-						page: {
-							currentPage: 1,
-							pageCount: 1,
-							pages: [{ page: 1, messageCount: messages.length }],
-							compactionPageBySeq: {},
-						},
-					},
-				})));
+					data: { messages, page },
+				})) });
 			});
 		}
 		throw new Error(`Unexpected fetch: ${path}`);
@@ -163,10 +158,123 @@ describe('runtime monitor authoritative reconciliation', () => {
 		await answerMessages(3, [loopMessage(20, 'new authoritative generation')]);
 		expect(container.textContent).not.toContain('new authoritative generation');
 	});
+
+	it('replaces events on reconnect so a missed deletion cannot survive in the replay cursor', async () => {
+		const socket = MonitorSocket.instances[0]!;
+		await act(async () => socket.emit({
+			type: 'event',
+			event: {
+				seq: 9,
+				runId: 'run-stale-event',
+				type: 'compaction',
+				payload: { status: 'complete', summary: 'stale event' },
+				tokenEstimate: 0,
+				createdAt: '2026-08-23T00:00:00.000Z',
+			},
+		}));
+		await act(async () => socket.open());
+		await answerMessages(1, [loopMessage(20, 'authoritative messages')]);
+		await answerMessages(0, [loopMessage(10, 'obsolete messages')]);
+
+		await act(async () => socket.close());
+		await act(async () => new Promise((resolve) => setTimeout(resolve, 1_100)));
+
+		expect(MonitorSocket.instances).toHaveLength(2);
+		// If refresh had unioned the empty authoritative event snapshot with the
+		// WebSocket row, reconnect would still request afterEvent=9 here.
+		expect(MonitorSocket.instances[1]?.url).not.toContain('afterEvent=9');
+	});
+
+	it('re-resolves a nested generation across reconnect/reset and bounds mismatch fallback', async () => {
+		await answerMessages(0, [loopMessage(1, 'active page')], page(1, { 40: 2 }, [
+			{ page: 1, messageCount: 1 },
+			{ page: 2, messageCount: 1, sourceCompactionSeq: 40 },
+		]));
+		const pageTwo = container.querySelector<HTMLAnchorElement>('a[title^="Open loop page 2"]');
+		await act(async () => pageTwo?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
+		expect(pendingMessages[1]?.path).toContain('page=2');
+		await answerMessages(1, [loopMessage(40, 'nested generation forty')], page(2, { 40: 2 }, [
+			{ page: 1, messageCount: 1 },
+			{ page: 2, messageCount: 1, sourceCompactionSeq: 40 },
+		]));
+		expect(container.textContent).toContain('nested generation forty');
+
+		const socket = MonitorSocket.instances[0]!;
+		await act(async () => socket.open());
+		expect(pendingMessages[2]?.path).not.toContain('page=');
+		await answerMessages(2, [loopMessage(2, 'renumbered active page')], page(1, { 40: 3 }, [
+			{ page: 1, messageCount: 1 },
+			{ page: 2, messageCount: 1, sourceCompactionSeq: 70 },
+			{ page: 3, messageCount: 1, sourceCompactionSeq: 40 },
+		]));
+		expect(pendingMessages[3]?.path).toContain('page=3');
+		await answerMessages(3, [loopMessage(41, 'same nested generation after reconnect')], page(3, { 40: 3 }, [
+			{ page: 1, messageCount: 1 },
+			{ page: 2, messageCount: 1, sourceCompactionSeq: 70 },
+			{ page: 3, messageCount: 1, sourceCompactionSeq: 40 },
+		]));
+		expect(container.textContent).toContain('same nested generation after reconnect');
+
+		await act(async () => socket.emit({ type: 'loop_messages_reset' }));
+		await waitForPendingMessages(5);
+		expect(pendingMessages[4]?.path).not.toContain('page=');
+		await answerMessages(4, [loopMessage(3, 'reset active page')], page(1, { 40: 2 }, [
+			{ page: 1, messageCount: 1 },
+			{ page: 2, messageCount: 1, sourceCompactionSeq: 40 },
+		]));
+		expect(pendingMessages[5]?.path).toContain('page=2');
+		await answerMessages(5, [loopMessage(42, 'same nested generation after reset')], page(2, { 40: 2 }, [
+			{ page: 1, messageCount: 1 },
+			{ page: 2, messageCount: 1, sourceCompactionSeq: 40 },
+		]));
+		expect(container.textContent).toContain('same nested generation after reset');
+
+		await act(async () => socket.emit({ type: 'loop_messages_reset' }));
+		await waitForPendingMessages(7);
+		await answerMessages(6, [loopMessage(4, 'fallback active one')], page(1, { 40: 2 }, [
+			{ page: 1, messageCount: 1 },
+			{ page: 2, messageCount: 1, sourceCompactionSeq: 40 },
+		]));
+		await answerMessages(7, [loopMessage(99, 'wrong nested generation one')], page(2, { 40: 2 }, [
+			{ page: 1, messageCount: 1 },
+			{ page: 2, messageCount: 1, sourceCompactionSeq: 99 },
+		]));
+		await answerMessages(8, [loopMessage(5, 'fallback active two')], page(1, { 40: 2 }, [
+			{ page: 1, messageCount: 1 },
+			{ page: 2, messageCount: 1, sourceCompactionSeq: 40 },
+		]));
+		await answerMessages(9, [loopMessage(100, 'wrong nested generation two')], page(2, { 40: 2 }, [
+			{ page: 1, messageCount: 1 },
+			{ page: 2, messageCount: 1, sourceCompactionSeq: 100 },
+		]));
+		expect(pendingMessages[10]?.path).not.toContain('page=');
+		await answerMessages(10, [loopMessage(6, 'bounded page-one fallback')]);
+		expect(container.textContent).toContain('bounded page-one fallback');
+		expect(container.textContent).not.toContain('wrong nested generation two');
+		expect(pendingMessages).toHaveLength(11);
+	});
 });
 
-async function answerMessages(index: number, messages: BotLoopMessage[]): Promise<void> {
-	await act(async () => pendingMessages[index]?.(messages));
+async function answerMessages(index: number, messages: BotLoopMessage[], responsePage = page(1, {}, [
+	{ page: 1, messageCount: messages.length },
+])): Promise<void> {
+	await act(async () => pendingMessages[index]?.resolve({ messages, page: responsePage }));
+}
+
+function page(
+	currentPage: number,
+	compactionPageBySeq: Record<number, number>,
+	pages: BotLoopMessagePage['pages'],
+): BotLoopMessagePage {
+	return { currentPage, pageCount: pages.length, pages, compactionPageBySeq };
+}
+
+async function waitForPendingMessages(count: number): Promise<void> {
+	await act(async () => {
+		while (pendingMessages.length < count) {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+	});
 }
 
 function json(body: unknown, status = 200): Response {

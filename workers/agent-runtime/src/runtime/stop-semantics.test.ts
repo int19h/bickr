@@ -13,6 +13,24 @@ function stopMethod(runtime: object): StopRuntime {
 }
 
 describe('runtime stop transitions', () => {
+	it('returns the honest no-run union member without writing stop state', async () => {
+		const appendEvent = vi.fn();
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			activeRunId: null,
+			activeAbortController: null,
+			runtimeTransitionQueue: () => ({ run: <T,>(closure: () => Promise<T>) => closure() }),
+			runtimeStatusIndexRow: async () => ({ status: 'idle', activeRunId: null }),
+			setStopRequest: vi.fn(),
+			appendEvent,
+		});
+
+		await expect(stopMethod(runtime).stopTick('bot-idle')).resolves.toEqual({
+			kind: 'not_running', stopped: false, status: 'idle',
+		});
+		expect(runtime.setStopRequest).not.toHaveBeenCalled();
+		expect(appendEvent).not.toHaveBeenCalled();
+	});
+
 	it('makes concurrent double Stop run-scoped and emits one request event', async () => {
 		const controller = new AbortController();
 		let requested = false;

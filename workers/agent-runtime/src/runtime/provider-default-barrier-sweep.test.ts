@@ -121,6 +121,35 @@ describe('scheduled provider-default barrier maintenance', () => {
 		});
 	});
 
+	it('continues the maintenance barrier sweep when stale-run recovery fails at sweep level', async () => {
+		vi.spyOn(console, 'log').mockImplementation(() => undefined);
+		const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		const fixture = maintenanceEnv([pendingOwner], async () => Response.json({ ok: true }));
+		const prepare = fixture.env.BICKR_D1.prepare.bind(fixture.env.BICKR_D1);
+		vi.spyOn(fixture.env.BICKR_D1, 'prepare').mockImplementation(((sql: string) => {
+			if (sql.includes("runtime.status = 'running'")) {
+				throw new RangeError('recovery query failed');
+			}
+			return prepare(sql);
+		}) as typeof fixture.env.BICKR_D1.prepare);
+
+		const result = await runScheduledAgentRuntimeTasks(
+			fixture.env,
+			Date.parse('2026-08-14T00:00:00.000Z'),
+			agentRuntimeFrequentCronExpression,
+		);
+
+		expect(result).toMatchObject({
+			kind: 'maintenance',
+			sweep: { processedOwners: 1, attempts: [{ status: 'accepted' }] },
+			staleRunRecovery: { kind: 'failed', failure: { kind: 'sweep_error', errorName: 'RangeError' } },
+		});
+		if (result.kind !== 'maintenance') throw new Error('Expected maintenance scheduled result.');
+		expect(fixture.coordinatorDispatch).toHaveBeenCalledOnce();
+		expect(error.mock.calls.map(([message]) => JSON.parse(String(message))))
+			.toContainEqual(expect.objectContaining({ event: 'scheduled_stale_run_recovery', outcome: result.staleRunRecovery }));
+	});
+
 	it('no-ops without pending work and leaves failed owners observable and retryable', async () => {
 		vi.spyOn(console, 'log').mockImplementation(() => undefined);
 		const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);

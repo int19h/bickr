@@ -714,6 +714,49 @@ export async function releaseRuntimeRun(
 	return result.meta?.changes === 1;
 }
 
+export async function releaseStaleRuntimeRun(
+	db: D1DatabaseLike,
+	input: {
+		botId: string;
+		runId: string | null;
+		status: RuntimeReleaseStatus;
+		nextDueAt: string | null;
+		lastError: string | null;
+		now: string;
+		staleCutoff: string;
+	},
+): Promise<boolean> {
+	const result = await db
+		.prepare(
+			// Recovery must prove both ownership and continued staleness in the
+			// releasing statement. A progress renewal can otherwise land after the
+			// recovery read and be incorrectly overwritten by a status/run-id-only CAS.
+			`UPDATE bot_runtime_index
+			 SET status = ?,
+			     active_run_id = NULL,
+			     active_run_trigger = NULL,
+			     lease_expires_at = NULL,
+			     last_error = ?,
+			     next_due_at = CASE WHEN enabled = 1 THEN COALESCE(?, next_due_at) ELSE NULL END,
+			     updated_at = ?
+			 WHERE bot_id = ?
+			   AND status = 'running'
+			   AND active_run_id IS ?
+			   AND (lease_expires_at IS NULL OR lease_expires_at <= ?)`,
+		)
+		.bind(
+			input.status,
+			input.lastError,
+			input.nextDueAt,
+			input.now,
+			input.botId,
+			input.runId,
+			input.staleCutoff,
+		)
+		.run();
+	return result.meta?.changes === 1;
+}
+
 export async function renewRuntimeRunLease(
 	db: D1DatabaseLike,
 	input: { botId: string; runId: string; leaseExpiresAt: string; now: string },
@@ -1738,7 +1781,6 @@ export class BotRuntime {
 	private activeAbortController: AbortController | null = null;
 	private activeRunId: string | null = null;
 	private activeMaintenanceOperation: ActiveMaintenanceOperation | null = null;
-	private readonly activeStreamActivity = new Map<string, string>();
 	private ephemeralStreamSeq = 0;
 	private transitionQueue = new ExclusiveOperationQueue();
 	/**
@@ -2281,17 +2323,18 @@ export class BotRuntime {
 				return { kind: 'not_running', botId };
 			}
 			const runId = row.activeRunId;
-			if (row.leaseExpiresAt !== null && Date.parse(row.leaseExpiresAt) > Date.now()) {
+			const staleCutoff = new Date().toISOString();
+			if (row.leaseExpiresAt !== null && row.leaseExpiresAt > staleCutoff) {
 				return { kind: 'current', botId, runId, leaseExpiresAt: row.leaseExpiresAt };
 			}
 			if (this.runtimeStorageClearedAt) {
-				const released = await this.releaseStaleRuntimeRow(botId, row, null);
+				const released = await this.releaseStaleRuntimeRow(botId, row, null, staleCutoff);
 				if (released) {
 					return { kind: 'released_storage_cleared', botId, runId };
 				}
 				return this.recoveryResultAfterCasLoss(botId);
 			}
-			const reaped = await this.reapStaleRun(botId);
+			const reaped = await this.reapStaleRun(botId, staleCutoff);
 			if (reaped) {
 				return { kind: 'reaped', botId, runId };
 			}
@@ -3166,11 +3209,11 @@ export class BotRuntime {
 						runId,
 						requestEvent.seq,
 						runContext.signal,
+						bot.id,
 						toolCallsMode,
 						requestEvent.createdAt,
 						requestMaxCompletionTokens,
 						providerPromptCacheSessionId(bot.id),
-						bot.id,
 					);
 				} catch (error) {
 					if (error instanceof ProviderResponseInterruptedError) {
@@ -3625,11 +3668,11 @@ export class BotRuntime {
 		runId: string,
 		streamSeq: number,
 		signal: AbortSignal,
+		botId: string,
 		toolCalls: BotInferenceToolCalls = providerToolCallsForSettings(settings),
 		createdAt = new Date().toISOString(),
 		maxCompletionTokens = providerContextCompletionReserveTokens,
 		promptCacheSessionId?: string,
-		botId?: string,
 	): Promise<ProviderResponse> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		let requestSettings = settings;
@@ -3649,11 +3692,7 @@ export class BotRuntime {
 		let retryReason: string | null = null;
 		let calibrationAttempt = 0;
 		for (let attempt = 1; attempt <= providerMaxAttempts; attempt += 1) {
-			if (botId) {
-				await this.renewProgressLease(botId, runId, signal);
-			} else {
-				this.throwIfStopped(runId, signal);
-			}
+			await this.renewProgressLease(botId, runId, signal);
 			if (attempt > 1) {
 				this.appendEvent(runId, 'provider_retry', {
 					attempt,
@@ -3664,9 +3703,7 @@ export class BotRuntime {
 				if (retryDelayMs > 0) {
 					await sleep(retryDelayMs, signal);
 				}
-				if (botId) {
-					await this.renewProgressLease(botId, runId, signal);
-				}
+				await this.renewProgressLease(botId, runId, signal);
 			}
 			const request = providerChatCompletionRequest(
 				requestSettings,
@@ -4008,8 +4045,6 @@ export class BotRuntime {
 				repairInvalidUnicodeText,
 				repairInvalidUnicodeValue,
 				isAbortError,
-				markProviderStreamActive: (activeRunId) => this.markProviderStreamActive(activeRunId),
-				clearProviderStreamActive: (activeRunId) => this.clearProviderStreamActive(activeRunId),
 				throwIfStopped: (activeRunId, activeSignal) => this.throwIfStopped(activeRunId, activeSignal),
 				broadcastProviderDelta: (activeRunId, activeStreamSeq, payload) =>
 					this.broadcastProviderDelta(activeRunId, activeStreamSeq, payload),
@@ -5310,14 +5345,6 @@ export class BotRuntime {
 
 	private latestEventSeq(): number {
 		return this.state.storage.sql.exec<{ seq: number }>(`SELECT seq FROM events ORDER BY seq DESC LIMIT 1`).toArray()[0]?.seq ?? 0;
-	}
-
-	private markProviderStreamActive(runId: string): void {
-		this.activeStreamActivity.set(runId, new Date().toISOString());
-	}
-
-	private clearProviderStreamActive(runId: string): void {
-		this.activeStreamActivity.delete(runId);
 	}
 
 	private async fetchProviderResponse(
@@ -7379,7 +7406,7 @@ export class BotRuntime {
 		};
 	}
 
-	private async reapStaleRun(botId: string): Promise<boolean> {
+	private async reapStaleRun(botId: string, staleCutoff = new Date().toISOString()): Promise<boolean> {
 		const row = await this.runtimeStatusIndexRow(botId);
 		if (row?.status !== 'running') {
 			return false;
@@ -7418,19 +7445,20 @@ export class BotRuntime {
 			return true;
 		}
 
-		if (row.leaseExpiresAt !== null && Date.parse(row.leaseExpiresAt) > Date.now()) {
+		if (row.leaseExpiresAt !== null && row.leaseExpiresAt > staleCutoff) {
 			return false;
 		}
 		const message = 'This Bickr visit took too long and closed before completion.';
 		const now = new Date().toISOString();
 		const nextDueAt = rescheduleAfterReap(now);
-		const reaped = await releaseRuntimeRun(this.env.BICKR_D1, {
+		const reaped = await releaseStaleRuntimeRun(this.env.BICKR_D1, {
 			botId,
 			runId,
 			status: 'idle',
 			nextDueAt,
 			lastError: message,
 			now,
+			staleCutoff,
 		});
 		if (!reaped) {
 			return false;
@@ -7457,19 +7485,21 @@ export class BotRuntime {
 		botId: string,
 		row: RuntimeStatusIndexRow,
 		lastError: string | null,
+		staleCutoff: string,
 	): Promise<boolean> {
 		const now = new Date().toISOString();
 		const trigger = recordedRunTrigger(row.activeRunTrigger);
 		const nextDueAt = row.enabled === 1 && !runKeepsStandingSchedule(trigger)
 			? new Date(Date.parse(now) + row.tickIntervalSeconds * 1000).toISOString()
 			: null;
-		return releaseRuntimeRun(this.env.BICKR_D1, {
+		return releaseStaleRuntimeRun(this.env.BICKR_D1, {
 			botId,
 			runId: row.activeRunId,
 			status: 'idle',
 			nextDueAt,
 			lastError,
 			now,
+			staleCutoff,
 		});
 	}
 

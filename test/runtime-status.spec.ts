@@ -225,6 +225,25 @@ describe("BotRuntime stale-run reaper scheduling", () => {
 		});
 	});
 
+	it("lets a progress renewal win between the stale read and stale-release CAS", async () => {
+		const runId = "run-renewal-wins-reaper";
+		const botId = await seedExpiredRun("renewal-wins-reaper", runId, "cron");
+		const renewedLease = "2099-01-01T00:15:00.000Z";
+		const harness = runtimeHarness(d1RenewingBeforeStaleRelease(testEnv.BICKR_D1, botId, runId, renewedLease));
+
+		await expect(harness.runtime.reapStaleRun(botId)).resolves.toBe(false);
+
+		expect(harness.failureEvents).toEqual([]);
+		await expect(testEnv.BICKR_D1.prepare(
+			`SELECT status, active_run_id AS activeRunId, lease_expires_at AS leaseExpiresAt
+			 FROM bot_runtime_index WHERE bot_id = ?`,
+		).bind(botId).first()).resolves.toMatchObject({
+			status: "running",
+			activeRunId: runId,
+			leaseExpiresAt: renewedLease,
+		});
+	});
+
 	// A run claimed before the trigger column existed reads as a cron tick, which
 	// is the pre-existing behaviour for every run in flight at deploy time.
 	it("reschedules a run with no recorded trigger", async () => {
@@ -361,6 +380,35 @@ function d1ReschedulingBeforeRelease(delegate: D1Database, botId: string, nextDu
 		}) as unknown as D1PreparedStatement;
 	return {
 		prepare: (query: string) => wrap(delegate.prepare(query), isRelease(query)),
+	} as unknown as D1Database;
+}
+
+function d1RenewingBeforeStaleRelease(
+	delegate: D1Database,
+	botId: string,
+	runId: string,
+	leaseExpiresAt: string,
+): D1Database {
+	const isStaleRelease = (query: string): boolean =>
+		query.includes("active_run_id IS ?") && query.includes("lease_expires_at IS NULL OR lease_expires_at <= ?");
+	const wrap = (statement: D1PreparedStatement, intercept: boolean): D1PreparedStatement =>
+		({
+			bind: (...values: unknown[]) => wrap(statement.bind(...values), intercept),
+			first: statement.first.bind(statement),
+			run: async (...args: []) => {
+				if (intercept) {
+					await renewRuntimeRunLease(delegate, {
+						botId,
+						runId,
+						now: "2099-01-01T00:00:00.000Z",
+						leaseExpiresAt,
+					});
+				}
+				return statement.run(...args);
+			},
+		}) as unknown as D1PreparedStatement;
+	return {
+		prepare: (query: string) => wrap(delegate.prepare(query), isStaleRelease(query)),
 	} as unknown as D1Database;
 }
 

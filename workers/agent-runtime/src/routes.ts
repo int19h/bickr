@@ -2849,8 +2849,8 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 export type ScheduledAgentRuntimeTasksResult =
-	| { kind: 'maintenance'; sweep: InferenceProviderDefaultBarrierFleetStepResult; staleRunRecovery: StaleRunRecoverySweepResult }
-	| { kind: 'ordinary'; staleRunRecovery: StaleRunRecoverySweepResult }
+	| { kind: 'maintenance'; sweep: InferenceProviderDefaultBarrierFleetStepResult; staleRunRecovery: ScheduledStaleRunRecoveryOutcome }
+	| { kind: 'ordinary'; staleRunRecovery: ScheduledStaleRunRecoveryOutcome }
 	| {
 		kind: 'daily';
 		retention: BotRuntimeRetentionSweepResult;
@@ -2858,6 +2858,10 @@ export type ScheduledAgentRuntimeTasksResult =
 		inferenceGraphCleanup: InferenceGraphTerminalStateCleanupResult;
 	}
 	| { kind: 'daily_deferred' };
+
+export type ScheduledStaleRunRecoveryOutcome =
+	| { kind: 'completed'; sweep: StaleRunRecoverySweepResult }
+	| { kind: 'failed'; failure: { kind: 'sweep_error'; errorName: string } };
 
 export async function runScheduledAgentRuntimeTasks(
 	env: Env,
@@ -2959,28 +2963,20 @@ function settledDailyMaintenanceResult<T>(result: PromiseSettledResult<T>): T | 
 }
 
 async function runFrequentScheduledAgentRuntimeTasks(env: Env, scheduledTime: number): Promise<ScheduledAgentRuntimeTasksResult> {
-	const staleRunRecovery = await runStaleRunRecoverySweep({
-		BICKR_D1: env.BICKR_D1,
-		BICKR_KV: env.BICKR_KV,
-		BOT_RUNTIME: env.BOT_RUNTIME,
-		...(env.INTERNAL_SERVICE_SECRET === undefined ? {} : { INTERNAL_SERVICE_SECRET: env.INTERNAL_SERVICE_SECRET }),
-	}, { now: new Date(scheduledTime).toISOString() });
-	const recoveryLog = {
-		event: 'scheduled_stale_run_recovery',
-		scheduledTime,
-		...staleRunRecovery,
-	};
-	(staleRunRecovery.failed === 0 ? console.log : console.error)(JSON.stringify(recoveryLog));
 	const maintenance = await readMaintenanceState(env.BICKR_D1);
+	const staleRunRecoveryPromise = runScheduledStaleRunRecovery(env, scheduledTime);
 	if (maintenance.enabled) {
 		try {
-			const sweep = await runInferenceProviderDefaultBarrierFleetStep({
-				BICKR_D1: env.BICKR_D1,
-				USER_BOTS: env.USER_BOTS,
-				...(env.INTERNAL_SERVICE_SECRET === undefined
-					? {}
-					: { INTERNAL_SERVICE_SECRET: env.INTERNAL_SERVICE_SECRET }),
-			}, { now: new Date(scheduledTime).toISOString() });
+			const [sweep, staleRunRecovery] = await Promise.all([
+				runInferenceProviderDefaultBarrierFleetStep({
+					BICKR_D1: env.BICKR_D1,
+					USER_BOTS: env.USER_BOTS,
+					...(env.INTERNAL_SERVICE_SECRET === undefined
+						? {}
+						: { INTERNAL_SERVICE_SECRET: env.INTERNAL_SERVICE_SECRET }),
+				}, { now: new Date(scheduledTime).toISOString() }),
+				staleRunRecoveryPromise,
+			]);
 			const failedOwners = sweep.attempts.filter((attempt) => attempt.status === 'failed').length;
 			const record = {
 				event: 'scheduled_provider_default_barrier_sweep',
@@ -3001,7 +2997,7 @@ async function runFrequentScheduledAgentRuntimeTasks(env: Env, scheduledTime: nu
 			throw error;
 		}
 	}
-	await Promise.all([
+	const [, , , , staleRunRecovery] = await Promise.all([
 		dispatchDueBots(env, scheduledTime),
 		recoverDueLifecycleOwners(env, scheduledTime).catch((error) => {
 			console.warn('lifecycle recovery dispatch failed', error);
@@ -3012,8 +3008,34 @@ async function runFrequentScheduledAgentRuntimeTasks(env: Env, scheduledTime: nu
 		refreshGlobalInferenceCostStatsCacheIfStale(env.BICKR_D1, new Date(scheduledTime)).catch((error) => {
 			console.warn('global inference cost stats refresh failed', error);
 		}),
+		staleRunRecoveryPromise,
 	]);
 	return { kind: 'ordinary', staleRunRecovery };
+}
+
+async function runScheduledStaleRunRecovery(env: Env, scheduledTime: number): Promise<ScheduledStaleRunRecoveryOutcome> {
+	try {
+		const sweep = await runStaleRunRecoverySweep({
+			BICKR_D1: env.BICKR_D1,
+			BICKR_KV: env.BICKR_KV,
+			BOT_RUNTIME: env.BOT_RUNTIME,
+			...(env.INTERNAL_SERVICE_SECRET === undefined ? {} : { INTERNAL_SERVICE_SECRET: env.INTERNAL_SERVICE_SECRET }),
+		}, { now: new Date(scheduledTime).toISOString() });
+		const outcome = { kind: 'completed' as const, sweep };
+		(sweep.failed === 0 ? console.log : console.error)(JSON.stringify({
+			event: 'scheduled_stale_run_recovery',
+			scheduledTime,
+			outcome,
+		}));
+		return outcome;
+	} catch (error) {
+		const outcome: ScheduledStaleRunRecoveryOutcome = {
+			kind: 'failed',
+			failure: { kind: 'sweep_error', errorName: error instanceof Error ? error.name : 'UnknownError' },
+		};
+		console.error(JSON.stringify({ event: 'scheduled_stale_run_recovery', scheduledTime, outcome }));
+		return outcome;
+	}
 }
 
 export async function dispatchDueBots(
