@@ -2545,14 +2545,17 @@ export class BotRuntime {
 			const injections = this.consumeInjections(mode === 'spotlight' ? (options.injectionIds ?? []) : undefined);
 			if (mode === 'spotlight' && injections.length === 0) {
 				await this.renewProgressLease(bot.id, runId, abortController.signal);
-				const release = await this.setRuntimeIndexSerialized(bot, 'idle', undefined, new Date().toISOString(), runId, trigger);
+				const release = await this.completeRuntimeRunSerialized(
+					bot,
+					new Date().toISOString(),
+					runId,
+					trigger,
+					abortController.signal,
+					{ note: 'No pending spotlight injection was available.' },
+				);
 				if (!release.released) {
 					throw new TickStoppedError();
 				}
-				this.appendEvent(runId, 'tick_completed', {
-					...(release.nextDueAt ? { nextDueAt: release.nextDueAt } : {}),
-					note: 'No pending spotlight injection was available.',
-				});
 				startQueuedSpotlightAfterRun = true;
 				return { runId, status: 'completed' };
 			}
@@ -2610,11 +2613,17 @@ export class BotRuntime {
 
 			await this.compactIfNeeded(bot, providerSettings, runId, abortController.signal);
 			await this.renewProgressLease(bot.id, runId, abortController.signal);
-			const release = await this.setRuntimeIndexSerialized(bot, 'idle', undefined, new Date().toISOString(), runId, trigger);
+			const release = await this.completeRuntimeRunSerialized(
+				bot,
+				new Date().toISOString(),
+				runId,
+				trigger,
+				abortController.signal,
+				{},
+			);
 			if (!release.released) {
 				throw new TickStoppedError();
 			}
-			this.appendEvent(runId, 'tick_completed', { ...(release.nextDueAt ? { nextDueAt: release.nextDueAt } : {}) });
 			startQueuedSpotlightAfterRun = true;
 			return { runId, status: 'completed' };
 		} catch (error) {
@@ -7536,6 +7545,28 @@ export class BotRuntime {
 		);
 	}
 
+	private completeRuntimeRunSerialized(
+		bot: BotDocument,
+		now: string,
+		ownedByRunId: string,
+		trigger: RuntimeRunTrigger,
+		signal: AbortSignal,
+		payload: Record<string, unknown>,
+	): Promise<{ nextDueAt: string | null; released: boolean }> {
+		return this.runtimeTransitionQueue().run(async () => {
+			const release = await this.setRuntimeIndex(bot, 'idle', undefined, now, ownedByRunId, trigger, () => {
+				this.throwIfStopped(ownedByRunId, signal);
+			});
+			if (release.released) {
+				this.appendEvent(ownedByRunId, 'tick_completed', {
+					...(release.nextDueAt ? { nextDueAt: release.nextDueAt } : {}),
+					...payload,
+				});
+			}
+			return release;
+		});
+	}
+
 	private async setRuntimeIndex(
 		bot: BotDocument,
 		status: RuntimeReleaseStatus,
@@ -7543,6 +7574,7 @@ export class BotRuntime {
 		now: string,
 		ownedByRunId: string,
 		trigger: RuntimeRunTrigger,
+		beforeRelease?: () => void,
 	): Promise<{ nextDueAt: string | null; released: boolean }> {
 		const enabled = await this.runtimeIndexEnabled(bot.id, bot.tickSettings.enabled);
 		// A participant read as paused proposes nothing; releaseRuntimeRun decides
@@ -7560,6 +7592,11 @@ export class BotRuntime {
 		} else {
 			nextDueAt = new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString();
 		}
+		// Successful completion is linearized here: Stop and completion use the
+		// same in-instance queue, and no awaited work separates this fence from the
+		// D1 ownership CAS. Cleanup releases intentionally omit the fence so the
+		// cancellation path can relinquish the run it still owns.
+		beforeRelease?.();
 		const released = await releaseRuntimeRun(this.env.BICKR_D1, {
 			botId: bot.id,
 			runId: ownedByRunId,

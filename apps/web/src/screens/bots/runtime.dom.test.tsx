@@ -1,12 +1,17 @@
-import type { BotLoopMessage, BotLoopMessagePage, BotSummary } from '@bickr/shared/model';
+import type { BotLoopMessage, BotLoopMessagePage, BotRuntimeEvent, BotSummary } from '@bickr/shared/model';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BotRuntimePanel } from './runtime';
+import * as runtimeUtils from './runtime-utils';
 
 type PendingMessages = {
 	path: string;
 	resolve: (response: { messages: BotLoopMessage[]; page: BotLoopMessagePage }) => void;
+};
+
+type PendingEvents = {
+	resolve: (events: BotRuntimeEvent[]) => void;
 };
 
 class MonitorSocket {
@@ -67,10 +72,14 @@ const loopMessage = (seq: number, content: string): BotLoopMessage => ({
 let container: HTMLDivElement;
 let root: Root;
 let pendingMessages: PendingMessages[];
+let pendingEvents: PendingEvents[];
+let holdEventSnapshots: boolean;
 
 beforeEach(async () => {
 	(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 	pendingMessages = [];
+	pendingEvents = [];
+	holdEventSnapshots = false;
 	MonitorSocket.instances = [];
 	vi.stubGlobal('WebSocket', MonitorSocket);
 	vi.stubGlobal('fetch', (input: RequestInfo | URL) => {
@@ -82,6 +91,11 @@ beforeEach(async () => {
 			return Promise.resolve(json({ ok: true, data: { status: { botId: bot.id, enabled: true, status: 'running' } } }));
 		}
 		if (path.endsWith('/runtime/events')) {
+			if (holdEventSnapshots) {
+				return new Promise<Response>((resolve) => {
+					pendingEvents.push({ resolve: (events) => resolve(json({ ok: true, data: { events } })) });
+				});
+			}
 			return Promise.resolve(json({ ok: true, data: { events: [] } }));
 		}
 		if (path.endsWith('/runtime/token-usage')) {
@@ -113,6 +127,48 @@ afterEach(async () => {
 });
 
 describe('runtime monitor authoritative reconciliation', () => {
+	it('invalidates an older event snapshot on an ordinary socket event and converges through one trailing snapshot', async () => {
+		await answerMessages(0, []);
+		const observedEventSeqs: number[][] = [];
+		const latestPersistentEventSeq = runtimeUtils.latestPersistentEventSeq;
+		vi.spyOn(runtimeUtils, 'latestPersistentEventSeq').mockImplementation((events) => {
+			observedEventSeqs.push(events.map((event) => event.seq));
+			return latestPersistentEventSeq(events);
+		});
+		holdEventSnapshots = true;
+
+		const refresh = Array.from(container.querySelectorAll('button')).find((item) => item.textContent?.trim() === 'Refresh log');
+		await act(async () => refresh?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+		expect(pendingEvents).toHaveLength(1);
+		expect(pendingMessages).toHaveLength(2);
+
+		const socket = MonitorSocket.instances[0]!;
+		await act(async () => socket.emit({
+			type: 'event',
+			event: runtimeEvent(9, 'run-live-event', 'provider_request'),
+		}));
+		expect(observedEventSeqs.at(-1)).toEqual([9]);
+
+		// This snapshot was read before seq 9 arrived. Its generation was
+		// invalidated by the socket event, so completing the whole refresh cannot
+		// replace the newer component state.
+		await answerEvents(0, []);
+		await answerMessages(1, []);
+		expect(observedEventSeqs.at(-1)).toEqual([9]);
+
+		await waitForPendingEvents(2);
+		expect(pendingEvents).toHaveLength(2);
+		expect(pendingMessages).toHaveLength(3);
+		await answerEvents(1, [runtimeEvent(10, 'run-authoritative-event', 'provider_request')]);
+		await answerMessages(2, []);
+		expect(observedEventSeqs.at(-1)).toEqual([10]);
+
+		// The debounce is trailing and bounded: one persistent event schedules one
+		// replacement, with no self-perpetuating request after it commits.
+		await act(async () => new Promise((resolve) => setTimeout(resolve, 150)));
+		expect(pendingEvents).toHaveLength(2);
+	});
+
 	it('keeps the newest reconnect snapshot, preserves live deltas, and ignores an invalidated stale response', async () => {
 		expect(pendingMessages).toHaveLength(1);
 		const socket = MonitorSocket.instances[0]!;
@@ -261,6 +317,10 @@ async function answerMessages(index: number, messages: BotLoopMessage[], respons
 	await act(async () => pendingMessages[index]?.resolve({ messages, page: responsePage }));
 }
 
+async function answerEvents(index: number, events: BotRuntimeEvent[]): Promise<void> {
+	await act(async () => pendingEvents[index]?.resolve(events));
+}
+
 function page(
 	currentPage: number,
 	compactionPageBySeq: Record<number, number>,
@@ -275,6 +335,25 @@ async function waitForPendingMessages(count: number): Promise<void> {
 			await new Promise((resolve) => setTimeout(resolve, 10));
 		}
 	});
+}
+
+async function waitForPendingEvents(count: number): Promise<void> {
+	await act(async () => {
+		while (pendingEvents.length < count) {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+	});
+}
+
+function runtimeEvent(seq: number, runId: string, type: BotRuntimeEvent['type']): BotRuntimeEvent {
+	return {
+		seq,
+		runId,
+		type,
+		payload: {},
+		tokenEstimate: 0,
+		createdAt: '2026-08-24T00:00:00.000Z',
+	};
 }
 
 function json(body: unknown, status = 200): Response {

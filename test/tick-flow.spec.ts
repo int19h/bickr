@@ -6,6 +6,7 @@ import {
 	createBotForTest,
 	createThreadForTest,
 	defaultReasoningPrefill,
+	deferred,
 	describe,
 	effectiveLoopRecurringPrompt,
 	effectiveReasoningPrefill,
@@ -57,6 +58,49 @@ import type {
 	WorldDocument,
 } from "./helpers/index-harness";
 import { TickStoppedError } from "../workers/agent-runtime/src/errors";
+import { claimRuntimeRun } from "../workers/agent-runtime/src/runtime/bot-runtime";
+
+type TerminalRaceMethods = {
+	renewProgressLease(botId: string, runId: string, signal: AbortSignal): Promise<void>;
+	completeRuntimeRunSerialized(
+		bot: BotDocument,
+		now: string,
+		runId: string,
+		trigger: "spotlight",
+		signal: AbortSignal,
+		payload: Record<string, unknown>,
+	): Promise<{ nextDueAt: string | null; released: boolean }>;
+	runAdmittedTick(
+		botId: string,
+		trigger: "spotlight",
+		options: Record<string, unknown>,
+		admitted: {
+			bot: BotDocument;
+			providerSettings: { baseUrl: string; model: string; temperature: number };
+			runId: string;
+			abortController: AbortController;
+			mode: "spotlight";
+			setupMode: "continuation";
+		},
+	): Promise<{ runId: string; status: string }>;
+	stopTick(botId: string): Promise<{
+		kind: "not_running" | "stop_requested" | "stopped";
+		stopped: boolean;
+		runId?: string;
+		status: string;
+	}>;
+};
+
+type TerminalTransitionRaceHarness = {
+	bot: BotDocument;
+	events: string[];
+	methods: TerminalRaceMethods;
+	queue: ExclusiveOperationQueue;
+	runId: string;
+	runtime: object;
+	run(): Promise<{ runId: string; status: string }>;
+	stop(): Promise<Awaited<ReturnType<TerminalRaceMethods["stopTick"]>>>;
+};
 
 describe("Tick flow", () => {
 	it("completes a keyless local-simulation tick by replying through the coordinator", async () => {
@@ -377,59 +421,82 @@ describe("Tick flow", () => {
 		expect(botWithCurrentRuntimeBudget).not.toHaveBeenCalled();
 	});
 
-	it("turns cancellation immediately before terminal release into stop, never completion", async () => {
-		const controller = new AbortController();
-		const events: string[] = [];
-		const release = vi.fn(async () => ({ released: true, nextDueAt: null }));
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			env: {},
-			activeRunId: "run-terminal-fence",
-			activeAbortController: controller,
-			appendEvent: (_runId: string, type: string) => {
-				events.push(type);
-				return { createdAt: "2026-08-24T00:00:00.000Z" };
-			},
-			throwIfStopped: (_runId: string, signal: AbortSignal) => {
-				if (signal.aborted) throw new TickStoppedError();
-			},
-			consumeInjections: () => [],
-			renewProgressLease: async () => {
-				controller.abort();
-				throw new TickStoppedError();
-			},
-			setRuntimeIndexSerialized: release,
-			markPendingCompactionEventsFailed: vi.fn(),
-			hasTerminalEvent: () => events.some((type) => ["tick_completed", "tick_failed", "tick_stopped"].includes(type)),
-			exportRecentProviderUsage: async () => {},
-			pruneRuntimeStorageAfterTick: () => ({
-				events: 0,
-				providerUsage: 0,
-				loopMessages: { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0, pendingMore: false },
-				injections: { deletedInjections: 0, droppedQueueEntries: 0, pendingMore: false },
-			}),
-			clearStopRequest: vi.fn(),
-			startQueuedSpotlightTick: vi.fn(),
+	it("linearizes Stop before completion and emits only tick_stopped", async () => {
+		const harness = await terminalTransitionRaceHarness("stop-first");
+		const queueEntered = deferred<void>();
+		const releaseQueue = deferred<void>();
+		const blocker = harness.queue.run(async () => {
+			queueEntered.resolve();
+			await releaseQueue.promise;
 		});
-		const runAdmittedTick = (BotRuntime.prototype as unknown as {
-			runAdmittedTick(
-				botId: string,
-				trigger: "spotlight",
-				options: Record<string, unknown>,
-				admitted: Record<string, unknown>,
-			): Promise<{ status: string }>;
-		}).runAdmittedTick.bind(runtime);
+		await queueEntered.promise;
 
-		await expect(runAdmittedTick("bot-terminal-fence", "spotlight", {}, {
-			bot: fakeBotDocument({ id: "bot-terminal-fence" }),
-			providerSettings: { baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
-			runId: "run-terminal-fence",
-			abortController: controller,
-			mode: "spotlight",
-			setupMode: "continuation",
-		})).resolves.toEqual({ runId: "run-terminal-fence", status: "stopped" });
-		expect(release).toHaveBeenCalledOnce();
-		expect(events).toContain("tick_stopped");
-		expect(events).not.toContain("tick_completed");
+		const renewed = deferred<void>();
+		const releaseRenewal = deferred<void>();
+		const renewProgressLease = harness.methods.renewProgressLease.bind(harness.runtime);
+		Object.assign(harness.runtime, {
+			renewProgressLease: async (botId: string, runId: string, signal: AbortSignal) => {
+				await renewProgressLease(botId, runId, signal);
+				renewed.resolve();
+				await releaseRenewal.promise;
+			},
+		});
+
+		const tick = harness.run();
+		await renewed.promise;
+		const stop = harness.stop();
+		// Stop is now queued behind the real queue blocker. Completion cannot queue
+		// until the already-successful renewal wrapper is allowed to return.
+		releaseRenewal.resolve();
+		await Promise.resolve();
+		releaseQueue.resolve();
+
+		await expect(stop).resolves.toEqual({
+			kind: "stop_requested",
+			stopped: false,
+			runId: harness.runId,
+			status: "running",
+		});
+		await expect(tick).resolves.toEqual({ runId: harness.runId, status: "stopped" });
+		await blocker;
+		expect(harness.events).toEqual(["tick_started", "tick_stop_requested", "tick_stopped"]);
+		expect(await runtimeIndexState(harness.bot.id)).toEqual({ status: "idle", activeRunId: null });
+	});
+
+	it("linearizes completion before Stop and reports the terminal D1 state", async () => {
+		const harness = await terminalTransitionRaceHarness("completion-first");
+		const queueEntered = deferred<void>();
+		const releaseQueue = deferred<void>();
+		const blocker = harness.queue.run(async () => {
+			queueEntered.resolve();
+			await releaseQueue.promise;
+		});
+		await queueEntered.promise;
+
+		const completionQueued = deferred<void>();
+		const completeRuntimeRunSerialized = harness.methods.completeRuntimeRunSerialized.bind(harness.runtime);
+		Object.assign(harness.runtime, {
+			completeRuntimeRunSerialized: (...args: Parameters<TerminalRaceMethods["completeRuntimeRunSerialized"]>) => {
+				const completion = completeRuntimeRunSerialized(...args);
+				completionQueued.resolve();
+				return completion;
+			},
+		});
+
+		const tick = harness.run();
+		await completionQueued.promise;
+		const stop = harness.stop();
+		releaseQueue.resolve();
+
+		await expect(tick).resolves.toEqual({ runId: harness.runId, status: "completed" });
+		await expect(stop).resolves.toMatchObject({
+			kind: "not_running",
+			stopped: false,
+			status: "idle",
+		});
+		await blocker;
+		expect(harness.events).toEqual(["tick_started", "tick_completed"]);
+		expect(await runtimeIndexState(harness.bot.id)).toEqual({ status: "idle", activeRunId: null });
 	});
 
 	it("formats runtime history as first-person notes instead of transcript commands", () => {
@@ -3461,3 +3528,84 @@ describe("Tick flow", () => {
 		}));
 	});
 });
+
+async function terminalTransitionRaceHarness(suffix: string): Promise<TerminalTransitionRaceHarness> {
+	const cookie = await authCookie();
+	await seedWorld(cookie);
+	const profile = await createBotForTest(cookie, `terminal-race-${suffix}`, { enabled: true });
+	const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, profile.id);
+	const runId = `run-terminal-race-${suffix}`;
+	const now = new Date().toISOString();
+	const claimed = await claimRuntimeRun(
+		testEnv.BICKR_D1,
+		bot.id,
+		runId,
+		new Date(Date.parse(now) + 15 * 60_000).toISOString(),
+		now,
+		"spotlight",
+	);
+	expect(claimed).toBe(true);
+
+	const queue = new ExclusiveOperationQueue();
+	const controller = new AbortController();
+	const events: string[] = [];
+	const sql = memoryRuntimeSql();
+	const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		activeAbortController: controller,
+		activeMaintenanceOperation: null,
+		activeRunId: runId,
+		transitionQueue: queue,
+		env: {
+			BICKR_D1: testEnv.BICKR_D1,
+			BICKR_KV: testEnv.BICKR_KV,
+		},
+		state: {
+			storage: { sql },
+			waitUntil: () => {},
+		},
+		appendEvent: (_eventRunId: string, type: string) => {
+			events.push(type);
+			return { createdAt: new Date().toISOString() };
+		},
+		consumeInjections: () => [],
+		exportRecentProviderUsage: async () => {},
+		pruneRuntimeStorageAfterTick: () => ({
+			events: 0,
+			providerUsage: 0,
+			loopMessages: { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0, pendingMore: false },
+			injections: { deletedInjections: 0, droppedQueueEntries: 0, pendingMore: false },
+		}),
+		markPendingCompactionEventsFailed: () => {},
+		hasTerminalEvent: (eventRunId: string) =>
+			eventRunId === runId && events.some((type) => ["tick_completed", "tick_failed", "tick_stopped"].includes(type)),
+		startQueuedSpotlightTick: () => {},
+	});
+	const methods = BotRuntime.prototype as unknown as TerminalRaceMethods;
+	return {
+		bot,
+		events,
+		methods,
+		queue,
+		runId,
+		runtime,
+		run: () => methods.runAdmittedTick.call(runtime, bot.id, "spotlight", {}, {
+			bot,
+			providerSettings: { baseUrl: "https://provider.example.test/v1", model: "test-model", temperature: 0.2 },
+			runId,
+			abortController: controller,
+			mode: "spotlight",
+			setupMode: "continuation",
+		}),
+		stop: () => methods.stopTick.call(runtime, bot.id),
+	};
+}
+
+async function runtimeIndexState(botId: string): Promise<{ status: string; activeRunId: string | null } | null> {
+	return testEnv.BICKR_D1.prepare(
+		`SELECT status, active_run_id AS activeRunId
+		 FROM bot_runtime_index
+		 WHERE bot_id = ?`,
+	)
+		.bind(botId)
+		.first<{ status: string; activeRunId: string | null }>();
+}

@@ -265,13 +265,17 @@ export function BotRuntimePanel({
 				if (compactionMessage) {
 					setMessage(compactionMessage);
 				}
-				if (["tick_completed", "tick_failed", "tick_stopped"].includes(payload.event.type)) {
-					invalidateRefreshes({ events: true, messages: true });
+				const terminal = ["tick_completed", "tick_failed", "tick_stopped"].includes(payload.event.type);
+				invalidateRefreshes({ events: true, messages: terminal });
+				if (terminal) {
 					if (currentLoopPageRef.current === 1) {
 						setLoopMessages((current) => removeLiveProviderLoopMessagesForRun(current, payload.event!.runId));
 					}
-					scheduleTrailingRefresh();
 				}
+				// Persistent socket events are only an immediate view. Invalidating any
+				// in-flight older snapshot and scheduling one bounded replacement keeps
+				// reconnect cursors from advancing past an event the snapshot then drops.
+				scheduleTrailingRefresh();
 			}
 			if (payload.message) {
 				setMessage(payload.message);

@@ -10,14 +10,6 @@ export function upsertEvent(events: BotRuntimeEvent[], event: BotRuntimeEvent): 
 	return [...without, event].sort((left, right) => left.seq - right.seq);
 }
 
-export function mergeEvents(current: BotRuntimeEvent[], fetched: BotRuntimeEvent[]): BotRuntimeEvent[] {
-	const bySeq = new Map(current.map((event) => [event.seq, event]));
-	for (const event of fetched) {
-		bySeq.set(event.seq, event);
-	}
-	return [...bySeq.values()].sort((left, right) => left.seq - right.seq);
-}
-
 export function runtimeCompactionMessage(event: BotRuntimeEvent): string | null {
 	if (event.type !== "compaction") {
 		return null;
