@@ -2463,12 +2463,15 @@ describe("Forum coordinator", () => {
 			.bind(user.id, now, user.id, now, user.id, now, user.id, now, now)
 			.run();
 
+		// Every fixture row shares this second, so the last of them by id is the
+		// anchor that covers the whole set.
+		const anchor = { notificationId: "hnt_world_b", createdAt: now };
 		const worldResponse = await markAllNotificationsReadRoute(
 			contextFor<typeof markAllNotificationsReadRoute>(
 				jsonRequest(
 					"http://example.com/api/me/notifications/read-all",
 					"POST",
-					{ scopeType: "world", scopeId: "world_one" },
+					{ scopeType: "world", scopeId: "world_one", anchor },
 					cookie,
 				),
 			),
@@ -2495,7 +2498,7 @@ describe("Forum coordinator", () => {
 				jsonRequest(
 					"http://example.com/api/me/notifications/read-all",
 					"POST",
-					{ scopeType: "bot", scopeId: "bot_a" },
+					{ scopeType: "bot", scopeId: "bot_a", anchor },
 					cookie,
 				),
 			),
@@ -2512,15 +2515,15 @@ describe("Forum coordinator", () => {
 		expect(unread?.count).toBe(0);
 	});
 
-	it("bounds mark-all by the requested cutoff and clamps a future one", async () => {
+	it("bounds mark-all by the anchor the client rendered", async () => {
 		const cookie = await authCookie();
 		const user = await testEnv.BICKR_D1.prepare(`SELECT user_id AS id FROM users_index LIMIT 1`).first<{ id: string }>();
 		if (!user) {
 			throw new Error("Test user was not created.");
 		}
-		const cutoff = "2026-05-06T12:00:00.000Z";
-		const afterCutoff = "2026-05-06T12:00:01.000Z";
-		const forwardDated = "2099-01-01T00:00:00.000Z";
+		const before = "2026-05-06T11:59:00.000Z";
+		const anchorAt = "2026-05-06T12:00:00.000Z";
+		const after = "2026-05-06T12:00:01.000Z";
 		await testEnv.BICKR_D1.prepare(
 			`INSERT INTO human_notifications (
 				notification_id, user_id, world_id, event_key, notification_type,
@@ -2529,12 +2532,14 @@ describe("Forum coordinator", () => {
 				title, body, url_path, spotlight_id, spotlight_label,
 				created_at, read_at, archived_at
 			) VALUES
-				('hnt_cutoff_old', ?, 'world_one', 'event:cutoff:old', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'A', 'A', '/', NULL, NULL, ?, NULL, NULL),
-				('hnt_cutoff_new', ?, 'world_one', 'event:cutoff:new', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'B', 'B', '/', NULL, NULL, ?, NULL, NULL),
-				('hnt_cutoff_other', ?, 'world_two', 'event:cutoff:other', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'C', 'C', '/', NULL, NULL, ?, NULL, NULL),
-				('hnt_cutoff_future', ?, 'world_two', 'event:cutoff:future', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'D', 'D', '/', NULL, NULL, ?, NULL, NULL)`,
+				('hnt_anchor_old_one', ?, 'world_one', 'event:anchor:old-one', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'A', 'A', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_anchor_old_two', ?, 'world_two', 'event:anchor:old-two', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'B', 'B', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_anchor_row', ?, 'world_one', 'event:anchor:row', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'C', 'C', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_anchor_new_one', ?, 'world_one', 'event:anchor:new-one', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'D', 'D', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_anchor_new_two', ?, 'world_two', 'event:anchor:new-two', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'E', 'E', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_anchor_theirs', 'usr_someone_else', 'world_one', 'event:anchor:theirs', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'F', 'F', '/', NULL, NULL, ?, NULL, NULL)`,
 		)
-			.bind(user.id, cutoff, user.id, afterCutoff, user.id, afterCutoff, user.id, forwardDated)
+			.bind(user.id, before, user.id, before, user.id, anchorAt, user.id, after, user.id, after, before)
 			.run();
 
 		const readAll = async (body: Record<string, unknown>): Promise<Response> =>
@@ -2554,29 +2559,48 @@ describe("Forum coordinator", () => {
 				.all<{ id: string }>();
 			return (result.results ?? []).map((row) => row.id);
 		};
+		const anchor = { notificationId: "hnt_anchor_row", createdAt: anchorAt };
 
-		// Two scoped calls of one gesture share a cutoff, so a notification the
-		// second scope gained after the gesture started still survives it.
-		const worldResponse = await readAll({ scopeType: "world", scopeId: "world_one", asOf: cutoff });
-		expect(await worldResponse.json()).toMatchObject({ data: { readCount: 1 } });
-		const botResponse = await readAll({ scopeType: "bot", scopeId: "bot_b", asOf: cutoff });
-		expect(await botResponse.json()).toMatchObject({ data: { readCount: 0 } });
-		expect(await unreadIds()).toEqual(["hnt_cutoff_future", "hnt_cutoff_new", "hnt_cutoff_other"]);
+		// Two scoped calls of one gesture share an anchor, so neither reaches a
+		// notification created above it — including one the second scope gained
+		// while the first call was in flight.
+		const worldResponse = await readAll({ scopeType: "world", scopeId: "world_one", anchor });
+		expect(await worldResponse.json()).toMatchObject({ data: { readCount: 2 } });
+		const botResponse = await readAll({ scopeType: "bot", scopeId: "bot_b", anchor });
+		expect(await botResponse.json()).toMatchObject({ data: { readCount: 1 } });
+		expect(await unreadIds()).toEqual(["hnt_anchor_new_one", "hnt_anchor_new_two"]);
 
-		const invalidResponse = await readAll({ scopeType: "all", asOf: "sometime yesterday" });
-		expect(invalidResponse.status).toBe(400);
-		await expect(invalidResponse.json()).resolves.toMatchObject({ error: "bad_request" });
-		expect(await unreadIds()).toEqual(["hnt_cutoff_future", "hnt_cutoff_new", "hnt_cutoff_other"]);
+		// An anchor is only accepted as a row of this user's: another user's row and
+		// a row that does not exist are the same rejection.
+		for (const rejected of [
+			{ notificationId: "hnt_anchor_theirs", createdAt: before },
+			{ notificationId: "hnt_anchor_missing", createdAt: before },
+			{ notificationId: "hnt_anchor_row", createdAt: "sometime yesterday" },
+		]) {
+			const response = await readAll({ scopeType: "all", anchor: rejected });
+			expect(response.status).toBe(400);
+			await expect(response.json()).resolves.toMatchObject({ error: "bad_request" });
+		}
+		expect(await unreadIds()).toEqual(["hnt_anchor_new_one", "hnt_anchor_new_two"]);
 
-		// A future cutoff is clamped to server now, so it cannot reach forward.
-		const clampedResponse = await readAll({ scopeType: "all", asOf: forwardDated });
-		expect(await clampedResponse.json()).toMatchObject({ data: { readCount: 2 } });
-		expect(await unreadIds()).toEqual(["hnt_cutoff_future"]);
+		// No anchor is a client that rendered nothing, so it marks nothing.
+		const noAnchorResponse = await readAll({ scopeType: "all" });
+		expect(await noAnchorResponse.json()).toMatchObject({ data: { readCount: 0 } });
+		expect(await unreadIds()).toEqual(["hnt_anchor_new_one", "hnt_anchor_new_two"]);
 
-		// An absent cutoff still defaults to server now.
-		const defaultResponse = await readAll({ scopeType: "all" });
-		expect(await defaultResponse.json()).toMatchObject({ data: { readCount: 0 } });
-		expect(await unreadIds()).toEqual(["hnt_cutoff_future"]);
+		// The newest of the two rows sharing a second: the tie-break carries the
+		// other one with it, which is how the list rendered them.
+		const catchUpResponse = await readAll({
+			scopeType: "all",
+			anchor: { notificationId: "hnt_anchor_new_two", createdAt: after },
+		});
+		expect(await catchUpResponse.json()).toMatchObject({ data: { readCount: 2 } });
+		expect(await unreadIds()).toEqual([]);
+		// Marking read never reaches out of the user's own rows.
+		const theirs = await testEnv.BICKR_D1
+			.prepare(`SELECT read_at AS readAt FROM human_notifications WHERE notification_id = 'hnt_anchor_theirs'`)
+			.first<{ readAt: string | null }>();
+		expect(theirs?.readAt).toBeNull();
 	});
 
 	it("lists human notifications by world and bot scopes", async () => {

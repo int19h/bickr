@@ -899,11 +899,26 @@ async function notificationsCommand(ctx: CommandContext, args: string[]): Promis
 		const body = await bodyFromFlags(options.flags, () => compactRecord({
 			scopeType: flagString(options.flags, "scope-type"),
 			scopeId: flagString(options.flags, "scope-id"),
+			anchor: notificationReadAnchor(options.flags),
 		}));
 		await printMutation(ctx, ctx.client.request("/me/notifications/read-all", { body, method: "POST" }), "Notifications marked read.");
 		return;
 	}
 	throw new CliUsageError("Usage: bickr notifications <list|read-all>");
+}
+
+/**
+ * The mark-all anchor: the newest notification the caller has read, from
+ * `notifications list`. Nothing above it is marked, and without it nothing is
+ * marked at all — the server refuses to guess what has been seen.
+ */
+function notificationReadAnchor(flags: Map<string, string | boolean | string[]>): Record<string, unknown> | undefined {
+	const notificationId = flagString(flags, "anchor-id");
+	const createdAt = flagString(flags, "anchor-created-at");
+	if (notificationId === undefined && createdAt === undefined) {
+		return undefined;
+	}
+	return { notificationId, createdAt };
 }
 
 async function subscriptionsCommand(ctx: CommandContext, args: string[]): Promise<void> {

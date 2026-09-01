@@ -240,6 +240,17 @@ export type HumanNotificationReadScope =
 	| { scopeType: "bot"; scopeId: string }
 	| { scopeType: "notifications"; notificationIds: string[] };
 
+/**
+ * The newest notification a client had rendered when its user asked for a
+ * mark-all. It bounds the sweep to rows the user could actually have seen: the
+ * server resolves the id to that row's stored `created_at` and marks nothing
+ * above it, so no clock — the client's or the server's — takes part.
+ */
+export type HumanNotificationReadAnchor = {
+	notificationId: string;
+	createdAt: string;
+};
+
 export type WorldSummary = {
 	id: string;
 	handle: string;

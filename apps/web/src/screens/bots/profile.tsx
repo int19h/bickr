@@ -6,6 +6,7 @@ import type {
 	BotSummary,
 	ForumSummary,
 	HumanNotification,
+	HumanNotificationReadAnchor,
 	HumanNotificationReadScope,
 	HumanProfile,
 } from "@bickr/shared/model";
@@ -77,7 +78,7 @@ export function BotProfileScreen({
 	isAuthenticated: boolean;
 	isOwner: boolean;
 	onLoadNotifications: LoadHumanNotifications;
-	onMarkAllNotificationsRead: (scope?: HumanNotificationReadScope, asOf?: string) => Promise<number | null>;
+	onMarkAllNotificationsRead: (scope?: HumanNotificationReadScope, anchor?: HumanNotificationReadAnchor | null) => Promise<number | null>;
 	onDismissNotification: (notification: HumanNotification) => Promise<boolean>;
 	onMarkNotificationRead: (notification: HumanNotification) => Promise<string | null>;
 	onOpenNotification: (notification: HumanNotification) => void;

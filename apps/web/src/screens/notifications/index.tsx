@@ -1,6 +1,7 @@
 import type {
 	HumanNotification,
 	HumanNotificationListScope,
+	HumanNotificationReadAnchor,
 	HumanNotificationReadScope,
 	HumanNotificationSummary,
 } from "@bickr/shared/model";
@@ -18,6 +19,7 @@ import {
 import { EmptyState, FilterBox, Icon, textValue, type TextLike } from "../../ui";
 import { TimeAgoLabel, compareHandles, matchesFilter } from "../../components/record-display";
 import {
+	humanNotificationReadAnchorFor,
 	humanNotificationSummaryWithReadScope,
 	humanNotificationSummaryWithoutNotification,
 } from "./state";
@@ -48,7 +50,7 @@ export function NotificationsScreen({
 	listScope?: HumanNotificationListScope;
 	onLoadNotifications: LoadHumanNotifications;
 	onDismiss: (notification: HumanNotification) => Promise<boolean>;
-	onMarkAllRead: (scope?: HumanNotificationReadScope, asOf?: string) => Promise<number | null>;
+	onMarkAllRead: (scope?: HumanNotificationReadScope, anchor?: HumanNotificationReadAnchor | null) => Promise<number | null>;
 	onMarkRead: (notification: HumanNotification) => Promise<string | null>;
 	onOpenNotification: (notification: HumanNotification) => void;
 	subtitle?: string;
@@ -134,30 +136,30 @@ export function NotificationsScreen({
 		return true;
 	}
 
-	async function markAllRead(): Promise<void> {
-		const readScope = notificationReadScopeForListScope(listScope);
-		const readAt = new Date().toISOString();
-		const readCount = await onMarkAllRead(readScope, readAt);
+	// Every mark-all this screen makes is bounded by the newest notification it
+	// has loaded, so a group sweep and a whole-list sweep in one sitting share the
+	// same ceiling and neither reaches a notification that arrived after it.
+	async function markReadUpToLoaded(readScope: HumanNotificationReadScope): Promise<void> {
+		const anchor = humanNotificationReadAnchorFor(summary.notifications);
+		const readCount = await onMarkAllRead(readScope, anchor);
 		if (readCount === null) {
 			return;
 		}
+		const readAt = new Date().toISOString();
 		setSummary((current) =>
-			humanNotificationSummaryWithReadScope(current, readScope, readAt, readCount),
+			humanNotificationSummaryWithReadScope(current, readScope, anchor, readAt, readCount),
 		);
+	}
+
+	async function markAllRead(): Promise<void> {
+		await markReadUpToLoaded(notificationReadScopeForListScope(listScope));
 	}
 
 	async function markGroupRead(group: NotificationGroup): Promise<void> {
 		if (group.unreadCount === 0) {
 			return;
 		}
-		const readAt = new Date().toISOString();
-		const readCount = await onMarkAllRead(group.readScope, readAt);
-		if (readCount === null) {
-			return;
-		}
-		setSummary((current) =>
-			humanNotificationSummaryWithReadScope(current, group.readScope, readAt, readCount),
-		);
+		await markReadUpToLoaded(group.readScope);
 	}
 
 	const filtered = useMemo(

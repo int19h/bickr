@@ -28,6 +28,7 @@ import {
 	type ForumDocument,
 	type HumanNotification,
 	type HumanNotificationListScope,
+	type HumanNotificationReadAnchor,
 	type HumanNotificationReadScope,
 	type HumanNotificationSummary,
 	type HumanNotificationType,
@@ -1880,49 +1881,96 @@ export async function archiveHumanNotification(
 		.run();
 }
 
+/** The timestamp form every notification row is written with. */
+const isoTimestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
+
 /**
- * Normalizes the client-supplied mark-all cutoff. A cutoff past `now` is
- * clamped rather than rejected: a client clock running fast must not let a
- * mark-all reach forward in time.
+ * Reads a mark-all anchor off a request. Absent means the caller rendered
+ * nothing, which is not an error — it is a mark-all over an empty list.
+ *
+ * `createdAt` is checked against the exact form the rows are written in rather
+ * than through `Date.parse`, which accepts locale strings and half-formed
+ * dates. The value is only ever a claim about the row: the cutoff the sweep
+ * runs with is the stored `created_at` this id resolves to.
  */
-export function humanNotificationReadCutoff(value: unknown, now: string): string {
+export function parseHumanNotificationReadAnchor(value: unknown): HumanNotificationReadAnchor | null {
 	if (value === undefined || value === null) {
-		return now;
+		return null;
 	}
-	const parsed = typeof value === "string" ? Date.parse(value) : Number.NaN;
-	if (Number.isNaN(parsed)) {
-		throw new InputError("Notification read cutoff is invalid.");
+	const record = typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+	const notificationId = typeof record?.notificationId === "string" ? record.notificationId.trim() : "";
+	const createdAt = typeof record?.createdAt === "string" ? record.createdAt.trim() : "";
+	if (!notificationId || !isoTimestampPattern.test(createdAt)) {
+		throw new InputError("Notification read anchor is invalid.");
 	}
-	return parsed <= Date.parse(now) ? new Date(parsed).toISOString() : now;
+	return { notificationId, createdAt };
 }
 
 /**
- * `asOf` bounds the sweep to notifications that already existed when the user
- * asked for it, so anything arriving while a multi-scope gesture is in flight
- * stays unread. The by-ids scope needs no bound: its id list is already the
- * set the user saw.
+ * `anchor` is the newest notification the caller had actually been shown, and
+ * the sweep stops there: `(created_at, notification_id)` is the list's own
+ * ordering, so "at or below the anchor" is exactly the set the user was looking
+ * at when they clicked. Nothing that arrived afterwards is reachable, whichever
+ * scope the gesture fans out into and however long the requests take.
+ *
+ * The bound is the anchor row's stored `created_at`, looked up under this
+ * user's id, so no client clock enters the predicate and an anchor naming
+ * someone else's row is an InputError rather than a wider sweep. No anchor
+ * means nothing was rendered, so nothing is marked — falling back to a clock
+ * here is the bug this exists to prevent.
+ *
+ * The by-ids scope takes no anchor: its id list is already the set the user
+ * saw. `read_at` is stamped with server `now`, which is when the row was read.
  */
 export async function markAllHumanNotificationsRead(
 	db: D1DatabaseLike,
 	userId: string,
 	scope: HumanNotificationReadScope = { scopeType: "all" },
 	now = new Date().toISOString(),
-	asOf = now,
+	anchor: HumanNotificationReadAnchor | null = null,
 ): Promise<number> {
 	if (scope.scopeType === "notifications") {
 		return markHumanNotificationsReadByIds(db, userId, scope.notificationIds, now);
 	}
+	if (!anchor) {
+		return 0;
+	}
+	const anchorCreatedAt = await humanNotificationAnchorCreatedAt(db, userId, anchor);
 	const scopedWhere = humanNotificationReadScopeWhere(scope);
 	const result = await db
 		.prepare(
 			`UPDATE human_notifications
 			 SET read_at = ?
 			 WHERE user_id = ? AND archived_at IS NULL AND read_at IS NULL
-			   AND created_at <= ?${scopedWhere.sql}`,
+			   AND (created_at < ? OR (created_at = ? AND notification_id <= ?))${scopedWhere.sql}`,
 		)
-		.bind(now, userId, asOf, ...scopedWhere.bindings)
+		.bind(now, userId, anchorCreatedAt, anchorCreatedAt, anchor.notificationId, ...scopedWhere.bindings)
 		.run();
 	return result.meta?.changes ?? 0;
+}
+
+/**
+ * Resolves an anchor to the stored timestamp of the row it names. The lookup is
+ * scoped to the user, so an anchor pointing at another user's notification is
+ * indistinguishable from one pointing at nothing: both are rejected.
+ */
+async function humanNotificationAnchorCreatedAt(
+	db: D1DatabaseLike,
+	userId: string,
+	anchor: HumanNotificationReadAnchor,
+): Promise<string> {
+	const row = await db
+		.prepare(
+			`SELECT created_at AS createdAt
+			 FROM human_notifications
+			 WHERE user_id = ? AND notification_id = ?`,
+		)
+		.bind(userId, anchor.notificationId)
+		.first<{ createdAt: string }>();
+	if (!row) {
+		throw new InputError("Notification read anchor is not one of your notifications.");
+	}
+	return row.createdAt;
 }
 
 async function markHumanNotificationsReadByIds(

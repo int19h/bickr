@@ -773,11 +773,11 @@ describe("MCP endpoint", () => {
 		expect(serialized).not.toMatch(/legacy-owner-secret|inferenceConfiguration|graphRevision|effectiveModel/);
 	});
 
-	it("bounds mark_notifications_read by the requested cutoff", async () => {
+	it("bounds mark_notifications_read by the anchor the caller has seen", async () => {
 		await resetD1Schema(testEnv.BICKR_D1);
 		await clearKv(testEnv.BICKR_KV);
-		const cutoff = "2026-05-06T12:00:00.000Z";
-		const afterCutoff = "2026-05-06T12:00:01.000Z";
+		const anchorAt = "2026-05-06T12:00:00.000Z";
+		const after = "2026-05-06T12:00:01.000Z";
 		await testEnv.BICKR_D1.prepare(
 			`INSERT INTO human_notifications (
 				notification_id, user_id, world_id, event_key, notification_type,
@@ -786,10 +786,11 @@ describe("MCP endpoint", () => {
 				title, body, url_path, spotlight_id, spotlight_label,
 				created_at, read_at, archived_at
 			) VALUES
-				('hnt_mcp_old', 'usr_mcp', 'w_mcp', 'event:mcp:old', 'thread_created', 'bot_mcp', 'bot-mcp', 'Bot MCP', NULL, NULL, NULL, NULL, 'A', 'A', '/', NULL, NULL, ?, NULL, NULL),
-				('hnt_mcp_new', 'usr_mcp', 'w_mcp', 'event:mcp:new', 'thread_created', 'bot_mcp', 'bot-mcp', 'Bot MCP', NULL, NULL, NULL, NULL, 'B', 'B', '/', NULL, NULL, ?, NULL, NULL)`,
+				('hnt_mcp_anchor', 'usr_mcp', 'w_mcp', 'event:mcp:anchor', 'thread_created', 'bot_mcp', 'bot-mcp', 'Bot MCP', NULL, NULL, NULL, NULL, 'A', 'A', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_mcp_new', 'usr_mcp', 'w_mcp', 'event:mcp:new', 'thread_created', 'bot_mcp', 'bot-mcp', 'Bot MCP', NULL, NULL, NULL, NULL, 'B', 'B', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_mcp_theirs', 'usr_other', 'w_mcp', 'event:mcp:theirs', 'thread_created', 'bot_mcp', 'bot-mcp', 'Bot MCP', NULL, NULL, NULL, NULL, 'C', 'C', '/', NULL, NULL, ?, NULL, NULL)`,
 		)
-			.bind(cutoff, afterCutoff)
+			.bind(anchorAt, after, anchorAt)
 			.run();
 		const accessToken = await issueAccessToken(testEnv.BICKR_KV, ["bickr.write"]);
 		const markRead = async (args: Record<string, unknown>): Promise<Record<string, unknown>> => {
@@ -805,31 +806,38 @@ describe("MCP endpoint", () => {
 		};
 		const unreadIds = async (): Promise<string[]> => {
 			const result = await testEnv.BICKR_D1.prepare(
-				`SELECT notification_id AS id FROM human_notifications WHERE read_at IS NULL ORDER BY notification_id`,
+				`SELECT notification_id AS id FROM human_notifications WHERE user_id = 'usr_mcp' AND read_at IS NULL ORDER BY notification_id`,
 			).all<{ id: string }>();
 			return (result.results ?? []).map((row) => row.id);
 		};
 
 		const byName = new Map(mcpToolMetadataForTest().map((tool) => [tool.name, tool]));
 		expect(Object.keys(schemaProperties(toolArgumentSchema(byName.get("mark_notifications_read")!.inputSchema))))
-			.toEqual(["operationId", "scopeType", "scopeId", "asOf"]);
+			.toEqual(["operationId", "scopeType", "scopeId", "anchorNotificationId", "anchorCreatedAt"]);
 
-		expect(await markRead({ scopeType: "all", asOf: cutoff })).toMatchObject({
-			structuredContent: { readCount: 1 },
-		});
+		// Without an anchor the tool has nothing the caller is known to have read.
+		expect(await markRead({ scopeType: "all" })).toMatchObject({ structuredContent: { readCount: 0 } });
+		expect(await unreadIds()).toEqual(["hnt_mcp_anchor", "hnt_mcp_new"]);
+
+		expect(await markRead({
+			scopeType: "all",
+			anchorNotificationId: "hnt_mcp_anchor",
+			anchorCreatedAt: anchorAt,
+		})).toMatchObject({ structuredContent: { readCount: 1 } });
 		expect(await unreadIds()).toEqual(["hnt_mcp_new"]);
 
-		expect(await markRead({ scopeType: "all", asOf: "sometime yesterday" })).toMatchObject({
-			isError: true,
-			structuredContent: { error: "InputError" },
-		});
+		// Another user's notification is not an anchor this caller can name.
+		expect(await markRead({
+			scopeType: "all",
+			anchorNotificationId: "hnt_mcp_theirs",
+			anchorCreatedAt: anchorAt,
+		})).toMatchObject({ isError: true, structuredContent: { error: "InputError" } });
+		expect(await markRead({
+			scopeType: "all",
+			anchorNotificationId: "hnt_mcp_new",
+			anchorCreatedAt: "sometime yesterday",
+		})).toMatchObject({ isError: true, structuredContent: { error: "InputError" } });
 		expect(await unreadIds()).toEqual(["hnt_mcp_new"]);
-
-		// A future cutoff clamps to server now, which still covers the 2026 row.
-		expect(await markRead({ scopeType: "all", asOf: "2099-01-01T00:00:00.000Z" })).toMatchObject({
-			structuredContent: { readCount: 1 },
-		});
-		expect(await unreadIds()).toEqual([]);
 	});
 
 	it("does not call canonical annotation service for an all-foreign public page", async () => {

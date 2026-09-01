@@ -11,6 +11,7 @@ import {
 	type ForumSummary,
 	type HumanNotification,
 	type HumanNotificationListScope,
+	type HumanNotificationReadAnchor,
 	type HumanNotificationReadScope,
 	type HumanNotificationSummary,
 	type HumanSubscription,
@@ -119,6 +120,7 @@ import {
 } from "./screens/chrome";
 import { ForumPage, ThreadPage } from "./screens/forums";
 import {
+	humanNotificationReadAnchorFor,
 	humanNotificationSummaryWithReadScope,
 	humanNotificationSummaryWithoutNotification,
 	notificationThreadId,
@@ -1101,24 +1103,30 @@ function App() {
 		await loadHumanNotifications("unread");
 	}
 
-	// `asOf` is captured once per user gesture and shared by every scoped call
-	// that gesture makes, so notifications arriving mid-sweep stay unread.
+	// The anchor is the newest notification the caller had rendered, captured once
+	// per user gesture and shared by every scoped call that gesture makes: the
+	// server marks nothing above it, so anything arriving mid-sweep stays unread.
+	// The drawer's own list is the default, since that is what it renders.
 	async function markAllNotificationsRead(
 		scope: HumanNotificationReadScope = { scopeType: "all" },
-		asOf = new Date().toISOString(),
+		anchor: HumanNotificationReadAnchor | null = humanNotificationReadAnchorFor(humanNotifications.notifications),
 	): Promise<number | null> {
 		if (!profileReadyFor("managing notifications")) {
 			return null;
 		}
+		if (scope.scopeType !== "notifications" && !anchor) {
+			// Nothing rendered means nothing the user has seen: no request to make.
+			return 0;
+		}
 		const result = await runApiAction(reportError, () => api<{ readAll: true; readCount: number }>("/api/me/notifications/read-all", {
 			method: "POST",
-			body: { ...scope, asOf },
+			body: { ...scope, ...(anchor ? { anchor } : {}) },
 		}));
 		if (!result) {
 			return null;
 		}
 		setHumanNotifications((current) =>
-			humanNotificationSummaryWithReadScope(current, scope, asOf, result.data.readCount),
+			humanNotificationSummaryWithReadScope(current, scope, anchor, new Date().toISOString(), result.data.readCount),
 		);
 		return result.data.readCount;
 	}
