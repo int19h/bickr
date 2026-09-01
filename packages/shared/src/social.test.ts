@@ -13,6 +13,7 @@ import {
 	createThread,
 	deleteDeliveredNotifications,
 	ensureBootstrapNotification,
+	listHumanNotifications,
 	listThreadsWithReadState,
 	markAllHumanNotificationsRead,
 	parseHumanNotificationReadAnchor,
@@ -24,7 +25,7 @@ import {
 } from "./social";
 import { InputError } from "./validation";
 import { kvKeys, type D1DatabaseLike, type D1PreparedStatementLike, type D1Result, type KVNamespaceLike } from "./storage";
-import { localizedTextString, schemaVersion, type BotDocument, type ForumDocument, type LanguageTag, type NotificationDeliveryReason, type NotificationDocument, type NotificationType, type PostingSettings, type RequiredLocalizedText, type ThreadSettings, type ThreadSummary, type WorldDocument } from "./model";
+import { localizedTextString, schemaVersion, type BotDocument, type HumanNotificationListScope, type ForumDocument, type LanguageTag, type NotificationDeliveryReason, type NotificationDocument, type NotificationType, type PostingSettings, type RequiredLocalizedText, type ThreadSettings, type ThreadSummary, type WorldDocument } from "./model";
 
 const now = "2026-05-06T12:00:00.000Z";
 const enLang = "en" as LanguageTag;
@@ -1189,6 +1190,32 @@ describe("markAllHumanNotificationsRead", () => {
 		expect(db.unreadIds()).toEqual(["hnt_c"]);
 	});
 
+	it.each([
+		["all", { scopeType: "all" } as const, ["hnt_tie_a", "hnt_tie_b", "hnt_tie_c", "hnt_tie_d"]],
+		["world", { scopeType: "world", scopeId: "wld_one" } as const, ["hnt_tie_a", "hnt_tie_c"]],
+		["bot", { scopeType: "bot", scopeId: "bot_b" } as const, ["hnt_tie_b", "hnt_tie_d"]],
+	])("marks a whole fan-out only up to a mid-tie anchor in the %s scope", async (_name, scope, expectedRead) => {
+		// One bot fan-out: five rows written in the same millisecond, which the
+		// list orders among themselves by id. The anchor lands in the middle of
+		// them, so the tie has rendered rows below it and unrendered rows above.
+		const db = new FakeHumanNotificationD1([
+			{ id: "hnt_tie_a", worldId: "wld_one", actorBotId: "bot_a", createdAt: anchorAt },
+			{ id: "hnt_tie_b", worldId: "wld_two", actorBotId: "bot_b", createdAt: anchorAt },
+			{ id: "hnt_tie_c", worldId: "wld_one", actorBotId: "bot_a", createdAt: anchorAt },
+			{ id: "hnt_tie_d", worldId: "wld_two", actorBotId: "bot_b", createdAt: anchorAt },
+			{ id: "hnt_tie_e", worldId: "wld_one", actorBotId: "bot_a", createdAt: anchorAt },
+		]);
+
+		await markAllHumanNotificationsRead(db, "usr_one", scope, readAt, {
+			notificationId: "hnt_tie_d",
+			createdAt: anchorAt,
+		});
+
+		expect(db.readIds()).toEqual(expectedRead);
+		// Above the anchor in `(created_at DESC, notification_id DESC)`: never rendered.
+		expect(db.unreadIds()).toContain("hnt_tie_e");
+	});
+
 	it("counts only changed rows and leaves an earlier read timestamp intact", async () => {
 		const db = sweepFixture();
 		db.rows.push({
@@ -1298,6 +1325,52 @@ describe("markAllHumanNotificationsRead", () => {
 	});
 });
 
+/**
+ * Records the statements a read issues. Real D1 is exercised in
+ * `test/notification-list-order.spec.ts`; what it cannot prove is that the order
+ * is asked for rather than handed over by whichever index the planner picked, so
+ * the ORDER BY is asserted here from the statement text.
+ */
+class QueryRecordingD1 implements D1DatabaseLike {
+	readonly queries: string[] = [];
+
+	prepare(query: string): D1PreparedStatementLike {
+		this.queries.push(query);
+		const statement: D1PreparedStatementLike = {
+			bind: () => statement,
+			first: async () => ({ count: 0 }) as never,
+			all: async () => ({ success: true, results: [] }) as never,
+			run: async () => ({ success: true }) as never,
+		};
+		return statement;
+	}
+
+	async batch(statements: D1PreparedStatementLike[]): Promise<Array<D1Result>> {
+		return Promise.all(statements.map((statement) => statement.run()));
+	}
+}
+
+describe("listHumanNotifications ordering", () => {
+	const listings: Array<[string, "unread" | "all", HumanNotificationListScope]> = [
+		["unread", "unread", { scopeType: "all" }],
+		["all", "all", { scopeType: "all" }],
+		["a world scope", "all", { scopeType: "world", scopeId: "wld_one" }],
+		["a bot scope", "all", { scopeType: "bot", scopeId: "bot_a" }],
+	];
+
+	it.each(listings)("asks for the anchor's total order when listing %s", async (_name, status, scope) => {
+		const db = new QueryRecordingD1();
+
+		await listHumanNotifications(db, "usr_one", status, 30, 0, scope);
+
+		// The tuple `markAllHumanNotificationsRead` bounds on. Without the
+		// tie-break the order inside a `created_at` tie is the plan's to choose,
+		// and "the newest row the caller rendered" stops being well defined.
+		const list = db.queries.find((query) => query.includes("LIMIT ? OFFSET ?"));
+		expect(list).toContain("ORDER BY hn.created_at DESC, hn.notification_id DESC");
+	});
+});
+
 describe("parseHumanNotificationReadAnchor", () => {
 	const anchor = { notificationId: "hnt_one", createdAt: now };
 
@@ -1323,8 +1396,35 @@ describe("parseHumanNotificationReadAnchor", () => {
 		["a missing id", { createdAt: now }],
 		["an empty id", { notificationId: " ", createdAt: now }],
 		["a bare timestamp", now],
+		["a number", 1],
+		["a boolean", true],
+		["an array", [{ notificationId: "hnt_one", createdAt: now }]],
+		["an empty array", []],
+		["an anchor whose fields are not strings", { notificationId: 1, createdAt: 2 }],
 	])("rejects %s", (_name, value) => {
 		expect(() => parseHumanNotificationReadAnchor(value)).toThrow(InputError);
+	});
+
+	it.each([
+		["month 13", "2026-13-01T00:00:00.000Z"],
+		["day 45", "2026-01-45T00:00:00.000Z"],
+		["day 00", "2026-01-00T00:00:00.000Z"],
+		["hour 99", "2026-01-01T99:00:00.000Z"],
+		["minute 60", "2026-01-01T12:60:00.000Z"],
+		["second 60", "2026-01-01T12:00:60.000Z"],
+		// Shaped and parseable, but not the instant it spells: both roll over.
+		["February 30", "2026-02-30T00:00:00.000Z"],
+		["hour 24", "2026-01-01T24:00:00.000Z"],
+	])("rejects a well-shaped impossible timestamp: %s", (_name, createdAt) => {
+		expect(() => parseHumanNotificationReadAnchor({ notificationId: "hnt_one", createdAt }))
+			.toThrow(InputError);
+	});
+
+	it("accepts the boundaries a real calendar has", () => {
+		for (const createdAt of ["2024-02-29T23:59:59.999Z", "2026-12-31T23:59:59.999Z", "2026-01-01T00:00:00Z"]) {
+			expect(parseHumanNotificationReadAnchor({ notificationId: "hnt_one", createdAt }))
+				.toEqual({ notificationId: "hnt_one", createdAt });
+		}
 	});
 });
 

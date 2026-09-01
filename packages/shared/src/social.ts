@@ -1772,6 +1772,16 @@ async function rowsByIds<T>(
 	return rows;
 }
 
+/**
+ * The list is ordered by `(created_at DESC, notification_id DESC)`, a total
+ * order rather than a timestamp alone. `created_at` ties are routine — one bot
+ * fan-out writes several rows with the same millisecond — and under
+ * `created_at DESC` alone the order within a tie is whatever the plan happens to
+ * produce, so `LIMIT`/`OFFSET` pages could repeat or drop rows and, worse, the
+ * mark-all anchor would be meaningless: `markAllHumanNotificationsRead` bounds
+ * its sweep on this exact tuple, so "newest rendered" has to be well defined in
+ * the same order the sweep compares against.
+ */
 export async function listHumanNotifications(
 	db: D1DatabaseLike,
 	userId: string,
@@ -1833,7 +1843,7 @@ export async function listHumanNotifications(
 				)
 			   AND resolved_forum.deleted_at IS NULL
 			 WHERE hn.user_id = ? AND hn.archived_at IS NULL ${filter}${scopedWhere.sql}
-			 ORDER BY hn.created_at DESC
+			 ORDER BY hn.created_at DESC, hn.notification_id DESC
 			 LIMIT ? OFFSET ?`,
 		)
 		.bind(userId, ...scopedWhere.bindings, pageSize + 1, pageOffset)
@@ -1882,7 +1892,28 @@ export async function archiveHumanNotification(
 }
 
 /** The timestamp form every notification row is written with. */
-const isoTimestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
+const isoTimestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
+
+/**
+ * The shape check alone admits impossible instants — month 13, day 45, hour 99,
+ * February 30 — so the value also has to be a real instant: it is parsed and
+ * required to re-serialize to itself. `toISOString` always writes milliseconds,
+ * so a second-precision value is compared against itself with `.000` filled in,
+ * which is the same instant written the other legal way. Anything that rolls
+ * over (`T24:00:00Z` becoming the next midnight, February 30 becoming March 2)
+ * fails that comparison, and anything unparseable fails outright.
+ */
+function isStoredIsoTimestamp(value: string): boolean {
+	const match = isoTimestampPattern.exec(value);
+	if (!match) {
+		return false;
+	}
+	const parsed = new Date(value);
+	if (Number.isNaN(parsed.getTime())) {
+		return false;
+	}
+	return parsed.toISOString() === (match[1] ? value : `${value.slice(0, -1)}.000Z`);
+}
 
 /**
  * Reads a mark-all anchor off a request. Absent means the caller rendered
@@ -1890,8 +1921,9 @@ const isoTimestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/
  *
  * `createdAt` is checked against the exact form the rows are written in rather
  * than through `Date.parse`, which accepts locale strings and half-formed
- * dates. The value is only ever a claim about the row: the cutoff the sweep
- * runs with is the stored `created_at` this id resolves to.
+ * dates, and then against the calendar, so a well-shaped impossible instant is
+ * an InputError too. The value is only ever a claim about the row: the cutoff
+ * the sweep runs with is the stored `created_at` this id resolves to.
  */
 export function parseHumanNotificationReadAnchor(value: unknown): HumanNotificationReadAnchor | null {
 	if (value === undefined || value === null) {
@@ -1900,7 +1932,7 @@ export function parseHumanNotificationReadAnchor(value: unknown): HumanNotificat
 	const record = typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 	const notificationId = typeof record?.notificationId === "string" ? record.notificationId.trim() : "";
 	const createdAt = typeof record?.createdAt === "string" ? record.createdAt.trim() : "";
-	if (!notificationId || !isoTimestampPattern.test(createdAt)) {
+	if (!notificationId || !isStoredIsoTimestamp(createdAt)) {
 		throw new InputError("Notification read anchor is invalid.");
 	}
 	return { notificationId, createdAt };
@@ -1908,9 +1940,11 @@ export function parseHumanNotificationReadAnchor(value: unknown): HumanNotificat
 
 /**
  * `anchor` is the newest notification the caller had actually been shown, and
- * the sweep stops there: `(created_at, notification_id)` is the list's own
- * ordering, so "at or below the anchor" is exactly the set the user was looking
- * at when they clicked. Nothing that arrived afterwards is reachable, whichever
+ * the sweep stops there: `(created_at DESC, notification_id DESC)` is the total
+ * order `listHumanNotifications` reads in, so "at or below the anchor" —
+ * `created_at` older, or equal with a `notification_id` at or below the
+ * anchor's — is exactly the set the user was looking at when they clicked, ties
+ * included. Nothing that arrived afterwards is reachable, whichever
  * scope the gesture fans out into and however long the requests take.
  *
  * The bound is the anchor row's stored `created_at`, looked up under this
@@ -2396,7 +2430,7 @@ export async function recordWorldSettingsChangedHumanNotifications(
 				   AND notification_type = 'world_settings_changed'
 				   AND read_at IS NULL
 				   AND archived_at IS NULL
-				 ORDER BY created_at DESC
+				 ORDER BY created_at DESC, notification_id DESC
 				 LIMIT 1`,
 			)
 			.bind(userId, input.updated.id)
