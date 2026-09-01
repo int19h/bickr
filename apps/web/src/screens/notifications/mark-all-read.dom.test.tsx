@@ -40,6 +40,8 @@ let serverInsertionOrder: string[];
 let arrivesDuringSweep: ServerRow | null;
 let heldLoads: Array<() => void>;
 let holdLoads: boolean;
+let heldMarkAll: Array<() => void>;
+let holdMarkAll: boolean;
 let anchorsSent: Array<HumanNotificationReadAnchor | null | undefined>;
 let container: HTMLDivElement;
 let root: Root;
@@ -99,6 +101,9 @@ async function onMarkAllRead(
 	anchor?: HumanNotificationReadAnchor | null,
 ): Promise<number | null> {
 	anchorsSent.push(anchor);
+	if (holdMarkAll) {
+		await new Promise<void>((resolve) => heldMarkAll.push(resolve));
+	}
 	if (!anchor) {
 		return 0;
 	}
@@ -128,6 +133,15 @@ async function flush(): Promise<void> {
 	}
 }
 
+function releaseHeldMarkAll(): void {
+	holdMarkAll = false;
+	const held = heldMarkAll;
+	heldMarkAll = [];
+	for (const resolve of held) {
+		resolve();
+	}
+}
+
 function releaseHeldLoads(): void {
 	holdLoads = false;
 	const held = heldLoads;
@@ -152,6 +166,14 @@ function unreadBadge(): string {
 	return container.querySelector(".notification-page-summary span")?.textContent ?? "";
 }
 
+function refreshButton(): HTMLButtonElement {
+	const found = Array.from(container.querySelectorAll(".page-header button")).find(
+		(candidate) => candidate.textContent?.trim() === "Refresh",
+	);
+	expect(found, "no Refresh button").toBeDefined();
+	return found as HTMLButtonElement;
+}
+
 function markAllReadButton(): HTMLButtonElement {
 	const found = Array.from(container.querySelectorAll(".page-header button")).find(
 		(candidate) => candidate.textContent?.trim() === "Mark all read",
@@ -171,6 +193,8 @@ beforeEach(async () => {
 	arrivesDuringSweep = null;
 	heldLoads = [];
 	holdLoads = false;
+	heldMarkAll = [];
+	holdMarkAll = false;
 	anchorsSent = [];
 	container = document.createElement("div");
 	document.body.appendChild(container);
@@ -241,6 +265,61 @@ describe("mark all read", () => {
 			hnt_b: "read",
 			hnt_a: "unread",
 			hnt_older: "read",
+		});
+		expect(unreadBadge()).toBe("2 unread");
+	});
+
+	/**
+	 * The row a timestamp cannot rule out. A writer captures `now` before its
+	 * INSERT, so a notification written after the gesture can carry an older
+	 * `created_at` than the anchor and a later rowid — the server's `rowid <=`
+	 * bound leaves it unread. A refresh racing the request pulls it into the list
+	 * the optimistic pass then runs against, and the one thing that says it is not
+	 * part of the gesture is that it was not on screen when the user clicked.
+	 */
+	it("leaves a row it never rendered unread, however old the row claims to be", async () => {
+		holdMarkAll = true;
+		act(() => {
+			markAllReadButton().click();
+		});
+		await flush();
+
+		serverRows.push({ id: "hnt_backdated", createdAt: before });
+		serverInsertionOrder.push("hnt_backdated");
+		act(() => {
+			refreshButton().click();
+		});
+		await flush();
+		expect(renderedReadState()).toEqual({
+			hnt_b: "unread",
+			hnt_a: "unread",
+			hnt_older: "unread",
+			hnt_backdated: "unread",
+		});
+
+		// Hold the reconciling refetch so the optimistic pass is what is on screen,
+		// on its own, and can be caught contradicting the server.
+		holdLoads = true;
+		releaseHeldMarkAll();
+		await flush();
+
+		expect(serverRows.find((row) => row.id === "hnt_backdated")?.readAt).toBeUndefined();
+		expect(renderedReadState()).toEqual({
+			hnt_b: "read",
+			hnt_a: "unread",
+			hnt_older: "read",
+			hnt_backdated: "unread",
+		});
+		expect(unreadBadge()).toBe("2 unread");
+
+		releaseHeldLoads();
+		await flush();
+
+		expect(renderedReadState()).toEqual({
+			hnt_b: "read",
+			hnt_a: "unread",
+			hnt_older: "read",
+			hnt_backdated: "unread",
 		});
 		expect(unreadBadge()).toBe("2 unread");
 	});

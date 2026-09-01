@@ -120,7 +120,7 @@ import {
 } from "./screens/chrome";
 import { ForumPage, ThreadPage } from "./screens/forums";
 import {
-	humanNotificationReadAnchorFor,
+	humanNotificationMarkAllGestureFor,
 	humanNotificationSummaryWithReadScope,
 	humanNotificationSummaryWithoutNotification,
 	notificationThreadId,
@@ -1106,27 +1106,36 @@ function App() {
 	// The anchor is the newest notification the caller had rendered, captured once
 	// per user gesture and shared by every scoped call that gesture makes: the
 	// server marks nothing above it, so anything arriving mid-sweep stays unread.
-	// The drawer's own list is the default, since that is what it renders.
+	// The drawer's own list is the default, since that is what it renders — and
+	// what the drawer had rendered is also all the optimistic pass may claim.
 	async function markAllNotificationsRead(
 		scope: HumanNotificationReadScope = { scopeType: "all" },
-		anchor: HumanNotificationReadAnchor | null = humanNotificationReadAnchorFor(humanNotifications.notifications),
+		anchor?: HumanNotificationReadAnchor | null,
 	): Promise<number | null> {
 		if (!profileReadyFor("managing notifications")) {
 			return null;
 		}
-		if (scope.scopeType !== "notifications" && !anchor) {
+		// Taken from this client's own list before the request: the anchor when the
+		// caller did not bring one, and always the ids it had rendered, which is the
+		// set the optimistic pass below is allowed to speak for.
+		const rendered = humanNotificationMarkAllGestureFor(humanNotifications.notifications);
+		const gesture = {
+			anchor: anchor === undefined ? rendered.anchor : anchor,
+			renderedIds: rendered.renderedIds,
+		};
+		if (scope.scopeType !== "notifications" && !gesture.anchor) {
 			// Nothing rendered means nothing the user has seen: no request to make.
 			return 0;
 		}
 		const result = await runApiAction(reportError, () => api<{ readAll: true; readCount: number }>("/api/me/notifications/read-all", {
 			method: "POST",
-			body: { ...scope, ...(anchor ? { anchor } : {}) },
+			body: { ...scope, ...(gesture.anchor ? { anchor: gesture.anchor } : {}) },
 		}));
 		if (!result) {
 			return null;
 		}
 		setHumanNotifications((current) =>
-			humanNotificationSummaryWithReadScope(current, scope, anchor, new Date().toISOString(), result.data.readCount),
+			humanNotificationSummaryWithReadScope(current, scope, gesture, new Date().toISOString()),
 		);
 		// That pass only marks what it can prove the server marked, so it is a
 		// stand-in for this: the drawer and the unread badge come from the server's
