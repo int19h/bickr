@@ -1101,20 +1101,24 @@ function App() {
 		await loadHumanNotifications("unread");
 	}
 
-	async function markAllNotificationsRead(scope: HumanNotificationReadScope = { scopeType: "all" }): Promise<number | null> {
+	// `asOf` is captured once per user gesture and shared by every scoped call
+	// that gesture makes, so notifications arriving mid-sweep stay unread.
+	async function markAllNotificationsRead(
+		scope: HumanNotificationReadScope = { scopeType: "all" },
+		asOf = new Date().toISOString(),
+	): Promise<number | null> {
 		if (!profileReadyFor("managing notifications")) {
 			return null;
 		}
 		const result = await runApiAction(reportError, () => api<{ readAll: true; readCount: number }>("/api/me/notifications/read-all", {
 			method: "POST",
-			body: scope,
+			body: { ...scope, asOf },
 		}));
 		if (!result) {
 			return null;
 		}
-		const readAt = new Date().toISOString();
 		setHumanNotifications((current) =>
-			humanNotificationSummaryWithReadScope(current, scope, readAt, result.data.readCount),
+			humanNotificationSummaryWithReadScope(current, scope, asOf, result.data.readCount),
 		);
 		return result.data.readCount;
 	}

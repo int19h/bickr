@@ -1,6 +1,6 @@
 import { ok, readJsonBody } from "@bickr/shared/api";
 import { type HumanNotificationReadScope } from "@bickr/shared/model";
-import { markAllHumanNotificationsRead } from "@bickr/shared/social";
+import { humanNotificationReadCutoff, markAllHumanNotificationsRead } from "@bickr/shared/social";
 import { InputError } from "@bickr/shared/validation";
 import { requireCompleteUser, type AppEnv } from "../../_auth";
 import { pageErrorResponse } from "../../_errors";
@@ -8,8 +8,12 @@ import { pageErrorResponse } from "../../_errors";
 export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => {
 	try {
 		const user = await requireCompleteUser(env, request);
-		const scope = parseReadScope(await optionalJsonBody(request));
-		const readCount = await markAllHumanNotificationsRead(env.BICKR_D1, user.id, scope);
+		const body = await optionalJsonBody(request);
+		const now = new Date().toISOString();
+		// One gesture fans out into several scoped calls; the client sends the same
+		// cutoff for all of them so a notification arriving mid-sweep stays unread.
+		const asOf = humanNotificationReadCutoff(readCutoffValue(body), now);
+		const readCount = await markAllHumanNotificationsRead(env.BICKR_D1, user.id, parseReadScope(body), now, asOf);
 		return ok({ readAll: true, readCount });
 	} catch (error) {
 		return pageErrorResponse(error);
@@ -19,6 +23,10 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 async function optionalJsonBody(request: Request): Promise<unknown> {
 	const contentType = request.headers.get("content-type") ?? "";
 	return contentType.includes("application/json") ? readJsonBody(request) : undefined;
+}
+
+function readCutoffValue(value: unknown): unknown {
+	return value && typeof value === "object" ? (value as Record<string, unknown>).asOf : undefined;
 }
 
 function parseReadScope(value: unknown): HumanNotificationReadScope {

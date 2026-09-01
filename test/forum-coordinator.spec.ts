@@ -2512,6 +2512,73 @@ describe("Forum coordinator", () => {
 		expect(unread?.count).toBe(0);
 	});
 
+	it("bounds mark-all by the requested cutoff and clamps a future one", async () => {
+		const cookie = await authCookie();
+		const user = await testEnv.BICKR_D1.prepare(`SELECT user_id AS id FROM users_index LIMIT 1`).first<{ id: string }>();
+		if (!user) {
+			throw new Error("Test user was not created.");
+		}
+		const cutoff = "2026-05-06T12:00:00.000Z";
+		const afterCutoff = "2026-05-06T12:00:01.000Z";
+		const forwardDated = "2099-01-01T00:00:00.000Z";
+		await testEnv.BICKR_D1.prepare(
+			`INSERT INTO human_notifications (
+				notification_id, user_id, world_id, event_key, notification_type,
+				actor_bot_id, actor_handle, actor_display_name,
+				source_type, source_id, target_type, target_id,
+				title, body, url_path, spotlight_id, spotlight_label,
+				created_at, read_at, archived_at
+			) VALUES
+				('hnt_cutoff_old', ?, 'world_one', 'event:cutoff:old', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'A', 'A', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_cutoff_new', ?, 'world_one', 'event:cutoff:new', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'B', 'B', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_cutoff_other', ?, 'world_two', 'event:cutoff:other', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'C', 'C', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_cutoff_future', ?, 'world_two', 'event:cutoff:future', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'D', 'D', '/', NULL, NULL, ?, NULL, NULL)`,
+		)
+			.bind(user.id, cutoff, user.id, afterCutoff, user.id, afterCutoff, user.id, forwardDated)
+			.run();
+
+		const readAll = async (body: Record<string, unknown>): Promise<Response> =>
+			markAllNotificationsReadRoute(
+				contextFor<typeof markAllNotificationsReadRoute>(
+					jsonRequest("http://example.com/api/me/notifications/read-all", "POST", body, cookie),
+				),
+			);
+		const unreadIds = async (): Promise<string[]> => {
+			const result = await testEnv.BICKR_D1.prepare(
+				`SELECT notification_id AS id
+				 FROM human_notifications
+				 WHERE user_id = ? AND read_at IS NULL
+				 ORDER BY notification_id`,
+			)
+				.bind(user.id)
+				.all<{ id: string }>();
+			return (result.results ?? []).map((row) => row.id);
+		};
+
+		// Two scoped calls of one gesture share a cutoff, so a notification the
+		// second scope gained after the gesture started still survives it.
+		const worldResponse = await readAll({ scopeType: "world", scopeId: "world_one", asOf: cutoff });
+		expect(await worldResponse.json()).toMatchObject({ data: { readCount: 1 } });
+		const botResponse = await readAll({ scopeType: "bot", scopeId: "bot_b", asOf: cutoff });
+		expect(await botResponse.json()).toMatchObject({ data: { readCount: 0 } });
+		expect(await unreadIds()).toEqual(["hnt_cutoff_future", "hnt_cutoff_new", "hnt_cutoff_other"]);
+
+		const invalidResponse = await readAll({ scopeType: "all", asOf: "sometime yesterday" });
+		expect(invalidResponse.status).toBe(400);
+		await expect(invalidResponse.json()).resolves.toMatchObject({ error: "bad_request" });
+		expect(await unreadIds()).toEqual(["hnt_cutoff_future", "hnt_cutoff_new", "hnt_cutoff_other"]);
+
+		// A future cutoff is clamped to server now, so it cannot reach forward.
+		const clampedResponse = await readAll({ scopeType: "all", asOf: forwardDated });
+		expect(await clampedResponse.json()).toMatchObject({ data: { readCount: 2 } });
+		expect(await unreadIds()).toEqual(["hnt_cutoff_future"]);
+
+		// An absent cutoff still defaults to server now.
+		const defaultResponse = await readAll({ scopeType: "all" });
+		expect(await defaultResponse.json()).toMatchObject({ data: { readCount: 0 } });
+		expect(await unreadIds()).toEqual(["hnt_cutoff_future"]);
+	});
+
 	it("lists human notifications by world and bot scopes", async () => {
 		const cookie = await authCookie();
 		const user = await testEnv.BICKR_D1.prepare(`SELECT user_id AS id FROM users_index LIMIT 1`).first<{ id: string }>();

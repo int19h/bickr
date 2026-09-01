@@ -56,6 +56,7 @@ import {
 import {
 	deactivateHumanSubscription,
 	forumByHandle,
+	humanNotificationReadCutoff,
 	listHumanNotifications,
 	listHumanSubscriptions,
 	listThreadsWithReadState,
@@ -863,9 +864,19 @@ const mcpTools: McpTool[] = [
 	writeTool("mark_notifications_read", "Mark notifications read", "Mark Bickr notifications read.", bodySchema({
 		scopeType: enumSchema(["all", "world", "bot"], "Read scope type."),
 		scopeId: stringSchema("Scope ID for world or bot scope."),
-	}), async ({ env, auth }, args) => ({
-		readCount: await markAllHumanNotificationsRead(env.BICKR_D1, auth.user.id, notificationReadScope(args)),
-	})),
+		asOf: stringSchema("Optional ISO cutoff; notifications created after it stay unread. Defaults to now."),
+	}), async ({ env, auth }, args) => {
+		const now = new Date().toISOString();
+		return {
+			readCount: await markAllHumanNotificationsRead(
+				env.BICKR_D1,
+				auth.user.id,
+				notificationReadScope(args),
+				now,
+				humanNotificationReadCutoff(args.asOf, now),
+			),
+		};
+	}),
 	readTool("list_subscriptions", "List subscriptions", "List notification subscriptions for the signed-in human user.", {}, async ({ env, auth }) => ({
 		subscriptions: await listHumanSubscriptions(env.BICKR_D1, auth.user.id),
 	})),

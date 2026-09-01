@@ -13,13 +13,16 @@ import {
 	createThread,
 	deleteDeliveredNotifications,
 	ensureBootstrapNotification,
+	humanNotificationReadCutoff,
 	listThreadsWithReadState,
+	markAllHumanNotificationsRead,
 	notificationKvExpirationTtlSeconds,
 	notificationTypePriority,
 	orderedDeliveryReasons,
 	pruneExpiredBotSeenContent,
 	threadHotScore,
 } from "./social";
+import { InputError } from "./validation";
 import { kvKeys, type D1DatabaseLike, type D1PreparedStatementLike, type D1Result, type KVNamespaceLike } from "./storage";
 import { localizedTextString, schemaVersion, type BotDocument, type ForumDocument, type LanguageTag, type NotificationDeliveryReason, type NotificationDocument, type NotificationType, type PostingSettings, type RequiredLocalizedText, type ThreadSettings, type ThreadSummary, type WorldDocument } from "./model";
 
@@ -1135,6 +1138,239 @@ describe("content refs", () => {
 		expect(parseObjectRef("abcdefgh")).toBeUndefined();
 	});
 });
+
+describe("markAllHumanNotificationsRead", () => {
+	const before = "2026-05-06T11:59:00.000Z";
+	const cutoff = "2026-05-06T12:00:00.000Z";
+	const after = "2026-05-06T12:00:01.000Z";
+
+	function sweepFixture(): FakeHumanNotificationD1 {
+		return new FakeHumanNotificationD1([
+			{ id: "hnt_old_world_one", worldId: "wld_one", actorBotId: "bot_a", createdAt: before },
+			{ id: "hnt_old_world_two", worldId: "wld_two", actorBotId: "bot_b", createdAt: before },
+			{ id: "hnt_new_world_one", worldId: "wld_one", actorBotId: "bot_a", createdAt: after },
+			{ id: "hnt_new_world_two", worldId: "wld_two", actorBotId: "bot_b", createdAt: after },
+		]);
+	}
+
+	it.each([
+		["all", { scopeType: "all" } as const, ["hnt_old_world_one", "hnt_old_world_two"]],
+		["world", { scopeType: "world", scopeId: "wld_one" } as const, ["hnt_old_world_one"]],
+		["bot", { scopeType: "bot", scopeId: "bot_a" } as const, ["hnt_old_world_one"]],
+	])("leaves notifications created after the cutoff unread in the %s scope", async (_name, scope, expectedRead) => {
+		const db = sweepFixture();
+
+		await markAllHumanNotificationsRead(db, "usr_one", scope, after, cutoff);
+
+		expect(db.readIds()).toEqual(expectedRead);
+		expect(db.unreadIds()).toContain("hnt_new_world_one");
+	});
+
+	it("marks notifications created up to the cutoff read and counts only changed rows", async () => {
+		const db = sweepFixture();
+		db.rows.push({
+			id: "hnt_already_read",
+			userId: "usr_one",
+			worldId: "wld_one",
+			actorBotId: "bot_a",
+			createdAt: before,
+			readAt: before,
+			archivedAt: null,
+		});
+
+		const readCount = await markAllHumanNotificationsRead(db, "usr_one", { scopeType: "all" }, after, cutoff);
+
+		expect(readCount).toBe(2);
+		expect(db.row("hnt_old_world_one")?.readAt).toBe(after);
+		// The read_at IS NULL guard keeps an earlier read timestamp intact.
+		expect(db.row("hnt_already_read")?.readAt).toBe(before);
+	});
+
+	it("keeps one gesture's later scoped calls bounded by the gesture's cutoff", async () => {
+		const db = sweepFixture();
+
+		await markAllHumanNotificationsRead(db, "usr_one", { scopeType: "world", scopeId: "wld_one" }, after, cutoff);
+		// A notification arriving between the two calls of the same gesture.
+		db.rows.push({
+			id: "hnt_mid_sweep",
+			userId: "usr_one",
+			worldId: "wld_two",
+			actorBotId: "bot_b",
+			createdAt: after,
+			readAt: null,
+			archivedAt: null,
+		});
+		await markAllHumanNotificationsRead(db, "usr_one", { scopeType: "world", scopeId: "wld_two" }, after, cutoff);
+
+		expect(db.unreadIds()).toEqual(["hnt_mid_sweep", "hnt_new_world_one", "hnt_new_world_two"]);
+	});
+
+	it("does not bound the by-ids scope, which the caller already enumerated", async () => {
+		const db = sweepFixture();
+
+		const readCount = await markAllHumanNotificationsRead(
+			db,
+			"usr_one",
+			{ scopeType: "notifications", notificationIds: ["hnt_new_world_one"] },
+			after,
+			cutoff,
+		);
+
+		expect(readCount).toBe(1);
+		expect(db.row("hnt_new_world_one")?.readAt).toBe(after);
+		expect(db.runs.every((run) => !run.query.includes("created_at <= ?"))).toBe(true);
+	});
+
+	it("skips archived rows and other users' rows", async () => {
+		const db = new FakeHumanNotificationD1([
+			{ id: "hnt_archived", worldId: "wld_one", actorBotId: "bot_a", createdAt: before, archivedAt: before },
+			{ id: "hnt_other_user", worldId: "wld_one", actorBotId: "bot_a", createdAt: before, userId: "usr_two" },
+			{ id: "hnt_mine", worldId: "wld_one", actorBotId: "bot_a", createdAt: before },
+		]);
+
+		expect(await markAllHumanNotificationsRead(db, "usr_one", { scopeType: "all" }, after, cutoff)).toBe(1);
+		expect(db.unreadIds()).toEqual(["hnt_archived", "hnt_other_user"]);
+	});
+});
+
+describe("humanNotificationReadCutoff", () => {
+	it("defaults an absent cutoff to server now", () => {
+		expect(humanNotificationReadCutoff(undefined, now)).toBe(now);
+		expect(humanNotificationReadCutoff(null, now)).toBe(now);
+	});
+
+	it("normalizes a cutoff at or before server now", () => {
+		expect(humanNotificationReadCutoff("2026-05-06T11:00:00Z", now)).toBe("2026-05-06T11:00:00.000Z");
+		expect(humanNotificationReadCutoff(now, now)).toBe(now);
+	});
+
+	it("clamps a future cutoff to server now", () => {
+		expect(humanNotificationReadCutoff("2027-01-01T00:00:00.000Z", now)).toBe(now);
+	});
+
+	it("rejects values that are not timestamps", () => {
+		expect(() => humanNotificationReadCutoff("yesterday", now)).toThrow(InputError);
+		expect(() => humanNotificationReadCutoff("", now)).toThrow(InputError);
+		expect(() => humanNotificationReadCutoff(Date.parse(now), now)).toThrow(InputError);
+		expect(() => humanNotificationReadCutoff({ asOf: now }, now)).toThrow(InputError);
+	});
+});
+
+type HumanNotificationFixtureRow = {
+	id: string;
+	userId: string;
+	worldId: string;
+	actorBotId: string;
+	createdAt: string;
+	readAt: string | null;
+	archivedAt: string | null;
+};
+
+/**
+ * Models the human_notifications columns the mark-all update reads. The
+ * predicates are taken from the statement text rather than assumed, so dropping
+ * a guard from the query fails here instead of silently widening the sweep.
+ */
+class FakeHumanNotificationD1 implements D1DatabaseLike {
+	readonly runs: Array<{ query: string; bindings: unknown[] }> = [];
+	readonly rows: HumanNotificationFixtureRow[];
+
+	constructor(rows: Array<Partial<HumanNotificationFixtureRow> & { id: string; createdAt: string }>) {
+		this.rows = rows.map((row) => ({
+			userId: "usr_one",
+			worldId: "wld_one",
+			actorBotId: "bot_a",
+			readAt: null,
+			archivedAt: null,
+			...row,
+		}));
+	}
+
+	prepare(query: string): D1PreparedStatementLike {
+		return new FakeHumanNotificationStatement(this, query);
+	}
+
+	async batch(statements: D1PreparedStatementLike[]): Promise<Array<D1Result>> {
+		const results: D1Result[] = [];
+		for (const statement of statements) {
+			results.push(await statement.run());
+		}
+		return results;
+	}
+
+	row(id: string): HumanNotificationFixtureRow | undefined {
+		return this.rows.find((row) => row.id === id);
+	}
+
+	readIds(): string[] {
+		return this.rows.filter((row) => row.readAt !== null).map((row) => row.id).sort();
+	}
+
+	unreadIds(): string[] {
+		return this.rows.filter((row) => row.readAt === null).map((row) => row.id).sort();
+	}
+
+	markRead(query: string, bindings: unknown[]): number {
+		if (!query.includes("archived_at IS NULL") || !query.includes("read_at IS NULL")) {
+			throw new Error(`Mark-all update dropped a guard: ${query}`);
+		}
+		const [readAt, userId, ...rest] = bindings;
+		const matches = (row: HumanNotificationFixtureRow): boolean =>
+			row.userId === userId && row.archivedAt === null && row.readAt === null;
+		let changed: HumanNotificationFixtureRow[];
+		if (query.includes("notification_id IN (")) {
+			const ids = new Set(rest.map(String));
+			changed = this.rows.filter((row) => matches(row) && ids.has(row.id));
+		} else {
+			if (!query.includes("created_at <= ?")) {
+				throw new Error(`Scoped mark-all update is unbounded: ${query}`);
+			}
+			const [asOf, ...scopeBindings] = rest;
+			const scoped = query.includes("AND world_id = ?") ?
+				(row: HumanNotificationFixtureRow) => row.worldId === scopeBindings[0]
+			: query.includes("AND actor_bot_id = ?") ?
+				(row: HumanNotificationFixtureRow) => row.actorBotId === scopeBindings[0]
+			:	() => true;
+			changed = this.rows.filter((row) => matches(row) && row.createdAt <= String(asOf) && scoped(row));
+		}
+		for (const row of changed) {
+			row.readAt = String(readAt);
+		}
+		return changed.length;
+	}
+}
+
+class FakeHumanNotificationStatement implements D1PreparedStatementLike {
+	private bindings: unknown[] = [];
+	private readonly db: FakeHumanNotificationD1;
+	private readonly query: string;
+
+	constructor(db: FakeHumanNotificationD1, query: string) {
+		this.db = db;
+		this.query = query;
+	}
+
+	bind(...values: unknown[]): D1PreparedStatementLike {
+		this.bindings = values;
+		return this;
+	}
+
+	async first<T = unknown>(): Promise<T | null> {
+		return null;
+	}
+
+	async all<T = unknown>(): Promise<D1Result<T>> {
+		return { success: true, results: [] };
+	}
+
+	async run(): Promise<D1Result> {
+		this.db.runs.push({ query: this.query, bindings: this.bindings });
+		if (!this.query.includes("UPDATE human_notifications")) {
+			throw new Error(`Unexpected query: ${this.query}`);
+		}
+		return { success: true, meta: { changes: this.db.markRead(this.query, this.bindings) } };
+	}
+}
 
 type ExistingThread = {
 	id: string;

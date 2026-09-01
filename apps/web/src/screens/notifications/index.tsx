@@ -48,7 +48,7 @@ export function NotificationsScreen({
 	listScope?: HumanNotificationListScope;
 	onLoadNotifications: LoadHumanNotifications;
 	onDismiss: (notification: HumanNotification) => Promise<boolean>;
-	onMarkAllRead: (scope?: HumanNotificationReadScope) => Promise<number | null>;
+	onMarkAllRead: (scope?: HumanNotificationReadScope, asOf?: string) => Promise<number | null>;
 	onMarkRead: (notification: HumanNotification) => Promise<string | null>;
 	onOpenNotification: (notification: HumanNotification) => void;
 	subtitle?: string;
@@ -136,11 +136,11 @@ export function NotificationsScreen({
 
 	async function markAllRead(): Promise<void> {
 		const readScope = notificationReadScopeForListScope(listScope);
-		const readCount = await onMarkAllRead(readScope);
+		const readAt = new Date().toISOString();
+		const readCount = await onMarkAllRead(readScope, readAt);
 		if (readCount === null) {
 			return;
 		}
-		const readAt = new Date().toISOString();
 		setSummary((current) =>
 			humanNotificationSummaryWithReadScope(current, readScope, readAt, readCount),
 		);
@@ -150,11 +150,11 @@ export function NotificationsScreen({
 		if (group.unreadCount === 0) {
 			return;
 		}
-		const readCount = await onMarkAllRead(group.readScope);
+		const readAt = new Date().toISOString();
+		const readCount = await onMarkAllRead(group.readScope, readAt);
 		if (readCount === null) {
 			return;
 		}
-		const readAt = new Date().toISOString();
 		setSummary((current) =>
 			humanNotificationSummaryWithReadScope(current, group.readScope, readAt, readCount),
 		);

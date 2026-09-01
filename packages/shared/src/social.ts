@@ -1880,11 +1880,34 @@ export async function archiveHumanNotification(
 		.run();
 }
 
+/**
+ * Normalizes the client-supplied mark-all cutoff. A cutoff past `now` is
+ * clamped rather than rejected: a client clock running fast must not let a
+ * mark-all reach forward in time.
+ */
+export function humanNotificationReadCutoff(value: unknown, now: string): string {
+	if (value === undefined || value === null) {
+		return now;
+	}
+	const parsed = typeof value === "string" ? Date.parse(value) : Number.NaN;
+	if (Number.isNaN(parsed)) {
+		throw new InputError("Notification read cutoff is invalid.");
+	}
+	return parsed <= Date.parse(now) ? new Date(parsed).toISOString() : now;
+}
+
+/**
+ * `asOf` bounds the sweep to notifications that already existed when the user
+ * asked for it, so anything arriving while a multi-scope gesture is in flight
+ * stays unread. The by-ids scope needs no bound: its id list is already the
+ * set the user saw.
+ */
 export async function markAllHumanNotificationsRead(
 	db: D1DatabaseLike,
 	userId: string,
 	scope: HumanNotificationReadScope = { scopeType: "all" },
 	now = new Date().toISOString(),
+	asOf = now,
 ): Promise<number> {
 	if (scope.scopeType === "notifications") {
 		return markHumanNotificationsReadByIds(db, userId, scope.notificationIds, now);
@@ -1894,9 +1917,10 @@ export async function markAllHumanNotificationsRead(
 		.prepare(
 			`UPDATE human_notifications
 			 SET read_at = ?
-			 WHERE user_id = ? AND archived_at IS NULL AND read_at IS NULL${scopedWhere.sql}`,
+			 WHERE user_id = ? AND archived_at IS NULL AND read_at IS NULL
+			   AND created_at <= ?${scopedWhere.sql}`,
 		)
-		.bind(now, userId, ...scopedWhere.bindings)
+		.bind(now, userId, asOf, ...scopedWhere.bindings)
 		.run();
 	return result.meta?.changes ?? 0;
 }

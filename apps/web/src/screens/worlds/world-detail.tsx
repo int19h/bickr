@@ -111,7 +111,7 @@ export function WorldDetail({
 	onDeleteForum: (forum: ForumSummary) => Promise<boolean>;
 	onDeleteWorld: (world: WorldView) => Promise<boolean>;
 	onLoadNotifications: LoadHumanNotifications;
-	onMarkAllNotificationsRead: (scope?: HumanNotificationReadScope) => Promise<number | null>;
+	onMarkAllNotificationsRead: (scope?: HumanNotificationReadScope, asOf?: string) => Promise<number | null>;
 	onDismissNotification: (notification: HumanNotification) => Promise<boolean>;
 	onMarkNotificationRead: (notification: HumanNotification) => Promise<string | null>;
 	onOpenBotEdit: (bot: BotSummary) => void;
