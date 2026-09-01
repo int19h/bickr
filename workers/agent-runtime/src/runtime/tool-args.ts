@@ -5,8 +5,9 @@ import {
 	type RequiredLocalizedText,
 } from '@bickr/shared/model';
 import { normalizeHandle } from '@bickr/shared/validation';
-import { providerSelfAuthor } from '../constants';
+import { maxBulkToolTargets, providerSelfAuthor } from '../constants';
 import { ToolCallArgumentValidationError } from '../errors';
+import { validateRandomRanges, type RandomRangeTarget } from './random-integers';
 import type {
 	FollowToolTarget,
 	ListProfilesToolArgs,
@@ -209,6 +210,9 @@ export function normalizeToolArgs(name: string, args: ToolArgs, language?: Langu
 	}
 	if (canonical === 'view_profiles' && 'usernames' in normalized) {
 		normalized.usernames = usernamesArg(normalized.usernames);
+	}
+	if (canonical === 'draw_random_integers') {
+		normalized.ranges = randomRangesArg(normalized.ranges);
 	}
 	if (canonical === 'query_followers') {
 		const query = queryFollowersToolArgs(normalized);
@@ -495,8 +499,6 @@ function optionalStringArg(value: unknown, label: string): string | undefined {
 	return text ? text : undefined;
 }
 
-const maxBulkToolTargets = 32;
-
 export function usernamesArg(value: unknown): string[] {
 	if (!Array.isArray(value)) {
 		throw new Error('usernames must be a non-empty array.');
@@ -602,6 +604,51 @@ function followToolTargetArg(value: unknown, index: number, language?: LanguageT
 		username: typedHandleArg(record.username ?? record.handle, 'u', `${label}.username`),
 		reason: localizedToolTextArg(record.reason, `${label}.reason`, language),
 	};
+}
+
+/**
+ * Canonicalizes the `ranges` argument to the array form the schema asks for. A
+ * single range object is a declared, supported shape, so it is wrapped here
+ * rather than rejected; everything downstream sees `RandomRangeTarget[]` and
+ * never has to re-inspect the union.
+ */
+export function randomRangesArg(value: unknown): RandomRangeTarget[] {
+	if (value === null || value === undefined) {
+		throw new ToolCallArgumentValidationError('bad_request', 'ranges is required.');
+	}
+	const items = Array.isArray(value) ? value : [value];
+	const ranges = items.map((item, index) => randomRangeArg(item, `ranges[${index}]`));
+	validateRandomRanges(ranges);
+	return ranges;
+}
+
+function randomRangeArg(value: unknown, label: string): RandomRangeTarget {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		throw new ToolCallArgumentValidationError(
+			'bad_request',
+			`${label} must be an object like {"min":1,"max":6}.`,
+		);
+	}
+	const record = value as ToolArgs;
+	return {
+		min: randomRangeEndpointArg(record.min, `${label}.min`),
+		max: randomRangeEndpointArg(record.max, `${label}.max`),
+	};
+}
+
+/**
+ * Endpoints are taken literally: no string coercion and no rounding, so a
+ * participant that sends "1" or 1.5 is told to send a whole number instead of
+ * quietly getting a draw it did not ask for.
+ */
+function randomRangeEndpointArg(value: unknown, label: string): number {
+	if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
+		throw new ToolCallArgumentValidationError(
+			'bad_request',
+			`${label} must be a whole number between ${-Number.MAX_SAFE_INTEGER} and ${Number.MAX_SAFE_INTEGER}.`,
+		);
+	}
+	return value;
 }
 
 export function voteTargetsArg(value: unknown): VoteToolTarget[] {

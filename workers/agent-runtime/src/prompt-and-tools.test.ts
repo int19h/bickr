@@ -3,6 +3,7 @@ import type { BotDocument } from "@bickr/shared/model";
 import { providerSelfAuthor } from "./constants";
 import {
 	bickrFunctionToolArgumentExamples,
+	mutableToolNames,
 	openRouterServerToolSelection,
 	providerAvatarDescriptionToolDefinitions,
 	providerTranslationToolDefinitions,
@@ -30,6 +31,56 @@ describe("Bickr function tools", () => {
 			);
 			expectSchemaValue(example, definition.function.parameters, definition.function.name);
 		}
+	});
+
+	it("offers draw_random_integers in every normal round, whatever the posting limits", () => {
+		const rounds = [
+			toolDefinitionsForProviderRound(),
+			toolDefinitionsForProviderRound(4_000, { includeLogOffTool: false }),
+			toolDefinitionsForProviderRound(4_000, { includeMetaCompactionTool: false }),
+			toolDefinitionsForProviderRound(4_000, {
+				postingLimits: { threadBodyCharacters: 111, commentBodyCharacters: 222 },
+			}),
+		];
+
+		for (const round of rounds) {
+			expect(round.map((definition) => definition.function.name)).toContain("draw_random_integers");
+		}
+	});
+
+	it("keeps draw_random_integers out of the single-purpose rounds", () => {
+		const singlePurpose = [
+			...providerTranslationToolDefinitions(),
+			...providerAvatarDescriptionToolDefinitions(),
+		];
+
+		expect(singlePurpose.map((definition) => definition.function.name)).not.toContain("draw_random_integers");
+	});
+
+	it("declares both the single-range and array shapes it accepts", () => {
+		const definition = toolDefinitionsForProviderRound().find(
+			(candidate) => candidate.function.name === "draw_random_integers",
+		);
+		const ranges = definition?.function.parameters.properties.ranges;
+		const rangeObject = {
+			type: "object",
+			required: ["min", "max"],
+			additionalProperties: false,
+			properties: {
+				min: { type: "integer", minimum: -Number.MAX_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER },
+				max: { type: "integer", minimum: -Number.MAX_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER },
+			},
+		};
+
+		expect(definition?.function.parameters.required).toEqual(["ranges"]);
+		expect(ranges).toMatchObject({
+			anyOf: [rangeObject, { type: "array", items: rangeObject, minItems: 1, maxItems: 32 }],
+		});
+		expect(definition?.function.description).not.toMatch(/\b(bot|AI|model|assistant|owner|persona)\b/i);
+	});
+
+	it("does not let a draw satisfy the do-something-before-logging-off requirement", () => {
+		expect(mutableToolNames.has("draw_random_integers")).toBe(false);
 	});
 
 	it("keeps native OpenRouter server tools native", () => {
@@ -100,6 +151,23 @@ function allFunctionToolDefinitions(): FunctionToolDefinition[] {
 }
 
 function expectSchemaValue(value: unknown, schema: Record<string, unknown>, path: string): void {
+	if (Array.isArray(schema.anyOf)) {
+		// A union node declares alternatives; the value has to satisfy one of them,
+		// and each branch still has to be a schema this walker understands.
+		const branches = schema.anyOf.filter((branch): branch is Record<string, unknown> =>
+			Boolean(branch) && typeof branch === "object" && !Array.isArray(branch));
+		expect(branches.length, path).toBe(schema.anyOf.length);
+		const failures = branches.map((branch, index) => {
+			try {
+				expectSchemaValue(value, branch, `${path}|anyOf[${index}]`);
+				return null;
+			} catch (error) {
+				return error;
+			}
+		});
+		expect(failures.some((failure) => failure === null), `${path} matched no anyOf branch`).toBe(true);
+		return;
+	}
 	const type = schema.type;
 	if (type === "object") {
 		expect(value !== null && typeof value === "object" && !Array.isArray(value), path).toBe(true);

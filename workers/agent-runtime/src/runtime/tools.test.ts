@@ -15,13 +15,16 @@ import {
 	toolFailurePayload,
 	type ToolFailurePayload,
 } from "../index";
-import type { RuntimeRow } from "../types";
+import type { BotRuntimeEvent } from "@bickr/shared/model";
+import type { RunContext, RuntimeBotDocument, RuntimeRow, ToolResult } from "../types";
 import { normalizeToolArgs } from "./tool-args";
 import {
 	assertNoDuplicateReplyInToolResultRows,
 	DuplicateReplyError,
 	followToolSelfCorrectionMessage,
 	planFollowToolTargets,
+	RuntimeTools,
+	type RuntimeToolsRuntime,
 } from "./tools";
 
 const enLang = "en" as LanguageTag;
@@ -205,6 +208,154 @@ describe("tool argument failure guidance", () => {
 		expect(failure.guidance).toBe("Use a username like alice or u/alice.");
 	});
 });
+
+describe("draw_random_integers execution", () => {
+	it("returns the drawn numbers, records the pair, and carries the typed envelope", async () => {
+		const recorder = toolExecutionRecorder();
+
+		const result = await executeRandomDraw(recorder, { ranges: [{ min: 1, max: 6 }, { min: 0, max: 1 }] });
+
+		expect(result.name).toBe("draw_random_integers");
+		const numbers = result.result as number[];
+		expect(numbers).toHaveLength(2);
+		expect(numbers[0]).toBeGreaterThanOrEqual(1);
+		expect(numbers[0]).toBeLessThanOrEqual(6);
+		expect(numbers[1]).toBeGreaterThanOrEqual(0);
+		expect(numbers[1]).toBeLessThanOrEqual(1);
+		// The provider sees the bare array, exactly as the control promises.
+		expect(result.providerResult).toEqual(numbers);
+		expect(result.envelope).toEqual({
+			kind: "random_integers_drawn",
+			ranges: [{ min: 1, max: 6 }, { min: 0, max: 1 }],
+			numbers,
+		});
+		expect(result.effectiveArgs).toBeUndefined();
+
+		expect(recorder.events.map((event) => event.type)).toEqual(["tool_call", "tool_result"]);
+		expect(recorder.events[0]?.payload).toEqual({
+			name: "draw_random_integers",
+			args: { ranges: [{ min: 1, max: 6 }, { min: 0, max: 1 }] },
+		});
+		expect(recorder.events[1]?.payload).toMatchObject({
+			name: "draw_random_integers",
+			args: { ranges: [{ min: 1, max: 6 }, { min: 0, max: 1 }] },
+			result: numbers,
+			envelope: { kind: "random_integers_drawn" },
+		});
+	});
+
+	it("rewrites the recorded call to the canonical array when a single range was sent", async () => {
+		const recorder = toolExecutionRecorder();
+
+		const result = await executeRandomDraw(recorder, { ranges: { min: 3, max: 3 } });
+
+		expect(result.result).toEqual([3]);
+		expect(result.effectiveArgs).toEqual({ ranges: [{ min: 3, max: 3 }] });
+		expect(recorder.events[0]?.payload).toEqual({
+			name: "draw_random_integers",
+			args: { ranges: [{ min: 3, max: 3 }] },
+		});
+		expect(recorder.replacements).toEqual([{
+			name: "draw_random_integers",
+			args: { ranges: [{ min: 3, max: 3 }] },
+		}]);
+	});
+
+	it("fails with a typed argument error rather than executing a bad range", async () => {
+		const recorder = toolExecutionRecorder();
+
+		const error = await executeRandomDraw(recorder, { ranges: [{ min: 6, max: 1 }] }).catch((thrown: unknown) => thrown);
+
+		expect(error).toBeInstanceOf(ToolCallArgumentValidationError);
+		expect((error as ToolCallArgumentValidationError).code).toBe("bad_request");
+		expect(recorder.events).toEqual([]);
+	});
+});
+
+/**
+ * The draw touches no storage and no forum service, so the recorder only has to
+ * stand in for the event log; every other runtime capability throws if reached.
+ */
+function toolExecutionRecorder() {
+	const events: BotRuntimeEvent[] = [];
+	const replacements: unknown[] = [];
+	let seq = 0;
+	const unreachable = (capability: string) => () => {
+		throw new Error(`draw_random_integers must not use ${capability}.`);
+	};
+	const runtime: RuntimeToolsRuntime = {
+		env: {
+			// Handed out but never queried: the drawn envelope yields no seen content,
+			// so preparing a statement here would be a real regression.
+			BICKR_D1: { prepare: unreachable("a D1 statement") },
+			BICKR_KV: { get: unreachable("a KV read"), put: unreachable("a KV write") },
+		} as unknown as RuntimeToolsRuntime["env"],
+		appendEvent: (runId, type, payload) => {
+			seq += 1;
+			const event: BotRuntimeEvent = { seq, runId, type, payload, tokenEstimate: 0, createdAt: "2026-09-01T00:00:00.000Z" };
+			events.push(event);
+			return event;
+		},
+		replaceEventPayload: (event, payload) => {
+			replacements.push(payload);
+			const replaced = { ...event, payload };
+			const index = events.findIndex((item) => item.seq === event.seq);
+			if (index >= 0) {
+				events[index] = replaced;
+			}
+			return replaced;
+		},
+		throwIfStopped: () => {},
+		forumService: unreachable("the forum coordinator"),
+		vectorSearchBots: unreachable("vector search"),
+		readCommentTreeTokenBudget: unreachable("the comment-tree token budget"),
+		providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
+		recentToolResultRows: () => [],
+		setLastSuccessfulLogOffSeq: unreachable("the log-off marker"),
+	};
+	return { events, replacements, runtime };
+}
+
+async function executeRandomDraw(
+	recorder: ReturnType<typeof toolExecutionRecorder>,
+	args: Record<string, unknown>,
+): Promise<ToolResult> {
+	const runContext: RunContext = {
+		mode: "normal",
+		setupMode: "new_iteration",
+		signal: new AbortController().signal,
+	};
+	return new RuntimeTools(recorder.runtime).executeTool(
+		randomDrawParticipant(),
+		"run_random",
+		"draw_random_integers",
+		args,
+		runContext,
+	);
+}
+
+function randomDrawParticipant(): RuntimeBotDocument {
+	return {
+		id: "bot_random",
+		type: "bot",
+		schemaVersion: 1,
+		revision: 1,
+		createdAt: "2026-09-01T00:00:00.000Z",
+		updatedAt: "2026-09-01T00:00:00.000Z",
+		homeWorldId: "wld_random",
+		homeWorldHandle: "random-world",
+		ownerUserId: "usr_random",
+		handle: "roller",
+		language: null,
+		includeLanguageInSystemPrompt: false,
+		displayName: { lang: null, text: "Roller" },
+		shortBio: { lang: null, text: "Rolls things." },
+		prompt: { lang: null, text: "Persona" },
+		inferenceSettings: {},
+		toolSettings: {},
+		tickSettings: { enabled: true, intervalSeconds: 60, allowEarlyLogOff: true, compactionThreshold: 0.75 },
+	};
+}
 
 function profile(id: string, handle: string): BotPublicProfile {
 	return {

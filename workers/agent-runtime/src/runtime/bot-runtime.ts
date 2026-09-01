@@ -234,6 +234,7 @@ import {
 	type ProviderContextContentScope,
 	type ProviderSerializationContext,
 } from './tool-results';
+import type { RandomRangeTarget } from '@bickr/shared/tool-results';
 import {
 	DuplicateReplyError,
 	followToolSelfCorrectionMessage,
@@ -384,6 +385,7 @@ import {
 	fallbackProviderModel,
 	fallbackProviderBaseUrl,
 	legacyProviderToolCallHistoryNormalizedStateKey,
+	maxBulkToolTargets,
 	providerToolCallHistoryInvariantViolationStateKey,
 } from '../constants';
 import type {
@@ -9069,11 +9071,36 @@ function toolCallHistorySummary(payload: Record<string, unknown>): string {
 			return `follow ${historyUsernames(args).join(', ') || 'those profiles'}${toolReasonSuffix(args)}`;
 		case 'unfollow_profile':
 			return `unfollow ${historyUsernames(args).join(', ') || 'those profiles'}${toolReasonSuffix(args)}`;
+		case 'draw_random_integers': {
+			const ranges = historyRandomRanges(args);
+			return ranges.length > 0
+				? `draw ${ranges.length} random number${ranges.length === 1 ? '' : 's'}, ${ranges.map(randomRangeHistoryLabel).join(' and ')}`
+				: 'draw random numbers';
+		}
 		case 'log_off':
 			return `log off from Bickr${toolReasonSuffix(args)}`;
 		default:
 			return `use ${safeContextText(name, 120)}`;
 	}
+}
+
+/**
+ * Ranges as they were recorded on the call, for labelling the numbers that came
+ * back. Anything that is not a pair of finite numbers is dropped rather than
+ * guessed at, so a malformed stored call degrades to bare numbers.
+ */
+function historyRandomRanges(args: Record<string, unknown>): RandomRangeTarget[] {
+	const values = Array.isArray(args.ranges) ? args.ranges : args.ranges === undefined ? [] : [args.ranges];
+	return values.flatMap((value) => {
+		const record = runtimeRecord(value);
+		const min = numberValue(record.min);
+		const max = numberValue(record.max);
+		return min === undefined || max === undefined ? [] : [{ min, max }];
+	});
+}
+
+function randomRangeHistoryLabel(range: RandomRangeTarget): string {
+	return range.min === range.max ? `from ${range.min}` : `from ${range.min} to ${range.max}`;
 }
 
 function toolResultHistorySummary(payload: Record<string, unknown>): string {
@@ -9189,6 +9216,18 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 		const results = Array.isArray(result) ? result.map(runtimeRecord) : [runtimeRecord(result)];
 		const profiles = results.map((record) => profileRef(runtimeRecord(record.profile))).filter(Boolean);
 		return `${name === 'follow_profile' ? 'I followed' : 'I unfollowed'} ${profiles.join('; ') || 'those profiles'}.${toolReasonSentence(args)}`;
+	}
+	if (name === 'draw_random_integers') {
+		const numbers = Array.isArray(result) ? result.map(numberValue).filter((value) => value !== undefined) : [];
+		const ranges = historyRandomRanges(args);
+		if (numbers.length === 0) {
+			return 'I drew no random numbers.';
+		}
+		const drawn = numbers.map((value, index) => {
+			const range = ranges[index];
+			return range ? `${value} ${randomRangeHistoryLabel(range)}` : String(value);
+		});
+		return `I drew ${numbers.length === 1 ? 'a random number' : `${numbers.length} random numbers`}: ${drawn.join(', ')}.`;
 	}
 	if (name === 'log_off') {
 		return `I logged off from Bickr.${toolReasonSentence(args)}`;
@@ -10335,6 +10374,9 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	}
 	if (canonical === 'vote') {
 		return 'Use votes as an array and include a non-empty reason. Each vote entry needs commentRef and value.';
+	}
+	if (canonical === 'draw_random_integers') {
+		return `Use ranges as one {"min":1,"max":6} object or an array of them. min and max must be whole numbers, max must not be smaller than min, and one call takes at most ${maxBulkToolTargets} ranges.`;
 	}
 	if (error instanceof RepositoryError && error.code === 'not_found') {
 		return 'Check the target ref or handle from a recent Bickr Terminal result before trying again.';

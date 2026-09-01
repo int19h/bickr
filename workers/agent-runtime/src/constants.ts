@@ -202,6 +202,14 @@ export const providerTranslationToolName = 'save_translation';
 
 export const providerSelfAuthor = 'MYSELF';
 
+/**
+ * The most targets one bulk Bickr control call may carry: votes, follow and
+ * unfollow targets, usernames to view, and ranges to draw a random number from.
+ * One number so a participant only ever has one bulk cap to keep in mind, and so
+ * a schema and its validator can never drift apart on it.
+ */
+export const maxBulkToolTargets = 32;
+
 export const providerStructuredOutputRepairAttempts = 4;
 
 export const inferenceSubmissionRetentionCount = 50;

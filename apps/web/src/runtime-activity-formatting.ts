@@ -1,5 +1,7 @@
 import type { BotRuntimeEvent } from "@bickr/shared/model";
 import { parseCommentRef, parseThreadRef } from "@bickr/shared/ids";
+import { isToolResultEnvelope } from "@bickr/shared/legacy-tool-result-adapter";
+import type { RandomRangeTarget, ToolResultEnvelope } from "@bickr/shared/tool-results";
 import { handlePatternSource, normalizeHandleText } from "@bickr/shared/validation";
 
 export type RuntimeActivityKind =
@@ -227,7 +229,11 @@ export function runtimeActivities(events: BotRuntimeEvent[], fallbackWorldHandle
 			}
 			case "tool_result": {
 				const name = stringValue(payload.name) ?? "unknown_tool";
-				const summary = toolResultSummary(name, payload.args, payload.result, fallbackWorldHandle);
+				// Typed envelopes are the producer's own statement of what a result
+				// means; only rows written before envelopes fall back to the shape of
+				// `result`.
+				const envelope = isToolResultEnvelope(payload.envelope) ? payload.envelope : undefined;
+				const summary = toolResultSummary(name, payload.args, payload.result, fallbackWorldHandle, envelope);
 				activities.push({
 					id: `event-${event.seq}`,
 					seq: event.seq,
@@ -535,6 +541,8 @@ function toolCallTitle(name: string, args: unknown): string {
 			return bulkProfileTitle("Following", record);
 		case "unfollow_profile":
 			return bulkProfileTitle("Unfollowing", record);
+		case "draw_random_integers":
+			return randomDrawTitle(record);
 		case "log_off":
 			return "Logging off";
 		default:
@@ -542,11 +550,20 @@ function toolCallTitle(name: string, args: unknown): string {
 	}
 }
 
-function toolResultSummary(name: string, args: unknown, result: unknown, fallbackWorldHandle: string): ToolResultSummary {
+function toolResultSummary(
+	name: string,
+	args: unknown,
+	result: unknown,
+	fallbackWorldHandle: string,
+	envelope?: ToolResultEnvelope,
+): ToolResultSummary {
 	const canonical = canonicalToolName(name);
 	const record = runtimeRecord(result);
 	if (record.ok === false) {
 		return failedToolResultSummary(canonical, args, record);
+	}
+	if (envelope?.kind === "random_integers_drawn") {
+		return randomIntegersResultSummary(envelope);
 	}
 
 	const thread = threadRecord(result);
@@ -740,6 +757,40 @@ function voteToolResultSummary(
 		return resultWithDisplay("Vote recorded", details, items);
 	}
 	return undefined;
+}
+
+function randomIntegersResultSummary(
+	envelope: Extract<ToolResultEnvelope, { kind: "random_integers_drawn" }>,
+): ToolResultSummary {
+	const { numbers, ranges } = envelope;
+	const lines = numbers.map((value, index) => {
+		const range = ranges[index];
+		return range ? `${randomRangeText(range)} - ${value}` : String(value);
+	});
+	return resultWithDisplay(
+		`Drew ${countLabel(numbers.length, "random number")}`,
+		lines.join("\n") || "No numbers were drawn.",
+		[],
+	);
+}
+
+function randomRangeText(range: RandomRangeTarget): string {
+	return range.min === range.max ? `Fixed at ${range.min}` : `${range.min} to ${range.max}`;
+}
+
+function randomDrawTitle(record: Record<string, unknown>): string {
+	const ranges = randomRangeRecords(record);
+	return ranges.length > 0 ? `Drawing ${countLabel(ranges.length, "random number")}` : "Drawing random numbers";
+}
+
+function randomRangeRecords(record: Record<string, unknown>): RandomRangeTarget[] {
+	const values = Array.isArray(record.ranges) ? record.ranges : record.ranges === undefined ? [] : [record.ranges];
+	return values.flatMap((value) => {
+		const range = runtimeRecord(value);
+		const min = numberValue(range.min);
+		const max = numberValue(range.max);
+		return min === undefined || max === undefined ? [] : [{ min, max }];
+	});
 }
 
 function logOffToolResultSummary(

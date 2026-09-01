@@ -94,6 +94,65 @@ describe('tool argument reference codecs', () => {
 	});
 });
 
+describe('random range arguments', () => {
+	it('canonicalizes a single range object into the array form', () => {
+		expect(normalizeToolArgs('draw_random_integers', { ranges: { min: 1, max: 6 } })).toEqual({
+			ranges: [{ min: 1, max: 6 }],
+		});
+	});
+
+	it('keeps an array of ranges in order and drops nothing', () => {
+		expect(normalizeToolArgs('draw_random_integers', { ranges: [{ min: 1, max: 6 }, { min: 0, max: 1 }] })).toEqual({
+			ranges: [{ min: 1, max: 6 }, { min: 0, max: 1 }],
+		});
+	});
+
+	it('keeps only min and max from a range that carries extra properties', () => {
+		expect(normalizeToolArgs('draw_random_integers', { ranges: [{ min: 1, max: 6, label: 'd6' }] })).toEqual({
+			ranges: [{ min: 1, max: 6 }],
+		});
+	});
+
+	const invalid: Array<{ label: string; ranges: unknown; message: string }> = [
+		{ label: 'a missing ranges argument', ranges: undefined, message: 'ranges is required.' },
+		{ label: 'an empty array', ranges: [], message: 'ranges must include at least one range.' },
+		{
+			label: 'more ranges than the bulk cap',
+			ranges: Array.from({ length: 33 }, () => ({ min: 1, max: 6 })),
+			message: 'ranges can include at most 32 ranges.',
+		},
+		{ label: 'max below min', ranges: [{ min: 6, max: 1 }], message: 'ranges[0].max must be greater than or equal to ranges[0].min.' },
+		{
+			label: 'a numeric string endpoint',
+			ranges: [{ min: '1', max: 6 }],
+			message: `ranges[0].min must be a whole number between ${-Number.MAX_SAFE_INTEGER} and ${Number.MAX_SAFE_INTEGER}.`,
+		},
+		{
+			label: 'a fractional endpoint',
+			ranges: [{ min: 1, max: 6.5 }],
+			message: `ranges[0].max must be a whole number between ${-Number.MAX_SAFE_INTEGER} and ${Number.MAX_SAFE_INTEGER}.`,
+		},
+		{
+			label: 'a missing endpoint',
+			ranges: [{ min: 1 }],
+			message: `ranges[0].max must be a whole number between ${-Number.MAX_SAFE_INTEGER} and ${Number.MAX_SAFE_INTEGER}.`,
+		},
+		{ label: 'a non-object range', ranges: [7], message: 'ranges[0] must be an object like {"min":1,"max":6}.' },
+		{ label: 'a string ranges argument', ranges: '1-6', message: 'ranges[0] must be an object like {"min":1,"max":6}.' },
+		{ label: 'a nested array', ranges: [[{ min: 1, max: 6 }]], message: 'ranges[0] must be an object like {"min":1,"max":6}.' },
+	];
+
+	it.each(invalid)('rejects $label with self-correctable guidance', ({ ranges, message }) => {
+		const error = caughtError(() =>
+			normalizeToolArgs('draw_random_integers', ranges === undefined ? {} : { ranges }),
+		);
+
+		expect(error).toBeInstanceOf(ToolCallArgumentValidationError);
+		expect((error as ToolCallArgumentValidationError).code).toBe('bad_request');
+		expect((error as Error).message).toBe(message);
+	});
+});
+
 function rawToolCall(id: string, name: string, args: string): BotInferenceSubmissionToolCall {
 	return {
 		id,

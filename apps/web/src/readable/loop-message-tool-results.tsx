@@ -1,5 +1,6 @@
 import { localizedTextString, type CommentDocument, type ThreadDocument } from "@bickr/shared/model";
 import type {
+	RandomRangeTarget,
 	ToolResultContentItem,
 	ToolResultEnvelope,
 	ToolResultProfileAction,
@@ -61,6 +62,13 @@ export const readableToolResultRenderers = {
 				)) : undefined;
 				return <ReadableContentResultItem displayContext={displayContext} item={item} key={`${item.kind}-${item.id}-${index}`} thread={thread} />;
 			})}
+		</ReadableResultList>
+	),
+	random_integers_drawn: ({ numbers, ranges }) => (
+		<ReadableResultList empty="No numbers were drawn.">
+			{numbers.map((value, index) => (
+				<ReadableRandomNumberLine key={`${index}-${value}`} range={ranges[index]} value={value} />
+			))}
 		</ReadableResultList>
 	),
 	opaque: ({ value }) => <JsonSyntaxBlock value={value} />,
@@ -287,6 +295,22 @@ export function ReadableContentResultItem({
 			{item.body && <ReadableQuote text={localizedTextString(item.body)} />}
 		</div>
 	);
+}
+
+export function ReadableRandomNumberLine({ range, value }: { range?: RandomRangeTarget; value: number }) {
+	return (
+		<div className="tool-pretty-item readable-random-number-line">
+			<span className="tool-pretty-label">{randomRangeLabel(range)}</span>
+			<span>{value}</span>
+		</div>
+	);
+}
+
+export function randomRangeLabel(range?: RandomRangeTarget): string {
+	if (!range) {
+		return "Drawn";
+	}
+	return range.min === range.max ? `Fixed at ${range.min}` : `${range.min} to ${range.max}`;
 }
 
 function ReadableResultList({ children, empty }: { children: ReactNode; empty: string }) {

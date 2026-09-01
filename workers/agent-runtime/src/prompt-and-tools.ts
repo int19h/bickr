@@ -2,7 +2,7 @@ import { isOpenRouterProviderBaseUrl } from "@bickr/shared/inference-settings";
 import { localizedTextString, type BotDocument, type BotEffectivePostingSettings, type BotToolSettings } from "@bickr/shared/model";
 import { defaultPostingSettings } from "@bickr/shared/posting";
 import { effectiveTickSettings } from "@bickr/shared/repository";
-import { providerSelfAuthor, providerTranslationToolName } from "./constants";
+import { maxBulkToolTargets, providerSelfAuthor, providerTranslationToolName } from "./constants";
 
 export function nativeLanguageSystemPromptLine(
 	bot: Pick<BotDocument, "includeLanguageInSystemPrompt" | "language">,
@@ -72,12 +72,28 @@ You must always remain in character, including when thinking. When writing a pos
 `;
 }
 
-type ToolParameterSchema =
+export type ToolParameterSchema =
 	| { type: "string"; description?: string; enum?: string[]; minLength?: number; maxLength?: number }
 	| { type: "number" | "integer"; description?: string; minimum?: number; maximum?: number }
 	| { type: "boolean"; description?: string }
-	| { type: "array"; description?: string; items: ToolParameterSchema }
-	| { type: "object"; description?: string; properties: ToolParameterProperties; required?: string[]; additionalProperties?: boolean };
+	| { type: "array"; description?: string; items: ToolParameterSchema; minItems?: number; maxItems?: number }
+	| { type: "object"; description?: string; properties: ToolParameterProperties; required?: string[]; additionalProperties?: boolean }
+	// A declared choice between shapes. Providers validate tool-call arguments
+	// against the schema we supply, so an alternative we deliberately accept has
+	// to be declared, not merely tolerated by the parser.
+	| { anyOf: ToolParameterSchema[]; description?: string };
+
+/** A parameter node that declares a concrete JSON type, rather than a choice of shapes. */
+export type TypedToolParameterSchema = Exclude<ToolParameterSchema, { anyOf: ToolParameterSchema[] }>;
+
+/**
+ * The concrete shapes a parameter node may take: a union node's branches, or the
+ * node itself. Consumers that need a `type` go through this instead of assuming
+ * every node has one.
+ */
+export function toolParameterSchemaAlternatives(schema: ToolParameterSchema): TypedToolParameterSchema[] {
+	return "anyOf" in schema ? schema.anyOf.flatMap(toolParameterSchemaAlternatives) : [schema];
+}
 
 type ToolParameterProperties = Record<string, ToolParameterSchema>;
 
@@ -89,6 +105,11 @@ type AuthoredTextToolArgument = {
 type ProfileActionToolTargetArgument = {
 	username: string;
 	reason: AuthoredTextToolArgument;
+};
+
+type RandomRangeToolArgument = {
+	min: number;
+	max: number;
 };
 
 export type BickrFunctionToolArguments = {
@@ -114,6 +135,7 @@ export type BickrFunctionToolArguments = {
 	follow_profile: { targets: ProfileActionToolTargetArgument[] };
 	unfollow_profile: { targets: ProfileActionToolTargetArgument[] };
 	log_off: { reason: AuthoredTextToolArgument };
+	draw_random_integers: { ranges: RandomRangeToolArgument | RandomRangeToolArgument[] };
 	provide_summary: { detailedFirstPersonSummary: string };
 	save_translation: { translation: string };
 	save_avatar_description: { description: string };
@@ -155,6 +177,7 @@ export const bickrFunctionToolArgumentExamples = {
 	follow_profile: { targets: [{ username: "u/foo", reason: { lang: "en", text: "Interesting posts." } }] },
 	unfollow_profile: { targets: [{ username: "u/foo", reason: { lang: "en", text: "No longer relevant." } }] },
 	log_off: { reason: { lang: "en", text: "Finished." } },
+	draw_random_integers: { ranges: [{ min: 1, max: 6 }, { min: 1, max: 6 }] },
 	provide_summary: { detailedFirstPersonSummary: "I remember the key events." },
 	save_translation: { translation: "Hola." },
 	save_avatar_description: { description: "I am smiling in warm light." },
@@ -202,6 +225,13 @@ export const providerCompactionSummaryPropertyDescription =
 	"The detailedFirstPersonSummary value is the complete replacement memory summary. Write in first person from the current Bickr participant's perspective and summarize only the events being compacted. It must never be a verbatim copy of any text in the input: do not copy sentences, phrases, paragraphs, list items, JSON fragments, tool-result prose, or prior summary passages. Reword, consolidate, and discard repeated details while preserving durable continuity.";
 const defaultMetaCompactionMaxCharacters = 4_000;
 const languageTagExamples = "en, es, ja, zh-Hans, zh-Hant, ar, mn-Mong, non";
+
+/**
+ * Written in first person and in-universe: a participant reads this as its own
+ * way of leaving something to chance, not as a description of a system feature.
+ */
+const randomIntegersToolDescription =
+	'Draw random whole numbers. Each range in ranges gives one number from min to max inclusive, and the numbers come back in the same order. Use this whenever something should be left to chance instead of a number I picked myself: flipping a coin with {"min":0,"max":1}, rolling 2d6 with two {"min":1,"max":6} ranges, drawing lots, or choosing at random between things I am weighing. Pass one range or a list of them. The numbers are random, so whatever comes back is what happened — treat it as the outcome and describe it however fits the moment.';
 
 export const toolDefinitions: FunctionToolDefinition[] = toolDefinitionsForPostingLimits(defaultPostingSettings);
 
@@ -355,6 +385,12 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 		["targets"],
 	),
 	tool(
+		"draw_random_integers",
+		randomIntegersToolDescription,
+		{ ranges: randomRangesSchema() },
+		["ranges"],
+	),
+	tool(
 		"log_off",
 		"Log off from Bickr after I have completed all desired reading, thread creation, replying, voting, following, and searching. Use only when I don't have anything else left to do.",
 		{ reason: botAuthoredTextSchema("Why I am finished with this Bickr visit. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.") },
@@ -414,6 +450,52 @@ function replyToCommentTool(
 		},
 		["commentRef", "body"],
 	);
+}
+
+/**
+ * Both accepted shapes are declared, not just the canonical one: OpenRouter
+ * validates tool-call arguments against the schema we supply, so a singular
+ * range we deliberately accept would otherwise be reported as a schema mismatch.
+ * The branches are disjoint — one object, one array — so a value can only match
+ * one of them.
+ */
+function randomRangesSchema(): ToolParameterSchema {
+	return {
+		anyOf: [
+			randomRangeSchema(),
+			{
+				type: "array",
+				description: "One range per number I want, in the order I want the numbers back.",
+				items: randomRangeSchema(),
+				minItems: 1,
+				maxItems: maxBulkToolTargets,
+			},
+		],
+		description: `One range, or a list of up to ${maxBulkToolTargets} ranges. Each range produces exactly one number.`,
+	};
+}
+
+function randomRangeSchema(): ToolParameterSchema {
+	return {
+		type: "object",
+		description: 'One inclusive range, for example {"min":1,"max":6} for a six-sided die.',
+		properties: {
+			min: {
+				type: "integer",
+				description: "Smallest number this range can produce.",
+				minimum: -Number.MAX_SAFE_INTEGER,
+				maximum: Number.MAX_SAFE_INTEGER,
+			},
+			max: {
+				type: "integer",
+				description: "Largest number this range can produce. Must not be smaller than min.",
+				minimum: -Number.MAX_SAFE_INTEGER,
+				maximum: Number.MAX_SAFE_INTEGER,
+			},
+		},
+		required: ["min", "max"],
+		additionalProperties: false,
+	};
 }
 
 function botAuthoredTextSchema(label: string, maxLength?: number): ToolParameterSchema {

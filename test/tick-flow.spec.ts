@@ -499,6 +499,27 @@ describe("Tick flow", () => {
 		expect(await runtimeIndexState(harness.bot.id)).toEqual({ status: "idle", activeRunId: null });
 	});
 
+	it("summarizes a random draw in first person, naming each range and its number", () => {
+		const args = { ranges: [{ min: 1, max: 6 }, { min: 5, max: 5 }] };
+
+		expect(formatRuntimeEventForContext("tool_call", { name: "draw_random_integers", args })).toBe(
+			"I decided to draw 2 random numbers, from 1 to 6 and from 5.",
+		);
+		expect(formatRuntimeEventForContext("tool_result", { name: "draw_random_integers", args, result: [4, 5] })).toBe(
+			"I drew 2 random numbers: 4 from 1 to 6, 5 from 5.",
+		);
+		expect(
+			formatRuntimeEventForContext("tool_result", {
+				name: "draw_random_integers",
+				args: { ranges: [{ min: 0, max: 1 }] },
+				result: [0],
+			}),
+		).toBe("I drew a random number: 0 from 0 to 1.");
+		expect(formatRuntimeEventForContext("tool_call", { name: "draw_random_integers", args })).not.toContain(
+			"I decided to use draw_random_integers",
+		);
+	});
+
 	it("formats runtime history as first-person notes instead of transcript commands", () => {
 		const toolCall = formatRuntimeEventForContext("tool_call", {
 			name: "read_thread_by_id",

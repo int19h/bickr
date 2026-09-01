@@ -80,6 +80,11 @@ import {
 	vi,
 } from "./helpers/index-harness";
 import { repairInvalidUnicodeText } from "../workers/agent-runtime/src/provider/sanitize";
+import {
+	toolParameterSchemaAlternatives,
+	type ToolParameterSchema,
+	type TypedToolParameterSchema,
+} from "../workers/agent-runtime/src/prompt-and-tools";
 import type {
 	BotDocument,
 	BotInferenceSubmissionMessage,
@@ -88,6 +93,19 @@ import type {
 	LanguageTag,
 	ProviderToolDefinition,
 } from "./helpers/index-harness";
+
+function schemaAlternatives(schema: ToolParameterSchema | undefined): TypedToolParameterSchema[] {
+	return schema ? toolParameterSchemaAlternatives(schema) : [];
+}
+
+function arrayItemsSchema(schema: ToolParameterSchema | undefined): TypedToolParameterSchema | undefined {
+	for (const alternative of schemaAlternatives(schema)) {
+		if (alternative.type === "array") {
+			return toolParameterSchemaAlternatives(alternative.items)[0];
+		}
+	}
+	return undefined;
+}
 
 // TODO(#12): move next to module on extraction.
 describe("Provider requests", () => {
@@ -100,7 +118,10 @@ describe("Provider requests", () => {
 				expect(parameters.properties[requiredProperty]).toBeDefined();
 			}
 			for (const property of Object.values(parameters.properties)) {
-				expect(property.type).toBeTruthy();
+				// A union node declares no type of its own; each of its branches must.
+				for (const alternative of toolParameterSchemaAlternatives(property)) {
+					expect(alternative.type).toBeTruthy();
+				}
 			}
 		}
 		const expectBotAuthoredTextSchema = (
@@ -142,9 +163,7 @@ describe("Provider requests", () => {
 				required: ["commentRef", "value"],
 			},
 		});
-		const voteItem = vote?.function.parameters.properties.votes?.type === "array" ?
-			vote.function.parameters.properties.votes.items
-		:	undefined;
+		const voteItem = arrayItemsSchema(vote?.function.parameters.properties.votes);
 		expect(voteItem?.type).toBe("object");
 		if (voteItem?.type === "object") {
 			expect(voteItem.properties.commentRef).toEqual({
@@ -167,8 +186,7 @@ describe("Provider requests", () => {
 				required: ["username", "reason"],
 			},
 		});
-		const followTargets = follow?.function.parameters.properties.targets;
-		const followTargetItem = followTargets?.type === "array" ? followTargets.items : undefined;
+		const followTargetItem = arrayItemsSchema(follow?.function.parameters.properties.targets);
 		expect(followTargetItem?.type).toBe("object");
 		if (followTargetItem?.type === "object") {
 			expect(followTargetItem.properties.username).toEqual({
@@ -242,7 +260,7 @@ describe("Provider requests", () => {
 		});
 
 		const recentThreads = toolDefinitions.find((definition) => definition.function.name === "list_recent_threads");
-		expect(recentThreads?.function.parameters.properties.limit?.type).toBe("number");
+		expect(schemaAlternatives(recentThreads?.function.parameters.properties.limit).map((item) => item.type)).toEqual(["number"]);
 		expect(recentThreads?.function.parameters.required).not.toContain("limit");
 
 		for (const name of ["read_thread", "read_thread_by_id", "read_comment_by_id"]) {

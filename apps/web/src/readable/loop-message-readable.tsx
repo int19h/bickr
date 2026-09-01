@@ -2,14 +2,14 @@ import { formatThreadRef } from "@bickr/shared/ids";
 import type { BotInferenceSubmissionMessage, BotLoopMessage } from "@bickr/shared/model";
 import type { ReactNode } from "react";
 import { isToolResultEnvelope, legacyToolResultEnvelope } from "@bickr/shared/legacy-tool-result-adapter";
-import type { ToolResultEnvelope } from "@bickr/shared/tool-results";
+import type { RandomRangeTarget, ToolResultEnvelope } from "@bickr/shared/tool-results";
 import { normalizeReadableText, reasoningDetailsTextForDisplay, textValueForDisplay } from "../reasoning-formatting";
 import {
 	ReadableGenericFields,
 	ReadablePostingReply,
 	ReadableQueryFollowersCall,
 } from "./loop-message-tool-calls";
-import { ReadableToolResultEnvelope } from "./loop-message-tool-results";
+import { randomRangeLabel, ReadableToolResultEnvelope } from "./loop-message-tool-results";
 import {
 	ForumReference,
 	ProfileReference,
@@ -313,6 +313,8 @@ export function readableToolFailureTitle(name: string): string {
 			return "Profiles not returned";
 		case "query_followers":
 			return "Profile follows not returned";
+		case "draw_random_integers":
+			return "Random numbers not drawn";
 		case "log_off":
 			return "Could not log off";
 		default:
@@ -357,6 +359,8 @@ export function readableToolCallTitle(name: string): string {
 			return "Following profiles";
 		case "unfollow_profile":
 			return "Unfollowing profiles";
+		case "draw_random_integers":
+			return "Drawing random numbers";
 		case "log_off":
 			return "Logging off";
 		default:
@@ -397,6 +401,8 @@ export function readableToolResultTitle(name: string): string {
 			return "Profiles";
 		case "view_activity":
 			return "Profile activity";
+		case "draw_random_integers":
+			return "Random numbers";
 		case "log_off":
 			return "Logged off";
 		default:
@@ -498,6 +504,21 @@ export function readableToolCallSummary(name: string, args: JsonRecord, result?:
 					{forumHandle && <ForumReference allowActiveWorldFallback={displayContext.allowActiveWorldFallback} forumHandle={forumHandle} worldHandle={worldHandle} />}
 				</div>
 			);
+		case "draw_random_integers": {
+			const ranges = randomRangesFromArgs(args);
+			return ranges.length > 0 ? (
+				<div className="tool-pretty tool-list">
+					{ranges.map((range, index) => (
+						<div className="tool-pretty-item" key={`${index}-${range.min}-${range.max}`}>
+							<span className="tool-pretty-label">Range</span>
+							<span>{randomRangeLabel(range)}</span>
+						</div>
+					))}
+				</div>
+			) : (
+				<div className="tool-text">Leaving something to chance.</div>
+			);
+		}
 		case "log_off":
 			return (
 				<div className="tool-pretty tool-list">
@@ -513,6 +534,21 @@ export function readableToolCallSummary(name: string, args: JsonRecord, result?:
 		default:
 			return <ReadableGenericFields record={args} />;
 	}
+}
+
+/**
+ * Ranges as the stored call recorded them. The canonical stored shape is an
+ * array, but a call recorded before normalization rewrote it — or a failure echo
+ * — can still carry the declared single-range object, so both are read here.
+ */
+export function randomRangesFromArgs(args: JsonRecord): RandomRangeTarget[] {
+	const values = Array.isArray(args.ranges) ? args.ranges : args.ranges === undefined ? [] : [args.ranges];
+	return values.flatMap((value) => {
+		const record = recordValue(value);
+		const min = numberValue(record.min);
+		const max = numberValue(record.max);
+		return min === undefined || max === undefined ? [] : [{ min, max }];
+	});
 }
 
 export function readableToolResultContent(
