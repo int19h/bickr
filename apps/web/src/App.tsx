@@ -120,8 +120,7 @@ import {
 } from "./screens/chrome";
 import { ForumPage, ThreadPage } from "./screens/forums";
 import {
-	humanNotificationMarkAllGestureFor,
-	humanNotificationSummaryWithReadScope,
+	humanNotificationReadAnchorFor,
 	humanNotificationSummaryWithoutNotification,
 	notificationThreadId,
 } from "./screens/notifications/state";
@@ -1106,8 +1105,13 @@ function App() {
 	// The anchor is the newest notification the caller had rendered, captured once
 	// per user gesture and shared by every scoped call that gesture makes: the
 	// server marks nothing above it, so anything arriving mid-sweep stays unread.
-	// The drawer's own list is the default, since that is what it renders — and
-	// what the drawer had rendered is also all the optimistic pass may claim.
+	// The drawer's own list is the default, since that is what it renders.
+	//
+	// Nothing is marked read here and the badge is not decremented here. Which
+	// rows the sweep covered turns on the anchor row's rowid, which no response
+	// carries, so any local guess can show read what the server left unread. The
+	// reload below is the answer; if it fails, the pre-gesture state stays up
+	// until one succeeds, rather than a count this client made up.
 	async function markAllNotificationsRead(
 		scope: HumanNotificationReadScope = { scopeType: "all" },
 		anchor?: HumanNotificationReadAnchor | null,
@@ -1115,31 +1119,24 @@ function App() {
 		if (!profileReadyFor("managing notifications")) {
 			return null;
 		}
-		// Taken from this client's own list before the request: the anchor when the
-		// caller did not bring one, and always the ids it had rendered, which is the
-		// set the optimistic pass below is allowed to speak for.
-		const rendered = humanNotificationMarkAllGestureFor(humanNotifications.notifications);
-		const gesture = {
-			anchor: anchor === undefined ? rendered.anchor : anchor,
-			renderedIds: rendered.renderedIds,
-		};
-		if (scope.scopeType !== "notifications" && !gesture.anchor) {
+		// The caller's anchor when it brought one; otherwise the newest row of this
+		// client's own list, taken before the request goes out.
+		const sweepAnchor =
+			anchor === undefined ? humanNotificationReadAnchorFor(humanNotifications.notifications) : anchor;
+		if (scope.scopeType !== "notifications" && !sweepAnchor) {
 			// Nothing rendered means nothing the user has seen: no request to make.
 			return 0;
 		}
 		const result = await runApiAction(reportError, () => api<{ readAll: true; readCount: number }>("/api/me/notifications/read-all", {
 			method: "POST",
-			body: { ...scope, ...(gesture.anchor ? { anchor: gesture.anchor } : {}) },
+			body: { ...scope, ...(sweepAnchor ? { anchor: sweepAnchor } : {}) },
 		}));
 		if (!result) {
 			return null;
 		}
-		setHumanNotifications((current) =>
-			humanNotificationSummaryWithReadScope(current, scope, gesture, new Date().toISOString()),
-		);
-		// That pass only marks what it can prove the server marked, so it is a
-		// stand-in for this: the drawer and the unread badge come from the server's
-		// own state, never from what the client assumed the sweep did.
+		// The drawer and the unread badge come from the server's own state, never
+		// from what this client assumed the sweep did. A load that fails leaves both
+		// as they were before the gesture for the next one to correct.
 		await loadHumanNotifications();
 		return result.data.readCount;
 	}

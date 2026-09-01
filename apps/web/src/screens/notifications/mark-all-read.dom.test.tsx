@@ -13,13 +13,13 @@ import { NotificationsScreen } from "./index";
  * What the user is looking at after a mark-all, driven through the real screen.
  *
  * The server bounds the sweep by the anchor row's `rowid`, and no response
- * carries a rowid — so inside the anchor's millisecond the client cannot tell a
- * row inserted before the anchor from one inserted after it, and a row it was
- * already showing can be one the server deliberately left unread. The rule this
- * pins down is that the optimistic pass never shows read what the server left
- * unread: it may lag the server, it may not contradict it. That is a sequence of
- * renders — click, optimistic pass, reconcile — so it runs against a real render
- * loop rather than the pure state helper alone.
+ * carries a rowid — so a row the client was already showing can be one the
+ * server deliberately left unread, and no predicate over the client's own list
+ * can tell which. The screen therefore predicts nothing: it sends the anchor,
+ * waits, and renders the read state and the unread count the refetch brought
+ * back. What these pin down is that the displayed state is always a state the
+ * server reported — the one before the gesture until the refetch lands, the one
+ * after it once it has, and never a third one this client composed.
  */
 
 const anchorAt = "2026-05-06T12:00:00.000Z";
@@ -40,6 +40,7 @@ let serverInsertionOrder: string[];
 let arrivesDuringSweep: ServerRow | null;
 let heldLoads: Array<() => void>;
 let holdLoads: boolean;
+let failLoads: boolean;
 let heldMarkAll: Array<() => void>;
 let holdMarkAll: boolean;
 let anchorsSent: Array<HumanNotificationReadAnchor | null | undefined>;
@@ -88,13 +89,13 @@ async function onLoadNotifications(
 	if (holdLoads) {
 		await new Promise<void>((resolve) => heldLoads.push(resolve));
 	}
-	return page(limit, offset);
+	return failLoads ? null : page(limit, offset);
 }
 
 /**
  * The sweep the server actually performs: everything at or below the anchor's
  * insertion position and no later than the rendered timestamp. `hnt_a` fails the
- * first half, so it comes back unread however the client guessed.
+ * first half, so it comes back unread whatever the client was showing.
  */
 async function onMarkAllRead(
 	_scope?: HumanNotificationReadScope,
@@ -166,6 +167,10 @@ function unreadBadge(): string {
 	return container.querySelector(".notification-page-summary span")?.textContent ?? "";
 }
 
+function summaryLine(): string {
+	return container.querySelector(".notification-page-summary")?.textContent ?? "";
+}
+
 function refreshButton(): HTMLButtonElement {
 	const found = Array.from(container.querySelectorAll(".page-header button")).find(
 		(candidate) => candidate.textContent?.trim() === "Refresh",
@@ -193,6 +198,7 @@ beforeEach(async () => {
 	arrivesDuringSweep = null;
 	heldLoads = [];
 	holdLoads = false;
+	failLoads = false;
 	heldMarkAll = [];
 	holdMarkAll = false;
 	anchorsSent = [];
@@ -223,11 +229,11 @@ afterEach(() => {
 });
 
 describe("mark all read", () => {
-	it("never shows a row as read that the server left unread, before or after the refetch", async () => {
+	it("waits for the refetch and then shows the read state the server reports", async () => {
 		expect(renderedReadState()).toEqual({ hnt_b: "unread", hnt_a: "unread", hnt_older: "unread" });
 
-		// Hold the reconciling refetch open so the optimistic pass is what is on
-		// screen, on its own, and can be caught contradicting the server.
+		// Hold the refetch open, so whatever is on screen in the meantime is the
+		// screen speaking for itself and can be caught inventing an answer.
 		holdLoads = true;
 		act(() => {
 			markAllReadButton().click();
@@ -235,18 +241,21 @@ describe("mark all read", () => {
 		await flush();
 
 		expect(anchorsSent).toEqual([{ notificationId: "hnt_b", createdAt: anchorAt }]);
-		expect(serverRows.find((row) => row.id === "hnt_a")?.readAt).toBeUndefined();
-		// `hnt_a` shares the anchor's millisecond and sorts below its id, which is
-		// where the superseded tie-break marked it read. It may only lag here.
-		expect(renderedReadState()).toEqual({ hnt_b: "read", hnt_a: "unread", hnt_older: "read" });
-		// The server's `readCount`, never a zeroed badge.
-		expect(unreadBadge()).toBe("1 unread");
+		// The sweep has run; the screen has no way to know what it covered, so it
+		// keeps showing the last state the server gave it and says it is working.
+		expect(renderedReadState()).toEqual({ hnt_b: "unread", hnt_a: "unread", hnt_older: "unread" });
+		expect(unreadBadge()).toBe("3 unread");
+		expect(summaryLine()).toContain("Loading...");
 
 		releaseHeldLoads();
 		await flush();
 
+		// `hnt_a` shares the anchor's millisecond and sorts below its id, and the
+		// server left it unread. The screen shows that, because the server said it.
+		expect(serverRows.find((row) => row.id === "hnt_a")?.readAt).toBeUndefined();
 		expect(renderedReadState()).toEqual({ hnt_b: "read", hnt_a: "unread", hnt_older: "read" });
 		expect(unreadBadge()).toBe("1 unread");
+		expect(summaryLine()).not.toContain("Loading...");
 	});
 
 	it("takes the settled list and badge from the server, not from what it assumed", async () => {
@@ -273,34 +282,15 @@ describe("mark all read", () => {
 	 * The row a timestamp cannot rule out. A writer captures `now` before its
 	 * INSERT, so a notification written after the gesture can carry an older
 	 * `created_at` than the anchor and a later rowid — the server's `rowid <=`
-	 * bound leaves it unread. A refresh racing the request pulls it into the list
-	 * the optimistic pass then runs against, and the one thing that says it is not
-	 * part of the gesture is that it was not on screen when the user clicked.
+	 * bound leaves it unread. Any client-side predicate over `created_at` marks it
+	 * read; the screen has no predicate, so it reports what came back.
 	 */
-	it("leaves a row it never rendered unread, however old the row claims to be", async () => {
-		holdMarkAll = true;
+	it("shows a backdated row the sweep left unread as unread", async () => {
+		arrivesDuringSweep = { id: "hnt_backdated", createdAt: before };
+
 		act(() => {
 			markAllReadButton().click();
 		});
-		await flush();
-
-		serverRows.push({ id: "hnt_backdated", createdAt: before });
-		serverInsertionOrder.push("hnt_backdated");
-		act(() => {
-			refreshButton().click();
-		});
-		await flush();
-		expect(renderedReadState()).toEqual({
-			hnt_b: "unread",
-			hnt_a: "unread",
-			hnt_older: "unread",
-			hnt_backdated: "unread",
-		});
-
-		// Hold the reconciling refetch so the optimistic pass is what is on screen,
-		// on its own, and can be caught contradicting the server.
-		holdLoads = true;
-		releaseHeldMarkAll();
 		await flush();
 
 		expect(serverRows.find((row) => row.id === "hnt_backdated")?.readAt).toBeUndefined();
@@ -311,16 +301,34 @@ describe("mark all read", () => {
 			hnt_backdated: "unread",
 		});
 		expect(unreadBadge()).toBe("2 unread");
+	});
 
-		releaseHeldLoads();
+	it("keeps the pre-gesture state when the refetch fails, until a load succeeds", async () => {
+		holdMarkAll = true;
+		act(() => {
+			markAllReadButton().click();
+		});
 		await flush();
 
-		expect(renderedReadState()).toEqual({
-			hnt_b: "read",
-			hnt_a: "unread",
-			hnt_older: "read",
-			hnt_backdated: "unread",
+		failLoads = true;
+		releaseHeldMarkAll();
+		await flush();
+
+		// The sweep landed, but nothing came back to say what it did. The screen
+		// keeps the state the server last gave it rather than composing one: three
+		// unread rows and a badge of three, stale but never invented.
+		expect(serverRows.filter((row) => row.readAt).map((row) => row.id)).toEqual(["hnt_older", "hnt_b"]);
+		expect(renderedReadState()).toEqual({ hnt_b: "unread", hnt_a: "unread", hnt_older: "unread" });
+		expect(unreadBadge()).toBe("3 unread");
+		expect(summaryLine()).toContain("Could not refresh notifications.");
+
+		failLoads = false;
+		act(() => {
+			refreshButton().click();
 		});
-		expect(unreadBadge()).toBe("2 unread");
+		await flush();
+
+		expect(renderedReadState()).toEqual({ hnt_b: "read", hnt_a: "unread", hnt_older: "read" });
+		expect(unreadBadge()).toBe("1 unread");
 	});
 });

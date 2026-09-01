@@ -20,8 +20,7 @@ import { EmptyState, FilterBox, Icon, textValue, type TextLike } from "../../ui"
 import { TimeAgoLabel, compareHandles, matchesFilter } from "../../components/record-display";
 import {
 	appendUniqueHumanNotifications,
-	humanNotificationMarkAllGestureFor,
-	humanNotificationSummaryWithReadScope,
+	humanNotificationReadAnchorFor,
 	humanNotificationSummaryWithoutNotification,
 	reloadHumanNotificationPages,
 } from "./state";
@@ -141,26 +140,35 @@ export function NotificationsScreen({
 	// Every mark-all this screen makes is bounded by the newest notification it
 	// has loaded, so a group sweep and a whole-list sweep in one sitting share the
 	// same ceiling and neither reaches a notification that arrived after it.
+	//
+	// Nothing here is marked read locally. What the sweep covered depends on the
+	// anchor row's rowid, which no response carries, so no predicate this screen
+	// could write over its own list is sound — it would show rows read that the
+	// server deliberately left unread. The screen goes into its loading state
+	// instead and shows the refetched list when it lands.
 	async function markReadUpToLoaded(readScope: HumanNotificationReadScope): Promise<void> {
-		// Captured before the request goes out: the anchor the server bounds by, and
-		// the ids that were on screen at that moment, which is the only set this
-		// screen can afterwards claim anything about.
-		const gesture = humanNotificationMarkAllGestureFor(summary.notifications);
+		// Captured before the request goes out: the newest row this screen had, which
+		// is the ceiling the server sweeps up to.
+		const anchor = humanNotificationReadAnchorFor(summary.notifications);
 		const loadedCount = summary.notifications.length;
-		const readCount = await onMarkAllRead(readScope, gesture.anchor);
+		setLoading(true);
+		const readCount = await onMarkAllRead(readScope, anchor);
 		if (readCount === null) {
+			setLoading(false);
 			return;
 		}
-		const readAt = new Date().toISOString();
-		setSummary((current) => humanNotificationSummaryWithReadScope(current, readScope, gesture, readAt));
 		await reloadLoadedNotifications(loadedCount);
 	}
 
-	// The optimistic pass only marks rows the screen had rendered and can prove the
-	// server marked, so this refetch is the thing that decides what is read and
-	// what the badge says. Reloading page by page up to what was already loaded
-	// keeps the list where the user left it instead of collapsing it back to the
-	// first page; the walk itself is bounded so it ends on every page shape.
+	// The refetch is the whole of what a mark-all does to this screen: the read
+	// state of every row and the unread badge come from it and from nothing else.
+	// Reloading page by page up to what was already loaded keeps the list where
+	// the user left it instead of collapsing it back to the first page; the walk
+	// itself is bounded so it ends on every page shape.
+	//
+	// A walk that failed part-way is not an answer, so it is not shown as one: the
+	// pre-gesture list and its badge stay up, stale but the server's, until a load
+	// that finishes replaces them.
 	async function reloadLoadedNotifications(loadedCount: number): Promise<void> {
 		const version = loadVersion.current + 1;
 		loadVersion.current = version;
@@ -172,10 +180,14 @@ export function NotificationsScreen({
 		if (result.cancelled) {
 			return;
 		}
-		if (result.summary) {
-			setSummary(result.summary);
+		if (result.failed) {
+			setMessage("Could not refresh notifications.");
+		} else {
+			if (result.summary) {
+				setSummary(result.summary);
+			}
+			setMessage("");
 		}
-		setMessage(result.failed ? "Could not refresh notifications." : "");
 		setLoading(false);
 	}
 
