@@ -2456,15 +2456,19 @@ describe("Forum coordinator", () => {
 				created_at, read_at, archived_at
 			) VALUES
 				('hnt_world_a', ?, 'world_one', 'event:world:a', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'A', 'A', '/', NULL, NULL, ?, NULL, NULL),
-				('hnt_world_b', ?, 'world_one', 'event:world:b', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'B', 'B', '/', NULL, NULL, ?, NULL, NULL),
 				('hnt_bot_a', ?, 'world_two', 'event:bot:a', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'C', 'C', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_world_b', ?, 'world_one', 'event:world:b', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'B', 'B', '/', NULL, NULL, ?, NULL, NULL),
 				('hnt_read', ?, 'world_two', 'event:read', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'D', 'D', '/', NULL, NULL, ?, ?, NULL)`,
 		)
 			.bind(user.id, now, user.id, now, user.id, now, user.id, now, now)
 			.run();
 
-		// Every fixture row shares this second, so the last of them by id is the
-		// anchor that covers the whole set.
+		// Every fixture row shares this second, so what makes `hnt_world_b` the
+		// anchor covering the whole set is that it is both the last of the unread
+		// rows written and the highest of them by id: the client picks the anchor
+		// as the newest row the list rendered, and the sweep will not reach past
+		// what was written by then. Writing it before `hnt_bot_a` instead would
+		// make `hnt_bot_a` a notification that arrived after the gesture.
 		const anchor = { notificationId: "hnt_world_b", createdAt: now };
 		const worldResponse = await markAllNotificationsReadRoute(
 			contextFor<typeof markAllNotificationsReadRoute>(

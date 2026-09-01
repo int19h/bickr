@@ -1172,22 +1172,61 @@ describe("markAllHumanNotificationsRead", () => {
 		expect(db.unreadIds()).toEqual(expect.arrayContaining(["hnt_new_world_one", "hnt_new_world_two"]));
 	});
 
-	it("bounds the anchor's own timestamp by notification id, the order the list is read in", async () => {
-		const db = new FakeHumanNotificationD1([
-			{ id: "hnt_a", createdAt: anchorAt },
-			{ id: "hnt_b", createdAt: anchorAt },
-			{ id: "hnt_c", createdAt: anchorAt },
-		]);
+	it.each([
+		// `notification_id` is a random UUID, so a row written after the anchor in
+		// the anchor's own millisecond is as likely to sort below its id as above
+		// it. Both directions are the same row — one that did not exist when the
+		// user clicked — and neither may be marked read.
+		["above the anchor's id", "hnt_c"],
+		["below the anchor's id", "hnt_a"],
+	])("leaves a row written after the anchor in the anchor's millisecond unread, %s", async (_name, lateId) => {
+		const db = new FakeHumanNotificationD1([{ id: "hnt_b", createdAt: anchorAt }]);
+		db.rows.push({
+			id: lateId,
+			userId: "usr_one",
+			worldId: "wld_one",
+			actorBotId: "bot_a",
+			createdAt: anchorAt,
+			readAt: null,
+			archivedAt: null,
+		});
 
-		// A row sharing the anchor's second is above it when its id is, which is
-		// where the list would have put it: below the fold, unrendered.
 		await markAllHumanNotificationsRead(db, "usr_one", { scopeType: "all" }, readAt, {
 			notificationId: "hnt_b",
 			createdAt: anchorAt,
 		});
 
-		expect(db.readIds()).toEqual(["hnt_a", "hnt_b"]);
-		expect(db.unreadIds()).toEqual(["hnt_c"]);
+		expect(db.readIds()).toEqual(["hnt_b"]);
+		expect(db.unreadIds()).toEqual([lateId]);
+	});
+
+	it("leaves a row the coalescing path stamped past the rendered anchor unread", async () => {
+		// `recordWorldSettingsChangedHumanNotifications` coalesces onto an
+		// existing row and bumps its `created_at`. The row predates the anchor, so
+		// nothing about its insertion order says it is unseen — only its
+		// timestamp, now newer than the one the user was looking at, does.
+		const db = new FakeHumanNotificationD1([
+			{ id: "hnt_coalesced", createdAt: before },
+			{ id: "hnt_anchor_world_one", createdAt: anchorAt },
+		]);
+		db.bumpCreatedAt("hnt_coalesced", after);
+
+		await markAllHumanNotificationsRead(db, "usr_one", { scopeType: "all" }, readAt, anchor);
+
+		expect(db.readIds()).toEqual(["hnt_anchor_world_one"]);
+		expect(db.unreadIds()).toEqual(["hnt_coalesced"]);
+	});
+
+	it("does not widen when the coalescing path bumps the anchor row itself", async () => {
+		// The anchor row is not exempt: bumped forward, it is carrying activity
+		// the user has not seen either, and the sweep is still bounded by the
+		// timestamp the client rendered rather than by whatever is stored now.
+		const db = sweepFixture();
+		db.bumpCreatedAt("hnt_anchor_world_one", after);
+
+		await markAllHumanNotificationsRead(db, "usr_one", { scopeType: "all" }, readAt, anchor);
+
+		expect(db.unreadIds()).toEqual(["hnt_anchor_world_one", "hnt_new_world_one", "hnt_new_world_two"]);
 	});
 
 	it.each([
@@ -1284,11 +1323,12 @@ describe("markAllHumanNotificationsRead", () => {
 		expect(db.readIds()).toEqual([]);
 	});
 
-	it("bounds the sweep by the stored timestamp, not the one the client claimed", async () => {
+	it("gains nothing from a client claiming its anchor is newer than the row is", async () => {
 		const db = sweepFixture();
 
-		// A client claiming its anchor is newer than the row really is cannot reach
-		// past the row: the cutoff is read back from storage.
+		// The claimed timestamp only ever narrows: what stops the sweep at the
+		// anchor row is the anchor row's own insertion order, which no field of
+		// the request can move.
 		await markAllHumanNotificationsRead(db, "usr_one", { scopeType: "all" }, readAt, {
 			notificationId: "hnt_anchor_world_one",
 			createdAt: "2099-01-01T00:00:00.000Z",
@@ -1482,11 +1522,31 @@ class FakeHumanNotificationD1 implements D1DatabaseLike {
 		return this.rows.filter((row) => row.readAt === null).map((row) => row.id).sort();
 	}
 
+	/**
+	 * The coalescing path's `SET … created_at = ?`: the row keeps the rowid it
+	 * was inserted with and takes a newer timestamp.
+	 */
+	bumpCreatedAt(id: string, createdAt: string): void {
+		const row = this.row(id);
+		if (!row) {
+			throw new Error(`No such notification: ${id}`);
+		}
+		row.createdAt = createdAt;
+	}
+
+	/**
+	 * `rowid` is the position of the row in insertion order, which is what SQLite
+	 * assigns it: these fixtures only ever append, and nothing here deletes.
+	 */
+	rowid(row: HumanNotificationFixtureRow): number {
+		return this.rows.indexOf(row) + 1;
+	}
+
 	/** The anchor lookup: scoped to the user, so another user's row is not found. */
-	anchorRow(bindings: unknown[]): { createdAt: string } | null {
+	anchorRow(bindings: unknown[]): { anchorRowid: number } | null {
 		const [userId, notificationId] = bindings;
 		const row = this.rows.find((candidate) => candidate.userId === userId && candidate.id === notificationId);
-		return row ? { createdAt: row.createdAt } : null;
+		return row ? { anchorRowid: this.rowid(row) } : null;
 	}
 
 	markRead(query: string, bindings: unknown[]): number {
@@ -1501,18 +1561,19 @@ class FakeHumanNotificationD1 implements D1DatabaseLike {
 			const ids = new Set(rest.map(String));
 			changed = this.rows.filter((row) => matches(row) && ids.has(row.id));
 		} else {
-			if (!query.includes("(created_at < ? OR (created_at = ? AND notification_id <= ?))")) {
+			if (!query.includes("rowid <= ? AND created_at <= ?")) {
 				throw new Error(`Scoped mark-all update is unbounded: ${query}`);
 			}
-			const [anchorCreatedAt, tieCreatedAt, anchorId, ...scopeBindings] = rest;
+			const [anchorRowid, renderedCreatedAt, ...scopeBindings] = rest;
 			const scoped = query.includes("AND world_id = ?") ?
 				(row: HumanNotificationFixtureRow) => row.worldId === scopeBindings[0]
 			: query.includes("AND actor_bot_id = ?") ?
 				(row: HumanNotificationFixtureRow) => row.actorBotId === scopeBindings[0]
 			:	() => true;
+			// Both halves, the way the statement asks for them: nothing inserted
+			// after the anchor, and nothing stamped later than what was rendered.
 			const atOrBelowAnchor = (row: HumanNotificationFixtureRow): boolean =>
-				row.createdAt < String(anchorCreatedAt) ||
-				(row.createdAt === String(tieCreatedAt) && row.id <= String(anchorId));
+				this.rowid(row) <= Number(anchorRowid) && row.createdAt <= String(renderedCreatedAt);
 			changed = this.rows.filter((row) => matches(row) && atOrBelowAnchor(row) && scoped(row));
 		}
 		for (const row of changed) {
@@ -1538,7 +1599,7 @@ class FakeHumanNotificationStatement implements D1PreparedStatementLike {
 	}
 
 	async first<T = unknown>(): Promise<T | null> {
-		if (!this.query.includes("SELECT created_at AS createdAt")) {
+		if (!this.query.includes("SELECT rowid AS anchorRowid")) {
 			throw new Error(`Unexpected query: ${this.query}`);
 		}
 		return this.db.anchorRow(this.bindings) as T | null;
