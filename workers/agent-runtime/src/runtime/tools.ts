@@ -78,6 +78,7 @@ import {
 	providerToolArgs,
 	queryFollowersToolArgs,
 	randomRangesArg,
+	randomRangesArgIsCanonical,
 	resolveToolArgs,
 	stringArg,
 	usernameArg,
@@ -362,11 +363,12 @@ export class RuntimeTools {
 				const numbers = randomIntegersForRanges(ranges);
 				result = numbers;
 				envelope = { kind: 'random_integers_drawn', ranges, numbers };
-				if (!Array.isArray(args.ranges)) {
-					// The provider sent the declared singular form. Republish the
-					// canonical array so the replayed assistant tool call shows the shape
-					// the schema asks for rather than teaching the participant the other
-					// one from its own history.
+				if (!randomRangesArgIsCanonical(args.ranges, ranges)) {
+					// Normalization changed the argument: the declared singular form was
+					// wrapped, or a range carried extra properties that were dropped.
+					// Republish the canonical array so the replayed assistant tool call
+					// shows the shape the schema asks for rather than teaching the
+					// participant the other one from its own history.
 					effectiveArgs = { ...normalizedArgs };
 				}
 				break;

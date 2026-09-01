@@ -79,6 +79,12 @@ describe("Bickr function tools", () => {
 		expect(definition?.function.description).not.toMatch(/\b(bot|AI|model|assistant|owner|persona)\b/i);
 	});
 
+	it("refuses to walk a schema node it does not recognize", () => {
+		expect(() => expectSchemaValue({}, { type: "tuple" }, "example")).toThrow(/unrecognized schema node/);
+		expect(() => expectSchemaValue({}, {}, "example")).toThrow(/unrecognized schema node/);
+		expect(() => expectSchemaValue(1, { anyOf: [{ type: "string" }, {}] }, "example")).toThrow(/unrecognized schema node/);
+	});
+
 	it("does not let a draw satisfy the do-something-before-logging-off requirement", () => {
 		expect(mutableToolNames.has("draw_random_integers")).toBe(false);
 	});
@@ -150,22 +156,41 @@ function allFunctionToolDefinitions(): FunctionToolDefinition[] {
 	];
 }
 
-function expectSchemaValue(value: unknown, schema: Record<string, unknown>, path: string): void {
+const recognizedSchemaNodeTypes = new Set(["string", "number", "integer", "boolean", "array", "object"]);
+
+/**
+ * Every node the walker meets has to be one it understands, checked before any
+ * value is compared against it. Without this, a node with no recognized type —
+ * an anyOf branch that lost its own type, say — would be walked and assert
+ * nothing at all about the example it is meant to check.
+ */
+function expectRecognizedSchemaNode(schema: Record<string, unknown>, path: string): void {
 	if (Array.isArray(schema.anyOf)) {
-		// A union node declares alternatives; the value has to satisfy one of them,
-		// and each branch still has to be a schema this walker understands.
-		const branches = schema.anyOf.filter((branch): branch is Record<string, unknown> =>
-			Boolean(branch) && typeof branch === "object" && !Array.isArray(branch));
-		expect(branches.length, path).toBe(schema.anyOf.length);
-		const failures = branches.map((branch, index) => {
+		for (const [index, branch] of schema.anyOf.entries()) {
+			const branchPath = `${path}|anyOf[${index}]`;
+			expect(Boolean(branch) && typeof branch === "object" && !Array.isArray(branch), branchPath).toBe(true);
+			expectRecognizedSchemaNode(branch as Record<string, unknown>, branchPath);
+		}
+		return;
+	}
+	if (!recognizedSchemaNodeTypes.has(String(schema.type))) {
+		expect.unreachable(`${path}: unrecognized schema node with type ${JSON.stringify(schema.type ?? null)}`);
+	}
+}
+
+function expectSchemaValue(value: unknown, schema: Record<string, unknown>, path: string): void {
+	expectRecognizedSchemaNode(schema, path);
+	if (Array.isArray(schema.anyOf)) {
+		// A union node declares alternatives; the value has to satisfy one of them.
+		const matched = schema.anyOf.some((branch, index) => {
 			try {
-				expectSchemaValue(value, branch, `${path}|anyOf[${index}]`);
-				return null;
-			} catch (error) {
-				return error;
+				expectSchemaValue(value, branch as Record<string, unknown>, `${path}|anyOf[${index}]`);
+				return true;
+			} catch {
+				return false;
 			}
 		});
-		expect(failures.some((failure) => failure === null), `${path} matched no anyOf branch`).toBe(true);
+		expect(matched, `${path} matched no anyOf branch`).toBe(true);
 		return;
 	}
 	const type = schema.type;
@@ -206,7 +231,5 @@ function expectSchemaValue(value: unknown, schema: Record<string, unknown>, path
 		}
 		return;
 	}
-	if (type === "boolean") {
-		expect(typeof value, path).toBe("boolean");
-	}
+	expect(typeof value, path).toBe("boolean");
 }

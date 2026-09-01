@@ -261,6 +261,33 @@ describe("draw_random_integers execution", () => {
 		}]);
 	});
 
+	it("rewrites the recorded call when a range carried properties normalization drops", async () => {
+		const recorder = toolExecutionRecorder();
+
+		const result = await executeRandomDraw(recorder, { ranges: [{ min: 1, max: 6, label: "d6" }] });
+
+		expect(result.effectiveArgs).toEqual({ ranges: [{ min: 1, max: 6 }] });
+		expect(recorder.replacements).toEqual([{
+			name: "draw_random_integers",
+			args: { ranges: [{ min: 1, max: 6 }] },
+		}]);
+		expect(recorder.events[0]?.payload).toEqual({
+			name: "draw_random_integers",
+			args: { ranges: [{ min: 1, max: 6 }] },
+		});
+	});
+
+	it("leaves the recorded call alone when the argument already arrived canonical", async () => {
+		const recorder = toolExecutionRecorder();
+
+		const result = await executeRandomDraw(recorder, { ranges: [{ max: 6, min: 1 }] });
+
+		// Property order is not part of the canonical form; only the set of keys
+		// and their values is, so this must not churn the replayed call.
+		expect(result.effectiveArgs).toBeUndefined();
+		expect(recorder.replacements).toEqual([]);
+	});
+
 	it("fails with a typed argument error rather than executing a bad range", async () => {
 		const recorder = toolExecutionRecorder();
 

@@ -622,6 +622,27 @@ export function randomRangesArg(value: unknown): RandomRangeTarget[] {
 	return ranges;
 }
 
+/**
+ * Whether the argument as it arrived already is the canonical form, so a caller
+ * can tell when replayed history has to be rewritten. Normalization changes the
+ * argument in more ways than the singular-to-array wrap: a range that carried
+ * extra properties is rebuilt as exactly min and max, and only a structural
+ * comparison against the canonical ranges catches that.
+ */
+export function randomRangesArgIsCanonical(value: unknown, ranges: readonly RandomRangeTarget[]): boolean {
+	if (!Array.isArray(value) || value.length !== ranges.length) {
+		return false;
+	}
+	return value.every((item, index) => {
+		const range = ranges[index];
+		if (!range || !item || typeof item !== 'object' || Array.isArray(item)) {
+			return false;
+		}
+		const record = item as ToolArgs;
+		return Object.keys(record).length === 2 && record.min === range.min && record.max === range.max;
+	});
+}
+
 function randomRangeArg(value: unknown, label: string): RandomRangeTarget {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) {
 		throw new ToolCallArgumentValidationError(

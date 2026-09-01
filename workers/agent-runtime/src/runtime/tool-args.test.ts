@@ -5,6 +5,7 @@ import {
 	localizedToolTextArg,
 	normalizeToolArgs,
 	parseToolArgs,
+	randomRangesArgIsCanonical,
 	resolveToolArgs,
 	toolArgCodecFor,
 	type ReferenceToolName,
@@ -111,6 +112,18 @@ describe('random range arguments', () => {
 		expect(normalizeToolArgs('draw_random_integers', { ranges: [{ min: 1, max: 6, label: 'd6' }] })).toEqual({
 			ranges: [{ min: 1, max: 6 }],
 		});
+	});
+
+	const canonicalCases: Array<{ label: string; ranges: unknown; canonical: boolean }> = [
+		{ label: "an already canonical array", ranges: [{ min: 1, max: 6 }], canonical: true },
+		{ label: "a canonical array in another property order", ranges: [{ max: 6, min: 1 }], canonical: true },
+		{ label: "a single range object", ranges: { min: 1, max: 6 }, canonical: false },
+		{ label: "a range carrying an extra property", ranges: [{ min: 1, max: 6, label: "d6" }], canonical: false },
+		{ label: "a range missing from the argument", ranges: [], canonical: false },
+	];
+
+	it.each(canonicalCases)("reports $label as canonical=$canonical", ({ ranges, canonical }) => {
+		expect(randomRangesArgIsCanonical(ranges, [{ min: 1, max: 6 }])).toBe(canonical);
 	});
 
 	const invalid: Array<{ label: string; ranges: unknown; message: string }> = [

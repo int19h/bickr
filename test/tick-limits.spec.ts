@@ -46,6 +46,7 @@ import type {
 import type { RuntimeErrorCause } from "@bickr/shared/runtime-errors";
 import { loopMessageContributesToProviderHistory } from "../workers/agent-runtime/src/provider/sanitize";
 import { malformedToolCallSelfCorrection } from "../workers/agent-runtime/src/runtime/bot-runtime";
+import { normalizeToolArgs, randomRangesArgIsCanonical } from "../workers/agent-runtime/src/runtime/tool-args";
 
 type CapturedLoopMessage = {
 	message: BotInferenceSubmissionMessage;
@@ -737,6 +738,95 @@ describe("Tick limits and recovery", () => {
 				}),
 			}),
 		]);
+	});
+
+	it("stores the canonical tool call in provider history when a tool reports effective arguments", async () => {
+		const appendedLoopMessages: CapturedLoopMessage[] = [];
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce(providerResponseWithToolCall("call-draw", "draw_random_integers", { ranges: { min: 1, max: 6 } }))
+			.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off", "log_off", { reason: "done rolling" }));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
+				runtimeEvent(1, runId, type as BotRuntimeEvent["type"], payload),
+			appendLoopMessage: (
+				_runId: string,
+				message: BotInferenceSubmissionMessage,
+				origin: BotLoopMessage["origin"],
+				status: NonNullable<BotLoopMessage["status"]> = "complete",
+			) => {
+				appendedLoopMessages.push({ message, origin, status });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-effective-args",
+					role: message.role,
+					message,
+					origin,
+					status,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
+				promptTokens: 100,
+				requestMessages: providerHistoryFromCapturedLoopMessages(appendedLoopMessages),
+			}),
+			// The stub canonicalizes through the real argument normalizer, so it
+			// cannot drift from what the tool actually reports as effective.
+			executeTool: async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
+				if (name !== "draw_random_integers") {
+					return { name, result: { ok: true }, providerResult: { ok: true } };
+				}
+				const normalized = normalizeToolArgs(name, args);
+				const ranges = normalized.ranges as Array<{ min: number; max: number }>;
+				return {
+					name,
+					result: [4],
+					providerResult: [4],
+					envelope: { kind: "random_integers_drawn", ranges, numbers: [4] },
+					...(randomRangesArgIsCanonical(args.ranges, ranges) ? {} : { effectiveArgs: normalized }),
+				};
+			},
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument({ allowEarlyLogOff: true }),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-effective-args",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: true });
+
+		const recordedDraw = appendedLoopMessages
+			.flatMap(({ message }) => message.tool_calls ?? [])
+			.find((toolCall) => toolCall.function.name === "draw_random_integers");
+		expect(recordedDraw?.function.arguments).toBe('{"ranges":[{"min":1,"max":6}]}');
+		// The shape the provider actually sent must not survive into the history
+		// it will be shown on its next round.
+		expect(JSON.stringify(appendedLoopMessages)).not.toContain('ranges\\":{');
 	});
 
 	it.each([

@@ -5,10 +5,17 @@ import { randomIntegersForRanges, type RandomRangeTarget, type RandomWordSource 
 const wordSpace = 1n << 64n;
 const maxSafe = Number.MAX_SAFE_INTEGER;
 
-/** Feeds exactly the given 64-bit draws, in order, and fails if more are asked for. */
-function scriptedSource(draws: readonly bigint[]): RandomWordSource {
+/**
+ * Feeds exactly the given 64-bit draws, in order, and fails if more are asked
+ * for. `consumed()` is what makes an under-consuming generator visible: a test
+ * that only checks the returned value cannot tell a redraw from a first draw
+ * that happened to land on the same residue.
+ */
+type ScriptedSource = RandomWordSource & { consumed(): number };
+
+function scriptedSource(draws: readonly bigint[]): ScriptedSource {
 	let index = 0;
-	return (count) => {
+	const source = ((count: number) => {
 		const words = new BigUint64Array(count);
 		for (let offset = 0; offset < count; offset += 1) {
 			const draw = draws[index];
@@ -19,7 +26,9 @@ function scriptedSource(draws: readonly bigint[]): RandomWordSource {
 			index += 1;
 		}
 		return words;
-	};
+	}) as ScriptedSource;
+	source.consumed = () => index;
+	return source;
 }
 
 function acceptanceLimit(span: bigint): bigint {
@@ -48,16 +57,20 @@ describe('random integer generator', () => {
 	});
 
 	it('returns one number per range, in range order, consuming one accepted draw each', () => {
-		const numbers = randomIntegersForRanges(
-			[{ min: 1, max: 6 }, { min: 10, max: 19 }, { min: -3, max: -1 }],
-			scriptedSource([0n, 4n, 2n]),
-		);
+		const source = scriptedSource([0n, 4n, 2n]);
+
+		const numbers = randomIntegersForRanges([{ min: 1, max: 6 }, { min: 10, max: 19 }, { min: -3, max: -1 }], source);
 
 		expect(numbers).toEqual([1, 14, -1]);
+		expect(source.consumed()).toBe(3);
 	});
 
 	it('returns the single value of a fixed range without a special case', () => {
-		expect(randomIntegersForRanges([{ min: 7, max: 7 }], scriptedSource([12345n]))).toEqual([7]);
+		const source = scriptedSource([12345n]);
+
+		expect(randomIntegersForRanges([{ min: 7, max: 7 }], source)).toEqual([7]);
+		// Still exactly one draw: the fixed range goes through the same path.
+		expect(source.consumed()).toBe(1);
 		expect(randomIntegersForRanges([{ min: -7, max: -7 }], scriptedSource([0n]))).toEqual([-7]);
 	});
 
@@ -68,21 +81,35 @@ describe('random integer generator', () => {
 	});
 
 	it('redraws a value that falls in the rejection region instead of folding it back', () => {
-		const span = 6n;
-		const limit = acceptanceLimit(span);
-		// limit is the first rejected draw: taking it modulo the span would hand
-		// back min, which is exactly the bias rejection sampling exists to remove.
-		const numbers = randomIntegersForRanges([{ min: 1, max: 6 }], scriptedSource([limit, limit + 3n, 0n]));
+		const limit = acceptanceLimit(6n);
+		// The scripted draws deliberately have different residues: limit % 6n is 0,
+		// so folding the rejected draw back with a plain modulo would answer 1,
+		// while the accepted redraw must answer 2. An implementation that dropped
+		// the rejection step therefore fails on the value, not just on the count.
+		const source = scriptedSource([limit, limit + 3n, 1n]);
 
-		expect(numbers).toEqual([1]);
+		expect(randomIntegersForRanges([{ min: 1, max: 6 }], source)).toEqual([2]);
+		expect(source.consumed()).toBe(3);
+	});
+
+	it('accepts the last draw below the limit and rejects the limit itself', () => {
+		const limit = acceptanceLimit(6n);
+		const accepted = scriptedSource([limit - 1n]);
+		const rejected = scriptedSource([limit, 1n]);
+
+		// limit - 1 is the largest accepted draw; rejecting it would exhaust the
+		// script instead of answering.
+		expect(randomIntegersForRanges([{ min: 1, max: 6 }], accepted)).toEqual([6]);
+		expect(accepted.consumed()).toBe(1);
+		// limit itself must be rejected: a `draw <= limit` comparison would accept
+		// it and answer 1 instead of the redraw's 2.
+		expect(randomIntegersForRanges([{ min: 1, max: 6 }], rejected)).toEqual([2]);
+		expect(rejected.consumed()).toBe(2);
 	});
 
 	it('maps the extremes of the accepted interval to the ends of the span', () => {
-		const span = 6n;
-		const limit = acceptanceLimit(span);
-
 		expect(randomIntegersForRanges([{ min: 1, max: 6 }], scriptedSource([0n]))).toEqual([1]);
-		expect(randomIntegersForRanges([{ min: 1, max: 6 }], scriptedSource([limit - 1n]))).toEqual([6]);
+		expect(randomIntegersForRanges([{ min: 1, max: 6 }], scriptedSource([acceptanceLimit(6n) - 1n]))).toEqual([6]);
 	});
 
 	it('stays exact for a 2^53 span', () => {
