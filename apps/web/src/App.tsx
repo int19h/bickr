@@ -1128,6 +1128,10 @@ function App() {
 		setHumanNotifications((current) =>
 			humanNotificationSummaryWithReadScope(current, scope, anchor, new Date().toISOString(), result.data.readCount),
 		);
+		// That pass only marks what it can prove the server marked, so it is a
+		// stand-in for this: the drawer and the unread badge come from the server's
+		// own state, never from what the client assumed the sweep did.
+		await loadHumanNotifications();
 		return result.data.readCount;
 	}
 

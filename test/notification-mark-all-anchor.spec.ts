@@ -6,7 +6,8 @@ import {
 	recordWorldSettingsChangedHumanNotifications,
 } from "@bickr/shared/social";
 import type { HumanNotificationReadAnchor, WorldDocument } from "@bickr/shared/model";
-import type { D1DatabaseLike } from "@bickr/shared/storage";
+import type { D1DatabaseLike, D1PreparedStatementLike } from "@bickr/shared/storage";
+import { InputError } from "../packages/shared/src/validation";
 import { resetD1Schema } from "./helpers/d1-schema";
 
 /**
@@ -41,7 +42,12 @@ function db(): D1DatabaseLike {
 	return testEnv.BICKR_D1 as unknown as D1DatabaseLike;
 }
 
-async function insertNotification(id: string, createdAt: string, type = "mention"): Promise<void> {
+async function insertNotification(
+	id: string,
+	createdAt: string,
+	type = "mention",
+	owner = userId,
+): Promise<void> {
 	await testEnv.BICKR_D1
 		.prepare(
 			`INSERT INTO human_notifications (
@@ -49,7 +55,7 @@ async function insertNotification(id: string, createdAt: string, type = "mention
 				actor_bot_id, title, body, url_path, created_at
 			) VALUES (?, ?, ?, ?, ?, ?, 'Title', 'Body', '/', ?)`,
 		)
-		.bind(id, userId, worldId, `evt_${id}`, type, botId, createdAt)
+		.bind(id, owner, worldId, `evt_${id}`, type, botId, createdAt)
 		.run();
 }
 
@@ -138,6 +144,47 @@ async function anchorFromRenderedList(): Promise<HumanNotificationReadAnchor> {
 	return { notificationId: newest.id, createdAt: newest.createdAt };
 }
 
+async function deleteNotification(id: string): Promise<void> {
+	await testEnv.BICKR_D1.prepare(`DELETE FROM human_notifications WHERE notification_id = ?`).bind(id).run();
+}
+
+async function rowidOf(id: string): Promise<number | undefined> {
+	const row = await testEnv.BICKR_D1
+		.prepare(`SELECT rowid AS value FROM human_notifications WHERE notification_id = ?`)
+		.bind(id)
+		.first<{ value: number }>();
+	return row?.value;
+}
+
+/**
+ * The real database, with `between` run exactly once, after the anchor
+ * validation `SELECT` has resolved and before the sweep's `UPDATE` reaches
+ * SQLite. That is the whole window a two-round-trip bound would leave open, made
+ * deterministic: the validation sees the anchor, and the sweep does not.
+ */
+function dbWithWriteBetweenStatements(between: () => Promise<void>): D1DatabaseLike {
+	const real = db();
+	let pending: (() => Promise<void>) | null = between;
+	function wrap(statement: D1PreparedStatementLike): D1PreparedStatementLike {
+		return {
+			bind: (...values: unknown[]) => wrap(statement.bind(...values)),
+			all: <T>() => statement.all<T>(),
+			run: () => statement.run(),
+			async first<T>(): Promise<T | null> {
+				const row = await statement.first<T>();
+				const hook = pending;
+				pending = null;
+				await hook?.();
+				return row;
+			},
+		};
+	}
+	return {
+		batch: (statements) => real.batch(statements),
+		prepare: (query: string) => wrap(real.prepare(query)),
+	};
+}
+
 describe("mark-all never reaches a notification that arrived after the gesture", () => {
 	beforeEach(async () => {
 		await resetD1Schema(testEnv.BICKR_D1);
@@ -196,5 +243,81 @@ describe("mark-all never reaches a notification that arrived after the gesture",
 		expect(settingsId).toBeDefined();
 		expect(settingsId).not.toBe(highId);
 		expect(await createdAtOf(settingsId)).toBe(afterAt);
+	});
+
+	/**
+	 * Validating the anchor and bounding by it are one statement, so there is no
+	 * instant where the anchor has been resolved to a number that a later write
+	 * can satisfy. Both cases below drive that instant anyway, and both have to
+	 * mark nothing: an anchor this sweep can no longer see is not a licence to
+	 * sweep, it is a reason to stop.
+	 */
+	it("marks nothing, and does not throw, when the anchor row is deleted between validating it and sweeping", async () => {
+		await insertNotification(lowId, "2026-05-06T11:59:00.000Z");
+		await insertNotification(highId, tieAt);
+		const anchor = await anchorFromRenderedList();
+		expect(anchor.notificationId).toBe(highId);
+
+		// The retraction path and the orphan sweep both delete notification rows,
+		// and either can take the newest one — including while this request is in
+		// flight.
+		const marked = await markAllHumanNotificationsRead(
+			dbWithWriteBetweenStatements(() => deleteNotification(highId)),
+			userId,
+			{ scopeType: "all" },
+			readAt,
+			anchor,
+		);
+
+		expect(marked).toBe(0);
+		expect(await unreadIds()).toEqual([lowId]);
+	});
+
+	it("marks nothing when the anchor's rowid is reissued to a notification written after the gesture", async () => {
+		await insertNotification(lowId, "2026-05-06T11:59:00.000Z");
+		await insertNotification(highId, tieAt);
+		const anchor = await anchorFromRenderedList();
+		const anchorRowid = await rowidOf(highId);
+		expect(anchorRowid).toBeDefined();
+		const reusedRowidId = "hnt_11111111-1111-4111-8111-111111111111";
+
+		const marked = await markAllHumanNotificationsRead(
+			dbWithWriteBetweenStatements(async () => {
+				// With the anchor — the largest rowid in use — gone, SQLite hands the
+				// next plain INSERT that very rowid. This row is written after the
+				// gesture and in the anchor's millisecond, so a `rowid <= <the number
+				// we looked up>` bound would take it.
+				await deleteNotification(highId);
+				await insertNotification(reusedRowidId, tieAt);
+				expect(await rowidOf(reusedRowidId)).toBe(anchorRowid);
+			}),
+			userId,
+			{ scopeType: "all" },
+			readAt,
+			anchor,
+		);
+
+		expect(marked).toBe(0);
+		expect(await unreadIds()).toEqual([lowId, reusedRowidId].sort());
+	});
+
+	/**
+	 * The `SELECT` no longer bounds anything — the subquery inside the `UPDATE`
+	 * does — so its one remaining job is to turn an anchor naming a row that is
+	 * not this user's into a rejection rather than a silent no-op. That is what
+	 * keeps it from looking like dead code, and this is what says so.
+	 */
+	it("rejects an anchor naming another user's notification instead of quietly sweeping nothing", async () => {
+		await insertNotification(lowId, "2026-05-06T11:59:00.000Z");
+		await insertNotification(highId, tieAt, "mention", "usr_someone_else");
+
+		await expect(
+			markAllHumanNotificationsRead(db(), userId, { scopeType: "all" }, readAt, {
+				notificationId: highId,
+				createdAt: tieAt,
+			}),
+		).rejects.toBeInstanceOf(InputError);
+
+		expect(await unreadIds()).toEqual([lowId]);
 	});
 });

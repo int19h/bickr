@@ -1956,14 +1956,18 @@ export function parseHumanNotificationReadAnchor(value: unknown): HumanNotificat
  * the sweep stops there. A row is marked read only if it satisfies *both*
  * halves of the bound, and the two halves answer different questions:
  *
- * - `rowid <= <the anchor row's rowid>` — nothing that was inserted after the
- *   anchor. This is the invariant: a notification that arrives after the
- *   gesture must never be marked read. `(created_at, notification_id)` cannot
- *   carry it, whatever the tie-break: `notification_id` is a random UUID, so of
- *   the rows written in the anchor's millisecond *after* the gesture, about half
- *   sort below the anchor's id, and production writes up to five in one
- *   millisecond. `rowid` is assigned at INSERT and is monotonic with it — see
- *   `humanNotificationAnchorRowid` for why nothing in this codebase moves it.
+ * - `rowid <= (SELECT rowid FROM human_notifications WHERE user_id = ? AND
+ *   notification_id = ?)` — nothing that was inserted after the anchor. This is
+ *   the invariant: a notification that arrives after the gesture must never be
+ *   marked read. `(created_at, notification_id)` cannot carry it, whatever the
+ *   tie-break: `notification_id` is a random UUID, so of the rows written in the
+ *   anchor's millisecond *after* the gesture, about half sort below the anchor's
+ *   id, and production writes up to five in one millisecond. `rowid` is assigned
+ *   at INSERT and is monotonic with it. The subquery is inline rather than a
+ *   number this function looked up first because the lookup and the sweep have
+ *   to be one statement — see `assertHumanNotificationAnchorExists` for the
+ *   deletion-and-reuse window that a second round trip would leave open, and for
+ *   why nothing in this codebase moves a rowid.
  * - `created_at <= <the createdAt the client rendered>` — nothing whose
  *   timestamp is newer than the one the user was looking at. A row that existed
  *   before the gesture can still be carrying activity the user has not seen:
@@ -1991,10 +1995,13 @@ export function parseHumanNotificationReadAnchor(value: unknown): HumanNotificat
  *
  * The sweep still plans as it did before, on
  * `human_notifications_user_unread_keyset`: `EXPLAIN QUERY PLAN` reports
- * `SEARCH … (user_id=? AND archived_at=? AND read_at=? AND created_at<?)`,
- * scoped or not. The `rowid` bound needs no index of its own — every SQLite
- * index entry carries the rowid, so it is a test on rows the `created_at` range
- * already narrowed to.
+ * `SEARCH human_notifications USING INDEX human_notifications_user_unread_keyset
+ * (user_id=? AND archived_at=? AND read_at=? AND created_at<?)`, scoped or not.
+ * The `rowid` bound needs no index of its own — every SQLite index entry carries
+ * the rowid, so it is a test on rows the `created_at` range already narrowed to
+ * — and the anchor subquery is uncorrelated, so it is one `SEARCH … USING INDEX
+ * sqlite_autoindex_human_notifications_1 (notification_id=?)` evaluated once as
+ * a scalar, not per row.
  */
 export async function markAllHumanNotificationsRead(
 	db: D1DatabaseLike,
@@ -2009,65 +2016,84 @@ export async function markAllHumanNotificationsRead(
 	if (!anchor) {
 		return 0;
 	}
-	const anchorRowid = await humanNotificationAnchorRowid(db, userId, anchor);
+	// Advisory, and only that: it is what turns an anchor naming a row that is not
+	// this user's into an InputError instead of a silent no-op. The bound the
+	// sweep applies is the subquery below, which resolves the same row inside the
+	// UPDATE — see `assertHumanNotificationAnchorExists`.
+	await assertHumanNotificationAnchorExists(db, userId, anchor);
 	const scopedWhere = humanNotificationReadScopeWhere(scope);
 	const result = await db
 		.prepare(
 			`UPDATE human_notifications
 			 SET read_at = ?
 			 WHERE user_id = ? AND archived_at IS NULL AND read_at IS NULL
-			   AND rowid <= ? AND created_at <= ?${scopedWhere.sql}`,
+			   AND rowid <= (
+				 SELECT rowid FROM human_notifications WHERE user_id = ? AND notification_id = ?
+			   )
+			   AND created_at <= ?${scopedWhere.sql}`,
 		)
-		.bind(now, userId, anchorRowid, storedTimestampForm(anchor.createdAt), ...scopedWhere.bindings)
+		.bind(
+			now,
+			userId,
+			userId,
+			anchor.notificationId,
+			storedTimestampForm(anchor.createdAt),
+			...scopedWhere.bindings,
+		)
 		.run();
 	return result.meta?.changes ?? 0;
 }
 
 /**
- * Resolves an anchor to the `rowid` of the row it names. The lookup is scoped to
- * the user, so an anchor pointing at another user's notification is
- * indistinguishable from one pointing at nothing: both are rejected.
+ * Checks that the anchor names a row of this user's, and nothing else. The
+ * lookup is scoped to the user, so an anchor pointing at another user's
+ * notification is indistinguishable from one pointing at nothing: both are
+ * rejected, and rejecting them is all this is for.
  *
- * `rowid` is the bound because it is the only thing here that is fixed at INSERT
- * and monotonic with it. `human_notifications` is an ordinary rowid table — its
- * primary key is `TEXT`, not `INTEGER`, so `notification_id` is not an alias for
- * the rowid and nothing about it is ordered — and every write path leaves the
- * rowid alone: rows are added by `INSERT OR IGNORE` (never `REPLACE`, which
- * would delete and re-insert), and every `UPDATE` names its columns. In
- * particular the coalescing path in
- * `recordWorldSettingsChangedHumanNotifications` moves `created_at`, which is
- * why that column cannot serve as this bound, but it cannot move a rowid.
+ * It deliberately does *not* hand the sweep a rowid. Two round trips cannot
+ * bound anything safely: between the SELECT and the UPDATE the anchor row can
+ * be deleted — the source/target retraction in `notification-source-deletes.ts`
+ * and the orphan sweep both delete `human_notifications` rows, and either can
+ * take the newest row in the table — and SQLite hands the next plain INSERT one
+ * more than the largest rowid *currently in use*, so a notification written
+ * after the gesture can be issued the anchor's own rowid and pass a
+ * `rowid <= <that number>` test. `markAllHumanNotificationsRead` therefore
+ * resolves the bound in a scalar subquery inside the UPDATE, where the
+ * comparison and the sweep are one statement and no such window exists. If the
+ * row is gone by then the subquery is NULL, every `rowid <= NULL` is NULL, and
+ * nothing is marked — a lost anchor marks nothing rather than marking wrongly,
+ * which is the direction this has to fail in.
  *
- * Rowid reuse cannot widen the sweep either, which matters because rows do get
- * deleted: the source/target retraction in `notification-source-deletes.ts`, the
- * orphan sweep, and the age prune all delete `human_notifications` rows, and the
- * first two can take the newest row in the table. SQLite hands a plain INSERT
- * one more than the largest rowid *currently in use*, so the guarantee needed is
- * only that the anchor row is in use: while it is, every later INSERT lands
- * strictly above it, whatever was deleted. This lookup is what establishes that
- * — a deleted anchor is not found and the sweep never runs — and a `rowid` is
- * never reissued to a different `notification_id` afterwards, because ids are
- * fresh UUIDs. (SQLite falls back to a random unused rowid only once the largest
- * is 2^63-1; at ~70k rows allocated from 1, that is not reachable. Nothing here
+ * What the subquery leans on, and what nothing else here provides, is that the
+ * anchor's rowid is fixed at INSERT and monotonic with it: while that row is in
+ * use every later INSERT lands strictly above it, whatever was deleted.
+ * `human_notifications` is an ordinary rowid table — its primary key is `TEXT`,
+ * not `INTEGER`, so `notification_id` is not an alias for the rowid and nothing
+ * about it is ordered — and every write path leaves the rowid alone: rows are
+ * added by `INSERT OR IGNORE` (never `REPLACE`, which would delete and
+ * re-insert), and every `UPDATE` names its columns. In particular the coalescing
+ * path in `recordWorldSettingsChangedHumanNotifications` moves `created_at`,
+ * which is why that column cannot serve as this bound, but it cannot move a
+ * rowid. (SQLite falls back to a random unused rowid only once the largest is
+ * 2^63-1; at ~70k rows allocated from 1, that is not reachable. Nothing here
  * runs `VACUUM`, the one operation that would renumber these rowids.)
  */
-async function humanNotificationAnchorRowid(
+async function assertHumanNotificationAnchorExists(
 	db: D1DatabaseLike,
 	userId: string,
 	anchor: HumanNotificationReadAnchor,
-): Promise<number> {
+): Promise<void> {
 	const row = await db
 		.prepare(
-			`SELECT rowid AS anchorRowid
+			`SELECT 1 AS found
 			 FROM human_notifications
 			 WHERE user_id = ? AND notification_id = ?`,
 		)
 		.bind(userId, anchor.notificationId)
-		.first<{ anchorRowid: number }>();
+		.first<{ found: number }>();
 	if (!row) {
 		throw new InputError("Notification read anchor is not one of your notifications.");
 	}
-	return row.anchorRowid;
 }
 
 async function markHumanNotificationsReadByIds(

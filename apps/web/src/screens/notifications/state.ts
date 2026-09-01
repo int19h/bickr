@@ -8,7 +8,7 @@ import { parsePathname } from "../../routes";
 
 /**
  * The anchor a mark-all gesture runs with: the newest notification this client
- * holds, by the `(createdAt, id)` tuple the server orders and bounds on. Null
+ * holds, in the `(createdAt DESC, id DESC)` order the list is served in. Null
  * when there is nothing rendered, which is a gesture that marks nothing.
  */
 export function humanNotificationReadAnchorFor(
@@ -16,30 +16,47 @@ export function humanNotificationReadAnchorFor(
 ): HumanNotificationReadAnchor | null {
 	let newest: HumanNotification | null = null;
 	for (const notification of notifications) {
-		if (!newest || !humanNotificationAtOrBeforeReadAnchor(notification, anchorOf(newest))) {
+		if (!newest || sortsAboveInListOrder(notification, newest)) {
 			newest = notification;
 		}
 	}
 	return newest ? anchorOf(newest) : null;
 }
 
-/** The client half of the server's `created_at < ? OR (created_at = ? AND notification_id <= ?)`. */
-export function humanNotificationAtOrBeforeReadAnchor(
+/**
+ * Whether this client can *prove* the server marked this row, which is a
+ * strictly smaller set than the one the server actually marks.
+ *
+ * The server bounds by `rowid <= <the anchor's rowid> AND created_at <= <the
+ * rendered createdAt>`, and rowids are not in any response — so within the
+ * anchor's millisecond the client cannot tell a row inserted before the anchor
+ * from one inserted after it. Id order says nothing about insertion order:
+ * `notification_id` is a random UUID. Everything strictly older than the anchor
+ * timestamp is below the anchor's rowid, and the anchor row is its own bound;
+ * anything else sharing that millisecond is left alone here and picked up from
+ * the server's own state when the caller reconciles.
+ *
+ * The rule this encodes: the optimistic pass may under-claim what was marked,
+ * never over-claim. Under-claiming shows a row as unread for the moment before
+ * the refetch lands; over-claiming shows a notification that arrived after the
+ * gesture as already read, which is the bug the anchor exists to prevent.
+ */
+export function humanNotificationProvablyReadByAnchor(
 	notification: HumanNotification,
 	anchor: HumanNotificationReadAnchor,
 ): boolean {
-	return (
-		notification.createdAt < anchor.createdAt ||
-		(notification.createdAt === anchor.createdAt && notification.id <= anchor.notificationId)
-	);
+	return notification.createdAt < anchor.createdAt || notification.id === anchor.notificationId;
 }
 
 /**
- * The optimistic half of a mark-all: it applies the predicate the server
- * applies, so a notification that arrived above the anchor stays visibly unread
- * without waiting for a refetch. `unreadCount` comes off the server's
- * `readCount` — the rows it actually changed — rather than being zeroed, which
- * hid exactly those late arrivals.
+ * The optimistic half of a mark-all: it marks the rows the server is known to
+ * have marked, so the list settles immediately without claiming anything about
+ * a notification that may have arrived above the anchor. `unreadCount` comes off
+ * the server's `readCount` — the rows it actually changed — rather than being
+ * zeroed, which hid exactly those late arrivals.
+ *
+ * This is a placeholder for the server's answer, not the answer: callers refetch
+ * afterwards and take the list and the badge from that.
  */
 export function humanNotificationSummaryWithReadScope(
 	summary: HumanNotificationSummary,
@@ -76,7 +93,15 @@ function humanNotificationMarkedByReadScope(
 	if (scope.scopeType === "notifications") {
 		return true;
 	}
-	return anchor !== null && humanNotificationAtOrBeforeReadAnchor(notification, anchor);
+	return anchor !== null && humanNotificationProvablyReadByAnchor(notification, anchor);
+}
+
+/** The `(createdAt DESC, id DESC)` order `listHumanNotifications` serves. */
+function sortsAboveInListOrder(candidate: HumanNotification, current: HumanNotification): boolean {
+	return (
+		candidate.createdAt > current.createdAt ||
+		(candidate.createdAt === current.createdAt && candidate.id > current.id)
+	);
 }
 
 export function humanNotificationSummaryWithoutNotification(

@@ -6,9 +6,12 @@ import {
 } from "./state";
 
 /**
- * The optimistic half of a mark-all. It has to agree with the server's anchor
- * predicate: a notification that arrived after the user clicked must stay
- * visibly unread, and the badge must not be zeroed over it.
+ * The optimistic half of a mark-all. It may only show as read what the server
+ * demonstrably marked: a notification that arrived after the user clicked must
+ * stay visibly unread, and the badge must not be zeroed over it. The server's
+ * bound includes the anchor row's `rowid`, which no response carries, so where
+ * this client cannot tell it under-claims and lets the refetch that follows the
+ * call settle the row.
  */
 describe("humanNotificationSummaryWithReadScope", () => {
 	const before = "2026-05-06T11:59:00.000Z";
@@ -71,7 +74,12 @@ describe("humanNotificationSummaryWithReadScope", () => {
 		expect(next.unreadCount).toBe(1);
 	});
 
-	it("applies the anchor's id tie-break the way the server does", () => {
+	// The server bounds the sweep by the anchor row's rowid, which no response
+	// carries. Inside the anchor's millisecond, then, this client cannot tell a
+	// row written before the anchor from one written after it — id order says
+	// nothing about insertion order — so it claims neither. `hnt_a` here may well
+	// have been marked; the refetch that follows the call is what says so.
+	it("leaves the anchor's millisecond to the server rather than guessing at a tie-break", () => {
 		const current = summary([
 			notification("hnt_c", anchorAt),
 			notification("hnt_b", anchorAt),
@@ -86,8 +94,33 @@ describe("humanNotificationSummaryWithReadScope", () => {
 			2,
 		);
 
-		expect(next.notifications.filter((item) => item.readAt).map((item) => item.id)).toEqual(["hnt_b", "hnt_a"]);
+		// Only the anchor row itself, which is its own bound.
+		expect(next.notifications.filter((item) => item.readAt).map((item) => item.id)).toEqual(["hnt_b"]);
+		// Still the server's number, not a count of what was shown as read: the
+		// badge may under-report unread for a moment, never over-report it as zero.
 		expect(next.unreadCount).toBe(1);
+	});
+
+	it("marks a row older than the anchor's millisecond, which is below the anchor's rowid either way", () => {
+		const current = summary([
+			notification("hnt_same_ms", anchorAt),
+			notification("hnt_anchor", anchorAt),
+			notification("hnt_older", before),
+		]);
+
+		const next = humanNotificationSummaryWithReadScope(
+			current,
+			{ scopeType: "all" },
+			{ notificationId: "hnt_anchor", createdAt: anchorAt },
+			readAt,
+			3,
+		);
+
+		expect(next.notifications.filter((item) => item.readAt).map((item) => item.id)).toEqual([
+			"hnt_anchor",
+			"hnt_older",
+		]);
+		expect(next.unreadCount).toBe(0);
 	});
 
 	it("marks only the scope's own notifications, still bounded by the anchor", () => {

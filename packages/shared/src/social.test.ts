@@ -1478,6 +1478,10 @@ type HumanNotificationFixtureRow = {
 	archivedAt: string | null;
 };
 
+/** The one bound that closes the rowid-reuse window: resolved in the statement. */
+const ANCHOR_SUBQUERY_BOUND =
+	/rowid <= \(\s*SELECT rowid FROM human_notifications WHERE user_id = \? AND notification_id = \?\s*\)\s*AND created_at <= \?/;
+
 /**
  * Models the human_notifications columns the mark-all update reads. The
  * predicates are taken from the statement text rather than assumed, so dropping
@@ -1542,11 +1546,15 @@ class FakeHumanNotificationD1 implements D1DatabaseLike {
 		return this.rows.indexOf(row) + 1;
 	}
 
-	/** The anchor lookup: scoped to the user, so another user's row is not found. */
-	anchorRow(bindings: unknown[]): { anchorRowid: number } | null {
-		const [userId, notificationId] = bindings;
+	/**
+	 * The anchor's rowid, or null when the anchor names no row of this user's.
+	 * That is both what the advisory lookup asks — another user's row is not
+	 * found, and neither is a missing one — and what the subquery inside the
+	 * sweep evaluates to.
+	 */
+	anchorRowid(userId: unknown, notificationId: unknown): number | null {
 		const row = this.rows.find((candidate) => candidate.userId === userId && candidate.id === notificationId);
-		return row ? { anchorRowid: this.rowid(row) } : null;
+		return row ? this.rowid(row) : null;
 	}
 
 	markRead(query: string, bindings: unknown[]): number {
@@ -1561,10 +1569,14 @@ class FakeHumanNotificationD1 implements D1DatabaseLike {
 			const ids = new Set(rest.map(String));
 			changed = this.rows.filter((row) => matches(row) && ids.has(row.id));
 		} else {
-			if (!query.includes("rowid <= ? AND created_at <= ?")) {
+			// The rowid bound has to be resolved *inside* the statement rather than
+			// handed to it as a number, so the query text is what is checked: a
+			// subquery, with its own user and id bindings ahead of the timestamp.
+			if (!ANCHOR_SUBQUERY_BOUND.test(query)) {
 				throw new Error(`Scoped mark-all update is unbounded: ${query}`);
 			}
-			const [anchorRowid, renderedCreatedAt, ...scopeBindings] = rest;
+			const [anchorUserId, anchorNotificationId, renderedCreatedAt, ...scopeBindings] = rest;
+			const anchorRowid = this.anchorRowid(anchorUserId, anchorNotificationId);
 			const scoped = query.includes("AND world_id = ?") ?
 				(row: HumanNotificationFixtureRow) => row.worldId === scopeBindings[0]
 			: query.includes("AND actor_bot_id = ?") ?
@@ -1572,8 +1584,10 @@ class FakeHumanNotificationD1 implements D1DatabaseLike {
 			:	() => true;
 			// Both halves, the way the statement asks for them: nothing inserted
 			// after the anchor, and nothing stamped later than what was rendered.
+			// A vanished anchor leaves the subquery NULL, every `rowid <= NULL` NULL,
+			// and the sweep a no-op — the direction this has to fail in.
 			const atOrBelowAnchor = (row: HumanNotificationFixtureRow): boolean =>
-				this.rowid(row) <= Number(anchorRowid) && row.createdAt <= String(renderedCreatedAt);
+				anchorRowid !== null && this.rowid(row) <= anchorRowid && row.createdAt <= String(renderedCreatedAt);
 			changed = this.rows.filter((row) => matches(row) && atOrBelowAnchor(row) && scoped(row));
 		}
 		for (const row of changed) {
@@ -1599,10 +1613,11 @@ class FakeHumanNotificationStatement implements D1PreparedStatementLike {
 	}
 
 	async first<T = unknown>(): Promise<T | null> {
-		if (!this.query.includes("SELECT rowid AS anchorRowid")) {
+		if (!this.query.includes("SELECT 1 AS found")) {
 			throw new Error(`Unexpected query: ${this.query}`);
 		}
-		return this.db.anchorRow(this.bindings) as T | null;
+		const [userId, notificationId] = this.bindings;
+		return this.db.anchorRowid(userId, notificationId) === null ? null : ({ found: 1 } as T);
 	}
 
 	async all<T = unknown>(): Promise<D1Result<T>> {

@@ -141,6 +141,7 @@ export function NotificationsScreen({
 	// same ceiling and neither reaches a notification that arrived after it.
 	async function markReadUpToLoaded(readScope: HumanNotificationReadScope): Promise<void> {
 		const anchor = humanNotificationReadAnchorFor(summary.notifications);
+		const loadedCount = summary.notifications.length;
 		const readCount = await onMarkAllRead(readScope, anchor);
 		if (readCount === null) {
 			return;
@@ -149,6 +150,42 @@ export function NotificationsScreen({
 		setSummary((current) =>
 			humanNotificationSummaryWithReadScope(current, readScope, anchor, readAt, readCount),
 		);
+		await reloadLoadedNotifications(loadedCount);
+	}
+
+	// The optimistic pass only marks rows it can prove the server marked — it
+	// cannot see rowids, so it leaves the anchor's millisecond alone — which makes
+	// this refetch the thing that decides what is read and what the badge says.
+	// Reloading page by page up to what was already loaded keeps the list where
+	// the user left it instead of collapsing it back to the first page.
+	async function reloadLoadedNotifications(loadedCount: number): Promise<void> {
+		const version = loadVersion.current + 1;
+		loadVersion.current = version;
+		setLoading(true);
+		let reloaded: HumanNotification[] = [];
+		let offset = 0;
+		for (;;) {
+			const page = await onLoadNotifications("all", pageSize, offset, listScope);
+			if (loadVersion.current !== version) {
+				return;
+			}
+			if (!page) {
+				setMessage("Could not refresh notifications.");
+				break;
+			}
+			reloaded = appendUniqueNotifications(reloaded, page.notifications);
+			// Off the page's own length rather than off `reloaded`, which dedupes and
+			// so cannot be trusted to advance: this loop has to walk forward on every
+			// pass it does not break out of.
+			offset = page.nextOffset ?? offset + page.notifications.length;
+			// An empty page is the guard against a `hasMore` that never settles.
+			if (!page.hasMore || page.notifications.length === 0 || reloaded.length >= loadedCount) {
+				setSummary({ ...page, notifications: reloaded });
+				setMessage("");
+				break;
+			}
+		}
+		setLoading(false);
 	}
 
 	async function markAllRead(): Promise<void> {
