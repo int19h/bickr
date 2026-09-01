@@ -25,6 +25,12 @@ describe('BotRuntime storage retention', () => {
 	let sockets: FakeSocket[];
 
 	beforeEach(() => {
+		// Fixture ages are measured back from `now`, but the routes under test reach
+		// the retention cutoffs through `runRetentionPass(runId, now = new Date())`.
+		// Only Date is faked: the batch loop yields through a real zero-delay
+		// setTimeout, and `batchYieldClock` drives elapsed time by spying Date.now.
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(now);
 		database = new DatabaseSync(':memory:');
 		sockets = [];
 	});
@@ -32,6 +38,7 @@ describe('BotRuntime storage retention', () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();
 		vi.restoreAllMocks();
+		vi.useRealTimers();
 		database.close();
 	});
 

@@ -28,6 +28,7 @@ import {
 	type ForumDocument,
 	type HumanNotification,
 	type HumanNotificationListScope,
+	type HumanNotificationReadAnchor,
 	type HumanNotificationReadScope,
 	type HumanNotificationSummary,
 	type HumanNotificationType,
@@ -1771,6 +1772,16 @@ async function rowsByIds<T>(
 	return rows;
 }
 
+/**
+ * The list is ordered by `(created_at DESC, notification_id DESC)`, a total
+ * order rather than a timestamp alone. `created_at` ties are routine — one bot
+ * fan-out writes several rows with the same millisecond — and under
+ * `created_at DESC` alone the order within a tie is whatever the plan happens to
+ * produce, so `LIMIT`/`OFFSET` pages could repeat or drop rows and, worse, the
+ * mark-all anchor would be meaningless: the client picks the anchor as the
+ * maximum of this tuple over what it rendered, so "newest rendered" has to be
+ * well defined before `markAllHumanNotificationsRead` can bound anything by it.
+ */
 export async function listHumanNotifications(
 	db: D1DatabaseLike,
 	userId: string,
@@ -1832,7 +1843,7 @@ export async function listHumanNotifications(
 				)
 			   AND resolved_forum.deleted_at IS NULL
 			 WHERE hn.user_id = ? AND hn.archived_at IS NULL ${filter}${scopedWhere.sql}
-			 ORDER BY hn.created_at DESC
+			 ORDER BY hn.created_at DESC, hn.notification_id DESC
 			 LIMIT ? OFFSET ?`,
 		)
 		.bind(userId, ...scopedWhere.bindings, pageSize + 1, pageOffset)
@@ -1880,25 +1891,209 @@ export async function archiveHumanNotification(
 		.run();
 }
 
+/** The timestamp form every notification row is written with. */
+const isoTimestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
+
+/**
+ * The shape check alone admits impossible instants — month 13, day 45, hour 99,
+ * February 30 — so the value also has to be a real instant: it is parsed and
+ * required to re-serialize to itself. `toISOString` always writes milliseconds,
+ * so a second-precision value is compared against itself with `.000` filled in,
+ * which is the same instant written the other legal way. Anything that rolls
+ * over (`T24:00:00Z` becoming the next midnight, February 30 becoming March 2)
+ * fails that comparison, and anything unparseable fails outright.
+ */
+function isStoredIsoTimestamp(value: string): boolean {
+	const match = isoTimestampPattern.exec(value);
+	if (!match) {
+		return false;
+	}
+	const parsed = new Date(value);
+	if (Number.isNaN(parsed.getTime())) {
+		return false;
+	}
+	return parsed.toISOString() === (match[1] ? value : `${value.slice(0, -1)}.000Z`);
+}
+
+/**
+ * An accepted anchor timestamp in the millisecond form the rows are stored in.
+ * `toISOString` always writes milliseconds, so every stored `created_at` has
+ * them, but the anchor is also accepted at second precision — and the sweep
+ * compares as SQLite does, on the string. `'…:00Z'` sorts *above* `'…:00.000Z'`
+ * because `'Z'` > `'.'`, so comparing the raw second-precision form would take
+ * in the whole of that second rather than its first instant.
+ */
+function storedTimestampForm(value: string): string {
+	return value.includes(".") ? value : `${value.slice(0, -1)}.000Z`;
+}
+
+/**
+ * Reads a mark-all anchor off a request. Absent means the caller rendered
+ * nothing, which is not an error — it is a mark-all over an empty list.
+ *
+ * `createdAt` is checked against the exact form the rows are written in rather
+ * than through `Date.parse`, which accepts locale strings and half-formed
+ * dates, and then against the calendar, so a well-shaped impossible instant is
+ * an InputError too. `createdAt` is a claim about what the client rendered and
+ * is used as exactly that — see `markAllHumanNotificationsRead`, where it can
+ * only ever narrow the sweep the resolved row bounds.
+ */
+export function parseHumanNotificationReadAnchor(value: unknown): HumanNotificationReadAnchor | null {
+	if (value === undefined || value === null) {
+		return null;
+	}
+	const record = typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+	const notificationId = typeof record?.notificationId === "string" ? record.notificationId.trim() : "";
+	const createdAt = typeof record?.createdAt === "string" ? record.createdAt.trim() : "";
+	if (!notificationId || !isStoredIsoTimestamp(createdAt)) {
+		throw new InputError("Notification read anchor is invalid.");
+	}
+	return { notificationId, createdAt };
+}
+
+/**
+ * `anchor` is the newest notification the caller had actually been shown, and
+ * the sweep stops there. A row is marked read only if it satisfies *both*
+ * halves of the bound, and the two halves answer different questions:
+ *
+ * - `rowid <= (SELECT rowid FROM human_notifications WHERE user_id = ? AND
+ *   notification_id = ?)` — nothing that was inserted after the anchor. This is
+ *   the invariant: a notification that arrives after the gesture must never be
+ *   marked read. `(created_at, notification_id)` cannot carry it, whatever the
+ *   tie-break: `notification_id` is a random UUID, so of the rows written in the
+ *   anchor's millisecond *after* the gesture, about half sort below the anchor's
+ *   id, and production writes up to five in one millisecond. `rowid` is assigned
+ *   at INSERT and is monotonic with it. The subquery is inline rather than a
+ *   number this function looked up first because the lookup and the sweep have
+ *   to be one statement — see `assertHumanNotificationAnchorExists` for the
+ *   deletion-and-reuse window that a second round trip would leave open, and for
+ *   why nothing in this codebase moves a rowid.
+ * - `created_at <= <the createdAt the client rendered>` — nothing whose
+ *   timestamp is newer than the one the user was looking at. A row that existed
+ *   before the gesture can still be carrying activity the user has not seen:
+ *   `recordWorldSettingsChangedHumanNotifications` coalesces onto an existing
+ *   row and bumps its `created_at` forward, which is a new event on an old
+ *   `rowid`. The rendered timestamp is the only thing that knows about it.
+ *
+ * The conjunction is what makes the client-supplied `createdAt` safe to trust:
+ * it is compared, never resolved, so a forged future timestamp widens nothing —
+ * the `rowid` bound still holds — and a forged past one only marks less. The
+ * anchor *id* is resolved under this user's id, so an anchor naming someone
+ * else's row is an InputError rather than a wider sweep.
+ *
+ * The set is therefore a subset of "at or below the anchor" in the
+ * `(created_at DESC, notification_id DESC)` order `listHumanNotifications`
+ * reads in. It diverges in one place, in the safe direction: a rendered row
+ * sharing the anchor's millisecond whose id sorts below the anchor's but which
+ * was inserted after it stays unread. Older unrendered rows are marked read,
+ * which is the specified behaviour. No anchor means nothing was rendered, so
+ * nothing is marked — falling back to a clock here is the bug this exists to
+ * prevent.
+ *
+ * The by-ids scope takes no anchor: its id list is already the set the user
+ * saw. `read_at` is stamped with server `now`, which is when the row was read.
+ *
+ * The sweep still plans as it did before, on
+ * `human_notifications_user_unread_keyset`: `EXPLAIN QUERY PLAN` reports
+ * `SEARCH human_notifications USING INDEX human_notifications_user_unread_keyset
+ * (user_id=? AND archived_at=? AND read_at=? AND created_at<?)`, scoped or not.
+ * The `rowid` bound needs no index of its own — every SQLite index entry carries
+ * the rowid, so it is a test on rows the `created_at` range already narrowed to
+ * — and the anchor subquery is uncorrelated, so it is one `SEARCH … USING INDEX
+ * sqlite_autoindex_human_notifications_1 (notification_id=?)` evaluated once as
+ * a scalar, not per row.
+ */
 export async function markAllHumanNotificationsRead(
 	db: D1DatabaseLike,
 	userId: string,
 	scope: HumanNotificationReadScope = { scopeType: "all" },
 	now = new Date().toISOString(),
+	anchor: HumanNotificationReadAnchor | null = null,
 ): Promise<number> {
 	if (scope.scopeType === "notifications") {
 		return markHumanNotificationsReadByIds(db, userId, scope.notificationIds, now);
 	}
+	if (!anchor) {
+		return 0;
+	}
+	// Advisory, and only that: it is what turns an anchor naming a row that is not
+	// this user's into an InputError instead of a silent no-op. The bound the
+	// sweep applies is the subquery below, which resolves the same row inside the
+	// UPDATE — see `assertHumanNotificationAnchorExists`.
+	await assertHumanNotificationAnchorExists(db, userId, anchor);
 	const scopedWhere = humanNotificationReadScopeWhere(scope);
 	const result = await db
 		.prepare(
 			`UPDATE human_notifications
 			 SET read_at = ?
-			 WHERE user_id = ? AND archived_at IS NULL AND read_at IS NULL${scopedWhere.sql}`,
+			 WHERE user_id = ? AND archived_at IS NULL AND read_at IS NULL
+			   AND rowid <= (
+				 SELECT rowid FROM human_notifications WHERE user_id = ? AND notification_id = ?
+			   )
+			   AND created_at <= ?${scopedWhere.sql}`,
 		)
-		.bind(now, userId, ...scopedWhere.bindings)
+		.bind(
+			now,
+			userId,
+			userId,
+			anchor.notificationId,
+			storedTimestampForm(anchor.createdAt),
+			...scopedWhere.bindings,
+		)
 		.run();
 	return result.meta?.changes ?? 0;
+}
+
+/**
+ * Checks that the anchor names a row of this user's, and nothing else. The
+ * lookup is scoped to the user, so an anchor pointing at another user's
+ * notification is indistinguishable from one pointing at nothing: both are
+ * rejected, and rejecting them is all this is for.
+ *
+ * It deliberately does *not* hand the sweep a rowid. Two round trips cannot
+ * bound anything safely: between the SELECT and the UPDATE the anchor row can
+ * be deleted — the source/target retraction in `notification-source-deletes.ts`
+ * and the orphan sweep both delete `human_notifications` rows, and either can
+ * take the newest row in the table — and SQLite hands the next plain INSERT one
+ * more than the largest rowid *currently in use*, so a notification written
+ * after the gesture can be issued the anchor's own rowid and pass a
+ * `rowid <= <that number>` test. `markAllHumanNotificationsRead` therefore
+ * resolves the bound in a scalar subquery inside the UPDATE, where the
+ * comparison and the sweep are one statement and no such window exists. If the
+ * row is gone by then the subquery is NULL, every `rowid <= NULL` is NULL, and
+ * nothing is marked — a lost anchor marks nothing rather than marking wrongly,
+ * which is the direction this has to fail in.
+ *
+ * What the subquery leans on, and what nothing else here provides, is that the
+ * anchor's rowid is fixed at INSERT and monotonic with it: while that row is in
+ * use every later INSERT lands strictly above it, whatever was deleted.
+ * `human_notifications` is an ordinary rowid table — its primary key is `TEXT`,
+ * not `INTEGER`, so `notification_id` is not an alias for the rowid and nothing
+ * about it is ordered — and every write path leaves the rowid alone: rows are
+ * added by `INSERT OR IGNORE` (never `REPLACE`, which would delete and
+ * re-insert), and every `UPDATE` names its columns. In particular the coalescing
+ * path in `recordWorldSettingsChangedHumanNotifications` moves `created_at`,
+ * which is why that column cannot serve as this bound, but it cannot move a
+ * rowid. (SQLite falls back to a random unused rowid only once the largest is
+ * 2^63-1; at ~70k rows allocated from 1, that is not reachable. Nothing here
+ * runs `VACUUM`, the one operation that would renumber these rowids.)
+ */
+async function assertHumanNotificationAnchorExists(
+	db: D1DatabaseLike,
+	userId: string,
+	anchor: HumanNotificationReadAnchor,
+): Promise<void> {
+	const row = await db
+		.prepare(
+			`SELECT 1 AS found
+			 FROM human_notifications
+			 WHERE user_id = ? AND notification_id = ?`,
+		)
+		.bind(userId, anchor.notificationId)
+		.first<{ found: number }>();
+	if (!row) {
+		throw new InputError("Notification read anchor is not one of your notifications.");
+	}
 }
 
 async function markHumanNotificationsReadByIds(
@@ -2324,7 +2519,7 @@ export async function recordWorldSettingsChangedHumanNotifications(
 				   AND notification_type = 'world_settings_changed'
 				   AND read_at IS NULL
 				   AND archived_at IS NULL
-				 ORDER BY created_at DESC
+				 ORDER BY created_at DESC, notification_id DESC
 				 LIMIT 1`,
 			)
 			.bind(userId, input.updated.id)

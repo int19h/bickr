@@ -1,6 +1,6 @@
 import { ok, readJsonBody } from "@bickr/shared/api";
 import { type HumanNotificationReadScope } from "@bickr/shared/model";
-import { markAllHumanNotificationsRead } from "@bickr/shared/social";
+import { markAllHumanNotificationsRead, parseHumanNotificationReadAnchor } from "@bickr/shared/social";
 import { InputError } from "@bickr/shared/validation";
 import { requireCompleteUser, type AppEnv } from "../../_auth";
 import { pageErrorResponse } from "../../_errors";
@@ -8,8 +8,13 @@ import { pageErrorResponse } from "../../_errors";
 export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => {
 	try {
 		const user = await requireCompleteUser(env, request);
-		const scope = parseReadScope(await optionalJsonBody(request));
-		const readCount = await markAllHumanNotificationsRead(env.BICKR_D1, user.id, scope);
+		const body = await optionalJsonBody(request);
+		const now = new Date().toISOString();
+		// One gesture fans out into several scoped calls; the client sends the same
+		// anchor to all of them, so a notification that arrives mid-sweep is above
+		// every one of them and stays unread.
+		const anchor = parseHumanNotificationReadAnchor(readAnchorValue(body));
+		const readCount = await markAllHumanNotificationsRead(env.BICKR_D1, user.id, parseReadScope(body), now, anchor);
 		return ok({ readAll: true, readCount });
 	} catch (error) {
 		return pageErrorResponse(error);
@@ -19,6 +24,10 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 async function optionalJsonBody(request: Request): Promise<unknown> {
 	const contentType = request.headers.get("content-type") ?? "";
 	return contentType.includes("application/json") ? readJsonBody(request) : undefined;
+}
+
+function readAnchorValue(value: unknown): unknown {
+	return value && typeof value === "object" ? (value as Record<string, unknown>).anchor : undefined;
 }
 
 function parseReadScope(value: unknown): HumanNotificationReadScope {

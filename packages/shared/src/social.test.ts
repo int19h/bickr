@@ -13,15 +13,19 @@ import {
 	createThread,
 	deleteDeliveredNotifications,
 	ensureBootstrapNotification,
+	listHumanNotifications,
 	listThreadsWithReadState,
+	markAllHumanNotificationsRead,
+	parseHumanNotificationReadAnchor,
 	notificationKvExpirationTtlSeconds,
 	notificationTypePriority,
 	orderedDeliveryReasons,
 	pruneExpiredBotSeenContent,
 	threadHotScore,
 } from "./social";
+import { InputError } from "./validation";
 import { kvKeys, type D1DatabaseLike, type D1PreparedStatementLike, type D1Result, type KVNamespaceLike } from "./storage";
-import { localizedTextString, schemaVersion, type BotDocument, type ForumDocument, type LanguageTag, type NotificationDeliveryReason, type NotificationDocument, type NotificationType, type PostingSettings, type RequiredLocalizedText, type ThreadSettings, type ThreadSummary, type WorldDocument } from "./model";
+import { localizedTextString, schemaVersion, type BotDocument, type HumanNotificationListScope, type ForumDocument, type LanguageTag, type NotificationDeliveryReason, type NotificationDocument, type NotificationType, type PostingSettings, type RequiredLocalizedText, type ThreadSettings, type ThreadSummary, type WorldDocument } from "./model";
 
 const now = "2026-05-06T12:00:00.000Z";
 const enLang = "en" as LanguageTag;
@@ -1135,6 +1139,499 @@ describe("content refs", () => {
 		expect(parseObjectRef("abcdefgh")).toBeUndefined();
 	});
 });
+
+describe("markAllHumanNotificationsRead", () => {
+	const before = "2026-05-06T11:59:00.000Z";
+	const anchorAt = "2026-05-06T12:00:00.000Z";
+	const after = "2026-05-06T12:00:01.000Z";
+	const readAt = "2026-05-06T12:00:02.000Z";
+	// The newest row the user had been shown when they clicked.
+	const anchor = { notificationId: "hnt_anchor_world_one", createdAt: anchorAt };
+
+	function sweepFixture(): FakeHumanNotificationD1 {
+		return new FakeHumanNotificationD1([
+			{ id: "hnt_old_world_one", worldId: "wld_one", actorBotId: "bot_a", createdAt: before },
+			{ id: "hnt_old_world_two", worldId: "wld_two", actorBotId: "bot_b", createdAt: before },
+			{ id: "hnt_anchor_world_one", worldId: "wld_one", actorBotId: "bot_a", createdAt: anchorAt },
+			{ id: "hnt_new_world_one", worldId: "wld_one", actorBotId: "bot_a", createdAt: after },
+			{ id: "hnt_new_world_two", worldId: "wld_two", actorBotId: "bot_b", createdAt: after },
+		]);
+	}
+
+	it.each([
+		["all", { scopeType: "all" } as const, ["hnt_anchor_world_one", "hnt_old_world_one", "hnt_old_world_two"]],
+		["world", { scopeType: "world", scopeId: "wld_one" } as const, ["hnt_anchor_world_one", "hnt_old_world_one"]],
+		["bot", { scopeType: "bot", scopeId: "bot_a" } as const, ["hnt_anchor_world_one", "hnt_old_world_one"]],
+	])("marks up to the anchor and no further in the %s scope", async (_name, scope, expectedRead) => {
+		const db = sweepFixture();
+
+		await markAllHumanNotificationsRead(db, "usr_one", scope, readAt, anchor);
+
+		expect(db.readIds()).toEqual(expectedRead);
+		// Created after the anchor, so never rendered: still unread in every scope.
+		expect(db.unreadIds()).toEqual(expect.arrayContaining(["hnt_new_world_one", "hnt_new_world_two"]));
+	});
+
+	it.each([
+		// `notification_id` is a random UUID, so a row written after the anchor in
+		// the anchor's own millisecond is as likely to sort below its id as above
+		// it. Both directions are the same row — one that did not exist when the
+		// user clicked — and neither may be marked read.
+		["above the anchor's id", "hnt_c"],
+		["below the anchor's id", "hnt_a"],
+	])("leaves a row written after the anchor in the anchor's millisecond unread, %s", async (_name, lateId) => {
+		const db = new FakeHumanNotificationD1([{ id: "hnt_b", createdAt: anchorAt }]);
+		db.rows.push({
+			id: lateId,
+			userId: "usr_one",
+			worldId: "wld_one",
+			actorBotId: "bot_a",
+			createdAt: anchorAt,
+			readAt: null,
+			archivedAt: null,
+		});
+
+		await markAllHumanNotificationsRead(db, "usr_one", { scopeType: "all" }, readAt, {
+			notificationId: "hnt_b",
+			createdAt: anchorAt,
+		});
+
+		expect(db.readIds()).toEqual(["hnt_b"]);
+		expect(db.unreadIds()).toEqual([lateId]);
+	});
+
+	it("leaves a row the coalescing path stamped past the rendered anchor unread", async () => {
+		// `recordWorldSettingsChangedHumanNotifications` coalesces onto an
+		// existing row and bumps its `created_at`. The row predates the anchor, so
+		// nothing about its insertion order says it is unseen — only its
+		// timestamp, now newer than the one the user was looking at, does.
+		const db = new FakeHumanNotificationD1([
+			{ id: "hnt_coalesced", createdAt: before },
+			{ id: "hnt_anchor_world_one", createdAt: anchorAt },
+		]);
+		db.bumpCreatedAt("hnt_coalesced", after);
+
+		await markAllHumanNotificationsRead(db, "usr_one", { scopeType: "all" }, readAt, anchor);
+
+		expect(db.readIds()).toEqual(["hnt_anchor_world_one"]);
+		expect(db.unreadIds()).toEqual(["hnt_coalesced"]);
+	});
+
+	it("does not widen when the coalescing path bumps the anchor row itself", async () => {
+		// The anchor row is not exempt: bumped forward, it is carrying activity
+		// the user has not seen either, and the sweep is still bounded by the
+		// timestamp the client rendered rather than by whatever is stored now.
+		const db = sweepFixture();
+		db.bumpCreatedAt("hnt_anchor_world_one", after);
+
+		await markAllHumanNotificationsRead(db, "usr_one", { scopeType: "all" }, readAt, anchor);
+
+		expect(db.unreadIds()).toEqual(["hnt_anchor_world_one", "hnt_new_world_one", "hnt_new_world_two"]);
+	});
+
+	it.each([
+		["all", { scopeType: "all" } as const, ["hnt_tie_a", "hnt_tie_b", "hnt_tie_c", "hnt_tie_d"]],
+		["world", { scopeType: "world", scopeId: "wld_one" } as const, ["hnt_tie_a", "hnt_tie_c"]],
+		["bot", { scopeType: "bot", scopeId: "bot_b" } as const, ["hnt_tie_b", "hnt_tie_d"]],
+	])("marks a whole fan-out only up to a mid-tie anchor in the %s scope", async (_name, scope, expectedRead) => {
+		// One bot fan-out: five rows written in the same millisecond, which the
+		// list orders among themselves by id. The anchor lands in the middle of
+		// them, so the tie has rendered rows below it and unrendered rows above.
+		const db = new FakeHumanNotificationD1([
+			{ id: "hnt_tie_a", worldId: "wld_one", actorBotId: "bot_a", createdAt: anchorAt },
+			{ id: "hnt_tie_b", worldId: "wld_two", actorBotId: "bot_b", createdAt: anchorAt },
+			{ id: "hnt_tie_c", worldId: "wld_one", actorBotId: "bot_a", createdAt: anchorAt },
+			{ id: "hnt_tie_d", worldId: "wld_two", actorBotId: "bot_b", createdAt: anchorAt },
+			{ id: "hnt_tie_e", worldId: "wld_one", actorBotId: "bot_a", createdAt: anchorAt },
+		]);
+
+		await markAllHumanNotificationsRead(db, "usr_one", scope, readAt, {
+			notificationId: "hnt_tie_d",
+			createdAt: anchorAt,
+		});
+
+		expect(db.readIds()).toEqual(expectedRead);
+		// Above the anchor in `(created_at DESC, notification_id DESC)`: never rendered.
+		expect(db.unreadIds()).toContain("hnt_tie_e");
+	});
+
+	it("counts only changed rows and leaves an earlier read timestamp intact", async () => {
+		const db = sweepFixture();
+		db.rows.push({
+			id: "hnt_already_read",
+			userId: "usr_one",
+			worldId: "wld_one",
+			actorBotId: "bot_a",
+			createdAt: before,
+			readAt: before,
+			archivedAt: null,
+		});
+
+		const readCount = await markAllHumanNotificationsRead(db, "usr_one", { scopeType: "all" }, readAt, anchor);
+
+		expect(readCount).toBe(3);
+		expect(db.row("hnt_old_world_one")?.readAt).toBe(readAt);
+		// The read_at IS NULL guard keeps an earlier read timestamp intact.
+		expect(db.row("hnt_already_read")?.readAt).toBe(before);
+	});
+
+	it("keeps one gesture's later scoped calls bounded by the gesture's anchor", async () => {
+		const db = sweepFixture();
+
+		await markAllHumanNotificationsRead(db, "usr_one", { scopeType: "world", scopeId: "wld_one" }, readAt, anchor);
+		// A notification arriving between the two calls of the same gesture.
+		db.rows.push({
+			id: "hnt_mid_sweep",
+			userId: "usr_one",
+			worldId: "wld_two",
+			actorBotId: "bot_b",
+			createdAt: after,
+			readAt: null,
+			archivedAt: null,
+		});
+		await markAllHumanNotificationsRead(db, "usr_one", { scopeType: "world", scopeId: "wld_two" }, readAt, anchor);
+
+		expect(db.unreadIds()).toEqual(["hnt_mid_sweep", "hnt_new_world_one", "hnt_new_world_two"]);
+	});
+
+	it("marks nothing when no anchor is supplied, because nothing was rendered", async () => {
+		const db = sweepFixture();
+
+		expect(await markAllHumanNotificationsRead(db, "usr_one", { scopeType: "all" }, readAt)).toBe(0);
+
+		expect(db.readIds()).toEqual([]);
+		expect(db.runs).toEqual([]);
+	});
+
+	it.each([
+		["a notification of another user", { notificationId: "hnt_other_user", createdAt: before }],
+		["a notification that does not exist", { notificationId: "hnt_missing", createdAt: before }],
+	])("rejects an anchor naming %s", async (_name, rejected) => {
+		const db = sweepFixture();
+		db.rows.push({
+			id: "hnt_other_user",
+			userId: "usr_two",
+			worldId: "wld_one",
+			actorBotId: "bot_a",
+			createdAt: before,
+			readAt: null,
+			archivedAt: null,
+		});
+
+		await expect(markAllHumanNotificationsRead(db, "usr_one", { scopeType: "all" }, readAt, rejected))
+			.rejects.toThrow(InputError);
+		expect(db.readIds()).toEqual([]);
+	});
+
+	it("gains nothing from a client claiming its anchor is newer than the row is", async () => {
+		const db = sweepFixture();
+
+		// The claimed timestamp only ever narrows: what stops the sweep at the
+		// anchor row is the anchor row's own insertion order, which no field of
+		// the request can move.
+		await markAllHumanNotificationsRead(db, "usr_one", { scopeType: "all" }, readAt, {
+			notificationId: "hnt_anchor_world_one",
+			createdAt: "2099-01-01T00:00:00.000Z",
+		});
+
+		expect(db.unreadIds()).toEqual(["hnt_new_world_one", "hnt_new_world_two"]);
+	});
+
+	it("does not bound the by-ids scope, which the caller already enumerated", async () => {
+		const db = sweepFixture();
+
+		const readCount = await markAllHumanNotificationsRead(
+			db,
+			"usr_one",
+			{ scopeType: "notifications", notificationIds: ["hnt_new_world_one"] },
+			readAt,
+		);
+
+		expect(readCount).toBe(1);
+		expect(db.row("hnt_new_world_one")?.readAt).toBe(readAt);
+		expect(db.runs.every((run) => !run.query.includes("created_at"))).toBe(true);
+	});
+
+	it("skips archived rows and other users' rows", async () => {
+		const db = new FakeHumanNotificationD1([
+			{ id: "hnt_archived", worldId: "wld_one", actorBotId: "bot_a", createdAt: before, archivedAt: before },
+			{ id: "hnt_other_user", worldId: "wld_one", actorBotId: "bot_a", createdAt: before, userId: "usr_two" },
+			{ id: "hnt_mine", worldId: "wld_one", actorBotId: "bot_a", createdAt: before },
+			{ id: "hnt_anchor_world_one", worldId: "wld_one", actorBotId: "bot_a", createdAt: anchorAt },
+		]);
+
+		expect(await markAllHumanNotificationsRead(db, "usr_one", { scopeType: "all" }, readAt, anchor)).toBe(2);
+		expect(db.unreadIds()).toEqual(["hnt_archived", "hnt_other_user"]);
+	});
+});
+
+/**
+ * Records the statements a read issues. Real D1 is exercised in
+ * `test/notification-list-order.spec.ts`; what it cannot prove is that the order
+ * is asked for rather than handed over by whichever index the planner picked, so
+ * the ORDER BY is asserted here from the statement text.
+ */
+class QueryRecordingD1 implements D1DatabaseLike {
+	readonly queries: string[] = [];
+
+	prepare(query: string): D1PreparedStatementLike {
+		this.queries.push(query);
+		const statement: D1PreparedStatementLike = {
+			bind: () => statement,
+			first: async () => ({ count: 0 }) as never,
+			all: async () => ({ success: true, results: [] }) as never,
+			run: async () => ({ success: true }) as never,
+		};
+		return statement;
+	}
+
+	async batch(statements: D1PreparedStatementLike[]): Promise<Array<D1Result>> {
+		return Promise.all(statements.map((statement) => statement.run()));
+	}
+}
+
+describe("listHumanNotifications ordering", () => {
+	const listings: Array<[string, "unread" | "all", HumanNotificationListScope]> = [
+		["unread", "unread", { scopeType: "all" }],
+		["all", "all", { scopeType: "all" }],
+		["a world scope", "all", { scopeType: "world", scopeId: "wld_one" }],
+		["a bot scope", "all", { scopeType: "bot", scopeId: "bot_a" }],
+	];
+
+	it.each(listings)("asks for the anchor's total order when listing %s", async (_name, status, scope) => {
+		const db = new QueryRecordingD1();
+
+		await listHumanNotifications(db, "usr_one", status, 30, 0, scope);
+
+		// The tuple `markAllHumanNotificationsRead` bounds on. Without the
+		// tie-break the order inside a `created_at` tie is the plan's to choose,
+		// and "the newest row the caller rendered" stops being well defined.
+		const list = db.queries.find((query) => query.includes("LIMIT ? OFFSET ?"));
+		expect(list).toContain("ORDER BY hn.created_at DESC, hn.notification_id DESC");
+	});
+});
+
+describe("parseHumanNotificationReadAnchor", () => {
+	const anchor = { notificationId: "hnt_one", createdAt: now };
+
+	it("reads an absent anchor as nothing rendered rather than an error", () => {
+		expect(parseHumanNotificationReadAnchor(undefined)).toBeNull();
+		expect(parseHumanNotificationReadAnchor(null)).toBeNull();
+	});
+
+	it("accepts the timestamp form notification rows are written in", () => {
+		expect(parseHumanNotificationReadAnchor(anchor)).toEqual(anchor);
+		expect(parseHumanNotificationReadAnchor({ notificationId: " hnt_one ", createdAt: ` ${now} ` })).toEqual(anchor);
+		expect(parseHumanNotificationReadAnchor({ notificationId: "hnt_one", createdAt: "2026-05-06T12:00:00Z" }))
+			.toEqual({ notificationId: "hnt_one", createdAt: "2026-05-06T12:00:00Z" });
+	});
+
+	it.each([
+		["a date without a time", { notificationId: "hnt_one", createdAt: "2026-05-06" }],
+		["a space-separated timestamp", { notificationId: "hnt_one", createdAt: "2026-05-06 12:00:00Z" }],
+		["a local timestamp", { notificationId: "hnt_one", createdAt: "2026-05-06T12:00:00+02:00" }],
+		["prose Date.parse accepts", { notificationId: "hnt_one", createdAt: "May 6 2026" }],
+		["an epoch number", { notificationId: "hnt_one", createdAt: Date.parse(now) }],
+		["a missing timestamp", { notificationId: "hnt_one" }],
+		["a missing id", { createdAt: now }],
+		["an empty id", { notificationId: " ", createdAt: now }],
+		["a bare timestamp", now],
+		["a number", 1],
+		["a boolean", true],
+		["an array", [{ notificationId: "hnt_one", createdAt: now }]],
+		["an empty array", []],
+		["an anchor whose fields are not strings", { notificationId: 1, createdAt: 2 }],
+	])("rejects %s", (_name, value) => {
+		expect(() => parseHumanNotificationReadAnchor(value)).toThrow(InputError);
+	});
+
+	it.each([
+		["month 13", "2026-13-01T00:00:00.000Z"],
+		["day 45", "2026-01-45T00:00:00.000Z"],
+		["day 00", "2026-01-00T00:00:00.000Z"],
+		["hour 99", "2026-01-01T99:00:00.000Z"],
+		["minute 60", "2026-01-01T12:60:00.000Z"],
+		["second 60", "2026-01-01T12:00:60.000Z"],
+		// Shaped and parseable, but not the instant it spells: both roll over.
+		["February 30", "2026-02-30T00:00:00.000Z"],
+		["hour 24", "2026-01-01T24:00:00.000Z"],
+	])("rejects a well-shaped impossible timestamp: %s", (_name, createdAt) => {
+		expect(() => parseHumanNotificationReadAnchor({ notificationId: "hnt_one", createdAt }))
+			.toThrow(InputError);
+	});
+
+	it("accepts the boundaries a real calendar has", () => {
+		for (const createdAt of ["2024-02-29T23:59:59.999Z", "2026-12-31T23:59:59.999Z", "2026-01-01T00:00:00Z"]) {
+			expect(parseHumanNotificationReadAnchor({ notificationId: "hnt_one", createdAt }))
+				.toEqual({ notificationId: "hnt_one", createdAt });
+		}
+	});
+});
+
+type HumanNotificationFixtureRow = {
+	id: string;
+	userId: string;
+	worldId: string;
+	actorBotId: string;
+	createdAt: string;
+	readAt: string | null;
+	archivedAt: string | null;
+};
+
+/** The one bound that closes the rowid-reuse window: resolved in the statement. */
+const ANCHOR_SUBQUERY_BOUND =
+	/rowid <= \(\s*SELECT rowid FROM human_notifications WHERE user_id = \? AND notification_id = \?\s*\)\s*AND created_at <= \?/;
+
+/**
+ * Models the human_notifications columns the mark-all update reads. The
+ * predicates are taken from the statement text rather than assumed, so dropping
+ * a guard from the query fails here instead of silently widening the sweep.
+ */
+class FakeHumanNotificationD1 implements D1DatabaseLike {
+	readonly runs: Array<{ query: string; bindings: unknown[] }> = [];
+	readonly rows: HumanNotificationFixtureRow[];
+
+	constructor(rows: Array<Partial<HumanNotificationFixtureRow> & { id: string; createdAt: string }>) {
+		this.rows = rows.map((row) => ({
+			userId: "usr_one",
+			worldId: "wld_one",
+			actorBotId: "bot_a",
+			readAt: null,
+			archivedAt: null,
+			...row,
+		}));
+	}
+
+	prepare(query: string): D1PreparedStatementLike {
+		return new FakeHumanNotificationStatement(this, query);
+	}
+
+	async batch(statements: D1PreparedStatementLike[]): Promise<Array<D1Result>> {
+		const results: D1Result[] = [];
+		for (const statement of statements) {
+			results.push(await statement.run());
+		}
+		return results;
+	}
+
+	row(id: string): HumanNotificationFixtureRow | undefined {
+		return this.rows.find((row) => row.id === id);
+	}
+
+	readIds(): string[] {
+		return this.rows.filter((row) => row.readAt !== null).map((row) => row.id).sort();
+	}
+
+	unreadIds(): string[] {
+		return this.rows.filter((row) => row.readAt === null).map((row) => row.id).sort();
+	}
+
+	/**
+	 * The coalescing path's `SET … created_at = ?`: the row keeps the rowid it
+	 * was inserted with and takes a newer timestamp.
+	 */
+	bumpCreatedAt(id: string, createdAt: string): void {
+		const row = this.row(id);
+		if (!row) {
+			throw new Error(`No such notification: ${id}`);
+		}
+		row.createdAt = createdAt;
+	}
+
+	/**
+	 * `rowid` is the position of the row in insertion order, which is what SQLite
+	 * assigns it: these fixtures only ever append, and nothing here deletes.
+	 */
+	rowid(row: HumanNotificationFixtureRow): number {
+		return this.rows.indexOf(row) + 1;
+	}
+
+	/**
+	 * The anchor's rowid, or null when the anchor names no row of this user's.
+	 * That is both what the advisory lookup asks — another user's row is not
+	 * found, and neither is a missing one — and what the subquery inside the
+	 * sweep evaluates to.
+	 */
+	anchorRowid(userId: unknown, notificationId: unknown): number | null {
+		const row = this.rows.find((candidate) => candidate.userId === userId && candidate.id === notificationId);
+		return row ? this.rowid(row) : null;
+	}
+
+	markRead(query: string, bindings: unknown[]): number {
+		if (!query.includes("archived_at IS NULL") || !query.includes("read_at IS NULL")) {
+			throw new Error(`Mark-all update dropped a guard: ${query}`);
+		}
+		const [readAt, userId, ...rest] = bindings;
+		const matches = (row: HumanNotificationFixtureRow): boolean =>
+			row.userId === userId && row.archivedAt === null && row.readAt === null;
+		let changed: HumanNotificationFixtureRow[];
+		if (query.includes("notification_id IN (")) {
+			const ids = new Set(rest.map(String));
+			changed = this.rows.filter((row) => matches(row) && ids.has(row.id));
+		} else {
+			// The rowid bound has to be resolved *inside* the statement rather than
+			// handed to it as a number, so the query text is what is checked: a
+			// subquery, with its own user and id bindings ahead of the timestamp.
+			if (!ANCHOR_SUBQUERY_BOUND.test(query)) {
+				throw new Error(`Scoped mark-all update is unbounded: ${query}`);
+			}
+			const [anchorUserId, anchorNotificationId, renderedCreatedAt, ...scopeBindings] = rest;
+			const anchorRowid = this.anchorRowid(anchorUserId, anchorNotificationId);
+			const scoped = query.includes("AND world_id = ?") ?
+				(row: HumanNotificationFixtureRow) => row.worldId === scopeBindings[0]
+			: query.includes("AND actor_bot_id = ?") ?
+				(row: HumanNotificationFixtureRow) => row.actorBotId === scopeBindings[0]
+			:	() => true;
+			// Both halves, the way the statement asks for them: nothing inserted
+			// after the anchor, and nothing stamped later than what was rendered.
+			// A vanished anchor leaves the subquery NULL, every `rowid <= NULL` NULL,
+			// and the sweep a no-op — the direction this has to fail in.
+			const atOrBelowAnchor = (row: HumanNotificationFixtureRow): boolean =>
+				anchorRowid !== null && this.rowid(row) <= anchorRowid && row.createdAt <= String(renderedCreatedAt);
+			changed = this.rows.filter((row) => matches(row) && atOrBelowAnchor(row) && scoped(row));
+		}
+		for (const row of changed) {
+			row.readAt = String(readAt);
+		}
+		return changed.length;
+	}
+}
+
+class FakeHumanNotificationStatement implements D1PreparedStatementLike {
+	private bindings: unknown[] = [];
+	private readonly db: FakeHumanNotificationD1;
+	private readonly query: string;
+
+	constructor(db: FakeHumanNotificationD1, query: string) {
+		this.db = db;
+		this.query = query;
+	}
+
+	bind(...values: unknown[]): D1PreparedStatementLike {
+		this.bindings = values;
+		return this;
+	}
+
+	async first<T = unknown>(): Promise<T | null> {
+		if (!this.query.includes("SELECT 1 AS found")) {
+			throw new Error(`Unexpected query: ${this.query}`);
+		}
+		const [userId, notificationId] = this.bindings;
+		return this.db.anchorRowid(userId, notificationId) === null ? null : ({ found: 1 } as T);
+	}
+
+	async all<T = unknown>(): Promise<D1Result<T>> {
+		return { success: true, results: [] };
+	}
+
+	async run(): Promise<D1Result> {
+		this.db.runs.push({ query: this.query, bindings: this.bindings });
+		if (!this.query.includes("UPDATE human_notifications")) {
+			throw new Error(`Unexpected query: ${this.query}`);
+		}
+		return { success: true, meta: { changes: this.db.markRead(this.query, this.bindings) } };
+	}
+}
 
 type ExistingThread = {
 	id: string;

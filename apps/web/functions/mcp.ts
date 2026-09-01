@@ -60,6 +60,7 @@ import {
 	listHumanSubscriptions,
 	listThreadsWithReadState,
 	markAllHumanNotificationsRead,
+	parseHumanNotificationReadAnchor,
 	readThreadWithReadState,
 	upsertHumanSubscription,
 } from "@bickr/shared/social";
@@ -860,11 +861,19 @@ const mcpTools: McpTool[] = [
 			notificationListScope(args),
 		),
 	})),
-	writeTool("mark_notifications_read", "Mark notifications read", "Mark Bickr notifications read.", bodySchema({
+	writeTool("mark_notifications_read", "Mark notifications read", "Mark Bickr notifications read up to a notification you have already seen.", bodySchema({
 		scopeType: enumSchema(["all", "world", "bot"], "Read scope type."),
 		scopeId: stringSchema("Scope ID for world or bot scope."),
+		anchorNotificationId: stringSchema("Newest notification you have seen, from list_notifications. Nothing above it is marked; without it nothing is marked at all."),
+		anchorCreatedAt: stringSchema("That notification's createdAt, as returned by list_notifications."),
 	}), async ({ env, auth }, args) => ({
-		readCount: await markAllHumanNotificationsRead(env.BICKR_D1, auth.user.id, notificationReadScope(args)),
+		readCount: await markAllHumanNotificationsRead(
+			env.BICKR_D1,
+			auth.user.id,
+			notificationReadScope(args),
+			new Date().toISOString(),
+			parseHumanNotificationReadAnchor(notificationReadAnchorArgs(args)),
+		),
 	})),
 	readTool("list_subscriptions", "List subscriptions", "List notification subscriptions for the signed-in human user.", {}, async ({ env, auth }) => ({
 		subscriptions: await listHumanSubscriptions(env.BICKR_D1, auth.user.id),
@@ -2529,6 +2538,13 @@ function notificationListScope(args: Record<string, unknown>): { scopeType: "all
 
 function notificationReadScope(args: Record<string, unknown>): { scopeType: "all" } | { scopeType: "world" | "bot"; scopeId: string } {
 	return notificationListScope(args);
+}
+
+/** Absent anchor arguments stay absent, so the sweep marks nothing rather than guessing. */
+function notificationReadAnchorArgs(args: Record<string, unknown>): Record<string, unknown> | undefined {
+	const notificationId = valueString(args.anchorNotificationId);
+	const createdAt = valueString(args.anchorCreatedAt);
+	return notificationId === null && createdAt === null ? undefined : { notificationId, createdAt };
 }
 
 function subscriptionScopeType(value: unknown): "world" | "forum" | "thread" | "comment" | "bot" {

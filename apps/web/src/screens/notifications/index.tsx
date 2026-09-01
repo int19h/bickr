@@ -1,6 +1,7 @@
 import type {
 	HumanNotification,
 	HumanNotificationListScope,
+	HumanNotificationReadAnchor,
 	HumanNotificationReadScope,
 	HumanNotificationSummary,
 } from "@bickr/shared/model";
@@ -18,8 +19,10 @@ import {
 import { EmptyState, FilterBox, Icon, textValue, type TextLike } from "../../ui";
 import { TimeAgoLabel, compareHandles, matchesFilter } from "../../components/record-display";
 import {
-	humanNotificationSummaryWithReadScope,
+	appendUniqueHumanNotifications,
+	humanNotificationReadAnchorFor,
 	humanNotificationSummaryWithoutNotification,
+	reloadHumanNotificationPages,
 } from "./state";
 
 export type LoadHumanNotifications = (
@@ -48,7 +51,7 @@ export function NotificationsScreen({
 	listScope?: HumanNotificationListScope;
 	onLoadNotifications: LoadHumanNotifications;
 	onDismiss: (notification: HumanNotification) => Promise<boolean>;
-	onMarkAllRead: (scope?: HumanNotificationReadScope) => Promise<number | null>;
+	onMarkAllRead: (scope?: HumanNotificationReadScope, anchor?: HumanNotificationReadAnchor | null) => Promise<number | null>;
 	onMarkRead: (notification: HumanNotification) => Promise<string | null>;
 	onOpenNotification: (notification: HumanNotification) => void;
 	subtitle?: string;
@@ -92,7 +95,7 @@ export function NotificationsScreen({
 		if (next) {
 			setSummary((current) => ({
 				...next,
-				notifications: appendUniqueNotifications(current.notifications, next.notifications),
+				notifications: appendUniqueHumanNotifications(current.notifications, next.notifications),
 			}));
 			setMessage("");
 		} else {
@@ -134,30 +137,69 @@ export function NotificationsScreen({
 		return true;
 	}
 
-	async function markAllRead(): Promise<void> {
-		const readScope = notificationReadScopeForListScope(listScope);
-		const readCount = await onMarkAllRead(readScope);
+	// Every mark-all this screen makes is bounded by the newest notification it
+	// has loaded, so a group sweep and a whole-list sweep in one sitting share the
+	// same ceiling and neither reaches a notification that arrived after it.
+	//
+	// Nothing here is marked read locally. What the sweep covered depends on the
+	// anchor row's rowid, which no response carries, so no predicate this screen
+	// could write over its own list is sound — it would show rows read that the
+	// server deliberately left unread. The screen goes into its loading state
+	// instead and shows the refetched list when it lands.
+	async function markReadUpToLoaded(readScope: HumanNotificationReadScope): Promise<void> {
+		// Captured before the request goes out: the newest row this screen had, which
+		// is the ceiling the server sweeps up to.
+		const anchor = humanNotificationReadAnchorFor(summary.notifications);
+		const loadedCount = summary.notifications.length;
+		setLoading(true);
+		const readCount = await onMarkAllRead(readScope, anchor);
 		if (readCount === null) {
+			setLoading(false);
 			return;
 		}
-		const readAt = new Date().toISOString();
-		setSummary((current) =>
-			humanNotificationSummaryWithReadScope(current, readScope, readAt, readCount),
+		await reloadLoadedNotifications(loadedCount);
+	}
+
+	// The refetch is the whole of what a mark-all does to this screen: the read
+	// state of every row and the unread badge come from it and from nothing else.
+	// Reloading page by page up to what was already loaded keeps the list where
+	// the user left it instead of collapsing it back to the first page; the walk
+	// itself is bounded so it ends on every page shape.
+	//
+	// A walk that failed part-way is not an answer, so it is not shown as one: the
+	// pre-gesture list and its badge stay up, stale but the server's, until a load
+	// that finishes replaces them.
+	async function reloadLoadedNotifications(loadedCount: number): Promise<void> {
+		const version = loadVersion.current + 1;
+		loadVersion.current = version;
+		setLoading(true);
+		const result = await reloadHumanNotificationPages(
+			(offset) => onLoadNotifications("all", pageSize, offset, listScope),
+			{ isCancelled: () => loadVersion.current !== version, loadedCount, pageSize },
 		);
+		if (result.cancelled) {
+			return;
+		}
+		if (result.failed) {
+			setMessage("Could not refresh notifications.");
+		} else {
+			if (result.summary) {
+				setSummary(result.summary);
+			}
+			setMessage("");
+		}
+		setLoading(false);
+	}
+
+	async function markAllRead(): Promise<void> {
+		await markReadUpToLoaded(notificationReadScopeForListScope(listScope));
 	}
 
 	async function markGroupRead(group: NotificationGroup): Promise<void> {
 		if (group.unreadCount === 0) {
 			return;
 		}
-		const readCount = await onMarkAllRead(group.readScope);
-		if (readCount === null) {
-			return;
-		}
-		const readAt = new Date().toISOString();
-		setSummary((current) =>
-			humanNotificationSummaryWithReadScope(current, group.readScope, readAt, readCount),
-		);
+		await markReadUpToLoaded(group.readScope);
 	}
 
 	const filtered = useMemo(
@@ -349,15 +391,6 @@ function NotificationPageCard({
 			</div>
 		</NotificationSwipeDismissFrame>
 	);
-}
-
-function appendUniqueNotifications(
-	current: HumanNotification[],
-	next: HumanNotification[],
-): HumanNotification[] {
-	const seen = new Set(current.map((notification) => notification.id));
-	const appended = next.filter((notification) => !seen.has(notification.id));
-	return [...current, ...appended];
 }
 
 function notificationListScopeKey(scope: HumanNotificationListScope): string {

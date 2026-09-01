@@ -2456,19 +2456,26 @@ describe("Forum coordinator", () => {
 				created_at, read_at, archived_at
 			) VALUES
 				('hnt_world_a', ?, 'world_one', 'event:world:a', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'A', 'A', '/', NULL, NULL, ?, NULL, NULL),
-				('hnt_world_b', ?, 'world_one', 'event:world:b', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'B', 'B', '/', NULL, NULL, ?, NULL, NULL),
 				('hnt_bot_a', ?, 'world_two', 'event:bot:a', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'C', 'C', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_world_b', ?, 'world_one', 'event:world:b', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'B', 'B', '/', NULL, NULL, ?, NULL, NULL),
 				('hnt_read', ?, 'world_two', 'event:read', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'D', 'D', '/', NULL, NULL, ?, ?, NULL)`,
 		)
 			.bind(user.id, now, user.id, now, user.id, now, user.id, now, now)
 			.run();
 
+		// Every fixture row shares this second, so what makes `hnt_world_b` the
+		// anchor covering the whole set is that it is both the last of the unread
+		// rows written and the highest of them by id: the client picks the anchor
+		// as the newest row the list rendered, and the sweep will not reach past
+		// what was written by then. Writing it before `hnt_bot_a` instead would
+		// make `hnt_bot_a` a notification that arrived after the gesture.
+		const anchor = { notificationId: "hnt_world_b", createdAt: now };
 		const worldResponse = await markAllNotificationsReadRoute(
 			contextFor<typeof markAllNotificationsReadRoute>(
 				jsonRequest(
 					"http://example.com/api/me/notifications/read-all",
 					"POST",
-					{ scopeType: "world", scopeId: "world_one" },
+					{ scopeType: "world", scopeId: "world_one", anchor },
 					cookie,
 				),
 			),
@@ -2495,7 +2502,7 @@ describe("Forum coordinator", () => {
 				jsonRequest(
 					"http://example.com/api/me/notifications/read-all",
 					"POST",
-					{ scopeType: "bot", scopeId: "bot_a" },
+					{ scopeType: "bot", scopeId: "bot_a", anchor },
 					cookie,
 				),
 			),
@@ -2510,6 +2517,94 @@ describe("Forum coordinator", () => {
 			.bind(user.id)
 			.first<{ count: number }>();
 		expect(unread?.count).toBe(0);
+	});
+
+	it("bounds mark-all by the anchor the client rendered", async () => {
+		const cookie = await authCookie();
+		const user = await testEnv.BICKR_D1.prepare(`SELECT user_id AS id FROM users_index LIMIT 1`).first<{ id: string }>();
+		if (!user) {
+			throw new Error("Test user was not created.");
+		}
+		const before = "2026-05-06T11:59:00.000Z";
+		const anchorAt = "2026-05-06T12:00:00.000Z";
+		const after = "2026-05-06T12:00:01.000Z";
+		await testEnv.BICKR_D1.prepare(
+			`INSERT INTO human_notifications (
+				notification_id, user_id, world_id, event_key, notification_type,
+				actor_bot_id, actor_handle, actor_display_name,
+				source_type, source_id, target_type, target_id,
+				title, body, url_path, spotlight_id, spotlight_label,
+				created_at, read_at, archived_at
+			) VALUES
+				('hnt_anchor_old_one', ?, 'world_one', 'event:anchor:old-one', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'A', 'A', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_anchor_old_two', ?, 'world_two', 'event:anchor:old-two', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'B', 'B', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_anchor_row', ?, 'world_one', 'event:anchor:row', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'C', 'C', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_anchor_new_one', ?, 'world_one', 'event:anchor:new-one', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'D', 'D', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_anchor_new_two', ?, 'world_two', 'event:anchor:new-two', 'thread_created', 'bot_b', 'bot-b', 'Bot B', NULL, NULL, NULL, NULL, 'E', 'E', '/', NULL, NULL, ?, NULL, NULL),
+				('hnt_anchor_theirs', 'usr_someone_else', 'world_one', 'event:anchor:theirs', 'thread_created', 'bot_a', 'bot-a', 'Bot A', NULL, NULL, NULL, NULL, 'F', 'F', '/', NULL, NULL, ?, NULL, NULL)`,
+		)
+			.bind(user.id, before, user.id, before, user.id, anchorAt, user.id, after, user.id, after, before)
+			.run();
+
+		const readAll = async (body: Record<string, unknown>): Promise<Response> =>
+			markAllNotificationsReadRoute(
+				contextFor<typeof markAllNotificationsReadRoute>(
+					jsonRequest("http://example.com/api/me/notifications/read-all", "POST", body, cookie),
+				),
+			);
+		const unreadIds = async (): Promise<string[]> => {
+			const result = await testEnv.BICKR_D1.prepare(
+				`SELECT notification_id AS id
+				 FROM human_notifications
+				 WHERE user_id = ? AND read_at IS NULL
+				 ORDER BY notification_id`,
+			)
+				.bind(user.id)
+				.all<{ id: string }>();
+			return (result.results ?? []).map((row) => row.id);
+		};
+		const anchor = { notificationId: "hnt_anchor_row", createdAt: anchorAt };
+
+		// Two scoped calls of one gesture share an anchor, so neither reaches a
+		// notification created above it — including one the second scope gained
+		// while the first call was in flight.
+		const worldResponse = await readAll({ scopeType: "world", scopeId: "world_one", anchor });
+		expect(await worldResponse.json()).toMatchObject({ data: { readCount: 2 } });
+		const botResponse = await readAll({ scopeType: "bot", scopeId: "bot_b", anchor });
+		expect(await botResponse.json()).toMatchObject({ data: { readCount: 1 } });
+		expect(await unreadIds()).toEqual(["hnt_anchor_new_one", "hnt_anchor_new_two"]);
+
+		// An anchor is only accepted as a row of this user's: another user's row and
+		// a row that does not exist are the same rejection.
+		for (const rejected of [
+			{ notificationId: "hnt_anchor_theirs", createdAt: before },
+			{ notificationId: "hnt_anchor_missing", createdAt: before },
+			{ notificationId: "hnt_anchor_row", createdAt: "sometime yesterday" },
+		]) {
+			const response = await readAll({ scopeType: "all", anchor: rejected });
+			expect(response.status).toBe(400);
+			await expect(response.json()).resolves.toMatchObject({ error: "bad_request" });
+		}
+		expect(await unreadIds()).toEqual(["hnt_anchor_new_one", "hnt_anchor_new_two"]);
+
+		// No anchor is a client that rendered nothing, so it marks nothing.
+		const noAnchorResponse = await readAll({ scopeType: "all" });
+		expect(await noAnchorResponse.json()).toMatchObject({ data: { readCount: 0 } });
+		expect(await unreadIds()).toEqual(["hnt_anchor_new_one", "hnt_anchor_new_two"]);
+
+		// The newest of the two rows sharing a second: the tie-break carries the
+		// other one with it, which is how the list rendered them.
+		const catchUpResponse = await readAll({
+			scopeType: "all",
+			anchor: { notificationId: "hnt_anchor_new_two", createdAt: after },
+		});
+		expect(await catchUpResponse.json()).toMatchObject({ data: { readCount: 2 } });
+		expect(await unreadIds()).toEqual([]);
+		// Marking read never reaches out of the user's own rows.
+		const theirs = await testEnv.BICKR_D1
+			.prepare(`SELECT read_at AS readAt FROM human_notifications WHERE notification_id = 'hnt_anchor_theirs'`)
+			.first<{ readAt: string | null }>();
+		expect(theirs?.readAt).toBeNull();
 	});
 
 	it("lists human notifications by world and bot scopes", async () => {

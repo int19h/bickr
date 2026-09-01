@@ -53,6 +53,7 @@ import migration0051 from "../../migrations/0051_tombstoned_bot_sweep_index.sql?
 import migration0052 from "../../migrations/0052_delivery_and_notification_retention_indexes.sql?raw";
 import migration0053 from "../../migrations/0053_notification_source_indexes.sql?raw";
 import migration0054 from "../../migrations/0054_runtime_running_lease_recovery.sql?raw";
+import migration0055 from "../../migrations/0055_human_notification_keyset_indexes.sql?raw";
 
 const migrationSql = [
 	migration0001,
@@ -110,6 +111,7 @@ const migrationSql = [
 	migration0052,
 	migration0053,
 	migration0054,
+	migration0055,
 ];
 
 type D1SchemaRow = {
