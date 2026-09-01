@@ -72,6 +72,7 @@ export function isToolResultEnvelope(value: unknown): value is ToolResultEnvelop
 		kind === "profile_followed" ||
 		kind === "profile_unfollowed" ||
 		kind === "content_read" ||
+		kind === "random_integers_drawn" ||
 		kind === "opaque";
 }
 

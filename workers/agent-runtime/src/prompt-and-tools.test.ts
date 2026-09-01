@@ -3,6 +3,7 @@ import type { BotDocument } from "@bickr/shared/model";
 import { providerSelfAuthor } from "./constants";
 import {
 	bickrFunctionToolArgumentExamples,
+	mutableToolNames,
 	openRouterServerToolSelection,
 	providerAvatarDescriptionToolDefinitions,
 	providerTranslationToolDefinitions,
@@ -30,6 +31,62 @@ describe("Bickr function tools", () => {
 			);
 			expectSchemaValue(example, definition.function.parameters, definition.function.name);
 		}
+	});
+
+	it("offers draw_random_integers in every normal round, whatever the posting limits", () => {
+		const rounds = [
+			toolDefinitionsForProviderRound(),
+			toolDefinitionsForProviderRound(4_000, { includeLogOffTool: false }),
+			toolDefinitionsForProviderRound(4_000, { includeMetaCompactionTool: false }),
+			toolDefinitionsForProviderRound(4_000, {
+				postingLimits: { threadBodyCharacters: 111, commentBodyCharacters: 222 },
+			}),
+		];
+
+		for (const round of rounds) {
+			expect(round.map((definition) => definition.function.name)).toContain("draw_random_integers");
+		}
+	});
+
+	it("keeps draw_random_integers out of the single-purpose rounds", () => {
+		const singlePurpose = [
+			...providerTranslationToolDefinitions(),
+			...providerAvatarDescriptionToolDefinitions(),
+		];
+
+		expect(singlePurpose.map((definition) => definition.function.name)).not.toContain("draw_random_integers");
+	});
+
+	it("declares both the single-range and array shapes it accepts", () => {
+		const definition = toolDefinitionsForProviderRound().find(
+			(candidate) => candidate.function.name === "draw_random_integers",
+		);
+		const ranges = definition?.function.parameters.properties.ranges;
+		const rangeObject = {
+			type: "object",
+			required: ["min", "max"],
+			additionalProperties: false,
+			properties: {
+				min: { type: "integer", minimum: -Number.MAX_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER },
+				max: { type: "integer", minimum: -Number.MAX_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER },
+			},
+		};
+
+		expect(definition?.function.parameters.required).toEqual(["ranges"]);
+		expect(ranges).toMatchObject({
+			anyOf: [rangeObject, { type: "array", items: rangeObject, minItems: 1, maxItems: 32 }],
+		});
+		expect(definition?.function.description).not.toMatch(/\b(bot|AI|model|assistant|owner|persona)\b/i);
+	});
+
+	it("refuses to walk a schema node it does not recognize", () => {
+		expect(() => expectSchemaValue({}, { type: "tuple" }, "example")).toThrow(/unrecognized schema node/);
+		expect(() => expectSchemaValue({}, {}, "example")).toThrow(/unrecognized schema node/);
+		expect(() => expectSchemaValue(1, { anyOf: [{ type: "string" }, {}] }, "example")).toThrow(/unrecognized schema node/);
+	});
+
+	it("does not let a draw satisfy the do-something-before-logging-off requirement", () => {
+		expect(mutableToolNames.has("draw_random_integers")).toBe(false);
 	});
 
 	it("keeps native OpenRouter server tools native", () => {
@@ -99,7 +156,43 @@ function allFunctionToolDefinitions(): FunctionToolDefinition[] {
 	];
 }
 
+const recognizedSchemaNodeTypes = new Set(["string", "number", "integer", "boolean", "array", "object"]);
+
+/**
+ * Every node the walker meets has to be one it understands, checked before any
+ * value is compared against it. Without this, a node with no recognized type —
+ * an anyOf branch that lost its own type, say — would be walked and assert
+ * nothing at all about the example it is meant to check.
+ */
+function expectRecognizedSchemaNode(schema: Record<string, unknown>, path: string): void {
+	if (Array.isArray(schema.anyOf)) {
+		for (const [index, branch] of schema.anyOf.entries()) {
+			const branchPath = `${path}|anyOf[${index}]`;
+			expect(Boolean(branch) && typeof branch === "object" && !Array.isArray(branch), branchPath).toBe(true);
+			expectRecognizedSchemaNode(branch as Record<string, unknown>, branchPath);
+		}
+		return;
+	}
+	if (!recognizedSchemaNodeTypes.has(String(schema.type))) {
+		expect.unreachable(`${path}: unrecognized schema node with type ${JSON.stringify(schema.type ?? null)}`);
+	}
+}
+
 function expectSchemaValue(value: unknown, schema: Record<string, unknown>, path: string): void {
+	expectRecognizedSchemaNode(schema, path);
+	if (Array.isArray(schema.anyOf)) {
+		// A union node declares alternatives; the value has to satisfy one of them.
+		const matched = schema.anyOf.some((branch, index) => {
+			try {
+				expectSchemaValue(value, branch as Record<string, unknown>, `${path}|anyOf[${index}]`);
+				return true;
+			} catch {
+				return false;
+			}
+		});
+		expect(matched, `${path} matched no anyOf branch`).toBe(true);
+		return;
+	}
 	const type = schema.type;
 	if (type === "object") {
 		expect(value !== null && typeof value === "object" && !Array.isArray(value), path).toBe(true);
@@ -138,7 +231,5 @@ function expectSchemaValue(value: unknown, schema: Record<string, unknown>, path
 		}
 		return;
 	}
-	if (type === "boolean") {
-		expect(typeof value, path).toBe("boolean");
-	}
+	expect(typeof value, path).toBe("boolean");
 }

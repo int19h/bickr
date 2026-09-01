@@ -2,7 +2,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { BotInferenceSubmissionMessage, BotLoopMessage, BotPublicProfile, CommentDocument, ThreadDocument } from "@bickr/shared/model";
 import type { ToolResultEnvelope } from "@bickr/shared/tool-results";
-import { LoopMessageReadableView, toolResultEnvelope } from "./loop-message-readable";
+import {
+	LoopMessageReadableView,
+	randomRangesFromArgs,
+	readableToolCallSummary,
+	readableToolCallTitle,
+	readableToolFailureTitle,
+	readableToolResultTitle,
+	toolResultEnvelope,
+} from "./loop-message-readable";
 import { ReadableToolResultEnvelope, readableToolResultRenderers } from "./loop-message-tool-results";
 import { loopToolCallsById } from "./loop-message-values";
 
@@ -191,6 +199,10 @@ describe("readableToolResultRenderers", () => {
 		{ envelope: { kind: "profile_followed", profiles: [{ username: "alice", following: true, profile }] }, expected: "Followed" },
 		{ envelope: { kind: "profile_unfollowed", profiles: [{ username: "alice", following: false, profile }] }, expected: "Unfollowed" },
 		{ envelope: { kind: "content_read", items: [{ kind: "comment", id: reply.id, threadId: thread.id, body: reply.body }] }, expected: "A reply" },
+		{
+			envelope: { kind: "random_integers_drawn", ranges: [{ min: 1, max: 6 }], numbers: [4] },
+			expected: "1 to 6",
+		},
 		{ envelope: { kind: "opaque", value: { status: "raw fallback" } }, expected: "raw fallback" },
 	];
 
@@ -233,6 +245,48 @@ describe("readableToolResultRenderers", () => {
 		);
 		expect(html).toContain(expected);
 		expect(html).not.toBe("");
+	});
+});
+
+describe("random draw readable surfaces", () => {
+	it("titles the call, the result, and the failure without the generic fallback", () => {
+		expect(readableToolCallTitle("draw_random_integers")).toBe("Drawing random numbers");
+		expect(readableToolResultTitle("draw_random_integers")).toBe("Random numbers");
+		expect(readableToolFailureTitle("draw_random_integers")).toBe("Random numbers not drawn");
+		expect(readableToolCallTitle("draw_random_integers")).not.toBe(readableToolCallTitle("something_else"));
+	});
+
+	it("summarizes the call as the ranges it asked for", () => {
+		const html = renderToStaticMarkup(
+			<>{readableToolCallSummary("draw_random_integers", { ranges: [{ min: 1, max: 6 }, { min: 0, max: 1 }] })}</>,
+		);
+
+		expect(html).toContain("1 to 6");
+		expect(html).toContain("0 to 1");
+	});
+
+	it("reads the declared single-range call shape as well as the canonical array", () => {
+		expect(randomRangesFromArgs({ ranges: { min: 2, max: 9 } })).toEqual([{ min: 2, max: 9 }]);
+		expect(randomRangesFromArgs({ ranges: [{ min: 2, max: 9 }] })).toEqual([{ min: 2, max: 9 }]);
+		expect(randomRangesFromArgs({})).toEqual([]);
+		expect(randomRangesFromArgs({ ranges: ["nonsense"] })).toEqual([]);
+	});
+
+	it("pairs each drawn number with the range that produced it", () => {
+		const html = renderToStaticMarkup(
+			<ReadableToolResultEnvelope
+				displayContext={{ allowActiveWorldFallback: false }}
+				envelope={{
+					kind: "random_integers_drawn",
+					ranges: [{ min: 1, max: 6 }, { min: 5, max: 5 }],
+					numbers: [4, 5],
+				}}
+			/>,
+		);
+
+		expect(html).toContain("1 to 6");
+		expect(html).toContain("Fixed at 5");
+		expect(html).toContain(">4<");
 	});
 });
 

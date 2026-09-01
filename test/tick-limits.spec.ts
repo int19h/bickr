@@ -46,6 +46,7 @@ import type {
 import type { RuntimeErrorCause } from "@bickr/shared/runtime-errors";
 import { loopMessageContributesToProviderHistory } from "../workers/agent-runtime/src/provider/sanitize";
 import { malformedToolCallSelfCorrection } from "../workers/agent-runtime/src/runtime/bot-runtime";
+import { RuntimeTools } from "../workers/agent-runtime/src/runtime/tools";
 
 type CapturedLoopMessage = {
 	message: BotInferenceSubmissionMessage;
@@ -737,6 +738,135 @@ describe("Tick limits and recovery", () => {
 				}),
 			}),
 		]);
+	});
+
+	/**
+	 * A real RuntimeTools for the one control this test drives. The draw touches
+	 * no storage and no forum service, so every other capability throws if the
+	 * tool ever reaches for it.
+	 */
+	const drawRandomIntegersTools = () => {
+		const unreachable = (capability: string) => () => {
+			throw new Error(`draw_random_integers must not use ${capability}.`);
+		};
+		let toolEventSeq = 0;
+		return new RuntimeTools({
+			env: { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV },
+			appendEvent: (runId, type, payload) => {
+				toolEventSeq += 1;
+				return runtimeEvent(toolEventSeq, runId, type, payload as Record<string, unknown>);
+			},
+			replaceEventPayload: (event, payload) => ({ ...event, payload }),
+			throwIfStopped: () => {},
+			forumService: unreachable("the forum coordinator"),
+			vectorSearchBots: unreachable("vector search"),
+			readCommentTreeTokenBudget: unreachable("the comment-tree token budget"),
+			providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
+			recentToolResultRows: () => [],
+			setLastSuccessfulLogOffSeq: unreachable("the log-off marker"),
+		});
+	};
+
+	it.each([
+		{
+			shape: "a single range object",
+			sentRanges: { min: 1, max: 6 },
+			// The singular form the schema also declares, wrapped into the array.
+			absentFromHistory: 'ranges\\":{',
+		},
+		{
+			shape: "an array whose range carries properties normalization drops",
+			sentRanges: [{ min: 1, max: 6, label: "d6" }],
+			// Already an array at the outer level, so only a structural comparison
+			// against the canonical ranges notices that this call was rewritten.
+			absentFromHistory: "d6",
+		},
+	])("stores the canonical tool call in provider history when a tool normalizes $shape", async ({ sentRanges, absentFromHistory }) => {
+		const appendedLoopMessages: CapturedLoopMessage[] = [];
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce(providerResponseWithToolCall("call-draw", "draw_random_integers", { ranges: sentRanges }))
+			.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off", "log_off", { reason: "done rolling" }));
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
+				runtimeEvent(1, runId, type as BotRuntimeEvent["type"], payload),
+			appendLoopMessage: (
+				_runId: string,
+				message: BotInferenceSubmissionMessage,
+				origin: BotLoopMessage["origin"],
+				status: NonNullable<BotLoopMessage["status"]> = "complete",
+			) => {
+				appendedLoopMessages.push({ message, origin, status });
+				return {
+					seq: appendedLoopMessages.length,
+					runId: "run-effective-args",
+					role: message.role,
+					message,
+					origin,
+					status,
+					tokenEstimate: 0,
+					createdAt: new Date().toISOString(),
+				};
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(),
+				promptTokens: 100,
+				requestMessages: providerHistoryFromCapturedLoopMessages(appendedLoopMessages),
+			}),
+			// The draw runs through the real RuntimeTools rather than a stubbed
+			// result, so this covers the whole chain the fix is about: the tool
+			// deciding its arguments were normalized, and the loop storing that
+			// decision into the history it replays. A stub that recomputed the
+			// rule here would keep passing after a regression in the tool.
+			executeTool: async (
+				bot: BotDocument,
+				runId: string,
+				name: string,
+				args: Record<string, unknown>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) =>
+				name === "draw_random_integers" ?
+					drawRandomIntegersTools().executeTool(bot, runId, name, args, { setupMode: "new_iteration", ...runContext })
+				:	{ name, result: { ok: true }, providerResult: { ok: true } },
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: (_runId: string, signal: AbortSignal) => {
+				if (signal.aborted) {
+					throw new Error("Unexpected abort.");
+				}
+			},
+		});
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (
+				bot: BotDocument,
+				settings: { baseUrl: string; model: string; temperature: number },
+				runId: string,
+				messages: Array<Record<string, unknown>>,
+				runContext: { mode: "normal"; signal: AbortSignal },
+			) => Promise<{ logOffCalled: boolean }>;
+		}).runProviderLoop.bind(runtime);
+
+		await expect(
+			runProviderLoop(
+				fakeBotDocument({ allowEarlyLogOff: true }),
+				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-effective-args",
+				[],
+				{ mode: "normal", signal: new AbortController().signal },
+			),
+		).resolves.toMatchObject({ logOffCalled: true });
+
+		const recordedDraw = appendedLoopMessages
+			.flatMap(({ message }) => message.tool_calls ?? [])
+			.find((toolCall) => toolCall.function.name === "draw_random_integers");
+		expect(recordedDraw?.function.arguments).toBe('{"ranges":[{"min":1,"max":6}]}');
+		// The shape the provider actually sent must not survive into the history
+		// it will be shown on its next round.
+		expect(JSON.stringify(appendedLoopMessages)).not.toContain(absentFromHistory);
 	});
 
 	it.each([

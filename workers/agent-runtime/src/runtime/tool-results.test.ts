@@ -6,6 +6,7 @@ import {
 	providerSafeJsonValue,
 	providerSerializationContext,
 	providerToolResultPayload,
+	providerToolResultUsesTokenBudget,
 	pruneReadContentTreeForProviderBudget,
 } from "./tool-results";
 
@@ -836,6 +837,25 @@ describe("self-authored forum content", () => {
 		) as { activities: Array<Record<string, unknown>> };
 
 		expect(result.activities[0]?.replyTo).toMatchObject({ author: "u/sabine_h" });
+	});
+});
+
+describe("drawn random integers", () => {
+	it("hands the provider the bare array of numbers", () => {
+		const payload = providerToolResultPayload(
+			"draw_random_integers",
+			[4, 5],
+			{ ranges: [{ min: 1, max: 6 }, { min: 5, max: 5 }] },
+			readingParticipant(),
+			{},
+			{ kind: "random_integers_drawn", ranges: [{ min: 1, max: 6 }, { min: 5, max: 5 }], numbers: [4, 5] },
+		);
+
+		expect(payload).toEqual([4, 5]);
+	});
+
+	it("needs no per-tool pruning, because a draw is bounded by the range cap", () => {
+		expect(providerToolResultUsesTokenBudget("draw_random_integers")).toBe(false);
 	});
 });
 

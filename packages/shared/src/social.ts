@@ -5074,6 +5074,7 @@ export function seenItemsFromToolResultEnvelope(envelope: ToolResultEnvelope): S
 			return envelope.items.map((item) => ({ type: item.kind, id: item.id }));
 		case "profile_followed":
 		case "profile_unfollowed":
+		case "random_integers_drawn":
 		case "opaque":
 			return [];
 		default:
@@ -8413,6 +8414,7 @@ function spotlightStandardHumanNotifications(
 		case "profile_unfollowed":
 			return spotlightProfileActionHumanNotifications(envelope.profiles, false, bot, input);
 		case "content_read":
+		case "random_integers_drawn":
 		case "opaque":
 			return [];
 		default:

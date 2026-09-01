@@ -45,6 +45,7 @@ import {
 } from '@bickr/shared/model';
 import { SelfCorrectingToolCallError } from '../errors';
 import { repairInvalidUnicodeText, unicodeSafeSlice } from '../provider/sanitize';
+import { randomIntegersForRanges } from './random-integers';
 import type {
 	DuplicateReply,
 	Env,
@@ -76,6 +77,8 @@ import {
 	numberArg,
 	providerToolArgs,
 	queryFollowersToolArgs,
+	randomRangesArg,
+	randomRangesArgIsCanonical,
 	resolveToolArgs,
 	stringArg,
 	usernameArg,
@@ -353,6 +356,21 @@ export class RuntimeTools {
 				await markBotSeenContent(this.runtime.env.BICKR_D1, bot.id, [{ type: 'bot', id: feed.bot.id }], 'tool:view_activity', runId);
 				result = await this.annotateActivityFeedFollowStatus(bot.id, feed);
 				envelope = { kind: 'opaque', value: result };
+				break;
+			}
+			case 'draw_random_integers': {
+				const ranges = randomRangesArg(normalizedArgs.ranges);
+				const numbers = randomIntegersForRanges(ranges);
+				result = numbers;
+				envelope = { kind: 'random_integers_drawn', ranges, numbers };
+				if (!randomRangesArgIsCanonical(args.ranges, ranges)) {
+					// Normalization changed the argument: the declared singular form was
+					// wrapped, or a range carried extra properties that were dropped.
+					// Republish the canonical array so the replayed assistant tool call
+					// shows the shape the schema asks for rather than teaching the
+					// participant the other one from its own history.
+					effectiveArgs = { ...normalizedArgs };
+				}
 				break;
 			}
 			case 'log_off':

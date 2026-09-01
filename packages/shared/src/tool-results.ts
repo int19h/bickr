@@ -46,6 +46,17 @@ export type ToolResultProfileAction = {
 	activityId?: string;
 };
 
+/**
+ * One inclusive integer range a participant asked to draw a number from. Shared
+ * rather than runtime-local because the drawn envelope carries the ranges to
+ * every owner-facing consumer, which must be able to label each number with the
+ * range it came from.
+ */
+export type RandomRangeTarget = {
+	min: number;
+	max: number;
+};
+
 export type ToolResultEnvelope =
 	| {
 			kind: "thread_created";
@@ -71,6 +82,11 @@ export type ToolResultEnvelope =
 	| {
 			kind: "content_read";
 			items: ToolResultContentItem[];
+	  }
+	| {
+			kind: "random_integers_drawn";
+			ranges: RandomRangeTarget[];
+			numbers: number[];
 	  }
 	| {
 			kind: "opaque";

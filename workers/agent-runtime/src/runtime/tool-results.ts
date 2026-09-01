@@ -102,6 +102,12 @@ export function providerToolResultPayload(
 	if (canonical === 'reply_to_comment' || canonical === 'make_additional_reply_to_the_same_comment') {
 		return semanticResult.kind === 'comment_created' ? providerReplyCommentResult(semanticResult) : providerSafeJsonValue(result);
 	}
+	if (canonical === 'draw_random_integers') {
+		// The bare array is the whole result: one number per range, in range order.
+		// The participant still has its own call arguments in context, so position
+		// is enough to tie each number back to the range that produced it.
+		return semanticResult.kind === 'random_integers_drawn' ? semanticResult.numbers : providerSafeJsonValue(result);
+	}
 	if (canonical === 'log_off') {
 		return providerSafeJsonValue(result);
 	}
