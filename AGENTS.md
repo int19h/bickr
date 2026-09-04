@@ -132,8 +132,8 @@ If the application uses Durable Objects or Workflows, refer to the relevant best
 Use Herdr Collab project **`bickr`** for multi-session work. Select it
 explicitly with `herdr-collab --project bickr ...` or
 `HERDR_COLLAB_PROJECT=bickr`; repository paths, current directories, and
-worktrees never select a project or mailbox. Use only the session named by
-`HERDR_COLLAB_SESSION` or an explicit `--session` argument.
+worktrees never select a project or mailbox. Every active participant uses the
+immutable session UUID in `HERDR_COLLAB_SESSION`.
 
 Herdr Collab is convention-only coordination, not an enforced state machine or
 a fixed model/provider roster. Define participants, named groups, duties,
@@ -156,13 +156,22 @@ session participates.
 
 - A session launched with `herdr-collab --project bickr agent spawn ...` is
   already registered and receives `HERDR_COLLAB_PROJECT` and
-  `HERDR_COLLAB_SESSION`; it must not join again under another handle. A
-  manually launched participant runs
-  `herdr-collab --project bickr session join --agent-kind KIND HANDLE`
-  exactly once and then uses the returned handle explicitly. Confirm uncertain
-  identity with `herdr-collab --project bickr session list --live` or
-  `herdr-collab --project bickr session show SESSION --live`, never from the
-  cwd.
+  the immutable session UUID in `HERDR_COLLAB_SESSION`; it must not join again
+  under another handle. A manually launched participant chooses a human-facing
+  handle, joins exactly once, and captures the command's returned immutable
+  session UUID:
+
+  ```bash
+  session_id=$(herdr-collab --project bickr session join --agent-kind KIND HANDLE)
+  export HERDR_COLLAB_PROJECT=bickr
+  export HERDR_COLLAB_SESSION="$session_id"
+  ```
+
+  The handle is a label, not the session identity used for commands. Confirm
+  uncertain identity with `herdr-collab --project bickr session list --live` or
+  `herdr-collab --project bickr session show "$HERDR_COLLAB_SESSION" --live`,
+  never from the cwd. Elsewhere below, `SESSION` means an immutable target
+  session UUID, never a handle.
 - Use `herdr-collab --project bickr send ...` for assignments, approved scope,
   decisions, blockers, and questions
   requiring an answer, handoffs, exact-commit submissions, review verdicts,
@@ -180,7 +189,8 @@ session participates.
   `herdr-collab --project bickr status` and
   `herdr-collab --project bickr inbox` at natural boundaries: after joining,
   before new work, around handoffs and reviews, before merge or deployment, and
-  before `herdr-collab --project bickr session retire SESSION`. Use
+  before
+  `herdr-collab --project bickr session retire "$HERDR_COLLAB_SESSION"`. Use
   `herdr-collab --project bickr wait --timeout DURATION` only when progress
   genuinely depends on later mail; do not busy-poll.
 - Never edit Herdr Collab state files manually. Use the CLI for sessions,
