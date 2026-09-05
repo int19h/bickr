@@ -323,7 +323,7 @@ describe("compaction reasoning policy", () => {
 		expect(policy).toMatchObject({
 			cacheControl: false,
 			compactionReasoningFloor: { kind: "explicit_effort", effort: "low" },
-			contextLength: 1_048_576,
+			contextLength: 1_310_720,
 			disabledReasoning: true,
 			prefill: { kind: "provider_matrix", version: 2 },
 			requiredToolCalls: { fallback: { supported: true } },
@@ -654,7 +654,7 @@ describe("canonical compaction reasoning resolution", () => {
 	});
 
 	it("preserves a shipped unsupported/absent model-default baseline without a request", () => {
-		const model = "arcee-ai/virtuoso-large";
+		const model = "moonshotai/kimi-k2";
 		const policy = compactionReasoningPolicyForModel(model, true);
 		expect(resolveCompactionReasoningSelection({
 			policy,
