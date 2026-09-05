@@ -206,8 +206,6 @@ export function botFacingRuntimeErrorMessage(error: RuntimeErrorCause | string |
 
 export function compactionReasoningRefusalMessage(refusal: CompactionReasoningRefusal): string {
 	switch (refusal.kind) {
-		case "support_unknown_for_required_effort":
-			return `Compaction requires reasoning effort ${refusal.requiredEffort}, but nothing establishes that this model supports reasoning at all.`;
 		case "no_supported_effort":
 			return `Compaction requires reasoning effort ${refusal.required.effort}, but this model does not support reasoning.`;
 	}

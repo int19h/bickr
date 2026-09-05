@@ -39,30 +39,4 @@ describe('compaction reasoning refusal diagnostics', () => {
 		});
 		expect(JSON.stringify(runtimeErrorCause(error))).not.toMatch(/providerRouting|apiKey|prompt/i);
 	});
-
-	it('reports unknown effort support as a typed refusal', () => {
-		const error = new CompactionReasoningRefusalError(
-			{
-				kind: 'support_unknown_for_required_effort',
-				requiredEffort: 'high',
-			},
-			{
-				configuration: { kind: 'explicit_effort', effort: 'high' },
-				modelDefault: { kind: 'provider_default', relativeOrder: 'unknown' },
-				safetyFloor: { kind: 'reasoning_disabled' },
-				learnedFloor: null,
-				baselineSelection: { kind: 'reasoning_disabled' },
-				support: 'unknown',
-				policySource: 'openrouter_generated',
-			},
-		);
-
-		expect(runtimeErrorCause(error)).toMatchObject({
-			kind: 'compaction_reasoning_refusal',
-			refusal: {
-				kind: 'support_unknown_for_required_effort',
-				requiredEffort: 'high',
-			},
-		});
-	});
 });
