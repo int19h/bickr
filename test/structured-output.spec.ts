@@ -27,6 +27,7 @@ import type {
 	ProviderToolDefinition,
 } from "./helpers/index-harness";
 import { compactionReasoningFallbackStateKey } from "../workers/agent-runtime/src/constants";
+import { runtimeErrorCause } from "../workers/agent-runtime/src/errors";
 import type { CompactionReasoningDiagnostic } from "../workers/agent-runtime/src/errors";
 
 type CompactionProviderResult = {
@@ -452,6 +453,199 @@ describe("Structured output", () => {
 			});
 			expect(runtimeState.get(compactionReasoningFallbackStateKey)).toBe(frozenRecord);
 			expect(deleteRuntimeState).not.toHaveBeenCalled();
+		});
+
+		it("passes an explicit effort for an unlisted OpenRouter model from policy resolution into the provider request", async () => {
+			const originalFetch = globalThis.fetch;
+			const runtimeState = new Map<string, unknown>();
+			const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+				async () => Response.json({
+					choices: [{
+						message: {
+							content: JSON.stringify({
+								[providerCompactionSummaryProperty]: "I remember the important parts.",
+							}),
+						},
+					}],
+				}),
+			);
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent: vi.fn(),
+					deleteRuntimeState: (key: string) => runtimeState.delete(key),
+					runtimeStateRecord: (key: string) => {
+						const value = runtimeState.get(key);
+						return value && typeof value === "object" && !Array.isArray(value)
+							? value as Record<string, unknown>
+							: undefined;
+					},
+					setRuntimeState: (key: string, value: unknown) => runtimeState.set(key, value),
+					throwIfStopped: vi.fn(),
+				});
+				const compactionReasoningForSettings = (BotRuntime.prototype as unknown as {
+					compactionReasoningForSettings: (settings: {
+						baseUrl: string;
+						compactionReasoning: { kind: "explicit_effort"; effort: "low" };
+						model: string;
+					}) => CompactionReasoningDiagnostic & { runtimeFallback: { kind: "none" } };
+				}).compactionReasoningForSettings.bind(runtime);
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<CompactionProviderResult>;
+				}).callProviderForCompaction.bind(runtime);
+				const settings = {
+					baseUrl: "https://openrouter.ai/api/v1",
+					compactionReasoning: { kind: "explicit_effort", effort: "low" } as const,
+					model: "provider/not-yet-in-the-capabilities-table",
+					temperature: 0.2,
+				};
+
+				const reasoning = compactionReasoningForSettings(settings);
+				expect(reasoning).toEqual({
+					decision: {
+						kind: "configuration",
+						request: { kind: "explicit_effort", effort: "low" },
+					},
+					runtimeFallback: { kind: "none" },
+					selection: { kind: "explicit_effort", effort: "low" },
+					provenance: {
+						baselineSelection: { kind: "model_default" },
+						configuration: { kind: "explicit_effort", effort: "low" },
+						learnedFloor: null,
+						modelDefault: { kind: "provider_default", relativeOrder: "unknown" },
+						policySource: "openrouter_unknown",
+						safetyFloor: { kind: "model_default" },
+						support: "unknown",
+					},
+				});
+
+				const response = await callProviderForCompaction(
+					settings,
+					[{ role: "user", content: "Compact the retained activity." }],
+					"run-unlisted-openrouter-compaction",
+					new AbortController().signal,
+					{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+					undefined,
+					"structured_output",
+					0,
+					"2026-09-05T00:00:00.000Z",
+					undefined,
+					reasoning,
+				);
+
+				expect(response.content).toBe("I remember the important parts.");
+				expect(fetchMock).toHaveBeenCalledTimes(1);
+				const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { reasoning?: unknown };
+				expect(body.reasoning).toEqual({ effort: "low", exclude: false });
+				expect(response.compactionReasoning).toEqual(reasoning);
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
+		});
+
+		it("preserves an unlisted OpenRouter model's explicit provider rejection without a reasoning fallback", async () => {
+			const originalFetch = globalThis.fetch;
+			const runtimeState = new Map<string, unknown>();
+			const setRuntimeState = vi.fn((key: string, value: unknown) => runtimeState.set(key, value));
+			const responseBody = JSON.stringify({
+				error: {
+					code: 400,
+					message: "reasoning effort low is not supported for this model",
+					metadata: {
+						error_type: "invalid_request_error",
+						provider_name: "Google AI Studio",
+						raw: "low reasoning effort is unavailable",
+					},
+				},
+			});
+			const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+				async () => new Response(responseBody, { status: 400 }),
+			);
+			vi.stubGlobal("fetch", fetchMock);
+			try {
+				const appendEvent = vi.fn();
+				const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+					appendEvent,
+					deleteRuntimeState: (key: string) => runtimeState.delete(key),
+					runtimeStateRecord: (key: string) => {
+						const value = runtimeState.get(key);
+						return value && typeof value === "object" && !Array.isArray(value)
+							? value as Record<string, unknown>
+							: undefined;
+					},
+					setRuntimeState,
+					throwIfStopped: vi.fn(),
+				});
+				const compactionReasoningForSettings = (BotRuntime.prototype as unknown as {
+					compactionReasoningForSettings: (settings: {
+						baseUrl: string;
+						compactionReasoning: { kind: "explicit_effort"; effort: "low" };
+						model: string;
+					}) => CompactionReasoningDiagnostic & { runtimeFallback: { kind: "none" } };
+				}).compactionReasoningForSettings.bind(runtime);
+				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
+					callProviderForCompaction: (...args: unknown[]) => Promise<CompactionProviderResult>;
+				}).callProviderForCompaction.bind(runtime);
+				const settings = {
+					baseUrl: "https://openrouter.ai/api/v1",
+					compactionReasoning: { kind: "explicit_effort", effort: "low" } as const,
+					model: "provider/not-yet-in-the-capabilities-table",
+					temperature: 0.2,
+				};
+				const reasoning = compactionReasoningForSettings(settings);
+
+				let thrown: unknown;
+				try {
+					await callProviderForCompaction(
+						settings,
+						[{ role: "user", content: "Compact the retained activity." }],
+						"run-unlisted-openrouter-rejection",
+						new AbortController().signal,
+						{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
+						undefined,
+						"structured_output",
+						0,
+						"2026-09-05T00:00:00.000Z",
+						undefined,
+						reasoning,
+					);
+				} catch (error) {
+					thrown = error;
+				}
+
+				expect(fetchMock).toHaveBeenCalledTimes(1);
+				const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { reasoning?: unknown };
+				expect(body.reasoning).toEqual({ effort: "low", exclude: false });
+				expect(thrown).toMatchObject({
+					name: "ProviderCompactionRequestError",
+					compactionReasoning: {
+						decision: { kind: "configuration" },
+						selection: { kind: "explicit_effort", effort: "low" },
+						provenance: { policySource: "openrouter_unknown", support: "unknown" },
+					},
+				});
+				expect(runtimeErrorCause(thrown)).toEqual({
+					kind: "provider_compaction_request",
+					cause: {
+						kind: "provider_request",
+						status: 400,
+						body: responseBody,
+						providerError: {
+							kind: "provider_error",
+							status: 400,
+							message: "reasoning effort low is not supported for this model",
+							errorType: "invalid_request_error",
+							providerName: "Google AI Studio",
+							rawText: "low reasoning effort is unavailable",
+						},
+					},
+				});
+				expect(appendEvent).not.toHaveBeenCalled();
+				expect(setRuntimeState).not.toHaveBeenCalled();
+				expect(runtimeState.has(compactionReasoningFallbackStateKey)).toBe(false);
+			} finally {
+				vi.stubGlobal("fetch", originalFetch);
+			}
 		});
 
 		it("falls back to minimal compaction reasoning when a model rejects disabled reasoning", async () => {

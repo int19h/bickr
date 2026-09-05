@@ -294,10 +294,6 @@ export type CompactionReasoningDecisionProvenance =
 
 export type CompactionReasoningRefusal =
 	| {
-			kind: "support_unknown_for_required_effort";
-			requiredEffort: CompactionReasoningEffort;
-	  }
-	| {
 			kind: "no_supported_effort";
 			required: Extract<CompactionReasoningSelection, { kind: "explicit_effort" }>;
 			supportedEfforts: readonly CompactionReasoningEffort[];
@@ -564,12 +560,10 @@ export function resolveCompactionReasoningSelection(input: {
 			const observed = orderedCompactionReasoningEfforts(input.capabilities.support.efforts);
 			const minimumObserved = observed[0];
 			if (minimumObserved === undefined) {
-				return unknownCompactionReasoningSupportResolution(
-					requiredSelection,
-					input,
-					floorDecision,
-					provenance,
-				);
+				// The internal type permits incomplete partial evidence even though
+				// generated capability rows currently omit this empty shape. With no
+				// affirmative support boundary, preserve the explicit provider request.
+				return selected(requiredSelection, { kind: "none" });
 			}
 			if (compactionReasoningEffortRank(requiredEffort) >= compactionReasoningEffortRank(minimumObserved)) {
 				return selected(requiredSelection, { kind: "none" });
@@ -592,12 +586,9 @@ export function resolveCompactionReasoningSelection(input: {
 				provenance,
 			};
 		case "unknown":
-			return unknownCompactionReasoningSupportResolution(
-				requiredSelection,
-				input,
-				floorDecision,
-				provenance,
-			);
+			// Unknown means the table has no support boundary. Preserve the
+			// explicit effort and let the provider return a typed response.
+			return selected(requiredSelection, { kind: "none" });
 		default:
 			return unreachableCompactionReasoningValue(input.capabilities.support);
 	}
@@ -1335,31 +1326,6 @@ function compactionReasoningDecisionForSelection(
 	return floorDecision;
 }
 
-function unknownCompactionReasoningSupportResolution(
-	required: Extract<CompactionReasoningSelection, { kind: "explicit_effort" }>,
-	input: {
-		capabilities: CompactionReasoningCapabilities;
-		learnedFloor?: CompactionReasoningFloor;
-	},
-	decision: CompactionReasoningDecisionProvenance,
-	provenance: CompactionReasoningProvenance,
-): CompactionReasoningResolution {
-	// With no observed efforts the only real question is whether the model
-	// reasons at all. Any evidence that it does — a learned runtime floor or
-	// an advertised default effort — validates every requested effort, because
-	// effort support is monotonic. Refuse only when nothing establishes that
-	// the model supports reasoning.
-	if (input.learnedFloor?.kind === "explicit_effort" || input.capabilities.modelDefault.kind === "explicit_effort") {
-		return selectedCompactionReasoningResolution(required, { kind: "none" }, decision, provenance);
-	}
-	return {
-		kind: "refused",
-		decision,
-		refusal: { kind: "support_unknown_for_required_effort", requiredEffort: required.effort },
-		provenance,
-	};
-}
-
 function orderedCompactionReasoningEfforts(
 	efforts: readonly CompactionReasoningEffort[],
 ): readonly CompactionReasoningEffort[] {
@@ -1466,8 +1432,6 @@ function isCompactionReasoningProvenance(value: unknown): value is CompactionRea
 function isCompactionReasoningRefusal(value: unknown): value is CompactionReasoningRefusal {
 	if (!isUnknownRecord(value)) return false;
 	switch (value.kind) {
-		case "support_unknown_for_required_effort":
-			return isCompactionReasoningEffort(value.requiredEffort);
 		case "no_supported_effort":
 			return isUnknownRecord(value.required) && value.required.kind === "explicit_effort" &&
 				isCompactionReasoningEffort(value.required.effort) && Array.isArray(value.supportedEfforts) &&

@@ -345,15 +345,19 @@ describe("provenance and effective text", () => {
 					kind: "configuration",
 					request: { kind: "explicit_effort", effort: "high" },
 				},
-				refusal: { kind: "support_unknown_for_required_effort", requiredEffort: "high" },
+				refusal: {
+					kind: "no_supported_effort",
+					required: { kind: "explicit_effort", effort: "high" },
+					supportedEfforts: [],
+				},
 				provenance: {
 					configuration: { kind: "explicit_effort", effort: "high" },
 					modelDefault: { kind: "absent" },
 					safetyFloor: { kind: "model_default" },
 					learnedFloor: null,
 					baselineSelection: { kind: "model_default" },
-					support: "unknown",
-					policySource: "openrouter_unknown",
+					support: "unsupported",
+					policySource: "openrouter_generated",
 				},
 			}),
 		).toBe("refused by provider policy");

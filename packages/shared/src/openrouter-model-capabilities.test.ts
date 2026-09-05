@@ -465,20 +465,77 @@ describe("canonical compaction reasoning resolution", () => {
 		expect(isCompactionReasoningResolution({ ...resolution, decision: undefined })).toBe(false);
 	});
 
-	it("returns support_unknown_for_required_effort for a stronger unknown explicit requirement", () => {
+	it("preserves an explicit effort for an unlisted OpenRouter model", () => {
+		const model = "provider/not-yet-in-the-capabilities-table";
 		const resolution = resolveCompactionReasoningSelection({
-			policy: disabledBaselinePolicy(),
-			request: { kind: "explicit_effort", effort: "high" },
-			capabilities: {
-				support: { kind: "unknown" },
-				modelDefault: { kind: "provider_default", relativeOrder: "below_minimal" },
-			},
+			policy: compactionReasoningPolicyForModel(model, true),
+			request: { kind: "explicit_effort", effort: "low" },
+			capabilities: compactionReasoningCapabilitiesForModel(model, true),
 		});
 
+		expect(resolution).toEqual({
+			kind: "selected",
+			decision: {
+				kind: "configuration",
+				request: { kind: "explicit_effort", effort: "low" },
+			},
+			selection: { kind: "explicit_effort", effort: "low" },
+			runtimeFallback: { kind: "none" },
+			provenance: {
+				configuration: { kind: "explicit_effort", effort: "low" },
+				modelDefault: { kind: "provider_default", relativeOrder: "unknown" },
+				safetyFloor: { kind: "model_default" },
+				learnedFloor: null,
+				baselineSelection: { kind: "model_default" },
+				support: "unknown",
+				policySource: "openrouter_unknown",
+			},
+		});
+	});
+
+	it("selects explicit efforts for registered and manual unknown-support policies", () => {
+		for (const [model, policySource] of [
+			["google/gemini-2.5-flash:batch", "openrouter_generated"],
+			[openRouterFreeModel, "openrouter_manual"],
+		] as const) {
+			const capabilities = compactionReasoningCapabilitiesForModel(model, true);
+			expect(capabilities.support).toEqual({ kind: "unknown" });
+			expect(resolveCompactionReasoningSelection({
+				policy: compactionReasoningPolicyForModel(model, true),
+				request: { kind: "explicit_effort", effort: "low" },
+				capabilities,
+			})).toMatchObject({
+				kind: "selected",
+				decision: {
+					kind: "configuration",
+					request: { kind: "explicit_effort", effort: "low" },
+				},
+				selection: { kind: "explicit_effort", effort: "low" },
+				runtimeFallback: { kind: "none" },
+				provenance: { policySource, support: "unknown" },
+			});
+		}
+	});
+
+	it("refuses an explicit effort for a registered unsupported model", () => {
+		const model = "google/gemini-2.5-flash-image";
+		const capabilities = compactionReasoningCapabilitiesForModel(model, true);
+		expect(capabilities.support).toEqual({ kind: "unsupported" });
+		const resolution = resolveCompactionReasoningSelection({
+			policy: compactionReasoningPolicyForModel(model, true),
+			request: { kind: "explicit_effort", effort: "low" },
+			capabilities,
+		});
 		expect(resolution).toMatchObject({
 			kind: "refused",
-			refusal: { kind: "support_unknown_for_required_effort", requiredEffort: "high" },
+			refusal: {
+				kind: "no_supported_effort",
+				required: { kind: "explicit_effort", effort: "low" },
+				supportedEfforts: [],
+			},
+			provenance: { policySource: "openrouter_generated", support: "unsupported" },
 		});
+		expect(isCompactionReasoningResolution(resolution)).toBe(true);
 	});
 
 	it("uses a max provider default only as the no-request baseline", () => {
@@ -666,8 +723,10 @@ describe("canonical compaction reasoning resolution", () => {
 				modelDefault: { kind: "provider_default", relativeOrder: "below_minimal" },
 			},
 		})).toMatchObject({
-			kind: "refused",
-			refusal: { kind: "support_unknown_for_required_effort", requiredEffort: "minimal" },
+			kind: "selected",
+			selection: { kind: "explicit_effort", effort: "minimal" },
+			runtimeFallback: { kind: "none" },
+			provenance: { support: "partially_known" },
 		});
 	});
 

@@ -533,8 +533,6 @@ export function compactionSelectionText(selection: CompactionReasoningSelection)
 export function compactionRefusalText(resolution: CompactionReasoningResolution): string | null {
 	if (resolution.kind !== "refused") return null;
 	switch (resolution.refusal.kind) {
-		case "support_unknown_for_required_effort":
-			return `Nothing establishes that this model supports reasoning, so ${resolution.refusal.requiredEffort} compaction reasoning would be refused.`;
 		case "no_supported_effort":
 			return `This model does not support reasoning, which cannot satisfy ${resolution.refusal.required.effort} compaction reasoning.`;
 	}
