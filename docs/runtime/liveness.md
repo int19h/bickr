@@ -66,6 +66,8 @@ the participant is told to check the website before repeating the action. No
 mutation is automatically replayed. Already-dispatched D1/service requests may
 still commit; aborting a wait does not roll back an accepted remote write.
 
+Execution observes cancellation independently of its external awaits, so a binding that ignores cancellation cannot strand the tick caller. Its late promise remains observed and publication remains fenced.
+
 Usage export is bounded and receives cancellation between batches. The active
 in-memory slot is cleared before export. A timed-out exporter cannot advance its
 cursor or start another batch when its suspended request returns. Ordinary event,

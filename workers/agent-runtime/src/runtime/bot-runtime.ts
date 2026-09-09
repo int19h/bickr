@@ -2,7 +2,7 @@ import { runtimeDiagnostics, type RuntimeDiagnostic } from '@bickr/shared/runtim
 import { eventFromRow } from './events';
 import { ToolOutcomeUnknownError } from '../errors';
 import { completeToolBookkeeping } from './tools';
-import { RunLiveness, boundedCleanup, runInactivityMs, finalizationRetryMs, transitionTimeoutMs, isRunProgressEvent } from './run-liveness';
+import { RunLiveness, untilRunStopped, boundedCleanup, runInactivityMs, finalizationRetryMs, transitionTimeoutMs, isRunProgressEvent } from './run-liveness';
 import { fail, ok, readJsonBody } from '@bickr/shared/api';
 import {
 	type R2BucketLike,
@@ -2559,83 +2559,87 @@ export class BotRuntime {
 		let startQueuedSpotlightAfterRun = false;
 
 		try {
-			// Inside the try so an event-store failure still releases the claim
-			// and clears the in-memory run slot via the catch/finally below.
-			this.appendEvent(runId, 'tick_started', { trigger, botId, handle: bot.handle });
-			this.throwIfStopped(runId, abortController.signal);
-			const notifications =
-				setupMode !== 'new_iteration'
-					? []
-					: await (async () => {
-							await ensureBootstrapNotification(this.env.BICKR_KV, this.env.BICKR_D1, bot);
-							return listPendingNotifications(this.env.BICKR_KV, this.env.BICKR_D1, bot.id);
-						})();
-			this.throwIfStopped(runId, abortController.signal);
-			const injections = this.consumeInjections(mode === 'spotlight' ? (options.injectionIds ?? []) : undefined);
-			if (mode === 'spotlight' && injections.length === 0) {
+			return await untilRunStopped(abortController.signal, async (): Promise<TickRunResult> => {
+				// Inside the try so an event-store failure still releases the claim
+				// and clears the in-memory run slot via the catch/finally below.
+				this.appendEvent(runId, 'tick_started', { trigger, botId, handle: bot.handle });
+				this.throwIfStopped(runId, abortController.signal);
+				const notifications =
+					setupMode !== 'new_iteration'
+						? []
+						: await (async () => {
+								await ensureBootstrapNotification(this.env.BICKR_KV, this.env.BICKR_D1, bot);
+								return listPendingNotifications(this.env.BICKR_KV, this.env.BICKR_D1, bot.id);
+							})();
+				this.throwIfStopped(runId, abortController.signal);
+				const injections = this.consumeInjections(mode === 'spotlight' ? (options.injectionIds ?? []) : undefined);
+				if (mode === 'spotlight' && injections.length === 0) {
+					await this.renewProgressLease(bot.id, runId, abortController.signal);
+					const release = await this.finalizeRun(runId, 'tick_completed', { note: 'No pending spotlight injection was available.' });
+					if (!release) {
+						throw new TickStoppedError();
+					}
+					startQueuedSpotlightAfterRun = true;
+					return { runId, status: 'completed' };
+				}
+				const builtInput = await buildRuntimeLoopInput(
+					this.env.BICKR_KV,
+					this.env.BICKR_D1,
+					bot.id,
+					notifications,
+					injections,
+					providerToolCallsForSettings(providerSettings) === 'at_will' ? undefined : this.pendingToolUseReminder(),
+				);
+				const input = builtInput.input;
+				if (mode === 'spotlight') {
+					runContext.spotlightActionScope = spotlightActionScopeFromContexts(input.spotlightContexts);
+				}
+				const inputEvent = this.appendEvent(runId, 'input', input);
+				const builtMessages = await this.buildMessages(bot, input, runId, inputEvent.createdAt, { setupMode });
+				if (setupMode === 'new_iteration') {
+					const deliveredNotificationIds = builtMessages.deliveredNotificationIds;
+					const deliveredSeenItems = uniqueSeenContentItems(
+						[...deliveredNotificationIds].flatMap((id) => builtInput.notificationSeenItemsById[id] ?? []),
+					);
+					await markBotSeenContent(this.env.BICKR_D1, bot.id, deliveredSeenItems, 'notification', runId, new Date().toISOString(), abortController.signal);
+					this.throwIfStopped(runId, abortController.signal);
+					// Delivery is destructive: what the visit was handed is deleted from
+					// both stores, so the next visit sees only what is new.
+					await deleteDeliveredNotifications(
+						this.env.BICKR_KV,
+						this.env.BICKR_D1,
+						notifications.filter((notification) => deliveredNotificationIds.has(notification.id)),
+					);
+				}
+
+				const messages = builtMessages;
+				this.throwIfStopped(runId, abortController.signal);
+				let outcome: ProviderLoopOutcome;
+				if (providerSettings.apiKey || providerSettings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === 'provider') {
+					outcome = await this.runProviderLoop(bot, providerSettings, runId, messages, runContext);
+					this.throwIfStopped(runId, abortController.signal);
+					if (providerToolCallsForSettings(providerSettings) !== 'at_will') {
+						this.recordToolUseRecoveryOutcome(runId, outcome.toolCallCount);
+					}
+				} else {
+					outcome = await this.runLocalSimulation(bot, runId, input, runContext);
+				}
+
+
+				await this.compactIfNeeded(bot, providerSettings, runId, abortController.signal);
 				await this.renewProgressLease(bot.id, runId, abortController.signal);
-				const release = await this.finalizeRun(runId, 'tick_completed', { note: 'No pending spotlight injection was available.' });
+				const release = await this.finalizeRun(runId, 'tick_completed', {});
 				if (!release) {
 					throw new TickStoppedError();
 				}
+				if (runContext.mode === 'spotlight' && runContext.spotlightId && outcome.spotlightMutationCount === 0) {
+					await this.reportCleanup(runId, 'spotlight_no_reaction_notification', () => recordSpotlightNoReactionHumanNotification(this.env.BICKR_D1, {
+						bot, runId, spotlightId: runContext.spotlightId!,
+					}));
+				}
 				startQueuedSpotlightAfterRun = true;
 				return { runId, status: 'completed' };
-			}
-			const builtInput = await buildRuntimeLoopInput(
-				this.env.BICKR_KV,
-				this.env.BICKR_D1,
-				bot.id,
-				notifications,
-				injections,
-				providerToolCallsForSettings(providerSettings) === 'at_will' ? undefined : this.pendingToolUseReminder(),
-			);
-			const input = builtInput.input;
-			if (mode === 'spotlight') {
-				runContext.spotlightActionScope = spotlightActionScopeFromContexts(input.spotlightContexts);
-			}
-			const inputEvent = this.appendEvent(runId, 'input', input);
-			const builtMessages = await this.buildMessages(bot, input, runId, inputEvent.createdAt, { setupMode });
-			if (setupMode === 'new_iteration') {
-				const deliveredNotificationIds = builtMessages.deliveredNotificationIds;
-				const deliveredSeenItems = uniqueSeenContentItems(
-					[...deliveredNotificationIds].flatMap((id) => builtInput.notificationSeenItemsById[id] ?? []),
-				);
-				await markBotSeenContent(this.env.BICKR_D1, bot.id, deliveredSeenItems, 'notification', runId);
-				// Delivery is destructive: what the visit was handed is deleted from
-				// both stores, so the next visit sees only what is new.
-				await deleteDeliveredNotifications(
-					this.env.BICKR_KV,
-					this.env.BICKR_D1,
-					notifications.filter((notification) => deliveredNotificationIds.has(notification.id)),
-				);
-			}
-
-			const messages = builtMessages;
-			this.throwIfStopped(runId, abortController.signal);
-			let outcome: ProviderLoopOutcome;
-			if (providerSettings.apiKey || providerSettings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === 'provider') {
-				outcome = await this.runProviderLoop(bot, providerSettings, runId, messages, runContext);
-				if (providerToolCallsForSettings(providerSettings) !== 'at_will') {
-					this.recordToolUseRecoveryOutcome(runId, outcome.toolCallCount);
-				}
-			} else {
-				outcome = await this.runLocalSimulation(bot, runId, input, runContext);
-			}
-
-
-			await this.compactIfNeeded(bot, providerSettings, runId, abortController.signal);
-			await this.renewProgressLease(bot.id, runId, abortController.signal);
-			const release = await this.finalizeRun(runId, 'tick_completed', {});
-			if (!release) {
-				throw new TickStoppedError();
-			}
-			if (runContext.mode === 'spotlight' && runContext.spotlightId && outcome.spotlightMutationCount === 0) {
-				await this.reportCleanup(runId, 'spotlight_no_reaction_notification', () => recordSpotlightNoReactionHumanNotification(this.env.BICKR_D1, {
-					bot, runId, spotlightId: runContext.spotlightId!,
-				}));
-			}
-			startQueuedSpotlightAfterRun = true;
-			return { runId, status: 'completed' };
+			});
 		} catch (error) {
 			const stopped = error instanceof TickStoppedError || isAbortError(error);
 			const cause = runtimeErrorCause(error);
@@ -2808,7 +2812,7 @@ export class BotRuntime {
 			}
 		});
 		if (this.activeRunId === runId) {
-			this.activeAbortController?.abort();
+			if (type !== 'tick_completed') this.activeAbortController?.abort();
 			this.activeRunId = null;
 			this.activeAbortController = null;
 		}

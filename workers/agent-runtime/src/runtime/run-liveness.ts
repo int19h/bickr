@@ -1,6 +1,6 @@
 import type { BotRuntimeEventType } from '@bickr/shared/model';
 import type { RuntimeRunTrigger } from '../types';
-import { RuntimeOperationTimeoutError } from '../errors';
+import { RuntimeOperationTimeoutError, TickStoppedError } from '../errors';
 import { withAbortableTimeout } from '../provider/sse';
 
 export const runInactivityMs = 5 * 60_000;
@@ -13,6 +13,19 @@ export function boundedCleanup<T>(operation: string, run: (signal: AbortSignal) 
 	// not prevent release or reporting. D1 cannot cancel an accepted write.
 	return withAbortableTimeout(new AbortController().signal, cleanupTimeoutMs,
 		() => new RuntimeOperationTimeoutError(operation, cleanupTimeoutMs), run);
+}
+
+/** Settle the caller on cancellation even when an external binding ignores it.
+ * The underlying promise stays observed; publication fences reject its late work. */
+export async function untilRunStopped<T>(signal: AbortSignal, run: () => Promise<T>): Promise<T> {
+	if (signal.aborted) throw new TickStoppedError();
+	let abort!: () => void;
+	const stopped = new Promise<never>((_, reject) => {
+		abort = () => reject(new TickStoppedError());
+		signal.addEventListener('abort', abort, { once: true });
+	});
+	try { return await Promise.race([run(), stopped]); }
+	finally { signal.removeEventListener('abort', abort); }
 }
 
 type RunIdentity = { botId: string; runId: string; trigger: RuntimeRunTrigger; intervalMs: number; claimToken: string | null };

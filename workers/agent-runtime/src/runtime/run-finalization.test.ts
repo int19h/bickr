@@ -83,3 +83,14 @@ it('classifies a timed-out website response as unknown, never a retryable refusa
 	expect(await result).toMatchObject({ kind: 'tool_outcome_unknown' });
 	expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+it('settles a cancelled run caller even when an external await never resolves', async () => {
+	const h = await harness();
+	h.runtime.renewProgressLease = () => new Promise(() => {});
+	const run = h.run();
+	await Promise.resolve();
+	await h.runtime.stopTick('bot');
+	expect(await run).toMatchObject({ status: 'stopped' });
+	expect(h.runtime.activeRunId).toBeNull();
+	h.storage.database.close();
+});
