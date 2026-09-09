@@ -1,3 +1,4 @@
+import { withTestRunLiveness } from "./helpers/index-harness";
 import { describe, expect, it } from "vitest";
 import { BotRuntime } from "../workers/agent-runtime/src/index";
 import { renewRuntimeRunLease } from "../workers/agent-runtime/src/runtime/bot-runtime";
@@ -264,7 +265,7 @@ function runtimeHarness(
 ): { runtime: TestRuntime; failureEvents: FailureEvent[] } {
 	const failureEvents: FailureEvent[] = [];
 	const terminalRuns = new Set<string>();
-	const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+	const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 		env: {
 			BICKR_D1: db,
 			BICKR_KV: testEnv.BICKR_KV,
@@ -285,7 +286,7 @@ function runtimeHarness(
 		},
 		clearStopRequest: () => {},
 		markPendingCompactionEventsFailed: () => {},
-	}) as unknown as TestRuntime;
+	})) as unknown as TestRuntime;
 	return { runtime, failureEvents };
 }
 

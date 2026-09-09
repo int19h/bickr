@@ -1,3 +1,5 @@
+import { boundedCleanup } from './run-liveness';
+import { runtimeErrorCause } from '../errors';
 import {
 	botActivityFeedByHandle,
 	botProfileRelationshipSummaries,
@@ -9,7 +11,8 @@ import {
 	listThreads,
 	listWorldPublicProfiles,
 	markBotSeenContent,
-	markBotSeenFromEnvelope,
+	seenItemsFromToolResultEnvelope,
+	type SeenContentItem,
 	queryBotFollowUsernamesByHandle,
 	readThread,
 	recordSpotlightToolHumanNotification,
@@ -121,6 +124,7 @@ export class RuntimeTools {
 		name: string,
 		args: Record<string, unknown>,
 		runContext: RunContext,
+		onResult?: (result: ToolResult) => void,
 	): Promise<ToolResult> {
 		this.runtime.throwIfStopped(runId, runContext.signal);
 		const canonicalName = canonicalToolName(name);
@@ -138,6 +142,12 @@ export class RuntimeTools {
 		let envelope: ToolResultEnvelope;
 		let effectiveArgs: Record<string, unknown> | undefined;
 		let selfCorrectionMessages: string[] | undefined;
+		let extraSeenItems: SeenContentItem[] = [];
+		// Read configuration before dispatch: a failed read must not hide an
+		// already accepted mutation behind a failed tool outcome.
+		const providerResultTokenBudget = providerToolResultUsesTokenBudget(canonicalName)
+			? await boundedCleanup('Tool result budget', () => this.runtime.readCommentTreeTokenBudget(bot))
+			: undefined;
 		switch (canonicalName) {
 			case 'check_notifications':
 				result = { events: [] };
@@ -217,6 +227,7 @@ export class RuntimeTools {
 					await this.assertNoPriorReplyToTarget(bot.id, threadId, parentCommentId);
 				}
 				this.assertNoRecentDuplicateReply(bot.id, body.text);
+				await this.reconcileUnknownReply(bot.id, threadId, parentCommentId, body.text);
 				const serviceResult = await this.runtime.forumService<{ thread: ThreadDocument; comment?: CommentDocument }>(
 					`/comments/${encodeURIComponent(parentCommentId)}/replies`,
 					bot.id,
@@ -306,13 +317,7 @@ export class RuntimeTools {
 			case 'list_profiles': {
 				const query = listProfilesToolArgs(normalizedArgs);
 				const profileList = await this.listProfilesTool(bot, query);
-				await markBotSeenContent(
-					this.runtime.env.BICKR_D1,
-					bot.id,
-					profileList.profiles.map((profile) => ({ type: 'bot', id: profile.id })),
-					'tool:list_profiles',
-					runId,
-				);
+				extraSeenItems = profileList.profiles.map((profile) => ({ type: 'bot', id: profile.id }));
 				result = profileList;
 				envelope = { kind: 'opaque', value: result };
 				break;
@@ -333,13 +338,7 @@ export class RuntimeTools {
 			}
 			case 'view_profiles': {
 				const profiles = await this.viewProfilesTool(bot, usernamesArg(normalizedArgs.usernames));
-				await markBotSeenContent(
-					this.runtime.env.BICKR_D1,
-					bot.id,
-					profiles.map((profile) => ({ type: 'bot', id: profile.id })),
-					'tool:view_profiles',
-					runId,
-				);
+				extraSeenItems = profiles.map((profile) => ({ type: 'bot', id: profile.id }));
 				result = { profiles };
 				envelope = { kind: 'opaque', value: result };
 				break;
@@ -353,7 +352,7 @@ export class RuntimeTools {
 					usernameArg(normalizedArgs.username),
 					activityLimit,
 				);
-				await markBotSeenContent(this.runtime.env.BICKR_D1, bot.id, [{ type: 'bot', id: feed.bot.id }], 'tool:view_activity', runId);
+				extraSeenItems = [{ type: 'bot', id: feed.bot.id }];
 				result = await this.annotateActivityFeedFollowStatus(bot.id, feed);
 				envelope = { kind: 'opaque', value: result };
 				break;
@@ -385,22 +384,6 @@ export class RuntimeTools {
 		if (effectiveArgs) {
 			this.runtime.replaceEventPayload(toolCallEvent, { name: canonicalName, args: providerToolArgs(canonicalName, effectiveArgs) });
 		}
-		await markBotSeenFromEnvelope(this.runtime.env.BICKR_D1, bot.id, envelope, `tool:${canonicalName}`, runId);
-		if (runContext.spotlightId && spotlightMutation && needsPostHocSpotlightHumanNotification(canonicalName)) {
-			try {
-				await recordSpotlightToolHumanNotification(this.runtime.env.BICKR_D1, {
-					bot,
-					spotlightId: runContext.spotlightId,
-					runId,
-					envelope,
-				});
-			} catch (error) {
-				console.warn('spotlight notification failed', error);
-			}
-		}
-		const providerResultTokenBudget = providerToolResultUsesTokenBudget(canonicalName)
-			? await this.runtime.readCommentTreeTokenBudget(bot)
-			: undefined;
 		const providerResult = providerToolResultPayload(
 			canonicalName,
 			result,
@@ -420,17 +403,22 @@ export class RuntimeTools {
 		if (canonicalName === 'log_off' && successfulToolResultPayload(toolResultPayload)) {
 			this.runtime.setLastSuccessfulLogOffSeq(toolResultEvent.seq, 'tool_result');
 		}
-		return {
+		const seenItems = [...extraSeenItems, ...seenItemsFromToolResultEnvelope(envelope)];
+		const spotlightId = runContext.spotlightId && spotlightMutation && needsPostHocSpotlightHumanNotification(canonicalName) ? runContext.spotlightId : undefined;
+		const completed: ToolResult = {
 			name: canonicalName,
 			result,
 			providerResult,
 			envelope,
+			...(seenItems.length || spotlightId ? { bookkeeping: { seenItems, ...(spotlightId ? { spotlightId } : {}) } } : {}),
 			displayEventSeq: toolResultEvent.seq,
 			...(effectiveArgs ? { effectiveArgs } : {}),
 			...(selfCorrectionMessages ? { selfCorrectionMessages } : {}),
 			...(spotlightMutation ? { spotlightMutation } : {}),
 			...(spotlightTickTerminator ? { spotlightTickTerminator } : {}),
 		};
+		onResult?.(completed);
+		return completed;
 	}
 
 	private async voteTool(
@@ -686,6 +674,30 @@ export class RuntimeTools {
 
 	private assertNoRecentDuplicateReply(botId: string, body: string): void {
 		assertNoDuplicateReplyInToolResultRows(this.runtime.recentToolResultRows(), botId, body);
+	}
+
+	private async reconcileUnknownReply(botId: string, threadId: string, parentCommentId: string, body: string): Promise<void> {
+		const unresolved = this.runtime.recentToolResultRows().find((row) => {
+			const payload = parsePayloadJson(row.payload_json);
+			const args = runtimeRecord(payload.args);
+			return args.commentId === parentCommentId && payload.outcome === 'unknown'
+				&& ['reply_to_comment', 'make_additional_reply_to_the_same_comment'].includes(canonicalToolName(stringValue(payload.name) ?? ''))
+				&& localizedArgumentText(args.body) === body.trim();
+		});
+		if (!unresolved) return;
+		// Lost acknowledgement is not evidence of a failed write. Check the
+		// authoritative thread, but even absence (or mention canonicalization)
+		// cannot prove an accepted remote mutation will not still commit.
+		const thread = await readThread(this.runtime.env.BICKR_KV, threadId);
+		const comment = thread.comments.find((item) => item.authorBotId === botId
+			&& item.parentCommentId === parentCommentId && localizedTextString(item.body).trim() === body.trim());
+		if (comment) {
+			throw new DuplicateReplyError({ threadId, commentId: comment.id,
+				urlPath: commentUrlPathFromParts(thread.worldHandle, thread.forumHandle, threadId, comment.id), seq: unresolved.seq });
+		}
+		// This attempt was refused before dispatch. Let the participant choose a
+		// different action without reclassifying it as a newly unknown mutation.
+		throw new SelfCorrectingToolCallError('An earlier identical reply to this comment has an unconfirmed outcome. Check the page before trying it again; this attempt was not sent.');
 	}
 
 	private async threadReadResult(bot: RuntimeBotDocument, thread: ThreadDocument, operation: string, targetCommentId?: string) {
@@ -1261,4 +1273,20 @@ function truncateForContext(text: string, maxLength: number): string {
 		return repaired;
 	}
 	return `${unicodeSafeSlice(repaired, Math.max(0, maxLength - 1))}…`;
+}
+
+export async function completeToolBookkeeping(
+	db: RuntimeToolsRuntime['env']['BICKR_D1'], bot: BotDocument, runId: string, result: ToolResult,
+): Promise<{ operation: string; cause: ReturnType<typeof runtimeErrorCause> }[]> {
+	const failures: { operation: string; cause: ReturnType<typeof runtimeErrorCause> }[] = [];
+	const bookkeeping = result.bookkeeping;
+	if (!bookkeeping) return failures;
+	const attempt = async (operation: string, work: (signal: AbortSignal) => Promise<unknown>): Promise<void> => {
+		try { await boundedCleanup(operation, work); }
+		catch (error) { failures.push({ operation, cause: runtimeErrorCause(error) }); }
+	};
+	await attempt('seen_content', (signal) => markBotSeenContent(db, bot.id, bookkeeping.seenItems, `tool:${result.name}`, runId, new Date().toISOString(), signal));
+	const spotlightId = bookkeeping.spotlightId;
+	if (spotlightId) await attempt('spotlight_notification', () => recordSpotlightToolHumanNotification(db, { bot, runId, spotlightId, envelope: result.envelope }));
+	return failures;
 }

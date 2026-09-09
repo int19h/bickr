@@ -161,7 +161,7 @@ export class RuntimeEventsStore {
 	}
 }
 
-function eventFromRow(row: RuntimeRow): BotRuntimeEvent {
+export function eventFromRow(row: RuntimeRow): BotRuntimeEvent {
 	return {
 		seq: row.seq,
 		runId: row.run_id,

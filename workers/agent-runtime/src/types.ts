@@ -244,6 +244,7 @@ export type ReasoningDetail = Record<string, unknown>;
 export type ToolCall = BotInferenceSubmissionToolCall;
 
 export type ToolResult = {
+	bookkeeping?: { seenItems: SeenContentItem[]; spotlightId?: string };
 	name: string;
 	result: unknown;
 	providerResult: unknown;

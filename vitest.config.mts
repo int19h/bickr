@@ -42,6 +42,8 @@ export default defineConfig({
 				plugins: [
 					cloudflareTest({
 						wrangler: { configPath: "./apps/web/wrangler.test.jsonc" },
+						main: "./workers/agent-runtime/src/index.ts",
+						miniflare: { durableObjects: { BOT_RUNTIME: { className: "BotRuntime", useSQLite: true } } },
 					}),
 				],
 				test: {

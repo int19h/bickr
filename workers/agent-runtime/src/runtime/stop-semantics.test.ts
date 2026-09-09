@@ -7,6 +7,7 @@ type MarkRuntime = { markRunStopped(bot: object, runId: string, trigger: 'cron')
 type StatusRuntime = { readStatus(botId: string): Promise<Record<string, unknown>> };
 
 function stopMethod(runtime: object): StopRuntime {
+	Object.assign(runtime, { liveness: { read: () => null } });
 	return {
 		stopTick: (BotRuntime.prototype as unknown as StopRuntime).stopTick.bind(runtime),
 	};
@@ -63,7 +64,7 @@ describe('runtime stop transitions', () => {
 	it('does not publish stop events when the ownership release CAS loses', async () => {
 		const appendEvent = vi.fn();
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			setRuntimeIndex: async () => ({ released: false, nextDueAt: null }),
+			env: { BICKR_D1: { prepare: () => ({ bind: () => ({ run: async () => ({ meta: { changes: 0 } }) }) }) } },
 			hasTerminalEvent: () => false,
 			appendEvent,
 			markPendingCompactionEventsFailed: vi.fn(),
@@ -71,7 +72,7 @@ describe('runtime stop transitions', () => {
 			clearStopRequest: vi.fn(),
 		});
 		const mark = (BotRuntime.prototype as unknown as MarkRuntime).markRunStopped.bind(runtime);
-		await expect(mark({}, 'run-old', 'cron')).resolves.toEqual({ released: false, confirmed: false });
+		await expect(mark({ id: 'bot', tickSettings: { intervalSeconds: 60 } }, 'run-old', 'cron')).resolves.toEqual({ released: false, confirmed: false });
 		expect(appendEvent).not.toHaveBeenCalled();
 		expect(runtime.setStopRequest).not.toHaveBeenCalled();
 	});
@@ -79,7 +80,7 @@ describe('runtime stop transitions', () => {
 	it('confirms an already-terminal same run without emitting a duplicate terminal event', async () => {
 		const appendEvent = vi.fn();
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			setRuntimeIndex: async () => ({ released: false, nextDueAt: null }),
+			env: { BICKR_D1: { prepare: () => ({ bind: () => ({ run: async () => ({ meta: { changes: 0 } }) }) }) } },
 			hasTerminalEvent: () => true,
 			appendEvent,
 			markPendingCompactionEventsFailed: vi.fn(),
@@ -87,7 +88,7 @@ describe('runtime stop transitions', () => {
 			clearStopRequest: vi.fn(),
 		});
 		const mark = (BotRuntime.prototype as unknown as MarkRuntime).markRunStopped.bind(runtime);
-		await expect(mark({}, 'run-old', 'cron')).resolves.toEqual({ released: false, confirmed: true });
+		await expect(mark({ id: 'bot', tickSettings: { intervalSeconds: 60 } }, 'run-old', 'cron')).resolves.toEqual({ released: false, confirmed: true });
 		expect(appendEvent).not.toHaveBeenCalled();
 	});
 

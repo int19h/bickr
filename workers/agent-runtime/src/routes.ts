@@ -1639,6 +1639,15 @@ export const agentRuntimeRouteTable = [
 		handler: async (context) => {
 			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
 			const botId = decodeURIComponent(context.match[2] ?? '');
+			// This check and the write run under the owner coordinator queue. A
+			// delayed runtime pause must not overwrite a newer profile/settings edit.
+			const expectedRevision = context.request.headers.get('if-match');
+			if (expectedRevision !== null) {
+				const revision = requiredPositiveInteger(Number(expectedRevision), 'if-match');
+				const current = await rawBotById(context.env.BICKR_KV, context.env.BICKR_D1, botId);
+				if (current.ownerUserId !== userId) throw new RepositoryError('forbidden', "Only this participant's owner can update it.", 403);
+				if (current.revision !== revision) return new Response(null, { status: 412 });
+			}
 				const input = parseUpdateBotInput(await readJsonBody(context.request));
 				const updatedAt = new Date().toISOString();
 				const compatibilityFieldMask = input.inferenceSettings === undefined

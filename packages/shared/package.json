@@ -43,6 +43,7 @@
 		"./posting": "./src/posting.ts",
 		"./thread-policy": "./src/thread-policy.ts",
 		"./repository": "./src/repository.ts",
+		"./runtime-diagnostics": "./src/runtime-diagnostics.ts",
 		"./runtime-errors": "./src/runtime-errors.ts",
 		"./search": "./src/search.ts",
 		"./social": "./src/social.ts",

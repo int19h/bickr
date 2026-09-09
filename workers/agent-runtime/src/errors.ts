@@ -1,3 +1,4 @@
+import { RepositoryError } from '@bickr/shared/repository';
 import type { BotInferenceSubmissionToolCall } from '@bickr/shared/model';
 import type {
 	CompactionReasoningDecisionProvenance,
@@ -49,6 +50,16 @@ export class SelfCorrectingToolCallError extends Error {
 		super(message);
 		this.name = 'SelfCorrectingToolCallError';
 		this.selfCorrectionMessages = [message];
+	}
+}
+
+export class ToolOutcomeUnknownError extends Error {
+	readonly kind = 'tool_outcome_unknown';
+	readonly originalError: unknown;
+	constructor(originalError: unknown) {
+		super('The website action may have completed, but its result could not be confirmed. Check the website before attempting the action again.');
+		this.name = 'ToolOutcomeUnknownError';
+		this.originalError = originalError;
 	}
 }
 
@@ -376,6 +387,11 @@ export class ProviderResponseInterruptedError extends Error {
 }
 
 export function runtimeErrorCause(error: unknown): RuntimeErrorCause | string {
+	if (error instanceof ToolOutcomeUnknownError) {
+		const original = error.originalError;
+		return { kind: error.kind, cause: original instanceof RepositoryError
+			? { kind: "service_error", status: original.status, message: original.message } : runtimeErrorCause(original) };
+	}
 	if (error instanceof CompactionReasoningRefusalError) {
 		return {
 			kind: error.kind,

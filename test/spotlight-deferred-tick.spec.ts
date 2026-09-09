@@ -1,3 +1,4 @@
+import { attachTestRunLiveness } from "./helpers/index-harness";
 import {
 	authCookie,
 	botById,
@@ -138,6 +139,7 @@ function deferredHarness(): DeferredHarness {
 		pruneRuntimeStorageAfterTick: () => {},
 		readCommentTreeTokenBudget: async () => 10_000,
 	}) as unknown as { fetch(request: Request): Promise<Response> };
+	attachTestRunLiveness(runtime);
 	return {
 		fetch: (request: Request) => runtime.fetch(request),
 		sql,

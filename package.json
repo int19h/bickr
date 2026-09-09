@@ -10,7 +10,7 @@
 		"workers/*"
 	],
 	"scripts": {
-		"build": "node scripts/check-migrations.mjs && node scripts/check-test-environment-config.mjs && tsc -b && npm run build -w @bickr/web",
+		"build": "node scripts/check-migrations.mjs && node scripts/check-test-environment-config.mjs && node scripts/check-runtime-compatibility.mjs && tsc -b && npm run check:bundle -w @bickr/agent-runtime && npm run build -w @bickr/web",
 		"cf-typegen": "npm run cf-typegen --workspaces --if-present",
 		"deploy": "npm run build && npm run deploy:workers && npm run deploy:web",
 		"deploy:web": "npm run deploy -w @bickr/web",

@@ -91,13 +91,14 @@ export function createRuntimeTestStorage(): RuntimeTestStorage {
 		database,
 		sql: sql as RuntimeStorage['sql'],
 		transactionSync<T>(closure: () => T): T {
-			database.exec('BEGIN');
+			database.exec('SAVEPOINT runtime_test_transaction');
 			try {
 				const result = closure();
-				database.exec('COMMIT');
+				database.exec('RELEASE runtime_test_transaction');
 				return result;
 			} catch (error) {
-				database.exec('ROLLBACK');
+				database.exec('ROLLBACK TO runtime_test_transaction');
+				database.exec('RELEASE runtime_test_transaction');
 				throw error;
 			}
 		},

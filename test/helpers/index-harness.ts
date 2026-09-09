@@ -1,3 +1,4 @@
+import { RunLiveness } from '../../workers/agent-runtime/src/runtime/run-liveness';
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import { onRequestGet as bootstrap } from "../../apps/web/functions/api/bootstrap";
@@ -2613,4 +2614,41 @@ export function requestUrl(input: RequestInfo | URL): string {
 		return input.url;
 	}
 	return input.toString();
+}
+
+/** Adapts a subsystem's fake dispatch to the runtime's synchronous result hook. */
+export function testToolExecutor<Args extends unknown[], Result>(dispatch: (...args: Args) => Result | Promise<Result>) {
+	return async (...args: unknown[]): Promise<Result> => {
+		const result = await dispatch(...args.slice(0, 5) as Args);
+		const onResult = args[5] as ((result: Result) => void) | undefined;
+		onResult?.(result);
+		return result;
+	};
+}
+
+/** Supplies the real journal to prototype harnesses; storage stays injectable. */
+export function attachTestRunLiveness(runtime: object): RunLiveness {
+	const target = runtime as { state?: { storage: { sql: DurableObjectStorage['sql']; transactionSync?: <T>(closure: () => T) => T } } };
+	if (!target.state) target.state = { storage: { sql: memoryRuntimeSql() as unknown as DurableObjectStorage['sql'] } };
+	const storage = Object.assign(target.state.storage, {
+		transactionSync: target.state.storage.transactionSync ?? (<T>(closure: () => T): T => closure()),
+		setAlarm: async () => {}, deleteAlarm: async () => {},
+	});
+	const liveness = new RunLiveness(storage);
+	Object.assign(runtime, { liveness });
+	return liveness;
+}
+
+export function withTestRunLiveness<T extends object>(runtime: T): T {
+	if (!Object.hasOwn(runtime, 'state')) {
+		// Storage-free loop harnesses deliberately observe publication through
+		// their append-method spies. Do not give them a SQL backend and silently
+		// switch those tests to a different message-store path. Journal/pending
+		// persistence has dedicated real-SQLite and real-DO tests.
+		const storage = { sql: memoryRuntimeSql() as unknown as DurableObjectStorage['sql'], setAlarm: async () => {} };
+		Object.assign(runtime, { liveness: new RunLiveness(storage), setPendingTool: () => {}, clearPendingTool: () => {} });
+	} else {
+		attachTestRunLiveness(runtime);
+	}
+	return runtime;
 }

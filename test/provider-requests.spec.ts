@@ -1,3 +1,5 @@
+import { completeToolBookkeeping } from '../workers/agent-runtime/src/runtime/tools';
+import type { ToolResult } from '../workers/agent-runtime/src/types';
 import {
 	authCookie,
 	botById,
@@ -426,7 +428,7 @@ describe("Provider requests", () => {
 				name: string,
 				args: Record<string, unknown>,
 				runContext: { mode: "normal"; signal: AbortSignal },
-			) => Promise<{ result: unknown; providerResult: unknown; displayEventSeq?: number }>;
+			) => Promise<ToolResult>;
 		}).executeTool.bind(runtime);
 		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, voter.id);
 		const signal = new AbortController().signal;
@@ -717,6 +719,7 @@ describe("Provider requests", () => {
 				{ username: `u/${secondProfile.handle}`, displayName: localizedTextString(secondProfile.displayName), shortBio: expect.any(String), isFollowedByMe: false, isFollowingMe: false, followers: 0 },
 			],
 		});
+		expect(await completeToolBookkeeping(testEnv.BICKR_D1, bot, 'run-list-profiles-window', listWindowResult)).toEqual([]);
 		const seenProfiles = await testEnv.BICKR_D1
 			.prepare(
 				`SELECT object_id AS id, seen_via AS seenVia

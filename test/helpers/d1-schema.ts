@@ -1,3 +1,4 @@
+import migration0056 from '../../migrations/0056_runtime_admission_fence.sql?raw';
 import migration0001 from "../../migrations/0001_core_indexes.sql?raw";
 import migration0002 from "../../migrations/0002_live_simulation.sql?raw";
 import migration0003 from "../../migrations/0003_read_state_spotlight.sql?raw";
@@ -112,6 +113,7 @@ const migrationSql = [
 	migration0053,
 	migration0054,
 	migration0055,
+	migration0056,
 ];
 
 type D1SchemaRow = {

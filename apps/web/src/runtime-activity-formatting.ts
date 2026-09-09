@@ -1,3 +1,4 @@
+import { runtimeDiagnostics } from '@bickr/shared/runtime-diagnostics';
 import type { BotRuntimeEvent } from "@bickr/shared/model";
 import { parseCommentRef, parseThreadRef } from "@bickr/shared/ids";
 import { isToolResultEnvelope } from "@bickr/shared/legacy-tool-result-adapter";
@@ -323,6 +324,10 @@ export function runtimeActivities(events: BotRuntimeEvent[], fallbackWorldHandle
 				});
 				break;
 		}
+		for (const [index, diagnostic] of runtimeDiagnostics(payload.diagnostics).entries()) {
+			activities.push({ id: `event-${event.seq}-diagnostic-${index}`, seq: event.seq, createdAt: event.createdAt,
+				kind: 'error', title: 'Runtime bookkeeping failed', body: diagnostic.message, raw: event });
+		}
 	}
 
 	return activities;
@@ -559,6 +564,9 @@ function toolResultSummary(
 ): ToolResultSummary {
 	const canonical = canonicalToolName(name);
 	const record = runtimeRecord(result);
+	if (record.kind === "outcome_unknown") {
+		return { title: `Outcome unknown: ${canonical}`, body: stringValue(record.message) ?? "Check the website before attempting the action again." };
+	}
 	if (record.ok === false) {
 		return failedToolResultSummary(canonical, args, record);
 	}
