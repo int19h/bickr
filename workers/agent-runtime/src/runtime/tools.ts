@@ -1,5 +1,5 @@
 import { boundedCleanup } from './run-liveness';
-import { runtimeErrorCause } from '../errors';
+import { runtimeErrorCause, ToolOutcomeUnknownError } from '../errors';
 import {
 	botActivityFeedByHandle,
 	botProfileRelationshipSummaries,
@@ -227,6 +227,7 @@ export class RuntimeTools {
 					await this.assertNoPriorReplyToTarget(bot.id, threadId, parentCommentId);
 				}
 				this.assertNoRecentDuplicateReply(bot.id, body.text);
+				await this.reconcileUnknownReply(bot.id, threadId, body.text);
 				const serviceResult = await this.runtime.forumService<{ thread: ThreadDocument; comment?: CommentDocument }>(
 					`/comments/${encodeURIComponent(parentCommentId)}/replies`,
 					bot.id,
@@ -673,6 +674,26 @@ export class RuntimeTools {
 
 	private assertNoRecentDuplicateReply(botId: string, body: string): void {
 		assertNoDuplicateReplyInToolResultRows(this.runtime.recentToolResultRows(), botId, body);
+	}
+
+	private async reconcileUnknownReply(botId: string, threadId: string, body: string): Promise<void> {
+		const unresolved = this.runtime.recentToolResultRows().find((row) => {
+			const payload = parsePayloadJson(row.payload_json);
+			return payload.outcome === 'unknown'
+				&& ['reply_to_comment', 'make_additional_reply_to_the_same_comment'].includes(canonicalToolName(stringValue(payload.name) ?? ''))
+				&& localizedArgumentText(runtimeRecord(payload.args).body) === body.trim();
+		});
+		if (!unresolved) return;
+		// Lost acknowledgement is not evidence of a failed write. Check the
+		// authoritative thread, but even absence (or mention canonicalization)
+		// cannot prove an accepted remote mutation will not still commit.
+		const thread = await readThread(this.runtime.env.BICKR_KV, threadId);
+		const comment = matchingStoredReplyComment(thread, botId, body);
+		if (comment) {
+			throw new DuplicateReplyError({ threadId, commentId: comment.id,
+				urlPath: commentUrlPathFromParts(thread.worldHandle, thread.forumHandle, threadId, comment.id), seq: unresolved.seq });
+		}
+		throw new ToolOutcomeUnknownError(new Error('An earlier identical reply has an unconfirmed outcome. Its absence from the current page does not establish that the write failed.'));
 	}
 
 	private async threadReadResult(bot: RuntimeBotDocument, thread: ThreadDocument, operation: string, targetCommentId?: string) {
@@ -1254,13 +1275,14 @@ export async function completeToolBookkeeping(
 	db: RuntimeToolsRuntime['env']['BICKR_D1'], bot: BotDocument, runId: string, result: ToolResult,
 ): Promise<{ operation: string; cause: ReturnType<typeof runtimeErrorCause> }[]> {
 	const failures: { operation: string; cause: ReturnType<typeof runtimeErrorCause> }[] = [];
-	if (!result.bookkeeping) return failures;
+	const bookkeeping = result.bookkeeping;
+	if (!bookkeeping) return failures;
 	const attempt = async (operation: string, work: (signal: AbortSignal) => Promise<unknown>): Promise<void> => {
 		try { await boundedCleanup(operation, work); }
 		catch (error) { failures.push({ operation, cause: runtimeErrorCause(error) }); }
 	};
-	await attempt('seen_content', (signal) => markBotSeenContent(db, bot.id, result.bookkeeping!.seenItems, `tool:${result.name}`, runId, new Date().toISOString(), signal));
-	const spotlightId = result.bookkeeping.spotlightId;
+	await attempt('seen_content', (signal) => markBotSeenContent(db, bot.id, bookkeeping.seenItems, `tool:${result.name}`, runId, new Date().toISOString(), signal));
+	const spotlightId = bookkeeping.spotlightId;
 	if (spotlightId) await attempt('spotlight_notification', () => recordSpotlightToolHumanNotification(db, { bot, runId, spotlightId, envelope: result.envelope }));
 	return failures;
 }

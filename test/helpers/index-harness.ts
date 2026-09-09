@@ -2628,13 +2628,27 @@ export function testToolExecutor<Args extends unknown[], Result>(dispatch: (...a
 
 /** Supplies the real journal to prototype harnesses; storage stays injectable. */
 export function attachTestRunLiveness(runtime: object): RunLiveness {
-	const target = runtime as { state?: { storage: { sql: DurableObjectStorage['sql'] } } };
+	const target = runtime as { state?: { storage: { sql: DurableObjectStorage['sql']; transactionSync?: <T>(closure: () => T) => T } } };
 	if (!target.state) target.state = { storage: { sql: memoryRuntimeSql() as unknown as DurableObjectStorage['sql'] } };
 	const storage = Object.assign(target.state.storage, {
-		transactionSync: <T>(closure: () => T): T => closure(),
+		transactionSync: target.state.storage.transactionSync ?? (<T>(closure: () => T): T => closure()),
 		setAlarm: async () => {}, deleteAlarm: async () => {},
 	});
 	const liveness = new RunLiveness(storage);
 	Object.assign(runtime, { liveness });
 	return liveness;
+}
+
+export function withTestRunLiveness<T extends object>(runtime: T): T {
+	if (!Object.hasOwn(runtime, 'state')) {
+		// Storage-free loop harnesses deliberately observe publication through
+		// their append-method spies. Do not give them a SQL backend and silently
+		// switch those tests to a different message-store path. Journal/pending
+		// persistence has dedicated real-SQLite and real-DO tests.
+		const storage = { sql: memoryRuntimeSql() as unknown as DurableObjectStorage['sql'], setAlarm: async () => {} };
+		Object.assign(runtime, { liveness: new RunLiveness(storage), setPendingTool: () => {}, clearPendingTool: () => {} });
+	} else {
+		attachTestRunLiveness(runtime);
+	}
+	return runtime;
 }

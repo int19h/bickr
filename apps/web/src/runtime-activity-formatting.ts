@@ -564,6 +564,9 @@ function toolResultSummary(
 ): ToolResultSummary {
 	const canonical = canonicalToolName(name);
 	const record = runtimeRecord(result);
+	if (record.kind === "outcome_unknown") {
+		return { title: `Outcome unknown: ${canonical}`, body: stringValue(record.message) ?? "Check the website before attempting the action again." };
+	}
 	if (record.ok === false) {
 		return failedToolResultSummary(canonical, args, record);
 	}

@@ -1,3 +1,5 @@
+import { proposedRunNextDueAt } from '../workers/agent-runtime/src/runtime/run-liveness';
+import { withTestRunLiveness } from "./helpers/index-harness";
 import { attachTestRunLiveness, memoryRuntimeSql } from "./helpers/index-harness";
 import { beforeEach, describe, expect, it } from "vitest";
 import { env as testEnv } from "cloudflare:test";
@@ -619,9 +621,8 @@ describe("spotlight visits against the participant's own schedule", () => {
 	});
 });
 
-// setRuntimeIndex and stopTick reach D1 and KV only, so a prototype instance with
-// the surrounding event stream stubbed out exercises the real schedule decision
-// without standing up a Durable Object.
+// Exercise the shared schedule proposal and D1 CAS independently of the
+// journal. Out-of-band Stop below uses the same helper through BotRuntime.
 function releasingRuntime(db: D1Database = testEnv.BICKR_D1): {
 	setRuntimeIndex(
 		bot: BotDocument,
@@ -630,11 +631,16 @@ function releasingRuntime(db: D1Database = testEnv.BICKR_D1): {
 		now: string,
 		ownedByRunId: string,
 		trigger: RuntimeRunTrigger,
-	): Promise<string | null>;
+	 ): Promise<{ nextDueAt: string | null; released: boolean }>;
 } {
-	return Object.assign(Object.create(BotRuntime.prototype), {
+	return withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 		env: { BICKR_D1: db, BICKR_KV: testEnv.BICKR_KV },
-	});
+		setRuntimeIndex: async (bot: BotDocument, status: 'idle' | 'failed', lastError: string | undefined, now: string, runId: string, trigger: RuntimeRunTrigger) => {
+			const nextDueAt = proposedRunNextDueAt(trigger, status, bot.tickSettings.intervalSeconds * 1000, Date.parse(now));
+			const released = await releaseRuntimeRun(db, { botId: bot.id, runId, status, lastError: lastError ?? null, now, nextDueAt });
+			return { nextDueAt, released };
+		},
+	}));
 }
 
 function stoppingRuntime(): { stopTick(botId: string): Promise<{ stopped: boolean; runId?: string; status: string }> } {
@@ -655,7 +661,7 @@ function testRuntimeHarness(): RuntimeHarness {
 	const releaseTick = deferred<void>();
 	const events: RuntimeHarness["events"] = [];
 	const tickBodies: string[] = [];
-	const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+	const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 		state: fakeRuntimeState(),
 		env: {
 			BICKR_D1: testEnv.BICKR_D1,
@@ -706,7 +712,7 @@ function testRuntimeHarness(): RuntimeHarness {
 			return { runId: admitted.runId, status: "completed" };
 		},
 		exportRecentProviderUsage: async () => {},
-	}) as unknown as RuntimeHarness["runtime"];
+	})) as unknown as RuntimeHarness["runtime"];
 	attachTestRunLiveness(runtime);
 	return { runtime, tickBodies, tickStarted, releaseTick, events };
 }

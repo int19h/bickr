@@ -7,7 +7,10 @@ import { authCookie, createBotForTest, seedWorld, testEnv } from './helpers/inde
 
 const namespace = (env as unknown as { BOT_RUNTIME: DurableObjectNamespace }).BOT_RUNTIME;
 type InspectRuntime = {
+	withRunExecution<T>(runId: string, operation: () => T): T;
 	env: { BICKR_D1: D1Database };
+	admitTick(botId: string, trigger: 'manual', options: object): Promise<{ admitted: boolean; result?: { status: string } }>;
+	effectiveProviderSettings: () => Promise<object>;
 	activeRunId: string | null;
 	activeAbortController: AbortController | null;
 	appendEvent(runId: string, type: BotRuntimeEventType, payload: unknown): BotRuntimeEvent;
@@ -73,7 +76,7 @@ describe('runtime liveness in a real SQLite Durable Object', () => {
 		await runInDurableObject(stub, (instance, state) => {
 			const runtime = instance as unknown as InspectRuntime;
 			expect(runtime.activeRunId).toBeNull();
-			expect(() => runtime.appendEvent(runId, 'tool_result', {})).toThrow();
+			expect(() => runtime.withRunExecution(runId, () => runtime.appendEvent(runId, 'tool_result', {}))).toThrow();
 			expect(new RunLiveness(state.storage).read()).toBeNull();
 			expect(state.storage.sql.exec<{ type: string }>('SELECT type FROM events WHERE run_id = ? AND type = ?', runId, 'tick_failed').toArray()).toHaveLength(1);
 		});
@@ -110,7 +113,7 @@ describe('runtime liveness in a real SQLite Durable Object', () => {
 			expect(messages.map((message) => message.role)).toEqual(['assistant', 'tool']);
 			expect(messages[1]?.message_json).toContain('outcome_unknown');
 			expect(runtime.activeRunId).toBeNull();
-			expect(() => runtime.appendEvent(runId, 'assistant_message', {})).toThrow();
+			expect(() => runtime.withRunExecution(runId, () => runtime.appendEvent(runId, 'assistant_message', {}))).toThrow();
 			expect(state.storage.sql.exec('SELECT seq FROM events WHERE type = ?', 'tick_stopped').toArray()).toHaveLength(1);
 		});
 	});
@@ -131,5 +134,36 @@ describe('admission cancellation fence in real D1', () => {
 		expect(await claimRuntimeRun(testEnv.BICKR_D1, bot.id, 'successor-fence', lease, now, 'spotlight', runId)).toBe(true);
 		expect(await releaseRuntimeRun(testEnv.BICKR_D1, { botId: bot.id, runId: 'successor-fence', status: 'idle', nextDueAt: null, lastError: null, now })).toBe(true);
 		expect(await claimRuntimeRun(testEnv.BICKR_D1, bot.id, runId, lease, now, 'spotlight', null)).toBe(false);
+	});
+});
+
+
+it('finalizes a rejected admission claim immediately with the original cause', async () => {
+	const { stub, bot } = await running('claim-rejection');
+	await runInDurableObject(stub, async (instance, state) => {
+		const runtime = instance as unknown as InspectRuntime;
+		await runtime.stopTick(bot.id);
+		const original = runtime.env;
+		const settings = runtime.effectiveProviderSettings;
+		runtime.effectiveProviderSettings = async () => ({});
+		runtime.env = { ...original, BICKR_D1: new Proxy(original.BICKR_D1, {
+			get(target, property) {
+				if (property === 'prepare') return (sql: string) => {
+					if (sql.includes("SET status = 'running'")) throw new Error('Injected admission failure');
+					return target.prepare(sql);
+				};
+				return Reflect.get(target, property, target);
+			},
+		}) };
+		try {
+			expect(await runtime.admitTick(bot.id, 'manual', {})).toMatchObject({ admitted: false, result: { status: 'failed' } });
+			expect(new RunLiveness(state.storage).read()).toBeNull();
+			const event = state.storage.sql.exec<{ payload_json: string }>("SELECT payload_json FROM events WHERE type = 'tick_failed'").one();
+			expect(event.payload_json).toContain('Injected admission failure');
+			expect(event.payload_json).toContain('admission_failure');
+		} finally {
+			runtime.env = original;
+			runtime.effectiveProviderSettings = settings;
+		}
 	});
 });

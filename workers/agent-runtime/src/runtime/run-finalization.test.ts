@@ -154,3 +154,63 @@ it('retains required pause before release through timeout and retires a supersed
  expect(h.runtime.activeRunId).toBe('successor');
  h.storage.database.close();
 });
+
+it('does not recreate erased history when a detached execution resumes after Stop', async () => {
+	const h = await harness();
+	h.runtime.initializeRuntimeStorage();
+	h.runtime.reapStaleRun = async () => false;
+	h.runtime.readStatus = async () => ({ status: 'idle' });
+	let resume!: () => void;
+	let finished!: () => void;
+	const lateFinished = new Promise<void>((resolve) => { finished = resolve; });
+	let lateError: unknown;
+	h.runtime.renewProgressLease = async () => {
+		await new Promise<void>((resolve) => { resume = resolve; });
+		try {
+			h.runtime.appendLoopMessage('run', { role: 'assistant', content: 'stale' }, 'provider_response');
+			h.runtime.appendEvent('run', 'assistant_message', { content: 'stale' });
+		} catch (error) {
+			lateError = error;
+			throw error;
+		} finally { finished(); }
+	};
+	const run = h.run();
+	await Promise.resolve();
+	await h.runtime.stopTick('bot');
+	expect(await run).toMatchObject({ status: 'stopped' });
+	await h.runtime.clearHistory('bot');
+	resume();
+	await lateFinished;
+	expect(lateError).toMatchObject({ name: 'TickStoppedError' });
+	for (const table of ['events', 'loop_messages', 'loop_message_logs', 'runtime_state']) {
+		expect(h.storage.database.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toMatchObject({ n: 0 });
+	}
+	h.storage.database.close();
+});
+
+it('constructs a dormant runtime and migrates tool pairs belonging to terminal history', async () => {
+	const h = await harness();
+	h.runtime.liveness.clear('run');
+	h.runtime.appendEvent('historical', 'tick_completed', {});
+	const calls = ['first', 'second'].map((id) => ({ id, type: 'function', function: { name: 'read_feed', arguments: '{}' } }));
+	h.runtime.appendLoopMessage('historical', { role: 'assistant', tool_calls: calls }, 'provider_response');
+	for (const call of calls) h.runtime.appendLoopMessage('historical', { role: 'tool', tool_call_id: call.id, content: '{}' }, 'tool_result');
+	let initialized!: Promise<void>;
+	h.runtime.state.blockConcurrencyWhile = (initialize: () => Promise<void>) => { initialized = initialize(); return initialized; };
+	new BotRuntime(h.runtime.state, h.runtime.env);
+	await initialized;
+	const rows = h.storage.database.prepare("SELECT message_json FROM loop_messages WHERE deleted_at IS NULL ORDER BY position").all();
+	expect(rows).toHaveLength(4);
+	expect(h.storage.database.prepare("SELECT count(*) AS n FROM events WHERE type = 'tick_completed'").get()).toMatchObject({ n: 1 });
+	h.storage.database.close();
+});
+
+it('refuses duplicate admission locally without touching a suspended status service', async () => {
+	const h = await harness();
+	const readStatus = vi.fn(() => new Promise(() => {}));
+	h.runtime.readStatus = readStatus;
+	expect(await h.runtime.admitTick('bot', 'manual', {})).toMatchObject({ admitted: false, result: { status: 'already_running', runId: 'run' } });
+	expect(readStatus).not.toHaveBeenCalled();
+	expect(h.runtime.liveness.read()).toMatchObject({ kind: 'active', runId: 'run' });
+	h.storage.database.close();
+});

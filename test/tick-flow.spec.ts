@@ -1,3 +1,4 @@
+import { withTestRunLiveness } from "./helpers/index-harness";
 import { attachTestRunLiveness } from "./helpers/index-harness";
 import { testToolExecutor } from "./helpers/index-harness";
 import {
@@ -114,7 +115,7 @@ describe("Tick flow", () => {
 		const coordinatorRequests: Array<{ path: string; body: unknown }> = [];
 		const events: BotRuntimeEvent[] = [];
 		let eventSeq = 0;
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			activeAbortController: null,
 			activeMaintenanceOperation: null,
 			activeRunId: null,
@@ -163,7 +164,7 @@ describe("Tick flow", () => {
 			pruneRuntimeStorageAfterTick: () => {},
 			readCommentTreeTokenBudget: async () => 10_000,
 			startQueuedSpotlightTick: () => {},
-		});
+		}));
 		attachTestRunLiveness(runtime);
 		const runTick = (BotRuntime.prototype as unknown as {
 			runTick: (botId: string, trigger: "manual") => Promise<{ status: string }>;
@@ -199,7 +200,7 @@ describe("Tick flow", () => {
 		});
 		const callProvider = vi.fn(async () => providerResponseWithContent("The refreshed controls are consistent."));
 		let eventSeq = 0;
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: BotRuntimeEvent["type"], payload: unknown) => {
 				eventSeq += 1;
 				return runtimeEvent(eventSeq, runId, type, payload);
@@ -227,7 +228,7 @@ describe("Tick flow", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -274,7 +275,7 @@ describe("Tick flow", () => {
 		const appendProviderMessages = vi.fn(async () => {});
 		const appended: Array<{ message: BotInferenceSubmissionMessage; origin: string; status?: string }> = [];
 		let eventSeq = 0;
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: BotRuntimeEvent["type"], payload: unknown) =>
 				runtimeEvent(++eventSeq, runId, type, payload),
 			appendLoopMessage: (_runId: string, message: BotInferenceSubmissionMessage, origin: string, status?: string) => {
@@ -307,7 +308,7 @@ describe("Tick flow", () => {
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) throw new TickStoppedError();
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop(bot: BotDocument, settings: { baseUrl: string; model: string; temperature: number }, runId: string, messages: BotInferenceSubmissionMessage[], context: { mode: "normal"; signal: AbortSignal }): Promise<unknown>;
 		}).runProviderLoop.bind(runtime);
@@ -337,7 +338,7 @@ describe("Tick flow", () => {
 		const groups: Array<Array<{ message: BotInferenceSubmissionMessage; origin: string; status?: string }>> = [];
 		const executed: string[] = [];
 		let eventSeq = 0;
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: BotRuntimeEvent["type"], payload: unknown) =>
 				runtimeEvent(++eventSeq, runId, type, payload),
 			appendLoopMessageGroup: (items: Array<{ message: BotInferenceSubmissionMessage; origin: string; status?: string }>) => {
@@ -371,7 +372,7 @@ describe("Tick flow", () => {
 			throwIfStopped: (_runId: string, signal: AbortSignal) => {
 				if (signal.aborted) throw new TickStoppedError();
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop(bot: BotDocument, settings: { baseUrl: string; model: string; temperature: number }, runId: string, messages: BotInferenceSubmissionMessage[], context: { mode: "normal"; signal: AbortSignal }): Promise<unknown>;
 		}).runProviderLoop.bind(runtime);
@@ -393,10 +394,10 @@ describe("Tick flow", () => {
 
 	it("checks cancellation before threshold compaction reads or mutates its generation", async () => {
 		const botWithCurrentRuntimeBudget = vi.fn();
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			renewProgressLease: vi.fn(async () => { throw new TickStoppedError(); }),
 			botWithCurrentRuntimeBudget,
-		});
+		}));
 		const maybeCompact = (BotRuntime.prototype as unknown as {
 			maybeCompact(
 				bot: BotDocument,
@@ -455,7 +456,7 @@ describe("Tick flow", () => {
 		});
 		await expect(tick).resolves.toEqual({ runId: harness.runId, status: "stopped" });
 		await blocker;
-		expect(harness.events).toEqual(["tick_started", "tick_stopped"]);
+		expect(harness.events).toEqual(["tick_started", "tick_stop_requested", "tick_stopped"]);
 		expect(await runtimeIndexState(harness.bot.id)).toEqual({ status: "idle", activeRunId: null });
 	});
 
@@ -679,7 +680,7 @@ describe("Tick flow", () => {
 
 	it("detects whether a new tick is continuing the iteration after the last logoff", () => {
 		function started(rows: Array<{ seq: number; type: BotRuntimeEvent["type"]; payload: unknown }>): boolean {
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 				state: {
 					storage: {
 						sql: {
@@ -718,7 +719,7 @@ describe("Tick flow", () => {
 						},
 					},
 				},
-			});
+			}));
 			return (BotRuntime.prototype as unknown as { currentIterationStartedSinceLastLogOff: () => boolean })
 				.currentIterationStartedSinceLastLogOff
 				.bind(runtime)();
@@ -743,7 +744,7 @@ describe("Tick flow", () => {
 			{ role: "assistant", content: "I remember that I promised Müller I would follow up on release notes." },
 			{ role: "assistant", content: "I should look for the changelog next." },
 		];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			previousTerminalTickEvent: () => ({
 				seq: 7,
 				run_id: "run-previous",
@@ -768,7 +769,7 @@ describe("Tick flow", () => {
 			activeLoopMessagesForProvider: () => ledgerMessages,
 			activeLoopMessageRows: () => [],
 			profileUsernamesInActiveContext: () => new Set<string>(),
-		});
+		}));
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
 				bot: Parameters<typeof standardPrompt>[0] & Record<string, unknown>,
@@ -811,7 +812,7 @@ describe("Tick flow", () => {
 
 	it("omits the recurring prompt when it is disabled", async () => {
 		const ledgerMessages: Array<{ role: string; content?: string | null }> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			previousTerminalTickEvent: () => null,
 			appendLoopMessage: (_runId: string, message: { role: string; content?: string | null }) => {
 				ledgerMessages.push(message);
@@ -828,7 +829,7 @@ describe("Tick flow", () => {
 			activeLoopMessagesForProvider: () => ledgerMessages,
 			activeLoopMessageRows: () => [],
 			profileUsernamesInActiveContext: () => new Set<string>(),
-		});
+		}));
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
 				bot: Parameters<typeof standardPrompt>[0] & Record<string, unknown>,
@@ -883,7 +884,7 @@ describe("Tick flow", () => {
 		})).toBeUndefined();
 
 		const ledgerMessages: Array<{ role: string; content?: string | null }> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			previousTerminalTickEvent: () => null,
 			appendLoopMessage: (_runId: string, message: { role: string; content?: string | null }) => {
 				ledgerMessages.push(message);
@@ -900,7 +901,7 @@ describe("Tick flow", () => {
 			activeLoopMessagesForProvider: () => ledgerMessages,
 			activeLoopMessageRows: () => [],
 			profileUsernamesInActiveContext: () => new Set<string>(),
-		});
+		}));
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
 				bot: Parameters<typeof standardPrompt>[0] & { worldRecurringPrompt?: string },
@@ -946,12 +947,12 @@ describe("Tick flow", () => {
 			recurringPromptEnabled: true,
 			recurringPrompt: lt("I remember the world's live focus.  \n"),
 		}));
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
 				BICKR_D1: testEnv.BICKR_D1,
 				BICKR_KV: testEnv.BICKR_KV,
 			},
-		});
+		}));
 		const enrich = (BotRuntime.prototype as unknown as {
 			botWithEffectivePostingSettings: (value: BotDocument) => Promise<BotDocument & { worldRecurringPrompt?: string }>;
 		}).botWithEffectivePostingSettings.bind(runtime);
@@ -973,7 +974,7 @@ describe("Tick flow", () => {
 		const ledgerMessages: Array<{ role: string; content?: string | null }> = [
 			{ role: "assistant", content: "I am already in the middle of reading Bickr." },
 		];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			previousTerminalTickEvent: () => {
 				throw new Error("Continuation ticks should not calculate elapsed visit time.");
 			},
@@ -992,7 +993,7 @@ describe("Tick flow", () => {
 			activeLoopMessagesForProvider: () => ledgerMessages,
 			activeLoopMessageRows: () => [],
 			profileUsernamesInActiveContext: () => new Set<string>(),
-		});
+		}));
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
 				bot: Parameters<typeof standardPrompt>[0] & Record<string, unknown>,
@@ -1082,7 +1083,7 @@ describe("Tick flow", () => {
 		async function buildWithActiveRows(activeRows: unknown[]): Promise<Array<Record<string, unknown>>> {
 			const messages: Array<Record<string, unknown>> = [];
 			let seq = 0;
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 				env: {
 					BICKR_D1: testEnv.BICKR_D1,
 					BICKR_KV: testEnv.BICKR_KV,
@@ -1096,7 +1097,7 @@ describe("Tick flow", () => {
 				readCommentTreeTokenBudget: async () => 10_000,
 				activeLoopMessagesForProvider: () => messages,
 				activeLoopMessageRows: () => activeRows,
-			});
+			}));
 			const buildMessages = (BotRuntime.prototype as unknown as {
 				buildMessages: (
 					bot: BotDocument & { worldRecurringPrompt?: string },
@@ -1261,7 +1262,7 @@ describe("Tick flow", () => {
 		];
 		const messages: Array<Record<string, unknown>> = [];
 		let seq = 0;
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
 				BICKR_D1: testEnv.BICKR_D1,
 				BICKR_KV: testEnv.BICKR_KV,
@@ -1275,7 +1276,7 @@ describe("Tick flow", () => {
 			readCommentTreeTokenBudget: async () => 10_000,
 			activeLoopMessagesForProvider: () => messages,
 			activeLoopMessageRows: () => activeRows,
-		});
+		}));
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
 				bot: BotDocument,
@@ -1326,7 +1327,7 @@ describe("Tick flow", () => {
 			const tokenBudget = 260;
 		const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: lt(selfProfile.displayName) };
 		const messages: Array<Record<string, unknown>> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
 				BICKR_D1: testEnv.BICKR_D1,
 				BICKR_KV: testEnv.BICKR_KV,
@@ -1339,7 +1340,7 @@ describe("Tick flow", () => {
 			readCommentTreeTokenBudget: async () => tokenBudget,
 			activeLoopMessagesForProvider: () => messages,
 			activeLoopMessageRows: () => [],
-		});
+		}));
 			const buildMessages = (BotRuntime.prototype as unknown as {
 				buildMessages: (
 					bot: BotDocument & { worldRecurringPrompt?: string },
@@ -1389,7 +1390,7 @@ describe("Tick flow", () => {
 			const tokenBudget = 300;
 			const author = { id: selfProfile.id, username: `u/${selfProfile.handle}`, displayName: lt(selfProfile.displayName) };
 		const messages: Array<Record<string, unknown>> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
 				BICKR_D1: testEnv.BICKR_D1,
 				BICKR_KV: testEnv.BICKR_KV,
@@ -1402,7 +1403,7 @@ describe("Tick flow", () => {
 			readCommentTreeTokenBudget: async () => tokenBudget,
 			activeLoopMessagesForProvider: () => messages,
 			activeLoopMessageRows: () => [],
-		});
+		}));
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
 				bot: BotDocument & { worldRecurringPrompt?: string },
@@ -1905,7 +1906,7 @@ describe("Tick flow", () => {
 				has_logs: 0,
 			},
 		];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
 				BICKR_D1: testEnv.BICKR_D1,
 				BICKR_KV: testEnv.BICKR_KV,
@@ -1918,7 +1919,7 @@ describe("Tick flow", () => {
 			readCommentTreeTokenBudget: async () => 1,
 			activeLoopMessagesForProvider: () => messages,
 			activeLoopMessageRows: () => activeRows,
-		});
+		}));
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
 				bot: BotDocument & { worldRecurringPrompt?: string },
@@ -2051,7 +2052,7 @@ describe("Tick flow", () => {
 			],
 		}];
 		const messages: Array<Record<string, unknown>> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			env: { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV },
 			previousTerminalTickEvent: () => null,
 			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
@@ -2061,7 +2062,7 @@ describe("Tick flow", () => {
 			readCommentTreeTokenBudget: async () => 4_000,
 			activeLoopMessagesForProvider: () => messages,
 			activeLoopMessageRows: () => [],
-		});
+		}));
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
 				bot: BotDocument,
@@ -2145,7 +2146,7 @@ describe("Tick flow", () => {
 			content,
 		}];
 		const messages: Array<Record<string, unknown>> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			env: {
 				BICKR_D1: testEnv.BICKR_D1,
 				BICKR_KV: testEnv.BICKR_KV,
@@ -2159,7 +2160,7 @@ describe("Tick flow", () => {
 			syntheticProfilesForUsernames: async () => [],
 			activeLoopMessagesForProvider: () => messages,
 			activeLoopMessageRows: () => [],
-		});
+		}));
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
 				bot: BotDocument,
@@ -2198,7 +2199,7 @@ describe("Tick flow", () => {
 			trigger: string;
 			options: { mode?: string; injectionIds?: string[]; spotlightId?: string; background?: boolean };
 		}> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			activeRunId: "run-current",
 			state: {
 				storage: {
@@ -2219,7 +2220,7 @@ describe("Tick flow", () => {
 				started.push({ botId, trigger, options });
 				return { runId: "run-followup", status: "completed" };
 			},
-		});
+		}));
 		const startBackgroundTick = (BotRuntime.prototype as unknown as {
 			startBackgroundTick: (
 				botId: string,
@@ -2269,7 +2270,7 @@ describe("Tick flow", () => {
 
 	it("rejects empty provider responses without appending them to the loop ledger", async () => {
 		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(type === "provider_request" ? 123 : 124, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (
@@ -2315,7 +2316,7 @@ describe("Tick flow", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -2350,7 +2351,7 @@ describe("Tick flow", () => {
 				[providerCompactionSummaryProperty]: "I should not be summarizing right now.",
 			}))
 			.mockResolvedValueOnce(providerResponseWithContent("I will continue normally."));
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -2389,7 +2390,7 @@ describe("Tick flow", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -2426,7 +2427,7 @@ describe("Tick flow", () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
 		const executedTools: Array<{ name: string; args: Record<string, unknown> }> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -2471,7 +2472,7 @@ describe("Tick flow", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -2530,7 +2531,7 @@ describe("Tick flow", () => {
 				providerMessagesByCall.push(messages);
 				return providerResponseWithContent("done");
 			});
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -2570,7 +2571,7 @@ describe("Tick flow", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -2620,7 +2621,7 @@ describe("Tick flow", () => {
 				{ id: "call-search-b", name: "search_threads", args: { query: "telescopes" } },
 			]))
 			.mockResolvedValueOnce(providerResponseWithContent("done"));
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(appendedLoopMessages.length + callProvider.mock.calls.length + 1, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (_runId: string, message: BotInferenceSubmissionMessage, origin: string) => {
@@ -2656,7 +2657,7 @@ describe("Tick flow", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -2702,7 +2703,7 @@ describe("Tick flow", () => {
 				{ id: "call-follow-2", name: "follow_profile", args: { targets: [{ username: "u/alice", reason: "Duplicate request for Alice." }] } },
 			]))
 			.mockResolvedValueOnce(providerResponseWithContent("done"));
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -2739,7 +2740,7 @@ describe("Tick flow", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -2805,7 +2806,7 @@ describe("Tick flow", () => {
 				},
 			]))
 			.mockResolvedValueOnce(providerResponseWithContent("done"));
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(type === "provider_request" ? callProvider.mock.calls.length : appendedLoopMessages.length + executedTools.length + 1, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
@@ -2840,7 +2841,7 @@ describe("Tick flow", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -2892,7 +2893,7 @@ describe("Tick flow", () => {
 				{ id: "call-missing-2", name: "follow_profile", args: { targets: [{ username: "u/philosopher_king", reason: "Duplicate request for the same profile." }] } },
 			]))
 			.mockResolvedValueOnce(providerResponseWithContent("done"));
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			env: testEnv,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -2926,7 +2927,7 @@ describe("Tick flow", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -2964,7 +2965,7 @@ describe("Tick flow", () => {
 	it("keeps the full tool schema when the iteration is near its successful control limit", async () => {
 		let providerTools: ProviderToolDefinition[] = [];
 		const executedTools: string[] = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(type === "provider_request" ? 1 : 2, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (
@@ -3011,7 +3012,7 @@ describe("Tick flow", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const bot = {
 			...fakeBotDocument(),
 			toolSettings: { openRouter: { webSearch: { enabled: true } } },
@@ -3052,7 +3053,7 @@ describe("Tick flow", () => {
 	it("injects synthetic logoff after a tool call reaches the iteration limit", async () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const appendedLoopMessages: Array<{ message: Record<string, unknown>; origin: string }> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -3094,7 +3095,7 @@ describe("Tick flow", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -3156,7 +3157,7 @@ describe("Tick flow", () => {
 				...providerResponseWithToolCall("call-create", "create_thread", { forumHandle: "general", title: "Unrelated", body: "Body." }),
 				usage: providerUsageForTest(20),
 			});
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -3206,7 +3207,7 @@ describe("Tick flow", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -3267,7 +3268,7 @@ describe("Tick flow", () => {
 	it("ends a spotlight tick after an unrelated mutation result and drops remaining generated calls", async () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const executedTools: string[] = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -3315,7 +3316,7 @@ describe("Tick flow", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -3362,7 +3363,7 @@ describe("Tick flow", () => {
 	it("counts mixed spotlight mutation batches as reactions while ending the spotlight tick", async () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const executedTools: string[] = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -3420,7 +3421,7 @@ describe("Tick flow", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -3467,7 +3468,7 @@ describe("Tick flow", () => {
 	it("drops remaining parallel calls after one fills the iteration limit", async () => {
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const executedTools: string[] = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -3511,7 +3512,7 @@ describe("Tick flow", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -3568,7 +3569,7 @@ async function terminalTransitionRaceHarness(suffix: string): Promise<TerminalTr
 	const controller = new AbortController();
 	const events: string[] = [];
 	const sql = memoryRuntimeSql();
-	const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+	const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 		activeAbortController: controller,
 		activeMaintenanceOperation: null,
 		activeRunId: runId,
@@ -3597,7 +3598,7 @@ async function terminalTransitionRaceHarness(suffix: string): Promise<TerminalTr
 		hasTerminalEvent: (eventRunId: string) =>
 			eventRunId === runId && events.some((type) => ["tick_completed", "tick_failed", "tick_stopped"].includes(type)),
 		startQueuedSpotlightTick: () => {},
-	});
+	}));
 	const liveness = attachTestRunLiveness(runtime);
 	await liveness.begin({ botId: bot.id, runId, trigger: 'spotlight', intervalMs: bot.tickSettings.intervalSeconds * 1000, claimToken: null });
 	const methods = BotRuntime.prototype as unknown as TerminalRaceMethods;

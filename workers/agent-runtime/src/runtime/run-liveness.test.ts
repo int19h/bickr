@@ -36,7 +36,7 @@ describe('durable run journal and cleanup bounds', () => {
 		expect(await observed).toMatchObject({ kind: 'runtime_operation_timeout', operation: 'export' });
 	});
 	it('uses an explicit progress allowlist', () => {
-		for (const type of ['tool_result', 'tool_call', 'provider_request', 'compaction', 'provider_delta'] as const) expect(isRunProgressEvent(type)).toBe(true);
+		for (const type of ['tool_result', 'tool_call', 'provider_request', 'compaction'] as const) expect(isRunProgressEvent(type)).toBe(true);
 		for (const type of ['thought_injected', 'provider_retry', 'provider_token_estimate', 'provider_history_repaired', 'tick_stop_requested'] as const) expect(isRunProgressEvent(type)).toBe(false);
 	});
 });

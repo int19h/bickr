@@ -1,3 +1,4 @@
+import { withTestRunLiveness } from "./helpers/index-harness";
 import { testToolExecutor } from "./helpers/index-harness";
 import {
 	additionalReplyToolPresent,
@@ -140,7 +141,7 @@ function legacyLoopHistoryRuntime(rows: LoopMessageRowForTest[]) {
 			return { one: () => ({} as T), toArray: () => [] as T[] };
 		},
 	};
-	const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+	const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 		state: {
 			storage: {
 				sql,
@@ -161,7 +162,7 @@ function legacyLoopHistoryRuntime(rows: LoopMessageRowForTest[]) {
 				},
 			},
 		},
-	});
+	}));
 	return {
 		runtime,
 		activeMessages: () => sortedActiveRows().map((row) => JSON.parse(row.message_json) as BotInferenceSubmissionMessage),
@@ -175,7 +176,7 @@ describe("Tick limits and recovery", () => {
 		it("does not count failed parallel calls toward the iteration limit", async () => {
 			const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 			const executedTools: string[] = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -220,7 +221,7 @@ describe("Tick limits and recovery", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -259,7 +260,7 @@ describe("Tick limits and recovery", () => {
 			const callProvider = vi.fn()
 				.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off-first", "log_off", { reason: "done too early" }))
 				.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off-second", "log_off", { reason: "still done" }));
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 				appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 					events.push({ type, payload });
 					return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -305,7 +306,7 @@ describe("Tick limits and recovery", () => {
 						throw new Error("Unexpected abort.");
 					}
 				},
-			});
+			}));
 			const runProviderLoop = (BotRuntime.prototype as unknown as {
 				runProviderLoop: (
 					bot: BotDocument,
@@ -351,7 +352,7 @@ describe("Tick limits and recovery", () => {
 				...providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" }),
 				usage: providerUsageForTest(25, 5),
 			}));
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 				appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 					runtimeEvent(callProvider.mock.calls.length + executedTools.length + 1, runId, type as BotRuntimeEvent["type"], payload),
 				appendLoopMessage: (
@@ -388,7 +389,7 @@ describe("Tick limits and recovery", () => {
 						throw new Error("Unexpected abort.");
 					}
 				},
-			});
+			}));
 			const runProviderLoop = (BotRuntime.prototype as unknown as {
 				runProviderLoop: (
 					bot: BotDocument,
@@ -428,7 +429,7 @@ describe("Tick limits and recovery", () => {
 				...providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" }),
 				usage: providerUsageForTest(10),
 			}));
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 				appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 					events.push({ type, payload });
 					return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -468,7 +469,7 @@ describe("Tick limits and recovery", () => {
 						throw new Error("Unexpected abort.");
 					}
 				},
-			});
+			}));
 			const runProviderLoop = (BotRuntime.prototype as unknown as {
 				runProviderLoop: (
 					bot: BotDocument,
@@ -514,7 +515,7 @@ describe("Tick limits and recovery", () => {
 				...providerResponseWithToolCall("call-log-off", "log_off", { reason: "done" }),
 				usage: providerUsageForTest(50),
 			}));
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 				appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 					events.push({ type, payload });
 					return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -553,7 +554,7 @@ describe("Tick limits and recovery", () => {
 						throw new Error("Unexpected abort.");
 					}
 				},
-			});
+			}));
 			const runProviderLoop = (BotRuntime.prototype as unknown as {
 				runProviderLoop: (
 					bot: BotDocument,
@@ -620,7 +621,7 @@ describe("Tick limits and recovery", () => {
 				rawResponse: "bounded raw SSE response preview",
 			})
 			.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off", "log_off", { reason: "clean retry" }));
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -672,7 +673,7 @@ describe("Tick limits and recovery", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -787,7 +788,7 @@ describe("Tick limits and recovery", () => {
 		const callProvider = vi.fn()
 			.mockResolvedValueOnce(providerResponseWithToolCall("call-draw", "draw_random_integers", { ranges: sentRanges }))
 			.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off", "log_off", { reason: "done rolling" }));
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(1, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessage: (
@@ -840,7 +841,7 @@ describe("Tick limits and recovery", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -896,7 +897,7 @@ describe("Tick limits and recovery", () => {
 			.mockResolvedValueOnce(providerResponseWithRawToolCalls([
 				{ id: "call-bad-2", name: "read_thread", arguments: "[]" },
 			]));
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
 				return runtimeEvent(events.length, runId, type as BotRuntimeEvent["type"], payload);
@@ -942,7 +943,7 @@ describe("Tick limits and recovery", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -1002,7 +1003,7 @@ describe("Tick limits and recovery", () => {
 				providerResponseWithContent("I might be done.")
 			:	providerResponseWithToolCall("call-log-off", "log_off", { reason: "done after correction" });
 		});
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			...loopMemory,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -1042,7 +1043,7 @@ describe("Tick limits and recovery", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -1083,7 +1084,7 @@ describe("Tick limits and recovery", () => {
 				providerResponseWithContent("I should think about this without touching the page.")
 			:	providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" });
 		});
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			...loopMemory,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -1122,7 +1123,7 @@ describe("Tick limits and recovery", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -1157,7 +1158,7 @@ describe("Tick limits and recovery", () => {
 		const loopMemory = testLoopMessageMemory([{ role: "user", content: "Act." }]);
 		const appendedLoopMessages: Array<{ origin: string; message: Record<string, unknown> }> = [];
 		const callProvider = vi.fn(async () => providerResponseWithContent("Still thinking."));
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			...loopMemory,
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(callProvider.mock.calls.length + appendedLoopMessages.length + 1, runId, type as BotRuntimeEvent["type"], payload),
@@ -1181,7 +1182,7 @@ describe("Tick limits and recovery", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -1211,7 +1212,7 @@ describe("Tick limits and recovery", () => {
 		const providerToolsByCall: string[][] = [];
 		const systemPromptsByCall: string[] = [];
 		const appendedLoopMessages: Array<{ origin: string; message: Record<string, unknown> }> = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => [],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(providerToolsByCall.length + appendedLoopMessages.length + 1, runId, type as BotRuntimeEvent["type"], payload),
@@ -1259,7 +1260,7 @@ describe("Tick limits and recovery", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -1293,7 +1294,7 @@ describe("Tick limits and recovery", () => {
 		const callProvider = vi.fn()
 			.mockResolvedValueOnce(providerResponseWithToolCall("call-log-off", "log_off", { reason: "done" }))
 			.mockResolvedValueOnce(providerResponseWithContent("I will keep going."));
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => [],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
 				events.push({ type, payload });
@@ -1352,7 +1353,7 @@ describe("Tick limits and recovery", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -1394,7 +1395,7 @@ describe("Tick limits and recovery", () => {
 		const providerToolsByCall: string[][] = [];
 		const systemPromptsByCall: string[] = [];
 		let providerCall = 0;
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => [],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(providerCall + 1, runId, type as BotRuntimeEvent["type"], payload),
@@ -1447,7 +1448,7 @@ describe("Tick limits and recovery", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -1509,7 +1510,7 @@ describe("Tick limits and recovery", () => {
 				return { one: () => ({} as T), toArray: () => [] as T[] };
 			},
 		};
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => [],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(providerToolsByCall.length + 1, runId, type as BotRuntimeEvent["type"], payload),
@@ -1542,7 +1543,7 @@ describe("Tick limits and recovery", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -1616,7 +1617,7 @@ describe("Tick limits and recovery", () => {
 				return { one: () => ({} as T), toArray: () => [] as T[] };
 			},
 		};
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => [],
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(providerToolsByCall.length + 1, runId, type as BotRuntimeEvent["type"], payload),
@@ -1649,7 +1650,7 @@ describe("Tick limits and recovery", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -1911,7 +1912,7 @@ describe("Tick limits and recovery", () => {
 				content: "I will inspect and vote.",
 			})
 			.mockResolvedValueOnce(providerResponseWithContent("Done."));
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) =>
 				runtimeEvent(type === "provider_request" ? 100 + callProvider.mock.calls.length : 200 + callProvider.mock.calls.length, runId, type as BotRuntimeEvent["type"], payload),
 			appendLoopMessageGroup: (entries: Array<{ message: BotInferenceSubmissionMessage; origin: string }>) => {
@@ -1949,7 +1950,7 @@ describe("Tick limits and recovery", () => {
 					throw new Error("Unexpected abort.");
 				}
 			},
-		});
+		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
 				bot: BotDocument,
@@ -1985,7 +1986,7 @@ describe("Tick limits and recovery", () => {
 	it("rolls back grouped assistant and tool rows when a transactional write fails", () => {
 		const inserted: Array<{ role: string }> = [];
 		let transactionCount = 0;
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			state: {
 				storage: {
 					sql: {},
@@ -2021,7 +2022,7 @@ describe("Tick limits and recovery", () => {
 				};
 			},
 			recordLoopMessageLog: () => {},
-		});
+		}));
 		const appendLoopMessageGroup = (BotRuntime.prototype as unknown as {
 			appendLoopMessageGroup: (entries: Array<{ runId: string; message: BotInferenceSubmissionMessage; origin: string }>) => unknown[];
 		}).appendLoopMessageGroup.bind(runtime);
@@ -2113,7 +2114,7 @@ describe("Tick limits and recovery", () => {
 		const pendingCompactionPayload = { status: "pending", fromSeq: 10, toSeq: 20, messageCount: 3 };
 		const completedCompactionPayload = { status: "complete", summaryMessageSeq: 40 };
 		const updatedCompactions: unknown[] = [];
-		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			state: {
 				storage: {
 					sql: {
@@ -2167,7 +2168,7 @@ describe("Tick limits and recovery", () => {
 				updatedCompactions.push({ event, payload });
 				return { ...event, payload };
 			},
-		});
+		}));
 		const recordTickFailure = (BotRuntime.prototype as unknown as {
 			recordTickFailure: (
 				runId: string,

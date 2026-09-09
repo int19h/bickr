@@ -73,3 +73,11 @@ describe('committed tool bookkeeping', () => {
 		expect(h.pair).toHaveBeenCalledTimes(1);
 	});
 });
+
+it.each([true, false])('never blindly repeats a reply with an unknown acknowledgement (visible=%s)', async (visible) => {
+	const h = harness();
+	h.runtime.recentToolResultRows = () => [{ seq: 9, run_id: 'old', type: 'tool_result', token_estimate: 0, compacted_by: null, created_at: '2026-01-01', payload_json: JSON.stringify({ name: 'make_additional_reply_to_the_same_comment', outcome: 'unknown', args: { body: comment.body } }) }];
+	h.runtime.env.BICKR_KV = { get: async () => ({ ...thread, comments: [{ ...comment, id: 'cmt_parent', parentCommentId: undefined, authorBotId: 'other' }, ...(visible ? [comment] : [])] }) } as unknown as RuntimeToolsRuntime['env']['BICKR_KV'];
+	await expect(h.execute()).rejects.toMatchObject(visible ? { name: 'DuplicateReplyError' } : { kind: 'tool_outcome_unknown' });
+	expect(h.service).not.toHaveBeenCalled();
+});

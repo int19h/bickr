@@ -14,18 +14,20 @@ Admission is also fenced in D1. Migration `0056_runtime_admission_fence.sql` add
 claim must consume its previously read token. Finalization consumes the same
 token before releasing the run, so Stop can invalidate a claim that has not yet
 executed. The old claim cannot become valid after another run finishes. A false
-release CAS is conclusive only after that token fence has succeeded. Both writes
+release CAS is conclusive only after that token fence has succeeded. Claim waits are bounded to 15 seconds; a rejection immediately journals its
+original failure and runs the same token-fenced release reconciliation. Both writes
 run inside BotRuntime; cron continues to dispatch recovery to the object.
 
 ## Five-minute inactivity
 
 Progress is scoped to the active run and recorded in DO storage. The explicit
-allowlist is tick_started, input, provider_request, provider_delta,
+allowlist is tick_started, input, provider_request,
 reasoning_message, assistant_message, tool_call, tool_result and compaction.
 Injected thoughts (including other Spotlights), monitoring, token estimates,
 repair diagnostics, retry scheduling and lease renewal do not count.
 
-Meaningful provider content, reasoning and tool-call deltas count; SSE heartbeat
+Meaningful ephemeral provider content, reasoning and tool-call deltas count
+through their callback rather than an appended provider_delta event; SSE heartbeat
 bytes do not reach this callback. Stream timestamp writes are coalesced to at
 most one per second, storing the time output arrived rather than the flush time.
 The alarm flushes any pending sample before reading its durable deadline. An
@@ -41,7 +43,9 @@ progress. Legacy running rows with no journal retain their pre-upgrade lease and
 existing sweep recovery; the new timing/fence contract applies to newly admitted
 runs after Worker version convergence.
 
-A transition waiting on external work has a 60-second deadline. The timeout
+A transition waiting on external work has a 60-second aggregate deadline across
+its sequential KV/D1 setup awaits. A healthy active-run admission collision and
+maintenance refusal take a local path before any external wait. The timeout
 records terminal intent and arms recovery before `state.abort()` resets the
 instance. It does not unlock the queue and allow its suspended closure to resume
 alongside a successor. The default alarm retry behavior is retained. Cloudflare
@@ -71,14 +75,18 @@ Execution observes cancellation independently of its external awaits, so a bindi
 Usage export is bounded and receives cancellation between batches. The active
 in-memory slot is cleared before export. A timed-out exporter cannot advance its
 cursor or start another batch when its suspended request returns. Ordinary event,
-message and payload publishers reject writes for terminal runs. Intentional
+message and payload publishers check an AsyncLocalStorage execution scope
+against the current active journal. Late async descendants retain this scope,
+so erasing terminal history or pruning it never restores write authority.
+Startup migrations and historical adapters have no live execution scope; local
+terminal settlement exits it explicitly for only its synchronous transaction. Intentional
 bounded diagnostic amendments use their own event-store path.
 
 ## Seen-content SQL
 
 Seen writes retain the whole-envelope semantics: all returned thread nodes and
-profiles are marked, not only a newly created reply. Deduplication and the
-upsert keeps the earliest first_seen_at and latest last_seen_at. Provenance
+profiles are marked, not only a newly created reply. Input items are deduplicated.
+The upsert keeps the earliest first_seen_at and latest last_seen_at. Provenance
 (seen_via and source_id, including NULL) follows the newest observation; equal
 timestamps retain the existing last-writer behavior. This prevents a timed-out
 older write from rolling back a successor visit. Empty input performs no query.
@@ -118,3 +126,13 @@ settles the intent because a prior attempt applied or a newer owner edit
 superseded it; a timeout retains it for alarm recovery. Optional notifications
 cannot delay or reorder this account mutation. The visit result remains failed;
 the terminal cause does not assert that a pending or superseded pause applied.
+
+Run-start input construction and notification consumption remain bounded by the
+overall five-minute watchdog, not individual 15-second cleanup timers. Immediate
+Stop records tick_stop_requested once without extending progress. Already
+received success is preserved; an in-flight website action is recorded unknown
+while the visit stays stopped. A repeated identical unknown reply checks the
+authoritative thread; a visible match is a duplicate, and absence does not grant
+permission to replay an accepted-but-unconfirmed request.
+
+Async scope API: https://developers.cloudflare.com/workers/runtime-apis/nodejs/asynclocalstorage/

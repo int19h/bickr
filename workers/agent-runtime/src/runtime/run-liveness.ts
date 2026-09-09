@@ -6,7 +6,17 @@ import { withAbortableTimeout } from '../provider/sse';
 export const runInactivityMs = 5 * 60_000;
 export const cleanupTimeoutMs = 15_000;
 export const finalizationRetryMs = 30_000;
+// Aggregate budget for a serialized admission/maintenance transition, including
+// its sequential KV and D1 setup awaits. Busy admission uses a local fast path.
 export const transitionTimeoutMs = 60_000;
+
+export function runKeepsStandingSchedule(trigger: RuntimeRunTrigger): boolean {
+	return trigger === 'spotlight';
+}
+
+export function proposedRunNextDueAt(trigger: RuntimeRunTrigger, status: 'idle' | 'failed', intervalMs: number, now: number): string | null {
+	return runKeepsStandingSchedule(trigger) ? null : new Date(now + (status === 'failed' ? runInactivityMs : intervalMs)).toISOString();
+}
 
 export function boundedCleanup<T>(operation: string, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
 	// Cleanup has its own deadline: a stopped run's already-aborted signal must
@@ -95,7 +105,7 @@ export class RunLiveness {
 		if (!current || current.runId !== runId) return null;
 		if (current.kind === 'finalizing') return current;
 		const finishedAt = new Date(now).toISOString();
-		const nextDueAt = current.trigger === 'spotlight' ? null : new Date(now + (status === 'failed' ? runInactivityMs : current.intervalMs)).toISOString();
+		const nextDueAt = proposedRunNextDueAt(current.trigger, status, current.intervalMs, now);
 		const journal: RunJournal = { ...current, kind: 'finalizing', terminalType, status, message, nextDueAt, finishedAt };
 		this.write(journal);
 		return journal;
@@ -107,7 +117,7 @@ export class RunLiveness {
 }
 
 const progressEvents: ReadonlySet<BotRuntimeEventType> = new Set([
-	'tick_started', 'input', 'provider_request', 'provider_delta', 'reasoning_message',
+	'tick_started', 'input', 'provider_request', 'reasoning_message',
 	'assistant_message', 'tool_call', 'tool_result', 'compaction',
 ]);
 export function isRunProgressEvent(type: BotRuntimeEventType): boolean {

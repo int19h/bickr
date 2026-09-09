@@ -3,6 +3,13 @@ import type { BotRuntimeEvent } from "@bickr/shared/model";
 import { runtimeActivities } from "./runtime-activity-formatting";
 
 describe("runtimeActivities", () => {
+	it("labels unknown website outcomes without a success envelope", () => {
+		const activities = runtimeActivities([{ seq: 1, runId: 'run', type: 'tool_result', createdAt: '2026-01-01', tokenEstimate: 0,
+			payload: { name: 'reply_to_comment', outcome: 'unknown', args: { commentId: 'target' }, result: { kind: 'outcome_unknown', message: 'Check the website.' } },
+		}]);
+		expect(activities).toMatchObject([{ title: 'Outcome unknown: reply_to_comment', body: 'Check the website.' }]);
+	});
+
 	it("shows bookkeeping diagnostics without changing a completed outcome", () => {
 		const activities = runtimeActivities([{ seq: 1, runId: 'run', type: 'tick_completed', createdAt: '2026-01-01', tokenEstimate: 0,
 			payload: { diagnostics: [{ kind: 'bookkeeping_failure', operation: 'seen_content', message: 'Seen bookkeeping timed out.', cause: 'outage' }] },
