@@ -1,3 +1,4 @@
+import { attachTestRunLiveness, memoryRuntimeSql } from "./helpers/index-harness";
 import { beforeEach, describe, expect, it } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import { clearKv, resetD1Schema } from "./helpers/d1-schema";
@@ -161,7 +162,7 @@ describe("runtime D1 claim helpers", () => {
 	it("claims idle rows, rejects live leases, claims expired leases, and ignores stale releases", async () => {
 		await seedBotRuntimeRow({ botId: "bot_claim_idle", status: "idle" });
 		await expect(
-			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_idle", "run-idle", "2026-07-09T20:15:00.000Z", now, "cron"),
+			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_idle", "run-idle", "2026-07-09T20:15:00.000Z", now, "cron", null),
 		).resolves.toBe(true);
 		await expect(runtimeIndexRow("bot_claim_idle")).resolves.toMatchObject({
 			status: "running",
@@ -176,7 +177,7 @@ describe("runtime D1 claim helpers", () => {
 			leaseExpiresAt: "2026-07-09T20:30:00.000Z",
 		});
 		await expect(
-			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_live", "run-contender", "2026-07-09T20:45:00.000Z", now, "cron"),
+			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_live", "run-contender", "2026-07-09T20:45:00.000Z", now, "cron", null),
 		).resolves.toBe(false);
 		await expect(runtimeIndexRow("bot_claim_live")).resolves.toMatchObject({
 			status: "running",
@@ -191,7 +192,7 @@ describe("runtime D1 claim helpers", () => {
 			leaseExpiresAt: "2026-07-09T19:59:59.000Z",
 		});
 		await expect(
-			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_expired", "run-successor", "2026-07-09T20:45:00.000Z", now, "cron"),
+			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_expired", "run-successor", "2026-07-09T20:45:00.000Z", now, "cron", null),
 		).resolves.toBe(true);
 		await expect(runtimeIndexRow("bot_claim_expired")).resolves.toMatchObject({
 			status: "running",
@@ -231,7 +232,7 @@ describe("runtime D1 claim helpers", () => {
 		await pauseRuntimeIndexRows("bot_claim_paused_idle", "bot_claim_paused_expired");
 
 		await expect(
-			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_paused_idle", "run-paused", "2026-07-09T20:15:00.000Z", now, "cron"),
+			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_paused_idle", "run-paused", "2026-07-09T20:15:00.000Z", now, "cron", null),
 		).resolves.toBe(false);
 		await expect(runtimeIndexRow("bot_claim_paused_idle")).resolves.toMatchObject({
 			enabled: 0,
@@ -242,7 +243,7 @@ describe("runtime D1 claim helpers", () => {
 		});
 
 		await expect(
-			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_paused_expired", "run-successor", "2026-07-09T20:15:00.000Z", now, "cron"),
+			claimRuntimeRun(testEnv.BICKR_D1, "bot_claim_paused_expired", "run-successor", "2026-07-09T20:15:00.000Z", now, "cron", null),
 		).resolves.toBe(false);
 		await expect(runtimeIndexRow("bot_claim_paused_expired")).resolves.toMatchObject({
 			enabled: 0,
@@ -467,7 +468,7 @@ describe("spotlight visits against the participant's own schedule", () => {
 		await seedBotRuntimeRow({ status: "idle", nextDueAt: standingDueAt });
 
 		await expect(
-			claimRuntimeRun(testEnv.BICKR_D1, botId, "run-spotlight", leaseExpiresAt, now, "spotlight"),
+			claimRuntimeRun(testEnv.BICKR_D1, botId, "run-spotlight", leaseExpiresAt, now, "spotlight", null),
 		).resolves.toBe(true);
 
 		// The live lease is what keeps the scheduler off the row while the visit
@@ -484,7 +485,7 @@ describe("spotlight visits against the participant's own schedule", () => {
 	it("pushes the schedule out to the lease when an ordinary visit claims the row", async () => {
 		await seedBotRuntimeRow({ status: "idle", nextDueAt: standingDueAt });
 
-		await expect(claimRuntimeRun(testEnv.BICKR_D1, botId, "run-cron", leaseExpiresAt, now, "cron")).resolves.toBe(true);
+		await expect(claimRuntimeRun(testEnv.BICKR_D1, botId, "run-cron", leaseExpiresAt, now, "cron", null)).resolves.toBe(true);
 
 		await expect(runtimeIndexRow(botId)).resolves.toMatchObject({
 			activeRunTrigger: "cron",
@@ -529,8 +530,8 @@ describe("spotlight visits against the participant's own schedule", () => {
 
 	const completesAt = "2026-07-09T20:04:00.000Z";
 	// A failed ordinary visit waits out a lease timeout instead of its own
-	// interval, which is 15 minutes past the release below.
-	const failsAt = "2026-07-09T20:18:00.000Z";
+	// interval, which is five minutes past the release below.
+	const failsAt = "2026-07-09T20:08:00.000Z";
 
 	// 'manual' is only a human starting the participant's own visit early, so it
 	// is an ordinary visit in every way that matters here — the run belongs to the
@@ -706,38 +707,19 @@ function testRuntimeHarness(): RuntimeHarness {
 		},
 		exportRecentProviderUsage: async () => {},
 	}) as unknown as RuntimeHarness["runtime"];
+	attachTestRunLiveness(runtime);
 	return { runtime, tickBodies, tickStarted, releaseTick, events };
 }
 
 function fakeRuntimeState(): DurableObjectState {
 	return {
 		storage: {
-			sql: {
-				exec<T = unknown>(query: string) {
-					if (/SELECT changes\(\) AS count/.test(query)) {
-						return fakeSqlCursor([{ count: 0 } as T]);
-					}
-					return fakeSqlCursor<T>([]);
-				},
-			},
+			sql: memoryRuntimeSql(),
 		},
 		waitUntil: () => {},
 		getWebSockets: () => [],
 		acceptWebSocket: () => {},
 	} as unknown as DurableObjectState;
-}
-
-function fakeSqlCursor<T>(rows: T[]) {
-	return {
-		toArray: () => rows,
-		one: () => {
-			const first = rows[0];
-			if (first === undefined) {
-				throw new Error("Expected a fake SQL row.");
-			}
-			return first;
-		},
-	};
 }
 
 function tickRequest(): Request {

@@ -3,6 +3,13 @@ import type { BotRuntimeEvent } from "@bickr/shared/model";
 import { runtimeActivities } from "./runtime-activity-formatting";
 
 describe("runtimeActivities", () => {
+	it("shows bookkeeping diagnostics without changing a completed outcome", () => {
+		const activities = runtimeActivities([{ seq: 1, runId: 'run', type: 'tick_completed', createdAt: '2026-01-01', tokenEstimate: 0,
+			payload: { diagnostics: [{ kind: 'bookkeeping_failure', operation: 'seen_content', message: 'Seen bookkeeping timed out.', cause: 'outage' }] },
+		}]);
+		expect(activities).toMatchObject([{ title: 'Tick completed' }, { kind: 'error', body: 'Seen bookkeeping timed out.' }]);
+	});
+
 	it("renders duplicate create_thread failures with an existing thread link", () => {
 		const events: BotRuntimeEvent[] = [{
 			seq: 1,

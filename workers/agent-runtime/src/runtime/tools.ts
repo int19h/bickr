@@ -1,3 +1,5 @@
+import { boundedCleanup } from './run-liveness';
+import { runtimeErrorCause } from '../errors';
 import {
 	botActivityFeedByHandle,
 	botProfileRelationshipSummaries,
@@ -9,7 +11,8 @@ import {
 	listThreads,
 	listWorldPublicProfiles,
 	markBotSeenContent,
-	markBotSeenFromEnvelope,
+	seenItemsFromToolResultEnvelope,
+	type SeenContentItem,
 	queryBotFollowUsernamesByHandle,
 	readThread,
 	recordSpotlightToolHumanNotification,
@@ -121,6 +124,7 @@ export class RuntimeTools {
 		name: string,
 		args: Record<string, unknown>,
 		runContext: RunContext,
+		onResult?: (result: ToolResult) => void,
 	): Promise<ToolResult> {
 		this.runtime.throwIfStopped(runId, runContext.signal);
 		const canonicalName = canonicalToolName(name);
@@ -138,6 +142,12 @@ export class RuntimeTools {
 		let envelope: ToolResultEnvelope;
 		let effectiveArgs: Record<string, unknown> | undefined;
 		let selfCorrectionMessages: string[] | undefined;
+		let extraSeenItems: SeenContentItem[] = [];
+		// Read configuration before dispatch: a failed read must not hide an
+		// already accepted mutation behind a failed tool outcome.
+		const providerResultTokenBudget = providerToolResultUsesTokenBudget(canonicalName)
+			? await boundedCleanup('Tool result budget', () => this.runtime.readCommentTreeTokenBudget(bot))
+			: undefined;
 		switch (canonicalName) {
 			case 'check_notifications':
 				result = { events: [] };
@@ -306,13 +316,7 @@ export class RuntimeTools {
 			case 'list_profiles': {
 				const query = listProfilesToolArgs(normalizedArgs);
 				const profileList = await this.listProfilesTool(bot, query);
-				await markBotSeenContent(
-					this.runtime.env.BICKR_D1,
-					bot.id,
-					profileList.profiles.map((profile) => ({ type: 'bot', id: profile.id })),
-					'tool:list_profiles',
-					runId,
-				);
+				extraSeenItems = profileList.profiles.map((profile) => ({ type: 'bot', id: profile.id }));
 				result = profileList;
 				envelope = { kind: 'opaque', value: result };
 				break;
@@ -333,13 +337,7 @@ export class RuntimeTools {
 			}
 			case 'view_profiles': {
 				const profiles = await this.viewProfilesTool(bot, usernamesArg(normalizedArgs.usernames));
-				await markBotSeenContent(
-					this.runtime.env.BICKR_D1,
-					bot.id,
-					profiles.map((profile) => ({ type: 'bot', id: profile.id })),
-					'tool:view_profiles',
-					runId,
-				);
+				extraSeenItems = profiles.map((profile) => ({ type: 'bot', id: profile.id }));
 				result = { profiles };
 				envelope = { kind: 'opaque', value: result };
 				break;
@@ -353,7 +351,7 @@ export class RuntimeTools {
 					usernameArg(normalizedArgs.username),
 					activityLimit,
 				);
-				await markBotSeenContent(this.runtime.env.BICKR_D1, bot.id, [{ type: 'bot', id: feed.bot.id }], 'tool:view_activity', runId);
+				extraSeenItems = [{ type: 'bot', id: feed.bot.id }];
 				result = await this.annotateActivityFeedFollowStatus(bot.id, feed);
 				envelope = { kind: 'opaque', value: result };
 				break;
@@ -385,22 +383,6 @@ export class RuntimeTools {
 		if (effectiveArgs) {
 			this.runtime.replaceEventPayload(toolCallEvent, { name: canonicalName, args: providerToolArgs(canonicalName, effectiveArgs) });
 		}
-		await markBotSeenFromEnvelope(this.runtime.env.BICKR_D1, bot.id, envelope, `tool:${canonicalName}`, runId);
-		if (runContext.spotlightId && spotlightMutation && needsPostHocSpotlightHumanNotification(canonicalName)) {
-			try {
-				await recordSpotlightToolHumanNotification(this.runtime.env.BICKR_D1, {
-					bot,
-					spotlightId: runContext.spotlightId,
-					runId,
-					envelope,
-				});
-			} catch (error) {
-				console.warn('spotlight notification failed', error);
-			}
-		}
-		const providerResultTokenBudget = providerToolResultUsesTokenBudget(canonicalName)
-			? await this.runtime.readCommentTreeTokenBudget(bot)
-			: undefined;
 		const providerResult = providerToolResultPayload(
 			canonicalName,
 			result,
@@ -420,17 +402,22 @@ export class RuntimeTools {
 		if (canonicalName === 'log_off' && successfulToolResultPayload(toolResultPayload)) {
 			this.runtime.setLastSuccessfulLogOffSeq(toolResultEvent.seq, 'tool_result');
 		}
-		return {
+		const seenItems = [...extraSeenItems, ...seenItemsFromToolResultEnvelope(envelope)];
+		const spotlightId = runContext.spotlightId && spotlightMutation && needsPostHocSpotlightHumanNotification(canonicalName) ? runContext.spotlightId : undefined;
+		const completed: ToolResult = {
 			name: canonicalName,
 			result,
 			providerResult,
 			envelope,
+			...(seenItems.length || spotlightId ? { bookkeeping: { seenItems, ...(spotlightId ? { spotlightId } : {}) } } : {}),
 			displayEventSeq: toolResultEvent.seq,
 			...(effectiveArgs ? { effectiveArgs } : {}),
 			...(selfCorrectionMessages ? { selfCorrectionMessages } : {}),
 			...(spotlightMutation ? { spotlightMutation } : {}),
 			...(spotlightTickTerminator ? { spotlightTickTerminator } : {}),
 		};
+		onResult?.(completed);
+		return completed;
 	}
 
 	private async voteTool(
@@ -1261,4 +1248,19 @@ function truncateForContext(text: string, maxLength: number): string {
 		return repaired;
 	}
 	return `${unicodeSafeSlice(repaired, Math.max(0, maxLength - 1))}…`;
+}
+
+export async function completeToolBookkeeping(
+	db: RuntimeToolsRuntime['env']['BICKR_D1'], bot: BotDocument, runId: string, result: ToolResult,
+): Promise<{ operation: string; cause: ReturnType<typeof runtimeErrorCause> }[]> {
+	const failures: { operation: string; cause: ReturnType<typeof runtimeErrorCause> }[] = [];
+	if (!result.bookkeeping) return failures;
+	const attempt = async (operation: string, work: (signal: AbortSignal) => Promise<unknown>): Promise<void> => {
+		try { await boundedCleanup(operation, work); }
+		catch (error) { failures.push({ operation, cause: runtimeErrorCause(error) }); }
+	};
+	await attempt('seen_content', (signal) => markBotSeenContent(db, bot.id, result.bookkeeping!.seenItems, `tool:${result.name}`, runId, new Date().toISOString(), signal));
+	const spotlightId = result.bookkeeping.spotlightId;
+	if (spotlightId) await attempt('spotlight_notification', () => recordSpotlightToolHumanNotification(db, { bot, runId, spotlightId, envelope: result.envelope }));
+	return failures;
 }

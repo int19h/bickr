@@ -5014,30 +5014,44 @@ export async function markBotSeenContent(
 	seenVia: string,
 	sourceId?: string,
 	now = new Date().toISOString(),
+	signal?: AbortSignal,
 ): Promise<void> {
 	const unique = new Map<string, SeenContentItem>();
 	for (const item of items) {
 		unique.set(`${item.type}:${item.id}`, item);
 	}
-	const selected = [...unique.values()];
-	const parametersPerItem = 7;
-	const maxItemsPerQuery = Math.floor(d1MaxBoundParameters / parametersPerItem);
-	for (let index = 0; index < selected.length; index += maxItemsPerQuery) {
-		const batch = selected.slice(index, index + maxItemsPerQuery);
-		const values = batch.map(() => "(?, ?, ?, ?, ?, ?, ?)").join(", ");
-		await db
-			.prepare(
-				`INSERT INTO bot_seen_content (
-					bot_id, object_type, object_id, seen_via, first_seen_at, last_seen_at, source_id
-				) VALUES ${values}
-				ON CONFLICT(bot_id, object_type, object_id) DO UPDATE SET
-					seen_via = excluded.seen_via,
-					last_seen_at = excluded.last_seen_at,
-					source_id = excluded.source_id`,
-			)
-			.bind(...batch.flatMap((item) => [botId, item.type, item.id, seenVia, now, now, sourceId ?? null]))
-			.run();
+	// Fixed SQL and five bindings regardless of row count. Bound both rows and UTF-8
+	// bytes below D1's 2 MB value limit; large reads still use set-oriented writes.
+	// Preserve whole-envelope seen semantics (including all returned thread nodes).
+	const encoder = new TextEncoder();
+	const maxBytes = 256 * 1024;
+	let batch: string[] = [];
+	let bytes = 2;
+	const flush = async (): Promise<void> => {
+		signal?.throwIfAborted();
+		if (batch.length === 0) return;
+		await db.prepare(
+			`INSERT INTO bot_seen_content (
+				bot_id, object_type, object_id, seen_via, first_seen_at, last_seen_at, source_id
+			) SELECT ?1, json_extract(value, '$.type'), json_extract(value, '$.id'), ?2, ?3, ?3, ?4
+			  FROM json_each(?5) WHERE true
+			ON CONFLICT(bot_id, object_type, object_id) DO UPDATE SET
+				seen_via = excluded.seen_via,
+				last_seen_at = excluded.last_seen_at,
+				source_id = excluded.source_id`,
+		).bind(botId, seenVia, now, sourceId ?? null, `[${batch.join(',')}]`).run();
+		batch = [];
+		bytes = 2;
+	};
+	for (const item of unique.values()) {
+		const json = JSON.stringify(item);
+		const size = encoder.encode(json).byteLength;
+		if (size + 2 > maxBytes) throw new RangeError('Seen content item exceeds the bounded JSON payload size.');
+		if (batch.length >= 1000 || bytes + size + (batch.length ? 1 : 0) > maxBytes) await flush();
+		bytes += size + (batch.length ? 1 : 0);
+		batch.push(json);
 	}
+	await flush();
 }
 
 export async function markBotSeenFromResult(

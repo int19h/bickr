@@ -1,3 +1,4 @@
+import { attachTestRunLiveness } from "./helpers/index-harness";
 import {
 	authCookie,
 	authCookieFor,
@@ -3807,6 +3808,7 @@ describe("Forum coordinator", () => {
 					}
 				},
 			});
+			attachTestRunLiveness(runtime);
 			const runTick = (BotRuntime.prototype as unknown as {
 				runTick: (
 					botId: string,

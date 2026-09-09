@@ -1,3 +1,4 @@
+import { runtimeDiagnostics } from '@bickr/shared/runtime-diagnostics';
 import type { BotRuntimeEvent } from "@bickr/shared/model";
 import { parseCommentRef, parseThreadRef } from "@bickr/shared/ids";
 import { isToolResultEnvelope } from "@bickr/shared/legacy-tool-result-adapter";
@@ -322,6 +323,10 @@ export function runtimeActivities(events: BotRuntimeEvent[], fallbackWorldHandle
 					raw: event,
 				});
 				break;
+		}
+		for (const [index, diagnostic] of runtimeDiagnostics(payload.diagnostics).entries()) {
+			activities.push({ id: `event-${event.seq}-diagnostic-${index}`, seq: event.seq, createdAt: event.createdAt,
+				kind: 'error', title: 'Runtime bookkeeping failed', body: diagnostic.message, raw: event });
 		}
 	}
 

@@ -1,3 +1,4 @@
+import { testToolExecutor } from "./helpers/index-harness";
 import {
 	additionalReplyToolPresent,
 	authCookie,
@@ -203,13 +204,13 @@ describe("Tick limits and recovery", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
-			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => {
 				executedTools.push(name);
 				if (name === "read_thread") {
 					throw new Error("Thread not found.");
 				}
 				return { name, result: { ok: true }, providerResult: { ok: true } };
-			},
+			}),
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -287,10 +288,10 @@ describe("Tick limits and recovery", () => {
 					promptTokens: 100,
 					requestMessages: [{ role: "assistant", content: "I am ready." }],
 				}),
-				executeTool: async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
+				executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
 					executedTools.push({ name, args });
 					return { name, result: { ok: true }, providerResult: { ok: true } };
-				},
+				}),
 				hasRuntimeStorage: () => true,
 				loopGeneratedTokenCountSinceLastLogOff: () => 0,
 				prematureLogOffCorrectedSinceLastLogOff: () => false,
@@ -374,10 +375,10 @@ describe("Tick limits and recovery", () => {
 					promptTokens: 100,
 					requestMessages: [{ role: "assistant", content: "I am ready." }],
 				}),
-				executeTool: async (_bot: unknown, _runId: string, name: string) => {
+				executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => {
 					executedTools.push(name);
 					return { name, result: { ok: true }, providerResult: { ok: true } };
-				},
+				}),
 				recordInferenceSubmission: () => {},
 				recordLoopMessageLog: () => {},
 				recordProviderUsage: () => {},
@@ -453,10 +454,10 @@ describe("Tick limits and recovery", () => {
 					promptTokens: 100,
 					requestMessages: [{ role: "assistant", content: "I am ready." }],
 				}),
-				executeTool: async (_bot: unknown, _runId: string, name: string) => {
+				executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => {
 					executedTools.push(name);
 					return { name, result: { ok: true }, providerResult: { ok: true } };
-				},
+				}),
 				loopGeneratedTokenCountSinceLastLogOff: () => 40,
 				recordInferenceSubmission: () => {},
 				recordLoopMessageLog: () => {},
@@ -539,10 +540,10 @@ describe("Tick limits and recovery", () => {
 					promptTokens: 100,
 					requestMessages: [{ role: "assistant", content: "I am ready." }],
 				}),
-				executeTool: async (_bot: unknown, _runId: string, name: string) => {
+				executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => {
 					executedTools.push(name);
 					return { name, result: { ok: true }, providerResult: { ok: true } };
-				},
+				}),
 				recordInferenceSubmission: () => {},
 				recordLoopMessageLog: () => {},
 				recordProviderUsage: () => {},
@@ -653,11 +654,11 @@ describe("Tick limits and recovery", () => {
 					...providerHistoryFromCapturedLoopMessages(appendedLoopMessages),
 				],
 			}),
-			executeTool: async (_bot: unknown, _runId: string, name: string, _args: Record<string, unknown>) => ({
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string, _args: Record<string, unknown>) => ({
 				name,
 				result: { ok: true },
 				providerResult: { ok: true },
-			}),
+			})),
 			recordInferenceSubmission: (input: { messages: BotInferenceSubmissionMessage[] }) => {
 				submissions.push(input.messages);
 			},
@@ -820,7 +821,7 @@ describe("Tick limits and recovery", () => {
 			// deciding its arguments were normalized, and the loop storing that
 			// decision into the history it replays. A stub that recomputed the
 			// rule here would keep passing after a regression in the tool.
-			executeTool: async (
+			executeTool: testToolExecutor(async (
 				bot: BotDocument,
 				runId: string,
 				name: string,
@@ -829,7 +830,7 @@ describe("Tick limits and recovery", () => {
 			) =>
 				name === "draw_random_integers" ?
 					drawRandomIntegersTools().executeTool(bot, runId, name, args, { setupMode: "new_iteration", ...runContext })
-				:	{ name, result: { ok: true }, providerResult: { ok: true } },
+				:	{ name, result: { ok: true }, providerResult: { ok: true } }),
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -1027,11 +1028,11 @@ describe("Tick limits and recovery", () => {
 					) => Array<Record<string, unknown>>;
 				}).activeProviderRequestMessages.bind(runtime)(bot, tools, settings.toolCalls ?? "require"),
 			}),
-			executeTool: async (_bot: unknown, _runId: string, name: string) => ({
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => ({
 				name,
 				result: { ok: true },
 				providerResult: { ok: true },
-			}),
+			})),
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -1108,11 +1109,11 @@ describe("Tick limits and recovery", () => {
 					) => Array<Record<string, unknown>>;
 				}).activeProviderRequestMessages.bind(runtime)(bot, tools, settings.toolCalls ?? "require"),
 			}),
-			executeTool: async (_bot: unknown, _runId: string, name: string) => ({
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => ({
 				name,
 				result: { ok: true },
 				providerResult: { ok: true },
-			}),
+			})),
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -1338,10 +1339,10 @@ describe("Tick limits and recovery", () => {
 					) => Array<Record<string, unknown>>;
 				}).activeProviderRequestMessages.bind(runtime)(bot, tools, settings.toolCalls ?? "require"),
 			}),
-			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => {
 				executedTools.push(name);
 				return { name, result: { ok: true }, providerResult: { ok: true } };
-			},
+			}),
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -1433,11 +1434,11 @@ describe("Tick limits and recovery", () => {
 					) => Array<Record<string, unknown>>;
 				}).activeProviderRequestMessages.bind(runtime)(bot, tools, settings.toolCalls ?? "require"),
 			}),
-			executeTool: async (_bot: unknown, _runId: string, name: string) => ({
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => ({
 				name,
 				result: { ok: true },
 				providerResult: { ok: true },
-			}),
+			})),
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -1932,11 +1933,11 @@ describe("Tick limits and recovery", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
-			executeTool: async (_bot: unknown, _runId: string, name: string) => ({
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => ({
 				name,
 				result: { ok: true },
 				providerResult: { ok: true, name },
-			}),
+			})),
 			loopGeneratedTokenCountSinceLastLogOff: () => 0,
 			prematureLogOffCorrectedSinceLastLogOff: () => false,
 			providerLoopInitialSuccessfulToolCallCount: () => 0,

@@ -1,3 +1,5 @@
+import { attachTestRunLiveness } from "./helpers/index-harness";
+import { testToolExecutor } from "./helpers/index-harness";
 import {
 	authCookie,
 	botById,
@@ -62,14 +64,7 @@ import { claimRuntimeRun } from "../workers/agent-runtime/src/runtime/bot-runtim
 
 type TerminalRaceMethods = {
 	renewProgressLease(botId: string, runId: string, signal: AbortSignal): Promise<void>;
-	completeRuntimeRunSerialized(
-		bot: BotDocument,
-		now: string,
-		runId: string,
-		trigger: "spotlight",
-		signal: AbortSignal,
-		payload: Record<string, unknown>,
-	): Promise<{ nextDueAt: string | null; released: boolean }>;
+	finalizeRun(runId: string, type: 'tick_completed', payload: Record<string, unknown>): Promise<boolean>;
 	runAdmittedTick(
 		botId: string,
 		trigger: "spotlight",
@@ -169,6 +164,7 @@ describe("Tick flow", () => {
 			readCommentTreeTokenBudget: async () => 10_000,
 			startQueuedSpotlightTick: () => {},
 		});
+		attachTestRunLiveness(runtime);
 		const runTick = (BotRuntime.prototype as unknown as {
 			runTick: (botId: string, trigger: "manual") => Promise<{ status: string }>;
 		}).runTick.bind(runtime);
@@ -360,11 +356,11 @@ describe("Tick flow", () => {
 				providerTools: toolDefinitionsForProviderRound(),
 				requestMessages: [{ role: "system", content: "Context" }],
 			}),
-			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => {
 				executed.push(name);
 				controller.abort();
 				return { name, result: { ok: true }, providerResult: { ok: true } };
-			},
+			}),
 			loopGeneratedTokenCountSinceLastLogOff: () => 0,
 			prematureLogOffCorrectedSinceLastLogOff: () => false,
 			providerLoopInitialSuccessfulToolCallCount: () => 0,
@@ -452,14 +448,14 @@ describe("Tick flow", () => {
 		releaseQueue.resolve();
 
 		await expect(stop).resolves.toEqual({
-			kind: "stop_requested",
-			stopped: false,
+			kind: "stopped",
+			stopped: true,
 			runId: harness.runId,
-			status: "running",
+			status: "idle",
 		});
 		await expect(tick).resolves.toEqual({ runId: harness.runId, status: "stopped" });
 		await blocker;
-		expect(harness.events).toEqual(["tick_started", "tick_stop_requested", "tick_stopped"]);
+		expect(harness.events).toEqual(["tick_started", "tick_stopped"]);
 		expect(await runtimeIndexState(harness.bot.id)).toEqual({ status: "idle", activeRunId: null });
 	});
 
@@ -474,10 +470,10 @@ describe("Tick flow", () => {
 		await queueEntered.promise;
 
 		const completionQueued = deferred<void>();
-		const completeRuntimeRunSerialized = harness.methods.completeRuntimeRunSerialized.bind(harness.runtime);
+		const finalizeRun = harness.methods.finalizeRun.bind(harness.runtime);
 		Object.assign(harness.runtime, {
-			completeRuntimeRunSerialized: (...args: Parameters<TerminalRaceMethods["completeRuntimeRunSerialized"]>) => {
-				const completion = completeRuntimeRunSerialized(...args);
+			finalizeRun: (...args: Parameters<TerminalRaceMethods["finalizeRun"]>) => {
+				const completion = finalizeRun(...args);
 				completionQueued.resolve();
 				return completion;
 			},
@@ -2462,10 +2458,10 @@ describe("Tick flow", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
-			executeTool: async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
 				executedTools.push({ name, args });
 				return { name, result: { ok: true }, providerResult: { ok: true } };
-			},
+			}),
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -2562,10 +2558,10 @@ describe("Tick flow", () => {
 					requestMessages: history.length > 0 ? history : [{ role: "assistant", content: "I am ready." }],
 				};
 			},
-			executeTool: async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
 				executedTools.push({ name, args });
 				return { name, result: { ok: true }, providerResult: { ok: true } };
-			},
+			}),
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -2647,11 +2643,11 @@ describe("Tick flow", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
-			executeTool: async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => ({
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => ({
 				name,
 				result: { ok: true, args },
 				providerResult: { ok: true, args },
-			}),
+			})),
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -2731,10 +2727,10 @@ describe("Tick flow", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
-			executeTool: async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
 				executedTools.push({ name, args });
 				return { name, result: { ok: true }, providerResult: { ok: true } };
-			},
+			}),
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -2832,10 +2828,10 @@ describe("Tick flow", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
-			executeTool: async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string, args: Record<string, unknown>) => {
 				executedTools.push({ name, args });
 				return { name, result: { ok: true }, providerResult: { ok: true } };
-			},
+			}),
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -3001,10 +2997,10 @@ describe("Tick flow", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
-			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => {
 				executedTools.push(name);
 				return { name, result: { ok: true }, providerResult: { ok: true } };
-			},
+			}),
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -3085,9 +3081,9 @@ describe("Tick flow", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
-			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => {
 				return { name, result: { ok: true }, providerResult: { ok: true } };
-			},
+			}),
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -3189,7 +3185,7 @@ describe("Tick flow", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
-			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => {
 				executedTools.push(name);
 				return {
 					name,
@@ -3198,7 +3194,7 @@ describe("Tick flow", () => {
 					...(name === "reply_to_comment" ? { spotlightMutation: true } : {}),
 					...(name === "create_thread" ? { spotlightTickTerminator: true } : {}),
 				};
-			},
+			}),
 			loopGeneratedTokenCountSinceLastLogOff: () => 40,
 			providerLoopInitialSuccessfulToolCallCount: () => 7,
 			recordInferenceSubmission: () => {},
@@ -3301,7 +3297,7 @@ describe("Tick flow", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
-			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => {
 				executedTools.push(name);
 				return {
 					name,
@@ -3309,7 +3305,7 @@ describe("Tick flow", () => {
 					providerResult: { ok: true },
 					...(name === "create_thread" ? { spotlightTickTerminator: true } : {}),
 				};
-			},
+			}),
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -3405,7 +3401,7 @@ describe("Tick flow", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
-			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => {
 				executedTools.push(name);
 				return {
 					name,
@@ -3414,7 +3410,7 @@ describe("Tick flow", () => {
 					spotlightMutation: true,
 					spotlightTickTerminator: true,
 				};
-			},
+			}),
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -3501,10 +3497,10 @@ describe("Tick flow", () => {
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
-			executeTool: async (_bot: unknown, _runId: string, name: string) => {
+			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => {
 				executedTools.push(name);
 				return { name, result: { ok: true }, providerResult: { ok: true } };
-			},
+			}),
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
 			recordProviderUsage: () => {},
@@ -3564,6 +3560,7 @@ async function terminalTransitionRaceHarness(suffix: string): Promise<TerminalTr
 		new Date(Date.parse(now) + 15 * 60_000).toISOString(),
 		now,
 		"spotlight",
+		null,
 	);
 	expect(claimed).toBe(true);
 
@@ -3601,6 +3598,8 @@ async function terminalTransitionRaceHarness(suffix: string): Promise<TerminalTr
 			eventRunId === runId && events.some((type) => ["tick_completed", "tick_failed", "tick_stopped"].includes(type)),
 		startQueuedSpotlightTick: () => {},
 	});
+	const liveness = attachTestRunLiveness(runtime);
+	await liveness.begin({ botId: bot.id, runId, trigger: 'spotlight', intervalMs: bot.tickSettings.intervalSeconds * 1000, claimToken: null });
 	const methods = BotRuntime.prototype as unknown as TerminalRaceMethods;
 	return {
 		bot,
