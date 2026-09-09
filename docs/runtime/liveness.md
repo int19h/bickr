@@ -115,8 +115,8 @@ to run a normal visit and a deliberately failing provider configuration. Confirm
 one terminal result, corresponding D1 status, preserved mutation results and
 visible diagnostics. Inspect journal/alarm behavior through the real local DO
 integration tests; do not add public failure-injection endpoints. Delete or
-restore the disposable test data/configuration. No production deployment is
-part of this change's authorization.
+restore the disposable test data/configuration. Production is explicitly
+authorized for this task after both exact-head approvals and successful test verification; PM retains deployment authority.
 
 Persistent compaction failure journals its required pause intent (owner and
 participant revision) alongside terminal failure. Finalization performs this
@@ -131,8 +131,15 @@ Run-start input construction and notification consumption remain bounded by the
 overall five-minute watchdog, not individual 15-second cleanup timers. Immediate
 Stop records tick_stop_requested once without extending progress. Already
 received success is preserved; an in-flight website action is recorded unknown
-while the visit stays stopped. A repeated identical unknown reply checks the
-authoritative thread; a visible match is a duplicate, and absence does not grant
-permission to replay an accepted-but-unconfirmed request.
+while the visit stays stopped. A repeated identical unknown reply to the same
+target checks the authoritative thread; a visible match is a duplicate, and absence does not grant
+permission to replay an accepted-but-unconfirmed request. This pre-dispatch
+refusal is self-correctable and does not end the visit. Identical wording to a
+different target is not refused.
 
 Async scope API: https://developers.cloudflare.com/workers/runtime-apis/nodejs/asynclocalstorage/
+
+All agent-runtime Wrangler configurations and the web test harness explicitly
+enable `nodejs_als` for AsyncLocalStorage at their pinned compatibility date.
+Release evidence includes a Wrangler deploy dry-run bundle in addition to the
+TypeScript/web build; test release verifies Worker health before Pages.

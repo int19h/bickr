@@ -54,7 +54,8 @@ export const logOffBackfillPageSize = 100;
 
 export const contextBudgetCacheStateKey = (fingerprint: string): string => `context_budget:${fingerprint}`;
 
-export const runtimeRunLeaseTimeoutMs = 5 * 60_000;
+// The DO watchdog and D1 progress lease share the same inactivity deadline.
+export const runInactivityMs = 5 * 60_000;
 
 export const providerRequestTimeoutMs = 60_000;
 

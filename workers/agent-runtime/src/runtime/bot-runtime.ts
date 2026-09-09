@@ -353,7 +353,6 @@ import {
 	sweepRetentionScanCursorStateKey,
 	logOffBackfillPageSize,
 	contextBudgetCacheStateKey,
-	runtimeRunLeaseTimeoutMs,
 	providerRequestTimeoutMs,
 	providerBodyReadTimeoutMs,
 	providerResponseBodyMaxBytes,
@@ -2485,7 +2484,7 @@ export class BotRuntime {
 			const providerSettings = await this.effectiveProviderSettings(bot, owner);
 			const runId = crypto.randomUUID();
 			const now = new Date().toISOString();
-			const leaseExpiresAt = new Date(Date.parse(now) + runtimeRunLeaseTimeoutMs).toISOString();
+			const leaseExpiresAt = new Date(Date.parse(now) + runInactivityMs).toISOString();
 			const index = await this.runtimeStatusIndexRow(botId);
 			if (!index) throw new RepositoryError('not_found', 'Runtime index not found.', 404);
 			await this.liveness.begin({ botId, runId, trigger, intervalMs: bot.tickSettings.intervalSeconds * 1000, claimToken: index.admissionToken });
@@ -7712,13 +7711,6 @@ export class BotRuntime {
 		return Boolean(row);
 	}
 
-	// Releasing a run this instance owns is the only index transition left here:
-	// admission is claimRuntimeRun's compare-and-set, so a `running` transition is
-	// deliberately unrepresentable in this signature, and the run id is required so
-	// every write goes through releaseRuntimeRun's ownership CAS. Keeping one
-	// writer is what keeps the concurrent-pause guard in a single statement instead
-	// of two copies that can drift apart.
-
 	private async pauseBotAfterPersistentCompactionFailure(botId: string, runId: string, pause: RuntimePauseIntent, signal: AbortSignal): Promise<void> {
 		const headers = new Headers({
 			'content-type': 'application/json',
@@ -7746,7 +7738,12 @@ export class BotRuntime {
 		}
 	}
 
-
+	/**
+	 * Maintenance routes are reachable only by this deployment's own schedulers
+	 * and lifecycle operations. `fetch` has already established that the request
+	 * carries the internal service secret; this additionally refuses a request
+	 * forwarded on an owner's behalf, which no owner route ever sets.
+	 */
 	private requireInternalMaintenance(request: Request): void {
 		if (request.headers.get('x-bickr-scheduler') !== '1') {
 			throw new RepositoryError('forbidden', 'Runtime maintenance is internal only.', 403);

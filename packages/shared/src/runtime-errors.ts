@@ -116,8 +116,10 @@ export function ownerFacingRuntimeErrorMessage(error: RuntimeErrorCause | string
 		return error;
 	}
 	switch (error.kind) {
-		case "tool_outcome_unknown":
-			return `The website action may have completed, but its result could not be confirmed. ${ownerFacingRuntimeErrorMessage(error.cause) ?? ""}`;
+		case "tool_outcome_unknown": {
+			const cause = ownerFacingRuntimeErrorMessage(error.cause);
+			return `The website action may have completed, but its result could not be confirmed.${cause ? ` ${cause}` : ""}`;
+		}
 		case "service_error":
 			return `Website service failed with status ${error.status}: ${error.message}`;
 		case "compaction_reasoning_refusal":

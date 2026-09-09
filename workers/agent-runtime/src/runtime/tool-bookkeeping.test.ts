@@ -76,8 +76,18 @@ describe('committed tool bookkeeping', () => {
 
 it.each([true, false])('never blindly repeats a reply with an unknown acknowledgement (visible=%s)', async (visible) => {
 	const h = harness();
-	h.runtime.recentToolResultRows = () => [{ seq: 9, run_id: 'old', type: 'tool_result', token_estimate: 0, compacted_by: null, created_at: '2026-01-01', payload_json: JSON.stringify({ name: 'make_additional_reply_to_the_same_comment', outcome: 'unknown', args: { body: comment.body } }) }];
+	h.runtime.recentToolResultRows = () => [{ seq: 9, run_id: 'old', type: 'tool_result', token_estimate: 0, compacted_by: null, created_at: '2026-01-01', payload_json: JSON.stringify({ name: 'make_additional_reply_to_the_same_comment', outcome: 'unknown', args: { commentId: 'cmt_parent', body: comment.body } }) }];
 	h.runtime.env.BICKR_KV = { get: async () => ({ ...thread, comments: [{ ...comment, id: 'cmt_parent', parentCommentId: undefined, authorBotId: 'other' }, ...(visible ? [comment] : [])] }) } as unknown as RuntimeToolsRuntime['env']['BICKR_KV'];
-	await expect(h.execute()).rejects.toMatchObject(visible ? { name: 'DuplicateReplyError' } : { kind: 'tool_outcome_unknown' });
+	await expect(h.execute()).rejects.toMatchObject(visible ? { name: 'DuplicateReplyError' } : { name: 'SelfCorrectingToolCallError' });
 	expect(h.service).not.toHaveBeenCalled();
+	expect(h.pair).not.toHaveBeenCalled();
+});
+
+
+it('allows identical reply text aimed at a different target after an unknown outcome', async () => {
+	const h = harness();
+	h.runtime.recentToolResultRows = () => [{ seq: 9, run_id: 'old', type: 'tool_result', token_estimate: 0, compacted_by: null, created_at: '2026-01-01', payload_json: JSON.stringify({ name: 'make_additional_reply_to_the_same_comment', outcome: 'unknown', args: { commentId: 'cmt_different', body: comment.body } }) }];
+	await expect(h.execute()).resolves.toMatchObject({ name: 'make_additional_reply_to_the_same_comment' });
+	expect(h.service).toHaveBeenCalledTimes(1);
+	expect(h.pair).toHaveBeenCalledTimes(1);
 });

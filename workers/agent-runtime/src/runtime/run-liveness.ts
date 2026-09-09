@@ -3,13 +3,17 @@ import type { RuntimeRunTrigger } from '../types';
 import { RuntimeOperationTimeoutError, TickStoppedError } from '../errors';
 import { withAbortableTimeout } from '../provider/sse';
 
-export const runInactivityMs = 5 * 60_000;
+import { runInactivityMs } from '../constants';
+export { runInactivityMs } from '../constants';
 export const cleanupTimeoutMs = 15_000;
 export const finalizationRetryMs = 30_000;
 // Aggregate budget for a serialized admission/maintenance transition, including
 // its sequential KV and D1 setup awaits. Busy admission uses a local fast path.
 export const transitionTimeoutMs = 60_000;
 
+/** Spotlight interrupts on an external schedule; claiming or releasing it must
+ * not move the participant's next organic visit. The lease still prevents
+ * simultaneous dispatch, and stale recovery handles abandoned visits. */
 export function runKeepsStandingSchedule(trigger: RuntimeRunTrigger): boolean {
 	return trigger === 'spotlight';
 }

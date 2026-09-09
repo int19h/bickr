@@ -1,5 +1,5 @@
 import { boundedCleanup } from './run-liveness';
-import { runtimeErrorCause, ToolOutcomeUnknownError } from '../errors';
+import { runtimeErrorCause } from '../errors';
 import {
 	botActivityFeedByHandle,
 	botProfileRelationshipSummaries,
@@ -227,7 +227,7 @@ export class RuntimeTools {
 					await this.assertNoPriorReplyToTarget(bot.id, threadId, parentCommentId);
 				}
 				this.assertNoRecentDuplicateReply(bot.id, body.text);
-				await this.reconcileUnknownReply(bot.id, threadId, body.text);
+				await this.reconcileUnknownReply(bot.id, threadId, parentCommentId, body.text);
 				const serviceResult = await this.runtime.forumService<{ thread: ThreadDocument; comment?: CommentDocument }>(
 					`/comments/${encodeURIComponent(parentCommentId)}/replies`,
 					bot.id,
@@ -676,24 +676,28 @@ export class RuntimeTools {
 		assertNoDuplicateReplyInToolResultRows(this.runtime.recentToolResultRows(), botId, body);
 	}
 
-	private async reconcileUnknownReply(botId: string, threadId: string, body: string): Promise<void> {
+	private async reconcileUnknownReply(botId: string, threadId: string, parentCommentId: string, body: string): Promise<void> {
 		const unresolved = this.runtime.recentToolResultRows().find((row) => {
 			const payload = parsePayloadJson(row.payload_json);
-			return payload.outcome === 'unknown'
+			const args = runtimeRecord(payload.args);
+			return args.commentId === parentCommentId && payload.outcome === 'unknown'
 				&& ['reply_to_comment', 'make_additional_reply_to_the_same_comment'].includes(canonicalToolName(stringValue(payload.name) ?? ''))
-				&& localizedArgumentText(runtimeRecord(payload.args).body) === body.trim();
+				&& localizedArgumentText(args.body) === body.trim();
 		});
 		if (!unresolved) return;
 		// Lost acknowledgement is not evidence of a failed write. Check the
 		// authoritative thread, but even absence (or mention canonicalization)
 		// cannot prove an accepted remote mutation will not still commit.
 		const thread = await readThread(this.runtime.env.BICKR_KV, threadId);
-		const comment = matchingStoredReplyComment(thread, botId, body);
+		const comment = thread.comments.find((item) => item.authorBotId === botId
+			&& item.parentCommentId === parentCommentId && localizedTextString(item.body).trim() === body.trim());
 		if (comment) {
 			throw new DuplicateReplyError({ threadId, commentId: comment.id,
 				urlPath: commentUrlPathFromParts(thread.worldHandle, thread.forumHandle, threadId, comment.id), seq: unresolved.seq });
 		}
-		throw new ToolOutcomeUnknownError(new Error('An earlier identical reply has an unconfirmed outcome. Its absence from the current page does not establish that the write failed.'));
+		// This attempt was refused before dispatch. Let the participant choose a
+		// different action without reclassifying it as a newly unknown mutation.
+		throw new SelfCorrectingToolCallError('An earlier identical reply to this comment has an unconfirmed outcome. Check the page before trying it again; this attempt was not sent.');
 	}
 
 	private async threadReadResult(bot: RuntimeBotDocument, thread: ThreadDocument, operation: string, targetCommentId?: string) {
