@@ -78,8 +78,10 @@ bounded diagnostic amendments use their own event-store path.
 
 Seen writes retain the whole-envelope semantics: all returned thread nodes and
 profiles are marked, not only a newly created reply. Deduplication and the
-existing upsert rules are preserved: keep first_seen_at, replace last_seen_at,
-seen_via and source_id (including NULL). Empty input performs no query.
+upsert keeps the earliest first_seen_at and latest last_seen_at. Provenance
+(seen_via and source_id, including NULL) follows the newest observation; equal
+timestamps retain the existing last-writer behavior. This prevents a timed-out
+older write from rolling back a successor visit. Empty input performs no query.
 
 The fixed INSERT SELECT uses json_each with five bound parameters, including a
 typed JSON item array and shared fields. Statements are bounded to 1,000 items
@@ -107,3 +109,12 @@ visible diagnostics. Inspect journal/alarm behavior through the real local DO
 integration tests; do not add public failure-injection endpoints. Delete or
 restore the disposable test data/configuration. No production deployment is
 part of this change's authorization.
+
+Persistent compaction failure journals its required pause intent (owner and
+participant revision) alongside terminal failure. Finalization performs this
+pause before releasing admission. Retries use a stable per-run idempotency key
+and an `If-Match` revision checked under the owner coordinator queue. HTTP 412
+settles the intent because a prior attempt applied or a newer owner edit
+superseded it; a timeout retains it for alarm recovery. Optional notifications
+cannot delay or reorder this account mutation. The visit result remains failed;
+the terminal cause does not assert that a pending or superseded pause applied.

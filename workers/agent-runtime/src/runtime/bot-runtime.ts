@@ -2,7 +2,7 @@ import { runtimeDiagnostics, type RuntimeDiagnostic } from '@bickr/shared/runtim
 import { eventFromRow } from './events';
 import { ToolOutcomeUnknownError } from '../errors';
 import { completeToolBookkeeping } from './tools';
-import { RunLiveness, untilRunStopped, boundedCleanup, runInactivityMs, finalizationRetryMs, transitionTimeoutMs, isRunProgressEvent } from './run-liveness';
+import { type RuntimePauseIntent, RunLiveness, untilRunStopped, boundedCleanup, runInactivityMs, finalizationRetryMs, transitionTimeoutMs, isRunProgressEvent } from './run-liveness';
 import { fail, ok, readJsonBody } from '@bickr/shared/api';
 import {
 	type R2BucketLike,
@@ -2645,14 +2645,13 @@ export class BotRuntime {
 			const cause = runtimeErrorCause(error);
 			const message = stopped ? 'This Bickr visit was stopped.' : ownerFacingRuntimeErrorMessage(cause) ?? 'Unexpected Bickr visit error.';
 			const persistentCompaction = error instanceof PersistentCompactionReductionFailureError;
-			let paused = false;
 			const payload = {
 				message,
 				...(error instanceof PersistentToolFailureError ? { toolName: error.failure.toolName, failure: error.failure } : {}),
 				...(error instanceof PersistentMissingToolCallError ? { toolNames: error.toolNames } : {}),
 				...(persistentCompaction ? { pauseRequested: true, reason: 'persistent_non_reducing_compaction', attempts: error.attempts } : {}),
 			};
-			const finished = await this.finalizeRun(runId, stopped ? 'tick_stopped' : 'tick_failed', payload, cause, runtimeFailureLogs(error));
+			const finished = await this.finalizeRun(runId, stopped ? 'tick_stopped' : 'tick_failed', payload, cause, runtimeFailureLogs(error), persistentCompaction ? { ownerUserId: bot.ownerUserId, revision: bot.revision } : undefined);
 			if (!finished) return { runId, status: 'stopped' };
 			if (!stopped) {
 				await this.reportCleanup(runId, 'failure_notification', () => recordBotRuntimeFailureHumanNotification(this.env.BICKR_D1, { bot, runId, message: cause }));
@@ -2661,11 +2660,8 @@ export class BotRuntime {
 						bot, runId, spotlightId: runContext.spotlightId!, message,
 					}));
 				}
-				if (persistentCompaction) {
-					paused = await this.reportCleanup(runId, 'pause_after_compaction_failure', () => this.pauseBotAfterPersistentCompactionFailure(bot, message, new Date().toISOString()));
-				}
 			}
-			return { runId, status: stopped ? 'stopped' : paused ? 'paused' : 'failed', ...(stopped ? {} : { error: message }) };
+			return { runId, status: stopped ? 'stopped' : 'failed', ...(stopped ? {} : { error: message }) };
 		} finally {
 			if (this.activeRunId === runId) {
 				this.activeAbortController = null;
@@ -2794,11 +2790,13 @@ export class BotRuntime {
 		runId: string,
 		type: 'tick_completed' | 'tick_failed' | 'tick_stopped', payload: Record<string, unknown>,
 		cause?: RuntimeErrorCause | string, logs: RuntimeFailureLog[] = [],
+		pause?: RuntimePauseIntent,
 	): Promise<boolean> {
 		const current = this.liveness.read();
 		if (!current || current.runId !== runId || current.kind !== 'active') return false;
 		this.state.storage.transactionSync(() => {
 			const finished = this.liveness.finish(runId, type === 'tick_failed' ? 'failed' : 'idle', stringValue(payload.message) ?? null, type);
+			if (finished?.kind === 'finalizing' && pause) this.liveness.write({ ...finished, pause });
 			if (!this.hasTerminalEvent(runId)) {
 				this.settlePendingTool(runId);
 				if (type === 'tick_failed') this.recordTickFailure(runId, payload, logs, { cause });
@@ -2862,6 +2860,18 @@ export class BotRuntime {
 		// explicitly rearming preserves recovery through a prolonged outage.
 		await this.state.storage.setAlarm(Date.now() + finalizationRetryMs);
 		try {
+			// Required account mutation remains journaled until the coordinator has
+			// settled it. Revision fencing makes retries and newer owner edits safe.
+			const pause = final.pause;
+			if (pause) {
+				try {
+					await boundedCleanup('Pause after compaction failure', (signal) =>
+						this.pauseBotAfterPersistentCompactionFailure(final.botId, final.runId, pause, signal));
+				} catch (error) {
+					this.recordCleanupFailure(final.runId, 'pause_after_compaction_failure', error);
+					return;
+				}
+			}
 			await boundedCleanup('Runtime release', async (signal) => {
 				// Consume the claim token even if the original claim has not executed
 				// yet. This permanent D1 fence makes a false release CAS conclusive.
@@ -3638,6 +3648,7 @@ export class BotRuntime {
 						throw error;
 					}
 					if (error instanceof SelfCorrectingToolCallError) {
+						this.clearPendingTool(runId);
 						pendingToolCallIds.delete(toolCall.id);
 						consecutiveToolFailures = 0;
 						selfCorrectionAcknowledgements.push(...error.selfCorrectionMessages);
@@ -3646,6 +3657,7 @@ export class BotRuntime {
 					const failure = toolFailurePayload(toolCall.function.name, args, error);
 					const selfCorrection = selfCorrectionMessageForToolFailurePayload(failure);
 					if (selfCorrection) {
+						this.clearPendingTool(runId);
 						pendingToolCallIds.delete(toolCall.id);
 						consecutiveToolFailures = 0;
 						selfCorrectionAcknowledgements.push(selfCorrection);
@@ -5810,7 +5822,7 @@ export class BotRuntime {
 					if (apiError) {
 						throw new RepositoryError(repositoryErrorCode(apiError.error), apiError.message, response.status || 500, apiError.details);
 					}
-					throw new Error(`Bickr page request failed with status ${response.status}.`);
+					throw new ToolOutcomeUnknownError(new RepositoryError('server_error', `Bickr page request failed with status ${response.status}.`, response.status));
 				}
 				return payload.data as T;
 			},
@@ -5818,7 +5830,7 @@ export class BotRuntime {
 		} catch (error) {
 			// Structured refusals are known outcomes; a lost response, timeout or
 			// server failure after dispatch cannot establish whether a write committed.
-			if (error instanceof RepositoryError && error.status < 500) throw error;
+			if (error instanceof ToolOutcomeUnknownError || (error instanceof RepositoryError && error.status < 500)) throw error;
 			throw new ToolOutcomeUnknownError(error);
 		}
 	}
@@ -7725,25 +7737,29 @@ export class BotRuntime {
 		return { nextDueAt, released };
 	}
 
-	private async pauseBotAfterPersistentCompactionFailure(bot: BotDocument, message: string, now: string): Promise<void> {
+	private async pauseBotAfterPersistentCompactionFailure(botId: string, runId: string, pause: RuntimePauseIntent, signal: AbortSignal): Promise<void> {
 		const headers = new Headers({
 			'content-type': 'application/json',
-			'idempotency-key': `runtime-pause:${bot.id}:${now}`,
-			'x-bickr-user-id': bot.ownerUserId,
+			'idempotency-key': `runtime-pause:${botId}:${runId}`,
+			'x-bickr-user-id': pause.ownerUserId,
+			'if-match': String(pause.revision),
 			'x-bickr-scheduler': '1',
 		});
 		addInternalServiceAuthHeader(headers, this.env.INTERNAL_SERVICE_SECRET);
-		const coordinatorId = this.env.USER_BOTS.idFromName(bot.ownerUserId);
+		const coordinatorId = this.env.USER_BOTS.idFromName(pause.ownerUserId);
 		const response = await this.env.USER_BOTS.get(coordinatorId).fetch(new Request(
-			internalServiceUrl(`/users/${encodeURIComponent(bot.ownerUserId)}/bots/${encodeURIComponent(bot.id)}`),
+			internalServiceUrl(`/users/${encodeURIComponent(pause.ownerUserId)}/bots/${encodeURIComponent(botId)}`),
 			{
 				method: 'PATCH',
+				signal,
 				headers,
 				body: JSON.stringify({ tickSettings: { enabled: false } }),
 			},
 		));
+		// A changed revision means either our earlier attempt committed or a newer
+		// owner edit supersedes it. Both retire the old pause intent.
+		if (response.status === 412) return;
 		if (!response.ok) {
-			console.warn('failed to persist participant pause after compaction reduction failure', bot.id, message, response.status);
 			throw new RepositoryError('server_error', 'Participant pause coordinator request failed.', response.status || 500);
 		}
 	}
@@ -10266,6 +10282,7 @@ function providerCompactionFailureResponseText(error: unknown): string | undefin
 }
 
 export function runtimeFailureLogs(error: unknown): RuntimeFailureLog[] {
+	if (error instanceof ToolOutcomeUnknownError) return runtimeFailureLogs(error.originalError);
 	if (error instanceof ProviderLoopRequestError) {
 		return [
 			{ kind: 'provider_request', text: error.requestBody },

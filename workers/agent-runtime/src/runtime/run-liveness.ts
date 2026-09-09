@@ -29,9 +29,10 @@ export async function untilRunStopped<T>(signal: AbortSignal, run: () => Promise
 }
 
 type RunIdentity = { botId: string; runId: string; trigger: RuntimeRunTrigger; intervalMs: number; claimToken: string | null };
+export type RuntimePauseIntent = { ownerUserId: string; revision: number };
 export type RunJournal = RunIdentity & (
 	| { kind: 'active'; lastProgressAt: number }
-	| { kind: 'finalizing'; terminalType: 'tick_completed' | 'tick_failed' | 'tick_stopped'; status: 'idle' | 'failed'; message: string | null; nextDueAt: string | null; finishedAt: string }
+	| { kind: 'finalizing'; terminalType: 'tick_completed' | 'tick_failed' | 'tick_stopped'; status: 'idle' | 'failed'; message: string | null; nextDueAt: string | null; finishedAt: string; pause?: RuntimePauseIntent }
 );
 
 /** One coordination row per object, retained only through its active run and

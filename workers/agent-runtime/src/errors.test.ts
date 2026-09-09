@@ -1,5 +1,6 @@
+import { ownerFacingRuntimeErrorMessage } from '@bickr/shared/runtime-errors';
 import { describe, expect, it } from 'vitest';
-import { CompactionReasoningRefusalError, runtimeErrorCause } from './errors';
+import { CompactionReasoningRefusalError, RuntimeOperationTimeoutError, ToolOutcomeUnknownError, runtimeErrorCause } from './errors';
 
 describe('compaction reasoning refusal diagnostics', () => {
 	it('reports the typed refusal and contributing floors without freeform provider configuration', () => {
@@ -39,4 +40,10 @@ describe('compaction reasoning refusal diagnostics', () => {
 		});
 		expect(JSON.stringify(runtimeErrorCause(error))).not.toMatch(/providerRouting|apiKey|prompt/i);
 	});
+});
+
+it('serializes the original structured timeout for unknown website outcomes', () => {
+ const cause = JSON.parse(JSON.stringify(runtimeErrorCause(new ToolOutcomeUnknownError(new RuntimeOperationTimeoutError('The Bickr page request', 30_000)))));
+ expect(cause).toEqual({ kind: 'tool_outcome_unknown', cause: { kind: 'runtime_operation_timeout', operation: 'The Bickr page request', timeoutMs: 30_000 } });
+ expect(ownerFacingRuntimeErrorMessage(cause)).toContain('The Bickr page request did not finish within 30 seconds.');
 });

@@ -67,6 +67,33 @@ describe("UserBotsCoordinator", () => {
 		expect(localizedTextString(stored.displayName)).toBe("Second Mutation");
 		expect(localizedTextString(stored.shortBio)).toBe("First mutation committed.");
 	});
+ it("rejects a delayed runtime pause after a newer queued owner edit", async () => {
+  const cookie = await authCookie();
+  await seedWorld(cookie);
+  const bot = await createBotForTest(cookie, "runtime-pause-revision");
+  const stored = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
+  const started = deferred<void>();
+  const release = deferred<void>();
+  const kv = kvWithDelayedFirstPut(testEnv.BICKR_KV, kvKeys.bot(bot.id), started, release);
+  const context = { objectId: "runtime-pause-revision", queue: new ExclusiveOperationQueue() };
+  const env = { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: kv };
+  const edit = handleAgentRuntimeRequest(patchBotRequest(stored.ownerUserId, bot.id, { shortBio: "New owner settings" }), env, context);
+  await started.promise;
+  const pauseRequest = jsonRequest(`https://internal.bickr/users/${stored.ownerUserId}/bots/${bot.id}`, "PATCH", { tickSettings: { enabled: false } }, undefined, { "x-bickr-user-id": stored.ownerUserId, "if-match": String(stored.revision) });
+  const pause = handleAgentRuntimeRequest(pauseRequest, env, context);
+  release.resolve();
+  expect((await edit).status).toBe(200);
+  expect((await pause).status).toBe(412);
+  const updated = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id);
+  expect(updated.tickSettings.enabled).toBe(stored.tickSettings.enabled);
+  expect(updated.revision).toBe(stored.revision + 1);
+  const currentPause = new Request(pauseRequest.clone(), { headers: { "content-type": "application/json", "x-bickr-user-id": stored.ownerUserId, "if-match": String(updated.revision) } });
+  const retryPause = currentPause.clone();
+  expect((await handleAgentRuntimeRequest(currentPause, env, context)).status).toBe(200);
+  expect((await handleAgentRuntimeRequest(retryPause, env, context)).status).toBe(412);
+  expect((await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id)).tickSettings.enabled).toBe(false);
+ });
+
 });
 
 function patchBotRequest(userId: string, botId: string, update: { displayName?: string; shortBio?: string }): Request {

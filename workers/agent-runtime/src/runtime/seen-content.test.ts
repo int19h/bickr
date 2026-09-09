@@ -55,3 +55,11 @@ describe('set-oriented seen writes in real SQLite', () => {
 		sql.close();
 	});
 });
+
+it('preserves newest provenance and earliest first-seen when a timed-out older write finishes late', async () => {
+ const { sql, db } = database();
+ await markBotSeenContent(db, 'bot', items(1), 'reply', 'newer', '2026-01-02');
+ await markBotSeenContent(db, 'bot', items(1), 'read', 'older', '2026-01-01');
+ expect(sql.prepare('SELECT * FROM bot_seen_content').get()).toMatchObject({ first_seen_at: '2026-01-01', last_seen_at: '2026-01-02', seen_via: 'reply', source_id: 'newer' });
+ sql.close();
+});

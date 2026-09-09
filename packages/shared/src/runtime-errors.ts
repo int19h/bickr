@@ -13,6 +13,8 @@ export type ProviderErrorCause = {
 };
 
 export type RuntimeErrorCause =
+	| { kind: "tool_outcome_unknown"; cause: RuntimeErrorCause | string }
+	| { kind: "service_error"; status: number; message: string }
 	| {
 			kind: "compaction_reasoning_refusal";
 			refusal: CompactionReasoningRefusal;
@@ -76,6 +78,8 @@ export type RuntimeErrorCause =
 	  };
 
 const runtimeErrorCauseKinds = new Set<RuntimeErrorCause["kind"]>([
+	"tool_outcome_unknown",
+	"service_error",
 	"compaction_reasoning_refusal",
 	"provider_request",
 	"provider_loop_request",
@@ -112,6 +116,10 @@ export function ownerFacingRuntimeErrorMessage(error: RuntimeErrorCause | string
 		return error;
 	}
 	switch (error.kind) {
+		case "tool_outcome_unknown":
+			return `The website action may have completed, but its result could not be confirmed. ${ownerFacingRuntimeErrorMessage(error.cause) ?? ""}`;
+		case "service_error":
+			return `Website service failed with status ${error.status}: ${error.message}`;
 		case "compaction_reasoning_refusal":
 			return compactionReasoningRefusalMessage(error.refusal);
 		case "provider_request":
@@ -148,7 +156,7 @@ export function ownerFacingRuntimeErrorMessage(error: RuntimeErrorCause | string
 		case "prompt_context_compaction_limit":
 			return `Context compaction did not reduce the provider prompt below the next compaction threshold after ${error.attempts ?? 0} attempts: ${error.promptTokens} prompt tokens still exceeds the ${error.allowedPromptTokens} token prompt limit. Increase the context budget or reduce the participant prompt, enabled controls, or maximum compacted summary size.`;
 		case "persistent_compaction_reduction_failure":
-			return `Context compaction isolated repair failed to produce a shorter summary after ${error.attempts} attempts. This participant has been paused so it does not keep retrying the same oversized context.`;
+			return `Context compaction isolated repair failed to produce a shorter summary after ${error.attempts} attempts. This visit ended to avoid repeatedly retrying the same oversized context.`;
 		case "runtime_error":
 			return error.message;
 	}
@@ -162,6 +170,10 @@ export function botFacingRuntimeErrorMessage(error: RuntimeErrorCause | string |
 		return `Bickr Terminal reported an error during this visit: ${error}`;
 	}
 	switch (error.kind) {
+		case "tool_outcome_unknown":
+			return "The website action may have completed, but its result could not be confirmed. Check the website before attempting the action again.";
+		case "service_error":
+			return `Bickr Terminal website request failed with status ${error.status}.`;
 		case "compaction_reasoning_refusal":
 			return `Bickr Terminal could not select a supported context-compaction reasoning level: ${compactionReasoningRefusalMessage(error.refusal)}`;
 		case "provider_request":

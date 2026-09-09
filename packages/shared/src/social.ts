@@ -5027,6 +5027,8 @@ export async function markBotSeenContent(
 	const maxBytes = 256 * 1024;
 	let batch: string[] = [];
 	let bytes = 2;
+	// An accepted D1 write can finish after its caller times out and a newer
+	// visit writes these rows. Merge timestamps and keep the newest provenance.
 	const flush = async (): Promise<void> => {
 		signal?.throwIfAborted();
 		if (batch.length === 0) return;
@@ -5036,9 +5038,10 @@ export async function markBotSeenContent(
 			) SELECT ?1, json_extract(value, '$.type'), json_extract(value, '$.id'), ?2, ?3, ?3, ?4
 			  FROM json_each(?5) WHERE true
 			ON CONFLICT(bot_id, object_type, object_id) DO UPDATE SET
-				seen_via = excluded.seen_via,
-				last_seen_at = excluded.last_seen_at,
-				source_id = excluded.source_id`,
+				first_seen_at = min(bot_seen_content.first_seen_at, excluded.first_seen_at),
+				seen_via = CASE WHEN excluded.last_seen_at >= bot_seen_content.last_seen_at THEN excluded.seen_via ELSE bot_seen_content.seen_via END,
+				last_seen_at = max(bot_seen_content.last_seen_at, excluded.last_seen_at),
+				source_id = CASE WHEN excluded.last_seen_at >= bot_seen_content.last_seen_at THEN excluded.source_id ELSE bot_seen_content.source_id END`,
 		).bind(botId, seenVia, now, sourceId ?? null, `[${batch.join(',')}]`).run();
 		batch = [];
 		bytes = 2;

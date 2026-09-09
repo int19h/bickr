@@ -1,3 +1,4 @@
+import { RepositoryError } from '@bickr/shared/repository';
 import type { BotInferenceSubmissionToolCall } from '@bickr/shared/model';
 import type {
 	CompactionReasoningDecisionProvenance,
@@ -386,6 +387,11 @@ export class ProviderResponseInterruptedError extends Error {
 }
 
 export function runtimeErrorCause(error: unknown): RuntimeErrorCause | string {
+	if (error instanceof ToolOutcomeUnknownError) {
+		const original = error.originalError;
+		return { kind: error.kind, cause: original instanceof RepositoryError
+			? { kind: "service_error", status: original.status, message: original.message } : runtimeErrorCause(original) };
+	}
 	if (error instanceof CompactionReasoningRefusalError) {
 		return {
 			kind: error.kind,

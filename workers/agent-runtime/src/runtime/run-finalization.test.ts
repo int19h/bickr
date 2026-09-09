@@ -1,3 +1,6 @@
+import { SelfCorrectingToolCallError } from '../errors';
+import { RepositoryError } from '@bickr/shared/repository';
+import { toolDefinitionsForProviderRound } from '../prompt-and-tools';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BotRuntime } from './bot-runtime';
 import { createRuntimeTestStorage } from './sqlite-test-helper';
@@ -93,4 +96,61 @@ it('settles a cancelled run caller even when an external await never resolves', 
 	expect(await run).toMatchObject({ status: 'stopped' });
 	expect(h.runtime.activeRunId).toBeNull();
 	h.storage.database.close();
+});
+
+
+it.each([
+	new SelfCorrectingToolCallError('That action is already satisfied.'),
+	new RepositoryError('conflict', 'Forum is read-only.', 409, { forumWriteCause: 'forum_read_only' }),
+])('retires a known self-correction before a later provider failure and Stop: %s', async (correction) => {
+	const h = await harness();
+	let responses = 0;
+	Object.assign(h.runtime, {
+		providerLoopInitialSuccessfulToolCallCount: () => 0,
+		successfulMutatingToolCallSinceLastLogOff: () => true,
+		prematureLogOffCorrectedSinceLastLogOff: () => false,
+		loopGeneratedTokenCountSinceLastLogOff: () => 0,
+		appendProviderMessages: async () => {}, recordInferenceSubmission: () => {},
+		ensureProviderPromptWithinBudget: async () => ({ allowedPromptTokens: 13_500, providerTools: toolDefinitionsForProviderRound(), promptTokens: 100, requestMessages: [] }),
+		callProvider: async () => {
+			if (responses++ > 0) throw new Error('later provider failure');
+			return { content: '', reasoning: '', reasoningDetails: [], toolCalls: [{ id: 'refused-call', type: 'function', function: { name: 'reply_to_comment', arguments: JSON.stringify({ commentId: 'cmt_parent', body: { lang: 'en', text: 'hello' } }) } }] };
+		},
+		executeTool: async () => { throw correction; },
+	});
+	await expect(h.runtime.runProviderLoop(bot, { baseUrl: 'https://provider.test', model: 'test-model', temperature: 0.2, toolCalls: 'at_will' }, 'run', [], { mode: 'normal', signal: h.runtime.activeAbortController.signal })).rejects.toThrow('later provider failure');
+	expect(h.storage.database.prepare("SELECT value_json FROM runtime_state WHERE key = 'pending_tool_v1'").get()).toBeUndefined();
+	await h.runtime.stopTick('bot');
+	expect(h.storage.database.prepare("SELECT seq FROM loop_messages WHERE role = 'tool'").all()).toHaveLength(0);
+	h.storage.database.close();
+});
+
+it('retains required pause before release through timeout and retires a superseded retry', async () => {
+ vi.useFakeTimers();
+ const h = await harness();
+ const requests: Request[] = [];
+ let complete!: (response: Response) => void;
+ h.runtime.env.USER_BOTS = { idFromName: () => 'owner', get: () => ({ fetch: (request: Request) => {
+  requests.push(request);
+  return requests.length === 1 ? new Promise<Response>((resolve) => { complete = resolve; }) : Promise.resolve(new Response(null, { status: 412 }));
+ } }) };
+ const finalizing = h.runtime.finalizeRun('run', 'tick_failed', { message: 'Compaction failed', pauseRequested: true }, undefined, [], { ownerUserId: 'owner', revision: 1 });
+ await vi.advanceTimersByTimeAsync(1);
+ expect(h.release).not.toHaveBeenCalled();
+ expect(h.runtime.liveness.read()).toMatchObject({ kind: 'finalizing', pause: { revision: 1 } });
+ await vi.advanceTimersByTimeAsync(cleanupTimeoutMs);
+ expect(await finalizing).toBe(true);
+ expect(h.runtime.liveness.read()?.kind).toBe('finalizing');
+ expect(h.release).not.toHaveBeenCalled();
+ // Retry is settled only by the serialized coordinator: the changed revision
+ // proves either a prior applied pause or a newer owner edit superseded it.
+ await h.runtime.alarm();
+ expect(h.runtime.liveness.read()).toBeNull();
+ expect(requests.map((request) => request.headers.get('idempotency-key'))).toEqual(['runtime-pause:bot:run', 'runtime-pause:bot:run']);
+ expect(requests[0].headers.get('if-match')).toBe('1');
+ h.runtime.activeRunId = 'successor';
+ complete(new Response(null, { status: 200 }));
+ await Promise.resolve();
+ expect(h.runtime.activeRunId).toBe('successor');
+ h.storage.database.close();
 });
