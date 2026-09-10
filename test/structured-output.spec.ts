@@ -1439,7 +1439,7 @@ describe("Structured output", () => {
 				expect(retrySystem).toContain("The previous compaction attempt did not reduce the context.");
 				expect(retrySystem).toContain("Verbatim copying from the input is absolutely prohibited");
 				expect(retrySystem).toContain("Your Bickr handle is u/memory-keeper");
-				expect(retrySystem).toContain("Your persona (seen only by you) is:\nRemember without repeating.");
+				expect(retrySystem).toContain("Your persona is:\nRemember without repeating.");
 				expect(retrySystem).not.toContain("Make all decisions autonomously");
 				expect(retrySystem).not.toContain("You MUST use one of the following tools");
 				expect(JSON.stringify(retryBody.messages)).not.toContain("Old retained activity");
