@@ -1324,7 +1324,7 @@ function loopMessageContributesToCompactionProviderInput(row: LoopMessageRow): b
 
 export function runtimeErrorLoopMessageContent(message: unknown): string {
 	return safeContextText(
-		botFacingRuntimeErrorMessage(runtimeErrorCause(message)) ?? 'Bickr Terminal reported an error during this visit.',
+		botFacingRuntimeErrorMessage(runtimeErrorCause(message)) ?? 'The Bickr app reported an error during this visit.',
 		1_200,
 	);
 }
@@ -3791,7 +3791,7 @@ export class BotRuntime {
 			const content = JSON.stringify({
 				ok: false,
 				code: 'interrupted',
-				message: 'This Bickr visit stopped before Bickr Terminal returned a result.',
+				message: 'This Bickr visit stopped before the tool returned a result.',
 			});
 			const toolMessage: ChatMessage = {
 				role: 'tool',
@@ -7199,7 +7199,7 @@ export class BotRuntime {
 			});
 			if (providerActive) {
 				this.updateInferenceSubmissionDisplayMessages(summaryEvent.seq, [
-					{ role: 'user', content: 'Bickr Terminal condenses older memory notes.' },
+					{ role: 'user', content: 'The Bickr app condenses older memory notes.' },
 					{ role: 'assistant', content: summary },
 				]);
 			}
@@ -9080,19 +9080,19 @@ export function formatRuntimeEventForContext(
 			const promptTokens = integerValue(payload.promptTokens);
 			const allowedPromptTokens = integerValue(payload.allowedPromptTokens);
 			const overBudgetTokens = integerValue(payload.overBudgetTokens);
-			return `Bickr Terminal checked my context size: ${promptTokens ?? '?'} prompt tokens, limit ${allowedPromptTokens ?? '?'}${overBudgetTokens ? `, over by ${overBudgetTokens}` : ''}.`;
+			return `Context size check: ${promptTokens ?? '?'} prompt tokens, limit ${allowedPromptTokens ?? '?'}${overBudgetTokens ? `, over by ${overBudgetTokens}` : ''}.`;
 		}
 		case 'provider_token_estimate': {
 			const promptTokens = integerValue(payload.promptTokens);
 			const allowedPromptTokens = integerValue(payload.allowedPromptTokens);
 			const overBudgetTokens = integerValue(payload.overBudgetTokens);
-			return `Bickr Terminal estimated my context size: ${promptTokens ?? '?'} prompt tokens, limit ${allowedPromptTokens ?? '?'}${overBudgetTokens ? `, over by ${overBudgetTokens}` : ''}.`;
+			return `Context size estimate: ${promptTokens ?? '?'} prompt tokens, limit ${allowedPromptTokens ?? '?'}${overBudgetTokens ? `, over by ${overBudgetTokens}` : ''}.`;
 		}
 		case 'provider_retry':
 			return `The Bickr page took another try to respond, attempt ${stringValue(payload.attempt) ?? '?'} of ${stringValue(payload.maxAttempts) ?? '?'}.`;
 		case 'provider_tool_call_dropped': {
 			const count = integerValue(payload.count) ?? 1;
-			return `Bickr Terminal ignored ${count} invalid page-control request${count === 1 ? '' : 's'}.`;
+			return `Ignored ${count} invalid tool call${count === 1 ? '' : 's'}.`;
 		}
 		case 'provider_tool_call_repaired':
 		case 'provider_history_repaired':
@@ -9477,17 +9477,17 @@ export function formatRuntimeInputForContext(input: LoopInput): string {
 	const lines = [];
 	if (input.notifications.length > 0) {
 		lines.push(
-			`Bickr Terminal prepared ${input.notifications.length} structured notification event${input.notifications.length === 1 ? '' : 's'}.`,
+			`The Bickr app prepared ${input.notifications.length} structured notification event${input.notifications.length === 1 ? '' : 's'}.`,
 		);
 		for (const notification of input.notifications.slice(0, 8)) {
 			lines.push(`- ${notificationSummary(runtimeRecord(notification))}`);
 		}
 	} else {
-		lines.push('Bickr Terminal prepared an empty notification event list.');
+		lines.push('The Bickr app prepared an empty notification event list.');
 	}
 	if (input.spotlightContexts.length > 0) {
 		lines.push(
-			`Bickr Terminal prepared ${input.spotlightContexts.length} spotlight context${input.spotlightContexts.length === 1 ? '' : 's'}.`,
+			`The Bickr app prepared ${input.spotlightContexts.length} spotlight context${input.spotlightContexts.length === 1 ? '' : 's'}.`,
 		);
 	}
 	if (input.injections.length > 0) {
@@ -9508,8 +9508,8 @@ function inputHistorySummary(payload: Record<string, unknown>): string {
 	const spotlightContexts = Array.isArray(payload.spotlightContexts) ? payload.spotlightContexts : [];
 	const parts = [
 		notifications.length > 0
-			? `Bickr Terminal prepared ${notifications.length} notification event${notifications.length === 1 ? '' : 's'}`
-			: 'Bickr Terminal prepared an empty notification event list',
+			? `The Bickr app prepared ${notifications.length} notification event${notifications.length === 1 ? '' : 's'}`
+			: 'The Bickr app prepared an empty notification event list',
 	];
 	if (spotlightContexts.length > 0) {
 		parts.push(`${spotlightContexts.length} spotlight context${spotlightContexts.length === 1 ? '' : 's'}`);
@@ -10455,7 +10455,7 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 		return 'Use a thread ref returned by list_recent_threads, list_hot_threads, search_threads, or a notification.';
 	}
 	if (canonical === 'read_comment_by_id') {
-		return 'Use a comment ref returned by read_thread, search_threads, a notification, or an earlier Bickr Terminal result.';
+		return 'Use a comment ref returned by read_thread, search_threads, a notification, or an earlier Bickr tool result.';
 	}
 	if (canonical === 'reply_to_comment' || canonical === 'make_additional_reply_to_the_same_comment') {
 		return 'Read or search first, then reply using the returned comment ref.';
@@ -10467,7 +10467,7 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 		return `Use ranges as one {"min":1,"max":6} object or an array of them. min and max must be whole numbers, max must not be smaller than min, and one call takes at most ${maxBulkToolTargets} ranges.`;
 	}
 	if (error instanceof RepositoryError && error.code === 'not_found') {
-		return 'Check the target ref or handle from a recent Bickr Terminal result before trying again.';
+		return 'Check the target ref or handle from a recent Bickr tool result before trying again.';
 	}
 	return undefined;
 }
@@ -10509,7 +10509,7 @@ function loopMessageContextLine(row: LoopMessageRow): string {
 	const message = loopMessageChatMessageFromRow(row);
 	const content = typeof message.content === 'string' ? message.content : '';
 	if (message.role === 'user') {
-		return `Bickr Terminal told me:\n${markdownQuoteForContext(content, 1_500)}`;
+		return `The Bickr app told me:\n${markdownQuoteForContext(content, 1_500)}`;
 	}
 	if (message.role === 'assistant') {
 		const toolCalls =
@@ -10529,7 +10529,7 @@ function loopMessageContextLine(row: LoopMessageRow): string {
 			.join('\n');
 	}
 	if (message.role === 'tool') {
-		return `Bickr Terminal responded to ${message.tool_call_id ?? 'a control'}:\n${markdownQuoteForContext(content, 1_500)}`;
+		return `Result for tool call ${message.tool_call_id ?? 'unknown'}:\n${markdownQuoteForContext(content, 1_500)}`;
 	}
 	return `I recorded a ${message.role} message:\n${markdownQuoteForContext(content, 1_000)}`;
 }

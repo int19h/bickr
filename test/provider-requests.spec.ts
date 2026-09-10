@@ -1223,7 +1223,7 @@ describe("Provider requests", () => {
 		expect(compactionPrompt).toContain(nativeLanguageLine);
 		expect(compactionPrompt).toContain(`the author label u/prompt-tester (${providerSelfAuthor}) identifies content you wrote`);
 		expect(compactionPrompt).toContain(`The standalone author label ${providerSelfAuthor} means the same thing when that content has no usable author handle.`);
-		expect(compactionPrompt).toContain(`Never write the (${providerSelfAuthor}) annotation in a thread, comment, reason, or any other content you author, and never include it in a Bickr control argument.`);
+		expect(compactionPrompt).toContain(`Never write the (${providerSelfAuthor}) annotation in a thread, comment, reason, or any other content you author, and never include it in a Bickr tool argument.`);
 		expect(compactionPrompt).toContain(`use only u/prompt-tester, without the (${providerSelfAuthor}) annotation`);
 		expect(providerCompactionSystemInstruction({ ...promptBot, includeLanguageInSystemPrompt: false }, [], "tool_call"))
 			.not.toContain(nativeLanguageLine);
@@ -1437,7 +1437,7 @@ describe("Provider requests", () => {
 				role: "assistant",
 				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			},
-			{ role: "user", content: "Bickr Terminal is ready for my next step." },
+			{ role: "user", content: "The Bickr app is ready for my next step." },
 		]);
 		expect(providerChatCompletionRequest(
 			{
@@ -1471,7 +1471,7 @@ describe("Provider requests", () => {
 				role: "assistant",
 				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			},
-			{ role: "user", content: "Bickr Terminal is ready for my next step." },
+			{ role: "user", content: "The Bickr app is ready for my next step." },
 		]);
 		expect(
 			providerChatCompletionRequest(
@@ -1486,12 +1486,12 @@ describe("Provider requests", () => {
 			).messages,
 		).toEqual([
 			{ role: "system", content: "System prompt." },
-			{ role: "user", content: "Bickr Terminal is ready for my next step." },
+			{ role: "user", content: "The Bickr app is ready for my next step." },
 			{
 				role: "assistant",
 				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			},
-			{ role: "user", content: "Bickr Terminal is ready for my next step." },
+			{ role: "user", content: "The Bickr app is ready for my next step." },
 		]);
 		expect("frequency_penalty" in request).toBe(false);
 		expect("presence_penalty" in request).toBe(false);
@@ -1773,7 +1773,7 @@ describe("Provider requests", () => {
 		expect(request.reasoning).toBeUndefined();
 		expect(request.messages.at(-1)).toEqual({
 			role: "user",
-			content: "Bickr Terminal is ready for my next step.",
+			content: "The Bickr app is ready for my next step.",
 		});
 	});
 
@@ -3059,7 +3059,7 @@ describe("Provider requests", () => {
 			expect((thrown as Error).message).toContain("Inference request failed with status 500: Internal Server Error");
 			expect((thrown as { requestBody?: string }).requestBody).toContain("\"stream\":true");
 			expect((thrown as { requestBody?: string }).requestBody).toContain("\"model\":\"test/model\"");
-			expect(runtimeErrorLoopMessageContent(thrown)).toMatch(/^Bickr Terminal tried 5 times to reach the configured service\. Last error: /);
+			expect(runtimeErrorLoopMessageContent(thrown)).toMatch(/^Inference failed after 5 provider attempts\. Last error: /);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -3285,7 +3285,7 @@ describe("Provider requests", () => {
 
 		expect(request.messages[1]).toEqual({
 			role: "user",
-			content: "Bickr Terminal is ready for my next step.",
+			content: "The Bickr app is ready for my next step.",
 		});
 		expect(request.messages.at(-1)).toMatchObject({
 			role: "tool",
@@ -3413,7 +3413,7 @@ describe("Provider requests", () => {
 
 		expect(initialRequest.messages[1]).toEqual({
 			role: "user",
-			content: "Bickr Terminal is ready for my next step.",
+			content: "The Bickr app is ready for my next step.",
 		});
 		expect(extendedRequest.messages.slice(0, initialRequest.messages.length)).toEqual(initialRequest.messages);
 		expect(extendedRequest.messages.flatMap((message) => message.tool_calls?.map((toolCall) => toolCall.id) ?? [])).toEqual(["call_1", "call_2"]);

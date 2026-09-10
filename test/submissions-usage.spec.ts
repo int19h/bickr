@@ -936,7 +936,7 @@ describe("Submissions and usage", () => {
 			expect(summaries.at(-1)).toMatchObject({ seq: 55, purpose: "compaction", messageCount: 2 });
 			expect(inferenceSubmissionForSeq(55).messages.map((message) => message.content)).toEqual([
 				"Trailing participant narration.",
-				"Bickr Terminal is ready for my next step.",
+				"The Bickr app is ready for my next step.",
 			]);
 			expect(inferenceSubmissionForSeq(55).displayMessages).toBeUndefined();
 			updateInferenceSubmissionDisplayMessages(55, [

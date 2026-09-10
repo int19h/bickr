@@ -197,7 +197,7 @@ export function runtimeActivities(events: BotRuntimeEvent[], fallbackWorldHandle
 					createdAt: event.createdAt,
 					kind: "provider",
 					title: "Saved context repaired",
-					body: `Bickr Terminal repaired invalid saved text in ${count} field${count === 1 ? "" : "s"} before inference.`,
+					body: `The Bickr app repaired invalid saved text in ${count} field${count === 1 ? "" : "s"} before inference.`,
 					payload: event.payload,
 					raw: event,
 				});

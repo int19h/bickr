@@ -3786,7 +3786,7 @@ describe("Pages functions", () => {
 					"I remember the world's shared counting rule.\n\n" +
 					"I'm u/count-sage. I need to think about how I feel and what I want to do next.",
 			},
-			{ role: "user", content: "Bickr Terminal is ready for my next step." },
+			{ role: "user", content: "The Bickr app is ready for my next step." },
 		]);
 
 		const changed = await promptContextBudget(created.data.bot.id, {

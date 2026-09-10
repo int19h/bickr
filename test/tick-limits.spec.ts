@@ -2204,7 +2204,7 @@ describe("Tick limits and recovery", () => {
 			},
 			]);
 			expect(String(appendedLoopMessages[0]?.message.content)).toContain("TextEncodeInput");
-			expect(String(appendedLoopMessages[0]?.message.content)).toMatch(/^Bickr Terminal reported an error during this visit: /);
+			expect(String(appendedLoopMessages[0]?.message.content)).toMatch(/^The Bickr app reported an error during this visit: /);
 			expect(String(appendedLoopMessages[0]?.message.content)).not.toContain("Bickr website crashed");
 		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "provider_request", "{\"stream\":true}");
 		expect(recordLoopMessageLog).toHaveBeenCalledWith(1, "provider_response", "{\"error\":\"provider 500\"}");

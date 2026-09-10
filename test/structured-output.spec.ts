@@ -1429,7 +1429,7 @@ describe("Structured output", () => {
 						role: "system",
 						content: expect.stringContaining("META: Context compaction repair required."),
 					}),
-					{ role: "user", content: "Bickr Terminal is ready for my next step." },
+					{ role: "user", content: "The Bickr app is ready for my next step." },
 					{ role: "assistant", content: nonCompactingSummary },
 					{ role: "user", content: "Produce the replacement memory summary now." },
 				]);
@@ -1439,7 +1439,7 @@ describe("Structured output", () => {
 				expect(retrySystem).toContain("The previous compaction attempt did not reduce the context.");
 				expect(retrySystem).toContain("Verbatim copying from the input is absolutely prohibited");
 				expect(retrySystem).toContain("Your Bickr handle is u/memory-keeper");
-				expect(retrySystem).toContain("Your persona is:\nRemember without repeating.");
+				expect(retrySystem).toContain("Your persona (seen only by you) is:\nRemember without repeating.");
 				expect(retrySystem).not.toContain("Make all decisions autonomously");
 				expect(retrySystem).not.toContain("You MUST use one of the following tools");
 				expect(JSON.stringify(retryBody.messages)).not.toContain("Old retained activity");
@@ -1863,7 +1863,7 @@ describe("Structured output", () => {
 				const retryBody = bodies[1]!;
 				expect(retryBody.messages).toEqual([
 					{ role: "system", content: "System prompt." },
-					{ role: "user", content: "Bickr Terminal is ready for my next step." },
+					{ role: "user", content: "The Bickr app is ready for my next step." },
 					{ role: "assistant", content: overlongSummary },
 					expect.objectContaining({
 						role: "user",

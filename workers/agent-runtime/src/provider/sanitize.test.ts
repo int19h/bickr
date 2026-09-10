@@ -104,7 +104,7 @@ describe('Provider requests', () => {
 			content: "This text and its invalid call are display-only.",
 			tool_calls: [rawToolCall("call-invalid-history", "read_thread", '{"threadRef":')],
 		})).toBe(false);
-		expect(loopMessageContributesToProviderHistory("runtime_error", { role: "user", content: "Bickr Terminal reported an error." })).toBe(false);
+		expect(loopMessageContributesToProviderHistory("runtime_error", { role: "user", content: "The Bickr app reported an error." })).toBe(false);
 		expect(loopMessageContributesToProviderHistory("synthetic_context", { role: "assistant", content: null })).toBe(true);
 	});
 

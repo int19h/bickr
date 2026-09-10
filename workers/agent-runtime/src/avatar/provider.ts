@@ -532,8 +532,8 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 	} {
 		const systemPrompt = target === 'world' ? currentWorldAvatarDescriptionSystemPrompt : currentAvatarDescriptionSystemPrompt;
 		const userText = target === 'world'
-			? 'Bickr Terminal needs a complete visual description of the supplied current world image for a refreshed public world avatar prompt.'
-			: 'Bickr Terminal needs a complete visual description of the supplied current profile image for a refreshed public avatar prompt.';
+			? 'Provide a complete visual description of the supplied current world image for a refreshed public world avatar prompt.'
+			: 'Provide a complete visual description of the supplied current profile image for a refreshed public avatar prompt.';
 		return {
 			displayMessages: [
 				{ role: 'system', content: systemPrompt },
@@ -1037,8 +1037,8 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		const toolChoice = providerAvatarToolChoice(mode, settings, toolCalls);
 		const finalInstruction =
 			mode === 'structured_output'
-				? 'Bickr Terminal needs a profile image description. I should return the required JSON object with a first-person, in-character description that is highly verbose and full of concrete visual detail. The description should focus only on visible appearance, style, scene, lighting, and composition.'
-				: `Bickr Terminal needs a profile image description. I should call ${providerAvatarDescriptionToolName} with a first-person, in-character description that is highly verbose and full of concrete visual detail. The description should focus only on visible appearance, style, scene, lighting, and composition.`;
+				? 'I need to describe my profile image. I should return the required JSON object with a first-person, in-character description that is highly verbose and full of concrete visual detail. The description should focus only on visible appearance, style, scene, lighting, and composition.'
+				: `I need to describe my profile image. I should call ${providerAvatarDescriptionToolName} with a first-person, in-character description that is highly verbose and full of concrete visual detail. The description should focus only on visible appearance, style, scene, lighting, and composition.`;
 		const prefill = options.prefill?.trim();
 		const messages: ChatMessage[] = [
 			{
@@ -1168,7 +1168,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 				{
 					role: 'user',
 					content:
-						'Bickr Terminal still needs the profile image description as the required JSON object with exactly one field named description. The description must be first person, in character, and focused only on visible appearance, style, scene, lighting, and composition.',
+						'Return the profile image description as the required JSON object with exactly one field named description. The description must be first person, in character, and focused only on visible appearance, style, scene, lighting, and composition.',
 				},
 			];
 		}
@@ -1177,7 +1177,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 				...(error.outputText ? [{ role: 'assistant' as const, content: error.outputText }] : []),
 				{
 					role: 'user',
-					content: `Bickr Terminal still needs me to call ${providerAvatarDescriptionToolName}. The description must be first person, in character, and focused only on visible appearance, style, scene, lighting, and composition.`,
+					content: `Call ${providerAvatarDescriptionToolName}. The description must be first person, in character, and focused only on visible appearance, style, scene, lighting, and composition.`,
 				},
 			];
 		}
