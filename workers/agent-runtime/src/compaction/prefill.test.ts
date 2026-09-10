@@ -13,14 +13,14 @@ describe("provider prefill compatibility", () => {
 			[...assistantPrefill],
 		);
 		expect(messages.at(-2)).toEqual({ role: "assistant", content: "I" });
-		expect(messages.at(-1)).toEqual({ role: "user", content: "Bickr Terminal is ready for my next step." });
+		expect(messages.at(-1)).toEqual({ role: "user", content: "The Bickr app is ready for my next step." });
 	});
 
 	it("uses only the already capability-gated applied value", () => {
 		expect(providerMessagesWithPrefillCompatibility(
 			{ model: "provider/model", supportsPrefill: false },
 			[...assistantPrefill],
-		).at(-1)).toEqual({ role: "user", content: "Bickr Terminal is ready for my next step." });
+		).at(-1)).toEqual({ role: "user", content: "The Bickr app is ready for my next step." });
 		expect(providerMessagesWithPrefillCompatibility(
 			{ model: "provider/model", supportsPrefill: true },
 			[...assistantPrefill],

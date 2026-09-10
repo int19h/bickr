@@ -575,7 +575,7 @@ export function BotEdit({
 								</label>
 							</Field>
 							<Field
-								help="When enabled, this participant's own first-person prompt contribution is injected at the start of each new loop iteration, after Bickr Terminal adds elapsed time, notifications, and any pending owner thoughts. Blank uses the default contribution for this participant. A world-owner recurring prompt, when configured, appears first in the same message and is not disabled by this participant-specific switch."
+								help="When enabled, this participant's own first-person prompt contribution is injected at the start of each new loop iteration, after the Bickr app adds elapsed time, notifications, and any pending owner thoughts. Blank uses the default contribution for this participant. A world-owner recurring prompt, when configured, appears first in the same message and is not disabled by this participant-specific switch."
 								label={
 									<span className="field-checkbox-label">
 										<input

@@ -92,7 +92,7 @@ const providerCompactionReasoningDisabledSelection = { kind: 'reasoning_disabled
 export const providerCompactionTemperature = 0.2;
 export const providerCompactionToolName = metaCompactionToolName;
 export const providerRequiredToolChoice = 'required' as const;
-const providerContinuationMessageContent = 'Bickr Terminal is ready for my next step.';
+const providerContinuationMessageContent = 'The Bickr app is ready for my next step.';
 
 export const defaultProviderCompactionSummaryLimits: ProviderCompactionSummaryLimits = {
 	minLength: 1,

@@ -199,7 +199,7 @@ describe('RuntimeMessageStore', () => {
 			for (let index = 0; index < runtimeDiagnosticLoopMessageRetentionCount; index += 1) {
 				seeded.push(store.appendLoopMessage(
 					'run-diagnostic',
-					{ role: 'user', content: `Bickr Terminal reported failure ${index}.` },
+					{ role: 'user', content: `The Bickr app reported failure ${index}.` },
 					'runtime_error',
 				).seq);
 			}
@@ -211,7 +211,7 @@ describe('RuntimeMessageStore', () => {
 
 			store.appendLoopMessage(
 				'run-diagnostic',
-				{ role: 'user', content: 'Bickr Terminal reported one more failure.' },
+				{ role: 'user', content: 'The Bickr app reported one more failure.' },
 				'runtime_error',
 			);
 
@@ -514,7 +514,7 @@ describe('RuntimeMessageStore', () => {
 		for (let index = 1; index <= runtimeDiagnosticLoopMessageRetentionCount + 1; index += 1) {
 			retentionStore.appendLoopMessage(
 				'run-error',
-				{ role: 'user', content: `Bickr Terminal reported runtime failure ${index}.` },
+				{ role: 'user', content: `The Bickr app reported runtime failure ${index}.` },
 				'runtime_error',
 			);
 		}
@@ -614,7 +614,7 @@ describe('RuntimeMessageStore', () => {
 			));
 			seededRuntimeErrors.push(retentionStore.appendLoopMessage(
 				'run-seed-error',
-				{ role: 'user', content: `Bickr Terminal reported seeded failure ${index}.` },
+				{ role: 'user', content: `The Bickr app reported seeded failure ${index}.` },
 				'runtime_error',
 			));
 		}
@@ -654,7 +654,7 @@ describe('RuntimeMessageStore', () => {
 		}, 'arguments_not_json_object');
 		retentionStore.appendLoopMessage(
 			'run-no-correction',
-			{ role: 'user', content: 'Bickr Terminal reported the failed retry.' },
+			{ role: 'user', content: 'The Bickr app reported the failed retry.' },
 			'runtime_error',
 		);
 

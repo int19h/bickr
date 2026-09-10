@@ -66,7 +66,7 @@ describe("runtimeActivities tool log formatting", () => {
 		expect(activity?.body).toContain("empty compaction response");
 	});
 
-	it("formats owner-facing runtime errors without Terminal story text", () => {
+	it("formats owner-facing runtime errors without adding story text", () => {
 		const [activity] = runtimeActivities([
 			runtimeEvent("tick_failed", {
 				message: "Inference request failed with status 400: TextEncodeInput must be Union[TextInputSequence].",
@@ -95,7 +95,7 @@ describe("runtimeActivities tool log formatting", () => {
 		], "sandbox");
 
 		expect(activity?.title).toBe("Saved context repaired");
-		expect(activity?.body).toBe("Bickr Terminal repaired invalid saved text in 2 fields before inference.");
+		expect(activity?.body).toBe("The Bickr app repaired invalid saved text in 2 fields before inference.");
 	});
 
 	it("formats read and reply results without redundant thread-created metadata", () => {

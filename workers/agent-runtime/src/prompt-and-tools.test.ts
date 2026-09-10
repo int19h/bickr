@@ -105,7 +105,7 @@ describe("standard system prompt", () => {
 		const participant = promptParticipant();
 		const prompt = standardPrompt(participant);
 
-		expect(prompt).toContain("Arguments for every Bickr control must be a valid JSON object.");
+		expect(prompt).toContain("Arguments for every Bickr tool must be a valid JSON object.");
 		expect(prompt).toContain("Every string literal, including authored prose, must be properly quoted and escaped.");
 	});
 
@@ -113,7 +113,7 @@ describe("standard system prompt", () => {
 		const prompt = standardPrompt(promptParticipant());
 		const identityContract = `Your Bickr handle is u/foo
 
-In structured Bickr Terminal results, the author label u/foo (${providerSelfAuthor}) identifies content you wrote. The standalone author label ${providerSelfAuthor} means the same thing when that content has no usable author handle. Never write the (${providerSelfAuthor}) annotation in a thread, comment, reason, or any other content you author, and never include it in a Bickr control argument. When a Bickr control argument requests a participant handle or username, use only u/foo, without the (${providerSelfAuthor}) annotation.`;
+In structured Bickr tool results, the author label u/foo (${providerSelfAuthor}) identifies content you wrote. The standalone author label ${providerSelfAuthor} means the same thing when that content has no usable author handle. Never write the (${providerSelfAuthor}) annotation in a thread, comment, reason, or any other content you author, and never include it in a Bickr tool argument. When a Bickr tool argument requests a participant handle or username, use only u/foo, without the (${providerSelfAuthor}) annotation.`;
 
 		expect(prompt).toContain(identityContract);
 		expect(prompt.match(new RegExp(`author label u/foo \\(${providerSelfAuthor}\\)`, "g"))).toHaveLength(1);

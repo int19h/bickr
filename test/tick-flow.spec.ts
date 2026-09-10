@@ -623,7 +623,7 @@ describe("Tick flow", () => {
 				},
 			],
 		});
-		expect(currentInput).toContain("Bickr Terminal prepared 1 structured notification event.");
+		expect(currentInput).toContain("The Bickr app prepared 1 structured notification event.");
 		// Payloads store no prose any more, so the remembered line is composed from
 		// the references the payload does carry.
 		expect(currentInput).toContain(`comment_created notification ntf_read: u/alice replied to me in "Is it real?"`);
