@@ -1170,7 +1170,7 @@ describe("Pages functions", () => {
 		});
 	});
 
-	it("supports GitHub OAuth callback user upsert, session lookup, and logout", async () => {
+	it.each(["", "&iss=https%3A%2F%2Fgithub.com%2Flogin%2Foauth"])("supports GitHub OAuth callback user upsert, session lookup, and logout (issuer query: %s)", async (issuerQuery) => {
 		const githubCookies = oauthCookieNames("github");
 		const startResponse = await githubStart(
 			contextFor<typeof githubStart>(
@@ -1189,7 +1189,7 @@ describe("Pages functions", () => {
 
 		const callbackResponse = await githubCallback(
 			contextFor<typeof githubCallback>(
-				new Request("http://example.com/api/auth/github/callback?code=abc&state=state-1", {
+				new Request(`http://example.com/api/auth/github/callback?code=abc&state=state-1${issuerQuery}`, {
 					headers: {
 						cookie:
 							`${githubCookies.state}=state-1; ${githubCookies.returnTo}=%2Fw%2Fprimary%2Ff%2Fphilosophy%2Ft%2Fthr_1; ${githubCookies.pkce}=verifier-1`,
@@ -1256,6 +1256,30 @@ describe("Pages functions", () => {
 		);
 		expect(logoutResponse.status).toBe(200);
 		expect(logoutResponse.headers.getSetCookie().join(";")).toContain("Max-Age=0");
+	});
+
+	it("rejects a GitHub callback from a different issuer before exchanging its code", async () => {
+		const cookies = oauthCookieNames("github");
+		const fetchMock = vi.fn(oauthFetchMock);
+		const response = await githubCallback(
+			contextFor<typeof githubCallback>(
+				new Request("http://example.com/api/auth/github/callback?code=abc&state=state-1&iss=https%3A%2F%2Fother.example", {
+					headers: {
+						cookie: `${cookies.state}=state-1; ${cookies.pkce}=verifier-1`,
+					},
+				}),
+				{},
+				{
+					GITHUB_CLIENT_ID: "client-id",
+					GITHUB_CLIENT_SECRET: "client-secret",
+					OAUTH_FETCH: fetchMock,
+				},
+			),
+		);
+		expect(response.status).toBe(302);
+		expect(response.headers.get("location")).toBe("/?authError=oauth_failed");
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(response.headers.getSetCookie().some((cookie) => cookie.startsWith(`${sessionCookieName}=`))).toBe(false);
 	});
 
 	it("supports Google OAuth sign-in with authentication-only scopes", async () => {
