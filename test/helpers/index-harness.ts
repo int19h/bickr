@@ -1,3 +1,4 @@
+import type { LoopMessageGroupEntry } from '../../workers/agent-runtime/src/types';
 import { RunLiveness } from '../../workers/agent-runtime/src/runtime/run-liveness';
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { env as testEnv } from "cloudflare:test";
@@ -2100,10 +2101,28 @@ export function testRuntimeForToolExecution(): BotRuntime {
 	}) as BotRuntime;
 }
 
+function testAppendProviderToolResult(
+	this: { appendLoopMessageGroup(entries: LoopMessageGroupEntry[]): BotLoopMessage[]; clearPendingTool(runId: string): void },
+	assistant: LoopMessageGroupEntry,
+	result: LoopMessageGroupEntry,
+	group: BotLoopMessage | null,
+): BotLoopMessage {
+	if (!group) {
+		const inserted = this.appendLoopMessageGroup([assistant, result])[0]!;
+		this.clearPendingTool(assistant.runId);
+		return inserted;
+	}
+	group.message.tool_calls = [...(group.message.tool_calls ?? []), ...assistant.message.tool_calls!];
+	this.appendLoopMessageGroup([result]);
+	this.clearPendingTool(assistant.runId);
+	return group;
+}
+
 export function testLoopMessageMemory(initial: Array<Record<string, unknown>> = []) {
 	let seq = 0;
 	const messages = [...initial];
 	return {
+		appendProviderToolResult: testAppendProviderToolResult,
 		activeLoopMessagesForProvider: () => [...messages],
 		appendLoopMessage: (runId: string, message: Record<string, unknown>, origin: string, status = "complete") => {
 			seq += 1;
@@ -2646,7 +2665,7 @@ export function withTestRunLiveness<T extends object>(runtime: T): T {
 		// switch those tests to a different message-store path. Journal/pending
 		// persistence has dedicated real-SQLite and real-DO tests.
 		const storage = { sql: memoryRuntimeSql() as unknown as DurableObjectStorage['sql'], setAlarm: async () => {} };
-		Object.assign(runtime, { liveness: new RunLiveness(storage), setPendingTool: () => {}, clearPendingTool: () => {} });
+		Object.assign(runtime, { liveness: new RunLiveness(storage), setPendingTool: () => {}, clearPendingTool: () => {}, appendProviderToolResult: testAppendProviderToolResult });
 	} else {
 		attachTestRunLiveness(runtime);
 	}

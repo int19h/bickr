@@ -4437,14 +4437,6 @@ export class BotRuntime {
 
 	private appendProviderToolResult(assistant: LoopMessageGroupEntry, result: LoopMessageGroupEntry, group: BotLoopMessage | null): BotLoopMessage {
 		assertExecutionPublication();
-		// Storage-free harnesses observe the same group through their append spies.
-		if (Object.hasOwn(this, 'appendLoopMessage') || typeof (this as unknown as { state?: DurableObjectState }).state?.storage?.sql?.exec !== 'function') {
-			if (!group) return this.appendLoopMessageGroup([assistant, result])[0]!;
-			group.message.tool_calls = [...(group.message.tool_calls ?? []), ...assistant.message.tool_calls!];
-			this.appendLoopMessageGroup([result]);
-			this.clearPendingTool(assistant.runId);
-			return group;
-		}
 		return this.runtimeMessageStore().appendProviderToolResult(assistant, result, group?.seq ?? null);
 	}
 
