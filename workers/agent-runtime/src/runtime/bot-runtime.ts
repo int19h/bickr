@@ -1,3 +1,4 @@
+import { syntheticToolCallMessage, type SyntheticToolCall } from './synthetic-tool-calls';
 import { withRunExecution, assertExecutionPublication, settleOutsideExecution } from './execution-scope';
 import { runtimeDiagnostics, type RuntimeDiagnostic } from '@bickr/shared/runtime-diagnostics';
 import { eventFromRow } from './events';
@@ -4350,11 +4351,7 @@ export class BotRuntime {
 		this.appendLoopMessageGroup([
 			{
 				runId,
-				message: {
-					role: 'assistant',
-					content: syntheticLimitLogOffContent,
-					tool_calls: [toolCall],
-				},
+				message: syntheticToolCallMessage(toolCall, syntheticLimitLogOffContent),
 				origin: 'self_correction',
 				status: 'complete',
 			},
@@ -5917,7 +5914,7 @@ export class BotRuntime {
 		existingProfileUsernames: ReadonlySet<string>,
 		existingProviderContent: ProviderContextContentScope,
 	): Promise<string[]> {
-		const toolCalls: ToolCall[] = [syntheticToolCall(runId, 'check_notifications', 0, {})];
+		const toolCalls: SyntheticToolCall[] = [syntheticToolCall(runId, 'check_notifications', 0, {})];
 		const providerContext = providerSerializationContext({ botId: bot.id }, cloneProviderContextContentScope(existingProviderContent));
 		const notificationTokenBudget = notifications.length > 0 ? await this.readCommentTreeTokenBudget(bot) : undefined;
 		const notificationResult = providerCheckNotificationsResultWithInclusions(notifications, providerContext, notificationTokenBudget);
@@ -5964,7 +5961,7 @@ export class BotRuntime {
 		existingProviderContent: ProviderContextContentScope,
 	): Promise<void> {
 		const chains = contexts.flatMap(spotlightSyntheticToolChains);
-		const toolCalls: ToolCall[] = chains.map((chain, index) => syntheticToolCall(runId, chain.toolName, index, chain.args));
+		const toolCalls: SyntheticToolCall[] = chains.map((chain, index) => syntheticToolCall(runId, chain.toolName, index, chain.args));
 		const providerContext = providerSerializationContext({ botId: bot.id }, cloneProviderContextContentScope(existingProviderContent));
 		const tokenBudget = await this.readCommentTreeTokenBudget(bot);
 		const results: ChatMessage[] = chains.map((chain, index) => ({
@@ -6008,7 +6005,7 @@ export class BotRuntime {
 		runId: string,
 		origin: BotLoopMessageOrigin,
 		firstAssistantContent: string,
-		toolCalls: readonly ToolCall[],
+		toolCalls: readonly SyntheticToolCall[],
 		results: readonly ChatMessage[],
 		status: BotLoopMessageStatus = 'complete',
 	): void {
@@ -6020,11 +6017,7 @@ export class BotRuntime {
 			const toolCall = toolCalls[index]!;
 			entries.push({
 				runId,
-				message: {
-					role: 'assistant',
-					content: index === 0 ? firstAssistantContent : null,
-					tool_calls: [toolCall],
-				},
+				message: syntheticToolCallMessage(toolCall, index === 0 ? firstAssistantContent : null),
 				origin,
 				status,
 			});
@@ -8079,7 +8072,7 @@ type SyntheticReadToolChain = {
 	targetThreadId?: string;
 };
 
-function syntheticToolCall(runId: string, name: string, index: number, args: Record<string, unknown>): ToolCall {
+function syntheticToolCall(runId: string, name: SyntheticToolCall['function']['name'], index: number, args: Record<string, unknown>): SyntheticToolCall {
 	return {
 		id: syntheticToolCallId(runId, index),
 		type: 'function',
