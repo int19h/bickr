@@ -2613,7 +2613,7 @@ describe("Tick flow", () => {
 		}));
 	});
 
-	it("stores generated parallel tool calls as interleaved single-call provider history groups", async () => {
+	it("stores generated parallel tool calls in one provider response group", async () => {
 		const appendedLoopMessages: Array<{ message: BotInferenceSubmissionMessage; origin: string }> = [];
 		const callProvider = vi.fn()
 			.mockResolvedValueOnce(providerResponseWithToolCalls([
@@ -2679,18 +2679,16 @@ describe("Tick flow", () => {
 		).resolves.toMatchObject({ logOffCalled: false });
 
 		const providerHistory = appendedLoopMessages.filter((item) => item.origin === "provider_response" || item.origin === "tool_result");
-		expect(providerHistory.slice(0, 4).map((item) => ({
+		expect(providerHistory.slice(0, 3).map((item) => ({
 			origin: item.origin,
 			role: item.message.role,
 			toolCallIds: item.message.tool_calls?.map((toolCall) => toolCall.id),
 			toolCallId: item.message.tool_call_id,
 		}))).toEqual([
-			{ origin: "provider_response", role: "assistant", toolCallIds: ["call-search-a"], toolCallId: undefined },
+			{ origin: "provider_response", role: "assistant", toolCallIds: ["call-search-a", "call-search-b"], toolCallId: undefined },
 			{ origin: "tool_result", role: "tool", toolCallIds: undefined, toolCallId: "call-search-a" },
-			{ origin: "provider_response", role: "assistant", toolCallIds: ["call-search-b"], toolCallId: undefined },
 			{ origin: "tool_result", role: "tool", toolCallIds: undefined, toolCallId: "call-search-b" },
 		]);
-		expect(providerHistory[2]?.message.content).toBeNull();
 	});
 
 	it("deduplicates parallel follow calls before history and execution", async () => {
