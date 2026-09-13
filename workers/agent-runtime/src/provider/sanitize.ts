@@ -408,28 +408,6 @@ export function createProviderSanitize(runtime: ProviderSanitizeRuntime) {
 		return message;
 	}
 
-	function providerResponseToolCallMessageForHistory(
-		message: ChatMessage,
-		toolCall: ToolCall,
-		includeResponseContext: boolean,
-	): ChatMessage {
-		if (!includeResponseContext) {
-			return {
-				role: 'assistant',
-				content: null,
-				tool_calls: [cloneToolCall(toolCall)],
-			};
-		}
-		const splitMessage: ChatMessage = {
-			...message,
-			tool_calls: [cloneToolCall(toolCall)],
-		};
-		if (!hasProviderHistoryText(splitMessage.content)) {
-			splitMessage.content = null;
-		}
-		return splitMessage;
-	}
-
 	function normalizeReasoningDetailsForProviderHistory(details: readonly unknown[]): ReasoningDetail[] {
 		const normalized: ReasoningDetail[] = [];
 		for (const detail of details) {
@@ -672,11 +650,6 @@ export function createProviderSanitize(runtime: ProviderSanitizeRuntime) {
 				order.push({ kind: 'existing', seq });
 			}
 		};
-		const insertAssistantBeforeTool = (sourceRow: LoopMessageRow, message: ChatMessage, pairIndex: number): void => {
-			const id = `legacy-tool-call-history:${sourceRow.seq}:${pairIndex}`;
-			operations.push({ kind: 'insert', id, sourceRow, message });
-			order.push({ kind: 'insert', id });
-		};
 
 		for (let index = 0; index < rows.length; index += 1) {
 			const row = rows[index];
@@ -804,17 +777,12 @@ export function createProviderSanitize(runtime: ProviderSanitizeRuntime) {
 				continue;
 			}
 
-			for (let pairIndex = 0; pairIndex < pairedToolCalls.length; pairIndex += 1) {
-				const pair = pairedToolCalls[pairIndex]!;
-				const assistantMessage = providerResponseToolCallMessageForHistory(repairedMessage, pair.toolCall, pairIndex === 0);
-				if (pairIndex === 0) {
-					if (JSON.stringify(loopMessageChatMessageFromRow(current.row)) !== JSON.stringify(assistantMessage)) {
-						updateRow(current.row.seq, assistantMessage);
-					}
-					keepExistingRow(current.row.seq);
-				} else {
-					insertAssistantBeforeTool(current.row, assistantMessage, pairIndex);
-				}
+			const assistantMessage = { ...repairedMessage, tool_calls: pairedToolCalls.map((pair) => cloneToolCall(pair.toolCall)) };
+			if (JSON.stringify(loopMessageChatMessageFromRow(current.row)) !== JSON.stringify(assistantMessage)) {
+				updateRow(current.row.seq, assistantMessage);
+			}
+			keepExistingRow(current.row.seq);
+			for (const pair of pairedToolCalls) {
 				if (JSON.stringify(loopMessageChatMessageFromRow(pair.toolRow)) !== JSON.stringify(pair.toolMessage)) {
 					updateRow(pair.toolRow.seq, pair.toolMessage);
 				}
@@ -839,18 +807,15 @@ export function createProviderSanitize(runtime: ProviderSanitizeRuntime) {
 			if (message.role !== 'assistant' || !Array.isArray(message.tool_calls) || message.tool_calls.length === 0) {
 				continue;
 			}
-			if (message.tool_calls.length !== 1) {
-				return `assistant row ${current.row.seq} has ${message.tool_calls.length} tool calls`;
+			for (const toolCall of message.tool_calls) {
+				const next = providerRows[++index];
+				if (!next || next.message.role !== 'tool') {
+					return `assistant row ${current.row.seq} is not followed by a tool result`;
+				}
+				if (next.message.tool_call_id !== toolCall.id) {
+					return `assistant row ${current.row.seq} tool call ${toolCall.id} is followed by tool row ${next.row.seq} for ${next.message.tool_call_id ?? 'missing id'}`;
+				}
 			}
-			const [toolCall] = message.tool_calls;
-			const next = providerRows[index + 1];
-			if (!next || next.message.role !== 'tool') {
-				return `assistant row ${current.row.seq} is not followed by a tool result`;
-			}
-			if (next.message.tool_call_id !== toolCall.id) {
-				return `assistant row ${current.row.seq} tool call ${toolCall.id} is followed by tool row ${next.row.seq} for ${next.message.tool_call_id ?? 'missing id'}`;
-			}
-			index += 1;
 		}
 		return null;
 	}
@@ -860,7 +825,6 @@ export function createProviderSanitize(runtime: ProviderSanitizeRuntime) {
 		normalizeLegacyProviderToolCallHistoryRows,
 		normalizeReasoningDetailsForProviderHistory,
 		providerResponseMessageForHistory,
-		providerResponseToolCallMessageForHistory,
 		providerToolCallHistoryInvariantViolation,
 		sanitizeProviderResponseToolCalls,
 		sanitizeProviderToolCalls,

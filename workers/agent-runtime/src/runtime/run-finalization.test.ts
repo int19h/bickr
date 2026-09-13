@@ -200,7 +200,7 @@ it('constructs a dormant runtime and migrates tool pairs belonging to terminal h
 	new BotRuntime(h.runtime.state, h.runtime.env);
 	await initialized;
 	const rows = h.storage.database.prepare("SELECT message_json FROM loop_messages WHERE deleted_at IS NULL ORDER BY position").all();
-	expect(rows).toHaveLength(4);
+	expect(rows).toHaveLength(3);
 	expect(h.storage.database.prepare("SELECT count(*) AS n FROM events WHERE type = 'tick_completed'").get()).toMatchObject({ n: 1 });
 	h.storage.database.close();
 });

@@ -1755,7 +1755,7 @@ describe("Tick limits and recovery", () => {
 		expect(rows[2]?.deleted_at).toMatch(/^20/);
 	});
 
-	it("splits legacy multi-call assistant history once during migration", () => {
+	it("preserves legacy multi-call assistant groups during one-time migration", () => {
 		const rows: LoopMessageRowForTest[] = [
 			loopMessageRowForMessage(1, {
 				role: "assistant",
@@ -1787,11 +1787,9 @@ describe("Tick limits and recovery", () => {
 			toolCallId: message.tool_call_id,
 			content: message.content,
 		}))).toEqual([
-			{ role: "assistant", toolCallIds: ["call-search-a"], toolCallId: undefined, content: "I searched several things." },
+			{ role: "assistant", toolCallIds: ["call-search-a", "call-search-b", "call-search-c"], toolCallId: undefined, content: "I searched several things." },
 			{ role: "tool", toolCallIds: undefined, toolCallId: "call-search-a", content: "{\"ok\":true,\"a\":true}" },
-			{ role: "assistant", toolCallIds: ["call-search-b"], toolCallId: undefined, content: null },
 			{ role: "tool", toolCallIds: undefined, toolCallId: "call-search-b", content: "{\"ok\":true,\"b\":true}" },
-			{ role: "assistant", toolCallIds: ["call-search-c"], toolCallId: undefined, content: null },
 			{ role: "tool", toolCallIds: undefined, toolCallId: "call-search-c", content: "{\"ok\":true,\"c\":true}" },
 			{ role: "assistant", toolCallIds: undefined, toolCallId: undefined, content: "After searches." },
 		]);
@@ -1900,16 +1898,18 @@ describe("Tick limits and recovery", () => {
 		expect(assertInvariant).toThrow("assistant row 1 is not followed by a tool result");
 	});
 
-	it("records generated multi-call responses as single-call assistant and tool pairs", async () => {
+	it.each([false, true])("records generated multi-call responses as one assistant with consecutive tool results (dropped first=%s)", async (droppedFirst) => {
 		const loopMessageGroups: Array<Array<{ message: BotInferenceSubmissionMessage; origin: string }>> = [];
 		let nextLoopSeq = 0;
 		const callProvider = vi.fn()
 			.mockResolvedValueOnce({
 				...providerResponseWithToolCalls([
+					...(droppedFirst ? [{ id: "call-dropped", name: "", args: {} }] : []),
 					{ id: "call-read", name: "read_thread", args: { threadId: "thr_test" } },
 					{ id: "call-vote", name: "vote", args: { votes: [{ commentId: "cmt_test", value: 1 }], reason: "Useful context." } },
 				]),
 				content: "I will inspect and vote.",
+				reasoningDetails: [{ type: "reasoning.encrypted", data: "opaque-original-reasoning", format: "anthropic-claude-v1", index: 0 }],
 			})
 			.mockResolvedValueOnce(providerResponseWithContent("Done."));
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
@@ -1928,6 +1928,7 @@ describe("Tick limits and recovery", () => {
 				}));
 			},
 			callProvider,
+			recordDroppedProviderToolCalls: async () => {},
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
 				providerTools: toolDefinitionsForProviderRound(),
@@ -1971,16 +1972,14 @@ describe("Tick limits and recovery", () => {
 			),
 		).resolves.toMatchObject({ logOffCalled: false });
 
-		const toolPairs = loopMessageGroups.filter((group) => group.length === 2 && group[0]?.message.role === "assistant" && group[1]?.message.role === "tool");
-		expect(toolPairs).toHaveLength(2);
-		expect(toolPairs.map((group) => ({
-			assistantContent: group[0]?.message.content,
-			assistantToolCallIds: group[0]?.message.tool_calls?.map((toolCall) => toolCall.id),
-			toolCallId: group[1]?.message.tool_call_id,
-		}))).toEqual([
-			{ assistantContent: "I will inspect and vote.", assistantToolCallIds: ["call-read"], toolCallId: "call-read" },
-			{ assistantContent: null, assistantToolCallIds: ["call-vote"], toolCallId: "call-vote" },
-		]);
+		const messages = loopMessageGroups.flatMap((group) => group.map((entry) => entry.message));
+		expect(messages.map((message) => message.role)).toEqual(['assistant', 'tool', 'tool', 'assistant']);
+		expect(messages[0]?.tool_calls?.map((call) => call.id)).toEqual(['call-read', 'call-vote']);
+		expect(messages[0]?.content).toBe('I will inspect and vote.');
+		expect(messages[0]?.reasoning_details).toEqual([{ type: 'reasoning.encrypted', data: 'opaque-original-reasoning', format: 'anthropic-claude-v1', index: 0 }]);
+		expect(messages.slice(1).some((message) => message.reasoning_details?.length)).toBe(false);
+		expect(messages[1]?.tool_call_id).toBe('call-read');
+		expect(messages[2]?.tool_call_id).toBe('call-vote');
 	});
 
 	it("rolls back grouped assistant and tool rows when a transactional write fails", () => {
@@ -2103,7 +2102,7 @@ describe("Tick limits and recovery", () => {
 			.toEqual(["call-a", "call-b"]);
 		expect(submissions[0]?.filter((message) => message.role === "tool").map((message) => message.tool_call_id))
 			.toEqual(["call-a", "call-b"]);
-		expect(submissions[0]?.map((message) => message.role)).toEqual(["assistant", "tool", "assistant", "tool"]);
+		expect(submissions[0]?.map((message) => message.role)).toEqual(["assistant", "tool", "tool"]);
 	});
 
 	it("records tick failures in the loop ledger", async () => {

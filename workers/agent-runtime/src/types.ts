@@ -774,10 +774,9 @@ export type RepairedProviderToolCall = {
 
 export type LegacyProviderToolCallHistoryNormalizationOperation =
 	| { kind: 'delete'; seq: number }
-	| { kind: 'update'; seq: number; message: ChatMessage }
-	| { kind: 'insert'; id: string; sourceRow: LoopMessageRow; message: ChatMessage };
+	| { kind: 'update'; seq: number; message: ChatMessage };
 
-export type LegacyProviderToolCallHistoryNormalizationOrderItem = { kind: 'existing'; seq: number } | { kind: 'insert'; id: string };
+export type LegacyProviderToolCallHistoryNormalizationOrderItem = { kind: 'existing'; seq: number };
 
 export type LegacyProviderToolCallHistoryNormalization = {
 	operations: LegacyProviderToolCallHistoryNormalizationOperation[];

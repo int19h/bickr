@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers';
 import { runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { RunLiveness, runInactivityMs } from '../workers/agent-runtime/src/runtime/run-liveness';
-import type { BotRuntimeEvent, BotRuntimeEventType } from '@bickr/shared/model';
+import type { BotInferenceSubmissionMessage, BotRuntimeEvent, BotRuntimeEventType } from '@bickr/shared/model';
 import { authCookie, createBotForTest, seedWorld, testEnv } from './helpers/index-harness';
 
 const namespace = (env as unknown as { BOT_RUNTIME: DurableObjectNamespace }).BOT_RUNTIME;
@@ -17,7 +17,7 @@ type InspectRuntime = {
 	broadcastProviderDelta(runId: string, seq: number, payload: object): void;
 	finalizeRun(runId: string, type: 'tick_failed', payload: object): Promise<boolean>;
 	stopTick(botId: string): Promise<{ kind: string }>;
-	setPendingTool(runId: string, call: { id: string; type: 'function'; function: { name: string; arguments: string } }): void;
+	setPendingTool(runId: string, call: { id: string; type: 'function'; function: { name: string; arguments: string } }, args: Record<string, unknown>, assistant: BotInferenceSubmissionMessage, assistantSeq: number | null): void;
 };
 
 async function running(handle: string) {
@@ -107,11 +107,12 @@ describe('runtime liveness in a real SQLite Durable Object', () => {
 		const { stub, bot, runId } = await running('liveness-stop');
 		await runInDurableObject(stub, async (instance, state) => {
 			const runtime = instance as unknown as InspectRuntime;
-			runtime.setPendingTool(runId, { id: 'call-pending', type: 'function', function: { name: 'reply_to_comment', arguments: '{}' } });
+			runtime.setPendingTool(runId, { id: 'call-pending', type: 'function', function: { name: 'reply_to_comment', arguments: '{}' } }, {}, { role: 'assistant', reasoning: 'I should reply to the comment.' }, null);
 			expect(await runtime.stopTick(bot.id)).toMatchObject({ kind: 'stopped' });
 			const messages = state.storage.sql.exec<{ role: string; message_json: string }>('SELECT role, message_json FROM loop_messages ORDER BY seq').toArray();
 			expect(messages.map((message) => message.role)).toEqual(['assistant', 'tool']);
 			expect(messages[1]?.message_json).toContain('outcome_unknown');
+			expect(messages[0]?.message_json).toContain('I should reply to the comment.');
 			expect(runtime.activeRunId).toBeNull();
 			expect(() => runtime.withRunExecution(runId, () => runtime.appendEvent(runId, 'assistant_message', {}))).toThrow();
 			expect(state.storage.sql.exec('SELECT seq FROM events WHERE type = ?', 'tick_stopped').toArray()).toHaveLength(1);
