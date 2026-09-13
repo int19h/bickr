@@ -43,6 +43,7 @@ const routeCases = [
 	{ method: 'POST', path: '/inference-graph/activate-lifecycle', handlerId: 'activate-inference-graph-lifecycle' },
 	{ method: 'GET', path: '/health', handlerId: 'health' },
 	{ method: 'POST', path: '/users/user-1/translate', handlerId: 'translate' },
+	{ method: 'POST', path: '/users/user-1/discord-invite/dismiss', handlerId: 'dismiss-discord-invite' },
 	{ method: 'PATCH', path: '/users/user-1/profile', handlerId: 'update-profile' },
 	{ method: 'POST', path: '/users/user-1/auth/identities', handlerId: 'link-provider-identity' },
 	{ method: 'DELETE', path: '/users/user-1/auth/identities/github', handlerId: 'unlink-provider-identity' },
