@@ -557,7 +557,6 @@ const {
 	normalizeLegacyProviderToolCallHistoryRows,
 	normalizeReasoningDetailsForProviderHistory,
 	providerResponseMessageForHistory,
-	providerResponseToolCallMessageForHistory,
 	providerToolCallHistoryInvariantViolation,
 	sanitizeProviderResponseToolCalls,
 	toolCallWithArguments,
@@ -1772,6 +1771,12 @@ const runtimeStorageTables: readonly string[] = [...runtimeSchema.matchAll(/CREA
 	.map((match) => match[1])
 	.filter((name): name is string => Boolean(name));
 
+type LegacyPendingProviderTool = { runId: string; toolCall: ToolCall; args: Record<string, unknown> };
+type PendingProviderTool = LegacyPendingProviderTool & (
+	| { kind: 'provider_group'; assistant: ChatMessage; assistantSeq: number | null }
+	| { kind: 'legacy_single_call' }
+);
+
 export class BotRuntime {
 	private readonly state: DurableObjectState;
 	private readonly env: Env;
@@ -1976,7 +1981,6 @@ export class BotRuntime {
 		this.runStorageTransactionSync(() => {
 			const normalization = normalizeLegacyProviderToolCallHistoryRows(this.activeLoopMessageRows());
 			const deletedAt = new Date().toISOString();
-			const insertedSeqs = new Map<string, number>();
 			for (const operation of normalization.operations) {
 				if (operation.kind === 'delete') {
 					this.state.storage.sql.exec(
@@ -2002,20 +2006,8 @@ export class BotRuntime {
 					);
 					continue;
 				}
-				const inserted = this.insertLoopMessage({
-					runId: operation.sourceRow.run_id,
-					message: operation.message,
-					origin: operation.sourceRow.origin,
-					status: operation.sourceRow.status ?? undefined,
-					streamSeq: operation.sourceRow.stream_seq ?? undefined,
-					createdAt: operation.sourceRow.created_at,
-					broadcast: false,
-				});
-				insertedSeqs.set(operation.id, inserted.seq);
 			}
-			this.updateActiveLoopMessagePositions(normalization.order.map((item) => (item.kind === 'existing' ? item.seq : insertedSeqs.get(item.id))).filter(
-				(seq): seq is number => typeof seq === 'number',
-			));
+			this.updateActiveLoopMessagePositions(normalization.order.map((item) => item.seq));
 			this.setRuntimeState(legacyProviderToolCallHistoryNormalizedStateKey, true);
 		});
 	}
@@ -2721,28 +2713,44 @@ export class BotRuntime {
 		}
 	}
 
-	// Retention: one in-flight call per object, removed atomically with its pair
+	// Retention: one in-flight call per object, removed atomically with its result
 	// on success, failure or recovery. It never contains a queue of old calls.
-	private setPendingTool(runId: string, toolCall: ToolCall, args: Record<string, unknown> = {}): void {
+	private setPendingTool(runId: string, toolCall: ToolCall, args: Record<string, unknown>, assistant: ChatMessage, assistantSeq: number | null): void {
 		assertExecutionPublication();
-		this.setRuntimeState('pending_tool_v1', { runId, toolCall, args });
+		this.setRuntimeState('pending_tool_v2', { kind: 'provider_group', runId, toolCall, args, assistant, assistantSeq } satisfies PendingProviderTool);
 	}
 
 	private clearPendingTool(runId: string): void {
-		this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key = 'pending_tool_v1' AND json_extract(value_json, '$.runId') = ?`, runId);
+		this.state.storage.sql.exec(`DELETE FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2') AND json_extract(value_json, '$.runId') = ?`, runId);
 	}
 
 	private settlePendingTool(runId: string): void {
-		const row = this.state.storage.sql.exec<{ value_json: string }>(`SELECT value_json FROM runtime_state WHERE key = 'pending_tool_v1' AND json_extract(value_json, '$.runId') = ?`, runId).toArray()[0];
+		const row = this.state.storage.sql.exec<{ key: string; value_json: string }>(`SELECT key, value_json FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2') AND json_extract(value_json, '$.runId') = ? ORDER BY key DESC LIMIT 1`, runId).toArray()[0];
 		if (!row) return;
-		const pending = JSON.parse(row.value_json) as { runId: string; toolCall: ToolCall; args: Record<string, unknown> };
-		const outcome = { kind: 'outcome_unknown', message: 'The website action may have completed. Check its outcome before attempting it again.' };
-		this.appendLoopMessageGroup([
-			{ runId, message: { role: 'assistant', tool_calls: [pending.toolCall] }, origin: 'provider_response', status: 'interrupted' },
+		// Retirement: the old one-call journal is consumed and deleted at recovery;
+		// new writes use only v2. Its missing provider reasoning cannot be invented.
+		const pending: PendingProviderTool = row.key === 'pending_tool_v2'
+			? JSON.parse(row.value_json) as PendingProviderTool
+			: { ...JSON.parse(row.value_json) as LegacyPendingProviderTool, kind: 'legacy_single_call' };
+		const outcome = { kind: 'outcome_unknown', message: 'The visit ended while this request was in flight; the website action may have completed. Check its outcome before attempting it again.' };
+		let assistant: ChatMessage;
+		let assistantSeq: number | null;
+		switch (pending.kind) {
+			case 'provider_group':
+				assistant = pending.assistant;
+				assistantSeq = pending.assistantSeq;
+				break;
+			case 'legacy_single_call':
+				assistant = { role: 'assistant' };
+				assistantSeq = null;
+				break;
+		}
+		this.runtimeMessageStore().appendProviderToolResult(
+			{ runId, message: { ...assistant, tool_calls: [pending.toolCall] }, origin: 'provider_response', status: 'interrupted' },
 			{ runId, message: { role: 'tool', tool_call_id: pending.toolCall.id, content: JSON.stringify(outcome) }, origin: 'tool_failure', status: 'interrupted' },
-		]);
+			assistantSeq,
+		);
 		this.appendEvent(runId, 'tool_result', { name: pending.toolCall.function.name, args: pending.args, arguments: pending.toolCall.function.arguments, result: outcome, outcome: 'unknown' });
-		this.clearPendingTool(runId);
 	}
 
 	private withRunExecution<T>(runId: string, operation: () => T): T {
@@ -3450,7 +3458,7 @@ export class BotRuntime {
 			let forceSyntheticLogOff = !spotlightStreakActive && generatedTokensThisIteration >= tickSettings.maxGeneratedTokensPerIteration;
 			const assistantMessage = providerResponseMessageForHistory(response);
 			let providerResponseLogsRecorded = false;
-			let appendedToolCallPairCount = 0;
+			const providerResponseGroup: { current: BotLoopMessage | null } = { current: null };
 			const consumeProviderResponseLogs = (): LoopMessageAppendLog[] => {
 				if (providerResponseLogsRecorded) {
 					return [];
@@ -3474,34 +3482,29 @@ export class BotRuntime {
 					if (!assistantMessage) {
 						return;
 					}
-					const assistantLoopMessage = providerResponseToolCallMessageForHistory(
-						assistantMessage,
-						recordedToolCall,
-						appendedToolCallPairCount === 0,
-					);
-					this.appendLoopMessageGroup([
+					providerResponseGroup.current = this.appendProviderToolResult(
 						{
 							runId,
-							message: assistantLoopMessage,
-						origin: 'provider_response',
-						status: responseStatus,
-						options: { streamSeq: requestEvent.seq },
-						extraLogs: consumeProviderResponseLogs(),
-					},
-					{
-						runId,
-						message: toolMessage,
-						origin: toolOrigin,
-						status: toolStatus,
-						options: toolOptions,
-						extraLogs: [
-							{ kind: 'tool_call', text: JSON.stringify(recordedToolCall) },
-							{ kind: 'tool_result', text: toolMessage.content ?? '' },
-						],
+							message: { ...assistantMessage, tool_calls: [recordedToolCall] },
+							origin: 'provider_response',
+							status: responseStatus,
+							options: { streamSeq: requestEvent.seq },
+							extraLogs: consumeProviderResponseLogs(),
 						},
-					]);
-					this.clearPendingTool(runId);
-					appendedToolCallPairCount += 1;
+						{
+							runId,
+							message: toolMessage,
+							origin: toolOrigin,
+							status: toolStatus,
+							options: toolOptions,
+							extraLogs: [
+								{ kind: 'tool_call', text: JSON.stringify(recordedToolCall) },
+								{ kind: 'tool_result', text: toolMessage.content ?? '' },
+							],
+						},
+						providerResponseGroup.current,
+					);
+
 				};
 			const appendAssistantMessageWithoutToolCalls = (): void => {
 				if (!assistantMessage) {
@@ -3640,7 +3643,7 @@ export class BotRuntime {
 				let result: ToolResult;
 				try {
 					await this.renewProgressLease(bot.id, runId, runContext.signal);
-					this.setPendingTool(runId, toolCall, args);
+					this.setPendingTool(runId, toolCall, args, assistantMessage!, providerResponseGroup.current?.seq ?? null);
 					result = await this.executeTool(bot, runId, toolCall.function.name, args, runContext, (success) => {
 						const recordedToolCall = success.effectiveArgs ? toolCallWithArguments(toolCall, JSON.stringify(providerToolArgs(success.name, success.effectiveArgs))) : toolCall;
 						appendAssistantToolResultPair(toolCall, { role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(success.providerResult) }, 'tool_result', 'complete', { displayEventSeq: success.displayEventSeq }, recordedToolCall);
@@ -4430,6 +4433,19 @@ export class BotRuntime {
 			return inserted;
 		}
 		return this.runtimeMessageStore().appendLoopMessageGroup(entries);
+	}
+
+	private appendProviderToolResult(assistant: LoopMessageGroupEntry, result: LoopMessageGroupEntry, group: BotLoopMessage | null): BotLoopMessage {
+		assertExecutionPublication();
+		// Storage-free harnesses observe the same group through their append spies.
+		if (Object.hasOwn(this, 'appendLoopMessage') || typeof (this as unknown as { state?: DurableObjectState }).state?.storage?.sql?.exec !== 'function') {
+			if (!group) return this.appendLoopMessageGroup([assistant, result])[0]!;
+			group.message.tool_calls = [...(group.message.tool_calls ?? []), ...assistant.message.tool_calls!];
+			this.appendLoopMessageGroup([result]);
+			this.clearPendingTool(assistant.runId);
+			return group;
+		}
+		return this.runtimeMessageStore().appendProviderToolResult(assistant, result, group?.seq ?? null);
 	}
 
 	private recordTickFailure(

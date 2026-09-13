@@ -1,3 +1,4 @@
+import { loopMessageContributesToProviderHistory } from '../provider/sanitize';
 import type {
 	BotInferenceSubmissionMessage,
 	BotLoopMessage,
@@ -28,6 +29,7 @@ import {
 } from '../constants';
 import type {
 	ChatMessage,
+	ToolCall,
 	LoopMessageGroupEntry,
 	LoopMessageLogChunkRow,
 	LoopMessageLogRow,
@@ -98,10 +100,33 @@ export class RuntimeMessageStore {
 		return inserted;
 	}
 
+	// Each result atomically extends the original assistant response. Keeping its
+	// reasoning once preserves both thinking-mode requirements and opaque signatures;
+	// persisting only settled calls keeps interrupted histories protocol-complete.
+	appendProviderToolResult(assistant: LoopMessageGroupEntry, result: LoopMessageGroupEntry, assistantSeq: number | null): BotLoopMessage {
+		const call = assistant.message.tool_calls?.[0];
+		if (assistant.origin !== 'provider_response' || assistant.message.role !== 'assistant' || result.message.role !== 'tool' || assistant.runId !== result.runId || !call || assistant.message.tool_calls?.length !== 1 || result.message.tool_call_id !== call.id) {
+			throw new Error('A provider group extension requires one matching tool request and result.');
+		}
+		const written = this.writeLoopMessageGroup(assistantSeq === null ? [assistant, result] : [result], {
+			clearPendingRunId: assistant.runId,
+			...(assistantSeq === null ? {} : { extend: { seq: assistantSeq, call, runId: assistant.runId } }),
+		});
+		return written[0]!;
+	}
+
 	appendLoopMessageGroup(entries: LoopMessageGroupEntry[]): BotLoopMessage[] {
+		return this.writeLoopMessageGroup(entries);
+	}
+
+	private writeLoopMessageGroup(entries: LoopMessageGroupEntry[], options: {
+		extend?: { seq: number; call: ToolCall; runId: string };
+		clearPendingRunId?: string;
+	} = {}): BotLoopMessage[] {
 		const inserted: BotLoopMessage[] = [];
 		let prunedDiagnosticCount = 0;
 		const appendEntries = (): void => {
+			if (options.extend) inserted.push(this.extendProviderResponseGroup(options.extend));
 			for (const entry of entries) {
 				const loopMessage = this.insertLoopMessage({
 					runId: entry.runId,
@@ -117,6 +142,9 @@ export class RuntimeMessageStore {
 					this.recordLoopMessageLog(loopMessage.seq, log.kind, log.text);
 				}
 				inserted.push(loopMessage);
+			}
+			if (options.clearPendingRunId) {
+				this.storage.sql.exec(`DELETE FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2') AND json_extract(value_json, '$.runId') = ?`, options.clearPendingRunId);
 			}
 			if (entries.some((entry) => isRuntimeDiagnosticLoopMessageOrigin(entry.origin))) {
 				prunedDiagnosticCount = this.pruneRuntimeDiagnosticLoopMessages();
@@ -136,6 +164,33 @@ export class RuntimeMessageStore {
 			this.broadcastLoopMessagesReset();
 		}
 		return inserted;
+	}
+
+	private extendProviderResponseGroup(extension: { seq: number; call: ToolCall; runId: string }): BotLoopMessage {
+		const row = this.loopMessageRow(extension.seq);
+		if (!row || row.run_id !== extension.runId || row.origin !== 'provider_response' || row.compacted_by !== null || row.deleted_at !== null) {
+			throw new Error('Cannot extend an inactive or unrelated provider response group.');
+		}
+		const message = loopMessageFromRow(row);
+		const calls = message.message.tool_calls ?? [];
+		if (message.role !== 'assistant' || calls.length === 0 || calls.some((call) => call.id === extension.call.id)) {
+			throw new Error('Cannot extend an invalid or already settled provider response group.');
+		}
+		// Bound the scan by this response plus the bounded diagnostic retention.
+		// Appending past environmental narration would change the provider turn.
+		const following = this.storage.sql.exec<LoopMessageRow>(
+			`SELECT * FROM loop_messages WHERE deleted_at IS NULL AND compacted_by IS NULL
+			 AND (position > ? OR (position = ? AND seq > ?)) ORDER BY position, seq LIMIT ?`,
+			row.position, row.position, row.seq, calls.length + runtimeDiagnosticLoopMessageRetentionCount + 1,
+		).toArray().map(loopMessageFromRow).filter((item) => loopMessageContributesToProviderHistory(item.origin, item.message));
+		if (following.length !== calls.length || following.some((item, index) => item.role !== 'tool' || item.message.tool_call_id !== calls[index]?.id)) {
+			throw new Error('Provider response results must remain contiguous when extending their group.');
+		}
+		const updated = { ...message.message, tool_calls: [...calls, extension.call] };
+		const json = JSON.stringify(updated);
+		this.storage.sql.exec(`UPDATE loop_messages SET message_json = ?, token_estimate = ? WHERE seq = ?`, json, estimateTextTokens(json), row.seq);
+		this.recordLoopMessageLog(row.seq, 'message', json);
+		return { ...message, message: updated, tokenEstimate: estimateTextTokens(json) };
 	}
 
 	insertLoopMessage(input: {
