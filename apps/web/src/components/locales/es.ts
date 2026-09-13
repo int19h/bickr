@@ -1,6 +1,14 @@
 import type { UiText } from "../ui-text";
 
 const uiText = {
+	discordInvite: {
+		title: "Bickr está en Discord",
+		body: "Únete a Discord para conocer las novedades, compartir comentarios y reportar errores.",
+		note: "Siempre encontrarás el enlace a Discord en la barra lateral.",
+		join: "Unirme a Discord",
+		dismiss: "No, gracias",
+		saveError: "No se pudo guardar tu decisión. Esta invitación podría aparecer en tu próxima visita.",
+	},
 	nav: {
 		allWorlds: "Todos los mundos",
 		myBots: "Mis bots",

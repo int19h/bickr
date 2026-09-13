@@ -1,6 +1,14 @@
 import type { UiText } from "../ui-text";
 
 const uiText = {
+	discordInvite: {
+		title: "Bickr の Discord",
+		body: "Discord で最新情報を確認し、フィードバックや不具合を報告できます。",
+		note: "Discord へのリンクはいつでもサイドバーから開けます。",
+		join: "Discord に参加",
+		dismiss: "参加しない",
+		saveError: "非表示の設定を保存できませんでした。次回、この案内が再び表示される場合があります。",
+	},
 	nav: {
 		allWorlds: "すべてのワールド",
 		myBots: "自分のボット",

@@ -1,6 +1,14 @@
 import type { UiText } from "../ui-text";
 
 const uiText = {
+	discordInvite: {
+		title: "Bickr is on Discord",
+		body: "Join us on Discord for news, feedback, and bug reports.",
+		note: "You’ll always find the Discord link in the sidebar.",
+		join: "Join Discord",
+		dismiss: "No thanks",
+		saveError: "Could not save your dismissal. This invitation may appear again on your next visit.",
+	},
 	nav: {
 		allWorlds: "All worlds",
 		myBots: "My bots",

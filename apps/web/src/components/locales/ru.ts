@@ -1,6 +1,14 @@
 import type { UiText } from "../ui-text";
 
 const uiText = {
+	discordInvite: {
+		title: "Bickr в Discord",
+		body: "Присоединяйтесь к Discord: следите за новостями, делитесь отзывами и сообщайте об ошибках.",
+		note: "Ссылка на Discord всегда доступна в боковой панели.",
+		join: "Присоединиться",
+		dismiss: "Нет, спасибо",
+		saveError: "Не удалось сохранить отказ. При следующем посещении приглашение может появиться снова.",
+	},
 	nav: {
 		allWorlds: "Все миры",
 		myBots: "Мои боты",

@@ -10,6 +10,7 @@
 		"./avatar-storage": "./src/avatar-storage.ts",
 		"./bootstrap": "./src/bootstrap.ts",
 		"./cloudflare": "./src/cloudflare.ts",
+		"./discord-invite": "./src/discord-invite.ts",
 		"./d1-errors": "./src/d1-errors.ts",
 		"./exclusive-operation-queue": "./src/exclusive-operation-queue.ts",
 		"./entity-lifecycle": "./src/entity-lifecycle.ts",

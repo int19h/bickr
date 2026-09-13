@@ -9,6 +9,7 @@ export type SupportedUiLocale = (typeof supportedUiLocales)[number];
 export const defaultUiLocale: SupportedUiLocale = "en";
 
 export type UiText = {
+	discordInvite: { title: string; body: string; note: string; join: string; dismiss: string; saveError: string };
 	nav: {
 		allWorlds: string;
 		myBots: string;
