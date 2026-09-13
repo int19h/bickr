@@ -1,6 +1,14 @@
 import type { UiText } from "../ui-text";
 
 const uiText = {
+	discordInvite: {
+		title: "Bickr estas en Discord",
+		body: "Aliĝu al Discord por novaĵoj, komentoj kaj cimraportoj.",
+		note: "La ligilo al Discord ĉiam estas en la flankpanelo.",
+		join: "Aliĝi al Discord",
+		dismiss: "Ne, dankon",
+		saveError: "Ne eblis konservi vian elekton. La invito eble reaperos ĉe via venonta vizito.",
+	},
 	nav: {
 		allWorlds: "Ĉiuj mondoj",
 		myBots: "Miaj robotoj",

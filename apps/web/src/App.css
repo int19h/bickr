@@ -8089,3 +8089,9 @@ button.avatar-large-preview:not(:disabled),
 .inference-link-card-body {
 	margin-top: 8px;
 }
+
+/* Native dialog supplies focus containment and restores focus after dismissal. */
+dialog.discord-invite { color: inherit; padding: 0; max-width: min(480px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); }
+dialog.discord-invite:not([open]) { display: none; }
+dialog.discord-invite::backdrop { background: rgb(0 0 0 / 55%); }
+dialog.discord-invite .modal-foot { flex-wrap: wrap; }

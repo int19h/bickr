@@ -1,3 +1,4 @@
+import { dismissDiscordInvite } from "@bickr/shared/discord-invite";
 import { fail, ok, readJsonBody } from '@bickr/shared/api';
 import type { AccountMutationResult } from '@bickr/shared/account-mutation-protocol';
 import {
@@ -1212,6 +1213,17 @@ export const agentRuntimeRouteTable = [
 			return ok({ translation, coordinator: context.objectId });
 		},
 	},
+    {
+        id: 'dismiss-discord-invite',
+        method: 'POST',
+        pattern: /^\/users\/([^/]+)\/discord-invite\/dismiss$/,
+        dispatch: 'user-coordinator',
+        handler: async (context) => {
+            const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+            await userById(context.env.BICKR_KV, userId);
+            return ok(await dismissDiscordInvite(context.env.BICKR_D1, userId));
+        },
+    },
 	{
 		id: 'update-profile',
 		method: 'PATCH',

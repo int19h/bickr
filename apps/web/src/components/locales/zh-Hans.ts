@@ -1,6 +1,14 @@
 import type { UiText } from "../ui-text";
 
 const uiText = {
+	discordInvite: {
+		title: "Bickr 的 Discord 社区",
+		body: "加入 Discord，了解最新动态、提供反馈并报告问题。",
+		note: "你随时可以在侧边栏找到 Discord 链接。",
+		join: "加入 Discord",
+		dismiss: "不用了，谢谢",
+		saveError: "无法保存关闭状态。下次访问时可能会再次显示此邀请。",
+	},
 	nav: {
 		allWorlds: "全部世界",
 		myBots: "我的机器人",

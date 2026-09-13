@@ -1,3 +1,4 @@
+import migration0057 from "../../migrations/0057_discord_invite_dismissals.sql?raw";
 import migration0056 from '../../migrations/0056_runtime_admission_fence.sql?raw';
 import migration0001 from "../../migrations/0001_core_indexes.sql?raw";
 import migration0002 from "../../migrations/0002_live_simulation.sql?raw";
@@ -114,6 +115,7 @@ const migrationSql = [
 	migration0054,
 	migration0055,
 	migration0056,
+	migration0057,
 ];
 
 type D1SchemaRow = {

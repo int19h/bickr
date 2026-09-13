@@ -1,3 +1,4 @@
+import { DiscordInvite } from "./components/discord-invite";
 import {
 	localizedText,
 	type AuthProvider,
@@ -2438,6 +2439,7 @@ function App() {
 		<UiTextContext.Provider value={uiText}>
 			<ToastContext.Provider value={toastHandle}>
 				{content}
+				{currentUser?.profileComplete && <DiscordInvite key={currentUser.id} reportError={reportError} />}
 				<ToastStack dismiss={dismissToast} toasts={toasts} />
 			</ToastContext.Provider>
 		</UiTextContext.Provider>

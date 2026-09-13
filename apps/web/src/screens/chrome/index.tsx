@@ -1,3 +1,4 @@
+import { discordInviteUrl } from "@bickr/shared/discord-invite";
 import { Fragment, useContext, useEffect, useId, useRef, useState } from "react";
 import type {
 	CSSProperties,
@@ -60,7 +61,7 @@ import { useUiText } from "../../components/ui-text";
 
 const bickrLogoSrc = "/bickr.png";
 const githubRepositoryUrl = "https://github.com/int19h/bickr";
-const discordInviteUrl = "https://discord.gg/TC8fqeVEWU";
+
 
 export type ThemePreference = "system" | "light" | "dark";
 
