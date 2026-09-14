@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { JsonObject } from "./model";
 import {
 	compactionReasoningCapabilitiesForModel,
 	compactionReasoningPolicyForModel,
@@ -859,7 +860,7 @@ describe("canonical compaction reasoning resolution", () => {
 describe("structured-output provider evidence", () => {
 	const model = "deepseek/deepseek-v4.1-flash";
 
-	it.each([
+	it.each<JsonObject | undefined>([
 		undefined,
 		{ only: ["DeepSeek"] },
 		{ only: ["deepseek/fp8"] },
@@ -875,7 +876,7 @@ describe("structured-output provider evidence", () => {
 		});
 	});
 
-	it.each([
+	it.each<JsonObject>([
 		{ only: ["Fireworks"] },
 		{ only: ["fireworks/fp8"] },
 		{ order: ["Fireworks"], allow_fallbacks: false },
