@@ -83,7 +83,11 @@ export default defineConfig({
 				clientsClaim: true,
 				// Navigations must always reach Pages Functions so maintenance and
 				// environment-entry gates cannot be bypassed by a cached app shell.
-				globPatterns: ["**/*.{css,js,png,svg,woff2,ttf}"],
+				// Let the HTTP cache handle JS/CSS. A transient HTML response at an
+				// asset URL must not become a persistent, cache-first broken client.
+				// Workbox activation removes the old JS/CSS entries from its existing
+				// precache; keep the worker scope/cache name stable for that cleanup.
+				globPatterns: ["**/*.{png,svg,woff2,ttf}"],
 				navigateFallback: null,
 				skipWaiting: true,
 			},

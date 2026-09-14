@@ -56,6 +56,9 @@ if (existsSync(serviceWorkerPath)) {
 	if (/url\s*:\s*["']\/?index\.html["']/.test(serviceWorker)) {
 		failures.push("/sw.js still precaches the HTML app shell.");
 	}
+	if (/url\s*:\s*["'][^"']+\.(?:js|css)(?:\?[^"']*)?["']/.test(serviceWorker)) {
+		failures.push("/sw.js must leave JavaScript and CSS assets to the HTTP cache.");
+	}
 }
 
 const serviceWorkerHeaders = headerRules.get("/sw.js") ?? [];
