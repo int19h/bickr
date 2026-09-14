@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { JsonObject } from "./model";
 import {
 	compactionReasoningCapabilitiesForModel,
 	compactionReasoningPolicyForModel,
@@ -852,5 +853,47 @@ describe("canonical compaction reasoning resolution", () => {
 			kind: "selected",
 			selection: { kind: "model_default" },
 		});
+	});
+});
+
+
+describe("structured-output provider evidence", () => {
+	const model = "deepseek/deepseek-v4.1-flash";
+
+	it.each<JsonObject | undefined>([
+		undefined,
+		{ only: ["DeepSeek"] },
+		{ only: ["deepseek/fp8"] },
+		{ only: ["Fireworks", "DeepSeek"] },
+		{ order: ["Fireworks"] },
+		{ order: ["Fireworks"], allow_fallbacks: true },
+		{ order: ["DeepSeek"], allow_fallbacks: false },
+	])("avoids JSON schema whenever native DeepSeek can serve the request: %j", (routing) => {
+		expect(openRouterModelPolicy(model, routing)).toMatchObject({
+			structuredOutputs: false,
+			structuredOutputCompaction: false,
+			defaultCompactionMode: "tool_call_cache_friendly",
+		});
+	});
+
+	it.each<JsonObject>([
+		{ only: ["Fireworks"] },
+		{ only: ["fireworks/fp8"] },
+		{ order: ["Fireworks"], allow_fallbacks: false },
+		{ ignore: ["DEEPSEEK"] },
+		{ only: ["DeepSeek", "Fireworks"], ignore: ["deepseek"] },
+	])("retains JSON schema when routing excludes native DeepSeek: %j", (routing) => {
+		expect(openRouterModelPolicy(model, routing)).toMatchObject({
+			structuredOutputs: true,
+			structuredOutputCompaction: true,
+			defaultCompactionMode: "structured_output",
+		});
+	});
+
+	it("preserves the generated model observation and other DeepSeek models", () => {
+		expect(openRouterModelCapabilities(model).structuredOutputs).toBe(true);
+		const other = "deepseek/deepseek-v4-flash-0731";
+		expect(openRouterModelPolicy(other, { only: ["DeepSeek"] }).structuredOutputs)
+			.toBe(openRouterModelCapabilities(other).structuredOutputs);
 	});
 });
