@@ -383,6 +383,15 @@ const semanticCompactionReasoningOverrides = new Map<string, CompactionReasoning
 	["deepseek/deepseek-v4-flash-0731", { kind: "explicit_effort", effort: "low" }],
 ]);
 
+// Native DeepSeek rejected json_schema with provider-default, disabled, and
+// low reasoning in direct probes on 2026-09-13; Fireworks accepted all three.
+// The generated unpinned boolean cannot capture this route distinction. Keep
+// this evidence outside generated data until structured-output probes have a
+// provider matrix, then move the observation there and retire this overlay.
+const structuredOutputProviderOverrides = new Map<string, readonly { provider: string; supported: boolean }[]>([
+	["deepseek/deepseek-v4.1-flash", [{ provider: "deepseek", supported: false }]],
+]);
+
 const generatedOpenRouterModelCapabilities = validatedGeneratedCapabilitiesMap();
 
 // xiaomi/fp8 accepts the simple JSON-schema probe, but the larger compaction
@@ -414,7 +423,8 @@ export function openRouterModelPolicy(model: string | undefined, providerRouting
 	if (!capabilities) {
 		return openRouterFreeModelPolicy;
 	}
-	const structuredOutputCompaction = supportsStructuredOutputCompaction(normalized, capabilities, providerRouting);
+	const structuredOutputs = supportsStructuredOutputs(normalized, capabilities, providerRouting);
+	const structuredOutputCompaction = supportsStructuredOutputCompaction(normalized, structuredOutputs, providerRouting);
 	const compactionReasoningFloor = compactionReasoningFloorResolutionForGeneratedModel(
 		normalized,
 		capabilities,
@@ -422,6 +432,7 @@ export function openRouterModelPolicy(model: string | undefined, providerRouting
 	).floor;
 	return {
 		...capabilities,
+		structuredOutputs,
 		compactionReasoning: compactionReasoningCapabilitiesWithProbeEvidence(capabilities),
 		compactionReasoningFloor,
 		structuredOutputCompaction,
@@ -1027,12 +1038,26 @@ function providerRouteSelectionMatches(selection: string, provider: string): boo
 	return provider === selection || provider.startsWith(`${selection}/`);
 }
 
-function supportsStructuredOutputCompaction(
+function supportsStructuredOutputs(
 	normalizedModel: string,
 	capabilities: OpenRouterModelCapabilities,
 	providerRouting: JsonObject | undefined,
 ): boolean {
-	if (!capabilities.structuredOutputs) {
+	if (!capabilities.structuredOutputs) return false;
+	const overrides = structuredOutputProviderOverrides.get(normalizedModel);
+	if (!overrides) return true;
+	const candidates = providerCapabilityCandidateNames(overrides, providerRouting);
+	return candidates.every((candidate) => !overrides.some((override) =>
+		providerRouteSelectionMatches(override.provider, candidate) && !override.supported,
+	));
+}
+
+function supportsStructuredOutputCompaction(
+	normalizedModel: string,
+	structuredOutputs: boolean,
+	providerRouting: JsonObject | undefined,
+): boolean {
+	if (!structuredOutputs) {
 		return false;
 	}
 	if (normalizedModel.startsWith("xiaomi/") && providerRoutingSelectsProvider(providerRouting, xiaomiFp8ProviderRoute)) {
