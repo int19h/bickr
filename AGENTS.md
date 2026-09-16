@@ -185,27 +185,80 @@ session participates.
   disposition, not agreement or approval.
 - `herdr-collab --project bickr agent prompt --to SESSION ...` is transient
   live-session context. It may wake or steer an agent, but any load-bearing
-  instruction or answer also goes through durable mail. Check
-  `herdr-collab --project bickr status` and
-  `herdr-collab --project bickr inbox` at natural boundaries: after joining,
-  before new work, around handoffs and reviews, before merge or deployment, and
-  before
+  instruction or answer also goes through durable mail. Read the full combined
+  mailbox with unfiltered `herdr-collab --project bickr inbox` at turn start and
+  turn end, then inspect each relevant message with exact
+  `herdr-collab --project bickr show MESSAGE_ID`. Do this at natural boundaries
+  too: after joining, before new work, around handoffs and reviews, before merge
+  or deployment, and before
   `herdr-collab --project bickr session retire "$HERDR_COLLAB_SESSION"`. Use
   `herdr-collab --project bickr wait --timeout DURATION` only when progress
   genuinely depends on later mail; do not busy-poll.
+- `inbox --pending` and `status` are additional views of unresolved
+  acknowledgement obligations, not unread-mail counts, so a zero pending count
+  does not mean that no reply or FYI mail arrived. `send` is
+  acknowledgement-required by default while `reply` is not, so an ordinary
+  answer — including a completion handoff sent as a reply — is normally absent
+  from both. Make a critical reply or handoff
+  `herdr-collab --project bickr reply MESSAGE_ID --require-ack ...` and leave
+  its notification at the default. `--no-retry-nudge` keeps the one immediate
+  native attempt and drops the scheduler retry; `--no-nudge` is the complete
+  opt-out with neither. Combining `--no-ack` with `--no-nudge` leaves durable
+  mail that pending-only checks omit and that never wakes the recipient, so
+  reserve that pair for deliberately silent FYI mail. When a transient
+  notification's structured identity envelope carries `commands.show`, use that
+  exact command for its message ID.
+- Spell acting selectors after the mail subcommand. The installed parser takes
+  `--state-root`, `--project`, and `--json` before it and `--session` only after
+  it; global acting-selector placement is not installed.
+- A cross-project sender stays registered in its own project and addresses a
+  foreign participant as `handle@project` or `UUID@project`; it never joins the
+  destination project. An unqualified target plus `--target-project PROJECT` is
+  an equivalent form and must not be combined with an already qualified target.
+  For work that expects a response, send one exact `UUID@PROJECT` request with a
+  generous `--reply-within` or `--reply-by` and a stable `--idempotency-key`.
+  Any valid direct answer satisfies that watchdog — a question, blocker, or
+  refusal included — while an acknowledgement does not. Cancel a redundant
+  watchdog or wake by its exact wake ID; a subject, a quoted message ID, an
+  acknowledgement, and elapsed time all leave it armed.
+- Attachment assistance is not implemented, integrated, or installed. For a
+  manually started or resumed native host, follow
+  `docs/HERDR.md#manual-attachment-for-an-existing-native-session` in the
+  registered `herdr-collab` root, located with
+  `herdr-collab --project bickr --json project show herdr-collab`, and preserve
+  report -> verify -> adopt -> verify.
+- Select an intended native model in the host's own arguments after `--`.
+  `herdr-collab --project bickr agent spawn --model` records Collab metadata and
+  does not itself select a host model, so verify the host-selected model and
+  effort before relying on either.
 - Never edit Herdr Collab state files manually. Use the CLI for sessions,
   groups, mail, acknowledgements, and retirement so validation and recipient
   accounting remain intact.
-- Never auto-answer trust, permission, approval, or unrelated prompts on behalf
-  of another session or the user. Surface them to the person or session with
-  authority to decide.
+- On the human-designated development VM, approve permission, workspace-trust,
+  sandbox-bypass, and task-relevant elevation prompts that are access-only, tied
+  to an exact target, and needed for already-authorized work; prefer a supported
+  persistent trust or bypass mode. That supplies access only and grants no new
+  task, destructive-action, external-service, production, review, merge,
+  release, or deployment authority — the deployment rules below are unaffected.
+  Never guess an answer to a substantive user choice, and leave ambiguous,
+  inseparably mixed, unrelated, or new decision prompts unanswered: surface them
+  durably to the person or session with authority to decide, and continue other
+  work. Do not close a pane the current session did not create.
 
-Compact only immediately before an anticipated long pause, while the native
-conversation and prompt cache are still likely available, and only after
-durably sending a status/handoff naming the task and issue if any, assigned
-branch/worktree and write boundary, exact HEAD, completed and remaining checks,
-decisions, blockers, live-environment state, and relevant message IDs. After the
-requested compaction, verify the session identity and live state with
+Native compaction is lossy, so compact only after durably sending a
+status/handoff naming the task and issue if any, assigned branch/worktree and
+write boundary, exact HEAD, completed and remaining checks, decisions, blockers,
+live-environment state, and relevant message IDs. Once a completed persistent
+role has published that handoff, compact immediately when its next meaningful
+turn is forecast more than one hour away or is unscheduled; the hour is a
+planning threshold, not a claim about any host's prompt cache, so do not wait it
+out when the forecast is already known. Retire the identity instead when it will
+not be reused. Framed Collab prompts are ordinary chat: `/model`, `/compact`,
+and similar native commands use the guarded raw Herdr path in
+`docs/HERDR.md#native-commands-and-chat-prompts`, and the requested host effect
+must be verified separately, because accepted input proves neither a model
+switch nor a successful compaction. After the requested compaction, verify the
+session identity and live state with
 `herdr-collab --project bickr session show "$HERDR_COLLAB_SESSION" --live`. If
 a later cache-expired dialog
 offers continuation choices, default to continuing the full existing native
