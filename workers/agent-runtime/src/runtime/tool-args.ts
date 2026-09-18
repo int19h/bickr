@@ -611,15 +611,34 @@ function followToolTargetArg(value: unknown, index: number, language?: LanguageT
  * single range object is a declared, supported shape, so it is wrapped here
  * rather than rejected; everything downstream sees `RandomRangeTarget[]` and
  * never has to re-inspect the union.
+ *
+ * Some models send the argument as a JSON-encoded string instead of the JSON
+ * value itself, such as `"[{\"min\":1,\"max\":6}]"`. That string is decoded
+ * exactly once and the decoded value then goes through the same checks as a
+ * value that arrived directly. A string that decodes to another string is not
+ * decoded again, and endpoint strings inside the decoded value are still
+ * rejected, so the relaxation stops at the outer encoding.
  */
 export function randomRangesArg(value: unknown): RandomRangeTarget[] {
 	if (value === null || value === undefined) {
 		throw new ToolCallArgumentValidationError('bad_request', 'ranges is required.');
 	}
-	const items = Array.isArray(value) ? value : [value];
+	const decoded = typeof value === 'string' ? decodedRandomRangesArg(value) : value;
+	const items = Array.isArray(decoded) ? decoded : [decoded];
 	const ranges = items.map((item, index) => randomRangeArg(item, `ranges[${index}]`));
 	validateRandomRanges(ranges);
 	return ranges;
+}
+
+function decodedRandomRangesArg(value: string): unknown {
+	try {
+		return JSON.parse(value);
+	} catch {
+		throw new ToolCallArgumentValidationError(
+			'bad_request',
+			'ranges was sent as a string that is not valid JSON; send a range object like {"min":1,"max":6} or a list of them.',
+		);
+	}
 }
 
 /**
