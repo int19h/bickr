@@ -96,6 +96,9 @@ describe('tool argument reference codecs', () => {
 });
 
 describe('random range arguments', () => {
+	const malformedRangesJsonMessage =
+		'ranges was sent as a string that is not valid JSON; send a range object like {"min":1,"max":6} or a list of them.';
+
 	it('canonicalizes a single range object into the array form', () => {
 		expect(normalizeToolArgs('draw_random_integers', { ranges: { min: 1, max: 6 } })).toEqual({
 			ranges: [{ min: 1, max: 6 }],
@@ -112,6 +115,30 @@ describe('random range arguments', () => {
 		expect(normalizeToolArgs('draw_random_integers', { ranges: [{ min: 1, max: 6, label: 'd6' }] })).toEqual({
 			ranges: [{ min: 1, max: 6 }],
 		});
+	});
+
+	it('decodes a JSON-encoded single range object string', () => {
+		expect(normalizeToolArgs('draw_random_integers', { ranges: '{"min":1,"max":6}' })).toEqual({
+			ranges: [{ min: 1, max: 6 }],
+		});
+	});
+
+	it('decodes a JSON-encoded array-of-ranges string in order', () => {
+		expect(
+			normalizeToolArgs('draw_random_integers', { ranges: '[{"min":1,"max":6},{"min":0,"max":1}]' }),
+		).toEqual({
+			ranges: [{ min: 1, max: 6 }, { min: 0, max: 1 }],
+		});
+	});
+
+	it('drops extra properties from a decoded range just like a direct one', () => {
+		expect(normalizeToolArgs('draw_random_integers', { ranges: '[{"min":1,"max":6,"label":"d6"}]' })).toEqual({
+			ranges: [{ min: 1, max: 6 }],
+		});
+	});
+
+	it('reports a JSON-encoded string as non-canonical so history is rewritten', () => {
+		expect(randomRangesArgIsCanonical('[{"min":1,"max":6}]', [{ min: 1, max: 6 }])).toBe(false);
 	});
 
 	const canonicalCases: Array<{ label: string; ranges: unknown; canonical: boolean }> = [
@@ -151,8 +178,38 @@ describe('random range arguments', () => {
 			message: `ranges[0].max must be a whole number between ${-Number.MAX_SAFE_INTEGER} and ${Number.MAX_SAFE_INTEGER}.`,
 		},
 		{ label: 'a non-object range', ranges: [7], message: 'ranges[0] must be an object like {"min":1,"max":6}.' },
-		{ label: 'a string ranges argument', ranges: '1-6', message: 'ranges[0] must be an object like {"min":1,"max":6}.' },
 		{ label: 'a nested array', ranges: [[{ min: 1, max: 6 }]], message: 'ranges[0] must be an object like {"min":1,"max":6}.' },
+		{ label: 'a string that is not JSON', ranges: '1-6', message: malformedRangesJsonMessage },
+		{ label: 'an empty string', ranges: '', message: malformedRangesJsonMessage },
+		{ label: 'a truncated JSON string', ranges: '[{"min":1,"max":6', message: malformedRangesJsonMessage },
+		{ label: 'a string that decodes to a number', ranges: '6', message: 'ranges[0] must be an object like {"min":1,"max":6}.' },
+		{ label: 'a string that decodes to null', ranges: 'null', message: 'ranges[0] must be an object like {"min":1,"max":6}.' },
+		{
+			label: 'a string that decodes to another string (no recursive decoding)',
+			ranges: '"[{\\"min\\":1,\\"max\\":6}]"',
+			message: 'ranges[0] must be an object like {"min":1,"max":6}.',
+		},
+		{
+			label: 'a string that decodes to an array of strings',
+			ranges: '["{\\"min\\":1,\\"max\\":6}"]',
+			message: 'ranges[0] must be an object like {"min":1,"max":6}.',
+		},
+		{ label: 'a string that decodes to an empty array', ranges: '[]', message: 'ranges must include at least one range.' },
+		{
+			label: 'a string that decodes to a numeric string endpoint',
+			ranges: '[{"min":"1","max":6}]',
+			message: `ranges[0].min must be a whole number between ${-Number.MAX_SAFE_INTEGER} and ${Number.MAX_SAFE_INTEGER}.`,
+		},
+		{
+			label: 'a string that decodes to max below min',
+			ranges: '{"min":6,"max":1}',
+			message: 'ranges[0].max must be greater than or equal to ranges[0].min.',
+		},
+		{
+			label: 'a string that decodes to a missing endpoint',
+			ranges: '[{"min":1}]',
+			message: `ranges[0].max must be a whole number between ${-Number.MAX_SAFE_INTEGER} and ${Number.MAX_SAFE_INTEGER}.`,
+		},
 	];
 
 	it.each(invalid)('rejects $label with self-correctable guidance', ({ ranges, message }) => {
