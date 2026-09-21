@@ -127,13 +127,12 @@ If the application uses Durable Objects or Workflows, refer to the relevant best
 - Durable Objects: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/
 - Workflows: https://developers.cloudflare.com/workflows/build/rules-of-workflows/
 
-## Autonomous Agent Coordination (Herdr Collab)
+## Herdr Collab
 
-Use Herdr Collab project **`bickr`** for multi-session work. Select it
-explicitly with `herdr-collab --project bickr ...` or
-`HERDR_COLLAB_PROJECT=bickr`; repository paths, current directories, and
-worktrees never select a project or mailbox. Every active participant uses the
-immutable session UUID in `HERDR_COLLAB_SESSION`.
+The Herdr Collab project ID for this repository is exactly `bickr`.
+Coordinate through the `herdr-collab` skill and MCP tools; do not infer the project from the checkout path.
+
+## Coordination conventions
 
 Herdr Collab is convention-only coordination, not an enforced state machine or
 a fixed model/provider roster. Define participants, named groups, duties,
@@ -152,178 +151,9 @@ a new issue. The task decides whether the primary session implements directly
 or delegates, and Herdr Collab carries durable coordination when more than one
 session participates.
 
-### Identity and durable mail
-
-- A session launched with `herdr-collab --project bickr agent spawn ...` is
-  already registered and receives `HERDR_COLLAB_PROJECT` and
-  the immutable session UUID in `HERDR_COLLAB_SESSION`; it must not join again
-  under another handle. A manually launched participant chooses a human-facing
-  handle, joins exactly once, and captures the command's returned immutable
-  session UUID:
-
-  ```bash
-  session_id=$(herdr-collab --project bickr session join --agent-kind KIND HANDLE)
-  export HERDR_COLLAB_PROJECT=bickr
-  export HERDR_COLLAB_SESSION="$session_id"
-  ```
-
-  The handle is a label, not the session identity used for commands. Confirm
-  uncertain identity with `herdr-collab --project bickr session list --live` or
-  `herdr-collab --project bickr session show "$HERDR_COLLAB_SESSION" --live`,
-  never from the cwd. Elsewhere below, `SESSION` means an immutable target
-  session UUID, never a handle.
-- Use `herdr-collab --project bickr send ...` for assignments, approved scope,
-  decisions, blockers, and questions
-  requiring an answer, handoffs, exact-commit submissions, review verdicts,
-  release authority, and completion. Use
-  `herdr-collab --project bickr reply MESSAGE_ID ...` to preserve ancestry.
-  `herdr-collab --project bickr show MESSAGE_ID` prints the selected message
-  body; `herdr-collab --project bickr --json show MESSAGE_ID` exposes its
-  complete record, whose referenced message IDs must be followed explicitly.
-  Use `herdr-collab --project bickr ack --disposition DISPOSITION MESSAGE_ID`
-  when a read disposition is required. Acknowledgement means receipt/
-  disposition, not agreement or approval.
-- `herdr-collab --project bickr agent prompt --to SESSION ...` is transient
-  live-session context. It may wake or steer an agent, but any load-bearing
-  instruction or answer also goes through durable mail. Read the full combined
-  mailbox with unfiltered `herdr-collab --project bickr inbox` at turn start and
-  turn end, then inspect each relevant message with exact
-  `herdr-collab --project bickr show MESSAGE_ID`. Do this at natural boundaries
-  too: after joining, before new work, around handoffs and reviews, before merge
-  or deployment, and before
-  `herdr-collab --project bickr session retire "$HERDR_COLLAB_SESSION"`. Use
-  `herdr-collab --project bickr wait --timeout DURATION` only when progress
-  genuinely depends on later mail; do not busy-poll.
-- `inbox --pending` and `status` are additional views of unresolved
-  acknowledgement obligations, not unread-mail counts, so a zero pending count
-  does not mean that no reply or FYI mail arrived. `send` is
-  acknowledgement-required by default while `reply` is not, so an ordinary
-  answer — including a completion handoff sent as a reply — is normally absent
-  from both. Make a critical reply or handoff
-  `herdr-collab --project bickr reply MESSAGE_ID --require-ack ...` and leave
-  its notification at the default. `--no-retry-nudge` keeps the one immediate
-  native attempt and drops the scheduler retry; `--no-nudge` is the complete
-  opt-out with neither. Combining `--no-ack` with `--no-nudge` leaves durable
-  mail that pending-only checks omit and that never wakes the recipient, so
-  reserve that pair for deliberately silent FYI mail. When a transient
-  notification's structured identity envelope carries `commands.show`, use that
-  exact command for its message ID.
-- Spell acting selectors after the mail subcommand. The installed parser takes
-  `--state-root`, `--project`, and `--json` before it and `--session` only after
-  it; global acting-selector placement is not installed.
-- A cross-project sender stays registered in its own project and addresses a
-  foreign participant as `handle@project` or `UUID@project`; it never joins the
-  destination project. An unqualified target plus `--target-project PROJECT` is
-  an equivalent form and must not be combined with an already qualified target.
-  For work that expects a response, send one exact `UUID@PROJECT` request with a
-  generous `--reply-within` or `--reply-by` and a stable `--idempotency-key`.
-  Any valid direct answer satisfies that watchdog — a question, blocker, or
-  refusal included — while an acknowledgement does not. Cancel a redundant
-  watchdog or wake by its exact wake ID; a subject, a quoted message ID, an
-  acknowledgement, and elapsed time all leave it armed.
-- Preserve the request thread with `reply REQUEST_ID`, or
-  `send --in-reply-to REQUEST_ID` when an ordinary send needs different
-  recipients. Inspect the answer rather than treating its arrival as completion:
-  while work remains, issue the next specifically scoped checkpoint under a new
-  idempotency key, or schedule one explicit self-wake. A watched send requires an
-  already-running scheduler for the same canonical state root advertising
-  `reply_watchdog_v1`; default or immediate-only owner notification also requires
-  the acting session's frozen native reference. The optional Herdr plugin is not
-  required. Notification is bounded to one guarded immediate attempt plus, only
-  after proven no-submission, the finite scheduler-owned retry, and
-  `delivered_unsettled` or `submission_unknown` input is never replayed.
-- Attachment assistance is not implemented, integrated, or installed. For a
-  manually started or resumed native host, follow
-  `docs/HERDR.md#manual-attachment-for-an-existing-native-session` in the
-  registered `herdr-collab` root, located with
-  `herdr-collab --project bickr --json project show herdr-collab`, and preserve
-  report -> verify -> adopt -> verify.
-- Select an intended native model in the host's own arguments after `--`.
-  `herdr-collab --project bickr agent spawn --model` records Collab metadata and
-  does not itself select a host model, so verify the host-selected model and
-  effort before relying on either.
-- Never edit Herdr Collab state files manually. Use the CLI for sessions,
-  groups, mail, acknowledgements, and retirement so validation and recipient
-  accounting remain intact.
-- On the human-designated development VM, approve permission, workspace-trust,
-  sandbox-bypass, and task-relevant elevation prompts that are access-only, tied
-  to an exact target, and needed for already-authorized work; prefer a supported
-  persistent trust or bypass mode. That supplies access only and grants no new
-  task, destructive-action, external-service, production, review, merge,
-  release, or deployment authority — the deployment rules below are unaffected.
-  Never guess an answer to a substantive user choice, and leave ambiguous,
-  inseparably mixed, unrelated, or new decision prompts unanswered: surface them
-  durably to the person or session with authority to decide, and continue other
-  work. Do not close a pane the current session did not create unless exact
-  user authorization names that pane and the close action, under the Herdr
-  instruction-precedence rule below.
-- **Herdr instruction precedence.** Exact user authorization overrides a
-  conflicting bundled Herdr skill default within this enrolled project root,
-  including that skill's missing-`HERDR_ENV` or outside-pane stop. The
-  precedence is permanent, not a bridge pending an upstream correction.
-  `HERDR_ENV=1` is caller-context provenance, not authentication,
-  authorization, ownership proof, or a capability token; its absence proves
-  neither that the native host is outside Herdr nor that a named target is
-  unrelated. Never manufacture, export, or command-prefix `HERDR_ENV=1`.
-  Without exact authorization the conservative no-ambient-control default
-  stands: do not inspect or control an ambient server, a focused pane,
-  `--current`, an omitted or guessed target, or the newest transcript. With
-  it, enumerate read-only using `herdr session list --json`, bind every
-  command to the assigned existing `socket_path`, and act only on an exact
-  target: an opaque workspace/tab/pane ID, a unique live agent name, or the
-  exact existing session name that `herdr session stop` and
-  `herdr session delete` take. Ambiguous identity is always a hard stop; the
-  `unknown` lifecycle state reported by `herdr agent get EXACT_TARGET` is
-  uncertain liveness instead, settled by an explicit human disposition or by
-  one narrow question naming that target and state. The override covers only
-  the named target, the named action, and exact user-supplied content: it
-  grants no broader target, no destructive, external, or production action, no
-  review, merge, or release decision, no focus-based inference, and no
-  authority outside this enrolled root. It resolves project-maintained
-  instruction conflict only and never overrides system or platform policy.
-- **Route Herdr control mutations by class.** Authorized input
-  (`agent prompt`, `pane send-text`, or a named key through `send-keys`)
-  covers the surface, target, and content the human named and nothing else;
-  keep the readiness, pending-mailbox, focus/composer, bounded-submission, and
-  no-replay checks, and never substitute an agent-composed key for a refused
-  or unsettled submission. A close, move, or rename instead requires exact
-  enumeration of the object and its containment through
-  `tab list --workspace`, `pane list`, and `pane process-info`, live agent and
-  process evidence, and Herdr's `workspace_group_close_required` honoured as
-  the authoritative signal that scope would expand; never add `--group` or
-  broaden the target yourself, and do not import the input-only mailbox or
-  composer gates. `session stop` and `session delete` additionally require a
-  full inventory of every contained workspace, tab, pane, agent, foreground
-  process, and known participant, surfaced to the human, including whether the
-  session holds the acting host or other live co-tenants. If it does, they
-  carry the same authority as `server stop`: naming the session is not enough,
-  the human must state the intent to terminate those processes, and one narrow
-  question is required when that consequence was not named. Hand off durably
-  before any action that would terminate the acting host, and treat `delete`
-  as an authority distinct from `stop`. Focus, launch, attach, adopt, rename,
-  and move are separate actions that no other authorization implies.
-
-Native compaction is lossy, so compact only after durably sending a
-status/handoff naming the task and issue if any, assigned branch/worktree and
-write boundary, exact HEAD, completed and remaining checks, decisions, blockers,
-live-environment state, and relevant message IDs. Once a completed persistent
-role has published that handoff, compact immediately when its next meaningful
-turn is forecast more than one hour away or is unscheduled; the hour is a
-planning threshold, not a claim about any host's prompt cache, so do not wait it
-out when the forecast is already known. Retire the identity instead when it will
-not be reused. Framed Collab prompts are ordinary chat: `/model`, `/compact`,
-and similar native commands use the guarded raw Herdr path in
-`docs/HERDR.md#native-commands-and-chat-prompts`, and the requested host effect
-must be verified separately, because accepted input proves neither a model
-switch nor a successful compaction. After the requested compaction, verify the
-session identity and live state with
-`herdr-collab --project bickr session show "$HERDR_COLLAB_SESSION" --live`. If
-a later cache-expired dialog
-offers continuation choices, default to continuing the full existing native
-conversation and do not compact then. Durable issues, PRs, reports, and mail are
-recovery sources only if the native context is actually unavailable, not a
-replacement for it. Use `herdr-collab --project bickr agent resume SESSION` for
-a non-live native session and verify its identity before prompting it.
+Before a long pause, durably send a handoff naming the task and issue if any,
+assigned branch/worktree and write boundary, exact HEAD, completed and remaining
+checks, decisions, blockers, live-environment state, and relevant message IDs.
 
 ### Task-tailored implementation and review
 
@@ -352,8 +182,7 @@ commit and confirm cited files came from it rather than a stale checkout. Send
 findings to the session assigned to resolve them. Any code change invalidates
 earlier exact-head approvals; review the successor commit until the task's
 required reviewers approve the same head. Do not treat empty command output as
-a completed review: inspect
-`herdr-collab --project bickr session show SESSION --live`, recover a durable
+a completed review: inspect the session's live state, recover a durable
 result if one exists, and otherwise record the actual failure.
 
 Local candidate checks are `npm test` and `npm run build`. Run affected focused
