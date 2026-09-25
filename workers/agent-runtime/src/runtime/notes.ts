@@ -21,7 +21,7 @@ export type NoteListPage = { ids: string[]; nextCursor: string | null; total: nu
 
 export function normalizeNoteId(value: unknown): string {
 	if (typeof value !== 'string') throw new InputError('Note ID must be text.');
-	const id = normalizeHandleText(value).replace(/\p{Zs}+/gu, ' ');
+	const id = value.normalize('NFKC').toLowerCase().trim().replace(/\p{Zs}+/gu, ' ');
 	if ([...id].length < 1 || [...id].length > 64) throw new InputError('Note title must contain 1-64 characters after normalization.');
 	if (!allowedNoteIdCharacter.test(id)) throw new InputError('Note title can contain letters, marks, numbers, punctuation, symbols, and spaces only.');
 	return id;
