@@ -1,6 +1,6 @@
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseThreadRef } from '@bickr/shared/ids';
 import { legacyToolResultEnvelope } from '@bickr/shared/legacy-tool-result-adapter';
-import type { ToolResultEnvelope, ToolResultProfileAction, ToolResultVote } from '@bickr/shared/tool-results';
+import type { ToolResultEnvelope, ToolResultProfileAction, ToolResultVote, ViewedProfileResult } from '@bickr/shared/tool-results';
 import {
 	type BotFollowUsernameQueryResult,
 	type LegacyNotificationEvent,
@@ -70,27 +70,19 @@ export function providerToolResultPayload(
 		return providerProfileListResult(runtimeRecord(result), options.tokenBudget);
 	}
 	if (canonical === 'view_profiles') {
-		const profiles = semanticResult.kind === 'profile_viewed' ? semanticResult.profiles :
-			Array.isArray(runtimeRecord(result).profiles) ? runtimeRecord(result).profiles as unknown[] : [];
-		const providerProfiles = profiles.map((profile, index) => ({
-			...providerProfile(runtimeRecord(profile)),
-			...(semanticResult.kind === 'profile_viewed' && semanticResult.profiles[index]?.associatedNoteIds ?
-				{ noteIds: semanticResult.profiles[index].associatedNoteIds, totalNoteCount: semanticResult.profiles[index].associatedNoteCount ?? 0 } : {}),
-		}));
-		const pruned = pruneProviderArrayForBudget(providerProfiles, options.tokenBudget, (items) => ({ profiles: items }));
-		return {
-			profiles: pruned.items.length === 0 && semanticResult.kind === 'profile_viewed' && semanticResult.profiles[0]?.associatedNoteIds?.length ?
-				[providerProfiles[0]!] : pruned.items,
-		};
+		if (semanticResult.kind === 'profile_viewed') return providerViewedProfiles(semanticResult.profiles, options.tokenBudget);
+		const legacyProfiles = Array.isArray(runtimeRecord(result).profiles) ? runtimeRecord(result).profiles as unknown[] : [];
+		const providerProfiles = legacyProfiles.map((profile) => providerProfile(runtimeRecord(profile)));
+		return { profiles: pruneProviderArrayForBudget(providerProfiles, options.tokenBudget, (items) => ({ profiles: items })).items };
 	}
 	if (semanticResult.kind === 'note_listed') {
 		return { ids: semanticResult.ids, nextCursor: semanticResult.nextCursor, total: semanticResult.total, unknownFilters: semanticResult.unknownFilters };
 	}
 	if (semanticResult.kind === 'note_read') {
-		return { id: semanticResult.id, content: semanticResult.content, links: semanticResult.links };
+		return { id: semanticResult.id, content: semanticResult.content, links: semanticResult.links.map(({ kind, handle, deleted }) => ({ kind, handle, deleted })) };
 	}
 	if (semanticResult.kind === 'note_written') {
-		return { outcome: semanticResult.outcome, id: semanticResult.id, links: semanticResult.links, unknownReferences: semanticResult.unknownReferences };
+		return { outcome: semanticResult.outcome, id: semanticResult.id, links: semanticResult.links.map(({ kind, handle, deleted }) => ({ kind, handle, deleted })), unknownReferences: semanticResult.unknownReferences };
 	}
 	if (semanticResult.kind === 'note_deleted') return { deleted: semanticResult.id };
 	if (canonical === 'query_followers') {
@@ -131,6 +123,56 @@ export function providerToolResultPayload(
 
 function providerJsonTokenEstimate(value: unknown): number {
 	return estimateTextTokens(JSON.stringify(value));
+}
+
+type ProviderViewedProfile = Record<string, unknown> & {
+	noteIds?: string[];
+	totalNoteCount?: number;
+	omittedNoteIdCount?: number;
+};
+
+function providerViewedProfiles(profiles: ViewedProfileResult[], tokenBudget?: number): { profiles: ProviderViewedProfile[] } | null {
+	const payload = (items: ProviderViewedProfile[]) => ({ profiles: items });
+	const withNoteLimit = (limit: number): ProviderViewedProfile[] => profiles.map((profile) => {
+		const ids = profile.associatedNoteIds;
+		if (!ids) return providerProfile(runtimeRecord(profile));
+		const shown = ids.slice(0, limit);
+		const omitted = ids.length - shown.length;
+		return {
+			...providerProfile(runtimeRecord(profile)),
+			noteIds: shown,
+			totalNoteCount: profile.associatedNoteCount ?? ids.length,
+			...(omitted > 0 ? { omittedNoteIdCount: omitted } : {}),
+		};
+	});
+	const maxIds = Math.max(0, ...profiles.map((profile) => profile.associatedNoteIds?.length ?? 0));
+	const complete = withNoteLimit(maxIds);
+	if (tokenBudget === undefined) return payload(complete);
+	const budget = Math.max(1, Math.floor(tokenBudget));
+	if (providerJsonTokenEstimate(payload(complete)) <= budget) return payload(complete);
+
+	const withoutIds = withNoteLimit(0);
+	if (providerJsonTokenEstimate(payload(withoutIds)) <= budget) {
+		// Keep the newest IDs for every profile before discarding any profile.
+		// A shared cap gives each requested profile the same chance to fit.
+		let low = 0;
+		let high = maxIds - 1;
+		let accepted = withoutIds;
+		while (low <= high) {
+			const middle = Math.floor((low + high) / 2);
+			const candidate = withNoteLimit(middle);
+			if (providerJsonTokenEstimate(payload(candidate)) <= budget) {
+				accepted = candidate;
+				low = middle + 1;
+			} else {
+				high = middle - 1;
+			}
+		}
+		return payload(accepted);
+	}
+
+	const pruned = pruneProviderArrayForBudget(withoutIds, budget, payload);
+	return providerJsonTokenEstimate(payload(pruned.items)) <= budget ? payload(pruned.items) : null;
 }
 
 function pruneProviderArrayForBudget<T>(
@@ -178,7 +220,6 @@ export function providerToolResultUsesTokenBudget(name: string): boolean {
 		canonical === 'search_profiles' ||
 		canonical === 'list_profiles' ||
 		canonical === 'view_profiles' ||
-		canonical === 'list_notes' ||
 		canonical === 'view_activity'
 	);
 }

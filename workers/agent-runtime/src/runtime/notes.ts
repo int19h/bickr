@@ -28,7 +28,9 @@ export function normalizeNoteId(value: unknown): string {
 }
 
 export function noteContent(value: unknown): string {
-	if (typeof value !== 'string' || value.length < 1 || value.length > maxNoteContentLength) {
+	if (typeof value !== 'string') throw new InputError(`Note content must be 1-${maxNoteContentLength} characters.`);
+	const length = [...value].length;
+	if (length < 1 || length > maxNoteContentLength) {
 		throw new InputError(`Note content must be 1-${maxNoteContentLength} characters.`);
 	}
 	return value;
@@ -41,7 +43,7 @@ export function noteFilterReferences(value: unknown): CanonicalEntityReference[]
 	}
 	const references = value.flatMap((entry) => {
 		const found = extractCanonicalEntityReferences(entry);
-		return found.length === 1 && entry.toLowerCase() === `${found[0]!.kind === 'forum' ? 'f' : 'u'}/${found[0]!.handle}` ? found : [];
+		return found.length === 1 && normalizeHandleText(entry) === `${found[0]!.kind === 'forum' ? 'f' : 'u'}/${found[0]!.handle}` ? found : [];
 	});
 	if (references.length !== value.length) throw new InputError('Each note filter must be one f/ or u/ handle.');
 	return references;

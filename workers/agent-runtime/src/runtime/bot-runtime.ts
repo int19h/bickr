@@ -1008,7 +1008,7 @@ function providerPrefillRequestValue(request: BotInferencePrefillIntent | undefi
 	}
 }
 
-function providerFunctionToolsForBot(
+export function providerFunctionToolsForBot(
 	bot: Pick<BotDocument, 'postingSettings' | 'tickSettings' | 'toolSettings'> & { effectivePostingSettings?: BotEffectivePostingSettings },
 	settings?: Pick<ProviderSettings, 'compactionMode'>,
 ): ProviderToolDefinition[] {
@@ -1641,7 +1641,7 @@ function openRouterProviderRouting(baseUrl: string, providerRouting: JsonObject 
 	return providerRouting;
 }
 
-const runtimeSchema = `
+export const runtimeSchema = `
 -- Retention: events are pruned after ${runtimeEventRetentionDays} days except active-run rows and seq >= ${lastLogOffSeqStateKey}.
 CREATE TABLE IF NOT EXISTS events (
 	seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2277,8 +2277,7 @@ export class BotRuntime {
 			await this.requireOwnerOrInternal(request, botId);
 			const body = runtimeRecord(await readJsonBody(request));
 			const id = normalizeNoteId(body.id);
-			this.requireWritableRuntimeStorage();
-			this.notes.delete(id);
+			this.deleteNote(id);
 			return ok({ deleted: id });
 		}
 		if (request.method === 'POST' && url.pathname.endsWith('/recover-stale-run')) {
@@ -5864,17 +5863,21 @@ export class BotRuntime {
 			setLastSuccessfulLogOffSeq: (seq) => this.setLastSuccessfulLogOffSeq(seq, 'tool_result'),
 			listNotes: (cursor, limit, links, unknownFilters) => this.notes.list(cursor, limit, links, unknownFilters),
 			readNote: (id) => this.notes.read(id),
-			writeNote: (id, content, links) => {
-				this.requireWritableRuntimeStorage();
-				return this.notes.write(id, content, links);
-			},
-			deleteNote: (id) => {
-				this.requireWritableRuntimeStorage();
-				this.notes.delete(id);
-			},
-			viewProfiles: (profileBot, usernames, profileRunId, seenVia) => this.viewProfilesForUsernames(profileBot, usernames, profileRunId, seenVia, true),
+			writeNote: (id, content, links) => this.writeNote(id, content, links),
+			deleteNote: (id) => this.deleteNote(id),
+			viewProfiles: (profileBot, usernames, profileRunId, seenVia) => this.viewProfilesForUsernames(profileBot, usernames, profileRunId, seenVia, true, false),
 		});
 		return tools.executeTool(bot, runId, name, args, runContext, onResult);
+	}
+
+	private writeNote(id: string, content: string, links: Parameters<BotNotesStore['write']>[2]): ReturnType<BotNotesStore['write']> {
+		this.requireWritableRuntimeStorage();
+		return this.notes.write(id, content, links);
+	}
+
+	private deleteNote(id: string): void {
+		this.requireWritableRuntimeStorage();
+		this.notes.delete(id);
 	}
 
 	private async forumService<T>(path: string, botId: string, body: unknown, signal: AbortSignal): Promise<T> {
@@ -6049,7 +6052,7 @@ export class BotRuntime {
 				role: 'tool',
 				tool_call_id: toolCall.id,
 				content: JSON.stringify(
-					providerToolResultPayload('view_profiles', { profiles }, {}, providerSerializationContext({ botId: bot.id }), {}, { kind: 'profile_viewed', profiles }),
+					providerToolResultPayload('view_profiles', { profiles }, {}, providerSerializationContext({ botId: bot.id }), { tokenBudget }, { kind: 'profile_viewed', profiles }),
 				),
 			});
 		}
@@ -6108,7 +6111,7 @@ export class BotRuntime {
 		runId: string,
 		seenVia: string,
 	): Promise<ViewedProfileResult[]> {
-		return this.viewProfilesForUsernames(bot, usernames.map(usernameArg), runId, `synthetic:view_profiles:${seenVia}`, false);
+		return this.viewProfilesForUsernames(bot, usernames.map(usernameArg), runId, `synthetic:view_profiles:${seenVia}`, false, true);
 	}
 
 	private async viewProfilesForUsernames(
@@ -6117,6 +6120,7 @@ export class BotRuntime {
 		runId: string,
 		seenVia: string,
 		strict: boolean,
+		markSeen: boolean,
 	): Promise<ViewedProfileResult[]> {
 		const profiles = await botPublicProfilesByHandles(this.env.BICKR_KV, this.env.BICKR_D1, bot.homeWorldId, handles);
 		if (strict) {
@@ -6124,7 +6128,7 @@ export class BotRuntime {
 			const missing = handles.find((handle) => !found.has(handle));
 			if (missing) throw new RepositoryError('not_found', `Profile u/${missing} not found.`, 404);
 		}
-		if (profiles.length > 0) {
+		if (markSeen && profiles.length > 0) {
 			await markBotSeenContent(
 				this.env.BICKR_D1,
 				bot.id,

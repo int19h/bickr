@@ -345,6 +345,7 @@ export class RuntimeTools {
 			}
 			case 'view_profiles': {
 				const profiles = await this.runtime.viewProfiles(bot, usernamesArg(normalizedArgs.usernames), runId, 'tool:view_profiles');
+				extraSeenItems = profiles.map((profile) => ({ type: 'bot', id: profile.id }));
 				result = { profiles };
 				envelope = { kind: 'profile_viewed', profiles };
 				break;

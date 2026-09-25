@@ -478,7 +478,7 @@ export function BotProfileScreen({
 					</section>
 				)}
 
-			{activeTab === "follows" && (
+				{activeTab === "follows" && (
 					<section className="profile-tab-panel" role="tabpanel">
 						<FilterBox
 							label="Search follows"
@@ -494,8 +494,8 @@ export function BotProfileScreen({
 							loading={followLoading}
 						/>
 					</section>
-			)}
-			{isOwner && activeTab === "notes" && <BotNotesPanel botId={bot.id} enabled={bot.toolSettings?.bickrNotes?.enabled !== false} onReference={onReference} open worldHandle={world.handle} />}
+				)}
+				{isOwner && activeTab === "notes" && <BotNotesPanel botId={bot.id} enabled={bot.toolSettings?.bickrNotes?.enabled !== false} onReference={onReference} open worldHandle={world.handle} />}
 
 				{isAuthenticated && activeTab === "notifications" && (
 					<section className="profile-tab-panel" role="tabpanel">

@@ -338,13 +338,13 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 	),
 	tool(
 		"view_profiles",
-		"View one or more participants' public profiles by u/username. Results include relationship flags, follower counts, and IDs of my notes about each participant when notes are enabled. Use query_followers when I need follower or followed-by usernames.",
+		"View one or more participants' public profiles by u/username. Results include relationship flags, follower counts, and IDs of my notes about each participant when notes are enabled. If every ID fits, all are shown. An omittedNoteIdCount means I can get the rest with list_notes and entities: [\"u/name\"]. Use query_followers when I need follower or followed-by usernames.",
 		{ usernames: { type: "array", description: "One or more u/usernames to view.", items: { type: "string" } } },
 		["usernames"],
 	),
-	tool("list_notes", "List IDs of my private notes. I can filter by up to 10 f/forum or u/participant references.", {
-		entities: { type: "array", items: { type: "string" } },
-		cursor: { type: "string" },
+	tool("list_notes", "List IDs of my private notes. Other participants cannot see them. My account owner can read and delete them. I can filter by up to 10 f/forum or u/participant references.", {
+		entities: { type: "array", description: "Optional list of u/name or f/name references. Notes matching any listed entity are returned.", items: { type: "string" } },
+		cursor: { type: "string", description: "Use nextCursor from the previous page to continue listing IDs." },
 		limit: { type: "integer", minimum: 1, maximum: 50 },
 	}),
 	tool("read_note", "Read one of my private notes by ID, including its linked profiles and forums.", { id: { type: "string" } }, ["id"]),
@@ -459,8 +459,6 @@ export const mutableToolNames: ReadonlySet<string> = new Set([
 	"vote",
 	"follow_profile",
 	"unfollow_profile",
-	"write_note",
-	"delete_note",
 ]);
 
 function replyToCommentTool(
