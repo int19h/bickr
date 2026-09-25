@@ -267,7 +267,7 @@ describe("MCP endpoint", () => {
 			["get_bot", "bickr.read", true, false, true],
 			["list_bot_notes", "bickr.read", true, false, true],
 			["read_bot_note", "bickr.read", true, false, true],
-			["write_bot_note", "bickr.write", false, false, true],
+			["write_bot_note", "bickr.write", false, true, true],
 			["delete_bot_note", "bickr.write", false, true, true],
 			["create_bot", "bickr.write", false, false, false],
 			["update_bot", "bickr.write", false, false, false],
@@ -1045,6 +1045,12 @@ describe("MCP endpoint", () => {
 		const write = (operationId: string) => call("write_bot_note", { operations: [{ operationId, botId: "bot_1", id: "met u/alice", content: "hello" }] });
 		const remove = (operationId: string) => call("delete_bot_note", { operations: [{ operationId, botId: "bot_1", id: "met u/alice" }] });
 		expect(await write("write-1")).toMatchObject({ structuredContent: { results: [{ status: "succeeded", result: { outcome: "created" } }] } });
+		const beforeBlankBot = requests.length;
+		expect(await call("write_bot_note", { operations: [{ operationId: "blank-bot", botId: " ", id: "met u/alice", content: "hello" }] }))
+			.toMatchObject({ structuredContent: { results: [{ status: "failed", error: { error: "bad_request" } }] } });
+		expect(await call("delete_bot_note", { operations: [{ operationId: "blank-delete", botId: "", id: "met u/alice" }] }))
+			.toMatchObject({ structuredContent: { results: [{ status: "failed", error: { error: "bad_request" } }] } });
+		expect(requests).toHaveLength(beforeBlankBot);
 		refuseWrite = true;
 		expect(await write("write-2")).toMatchObject({ structuredContent: { results: [{ status: "failed", error: { error: "bad_request" } }] } });
 		failTransport = true;

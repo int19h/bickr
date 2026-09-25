@@ -749,7 +749,7 @@ const mcpTools: McpTool[] = [
 		botId: stringSchema("Participant ID."),
 		id: stringSchema("Note title, up to 64 normalized characters."),
 		content: stringSchema("Note content, from 1 through 4000 characters."),
-	}), ["botId", "id", "content"]), (ctx, args) => noteServicePayload(ctx, args, "write", { id: args.id, content: args.content }), "idempotent"),
+	}), ["botId", "id", "content"]), (ctx, args) => noteServicePayload(ctx, args, "write", { id: args.id, content: args.content }), "repeatable_destructive"),
 	writeTool("delete_bot_note", "Delete participant note", "Delete a private note by title. A repeated delete returns not_found as a successful outcome.", withRequired(bodySchema({
 		botId: stringSchema("Participant ID."),
 		id: stringSchema("Note title."),
@@ -1270,6 +1270,9 @@ async function noteServicePayload(
 	action: "list" | "read" | "write" | "delete",
 	body: Record<string, unknown>,
 ): Promise<unknown> {
+	if (typeof args.botId !== "string" || !args.botId.trim()) {
+		return { ok: false, error: "bad_request", message: "Bot ID is required." };
+	}
 	const payload = await servicePayload(ctx.env.AGENT_RUNTIME, ctx.env, ctx.request,
 		`/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/notes/${action}`, "POST", ctx.auth.user.id, body);
 	if (isApiFailure(payload)) return payload;

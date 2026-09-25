@@ -87,6 +87,28 @@ describe('private bot notes', () => {
 		]);
 	});
 
+	it('normalizes spacing marks and old IDs to a stable stored title', () => {
+		const titles = [
+			'¨x', '´note', '¯x', '¸x', '˘x', '˜x', '\u00a0note\u00a0', '\u3000note\u3000',
+			'Ｆｕｌｌ　Ｗｉｄｔｈ', 'İstanbul', 'a', 'a_b', '-old-42', 'márk', 'a\u0301',
+		];
+		for (const title of titles) {
+			const normalized = normalizeNoteId(title);
+			expect(normalizeNoteId(normalized), title).toBe(normalized);
+		}
+		expect(normalizeNoteId('´note')).toBe('\u0301note');
+	});
+
+	it('pages past a title that expands under NFKC', () => {
+		const firstId = normalizeNoteId('´note');
+		const secondId = normalizeNoteId('㍿');
+		notes.write(firstId, 'first', []);
+		notes.write(secondId, 'second', []);
+		const first = notes.list(null, 1);
+		expect(first).toMatchObject({ ids: [firstId], nextCursor: firstId, total: 2 });
+		expect(notes.list(normalizeNoteId(first.nextCursor), 1).ids).toEqual([secondId]);
+	});
+
 	it('finds canonical references without treating a URL or an at-mention as a link', () => {
 		expect(extractCanonicalEntityReferences('u/Alice, f/news, @bob and https://site.test/u/carol')).toEqual([
 			{ kind: 'participant', handle: 'alice' },
