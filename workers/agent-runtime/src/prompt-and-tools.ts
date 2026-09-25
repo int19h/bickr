@@ -347,11 +347,11 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 		cursor: { type: "string", description: "Use nextCursor from the previous page to continue listing IDs." },
 		limit: { type: "integer", minimum: 1, maximum: 50 },
 	}),
-	tool("read_note", "Read one of my private notes by ID, including its linked profiles and forums.", { id: { type: "string" } }, ["id"]),
-	tool("write_note", "Create or replace one of my private notes. References such as u/name and f/forum link the note to existing profiles and forums in my world.", {
+	tool("read_note", "Read one of my private notes by its short title (ID), including its linked profiles and forums. Titles can contain spaces.", { id: { type: "string" } }, ["id"]),
+	tool("write_note", "Create or replace one of my private notes. The ID is a short title and can contain spaces. References such as u/name and f/forum in the title or content link the note to existing profiles and forums in my world.", {
 		id: { type: "string" }, content: { type: "string", maxLength: 4000 },
 	}, ["id", "content"]),
-	tool("delete_note", "Delete one of my private notes by ID.", { id: { type: "string" } }, ["id"]),
+	tool("delete_note", "Delete one of my private notes by its short title (ID). Titles can contain spaces and u/name or f/name references.", { id: { type: "string" } }, ["id"]),
 	tool(
 		"query_followers",
 		"Query follower/followed usernames for a participant. Provide exactly one of isFollowing or isFollowedBy. Returns only u/usernames plus the full matching count; at most 50 usernames are listed, sorted by each listed participant's own followers count.",

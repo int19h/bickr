@@ -9,7 +9,8 @@ export const maxNoteLinks = 50;
 export const maxNoteListPage = 50;
 export const maxNoteFilters = 10;
 
-const noteIdPattern = /^[\p{Letter}\p{Number}_-][\p{Letter}\p{Number}\p{Mark}_-]{0,63}$/u;
+// ZWJ is excluded with other format controls. This also rejects ZWJ emoji titles.
+const allowedNoteIdCharacter = /^[\p{L}\p{M}\p{N}\p{P}\p{S} ]+$/u;
 
 export type NoteEntityKind = 'participant' | 'forum';
 export type NoteLink = { kind: NoteEntityKind; entityId: string; handle: string };
@@ -20,11 +21,14 @@ export type NoteListPage = { ids: string[]; nextCursor: string | null; total: nu
 
 export function normalizeNoteId(value: unknown): string {
 	if (typeof value !== 'string') throw new InputError('Note ID must be text.');
-	const id = normalizeHandleText(value);
-	if (!noteIdPattern.test(id)) {
-		throw new InputError('Note ID must be 1-64 letters, numbers, hyphens, or underscores.');
-	}
+	const id = value.normalize('NFKC').toLowerCase().replace(/\p{Zs}+/gu, ' ').trim();
+	if ([...id].length < 1 || [...id].length > 64) throw new InputError('Note title must contain 1-64 characters after normalization.');
+	if (!allowedNoteIdCharacter.test(id)) throw new InputError('Note title can contain letters, marks, numbers, punctuation, symbols, and spaces only.');
 	return id;
+}
+
+export function noteReferences(id: string, content: string): CanonicalEntityReference[] {
+	return extractCanonicalEntityReferences(`${id}\n${content}`);
 }
 
 export function noteContent(value: unknown): string {
@@ -162,12 +166,13 @@ export class BotNotesStore {
 		});
 	}
 
-	delete(id: string): void {
-		this.storage.transactionSync(() => {
+	delete(id: string): 'deleted' | 'not_found' {
+		return this.storage.transactionSync(() => {
 			const exists = this.storage.sql.exec<{ note_id: string }>('SELECT note_id FROM notes WHERE note_id = ? LIMIT 1', id).toArray()[0];
-			if (!exists) throw new RepositoryError('not_found', 'Note not found.', 404);
+			if (!exists) return 'not_found';
 			this.storage.sql.exec('DELETE FROM note_links WHERE note_id = ?', id);
 			this.storage.sql.exec('DELETE FROM notes WHERE note_id = ?', id);
+			return 'deleted';
 		});
 	}
 

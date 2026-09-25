@@ -19,6 +19,7 @@ export function parseGlobalArgs(argv: string[]): { globals: GlobalOptions; args:
 	for (let index = 0; index < argv.length; index += 1) {
 		const arg = argv[index] ?? "";
 		if (arg === "--") {
+			if (args.length > 0) args.push("--");
 			args.push(...argv.slice(index + 1));
 			break;
 		}

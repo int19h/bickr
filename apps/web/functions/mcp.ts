@@ -735,6 +735,25 @@ const mcpTools: McpTool[] = [
 		const world = await worldByHandle(ctx.env.BICKR_D1, bot.homeWorldHandle);
 		return { bot: publicBotSummary(bot, { includeToolSettings: true, worldPostingSettings: world.postingSettings }) };
 	}, "bot"),
+	readTool("list_bot_notes", "List participant notes", "List one page of private note titles for a participant owned by the signed-in user. Entity filters use u/name or f/name. The participant sees owner-written notes as its own.", {
+		botId: stringSchema("Participant ID."),
+		entities: arraySchema("Optional list of at most 10 u/name or f/name filters."),
+		cursor: stringSchema("Title returned as nextCursor by the previous page."),
+		limit: integerSchema("Page size from 1 through 50, default 50."),
+	}, (ctx, args) => noteServicePayload(ctx, args, "list", { entities: args.entities, cursor: args.cursor, limit: args.limit }), "opaque", ["botId"]),
+	readTool("read_bot_note", "Read participant note", "Read one private note by its short title. The participant must belong to the signed-in user.", {
+		botId: stringSchema("Participant ID."),
+		id: stringSchema("Note title. It can contain spaces and u/name or f/name references."),
+	}, (ctx, args) => noteServicePayload(ctx, args, "read", { id: args.id }), "opaque", ["botId", "id"]),
+	writeTool("write_bot_note", "Write participant note", "Create or replace a private note for a participant owned by the signed-in user. The participant sees this note as its own. u/name and f/name in the title or content link the note to profiles and forums.", withRequired(bodySchema({
+		botId: stringSchema("Participant ID."),
+		id: stringSchema("Note title, up to 64 normalized characters."),
+		content: stringSchema("Note content, from 1 through 4000 characters."),
+	}), ["botId", "id", "content"]), (ctx, args) => noteServicePayload(ctx, args, "write", { id: args.id, content: args.content }), "repeatable_destructive"),
+	writeTool("delete_bot_note", "Delete participant note", "Delete a private note by title. A repeated delete returns not_found as a successful outcome.", withRequired(bodySchema({
+		botId: stringSchema("Participant ID."),
+		id: stringSchema("Note title."),
+	}), ["botId", "id"]), (ctx, args) => noteServicePayload(ctx, args, "delete", { id: args.id }), "repeatable_destructive"),
 	serviceTool("create_bot", "Create bot", "Create a Bickr bot in a world.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		handle: stringSchema("Bot handle."),
@@ -1031,19 +1050,16 @@ function readTool(
 	};
 }
 
-// The destructive and idempotent MCP hints are not independent facts: removing
-// an entity is destructive and unsafe to repeat, while an operation that names
-// an absolute target state destroys nothing and is safe to repeat. Deriving
-// both from one named effect keeps the advertised pair coherent instead of
-// letting two booleans drift apart at each call site.
-type McpMutationEffect = "write" | "idempotent" | "destructive";
+// A repeated deletion can succeed when an absent target is a typed outcome.
+// Keep this combination explicit in the MCP annotations.
+type McpMutationEffect = "write" | "idempotent" | "destructive" | "repeatable_destructive";
 
 function mutationAnnotations(title: string, effect: McpMutationEffect): ToolAnnotations {
 	return {
 		title,
 		readOnlyHint: false,
-		destructiveHint: effect === "destructive",
-		idempotentHint: effect === "idempotent",
+		destructiveHint: effect === "destructive" || effect === "repeatable_destructive",
+		idempotentHint: effect === "idempotent" || effect === "repeatable_destructive",
 		openWorldHint: false,
 	};
 }
@@ -1246,6 +1262,22 @@ async function servicePayload(
 		signal: request.signal,
 	}));
 	return payload;
+}
+
+async function noteServicePayload(
+	ctx: ToolContext,
+	args: Record<string, unknown>,
+	action: "list" | "read" | "write" | "delete",
+	body: Record<string, unknown>,
+): Promise<unknown> {
+	if (typeof args.botId !== "string" || !args.botId.trim()) {
+		return { ok: false, error: "bad_request", message: "Bot ID is required." };
+	}
+	const payload = await servicePayload(ctx.env.AGENT_RUNTIME, ctx.env, ctx.request,
+		`/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/notes/${action}`, "POST", ctx.auth.user.id, body);
+	if (isApiFailure(payload)) return payload;
+	const envelope = recordValue(payload, "Note response");
+	return envelope.ok === true ? envelope.data : payload;
 }
 
 function canonicalAnnotationSetFromEnvelope(value: unknown): CanonicalInferenceAnnotationSet {

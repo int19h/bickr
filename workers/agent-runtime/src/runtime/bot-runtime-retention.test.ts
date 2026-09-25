@@ -551,12 +551,23 @@ describe('BotRuntime storage retention', () => {
 
 		expect((await request('usr-visitor', 'GET', '')).status).toBe(403);
 		expect((await request('usr-visitor', 'POST', '/read', { id: 'private' })).status).toBe(403);
+		expect((await request('usr-visitor', 'POST', '/list', { cursor: 'private' })).status).toBe(403);
+		expect((await request('usr-visitor', 'POST', '/write', { id: 'private', content: 'changed' })).status).toBe(403);
 		expect((await request('usr-visitor', 'POST', '/delete', { id: 'private' })).status).toBe(403);
 		expect(await (await request('usr-owner', 'GET', '')).json()).toMatchObject({ data: { ids: ['private'] } });
+		expect(await (await request('usr-owner', 'POST', '/list', { limit: 1 })).json())
+			.toMatchObject({ data: { ids: ['private'], total: 1, nextCursor: null } });
+		expect((await request('usr-owner', 'POST', '/list', { limit: 51 })).status).toBe(400);
 		expect(await (await request('usr-owner', 'POST', '/read', { id: 'private' })).json())
 			.toMatchObject({ data: { note: { id: 'private', content: 'A private thought' } } });
+		expect(await (await request('usr-owner', 'POST', '/write', { id: 'Met  u/Alice', content: 'A plain memory' })).json())
+			.toMatchObject({ data: { outcome: 'created', note: { id: 'met u/alice' }, unknownReferences: ['u/alice'] } });
+		expect(await (await request('usr-owner', 'POST', '/list', { cursor: 'private' })).json())
+			.toMatchObject({ data: { ids: [] } });
 		expect((await request('usr-owner', 'POST', '/delete', { id: 'private' })).status).toBe(200);
-		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM notes`)[0]?.count).toBe(0);
+		expect(await (await request('usr-owner', 'POST', '/delete', { id: 'private' })).json())
+			.toMatchObject({ data: { outcome: 'not_found', id: 'private' } });
+		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM notes`)[0]?.count).toBe(1);
 	});
 
 	function insertMessage(

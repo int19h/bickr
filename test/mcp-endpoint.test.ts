@@ -265,6 +265,10 @@ describe("MCP endpoint", () => {
 			["delete_inference_configuration", "bickr.write", false, true, false],
 			["list_world_bots", "bickr.read", true, false, true],
 			["get_bot", "bickr.read", true, false, true],
+			["list_bot_notes", "bickr.read", true, false, true],
+			["read_bot_note", "bickr.read", true, false, true],
+			["write_bot_note", "bickr.write", false, true, true],
+			["delete_bot_note", "bickr.write", false, true, true],
 			["create_bot", "bickr.write", false, false, false],
 			["update_bot", "bickr.write", false, false, false],
 			["pause_bot", "bickr.write", false, false, true],
@@ -1002,6 +1006,59 @@ describe("MCP endpoint", () => {
 			structuredContent: { error: "InputError" },
 		});
 		expect(await pendingIds()).toEqual(["ntf_mcp_foreign", "ntf_mcp_old", "ntf_mcp_sibling"]);
+	});
+
+	it("routes private notes through the owner runtime with typed MCP outcomes", async () => {
+		await resetD1Schema(testEnv.BICKR_D1);
+		await clearKv(testEnv.BICKR_KV);
+		const token = await issueAccessToken(testEnv.BICKR_KV, ["bickr.read", "bickr.write"]);
+		const requests: Array<{ path: string; method: string; body: Record<string, unknown> }> = [];
+		let refuseWrite = false;
+		let failTransport = false;
+		let deleted = false;
+		const service = { fetch: async (request: Request): Promise<Response> => {
+			if (failTransport) throw new Error("Agent Runtime transport failed");
+			const path = new URL(request.url).pathname;
+			const body = await request.json() as Record<string, unknown>;
+			requests.push({ path, method: request.method, body });
+			if (path.endsWith("/write") && refuseWrite) return Response.json({ ok: false, error: "bad_request", message: "Invalid note title." }, { status: 400 });
+			if (path.endsWith("/list")) return Response.json({ ok: true, data: { ids: ["met u/alice"], nextCursor: null, total: 1, unknownFilters: [] } });
+			if (path.endsWith("/read")) return Response.json({ ok: true, data: { note: { id: body.id, content: "hello" } } });
+			if (path.endsWith("/delete")) {
+				const outcome = deleted ? "not_found" : "deleted";
+				deleted = true;
+				return Response.json({ ok: true, data: { outcome, id: body.id } });
+			}
+			return Response.json({ ok: true, data: { outcome: "created", note: { id: body.id, content: body.content, links: [] }, unknownReferences: [] } });
+		} };
+		const call = async (name: string, args: Record<string, unknown>) => {
+			const response = await callMcp(testEnv.BICKR_KV, token, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }, {
+				BICKR_D1: testEnv.BICKR_D1, AGENT_RUNTIME: service, INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+			});
+			return (await jsonResponse(response)).result as Record<string, unknown>;
+		};
+		expect(await call("list_bot_notes", { botId: "bot_1", cursor: "met u/alice", entities: ["u/alice"] }))
+			.toMatchObject({ structuredContent: { ids: ["met u/alice"], total: 1 } });
+		expect(requests[0]).toEqual({ path: "/bots/bot_1/notes/list", method: "POST", body: { cursor: "met u/alice", entities: ["u/alice"] } });
+		expect(await call("read_bot_note", { botId: "bot_1", id: "met u/alice" }))
+			.toMatchObject({ structuredContent: { note: { id: "met u/alice" } } });
+		const write = (operationId: string) => call("write_bot_note", { operations: [{ operationId, botId: "bot_1", id: "met u/alice", content: "hello" }] });
+		const remove = (operationId: string) => call("delete_bot_note", { operations: [{ operationId, botId: "bot_1", id: "met u/alice" }] });
+		expect(await write("write-1")).toMatchObject({ structuredContent: { results: [{ status: "succeeded", result: { outcome: "created" } }] } });
+		const beforeBlankBot = requests.length;
+		expect(await call("write_bot_note", { operations: [{ operationId: "blank-bot", botId: " ", id: "met u/alice", content: "hello" }] }))
+			.toMatchObject({ structuredContent: { results: [{ status: "failed", error: { error: "bad_request" } }] } });
+		expect(await call("delete_bot_note", { operations: [{ operationId: "blank-delete", botId: "", id: "met u/alice" }] }))
+			.toMatchObject({ structuredContent: { results: [{ status: "failed", error: { error: "bad_request" } }] } });
+		expect(requests).toHaveLength(beforeBlankBot);
+		refuseWrite = true;
+		expect(await write("write-2")).toMatchObject({ structuredContent: { results: [{ status: "failed", error: { error: "bad_request" } }] } });
+		failTransport = true;
+		expect(await write("write-3")).toMatchObject({ structuredContent: { results: [{ status: "indeterminate" }] } });
+		failTransport = false;
+		expect(await remove("delete-1")).toMatchObject({ structuredContent: { results: [{ status: "succeeded", result: { outcome: "deleted" } }] } });
+		expect(await remove("delete-2")).toMatchObject({ structuredContent: { results: [{ status: "succeeded", result: { outcome: "not_found" } }] } });
+		expect(requests.every(({ path }) => !path.includes("met u/alice"))).toBe(true);
 	});
 
 	it("reports world posting provenance and linked-clone prompt provenance on get_bot", async () => {

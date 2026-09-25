@@ -48,8 +48,7 @@ import {
 import { SelfCorrectingToolCallError } from '../errors';
 import { repairInvalidUnicodeText, unicodeSafeSlice } from '../provider/sanitize';
 import { randomIntegersForRanges } from './random-integers';
-import { extractCanonicalEntityReferences } from '@bickr/shared/mentions';
-import { normalizeNoteId, noteContent, noteFilterReferences, noteLinkViews, resolveNoteLinks, type BotNote, type NoteLink, type NoteListPage } from './notes';
+import { normalizeNoteId, noteContent, noteFilterReferences, noteLinkViews, noteReferences, resolveNoteLinks, type BotNote, type NoteLink, type NoteListPage } from './notes';
 import type { ViewedProfileResult } from '@bickr/shared/tool-results';
 import type {
 	DuplicateReply,
@@ -114,7 +113,7 @@ export type RuntimeToolsRuntime = {
 	listNotes(cursor: string | null, limit: number, links: readonly NoteLink[], unknownFilters: string[]): NoteListPage;
 	readNote(id: string): BotNote | null;
 	writeNote(id: string, content: string, links: readonly NoteLink[]): { kind: 'created' | 'replaced'; note: BotNote };
-	deleteNote(id: string): void;
+	deleteNote(id: string): 'deleted' | 'not_found';
 	viewProfiles(bot: RuntimeBotDocument, usernames: string[], runId: string, seenVia: string): Promise<ViewedProfileResult[]>;
 };
 
@@ -371,7 +370,7 @@ export class RuntimeTools {
 			case 'write_note': {
 				const id = normalizeNoteId(normalizedArgs.id);
 				const content = noteContent(normalizedArgs.content);
-				const resolved = await resolveNoteLinks(this.runtime.env.BICKR_D1, bot.homeWorldId, extractCanonicalEntityReferences(content));
+				const resolved = await resolveNoteLinks(this.runtime.env.BICKR_D1, bot.homeWorldId, noteReferences(id, content));
 				this.runtime.throwIfStopped(runId, runContext.signal);
 				const written = this.runtime.writeNote(id, content, resolved.links);
 				const links = written.note.links.map((link) => ({ ...link, deleted: false }));
@@ -382,7 +381,7 @@ export class RuntimeTools {
 			case 'delete_note': {
 				const id = normalizeNoteId(normalizedArgs.id);
 				this.runtime.throwIfStopped(runId, runContext.signal);
-				this.runtime.deleteNote(id);
+				if (this.runtime.deleteNote(id) === 'not_found') throw new RepositoryError('not_found', 'Note not found.', 404);
 				result = { deleted: id };
 				envelope = { kind: 'note_deleted', id };
 				break;
