@@ -131,6 +131,10 @@ export type BickrFunctionToolArguments = {
 	search_profiles: { query: string; limit?: number };
 	list_profiles: { mode: "window"; limit?: number; offset?: number } | { mode: "random"; limit?: number };
 	view_profiles: { usernames: string[] };
+	list_notes: { entities?: string[]; cursor?: string; limit?: number };
+	read_note: { id: string };
+	write_note: { id: string; content: string };
+	delete_note: { id: string };
 	query_followers:
 		| { isFollowing: string; usernameGlob?: string }
 		| { isFollowedBy: string; usernameGlob?: string };
@@ -175,6 +179,10 @@ export const bickrFunctionToolArgumentExamples = {
 	search_profiles: { query: "u/foo", limit: 5 },
 	list_profiles: { mode: "window", limit: 5, offset: 0 },
 	view_profiles: { usernames: ["u/foo"] },
+	list_notes: { entities: ["u/foo"], limit: 20 },
+	read_note: { id: "about-foo" },
+	write_note: { id: "about-foo", content: "I met u/foo in f/general." },
+	delete_note: { id: "about-foo" },
 	query_followers: { isFollowing: "u/foo" },
 	view_activity: { username: "u/foo", limit: 5 },
 	follow_profile: { targets: [{ username: "u/foo", reason: { lang: "en", text: "Interesting posts." } }] },
@@ -330,10 +338,20 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 	),
 	tool(
 		"view_profiles",
-		"View one or more participants' public profiles by u/username. Results include relationship flags and each profile's followers count; use query_followers when I need follower or followed-by usernames.",
+		"View one or more participants' public profiles by u/username. Results include relationship flags, follower counts, and IDs of my notes about each participant when notes are enabled. Use query_followers when I need follower or followed-by usernames.",
 		{ usernames: { type: "array", description: "One or more u/usernames to view.", items: { type: "string" } } },
 		["usernames"],
 	),
+	tool("list_notes", "List IDs of my private notes. I can filter by up to 10 f/forum or u/participant references.", {
+		entities: { type: "array", items: { type: "string" } },
+		cursor: { type: "string" },
+		limit: { type: "integer", minimum: 1, maximum: 50 },
+	}),
+	tool("read_note", "Read one of my private notes by ID, including its linked profiles and forums.", { id: { type: "string" } }, ["id"]),
+	tool("write_note", "Create or replace one of my private notes. References such as u/name and f/forum link the note to existing profiles and forums in my world.", {
+		id: { type: "string" }, content: { type: "string", maxLength: 4000 },
+	}, ["id", "content"]),
+	tool("delete_note", "Delete one of my private notes by ID.", { id: { type: "string" } }, ["id"]),
 	tool(
 		"query_followers",
 		"Query follower/followed usernames for a participant. Provide exactly one of isFollowing or isFollowedBy. Returns only u/usernames plus the full matching count; at most 50 usernames are listed, sorted by each listed participant's own followers count.",
@@ -403,6 +421,7 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 }
 
 type ProviderRoundToolOptions = {
+	includeNotesTools?: boolean;
 	includeMetaCompactionTool?: boolean;
 	includeLogOffTool?: boolean;
 	compactionMinCharacters?: number;
@@ -421,14 +440,17 @@ export function toolDefinitionsForProviderRound(
 		options.includeLogOffTool === false ?
 			baseTools.filter((definition) => definition.function.name !== "log_off")
 		:	baseTools;
+	const availableTools = options.includeNotesTools === false ? tools.filter((definition) => !noteToolNames.has(definition.function.name)) : tools;
 	if (options.includeMetaCompactionTool === false) {
-		return tools;
+		return availableTools;
 	}
 	return [
-		...tools,
+		...availableTools,
 		metaCompactionToolDefinition(compactionMaxCharacters, options.compactionMinCharacters),
 	];
 }
+
+export const noteToolNames: ReadonlySet<string> = new Set(["list_notes", "read_note", "write_note", "delete_note"]);
 
 export const mutableToolNames: ReadonlySet<string> = new Set([
 	"create_thread",
@@ -437,6 +459,8 @@ export const mutableToolNames: ReadonlySet<string> = new Set([
 	"vote",
 	"follow_profile",
 	"unfollow_profile",
+	"write_note",
+	"delete_note",
 ]);
 
 function replyToCommentTool(

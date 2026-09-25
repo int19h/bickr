@@ -17,6 +17,22 @@ const selfBotId = "bot_self";
 const readingParticipant = () => providerSerializationContext({ botId: selfBotId });
 
 describe("provider-facing text preservation", () => {
+	it("includes every associated note ID in a profile read", () => {
+		const noteIds = Array.from({ length: 25 }, (_, index) => `note-${index}`);
+		const profile = {
+			id: "bot_alice", homeWorldId: "world", homeWorldHandle: "world", handle: "alice",
+			language: null, displayName: en("Alice"), shortBio: en("A profile"),
+			createdAt: "2026-05-01T00:00:00.000Z", updatedAt: "2026-05-01T00:00:00.000Z",
+			isFollowedByMe: false, isFollowingMe: false, followers: 0,
+			associatedNoteIds: noteIds, associatedNoteCount: noteIds.length,
+		};
+		const result = providerToolResultPayload(
+			"view_profiles", { profiles: [profile] }, {}, readingParticipant(),
+			{ tokenBudget: 1 }, { kind: "profile_viewed", profiles: [profile] },
+		) as { profiles: Array<{ noteIds?: string[] }> };
+		expect(result.profiles[0]?.noteIds).toEqual(noteIds);
+	});
+
 	it("shows bootstrap notification text to the provider", () => {
 		const result = providerToolResultPayload("check_notifications", {
 			events: [{

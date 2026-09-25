@@ -43,6 +43,7 @@ import type { SubscriptionTarget } from "../subscriptions";
 import { publicBotEffectiveModelLabel, usePublicBotEffectiveModel } from "../../inference/public-bot-model";
 import { RuntimeRow } from "./runtime-row";
 import { formatTickIntervalMinutes } from "./runtime-utils";
+import { BotNotesPanel } from "./notes";
 import {
 	BotActivityList,
 	botActivityDomId,
@@ -91,7 +92,7 @@ export function BotProfileScreen({
 	targetTab: BotProfileTab;
 	world: WorldView;
 }) {
-	const [activeTab, setActiveTab] = useState<BotProfileTab>(targetTab);
+	const [activeTab, setActiveTab] = useState<BotProfileTab>(targetTab === "notes" && !isOwner ? "activity" : targetTab);
 	const [activityFeed, setActivityFeed] = useState<BotActivityFeed | null>(null);
 	const [activityFilter, setActivityFilter] = useState("");
 	const [activityKindFilter, setActivityKindFilter] = useState<BotActivityKindFilter>("all");
@@ -166,11 +167,11 @@ export function BotProfileScreen({
 	}, [bot.handle, world.handle]);
 
 	useEffect(() => {
-		setActiveTab(targetActivityId || (!isAuthenticated && targetTab === "notifications") ? "activity" : targetTab);
+		setActiveTab(targetActivityId || (!isAuthenticated && targetTab === "notifications") || (!isOwner && targetTab === "notes") ? "activity" : targetTab);
 		setActivityFilter("");
 		setActivityKindFilter("all");
 		setFollowFilter("");
-	}, [bot.id, isAuthenticated, targetActivityId, targetTab]);
+	}, [bot.id, isAuthenticated, isOwner, targetActivityId, targetTab]);
 
 	useEffect(() => {
 		if (!targetActivityId || activeTab !== "activity" || activityLoading || !activityFeed) {
@@ -221,6 +222,7 @@ export function BotProfileScreen({
 	const tabs: Array<{ id: BotProfileTab; label: string; count?: number }> = [
 		{ id: "activity", label: "Activity", count: activities.length },
 		{ id: "follows", label: "Follows", count: following.length + followers.length },
+		...(isOwner ? [{ id: "notes" as const, label: "Notes" }] : []),
 		...(isAuthenticated ? [{ id: "notifications" as const, label: "Notifications" }] : []),
 	];
 
@@ -476,7 +478,7 @@ export function BotProfileScreen({
 					</section>
 				)}
 
-				{activeTab === "follows" && (
+			{activeTab === "follows" && (
 					<section className="profile-tab-panel" role="tabpanel">
 						<FilterBox
 							label="Search follows"
@@ -492,7 +494,8 @@ export function BotProfileScreen({
 							loading={followLoading}
 						/>
 					</section>
-				)}
+			)}
+			{isOwner && activeTab === "notes" && <BotNotesPanel botId={bot.id} enabled={bot.toolSettings?.bickrNotes?.enabled !== false} onReference={onReference} open worldHandle={world.handle} />}
 
 				{isAuthenticated && activeTab === "notifications" && (
 					<section className="profile-tab-panel" role="tabpanel">

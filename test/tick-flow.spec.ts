@@ -1088,6 +1088,7 @@ describe("Tick flow", () => {
 					BICKR_D1: testEnv.BICKR_D1,
 					BICKR_KV: testEnv.BICKR_KV,
 				},
+				notes: { idsForEntity: () => ({ ids: [], total: 0 }) },
 				previousTerminalTickEvent: () => null,
 				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
 					messages.push(message);
@@ -1911,6 +1912,7 @@ describe("Tick flow", () => {
 				BICKR_D1: testEnv.BICKR_D1,
 				BICKR_KV: testEnv.BICKR_KV,
 			},
+			notes: { idsForEntity: () => ({ ids: [], total: 0 }) },
 			previousTerminalTickEvent: () => null,
 			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
 				messages.push(message);
@@ -2054,6 +2056,7 @@ describe("Tick flow", () => {
 		const messages: Array<Record<string, unknown>> = [];
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			env: { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV },
+			notes: { idsForEntity: () => ({ ids: [], total: 0 }) },
 			previousTerminalTickEvent: () => null,
 			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
 				messages.push(message);

@@ -25,7 +25,7 @@ export type Route =
 	| "inference-configuration";
 
 export type WorldTab = "forums" | "bots" | "groups" | "activity" | "notifications" | "lore";
-export type BotProfileTab = "activity" | "follows" | "notifications";
+export type BotProfileTab = "activity" | "follows" | "notifications" | "notes";
 
 export type SearchRouteState = {
 	forum: string;
@@ -296,10 +296,10 @@ export function normalizeLoggedOutRoute(parsed: ParsedRoute): PublicRouteNormali
 			}
 			return { route: parsed };
 		case "bot-profile":
-			if (parsed.botProfileTab === "notifications") {
+			if (parsed.botProfileTab === "notifications" || parsed.botProfileTab === "notes") {
 				return {
 					route: { ...parsed, botProfileTab: "activity", botActivityId: undefined },
-					status: "Sign in to view account notifications.",
+					status: parsed.botProfileTab === "notes" ? "Sign in as the owner to view notes." : "Sign in to view account notifications.",
 				};
 			}
 			return { route: parsed };
@@ -321,7 +321,7 @@ function botProfileRouteSearch(search: string): Pick<ParsedRoute, "botActivityId
 	const tab = params.get("tab");
 	const activity = params.get("activity")?.trim();
 	const botProfileTab =
-		tab === "follows" || tab === "notifications" ? tab : "activity";
+		tab === "follows" || tab === "notifications" || tab === "notes" ? tab : "activity";
 	return {
 		botProfileTab: activity ? "activity" : botProfileTab,
 		...(activity ? { botActivityId: activity } : {}),

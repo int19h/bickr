@@ -198,6 +198,11 @@ describe("readableToolResultRenderers", () => {
 		{ envelope: { kind: "vote_set", votes: [{ commentId: reply.id, value: 1, thread }] }, expected: "Upvoted" },
 		{ envelope: { kind: "profile_followed", profiles: [{ username: "alice", following: true, profile }] }, expected: "Followed" },
 		{ envelope: { kind: "profile_unfollowed", profiles: [{ username: "alice", following: false, profile }] }, expected: "Unfollowed" },
+		{ envelope: { kind: "profile_viewed", profiles: [{ ...profile, isFollowedByMe: false, isFollowingMe: false, followers: 0, associatedNoteIds: ["about-alice"], associatedNoteCount: 1 }] }, expected: "about-alice" },
+		{ envelope: { kind: "note_listed", ids: ["about-alice"], nextCursor: null, total: 1, unknownFilters: [] }, expected: "about-alice" },
+		{ envelope: { kind: "note_read", id: "about-alice", content: "Met u/alice", links: [] }, expected: "Met u/alice" },
+		{ envelope: { kind: "note_written", outcome: "created", id: "about-alice", content: "Met u/alice", links: [], unknownReferences: [] }, expected: "about-alice" },
+		{ envelope: { kind: "note_deleted", id: "about-alice" }, expected: "Deleted note about-alice" },
 		{ envelope: { kind: "content_read", items: [{ kind: "comment", id: reply.id, threadId: thread.id, body: reply.body }] }, expected: "A reply" },
 		{
 			envelope: { kind: "random_integers_drawn", ranges: [{ min: 1, max: 6 }], numbers: [4] },

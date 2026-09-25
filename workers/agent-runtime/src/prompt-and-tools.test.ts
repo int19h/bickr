@@ -87,6 +87,8 @@ describe("Bickr function tools", () => {
 
 	it("does not let a draw satisfy the do-something-before-logging-off requirement", () => {
 		expect(mutableToolNames.has("draw_random_integers")).toBe(false);
+		expect(mutableToolNames.has("write_note")).toBe(true);
+		expect(mutableToolNames.has("delete_note")).toBe(true);
 	});
 
 	it("keeps native OpenRouter server tools native", () => {

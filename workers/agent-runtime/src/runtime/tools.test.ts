@@ -299,6 +299,33 @@ describe("draw_random_integers execution", () => {
 	});
 });
 
+describe("note tool stop boundary", () => {
+	it("does not write a note when its profile lookup finishes after the visit stops", async () => {
+		const recorder = toolExecutionRecorder();
+		const controller = new AbortController();
+		let startLookup: (() => void) | undefined;
+		const lookupStarted = new Promise<void>((resolve) => { startLookup = resolve; });
+		let finishLookup: ((rows: { results: Array<{ entityId: string; handle: string }> }) => void) | undefined;
+		const lookup = new Promise<{ results: Array<{ entityId: string; handle: string }> }>((resolve) => { finishLookup = resolve; });
+		const written: string[] = [];
+		recorder.runtime.env.BICKR_D1 = {
+			prepare: () => ({ bind: () => ({ all: () => { startLookup?.(); return lookup; } }) }),
+		} as unknown as RuntimeToolsRuntime['env']['BICKR_D1'];
+		recorder.runtime.throwIfStopped = () => { if (controller.signal.aborted) throw new Error('Visit stopped.'); };
+		recorder.runtime.writeNote = (id) => { written.push(id); throw new Error('Write must not run.'); };
+		const pending = new RuntimeTools(recorder.runtime).executeTool(
+			randomDrawParticipant(), 'run_note', 'write_note', { id: 'meeting', content: 'Met u/alice.' },
+			{ mode: 'normal', setupMode: 'new_iteration', signal: controller.signal },
+		);
+		await lookupStarted;
+		controller.abort();
+		finishLookup?.({ results: [{ entityId: 'bot-alice', handle: 'alice' }] });
+		await expect(pending).rejects.toThrow('Visit stopped.');
+		expect(written).toEqual([]);
+		expect(recorder.events.map((event) => event.type)).toEqual(['tool_call']);
+	});
+});
+
 /**
  * The draw touches no storage and no forum service, so the recorder only has to
  * stand in for the event log; every other runtime capability throws if reached.
@@ -339,6 +366,11 @@ function toolExecutionRecorder() {
 		providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
 		recentToolResultRows: () => [],
 		setLastSuccessfulLogOffSeq: unreachable("the log-off marker"),
+		listNotes: unreachable("notes"),
+		readNote: unreachable("notes"),
+		writeNote: unreachable("notes"),
+		deleteNote: unreachable("notes"),
+		viewProfiles: unreachable("profiles"),
 	};
 	return { events, replacements, runtime };
 }

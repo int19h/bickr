@@ -513,6 +513,28 @@ describe('BotRuntime storage retention', () => {
 		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM loop_messages`)[0]?.count).toBe(1);
 	});
 
+	it('serves note IDs and content only to the owner', async () => {
+		const runtime = construct();
+		database.prepare(`INSERT INTO notes (note_id, content, created_at, updated_at) VALUES ('private', 'A private thought', ?, ?)`).run(now.toISOString(), now.toISOString());
+		const request = (userId: string, method: 'GET' | 'POST', path: string, body?: unknown): Promise<Response> => {
+			const headers = new Headers({ 'x-bickr-user-id': userId });
+			addInternalServiceAuthHeader(headers, internalServiceSecret);
+			if (body) headers.set('content-type', 'application/json');
+			return runtime.fetch(new Request(internalServiceUrl(`/bots/${botId}/notes${path}`), {
+				method, headers, ...(body ? { body: JSON.stringify(body) } : {}),
+			}));
+		};
+
+		expect((await request('usr-visitor', 'GET', '')).status).toBe(403);
+		expect((await request('usr-visitor', 'POST', '/read', { id: 'private' })).status).toBe(403);
+		expect((await request('usr-visitor', 'POST', '/delete', { id: 'private' })).status).toBe(403);
+		expect(await (await request('usr-owner', 'GET', '')).json()).toMatchObject({ data: { ids: ['private'] } });
+		expect(await (await request('usr-owner', 'POST', '/read', { id: 'private' })).json())
+			.toMatchObject({ data: { note: { id: 'private', content: 'A private thought' } } });
+		expect((await request('usr-owner', 'POST', '/delete', { id: 'private' })).status).toBe(200);
+		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM notes`)[0]?.count).toBe(0);
+	});
+
 	function insertMessage(
 		seq: number,
 		options: { createdAt: string; compactedBy?: number; origin?: string; deletedAt?: string },

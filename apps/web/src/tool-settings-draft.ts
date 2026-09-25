@@ -34,6 +34,7 @@ export type OpenRouterWebFetchToolDraft = {
 };
 
 export type BotToolDraft = {
+	notesEnabled: boolean;
 	openRouter: {
 		datetime: OpenRouterDatetimeToolDraft;
 		webSearch: OpenRouterWebSearchToolDraft;
@@ -49,6 +50,7 @@ type OpenRouterWebFetchToolInput = NonNullable<OpenRouterToolInput["webFetch"]>;
 
 export function toolInputFromDraft(draft: BotToolDraft): BotToolSettingsInput {
 	return {
+		bickrNotes: { enabled: draft.notesEnabled },
 		openRouter: {
 			datetime: openRouterDatetimeInputFromDraft(draft.openRouter.datetime),
 			webSearch: openRouterWebSearchInputFromDraft(draft.openRouter.webSearch),

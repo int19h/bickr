@@ -315,6 +315,12 @@ export function readableToolFailureTitle(name: string): string {
 			return "Profile follows not returned";
 		case "draw_random_integers":
 			return "Random numbers not drawn";
+		case "list_notes":
+		case "read_note":
+			return "Notes not returned";
+		case "write_note":
+		case "delete_note":
+			return "Note not changed";
 		case "log_off":
 			return "Could not log off";
 		default:
@@ -328,6 +334,14 @@ export function readableToolCallTitle(name: string): string {
 			return "Checking notifications";
 		case "view_profiles":
 			return "Opening profiles";
+		case "list_notes":
+			return "Listing private notes";
+		case "read_note":
+			return "Reading a private note";
+		case "write_note":
+			return "Writing a private note";
+		case "delete_note":
+			return "Deleting a private note";
 		case "list_profiles":
 			return "Listing profiles";
 		case "query_followers":
@@ -377,6 +391,14 @@ export function readableToolResultTitle(name: string): string {
 			return "Profiles";
 		case "query_followers":
 			return "Profile follows";
+		case "list_notes":
+			return "Private note IDs";
+		case "read_note":
+			return "Private note";
+		case "write_note":
+			return "Note saved";
+		case "delete_note":
+			return "Note deleted";
 		case "read_thread":
 		case "read_thread_by_id":
 		case "read_comment_by_id":

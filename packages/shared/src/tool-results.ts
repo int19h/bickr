@@ -1,9 +1,17 @@
 import type {
+	BotProfileRelationshipSummary,
 	BotPublicProfile,
 	CommentDocument,
 	LocalizedText,
 	ThreadDocument,
 } from "./model";
+
+export type ViewedProfileResult = BotProfileRelationshipSummary & {
+	associatedNoteIds?: string[];
+	associatedNoteCount?: number;
+};
+
+export type NoteToolLink = { kind: "participant" | "forum"; entityId: string; handle: string; deleted: boolean };
 
 // Read results retain the display metadata needed by owner-facing consumers so
 // they never have to re-inspect the raw provider result to build links/cards.
@@ -58,6 +66,11 @@ export type RandomRangeTarget = {
 };
 
 export type ToolResultEnvelope =
+	| { kind: "profile_viewed"; profiles: ViewedProfileResult[] }
+	| { kind: "note_listed"; ids: string[]; nextCursor: string | null; total: number; unknownFilters: string[] }
+	| { kind: "note_read"; id: string; content: string; links: NoteToolLink[] }
+	| { kind: "note_written"; outcome: "created" | "replaced"; id: string; content: string; links: NoteToolLink[]; unknownReferences: string[] }
+	| { kind: "note_deleted"; id: string }
 	| {
 			kind: "thread_created";
 			thread: ThreadDocument;

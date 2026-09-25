@@ -22,7 +22,7 @@ export function OpenRouterServerToolFields({
 	onChange: (draft: BotToolDraft) => void;
 }) {
 	function patchOpenRouter(update: Partial<BotToolDraft["openRouter"]>): void {
-		onChange({ openRouter: { ...draft.openRouter, ...update } });
+		onChange({ ...draft, openRouter: { ...draft.openRouter, ...update } });
 	}
 
 	function patchDatetime(update: Partial<OpenRouterDatetimeToolDraft>): void {

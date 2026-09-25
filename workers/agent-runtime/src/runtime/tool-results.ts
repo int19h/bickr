@@ -70,14 +70,29 @@ export function providerToolResultPayload(
 		return providerProfileListResult(runtimeRecord(result), options.tokenBudget);
 	}
 	if (canonical === 'view_profiles') {
-		const record = runtimeRecord(result);
-		const profiles = Array.isArray(record.profiles) ? record.profiles : Array.isArray(result) ? result : [result];
-		const providerProfiles = profiles.map((item) => providerProfile(runtimeRecord(item)));
+		const profiles = semanticResult.kind === 'profile_viewed' ? semanticResult.profiles :
+			Array.isArray(runtimeRecord(result).profiles) ? runtimeRecord(result).profiles as unknown[] : [];
+		const providerProfiles = profiles.map((profile, index) => ({
+			...providerProfile(runtimeRecord(profile)),
+			...(semanticResult.kind === 'profile_viewed' && semanticResult.profiles[index]?.associatedNoteIds ?
+				{ noteIds: semanticResult.profiles[index].associatedNoteIds, totalNoteCount: semanticResult.profiles[index].associatedNoteCount ?? 0 } : {}),
+		}));
 		const pruned = pruneProviderArrayForBudget(providerProfiles, options.tokenBudget, (items) => ({ profiles: items }));
 		return {
-			profiles: pruned.items,
+			profiles: pruned.items.length === 0 && semanticResult.kind === 'profile_viewed' && semanticResult.profiles[0]?.associatedNoteIds?.length ?
+				[providerProfiles[0]!] : pruned.items,
 		};
 	}
+	if (semanticResult.kind === 'note_listed') {
+		return { ids: semanticResult.ids, nextCursor: semanticResult.nextCursor, total: semanticResult.total, unknownFilters: semanticResult.unknownFilters };
+	}
+	if (semanticResult.kind === 'note_read') {
+		return { id: semanticResult.id, content: semanticResult.content, links: semanticResult.links };
+	}
+	if (semanticResult.kind === 'note_written') {
+		return { outcome: semanticResult.outcome, id: semanticResult.id, links: semanticResult.links, unknownReferences: semanticResult.unknownReferences };
+	}
+	if (semanticResult.kind === 'note_deleted') return { deleted: semanticResult.id };
 	if (canonical === 'query_followers') {
 		return providerFollowerQueryResult(runtimeRecord(result));
 	}
@@ -163,6 +178,7 @@ export function providerToolResultUsesTokenBudget(name: string): boolean {
 		canonical === 'search_profiles' ||
 		canonical === 'list_profiles' ||
 		canonical === 'view_profiles' ||
+		canonical === 'list_notes' ||
 		canonical === 'view_activity'
 	);
 }

@@ -62,10 +62,27 @@ const handleCharacterRunPattern = /[\p{Letter}\p{Number}\p{Mark}_-]+/uy;
 // Recognition-only pattern for references that are already canonical. Its left
 // boundary stays stricter than the rewrite boundary — it also excludes `/` and
 // `-` — so a profile URL such as `https://host/w/x/u/alice` does not notify.
-const canonicalMentionPattern = new RegExp(
-	`(?:^|[^\\p{Letter}\\p{Number}\\p{Mark}_/-])u/(${handlePatternSource})(?=$|[^\\p{Letter}\\p{Number}\\p{Mark}_-])`,
+const canonicalEntityReferencePattern = new RegExp(
+	`(?:^|[^\\p{Letter}\\p{Number}\\p{Mark}_/-])([uf])/(${handlePatternSource})(?=$|[^\\p{Letter}\\p{Number}\\p{Mark}_-])`,
 	"giu",
 );
+
+export type CanonicalEntityReference = {
+	readonly kind: "participant" | "forum";
+	readonly handle: string;
+};
+
+/** Finds canonical u/ and f/ references without treating URL paths as references. */
+export function extractCanonicalEntityReferences(text: string): CanonicalEntityReference[] {
+	const references: CanonicalEntityReference[] = [];
+	for (const match of text.matchAll(canonicalEntityReferencePattern)) {
+		const handle = match[2] === undefined ? null : tryNormalizeHandleText(match[2]);
+		if (handle === null) continue;
+		const kind = match[1]?.toLowerCase() === "u" ? "participant" : "forum";
+		references.push({ kind, handle });
+	}
+	return references;
+}
 
 // The world predicate takes the remaining bound-parameter slot.
 export const mentionResolutionChunkSize = d1SafeBoundParameters - 1;
@@ -101,16 +118,9 @@ export function extractMentionCandidates(text: string): MentionCandidate[] {
  * so there is nothing to rewrite.
  */
 export function extractCanonicalMentionHandles(text: string): string[] {
-	const handles: string[] = [];
-	for (const match of text.matchAll(canonicalMentionPattern)) {
-		// The captured token already matches the handle grammar; only NFKC
-		// folding can still invalidate it, and that must not throw here.
-		const handle = match[1] === undefined ? null : tryNormalizeHandleText(match[1]);
-		if (handle !== null) {
-			handles.push(handle);
-		}
-	}
-	return handles;
+	return extractCanonicalEntityReferences(text)
+		.filter((reference) => reference.kind === "participant")
+		.map((reference) => reference.handle);
 }
 
 /**
