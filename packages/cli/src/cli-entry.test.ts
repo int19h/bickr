@@ -33,4 +33,10 @@ describe("bickr usage", () => {
 		expect(text).toContain("bickr spotlight send");
 		expect(text).toContain("w/world/g/GROUP");
 	}, 30_000);
+
+	it("documents the participant notification commands", async () => {
+		const text = await usage();
+		expect(text).toContain("bickr bots notifications list <bot> [--limit 1-50]");
+		expect(text).toContain("bickr bots notifications read <bot> <notification-id...>");
+	}, 30_000);
 });

@@ -50,6 +50,8 @@ import {
 	type NotificationThreadPostRef,
 	type NotificationThreadRef,
 	type NotificationType,
+	type StoredNotificationEvent,
+	storedNotificationEvent,
 	type NotificationProfileRef,
 	type RequiredLocalizedText,
 	type SearchThreadResult,
@@ -88,6 +90,7 @@ import {
 	listUserBotsByIds,
 	normalizeForumDefaults,
 	normalizeWorldDefaults,
+	rawBotById,
 	RepositoryError,
 	type RepositoryErrorDetails,
 	worldSummariesByIds,
@@ -5909,6 +5912,309 @@ export async function deleteDeliveredNotifications(
 		notifications.map((notification) => ({ id: notification.id, botId: notification.botId })),
 		notificationPruneKvDeleteChunkSize,
 	);
+}
+
+/** Default page size of {@link listOwnedBotPendingNotifications}. */
+export const ownedBotNotificationListDefaultLimit = 20;
+/** Largest page {@link listOwnedBotPendingNotifications} returns. */
+export const ownedBotNotificationListMaxLimit = 50;
+/**
+ * Most IDs one {@link markOwnedBotNotificationsRead} call accepts. Kept equal to
+ * the list maximum so a full page can always be marked in one call, and far
+ * below {@link d1SafeBoundParameters} so the bot id rides along in one statement.
+ */
+export const ownedBotNotificationMarkReadMaxIds = ownedBotNotificationListMaxLimit;
+/**
+ * Rows one owner listing may examine, pending rows whose document is missing
+ * included. Without a cap, a bot whose newest rows are all ghosts would make a
+ * read-only call walk its entire pending backlog.
+ */
+const ownedBotNotificationListScanLimit = 100;
+/**
+ * Queries one owner listing may issue. Ghost rows force a refill, and a small
+ * limit would otherwise refill one row at a time up to the scan cap. A listing
+ * cut short by either cap still reports `hasMore`.
+ */
+const ownedBotNotificationListRounds = 4;
+
+/**
+ * One pending notification as its owner sees it: the stored document, reduced
+ * to the fields that describe the notification rather than its storage.
+ */
+export type OwnedBotPendingNotification = {
+	id: string;
+	botId: string;
+	worldId: string;
+	notificationType: NotificationType;
+	createdAt: string;
+	message: LocalizedText;
+	sourceObjectId?: string;
+	/** Absent only on documents old enough to predate stored events. */
+	event?: StoredNotificationEvent;
+};
+
+export type OwnedBotPendingNotificationPage = {
+	botId: string;
+	/** Newest first: `createdAt` descending, then `id` descending. */
+	notifications: OwnedBotPendingNotification[];
+	/**
+	 * Pending rows this call passed over because their KV document was missing.
+	 * The loop's ghost self-heal and the prune remove such rows; a listing does
+	 * not, because it must never change what the participant will be handed.
+	 */
+	unavailableCount: number;
+	/** True when older pending rows exist beyond what this call examined. */
+	hasMore: boolean;
+};
+
+export type OwnedBotNotificationMarkReadResult = {
+	botId: string;
+	/** Distinct requested notifications this call removed from the pending set. */
+	markedReadCount: number;
+	/**
+	 * Distinct requested IDs that were not pending for this bot when the call ran:
+	 * already marked read, already handed to the participant by a visit, expired,
+	 * or never issued. Repeating a call therefore moves its IDs here.
+	 */
+	notPendingCount: number;
+};
+
+/**
+ * Why a mark-read call was refused. Every rejection is decided before the
+ * DELETE, so a rejected call has written nothing and the caller can report a
+ * definite failure instead of an unknown outcome.
+ */
+export type OwnedBotNotificationRejection =
+	| { kind: "rejected"; error: "bad_request"; status: 400; message: string }
+	| { kind: "rejected"; error: "forbidden"; status: 403; message: string }
+	| { kind: "rejected"; error: "not_found"; status: 404; message: string };
+
+export type OwnedBotNotificationMarkReadOutcome =
+	| { kind: "marked"; result: OwnedBotNotificationMarkReadResult }
+	| OwnedBotNotificationRejection;
+
+/**
+ * The owner-facing view of a participant's pending notifications, newest first.
+ *
+ * Deliberately not {@link listPendingNotifications}: that function answers what
+ * one visit is handed, in priority order, and heals ghost rows as it goes. This
+ * one answers what is waiting, in recency order, and writes nothing — listing
+ * neither consumes a notification nor changes which ones the next visit gets.
+ * The pause state of the participant is irrelevant to both reads.
+ *
+ * The query walks the `notifications_delivery` index (bot_id, status,
+ * created_at) by keyset, so each round reads only the rows it returns.
+ */
+export async function listOwnedBotPendingNotifications(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	input: { ownerUserId: string; botId: string; limit?: number },
+): Promise<OwnedBotPendingNotificationPage> {
+	const limit = ownedBotNotificationListLimit(input.limit);
+	await requireNotificationOwner(kv, db, input.ownerUserId, input.botId);
+	const notifications: OwnedBotPendingNotification[] = [];
+	let unavailableCount = 0;
+	let scanned = 0;
+	let cursor: { createdAt: string; id: string } | null = null;
+	let hasMore = false;
+	for (let round = 0; round < ownedBotNotificationListRounds && notifications.length < limit; round += 1) {
+		const budget = Math.min(limit - notifications.length, ownedBotNotificationListScanLimit - scanned);
+		if (budget <= 0) {
+			// The scan cap stopped the walk. The previous round saw an older row, so
+			// hasMore is already true.
+			break;
+		}
+		// One row past the budget tells whether anything older remains without a
+		// separate COUNT.
+		const rows = await selectRecentPendingNotificationRows(db, input.botId, budget + 1, cursor);
+		hasMore = rows.length > budget;
+		const page = rows.slice(0, budget);
+		if (page.length === 0) {
+			break;
+		}
+		scanned += page.length;
+		const documents = await Promise.all(
+			page.map((row) => readJson<NotificationDocument>(kv, kvKeys.notification(input.botId, row.id))),
+		);
+		for (const document of documents) {
+			// The same test the loop applies before handing a document to a visit.
+			if (document && !document.deletedAt) {
+				notifications.push(ownedBotPendingNotification(document));
+			} else {
+				unavailableCount += 1;
+			}
+		}
+		const last = page[page.length - 1]!;
+		cursor = { createdAt: last.createdAt, id: last.id };
+		if (!hasMore) {
+			break;
+		}
+	}
+	return { botId: input.botId, notifications, unavailableCount, hasMore };
+}
+
+/**
+ * Removes the named pending notifications of one owned participant, so no
+ * later visit is handed them.
+ *
+ * This is the delivery deletion of {@link deleteDeliveredNotifications} applied
+ * to an explicit owner choice, in the same D1-then-KV order and for the same
+ * reason. Only the named IDs are touched: nothing newer that the owner has not
+ * seen is swept along. What it deliberately does not do is record the content
+ * as seen by the participant, since the participant never saw it.
+ *
+ * An ID that belongs to another bot is rejected before anything is deleted.
+ * `bot_id` never changes on a row, so the check cannot be invalidated between
+ * the read and the delete, and the delete is itself bounded by `bot_id`. An ID
+ * with no row is indistinguishable from one already consumed and is counted as
+ * not pending, which is what makes repeating a call safe.
+ *
+ * A visit that already read a notification before the owner marked it still
+ * presents it; marking read controls what later visits receive. Marking the
+ * bootstrap notification read leaves `bootstrap_notified_at` set, exactly as
+ * delivering it would, so it is not recreated.
+ */
+export async function markOwnedBotNotificationsRead(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	input: { ownerUserId: string; botId: string; notificationIds: readonly string[] },
+): Promise<OwnedBotNotificationMarkReadOutcome> {
+	const notificationIds = ownedBotNotificationMarkReadIds(input.notificationIds);
+	if (notificationIds.kind === "rejected") {
+		return notificationIds;
+	}
+	const ids = notificationIds.ids;
+	const ownerRejection = await notificationOwnerRejection(kv, db, input.ownerUserId, input.botId);
+	if (ownerRejection) {
+		return ownerRejection;
+	}
+	const placeholders = ids.map(() => "?").join(", ");
+	const foreign = await db
+		.prepare(
+			`SELECT COUNT(*) AS count
+			 FROM notifications
+			 WHERE notification_id IN (${placeholders}) AND bot_id <> ?`,
+		)
+		.bind(...ids, input.botId)
+		.first<{ count: number }>();
+	if ((foreign?.count ?? 0) > 0) {
+		return { kind: "rejected", error: "bad_request", status: 400, message: "Every notification ID must belong to the named bot." };
+	}
+	const deleted = await db
+		.prepare(
+			`DELETE FROM notifications
+			 WHERE bot_id = ? AND status = 'pending' AND notification_id IN (${placeholders})
+			 RETURNING notification_id AS id`,
+		)
+		.bind(input.botId, ...ids)
+		.all<{ id: string }>();
+	const deletedIds = (deleted.results ?? []).map((row) => row.id);
+	// Best effort, as on delivery: a document whose row is gone is invisible to
+	// every reader and expires on its TTL.
+	await deleteNotificationKvDocuments(
+		kv,
+		deletedIds.map((id) => ({ id, botId: input.botId })),
+		notificationPruneKvDeleteChunkSize,
+	);
+	return {
+		kind: "marked",
+		result: {
+			botId: input.botId,
+			markedReadCount: deletedIds.length,
+			notPendingCount: ids.length - deletedIds.length,
+		},
+	};
+}
+
+function ownedBotNotificationListLimit(value: number | undefined): number {
+	if (value === undefined) {
+		return ownedBotNotificationListDefaultLimit;
+	}
+	if (!Number.isInteger(value) || value < 1 || value > ownedBotNotificationListMaxLimit) {
+		throw new InputError(`Notification limit must be an integer from 1 through ${ownedBotNotificationListMaxLimit}.`);
+	}
+	return value;
+}
+
+function ownedBotNotificationMarkReadIds(
+	values: readonly string[],
+): { kind: "accepted"; ids: string[] } | OwnedBotNotificationRejection {
+	const unique = [...new Set(values)];
+	if (unique.length === 0 || unique.length > ownedBotNotificationMarkReadMaxIds) {
+		return { kind: "rejected", error: "bad_request", status: 400, message: `Provide from 1 through ${ownedBotNotificationMarkReadMaxIds} notification IDs.` };
+	}
+	if (unique.some((id) => id.length === 0)) {
+		return { kind: "rejected", error: "bad_request", status: 400, message: "Notification IDs must be non-empty strings." };
+	}
+	return { kind: "accepted", ids: unique };
+}
+
+async function requireNotificationOwner(kv: KVNamespaceLike, db: D1DatabaseLike, ownerUserId: string, botId: string): Promise<void> {
+	const rejection = await notificationOwnerRejection(kv, db, ownerUserId, botId);
+	if (rejection) {
+		throw new RepositoryError(rejection.error, rejection.message, rejection.status);
+	}
+}
+
+/**
+ * Ownership comes from the bot document, the same authority every other owner
+ * path consults. A deleted bot is not found; a paused one is still owned.
+ * `rawBotById` reports a missing bot by throwing, so that one typed cause is
+ * turned into a rejection here and anything else still propagates.
+ */
+async function notificationOwnerRejection(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	botId: string,
+): Promise<OwnedBotNotificationRejection | null> {
+	let bot: BotDocument;
+	try {
+		bot = await rawBotById(kv, db, botId);
+	} catch (error) {
+		if (error instanceof RepositoryError && error.code === "not_found") {
+			return { kind: "rejected", error: "not_found", status: 404, message: error.message };
+		}
+		throw error;
+	}
+	if (bot.ownerUserId !== ownerUserId) {
+		return { kind: "rejected", error: "forbidden", status: 403, message: "You can only manage notifications of bots you own." };
+	}
+	return null;
+}
+
+async function selectRecentPendingNotificationRows(
+	db: D1DatabaseLike,
+	botId: string,
+	limit: number,
+	after: { createdAt: string; id: string } | null,
+): Promise<Array<{ id: string; createdAt: string }>> {
+	const keyset = after ? "AND (created_at < ? OR (created_at = ? AND notification_id < ?))" : "";
+	const result = await db
+		.prepare(
+			`SELECT notification_id AS id, created_at AS createdAt
+			 FROM notifications
+			 WHERE bot_id = ? AND status = 'pending' ${keyset}
+			 ORDER BY created_at DESC, notification_id DESC
+			 LIMIT ?`,
+		)
+		.bind(botId, ...(after ? [after.createdAt, after.createdAt, after.id] : []), limit)
+		.all<{ id: string; createdAt: string }>();
+	return result.results ?? [];
+}
+
+function ownedBotPendingNotification(document: NotificationDocument): OwnedBotPendingNotification {
+	const event = storedNotificationEvent(document.event);
+	return {
+		id: document.id,
+		botId: document.botId,
+		worldId: document.worldId,
+		notificationType: document.notificationType,
+		createdAt: document.createdAt,
+		message: localizedTextFromStored(document.message),
+		...(document.sourceObjectId ? { sourceObjectId: document.sourceObjectId } : {}),
+		...(event ? { event } : {}),
+	};
 }
 
 export async function pruneExpiredNotifications(

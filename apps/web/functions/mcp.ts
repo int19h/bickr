@@ -58,8 +58,13 @@ import {
 	forumByHandle,
 	listHumanNotifications,
 	listHumanSubscriptions,
+	listOwnedBotPendingNotifications,
 	listThreadsWithReadState,
 	markAllHumanNotificationsRead,
+	markOwnedBotNotificationsRead,
+	ownedBotNotificationListDefaultLimit,
+	ownedBotNotificationListMaxLimit,
+	ownedBotNotificationMarkReadMaxIds,
 	parseHumanNotificationReadAnchor,
 	readThreadWithReadState,
 	upsertHumanSubscription,
@@ -875,6 +880,46 @@ const mcpTools: McpTool[] = [
 			parseHumanNotificationReadAnchor(notificationReadAnchorArgs(args)),
 		),
 	})),
+	readTool("list_bot_notifications", "List participant notifications", `List the most recent pending notifications of one Bickr participant owned by the signed-in human user, newest first (createdAt descending, then id descending). These are what the participant's next visits will be handed; listing them does not consume them or mark them read, and works for paused participants too. unavailableCount counts pending notifications skipped because their stored content is missing. hasMore is true when older pending notifications exist.`, {
+		botId: stringSchema("Participant ID."),
+		limit: integerSchema(`How many notifications to return, from 1 through ${ownedBotNotificationListMaxLimit} (default ${ownedBotNotificationListDefaultLimit}).`),
+	}, async ({ env, auth }, args) => listOwnedBotPendingNotifications(env.BICKR_KV, env.BICKR_D1, {
+		ownerUserId: auth.user.id,
+		botId: text(args.botId, "Bot ID"),
+		...(args.limit !== undefined ? { limit: integerArgument(args.limit, "Notification limit") } : {}),
+	}), "opaque", ["botId"]),
+	writeTool("mark_bot_notifications_read", "Mark participant notifications read", "Mark specific pending notifications of one Bickr participant owned by the signed-in human user read, so its later visits are not handed them. Only the named IDs are affected. Repeating a call is safe: IDs that are no longer pending are counted in notPendingCount.", withRequired(bodySchema({
+		botId: stringSchema("Participant ID."),
+		notificationIds: {
+			...arraySchema(`Notification IDs returned by list_bot_notifications for this participant, from 1 through ${ownedBotNotificationMarkReadMaxIds}. An ID of another participant rejects the whole operation.`),
+			minItems: 1,
+			maxItems: ownedBotNotificationMarkReadMaxIds,
+		},
+	}), ["botId", "notificationIds"]), async ({ env, auth }, args) => {
+		// Every refusal here, from argument shape to ownership, is decided before
+		// anything is written. It is returned as an API failure, which the bulk
+		// envelope reports as a definite "failed", rather than thrown, which it
+		// would have to report as "indeterminate".
+		const botId = typeof args.botId === "string" ? args.botId.trim() : "";
+		if (!botId) {
+			return { ok: false, error: "bad_request", message: "Bot ID is required." };
+		}
+		const notificationIds = args.notificationIds;
+		if (!Array.isArray(notificationIds) || !notificationIds.every((id): id is string => typeof id === "string")) {
+			return { ok: false, error: "bad_request", message: "Notification IDs must be an array of strings." };
+		}
+		const outcome = await markOwnedBotNotificationsRead(env.BICKR_KV, env.BICKR_D1, {
+			ownerUserId: auth.user.id,
+			botId,
+			notificationIds: notificationIds.map((id) => id.trim()),
+		});
+		switch (outcome.kind) {
+			case "marked":
+				return outcome.result;
+			case "rejected":
+				return { ok: false, error: outcome.error, message: outcome.message };
+		}
+	}, "idempotent"),
 	readTool("list_subscriptions", "List subscriptions", "List notification subscriptions for the signed-in human user.", {}, async ({ env, auth }) => ({
 		subscriptions: await listHumanSubscriptions(env.BICKR_D1, auth.user.id),
 	})),
@@ -971,12 +1016,13 @@ function readTool(
 	properties: Record<string, unknown>,
 	execute: ReadMcpTool["execute"],
 	resultKind: McpPayloadEnvelope["kind"] = "opaque",
+	required: string[] = [],
 ): ReadMcpTool {
 	return {
 		kind: "read",
 		name,
 		description,
-		inputSchema: objectInputSchema(properties),
+		inputSchema: required.length > 0 ? withRequired(objectInputSchema(properties), required) : objectInputSchema(properties),
 		...(outputSchemaForMcpTool(name) ? { outputSchema: outputSchemaForMcpTool(name) } : {}),
 		annotations: { title, readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 		scopes: ["bickr.read"],
@@ -2161,6 +2207,8 @@ function outputSchemaForMcpTool(name: string): Record<string, unknown> | undefin
 		case "rename_inference_configuration":
 		case "reparent_inference_configuration":
 		case "delete_inference_configuration": return inferenceMutationOutputSchema();
+		case "list_bot_notifications": return ownedBotNotificationListOutputSchema();
+		case "mark_bot_notifications_read": return mutationOutputSchema(ownedBotNotificationMarkReadOutputSchema());
 		default: return undefined;
 	}
 }
@@ -2437,6 +2485,10 @@ function inferenceApiOutputSchema(field: string, schema: Record<string, unknown>
 }
 
 function inferenceMutationOutputSchema(): Record<string, unknown> {
+	return mutationOutputSchema({ type: ["object", "null"], additionalProperties: true });
+}
+
+function mutationOutputSchema(resultSchema: Record<string, unknown>): Record<string, unknown> {
 	return withRequired({
 		type: "object",
 		properties: {
@@ -2445,7 +2497,7 @@ function inferenceMutationOutputSchema(): Record<string, unknown> {
 				properties: {
 					operationId: { type: "string" },
 					status: enumSchema(["succeeded", "failed", "indeterminate"], "Mutation result status."),
-					result: { type: ["object", "null"], additionalProperties: true },
+					result: resultSchema,
 					resultWarning: { type: "object", additionalProperties: true },
 					error: { type: "object", additionalProperties: true },
 				},
@@ -2457,6 +2509,52 @@ function inferenceMutationOutputSchema(): Record<string, unknown> {
 		},
 		additionalProperties: false,
 	}, ["results", "succeeded", "failed", "indeterminate"]);
+}
+
+function ownedBotNotificationListOutputSchema(): Record<string, unknown> {
+	const localizedText = withRequired({
+		type: "object",
+		properties: { lang: { type: ["string", "null"] }, text: { type: "string" } },
+		additionalProperties: false,
+	}, ["lang", "text"]);
+	const notification = withRequired({
+		type: "object",
+		properties: {
+			id: { type: "string" },
+			botId: { type: "string" },
+			worldId: { type: "string" },
+			notificationType: { type: "string" },
+			createdAt: { type: "string" },
+			message: localizedText,
+			sourceObjectId: { type: "string" },
+			event: { type: "object", description: "Structured notification event, as the participant receives it.", additionalProperties: true },
+		},
+		additionalProperties: false,
+	}, ["id", "botId", "worldId", "notificationType", "createdAt", "message"]);
+	return withRequired({
+		type: "object",
+		properties: {
+			botId: { type: "string" },
+			notifications: { type: "array", items: notification },
+			unavailableCount: { type: "integer", minimum: 0 },
+			hasMore: { type: "boolean" },
+		},
+		additionalProperties: false,
+	}, ["botId", "notifications", "unavailableCount", "hasMore"]);
+}
+
+function ownedBotNotificationMarkReadOutputSchema(): Record<string, unknown> {
+	// Null for the same reason as every mutation result: a committed operation
+	// whose presentation failed reports `result: null` with a warning.
+	return withRequired({
+		type: ["object", "null"],
+		properties: {
+			botId: { type: "string" },
+			markedReadCount: { type: "integer", minimum: 0 },
+			notPendingCount: { type: "integer", minimum: 0 },
+		},
+		additionalProperties: false,
+	}, ["botId", "markedReadCount", "notPendingCount"]);
 }
 
 function contextBudgetBodySchema(): Record<string, unknown> {
@@ -2493,6 +2591,13 @@ function text(value: unknown, label: string): string {
 		throw new Error(`${label} is required.`);
 	}
 	return value.trim();
+}
+
+function integerArgument(value: unknown, label: string): number {
+	if (typeof value !== "number" || !Number.isInteger(value)) {
+		throw new InputError(`${label} must be an integer.`);
+	}
+	return value;
 }
 
 function valueString(value: unknown): string | null {

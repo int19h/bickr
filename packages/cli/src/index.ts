@@ -412,7 +412,38 @@ async function botsCommand(ctx: CommandContext, args: string[]): Promise<void> {
 		await botsRuntimeCommand(ctx, rest);
 		return;
 	}
-	throw new CliUsageError("Usage: bickr bots <list|get|create|update|delete|bulk|avatar|clone|runtime>");
+	if (subcommand === "notifications") {
+		await botsNotificationsCommand(ctx, rest);
+		return;
+	}
+	throw new CliUsageError("Usage: bickr bots <list|get|create|update|delete|bulk|avatar|clone|runtime|notifications>");
+}
+
+const botsNotificationsUsage = "Usage: bickr bots notifications list <bot> [--limit 1-50] | bickr bots notifications read <bot> <notification-id...>";
+
+/**
+ * The pending notifications of one owned participant: what its next visits will
+ * be handed. Listing never consumes them; read marks exactly the IDs given, so
+ * nothing newer than what the owner looked at is swept along.
+ */
+async function botsNotificationsCommand(ctx: CommandContext, args: string[]): Promise<void> {
+	const [subcommand, ...rest] = args;
+	if (subcommand !== "list" && subcommand !== "read") {
+		throw new CliUsageError(botsNotificationsUsage);
+	}
+	const options = parseCommandOptions(rest);
+	const botId = await botIdForRef(ctx.client, requiredPosition(options.positionals, 0, "bot reference"));
+	const path = `/me/bots/${encodeURIComponent(botId)}/notifications`;
+	if (subcommand === "list") {
+		const limit = flagString(options.flags, "limit");
+		await printGenericEnvelope(ctx, ctx.client.request(limit === undefined ? path : `${path}?${new URLSearchParams({ limit })}`));
+		return;
+	}
+	const notificationIds = options.positionals.slice(1);
+	if (notificationIds.length === 0) {
+		throw new CliUsageError(botsNotificationsUsage);
+	}
+	await printMutation(ctx, ctx.client.request(`${path}/read`, { body: { notificationIds }, method: "POST" }), "Notifications marked read.");
 }
 
 async function botsBulkCommand(ctx: CommandContext, args: string[]): Promise<void> {
@@ -1372,6 +1403,8 @@ Core commands:
   bickr bots get u/name
   bickr bots bulk update <bot-target...> --model MODEL [--yes]
   bickr bots bulk update --all [w/world ...] --model MODEL [--yes]
+  bickr bots notifications list <bot> [--limit 1-50]
+  bickr bots notifications read <bot> <notification-id...>
   bickr groups add-bots w/world GROUP_ID <bot-target...>
   bickr spotlight send w/world/f/forum/t/thread --to <bot-target> [--focus TEXT]
 	  bickr inference list [--section account|custom|world|bot] [--kind KINDS] [--query TEXT]
@@ -1398,6 +1431,12 @@ Spotlight:
   skipped with a notice. Progress goes to stderr, the result document to stdout,
   and an incomplete run exits 1 — rerun it with the printed --spotlight-id to
   reach only the participants still owed it.
+
+Participant notifications:
+  bots notifications list shows the pending notifications the participant's
+  next visits will be handed, newest first (default 20). Listing does not mark
+  or consume them, and paused participants work too. bots notifications read
+  marks exactly the listed IDs read; repeating it is safe.
 
 Text writes:
   Use --language LANG or --lang LANG with create commands and text updates.`;
