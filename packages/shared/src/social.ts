@@ -5980,6 +5980,20 @@ export type OwnedBotNotificationMarkReadResult = {
 };
 
 /**
+ * Why a mark-read call was refused. Every rejection is decided before the
+ * DELETE, so a rejected call has written nothing and the caller can report a
+ * definite failure instead of an unknown outcome.
+ */
+export type OwnedBotNotificationRejection =
+	| { kind: "rejected"; error: "bad_request"; status: 400; message: string }
+	| { kind: "rejected"; error: "forbidden"; status: 403; message: string }
+	| { kind: "rejected"; error: "not_found"; status: 404; message: string };
+
+export type OwnedBotNotificationMarkReadOutcome =
+	| { kind: "marked"; result: OwnedBotNotificationMarkReadResult }
+	| OwnedBotNotificationRejection;
+
+/**
  * The owner-facing view of a participant's pending notifications, newest first.
  *
  * Deliberately not {@link listPendingNotifications}: that function answers what
@@ -6064,20 +6078,27 @@ export async function markOwnedBotNotificationsRead(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	input: { ownerUserId: string; botId: string; notificationIds: readonly string[] },
-): Promise<OwnedBotNotificationMarkReadResult> {
+): Promise<OwnedBotNotificationMarkReadOutcome> {
 	const notificationIds = ownedBotNotificationMarkReadIds(input.notificationIds);
-	await requireNotificationOwner(kv, db, input.ownerUserId, input.botId);
-	const placeholders = notificationIds.map(() => "?").join(", ");
+	if (notificationIds.kind === "rejected") {
+		return notificationIds;
+	}
+	const ids = notificationIds.ids;
+	const ownerRejection = await notificationOwnerRejection(kv, db, input.ownerUserId, input.botId);
+	if (ownerRejection) {
+		return ownerRejection;
+	}
+	const placeholders = ids.map(() => "?").join(", ");
 	const foreign = await db
 		.prepare(
 			`SELECT COUNT(*) AS count
 			 FROM notifications
 			 WHERE notification_id IN (${placeholders}) AND bot_id <> ?`,
 		)
-		.bind(...notificationIds, input.botId)
+		.bind(...ids, input.botId)
 		.first<{ count: number }>();
 	if ((foreign?.count ?? 0) > 0) {
-		throw new InputError("Every notification ID must belong to the named bot.");
+		return { kind: "rejected", error: "bad_request", status: 400, message: "Every notification ID must belong to the named bot." };
 	}
 	const deleted = await db
 		.prepare(
@@ -6085,7 +6106,7 @@ export async function markOwnedBotNotificationsRead(
 			 WHERE bot_id = ? AND status = 'pending' AND notification_id IN (${placeholders})
 			 RETURNING notification_id AS id`,
 		)
-		.bind(input.botId, ...notificationIds)
+		.bind(input.botId, ...ids)
 		.all<{ id: string }>();
 	const deletedIds = (deleted.results ?? []).map((row) => row.id);
 	// Best effort, as on delivery: a document whose row is gone is invisible to
@@ -6096,9 +6117,12 @@ export async function markOwnedBotNotificationsRead(
 		notificationPruneKvDeleteChunkSize,
 	);
 	return {
-		botId: input.botId,
-		markedReadCount: deletedIds.length,
-		notPendingCount: notificationIds.length - deletedIds.length,
+		kind: "marked",
+		result: {
+			botId: input.botId,
+			markedReadCount: deletedIds.length,
+			notPendingCount: ids.length - deletedIds.length,
+		},
 	};
 }
 
@@ -6112,26 +6136,51 @@ function ownedBotNotificationListLimit(value: number | undefined): number {
 	return value;
 }
 
-function ownedBotNotificationMarkReadIds(values: readonly string[]): string[] {
+function ownedBotNotificationMarkReadIds(
+	values: readonly string[],
+): { kind: "accepted"; ids: string[] } | OwnedBotNotificationRejection {
 	const unique = [...new Set(values)];
 	if (unique.length === 0 || unique.length > ownedBotNotificationMarkReadMaxIds) {
-		throw new InputError(`Provide from 1 through ${ownedBotNotificationMarkReadMaxIds} notification IDs.`);
+		return { kind: "rejected", error: "bad_request", status: 400, message: `Provide from 1 through ${ownedBotNotificationMarkReadMaxIds} notification IDs.` };
 	}
 	if (unique.some((id) => id.length === 0)) {
-		throw new InputError("Notification IDs must be non-empty strings.");
+		return { kind: "rejected", error: "bad_request", status: 400, message: "Notification IDs must be non-empty strings." };
 	}
-	return unique;
+	return { kind: "accepted", ids: unique };
+}
+
+async function requireNotificationOwner(kv: KVNamespaceLike, db: D1DatabaseLike, ownerUserId: string, botId: string): Promise<void> {
+	const rejection = await notificationOwnerRejection(kv, db, ownerUserId, botId);
+	if (rejection) {
+		throw new RepositoryError(rejection.error, rejection.message, rejection.status);
+	}
 }
 
 /**
  * Ownership comes from the bot document, the same authority every other owner
  * path consults. A deleted bot is not found; a paused one is still owned.
+ * `rawBotById` reports a missing bot by throwing, so that one typed cause is
+ * turned into a rejection here and anything else still propagates.
  */
-async function requireNotificationOwner(kv: KVNamespaceLike, db: D1DatabaseLike, ownerUserId: string, botId: string): Promise<void> {
-	const bot = await rawBotById(kv, db, botId);
-	if (bot.ownerUserId !== ownerUserId) {
-		throw new RepositoryError("forbidden", "You can only manage notifications of bots you own.", 403);
+async function notificationOwnerRejection(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	ownerUserId: string,
+	botId: string,
+): Promise<OwnedBotNotificationRejection | null> {
+	let bot: BotDocument;
+	try {
+		bot = await rawBotById(kv, db, botId);
+	} catch (error) {
+		if (error instanceof RepositoryError && error.code === "not_found") {
+			return { kind: "rejected", error: "not_found", status: 404, message: error.message };
+		}
+		throw error;
 	}
+	if (bot.ownerUserId !== ownerUserId) {
+		return { kind: "rejected", error: "forbidden", status: 403, message: "You can only manage notifications of bots you own." };
+	}
+	return null;
 }
 
 async function selectRecentPendingNotificationRows(

@@ -895,11 +895,31 @@ const mcpTools: McpTool[] = [
 			minItems: 1,
 			maxItems: ownedBotNotificationMarkReadMaxIds,
 		},
-	}), ["botId", "notificationIds"]), async ({ env, auth }, args) => markOwnedBotNotificationsRead(env.BICKR_KV, env.BICKR_D1, {
-		ownerUserId: auth.user.id,
-		botId: text(args.botId, "Bot ID"),
-		notificationIds: stringList(args.notificationIds, "Notification IDs"),
-	}), "idempotent"),
+	}), ["botId", "notificationIds"]), async ({ env, auth }, args) => {
+		// Every refusal here, from argument shape to ownership, is decided before
+		// anything is written. It is returned as an API failure, which the bulk
+		// envelope reports as a definite "failed", rather than thrown, which it
+		// would have to report as "indeterminate".
+		const botId = typeof args.botId === "string" ? args.botId.trim() : "";
+		if (!botId) {
+			return { ok: false, error: "bad_request", message: "Bot ID is required." };
+		}
+		const notificationIds = args.notificationIds;
+		if (!Array.isArray(notificationIds) || !notificationIds.every((id): id is string => typeof id === "string")) {
+			return { ok: false, error: "bad_request", message: "Notification IDs must be an array of strings." };
+		}
+		const outcome = await markOwnedBotNotificationsRead(env.BICKR_KV, env.BICKR_D1, {
+			ownerUserId: auth.user.id,
+			botId,
+			notificationIds: notificationIds.map((id) => id.trim()),
+		});
+		switch (outcome.kind) {
+			case "marked":
+				return outcome.result;
+			case "rejected":
+				return { ok: false, error: outcome.error, message: outcome.message };
+		}
+	}, "idempotent"),
 	readTool("list_subscriptions", "List subscriptions", "List notification subscriptions for the signed-in human user.", {}, async ({ env, auth }) => ({
 		subscriptions: await listHumanSubscriptions(env.BICKR_D1, auth.user.id),
 	})),
@@ -2578,13 +2598,6 @@ function integerArgument(value: unknown, label: string): number {
 		throw new InputError(`${label} must be an integer.`);
 	}
 	return value;
-}
-
-function stringList(value: unknown, label: string): string[] {
-	if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
-		throw new InputError(`${label} must be an array of strings.`);
-	}
-	return value.map((item: string) => item.trim());
 }
 
 function valueString(value: unknown): string | null {

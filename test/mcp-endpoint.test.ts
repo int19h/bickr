@@ -974,9 +974,19 @@ describe("MCP endpoint", () => {
 		expect(await pendingIds()).toEqual(["ntf_mcp_foreign", "ntf_mcp_old", "ntf_mcp_sibling"]);
 
 		// Another participant's notification, even one of the same owner, is not addressable through this bot.
+		// Refusals are decided before any write, so they are definite failures.
 		expect(await markRead("bot_mcp_paused", ["ntf_mcp_old", "ntf_mcp_sibling"])).toMatchObject({
 			isError: true,
-			structuredContent: { results: [{ status: "indeterminate", error: { error: "InputError" } }] },
+			structuredContent: { failed: 1, indeterminate: 0, results: [{ status: "failed", error: { ok: false, error: "bad_request" } }] },
+		});
+		expect(await markRead("bot_mcp_paused", [])).toMatchObject({
+			structuredContent: { results: [{ status: "failed", error: { error: "bad_request" } }] },
+		});
+		expect(await call("mark_bot_notifications_read", {
+			operations: [{ operationId: "mark-bad-shape", botId: "bot_mcp_paused", notificationIds: "ntf_mcp_old" }],
+		})).toMatchObject({ structuredContent: { results: [{ status: "failed", error: { error: "bad_request" } }] } });
+		expect(await markRead("bot_mcp_missing", ["ntf_mcp_old"])).toMatchObject({
+			structuredContent: { results: [{ status: "failed", error: { error: "not_found" } }] },
 		});
 		// Another user's participant is rejected for both tools.
 		expect(await call("list_bot_notifications", { botId: "bot_mcp_foreign" })).toMatchObject({
@@ -985,7 +995,7 @@ describe("MCP endpoint", () => {
 		});
 		expect(await markRead("bot_mcp_foreign", ["ntf_mcp_foreign"])).toMatchObject({
 			isError: true,
-			structuredContent: { results: [{ status: "indeterminate", error: { error: "forbidden" } }] },
+			structuredContent: { results: [{ status: "failed", error: { ok: false, error: "forbidden" } }] },
 		});
 		expect(await call("list_bot_notifications", { botId: "bot_mcp_paused", limit: 51 })).toMatchObject({
 			isError: true,

@@ -236,7 +236,7 @@ describe("owner marking of participant notifications read", () => {
 		await insertNotification({ id: "ntf_unseen", type: "vote", createdAt: minutesBefore(1) });
 
 		const result = await markOwnedBotNotificationsRead(kv, db, { ownerUserId: owner, botId, notificationIds: ["ntf_seen", "ntf_old"] });
-		expect(result).toEqual({ botId, markedReadCount: 2, notPendingCount: 0 });
+		expect(result).toEqual({ kind: "marked", result: { botId, markedReadCount: 2, notPendingCount: 0 } });
 		expect(await rowIds()).toEqual(["ntf_unseen"]);
 		expect(await hasDocument("ntf_seen")).toBe(false);
 		expect(await hasDocument("ntf_unseen")).toBe(true);
@@ -247,22 +247,22 @@ describe("owner marking of participant notifications read", () => {
 		await insertNotification({ id: "ntf_once", type: "reply", createdAt: minutesBefore(2) });
 		await insertNotification({ id: "ntf_delivered", type: "reply", createdAt: minutesBefore(1) });
 		const first = await markOwnedBotNotificationsRead(kv, db, { ownerUserId: owner, botId, notificationIds: ["ntf_once", "ntf_once"] });
-		expect(first).toEqual({ botId, markedReadCount: 1, notPendingCount: 0 });
+		expect(first).toEqual({ kind: "marked", result: { botId, markedReadCount: 1, notPendingCount: 0 } });
 		const again = await markOwnedBotNotificationsRead(kv, db, { ownerUserId: owner, botId, notificationIds: ["ntf_once", "ntf_never"] });
-		expect(again).toEqual({ botId, markedReadCount: 0, notPendingCount: 2 });
+		expect(again).toEqual({ kind: "marked", result: { botId, markedReadCount: 0, notPendingCount: 2 } });
 
 		// A visit delivers between the owner's listing and the owner's mark.
 		const listed = await listIds();
 		await deleteDeliveredNotifications(kv, db, await listPendingNotifications(kv, db, botId, 20, { now }));
 		expect(await markOwnedBotNotificationsRead(kv, db, { ownerUserId: owner, botId, notificationIds: listed }))
-			.toEqual({ botId, markedReadCount: 0, notPendingCount: 1 });
+			.toEqual({ kind: "marked", result: { botId, markedReadCount: 0, notPendingCount: 1 } });
 	});
 
 	it("rejects the whole call when any ID belongs to another participant", async () => {
 		await insertNotification({ id: "ntf_mine", type: "reply", createdAt: minutesBefore(2) });
 		await insertNotification({ id: "ntf_sibling", type: "reply", createdAt: minutesBefore(1), botId: otherBotId });
-		await expect(markOwnedBotNotificationsRead(kv, db, { ownerUserId: owner, botId, notificationIds: ["ntf_mine", "ntf_sibling"] }))
-			.rejects.toBeInstanceOf(InputError);
+		expect(await markOwnedBotNotificationsRead(kv, db, { ownerUserId: owner, botId, notificationIds: ["ntf_mine", "ntf_sibling"] }))
+			.toMatchObject({ kind: "rejected", error: "bad_request" });
 		expect(await rowIds()).toEqual(["ntf_mine"]);
 		expect(await rowIds(otherBotId)).toEqual(["ntf_sibling"]);
 		expect(await hasDocument("ntf_sibling", otherBotId)).toBe(true);
@@ -271,7 +271,7 @@ describe("owner marking of participant notifications read", () => {
 	it("leaves rows in a retired status to the prune", async () => {
 		await insertNotification({ id: "ntf_retired", type: "reply", createdAt: minutesBefore(1), status: "read" });
 		expect(await markOwnedBotNotificationsRead(kv, db, { ownerUserId: owner, botId, notificationIds: ["ntf_retired"] }))
-			.toEqual({ botId, markedReadCount: 0, notPendingCount: 1 });
+			.toEqual({ kind: "marked", result: { botId, markedReadCount: 0, notPendingCount: 1 } });
 		expect(await rowIds()).toEqual(["ntf_retired"]);
 	});
 
@@ -280,7 +280,7 @@ describe("owner marking of participant notifications read", () => {
 		const bootstrapId = await bootstrapNotificationId("bot_new");
 		await insertNotification({ id: bootstrapId, type: "bootstrap", createdAt: minutesBefore(5), botId: "bot_new" });
 		expect(await markOwnedBotNotificationsRead(kv, db, { ownerUserId: owner, botId: "bot_new", notificationIds: [bootstrapId] }))
-			.toEqual({ botId: "bot_new", markedReadCount: 1, notPendingCount: 0 });
+			.toEqual({ kind: "marked", result: { botId: "bot_new", markedReadCount: 1, notPendingCount: 0 } });
 		const flag = await db.prepare(`SELECT bootstrap_notified_at AS at FROM bots_index WHERE bot_id = 'bot_new'`).first<{ at: string | null }>();
 		expect(flag?.at).toBe(minutesBefore(5));
 	});
@@ -289,20 +289,22 @@ describe("owner marking of participant notifications read", () => {
 		await insertBot({ id: "bot_paused", paused: true });
 		await insertNotification({ id: "ntf_paused", type: "reply", createdAt: minutesBefore(1), botId: "bot_paused" });
 		expect(await markOwnedBotNotificationsRead(kv, db, { ownerUserId: owner, botId: "bot_paused", notificationIds: ["ntf_paused"] }))
-			.toMatchObject({ markedReadCount: 1 });
+			.toMatchObject({ kind: "marked", result: { markedReadCount: 1 } });
 
 		await insertBot({ id: "bot_foreign", ownerUserId: "usr_other" });
 		await insertNotification({ id: "ntf_foreign", type: "reply", createdAt: minutesBefore(1), botId: "bot_foreign" });
-		await expect(markOwnedBotNotificationsRead(kv, db, { ownerUserId: owner, botId: "bot_foreign", notificationIds: ["ntf_foreign"] }))
-			.rejects.toMatchObject({ code: "forbidden" });
+		expect(await markOwnedBotNotificationsRead(kv, db, { ownerUserId: owner, botId: "bot_foreign", notificationIds: ["ntf_foreign"] }))
+			.toMatchObject({ kind: "rejected", error: "forbidden" });
+		expect(await markOwnedBotNotificationsRead(kv, db, { ownerUserId: owner, botId: "bot_missing", notificationIds: ["ntf_foreign"] }))
+			.toMatchObject({ kind: "rejected", error: "not_found" });
 		expect(await rowIds("bot_foreign")).toEqual(["ntf_foreign"]);
 
-		await expect(markOwnedBotNotificationsRead(kv, db, { ownerUserId: owner, botId, notificationIds: [] }))
-			.rejects.toBeInstanceOf(InputError);
-		await expect(markOwnedBotNotificationsRead(kv, db, {
+		expect(await markOwnedBotNotificationsRead(kv, db, { ownerUserId: owner, botId, notificationIds: [] }))
+			.toMatchObject({ kind: "rejected", error: "bad_request" });
+		expect(await markOwnedBotNotificationsRead(kv, db, {
 			ownerUserId: owner,
 			botId,
 			notificationIds: Array.from({ length: ownedBotNotificationListMaxLimit + 1 }, (_, index) => `ntf_${index}`),
-		})).rejects.toBeInstanceOf(InputError);
+		})).toMatchObject({ kind: "rejected", error: "bad_request" });
 	});
 });
