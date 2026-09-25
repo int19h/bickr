@@ -4,6 +4,7 @@ import { runtimeDiagnostics, type RuntimeDiagnostic } from '@bickr/shared/runtim
 import { eventFromRow } from './events';
 import { ToolOutcomeUnknownError } from '../errors';
 import { completeToolBookkeeping } from './tools';
+import { BotNotesStore, normalizeNoteId, noteLinkViews, type BotNoteView } from './notes';
 import { type RuntimePauseIntent, proposedRunNextDueAt, runKeepsStandingSchedule, RunLiveness, untilRunStopped, boundedCleanup, runInactivityMs, finalizationRetryMs, transitionTimeoutMs, isRunProgressEvent } from './run-liveness';
 import { fail, ok, readJsonBody } from '@bickr/shared/api';
 import {
@@ -131,7 +132,6 @@ import {
 	type BotInferenceSettingsInput,
 	type BotInferencePrefillIntent,
 	type BotInferenceToolCalls,
-	type BotProfileRelationshipSummary,
 	type BotRuntimeEvent,
 	type BotRuntimeEventType,
 	type BotRuntimeStatus,
@@ -163,6 +163,7 @@ import {
 import {
 	bickrFunctionToolArgumentExample,
 	mutableToolNames,
+	noteToolNames,
 	openRouterServerToolSelection,
 	providerTranslationToolDefinitions,
 	standardPrompt,
@@ -235,13 +236,14 @@ import {
 	providerSerializationContext,
 	providerThreadRef,
 	providerToolResultPayload,
+	providerViewedProfiles,
 	pruneReadContentTreeForProviderBudget,
 	readContentItemTree,
 	readResultContext,
 	type ProviderContextContentScope,
 	type ProviderSerializationContext,
 } from './tool-results';
-import type { RandomRangeTarget } from '@bickr/shared/tool-results';
+import type { RandomRangeTarget, ViewedProfileResult } from '@bickr/shared/tool-results';
 import {
 	DuplicateReplyError,
 	followToolSelfCorrectionMessage,
@@ -847,6 +849,8 @@ function maxSuccessfulToolCallsPerIterationSetting(bot: Pick<BotDocument, 'tickS
 const prematureLogOffSelfCorrectionContent = "Actually I don't want to log off yet, let me think about what I should do instead.";
 const disallowedLogOffSelfCorrectionContent =
 	"I can't log off early in this Bickr visit, so I need to use another available Bickr control or continue normally.";
+const disallowedNotesToolSelfCorrectionContent =
+	"My private notes are disabled for this Bickr visit, so I need to continue without note tools.";
 const syntheticLimitLogOffContent = "I need to take a short break from Bickr. I'll log off for now.";
 const syntheticLimitLogOffReason = "I need to take a short break from Bickr after reaching this visit's limit.";
 const fallbackToolTextLanguage = 'en' as LanguageTag;
@@ -1005,12 +1009,13 @@ function providerPrefillRequestValue(request: BotInferencePrefillIntent | undefi
 	}
 }
 
-function providerFunctionToolsForBot(
-	bot: Pick<BotDocument, 'postingSettings' | 'tickSettings'> & { effectivePostingSettings?: BotEffectivePostingSettings },
+export function providerFunctionToolsForBot(
+	bot: Pick<BotDocument, 'postingSettings' | 'tickSettings' | 'toolSettings'> & { effectivePostingSettings?: BotEffectivePostingSettings },
 	settings?: Pick<ProviderSettings, 'compactionMode'>,
 ): ProviderToolDefinition[] {
 	const tickSettings = effectiveTickSettings(bot.tickSettings);
 	return toolDefinitionsForProviderRound(tickSettings.compactionMaxCharacters, {
+		includeNotesTools: bot.toolSettings?.bickrNotes?.enabled !== false,
 		includeMetaCompactionTool: settings?.compactionMode === 'tool_call_cache_friendly',
 		includeLogOffTool: tickSettings.allowEarlyLogOff,
 		postingLimits: bot.effectivePostingSettings ?? effectivePostingSettings(undefined, bot.postingSettings),
@@ -1637,7 +1642,7 @@ function openRouterProviderRouting(baseUrl: string, providerRouting: JsonObject 
 	return providerRouting;
 }
 
-const runtimeSchema = `
+export const runtimeSchema = `
 -- Retention: events are pruned after ${runtimeEventRetentionDays} days except active-run rows and seq >= ${lastLogOffSeqStateKey}.
 CREATE TABLE IF NOT EXISTS events (
 	seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1761,6 +1766,22 @@ CREATE TABLE IF NOT EXISTS loop_message_log_chunks (
 	text TEXT NOT NULL,
 	PRIMARY KEY (log_id, chunk_index)
 );
+-- Retention: notes remain until the participant deletes one or the participant is deleted and its runtime storage is fully cleared.
+CREATE TABLE IF NOT EXISTS notes (
+	note_id TEXT PRIMARY KEY,
+	content TEXT NOT NULL,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+-- Retention: links follow their note and the same full-clear rule.
+CREATE TABLE IF NOT EXISTS note_links (
+	note_id TEXT NOT NULL,
+	entity_kind TEXT NOT NULL,
+	entity_id TEXT NOT NULL,
+	handle TEXT NOT NULL,
+	PRIMARY KEY (note_id, entity_kind, entity_id)
+);
+CREATE INDEX IF NOT EXISTS note_links_entity ON note_links (entity_kind, entity_id, note_id);
 `;
 
 /**
@@ -1780,6 +1801,7 @@ type PendingProviderTool = LegacyPendingProviderTool & (
 export class BotRuntime {
 	private readonly state: DurableObjectState;
 	private readonly env: Env;
+	private readonly notes: BotNotesStore;
 	private activeAbortController: AbortController | null = null;
 	private activeRunId: string | null = null;
 	private activeMaintenanceOperation: ActiveMaintenanceOperation | null = null;
@@ -1799,6 +1821,7 @@ export class BotRuntime {
 	constructor(state: DurableObjectState, env: Env) {
 		this.state = state;
 		this.env = env;
+		this.notes = new BotNotesStore(state.storage);
 		this.liveness = new RunLiveness(state.storage);
 		this.state.blockConcurrencyWhile(async () => {
 			this.initializeRuntimeStorage();
@@ -2180,6 +2203,10 @@ export class BotRuntime {
 	}
 
 	private async handleRuntimeReadRequest(request: Request, url: URL, botId: string): Promise<Response | null> {
+		if (request.method === 'GET' && url.pathname.endsWith('/notes')) {
+			await this.requireOwnerOrInternal(request, botId);
+			return ok({ ids: this.notes.allIds() });
+		}
 		if (request.method === 'GET' && url.pathname.endsWith('/status')) {
 			await this.requireOwnerOrInternal(request, botId);
 			return ok({ status: await this.readStatus(botId) });
@@ -2238,6 +2265,22 @@ export class BotRuntime {
 	}
 
 	private async handleRuntimeMutationRequest(request: Request, url: URL, botId: string): Promise<Response | null> {
+		if (request.method === 'POST' && url.pathname.endsWith('/notes/read')) {
+			await this.requireOwnerOrInternal(request, botId);
+			const body = runtimeRecord(await readJsonBody(request));
+			const id = normalizeNoteId(body.id);
+			const note = this.notes.read(id);
+			if (!note) throw new RepositoryError('not_found', 'Note not found.', 404);
+			const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
+			return ok({ note: { ...note, links: await noteLinkViews(this.env.BICKR_D1, bot.homeWorldId, note.links) } satisfies BotNoteView });
+		}
+		if (request.method === 'POST' && url.pathname.endsWith('/notes/delete')) {
+			await this.requireOwnerOrInternal(request, botId);
+			const body = runtimeRecord(await readJsonBody(request));
+			const id = normalizeNoteId(body.id);
+			this.deleteNote(id);
+			return ok({ deleted: id });
+		}
 		if (request.method === 'POST' && url.pathname.endsWith('/recover-stale-run')) {
 			this.requireInternalMaintenance(request);
 			return ok({ recovery: await this.recoverStaleRun(botId) });
@@ -3613,6 +3656,12 @@ export class BotRuntime {
 							'disallowed_meta_compaction_tool',
 						);
 					selfCorrectionAcknowledgements.push(metaCompactionToolMisuseSelfCorrection);
+					continue;
+				}
+				if (noteToolNames.has(canonicalName) && bot.toolSettings.bickrNotes?.enabled === false) {
+					pendingToolCallIds.delete(toolCall.id);
+					await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, toolCall, 'disallowed_notes_tool');
+					selfCorrectionAcknowledgements.push(disallowedNotesToolSelfCorrectionContent);
 					continue;
 				}
 					if (canonicalName === 'log_off' && !tickSettings.allowEarlyLogOff) {
@@ -5813,8 +5862,23 @@ export class BotRuntime {
 					)
 					.toArray(),
 			setLastSuccessfulLogOffSeq: (seq) => this.setLastSuccessfulLogOffSeq(seq, 'tool_result'),
+			listNotes: (cursor, limit, links, unknownFilters) => this.notes.list(cursor, limit, links, unknownFilters),
+			readNote: (id) => this.notes.read(id),
+			writeNote: (id, content, links) => this.writeNote(id, content, links),
+			deleteNote: (id) => this.deleteNote(id),
+			viewProfiles: (profileBot, usernames, profileRunId, seenVia) => this.viewProfilesForUsernames(profileBot, usernames, profileRunId, seenVia, true, false),
 		});
 		return tools.executeTool(bot, runId, name, args, runContext, onResult);
+	}
+
+	private writeNote(id: string, content: string, links: Parameters<BotNotesStore['write']>[2]): ReturnType<BotNotesStore['write']> {
+		this.requireWritableRuntimeStorage();
+		return this.notes.write(id, content, links);
+	}
+
+	private deleteNote(id: string): void {
+		this.requireWritableRuntimeStorage();
+		this.notes.delete(id);
 	}
 
 	private async forumService<T>(path: string, botId: string, body: unknown, signal: AbortSignal): Promise<T> {
@@ -5937,19 +6001,14 @@ export class BotRuntime {
 		];
 		const usernames = referencedProfileUsernamesFromNotifications(includedNotifications, bot.handle, existingProfileUsernames);
 		if (usernames.length > 0) {
-			const index = toolCalls.length;
-			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId, 'notification');
-			const toolCall = syntheticToolCall(runId, 'view_profiles', index, { usernames });
-			toolCalls.push(toolCall);
-			results.push({
-				role: 'tool',
-				tool_call_id: toolCall.id,
-				content: JSON.stringify(
-					providerToolResultPayload('view_profiles', { profiles }, {}, providerSerializationContext({ botId: bot.id }), {
-						tokenBudget: notificationTokenBudget,
-					}),
-				),
-			});
+			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId);
+			const profileResult = providerViewedProfiles(profiles, notificationTokenBudget);
+			if (profileResult.profiles.length > 0) {
+				await this.markSyntheticProfilesSeen(bot, profiles.slice(0, profileResult.profiles.length), runId, 'notification');
+				const toolCall = syntheticToolCall(runId, 'view_profiles', toolCalls.length, { usernames });
+				toolCalls.push(toolCall);
+				results.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(profileResult) });
+			}
 		}
 		this.appendToolCallChainLoopMessages(
 			runId,
@@ -5981,17 +6040,14 @@ export class BotRuntime {
 		}));
 		const usernames = referencedProfileUsernamesFromSpotlight(contexts, bot.handle, existingProfileUsernames);
 		if (usernames.length > 0) {
-			const index = toolCalls.length;
-			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId, 'spotlight');
-			const toolCall = syntheticToolCall(runId, 'view_profiles', index, { usernames });
-			toolCalls.push(toolCall);
-			results.push({
-				role: 'tool',
-				tool_call_id: toolCall.id,
-				content: JSON.stringify(
-					providerToolResultPayload('view_profiles', { profiles }, {}, providerSerializationContext({ botId: bot.id })),
-				),
-			});
+			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId);
+			const profileResult = providerViewedProfiles(profiles, tokenBudget);
+			if (profileResult.profiles.length > 0) {
+				await this.markSyntheticProfilesSeen(bot, profiles.slice(0, profileResult.profiles.length), runId, 'spotlight');
+				const toolCall = syntheticToolCall(runId, 'view_profiles', toolCalls.length, { usernames });
+				toolCalls.push(toolCall);
+				results.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(profileResult) });
+			}
 		}
 		if (toolCalls.length === 0) {
 			return;
@@ -6046,20 +6102,49 @@ export class BotRuntime {
 		bot: BotDocument,
 		usernames: string[],
 		runId: string,
+	): Promise<ViewedProfileResult[]> {
+		return this.viewProfilesForUsernames(bot, usernames.map(usernameArg), runId, 'synthetic:view_profiles', false, false);
+	}
+
+	private async markSyntheticProfilesSeen(bot: BotDocument, profiles: ViewedProfileResult[], runId: string, seenVia: string): Promise<void> {
+		await markBotSeenContent(
+			this.env.BICKR_D1,
+			bot.id,
+			profiles.map((profile) => ({ type: 'bot', id: profile.id })),
+			`synthetic:view_profiles:${seenVia}`,
+			runId,
+		);
+	}
+
+	private async viewProfilesForUsernames(
+		bot: BotDocument,
+		handles: string[],
+		runId: string,
 		seenVia: string,
-	): Promise<BotProfileRelationshipSummary[]> {
-		const handles = usernames.map(usernameArg);
+		strict: boolean,
+		markSeen: boolean,
+	): Promise<ViewedProfileResult[]> {
 		const profiles = await botPublicProfilesByHandles(this.env.BICKR_KV, this.env.BICKR_D1, bot.homeWorldId, handles);
-		if (profiles.length > 0) {
+		if (strict) {
+			const found = new Set(profiles.map((profile) => profile.handle));
+			const missing = handles.find((handle) => !found.has(handle));
+			if (missing) throw new RepositoryError('not_found', `Profile u/${missing} not found.`, 404);
+		}
+		if (markSeen && profiles.length > 0) {
 			await markBotSeenContent(
 				this.env.BICKR_D1,
 				bot.id,
 				profiles.map((profile) => ({ type: 'bot', id: profile.id })),
-				`synthetic:view_profiles:${seenVia}`,
+				seenVia,
 				runId,
 			);
 		}
-		return botProfileRelationshipSummaries(this.env.BICKR_D1, bot.id, profiles);
+		const related = await botProfileRelationshipSummaries(this.env.BICKR_D1, bot.id, profiles);
+		if (bot.toolSettings.bickrNotes?.enabled === false) return related;
+		return related.map((profile) => {
+			const notes = this.notes.idsForEntity('participant', profile.id);
+			return { ...profile, associatedNoteIds: notes.ids, associatedNoteCount: notes.total };
+		});
 	}
 
 	private profileUsernamesInActiveContext(): Set<string> {

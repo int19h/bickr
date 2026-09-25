@@ -2063,6 +2063,7 @@ export function testRuntimeForToolExecution(): BotRuntime {
 	let seq = 0;
 	const events: BotRuntimeEvent[] = [];
 	return Object.assign(Object.create(BotRuntime.prototype), {
+		notes: { idsForEntity: () => ({ ids: [], total: 0 }) },
 		env: {
 			BICKR_D1: testEnv.BICKR_D1,
 			BICKR_KV: testEnv.BICKR_KV,

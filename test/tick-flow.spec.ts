@@ -1080,7 +1080,7 @@ describe("Tick flow", () => {
 			created_at: "2026-05-01T00:00:00.000Z",
 			has_logs: 0,
 		};
-		async function buildWithActiveRows(activeRows: unknown[]): Promise<Array<Record<string, unknown>>> {
+		async function buildWithActiveRows(activeRows: unknown[], notesEnabled = true, tokenBudget = 10_000, oversizedProfile = false): Promise<Array<Record<string, unknown>>> {
 			const messages: Array<Record<string, unknown>> = [];
 			let seq = 0;
 			const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
@@ -1088,13 +1088,18 @@ describe("Tick flow", () => {
 					BICKR_D1: testEnv.BICKR_D1,
 					BICKR_KV: testEnv.BICKR_KV,
 				},
+				notes: { idsForEntity: () => ({ ids: ['notice-note'], total: 1 }) },
 				previousTerminalTickEvent: () => null,
 				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
 					messages.push(message);
 					seq += 1;
 					return { seq, runId: "run-profile-context", role: message.role, message };
 				},
-				readCommentTreeTokenBudget: async () => 10_000,
+				readCommentTreeTokenBudget: async () => tokenBudget,
+				...(oversizedProfile ? { syntheticProfilesForUsernames: async () => [{
+					...referencedProfile,
+					shortBio: lt('Large profile '.repeat(500)),
+				}] } : {}),
 				activeLoopMessagesForProvider: () => messages,
 				activeLoopMessageRows: () => activeRows,
 			}));
@@ -1107,7 +1112,7 @@ describe("Tick flow", () => {
 				) => Promise<Array<Record<string, unknown>>>;
 			}).buildMessages.bind(runtime);
 			return buildMessages(
-				bot,
+				{ ...bot, toolSettings: { bickrNotes: { enabled: notesEnabled } } },
 				{ notifications: [notification], injections: [], spotlightContexts: [], ping: false },
 				"run-profile-context",
 				"2026-05-01T00:15:00.000Z",
@@ -1143,8 +1148,19 @@ describe("Tick flow", () => {
 			.map((message) => JSON.parse(String(message.content)))
 			.find((result) => Array.isArray(result.profiles));
 		expect(profileToolResult).toMatchObject({
-			profiles: [{ username: `u/${referencedProfile.handle}`, displayName: localizedTextString(referencedProfile.displayName), shortBio: expect.any(String) }],
+			profiles: [{ username: `u/${referencedProfile.handle}`, displayName: localizedTextString(referencedProfile.displayName), shortBio: expect.any(String), noteIds: ['notice-note'] }],
 		});
+		const disabled = await buildWithActiveRows([], false);
+		const disabledProfile = disabled.filter((message) => message.role === 'tool')
+			.map((message) => JSON.parse(String(message.content)))
+			.find((result) => Array.isArray(result.profiles));
+		expect(disabledProfile.profiles[0]).not.toHaveProperty('noteIds');
+		const exhausted = await buildWithActiveRows([], true, 80, true);
+		const exhaustedNotification = exhausted.filter((message) => message.role === 'tool')
+			.map((message) => JSON.parse(String(message.content)))
+			.find((result) => Array.isArray(result.events));
+		expect(exhaustedNotification.events).toHaveLength(1);
+		expect(toolNames(exhausted)).toEqual(['check_notifications']);
 	});
 
 	it("deduplicates inline notification content against active context and same-tick repeats", async () => {
@@ -1911,6 +1927,7 @@ describe("Tick flow", () => {
 				BICKR_D1: testEnv.BICKR_D1,
 				BICKR_KV: testEnv.BICKR_KV,
 			},
+			notes: { idsForEntity: () => ({ ids: [], total: 0 }) },
 			previousTerminalTickEvent: () => null,
 			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
 				messages.push(message);
@@ -1949,7 +1966,6 @@ describe("Tick flow", () => {
 		expect(setupToolCallMessages.flatMap((message) => message.tool_calls?.map((toolCall) => toolCall.function.name) ?? [])).toEqual([
 			"read_comment_by_id",
 			"read_thread_by_id",
-			"view_profiles",
 		]);
 		expect(setupToolCallMessages.slice(1).every((message) => message.content === null)).toBe(true);
 		const toolResults = built
@@ -1980,15 +1996,13 @@ describe("Tick flow", () => {
 		});
 		expect(toolResults.find((result) => result.operation === "read_thread_by_id")?.context).toContain("body ending in …");
 		expect(JSON.stringify(toolResults.find((result) => result.operation === "read_thread_by_id"))).not.toContain(spotlightThreadReplyBody);
-		expect(toolResults.find((result) => Array.isArray(result.profiles))).toMatchObject({
-			profiles: [{ username: `u/${authorProfile.handle}`, displayName: localizedTextString(authorProfile.displayName) }],
-		});
-		const profileResultIndex = built.findIndex((message) => message.role === "tool" && String(message.content).includes('"profiles"'));
+		expect(toolResults).toHaveLength(2);
+		const finalReadResultIndex = built.findLastIndex((message) => message.role === "tool");
 		const focusMessageIndex = built.findIndex(
 			(message) => message.role === "assistant" && message.content === "My focus: Please pay attention to the target comment.",
 		);
-		expect(profileResultIndex).toBeGreaterThanOrEqual(0);
-		expect(focusMessageIndex).toBeGreaterThan(profileResultIndex);
+		expect(finalReadResultIndex).toBeGreaterThanOrEqual(0);
+		expect(focusMessageIndex).toBeGreaterThan(finalReadResultIndex);
 		expect(focusMessageIndex).toBe(built.length - 1);
 	});
 
@@ -2054,6 +2068,7 @@ describe("Tick flow", () => {
 		const messages: Array<Record<string, unknown>> = [];
 		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 			env: { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV },
+			notes: { idsForEntity: () => ({ ids: ['spotlight-note'], total: 1 }) },
 			previousTerminalTickEvent: () => null,
 			appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
 				messages.push(message);
@@ -2080,6 +2095,10 @@ describe("Tick flow", () => {
 			"2026-05-01T00:15:00.000Z",
 			{ setupMode: "spotlight" },
 		);
+		const profileRead = built.filter((message) => message.role === 'tool')
+			.map((message) => JSON.parse(String(message.content)))
+			.find((result) => Array.isArray(result.profiles));
+		expect(profileRead?.profiles[0]?.noteIds).toEqual(['spotlight-note']);
 		const readResultContent = built
 			.filter((message) => message.role === "tool")
 			.map((message) => String(message.content))
@@ -2421,6 +2440,59 @@ describe("Tick flow", () => {
 				reason: "disallowed_meta_compaction_tool",
 			}),
 		}));
+	});
+
+	it("drops a stale note call after notes are disabled", async () => {
+		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+		const messages: Array<{ message: Record<string, unknown>; origin: string }> = [];
+		const executeTool = vi.fn();
+		const callProvider = vi.fn()
+			.mockResolvedValueOnce(providerResponseWithToolCall('call-disabled-note', 'write_note', { id: 'old', content: 'Stale request' }))
+			.mockResolvedValueOnce(providerResponseWithContent('I will continue without notes.'));
+		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+			appendEvent: (runId: string, type: string, payload: Record<string, unknown>) => {
+				events.push({ type, payload });
+				return runtimeEvent(events.length, runId, type as BotRuntimeEvent['type'], payload);
+			},
+			appendLoopMessage: (_runId: string, message: Record<string, unknown>, origin: string) => {
+				messages.push({ message, origin });
+				return { seq: messages.length, runId: 'run-disabled-note', role: message.role, message, origin,
+					tokenEstimate: 0, createdAt: new Date().toISOString() };
+			},
+			appendProviderMessages: async () => {},
+			callProvider,
+			ensureProviderPromptWithinBudget: async () => ({
+				allowedPromptTokens: 13_500,
+				providerTools: toolDefinitionsForProviderRound(4_000, { includeNotesTools: false }),
+				promptTokens: 100,
+				requestMessages: [{ role: 'assistant', content: 'I am ready.' }],
+			}),
+			executeTool,
+			hasRuntimeStorage: () => true,
+			loopGeneratedTokenCountSinceLastLogOff: () => 0,
+			prematureLogOffCorrectedSinceLastLogOff: () => false,
+			providerLoopInitialSuccessfulToolCallCount: () => 0,
+			recordInferenceSubmission: () => {},
+			recordLoopMessageLog: () => {},
+			recordProviderUsage: () => {},
+			successfulMutatingToolCallSinceLastLogOff: () => true,
+			throwIfStopped: () => {},
+		}));
+		const runProviderLoop = (BotRuntime.prototype as unknown as {
+			runProviderLoop: (bot: BotDocument, settings: { baseUrl: string; model: string; temperature: number; toolCalls: 'at_will' },
+				runId: string, messages: Array<Record<string, unknown>>, runContext: { mode: 'normal'; signal: AbortSignal }) => Promise<unknown>;
+		}).runProviderLoop.bind(runtime);
+		await runProviderLoop(
+			{ ...fakeBotDocument({ allowEarlyLogOff: true }), toolSettings: { bickrNotes: { enabled: false } } },
+			{ baseUrl: 'https://openrouter.ai/api/v1', model: 'test-model', temperature: 0.2, toolCalls: 'at_will' },
+			'run-disabled-note', [], { mode: 'normal', signal: new AbortController().signal },
+		);
+		expect(executeTool).not.toHaveBeenCalled();
+		expect(events).toContainEqual(expect.objectContaining({
+			type: 'provider_tool_call_dropped',
+			payload: expect.objectContaining({ callIds: ['call-disabled-note'], reason: 'disallowed_notes_tool' }),
+		}));
+		expect(messages.find((message) => message.origin === 'self_correction')?.message.content).toContain('private notes are disabled');
 	});
 
 	it("drops malformed generated tool calls while executing valid calls from the same response", async () => {

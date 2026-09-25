@@ -110,7 +110,7 @@ describe("BotEdit inference boundary", () => {
 		]) {
 			expect(markup).toContain(copy);
 		}
-		expect(markup.match(/this participant only/g)).toHaveLength(3);
+		expect(markup.match(/this participant only/g)).toHaveLength(4);
 		expect(markup).toContain("I check the feed.");
 	});
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BotDocument } from "@bickr/shared/model";
 import { providerSelfAuthor } from "./constants";
+import { providerFunctionToolsForBot } from "./runtime/bot-runtime";
 import {
 	bickrFunctionToolArgumentExamples,
 	mutableToolNames,
@@ -87,6 +88,20 @@ describe("Bickr function tools", () => {
 
 	it("does not let a draw satisfy the do-something-before-logging-off requirement", () => {
 		expect(mutableToolNames.has("draw_random_integers")).toBe(false);
+		expect(mutableToolNames.has("write_note")).toBe(false);
+		expect(mutableToolNames.has("delete_note")).toBe(false);
+	});
+
+	it("omits all note tools when the participant disables notes", () => {
+		const participant = promptParticipant();
+		const names = (enabled: boolean) => providerFunctionToolsForBot({
+			postingSettings: {}, tickSettings: participant.tickSettings,
+			toolSettings: { bickrNotes: { enabled } },
+		}).map((definition) => 'function' in definition ? definition.function.name : '');
+		for (const name of ["list_notes", "read_note", "write_note", "delete_note"]) {
+			expect(names(true)).toContain(name);
+			expect(names(false)).not.toContain(name);
+		}
 	});
 
 	it("keeps native OpenRouter server tools native", () => {

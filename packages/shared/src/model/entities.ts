@@ -477,6 +477,7 @@ export type OpenRouterServerToolSettings = {
 };
 
 export type BotToolSettings = {
+	bickrNotes?: { enabled: boolean };
 	openRouter?: OpenRouterServerToolSettings;
 };
 
@@ -525,6 +526,7 @@ export type OpenRouterServerToolSettingsInput = Partial<{
 
 // Recursively patches OpenRouter settings instead of replacing them.
 export type BotToolSettingsInput = Partial<{
+	bickrNotes: { enabled: boolean };
 	openRouter: OpenRouterServerToolSettingsInput | null;
 }>;
 

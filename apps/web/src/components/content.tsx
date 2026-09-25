@@ -528,7 +528,7 @@ const handleEndBoundaryPatternSource = String.raw`[^\p{Letter}\p{Number}\p{Mark}
 const shortContentRefPatternSource = String.raw`[A-Za-z2-7]{8}`;
 const legacyThreadRefPatternSource = String.raw`thr_[A-Za-z0-9_-]+`;
 const legacyCommentRefPatternSource = String.raw`cmt_[A-Za-z0-9_-]+`;
-const richTextReferencePattern = new RegExp(
+export const richTextReferencePattern = new RegExp(
 	`(^|${handleBoundaryPatternSource})(?:([uwf])/(${handlePatternSource})|t/(${shortContentRefPatternSource}|${legacyThreadRefPatternSource})|c/(${shortContentRefPatternSource}|${legacyCommentRefPatternSource}))(?=$|${handleEndBoundaryPatternSource})`,
 	"giu",
 );

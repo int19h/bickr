@@ -1,6 +1,6 @@
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseThreadRef } from '@bickr/shared/ids';
 import { legacyToolResultEnvelope } from '@bickr/shared/legacy-tool-result-adapter';
-import type { ToolResultEnvelope, ToolResultProfileAction, ToolResultVote } from '@bickr/shared/tool-results';
+import type { ToolResultEnvelope, ToolResultProfileAction, ToolResultVote, ViewedProfileResult } from '@bickr/shared/tool-results';
 import {
 	type BotFollowUsernameQueryResult,
 	type LegacyNotificationEvent,
@@ -70,14 +70,21 @@ export function providerToolResultPayload(
 		return providerProfileListResult(runtimeRecord(result), options.tokenBudget);
 	}
 	if (canonical === 'view_profiles') {
-		const record = runtimeRecord(result);
-		const profiles = Array.isArray(record.profiles) ? record.profiles : Array.isArray(result) ? result : [result];
-		const providerProfiles = profiles.map((item) => providerProfile(runtimeRecord(item)));
-		const pruned = pruneProviderArrayForBudget(providerProfiles, options.tokenBudget, (items) => ({ profiles: items }));
-		return {
-			profiles: pruned.items,
-		};
+		if (semanticResult.kind === 'profile_viewed') return providerViewedProfiles(semanticResult.profiles, options.tokenBudget);
+		const legacyProfiles = Array.isArray(runtimeRecord(result).profiles) ? runtimeRecord(result).profiles as unknown[] : [];
+		const providerProfiles = legacyProfiles.map((profile) => providerProfile(runtimeRecord(profile)));
+		return { profiles: pruneProviderArrayForBudget(providerProfiles, options.tokenBudget, (items) => ({ profiles: items })).items };
 	}
+	if (semanticResult.kind === 'note_listed') {
+		return { ids: semanticResult.ids, nextCursor: semanticResult.nextCursor, total: semanticResult.total, unknownFilters: semanticResult.unknownFilters };
+	}
+	if (semanticResult.kind === 'note_read') {
+		return { id: semanticResult.id, content: semanticResult.content, links: semanticResult.links.map(({ kind, handle, deleted }) => ({ kind, handle, deleted })) };
+	}
+	if (semanticResult.kind === 'note_written') {
+		return { outcome: semanticResult.outcome, id: semanticResult.id, links: semanticResult.links.map(({ kind, handle, deleted }) => ({ kind, handle, deleted })), unknownReferences: semanticResult.unknownReferences };
+	}
+	if (semanticResult.kind === 'note_deleted') return { deleted: semanticResult.id };
 	if (canonical === 'query_followers') {
 		return providerFollowerQueryResult(runtimeRecord(result));
 	}
@@ -116,6 +123,63 @@ export function providerToolResultPayload(
 
 function providerJsonTokenEstimate(value: unknown): number {
 	return estimateTextTokens(JSON.stringify(value));
+}
+
+type ProviderViewedProfile = Record<string, unknown> & {
+	noteIds?: string[];
+	totalNoteCount?: number;
+	omittedNoteIdCount?: number;
+};
+
+export type ProviderViewedProfilesResult = { profiles: ProviderViewedProfile[]; omittedProfileCount?: number };
+
+export function providerViewedProfiles(profiles: ViewedProfileResult[], tokenBudget?: number): ProviderViewedProfilesResult {
+	const payload = (items: ProviderViewedProfile[]): ProviderViewedProfilesResult => ({
+		profiles: items,
+		...(profiles.length > items.length ? { omittedProfileCount: profiles.length - items.length } : {}),
+	});
+	const withNoteLimit = (limit: number): ProviderViewedProfile[] => profiles.map((profile) => {
+		const ids = profile.associatedNoteIds;
+		if (!ids) return providerProfile(runtimeRecord(profile));
+		const shown = ids.slice(0, limit);
+		const omitted = ids.length - shown.length;
+		return {
+			...providerProfile(runtimeRecord(profile)),
+			noteIds: shown,
+			totalNoteCount: profile.associatedNoteCount ?? ids.length,
+			...(omitted > 0 ? { omittedNoteIdCount: omitted } : {}),
+		};
+	});
+	const maxIds = Math.max(0, ...profiles.map((profile) => profile.associatedNoteIds?.length ?? 0));
+	const complete = withNoteLimit(maxIds);
+	if (tokenBudget === undefined) return payload(complete);
+	const budget = Math.max(1, Math.floor(tokenBudget));
+	if (providerJsonTokenEstimate(payload(complete)) <= budget) return payload(complete);
+
+	const withoutIds = withNoteLimit(0);
+	if (providerJsonTokenEstimate(payload(withoutIds)) <= budget) {
+		// Keep the newest IDs for every profile before discarding any profile.
+		// A shared cap gives each requested profile the same chance to fit.
+		let low = 0;
+		let high = maxIds - 1;
+		let accepted = withoutIds;
+		while (low <= high) {
+			const middle = Math.floor((low + high) / 2);
+			const candidate = withNoteLimit(middle);
+			if (providerJsonTokenEstimate(payload(candidate)) <= budget) {
+				accepted = candidate;
+				low = middle + 1;
+			} else {
+				high = middle - 1;
+			}
+		}
+		return payload(accepted);
+	}
+
+	const pruned = pruneProviderArrayForBudget(withoutIds, budget, payload);
+	// The smallest typed result can exceed a nearly exhausted budget.
+	// Tool calls still need a truthful result rather than an unexplained null.
+	return payload(pruned.items);
 }
 
 function pruneProviderArrayForBudget<T>(

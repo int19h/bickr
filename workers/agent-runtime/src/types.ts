@@ -744,6 +744,7 @@ export type ProviderToolCallDropReason =
 	| 'duplicate_tool_call'
 	| 'disallowed_meta_compaction_tool'
 	| 'disallowed_log_off'
+	| 'disallowed_notes_tool'
 	| 'premature_log_off'
 	| 'iteration_limit'
 	| 'spotlight_tick_ended'

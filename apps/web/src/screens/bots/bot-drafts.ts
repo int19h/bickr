@@ -89,6 +89,7 @@ export function emptyBotDraftForLanguage(language: LanguageTag | string | null |
 export function toolDraftFromSettings(settings?: BotToolSettings): BotToolDraft {
 	const openRouter = settings?.openRouter;
 	return {
+		notesEnabled: settings?.bickrNotes?.enabled !== false,
 		openRouter: {
 			datetime: {
 				enabled: Boolean(openRouter?.datetime?.enabled),

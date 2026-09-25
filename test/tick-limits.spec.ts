@@ -754,6 +754,11 @@ describe("Tick limits and recovery", () => {
 		let toolEventSeq = 0;
 		return new RuntimeTools({
 			env: { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV },
+			listNotes: unreachable("notes"),
+			readNote: unreachable("notes"),
+			writeNote: unreachable("notes"),
+			deleteNote: unreachable("notes"),
+			viewProfiles: unreachable("profiles"),
 			appendEvent: (runId, type, payload) => {
 				toolEventSeq += 1;
 				return runtimeEvent(toolEventSeq, runId, type, payload as Record<string, unknown>);

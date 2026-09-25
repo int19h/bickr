@@ -54,6 +54,11 @@ export const readableToolResultRenderers = {
 			))}
 		</ReadableResultList>
 	),
+	profile_viewed: ({ profiles }) => <JsonSyntaxBlock value={profiles} />,
+	note_listed: ({ ids, nextCursor, total, unknownFilters }) => <JsonSyntaxBlock value={{ ids, nextCursor, total, unknownFilters }} />,
+	note_read: ({ id, content, links }) => <JsonSyntaxBlock value={{ id, content, links }} />,
+	note_written: ({ outcome, id, links, unknownReferences }) => <JsonSyntaxBlock value={{ outcome, id, links, unknownReferences }} />,
+	note_deleted: ({ id }) => <span>Deleted note {id}.</span>,
 	content_read: ({ items }, displayContext) => (
 		<ReadableResultList empty="No readable content was returned.">
 			{items.map((item, index) => {

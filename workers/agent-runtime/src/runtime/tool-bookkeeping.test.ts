@@ -36,6 +36,11 @@ function harness() {
 		vectorSearchBots: async () => [], readCommentTreeTokenBudget: async () => 10_000,
 		providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
 		recentToolResultRows: () => [], setLastSuccessfulLogOffSeq: () => {},
+		listNotes: () => { throw new Error('Unexpected note list.'); },
+		readNote: () => { throw new Error('Unexpected note read.'); },
+		writeNote: () => { throw new Error('Unexpected note write.'); },
+		deleteNote: () => { throw new Error('Unexpected note deletion.'); },
+		viewProfiles: async () => { throw new Error('Unexpected profile view.'); },
 	};
 	const pair = vi.fn();
 	const execute = () => new RuntimeTools(runtime).executeTool(bot, 'run', 'make_additional_reply_to_the_same_comment',

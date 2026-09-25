@@ -355,7 +355,7 @@ const defaultTickSettings: BotEffectiveTickSettings = {
 	maxGeneratedTokensPerIteration: 30_000,
 };
 const defaultInferenceSettings: BotInferenceSettings = {};
-const defaultToolSettings: BotToolSettings = {};
+const defaultToolSettings: BotToolSettings = { bickrNotes: { enabled: true } };
 
 function defaultInitialBotNotificationText(lang: LanguageTag | null): LocalizedText {
 	return localizedText(defaultInitialBotNotification, lang);
@@ -4995,10 +4995,14 @@ export function mergeToolSettings(
 ): BotToolSettings {
 	const next: BotToolSettings = {
 		...defaultToolSettings,
+		...(current?.bickrNotes ? { bickrNotes: { ...current.bickrNotes } } : {}),
 		...(current?.openRouter ? { openRouter: cloneOpenRouterToolSettings(current.openRouter) } : {}),
 	};
 	if (!patch) {
 		return next;
+	}
+	if (patch.bickrNotes !== undefined) {
+		next.bickrNotes = { enabled: patch.bickrNotes.enabled };
 	}
 	if (patch.openRouter === undefined) {
 		return next;

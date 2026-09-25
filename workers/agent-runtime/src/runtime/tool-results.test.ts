@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LanguageTag, NotificationEvent, RequiredLocalizedText } from "@bickr/shared/model";
+import type { ToolResultEnvelope } from "@bickr/shared/tool-results";
 import {
 	orderedProviderDeliveryReasons,
 	providerCheckNotificationsResultWithInclusions,
@@ -17,6 +18,68 @@ const selfBotId = "bot_self";
 const readingParticipant = () => providerSerializationContext({ botId: selfBotId });
 
 describe("provider-facing text preservation", () => {
+	it("includes every associated note ID in a profile read", () => {
+		const noteIds = Array.from({ length: 25 }, (_, index) => `note-${index}`);
+		const profile = {
+			id: "bot_alice", homeWorldId: "world", homeWorldHandle: "world", handle: "alice",
+			language: null, displayName: en("Alice"), shortBio: en("A profile"),
+			createdAt: "2026-05-01T00:00:00.000Z", updatedAt: "2026-05-01T00:00:00.000Z",
+			isFollowedByMe: false, isFollowingMe: false, followers: 0,
+			associatedNoteIds: noteIds, associatedNoteCount: noteIds.length,
+		};
+		const result = providerToolResultPayload(
+			"view_profiles", { profiles: [profile] }, {}, readingParticipant(),
+			{ tokenBudget: 10_000 }, { kind: "profile_viewed", profiles: [profile] },
+		) as { profiles: Array<{ noteIds?: string[] }> };
+		expect(result.profiles[0]?.noteIds).toEqual(noteIds);
+		const shortened = providerToolResultPayload(
+			"view_profiles", { profiles: [profile] }, {}, readingParticipant(),
+			{ tokenBudget: 100 }, { kind: "profile_viewed", profiles: [profile] },
+		) as { profiles: Array<{ noteIds?: string[]; totalNoteCount?: number; omittedNoteIdCount?: number }> };
+		expect(shortened.profiles).toHaveLength(1);
+		expect(shortened.profiles[0]?.noteIds?.length).toBeLessThan(noteIds.length);
+		expect(shortened.profiles[0]?.totalNoteCount).toBe(noteIds.length);
+		expect(shortened.profiles[0]?.omittedNoteIdCount).toBe(noteIds.length - (shortened.profiles[0]?.noteIds?.length ?? 0));
+		expect(Math.ceil(JSON.stringify(shortened).length / 4)).toBeLessThanOrEqual(100);
+		const manyProfiles = Array.from({ length: 4 }, (_, index) => ({ ...profile, id: `bot_${index}`, handle: `profile-${index}` }));
+		const dropped = providerToolResultPayload(
+			"view_profiles", { profiles: manyProfiles }, {}, readingParticipant(),
+			{ tokenBudget: 100 }, { kind: "profile_viewed", profiles: manyProfiles },
+		) as { profiles: Array<{ omittedNoteIdCount?: number }>; omittedProfileCount?: number };
+		expect(dropped.profiles.length).toBeGreaterThan(0);
+		expect(dropped.profiles.length).toBeLessThan(manyProfiles.length);
+		expect(dropped.omittedProfileCount).toBe(manyProfiles.length - dropped.profiles.length);
+		expect(dropped.profiles[0]?.omittedNoteIdCount).toBe(noteIds.length);
+		expect(Math.ceil(JSON.stringify(dropped).length / 4)).toBeLessThanOrEqual(100);
+		expect(providerToolResultPayload(
+			"view_profiles", { profiles: [profile] }, {}, readingParticipant(),
+			{ tokenBudget: 1 }, { kind: "profile_viewed", profiles: [profile] },
+		)).toEqual({ profiles: [], omittedProfileCount: 1 });
+	});
+
+	it("keeps note IDs out of profile discovery results", () => {
+		const profile = { handle: 'alice', displayName: 'Alice', shortBio: 'A profile', associatedNoteIds: ['private-id'] };
+		for (const [name, value] of [
+			['search_profiles', [profile]],
+			['list_profiles', { mode: 'window', profiles: [profile], total: 1, limit: 1, offset: 0 }],
+		] as const) {
+			const output = providerToolResultPayload(name, value, {}, readingParticipant());
+			expect(JSON.stringify(output)).not.toContain('private-id');
+		}
+	});
+
+	it("keeps internal entity IDs out of note tool payloads", () => {
+		const links = [{ kind: 'participant' as const, entityId: 'bot-private', handle: 'alice', deleted: false }];
+		for (const [name, envelope] of [
+			['read_note', { kind: 'note_read' as const, id: 'one', content: 'u/alice', links }],
+			['write_note', { kind: 'note_written' as const, outcome: 'created' as const, id: 'one', content: 'u/alice', links, unknownReferences: [] }],
+		] satisfies Array<[string, ToolResultEnvelope]>) {
+			const output = providerToolResultPayload(name, {}, {}, readingParticipant(), {}, envelope);
+			expect(JSON.stringify(output)).toContain('alice');
+			expect(JSON.stringify(output)).not.toContain('bot-private');
+		}
+	});
+
 	it("shows bootstrap notification text to the provider", () => {
 		const result = providerToolResultPayload("check_notifications", {
 			events: [{

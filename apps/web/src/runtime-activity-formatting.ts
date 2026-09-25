@@ -540,6 +540,14 @@ function toolCallTitle(name: string, args: unknown): string {
 			return queryFollowersTitle(record);
 		case "view_profiles":
 			return `Viewing ${stringArrayValue(record.usernames).join(", ") || "profiles"}`;
+		case "list_notes":
+			return "Listing private notes";
+		case "read_note":
+			return `Reading note ${stringValue(record.id) ?? "..."}`;
+		case "write_note":
+			return `Writing note ${stringValue(record.id) ?? "..."}`;
+		case "delete_note":
+			return `Deleting note ${stringValue(record.id) ?? "..."}`;
 		case "view_activity":
 			return `Viewing u/${stringValue(record.username) ?? "..."}'s activity`;
 		case "follow_profile":
@@ -573,6 +581,10 @@ function toolResultSummary(
 	if (envelope?.kind === "random_integers_drawn") {
 		return randomIntegersResultSummary(envelope);
 	}
+	if (envelope?.kind === "note_listed") return { title: `Listed ${envelope.ids.length} note IDs`, body: `${envelope.total} notes match.` };
+	if (envelope?.kind === "note_read") return { title: `Read note ${envelope.id}`, body: envelope.content };
+	if (envelope?.kind === "note_written") return { title: `${envelope.outcome === "created" ? "Created" : "Updated"} note ${envelope.id}`, body: envelope.content };
+	if (envelope?.kind === "note_deleted") return { title: `Deleted note ${envelope.id}`, body: "" };
 
 	const thread = threadRecord(result);
 	const summary =

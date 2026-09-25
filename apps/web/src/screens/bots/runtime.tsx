@@ -849,7 +849,7 @@ export function BotRuntimePanel({
 				payload={openLoopMessageLogs}
 			/>
 			<Confirm
-				body="Erase this participant's loop chat ledger, retained raw provider logs, legacy runtime events, streamed text, compaction summaries, and pending injected thoughts. Forum threads and comments will not be deleted."
+				body="Erase this participant's loop chat ledger, retained raw provider logs, legacy runtime events, streamed text, compaction summaries, and pending injected thoughts. Notes, forum threads, and comments will remain."
 				confirmText="Reset loop"
 				danger
 				onClose={() => setClearConfirm(false)}

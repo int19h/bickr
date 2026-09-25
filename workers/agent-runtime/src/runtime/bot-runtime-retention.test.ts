@@ -274,6 +274,8 @@ describe('BotRuntime storage retention', () => {
 
 	it('clears every table the runtime schema declares', async () => {
 		const runtime = construct();
+		database.prepare(`INSERT INTO notes (note_id, content, created_at, updated_at) VALUES ('remember', 'u/alice', ?, ?)`).run(now.toISOString(), now.toISOString());
+		database.prepare(`INSERT INTO note_links (note_id, entity_kind, entity_id, handle) VALUES ('remember', 'participant', 'bot-alice', 'alice')`).run();
 		insertMessage(1, { createdAt: daysAgo(1) });
 		insertInjection('pending', { kind: 'manual', createdAt: daysAgo(1) });
 		database.prepare(
@@ -309,6 +311,8 @@ describe('BotRuntime storage retention', () => {
 		// the schema created — a table added later cannot be left behind.
 		expect(Object.keys(body.data.cleared.deletedRowsByTable).sort()).toEqual(tableNames().sort());
 		expect(body.data.cleared.deletedRows).toBeGreaterThan(0);
+		expect(body.data.cleared.deletedRowsByTable.notes).toBe(1);
+		expect(body.data.cleared.deletedRowsByTable.note_links).toBe(1);
 		for (const table of tableNames()) {
 			// The cleared tombstone is the one row the rebuilt storage keeps: it is
 			// what the object itself remembers about the clear.
@@ -322,6 +326,26 @@ describe('BotRuntime storage retention', () => {
 		expect(columnNames('loop_messages')).toContain('ledger_pruned_at');
 		expect(indexNames('loop_messages')).toContain('loop_messages_retention');
 		expect(indexNames('injections')).toContain('injections_spotlight');
+		const ownerHeaders = new Headers({ 'x-bickr-user-id': 'usr-owner', 'content-type': 'application/json' });
+		addInternalServiceAuthHeader(ownerHeaders, internalServiceSecret);
+		const deleteNote = await runtime.fetch(new Request(internalServiceUrl(`/bots/${botId}/notes/delete`), {
+			method: 'POST', headers: ownerHeaders, body: JSON.stringify({ id: 'remember' }),
+		}));
+		expect(deleteNote.status).toBe(409);
+		expect(() => (runtime as unknown as { writeNote(id: string, content: string, links: []): unknown }).writeNote('late', 'content', [])).toThrow();
+		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM notes`)[0]?.count).toBe(0);
+	});
+
+	it('keeps notes and links when the owner clears loop history', async () => {
+		const runtime = construct();
+		database.prepare(`INSERT INTO notes (note_id, content, created_at, updated_at) VALUES ('remember', 'u/alice', ?, ?)`).run(now.toISOString(), now.toISOString());
+		database.prepare(`INSERT INTO note_links (note_id, entity_kind, entity_id, handle) VALUES ('remember', 'participant', 'bot-alice', 'alice')`).run();
+		const headers = new Headers({ 'x-bickr-user-id': 'usr-owner' });
+		addInternalServiceAuthHeader(headers, internalServiceSecret);
+		const response = await runtime.fetch(new Request(internalServiceUrl(`/bots/${botId}/events`), { method: 'DELETE', headers }));
+		expect(response.status).toBe(200);
+		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM notes`)[0]?.count).toBe(1);
+		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM note_links`)[0]?.count).toBe(1);
 	});
 
 	it('refuses an injection that was already in flight when the clear ran', async () => {
@@ -511,6 +535,28 @@ describe('BotRuntime storage retention', () => {
 			expect(response.status).toBe(403);
 		}
 		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM loop_messages`)[0]?.count).toBe(1);
+	});
+
+	it('serves note IDs and content only to the owner', async () => {
+		const runtime = construct();
+		database.prepare(`INSERT INTO notes (note_id, content, created_at, updated_at) VALUES ('private', 'A private thought', ?, ?)`).run(now.toISOString(), now.toISOString());
+		const request = (userId: string, method: 'GET' | 'POST', path: string, body?: unknown): Promise<Response> => {
+			const headers = new Headers({ 'x-bickr-user-id': userId });
+			addInternalServiceAuthHeader(headers, internalServiceSecret);
+			if (body) headers.set('content-type', 'application/json');
+			return runtime.fetch(new Request(internalServiceUrl(`/bots/${botId}/notes${path}`), {
+				method, headers, ...(body ? { body: JSON.stringify(body) } : {}),
+			}));
+		};
+
+		expect((await request('usr-visitor', 'GET', '')).status).toBe(403);
+		expect((await request('usr-visitor', 'POST', '/read', { id: 'private' })).status).toBe(403);
+		expect((await request('usr-visitor', 'POST', '/delete', { id: 'private' })).status).toBe(403);
+		expect(await (await request('usr-owner', 'GET', '')).json()).toMatchObject({ data: { ids: ['private'] } });
+		expect(await (await request('usr-owner', 'POST', '/read', { id: 'private' })).json())
+			.toMatchObject({ data: { note: { id: 'private', content: 'A private thought' } } });
+		expect((await request('usr-owner', 'POST', '/delete', { id: 'private' })).status).toBe(200);
+		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM notes`)[0]?.count).toBe(0);
 	});
 
 	function insertMessage(

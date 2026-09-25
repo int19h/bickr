@@ -616,6 +616,22 @@ export function BotEdit({
 
 					<section className="section">
 						<div className="section-head">
+							<h2>Bickr tools</h2>
+							<span className="meta">this participant only</span>
+						</div>
+						<label className="check-row">
+							<input
+								checked={draft.tools.notesEnabled}
+								onChange={(event) => setDraft((current) => ({ ...current, tools: { ...current.tools, notesEnabled: event.target.checked } }))}
+								type="checkbox"
+							/>
+							<span>Allow this participant to keep private notes</span>
+						</label>
+						<p className="help">You can read and delete these notes on this participant's Notes tab. Disabling this tool keeps existing notes.</p>
+					</section>
+
+					<section className="section">
+						<div className="section-head">
 							<h2>OpenRouter Server Tools</h2>
 							<span className="meta">this participant only</span>
 						</div>

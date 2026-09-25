@@ -35,7 +35,6 @@ import {
 	type BotActivityFeed,
 	type BotDocument,
 	type BotProfileListResult,
-	type BotProfileRelationshipSummary,
 	type BotPublicProfile,
 	type BotSearchResult,
 	type BotRuntimeEvent,
@@ -49,6 +48,9 @@ import {
 import { SelfCorrectingToolCallError } from '../errors';
 import { repairInvalidUnicodeText, unicodeSafeSlice } from '../provider/sanitize';
 import { randomIntegersForRanges } from './random-integers';
+import { extractCanonicalEntityReferences } from '@bickr/shared/mentions';
+import { normalizeNoteId, noteContent, noteFilterReferences, noteLinkViews, resolveNoteLinks, type BotNote, type NoteLink, type NoteListPage } from './notes';
+import type { ViewedProfileResult } from '@bickr/shared/tool-results';
 import type {
 	DuplicateReply,
 	Env,
@@ -109,6 +111,11 @@ export type RuntimeToolsRuntime = {
 	providerContentInActiveContext(): ProviderContextContentScope;
 	recentToolResultRows(): RuntimeRow[];
 	setLastSuccessfulLogOffSeq(seq: number, source: 'tool_result'): void;
+	listNotes(cursor: string | null, limit: number, links: readonly NoteLink[], unknownFilters: string[]): NoteListPage;
+	readNote(id: string): BotNote | null;
+	writeNote(id: string, content: string, links: readonly NoteLink[]): { kind: 'created' | 'replaced'; note: BotNote };
+	deleteNote(id: string): void;
+	viewProfiles(bot: RuntimeBotDocument, usernames: string[], runId: string, seenVia: string): Promise<ViewedProfileResult[]>;
 };
 
 export class RuntimeTools {
@@ -337,10 +344,47 @@ export class RuntimeTools {
 				break;
 			}
 			case 'view_profiles': {
-				const profiles = await this.viewProfilesTool(bot, usernamesArg(normalizedArgs.usernames));
+				const profiles = await this.runtime.viewProfiles(bot, usernamesArg(normalizedArgs.usernames), runId, 'tool:view_profiles');
 				extraSeenItems = profiles.map((profile) => ({ type: 'bot', id: profile.id }));
 				result = { profiles };
-				envelope = { kind: 'opaque', value: result };
+				envelope = { kind: 'profile_viewed', profiles };
+				break;
+			}
+			case 'list_notes': {
+				const filters = noteFilterReferences(normalizedArgs.entities);
+				const resolved = await resolveNoteLinks(this.runtime.env.BICKR_D1, bot.homeWorldId, filters);
+				const cursor = normalizedArgs.cursor === undefined ? null : normalizeNoteId(normalizedArgs.cursor);
+				const page = this.runtime.listNotes(cursor, numberArg(normalizedArgs.limit, 50, 50), resolved.links, resolved.unknown);
+				result = page;
+				envelope = { kind: 'note_listed', ...page };
+				break;
+			}
+			case 'read_note': {
+				const id = normalizeNoteId(normalizedArgs.id);
+				const note = this.runtime.readNote(id);
+				if (!note) throw new RepositoryError('not_found', 'Note not found.', 404);
+				const links = await noteLinkViews(this.runtime.env.BICKR_D1, bot.homeWorldId, note.links);
+				result = { ...note, links };
+				envelope = { kind: 'note_read', id, content: note.content, links };
+				break;
+			}
+			case 'write_note': {
+				const id = normalizeNoteId(normalizedArgs.id);
+				const content = noteContent(normalizedArgs.content);
+				const resolved = await resolveNoteLinks(this.runtime.env.BICKR_D1, bot.homeWorldId, extractCanonicalEntityReferences(content));
+				this.runtime.throwIfStopped(runId, runContext.signal);
+				const written = this.runtime.writeNote(id, content, resolved.links);
+				const links = written.note.links.map((link) => ({ ...link, deleted: false }));
+				result = { outcome: written.kind, ...written.note, links, unknownReferences: resolved.unknown };
+				envelope = { kind: 'note_written', outcome: written.kind, id, content, links, unknownReferences: resolved.unknown };
+				break;
+			}
+			case 'delete_note': {
+				const id = normalizeNoteId(normalizedArgs.id);
+				this.runtime.throwIfStopped(runId, runContext.signal);
+				this.runtime.deleteNote(id);
+				result = { deleted: id };
+				envelope = { kind: 'note_deleted', id };
 				break;
 			}
 			case 'view_activity': {
@@ -527,21 +571,6 @@ export class RuntimeTools {
 				unrelated: unrelatedMutationCount > 0,
 			},
 		};
-	}
-
-	private async profilesFromUsernames(bot: BotDocument, usernames: string[]): Promise<BotPublicProfile[]> {
-		const profiles = await botPublicProfilesByHandles(this.runtime.env.BICKR_KV, this.runtime.env.BICKR_D1, bot.homeWorldId, usernames);
-		const foundHandles = new Set(profiles.map((profile) => profile.handle));
-		const missing = usernames.find((username) => !foundHandles.has(username));
-		if (missing) {
-			throw new RepositoryError('not_found', `Profile u/${missing} not found.`, 404);
-		}
-		return profiles;
-	}
-
-	private async viewProfilesTool(bot: BotDocument, usernames: string[]): Promise<BotProfileRelationshipSummary[]> {
-		const profiles = await this.profilesFromUsernames(bot, usernames);
-		return this.annotateProfilesFollowRelationships(bot.id, profiles);
 	}
 
 	private async assertNoPriorReplyToTarget(botId: string, threadId: string, parentCommentId: string | undefined): Promise<void> {

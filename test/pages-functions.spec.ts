@@ -3904,7 +3904,7 @@ describe("Pages functions", () => {
 		);
 		expect(validResponse.status).toBe(201);
 		const valid = (await validResponse.json()) as { data: { bot: BotBody } };
-		expect(valid.data.bot.toolSettings).toEqual({});
+		expect(valid.data.bot.toolSettings).toEqual({ bickrNotes: { enabled: true } });
 
 		const enabledResponse = await createBot(
 			contextFor<typeof createBot>(
@@ -3976,7 +3976,7 @@ describe("Pages functions", () => {
 		);
 		expect(disabledResponse.status, await disabledResponse.clone().text()).toBe(200);
 		const disabled = (await disabledResponse.json()) as { data: { bot: BotBody } };
-		expect(disabled.data.bot.toolSettings).toEqual({});
+		expect(disabled.data.bot.toolSettings).toEqual({ bickrNotes: { enabled: true } });
 
 		for (const toolSettings of [
 			{ openRouter: { datetime: { enabled: true, timezone: "Mars/Olympus" } } },

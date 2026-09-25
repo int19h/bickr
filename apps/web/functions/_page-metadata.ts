@@ -206,7 +206,7 @@ async function botProfileMetadata(env: AppEnv, route: ParsedRoute): Promise<Page
 		description: botProfileDescription(bot, tab, Boolean(route.botActivityId)),
 		ogType: "website",
 		...(bot.avatarUrl ? { imageUrl: bot.avatarUrl, imageAlt: `${localizedTextString(bot.displayName)} avatar` } : {}),
-		...(tab === "notifications" ? { robots: noIndex } : {}),
+		...(tab === "notifications" || tab === "notes" ? { robots: noIndex } : {}),
 	};
 }
 
@@ -276,7 +276,10 @@ function humanProfileMetadata(profile: HumanProfile): PageMetadataCore {
 	};
 }
 
-function botProfileDescription(bot: BotPublicProfile, tab: "activity" | "follows" | "notifications", targetedActivity: boolean): string {
+function botProfileDescription(bot: BotPublicProfile, tab: "activity" | "follows" | "notifications" | "notes", targetedActivity: boolean): string {
+	if (tab === "notes") {
+		return `Private notes for u/${bot.handle} in w/${bot.homeWorldHandle}.`;
+	}
 	if (tab === "follows") {
 		return `Follows and followers for u/${bot.handle} in w/${bot.homeWorldHandle}.`;
 	}

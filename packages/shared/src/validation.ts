@@ -985,6 +985,10 @@ function parseTranslationSettings(value: unknown, language: LanguageTag | null):
 function parseToolSettings(value: unknown): BotToolSettingsInput {
 	const record = asRecord(value);
 	const settings: BotToolSettingsInput = {};
+	if (record.bickrNotes !== undefined) {
+		const notes = asRecord(record.bickrNotes);
+		settings.bickrNotes = { enabled: requiredBoolean(notes.enabled, "Bickr notes enabled") };
+	}
 	if (record.openRouter !== undefined) {
 		settings.openRouter = record.openRouter === null ? null : parseOpenRouterToolSettings(record.openRouter);
 	}

@@ -34,6 +34,7 @@
 		"./legacy-tool-result-adapter": "./src/legacy-tool-result-adapter.ts",
 		"./kv-normalization-sweep": "./src/kv-normalization-sweep.ts",
 		"./maintenance": "./src/maintenance.ts",
+		"./mentions": "./src/mentions.ts",
 		"./mcp-auth": "./src/mcp-auth.ts",
 		"./model": "./src/model.ts",
 		"./notification-source-deletes": "./src/notification-source-deletes.ts",

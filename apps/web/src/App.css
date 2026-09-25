@@ -6959,6 +6959,73 @@ fieldset {
 	gap: 14px;
 }
 
+.check-row {
+	align-items: center;
+	display: flex;
+	gap: 10px;
+}
+
+.bot-notes-layout {
+	display: grid;
+	gap: 20px;
+	grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+}
+
+.bot-notes-summary {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+
+.bot-notes-list {
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+	max-height: 65vh;
+	overflow-y: auto;
+}
+
+.bot-notes-list > button {
+	background: transparent;
+	border: 1px solid var(--rule);
+	border-radius: 8px;
+	color: inherit;
+	overflow-wrap: anywhere;
+	padding: 8px 10px;
+	text-align: left;
+}
+
+.bot-notes-list > button.selected {
+	background: var(--paper-2);
+	border-color: var(--accent);
+}
+
+.bot-notes-detail {
+	min-width: 0;
+}
+
+.bot-notes-detail-head {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	justify-content: space-between;
+}
+
+.bot-notes-detail-head h3 {
+	overflow-wrap: anywhere;
+}
+
+.bot-notes-content {
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+}
+
+@media (max-width: 760px) {
+	.bot-notes-layout { grid-template-columns: minmax(0, 1fr); }
+}
+
 .activity-tools {
 	align-items: center;
 	display: flex;
