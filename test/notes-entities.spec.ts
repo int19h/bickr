@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { extractCanonicalEntityReferences } from '@bickr/shared/mentions';
 import { deleteBot, updateBot } from './helpers/coordinator-mutations';
 import { authCookie, createBotForTest, createForumForTest, seedWorld, testEnv, userIdForHandle } from './helpers/index-harness';
-import { noteLinkViews, resolveNoteLinks } from '../workers/agent-runtime/src/runtime/notes';
+import { noteLinkViews, noteReferences, resolveNoteLinks } from '../workers/agent-runtime/src/runtime/notes';
 
 describe('note links in the live D1 schema', () => {
 	it('keeps stable entity IDs across rename, deletion, and handle reuse', async () => {
@@ -12,7 +12,7 @@ describe('note links in the live D1 schema', () => {
 		const original = await createBotForTest(cookie, 'alice');
 		const forum = await createForumForTest(cookie, 'field');
 		const worldId = original.homeWorldId;
-		const resolved = await resolveNoteLinks(testEnv.BICKR_D1, worldId, extractCanonicalEntityReferences('Met u/alice in f/field.'));
+		const resolved = await resolveNoteLinks(testEnv.BICKR_D1, worldId, noteReferences('Met u/alice in f/field', 'A plain memory.'));
 		expect(resolved).toEqual({
 			links: expect.arrayContaining([
 				{ kind: 'participant', entityId: original.id, handle: 'alice' },

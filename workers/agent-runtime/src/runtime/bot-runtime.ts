@@ -4,7 +4,7 @@ import { runtimeDiagnostics, type RuntimeDiagnostic } from '@bickr/shared/runtim
 import { eventFromRow } from './events';
 import { ToolOutcomeUnknownError } from '../errors';
 import { completeToolBookkeeping } from './tools';
-import { BotNotesStore, normalizeNoteId, noteLinkViews, type BotNoteView } from './notes';
+import { BotNotesStore, normalizeNoteId, noteContent, noteFilterReferences, noteLinkViews, noteReferences, resolveNoteLinks, type BotNoteView } from './notes';
 import { type RuntimePauseIntent, proposedRunNextDueAt, runKeepsStandingSchedule, RunLiveness, untilRunStopped, boundedCleanup, runInactivityMs, finalizationRetryMs, transitionTimeoutMs, isRunProgressEvent } from './run-liveness';
 import { fail, ok, readJsonBody } from '@bickr/shared/api';
 import {
@@ -2265,6 +2265,29 @@ export class BotRuntime {
 	}
 
 	private async handleRuntimeMutationRequest(request: Request, url: URL, botId: string): Promise<Response | null> {
+		if (request.method === 'POST' && url.pathname.endsWith('/notes/list')) {
+			await this.requireOwnerOrInternal(request, botId);
+			const body = runtimeRecord(await readJsonBody(request));
+			const filters = noteFilterReferences(body.entities);
+			const cursor = body.cursor === undefined || body.cursor === null ? null : normalizeNoteId(body.cursor);
+			const limit = body.limit === undefined ? 50 : body.limit;
+			if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 50) {
+				throw new InputError('Note list limit must be an integer from 1 through 50.');
+			}
+			const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
+			const resolved = await resolveNoteLinks(this.env.BICKR_D1, bot.homeWorldId, filters);
+			return ok(this.notes.list(cursor, limit, resolved.links, resolved.unknown));
+		}
+		if (request.method === 'POST' && url.pathname.endsWith('/notes/write')) {
+			await this.requireOwnerOrInternal(request, botId);
+			const body = runtimeRecord(await readJsonBody(request));
+			const id = normalizeNoteId(body.id);
+			const content = noteContent(body.content);
+			const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
+			const resolved = await resolveNoteLinks(this.env.BICKR_D1, bot.homeWorldId, noteReferences(id, content));
+			const written = this.writeNote(id, content, resolved.links);
+			return ok({ outcome: written.kind, note: written.note, unknownReferences: resolved.unknown });
+		}
 		if (request.method === 'POST' && url.pathname.endsWith('/notes/read')) {
 			await this.requireOwnerOrInternal(request, botId);
 			const body = runtimeRecord(await readJsonBody(request));
@@ -2278,8 +2301,7 @@ export class BotRuntime {
 			await this.requireOwnerOrInternal(request, botId);
 			const body = runtimeRecord(await readJsonBody(request));
 			const id = normalizeNoteId(body.id);
-			this.deleteNote(id);
-			return ok({ deleted: id });
+			return ok({ outcome: this.deleteNote(id), id });
 		}
 		if (request.method === 'POST' && url.pathname.endsWith('/recover-stale-run')) {
 			this.requireInternalMaintenance(request);
@@ -5876,9 +5898,9 @@ export class BotRuntime {
 		return this.notes.write(id, content, links);
 	}
 
-	private deleteNote(id: string): void {
+	private deleteNote(id: string): 'deleted' | 'not_found' {
 		this.requireWritableRuntimeStorage();
-		this.notes.delete(id);
+		return this.notes.delete(id);
 	}
 
 	private async forumService<T>(path: string, botId: string, body: unknown, signal: AbortSignal): Promise<T> {

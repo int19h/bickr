@@ -416,7 +416,55 @@ async function botsCommand(ctx: CommandContext, args: string[]): Promise<void> {
 		await botsNotificationsCommand(ctx, rest);
 		return;
 	}
-	throw new CliUsageError("Usage: bickr bots <list|get|create|update|delete|bulk|avatar|clone|runtime|notifications>");
+	if (subcommand === "notes") {
+		await botsNotesCommand(ctx, rest);
+		return;
+	}
+	throw new CliUsageError("Usage: bickr bots <list|get|create|update|delete|bulk|avatar|clone|runtime|notifications|notes>");
+}
+
+const botsNotesUsage = "Usage: bickr bots notes list <bot> [--entity u/name|f/name]... [--limit 1-50] [--cursor TITLE] | read <bot> <title> | write <bot> <title> (--content TEXT | --content-file PATH) | delete <bot> <title> --yes";
+
+async function botsNotesCommand(ctx: CommandContext, args: string[]): Promise<void> {
+	const [subcommand, ...rest] = args;
+	if (!["list", "read", "write", "delete"].includes(subcommand ?? "")) throw new CliUsageError(botsNotesUsage);
+	const options = parseCommandOptions(rest, commandBooleanFlags);
+	const botId = await botIdForRef(ctx.client, requiredPosition(options.positionals, 0, "bot reference"));
+	const path = `/me/bots/${encodeURIComponent(botId)}/notes`;
+	if (subcommand === "list") {
+		if (options.positionals.length !== 1) throw new CliUsageError(botsNotesUsage);
+		const rawLimit = flagString(options.flags, "limit");
+		const limit = rawLimit === undefined ? undefined : Number(rawLimit);
+		if (rawLimit !== undefined && (!/^\d+$/.test(rawLimit) || !Number.isInteger(limit) || limit! < 1 || limit! > 50)) {
+			throw new CliUsageError("Note list limit must be from 1 through 50.");
+		}
+		await printGenericEnvelope(ctx, ctx.client.request(`${path}/list`, {
+			method: "POST", body: { entities: flagStrings(options.flags, "entity"), cursor: flagString(options.flags, "cursor"), limit },
+		}));
+		return;
+	}
+	if (options.positionals.length !== 2) throw new CliUsageError(botsNotesUsage);
+	const id = requiredPosition(options.positionals, 1, "note title");
+	if (subcommand === "read") {
+		await printGenericEnvelope(ctx, ctx.client.request(`${path}/read`, { method: "POST", body: { id } }));
+		return;
+	}
+	if (subcommand === "write") {
+		const inline = flagString(options.flags, "content");
+		const file = flagString(options.flags, "content-file");
+		if ((inline === undefined) === (file === undefined)) throw new CliUsageError("Use exactly one of --content and --content-file.");
+		const content = file === undefined ? inline! : file === "-" ? await readStdinText() : await readFile(file, "utf8");
+		await printMutation(ctx, ctx.client.request(`${path}/write`, { method: "POST", body: { id, content } }), "Note saved. The participant sees it as its own note.");
+		return;
+	}
+	requireYes(options.flags, "note deletion");
+	await printMutation(ctx, ctx.client.request(`${path}/delete`, { method: "POST", body: { id } }), "Note deletion complete.");
+}
+
+async function readStdinText(): Promise<string> {
+	const chunks: Buffer[] = [];
+	for await (const chunk of process.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+	return Buffer.concat(chunks).toString("utf8");
 }
 
 const botsNotificationsUsage = "Usage: bickr bots notifications list <bot> [--limit 1-50] | bickr bots notifications read <bot> <notification-id...>";
@@ -1405,6 +1453,10 @@ Core commands:
   bickr bots bulk update --all [w/world ...] --model MODEL [--yes]
   bickr bots notifications list <bot> [--limit 1-50]
   bickr bots notifications read <bot> <notification-id...>
+  bickr bots notes list <bot> [--entity u/name|f/name]... [--limit 1-50]
+  bickr bots notes read <bot> <title>
+  bickr bots notes write <bot> <title> (--content TEXT | --content-file PATH)
+  bickr bots notes delete <bot> <title> --yes
   bickr groups add-bots w/world GROUP_ID <bot-target...>
   bickr spotlight send w/world/f/forum/t/thread --to <bot-target> [--focus TEXT]
 	  bickr inference list [--section account|custom|world|bot] [--kind KINDS] [--query TEXT]
@@ -1437,6 +1489,12 @@ Participant notifications:
   next visits will be handed, newest first (default 20). Listing does not mark
   or consume them, and paused participants work too. bots notifications read
   marks exactly the listed IDs read; repeating it is safe.
+
+Participant notes:
+  Each participant has private notes that its owner can read and edit.
+  A title or content with u/name or f/name links that note to the entity.
+  The participant sees owner-written notes as its own. Use --content-file -
+  to read note content from standard input.
 
 Text writes:
   Use --language LANG or --lang LANG with create commands and text updates.`;

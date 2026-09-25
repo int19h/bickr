@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { extractCanonicalEntityReferences } from '@bickr/shared/mentions';
-import { BotNotesStore, maxNotesPerBot, normalizeNoteId, noteContent, noteFilterReferences } from './notes';
+import { BotNotesStore, maxNotesPerBot, normalizeNoteId, noteContent, noteFilterReferences, noteReferences } from './notes';
 import { runtimeSchema } from './bot-runtime';
 import { createRuntimeTestStorage, type RuntimeTestStorage } from './sqlite-test-helper';
 
@@ -28,7 +28,8 @@ describe('private bot notes', () => {
 		expect(notes.idsForEntity('participant', alice.entityId)).toEqual({ ids: [], total: 0 });
 		expect(notes.list(null, 50, [forum]).ids).toEqual([]);
 
-		notes.delete('meeting');
+		expect(notes.delete('meeting')).toBe('deleted');
+		expect(notes.delete('meeting')).toBe('not_found');
 		expect(notes.read('meeting')).toBeNull();
 		expect(notes.allIds()).toEqual([]);
 	});
@@ -73,6 +74,17 @@ describe('private bot notes', () => {
 		expect(() => notes.write('valid', '', [])).toThrow();
 		expect(noteContent('😀'.repeat(4_000))).toBe('😀'.repeat(4_000));
 		expect(() => noteContent('😀'.repeat(4_001))).toThrow();
+	});
+
+	it('normalizes short titles and rejects invisible controls', () => {
+		expect(normalizeNoteId('  Met  u/Alice in f/NEWS  ')).toBe('met u/alice in f/news');
+		expect(normalizeNoteId('㍿'.repeat(16))).toBe('株式会社'.repeat(16));
+		expect(() => normalizeNoteId('㍿'.repeat(17))).toThrow('1-64 characters');
+		expect(() => normalizeNoteId('a\u202eb')).toThrow('letters, marks');
+		expect(() => normalizeNoteId('family 👩‍👩‍👧')).toThrow('letters, marks');
+		expect(noteReferences('met u/alice', 'in f/news')).toEqual([
+			{ kind: 'participant', handle: 'alice' }, { kind: 'forum', handle: 'news' },
+		]);
 	});
 
 	it('finds canonical references without treating a URL or an at-mention as a link', () => {
