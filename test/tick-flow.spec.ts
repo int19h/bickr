@@ -1080,7 +1080,7 @@ describe("Tick flow", () => {
 			created_at: "2026-05-01T00:00:00.000Z",
 			has_logs: 0,
 		};
-		async function buildWithActiveRows(activeRows: unknown[], notesEnabled = true): Promise<Array<Record<string, unknown>>> {
+		async function buildWithActiveRows(activeRows: unknown[], notesEnabled = true, tokenBudget = 10_000, oversizedProfile = false): Promise<Array<Record<string, unknown>>> {
 			const messages: Array<Record<string, unknown>> = [];
 			let seq = 0;
 			const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
@@ -1095,7 +1095,11 @@ describe("Tick flow", () => {
 					seq += 1;
 					return { seq, runId: "run-profile-context", role: message.role, message };
 				},
-				readCommentTreeTokenBudget: async () => 10_000,
+				readCommentTreeTokenBudget: async () => tokenBudget,
+				...(oversizedProfile ? { syntheticProfilesForUsernames: async () => [{
+					...referencedProfile,
+					shortBio: lt('Large profile '.repeat(500)),
+				}] } : {}),
 				activeLoopMessagesForProvider: () => messages,
 				activeLoopMessageRows: () => activeRows,
 			}));
@@ -1151,6 +1155,12 @@ describe("Tick flow", () => {
 			.map((message) => JSON.parse(String(message.content)))
 			.find((result) => Array.isArray(result.profiles));
 		expect(disabledProfile.profiles[0]).not.toHaveProperty('noteIds');
+		const exhausted = await buildWithActiveRows([], true, 80, true);
+		const exhaustedNotification = exhausted.filter((message) => message.role === 'tool')
+			.map((message) => JSON.parse(String(message.content)))
+			.find((result) => Array.isArray(result.events));
+		expect(exhaustedNotification.events).toHaveLength(1);
+		expect(toolNames(exhausted)).toEqual(['check_notifications']);
 	});
 
 	it("deduplicates inline notification content against active context and same-tick repeats", async () => {
@@ -1956,7 +1966,6 @@ describe("Tick flow", () => {
 		expect(setupToolCallMessages.flatMap((message) => message.tool_calls?.map((toolCall) => toolCall.function.name) ?? [])).toEqual([
 			"read_comment_by_id",
 			"read_thread_by_id",
-			"view_profiles",
 		]);
 		expect(setupToolCallMessages.slice(1).every((message) => message.content === null)).toBe(true);
 		const toolResults = built
@@ -1987,13 +1996,13 @@ describe("Tick flow", () => {
 		});
 		expect(toolResults.find((result) => result.operation === "read_thread_by_id")?.context).toContain("body ending in …");
 		expect(JSON.stringify(toolResults.find((result) => result.operation === "read_thread_by_id"))).not.toContain(spotlightThreadReplyBody);
-		expect(toolResults[2]).toBeNull();
-		const profileResultIndex = built.findIndex((message) => message.role === "tool" && String(message.content) === "null");
+		expect(toolResults).toHaveLength(2);
+		const finalReadResultIndex = built.findLastIndex((message) => message.role === "tool");
 		const focusMessageIndex = built.findIndex(
 			(message) => message.role === "assistant" && message.content === "My focus: Please pay attention to the target comment.",
 		);
-		expect(profileResultIndex).toBeGreaterThanOrEqual(0);
-		expect(focusMessageIndex).toBeGreaterThan(profileResultIndex);
+		expect(finalReadResultIndex).toBeGreaterThanOrEqual(0);
+		expect(focusMessageIndex).toBeGreaterThan(finalReadResultIndex);
 		expect(focusMessageIndex).toBe(built.length - 1);
 	});
 

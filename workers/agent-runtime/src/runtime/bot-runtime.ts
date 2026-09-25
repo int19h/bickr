@@ -236,6 +236,7 @@ import {
 	providerSerializationContext,
 	providerThreadRef,
 	providerToolResultPayload,
+	providerViewedProfiles,
 	pruneReadContentTreeForProviderBudget,
 	readContentItemTree,
 	readResultContext,
@@ -6000,19 +6001,14 @@ export class BotRuntime {
 		];
 		const usernames = referencedProfileUsernamesFromNotifications(includedNotifications, bot.handle, existingProfileUsernames);
 		if (usernames.length > 0) {
-			const index = toolCalls.length;
-			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId, 'notification');
-			const toolCall = syntheticToolCall(runId, 'view_profiles', index, { usernames });
-			toolCalls.push(toolCall);
-			results.push({
-				role: 'tool',
-				tool_call_id: toolCall.id,
-				content: JSON.stringify(
-					providerToolResultPayload('view_profiles', { profiles }, {}, providerSerializationContext({ botId: bot.id }), {
-						tokenBudget: notificationTokenBudget,
-					}, { kind: 'profile_viewed', profiles }),
-				),
-			});
+			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId);
+			const profileResult = providerViewedProfiles(profiles, notificationTokenBudget);
+			if (profileResult.profiles.length > 0) {
+				await this.markSyntheticProfilesSeen(bot, profiles.slice(0, profileResult.profiles.length), runId, 'notification');
+				const toolCall = syntheticToolCall(runId, 'view_profiles', toolCalls.length, { usernames });
+				toolCalls.push(toolCall);
+				results.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(profileResult) });
+			}
 		}
 		this.appendToolCallChainLoopMessages(
 			runId,
@@ -6044,17 +6040,14 @@ export class BotRuntime {
 		}));
 		const usernames = referencedProfileUsernamesFromSpotlight(contexts, bot.handle, existingProfileUsernames);
 		if (usernames.length > 0) {
-			const index = toolCalls.length;
-			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId, 'spotlight');
-			const toolCall = syntheticToolCall(runId, 'view_profiles', index, { usernames });
-			toolCalls.push(toolCall);
-			results.push({
-				role: 'tool',
-				tool_call_id: toolCall.id,
-				content: JSON.stringify(
-					providerToolResultPayload('view_profiles', { profiles }, {}, providerSerializationContext({ botId: bot.id }), { tokenBudget }, { kind: 'profile_viewed', profiles }),
-				),
-			});
+			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId);
+			const profileResult = providerViewedProfiles(profiles, tokenBudget);
+			if (profileResult.profiles.length > 0) {
+				await this.markSyntheticProfilesSeen(bot, profiles.slice(0, profileResult.profiles.length), runId, 'spotlight');
+				const toolCall = syntheticToolCall(runId, 'view_profiles', toolCalls.length, { usernames });
+				toolCalls.push(toolCall);
+				results.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(profileResult) });
+			}
 		}
 		if (toolCalls.length === 0) {
 			return;
@@ -6109,9 +6102,18 @@ export class BotRuntime {
 		bot: BotDocument,
 		usernames: string[],
 		runId: string,
-		seenVia: string,
 	): Promise<ViewedProfileResult[]> {
-		return this.viewProfilesForUsernames(bot, usernames.map(usernameArg), runId, `synthetic:view_profiles:${seenVia}`, false, true);
+		return this.viewProfilesForUsernames(bot, usernames.map(usernameArg), runId, 'synthetic:view_profiles', false, false);
+	}
+
+	private async markSyntheticProfilesSeen(bot: BotDocument, profiles: ViewedProfileResult[], runId: string, seenVia: string): Promise<void> {
+		await markBotSeenContent(
+			this.env.BICKR_D1,
+			bot.id,
+			profiles.map((profile) => ({ type: 'bot', id: profile.id })),
+			`synthetic:view_profiles:${seenVia}`,
+			runId,
+		);
 	}
 
 	private async viewProfilesForUsernames(

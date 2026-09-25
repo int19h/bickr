@@ -45,15 +45,16 @@ describe("provider-facing text preservation", () => {
 		const dropped = providerToolResultPayload(
 			"view_profiles", { profiles: manyProfiles }, {}, readingParticipant(),
 			{ tokenBudget: 100 }, { kind: "profile_viewed", profiles: manyProfiles },
-		) as { profiles: Array<{ omittedNoteIdCount?: number }> };
+		) as { profiles: Array<{ omittedNoteIdCount?: number }>; omittedProfileCount?: number };
 		expect(dropped.profiles.length).toBeGreaterThan(0);
 		expect(dropped.profiles.length).toBeLessThan(manyProfiles.length);
+		expect(dropped.omittedProfileCount).toBe(manyProfiles.length - dropped.profiles.length);
 		expect(dropped.profiles[0]?.omittedNoteIdCount).toBe(noteIds.length);
 		expect(Math.ceil(JSON.stringify(dropped).length / 4)).toBeLessThanOrEqual(100);
 		expect(providerToolResultPayload(
 			"view_profiles", { profiles: [profile] }, {}, readingParticipant(),
 			{ tokenBudget: 1 }, { kind: "profile_viewed", profiles: [profile] },
-		)).toBeNull();
+		)).toEqual({ profiles: [], omittedProfileCount: 1 });
 	});
 
 	it("keeps note IDs out of profile discovery results", () => {

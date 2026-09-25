@@ -131,8 +131,13 @@ type ProviderViewedProfile = Record<string, unknown> & {
 	omittedNoteIdCount?: number;
 };
 
-function providerViewedProfiles(profiles: ViewedProfileResult[], tokenBudget?: number): { profiles: ProviderViewedProfile[] } | null {
-	const payload = (items: ProviderViewedProfile[]) => ({ profiles: items });
+export type ProviderViewedProfilesResult = { profiles: ProviderViewedProfile[]; omittedProfileCount?: number };
+
+export function providerViewedProfiles(profiles: ViewedProfileResult[], tokenBudget?: number): ProviderViewedProfilesResult {
+	const payload = (items: ProviderViewedProfile[]): ProviderViewedProfilesResult => ({
+		profiles: items,
+		...(profiles.length > items.length ? { omittedProfileCount: profiles.length - items.length } : {}),
+	});
 	const withNoteLimit = (limit: number): ProviderViewedProfile[] => profiles.map((profile) => {
 		const ids = profile.associatedNoteIds;
 		if (!ids) return providerProfile(runtimeRecord(profile));
@@ -172,7 +177,9 @@ function providerViewedProfiles(profiles: ViewedProfileResult[], tokenBudget?: n
 	}
 
 	const pruned = pruneProviderArrayForBudget(withoutIds, budget, payload);
-	return providerJsonTokenEstimate(payload(pruned.items)) <= budget ? payload(pruned.items) : null;
+	// The smallest typed result can exceed a nearly exhausted budget.
+	// Tool calls still need a truthful result rather than an unexplained null.
+	return payload(pruned.items);
 }
 
 function pruneProviderArrayForBudget<T>(
