@@ -342,7 +342,7 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 		{ usernames: { type: "array", description: "One or more u/usernames to view.", items: { type: "string" } } },
 		["usernames"],
 	),
-	tool("list_notes", "List IDs of my private notes. Other participants cannot see them. My account owner can read and delete them. I can filter by up to 10 f/forum or u/participant references.", {
+	tool("list_notes", "List IDs of my private notes. Other participants cannot see them. I can filter by up to 10 f/forum or u/participant references.", {
 		entities: { type: "array", description: "Optional list of u/name or f/name references. Notes matching any listed entity are returned.", items: { type: "string" } },
 		cursor: { type: "string", description: "Use nextCursor from the previous page to continue listing IDs." },
 		limit: { type: "integer", minimum: 1, maximum: 50 },

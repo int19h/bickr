@@ -114,11 +114,7 @@ describe("Provider requests", () => {
 
 	it("declares provider tool schemas with typed required properties", () => {
 		for (const definition of toolDefinitions) {
-			if (definition.function.name === 'list_notes') {
-				expect(definition.function.description).toContain('My account owner can read and delete them.');
-			} else {
-				expect(definition.function.description).not.toMatch(/\b(owner|human)\b/i);
-			}
+			expect(definition.function.description).not.toMatch(/\b(owner|human)\b/i);
 			const { parameters } = definition.function;
 			for (const requiredProperty of parameters.required) {
 				expect(parameters.properties[requiredProperty]).toBeDefined();
