@@ -286,6 +286,8 @@ describe("MCP endpoint", () => {
 			["export_forum", "bickr.read", true, false, true],
 			["list_notifications", "bickr.read", true, false, true],
 			["mark_notifications_read", "bickr.write", false, false, false],
+			["list_bot_notifications", "bickr.read", true, false, true],
+			["mark_bot_notifications_read", "bickr.write", false, false, true],
 			["list_subscriptions", "bickr.read", true, false, true],
 			["set_subscription", "bickr.write", false, false, false],
 			["delete_subscription", "bickr.write", false, true, false],
@@ -868,6 +870,128 @@ describe("MCP endpoint", () => {
 		const result = (await jsonResponse(response)).result as { structuredContent: { worlds: Array<{ id: string }> } };
 		expect(result.structuredContent.worlds.map((world) => world.id)).toContain("wld_foreign_page");
 		expect(annotationCalls).toBe(0);
+	});
+
+	it("lists and marks read the pending notifications of an owned participant, paused or not", async () => {
+		await resetD1Schema(testEnv.BICKR_D1);
+		await clearKv(testEnv.BICKR_KV);
+		const at = (minute: number) => `2026-09-25T12:${String(minute).padStart(2, "0")}:00.000Z`;
+		const bots = [
+			testBot({ id: "bot_mcp_paused", handle: "paused" }),
+			testBot({ id: "bot_mcp_sibling", handle: "sibling", tickSettings: { enabled: true, intervalSeconds: 3_600, compactionThreshold: 0.75 } }),
+			testBot({ id: "bot_mcp_foreign", handle: "foreign", ownerUserId: "usr_other" }),
+		];
+		const notifications = [
+			{ id: "ntf_mcp_old", botId: "bot_mcp_paused", type: "reply", createdAt: at(1) },
+			{ id: "ntf_mcp_mid", botId: "bot_mcp_paused", type: "vote", createdAt: at(2) },
+			{ id: "ntf_mcp_new", botId: "bot_mcp_paused", type: "vote", createdAt: at(3) },
+			{ id: "ntf_mcp_sibling", botId: "bot_mcp_sibling", type: "reply", createdAt: at(4) },
+			{ id: "ntf_mcp_foreign", botId: "bot_mcp_foreign", type: "reply", createdAt: at(5) },
+		];
+		await Promise.all([
+			...bots.map((bot) => writeJson(testEnv.BICKR_KV, kvKeys.bot(bot.id), bot)),
+			...notifications.map((notification) => writeJson(testEnv.BICKR_KV, kvKeys.notification(notification.botId, notification.id), {
+				id: notification.id,
+				type: "notification",
+				schemaVersion: 1,
+				revision: 1,
+				worldId: "w_mcp",
+				botId: notification.botId,
+				notificationType: notification.type,
+				status: "pending",
+				message: lt(`Notification ${notification.id}`),
+				createdAt: notification.createdAt,
+				updatedAt: notification.createdAt,
+			})),
+		]);
+		await testEnv.BICKR_D1.batch([
+			...bots.flatMap((bot) => [
+				activeIdentityClaim("bot_handle", "w_mcp", bot.handle, "bot", bot.id, bot.ownerUserId),
+				testEnv.BICKR_D1.prepare(
+					`INSERT INTO bots_index (
+						bot_id, home_world_id, home_world_handle, handle, display_name,
+						owner_user_id, short_bio, created_at, updated_at, lifecycle_state
+					) VALUES (?, 'w_mcp', 'mcp-world', ?, 'MCP Bot', ?, '', ?, ?, 'active')`,
+				).bind(bot.id, bot.handle, bot.ownerUserId, bot.createdAt, bot.updatedAt),
+			]),
+			...notifications.map((notification) => testEnv.BICKR_D1.prepare(
+				`INSERT INTO notifications (
+					notification_id, world_id, bot_id, type, source_object_id, status, message, message_lang,
+					created_at, delivered_at, read_at
+				) VALUES (?, 'w_mcp', ?, ?, NULL, 'pending', ?, 'en', ?, NULL, NULL)`,
+			).bind(notification.id, notification.botId, notification.type, `Notification ${notification.id}`, notification.createdAt)),
+		]);
+		const accessToken = await issueAccessToken(testEnv.BICKR_KV, ["bickr.read", "bickr.write"]);
+		const call = async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
+			const response = await callMcp(testEnv.BICKR_KV, accessToken, {
+				jsonrpc: "2.0", id: 1, method: "tools/call",
+				params: { name, arguments: args },
+			}, {
+				BICKR_D1: testEnv.BICKR_D1,
+				AGENT_RUNTIME: canonicalAnnotationService([]),
+				INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
+			});
+			return (await jsonResponse(response)).result as Record<string, unknown>;
+		};
+		const markRead = (botId: string, notificationIds: string[]) => call("mark_bot_notifications_read", {
+			operations: [{ operationId: `mark-${botId}-${notificationIds.join("-")}`, botId, notificationIds }],
+		});
+		const pendingIds = async (): Promise<string[]> => {
+			const result = await testEnv.BICKR_D1.prepare(
+				`SELECT notification_id AS id FROM notifications ORDER BY notification_id`,
+			).all<{ id: string }>();
+			return (result.results ?? []).map((row) => row.id);
+		};
+		const byName = new Map(mcpToolMetadataForTest().map((tool) => [tool.name, tool]));
+		expect(schemaRequired(byName, "list_bot_notifications")).toEqual(["botId"]);
+		expect(schemaRequired(byName, "mark_bot_notifications_read")).toEqual(expect.arrayContaining(["botId", "notificationIds"]));
+		expect(schemaProperty(byName, "mark_bot_notifications_read", "notificationIds")).toMatchObject({ minItems: 1, maxItems: 50 });
+
+		const listed = await call("list_bot_notifications", { botId: "bot_mcp_paused", limit: 2 });
+		expectSchemaAccepts(byName.get("list_bot_notifications")!.outputSchema!, listed.structuredContent);
+		expect(listed.structuredContent).toMatchObject({
+			botId: "bot_mcp_paused",
+			notifications: [
+				{ id: "ntf_mcp_new", notificationType: "vote", message: { lang: "en", text: "Notification ntf_mcp_new" } },
+				{ id: "ntf_mcp_mid" },
+			],
+			unavailableCount: 0,
+			hasMore: true,
+		});
+		// Listing twice consumes nothing.
+		await call("list_bot_notifications", { botId: "bot_mcp_paused" });
+		expect(await pendingIds()).toHaveLength(5);
+
+		const marked = await markRead("bot_mcp_paused", ["ntf_mcp_new", "ntf_mcp_mid"]);
+		expectSchemaAccepts(byName.get("mark_bot_notifications_read")!.outputSchema!, marked.structuredContent);
+		expect(marked.structuredContent).toMatchObject({
+			succeeded: 1,
+			results: [{ status: "succeeded", result: { botId: "bot_mcp_paused", markedReadCount: 2, notPendingCount: 0 } }],
+		});
+		expect(await markRead("bot_mcp_paused", ["ntf_mcp_new"])).toMatchObject({
+			structuredContent: { results: [{ status: "succeeded", result: { markedReadCount: 0, notPendingCount: 1 } }] },
+		});
+		expect(await pendingIds()).toEqual(["ntf_mcp_foreign", "ntf_mcp_old", "ntf_mcp_sibling"]);
+
+		// Another participant's notification, even one of the same owner, is not addressable through this bot.
+		expect(await markRead("bot_mcp_paused", ["ntf_mcp_old", "ntf_mcp_sibling"])).toMatchObject({
+			isError: true,
+			structuredContent: { results: [{ status: "indeterminate", error: { error: "InputError" } }] },
+		});
+		// Another user's participant is rejected for both tools.
+		expect(await call("list_bot_notifications", { botId: "bot_mcp_foreign" })).toMatchObject({
+			isError: true,
+			structuredContent: { error: "forbidden" },
+		});
+		expect(await markRead("bot_mcp_foreign", ["ntf_mcp_foreign"])).toMatchObject({
+			isError: true,
+			structuredContent: { results: [{ status: "indeterminate", error: { error: "forbidden" } }] },
+		});
+		expect(await call("list_bot_notifications", { botId: "bot_mcp_paused", limit: 51 })).toMatchObject({
+			isError: true,
+			structuredContent: { error: "InputError" },
+		});
+		expect(await pendingIds()).toEqual(["ntf_mcp_foreign", "ntf_mcp_old", "ntf_mcp_sibling"]);
 	});
 
 	it("reports world posting provenance and linked-clone prompt provenance on get_bot", async () => {
