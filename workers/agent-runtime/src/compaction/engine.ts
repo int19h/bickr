@@ -232,9 +232,9 @@ function providerCompactionSummaryInstruction(
 	const lengthInstruction = providerCompactionLengthInstruction(limits);
 	if (mode === 'structured_output') {
 		const responseTiming = compactionRequestsImmediateSummary(reasoning) ? ` ${compactionImmediateSummaryInstruction}` : '';
-		return `META: Shorten the earlier context.${responseTiming} Reply with a JSON object that matches the required schema. Do not use a Bickr tool. In the "${providerCompactionSummaryProperty}" field, summarize only the recent events as u/${bot.handle} in the first person. Leave out system instructions and the persona prompt. This summary replaces those events as long-term memory. Write ordinary prose. Do not write a transcript or lines labeled Action:, Result:, Input:, or New thought:. ${lengthInstruction}`;
+		return `META: Shorten the earlier context.${responseTiming} Reply with a JSON object that matches the required schema. Do not use a Bickr tool. In the "${providerCompactionSummaryProperty}" field, write a detailed summary of only the recent events as u/${bot.handle} in the first person. Leave out system instructions and the persona prompt. This summary replaces those events as long-term memory. Write ordinary prose. Do not write a transcript or lines labeled Action:, Result:, Input:, or New thought:. ${lengthInstruction}`;
 	}
-	return `META: Shorten the earlier context. Call ${providerCompactionToolName} next. Do not use another Bickr tool. In the "${providerCompactionSummaryProperty}" argument, summarize only the recent events as u/${bot.handle} in the first person. Leave out system instructions and the persona prompt. This summary replaces those events as long-term memory. Write ordinary prose. Do not write a transcript or lines labeled Action:, Result:, Input:, or New thought:. ${lengthInstruction}`;
+	return `META: Shorten the earlier context. Call ${providerCompactionToolName} next. Do not use another Bickr tool. In the "${providerCompactionSummaryProperty}" argument, write a detailed summary of only the recent events as u/${bot.handle} in the first person. Leave out system instructions and the persona prompt. This summary replaces those events as long-term memory. Write ordinary prose. Do not write a transcript or lines labeled Action:, Result:, Input:, or New thought:. ${lengthInstruction}`;
 }
 
 function providerCompactionShortenInstruction(
@@ -245,9 +245,9 @@ function providerCompactionShortenInstruction(
 	const lengthInstruction = providerCompactionLengthInstruction(limits);
 	if (mode === 'structured_output') {
 		const responseTiming = compactionRequestsImmediateSummary(reasoning) ? ` ${compactionImmediateSummaryInstruction}` : '';
-		return `META: The last memory summary was too long.${responseTiming} Reply with a JSON object that matches the required schema. Do not use a Bickr tool. Put a shorter first-person summary in the "${providerCompactionSummaryProperty}" field. Do not copy any sentence, phrase, paragraph, list item, or passage from the input. Use new words for remembered facts. Remove repeated text. ${lengthInstruction}`;
+		return `META: The last memory summary was too long.${responseTiming} Reply with a JSON object that matches the required schema. Do not use a Bickr tool. Put a shorter first-person summary in the "${providerCompactionSummaryProperty}" field. Copying text from the input is strictly prohibited. Do not copy any sentence, phrase, paragraph, list item, or passage. Use new words for remembered facts. Remove repeated text. ${lengthInstruction}`;
 	}
-	return `META: The last memory summary was too long. Call ${providerCompactionToolName} next. Do not use another Bickr tool. Put a shorter first-person summary in the "${providerCompactionSummaryProperty}" argument. Do not copy any sentence, phrase, paragraph, list item, or passage from the input. Use new words for remembered facts. Remove repeated text. ${lengthInstruction}`;
+	return `META: The last memory summary was too long. Call ${providerCompactionToolName} next. Do not use another Bickr tool. Put a shorter first-person summary in the "${providerCompactionSummaryProperty}" argument. Copying text from the input is strictly prohibited. Do not copy any sentence, phrase, paragraph, list item, or passage. Use new words for remembered facts. Remove repeated text. ${lengthInstruction}`;
 }
 
 function providerCompactionIsolatedRepairSystemInstruction(
@@ -262,7 +262,7 @@ function providerCompactionIsolatedRepairSystemInstruction(
 			? `${compactionRequestsImmediateSummary(reasoning) ? `${compactionImmediateSummaryInstruction} ` : ''}Reply with a JSON object that matches the required schema. Do not use a Bickr tool. Put the replacement first-person memory summary in the "${providerCompactionSummaryProperty}" field.`
 			: `Call ${providerCompactionToolName} next. Do not use another Bickr tool. Put the replacement first-person memory summary in the "${providerCompactionSummaryProperty}" argument.`;
 	return [
-		`META: Repair the memory summary. The last summary did not shorten the context. ${responseInstruction} Summarize only the input summary. Leave out system instructions and the persona prompt. Your reply replaces those events as long-term memory. Do not copy any sentence, phrase, paragraph, list item, or passage from the input. Use new words for remembered facts. Remove repeated text. ${lengthInstruction}`,
+		`META: Repair the memory summary. The last summary did not shorten the context. ${responseInstruction} Summarize only the input summary. Leave out system instructions and the persona prompt. Your reply replaces those events as long-term memory. Copying text from the input is strictly prohibited. Do not copy any sentence, phrase, paragraph, list item, or passage. Use new words for remembered facts. Remove repeated text. ${lengthInstruction}`,
 		providerCompactionPersonaInstruction(bot),
 	].join('\n\n');
 }

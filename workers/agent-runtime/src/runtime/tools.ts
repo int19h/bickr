@@ -1144,7 +1144,7 @@ export function followToolSelfCorrectionMessage(
 		clauses.length > 0
 			? joinSentenceClauses(clauses)
 			: `that ${skipped.length === 1 ? 'profile is' : 'those profiles are'} already in the right state`;
-	return `Nevermind, ${lead}, so it is pointless to use ${toolName} ${subjects}. I'll do something else instead.`;
+	return `I will not use ${toolName} ${subjects} because ${lead}. I will do something else.`;
 }
 
 export function planFollowToolTargets(

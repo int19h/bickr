@@ -9496,7 +9496,7 @@ export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailureP
 		// A reply failure carries a comment ref rather than a forum handle, so the
 		// forum is named only when the arguments actually identify it.
 		const handle = stringValue(failure.args.forumHandle)?.replace(/^f\//, '');
-		return `Nevermind, ${handle ? `f/${handle}` : 'that forum'} is read-only, so it takes no new threads or replies. I can still read it and vote there, so I'll do that or post somewhere else instead.`;
+		return `${handle ? `f/${handle}` : 'That forum'} is read-only. It takes no new threads or replies. I can still read and vote there. I will do that or post elsewhere.`;
 	}
 	if (failure.toolName === 'create_thread' && failure.code === 'conflict' && (failure.existingThreadRef || failure.existingThreadId)) {
 		const forum = failure.existingForumHandle ? `f/${failure.existingForumHandle}` : 'that forum';
@@ -10586,7 +10586,7 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 		return `Read existing thread ${formatThreadRef(error.details.existingThread.id)} or choose a clearly different title.`;
 	}
 	if (error instanceof RuntimeOperationTimeoutError) {
-		return 'The action can already be visible on Bickr. Read the relevant page before repeating it.';
+		return 'The action is possibly visible on Bickr already. Read the relevant page before repeating it.';
 	}
 	if (error instanceof ToolCallArgumentValidationError && error.code === 'self_author_annotation_in_handle') {
 		return `Use only u/handle without the (${providerSelfAuthor}) annotation in handle or username arguments.`;

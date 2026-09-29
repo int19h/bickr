@@ -1940,7 +1940,7 @@ function mutationInputSchema(operationSchema: Record<string, unknown>): Record<s
 	return withRequired(objectInputSchema({
 		operations: {
 			type: "array",
-			description: `Mutations run in order and continue after an error. failed means that the action did not apply. indeterminate means that it can have applied. Make sure of its outcome before you retry. Give at most ${maxMutationOperations} operations.`,
+			description: `Mutations run in order and continue after an error. failed means that the action did not apply. indeterminate means that the action possibly applied. Make sure of its outcome before you retry. Give at most ${maxMutationOperations} operations.`,
 			minItems: 1,
 			maxItems: maxMutationOperations,
 			items: {

@@ -1,6 +1,6 @@
-Write code that is correct and clear. Treat every bug as important, even when it affects a rare case. Fix the cause of a bug. Do not add a workaround on top of broken code. When a larger change improves correctness, choose it over a narrow patch. Remove unused code. Explain why the code needs a non-obvious choice in comments.
+Write code that is correct and clear. Treat every bug as important, even when it affects a rare case. Fix the cause of a bug. Do not add a workaround on top of broken code. Choose a larger change over a narrow patch when it materially improves correctness. Remove unused code. Explain why the code needs a non-obvious choice in comments.
 
-Use types to express constraints and rules about the data. Use type classes when they remove repeated code without hiding behavior.
+Prefer types that guarantee correctness by construction. Express constraints and rules in the types, rather than joining unstructured strings. Use type classes with care to share behavior without repeated code.
 
 ## Engineering Guardrails
 
@@ -146,11 +146,11 @@ The primary session can implement or delegate. If you delegate work or review, s
 
 For a review, give the full base and head SHAs, actual check results, and worktree status. Reviewers must inspect that exact commit and make sure that cited files came from it. Send findings to the session that will fix them. A code change voids approval of the earlier head. Review each new head until all required reviewers approve the same commit. Empty command output does not prove a review finished. Inspect the live session, recover any durable result, or record the failure.
 
-Local candidate checks are `npm test` and `npm run build`. Run focused tests while you implement. Run the required suite on the merge candidate before release. Reviewers inspect code and reported evidence. They do not need to repeat a heavy suite that already ran. A deployment changes a live environment.
+Local candidate checks are `npm test` and `npm run build`. Run focused tests while you implement. Run the required suite on the merge candidate before release. Reviewers inspect code and reported evidence. Do not repeat a heavy suite that already ran and was reported. Deployments are live actions, not local checks.
 
-Merge only the exact approved head from a clean worktree. Deploy the reviewed merge to test first. Make sure that health endpoints, service bindings, migrations, and custom-domain files match the deployment. Command success alone is insufficient. A verified test deployment is the default end point.
+Merge only the exact approved head from a clean worktree. Deploy the reviewed merge to test first. Make sure that health endpoints respond, service bindings and migrations are in place, and the custom domain serves the new bundle. Command success alone is insufficient. A verified test deployment is the default end point.
 
-Each production deployment needs a fresh user instruction that names production for that task. Implementation, merge, test permission, release language, and earlier production permission do not grant it. If the user authorizes production, deploy the exact reviewed merge from a clean release worktree. Make sure that production health and bundle files match. Send the final result durably. Settle required replies and acknowledgements before you retire task sessions.
+Each production deployment needs a fresh user instruction that names production for that task. Implementation, merge, test permission, “finish,” “ship,” release language, and earlier production permission do not grant it. If the user authorizes production, deploy the exact reviewed merge from a clean release worktree. Make sure that health endpoints respond and the production custom domain serves the new bundle. Send the final result durably. Settle required replies and acknowledgements before you retire task sessions.
 
 ## Local transient storage
 

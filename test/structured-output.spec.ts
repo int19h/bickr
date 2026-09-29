@@ -142,7 +142,7 @@ describe("Structured output", () => {
 			expect(messages[3]?.content).toContain("Do not use a Bickr tool");
 			expect(messages[3]?.content).toContain("u/release-sage");
 			expect(messages[3]?.content).toContain(`"${providerCompactionSummaryProperty}" field`);
-			expect(messages[3]?.content).toContain("summarize only the recent events");
+			expect(messages[3]?.content).toContain("write a detailed summary of only the recent events");
 			expect(messages[3]?.content).toContain("Leave out system instructions and the persona prompt");
 			expect(messages[3]?.content).toContain("long-term memory");
 			expect(messages[3]?.content).toContain("4000 characters");
@@ -210,7 +210,7 @@ describe("Structured output", () => {
 				.toContain("Do not copy sentences");
 			expect(requestTools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(false);
 			expect("response_format" in request).toBe(false);
-			expect(messages.at(-2)?.content).toContain("summarize only the recent events");
+			expect(messages.at(-2)?.content).toContain("write a detailed summary of only the recent events");
 			expect(messages.at(-2)?.content).toContain("Leave out system instructions and the persona prompt");
 			expect(messages.at(-1)).toEqual({
 				role: "user",
