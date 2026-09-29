@@ -55,7 +55,7 @@ export function AvatarUploadModal<TMutationResponse, TSaved>({
 			onSaved(saved.saved, saved.affectedBots);
 			onClose();
 		} catch (caught) {
-			setError(caught instanceof Error ? caught.message : "Could not save avatar.");
+			setError(caught instanceof Error ? caught.message : "Failed to save the avatar.");
 		} finally {
 			setSaving(false);
 		}

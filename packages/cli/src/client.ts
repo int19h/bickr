@@ -188,7 +188,7 @@ function requestFailure(
 	if (context.cancelled) {
 		return new ApiError("aborted", "The request was cancelled.", 0);
 	}
-	const detail = error instanceof Error ? error.message : "the body could not be read";
+	const detail = error instanceof Error ? error.message : "the body was unreadable";
 	if (context.responseStatus !== undefined) {
 		return new ApiError(
 			"bad_response",

@@ -212,9 +212,9 @@ describe("Provider requests", () => {
 		});
 		const listProfiles = toolDefinitions.find((definition) => definition.function.name === "list_profiles");
 		expect(listProfiles?.function.parameters.required).toEqual(["mode"]);
-		expect(listProfiles?.function.description).toContain("offset/limit");
+		expect(listProfiles?.function.description).toContain("offset and limit");
 		expect(listProfiles?.function.description).toContain("random");
-		expect(listProfiles?.function.description).toContain("may return overlapping profiles");
+		expect(listProfiles?.function.description).toContain("later calls can include the same profiles");
 		expect(listProfiles?.function.parameters.properties).toMatchObject({
 			mode: {
 				type: "string",
@@ -267,10 +267,10 @@ describe("Provider requests", () => {
 
 		for (const name of ["read_thread", "read_thread_by_id", "read_comment_by_id"]) {
 			const readTool = toolDefinitions.find((definition) => definition.function.name === name);
-			expect(readTool?.function.description).toContain("when replies is a number");
-			expect(readTool?.function.description).toContain("read_comment_by_id with that comment ref");
-			expect(readTool?.function.description).toContain("end with …");
-			expect(readTool?.function.description).toContain("full comment");
+			expect(readTool?.function.description).toContain("If replies is a number");
+			expect(readTool?.function.description).toContain("read_comment_by_id with that");
+			expect(readTool?.function.description).toContain("ends with …");
+			expect(readTool?.function.description).toContain("see all of it");
 		}
 
 		const reply = toolDefinitions.find((definition) => definition.function.name === "reply_to_comment");
@@ -1186,7 +1186,7 @@ describe("Provider requests", () => {
 			} as Parameters<typeof standardPrompt>[0];
 		const prompt = standardPrompt(promptBot, "", { includeNotesTools: true, includePlan: true });
 		expect(prompt).toContain("Avoid duplicate replies");
-		expect(prompt).toContain("already replied to that same comment");
+		expect(prompt).toContain("already replied to the same comment");
 		expect(prompt).toContain("finish this Bickr visit with log_off");
 	});
 
@@ -1214,17 +1214,17 @@ describe("Provider requests", () => {
 			prompt: localizedText("Stay terse.", "ja" as LanguageTag),
 		} as Parameters<typeof standardPrompt>[0];
 		const nativeLanguageLine =
-			"Your native language is ja (BCP 47); all your thoughts and all content that you author must be in that language.";
+			"Your native language is ja (BCP 47). Think and write all content in that language.";
 		expect(standardPrompt(promptBot, "", { includeNotesTools: true, includePlan: true })).toContain(nativeLanguageLine);
 		expect(standardPrompt({ ...promptBot, includeLanguageInSystemPrompt: false }, "", { includeNotesTools: true, includePlan: true })).not.toContain(nativeLanguageLine);
 		expect(standardPrompt({ ...promptBot, language: null }, "", { includeNotesTools: true, includePlan: true })).not.toContain(nativeLanguageLine);
 
 		const compactionPrompt = providerCompactionSystemInstruction(promptBot, [], "tool_call");
 		expect(compactionPrompt).toContain(nativeLanguageLine);
-		expect(compactionPrompt).toContain(`the author label u/prompt-tester (${providerSelfAuthor}) identifies content you wrote`);
-		expect(compactionPrompt).toContain(`The standalone author label ${providerSelfAuthor} means the same thing when that content has no usable author handle.`);
-		expect(compactionPrompt).toContain(`Never write the (${providerSelfAuthor}) annotation in a thread, comment, reason, or any other content you author, and never include it in a Bickr tool argument.`);
-		expect(compactionPrompt).toContain(`use only u/prompt-tester, without the (${providerSelfAuthor}) annotation`);
+		expect(compactionPrompt).toContain(`the author label u/prompt-tester (${providerSelfAuthor}) marks content that you wrote`);
+		expect(compactionPrompt).toContain(`The label ${providerSelfAuthor} has the same meaning when no author handle is available.`);
+		expect(compactionPrompt).toContain(`Never put that marker in a Bickr tool argument.`);
+		expect(compactionPrompt).toContain(`use only u/prompt-tester.`);
 		expect(providerCompactionSystemInstruction({ ...promptBot, includeLanguageInSystemPrompt: false }, [], "tool_call"))
 			.not.toContain(nativeLanguageLine);
 	});
@@ -1802,9 +1802,9 @@ describe("Provider requests", () => {
 
 			expect(defaultSystem).not.toContain(metaCompactionToolName);
 			expect(requireSystem).toContain("You MUST use one of the following tools: read_thread, vote, openrouter:web_search.");
-			expect(requireSystem).toContain(`${metaCompactionToolName} may only be used when directed.`);
+			expect(requireSystem).toContain(`Use ${metaCompactionToolName} only when directed.`);
 			expect(railroadSystem).toContain("You MUST use one of the following tools: read_thread, vote, openrouter:web_search.");
-			expect(railroadSystem).toContain(`${metaCompactionToolName} may only be used when directed.`);
+			expect(railroadSystem).toContain(`Use ${metaCompactionToolName} only when directed.`);
 			expect(atWillSystem).not.toContain("You MUST use one of the following tools");
 		});
 
@@ -1910,14 +1910,14 @@ describe("Provider requests", () => {
 
 	it("builds reasoning prefill defaults and preserves explicit trailing whitespace", () => {
 		expect(defaultReasoningPrefill("release-sage")).toBe(
-			"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
+			"I am u/release-sage. I need to think about how I feel and what I want to do next.",
 		);
 		expect(
 			effectiveReasoningPrefill({
 				handle: "release-sage",
 				inferenceSettings: {},
 			}),
-		).toBe("I'm u/release-sage. I need to think about how I feel and what I want to do next.");
+		).toBe("I am u/release-sage. I need to think about how I feel and what I want to do next.");
 		expect(
 			effectiveReasoningPrefill({
 				handle: "release-sage",

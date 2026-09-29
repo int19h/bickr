@@ -204,7 +204,7 @@ export function AvatarImageBasicFields({
 				</select>
 			</Field>
 			<Field
-				help={<ImageConfigHelp text="OpenRouter uses the selected model's default when this is left blank. Suggested ratios are model-specific; custom values are sent as typed." />}
+				help={<ImageConfigHelp text="Leave this blank to use the selected model's default. Suggested ratios depend on the model. OpenRouter receives custom values as entered." />}
 				label="Aspect ratio"
 			>
 				<input
@@ -222,7 +222,7 @@ export function AvatarImageBasicFields({
 				</datalist>
 			</Field>
 			<Field
-				help={<ImageConfigHelp text="OpenRouter uses the selected model's default when this is left blank. Suggested sizes are model-specific; custom values are sent as typed." />}
+				help={<ImageConfigHelp text="Leave this blank to use the selected model's default. Suggested sizes depend on the model. OpenRouter receives custom values as entered." />}
 				label="Image size"
 			>
 				<input

@@ -79,7 +79,7 @@ export function NotificationsScreen({
 			setSummary(next);
 			setMessage("");
 		} else {
-			setMessage("Could not load notifications.");
+			setMessage("Failed to load notifications.");
 		}
 		setLoading(false);
 	}
@@ -99,7 +99,7 @@ export function NotificationsScreen({
 			}));
 			setMessage("");
 		} else {
-			setMessage("Could not load more notifications.");
+			setMessage("Failed to load more notifications.");
 		}
 		setLoadingMore(false);
 	}
@@ -181,7 +181,7 @@ export function NotificationsScreen({
 			return;
 		}
 		if (result.failed) {
-			setMessage("Could not refresh notifications.");
+			setMessage("Failed to refresh notifications.");
 		} else {
 			if (result.summary) {
 				setSummary(result.summary);

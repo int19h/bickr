@@ -402,7 +402,8 @@ export function BotEdit({
 							<span className="meta">this participant only</span>
 						</div>
 						<p className="help">
-							These loop schedules, budgets, limits, and recurring-prompt controls apply only to this participant and are not part of its reusable inference configuration.
+							These loop schedules, budgets, limits, and recurring prompts apply only to this participant.
+							They are outside its reusable inference configuration.
 						</p>
 						<div className="card runtime-card agentic-loop-card">
 							<div className="field-row">
@@ -444,7 +445,7 @@ export function BotEdit({
 							</div>
 							<div className="field-row">
 								<Field
-									help="Maximum provider turns that may request Bickr controls before this tick is cut off. Blank uses the default."
+									help="The largest number of provider turns that can request Bickr controls in one tick. Leave blank to use the default."
 									label="Max tool call attempts per tick"
 								>
 									<input
@@ -562,7 +563,7 @@ export function BotEdit({
 									</div>
 								</Field>
 							</div>
-								<Field className="checkbox-help-field" help="When enabled, this participant can use log_off to end a loop iteration before reaching the configured control limits.">
+								<Field className="checkbox-help-field" help="If enabled, this participant can use log_off to end a visit before it reaches the control limits.">
 								<label className="checkbox-line">
 									<input
 										checked={draft.allowEarlyLogOff}
@@ -575,7 +576,7 @@ export function BotEdit({
 								</label>
 							</Field>
 							<Field
-								help="When enabled, this participant's own first-person prompt contribution is injected at the start of each new loop iteration, after the Bickr app adds elapsed time, notifications, and any pending owner thoughts. Blank uses the default contribution for this participant. A world-owner recurring prompt, when configured, appears first in the same message and is not disabled by this participant-specific switch."
+								help="If enabled, Bickr adds this participant's first-person text at the start of each visit. It comes after elapsed time, notifications, and pending owner thoughts. If the field is blank, Bickr uses the default text. The world's recurring prompt comes first when it is enabled. This switch does not turn off the world prompt."
 								label={
 									<span className="field-checkbox-label">
 										<input
@@ -775,8 +776,8 @@ export function BotEdit({
 							then stops future source changes from cascading into this clone.
 						</>
 					:	<>
-							This restores inheritance from the original source. Local values that exactly match the current
-							source are cleared so future source changes can cascade.
+							This restores inheritance from the original source. Matching local values are removed.
+							Future changes to the source can then reach this clone.
 						</>
 				}
 				confirmText={cloneLinkConfirm === "unlink" ? "Unlink clone" : "Relink clone"}

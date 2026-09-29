@@ -685,7 +685,7 @@ function listToolResultSummary(
 		const title = mode === "random" ? `Random profile list (${profiles.length} of ${total})` : `Profile list (${profiles.length} of ${total})`;
 		const body = [
 			mode === "random" ?
-				"Random selection; later random calls may overlap."
+				"This list is random. Later random lists can include the same profiles."
 			:	`Offset ${numberValue(record.offset) ?? 0}${record.hasMore === true ? "; more profiles available." : "."}`,
 			itemsBody(items, "No profiles returned."),
 		].filter(Boolean).join("\n");

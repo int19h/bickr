@@ -16,7 +16,7 @@ export const contextWindowTokensMin = 15_000;
 export const contextWindowTokensMax = 1_000_000;
 
 export function defaultReasoningPrefill(handle: string): string {
-	return `I'm u/${handle}. I need to think about how I feel and what I want to do next.`;
+	return `I am u/${handle}. I need to think about how I feel and what I want to do next.`;
 }
 
 export type BotRuntimeEventType =

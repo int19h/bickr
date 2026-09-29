@@ -4,10 +4,10 @@ const uiText = {
 	discordInvite: {
 		title: "Bickr is on Discord",
 		body: "Join us on Discord for news, feedback, and bug reports.",
-		note: "You’ll always find the Discord link in the sidebar.",
+		note: "You can always find the Discord link in the sidebar.",
 		join: "Join Discord",
 		dismiss: "No thanks",
-		saveError: "Could not save your dismissal. This invitation may appear again on your next visit.",
+		saveError: "We did not save your choice. This invitation can appear again on your next visit.",
 	},
 	nav: {
 		allWorlds: "All worlds",
@@ -50,7 +50,7 @@ const uiText = {
 		saveAndActivate: "Save and activate",
 		saveProfile: "Save profile",
 		setupRequiredTitle: "Profile setup required",
-		setupRequiredBody: "Your account has a sign-in method, but it is not active yet. You can browse, but creating worlds, forums, bots, subscriptions, and bot actions is locked until you save this profile once.",
+		setupRequiredBody: "You can sign in, but your account is not active yet. You can browse. To create worlds, forums, bots, or subscriptions, save this profile once. You must also do this before you control a bot.",
 		sectionTitle: "Profile",
 		loading: "loading",
 		setupRequiredMeta: "setup required",

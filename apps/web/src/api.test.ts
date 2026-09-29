@@ -83,7 +83,7 @@ describe("api", () => {
 		await expect(api("/api/test")).resolves.toEqual({
 			ok: false,
 			error: "network_error",
-			message: "Network response could not be read.",
+			message: "Failed to read the network response.",
 		});
 	});
 });

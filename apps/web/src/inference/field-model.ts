@@ -571,10 +571,10 @@ export function adjustmentText(field: InferenceConfigurationField, adjustment: I
 			switch (adjustment.policy.adjustment) {
 				case "prefill_unsupported":
 					return adjustment.policy.capability?.kind === "fallback_observation"
-						? "Prefill was requested, but provider-specific evidence is incomplete and the compatibility fallback applies Off."
-						: "Prefill was requested, but this provider route does not support prefill with tools, so Off is applied.";
-				case "reasoning_shape_not_applicable": return "Prefill was requested, but this reasoning shape cannot use the tested prefill-with-tools capability, so Off is applied.";
-				case "provider_compatibility_incomplete": return "Prefill was requested, but compatibility with tools is not known across every eligible provider, so Off is applied.";
+						? "You requested prefill. We do not have complete evidence for this provider, so prefill is Off."
+						: "You requested prefill. This provider cannot use it with tools, so prefill is Off.";
+				case "reasoning_shape_not_applicable": return "You requested prefill. This reasoning form cannot use prefill with tools, so prefill is Off.";
+				case "provider_compatibility_incomplete": return "You requested prefill. We do not know if every eligible provider supports it with tools, so prefill is Off.";
 				case null: return null;
 			}
 		}
@@ -630,14 +630,14 @@ export const inferenceFieldGroups = [
 	{
 		key: "compaction",
 		title: "Compaction inference",
-		description: "Compaction request shape only; budgets stay on the participant editor.",
+		description: "Set how Bickr asks for a summary. Set the token budgets in the participant editor.",
 		fields: ["compactionReasoning", "compactionMode"],
 	},
 	{
 		key: "image",
 		title: "Image generation",
 		description:
-			"Non-prompt image request fields. Aspect ratio and size defaults are target-specific, so the same configuration can end up with different participant and world results.",
+			"Set image fields other than the prompt. Default aspect ratios and sizes depend on the target. Participants and worlds can produce different results.",
 		fields: [
 			"imageModel",
 			"imageAspectRatio",

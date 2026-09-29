@@ -1,168 +1,65 @@
 # Serialized entity lifecycle foundation
 
-Phase 1 of issue #140 makes `UserBotsCoordinator` the serialized writer for account and participant mutations and for every owner-initiated world mutation. World documents, world search materialization, intro forums, world avatars, and bot groups are written by `WorldCoordinator` after a one-way call from the user coordinator. The permitted call order is:
+In phase 1 of issue #140, `UserBotsCoordinator` puts account and participant changes in order. It also orders world changes started by the owner. After a one-way call, `WorldCoordinator` writes world documents, search data, intro forums, avatars, and participant groups. Calls follow this order:
 
 `BotRuntime -> UserBotsCoordinator -> WorldCoordinator`
 
-World lifecycle and owner-mutation requests are dispatched to `WorldCoordinator.idFromName(worldId)`. Handles are data, never coordinator identity.
+Send world lifecycle and owner change requests to `WorldCoordinator.idFromName(worldId)`. A handle is data. It never identifies a coordinator.
 
-Repository entity writers are private. `accountBootstrapReservationRepositoryMutations`, `userCoordinatorRepositoryMutations`,
-`worldCoordinatorRepositoryMutations`, and `coordinatorGovernanceMutations`
-are separate narrow capabilities, and a static import-boundary test limits each
-capability to its corresponding coordinator implementation. Pages, MCP, CLI,
-tests, runtimes, and repository consumers cannot import individual writers.
-The boundary test follows writer authority through local aliases, default and
-named exports, namespace/destructuring aliases, `export *` barrels, dynamic
-imports, and downstream modules across the supported TypeScript and JavaScript
-module extensions. Its fixed expected writer inventory is independent of the
-capability objects, so deleting a capability member cannot turn that writer
-into an ungoverned export.
-Account, world, and participant lifecycle orchestration and persisted-request
-parsing live in separate `workers/agent-runtime/src/lifecycle/` modules; the
-route module is limited to route composition and pre-existing request handlers.
+Repository entity writers are private. Four narrow capabilities expose them: `accountBootstrapReservationRepositoryMutations`, `userCoordinatorRepositoryMutations`, `worldCoordinatorRepositoryMutations`, and `coordinatorGovernanceMutations`. A static test restricts each capability to its matching coordinator. Pages, MCP, CLI, tests, runtimes, and other repository code cannot import individual writers.
 
-Account bootstrap has one intentional pre-coordinator D1 capability because a
-new provider subject has no user coordinator identity yet. The default Worker
-atomically creates or joins the provider-subject claim, stable user ID, and
-pending lifecycle operation before calling `USER_BOTS.idFromName(userId)`.
-Every concurrent or retried login for that pending subject dispatches the same
-stored operation to the same named coordinator. The coordinator validates the
-operation ID and a canonical request hash containing only the normalized
-provider and subject, then resumes materialization; it cannot allocate or
-reserve a new account through its internal route. Provider login, display name,
-email, and avatar URL are deliberately excluded from reservation identity. A
-retry overlays their latest normalized values while preserving the reserved
-user ID, handle, and timestamps, and an already-activated concurrent replay
-refreshes its provider-identity projection. Active claims are dispatchable only
-when provider identity and the active user projection agree, so a login racing
-account deletion receives a typed conflict.
+The test follows writer access through aliases, exports, `export *` files, dynamic imports, and downstream TypeScript and JavaScript modules. It keeps an expected writer list apart from the capability objects. Removing a capability member cannot expose that writer without a test failure. Separate modules under `workers/agent-runtime/src/lifecycle/` handle account, world, and participant lifecycles. They also parse saved requests. The route module combines routes and existing request handlers.
+
+Account setup has one D1 write before the coordinator exists. A new provider subject has no user coordinator ID yet. The default Worker creates or joins a provider-subject claim, stable user ID, and pending operation in one transaction. It then calls `USER_BOTS.idFromName(userId)`. Concurrent and retried logins for that subject send the same saved operation to the same coordinator.
+
+The coordinator checks the operation ID and a request hash made from the normalized provider and subject. It then resumes the account setup. Its internal route cannot allocate or reserve another account. Login, display name, email, and avatar URL are not part of reservation identity. A retry uses their newest normalized values but keeps the reserved user ID, handle, and timestamps. A replay after activation also refreshes the provider identity index. An active claim is dispatchable only if provider identity matches the active user index. A login that races account deletion therefore receives a typed conflict.
 
 ## Lifecycle storage and retention
 
-Migration `0039_entity_lifecycle.sql` adds pending/active/deleting visibility to the legacy entity indexes and one canonical lifecycle machine for accounts, worlds, and participants. An operation records its stable entity id, idempotency key, canonical request hash, revision, typed phase, retry schedule, and typed failure category before external materialization begins.
+Migration `0039_entity_lifecycle.sql` adds pending, active, and deleting states to the old entity indexes. It also adds one lifecycle process for accounts, worlds, and participants. Before external writes begin, an operation saves its stable entity ID, repeat-request key, request hash, revision, phase, retry time, and failure type.
 
-Migration `0040_entity_lifecycle_recovery.sql` adds a derived, lifetime-bounded
-recovery projection with exactly one row per owner that has nonterminal work.
-Operation triggers update or remove that row in the same D1 transaction as
-every canonical phase write, selecting one owner's earliest operation through
-the partial `(owner_user_id, COALESCE(next_retry_at, updated_at), operation_id)`
-index with `LIMIT 1`. This is the write-ahead recovery guarantee for a
-Worker interruption between a D1 commit and Durable Object alarm storage,
-including the provider-subject reservation that exists before a user
-coordinator can be named. The five-minute agent-runtime cron atomically leases
-at most 25 due owners through the `(due_at, lease_expires_at, owner_user_id)`
-index and dispatches each stable owner ID to its `UserBotsCoordinator`. A failed
-owner retains its short lease while sibling owners continue, so poison work
-cannot permanently occupy the front of every bounded page. A subsequent phase
-write clears the lease; process death after claiming is recovered when the
-lease expires. Maintenance mode claims and dispatches nothing, while the
-coordinator boundary independently rechecks maintenance and internal service
-authentication.
-Terminal-history cleanup is deliberately excluded from the recovery trigger:
-deleting an expired terminal row cannot shorten or clear an active lease for
-the same owner's unrelated nonterminal work. Genuine nonterminal changes still
-rederive the projection in the same transaction.
+Migration `0040_entity_lifecycle_recovery.sql` adds a recovery index. It has one row for each owner with unfinished work. The row exists only during that work. Triggers change or remove it in the same D1 transaction as each phase update. They choose the owner's earliest operation through the partial `(owner_user_id, COALESCE(next_retry_at, updated_at), operation_id)` index with `LIMIT 1`.
 
-Canonical entity state and unique-key reservations live only for the active or incomplete entity lifetime. Successful terminal and terminal-failed operation rows retain secret-free request identity and failure metadata for 30 days. Completed account deletions additionally retain one typed count-only `account_delete_complete` result for those same 30 days, so an idempotent replay returns the exact durable `deleted` summary after `request_json` is erased. That result cannot store profile, provider, credential, world, or participant request data; a table constraint limits it to terminal account-delete rows. The agent-runtime scheduled handler deletes at most 100 expired rows per run through the partial `terminal_cleanup_at` index. No lifecycle query repairs canonical state from KV or index shape.
+This saved row lets recovery find work after a Worker stops between a D1 commit and a Durable Object alarm write. It also covers a provider-subject reservation before a user coordinator has a name. Every five minutes, agent-runtime cron leases at most 25 due owners through the `(due_at, lease_expires_at, owner_user_id)` index. It sends each stable owner ID to its `UserBotsCoordinator`. A failed owner keeps its short lease while other owners continue. Failed work cannot block every page. The next phase write clears the lease. If the Worker stops after a claim, recovery waits for that lease to expire. Maintenance mode claims and sends no work. The coordinator also checks maintenance and internal service authentication.
 
-`entity_lifecycle_identity_claims` is the single D1 uniqueness namespace for
-pending and active provider subjects, user handles, world handles, and
-world-scoped participant handles. A create reservation acquires a pending
-claim. Activation converts it to an active lifetime claim; deletion and
-terminal compensation hard-delete it. Active rename/provider-link writers
-acquire the replacement claim and update the legacy projection in one D1
-batch, so two coordinator instances cannot pass independent availability
-checks and steal the same identity. Projection triggers reject writers that do
-not hold the matching canonical claim. The trigger also covers
-`lifecycle_state` changes: a same-ID tombstone recreation can only be written
-as pending with its pending claim, and activation promotes that claim before
-exposing the projection as active in the same D1 batch.
+Deleting an expired final operation does not change the recovery row. It cannot clear the lease for unrelated unfinished work by the same owner. A real change to unfinished work updates that row in the same transaction.
 
-Participant create request JSON is credential-free by construction. A supplied
-OpenRouter key is held in the typed `entity_lifecycle_secrets` bridge only for
-the nonterminal operation, survives materialization retry, and is hard-deleted
-in the activation or compensation batch. Phase 3 retires this bridge when the
-same lifecycle transition installs the permanent configuration-secret row; it
-must not add another lifecycle secret mechanism.
+Main entity state and unique-name reservations last only while an entity is active or unfinished. Successful and failed final operation rows keep request identity and failure details without secrets for 30 days. A completed account deletion also keeps one `account_delete_complete` result for 30 days. It contains counts only. A repeated request can return the same saved `deleted` result after `request_json` is gone. A table rule permits this result only on final account-deletion rows. It cannot contain profile, provider, credential, world, or participant request data. Each scheduled agent-runtime cleanup deletes at most 100 expired rows through the partial `terminal_cleanup_at` index. Lifecycle queries do not repair main state from KV or index shapes.
 
-World and participant create requests persist the reservation timestamp beside
-their stable entity and deterministic forum IDs. Every retry reuses those
-values, so documents, forums, runtime rows, and revisions do not drift. Chirper
-avatar imports use a deterministic R2 key; a retry first resumes from that
-immutable object and never re-fetches a mutable remote URL after the snapshot
-has been stored.
+`entity_lifecycle_identity_claims` is the only D1 table that reserves provider subjects and handles. It covers pending and active subjects, user handles, world handles, and participant handles within a world. A create request takes a pending claim. Activation makes it active for the entity's lifetime. Deletion or final compensation removes it.
 
-Account deletion may abort a terminal failure only at its initial D1 hide
-checkpoint, before any child coordinator or account-storage effect is invoked.
-The hide reservation is also an atomic owner-ordering barrier: it refuses to
-start while that owner has an earlier nonterminal create or delete operation,
-using the existing owner/phase index. It also joins owned worlds to canonical
-world-scoped participant claims and refuses the hide while any pending, active,
-or deleting foreign-owned participant claim remains. A direct world hide
-similarly requires that no participant claim remains in that world. Conversely,
-participant and clone reservation atomically require the participant owner,
-target world, and target world's owning account to remain active while the
-operation and pending claim are inserted. Every delete projection hide is
-conditioned on that operation insert in the same D1 batch. The world-scope
-claim index and owned-world index make these set-oriented guards bounded by an
-indexed existence lookup. Thus whichever reservation wins commits the only
-legal ordering: a participant claim keeps account/world deletion uncommitted,
-while a committed delete hide prevents any later participant operation or
-claim even if its earlier eligibility/world read was stale.
-After cascade execution starts, every failure keeps the parent hidden and is
-recorded as convergence-required retryable while preserving the originating
-typed failure code. Each parent attempt spends one configured fixed budget
-across both resumed nonterminal child operations and newly discovered active
-bots, external-world forums, or worlds. New discovery is a set-oriented D1
-sequence under the shared child budget: participant and world lookups use
-dedicated owner/lifecycle/handle indexes, while the external-forum join sees
-only a materialized, indexed, limited candidate CTE. It never materializes an
-owner-wide list or performs an unbounded first-attempt fan-out. Account-cascade
-participant deletes explicitly allow linked clone removal, so a resumed source
-deletion does not depend on clone depth or child ID ordering. The prefix lookup
-is a bounded range scan on the existing unique `(owner_user_id,
-idempotency_key)` index. If any hidden child remains, the parent stays deleting
-with the typed `account_delete_children_remaining`
-continuation code, schedules its alarm, and returns without replanning active
-children or finalizing the account. A later attempt resumes the next bounded
-batch, so a child tombstone cannot be skipped merely because public readers
-correctly hide it and one Worker request never drains an unbounded backlog.
-Account deletion convergence has no retry-exhaustion compensation transition:
-after cascade execution begins, an irreversible child side effect may already
-exist, so retries remain deleting until they converge and retain the original
-typed failure code.
+An active rename or provider link takes the replacement claim and updates the old index in one D1 batch. Two coordinators cannot both claim the same identity after separate availability checks. Index triggers reject a writer without the matching main claim. They also guard `lifecycle_state`. Recreating a deleted entity with the same ID starts as pending with a pending claim. Activation changes the claim before it shows the entity as active in the same D1 batch.
 
-The internal delete route reports `account_delete_pending` with HTTP 202 while
-bounded continuation remains, and `account_delete_complete` with HTTP 200 only
-after the terminal batch. The pending variant reports only `planned` counts;
-only the completed variant labels those counts as `deleted`. Both are
-successful typed outcomes. The Pages
-adapter clears the session cookie for either outcome and the web client clears
-its authenticated state immediately. It reports `Profile deletion accepted.`
-for pending convergence and `Deleted profile.` only for the completed result;
-scheduled recovery or an owner alarm
-continues a pending deletion independently of that browser request.
+Participant create request JSON contains no credentials. A supplied OpenRouter key stays in the typed `entity_lifecycle_secrets` table only while the operation is unfinished. It survives a retry. The activation or compensation batch deletes it permanently. Phase 3 removes this temporary table after the same transition writes the permanent configuration secret. It must not add another way to save lifecycle secrets.
 
-Legacy rows receive `lifecycle_state = 'active'` in the migration. New rows are inserted as pending and become publicly visible only in the D1 activation batch. A deletion changes visibility to deleting in the same batch that creates the delete operation. Public/authentication/search/runtime readers require active projections.
+World and participant create requests save the reservation time with stable entity and forum IDs. Each retry uses those same values. Documents, forums, runtime rows, and revisions stay aligned. Chirper avatar imports use a fixed R2 key. After the image is saved, a retry reads that saved object. It never fetches the remote URL again.
 
-`worldForUpdateMutation` is a narrowly typed Phase 1 request-routing adapter,
-not a public reader or a repair writer. It recognizes only a replay where the
-atomic D1 handle claim/projection batch committed but the stable-ID KV write did
-not, and routes that same request to the already selected world coordinator.
-Its retirement point is the Phase 3 extension of this lifecycle operation row
-with a revisioned update action: persist the stable world ID, old/new handles,
-and document revision before the D1 claim batch, resume it through the same
-global recovery projection, then delete this adapter. Phase 3 must extend the
-existing machine rather than add a rename-specific lifecycle machine.
+Account deletion can end in a final failure only at its first D1 hide checkpoint. No child coordinator or account storage action can start before that checkpoint. The hide reservation also orders an owner's operations. It does not start if the owner has an earlier unfinished create or delete operation. It uses the existing owner and phase index.
+
+The account hide joins owned worlds to participant claims within each world. It waits if any claim belongs to another owner and is pending, active, or deleting. A direct world hide waits until no participant claim remains in that world. A participant or clone reservation checks three active records in one transaction: the participant owner, target world, and that world's owner. It inserts the operation and pending claim only when all three are active. Each delete hide requires its operation insert in the same D1 batch. World-claim and owned-world indexes keep these checks bounded. If the participant claim wins, account or world deletion waits. If the delete hide wins, a later participant claim fails even when its earlier read is stale.
+
+After deletion starts its child cascade, a failure keeps the parent hidden. The operation stays retryable and keeps its original typed failure code. Each parent attempt shares one fixed budget across unfinished child operations and new active participants, forums in other worlds, or worlds. D1 finds new children in sets under that budget. Participant and world queries use owner, lifecycle, and handle indexes. The external-forum join reads only a limited indexed candidate table. It does not build an owner-wide list or send an unlimited first batch.
+
+Account deletion allows removal of linked clones. A resumed source deletion does not depend on clone depth or child ID order. The prefix lookup uses a bounded range of the unique `(owner_user_id, idempotency_key)` index. If a hidden child remains, the parent stays deleting with `account_delete_children_remaining`. It sets an alarm and returns without planning active children again or ending the account. A later attempt handles the next limited batch. It does not skip a hidden child because public readers cannot see it. It also does not require one Worker request to finish every child.
+
+The cascade has no failure path that gives up after a set number of retries. Once it starts, a child action can already be permanent. The parent stays deleting until all children converge. It keeps the original typed failure code.
+
+The internal delete route returns `account_delete_pending` with HTTP 202 while child work remains. It returns `account_delete_complete` with HTTP 200 only after the final batch. The pending result shows `planned` counts. Only the complete result calls those counts `deleted`. Both are successful typed results. Pages clears the session cookie for either one. The browser clears its signed-in state at once. It shows `Profile deletion accepted.` while work remains and `Deleted profile.` after completion. Scheduled recovery or an owner alarm continues the deletion after the browser request ends.
+
+The migration marks old rows with `lifecycle_state = 'active'`. New rows start as pending. They become public only in the D1 activation batch. Deletion marks a row as deleting in the batch that creates its operation. Public, sign-in, search, and runtime readers require an active index row.
+
+`worldForUpdateMutation` is a Phase 1 adapter that routes one type of request. It is not a public reader or repair writer. It handles a replay when the D1 handle claim and index batch succeeded but the stable-ID KV write failed. It sends the same request to the selected world coordinator.
+
+Phase 3 removes this adapter after it adds a revisioned update action to the existing lifecycle operation. That action must save the stable world ID, old and new handles, and document revision before the D1 claim batch. Recovery then resumes it through the existing global recovery index. Phase 3 must extend the existing lifecycle process. It must not add a separate process for renames.
 
 ## Phase 3 extension point
 
-`activateLifecycleEntity` and the typed `finalizeLifecycleDeletion` transaction family (including `finalizeAccountLifecycleDeletion`, which also writes the count-only terminal result) are the only activation and deletion transactions. Phase 3 must switch `entity_lifecycle_control.activation_mode` under maintenance and pass an `inference_graph` transition to those existing functions:
+`activateLifecycleEntity` and the typed `finalizeLifecycleDeletion` functions are the only activation and deletion transactions. This includes `finalizeAccountLifecycleDeletion`, which writes the final count-only result. Under maintenance, Phase 3 must change `entity_lifecycle_control.activation_mode`. It must give those existing functions an `inference_graph` transition:
 
-- account activation supplies the Account-default insert and default-translation-reference insert;
-- world and participant activation supplies the fixed-configuration insert;
-- deletion supplies the ordered consumer reset/reparent/configuration cleanup statements.
+- Account activation supplies the Account-default insert and default-translation-reference insert.
+- World and participant activation supplies the fixed-configuration insert.
+- Deletion supplies ordered statements to reset or reparent consumers and clean up configurations.
 
-Those statements join the existing projection/visibility operation in one `D1Database.batch()` transaction. Graph-required mode rejects a legacy transition or a missing/mismatched payload, so an account cannot become active without both Account-default statements after the gate changes. Phase 3 must not wrap this layer in a second lifecycle machine.
+Those statements join the existing index and visibility change in one `D1Database.batch()` transaction. Graph-required mode rejects an old transition or a missing or wrong payload. After the gate changes, an account cannot become active without both Account-default statements. Phase 3 must not add a second lifecycle process around this one.
 
-The `legacy_compatible` transition is the explicit pre-graph adapter. Its retirement path is the Phase 3 maintenance cutover: switch the stored activation mode only after graph tables and migration writers are ready, update callers to provide the typed graph payloads, then remove the legacy transition in the release that removes legacy inference projections.
+The `legacy_compatible` transition is the adapter used before the graph change. Remove it during the Phase 3 maintenance cutover. First, make sure that graph tables and migration writers are ready. Then change the saved activation mode and make callers send typed graph payloads. Remove the old transition in the release that removes old inference projections.

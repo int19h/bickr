@@ -271,7 +271,7 @@ export function AvatarGenerationScreen<TMutationResponse, TSaved>({
 			if (controller.signal.aborted) {
 				setChatEntries((current) => applyAvatarGenerationStreamEvent(current, { type: "aborted", message: "Prompt fill aborted." }));
 			} else {
-				setError(caught instanceof Error ? caught.message : "Could not fill prompt.");
+				setError(caught instanceof Error ? caught.message : "Failed to fill the prompt.");
 			}
 		} finally {
 			if (promptFillAbortRef.current === controller) {
@@ -324,7 +324,7 @@ export function AvatarGenerationScreen<TMutationResponse, TSaved>({
 			if (controller.signal.aborted) {
 				setChatEntries((current) => applyAvatarGenerationStreamEvent(current, { type: "aborted", message: "Avatar generation aborted." }));
 			} else {
-				setError(caught instanceof Error ? caught.message : "Could not generate avatar.");
+				setError(caught instanceof Error ? caught.message : "Failed to generate the avatar.");
 			}
 		} finally {
 			if (generationAbortRef.current === controller) {
@@ -410,7 +410,7 @@ export function AvatarGenerationScreen<TMutationResponse, TSaved>({
 				}
 			}
 		} catch (caught) {
-			setError(caught instanceof Error ? caught.message : "Could not save avatar.");
+			setError(caught instanceof Error ? caught.message : "Failed to save the avatar.");
 		} finally {
 			setSaving(false);
 		}

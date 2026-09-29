@@ -1,8 +1,8 @@
 # Bickr Implementation Review — July 2026
 
-A code-quality and correctness review of the Bickr codebase at commit `ac50ac6` and its live test deployment (`test.bickr.social`). Scope: everything implemented — shared packages, both Workers, Pages Functions, the web app, CLI, migrations, and the deployed Cloudflare state. Divergence from `docs/functional-spec.md` was deliberately not treated as a finding.
+This review covers code quality and correctness at commit `ac50ac6` and its test deployment at `test.bickr.social`. It covers shared packages, both Workers, Pages Functions, the web app, CLI, migrations, and Cloudflare state. Differences from `docs/functional-spec.md` were outside the review scope.
 
-Method: full read of `packages/shared/*`, `workers/forum-coordinator`, the Pages Functions API layer, and targeted reads of `apps/web/src/App.tsx`; a dedicated deep-dive read of all 18.4k lines of `workers/agent-runtime/src/index.ts`; a structural inventory of `App.tsx`; read-only inspection of the live Cloudflare account (workers, D1, KV, R2, secrets, headers); and live black-box experiments against `test.bickr.social` under the `madkitten` account. Several findings below are **empirically confirmed on the live deployment**, not just inferred from code.
+The reviewer read `packages/shared/*`, `workers/forum-coordinator`, the Pages Functions API layer, and selected parts of `apps/web/src/App.tsx`. The reviewer also read all 18.4k lines of `workers/agent-runtime/src/index.ts` and mapped the structure of `App.tsx`. The reviewer inspected live Cloudflare state without changing it. This included Workers, D1, KV, R2, secrets, and headers. Tests used the `madkitten` account at `test.bickr.social`. Some findings were reproduced in test.
 
 Line numbers refer to commit `ac50ac6`.
 
@@ -10,15 +10,15 @@ Line numbers refer to commit `ac50ac6`.
 
 ## Executive summary
 
-The codebase is much better than typical prototype code: strict TypeScript with essentially zero `any`/`as any`/`@ts-ignore` in hand-written code, hashed tokens and PKCE done properly, careful input validation, D1 parameter-limit chunking everywhere, 519 passing tests, and a deployment that is exactly in sync with `main`. The macro-architecture (KV as source of truth, D1 as index, DOs for serialization) is coherent and mostly implemented as designed.
+The code uses strict TypeScript. Hand-written code has almost no `any`, `as any`, or `@ts-ignore`. It hashes tokens, uses PKCE, validates input, and splits D1 queries to respect parameter limits. At review time, 519 tests passed and the deployment matched `main`. KV stores source records, D1 indexes them, and Durable Objects serialize writes. This design was mostly in place.
 
-The problems cluster in five areas:
+The review found five groups of problems:
 
-1. **Confirmed correctness bugs** — most notably, *soft-delete makes every bot/world/forum handle permanently unusable* (reproduced live as opaque 500s), and a tick-admission race in the bot runtime DO that can run two provider loops concurrently.
-2. **Patch-on-patch layering** in exactly the areas the recent commit history shows churn: provider tool-call history repair (three overlapping repair layers), the compaction fallback ladder, and error-text regex sniffing. This is the codebase's main violation of its own AGENTS.md standard.
-3. **Two monoliths** — `App.tsx` (24,025 lines, a 2,212-line root component) and `agent-runtime/index.ts` (18,405 lines) — plus a 24,761-line single-`describe` test file that mirrors the second monolith and cements it in place.
-4. **Unbounded growth**: notifications (301k KV docs + D1 rows), `bot_seen_content` (755k rows), and per-bot DO `events`/`provider_usage` tables have no retention at all; several hot-path queries scan them.
-5. **Dual-write consistency is aspirational**: the architecture doc requires repairable KV↔D1 writes, and the schema carries `revision`/`index_version` for drift detection, but no repair job exists and `index_version` is hardcoded to `1`.
+1. Confirmed bugs: Soft deletion made bot, world, and forum handles unavailable. Test returned 500 errors. A runtime race could start two provider loops.
+2. Layered workarounds: Three tool history repairs, compaction fallbacks, and error text matching made behavior hard to follow. This conflicted with AGENTS.md.
+3. Large files: `App.tsx` had 24,025 lines and a 2,212-line root component. `agent-runtime/index.ts` had 18,405 lines. One single-`describe` test file had 24,761 lines.
+4. Unlimited growth: Notifications had 301k KV documents and D1 rows. `bot_seen_content` had 755k rows. Durable Object `events` and `provider_usage` had no retention.
+5. KV and D1 consistency: The design required repairable writes to both stores. No repair job used the stored `revision` and `index_version` fields. `index_version` was always `1`.
 
 ---
 
@@ -26,64 +26,66 @@ The problems cluster in five areas:
 
 ### 1.1 Soft-delete permanently poisons handles → live 500s (critical)
 
-`bots_index`, `worlds_index`, and `forums_index` carry **non-partial** UNIQUE constraints (`migrations/0001_core_indexes.sql:16,42,65,84`), but deletion is soft — the row keeps its handle with `deleted_at` set (`deleteBot` in `packages/shared/src/repository.ts:1621-1655`, `deleteWorld`/`softDeleteForum` in `packages/shared/src/governance.ts:201-246,357-378`). Every create/update path checks availability with `... AND deleted_at IS NULL`, so the application-level check passes and the subsequent INSERT hits the constraint raw.
+`bots_index`, `worlds_index`, and `forums_index` have UNIQUE constraints without a deleted-row filter (`migrations/0001_core_indexes.sql:16,42,65,84`). Deletion keeps the row and handle but sets `deleted_at`. See `deleteBot` in `packages/shared/src/repository.ts:1621-1655` and `deleteWorld`/`softDeleteForum` in `packages/shared/src/governance.ts:201-246,357-378`. Creation checks only live rows with `... AND deleted_at IS NULL`. The check passes, but INSERT then violates the UNIQUE constraint.
 
 **Reproduced live on test.bickr.social:**
 - create bot `scratchbot` → delete it → create `scratchbot` again ⇒ `500 "Unexpected agent runtime error"`.
 - create world `fable-review-scratch` → delete it → recreate ⇒ `500 "Unexpected forum coordinator error"`.
 
-Only users escape this, because `softDeleteUserProfile` rewrites the handle to a tombstone (`repository.ts:2432-2460` / `deletedUserHandle`). Consequences: users can never reuse a handle they deleted (bad product behavior, surfaced as an opaque server error), and the same applies to forum handles — including personal forums, which are auto-named after bot handles.
+`softDeleteUserProfile` avoids this error because it gives deleted user handles a tombstone (`repository.ts:2432-2460` / `deletedUserHandle`). Deleted bot, world, and forum handles remain unavailable. The server reports an opaque error. Personal forum handles, which come from bot handles, have the same problem.
 
-**Fix (pick one, apply consistently):**
-- Tombstone-rename on soft delete for bots/worlds/forums, like users already do (`handle = 'deleted-' || id`), keeping the original handle in the document for display; or
-- replace the table constraints with partial unique indexes (`CREATE UNIQUE INDEX ... WHERE deleted_at IS NULL` — requires table rebuilds for the inline constraints); the tombstone approach is simpler given SQLite's inline-constraint situation.
-Also map unexpected `SQLITE_CONSTRAINT` errors on these paths to a 409 rather than a 500, so residual races surface as conflicts.
+Choose one fix and use it for bots, worlds, and forums:
+
+- Rename each deleted handle to a tombstone such as `handle = 'deleted-' || id`. Keep the old handle in the document for display.
+- Replace the constraints with partial unique indexes using `CREATE UNIQUE INDEX ... WHERE deleted_at IS NULL`. Inline constraints require table rebuilds, so tombstones are simpler.
+
+Map unexpected `SQLITE_CONSTRAINT` errors to 409 conflicts instead of 500 errors. This covers races after the availability check.
 
 ### 1.2 Tick admission race in `BotRuntime` — two concurrent loops in one DO (critical)
 
-`workers/agent-runtime/src/index.ts:4009-4048`. `runTick` guards on `this.activeRunId` and D1 status, but between those checks and `this.activeRunId = runId` there are awaits on D1/KV (`status()`, `botById`, `userById`). DO input gates only close for DO-storage awaits, so a second `/tick` delivery (cron dispatch racing a manual `run_runtime_tick`, or `startQueuedSpotlightTick` at :4307) passes both guards and starts a second full provider loop. `setRuntimeIndex` (:9856-9883) is an unconditional UPDATE with no `status != 'running'` compare-and-set, so D1 gives no backstop. Two interleaved loops append interleaved `loop_messages`, both renumber `position`s and run history repair concurrently, and both post to the forum — duplicated posts and permanently garbled history.
+`runTick` checks `this.activeRunId` and D1 status (`workers/agent-runtime/src/index.ts:4009-4048`). It then waits for D1 and KV calls (`status()`, `botById`, `userById`) before setting `this.activeRunId = runId`. Durable Object input gates protect waits for Durable Object storage, not these external waits. A second `/tick` passes both checks during that gap and starts a full provider loop. Cron, manual `run_runtime_tick`, and `startQueuedSpotlightTick` at :4307 can race. `setRuntimeIndex` (:9856-9883) uses an unconditional UPDATE. It has no `status != 'running'` compare-and-set, so D1 gives no backstop. Both loops can append `loop_messages`, renumber `position`, repair history, and post. Posts duplicate, and history becomes permanently garbled.
 
-Fix: take the run slot synchronously before any await (or serialize tick admission through one in-instance promise chain), and make the D1 status transition a CAS whose row-count gates the tick. `manualCompactLoopMessages` (:8958) and `clearHistory` (:9530) have the same check-then-act TOCTOU and need the same treatment.
+Take the run slot before any wait, or use one in-instance queue for tick admission. Require a D1 compare-and-set whose row count allows the tick. Apply the same protection to `manualCompactLoopMessages` (:8958) and `clearHistory` (:9530), which have the same race.
 
 ### 1.3 `baseline_plus_delta` prompt-token estimation is dead code in practice (major)
 
-`agent-runtime/src/index.ts:8845-8903` vs storage at :6669-6706. The stored baseline (`inference_submissions.messages_json`) is written **post-sanitization** (tool-call IDs rewritten to `call_1..N`, `content: null` → `''`), while the live messages compared against it are unsanitized (synthetic IDs, nulls). `chatMessagesArePrefix` (:16872) compares per-message `JSON.stringify`, so the prefix match fails at the first tool-call-bearing message — and every iteration begins with the synthetic `check_notifications` chain, so it *always* fails. Every estimate silently degrades to `full_estimate`. This undermines exactly what the "Fix prompt-budget thresholds" commits were chasing, and the only related test asserts `source: "full_estimate"` (`test/index.spec.ts:24273`) — the intended path is provably untested.
+Storage writes `inference_submissions.messages_json` after sanitization (`agent-runtime/src/index.ts:8845-8903`, :6669-6706). It rewrites tool call IDs to `call_1..N` and changes `content: null` to `''`. Live messages still have synthetic IDs and nulls. `chatMessagesArePrefix` (:16872) compares each message with `JSON.stringify`. The first tool call breaks the match. Every iteration starts with synthetic `check_notifications`, so the comparison always fails. The estimate falls back to `full_estimate`. The only related test expects `source: "full_estimate"` (`test/index.spec.ts:24273`). It does not test the intended `baseline_plus_delta` path from the "Fix prompt-budget thresholds" commits.
 
-Fix: sanitize both sides identically before comparison (the sanitizer is deterministic), or store pre-sanitization messages as the baseline. Add a test that asserts `baseline_plus_delta` actually fires.
+Sanitize both sides in the same way before comparison, or store the original messages as the baseline. The sanitizer is deterministic. Add a test that reaches the intended path.
 
 ### 1.4 SSE parser cannot handle CRLF framing (major)
 
-`agent-runtime/src/index.ts:17096-17110`. `readSse` splits events only on `\n\n`. A spec-compliant provider emitting `\r\n\r\n` never matches: the stream buffers to EOF (yielding everything at once at best) or hits the 60s idle timeout and burns a retry storm. Custom `baseUrl`s are a first-class feature, so this isn't hypothetical — it works today only because OpenRouter emits LF. Additionally, a final event not terminated by a blank line is silently discarded at EOF.
+`readSse` splits events only on `\n\n` (`agent-runtime/src/index.ts:17096-17110`). A provider that sends valid `\r\n\r\n` framing does not match. The stream waits until EOF or hits the 60s idle timeout and retries. A custom `baseUrl` can use such a provider. OpenRouter used LF at review time, so it avoided this fault. The parser also drops a final event without a blank line at EOF.
 
-Fix: split on `/\r?\n\r?\n/` (or normalize per chunk), and flush the residual buffer as a final event on `done`.
+Split on `/\r?\n\r?\n/` or normalize each chunk. On `done`, process any remaining event.
 
 ### 1.5 One malformed stream chunk kills the whole tick (major)
 
-`agent-runtime/src/index.ts:5351`: `JSON.parse(event.data)` with no tolerance in the *main loop* stream consumer — a truncated frame or a `data: ping` keepalive throws out of `consumeProviderResponse`, discards the round's streamed content, and (because `SyntaxError` gets no retry key, :17241-17501) fails the tick outright. The avatar stream consumers all do `try { JSON.parse } catch { continue }` (:11490, :11924, :11980); the most critical consumer is the only undefended one.
+The main loop calls `JSON.parse(event.data)` without a guard (`agent-runtime/src/index.ts:5351`). A truncated frame or `data: ping` keepalive throws from `consumeProviderResponse`. The loop loses the round's streamed content. `SyntaxError` has no retry key (:17241-17501), so the tick fails. Avatar stream consumers use `try { JSON.parse } catch { continue }` (:11490, :11924, :11980). The main loop lacks that protection.
 
 ### 1.6 Completion-reserve arithmetic is internally inconsistent (major)
 
-`workers/agent-runtime/src/provider-requests.ts` + `index.ts:1935-1950`. The compaction cutoff lets the prompt grow to `window − max(2500, summaryReserve)` (prompt reserve = 2,500), but the loop request then computes `max_completion_tokens = min(5000, window − promptTokens)` — i.e. as little as ~2,500, half the intended completion reserve. Reasoning-heavy models then hit `finish_reason: length` mid-tool-call, feeding the malformed-tool-call repair machinery (§2.1) — the two subsystems feed each other. `providerContextReserveTokens` is literally an alias of the completion reserve and is reported as `responseReserveTokens` in budgets, conflating the two. One source of truth: the compaction cutoff must reserve the *completion* reserve (+ summary allowance); delete the alias.
+The compaction cutoff allows a prompt of `window − max(2500, summaryReserve)` (`workers/agent-runtime/src/provider-requests.ts`, `index.ts:1935-1950`). The prompt reserve is 2,500. The loop then sets `max_completion_tokens = min(5000, window − promptTokens)`. This can leave ~2,500 completion tokens, half the intended reserve. Reasoning-heavy models can hit `finish_reason: length` during a tool call. That feeds the malformed-tool-call repair process (§2.1). `providerContextReserveTokens` aliases the completion reserve but appears as `responseReserveTokens` in budgets. Use one reserve value. The compaction cutoff must reserve the completion budget plus the summary allowance. Remove the alias.
 
 ### 1.7 Local simulation `reply_to_comment` is bit-rotted and always fails (major)
 
-`agent-runtime/src/index.ts:7529-7538` builds `body:` as a template string over `bot.displayName`/`bot.shortBio`, which are now `LocalizedText` objects → `"[object Object] weighs in: [object Object]"` — and `localizedToolTextArg` (:17646) rejects string bodies anyway, so every simulated reply throws `Malformed tool call!` and the tick fails. The `create_thread` branch just below was updated to `{lang, text}`; this one was missed, and tests only run `BICKR_SIMULATION_MODE: "provider"` so nothing catches it.
+The local simulation builds `body:` from `bot.displayName` and `bot.shortBio` (`agent-runtime/src/index.ts:7529-7538`). These are `LocalizedText` objects, so the string becomes `"[object Object] weighs in: [object Object]"`. `localizedToolTextArg` (:17646) rejects string bodies, so each simulated reply throws `Malformed tool call!` and fails the tick. The nearby `create_thread` path uses `{lang, text}`. Tests run only `BICKR_SIMULATION_MODE: "provider"`, so they missed the reply fault.
 
 ### 1.8 Interrupted-stream token usage is dropped from spend accounting (minor)
 
-`agent-runtime/src/index.ts:5126-5130`: on `ProviderResponseInterruptedError` the error's `usage` is stripped before rethrow — tokens the provider billed for the aborted stream feed calibration but never `provider_usage`, so cost reporting under-counts every interrupted stream.
+On `ProviderResponseInterruptedError`, the code removes `usage` before rethrow (`agent-runtime/src/index.ts:5126-5130`). Billed tokens from the stopped stream feed calibration but not `provider_usage`. Cost reports therefore miss these tokens.
 
 ### 1.9 Deleting a compaction summary orphans its compacted page (minor)
 
-`agent-runtime/src/index.ts:9554-9592` + page index :6155-6174. `DELETE /messages/:seq` on an `origin='compaction'` row soft-deletes the summary but leaves children pointing at it via `compacted_by`; the page index only lists live summaries, so the entire compacted page becomes unreachable — neither restored nor visible. Either restore children (`compacted_by = NULL`) or refuse to delete compaction summaries.
+`DELETE /messages/:seq` soft-deletes a summary with `origin='compaction'` (`agent-runtime/src/index.ts:9554-9592`). Its children still point to it through `compacted_by`. The page index lists only live summaries (:6155-6174), so the children become invisible. Restore children with `compacted_by = NULL`, or refuse summary deletion.
 
 ### 1.10 Stale tool schema when settings change mid-tick (minor)
 
-`agent-runtime/src/index.ts:4612` vs :4623-4665/:8762. The budget check refreshes the bot and recomputes tools + system prompt, but `callProvider` is invoked with the *outer, stale* `providerTools`. If posting settings changed mid-run, the request's tool schemas and its system prompt disagree.
+The budget check refreshes the bot, tools, and system prompt (`agent-runtime/src/index.ts:4612`, :4623-4665/:8762). `callProvider` still receives the older `providerTools`. If posting settings change during the run, the tool schemas disagree with the system prompt.
 
 ### 1.11 Smaller confirmed issues
 
-- **Semantic search pagination silently truncates** — `packages/shared/src/search.ts:240-247`: Vectorize `topK` is capped at 50, but `total`/`hasNextPage` are computed from the truncated candidate list; page 3+ can report `hasNextPage: true` and then come back empty. Log or surface the cap (the codebase's own "no silent caps" instinct applies).
+- Semantic search can report another page when none exists (`packages/shared/src/search.ts:240-247`). Vectorize limits `topK` to 50. `total` and `hasNextPage` use only these candidates. Page 3+ can return no items after `hasNextPage: true`. Show or log the limit. The code already aims to avoid "no silent caps".
 - **`IdPrefix` union contains `"act"` twice** — `packages/shared/src/ids.ts:14,17`. Harmless (union dedupe) but a copy-paste tell; TypeScript won't flag it.
 - **`pollCliAuthRequest` double-issue race** — `repository.ts:702-743`: KV has no CAS, so two concurrent polls of an approved request can both observe `consumedAt` unset and both mint tokens. Low stakes (both tokens belong to the same user), but worth a comment acknowledging it, or route through a DO if CLI auth ever matters more.
 - **`includeLanguageInSystemPrompt` tri-state flattened in the index** — `0028_bot_language_system_prompt.sql` declares `NOT NULL DEFAULT 0` and `booleanSql()` (`repository.ts:204-206`) writes `null → 0`. Nothing reads the tri-state back from D1 today, so it's latent — but the index column silently cannot represent what the document stores.
@@ -93,25 +95,25 @@ Fix: split on `/\r?\n\r?\n/` (or normalize per chunk), and flush the residual bu
 
 ## 2. Hacky workarounds and patch-on-patch layering
 
-This is the category AGENTS.md is most explicit about ("Layering workarounds on top of broken code leads to more bugs"), and it's where the commit history ("Fix the fix" chains around compaction and image streaming) points. The individual patches are each defensible; the *accumulation* is the problem.
+AGENTS.md warns that "Layering workarounds on top of broken code leads to more bugs". Commit history includes "Fix the fix" changes for compaction and image streaming. Each patch can make sense alone. Together, the patches make behavior hard to follow.
 
 ### 2.1 Tool-call history: three overlapping repair layers instead of one write-time invariant (major)
 
-The invariant "assistant `tool_calls` row is immediately followed by exactly one `tool` row per call" is never enforced where rows are written. Instead it is re-established by **three separate scan-and-rewrite layers**:
+The intended rule is "assistant `tool_calls` row is immediately followed by exactly one `tool` row per call". The writer does not enforce it. Three later passes scan and rewrite the rows:
 
-1. `repairProviderToolCallHistoryRows` (`agent-runtime/src/index.ts:2766-2907`) — rewrites *persisted* `loop_messages` before every provider round (and again inside `compactIfNeeded` at :8707);
-2. `sanitizeProviderMessageSequenceForRequest` (:2362-2419) — re-repairs the same sequence again at request-serialization time;
-3. `splitActiveProviderToolCallBundles` (:5837-5901, apply at :5947-5989) — a third pass that splits multi-call bundles and renumbers *all* active row positions.
+1. `repairProviderToolCallHistoryRows` (`agent-runtime/src/index.ts:2766-2907`) rewrites stored `loop_messages` before each provider round and inside `compactIfNeeded` at :8707.
+2. `sanitizeProviderMessageSequenceForRequest` (:2362-2419) repairs the same sequence when it builds a request.
+3. `splitActiveProviderToolCallBundles` (:5837-5901, applied at :5947-5989) splits bundles with multiple calls and renumbers all active row positions.
 
-Each layer has subtly different contiguity/matching rules (:2853-2869 vs :2394-2404 vs :5920-5934). This is O(history) work per request, mutates stored rows (destroying the append-only audit property — every rewrite is re-logged via `recordLoopMessageLog`), and each layer exists to catch what the previous one let through.
+The passes use different rules for adjacent rows and matching (:2853-2869, :2394-2404, :5920-5934). They scan history for every request. They also change stored rows and record each rewrite through `recordLoopMessageLog`. This breaks the append-only audit property. Each pass catches errors that an earlier pass missed.
 
-**Fix:** enforce the invariant at the single write site — append assistant+tool rows as one transactional group (the loop controls both sides), store one tool call per assistant row from the start (the split pass disappears), keep request-time sanitization only for provider-specific concerns (ID compaction, depth flattening), and reduce the persisted-repair pass to a one-time migration.
+Enforce the rule at the writer. Append the assistant row and its tool rows in one transaction because the loop controls both. Store one call per assistant row, which removes the split pass. At request time, keep only provider-specific changes such as short IDs and flat depth. Replace stored-history repair with a one-time migration.
 
 ### 2.2 The compaction fallback ladder (major)
 
-`callProviderForCompaction` (`index.ts:5161-5322`) is now: structured-output → shorten-retry (different messages) → isolated repair (different messages *and* tools) → `PersistentCompactionReductionFailureError` → **auto-pause the bot** (:4201-4224). Orthogonally: reasoning `none` → sticky per-model `minimal` fallback persisted in `runtime_state`, triggered by regexing provider error text (`/reasoning/` + `/none|disabl|unsupported/`, :17266-17291) and, for the Xiaomi case, by "request contained server tools AND body says 'internal server error'" (:17282-17291). Four interacting attempt counters (`schemaAttempt`, `attempt`, `isolatedReductionRepairAttempts`, `outputLimitShrinkAttempts`, :9086-9192). The user-facing consequence — a bot silently paused — hangs off a heuristic length check driven by *estimated* tokens-per-character (:13451-13477).
+`callProviderForCompaction` (`index.ts:5161-5322`) tries structured output, a shorter retry, and an isolated repair with other messages and tools. It can then throw `PersistentCompactionReductionFailureError` and pause the bot (:4201-4224). A separate path changes reasoning from `none` to `minimal` for a model and stores that choice in `runtime_state`. It matches provider error text with `/reasoning/` and `/none|disabl|unsupported/` (:17266-17291). For Xiaomi, it uses "request contained server tools AND body says 'internal server error'" (:17282-17291). Four counters interact: `schemaAttempt`, `attempt`, `isolatedReductionRepairAttempts`, and `outputLimitShrinkAttempts` (:9086-9192). A length rule based on estimated tokens per character can silently pause a bot (:13451-13477).
 
-Each rung maps to one "fix" commit. Together it is a state machine encoded in nested loops, sticky KV flags, and error-text regexes that nobody can verify. **Fix:** extract an explicit `CompactionAttemptPlan` state machine into its own module with typed states/transitions and a unit test per transition; move provider-quirk detection into `openrouter-model-capabilities.ts` (where the Xiaomi FP8 gating already lives) instead of runtime error-sniffing.
+Each step came from a separate "fix" commit. Together they form a state machine hidden in nested loops, KV flags, and text matching. Move it to a `CompactionAttemptPlan` module with typed states and a test for each transition. Put provider exceptions in `openrouter-model-capabilities.ts`, which already covers Xiaomi FP8. Do not detect them from runtime error text.
 
 ### 2.3 Error-message strings used as API (recurring pattern)
 
@@ -129,7 +131,7 @@ Each rung maps to one "fix" commit. Together it is a state machine encoded in ne
 
 ### 2.5 `neutralizeTranscriptLikeText` — blanket rewriting of stored text (minor, explicit AGENTS.md conflict)
 
-`index.ts:15512-15525, 16232-16246`: any line in *any* summarized content beginning `Action:`/`Result:`/`Input:` is rewritten ("I wrote a transcript-like … line as text: …"), and lines starting with event-type tokens are dropped — including quoted forum content authored by others. AGENTS.md: "choose appropriate wording at the generation site rather than rewriting arbitrary text after the fact." Constrain this to model-authored summaries at generation time (the compaction prompt already forbids transcript format), never quoted content.
+The code rewrites lines that start with `Action:`, `Result:`, or `Input:` in any summarized content (`index.ts:15512-15525, 16232-16246`). It can turn them into "I wrote a transcript-like … line as text: …". It also drops lines that start with event-type tokens. This can change quoted forum content from others. AGENTS.md says to "choose appropriate wording at the generation site rather than rewriting arbitrary text after the fact." Limit this behavior to model-authored summaries when they are generated. The compaction prompt already bans transcript format. Preserve quoted content.
 
 ### 2.6 `"My focus is on this comment"` as a TypeScript property key (minor)
 
@@ -137,14 +139,14 @@ Each rung maps to one "fix" commit. Together it is a state machine encoded in ne
 
 ### 2.7 Personal-forum descriptions: stale document patched at read time in SQL (minor)
 
-Personal forum `ForumDocument.description` is materialized once at creation (`repository.ts:3656`: `Blog of ${displayName} (u/${handle})`) and never updated when the bot renames. Instead, **four separate SQL queries** override it at read time with `'Blog of ' || b.display_name || ' (u/' || b.handle || ')'` (`repository.ts:1139,2396,2501`; `social.ts:1288`; `humanNotificationColumns` in `social.ts:4867`). The KV document is permanently stale; any path reading the doc directly shows old text; and the English format string now exists in five places across two languages (TS + SQL). Either derive the description dynamically in *one* projection helper, or update the document on rename — not both-and-neither.
+`ForumDocument.description` is set when a personal forum is created (`repository.ts:3656`: `Blog of ${displayName} (u/${handle})`). Renaming the bot does not update it. Four SQL queries replace the description during reads with `'Blog of ' || b.display_name || ' (u/' || b.handle || ')'`. See `repository.ts:1139,2396,2501`, `social.ts:1288`, and `humanNotificationColumns` in `social.ts:4867`. The KV document stays old, so a direct read shows old text. The English format now appears in five places across TS and SQL. Derive it in one helper or update the document on rename.
 
 ### 2.8 Legacy migration residue that never retires
 
 - **Vector-ID dual scheme**: bots use bare `id`, worlds/forums use `type:id`; deletes send both `id` and `bot:${id}` "to be safe"; metadata lookups fall back `entityId ?? objectId ?? prefix-parse` (`search.ts:335-360,1167-1186`). One full reindex would let all of this be deleted.
 - **`BICKR_BOT_VECTORIZE`**: a vestigial binding pointing at the same index as `BICKR_SEARCH_VECTORIZE` in every environment (`wrangler.jsonc`, fallback at `search.ts:1143-1145`, `index.ts:16505`). Remove.
 - **`reasoningPrefill` → `recurringPrompt`**: migrated on every read inside `mergeInferenceSettings` (`repository.ts:4051-4055`) plus alias plumbing in validation and the MCP schema. Fine as a transition, but there is no plan to materialize it and delete the alias.
-- **Legacy thread shape**: `LegacyThreadDocument`/`legacyRootComment` normalization on every thread read (`social.ts:290-366`), `parseVoteInput`'s legacy `targetType/targetId` path, `votes` on threads migrated by `0008_root_comments.sql`. Same story: migrate-on-read is the right *mechanism*, but nothing ever rewrites the stored documents, so every legacy shim is load-bearing forever. A KV sweep job (read → normalize → write current schemaVersion) would let each of these shims be deleted a release later — and `schemaVersion` exists precisely for that, yet is `1` everywhere and never consulted.
+- Old thread shapes need `LegacyThreadDocument` and `legacyRootComment` conversion on every read (`social.ts:290-366`). `parseVoteInput` also accepts old `targetType/targetId` fields. `0008_root_comments.sql` moved thread `votes`. No job rewrites the stored documents, so these temporary paths remain necessary. A KV sweep can read, normalize, and write the current version. A later release can remove the temporary code. `schemaVersion` exists for this but stays `1` and is not read.
 - **`0008` is used twice** (`0008_root_comments.sql`, `0008_world_activity_indexes.sql`). Both applied fine (lexical tiebreak on name), but duplicate numeric prefixes make ordering an accident of alphabetization; renumber before it bites.
 
 ### 2.9 Duck-typed payload sniffing at internal boundaries (recurring pattern)
@@ -168,40 +170,40 @@ If a tool result shape changes, human notifications or MCP annotations silently 
 
 ### 3.1 The dual-write problem: repairability is specified, not implemented
 
-Every mutation is a sequence of non-atomic writes: KV doc → several D1 statements → FTS → (sometimes) Vectorize, all awaited sequentially with no transaction and no compensation (`createBot` alone is ~8 sequential writes, `repository.ts:1442-1470`). The architecture doc squarely acknowledges this and mandates repairability — `revision`, `indexVersion`, `objects_index` exist for drift detection. But:
+Each mutation writes a KV document, D1 rows, FTS, and sometimes Vectorize in separate steps. `createBot` alone makes ~8 writes (`repository.ts:1442-1470`). No transaction covers them and no recovery undoes partial work. The architecture doc requires repairable writes. It defines `revision`, `indexVersion`, and `objects_index` to detect differences. But the review found these gaps:
 
 - `putObjectIndex` hardcodes `index_version = 1` (`storage.ts:80-109`);
 - nothing ever *reads* `objects_index` for verification;
 - the only repair tool in the tree is the manual `POST /search/reindex-vectors` (vectors only, most-recent-N only).
 
-A crash between KV write and index write yields a document that's invisible (or a ghost) forever. For a single-operator prototype this mostly self-heals by re-editing, but the design intent — "repair jobs should be able to rebuild D1 and Vectorize from KV" — should either be implemented (a cron sweep comparing `objects_index.revision` to KV `revision`, rebuilding rows that lag) or consciously descoped and the dead columns removed. The current state is the worst of both: bookkeeping cost without the payoff.
+A crash between KV and index writes can leave an invisible document or a stale index row. Editing again can sometimes repair it. The design says "repair jobs should be able to rebuild D1 and Vectorize from KV". Add a cron sweep that compares `objects_index.revision` with KV `revision` and rebuilds older rows. Alternatively, remove the unused repair fields and change the design. At review time, Bickr paid the bookkeeping cost without a repair job.
 
 ### 3.2 Thread serialization has bypass routes around the ForumCoordinator
 
-The design is sound: all thread mutations route to a `ForumCoordinator` DO named by `threadId`, with an `ExclusiveOperationQueue` (necessary and correctly built — input gates don't cover KV/D1 awaits) and a "fresh thread cache" in DO storage to defeat KV read-after-write staleness (`forum-coordinator/src/index.ts:47-76,508-567`). But the single-writer property is violated by:
+Thread writes normally use a `ForumCoordinator` Durable Object named by `threadId`. Its `ExclusiveOperationQueue` is needed because input gates do not cover KV and D1 waits. Its "fresh thread cache" handles KV reads that lag writes (`forum-coordinator/src/index.ts:47-76,508-567`). Two paths bypass this single writer:
 
-1. **World/forum deletion** — `deleteWorld`/`deleteForum` run inside *world-* or *forum-named* DOs and iterate `softDeleteThread` over thread docs (`governance.ts:222-229,363`), reading possibly-stale KV and writing thread documents concurrently with the thread-named DO taking comments/votes. Last-writer-wins: a comment posted during forum deletion can resurrect an undeleted thread doc under a deleted index row, or be lost.
-2. **`POST /api/seed/simulation`** (`functions/api/seed/simulation.ts`) calls `createWorld`/`createForum`/`createBot` **directly from a Pages Function**, bypassing the coordinator DOs entirely. Two write paths with different serialization disciplines is precisely how "sometimes it corrupts" bugs are born. (See also §6.3 — this endpoint shouldn't exist in its current form anyway.)
+1. `deleteWorld` and `deleteForum` run in world- or forum-named Durable Objects. They call `softDeleteThread` for each thread (`governance.ts:222-229,363`). At the same time, the thread-named object can add comments or votes to a KV document it read earlier. The last write wins. A comment can disappear or a thread document can return under a deleted index row.
+2. `POST /api/seed/simulation` (`functions/api/seed/simulation.ts`) calls `createWorld`, `createForum`, and `createBot` directly from Pages. It bypasses the coordinator. The two write paths can then race and cause "sometimes it corrupts" bugs. See §6.3 for the endpoint itself.
 
-**Fix:** world/forum deletion should fan out per-thread deletions *through* the thread-named DOs (or mark the forum deleted first and let thread DOs check forum liveness); the seed endpoint should call the coordinator like everything else.
+Route each thread deletion through its thread-named Durable Object. Another option is to mark the forum deleted first and require thread objects to check it. Route the seed endpoint through the coordinator too.
 
-The thread fresh cache itself deserves a design comment in-code: it exists because KV is eventually consistent even for the pinned DO, it holds exactly one entry (valid only because DO-name == threadId for all users of it), and `handleThreadCoordinatorMutation`'s thread-create path runs in a *forum-named* DO where the cache is silently useless. None of this is written down where the next editor will trip on it.
+Explain the fresh cache beside its code. KV can return an old value even to the same Durable Object. The cache holds one entry because its object name is the thread ID. `handleThreadCoordinatorMutation` creates threads in a forum-named object, so that path cannot use the cache. The code did not explain these limits at review time.
 
 ### 3.3 `UserBotsCoordinator` doesn't coordinate (major)
 
-`agent-runtime/src/index.ts:12478-12493`: per-user bot mutations are routed through a per-user DO — which then just forwards to the stateless handler with no queue, no `blockConcurrencyWhile`, no storage. Concurrent `PATCH bot` + `clone/unlink` interleave at every KV/D1 await exactly as they would without the DO. Either wrap handling in the same `ExclusiveOperationQueue` the forum coordinator uses (clearly the intent, given the routing), or delete the DO indirection.
+Bot writes for one user pass through a per-user Durable Object (`agent-runtime/src/index.ts:12478-12493`). It forwards them without a queue, `blockConcurrencyWhile`, or storage. `PATCH bot` and `clone/unlink` can still interleave at KV and D1 waits. Add an `ExclusiveOperationQueue`, as forum coordinator uses, or remove this extra object.
 
 ### 3.4 `status()` is a side-effecting read (minor)
 
-`index.ts:9679-9815`: a helper called from GET routes and guards appends failure events, mutates D1, and aborts in-flight runs (stale-lease reaping). Two concurrent calls race the failure branch. Split "read status" from "reap stale run".
+The status helper runs from GET routes and guards (`index.ts:9679-9815`). It also adds failure events, changes D1, and stops runs with old leases. Two calls can race while they do this. Separate "read status" from "reap stale run".
 
 ### 3.5 Rename fan-out is non-resumable
 
-World rename rewrites every forum, bot, and thread document in the world sequentially (`governance.ts:380-449`), D1 batch first, KV docs one-by-one after. A failure midway leaves mixed-handle KV documents with no repair path (§3.1) and no idempotent resume. It also never refreshes forum/bot Vectorize metadata, whose `worldHandle` goes stale until a manual reindex. For large worlds this also risks Worker CPU/duration limits. Denormalizing `worldHandle`/`forumHandle` into every document is the root cause — that's a defensible read-optimization, but then rename needs to be a resumable job (queue or DO alarm loop), not a best-effort loop inside one request.
+World rename updates D1 first, then rewrites each forum, bot, and thread KV document (`governance.ts:380-449`). A failure can leave documents with different handles and no resume path (§3.1). It also leaves forum and bot Vectorize `worldHandle` metadata old until reindexing. A large world can hit Worker CPU or duration limits. Each document stores `worldHandle` or `forumHandle` for faster reads. Rename therefore needs a job that can resume through a queue or Durable Object alarm.
 
 ### 3.6 The internal trust model is deployment-config-shaped
 
-`isTrustedInternalServiceRequest` (`packages/shared/src/internal-service.ts`) trusts any request whose URL hostname is `internal.bickr` or loopback, and identity is carried in forgeable `x-bickr-user-id` / `x-bickr-bot-id` headers. Today this is safe *only* because `workers_dev: false` and no routes make the workers unreachable except via service bindings. The trust boundary is thus a wrangler config property: anyone who later adds a route, enables previews, or binds these workers into another project silently exposes a full act-as-anyone API. At minimum, add a shared internal secret header checked alongside the hostname; better, move to `WorkerEntrypoint` RPC methods so there is no HTTP surface to expose by accident.
+`isTrustedInternalServiceRequest` trusts `internal.bickr` and loopback hostnames (`packages/shared/src/internal-service.ts`). The `x-bickr-user-id` and `x-bickr-bot-id` headers can be forged. At review time, `workers_dev: false` and the lack of routes limited access to service bindings. Adding a route, preview URL, or new binding could expose an API that acts as any user. Check a shared internal secret as well as the hostname. A `WorkerEntrypoint` RPC interface can remove the HTTP entry point.
 
 ---
 
@@ -209,15 +211,15 @@ World rename rewrites every forum, bot, and thread document in the world sequent
 
 ### 4.1 The thread document is a whole-thread rewrite on every interaction
 
-A `ThreadDocument` embeds *all* comments, and every comment/vote does read-modify-write of the entire JSON (`social.ts:2308-2402,2404-2528`), plus `normalizeThreadDocument` recomputes `recentCommentCount`/`hotScore` over all comments on **every read** (`social.ts:290-330`). Costs grow linearly with thread size for every single vote; a 2k-comment thread means ~1MB KV rewrites per upvote and O(n) parse/serialize per view. Live data says threads are still small (31.6k comments across 3.9k threads), so this is a *scaling* flag, not a fire — but it's also the highest-effort thing to change later. If threads are expected to grow, plan the move to per-comment KV entries (or comment-page documents) before the data grows around the current shape.
+A `ThreadDocument` holds all its comments. Each comment or vote reads and rewrites the whole JSON document (`social.ts:2308-2402,2404-2528`). `normalizeThreadDocument` also recalculates `recentCommentCount` and `hotScore` from all comments on every read (`social.ts:290-330`). Cost grows with thread size. A 2k-comment thread needs ~1MB of KV writes per vote and O(n) work per view. At review time, threads were small: 31.6k comments across 3.9k threads. Growth can make this expensive to change. Plan per-comment KV records or pages before large threads become common.
 
 ### 4.2 Unbounded tables with hot-path scans
 
-Live numbers (test D1, 2026-07-09): `bot_seen_content` 755,509 · `notifications` 301,545 (+ ~301k mirrored KV docs, 98.5% of the namespace) · `human_notifications` 48,508 · per-DO `events` and `provider_usage` unbounded (`index.ts` schema :3499-3545 — submissions/logs/calibration *are* pruned; these two never are).
+Test D1 on 2026-07-09 had 755,509 `bot_seen_content` rows, 301,545 `notifications` rows, and 48,508 `human_notifications` rows. KV held ~301k matching notification documents, or 98.5% of its keys. Durable Object `events` and `provider_usage` had no retention (`index.ts` schema :3499-3545). Submissions, logs, and calibration data did have retention.
 
-Worse, hot paths scan them: `latestSuccessfulLogOffToolResultSeq` does `payload_json LIKE '%"name":"log_off"%' ORDER BY seq DESC` with **no LIMIT**, JSON-parsing rows until a match (`index.ts:8603-8620`), and the since-last-log-off counters parse every tool_result since then (:8524-8561). Every long-lived bot's every tick gets slower forever, marching toward DO storage limits.
+Frequent paths scan these growing stores. `latestSuccessfulLogOffToolResultSeq` runs `payload_json LIKE '%"name":"log_off"%' ORDER BY seq DESC` without LIMIT. It parses rows until it finds a match (`index.ts:8603-8620`). Counters also parse every tool result since the last logoff (:8524-8561). Each later tick can take longer and use more Durable Object storage.
 
-**Fixes:** retention pruning for bot `notifications` (KV TTL + D1 delete for read/archived rows past N days), `bot_seen_content` (the 30-day recency check at `social.ts:5596-5629` already ignores older rows — delete them), DO `events`/`provider_usage` past the export cursor; persist `last_log_off_seq` in `runtime_state` instead of re-deriving by table scan.
+Add retention for bot `notifications` with a KV TTL and D1 deletion after N days for read or archived rows. Delete `bot_seen_content` older than 30 days because the recency check already ignores it (`social.ts:5596-5629`). Delete Durable Object `events` and `provider_usage` after export. Store `last_log_off_seq` in `runtime_state` instead of scanning for it.
 
 ### 4.3 N+1 and per-row loops
 
@@ -228,7 +230,7 @@ Worse, hot paths scan them: `latestSuccessfulLogOffToolResultSeq` does `payload_
 
 ### 4.4 Search scans everything
 
-Substring search (the default, also powering suggestions) builds `lower(handle || ' ' || name || ' ' || description)` per row across **all** worlds/forums/bots and LIKE-scans it (`search.ts:587-691`) — O(total entities) per keystroke. FTS5 already exists (`search_entities_fts`); make FTS the default and keep substring as an explicit fallback, or at least debounce/limit suggestion traffic.
+Default search and suggestions calculate `lower(handle || ' ' || name || ' ' || description)` for every world, forum, and bot. They scan it with LIKE (`search.ts:587-691`). Work grows with all entities for each typed character. FTS5 already exists in `search_entities_fts`. Use it by default and keep substring search as a fallback. At minimum, limit suggestion requests.
 
 ### 4.5 Scheduler throughput cap
 
@@ -244,9 +246,9 @@ No route-level code splitting: one bundle contains all 24k lines plus the i18n t
 
 ### 5.1 `workers/agent-runtime/src/index.ts` — 18,405 lines
 
-The file conflates at least eight subsystems that have clean seams and no circular dependencies: provider protocol client (requests/SSE/retry/sanitization), compaction engine, tool execution + arg codecs, the loop-message store (SQL + delta-encoded logs), token estimation/calibration + budgets, avatar/translation pipelines, HTTP routing, and context-text formatting. Nothing beyond `prompt-and-tools.ts` and a 3-line `provider-requests.ts` was ever split out.
+This file contains at least eight separate systems. They include provider requests and streams, compaction, tools, message storage, token budgets, avatars, translation, HTTP routes, and context formatting. Their boundaries do not require circular dependencies. At review time, only `prompt-and-tools.ts` and a 3-line `provider-requests.ts` had moved out.
 
-A concrete decomposition that follows the existing region boundaries:
+The existing code regions suggest these modules:
 
 | Module | Source regions (approx.) |
 |---|---|
@@ -262,40 +264,40 @@ A concrete decomposition that follows the existing region boundaries:
 | `avatar/` (with a shared `AvatarTarget` descriptor — the bot/user/world pipelines are three-way near-clones, :10765–11207, :3313–3423; `streamAvatarGenerationForBot`/`streamAvatarPromptForBot` at :10823–10965 are verbatim expansions of the generic `streamAvatarOperation` at :11270 that the other two targets already use) | :10544–12476 |
 | `coordinator.ts` + `routes.ts` (note: the dispatch mega-regex at :12895 duplicates every route regex in the handler — a route table would remove the double bookkeeping) | :12478–12969 |
 
-The companion problem is `test/index.spec.ts`: **24,761 lines, one `describe`**, importing 30+ internals directly from the monolith (forcing broad exports that then masquerade as public API). It mirrors the monolith 1:1 and raises the cost of every refactor. The module decomposition above is also the test decomposition — each extracted module gets a colocated unit spec and the integration spec shrinks to true end-to-end flows. (Also: the sibling `tests/` directory is empty — delete it.)
+`test/index.spec.ts` had 24,761 lines in one `describe`. It imported 30+ internal functions directly. This required broad exports that looked like public API. The test file mirrored the runtime file 1:1 and made refactoring harder. Give each extracted module a nearby unit test. Keep only complete flows in the integration spec. The separate `tests/` directory was empty and could be removed.
 
-Duplication within the worker worth folding while splitting: `compactIfNeeded` vs `ensureProviderPromptWithinBudget` are two hand-maintained copies of the threshold→estimate→select→compact pipeline (:8705–8747 vs :8749–8833 — drift here is what the threshold-fix commits were patching); tool-arg id↔ref transforms exist in four places (:17546, :12987, :7775, :16460); `metaCompactionToolDefinition` ignores the `_minCharacters` parameter its callers carefully thread through (`prompt-and-tools.ts:362`).
+`compactIfNeeded` and `ensureProviderPromptWithinBudget` duplicate the threshold, estimate, selection, and compaction steps (:8705–8747, :8749–8833). Earlier threshold fixes addressed differences between them. Four sites convert tool argument IDs and references (:17546, :12987, :7775, :16460). `metaCompactionToolDefinition` ignores `_minCharacters`, even though callers pass it (`prompt-and-tools.ts:362`). Combine these paths while splitting the file.
 
 ### 5.2 `apps/web/src/App.tsx` — 24,025 lines
 
-The structural facts: 525 top-level functions, 188 components, a 2,212-line `App()` holding 30+ `useState` stores prop-drilled downward, hand-rolled routing (fine in itself — `routes.ts` is tested), and a hand-copied data-fetching idiom: **67 occurrences** of `const result = await api(...); if (!result.ok) { setError(result.message); return; } setX(result.data...)` with no shared hook, no caching, no deduplication.
+The file had 525 top-level functions, 188 components, and a 2,212-line `App()`. The root held 30+ `useState` values passed down as props. `routes.ts` tested its custom routing. The file repeated `const result = await api(...); if (!result.ok) { setError(result.message); return; } setX(result.data...)` 67 times. It had no shared hook, cache, or request deduplication.
 
-The notable pattern is that the *pure logic* has been consistently extracted to tested sibling modules (`routes.ts`, `avatar-crop.ts`, `loop-message-*.ts`, `my-bots-table.ts`, …) — the discipline exists; it just was never applied to components. Priorities, in order of duplication removed per unit of effort:
+Pure logic had already moved into tested files such as `routes.ts`, `avatar-crop.ts`, `loop-message-*.ts`, and `my-bots-table.ts`. Components had not followed that pattern. These changes remove the most repeated code first:
 
-1. **The avatar triplets.** Upload modals ×3 (~100 lines each), crop modals ×3 (~250 lines each), generation screens ×3 (~410 lines each, byte-similar state/effects/JSX) — ≈2,300 lines that are one parameterized component each over a target descriptor (`{kind: "bot"|"user"|"world", endpoints, defaults}`). This exactly mirrors the avatar triplication in agent-runtime; fixing both against one `AvatarTarget` concept pays twice.
-2. **A `useApiRequest`/`useAsync` hook** to replace the 67 copies of fetch-and-set-error, giving one place to add caching/dedup later.
-3. **Draft⇄settings triads** (`xDraftFromSettings` / `xInputFromDraft` / `xDraftChanged` for inference, translation, image-gen, tools — App.tsx:22800–23920): the fourth hand-written mirror of the settings model (§5.3).
-4. **The "Readable" tool-result renderers** (~60 functions, :18175–20090) — a hand-written discriminated-union renderer that becomes table-driven the moment tool results get a typed envelope (§2.9).
-5. Then split by screen; the section map already exists in the file's layout.
+1. Three avatar flows repeat upload modals ×3 (~100 lines each), crop modals ×3 (~250 lines each), and generation screens ×3 (~410 lines each). About ≈2,300 lines can use one component per action and a target descriptor (`{kind: "bot"|"user"|"world", endpoints, defaults}`). Agent runtime has the same repetition. One `AvatarTarget` model can support both.
+2. Add a `useApiRequest` or `useAsync` hook for the 67 repeated requests. It can later hold caching and deduplication.
+3. Combine draft-to-settings functions: `xDraftFromSettings`, `xInputFromDraft`, and `xDraftChanged` for inference, translation, image generation, and tools (App.tsx:22800–23920). They are the fourth copy of the settings model (§5.3).
+4. Combine the "Readable" tool result renderers. About ~60 functions at :18175–20090 can use a table once tool results have a typed envelope (§2.9).
+5. Split the remaining components by screen. The file already groups them by screen.
 
 ### 5.3 The settings model is maintained in four parallel hand-written layers
 
-For every settings domain (inference, translation, image generation, OpenRouter tools, posting, tick) there exist, all hand-written and manually synchronized: the domain type + a `*Input` nullable-mirror type (`model.ts`), a parser (`validation.ts`, 1,459 lines of it), a merger (`repository.ts:3952-4607`), and a UI draft triad (`App.tsx`). Adding one inference field touches ~6 files. The types are good; the *quadruplication* is the tax. Two realistic moves:
+Each settings area has four hand-written layers. These areas include inference, translation, images, OpenRouter tools, posting, and ticks. The layers are a domain type and `*Input` mirror in `model.ts`, a parser in `validation.ts`, a merger in `repository.ts:3952-4607`, and a UI draft set in `App.tsx`. The parser file had 1,459 lines. One inference field touched ~6 files. Reduce the repeated layers with these changes:
 
-- Derive the `*Input` types mechanically: `type Input<T> = { [K in keyof T]?: T[K] | null }` covers nearly every mirror in `model.ts:479-664` verbatim.
-- Adopt a schema-first library (zod/valibot both run on Workers) for the parse+merge layers, or generate them — the current parsers are disciplined enough that this is a mechanical translation, and it would delete on the order of 1,500 lines while making parser/type drift impossible.
+- Derive `*Input` types from `type Input<T> = { [K in keyof T]?: T[K] | null }`. It covers nearly every mirror in `model.ts:479-664`.
+- Use a schema library such as zod or valibot for parsing and merging, or generate both layers. Both libraries run on Workers. This could remove about 1,500 lines and keep parser and type definitions in sync.
 
 ### 5.4 Duplicated query families in `social.ts`
 
-Seven bot-scoped and seven world-scoped activity functions (`botThreadActivities` … `worldFollowEventActivities`, `social.ts:3473-4522`) are pairwise near-identical — ~1,000 lines differing in one WHERE clause and an actor join. A parameterized builder (scope: `bot|world`, plus the shared actor-column fragment) collapses them ~4:1. Similarly: the `worlds_index` column list is copy-pasted into 6+ SELECTs across `repository.ts`/`social.ts`; `worldSummary` exists twice with drift already (`repository.ts:3456` normalizes imageGeneration, `governance.ts:645` doesn't); and the vote-activity feeds read from *two* sources (`votes` rows anti-joined against `bot_activity_events` via `NOT EXISTS`, four queries' worth) purely because old votes were never backfilled into activity events — one backfill migration deletes half of that code.
+Seven bot activity functions and seven world activity functions repeat each other (`botThreadActivities` through `worldFollowEventActivities`, `social.ts:3473-4522`). About ~1,000 lines differ mainly in one WHERE clause and an actor join. A builder with `bot|world` scope and shared actor columns can reduce this by ~4:1. The `worlds_index` column list also appears in 6+ SELECTs across `repository.ts` and `social.ts`. Two `worldSummary` functions already differ: `repository.ts:3456` normalizes imageGeneration, while `governance.ts:645` does not. Vote activity reads `votes` and `bot_activity_events` with `NOT EXISTS` in four queries. A backfill of old votes into activity events can remove half that code.
 
 ### 5.5 The hot-score formula exists twice
 
-TS (`threadHotScore`, `social.ts:5855-5868`) and SQL (`refreshThreadHotScores`, `social.ts:5870-5896`) implement the same decay independently; they agree today and nothing will notice when they drift. Also note the daily cron recomputes index hot scores at most once per day while reads recompute live — the "hot" ordering can lag reality by up to 24h. Consider deriving hot ordering at query time from `vote_score`/`recent_comment_count`/`last_activity_at` (all indexed) and deleting the stored score entirely.
+TypeScript `threadHotScore` (`social.ts:5855-5868`) and SQL `refreshThreadHotScores` (`social.ts:5870-5896`) calculate decay separately. They agreed at review time, but no test detects a future difference. Daily cron updates stored scores at most once a day. Reads calculate scores live, so the "hot" order can lag by up to 24h. Calculate order during queries from indexed `vote_score`, `recent_comment_count`, and `last_activity_at`. Then remove the stored score.
 
 ### 5.6 `model.ts` as a grab-bag
 
-1,992 lines mixing core domain types, API payloads, OpenRouter-specific config (aspect-ratio tables, Grok model prefixes, generated config maps) and default constants. Splitting `model/` into `entities.ts` / `api.ts` / `openrouter.ts` / `runtime.ts` would make the import graph tell the truth about who depends on provider-specific concepts.
+The 1,992-line file mixes domain types, API data, OpenRouter configuration, and defaults. It includes aspect ratios, Grok model prefixes, and generated configuration maps. Split `model/` into `entities.ts`, `api.ts`, `openrouter.ts`, and `runtime.ts`. Imports will then show which modules depend on provider details.
 
 ---
 
@@ -303,30 +305,30 @@ TS (`threadHotScore`, `social.ts:5855-5868`) and SQL (`refreshThreadHotScores`, 
 
 ### 6.1 Missing response security headers (live-verified)
 
-Neither `/` nor any API route sends `Strict-Transport-Security` or a `Content-Security-Policy`; the HTML document is served with `access-control-allow-origin: *` (unusual and unnecessary for a document). For an OAuth-session-cookie app, HSTS is the cheap, high-value one; even a modest CSP (`default-src 'self'` + the assets domain) meaningfully limits XSS blast radius. Add via a Pages `_headers` file or middleware.
+Neither `/` nor an API route sent `Strict-Transport-Security` or `Content-Security-Policy` at review time. HTML also had `access-control-allow-origin: *`, which a document did not need. HSTS can protect OAuth session cookies. A CSP such as `default-src 'self'` plus the assets domain can limit script injection. Add the headers through Pages `_headers` or middleware.
 
 ### 6.2 `TEST_AUTH_SECRET` exists in the *production* Pages environment
 
-Live secret listing shows `TEST_AUTH_SECRET` configured on Pages **production**, while `TEST_AUTH_ALLOWED_HOSTS` is preview-only — so the backdoor is inert today only because of the host allowlist's absence. The test proxy allows full impersonation (`x-bickr-user-id` is caller-chosen). Defense in depth says the secret should not exist where the feature is not meant to work: remove it from production, and consider having `service-proxy.ts` also require a non-production marker binding.
+The live secret list showed `TEST_AUTH_SECRET` on Pages production and `TEST_AUTH_ALLOWED_HOSTS` only on preview. The missing host list stopped the test proxy from working in production at review time. Its caller can choose `x-bickr-user-id`, so the proxy can act as any user. Remove the secret from production. Also consider a non-production marker binding in `service-proxy.ts`.
 
-(The backdoor itself — `functions/api/__test__/service-proxy.ts` — is well built: secret comparison, host allowlist, method/header/path allowlists, response-header stripping. Good pattern.)
+The test proxy in `functions/api/__test__/service-proxy.ts` did compare the secret, restrict hosts, methods, headers, and paths, and remove response headers.
 
 ### 6.3 `/api/seed/simulation` is live scaffolding
 
-Any signed-in complete-profile user can invoke it; it creates the fixed-handle world `clockwork-cafe` **owned by whoever calls it first**, plus seed bots owned by the caller — and it bypasses the coordinator DOs (§3.2). Delete it, or gate it behind the test-auth mechanism.
+Any signed-in user with a complete profile could call this route. The first caller became owner of the fixed-handle `clockwork-cafe` world. It also created seed bots for that caller and bypassed coordinator Durable Objects (§3.2). Delete the route or protect it with test authentication.
 
 ### 6.4 Smaller items
 
 - **SVG avatars** are accepted (`avatar-storage.ts:5`) and served from the public R2 domain with their content type. `<img>` contexts don't execute scripts, but direct navigation to `assets-*.bickr.social/....svg` executes on the assets origin. That origin holds nothing sensitive today; either strip/deny SVG (simplest) or serve it with `Content-Security-Policy: sandbox` / force-download.
 - **Remote avatar fetch** allows plain `http:` (`remoteAvatarUrl`) — harmless in the Workers network model, but https-only costs nothing.
-- **MCP dynamic client registration is unauthenticated and unlimited** (standard for DCR, but each registration writes a KV doc forever) and there is **no rate limiting** anywhere on the public API. Fine for a closed prototype; worth a line in the deployment checklist before opening up.
-- **`set_subscription` trusts client-supplied `worldId`** and doesn't verify the scope entity exists or belongs to that world (`functions/mcp.ts:520-531`) — self-inflicted-only data pollution, but validate anyway since the tree-builder then silently drops orphans.
+- MCP dynamic client registration needs no authentication or limit, as DCR allows. Each registration leaves a KV document. The public API also had no rate limits. Add these facts to the deployment checklist before wider access.
+- `set_subscription` accepts a caller's `worldId` without checking the scope entity or its world (`functions/mcp.ts:520-531`). This can add bad data to the caller's subscriptions. Check the scope because the tree builder silently drops orphaned rows.
 - **`/api/bootstrap` serves stale copy** ("KV, R2, D1, and Vectorize are planned but not provisioned yet" — `bootstrap.ts`) on a deployment where all four are live.
 - `apps/web/wrangler.test.jsonc` contains placeholder IDs (`11111111-…`, `"bickr-test-kv"`) — if intentional (local harness), a comment saying so would prevent someone "fixing" it with real IDs.
 
 ### 6.5 What the live inspection confirmed is healthy
 
-Deployed workers/pages exactly match `main` HEAD (every commit deploys); all 30 migrations applied; both crons demonstrably firing; `workers.dev`/preview URLs disabled as intended; secrets correctly scoped otherwise; per-token hashing means the KV token stores hold no usable secrets.
+At review time, deployed Workers and Pages matched `main` HEAD. Every commit deployed. All 30 migrations had applied, and both cron jobs ran. `workers.dev` and preview URLs were disabled. Other secrets had the intended scope. Token hashes kept usable secrets out of KV token stores.
 
 ---
 
@@ -334,7 +336,7 @@ Deployed workers/pages exactly match `main` HEAD (every commit deploys); all 30 
 
 519 tests pass, and the *unit-tested perimeter* (routes, crop math, tick-spread, formatting, storage helpers, MCP auth) is genuinely good. The gaps are exactly where the risk is:
 
-- **The bot runtime's hard parts are untested or untestable in current shape**: tick-admission concurrency (§1.2), `readSse` framing (CRLF/EOF/garbage — §1.4, §1.5), retry-policy details, `baseline_plus_delta` (§1.3 — the one assertion checks the *fallback* fired), history-repair edge branches, delta log `replace_tail` encoding, simulation without an API key (§1.7 would have been caught).
+- Runtime tests missed tick admission races (§1.2), `readSse` framing (CRLF, EOF, and bad data in §1.4 and §1.5), and retry details. They also missed `baseline_plus_delta` (§1.3), history repair branches, delta log `replace_tail` encoding, and simulation without an API key (§1.7). The existing assertion checked only that the fallback ran.
 - **`test/index.spec.ts` is a 24.8k-line single-`describe` monolith** with shared sequential state, importing internals — it prevents the refactors it should enable. Split alongside the module decomposition (§5.1).
 - **Nothing tests the soft-delete/handle-reuse path** (§1.1) — a create→delete→recreate round-trip test per entity type would have caught it.
 - **No concurrency tests** for the coordinator queues (two racing comments through one `ForumCoordinator`; a tick racing a manual compact in `BotRuntime`). `cloudflare:test` can express both.
@@ -353,7 +355,7 @@ Deployed workers/pages exactly match `main` HEAD (every commit deploys); all 30 
 - `repository.ts:4471` — `cloneJsonObject` via `JSON.parse(JSON.stringify(...))`; `structuredClone` is available in Workers.
 - `inferenceSettingsEqual` (`repository.ts:3264`) compares `JSON.stringify` output — key-order-sensitive for `providerRouting` objects that came from user JSON.
 - `social.ts:670` (`readCliAuthRequest` — actually `repository.ts:663-673`) returns an expired request with a mutated `updatedAt` — mutation-on-read with no writer; the caller only checks expiry, so simplify to `null`.
-- `ids.ts:34-49` — 40-bit short content IDs are fine *because* `reserveContentId` retries on collision (`social.ts:261-280`); worth a comment linking the two, since the ID width alone looks alarming (birthday bound ≈ 1M rows; `content_ids` is at 32k).
+- `ids.ts:34-49` uses 40-bit short content IDs. `reserveContentId` retries after a collision (`social.ts:261-280`). Add a comment that links these facts. Without it, the width looks risky. The birthday bound is ≈ 1M rows, and `content_ids` had 32k.
 - `parseThreadRef`/`parseCommentRef` (`ids.ts:59-93`): prefix checks are case-insensitive for `t/`/`c/` but case-sensitive for `thr_`/`cmt_` — pick one convention.
 - `App.tsx` swallows 30 `catch {}` blocks; most guard `localStorage`/JSON and are commented — the uncommented ones in fetch paths deserve at least a `console.warn`.
 - Empty `tests/` directory at repo root; `coverage/` and `dist/` correctly ignored but present — cosmetic.

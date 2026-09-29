@@ -230,7 +230,7 @@ export function AvatarCropModal<TMutationResponse, TSaved>({
 			onSaved(saved.saved, saved.affectedBots);
 			onClose();
 		} catch (caught) {
-			setError(caught instanceof Error ? caught.message : "Could not save avatar crop.");
+			setError(caught instanceof Error ? caught.message : "Failed to save the avatar crop.");
 		} finally {
 			setSaving(false);
 		}
@@ -267,7 +267,7 @@ export function AvatarCropModal<TMutationResponse, TSaved>({
 								setImageReady(false);
 								setDraft(null);
 								setCropDisplayBox(null);
-								setError("This avatar image could not be loaded.");
+								setError("Failed to load this avatar image.");
 							}}
 							onLoad={handleImageLoad}
 							ref={imageRef}

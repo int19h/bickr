@@ -78,7 +78,7 @@ export async function readProviderErrorBody(response: Response, signal: AbortSig
 		if (error instanceof ProviderResponseBodyTimeoutError) {
 			return 'Timed out while reading provider error response.';
 		}
-		return 'Could not read provider error response.';
+		return 'Failed to read the provider error response.';
 	}
 }
 

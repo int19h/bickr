@@ -129,21 +129,21 @@ describe("Structured output", () => {
 				},
 			});
 			const summaryProperty = request.response_format?.json_schema.schema.properties[providerCompactionSummaryProperty];
-			expect(summaryProperty?.description).toContain("must never be a verbatim copy");
-			expect(summaryProperty?.description).toContain("prior summary passages");
+			expect(summaryProperty?.description).toContain("Do not copy sentences");
+			expect(summaryProperty?.description).toContain("earlier summaries");
 			expect(messages[0]?.role).toBe("system");
 			expect(messages[0]?.content).toContain("Your Bickr handle is u/release-sage");
 			expect(messages[0]?.content).toContain("read_thread");
 			expect(messages.slice(1, 3)).toEqual(compactedMessages);
 			expect(messages[3]).toMatchObject({ role: "user" });
-			expect(messages[3]?.content).toContain("META: Context compaction required.");
-			expect(messages[3]?.content).toContain("Don't spend any time thinking about this; respond immediately with JSON summary.");
-			expect(messages[3]?.content).toContain("structured output schema");
-			expect(messages[3]?.content).toContain("do not use any Bickr control");
+			expect(messages[3]?.content).toContain("META: Shorten the earlier context.");
+			expect(messages[3]?.content).toContain("Do not spend time reasoning about this. Reply at once with a JSON summary.");
+			expect(messages[3]?.content).toContain("required schema");
+			expect(messages[3]?.content).toContain("Do not use a Bickr tool");
 			expect(messages[3]?.content).toContain("u/release-sage");
 			expect(messages[3]?.content).toContain(`"${providerCompactionSummaryProperty}" field`);
-			expect(messages[3]?.content).toContain("only the recent events being compacted");
-			expect(messages[3]?.content).toContain("excluding the system instructions and persona prompt");
+			expect(messages[3]?.content).toContain("write a detailed summary of only the recent events");
+			expect(messages[3]?.content).toContain("Leave out system instructions and the persona prompt");
 			expect(messages[3]?.content).toContain("long-term memory");
 			expect(messages[3]?.content).toContain("4000 characters");
 			expect(messages[3]?.content).not.toMatch(/\bbot\b|\bAI\b|\bmodel\b|\bassistant\b|\bagent\b/i);
@@ -170,8 +170,8 @@ describe("Structured output", () => {
 				{ kind: "model_default", effort: "minimal" },
 			);
 
-			expect(explicitMessages.at(-1)?.content).not.toContain("Don't spend any time thinking about this");
-			expect(modelDefaultMessages.at(-1)?.content).not.toContain("Don't spend any time thinking about this");
+			expect(explicitMessages.at(-1)?.content).not.toContain("Do not spend time reasoning about this");
+			expect(modelDefaultMessages.at(-1)?.content).not.toContain("Do not spend time reasoning about this");
 			expect(providerAvatarDescriptionReasoningForSettings({
 				baseUrl: "https://openrouter.ai/api/v1",
 				model: "deepseek/deepseek-v4-flash-0731",
@@ -207,14 +207,14 @@ describe("Structured output", () => {
 				maxLength: 4000,
 			});
 			expect(metaTool?.type === "function" ? metaTool.function.parameters.properties[providerCompactionSummaryProperty].description : undefined)
-				.toContain("must never be a verbatim copy");
+				.toContain("Do not copy sentences");
 			expect(requestTools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(false);
 			expect("response_format" in request).toBe(false);
-			expect(messages.at(-2)?.content).toContain("only the recent events being compacted");
-			expect(messages.at(-2)?.content).toContain("excluding the system instructions and persona prompt");
+			expect(messages.at(-2)?.content).toContain("write a detailed summary of only the recent events");
+			expect(messages.at(-2)?.content).toContain("Leave out system instructions and the persona prompt");
 			expect(messages.at(-1)).toEqual({
 				role: "user",
-				content: `You must respond by calling the ${metaCompactionToolName} tool. Put the summary in the "${providerCompactionSummaryProperty}" argument. You must produce a _summary_ of the events, and it MUST be shorter than the input, so don't just repeat it with minor modifications; you MUST shorten it, even if it's already a summary! Use between 1 and 4000 characters. Do not reply as plain text.`,
+				content: `Call ${metaCompactionToolName}. Put the summary in the "${providerCompactionSummaryProperty}" argument. Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between 1 and 4000 characters. Do not reply as plain text.`,
 			});
 			const railroadRequest = providerCompactionRequest(
 				{
@@ -283,9 +283,9 @@ describe("Structured output", () => {
 				maxLength: 4000,
 			});
 			expect(metaTool?.type === "function" ? metaTool.function.parameters.properties[providerCompactionSummaryProperty].description : undefined)
-				.toContain("must never be a verbatim copy");
+				.toContain("Do not copy sentences");
 			expect(messages).toHaveLength(3);
-			expect(messages[0]?.content).toContain(`${metaCompactionToolName} may only be used when directed.`);
+			expect(messages[0]?.content).toContain(`Use ${metaCompactionToolName} only when directed.`);
 		});
 
 		it("derives provider compaction prompt lengths from settings and compacted characters", () => {
@@ -1427,7 +1427,7 @@ describe("Structured output", () => {
 				expect(retryBody.messages).toEqual([
 					expect.objectContaining({
 						role: "system",
-						content: expect.stringContaining("META: Context compaction repair required."),
+						content: expect.stringContaining("META: Repair the memory summary."),
 					}),
 					{ role: "user", content: "The Bickr app is ready for my next step." },
 					{ role: "assistant", content: nonCompactingSummary },
@@ -1435,9 +1435,9 @@ describe("Structured output", () => {
 				]);
 				expect(retryBody.tools).toBeUndefined();
 				const retrySystem = retryBody.messages[0]?.content ?? "";
-				expect(retrySystem.startsWith("META: Context compaction repair required.")).toBe(true);
-				expect(retrySystem).toContain("The previous compaction attempt did not reduce the context.");
-				expect(retrySystem).toContain("Verbatim copying from the input is absolutely prohibited");
+				expect(retrySystem.startsWith("META: Repair the memory summary.")).toBe(true);
+				expect(retrySystem).toContain("The last summary did not shorten the context.");
+				expect(retrySystem).toContain("Do not copy any sentence");
 				expect(retrySystem).toContain("Your Bickr handle is u/memory-keeper");
 				expect(retrySystem).toContain("Your persona is:\nRemember without repeating.");
 				expect(retrySystem).not.toContain("Make all decisions autonomously");
@@ -1532,9 +1532,9 @@ describe("Structured output", () => {
 				]);
 				for (const body of isolatedBodies) {
 					expect(body.tools).toBeUndefined();
-					expect(body.messages[0]?.content).toContain("META: Context compaction repair required.");
-					expect(body.messages[0]?.content).toContain("Verbatim copying from the input is absolutely prohibited");
-					expect(body.messages[0]?.content).not.toContain("Don't spend any time thinking about this");
+					expect(body.messages[0]?.content).toContain("META: Repair the memory summary.");
+					expect(body.messages[0]?.content).toContain("Do not copy any sentence");
+					expect(body.messages[0]?.content).not.toContain("Do not spend time reasoning about this");
 					expect(JSON.stringify(body.messages)).not.toContain("Old retained activity");
 				}
 			} finally {
@@ -1659,7 +1659,7 @@ describe("Structured output", () => {
 				}
 				const retryBody = bodies[1]!;
 				const repairToolMessage = retryBody.messages.find((message) => message.role === "tool");
-				expect(repairToolMessage?.content).toContain("META: don't make any tool calls. You must reply with the structured detailed first-person summary strictly following the required JSON schema.");
+				expect(repairToolMessage?.content).toContain("META: Do not call tools. Reply with a detailed first-person summary that follows the required JSON schema.");
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
 			}
@@ -1867,11 +1867,11 @@ describe("Structured output", () => {
 					{ role: "assistant", content: overlongSummary },
 					expect.objectContaining({
 						role: "user",
-						content: expect.stringContaining("previous context compaction attempt produced a summary that was too long"),
+						content: expect.stringContaining("The last memory summary was too long"),
 					}),
 				]);
-				expect(retryBody.messages.at(-1)?.content).toContain("Verbatim copying from the input is absolutely prohibited");
-				expect(retryBody.messages.at(-1)?.content).not.toContain("Don't spend any time thinking about this");
+				expect(retryBody.messages.at(-1)?.content).toContain("Do not copy any sentence");
+				expect(retryBody.messages.at(-1)?.content).not.toContain("Do not spend time reasoning about this");
 				expect(JSON.stringify(retryBody.messages)).not.toContain("Old retained activity");
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
@@ -1932,7 +1932,7 @@ describe("Structured output", () => {
 				const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
 				const repairToolMessage = retryBody.messages.find((message) => message.role === "tool");
 				expect(repairToolMessage?.tool_call_id).toBe("call_1");
-				expect(repairToolMessage?.content).toContain(`Only ${metaCompactionToolName} may be used`);
+				expect(repairToolMessage?.content).toContain(`Use only ${metaCompactionToolName} for this request.`);
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
 			}

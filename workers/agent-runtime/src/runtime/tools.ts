@@ -730,7 +730,7 @@ export class RuntimeTools {
 		}
 		// This attempt was refused before dispatch. Let the participant choose a
 		// different action without reclassifying it as a newly unknown mutation.
-		throw new SelfCorrectingToolCallError('An earlier identical reply to this comment has an unconfirmed outcome. Check the page before trying it again; this attempt was not sent.');
+		throw new SelfCorrectingToolCallError('I do not know whether my earlier identical reply was posted. Read the page before I try again. This reply was not sent.');
 	}
 
 	private async threadReadResult(bot: RuntimeBotDocument, thread: ThreadDocument, operation: string, targetCommentId?: string) {
@@ -801,7 +801,7 @@ export class PriorTargetReplyError extends Error {
 	constructor(prior: PriorTargetReplies) {
 		const replyLines = prior.replies.map((reply) => `- ${reply.commentId}: ${quoteForContext(reply.body, 1_000)}`).join('\n');
 		super(
-			`I already replied to ${prior.targetDescription} before. Past replies:\n${replyLines}\nIf I really need one more reply in addition to those, I should use make_additional_reply_to_the_same_comment.`,
+			`I already replied to ${prior.targetDescription}. Past replies:\n${replyLines}\nIf I need one more reply, I must use make_additional_reply_to_the_same_comment.`,
 		);
 		this.name = 'PriorTargetReplyError';
 		this.prior = prior;
@@ -1144,7 +1144,7 @@ export function followToolSelfCorrectionMessage(
 		clauses.length > 0
 			? joinSentenceClauses(clauses)
 			: `that ${skipped.length === 1 ? 'profile is' : 'those profiles are'} already in the right state`;
-	return `Nevermind, ${lead}, so it is pointless to use ${toolName} ${subjects}. I'll do something else instead.`;
+	return `I will not use ${toolName} ${subjects} because ${lead}. I will do something else.`;
 }
 
 export function planFollowToolTargets(

@@ -164,9 +164,9 @@ describe("impact previews", () => {
 			{ kind: "provider_access_changes", configurations: 2 },
 		];
 		expect(warnings.map(impactWarningText)).toEqual([
-			"1 configuration would resolve a different model.",
-			"3 configurations would gain or lose credential availability.",
-			"2 configurations would change provider authorization, so their stored model may fall back.",
+			"If you save, 1 configuration will use a different model.",
+			"If you save, 3 configurations will gain or lose access to credentials.",
+			"If you save, 2 configurations will change provider access. Their stored model can fall back.",
 		]);
 	});
 
@@ -211,7 +211,7 @@ describe("delete confirmation", () => {
 			"Shared sampling will be removed. Its 2 immediate children will inherit from Account default.",
 		);
 		expect(lines[1]).toContain("5 configurations depend on this entry");
-		expect(lines[1]).toContain("repairs links rather than copying values down");
+		expect(lines[1]).toContain("deletion repairs links without copying values");
 		expect(lines).toHaveLength(2);
 	});
 

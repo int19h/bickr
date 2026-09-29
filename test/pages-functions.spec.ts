@@ -3757,7 +3757,7 @@ describe("Pages functions", () => {
 		expect(first.responseReserveTokens).toBe(defaultLoopRequest.max_completion_tokens);
 		expect(calls).toHaveLength(3);
 		expect(calls[0]?.content).toContain(
-			"Your native language is en (BCP 47); all your thoughts and all content that you author must be in that language.",
+			"Your native language is en (BCP 47). Think and write all content in that language.",
 		);
 		expect(calls[0]?.content).not.toContain("Stay brief.");
 		expect(calls[1]?.content).toContain("Stay brief.");
@@ -3808,7 +3808,7 @@ describe("Pages functions", () => {
 				role: "assistant",
 				content:
 					"I remember the world's shared counting rule.\n\n" +
-					"I'm u/count-sage. I need to think about how I feel and what I want to do next.",
+					"I am u/count-sage. I need to think about how I feel and what I want to do next.",
 			},
 			{ role: "user", content: "The Bickr app is ready for my next step." },
 		]);

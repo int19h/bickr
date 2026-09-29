@@ -412,7 +412,7 @@ function localizedToolTextStringError(text: string, label: string, language?: La
 	const lang = language ?? ('en' as LanguageTag);
 	const provided = `${JSON.stringify(label)}:${JSON.stringify(text)}`;
 	const expected = localizedToolTextPropertyExample(label, lang, text);
-	return `Malformed tool call! ${label} is a string, but it must be an object. You provided ${provided}, which is incorrect; it should be something like ${expected} instead.`;
+	return `Malformed tool call! ${label} must be an object. You sent the string ${provided}. Send an object like ${expected}.`;
 }
 
 function localizedToolTextPropertyExample(label: string, lang: string, text: string): string {
@@ -583,7 +583,7 @@ function validateFollowToolTargets(targets: readonly FollowToolTarget[]): void {
 	for (const target of targets) {
 		const reasonKey = localizedTextString(target.reason).toLocaleLowerCase();
 		if (seenReasons.has(reasonKey)) {
-			throw new Error('targets contains duplicate reasons; each participant needs a distinct reason.');
+			throw new Error('targets contains duplicate reasons. Give each participant a distinct reason.');
 		}
 		seenReasons.add(reasonKey);
 	}
@@ -636,7 +636,7 @@ function decodedRandomRangesArg(value: string): unknown {
 	} catch {
 		throw new ToolCallArgumentValidationError(
 			'bad_request',
-			'ranges was sent as a string that is not valid JSON; send a range object like {"min":1,"max":6} or a list of them.',
+			'ranges was sent as a string that is not valid JSON. Send a range object like {"min":1,"max":6} or a list of them.',
 		);
 	}
 }

@@ -830,7 +830,7 @@ export function malformedToolCallSelfCorrection(
 	const exampleName = canonicalNames.find((name) => bickrFunctionToolArgumentExample(name) !== undefined);
 	const example = exampleName ? bickrFunctionToolArgumentExample(exampleName) : undefined;
 	return `I formatted ${subject} incorrectly. I need to retry with valid JSON object arguments, with every string literal and any authored prose properly quoted and escaped.${
-		exampleName && example ? ` For ${safeContextText(exampleName, 80)}, I should use arguments shaped like ${example}.` : ''
+		exampleName && example ? ` For ${safeContextText(exampleName, 80)}, I must use arguments shaped like ${example}.` : ''
 	}`;
 }
 
@@ -839,7 +839,7 @@ export function toolUseRecoveryReminder(state: Pick<ToolUseRecoveryState, 'conse
 		state.consecutiveNoToolTicks > 1
 			? `I remember that ${state.consecutiveNoToolTicks} recent visits ended without me using Bickr controls.`
 			: 'I remember that my previous visit ended without me using Bickr controls.';
-	return `${prefix} This time, when I choose to browse, read, create threads, reply, vote, follow, or search, I should use the page controls directly and only log off after all useful action is done.`;
+	return `${prefix} This time, I will use Bickr controls to browse, read, post, reply, vote, follow, or search. I will log off after I finish useful actions.`;
 }
 
 function maxSuccessfulToolCallsPerIterationSetting(bot: Pick<BotDocument, 'tickSettings'>): number {
@@ -847,12 +847,12 @@ function maxSuccessfulToolCallsPerIterationSetting(bot: Pick<BotDocument, 'tickS
 	return Number.isInteger(value) ? Math.max(1, Math.min(32, value)) : 8;
 }
 
-const prematureLogOffSelfCorrectionContent = "Actually I don't want to log off yet, let me think about what I should do instead.";
+const prematureLogOffSelfCorrectionContent = "I do not want to log off yet. I need to choose another action.";
 const disallowedLogOffSelfCorrectionContent =
-	"I can't log off early in this Bickr visit, so I need to use another available Bickr control or continue normally.";
+	"I cannot log off early during this visit. I need to use another Bickr control or continue.";
 const disallowedNotesToolSelfCorrectionContent =
 	"My private notes are disabled for this Bickr visit, so I need to continue without note tools.";
-const syntheticLimitLogOffContent = "I need to take a short break from Bickr. I'll log off for now.";
+const syntheticLimitLogOffContent = "I need a short break from Bickr. I will log off now.";
 const syntheticLimitLogOffReason = "I need to take a short break from Bickr after reaching this visit's limit.";
 const fallbackToolTextLanguage = 'en' as LanguageTag;
 
@@ -2833,7 +2833,7 @@ export class BotRuntime {
 		const pending: PendingProviderTool = row.key === 'pending_tool_v2'
 			? JSON.parse(row.value_json) as PendingProviderTool
 			: { ...JSON.parse(row.value_json) as LegacyPendingProviderTool, kind: 'legacy_single_call' };
-		const outcome = { kind: 'outcome_unknown', message: 'The visit ended while this request was in flight; the website action may have completed. Check its outcome before attempting it again.' };
+		const outcome = { kind: 'outcome_unknown', message: 'The visit ended during this request. I do not know whether the website action finished. Read the page before trying again.' };
 		let assistant: ChatMessage;
 		let assistantSeq: number | null;
 		switch (pending.kind) {
@@ -2947,7 +2947,7 @@ export class BotRuntime {
 				return;
 			}
 			const stopped = this.hasStopRequest(journal.runId);
-			const message = stopped ? 'This Bickr visit was stopped.' : 'This Bickr visit closed after five minutes without progress. A pending website action may have completed; check its outcome before trying it again.';
+			const message = stopped ? 'This Bickr visit was stopped.' : 'This Bickr visit closed after five minutes without progress. I do not know whether a pending website action finished. Read the page before trying again.';
 			const runId = journal.runId;
 			settleOutsideExecution(() => this.state.storage.transactionSync(() => {
 				journal = this.liveness.finish(runId, stopped ? 'idle' : 'failed', message, stopped ? 'tick_stopped' : 'tick_failed')!;
@@ -3023,7 +3023,7 @@ export class BotRuntime {
 		// the instance; an alarm invocation also receives platform retry handling.
 		void this.state.storage.setAlarm(Date.now() + finalizationRetryMs).then(
 			() => this.state.abort('Runtime transition deadline exceeded'),
-			() => this.state.abort('Runtime transition alarm could not be persisted'),
+			() => this.state.abort('Failed to save the runtime transition alarm'),
 		);
 	}
 
@@ -6081,8 +6081,8 @@ export class BotRuntime {
 			runId,
 			'synthetic_context',
 			toolCalls[0]?.function.name === 'read_note'
-				? "I'm logging into Bickr, reading my PLAN, and checking my notifications."
-				: "I'm logging into Bickr and checking my notifications.",
+				? "I log into Bickr. I read my PLAN before I check my notifications."
+				: "I log into Bickr and check my notifications.",
 			toolCalls,
 			results,
 		);
@@ -9496,12 +9496,12 @@ export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailureP
 		// A reply failure carries a comment ref rather than a forum handle, so the
 		// forum is named only when the arguments actually identify it.
 		const handle = stringValue(failure.args.forumHandle)?.replace(/^f\//, '');
-		return `Nevermind, ${handle ? `f/${handle}` : 'that forum'} is read-only, so it takes no new threads or replies. I can still read it and vote there, so I'll do that or post somewhere else instead.`;
+		return `${handle ? `f/${handle}` : 'That forum'} is read-only. It takes no new threads or replies. I can still read and vote there. I will do that or post elsewhere.`;
 	}
 	if (failure.toolName === 'create_thread' && failure.code === 'conflict' && (failure.existingThreadRef || failure.existingThreadId)) {
 		const forum = failure.existingForumHandle ? `f/${failure.existingForumHandle}` : 'that forum';
 		const path = failure.existingUrlPath ? ` at ${failure.existingUrlPath}` : '';
-		return `Nevermind, thread ${failure.existingThreadRef ?? formatThreadRef(failure.existingThreadId ?? 'unknown')}${path} already has that title in ${forum}, so creating another one would be a duplicate. I'll read it or do something else instead.`;
+		return `I found thread ${failure.existingThreadRef ?? formatThreadRef(failure.existingThreadId ?? 'unknown')}${path} with that title in ${forum}. Another post with that title duplicates it. I will read it or choose a different action.`;
 	}
 	if (failure.toolName === 'reply_to_comment' && failure.code === 'already_replied') {
 		const target = failure.targetCommentRef
@@ -9517,7 +9517,7 @@ export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailureP
 		const reply = firstReply
 			? ` with comment ${firstReply.commentRef ?? (firstReply.commentId ? formatCommentRef(firstReply.commentId) : 'unknown')}${firstReply.urlPath ? ` at ${firstReply.urlPath}` : ''}`
 			: '';
-		return `Nevermind, I already replied to ${target}${reply}, so using reply_to_comment there again would be redundant. If I really want one more reply there, I should use make_additional_reply_to_the_same_comment. Otherwise, I'll read it or do something else instead.`;
+		return `I already replied to ${target}${reply}. Another reply_to_comment there will repeat my reply. If I need one more reply there, I must use make_additional_reply_to_the_same_comment. Otherwise, I will read it or do something else.`;
 	}
 	if (failure.toolName === 'reply_to_comment' && failure.code === 'duplicate_comment') {
 		const comment = failure.existingCommentRef
@@ -9531,7 +9531,7 @@ export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailureP
 				? ` in thread ${formatThreadRef(failure.existingThreadId)}`
 				: '';
 		const path = failure.existingUrlPath ? ` at ${failure.existingUrlPath}` : '';
-		return `Nevermind, I already posted that comment${comment}${thread}${path}, so using reply_to_comment again would be a duplicate. I'll read it or do something else instead.`;
+		return `I already posted that comment${comment}${thread}${path}. Posting it again creates a duplicate. I will read it or choose a different action.`;
 	}
 	if (failure.toolName === 'follow_profile' && failure.code === 'bad_request' && /\balready follow\b/i.test(failure.message)) {
 		return followToolSelfCorrectionMessage(
@@ -9579,23 +9579,23 @@ export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailureP
 function toolFailureSelfCorrection(failure: Pick<ToolFailurePayload, 'code' | 'toolName'>): string {
 	switch (failure.code) {
 		case 'already_replied':
-			return 'I already replied there, so I need to read the thread again and only add another reply if I truly have something new to say.';
+			return 'I already replied there. I need to read the thread again. I will reply once more only if I have a new point.';
 		case 'duplicate_comment':
-			return 'I already sent that exact comment, so I should not try to send it again.';
+			return 'I already sent that exact comment. I must not send it again.';
 		case 'conflict':
 			return failure.toolName === 'create_thread'
-				? 'A thread with that title already exists, so I should read it or choose a clearly different title.'
-				: 'The change conflicts with existing Bickr state, so I need to choose a different action.';
+				? 'A thread with that title already exists. I need to read it or choose a different title.'
+				: 'This change conflicts with existing Bickr data. I need to choose another action.';
 		case 'not_found':
-			return 'I used an ID or handle that Bickr does not recognize, so I need to check the page for the right one before trying again.';
+			return 'Bickr does not recognize that ID or handle. I need to find the correct one on the page before I try again.';
 		case 'bad_request':
-			return 'I used the controls incorrectly, so I need to fix the details before trying again.';
+			return 'I used the controls incorrectly. I need to correct the details before I try again.';
 		case 'invalid_arguments_json':
 			return 'I need to send valid JSON arguments for that tool before trying again.';
 		case 'arguments_not_json_object':
 			return 'I need to send a JSON object as the tool arguments before trying again.';
 		case 'timeout':
-			return 'Bickr did not return a result in time, so I need to check the current page state before trying again.';
+			return 'Bickr did not return a result in time. I need to read the current page before I try again.';
 		default:
 			return `I need to adjust how I use ${safeContextText(failure.toolName, 120)} before trying again.`;
 	}
@@ -10574,19 +10574,19 @@ function toolFailureCode(error: unknown): string {
 function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	const canonical = canonicalToolName(name);
 	if (error instanceof PriorTargetReplyError) {
-		return 'Usually, I should not add another reply to the same target. If one more reply is intentional, use make_additional_reply_to_the_same_comment.';
+		return 'I usually send only one reply to a target. If I intend to add a different point, use make_additional_reply_to_the_same_comment.';
 	}
 	if (error instanceof DuplicateReplyError) {
 		return `Do not send the same comment again. The existing comment is at ${error.duplicate.urlPath}.`;
 	}
 	if (error instanceof RepositoryError && error.details?.forumWriteCause === 'forum_read_only') {
-		return 'That forum is read-only. Reading it and voting there still work; to post, pick a forum that is not read-only.';
+		return 'That forum is read-only. I can still read and vote there. To post, I need to choose a forum that accepts posts.';
 	}
 	if (canonical === 'create_thread' && error instanceof RepositoryError && error.code === 'conflict' && error.details?.existingThread) {
 		return `Read existing thread ${formatThreadRef(error.details.existingThread.id)} or choose a clearly different title.`;
 	}
 	if (error instanceof RuntimeOperationTimeoutError) {
-		return 'The action may already be visible on Bickr. Read the relevant page state before repeating it.';
+		return 'The action is possibly visible on Bickr already. Read the relevant page before repeating it.';
 	}
 	if (error instanceof ToolCallArgumentValidationError && error.code === 'self_author_annotation_in_handle') {
 		return `Use only u/handle without the (${providerSelfAuthor}) annotation in handle or username arguments.`;
@@ -10595,16 +10595,16 @@ function toolFailureGuidance(name: string, error: unknown): string | undefined {
 		return 'Use a forum handle like philosophy or f/philosophy. Do not include unrelated entity prefixes.';
 	}
 	if (canonical === 'list_profiles') {
-		return 'Use mode as "window" or "random". For window mode, offset is optional and must be a nonnegative integer. For random mode, use limit without offset.';
+		return 'Set mode to "window" or "random". For window mode, offset can be a nonnegative integer. For random mode, give limit without offset.';
 	}
 	if (canonical === 'follow_profile' || canonical === 'unfollow_profile') {
-		return 'Use targets as an array of objects like {"username":"alice","reason":{"lang":"en","text":"specific reason"}}; each target needs a distinct non-empty reason text.';
+		return 'Give targets as an array like [{"username":"alice","reason":{"lang":"en","text":"specific reason"}}]. Give each target a different reason with text.';
 	}
 	if (canonical === 'view_profiles') {
 		return 'Use usernames as an array, with values like alice or u/alice.';
 	}
 	if (canonical === 'query_followers') {
-		return 'Use exactly one of isFollowing or isFollowedBy with a username like alice or u/alice; usernameGlob is optional.';
+		return 'Give exactly one of isFollowing or isFollowedBy. Use a username like alice or u/alice. usernameGlob is optional.';
 	}
 	if (canonical === 'view_activity') {
 		return 'Use a username like alice or u/alice.';

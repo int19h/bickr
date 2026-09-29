@@ -522,8 +522,8 @@ export function InferenceConfigurationEditorScreen({
 				<section className="danger-zone">
 					<h3>Danger zone</h3>
 					<p>
-						Deleting this configuration makes its immediate children inherit from this entry's inheritance source.
-						Values are not copied down, so effective values may change.
+						If you delete this configuration, its direct children inherit from its source.
+						Values are not copied, so the children can use different values.
 					</p>
 					<button
 						className="btn danger solid"
@@ -580,7 +580,7 @@ const providerRoutingDocsUrl = "https://openrouter.ai/docs/guides/routing/provid
 
 function fieldHelp(field: InferenceConfigurationField, isAccountDefault: boolean): ReactNode {
 	if (field === "baseUrl" && !isAccountDefault) {
-		return "Inherit continues through the immediate inheritance source. Use Account default skips intervening entries for this field only and keeps the provenance of whatever Account default or Bickr defaults supply.";
+		return "Inherit uses this field from the next source. Use Account default skips sources between this one and the account default. It still shows whether the account or Bickr supplied the value.";
 	}
 	if (field === "providerRouting" || field === "imageProviderRouting") {
 		return (
@@ -631,7 +631,7 @@ export function deleteImpactLines(
 ): string[] {
 	return [
 		`${displayName} will be removed. Its ${childCountText(impact.immediateDependentCount)} will inherit from ${parentName}.`,
-		`${impact.transitiveDependentCount} configuration${impact.transitiveDependentCount === 1 ? "" : "s"} depend on this entry. Inherited effective values may change, because deletion repairs links rather than copying values down.`,
+		`${impact.transitiveDependentCount} configuration${impact.transitiveDependentCount === 1 ? "" : "s"} depend on this entry. Inherited values can change because deletion repairs links without copying values.`,
 	];
 }
 
@@ -672,15 +672,15 @@ export function conflictingFieldLabels(
 export function impactWarningText(warning: InferenceImpactWarning): string {
 	switch (warning.kind) {
 		case "effective_model_changes":
-			return `${warning.configurations} configuration${warning.configurations === 1 ? "" : "s"} would resolve a different model.`;
+			return `If you save, ${warning.configurations} configuration${warning.configurations === 1 ? "" : "s"} will use a different model.`;
 		case "effective_base_url_changes":
-			return `${warning.configurations} configuration${warning.configurations === 1 ? "" : "s"} would resolve a different base URL.`;
+			return `If you save, ${warning.configurations} configuration${warning.configurations === 1 ? "" : "s"} will use a different base URL.`;
 		case "credential_availability_changes":
-			return `${warning.configurations} configuration${warning.configurations === 1 ? "" : "s"} would gain or lose credential availability.`;
+			return `If you save, ${warning.configurations} configuration${warning.configurations === 1 ? "" : "s"} will gain or lose access to credentials.`;
 		case "credential_source_changes":
-			return `${warning.configurations} configuration${warning.configurations === 1 ? "" : "s"} would take their credential from a different entry.`;
+			return `If you save, ${warning.configurations} configuration${warning.configurations === 1 ? "" : "s"} will use credentials from a different entry.`;
 		case "provider_access_changes":
-			return `${warning.configurations} configuration${warning.configurations === 1 ? "" : "s"} would change provider authorization, so their stored model may fall back.`;
+			return `If you save, ${warning.configurations} configuration${warning.configurations === 1 ? "" : "s"} will change provider access. Their stored model can fall back.`;
 	}
 }
 
@@ -818,8 +818,8 @@ function ParentPickerModal({
 				{impact && (
 					<div className="card runtime-card inference-impact">
 						<p>
-							{impact.immediateDependentCount} immediate and {impact.transitiveDependentCount} total dependent
-							configurations would be affected.
+							If you save, {impact.immediateDependentCount} direct and {impact.transitiveDependentCount} total dependent
+							configurations will change.
 						</p>
 						<ImpactWarnings warnings={impact.warnings} />
 						{needsConfirmation && (

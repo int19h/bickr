@@ -70,7 +70,7 @@ export function SubscriptionsScreen({
 		setMessage("");
 		void onLoad().then((loaded) => {
 			if (!cancelled && !loaded) {
-				setMessage("Subscriptions could not be loaded.");
+				setMessage("Failed to load subscriptions.");
 			}
 		}).finally(() => {
 			if (!cancelled) {

@@ -122,13 +122,13 @@ const providerResponseBodyMaxBytes = 2_000_000;
 const providerImageResponseBodyMaxBytes = Math.ceil((avatarMaxBytes * 4) / 3) + 2_000_000;
 const providerAvatarDescriptionMaxAttempts = 2;
 const avatarImageGenerationSystemPrompt =
-	'Create a public profile avatar image for this Bickr participant. Honor the requested visual direction and any supplied current profile image. Favor a clear, recognizable composition suitable for a square or cropped profile display. Do not include captions, watermarks, interface chrome, or explanatory text inside the image.';
+	'Create a public avatar for this Bickr participant. Follow the requested visual direction and use any current profile image provided. Make the subject clear in a square or cropped profile view. Do not put captions, watermarks, interface parts, or explanatory text in the image.';
 const worldAvatarImageGenerationSystemPrompt =
-	'Create a public avatar image for this Bickr world. Honor the requested visual direction and any supplied current world image. Favor a clear, recognizable composition suitable for a square or cropped world profile display. Do not include captions, watermarks, interface chrome, or explanatory text inside the image.';
+	'Create a public avatar for this Bickr world. Follow the requested visual direction and use any current world image provided. Make the setting clear in a square or cropped profile view. Do not put captions, watermarks, interface parts, or explanatory text in the image.';
 const currentAvatarDescriptionSystemPrompt =
-	'Describe the supplied public profile image as a highly detailed text prompt for a refreshed Bickr participant avatar. Focus on visible appearance, expression, pose, clothing, style, colors, lighting, background, framing, and composition. Return only the description text.';
+	'Describe the supplied public profile image for a new Bickr participant avatar. Include concrete details about appearance, expression, pose, clothing, style, colors, light, background, framing, and layout. Return only the description.';
 const currentWorldAvatarDescriptionSystemPrompt =
-	'Describe the supplied public world image as a highly detailed text prompt for a refreshed Bickr world avatar. Focus on visible scenery, architecture, objects, atmosphere, style, colors, lighting, background, framing, and composition. Return only the description text.';
+	'Describe the supplied public world image for a new Bickr world avatar. Include concrete details about scenery, buildings, objects, atmosphere, style, colors, light, background, framing, and layout. Return only the description.';
 
 export function providerAvatarRequestedToolCalls(
 	settings: Pick<ProviderSettings, "baseUrl" | "model" | "providerRouting" | "toolCallRequest">,
@@ -217,7 +217,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 			{
 				role: 'system',
 				content:
-					'Write a detailed visual prompt for a public Bickr world avatar. Synthesize the setting and member profiles into one coherent image illustrating the world. Focus on concrete setting details, landmarks, scenery, atmosphere, lighting, colors, texture, composition, and camera framing. Do not include captions, text overlays, interface chrome, watermarks, or process commentary. Return only the prompt text.',
+					'Write a visual prompt for a public Bickr world avatar. Use the setting and member profiles to describe one image of the world. Include concrete details about landmarks, scenery, atmosphere, light, colors, texture, layout, and camera view. Do not include captions, text overlays, interface parts, watermarks, or comments about the process. Return only the prompt.',
 			},
 			...(prefill ? [{ role: 'assistant' as const, content: prefill }] : []),
 			{
@@ -1037,8 +1037,8 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		const toolChoice = providerAvatarToolChoice(mode, settings, toolCalls);
 		const finalInstruction =
 			mode === 'structured_output'
-				? 'I need to describe my profile image. I should return the required JSON object with a first-person, in-character description that is highly verbose and full of concrete visual detail. The description should focus only on visible appearance, style, scene, lighting, and composition.'
-				: `I need to describe my profile image. I should call ${providerAvatarDescriptionToolName} with a first-person, in-character description that is highly verbose and full of concrete visual detail. The description should focus only on visible appearance, style, scene, lighting, and composition.`;
+				? 'I need to describe my profile image. I must return the required JSON object. Its description must be in character and in the first person. I will give many concrete visual details about appearance, style, scene, light, and layout. I will describe only what is visible.'
+				: `I need to describe my profile image. I must call ${providerAvatarDescriptionToolName}. I will write in character and in the first person. I will give many concrete visual details about appearance, style, scene, light, and layout. I will describe only what is visible.`;
 		const prefill = options.prefill?.trim();
 		const messages: ChatMessage[] = [
 			{
@@ -1168,7 +1168,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 				{
 					role: 'user',
 					content:
-						'Return the profile image description as the required JSON object with exactly one field named description. The description must be first person, in character, and focused only on visible appearance, style, scene, lighting, and composition.',
+						'Return a JSON object with exactly one field named description. Write it in character and in the first person. Describe only visible appearance, style, scene, light, and layout.',
 				},
 			];
 		}
@@ -1177,7 +1177,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 				...(error.outputText ? [{ role: 'assistant' as const, content: error.outputText }] : []),
 				{
 					role: 'user',
-					content: `Call ${providerAvatarDescriptionToolName}. The description must be first person, in character, and focused only on visible appearance, style, scene, lighting, and composition.`,
+					content: `Call ${providerAvatarDescriptionToolName}. Write in character and in the first person. Describe only visible appearance, style, scene, light, and layout.`,
 				},
 			];
 		}

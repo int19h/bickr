@@ -281,7 +281,7 @@ export class RuntimeMessageStore {
 					// its text legitimately stands in for the rows that are gone.
 					throw new RepositoryError(
 						'conflict',
-						'Retention has already deleted the messages this summary absorbed, so the summary cannot be deleted without losing that history. Erase the chat history instead.',
+						'Bickr deleted the messages in this summary. If you delete the summary, you lose that history. Erase the chat history instead.',
 						409,
 					);
 				}

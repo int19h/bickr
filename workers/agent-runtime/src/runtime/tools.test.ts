@@ -161,7 +161,7 @@ describe("redundant post and reply self-corrections", () => {
 			args: { commentRef: "c/cmt_target", body: en("Reply.") },
 		}));
 
-		expect(message).toContain("that forum is read-only");
+		expect(message).toContain("That forum is read-only");
 		expect(message).not.toContain("f/");
 	});
 
