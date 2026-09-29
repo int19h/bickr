@@ -211,7 +211,7 @@ describe("delete confirmation", () => {
 			"Shared sampling will be removed. Its 2 immediate children will inherit from Account default.",
 		);
 		expect(lines[1]).toContain("5 configurations depend on this entry");
-		expect(lines[1]).toContain("repairs links rather than copying values down");
+		expect(lines[1]).toContain("deletion repairs links without copying values");
 		expect(lines).toHaveLength(2);
 	});
 
