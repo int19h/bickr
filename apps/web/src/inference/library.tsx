@@ -59,8 +59,8 @@ export function InferenceLibraryScreen({
 				<div className="page-title-block">
 					<h1>Inference library</h1>
 					<p className="sub">
-						Configurations inherit field by field from their inheritance source. Editing a source flows through
-						every dependent configuration immediately; nothing here is a copied snapshot.
+						Each field comes from its source. If you edit a source, dependent configurations use the new values at once.
+						They do not hold copies.
 					</p>
 				</div>
 				<div className="actions">
@@ -363,8 +363,8 @@ function CreateConfigurationModal({
 				<div className="field">
 					<span className="inference-field-label">Inherit settings from</span>
 					<p className="help">
-						Start blank inherits from Account default and stores no overrides. Choosing another entry creates a
-						live inheritance link, not a copy.
+						If you start blank, this entry inherits Account default and stores no overrides.
+						If you choose another entry, it inherits live values from that entry.
 					</p>
 					<div className="inference-parent-picker">
 						<button

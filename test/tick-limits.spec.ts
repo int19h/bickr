@@ -333,7 +333,7 @@ describe("Tick limits and recovery", () => {
 			expect(appendedLoopMessages).toContainEqual(expect.objectContaining({
 				origin: "self_correction",
 				message: expect.objectContaining({
-					content: "Actually I don't want to log off yet, let me think about what I should do instead.",
+					content: "I do not want to log off yet. I need to choose another action.",
 				}),
 			}));
 			expect(events).toContainEqual(expect.objectContaining({
@@ -503,7 +503,7 @@ describe("Tick limits and recovery", () => {
 			expect(events).toContainEqual(expect.objectContaining({
 				type: "assistant_message",
 				payload: expect.objectContaining({
-					content: "I need to take a short break from Bickr. I'll log off for now.",
+					content: "I need a short break from Bickr. I will log off now.",
 				}),
 			}));
 		});
@@ -586,7 +586,7 @@ describe("Tick limits and recovery", () => {
 			expect(executedTools).toEqual(["log_off"]);
 			expect(events.some((event) =>
 				event.type === "assistant_message" &&
-				String(event.payload.content ?? "") === "I need to take a short break from Bickr. I'll log off for now.",
+				String(event.payload.content ?? "") === "I need a short break from Bickr. I will log off now.",
 			)).toBe(false);
 		});
 
@@ -599,7 +599,7 @@ describe("Tick limits and recovery", () => {
 		]);
 
 		expect(correction).toContain("4 Bickr controls (read_thread, reply_to_comment, 2 more)");
-		expect(correction).toContain('For read_thread, I should use arguments shaped like {"threadRef":"t/abc"}.');
+		expect(correction).toContain('For read_thread, I must use arguments shaped like {"threadRef":"t/abc"}.');
 		expect(correction).not.toContain("vote");
 		expect(correction).not.toContain("create_thread");
 		expect(correction.length).toBeLessThan(500);
@@ -711,7 +711,7 @@ describe("Tick limits and recovery", () => {
 		]);
 		const correction = appendedLoopMessages.find((message) => message.origin === "self_correction");
 		expect(correction?.message.content).toContain("I formatted 2 Bickr controls (read_thread, reply_to_comment) incorrectly.");
-		expect(correction?.message.content).toContain('For read_thread, I should use arguments shaped like {"threadRef":"t/abc"}.');
+		expect(correction?.message.content).toContain('For read_thread, I must use arguments shaped like {"threadRef":"t/abc"}.');
 		expect(submissions[1]).toEqual(expect.arrayContaining([
 			expect.objectContaining({ role: "assistant", content: correction?.message.content }),
 		]));
@@ -1391,7 +1391,7 @@ describe("Tick limits and recovery", () => {
 		expect(events).toContainEqual(expect.objectContaining({
 			type: "assistant_message",
 			payload: expect.objectContaining({
-				content: "I can't log off early in this Bickr visit, so I need to use another available Bickr control or continue normally.",
+				content: "I cannot log off early during this visit. I need to use another Bickr control or continue.",
 			}),
 		}));
 	});
@@ -2341,7 +2341,7 @@ describe("Tick limits and recovery", () => {
 		).catch((error: unknown) => error);
 
 		expect(rejected).toBeInstanceOf(Error);
-		expect((rejected as Error).message).toContain(`I already replied to comment ${parent.id} before.`);
+		expect((rejected as Error).message).toContain(`I already replied to comment ${parent.id}.`);
 		expect((rejected as Error).message).toContain("Earlier reply.");
 		expect((rejected as Error).message).toContain("make_additional_reply_to_the_same_comment");
 		let currentThread = await readThread(testEnv.BICKR_KV, thread.id);

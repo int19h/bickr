@@ -342,7 +342,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		if (wrongToolCall) {
 			throw new ProviderStructuredOutputValidationError(
 				spec.kind,
-				`Only ${spec.toolName} may be used for this request; ${wrongToolCall.function.name || 'unknown'} cannot be used here.`,
+				`Use only ${spec.toolName} for this request. Do not use ${wrongToolCall.function.name || 'unknown'} here.`,
 				{
 					rawResponse,
 					requiredToolName: spec.toolName,

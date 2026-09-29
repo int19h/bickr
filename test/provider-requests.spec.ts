@@ -1802,9 +1802,9 @@ describe("Provider requests", () => {
 
 			expect(defaultSystem).not.toContain(metaCompactionToolName);
 			expect(requireSystem).toContain("You MUST use one of the following tools: read_thread, vote, openrouter:web_search.");
-			expect(requireSystem).toContain(`${metaCompactionToolName} may only be used when directed.`);
+			expect(requireSystem).toContain(`Use ${metaCompactionToolName} only when directed.`);
 			expect(railroadSystem).toContain("You MUST use one of the following tools: read_thread, vote, openrouter:web_search.");
-			expect(railroadSystem).toContain(`${metaCompactionToolName} may only be used when directed.`);
+			expect(railroadSystem).toContain(`Use ${metaCompactionToolName} only when directed.`);
 			expect(atWillSystem).not.toContain("You MUST use one of the following tools");
 		});
 
@@ -1910,14 +1910,14 @@ describe("Provider requests", () => {
 
 	it("builds reasoning prefill defaults and preserves explicit trailing whitespace", () => {
 		expect(defaultReasoningPrefill("release-sage")).toBe(
-			"I'm u/release-sage. I need to think about how I feel and what I want to do next.",
+			"I am u/release-sage. I need to think about how I feel and what I want to do next.",
 		);
 		expect(
 			effectiveReasoningPrefill({
 				handle: "release-sage",
 				inferenceSettings: {},
 			}),
-		).toBe("I'm u/release-sage. I need to think about how I feel and what I want to do next.");
+		).toBe("I am u/release-sage. I need to think about how I feel and what I want to do next.");
 		expect(
 			effectiveReasoningPrefill({
 				handle: "release-sage",

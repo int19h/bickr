@@ -48,7 +48,7 @@ describe("WorldEditPage recurring prompt", () => {
 		const markup = render(world());
 
 		expect(markup).toContain("I remember this world&#x27;s shared focus.");
-		expect(markup).toContain("this world text appears first in the same assistant message");
+		expect(markup).toContain("world text comes first in the same message");
 		expect(markup).toMatch(/class="textarea recurring-prompt-editor"(?! disabled)/);
 	});
 

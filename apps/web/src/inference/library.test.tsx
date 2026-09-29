@@ -139,7 +139,7 @@ describe("library rendering", () => {
 	it("orders custom configurations before the fixed sections", () => {
 		const html = renderToStaticMarkup(<InferenceLibraryScreen onNavigate={() => undefined} />);
 		expect(html).toContain("Inference library");
-		expect(html).toContain("flows through every dependent configuration immediately");
+		expect(html).toContain("dependent configurations use the new values at once");
 		expect(html.indexOf("Custom configurations")).toBeLessThan(html.indexOf("Fixed configurations"));
 		expect(html.indexOf("Account configurations")).toBeLessThan(html.indexOf("Owned worlds"));
 		expect(html.indexOf("Owned worlds")).toBeLessThan(html.indexOf("Participants by home world"));

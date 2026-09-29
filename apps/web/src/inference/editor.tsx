@@ -522,8 +522,8 @@ export function InferenceConfigurationEditorScreen({
 				<section className="danger-zone">
 					<h3>Danger zone</h3>
 					<p>
-						Deleting this configuration makes its immediate children inherit from this entry's inheritance source.
-						Values are not copied down, so effective values may change.
+						If you delete this configuration, its direct children inherit from its source.
+						Values are not copied, so the children can use different values.
 					</p>
 					<button
 						className="btn danger solid"
@@ -631,7 +631,7 @@ export function deleteImpactLines(
 ): string[] {
 	return [
 		`${displayName} will be removed. Its ${childCountText(impact.immediateDependentCount)} will inherit from ${parentName}.`,
-		`${impact.transitiveDependentCount} configuration${impact.transitiveDependentCount === 1 ? "" : "s"} depend on this entry. Inherited effective values may change, because deletion repairs links rather than copying values down.`,
+		`${impact.transitiveDependentCount} configuration${impact.transitiveDependentCount === 1 ? "" : "s"} depend on this entry. Inherited values can change because deletion repairs links without copying values.`,
 	];
 }
 
@@ -818,8 +818,8 @@ function ParentPickerModal({
 				{impact && (
 					<div className="card runtime-card inference-impact">
 						<p>
-							{impact.immediateDependentCount} immediate and {impact.transitiveDependentCount} total dependent
-							configurations would be affected.
+							If you save, {impact.immediateDependentCount} direct and {impact.transitiveDependentCount} total dependent
+							configurations will change.
 						</p>
 						<ImpactWarnings warnings={impact.warnings} />
 						{needsConfirmation && (

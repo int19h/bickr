@@ -354,7 +354,7 @@ describe("MCP endpoint", () => {
 			// both as machine-checkable JSON Schema and in prose for the model.
 			expect(operations.minItems, `${tool.name} batch minimum`).toBe(1);
 			expect(operations.maxItems, `${tool.name} batch maximum`).toBe(20);
-			expect(operations.description, `${tool.name} batch maximum prose`).toContain("Maximum 20.");
+			expect(operations.description, `${tool.name} batch maximum prose`).toContain("Give at most 20 operations.");
 			const operationSchema = toolArgumentSchema(tool.inputSchema);
 			expect(operationSchema, tool.name).toMatchObject({
 				type: "object",

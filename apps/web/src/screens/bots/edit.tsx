@@ -402,7 +402,8 @@ export function BotEdit({
 							<span className="meta">this participant only</span>
 						</div>
 						<p className="help">
-							These loop schedules, budgets, limits, and recurring-prompt controls apply only to this participant and are not part of its reusable inference configuration.
+							These loop schedules, budgets, limits, and recurring prompts apply only to this participant.
+							They are outside its reusable inference configuration.
 						</p>
 						<div className="card runtime-card agentic-loop-card">
 							<div className="field-row">
@@ -775,8 +776,8 @@ export function BotEdit({
 							then stops future source changes from cascading into this clone.
 						</>
 					:	<>
-							This restores inheritance from the original source. Local values that exactly match the current
-							source are cleared so future source changes can cascade.
+							This restores inheritance from the original source. Matching local values are removed.
+							Future changes to the source can then reach this clone.
 						</>
 				}
 				confirmText={cloneLinkConfirm === "unlink" ? "Unlink clone" : "Relink clone"}

@@ -801,7 +801,7 @@ export class PriorTargetReplyError extends Error {
 	constructor(prior: PriorTargetReplies) {
 		const replyLines = prior.replies.map((reply) => `- ${reply.commentId}: ${quoteForContext(reply.body, 1_000)}`).join('\n');
 		super(
-			`I already replied to ${prior.targetDescription} before. Past replies:\n${replyLines}\nIf I really need one more reply in addition to those, I should use make_additional_reply_to_the_same_comment.`,
+			`I already replied to ${prior.targetDescription}. Past replies:\n${replyLines}\nIf I need one more reply, I must use make_additional_reply_to_the_same_comment.`,
 		);
 		this.name = 'PriorTargetReplyError';
 		this.prior = prior;

@@ -487,7 +487,7 @@ function toolRequirementInstruction(tools: readonly ProviderToolDefinition[]): s
 	const names = providerToolNames(controlTools).join(', ');
 	const prefix = names ? `You MUST use one of the following tools: ${names}.` : 'You MUST use an available Bickr control.';
 	const metaInstruction = tools.some(isMetaCompactionToolDefinition)
-		? ` ${providerCompactionToolName} may only be used when directed.`
+		? ` Use ${providerCompactionToolName} only when directed.`
 		: '';
 	return `${prefix}${metaInstruction}`;
 }

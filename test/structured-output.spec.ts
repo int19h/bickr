@@ -285,7 +285,7 @@ describe("Structured output", () => {
 			expect(metaTool?.type === "function" ? metaTool.function.parameters.properties[providerCompactionSummaryProperty].description : undefined)
 				.toContain("Do not copy sentences");
 			expect(messages).toHaveLength(3);
-			expect(messages[0]?.content).toContain(`${metaCompactionToolName} may only be used when directed.`);
+			expect(messages[0]?.content).toContain(`Use ${metaCompactionToolName} only when directed.`);
 		});
 
 		it("derives provider compaction prompt lengths from settings and compacted characters", () => {
@@ -1932,7 +1932,7 @@ describe("Structured output", () => {
 				const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: BotInferenceSubmissionMessage[] };
 				const repairToolMessage = retryBody.messages.find((message) => message.role === "tool");
 				expect(repairToolMessage?.tool_call_id).toBe("call_1");
-				expect(repairToolMessage?.content).toContain(`Only ${metaCompactionToolName} may be used`);
+				expect(repairToolMessage?.content).toContain(`Use only ${metaCompactionToolName} for this request.`);
 			} finally {
 				vi.stubGlobal("fetch", originalFetch);
 			}

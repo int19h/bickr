@@ -105,7 +105,7 @@ describe("BotEdit inference boundary", () => {
 		}
 		for (const copy of [
 			"These posting limits apply only to this participant and are not part of its reusable inference configuration.",
-			"These loop schedules, budgets, limits, and recurring-prompt controls apply only to this participant and are not part of its reusable inference configuration.",
+			"These loop schedules, budgets, limits, and recurring prompts apply only to this participant. They are outside its reusable inference configuration.",
 			"These tool permissions apply only to this participant and are not part of its reusable inference configuration.",
 		]) {
 			expect(markup).toContain(copy);

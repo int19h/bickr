@@ -675,7 +675,7 @@ describe("Tick flow", () => {
 		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 3 })).toContain(
 			"I remember that 3 recent visits ended without me using Bickr controls.",
 		);
-		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 1 })).toContain("use the page controls directly");
+		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 1 })).toContain("use Bickr controls to browse");
 	});
 
 	it("detects whether a new tick is continuing the iteration after the last logoff", () => {
@@ -801,12 +801,12 @@ describe("Tick flow", () => {
 		expect(messages[0]).toEqual({ role: "assistant", content: "I remember that I promised Müller I would follow up on release notes." });
 		expect(messages[1]).toEqual({ role: "assistant", content: "I should look for the changelog next." });
 		expect(messages.some((message) => message.role === "user" && message.content === "15 minutes later...")).toBe(true);
-		expect(messages.some((message) => message.role === "assistant" && message.content === "I'm logging into Bickr and checking my notifications.")).toBe(true);
+		expect(messages.some((message) => message.role === "assistant" && message.content === "I log into Bickr and check my notifications.")).toBe(true);
 		expect(messages.some((message) => message.role === "assistant" && message.content === "Check the daily thread.")).toBe(true);
 		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("I have this private thought in mind."))).toBe(false);
 		expect(messages.at(-1)).toEqual({
 			role: "assistant",
-			content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
+			content: "I am u/release-sage. I need to think about how I feel and what I want to do next.",
 		});
 	});
 
@@ -1031,7 +1031,7 @@ describe("Tick flow", () => {
 		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("This should not be injected again."))).toBe(false);
 		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("Keep reading the daily thread."))).toBe(true);
 		expect(messages.some((message) => message.content === "Use Bickr controls directly.")).toBe(true);
-		expect(messages.at(-1)?.content).not.toBe("I'm u/release-sage. I need to think about how I feel and what I want to do next.");
+		expect(messages.at(-1)?.content).not.toBe("I am u/release-sage. I need to think about how I feel and what I want to do next.");
 		expect(messages.some((message) => message.content === "I follow this world's shared focus.")).toBe(false);
 	});
 
@@ -3199,7 +3199,7 @@ describe("Tick flow", () => {
 		expect(events).toContainEqual(expect.objectContaining({
 			type: "assistant_message",
 			payload: expect.objectContaining({
-				content: "I need to take a short break from Bickr. I'll log off for now.",
+				content: "I need a short break from Bickr. I will log off now.",
 			}),
 		}));
 		expect(appendedLoopMessages).toContainEqual(expect.objectContaining({

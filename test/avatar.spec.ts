@@ -1523,7 +1523,7 @@ describe("Avatar", () => {
 		}
 
 		expect(providerRequests).toHaveLength(3);
-		const worldRequest = providerRequests.find((request) => String(request.prompt).includes("public avatar image for this Bickr world"));
+		const worldRequest = providerRequests.find((request) => String(request.prompt).includes("public avatar for this Bickr world"));
 		const participantRequests = providerRequests.filter((request) => request !== worldRequest);
 		expect(participantRequests).toHaveLength(2);
 		const [botOrUserRequest, otherParticipantRequest] = participantRequests;
@@ -1533,8 +1533,8 @@ describe("Avatar", () => {
 		expect(userRequestWithoutPrompt).toEqual(botRequestWithoutPrompt);
 		expect(worldRequestWithoutPrompt).toEqual(botRequestWithoutPrompt);
 		expect(userPrompt).toBe(botPrompt);
-		expect(String(botPrompt)).toContain("public profile avatar image for this Bickr participant");
-		expect(String(worldPrompt)).toContain("public avatar image for this Bickr world");
+		expect(String(botPrompt)).toContain("public avatar for this Bickr participant");
+		expect(String(worldPrompt)).toContain("public avatar for this Bickr world");
 		expect(String(worldPrompt)).toContain("Render a shared identity.");
 	});
 

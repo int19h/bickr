@@ -830,7 +830,7 @@ export function malformedToolCallSelfCorrection(
 	const exampleName = canonicalNames.find((name) => bickrFunctionToolArgumentExample(name) !== undefined);
 	const example = exampleName ? bickrFunctionToolArgumentExample(exampleName) : undefined;
 	return `I formatted ${subject} incorrectly. I need to retry with valid JSON object arguments, with every string literal and any authored prose properly quoted and escaped.${
-		exampleName && example ? ` For ${safeContextText(exampleName, 80)}, I should use arguments shaped like ${example}.` : ''
+		exampleName && example ? ` For ${safeContextText(exampleName, 80)}, I must use arguments shaped like ${example}.` : ''
 	}`;
 }
 
@@ -9501,7 +9501,7 @@ export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailureP
 	if (failure.toolName === 'create_thread' && failure.code === 'conflict' && (failure.existingThreadRef || failure.existingThreadId)) {
 		const forum = failure.existingForumHandle ? `f/${failure.existingForumHandle}` : 'that forum';
 		const path = failure.existingUrlPath ? ` at ${failure.existingUrlPath}` : '';
-		return `Thread ${failure.existingThreadRef ?? formatThreadRef(failure.existingThreadId ?? 'unknown')}${path} already has that title in ${forum}. I will read it or choose a different action.`;
+		return `I found thread ${failure.existingThreadRef ?? formatThreadRef(failure.existingThreadId ?? 'unknown')}${path} with that title in ${forum}. Another post with that title duplicates it. I will read it or choose a different action.`;
 	}
 	if (failure.toolName === 'reply_to_comment' && failure.code === 'already_replied') {
 		const target = failure.targetCommentRef
@@ -9517,7 +9517,7 @@ export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailureP
 		const reply = firstReply
 			? ` with comment ${firstReply.commentRef ?? (firstReply.commentId ? formatCommentRef(firstReply.commentId) : 'unknown')}${firstReply.urlPath ? ` at ${firstReply.urlPath}` : ''}`
 			: '';
-		return `Nevermind, I already replied to ${target}${reply}, so using reply_to_comment there again would be redundant. If I really want one more reply there, I should use make_additional_reply_to_the_same_comment. Otherwise, I'll read it or do something else instead.`;
+		return `I already replied to ${target}${reply}. Another reply_to_comment there will repeat my reply. If I need one more reply there, I must use make_additional_reply_to_the_same_comment. Otherwise, I will read it or do something else.`;
 	}
 	if (failure.toolName === 'reply_to_comment' && failure.code === 'duplicate_comment') {
 		const comment = failure.existingCommentRef
@@ -9531,7 +9531,7 @@ export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailureP
 				? ` in thread ${formatThreadRef(failure.existingThreadId)}`
 				: '';
 		const path = failure.existingUrlPath ? ` at ${failure.existingUrlPath}` : '';
-		return `I already posted that comment${comment}${thread}${path}. I will read it or choose a different action.`;
+		return `I already posted that comment${comment}${thread}${path}. Posting it again creates a duplicate. I will read it or choose a different action.`;
 	}
 	if (failure.toolName === 'follow_profile' && failure.code === 'bad_request' && /\balready follow\b/i.test(failure.message)) {
 		return followToolSelfCorrectionMessage(
