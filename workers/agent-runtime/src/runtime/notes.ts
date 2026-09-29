@@ -121,7 +121,7 @@ export class BotNotesStore {
 		);
 	}
 
-	/** Keep this check while older releases can still write a lowercase plan note during rollback. */
+	/** Base 9df9001 can write lowercase plan on rollback. Remove this check after that base is no longer a rollback target. */
 	migrateLegacyPlan(): void {
 		this.storage.transactionSync(() => {
 			const old = this.storage.sql.exec<{ note_id: string }>('SELECT note_id FROM notes WHERE note_id = ? LIMIT 1', 'plan').toArray()[0];
