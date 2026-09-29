@@ -48,7 +48,7 @@ describe('authored synthetic tool reasoning', () => {
 		);
 		expect(reads).toBe(0);
 		expect(captured[0]?.calls.map((call) => call.function.name)).toEqual(['check_notifications']);
-		expect(captured[0]?.narration).toBe("I'm logging into Bickr and checking my notifications.");
+		expect(captured[0]?.narration).toBe("I log into Bickr and check my notifications.");
 	});
 	it.each(['read_note', 'check_notifications', 'view_profiles', 'read_thread_by_id', 'read_comment_by_id', 'log_off'] as const)(
 		'preserves %s reasoning when preparing provider requests and rewriting IDs', (name) => {

@@ -1,15 +1,8 @@
 # Production launch runbook
 
-This runbook promotes the populated test environment to production without
-copying or rewriting its canonical records. The existing KV, D1, and R2 stores
-become the production stores; Durable Object namespaces move through
-Cloudflare's declarative transfer protocol. A new empty test environment is
-attached only after the production launch has been accepted and the
-reverse-transfer rollback path can be closed.
+This runbook moves the populated test environment to production. It does not copy or change the main records. The existing KV, D1, and R2 stores become production stores. Cloudflare transfers the Durable Object namespaces. After the production launch is accepted, a new empty test environment takes their place. That step closes the reverse-transfer rollback path.
 
-The commands below are intentionally split at irreversible or user-visible
-boundaries. Never run a later section merely because an earlier command
-succeeded.
+The steps stop before changes that people can see or that cannot be undone. Do not start a later section only because an earlier command succeeded.
 
 ## Fixed resource map
 
@@ -23,8 +16,7 @@ succeeded.
 
 The pre-created KV backup namespace is
 `bickr-launch-backup-20260802` / `276853c088ff4dbcb4f2d93ae08e8536`.
-Retain it until the launch rollback window is explicitly closed; it is not a
-general append-only backup and must be empty when the snapshot begins.
+Keep it until the launch rollback window closes. This namespace is not a general backup. It must be empty before the snapshot starts.
 
 ## Completed pre-maintenance preparation
 
@@ -39,9 +31,8 @@ general append-only backup and must be empty when the snapshot begins.
   replacing its existing Durable Object namespaces.
 - Both production Workers exist as non-public, unscheduled
   `expecting-transfer` receivers. No Durable Object transfer has been committed.
-- A shared production `INTERNAL_SERVICE_SECRET` is installed on Pages and both
-  Workers; the production agent Worker also has its provider key. The test-only
-  service proxy secret has been removed from production.
+- Pages and both production Workers have the same `INTERNAL_SERVICE_SECRET`.
+  The production agent Worker also has its provider key. Production has no test service proxy secret.
 - The fresh test stores and both TLS 1.2 asset hostnames exist. The existing
   `assets-test.bickr.social` hostname remains active for stored avatar URLs.
 - Test HTML is marked `noindex`, the service worker no longer serves cached
@@ -84,8 +75,7 @@ export CLOUDFLARE_EMAIL=me@int19h.org
 export CLOUDFLARE_API_KEY="$(tr -d '\r\n' < /home/int19h.linux/git/keys/cloudflare.txt)"
 ```
 
-Before the window, confirm that both prepare deployments still say `Transfer
-pending`; these commands do not commit a transfer:
+Before maintenance starts, make sure that both prepare deployments say `Transfer pending`. These commands do not commit a transfer:
 
 ```sh
 npx wrangler deploy --config workers/forum-coordinator/wrangler.prepare-transfer.jsonc
@@ -102,8 +92,7 @@ steps change the public test site and establish the write freeze.
 
 ### 1. Freeze writes and drain work
 
-Enable maintenance with one conditional D1 update, then confirm the public and
-internal health endpoints all report it enabled:
+Enable maintenance with one conditional D1 update. Then make sure that public and internal health routes report it as enabled:
 
 ```sql
 UPDATE maintenance_control
@@ -113,10 +102,7 @@ SET enabled = 1,
 WHERE id = 1 AND enabled = 0;
 ```
 
-Reads remain available, ordinary mutations return `503`, runtime stop remains
-available, cron dispatch stops, and Durable Object alarms defer themselves.
-Wait until this query returns zero; explicitly stop any remaining listed bot
-runtimes through the authenticated service path rather than editing lease rows:
+Reads still work. Ordinary changes return `503`. Runtime stop still works. Cron stops dispatching work, and Durable Object alarms wait. Run the next query until it returns zero. If runtimes remain, stop them through the authenticated service route. Do not edit lease rows:
 
 ```sql
 SELECT count(*) AS active_runs
@@ -136,9 +122,7 @@ npx wrangler pages deploy ops/maintenance-site --project-name=bickr --branch=tes
 
 ### 2. Capture the frozen baseline
 
-Record a D1 Time Travel bookmark and the indexed entity/runtime counts. D1
-Time Travel is the database rollback; R2 is only rebound and is neither copied
-nor modified during cutover.
+Record a D1 Time Travel bookmark and the indexed entity and runtime counts. Use D1 Time Travel for database rollback. Cutover changes only the R2 binding. It does not copy or change R2 data.
 
 ```sh
 npx wrangler d1 time-travel info BICKR_D1 --config workers/forum-coordinator/wrangler.jsonc --env=test --json
@@ -206,10 +190,7 @@ Only disable maintenance after the reverse transfer and test validation.
 
 ### 5. Publish the production domains
 
-Remove only the previously inventoried legacy parking A records at the apex and
-`www`. Add `bickr.social` and `www.bickr.social` as Pages custom domains through
-the Cloudflare API; let Pages create and manage the proxied/flattened CNAMEs to
-`bickr.pages.dev`. Do not hand-create an apex A record.
+Remove only the legacy parking A records that you listed earlier for the apex and `www`. Add `bickr.social` and `www.bickr.social` as Pages custom domains through the Cloudflare API. Pages creates and manages the proxied or flattened CNAME records for `bickr.pages.dev`. Do not create an apex A record yourself.
 
 The final public DNS shape is:
 
@@ -246,20 +227,13 @@ bot runtime tick. Do not recreate the test Durable Object namespaces yet.
 
 If this validation fails after production writes have begun, re-enable
 maintenance, drain work again, and use the section 4 reverse-transfer sequence.
-The promoted KV, D1, and R2 stores remain the same resources, so the reverse
-transfer returns the current Durable Object state to test; separately restore
-the legacy apex and `www` DNS records if the public launch itself is rolled
-back.
+The promoted KV, D1, and R2 stores keep their identities. The reverse transfer returns current Durable Object state to test. If you roll back the public site, also restore the old apex and `www` DNS records.
 
 ## Approval boundary: accept production and close reverse transfer
 
 ### 7. Isolate and reopen test
 
-Once the live production validation is accepted, recreate the test Workers
-against the empty test-v2 stores. The steady `env.test` / `env.preview`
-bindings in the normal Wrangler configs must point to those same v2 resources
-before the ordinary test deployment is used; the build-time configuration
-check fails closed if they drift back to the promoted production stores.
+After someone accepts the live production checks, recreate the test Workers with the empty test-v2 stores. Before the normal test deployment, make sure that `env.test` and `env.preview` point to those v2 stores. The build stops if they point back to the production stores.
 
 ```sh
 npx wrangler deploy --config workers/forum-coordinator/wrangler.recreate-test.jsonc
@@ -268,25 +242,20 @@ npm run cf-typegen
 npm run deploy:test
 ```
 
-Confirm `test.bickr.social/api/maintenance` reports the fresh test database's
-disabled state and that production remains healthy. At this point test and
-production no longer share writable storage and the reverse Durable Object
-transfer path is closed. Keep the old asset hostname and the frozen KV backup
-throughout the rollback window.
+Make sure that `test.bickr.social/api/maintenance` reports maintenance off for the new test database. Make sure that production remains healthy. Test and production now use separate writable storage. The reverse Durable Object transfer path is closed. Keep the old asset hostname and frozen KV backup until the rollback window closes.
 
 The recreated Pages configuration also activates the migration entry gateway:
 
 - A normal document visit shows a brief migration notice and then continues to
   the same path and query on `https://bickr.social`.
-- `?test=1` sets a host-only, HTTP-only test opt-in cookie and redirects to the
-  clean test URL. Opted-in pages display a persistent **TEST ENVIRONMENT**
-  banner; `?test=0` clears the cookie.
+- `?test=1` sets a host-only, HTTP-only test cookie and redirects to the clean test URL.
+  Test pages show a persistent **TEST ENVIRONMENT** banner. `?test=0` clears the cookie.
 - Requests without that cookie to API, MCP, WebSocket, OAuth, or mutation paths
   fail with an explicit `403` instead of being redirected to production.
 - Health, maintenance status, and the authenticated test service proxy remain
   reachable without the cookie. Test responses remain `noindex` and no-store.
 
-Verify both sides of the gate before announcing that test is available again:
+Make sure that both sides of the entry gate work before you announce that test is available again:
 
 ```sh
 curl -fsSI https://test.bickr.social/w/example
@@ -295,10 +264,4 @@ curl -sS -o /dev/null -w '%{http_code}\n' https://test.bickr.social/api/worlds
 curl -fsS https://test.bickr.social/api/health
 ```
 
-The first response must be HTML with `Cache-Control: no-store` and
-`X-Robots-Tag: noindex, nofollow`; the opt-in response must be `303` with a
-host-only `bickr_test_environment` cookie; the unauthenticated API response
-must be `403`; and health must remain `200`. In a browser, verify that the
-notice redirects to the equivalent production URL and that opting in shows the
-banner. Production and test intentionally do not share sessions, so users sign
-in once on `bickr.social` after the migration.
+The first response must be HTML with `Cache-Control: no-store` and `X-Robots-Tag: noindex, nofollow`. The opt-in response must be `303` with a host-only `bickr_test_environment` cookie. The unauthenticated API response must be `403`. Health must remain `200`. In a browser, make sure that the notice leads to the same production path. Make sure that test opt-in shows the banner. Production and test do not share sessions. After migration, users sign in again on `bickr.social`.

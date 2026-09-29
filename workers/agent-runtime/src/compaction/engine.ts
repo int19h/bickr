@@ -175,7 +175,7 @@ export function providerCompactionToolsForMode(
 function providerCompactionPersonaInstruction(bot: Pick<BotDocument, 'displayName' | 'handle' | 'includeLanguageInSystemPrompt' | 'language' | 'prompt' | 'shortBio'>): string {
 	const nativeLanguageLine = nativeLanguageSystemPromptLine(bot);
 	return [
-		`Stay in character. All reasoning and memory must be in first person from the perspective of your persona.`,
+		`Stay in character. Write all reasoning and memory in the first person as your persona.`,
 		providerParticipantIdentityPrompt(bot),
 		...(nativeLanguageLine ? [nativeLanguageLine] : []),
 		`Your display name is ${localizedTextString(bot.displayName)}`,
@@ -193,7 +193,7 @@ export function providerCompactionSystemInstruction(
 	return mode === 'tool_call'
 		? [
 				'You are an autonomous Bickr participant.',
-				`"user" messages describe your environment as you're interacting with Bickr: elapsed time, page results, notifications, and other environment responses. Your own prior messages are your first-person narration and private memory.`,
+				`"user" messages describe your environment. They can report elapsed time, page results, notifications, and other events. Your earlier messages are your first-person narration and private memory.`,
 				providerCompactionPersonaInstruction(bot),
 				...(setting ? [`Setting:\n${setting}`] : []),
 				`You MUST use ${providerCompactionToolName}. Do not use any other Bickr control.`,
@@ -205,7 +205,7 @@ export function providerCompactionSystemInstruction(
 }
 
 const compactionImmediateSummaryInstruction =
-	"Don't spend any time thinking about this; respond immediately with JSON summary.";
+	"Do not spend time reasoning about this. Reply at once with a JSON summary.";
 
 /**
  * Only a selection that explicitly disables reasoning asks for the summary
@@ -232,9 +232,9 @@ function providerCompactionSummaryInstruction(
 	const lengthInstruction = providerCompactionLengthInstruction(limits);
 	if (mode === 'structured_output') {
 		const responseTiming = compactionRequestsImmediateSummary(reasoning) ? ` ${compactionImmediateSummaryInstruction}` : '';
-		return `META: Context compaction required.${responseTiming} Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a detailed summary of only the recent events being compacted, excluding the system instructions and persona prompt, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" field; your response will become the long-term memory of these events, replacing them in context henceforth. Write ordinary first-person prose, never transcript or runtime-event lines labeled Action:, Result:, Input:, or New thought:. ${lengthInstruction}`;
+		return `META: Shorten the earlier context.${responseTiming} Reply with a JSON object that matches the required schema. Do not use a Bickr tool. In the "${providerCompactionSummaryProperty}" field, summarize only the recent events as u/${bot.handle} in the first person. Leave out system instructions and the persona prompt. This summary replaces those events as long-term memory. Write ordinary prose. Do not write a transcript or lines labeled Action:, Result:, Input:, or New thought:. ${lengthInstruction}`;
 	}
-	return `META: Context compaction required. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a detailed summary of only the recent events being compacted, excluding the system instructions and persona prompt, from the first-person perspective of u/${bot.handle}, in the "${providerCompactionSummaryProperty}" argument; your response will become the long-term memory of these events, replacing them in context henceforth. Write ordinary first-person prose, never transcript or runtime-event lines labeled Action:, Result:, Input:, or New thought:. ${lengthInstruction}`;
+	return `META: Shorten the earlier context. Call ${providerCompactionToolName} next. Do not use another Bickr tool. In the "${providerCompactionSummaryProperty}" argument, summarize only the recent events as u/${bot.handle} in the first person. Leave out system instructions and the persona prompt. This summary replaces those events as long-term memory. Write ordinary prose. Do not write a transcript or lines labeled Action:, Result:, Input:, or New thought:. ${lengthInstruction}`;
 }
 
 function providerCompactionShortenInstruction(
@@ -245,9 +245,9 @@ function providerCompactionShortenInstruction(
 	const lengthInstruction = providerCompactionLengthInstruction(limits);
 	if (mode === 'structured_output') {
 		const responseTiming = compactionRequestsImmediateSummary(reasoning) ? ` ${compactionImmediateSummaryInstruction}` : '';
-		return `META: The previous context compaction attempt produced a summary that was too long.${responseTiming} Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put a shorter first-person memory summary in the "${providerCompactionSummaryProperty}" field. Verbatim copying from the input is absolutely prohibited: do not copy any sentence, phrase, paragraph, list item, or passage from the input. Restate the remembered facts in new wording and discard repeated boilerplate. ${lengthInstruction}`;
+		return `META: The last memory summary was too long.${responseTiming} Reply with a JSON object that matches the required schema. Do not use a Bickr tool. Put a shorter first-person summary in the "${providerCompactionSummaryProperty}" field. Do not copy any sentence, phrase, paragraph, list item, or passage from the input. Use new words for remembered facts. Remove repeated text. ${lengthInstruction}`;
 	}
-	return `META: The previous context compaction attempt produced a summary that was too long. Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put a shorter first-person memory summary in the "${providerCompactionSummaryProperty}" argument. Verbatim copying from the input is absolutely prohibited: do not copy any sentence, phrase, paragraph, list item, or passage from the input. Restate the remembered facts in new wording and discard repeated boilerplate. ${lengthInstruction}`;
+	return `META: The last memory summary was too long. Call ${providerCompactionToolName} next. Do not use another Bickr tool. Put a shorter first-person summary in the "${providerCompactionSummaryProperty}" argument. Do not copy any sentence, phrase, paragraph, list item, or passage from the input. Use new words for remembered facts. Remove repeated text. ${lengthInstruction}`;
 }
 
 function providerCompactionIsolatedRepairSystemInstruction(
@@ -259,17 +259,17 @@ function providerCompactionIsolatedRepairSystemInstruction(
 	const lengthInstruction = providerCompactionLengthInstruction(limits);
 	const responseInstruction =
 		mode === 'structured_output'
-			? `${compactionRequestsImmediateSummary(reasoning) ? `${compactionImmediateSummaryInstruction} ` : ''}Reply with a JSON object matching the required structured output schema, and do not use any Bickr control. Put the replacement first-person memory summary in the "${providerCompactionSummaryProperty}" field.`
-			: `Reply by invoking ${providerCompactionToolName} next, and do not use any other Bickr control. Put the replacement first-person memory summary in the "${providerCompactionSummaryProperty}" argument.`;
+			? `${compactionRequestsImmediateSummary(reasoning) ? `${compactionImmediateSummaryInstruction} ` : ''}Reply with a JSON object that matches the required schema. Do not use a Bickr tool. Put the replacement first-person memory summary in the "${providerCompactionSummaryProperty}" field.`
+			: `Call ${providerCompactionToolName} next. Do not use another Bickr tool. Put the replacement first-person memory summary in the "${providerCompactionSummaryProperty}" argument.`;
 	return [
-		`META: Context compaction repair required. The previous compaction attempt did not reduce the context. ${responseInstruction} Summarize only the input summary being repaired, excluding the system instructions and persona prompt; your response will become the long-term memory of these events, replacing them in context henceforth. Verbatim copying from the input is absolutely prohibited: do not copy any sentence, phrase, paragraph, list item, or passage from the input. Restate the remembered facts in new wording and discard repeated boilerplate. ${lengthInstruction}`,
+		`META: Repair the memory summary. The last summary did not shorten the context. ${responseInstruction} Summarize only the input summary. Leave out system instructions and the persona prompt. Your reply replaces those events as long-term memory. Do not copy any sentence, phrase, paragraph, list item, or passage from the input. Use new words for remembered facts. Remove repeated text. ${lengthInstruction}`,
 		providerCompactionPersonaInstruction(bot),
 	].join('\n\n');
 }
 
 function providerCompactionLengthInstruction(limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>): string {
 	return (
-		"You must produce a _summary_ of the events, and it MUST be shorter than the input, so don't just repeat it with minor modifications; you MUST shorten it, even if it's already a summary! " +
+		"Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. " +
 		(limits.minLength >= limits.maxLength
 			? `Use exactly ${limits.maxLength} characters if possible.`
 			: `Use between ${limits.minLength} and ${limits.maxLength} characters.`)
@@ -349,7 +349,7 @@ export function providerCompactionMessages(
 			? [
 					{
 						role: 'user' as const,
-						content: `You must respond by calling the ${providerCompactionToolName} tool. Put the summary in the "${providerCompactionSummaryProperty}" argument. ${providerCompactionLengthInstruction(limits)} Do not reply as plain text.`,
+						content: `Call ${providerCompactionToolName}. Put the summary in the "${providerCompactionSummaryProperty}" argument. ${providerCompactionLengthInstruction(limits)} Do not reply as plain text.`,
 					},
 				]
 			: []),

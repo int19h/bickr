@@ -28,7 +28,7 @@ describe('tool argument validation', () => {
 
 	it('uses the property name and bot language when a localized text argument is a raw string', () => {
 		expect(() => localizedToolTextArg('foo', 'reason', enLang)).toThrow(
-			'Malformed tool call! reason is a string, but it must be an object. You provided "reason":"foo", which is incorrect; it should be something like "reason":{"lang":"en","text":"foo"} instead.',
+			'Malformed tool call! reason must be an object. You sent the string "reason":"foo". Send an object like "reason":{"lang":"en","text":"foo"}.',
 		);
 	});
 
@@ -36,7 +36,7 @@ describe('tool argument validation', () => {
 		const ja = 'ja' as LanguageTag;
 
 		expect(() => localizedToolTextArg('将軍家', 'targets[0].reason', ja)).toThrow(
-			'Malformed tool call! targets[0].reason is a string, but it must be an object. You provided "targets[0].reason":"将軍家", which is incorrect; it should be something like "targets[0].reason":{"lang":"ja","text":"将軍家"} instead.',
+			'Malformed tool call! targets[0].reason must be an object. You sent the string "targets[0].reason":"将軍家". Send an object like "targets[0].reason":{"lang":"ja","text":"将軍家"}.',
 		);
 	});
 
@@ -97,7 +97,7 @@ describe('tool argument reference codecs', () => {
 
 describe('random range arguments', () => {
 	const malformedRangesJsonMessage =
-		'ranges was sent as a string that is not valid JSON; send a range object like {"min":1,"max":6} or a list of them.';
+		'ranges was sent as a string that is not valid JSON. Send a range object like {"min":1,"max":6} or a list of them.';
 
 	it('canonicalizes a single range object into the array form', () => {
 		expect(normalizeToolArgs('draw_random_integers', { ranges: { min: 1, max: 6 } })).toEqual({

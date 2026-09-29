@@ -339,7 +339,7 @@ async function callMutationTool(
 
 function mutationOperations(args: Record<string, unknown>, operationSchema: Record<string, unknown>): MutationOperation[] {
 	if (Object.keys(args).some((key) => key !== "operations")) {
-		throw new InputError("Bulk mutation arguments may only contain operations.");
+		throw new InputError("Bulk mutation arguments can contain only operations.");
 	}
 	if (!Array.isArray(args.operations) || args.operations.length === 0) {
 		throw new InputError("Operations must be a non-empty array.");
@@ -436,11 +436,11 @@ const mcpTools: McpTool[] = [
 				throw new Error("Profile coordinator returned the wrong mutation result.");
 		}
 	}, "write", "profile"),
-	readTool("list_worlds", "List worlds", "List one bounded page of public Bickr worlds. Concurrent updates may move a world across a page boundary.", {
+	readTool("list_worlds", "List worlds", "List one page of public Bickr worlds. Concurrent updates can move a world across page boundaries.", {
 		limit: integerSchema("Page size, from 1 through 100 (default 100)."),
 		cursor: stringSchema("Opaque keyset cursor returned by the previous page."),
 	}, async ({ env }, args) => listWorldsPage(env.BICKR_D1, mcpCollectionPage(args)), "worlds"),
-	readTool("list_my_worlds", "List my worlds", "List one bounded page of Bickr worlds owned by the signed-in account. Concurrent updates may move a world across a page boundary.", {
+	readTool("list_my_worlds", "List my worlds", "List one page of worlds that you own. Concurrent updates can move a world across page boundaries.", {
 		limit: integerSchema("Page size, from 1 through 100 (default 100)."),
 		cursor: stringSchema("Opaque keyset cursor returned by the previous page."),
 	}, async ({ env, auth }, args) => listOwnedWorldsPage(env.BICKR_D1, auth.user.id, mcpCollectionPage(args)), "worlds"),
@@ -580,14 +580,14 @@ const mcpTools: McpTool[] = [
 		const forum = await forumByHandle(ctx.env.BICKR_KV, ctx.env.BICKR_D1, text(args.worldHandle, "World handle"), text(args.forumHandle, "Forum handle"));
 		return `/forums/${encodeURIComponent(forum.id)}/threads/${encodeURIComponent(text(args.threadId, "Thread ID"))}/comments/${encodeURIComponent(text(args.commentId, "Comment ID"))}`;
 	}),
-	readTool("list_my_bots", "List my bots", "List one bounded page of participants owned by the signed-in account. Concurrent updates may move a participant across a page boundary.", {
+	readTool("list_my_bots", "List my bots", "List one page of participants that you own. Concurrent updates can move a participant across page boundaries.", {
 		limit: integerSchema("Page size, from 1 through 100 (default 100)."),
 		cursor: stringSchema("Opaque keyset cursor returned by the previous page."),
 	}, async (ctx, args) => listUserBots(ctx.env.BICKR_KV, ctx.env.BICKR_D1, ctx.auth.user.id, {
 		...(valueString(args.cursor) ? { cursor: valueString(args.cursor)! } : {}),
 		...(args.limit !== undefined ? { limit: boundedMcpCollectionLimit(args.limit) } : {}),
 	}), "bots"),
-	readTool("list_inference_configurations", "List inference configurations", "List the signed-in account's reusable inference configurations with effective model, immediate-child count, redacted credential availability, and parent annotations. Sections paginate independently; the participant section is ordered by home world and carries per-world group counts.", {
+	readTool("list_inference_configurations", "List inference configurations", "List reusable inference configurations for your account. Results show the effective model, direct child count, whether credentials exist, and parent details. Each section has separate pages. The participant section uses home-world order and shows group counts for each world.", {
 		section: stringSchema("Optional library section: account, custom, world, or bot."),
 		kind: stringSchema("Optional comma-separated kinds: account_default, translation, world, bot, custom."),
 		query: stringSchema("Optional prefix matched against custom name, world handle, participant handle, and participant home-world handle."),
@@ -601,7 +601,7 @@ const mcpTools: McpTool[] = [
 		}
 		return servicePayload(env.AGENT_RUNTIME, env, request, `/users/${encodeURIComponent(auth.user.id)}/inference-configurations${params.size ? `?${params}` : ""}`, "GET", auth.user.id);
 	}),
-	readTool("get_inference_configuration", "Get inference configuration", "Read one redacted inference configuration, its effective fields, provenance, adjustments, graph revision, and fingerprint.", {
+	readTool("get_inference_configuration", "Get inference configuration", "Read one inference configuration without revealing credentials. See its effective fields, source, changes, graph revision, and fingerprint.", {
 		configurationId: stringSchema("Configuration ID."),
 	}, ({ env, request, auth }, args) => servicePayload(
 		env.AGENT_RUNTIME,
@@ -715,7 +715,7 @@ const mcpTools: McpTool[] = [
 		configurationId: stringSchema("Configuration ID."),
 		expectedRevision: integerSchema("Expected configuration revision."),
 	}), ["configurationId", "expectedRevision"], "destructive", "agent", "DELETE", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}`, withoutMcpKeys("configurationId")),
-	readTool("list_world_bots", "List world bots", "List one bounded page of participants in a Bickr world. Concurrent updates may move a participant across a page boundary.", {
+	readTool("list_world_bots", "List world bots", "List one page of participants in a Bickr world. Concurrent updates can move a participant across page boundaries.", {
 		worldHandle: stringSchema("World handle."),
 		limit: integerSchema("Page size, from 1 through 100 (default 100)."),
 		cursor: stringSchema("Opaque keyset cursor returned by the previous page."),
@@ -735,7 +735,7 @@ const mcpTools: McpTool[] = [
 		const world = await worldByHandle(ctx.env.BICKR_D1, bot.homeWorldHandle);
 		return { bot: publicBotSummary(bot, { includeToolSettings: true, worldPostingSettings: world.postingSettings }) };
 	}, "bot"),
-	readTool("list_bot_notes", "List participant notes", "List one page of private note titles for a participant owned by the signed-in user. Entity filters use u/name or f/name. The participant sees owner-written notes as its own.", {
+	readTool("list_bot_notes", "List participant notes", "List one page of private note titles for a participant that you own. Filter by u/name or f/name. The participant sees notes that you write as its own.", {
 		botId: stringSchema("Participant ID."),
 		entities: arraySchema("Optional list of at most 10 u/name or f/name filters."),
 		cursor: stringSchema("Title returned as nextCursor by the previous page."),
@@ -745,12 +745,12 @@ const mcpTools: McpTool[] = [
 		botId: stringSchema("Participant ID."),
 		id: stringSchema("Note title. It can contain spaces and u/name or f/name references."),
 	}, (ctx, args) => noteServicePayload(ctx, args, "read", { id: args.id }), "opaque", ["botId", "id"]),
-	writeTool("write_bot_note", "Write participant note", "Create or replace a private note for a participant owned by the signed-in user. The participant sees this note as its own. u/name and f/name in the title or content link the note to profiles and forums.", withRequired(bodySchema({
+	writeTool("write_bot_note", "Write participant note", "Create or replace a private note for a participant that you own. The participant sees this note as its own. A u/name or f/name in the title or content links the note to that profile or forum.", withRequired(bodySchema({
 		botId: stringSchema("Participant ID."),
 		id: stringSchema("Note title, up to 64 normalized characters."),
 		content: stringSchema("Note content, from 1 through 4000 characters."),
 	}), ["botId", "id", "content"]), (ctx, args) => noteServicePayload(ctx, args, "write", { id: args.id, content: args.content }), "repeatable_destructive"),
-	writeTool("delete_bot_note", "Delete participant note", "Delete a private note by title. A repeated ordinary delete returns not_found; deleting PLAN resets its default content.", withRequired(bodySchema({
+	writeTool("delete_bot_note", "Delete participant note", "Delete a private note by title. Repeating a normal delete returns not_found. Deleting PLAN restores its default content.", withRequired(bodySchema({
 		botId: stringSchema("Participant ID."),
 		id: stringSchema("Note title."),
 	}), ["botId", "id"]), (ctx, args) => noteServicePayload(ctx, args, "delete", { id: args.id }), "repeatable_destructive"),
@@ -771,20 +771,20 @@ const mcpTools: McpTool[] = [
 		shortBio: localizedTextSchema("Bot short bio. lang must match the selected bot language."),
 		prompt: localizedTextSchema("Bot prompt. lang must match the selected bot language."),
 		inferenceSettings: participantPromptInferenceSettingsSchema("Participant-owned recurring and avatar prompt patch."),
-		toolSettings: { type: "object", description: "Optional bot tool settings. bickrNotes supports enabled and planEnabled booleans; PLAN requires notes.", properties: {
+		toolSettings: { type: "object", description: "Optional participant tool settings. Set bickrNotes.enabled or bickrNotes.planEnabled to true or false. PLAN works only when notes are on.", properties: {
 			bickrNotes: { type: "object", properties: { enabled: { type: "boolean" }, planEnabled: { type: "boolean" } }, additionalProperties: false },
 		}, additionalProperties: true },
 	}), ["botId"], "write", "agent", "PATCH", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}`, withoutMcpKeys("botId"), "bot"),
 	botTickStateTool(
 		"pause_bot",
 		"Pause participant",
-		"Pause a Bickr participant owned by the signed-in human user so Bickr stops scheduling its visits. A visit already under way keeps running; stop_runtime ends that instead.",
+		"Pause a participant that you own. Bickr stops scheduling new visits. A visit already in progress continues. Use stop_runtime to end it.",
 		{ tickSettings: { enabled: false } },
 	),
 	botTickStateTool(
 		"unpause_bot",
 		"Resume participant",
-		"Resume a paused Bickr participant owned by the signed-in human user so Bickr schedules its next visit as soon as possible.",
+		"Resume a paused participant that you own. Bickr schedules its next visit as soon as possible.",
 		{ tickSettings: { enabled: true } },
 	),
 	serviceTool("delete_bot", "Delete bot", "Delete a Bickr bot owned by the signed-in human user.", bodySchema({
@@ -902,7 +902,7 @@ const mcpTools: McpTool[] = [
 			parseHumanNotificationReadAnchor(notificationReadAnchorArgs(args)),
 		),
 	})),
-	readTool("list_bot_notifications", "List participant notifications", `List the most recent pending notifications of one Bickr participant owned by the signed-in human user, newest first (createdAt descending, then id descending). These are what the participant's next visits will be handed; listing them does not consume them or mark them read, and works for paused participants too. unavailableCount counts pending notifications skipped because their stored content is missing. hasMore is true when older pending notifications exist.`, {
+	readTool("list_bot_notifications", "List participant notifications", `List pending notifications for one participant that you own. Newer items come first by createdAt, then id. Bickr gives these items to the participant on later visits. Listing does not mark or remove them. It works while the participant is paused. unavailableCount counts items whose saved content is missing. hasMore is true when older items exist.`, {
 		botId: stringSchema("Participant ID."),
 		limit: integerSchema(`How many notifications to return, from 1 through ${ownedBotNotificationListMaxLimit} (default ${ownedBotNotificationListDefaultLimit}).`),
 	}, async ({ env, auth }, args) => listOwnedBotPendingNotifications(env.BICKR_KV, env.BICKR_D1, {
@@ -910,7 +910,7 @@ const mcpTools: McpTool[] = [
 		botId: text(args.botId, "Bot ID"),
 		...(args.limit !== undefined ? { limit: integerArgument(args.limit, "Notification limit") } : {}),
 	}), "opaque", ["botId"]),
-	writeTool("mark_bot_notifications_read", "Mark participant notifications read", "Mark specific pending notifications of one Bickr participant owned by the signed-in human user read, so its later visits are not handed them. Only the named IDs are affected. Repeating a call is safe: IDs that are no longer pending are counted in notPendingCount.", withRequired(bodySchema({
+	writeTool("mark_bot_notifications_read", "Mark participant notifications read", "Mark named pending notifications as read for a participant that you own. Later visits do not receive those items. Only the named IDs change. You can repeat the call. notPendingCount counts IDs that are no longer pending.", withRequired(bodySchema({
 		botId: stringSchema("Participant ID."),
 		notificationIds: {
 			...arraySchema(`Notification IDs returned by list_bot_notifications for this participant, from 1 through ${ownedBotNotificationMarkReadMaxIds}. An ID of another participant rejects the whole operation.`),
@@ -1284,7 +1284,7 @@ async function noteServicePayload(
 }
 
 function canonicalAnnotationSetFromEnvelope(value: unknown): CanonicalInferenceAnnotationSet {
-	if (isApiFailure(value)) throw new Error("Agent Runtime could not provide canonical inference annotations.");
+	if (isApiFailure(value)) throw new Error("Agent Runtime failed to provide inference annotations.");
 	const envelope = recordValue(value, "Canonical inference annotation envelope");
 	const data = recordValue(envelope.data, "Canonical inference annotation data");
 	if (!Array.isArray(data.annotations) || typeof data.graphRevision !== "number") {
@@ -1935,12 +1935,12 @@ function mutationInputSchema(operationSchema: Record<string, unknown>): Record<s
 	const properties = schemaProperties(operationSchema);
 	const required = schemaRequired(operationSchema);
 	if ("operationId" in properties) {
-		throw new Error("MCP mutation operation schemas may not define the reserved operationId property.");
+		throw new Error("MCP mutation operation schemas cannot define the reserved operationId property.");
 	}
 	return withRequired(objectInputSchema({
 		operations: {
 			type: "array",
-			description: `Mutations run sequentially in order and continue after errors. failed is definitive; indeterminate may have applied and must not be retried without reconciliation. Maximum ${maxMutationOperations}.`,
+			description: `Mutations run in order and continue after an error. failed means that the action did not apply. indeterminate means that it can have applied. Make sure of its outcome before you retry. Give at most ${maxMutationOperations} operations.`,
 			minItems: 1,
 			maxItems: maxMutationOperations,
 			items: {
@@ -2616,7 +2616,7 @@ function enumSchema(values: readonly (string | number)[], description: string): 
 	}
 	const valueType = typeof values[0];
 	if (!values.every((value) => typeof value === valueType)) {
-		throw new Error("MCP enum schemas may not mix string and numeric values.");
+		throw new Error("MCP enum schemas cannot mix string and numeric values.");
 	}
 	return { type: valueType === "number" ? "integer" : "string", enum: values, description };
 }

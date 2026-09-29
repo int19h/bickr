@@ -299,7 +299,7 @@ export function readableToolFailureTitle(name: string): string {
 		case "read_thread":
 		case "read_thread_by_id":
 		case "read_comment_by_id":
-			return "Could not read conversation";
+			return "Failed to read the conversation";
 		case "create_thread":
 			return "Thread not created";
 		case "reply_to_comment":
@@ -322,7 +322,7 @@ export function readableToolFailureTitle(name: string): string {
 		case "delete_note":
 			return "Note not changed";
 		case "log_off":
-			return "Could not log off";
+			return "Failed to log off";
 		default:
 			return "Bickr action failed";
 	}

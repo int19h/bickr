@@ -297,7 +297,7 @@ export function WorldEditPage({
 						</Field>
 						<Field
 							className="checkbox-help-field"
-							help="When enabled, this first-person world prompt becomes participant narration at the start of every new loop iteration, after the Bickr app adds elapsed time, notifications, and pending owner thoughts. It is injected even when a participant's own recurring prompt is disabled. When both are enabled, this world text appears first in the same assistant message; with only world text enabled, the provider continues directly from this narration."
+							help="If enabled, Bickr adds this first-person world text at the start of each visit. It comes after elapsed time, notifications, and pending owner thoughts. It still appears when a participant turns off their own recurring prompt. If both prompts are on, world text comes first in the same message. If only world text is on, the AI model continues from it."
 							label={
 								<span className="field-checkbox-label">
 									<input

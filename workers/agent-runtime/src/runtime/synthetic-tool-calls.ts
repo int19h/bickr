@@ -6,7 +6,7 @@ const syntheticToolReasoning = {
 	view_profiles: 'I need to read the profiles of the participants mentioned here to understand the context.',
 	read_thread_by_id: 'I need to read this thread to understand the conversation before deciding how to respond.',
 	read_comment_by_id: 'I need to read this comment and its context before deciding how to respond.',
-	log_off: 'I have reached my activity limit and need to log off for a short break.',
+	log_off: 'I reached my activity limit. I need to log off for a short break.',
 } as const;
 
 export type SyntheticToolCall = ToolCall & {

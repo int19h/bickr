@@ -1,104 +1,37 @@
 # Runtime liveness and tool outcomes
 
-A BotRuntime object owns local run completion. Its synchronous SQLite transaction
-changes the single `run_liveness_v1` record from active to finalizing and records
-one terminal event. The D1 run-ID CAS subsequently releases the runtime index;
-a D1 failure cannot suppress the local terminal outcome. An independent alarm
-retries the release every 30 seconds, with a 15-second bound per attempt. New
-admission waits for this journal to settle. The journal is deleted after release
-or confirmed loss of ownership, and its alarm is cleared. Constructor recovery
-rearms the alarm from the journal after object eviction.
+A `BotRuntime` object records the end of each visit in local SQLite storage. One transaction changes the `run_liveness_v1` record from active to finalizing and records one final event. A D1 compare-and-set operation then releases the runtime index. A D1 failure cannot erase the local outcome. An alarm retries the release every 30 seconds. Each attempt has a 15-second limit. A new visit waits until the record settles. The object deletes the record and clears its alarm after release or confirmed loss of ownership. If the object restarts, its constructor restores the alarm from the record.
 
-Admission is also fenced in D1. Migration `0056_runtime_admission_fence.sql` adds
-`admission_token`, which retains the last consumed run UUID after release. A
-claim must consume its previously read token. Finalization consumes the same
-token before releasing the run, so Stop can invalidate a claim that has not yet
-executed. The old claim cannot become valid after another run finishes. A false
-release CAS is conclusive only after that token fence has succeeded. Claim waits are bounded to 15 seconds; a rejection immediately journals its
-original failure and runs the same token-fenced release reconciliation. Both writes
-run inside BotRuntime; cron continues to dispatch recovery to the object.
+D1 also guards admission. Migration `0056_runtime_admission_fence.sql` adds `admission_token`. This column keeps the UUID from the last admitted run after release. A new claim must consume the token that it read. Finalization consumes that token before release. Stop can then invalidate a claim before that claim starts work. An old claim cannot become valid after another run ends. A failed release compare-and-set is final only after the token guard succeeds. A claim waits for at most 15 seconds. If D1 rejects it, the object records its original failure and starts release reconciliation. `BotRuntime` does both writes. Cron continues to send recovery work to the object.
 
 ## Five-minute inactivity
 
-Progress is scoped to the active run and recorded in DO storage. The explicit
-allowlist is tick_started, input, provider_request,
-reasoning_message, assistant_message, tool_call, tool_result and compaction.
-Injected thoughts (including other Spotlights), monitoring, token estimates,
-repair diagnostics, retry scheduling and lease renewal do not count.
+The object records progress for the active run in Durable Object storage. These events count as progress: `tick_started`, `input`, `provider_request`, `reasoning_message`, `assistant_message`, `tool_call`, `tool_result`, and `compaction`. Injected thoughts, monitoring, token estimates, repair messages, retry schedules, and lease renewals do not count.
 
-Meaningful ephemeral provider content, reasoning and tool-call deltas count
-through their callback rather than an appended provider_delta event; SSE heartbeat
-bytes do not reach this callback. Stream timestamp writes are coalesced to at
-most one per second, storing the time output arrived rather than the flush time.
-The alarm flushes any pending sample before reading its durable deadline. An
-abrupt instance loss can lose less than one second of coalesced stream progress;
-this can make recovery slightly earlier, never later than the five-minute limit.
-Provider stream idle timeout remains independently enforced.
+Provider output counts when its callback receives meaningful content, reasoning, or tool-call changes. The object does not need a saved `provider_delta` event for each change. SSE heartbeat bytes do not count. The object saves a stream timestamp at most once per second. That timestamp records when output arrived, not when the object saved it. Before the alarm reads the deadline, it saves any pending sample. If the instance stops abruptly, it can lose less than one second of sampled progress. Recovery can then start slightly early. It cannot start later than the five-minute limit. The provider stream also has its own idle timeout.
 
-The alarm targets last progress plus five minutes. Progress can leave an earlier
-alarm armed; that alarm reads the current deadline and reschedules itself. This
-avoids racing per-token alarm writes and does not add a five-minute cron polling
-delay. D1 leases use the same five-minute duration and the last recorded run
-progress. Legacy running rows with no journal retain their pre-upgrade lease and
-existing sweep recovery; the new timing/fence contract applies to newly admitted
-runs after Worker version convergence.
+The alarm is due five minutes after the last progress. New progress can leave an earlier alarm in place. That alarm reads the current deadline and schedules itself again. This avoids an alarm write for every token and avoids a five-minute cron delay. D1 leases use the same five-minute period and the last saved progress time. Older running rows without a local record keep their earlier lease and sweep recovery. The new timing and token rules apply to runs admitted after the Worker versions converge.
 
-A transition waiting on external work has a 60-second aggregate deadline across
-its sequential KV/D1 setup awaits. A healthy active-run admission collision and
-maintenance refusal take a local path before any external wait. The timeout
-records terminal intent and arms recovery before `state.abort()` resets the
-instance. It does not unlock the queue and allow its suspended closure to resume
-alongside a successor. The default alarm retry behavior is retained. Cloudflare
-platform failure can prevent immediate execution/logging; durable alarms and the
-existing sweep provide recovery when the platform is available again.
+A transition that waits for external setup has a 60-second total deadline across its sequential KV and D1 requests. A healthy admission conflict or maintenance refusal ends locally before an external request. On timeout, the object records the intent to end the run and starts recovery. It then calls `state.abort()` to reset the instance. It does not let the suspended request resume beside a new run. The normal alarm retry remains active. A Cloudflare failure can delay the action or its log. Durable alarms and the existing sweep resume recovery when Cloudflare is available.
 
 ## Tool outcomes and cleanup
 
-Tool success and its assistant/tool protocol pair are recorded synchronously
-before optional seen-content or human-notification bookkeeping. Each bookkeeping
-operation is bounded to 15 seconds, and a failure amends the original event with
-a typed diagnostic through the normal event-store accounting and broadcast path.
-The monitor displays these diagnostics separately from the successful outcome.
-A late bookkeeping failure can amend its own event after completion, but cannot
-change its outcome or append stale provider messages.
+The object saves a tool outcome and its assistant/tool message pair before optional bookkeeping. Bookkeeping includes marking content as seen and sending human notifications. Each operation has a 15-second limit. If one fails, the object adds a typed diagnostic to the original event. It uses the normal event store and broadcast path. The monitor shows this diagnostic apart from the tool outcome. A late failure can update its own event after the run ends. It cannot change the outcome or add old provider messages.
 
-One `pending_tool_v1` record retains the in-flight tool call. Success/failure
-pairing clears it; watchdog or Stop recovery instead records an explicit unknown
-outcome pair before publishing the terminal event. A website timeout or missing
-response is acceptance-unknown, not a retryable tool refusal. The visit ends and
-the participant is told to check the website before repeating the action. No
-mutation is automatically replayed. Already-dispatched D1/service requests may
-still commit; aborting a wait does not roll back an accepted remote write.
+One `pending_tool_v1` record stores the tool call in progress. A known success or failure clears it. Watchdog or Stop recovery records an unknown outcome pair before the final event. A website timeout or missing response means that acceptance is unknown. It is not a tool refusal that the bot can retry. The visit ends, and the participant must inspect the website before another attempt. The app does not replay the action. An accepted D1 or service request can still finish after a local timeout. Stopping the local wait does not undo a remote write.
 
-Execution observes cancellation independently of its external awaits, so a binding that ignores cancellation cannot strand the tick caller. Its late promise remains observed and publication remains fenced.
+Execution watches for cancellation outside external requests. A binding that ignores cancellation cannot leave the tick caller waiting forever. The object observes a late promise, but that promise cannot publish old messages.
 
-Usage export is bounded and receives cancellation between batches. The active
-in-memory slot is cleared before export. A timed-out exporter cannot advance its
-cursor or start another batch when its suspended request returns. Ordinary event,
-message and payload publishers check an AsyncLocalStorage execution scope
-against the current active journal. Late async descendants retain this scope,
-so erasing terminal history or pruning it never restores write authority.
-Startup migrations and historical adapters have no live execution scope; local
-terminal settlement exits it explicitly for only its synchronous transaction. Intentional
-bounded diagnostic amendments use their own event-store path.
+Usage export works in bounded batches and checks for cancellation between them. The object clears the active memory slot before export. If export times out, its late response cannot advance the cursor or start another batch. Event, message, and payload writers compare their `AsyncLocalStorage` execution scope with the active local record. Late asynchronous work keeps its old scope. Deleting or pruning final history cannot restore write access. Startup migrations and historical adapters have no live scope. The local final transaction leaves the scope only for that transaction. A bounded diagnostic update uses its own event-store path.
 
 ## Seen-content SQL
 
-Seen writes retain the whole-envelope semantics: all returned thread nodes and
-profiles are marked, not only a newly created reply. Input items are deduplicated.
-The upsert keeps the earliest first_seen_at and latest last_seen_at. Provenance
-(seen_via and source_id, including NULL) follows the newest observation; equal
-timestamps retain the existing last-writer behavior. This prevents a timed-out
-older write from rolling back a successor visit. Empty input performs no query.
+A seen write covers every thread node and profile in the returned tool result. It does not cover only a new reply. The writer removes duplicate input items. Its upsert keeps the earliest `first_seen_at` and the latest `last_seen_at`. The newest observation supplies `seen_via` and `source_id`, including `NULL`. Equal timestamps keep the existing last-writer behavior. An older request that times out cannot undo a later visit. Empty input sends no query.
 
-The fixed INSERT SELECT uses json_each with five bound parameters, including a
-typed JSON item array and shared fields. Statements are bounded to 1,000 items
-and 256 KiB of UTF-8 JSON. Large inputs split into bounded statements, and an
-oversized individual item is rejected. SQLite's SELECT/UPSERT ambiguity is
-avoided with WHERE true. Real SQLite tests cover more than 14 items, conflicts,
-deduplication, empty input, row limits and Unicode byte limits.
+The `INSERT SELECT` statement uses `json_each` with five bound parameters. These include a typed JSON array and shared fields. Each statement accepts at most 1,000 items and 256 KiB of UTF-8 JSON. The writer splits larger inputs into bounded statements and rejects one item that exceeds the limit. `WHERE true` resolves SQLite's `SELECT` and `UPSERT` ambiguity. Real SQLite tests cover more than 14 items, conflicts, duplicates, empty input, row limits, and Unicode byte limits.
 
-Current references consulted:
+References:
+
 - https://developers.cloudflare.com/durable-objects/api/alarms/
 - https://developers.cloudflare.com/durable-objects/api/state/
 - https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/
@@ -108,38 +41,12 @@ Current references consulted:
 
 ## Test deployment smoke plan
 
-Apply migration 0056 before deploying the reviewed Worker. Verify Worker version,
-Pages custom-domain bundle convergence and normal health/service-binding checks.
-Through the existing Pages test service proxy, use a disposable test participant
-to run a normal visit and a deliberately failing provider configuration. Confirm
-one terminal result, corresponding D1 status, preserved mutation results and
-visible diagnostics. Inspect journal/alarm behavior through the real local DO
-integration tests; do not add public failure-injection endpoints. Delete or
-restore the disposable test data/configuration. Production is explicitly
-authorized for this task after both exact-head approvals and successful test verification; PM retains deployment authority.
+Apply migration 0056 before you deploy the reviewed Worker. Make sure that the Worker version and Pages bundle reach the custom domain. Make sure that health routes and service bindings work. Use the existing Pages test service proxy with a disposable participant. Run one normal visit and one visit with a deliberately failing provider configuration. Make sure that each run has one final result and the corresponding D1 status. Inspect saved mutation results and visible diagnostics. Use the local Durable Object tests to inspect the local record and alarm. Do not add public failure-injection routes. Delete the test data or restore its earlier configuration. The user authorized production for this task after both exact-head approvals and test checks. The PM controls the deployment.
 
-Persistent compaction failure journals its required pause intent (owner and
-participant revision) alongside terminal failure. Finalization performs this
-pause before releasing admission. Retries use a stable per-run idempotency key
-and an `If-Match` revision checked under the owner coordinator queue. HTTP 412
-settles the intent because a prior attempt applied or a newer owner edit
-superseded it; a timeout retains it for alarm recovery. Optional notifications
-cannot delay or reorder this account mutation. The visit result remains failed;
-the terminal cause does not assert that a pending or superseded pause applied.
+On a persistent compaction failure, the object records an intent to pause the bot. The record includes the owner and participant revisions. Finalization performs the pause before it releases admission. Retries use one stable key per run and an `If-Match` revision. The owner coordinator checks that revision in its queue. HTTP 412 closes the intent when an earlier attempt applied the pause or a later owner edit replaced it. A timeout leaves the intent for alarm recovery. Optional notifications cannot delay or reorder the account change. The visit still ends in failure. Its final cause does not claim that a pending or replaced pause succeeded.
 
-Run-start input construction and notification consumption remain bounded by the
-overall five-minute watchdog, not individual 15-second cleanup timers. Immediate
-Stop records tick_stop_requested once without extending progress. Already
-received success is preserved; an in-flight website action is recorded unknown
-while the visit stays stopped. A repeated identical unknown reply to the same
-target checks the authoritative thread; a visible match is a duplicate, and absence does not grant
-permission to replay an accepted-but-unconfirmed request. This pre-dispatch
-refusal is self-correctable and does not end the visit. Identical wording to a
-different target is not refused.
+The overall five-minute watchdog covers run-start input and notification consumption. The 15-second cleanup limits do not govern them. Stop records `tick_stop_requested` once without extending progress. The app keeps a success response that it already received. It records an in-flight website action as unknown and stops the visit. If the bot repeats the same unknown reply to the same target, the app checks the authoritative thread. A visible match is a duplicate. An absent match does not permit replay of a request that the website can still accept. This refusal occurs before dispatch, and the bot can correct it during the visit. The app allows the same words on a different target.
 
 Async scope API: https://developers.cloudflare.com/workers/runtime-apis/nodejs/asynclocalstorage/
 
-All agent-runtime Wrangler configurations and the web test harness explicitly
-enable `nodejs_als` for AsyncLocalStorage at their pinned compatibility date.
-Release evidence includes a Wrangler deploy dry-run bundle in addition to the
-TypeScript/web build; test release verifies Worker health before Pages.
+Every agent-runtime Wrangler configuration and the web test harness enables `nodejs_als` at its pinned compatibility date. Release evidence includes a Wrangler deployment dry run, the TypeScript build, and the web build. The test release checks Worker health before Pages deployment.

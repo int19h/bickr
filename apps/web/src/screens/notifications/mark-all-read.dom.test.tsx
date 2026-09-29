@@ -320,7 +320,7 @@ describe("mark all read", () => {
 		expect(serverRows.filter((row) => row.readAt).map((row) => row.id)).toEqual(["hnt_older", "hnt_b"]);
 		expect(renderedReadState()).toEqual({ hnt_b: "unread", hnt_a: "unread", hnt_older: "unread" });
 		expect(unreadBadge()).toBe("3 unread");
-		expect(summaryLine()).toContain("Could not refresh notifications.");
+		expect(summaryLine()).toContain("Failed to refresh notifications.");
 
 		failLoads = false;
 		act(() => {

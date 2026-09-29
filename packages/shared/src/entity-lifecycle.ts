@@ -654,7 +654,7 @@ async function beginDeleteLifecycleInternal(
 			}
 		}
 		if ((results.at(-1)?.meta?.changes ?? 0) !== 1) {
-			throw new RepositoryError("server_error", "Lifecycle deletion could not hide its active projection.", 500);
+			throw new RepositoryError("server_error", "Lifecycle deletion failed to hide its active record.", 500);
 		}
 	} catch (error) {
 		if (error instanceof RepositoryError || !isD1UniqueConstraintError(error)) {
@@ -753,7 +753,7 @@ export async function activateLifecycleEntity(
 	]);
 	const indexResult = results[projectionStatements.length + extensionStatements.length + 1];
 	if ((indexResult?.meta?.changes ?? 0) !== 1) {
-		throw new RepositoryError("server_error", "Lifecycle activation could not expose the entity.", 500);
+		throw new RepositoryError("server_error", "Lifecycle activation failed to make the entity visible.", 500);
 	}
 }
 

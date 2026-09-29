@@ -57,7 +57,7 @@ export class ToolOutcomeUnknownError extends Error {
 	readonly kind = 'tool_outcome_unknown';
 	readonly originalError: unknown;
 	constructor(originalError: unknown) {
-		super('The website action may have completed, but its result could not be confirmed. Check the website before attempting the action again.');
+		super('We do not know whether the website action finished. Look at the website before you try again.');
 		this.name = 'ToolOutcomeUnknownError';
 		this.originalError = originalError;
 	}

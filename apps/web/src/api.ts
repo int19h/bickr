@@ -72,7 +72,7 @@ async function requestJson<T>(
 	try {
 		text = await response.text();
 	} catch {
-		return abortedOrNetworkFailure(timedOut(), signal, "Network response could not be read.");
+		return abortedOrNetworkFailure(timedOut(), signal, "Failed to read the network response.");
 	}
 	let payload: unknown = null;
 	try {
@@ -108,7 +108,7 @@ export async function apiResponseErrorMessage(response: Response): Promise<strin
 	try {
 		text = await response.text();
 	} catch {
-		return response.statusText || "Network response could not be read.";
+		return response.statusText || "Failed to read the network response.";
 	}
 	try {
 		const payload = text ? JSON.parse(text) as unknown : null;

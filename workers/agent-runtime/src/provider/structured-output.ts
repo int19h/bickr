@@ -107,7 +107,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		if (toolCalls.length > 0) {
 			const repairMessage =
 				spec.kind === 'compaction'
-					? "META: don't make any tool calls. You must reply with the structured detailed first-person summary strictly following the required JSON schema."
+					? "META: Do not call tools. Reply with a detailed first-person summary that follows the required JSON schema."
 					: `Do not use a Bickr control for this response. Reply with the required JSON object containing only ${spec.property}.`;
 			throw new ProviderStructuredOutputValidationError(spec.kind, repairMessage, {
 				rawResponse,

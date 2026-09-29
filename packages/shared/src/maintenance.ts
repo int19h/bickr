@@ -53,7 +53,7 @@ export async function readMaintenanceState(db: D1DatabaseLike): Promise<Maintena
 			.bind(maintenanceControlId)
 			.first<MaintenanceRow>();
 	} catch (error) {
-		throw new MaintenanceControlUnavailableError('The maintenance control could not be read.', { cause: error });
+		throw new MaintenanceControlUnavailableError('Failed to read the maintenance control.', { cause: error });
 	}
 	if (!row || (row.enabled !== 0 && row.enabled !== 1) || !row.message || !row.updatedAt) {
 		throw new MaintenanceControlUnavailableError('The maintenance control row is missing or invalid.');

@@ -479,7 +479,7 @@ async function reserveContentId(
 			return id;
 		}
 	}
-	throw repositoryError("server_error", "Could not reserve a content reference.", 500);
+	throw repositoryError("server_error", "Failed to reserve a content reference.", 500);
 }
 
 export function rootCommentForThread(thread: ThreadDocument): CommentDocument {
@@ -5268,7 +5268,7 @@ export async function sendSpotlightBatch(
 					status: "not_injected",
 					botId,
 					cause: "inject_error",
-					message: outcome.reason instanceof Error ? outcome.reason.message : "The spotlight could not be delivered.",
+					message: outcome.reason instanceof Error ? outcome.reason.message : "Spotlight delivery failed.",
 				}
 			),
 		);
@@ -5361,7 +5361,7 @@ async function deliverSpotlightToBot(
 		await recordSpotlightDelivery(db, { ...row, botId, injectedText: draft.injectedText, result });
 		return result;
 	} catch (error) {
-		return injectedTickFailed(error instanceof Error ? error.message : "The spotlight visit could not be started.");
+		return injectedTickFailed(error instanceof Error ? error.message : "The spotlight visit failed to start.");
 	}
 }
 

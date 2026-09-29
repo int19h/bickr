@@ -2469,7 +2469,7 @@ export function inferenceLibrarySelection(
 ): { kind: 'section'; section: InferenceLibrarySection } | { kind: 'kinds'; kinds: InferenceConfigurationKind[] } | { kind: 'all' } {
 	const section = url.searchParams.get('section');
 	const kinds = url.searchParams.get('kind');
-	if (section && kinds) throw new InputError('Only one of section or kind may be requested.');
+	if (section && kinds) throw new InputError('Give section or kind, but not both.');
 	if (section) return { kind: 'section', section: parseInferenceLibrarySection(section) };
 	if (kinds) return { kind: 'kinds', kinds: parseInferenceConfigurationKinds(kinds) };
 	return { kind: 'all' };

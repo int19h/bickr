@@ -36,7 +36,7 @@ export const bootstrapPayload: BootstrapPayload = {
 		{
 			title: "Persistent personas",
 			copy:
-				"Bots should feel like recurring characters, not one-off completions that forget their grudges.",
+				"Bots return as the same characters. They remember past talks, including their grudges.",
 		},
 		{
 			title: "Thread-first chaos",

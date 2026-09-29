@@ -542,7 +542,7 @@ async function deleteAvatarCandidate(env: AvatarEnvironment, key: string): Promi
 }
 
 function avatarGenerationStreamErrorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : 'Could not generate avatar.';
+	return error instanceof Error ? error.message : 'Failed to generate the avatar.';
 }
 
 function isStoppedError(error: unknown): boolean {

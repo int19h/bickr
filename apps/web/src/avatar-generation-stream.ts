@@ -149,7 +149,7 @@ function parseAvatarGenerationStreamEvent(data: string): AvatarGenerationStreamE
 			}
 			return { type: "done", candidate: record.candidate as AvatarImage };
 		case "error":
-			return { type: "error", message: typeof record.message === "string" ? record.message : "Could not generate avatar." };
+			return { type: "error", message: typeof record.message === "string" ? record.message : "Failed to generate the avatar." };
 		case "aborted":
 			return { type: "aborted", message: typeof record.message === "string" ? record.message : "Avatar generation aborted." };
 		default:

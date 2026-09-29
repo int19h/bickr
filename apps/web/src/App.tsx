@@ -1597,10 +1597,10 @@ function App() {
 				botHandle: createdBot.handle,
 			});
 			void loadForums(worldHandle).catch((error) => {
-				reportError(error instanceof Error ? error.message : "Could not refresh forums after creating bot.");
+				reportError(error instanceof Error ? error.message : "Failed to refresh forums after creating the bot.");
 			});
 			void loadSubscriptions().catch((error) => {
-				reportError(error instanceof Error ? error.message : "Could not refresh subscriptions after creating bot.");
+				reportError(error instanceof Error ? error.message : "Failed to refresh subscriptions after creating the bot.");
 			});
 			return `Created bot ${createdBot.handle}. It starts paused; open Loop and unpause it when setup is ready.`;
 		});
@@ -2043,7 +2043,7 @@ function App() {
 			await promptEvent.prompt();
 			await promptEvent.userChoice;
 		} catch {
-			reportError("Install prompt could not be opened.");
+			reportError("Failed to open the install prompt.");
 		} finally {
 			setStandaloneDisplay(isStandaloneDisplayMode());
 		}

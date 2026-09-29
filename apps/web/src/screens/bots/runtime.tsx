@@ -345,7 +345,7 @@ export function BotRuntimePanel({
 				try {
 					handleMonitorPayload(JSON.parse(event.data) as RuntimeMonitorPayload);
 				} catch (error) {
-					setMessage(error instanceof Error ? error.message : "Could not read monitor update.");
+					setMessage(error instanceof Error ? error.message : "Failed to read the monitor update.");
 				}
 			};
 		}
@@ -584,7 +584,7 @@ export function BotRuntimePanel({
 		const saved = await onSave(bot.id, { tickSettings: { enabled } });
 		setTogglingEnabled(false);
 		if (!saved) {
-			setMessage("Could not update loop state.");
+			setMessage("Failed to update the loop state.");
 			await refresh();
 			return;
 		}
@@ -849,7 +849,7 @@ export function BotRuntimePanel({
 				payload={openLoopMessageLogs}
 			/>
 			<Confirm
-				body="Erase this participant's loop chat ledger, retained raw provider logs, legacy runtime events, streamed text, compaction summaries, and pending injected thoughts. Notes, forum threads, and comments will remain."
+				body="Erase this participant's visit chat, raw AI model logs, older runtime events, streamed text, summaries, and pending owner thoughts. Notes, forum threads, and comments remain."
 				confirmText="Reset loop"
 				danger
 				onClose={() => setClearConfirm(false)}
@@ -858,7 +858,7 @@ export function BotRuntimePanel({
 				title="Reset Loop History"
 			/>
 			<Confirm
-				body="Replace the whole active loop chat with one summary message. This keeps the conversation usable after major changes, but the exact message-by-message history for the compacted span will no longer be replayed to the provider."
+				body="Replace the active visit chat with one summary. The AI model will use that summary instead of each message in the replaced part of the chat."
 				confirmText="Compact chat"
 				danger
 				onClose={() => setCompactConfirm(false)}

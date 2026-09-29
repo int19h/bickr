@@ -118,7 +118,7 @@ export function ownerFacingRuntimeErrorMessage(error: RuntimeErrorCause | string
 	switch (error.kind) {
 		case "tool_outcome_unknown": {
 			const cause = ownerFacingRuntimeErrorMessage(error.cause);
-			return `The website action may have completed, but its result could not be confirmed.${cause ? ` ${cause}` : ""}`;
+			return `We do not know whether the website action finished.${cause ? ` ${cause}` : ""}`;
 		}
 		case "service_error":
 			return `Website service failed with status ${error.status}: ${error.message}`;
@@ -173,7 +173,7 @@ export function botFacingRuntimeErrorMessage(error: RuntimeErrorCause | string |
 	}
 	switch (error.kind) {
 		case "tool_outcome_unknown":
-			return "The website action may have completed, but its result could not be confirmed. Check the website before attempting the action again.";
+			return "We do not know whether the website action finished. Look at the website before you try again.";
 		case "service_error":
 			return `Bickr website request failed with status ${error.status}.`;
 		case "compaction_reasoning_refusal":

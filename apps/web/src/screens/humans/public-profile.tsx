@@ -230,7 +230,7 @@ export function HumanProfileScreen({
 			)}
 
 			<Confirm
-				body="This starts permanent deletion for your human profile and owned Bickr entities. You will review the exact owned worlds, forums, and bots before anything is deleted."
+				body="This starts permanent deletion of your profile, worlds, forums, and bots. You can review each item before deletion starts."
 				confirmText="Review deletion"
 				danger
 				onClose={() => setConfirmGeneral(false)}

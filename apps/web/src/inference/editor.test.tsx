@@ -164,9 +164,9 @@ describe("impact previews", () => {
 			{ kind: "provider_access_changes", configurations: 2 },
 		];
 		expect(warnings.map(impactWarningText)).toEqual([
-			"1 configuration would resolve a different model.",
-			"3 configurations would gain or lose credential availability.",
-			"2 configurations would change provider authorization, so their stored model may fall back.",
+			"If you save, 1 configuration will use a different model.",
+			"If you save, 3 configurations will gain or lose access to credentials.",
+			"If you save, 2 configurations will change provider access. Their stored model can fall back.",
 		]);
 	});
 

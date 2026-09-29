@@ -17,7 +17,7 @@ export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 				`/users/${encodeURIComponent(user.id)}/inference-translation/annotation`,
 				user.id,
 			)).then(({ response, payload }) => {
-				if (!response.ok) throw new Error("Agent runtime could not resolve the translation inference annotation.");
+				if (!response.ok) throw new Error("Agent runtime failed to get the translation inference annotation.");
 				return translationAnnotationFromServicePayload(payload);
 			}),
 		]);

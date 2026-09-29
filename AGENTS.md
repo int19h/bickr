@@ -1,47 +1,45 @@
-In general: code quality matters. Avoid hacky solutions and don't ignore issues by claiming that they are "corner cases". A corner case is no less valuable, and a bug is a bug. Layering workarounds on top of broken code leads to more bugs so don't do that! If you have a choice between a major refactor that will do the Right Thing, and a small change that's patching over the problem or solving it in a hacky way, prefer the major refactor. Be aggressive about removing unused code. Make sure that your comments provide sufficient context as to _why_ something non-obvious is done the way it is, not just _what_ it does.
+Write code that is correct and clear. Treat every bug as important, even when it affects a rare case. Fix the cause of a bug. Do not add a workaround on top of broken code. When a larger change improves correctness, choose it over a narrow patch. Remove unused code. Explain why the code needs a non-obvious choice in comments.
 
-When choosing between a narrow targeted fix and a broader correctness-first fix, prefer the broader "right thing" fix whenever it materially improves correctness.
-
-Use strong typing to your advantage. Prefer approaches that guarantee correctness by construction: for example, prefer strongly typed data where types capture constraints and invariants as much as possible over ad hoc stringing together of things. Use typeclasses judiciously to extract common features and enable their use without duplication. 
+Use types to express constraints and rules about the data. Use type classes when they remove repeated code without hiding behavior.
 
 ## Engineering Guardrails
 
-- **Never branch on error message text.** Attach typed causes at the throw site (error classes, structured fields such as provider status or OpenRouter `metadata.error_type`) and match on those. Message-sniffing is permitted only at true third-party boundaries where nothing structured exists (e.g. D1's "LIKE or GLOB pattern too complex"), kept in one place and commented as such. Owner-facing error wording is composed from structured data — never regex-rewritten from other error strings.
-- **Enforce invariants where data is written, not by repairing it on read.** If you are about to add a scan-and-fix pass over stored data before using it, stop: fix the writer and add a one-time migration instead. Repair-on-read layers accumulate, diverge from each other, and hide the original bug.
-- **Migrate-on-read shims are temporary by definition.** Every normalization added for an old stored shape must name its retirement path (sweep job, `schemaVersion` bump, then shim deletion). Never stack a second shim on top of an unretired first.
-- **No duck-typed shape sniffing across internal boundaries.** When one subsystem consumes another's results (tool results, service payloads), the producer defines a discriminated union with a `kind` field and the consumer switches on it exhaustively. "Has `id` and `title`, so probably a thread" checks are only acceptable inside a single clearly-marked legacy adapter.
-- **Provider quirks live in the capabilities table** (`openrouter-model-capabilities.ts`), consulted before building the request — not inferred from error prose at runtime. A runtime fallback for unknown models may exist, but it feeds a capabilities-table update; it does not become the mechanism.
-- **Soft delete must not squat unique keys.** When soft-deleting an entity whose handle/name carries a UNIQUE constraint, tombstone the key (`deleted-<id>` style, as users already do) in the same write. Map unexpected uniqueness violations to 409 conflict responses, never 500.
-- **Every new table, KV prefix, or DO-storage table declares its retention** at creation, in a comment next to the schema. Unbounded append-only stores need an explicit justification. Queries over growing tables must be bounded (LIMIT, cursor, or indexed cutoff) — no full scans or `LIKE '%…%'` probes on hot paths.
-- **Serialized write paths must not have side doors.** If an entity's mutations are serialized through a Durable Object, *all* mutations go through that DO — including admin, seed, and cleanup paths. Remember that DO input gates do not cover KV/D1/service-binding awaits: any check-then-act across such an await needs a compare-and-set or an in-instance operation queue.
-- **Prompt-facing text is composed at the generation site.** No English sentences as type or JSON keys, and no post-hoc rewriting of arbitrary stored text (see Bot-Facing Prompt Terminology below for the terminology-specific version of this rule).
-- **Tests live next to their subsystem.** Do not grow `test/index.spec.ts`; new agent-runtime tests go in per-subsystem spec files under `test/`, and modules extracted from a monolith take their tests with them.
-- **Applied migrations are append-only.** Never rename or renumber one (D1 tracks them by filename and would re-apply), and never reuse a numeric prefix.
+- Do not branch on error message text. Attach a typed cause when you throw an error. Match on the error class or a structured field, such as provider status or OpenRouter `metadata.error_type`. You can inspect text at a third-party boundary when the source gives no structured cause. Keep that code in one place and explain it. For example, D1 gives only "LIKE or GLOB pattern too complex". Build owner-facing errors from structured data. Do not rewrite other error strings with a regular expression.
+- Enforce data rules when you write data. If stored data needs repair before use, fix the writer and add a one-time migration. Do not add a scan that repairs data on each read. Such scans can disagree and hide the original bug.
+- A migration on read is temporary. For each old data shape, name how you will remove the temporary code. The path includes a sweep job, a `schemaVersion` change, and removal of the code. Do not add a second layer before you remove the first.
+- Do not guess a result type from its fields across internal boundaries. The producer must define a union with a `kind` field. The consumer must handle every kind. A single marked adapter for old data can inspect fields such as `id` and `title`.
+- Put provider exceptions in `openrouter-model-capabilities.ts`. Read the table before you build a request. Do not infer behavior from runtime error text. A fallback for unknown models can collect evidence for a table update. The fallback must not replace the table.
+- When you soft-delete an item with a unique handle or name, change the key in the same write. Use a tombstone such as `deleted-<id>`, as user deletion does. Return a 409 conflict for an unexpected unique-key violation, not a 500 error.
+- Add a retention rule beside the schema for each new table, KV prefix, or Durable Object table. Explain any store that grows without a limit. Bound queries with `LIMIT`, a cursor, or an indexed cutoff. Do not scan a growing table or use `LIKE '%…%'` on a frequent path.
+- If a Durable Object serializes writes to an item, route every write through it. This includes admin, seed, and cleanup writes. Durable Object input gates do not cover waits for KV, D1, or a service binding. Use a compare-and-set or an in-instance queue for a check followed by an action across such a wait.
+- Compose prompt text where you generate it. Do not use English sentences as type or JSON keys. Do not rewrite arbitrary stored text afterward. The prompt terminology rules below give more detail.
+- Put tests beside their subsystem. Do not add tests to `test/index.spec.ts`. Put new agent runtime tests in subsystem spec files under `test/`. Move tests with modules that you extract from a large file.
+- Do not change an applied migration. D1 tracks migrations by filename and can apply a renamed file again. Do not reuse a numeric prefix.
 
 ## Bot-Facing Prompt Terminology
 
-In-character Bickr-authored text should describe the account as a Bickr participant and other accounts as participants or profiles. Explicit meta instructions may describe the simulation and its AI personas. Technical instructions and diagnostics should name tools, JSON, inference providers, and other mechanisms directly when that makes their meaning clearer.
+In-character text from Bickr calls the account a participant. It calls other accounts participants or profiles. Explicit instructions about the simulation can name AI personas. Technical instructions can name tools, JSON, providers, and other mechanisms when that makes them clearer.
 
-Do not implement blanket terminology filtering or word replacement. User-authored text, participant persona/profile text, forum content, provider diagnostics, model IDs, provider names, and tool results must preserve their original wording except for explicit safety, privacy, or formatting transformations. If a participant's prompt describes it as a bot or AI, that is intentional persona content and must be passed through unchanged.
+Do not filter terms or replace words throughout stored text. Keep the original words in user text, participant profiles, forum content, provider diagnostics, model IDs, provider names, and tool results. Change them only for an explicit safety, privacy, or format rule. If a participant prompt calls the participant a bot or AI, keep that text.
 
-Internal TypeScript types, database columns, API routes, logs, and owner-facing UI may continue using established internal terminology when changing it would create unnecessary churn. When internal concepts enter provider-facing context, choose appropriate wording at the generation site rather than rewriting arbitrary text after the fact.
+TypeScript types, database columns, API routes, logs, and owner-facing UI can keep their established terms when renaming them adds needless work. When you put an internal concept in a provider prompt, choose its words there. Do not rewrite stored text later.
 
 ## Runtime Role Model
 
-In the autonomous Bickr loop, provider chat roles are part of the story structure. The `assistant` role is the Bickr participant's own first-person narration and memory. The `user` role is reserved for environmental narration from Bickr, such as elapsed time or page/world updates. Protocol-required `tool` messages may still carry tool responses. Use "the Bickr app" for in-character environmental narration and specific terms such as "Bickr tools" or "tool results" for technical instructions; do not invent a separate terminal persona.
+Provider chat roles have meaning in the autonomous Bickr loop. The `assistant` role holds the participant's first-person narration and memory. The `user` role holds Bickr's reports about the environment, such as elapsed time and page updates. Required `tool` messages carry tool responses. Call the narrator "the Bickr app" in these reports. Use "Bickr tools" or "tool results" in technical instructions. Do not create a separate terminal persona.
 
 
 
 # Cloudflare Workers And Pages
 
-STOP. Your knowledge of Cloudflare Workers APIs and limits may be outdated. Always retrieve current documentation before any Workers, KV, R2, D1, Durable Objects, Queues, Vectorize, AI, or Agents SDK task.
+Retrieve current Cloudflare documentation before work on Workers, KV, R2, D1, Durable Objects, Queues, Vectorize, AI, or Agents SDK. Stored knowledge can be outdated.
 
 ## Docs
 
 - https://developers.cloudflare.com/workers/
 - MCP: `https://docs.mcp.cloudflare.com/mcp`
 
-Before implementing or changing Cloudflare behavior, use the available Cloudflare docs MCP:
+Before you change Cloudflare behavior, use the Cloudflare docs MCP:
 
 - `mcp__cloudflare_docs__.search_cloudflare_documentation` for Workers, Pages, KV, R2, D1, Durable Objects, Queues, Vectorize, Workers AI, Agents, Workflows, and related docs.
 - `mcp__cloudflare_docs__.migrate_pages_to_workers_guide` before any Pages-to-Workers migration.
@@ -51,7 +49,7 @@ For Cloudflare REST API details and account operations, use the Cloudflare API M
 - `mcp__cloudflare__.search` to inspect the current OpenAPI spec before choosing endpoints or request shapes.
 - `mcp__cloudflare__.execute` only when intentionally making live Cloudflare account API calls.
 
-For all limits and quotas, retrieve from the product's `/platform/limits/` page. eg. `/workers/platform/limits`.
+Read the product's `/platform/limits/` page for limits and quotas. For example, read `/workers/platform/limits` for Workers.
 
 ## Local Cloudflare Skills
 
@@ -74,13 +72,13 @@ Use the local skills in `.agents/skills/` when relevant:
 | `npm run deploy` | Deploy Workers and then Cloudflare Pages |
 | `npm run cf-typegen` | Generate TypeScript types for all Wrangler configs |
 
-Run `npm run cf-typegen` after changing bindings in any `wrangler.jsonc`.
+If you change bindings in a `wrangler.jsonc` file, run `npm run cf-typegen`.
 
 ## Test Backdoor
 
-Use the Pages-only test service proxy for direct service debugging in test. Direct public Worker URLs are intentionally disabled; do not re-enable `workers.dev` or preview Worker URLs for debugging.
+Use the Pages test service proxy to debug services in test. Public Worker URLs are disabled. Do not enable `workers.dev` or preview Worker URLs for this purpose.
 
-The endpoint is `POST https://test.bickr.social/api/__test__/service-proxy`. It is available only when `TEST_AUTH_SECRET` is set and the request host is loopback or listed in `TEST_AUTH_ALLOWED_HOSTS`. Keep the secret out of git and chat logs; locally it should come from `apps/web/.dev.vars`, and remotely it is a Cloudflare Pages secret for the preview environment.
+The endpoint is `POST https://test.bickr.social/api/__test__/service-proxy`. It requires `TEST_AUTH_SECRET` and a host that is loopback or listed in `TEST_AUTH_ALLOWED_HOSTS`. Keep the secret out of git and chat logs. Get the local secret from `apps/web/.dev.vars`. In test, use the Cloudflare Pages preview secret.
 
 Example for reading loop details for any bot, regardless of owner:
 
@@ -100,7 +98,7 @@ curl -sS 'https://test.bickr.social/api/__test__/service-proxy' \
   }'
 ```
 
-Useful agent-runtime paths include `/bots/<bot-id>/status`, `/bots/<bot-id>/messages?page=1`, `/bots/<bot-id>/events?after=0`, and `/bots/<bot-id>/submissions`. Use `"service": "forum-coordinator"` for internal forum coordinator routes. The proxy only allows relative paths and a small debug-header allowlist; never add cookies, authorization headers, or arbitrary browser headers.
+Agent runtime paths include `/bots/<bot-id>/status`, `/bots/<bot-id>/messages?page=1`, `/bots/<bot-id>/events?after=0`, and `/bots/<bot-id>/submissions`. Use `"service": "forum-coordinator"` for internal forum routes. The proxy accepts only relative paths and approved debug headers. Do not add cookies, authorization headers, or other browser headers.
 
 ## Node.js Compatibility
 
@@ -108,7 +106,7 @@ https://developers.cloudflare.com/workers/runtime-apis/nodejs/
 
 ## Errors
 
-- **Error 1102** (CPU/Memory exceeded): Retrieve limits from `/workers/platform/limits/`
+- **Error 1102** (CPU or memory limit): Read `/workers/platform/limits/`.
 - **All errors**: https://developers.cloudflare.com/workers/observability/errors/
 
 ## Product Docs
@@ -118,7 +116,7 @@ Retrieve API references and limits from:
 
 ## D1 Query Shape
 
-Prefer set-oriented D1 queries. When data for multiple rows can be retrieved with one SQL statement, use joins, CTEs, nested queries, `IN`, or `VALUES` tables instead of issuing one D1 query per item. Avoid O(N) D1 query loops in request, tick, scheduler, and fan-out paths; if repeated writes are unavoidable, prefer `D1Database.batch()` or another bounded batch shape over `Promise.all` of individual D1 calls.
+Prefer one D1 query for a set of rows. Use joins, CTEs, nested queries, `IN`, or `VALUES` when one statement can get the data. Do not issue one query per item in request, tick, scheduler, or fan-out paths. If you need repeated writes, use `D1Database.batch()` or another bounded batch instead of `Promise.all` with separate D1 calls.
 
 ## Best Practices (conditional)
 
@@ -130,86 +128,30 @@ If the application uses Durable Objects or Workflows, refer to the relevant best
 ## Herdr Collab
 
 The Herdr Collab project ID for this repository is exactly `bickr`.
-Coordinate through the `herdr-collab` skill and MCP tools; do not infer the project from the checkout path.
+Use the `herdr-collab` skill and MCP tools to coordinate. Do not infer the project from the checkout path.
 
 ## Coordination conventions
 
-Herdr Collab is convention-only coordination, not an enforced state machine or
-a fixed model/provider roster. Define participants, named groups, duties,
-review order, write boundaries, and terminal conditions to fit the task. A
-small isolated fix may need a lead, an implementer, and one independent
-reviewer; a storage migration or runtime concurrency change may need separate
-domain, security, and release reviewers. Record the actual roster and sequence
-in the task brief or linked GitHub issue instead of silently substituting a
-hard-coded fallback chain.
+Herdr Collab records coordination conventions. It does not enforce a fixed workflow or reviewer roster. Choose participants, groups, duties, review order, write boundaries, and end conditions for the task. A small fix can use a lead, an implementer, and one reviewer. A storage or runtime change can need domain, security, and release reviewers. Record the chosen roster and order in the task brief or linked GitHub issue. Do not silently use a fixed fallback order.
 
-A self-contained task may proceed directly from its prompt or durable mail. Use
-a GitHub issue or PR when the task needs durable public acceptance criteria or
-belongs in the project backlog; do not create one solely because the work
-changes product behavior or involves multiple sessions. Search before creating
-a new issue. The task decides whether the primary session implements directly
-or delegates, and Herdr Collab carries durable coordination when more than one
-session participates.
+A self-contained task can start from its prompt or durable mail. Use a GitHub issue or PR for public acceptance criteria or backlog work. Do not create an issue only because product behavior changes or several sessions take part. Search before you create an issue. The task determines whether the primary session implements or delegates. Use Herdr Collab for durable coordination between sessions.
 
-Before a long pause, durably send a handoff naming the task and issue if any,
-assigned branch/worktree and write boundary, exact HEAD, completed and remaining
-checks, decisions, blockers, live-environment state, and relevant message IDs.
+Before a long pause, send a durable handoff. Name the task, issue, branch, worktree, write boundary, and exact HEAD. Include finished and remaining checks, decisions, blockers, live environment state, and relevant message IDs.
 
 ### Task-tailored implementation and review
 
-Scale the workflow to the task rather than treating the following as a required
-state machine. Investigate the affected code, tests, persisted-data and API
-boundaries, live behavior when relevant, and current primary documentation to
-the depth warranted by risk. For any Cloudflare behavior, follow the
-documentation and skill requirements above; Herdr Collab does not implicitly
-provide those sources. Record acceptance criteria, invariants,
-migration/retention requirements, observability, verification, and any selected
-participants or review order in the prompt, durable mail, or issue/PR as
-appropriate.
+Choose a workflow that fits the task. Inspect affected code, tests, stored data, API boundaries, and relevant live behavior. Read current primary documentation to match the risk. For Cloudflare work, follow the documentation and skill rules above. Herdr Collab does not supply those sources. Record acceptance criteria, data rules, migration and retention needs, observability, checks, participants, and review order in the prompt, durable mail, issue, or PR.
 
-The primary session may implement directly or delegate. If implementation,
-concurrent writing, or review is delegated, prompts must state each duty, write
-boundary, branch/worktree where relevant, checks, and handoff order; Herdr
-Collab records but does not enforce these conventions. Avoid concurrent edits
-to overlapping files or worktrees unless explicitly coordinated. Significant
-changes should receive independent review appropriate to their risk and task,
-with the roster and model families chosen for the work rather than by a fixed
-fallback chain.
+The primary session can implement or delegate. If you delegate work or review, state each duty, write boundary, branch or worktree, checks, and handoff order. Herdr Collab records these rules but does not enforce them. Do not edit overlapping files or worktrees at the same time without coordination. Give significant changes independent review that matches their risk. Choose reviewers and models for the work.
 
-When review occurs, the submission must identify full base and head SHAs,
-actual check results, and worktree cleanliness. Reviewers inspect that exact
-commit and confirm cited files came from it rather than a stale checkout. Send
-findings to the session assigned to resolve them. Any code change invalidates
-earlier exact-head approvals; review the successor commit until the task's
-required reviewers approve the same head. Do not treat empty command output as
-a completed review: inspect the session's live state, recover a durable
-result if one exists, and otherwise record the actual failure.
+For a review, give the full base and head SHAs, actual check results, and worktree status. Reviewers must inspect that exact commit and make sure that cited files came from it. Send findings to the session that will fix them. A code change voids approval of the earlier head. Review each new head until all required reviewers approve the same commit. Empty command output does not prove a review finished. Inspect the live session, recover any durable result, or record the failure.
 
-Local candidate checks are `npm test` and `npm run build`. Run affected focused
-tests during implementation and run the required suite on the merge candidate
-before release. Reviewers should inspect the code and reported evidence, not
-redundantly rerun an already reported heavy suite. Deployments are live actions,
-not frozen/local checks.
+Local candidate checks are `npm test` and `npm run build`. Run focused tests while you implement. Run the required suite on the merge candidate before release. Reviewers inspect code and reported evidence. They do not need to repeat a heavy suite that already ran. A deployment changes a live environment.
 
-Merge only the exact approved head from a clean worktree. Deploy that reviewed
-merge to the **test** environment first and verify the deployment itself,
-including relevant health endpoints, service bindings, migrations, and
-custom-domain bundle convergence; command success alone is insufficient. The
-default endpoint is a verified test deployment.
+Merge only the exact approved head from a clean worktree. Deploy the reviewed merge to test first. Make sure that health endpoints, service bindings, migrations, and custom-domain files match the deployment. Command success alone is insufficient. A verified test deployment is the default end point.
 
-Every production deployment requires a fresh, explicit user instruction that
-names production for that task. Never infer authorization from implementation,
-merge, test-deployment permission, “finish” or “ship,” release language, or an
-earlier production authorization. When explicitly authorized, deploy the exact
-reviewed merge from a clean release worktree and verify production health and
-bundle convergence. Send the final result durably and settle required replies
-and acknowledgements before retiring the task sessions.
+Each production deployment needs a fresh user instruction that names production for that task. Implementation, merge, test permission, release language, and earlier production permission do not grant it. If the user authorizes production, deploy the exact reviewed merge from a clean release worktree. Make sure that production health and bundle files match. Send the final result durably. Settle required replies and acknowledgements before you retire task sessions.
 
 ## Local transient storage
 
-Bickr scratch and long-running logs belong under `/build/bickr/scratch/` and
-`/build/bickr/logs/`. Keep large transient output off `/tmp` and out of the
-repository. Node and Wrangler's normal gitignored build output (`node_modules/`,
-`dist/`, `.wrangler/`, and `coverage/`) may remain in the worktree while active,
-but must never be mistaken for source or committed. Anything that must survive
-belongs in the repository, issue/PR, or durable artifact storage.
+Put Bickr scratch files in `/build/bickr/scratch/` and long logs in `/build/bickr/logs/`. Keep large temporary output out of `/tmp` and the repository. Node and Wrangler build output can stay in the worktree during work. This includes `node_modules/`, `dist/`, `.wrangler/`, and `coverage/`. Do not commit that output or treat it as source. Put durable information in the repository, issue, PR, or artifact storage.
