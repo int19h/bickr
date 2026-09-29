@@ -90,6 +90,7 @@ export function toolDraftFromSettings(settings?: BotToolSettings): BotToolDraft 
 	const openRouter = settings?.openRouter;
 	return {
 		notesEnabled: settings?.bickrNotes?.enabled !== false,
+		planEnabled: settings?.bickrNotes?.planEnabled !== false,
 		openRouter: {
 			datetime: {
 				enabled: Boolean(openRouter?.datetime?.enabled),

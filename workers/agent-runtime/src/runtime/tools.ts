@@ -22,6 +22,7 @@ import {
 	unfollowBot,
 } from '@bickr/shared/social';
 import { listForums, RepositoryError } from '@bickr/shared/repository';
+import { planEnabled } from '@bickr/shared/note-settings';
 import { normalizeHandleText } from '@bickr/shared/validation';
 import { legacyStoredToolResultEnvelope } from '@bickr/shared/legacy-tool-result-adapter';
 import type {
@@ -48,7 +49,7 @@ import {
 import { SelfCorrectingToolCallError } from '../errors';
 import { repairInvalidUnicodeText, unicodeSafeSlice } from '../provider/sanitize';
 import { randomIntegersForRanges } from './random-integers';
-import { normalizeNoteId, noteContent, noteFilterReferences, noteLinkViews, noteReferences, resolveNoteLinks, type BotNote, type NoteLink, type NoteListPage } from './notes';
+import { normalizeNoteId, noteContent, noteFilterReferences, noteLinkViews, noteReferences, planNoteId, resolveNoteLinks, type BotNote, type NoteLink, type NoteListPage } from './notes';
 import type { ViewedProfileResult } from '@bickr/shared/tool-results';
 import type {
 	DuplicateReply,
@@ -110,10 +111,10 @@ export type RuntimeToolsRuntime = {
 	providerContentInActiveContext(): ProviderContextContentScope;
 	recentToolResultRows(): RuntimeRow[];
 	setLastSuccessfulLogOffSeq(seq: number, source: 'tool_result'): void;
-	listNotes(cursor: string | null, limit: number, links: readonly NoteLink[], unknownFilters: string[]): NoteListPage;
+	listNotes(cursor: string | null, limit: number, links: readonly NoteLink[], unknownFilters: string[], includePlan: boolean): NoteListPage;
 	readNote(id: string): BotNote | null;
 	writeNote(id: string, content: string, links: readonly NoteLink[]): { kind: 'created' | 'replaced'; note: BotNote };
-	deleteNote(id: string): 'deleted' | 'not_found';
+	deleteNote(id: string): { kind: 'deleted' | 'not_found' } | { kind: 'reset'; note: BotNote };
 	viewProfiles(bot: RuntimeBotDocument, usernames: string[], runId: string, seenVia: string): Promise<ViewedProfileResult[]>;
 };
 
@@ -353,13 +354,14 @@ export class RuntimeTools {
 				const filters = noteFilterReferences(normalizedArgs.entities);
 				const resolved = await resolveNoteLinks(this.runtime.env.BICKR_D1, bot.homeWorldId, filters);
 				const cursor = normalizedArgs.cursor === undefined ? null : normalizeNoteId(normalizedArgs.cursor);
-				const page = this.runtime.listNotes(cursor, numberArg(normalizedArgs.limit, 50, 50), resolved.links, resolved.unknown);
+				const page = this.runtime.listNotes(cursor, numberArg(normalizedArgs.limit, 50, 50), resolved.links, resolved.unknown, planEnabled(bot.toolSettings));
 				result = page;
 				envelope = { kind: 'note_listed', ...page };
 				break;
 			}
 			case 'read_note': {
 				const id = normalizeNoteId(normalizedArgs.id);
+				if (id === planNoteId && !planEnabled(bot.toolSettings)) throw new RepositoryError('forbidden', 'PLAN is unavailable. Choose another note title.', 403, { noteCause: 'reserved_title' });
 				const note = this.runtime.readNote(id);
 				if (!note) throw new RepositoryError('not_found', 'Note not found.', 404);
 				const links = await noteLinkViews(this.runtime.env.BICKR_D1, bot.homeWorldId, note.links);
@@ -369,6 +371,7 @@ export class RuntimeTools {
 			}
 			case 'write_note': {
 				const id = normalizeNoteId(normalizedArgs.id);
+				if (id === planNoteId && !planEnabled(bot.toolSettings)) throw new RepositoryError('forbidden', 'PLAN is unavailable. Choose another note title.', 403, { noteCause: 'reserved_title' });
 				const content = noteContent(normalizedArgs.content);
 				const resolved = await resolveNoteLinks(this.runtime.env.BICKR_D1, bot.homeWorldId, noteReferences(id, content));
 				this.runtime.throwIfStopped(runId, runContext.signal);
@@ -380,10 +383,12 @@ export class RuntimeTools {
 			}
 			case 'delete_note': {
 				const id = normalizeNoteId(normalizedArgs.id);
+				if (id === planNoteId && !planEnabled(bot.toolSettings)) throw new RepositoryError('forbidden', 'PLAN is unavailable. Choose another note title.', 403, { noteCause: 'reserved_title' });
 				this.runtime.throwIfStopped(runId, runContext.signal);
-				if (this.runtime.deleteNote(id) === 'not_found') throw new RepositoryError('not_found', 'Note not found.', 404);
-				result = { deleted: id };
-				envelope = { kind: 'note_deleted', id };
+				const outcome = this.runtime.deleteNote(id);
+				if (outcome.kind === 'not_found') throw new RepositoryError('not_found', 'Note not found.', 404);
+				result = outcome.kind === 'reset' ? { reset: id, content: outcome.note.content } : { deleted: id };
+				envelope = outcome.kind === 'reset' ? { kind: 'note_reset', id, content: outcome.note.content } : { kind: 'note_deleted', id };
 				break;
 			}
 			case 'view_activity': {

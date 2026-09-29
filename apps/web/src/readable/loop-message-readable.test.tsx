@@ -203,6 +203,7 @@ describe("readableToolResultRenderers", () => {
 		{ envelope: { kind: "note_read", id: "about-alice", content: "Met u/alice", links: [] }, expected: "Met u/alice" },
 		{ envelope: { kind: "note_written", outcome: "created", id: "about-alice", content: "Met u/alice", links: [], unknownReferences: [] }, expected: "about-alice" },
 		{ envelope: { kind: "note_deleted", id: "about-alice" }, expected: "Deleted note about-alice" },
+		{ envelope: { kind: "note_reset", id: "PLAN", content: "- Keep PLAN current." }, expected: "Keep PLAN current" },
 		{ envelope: { kind: "content_read", items: [{ kind: "comment", id: reply.id, threadId: thread.id, body: reply.body }] }, expected: "A reply" },
 		{
 			envelope: { kind: "random_integers_drawn", ranges: [{ min: 1, max: 6 }], numbers: [4] },

@@ -2660,6 +2660,10 @@ export function attachTestRunLiveness(runtime: object): RunLiveness {
 }
 
 export function withTestRunLiveness<T extends object>(runtime: T): T {
+	// Prototype-only test runtimes bypass the constructor that provisions PLAN.
+	const notes = (runtime as { notes?: { read?: (id: string) => unknown } }).notes;
+	if (notes) notes.read ??= () => null;
+	else Object.assign(runtime, { notes: { read: () => null } });
 	if (!Object.hasOwn(runtime, 'state')) {
 		// Storage-free loop harnesses deliberately observe publication through
 		// their append-method spies. Do not give them a SQL backend and silently

@@ -85,6 +85,7 @@ export function providerToolResultPayload(
 		return { outcome: semanticResult.outcome, id: semanticResult.id, links: semanticResult.links.map(({ kind, handle, deleted }) => ({ kind, handle, deleted })), unknownReferences: semanticResult.unknownReferences };
 	}
 	if (semanticResult.kind === 'note_deleted') return { deleted: semanticResult.id };
+	if (semanticResult.kind === 'note_reset') return { reset: semanticResult.id, content: semanticResult.content };
 	if (canonical === 'query_followers') {
 		return providerFollowerQueryResult(runtimeRecord(result));
 	}

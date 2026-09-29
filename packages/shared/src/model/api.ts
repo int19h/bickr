@@ -936,6 +936,8 @@ export type ApiErrorDetails = {
 	 * retry and the owner UI both branch on this instead of the message text.
 	 */
 	spotlightCause?: SpotlightErrorCause;
+	/** Cause of a refused note write or edit. */
+	noteCause?: "reserved_title" | "stale_revision" | "title_conflict";
 	/**
 	 * Typed cause for a runtime mutation refused because the participant's
 	 * Durable Object storage has already been fully cleared. Callers branch on

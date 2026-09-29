@@ -750,7 +750,7 @@ const mcpTools: McpTool[] = [
 		id: stringSchema("Note title, up to 64 normalized characters."),
 		content: stringSchema("Note content, from 1 through 4000 characters."),
 	}), ["botId", "id", "content"]), (ctx, args) => noteServicePayload(ctx, args, "write", { id: args.id, content: args.content }), "repeatable_destructive"),
-	writeTool("delete_bot_note", "Delete participant note", "Delete a private note by title. A repeated delete returns not_found as a successful outcome.", withRequired(bodySchema({
+	writeTool("delete_bot_note", "Delete participant note", "Delete a private note by title. A repeated ordinary delete returns not_found; deleting PLAN resets its default content.", withRequired(bodySchema({
 		botId: stringSchema("Participant ID."),
 		id: stringSchema("Note title."),
 	}), ["botId", "id"]), (ctx, args) => noteServicePayload(ctx, args, "delete", { id: args.id }), "repeatable_destructive"),
@@ -771,6 +771,9 @@ const mcpTools: McpTool[] = [
 		shortBio: localizedTextSchema("Bot short bio. lang must match the selected bot language."),
 		prompt: localizedTextSchema("Bot prompt. lang must match the selected bot language."),
 		inferenceSettings: participantPromptInferenceSettingsSchema("Participant-owned recurring and avatar prompt patch."),
+		toolSettings: { type: "object", description: "Optional bot tool settings. bickrNotes supports enabled and planEnabled booleans; PLAN requires notes.", properties: {
+			bickrNotes: { type: "object", properties: { enabled: { type: "boolean" }, planEnabled: { type: "boolean" } }, additionalProperties: false },
+		}, additionalProperties: true },
 	}), ["botId"], "write", "agent", "PATCH", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}`, withoutMcpKeys("botId"), "bot"),
 	botTickStateTool(
 		"pause_bot",

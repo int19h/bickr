@@ -585,6 +585,7 @@ function toolResultSummary(
 	if (envelope?.kind === "note_read") return { title: `Read note ${envelope.id}`, body: envelope.content };
 	if (envelope?.kind === "note_written") return { title: `${envelope.outcome === "created" ? "Created" : "Updated"} note ${envelope.id}`, body: envelope.content };
 	if (envelope?.kind === "note_deleted") return { title: `Deleted note ${envelope.id}`, body: "" };
+	if (envelope?.kind === "note_reset") return { title: `Reset note ${envelope.id}`, body: envelope.content };
 
 	const thread = threadRecord(result);
 	const summary =

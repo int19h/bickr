@@ -5099,6 +5099,7 @@ export function seenItemsFromToolResultEnvelope(envelope: ToolResultEnvelope): S
 		case "note_read":
 		case "note_written":
 		case "note_deleted":
+		case "note_reset":
 		case "random_integers_drawn":
 		case "opaque":
 			return [];
@@ -8747,6 +8748,7 @@ function spotlightStandardHumanNotifications(
 		case "note_read":
 		case "note_written":
 		case "note_deleted":
+		case "note_reset":
 		case "random_integers_drawn":
 		case "opaque":
 			return [];

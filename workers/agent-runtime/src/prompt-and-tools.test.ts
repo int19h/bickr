@@ -116,6 +116,19 @@ describe("Bickr function tools", () => {
 });
 
 describe("standard system prompt", () => {
+	it("explains note tools and hides PLAN instructions when PLAN access is off", () => {
+		const bot = promptParticipant();
+		const allNotes = standardPrompt(bot, "", { includeNotesTools: true, includePlan: true });
+		for (const name of ["list_notes", "read_note", "write_note", "delete_note"]) expect(allNotes).toContain(name);
+		expect(allNotes).toContain("u/username in a note title or content");
+		expect(allNotes).toContain('id "PLAN"');
+		const noPlan = standardPrompt(bot, "", { includeNotesTools: true, includePlan: false });
+		expect(noPlan).toContain("write_note");
+		expect(noPlan).not.toContain("PLAN");
+		const noNotes = standardPrompt(bot, "", { includeNotesTools: false, includePlan: false });
+		expect(noNotes).not.toContain("write_note");
+		expect(noNotes).not.toContain("PLAN");
+	});
 	it("requires valid JSON objects with quoted and escaped string literals", () => {
 		const participant = promptParticipant();
 		const prompt = standardPrompt(participant);

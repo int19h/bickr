@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { extractCanonicalEntityReferences } from '@bickr/shared/mentions';
-import { BotNotesStore, maxNotesPerBot, normalizeNoteId, noteContent, noteFilterReferences, noteReferences } from './notes';
+import { BotNotesStore, defaultPlanContent, maxNotesPerBot, normalizeNoteId, noteContent, noteFilterReferences, noteReferences, planNoteId } from './notes';
 import { runtimeSchema } from './bot-runtime';
 import { createRuntimeTestStorage, type RuntimeTestStorage } from './sqlite-test-helper';
 
@@ -28,8 +28,8 @@ describe('private bot notes', () => {
 		expect(notes.idsForEntity('participant', alice.entityId)).toEqual({ ids: [], total: 0 });
 		expect(notes.list(null, 50, [forum]).ids).toEqual([]);
 
-		expect(notes.delete('meeting')).toBe('deleted');
-		expect(notes.delete('meeting')).toBe('not_found');
+		expect(notes.delete('meeting')).toEqual({ kind: 'deleted' });
+		expect(notes.delete('meeting')).toEqual({ kind: 'not_found' });
 		expect(notes.read('meeting')).toBeNull();
 		expect(notes.allIds()).toEqual([]);
 	});
@@ -61,10 +61,55 @@ describe('private bot notes', () => {
 	});
 
 	it('enforces the write limit without changing existing notes', () => {
-		for (let index = 0; index < maxNotesPerBot; index += 1) notes.write(`n-${index}`, 'initial', []);
+		notes.ensurePlan();
+		const alice = { kind: 'participant' as const, entityId: 'bot-alice', handle: 'alice' };
+		notes.write(planNoteId, '- Ask u/alice.', [alice]);
+		for (let index = 0; index < maxNotesPerBot; index += 1) notes.write(`n-${index}`, 'initial', [alice]);
 		expect(() => notes.write('extra', 'content', [])).toThrow(`at most ${maxNotesPerBot} notes`);
-		expect(notes.write('n-0', 'replacement', []).kind).toBe('replaced');
-		expect(notes.allIds()).toHaveLength(maxNotesPerBot);
+		expect(notes.write('n-0', 'replacement', [alice]).kind).toBe('replaced');
+		expect(notes.allIds()).toHaveLength(maxNotesPerBot + 1);
+		expect(notes.list(null, 50).total).toBe(maxNotesPerBot + 1);
+		expect(notes.idsForEntity('participant', alice.entityId).total).toBe(maxNotesPerBot + 1);
+		expect(notes.idsForEntity('participant', alice.entityId).ids).toHaveLength(maxNotesPerBot + 1);
+	});
+
+	it('keeps PLAN uppercase, preserves edits, and resets it on delete', () => {
+		notes.ensurePlan();
+		expect(normalizeNoteId('plan')).toBe(planNoteId);
+		expect(notes.read(planNoteId)?.content).toBe(defaultPlanContent);
+		const changed = notes.write('Plan', '- Write a poem.', []);
+		notes.ensurePlan();
+		expect(notes.read(planNoteId)?.content).toBe('- Write a poem.');
+		const reset = notes.delete(planNoteId);
+		expect(reset.kind).toBe('reset');
+		expect(notes.read(planNoteId)).toMatchObject({ content: defaultPlanContent, revision: changed.note.revision + 1 });
+	});
+
+	it('moves an older lowercase plan note and its links without changing content', () => {
+		storage.sql.exec('INSERT INTO notes (note_id, content, created_at, updated_at) VALUES (?, ?, ?, ?)', 'plan', '- Visit u/alice.', 'old', 'old');
+		storage.sql.exec('INSERT INTO note_links (note_id, entity_kind, entity_id, handle) VALUES (?, ?, ?, ?)', 'plan', 'participant', 'bot-alice', 'alice');
+		notes.migrateLegacyPlan();
+		notes.ensurePlan();
+		expect(notes.read(planNoteId)).toMatchObject({ content: '- Visit u/alice.', links: [{ entityId: 'bot-alice' }] });
+		expect(notes.allIds()).toEqual([planNoteId]);
+	});
+
+	it('hides PLAN in SQL-backed lists and associated titles when plan access is off', () => {
+		notes.ensurePlan();
+		const alice = { kind: 'participant' as const, entityId: 'bot-alice', handle: 'alice' };
+		notes.write('PLAN', '- Ask u/alice.', [alice]);
+		notes.write('about u/alice', 'Visited.', [alice]);
+		expect(notes.list(null, 50, [], [], false)).toMatchObject({ ids: ['about u/alice'], total: 1 });
+		expect(notes.idsForEntity('participant', alice.entityId, false)).toEqual({ ids: ['about u/alice'], total: 1 });
+		expect(notes.idsForEntity('participant', alice.entityId).total).toBe(2);
+	});
+
+	it('rejects a stale owner edit after a participant write', () => {
+		notes.write('draft', 'first', []);
+		const revision = notes.read('draft')!.revision;
+		notes.write('draft', 'participant edit', []);
+		expect(() => notes.edit('draft', 'draft', 'owner edit', [], revision)).toThrow('changed');
+		expect(notes.read('draft')?.content).toBe('participant edit');
 	});
 
 	it('accepts note IDs longer than profile handles and validates note content', () => {

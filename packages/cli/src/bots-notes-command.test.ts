@@ -21,7 +21,7 @@ async function startStub(): Promise<StubApi> {
 			return { body: { ok: true, data: { outcome: "created", note: { id: request.body.id, content: request.body.content } } } };
 		}
 		if (request.pathname === "/api/me/bots/bot_1/notes/delete") {
-			return { body: { ok: true, data: { outcome: "not_found", id: request.body.id } } };
+			return { body: { ok: true, data: { outcome: request.body.id === "PLAN" ? "reset" : "not_found", id: request.body.id } } };
 		}
 		return undefined;
 	});
@@ -51,5 +51,12 @@ describe("bickr bots notes", () => {
 		expect(api.requests[1]?.body).toEqual({ id: "met u/alice", content: "in f/news" });
 		expect((await runCli(api.port, ["bots", "notes", "write", "bot_1", "--content", "yes", "--", "--special"])).code).toBe(0);
 		expect(api.requests.at(-1)?.body).toEqual({ id: "--special", content: "yes" });
+	}, 30_000);
+
+	it("reports a PLAN reset instead of claiming that the note was removed", async () => {
+		const api = await startStub();
+		const result = await runCli(api.port, ["--format", "human", "bots", "notes", "delete", "bot_1", "PLAN", "--yes"]);
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("PLAN reset to its default content.");
 	}, 30_000);
 });

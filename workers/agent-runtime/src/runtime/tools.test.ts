@@ -300,6 +300,19 @@ describe("draw_random_integers execution", () => {
 });
 
 describe("note tool stop boundary", () => {
+	it('hides the reserved PLAN title when only plan access is off', async () => {
+		const recorder = toolExecutionRecorder();
+		const participant = { ...randomDrawParticipant(), toolSettings: { bickrNotes: { enabled: true, planEnabled: false } } };
+		const context = { mode: 'normal' as const, setupMode: 'new_iteration' as const, signal: new AbortController().signal };
+		for (const [name, args] of [
+			['read_note', { id: 'plan' }],
+			['write_note', { id: 'Plan', content: 'Hidden' }],
+			['delete_note', { id: 'PLAN' }],
+		] as const) {
+			await expect(new RuntimeTools(recorder.runtime).executeTool(participant, 'run-plan-off', name, args, context))
+				.rejects.toMatchObject({ status: 403, details: { noteCause: 'reserved_title' } });
+		}
+	});
 	it("does not write a note when its profile lookup finishes after the visit stops", async () => {
 		const recorder = toolExecutionRecorder();
 		const controller = new AbortController();

@@ -1338,7 +1338,7 @@ describe("Provider requests", () => {
 			blockConcurrencyWhile: (callback: () => Promise<void>) => {
 				pending.push(callback());
 			},
-			storage: { sql },
+			storage: { sql, transactionSync: <T>(closure: () => T) => closure() },
 		};
 		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 		try {
@@ -3627,8 +3627,9 @@ describe("Provider requests", () => {
 
 		it("returns only included notification IDs for delivery marking", async () => {
 			const appendedMessages: Array<Record<string, unknown>> = [];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-				readCommentTreeTokenBudget: async () => 90,
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			notes: { read: () => null },
+			readCommentTreeTokenBudget: async () => 90,
 				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
 					appendedMessages.push(message);
 					return { seq: appendedMessages.length };
@@ -3680,6 +3681,7 @@ describe("Provider requests", () => {
 		it("marks the participant's own thread and comment as u/handle (MYSELF) in synthetic notification context", async () => {
 			const appendedMessages: Array<Record<string, unknown>> = [];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				notes: { read: () => null },
 				readCommentTreeTokenBudget: async () => 4_000,
 				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
 					appendedMessages.push(message);

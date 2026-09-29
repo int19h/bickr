@@ -9,7 +9,27 @@ function call(name: SyntheticToolCall['function']['name']): SyntheticToolCall {
 }
 
 describe('authored synthetic tool reasoning', () => {
-	it.each(['check_notifications', 'view_profiles', 'read_thread_by_id', 'read_comment_by_id', 'log_off'] as const)(
+	it('reads PLAN before notifications with unique IDs and the ordinary note payload', async () => {
+		const captured: { calls: SyntheticToolCall[]; results: ChatMessage[]; narration: string }[] = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: { BICKR_D1: {} },
+			notes: { read: () => ({ id: 'PLAN', content: '- Write a poem.', links: [], revision: 1, createdAt: '', updatedAt: '' }) },
+			appendToolCallChainLoopMessages: (_runId: string, _origin: string, narration: string, calls: SyntheticToolCall[], results: ChatMessage[]) => {
+				captured.push({ calls, results, narration });
+			},
+		});
+		await runtime.appendNotificationSyntheticContext(
+			{ id: 'bot-me', handle: 'me', homeWorldId: 'world', toolSettings: { bickrNotes: { enabled: true, planEnabled: true } } },
+			'run-plan', [], new Set(), { includedContentIds: new Set() },
+		);
+		const chain = captured[0]!;
+		expect(chain.calls.map((call) => call.function.name)).toEqual(['read_note', 'check_notifications']);
+		expect(new Set(chain.calls.map((call) => call.id)).size).toBe(chain.calls.length);
+		expect(chain.results.map((result) => result.tool_call_id)).toEqual(chain.calls.map((call) => call.id));
+		expect(JSON.parse(chain.results[0]!.content as string)).toEqual({ id: 'PLAN', content: '- Write a poem.', links: [] });
+		expect(chain.narration).toContain('PLAN');
+	});
+	it.each(['read_note', 'check_notifications', 'view_profiles', 'read_thread_by_id', 'read_comment_by_id', 'log_off'] as const)(
 		'preserves %s reasoning when preparing provider requests and rewriting IDs', (name) => {
 			const toolCall = call(name);
 			const original = syntheticToolCallMessage(toolCall, null);

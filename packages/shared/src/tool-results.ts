@@ -71,6 +71,7 @@ export type ToolResultEnvelope =
 	| { kind: "note_read"; id: string; content: string; links: NoteToolLink[] }
 	| { kind: "note_written"; outcome: "created" | "replaced"; id: string; content: string; links: NoteToolLink[]; unknownReferences: string[] }
 	| { kind: "note_deleted"; id: string }
+	| { kind: "note_reset"; id: string; content: string }
 	| {
 			kind: "thread_created";
 			thread: ThreadDocument;

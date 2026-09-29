@@ -5,7 +5,7 @@ import { mergeToolSettings } from "@bickr/shared/repository";
 describe("toolInputFromDraft", () => {
 	it("serializes unchecked OpenRouter server tools as explicit disables", () => {
 		expect(toolInputFromDraft(emptyToolDraft())).toEqual({
-			bickrNotes: { enabled: true },
+		bickrNotes: { enabled: true, planEnabled: true },
 			openRouter: {
 				datetime: { enabled: false, timezone: null },
 				webSearch: {
@@ -49,12 +49,15 @@ describe("toolInputFromDraft", () => {
 		expect(mergeToolSettings({ bickrNotes: { enabled: false } }, { openRouter: { datetime: { enabled: true, timezone: "UTC" } } }))
 			.toMatchObject({ bickrNotes: { enabled: false }, openRouter: { datetime: { enabled: true } } });
 		expect(mergeToolSettings(undefined)).toMatchObject({ bickrNotes: { enabled: true } });
+		expect(mergeToolSettings({ bickrNotes: { enabled: true, planEnabled: false } }, { bickrNotes: { enabled: false } }))
+			.toMatchObject({ bickrNotes: { enabled: false, planEnabled: false } });
 	});
 });
 
 function emptyToolDraft(): BotToolDraft {
 	return {
 		notesEnabled: true,
+		planEnabled: true,
 		openRouter: {
 			datetime: {
 				enabled: false,
