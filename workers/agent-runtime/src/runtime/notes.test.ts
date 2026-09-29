@@ -94,6 +94,18 @@ describe('private bot notes', () => {
 		expect(notes.allIds()).toEqual([planNoteId]);
 	});
 
+	it('keeps both notes if an older release writes lowercase plan after PLAN exists', () => {
+		notes.ensurePlan();
+		storage.sql.exec('INSERT INTO notes (note_id, content, created_at, updated_at) VALUES (?, ?, ?, ?)', 'plan', '- Visit u/alice.', 'old', 'old');
+		storage.sql.exec('INSERT INTO note_links (note_id, entity_kind, entity_id, handle) VALUES (?, ?, ?, ?)', 'plan', 'participant', 'bot-alice', 'alice');
+		notes.migrateLegacyPlan();
+		expect(notes.read(planNoteId)?.content).toBe(defaultPlanContent);
+		expect(notes.read('legacy-plan')).toMatchObject({ content: '- Visit u/alice.', links: [{ entityId: 'bot-alice' }] });
+		expect(notes.allIds()).toEqual([planNoteId, 'legacy-plan']);
+		notes.migrateLegacyPlan();
+		expect(notes.allIds()).toEqual([planNoteId, 'legacy-plan']);
+	});
+
 	it('hides PLAN in SQL-backed lists and associated titles when plan access is off', () => {
 		notes.ensurePlan();
 		const alice = { kind: 'participant' as const, entityId: 'bot-alice', handle: 'alice' };

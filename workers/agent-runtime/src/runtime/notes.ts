@@ -121,15 +121,24 @@ export class BotNotesStore {
 		);
 	}
 
-	/** One-time upgrade for notes titled plan before PLAN became a reserved ID. */
+	/** Keep this check while older releases can still write a lowercase plan note during rollback. */
 	migrateLegacyPlan(): void {
 		this.storage.transactionSync(() => {
 			const old = this.storage.sql.exec<{ note_id: string }>('SELECT note_id FROM notes WHERE note_id = ? LIMIT 1', 'plan').toArray()[0];
 			if (!old) return;
 			const current = this.storage.sql.exec<{ note_id: string }>('SELECT note_id FROM notes WHERE note_id = ? LIMIT 1', planNoteId).toArray()[0];
-			if (current) throw new RepositoryError('conflict', 'Two notes use the reserved PLAN title.', 409, { noteCause: 'title_conflict' });
-			this.storage.sql.exec('UPDATE notes SET note_id = ? WHERE note_id = ?', planNoteId, old.note_id);
-			this.storage.sql.exec('UPDATE note_links SET note_id = ? WHERE note_id = ?', planNoteId, old.note_id);
+			let target = planNoteId;
+			if (current) {
+				// Preserve both notes if an old release wrote plan after PLAN was created.
+				for (let suffix = 1; suffix <= maxNotesPerBot + 1; suffix++) {
+					const candidate = suffix === 1 ? 'legacy-plan' : `legacy-plan-${suffix}`;
+					const occupied = this.storage.sql.exec<{ note_id: string }>('SELECT note_id FROM notes WHERE note_id = ? LIMIT 1', candidate).toArray()[0];
+					if (!occupied) { target = candidate; break; }
+				}
+			}
+			if (target === planNoteId && current) throw new RepositoryError('conflict', 'No free title for the old plan note.', 409, { noteCause: 'title_conflict' });
+			this.storage.sql.exec('UPDATE notes SET note_id = ? WHERE note_id = ?', target, old.note_id);
+			this.storage.sql.exec('UPDATE note_links SET note_id = ? WHERE note_id = ?', target, old.note_id);
 		});
 	}
 

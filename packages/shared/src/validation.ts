@@ -987,8 +987,11 @@ function parseToolSettings(value: unknown): BotToolSettingsInput {
 	const settings: BotToolSettingsInput = {};
 	if (record.bickrNotes !== undefined) {
 		const notes = asRecord(record.bickrNotes);
+		if (notes.enabled === undefined && notes.planEnabled === undefined) {
+			throw new InputError("Provide a Bickr notes setting.");
+		}
 		settings.bickrNotes = {
-			enabled: requiredBoolean(notes.enabled, "Bickr notes enabled"),
+			...(notes.enabled === undefined ? {} : { enabled: requiredBoolean(notes.enabled, "Bickr notes enabled") }),
 			...(notes.planEnabled === undefined ? {} : { planEnabled: requiredBoolean(notes.planEnabled, "Bickr PLAN enabled") }),
 		};
 	}

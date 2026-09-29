@@ -1835,12 +1835,7 @@ export class BotRuntime {
 			// nothing to migrate, so on erased storage they would write rows back for
 			// no gain: there is nothing legacy left in it, and never will be.
 			if (!this.runtimeStorageClearedAt) {
-				// Retire this one-time migration after a fleet sweep verifies that every
-				// live object's marker is set; remove the marker reader in that release.
-				if (this.runtimeStateValue('uppercase_plan_note_migrated') !== true) {
-					this.notes.migrateLegacyPlan();
-					this.setRuntimeState('uppercase_plan_note_migrated', true);
-				}
+				this.notes.migrateLegacyPlan();
 				this.notes.ensurePlan();
 				this.migrateLegacyLoopMessages();
 				this.migrateLegacyProviderToolCallHistory();
@@ -6910,7 +6905,7 @@ export class BotRuntime {
 		providerTools: readonly ProviderToolDefinition[] = providerFunctionToolsForBot(bot),
 		toolCalls: BotInferenceToolCalls = 'require',
 	): ChatMessage[] {
-		const baseSystemContent = standardPrompt(bot, bot.worldPrompt, {
+		const baseSystemContent = standardPrompt(bot, bot.worldPrompt ?? '', {
 			includeNotesTools: notesEnabled(bot.toolSettings),
 			includePlan: planEnabled(bot.toolSettings),
 		});

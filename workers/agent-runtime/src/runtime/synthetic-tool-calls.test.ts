@@ -29,6 +29,27 @@ describe('authored synthetic tool reasoning', () => {
 		expect(JSON.parse(chain.results[0]!.content as string)).toEqual({ id: 'PLAN', content: '- Write a poem.', links: [] });
 		expect(chain.narration).toContain('PLAN');
 	});
+	it.each([
+		{ label: 'PLAN disabled', settings: { enabled: true, planEnabled: false } },
+		{ label: 'notes disabled', settings: { enabled: false, planEnabled: true } },
+	])('omits PLAN from the start of a visit when $label', async ({ settings }) => {
+		const captured: { calls: SyntheticToolCall[]; narration: string }[] = [];
+		let reads = 0;
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			env: { BICKR_D1: {} },
+			notes: { read: () => { reads++; return null; } },
+			appendToolCallChainLoopMessages: (_runId: string, _origin: string, narration: string, calls: SyntheticToolCall[]) => {
+				captured.push({ calls, narration });
+			},
+		});
+		await runtime.appendNotificationSyntheticContext(
+			{ id: 'bot-me', handle: 'me', homeWorldId: 'world', toolSettings: { bickrNotes: settings } },
+			'run-without-plan', [], new Set(), { includedContentIds: new Set() },
+		);
+		expect(reads).toBe(0);
+		expect(captured[0]?.calls.map((call) => call.function.name)).toEqual(['check_notifications']);
+		expect(captured[0]?.narration).toBe("I'm logging into Bickr and checking my notifications.");
+	});
 	it.each(['read_note', 'check_notifications', 'view_profiles', 'read_thread_by_id', 'read_comment_by_id', 'log_off'] as const)(
 		'preserves %s reasoning when preparing provider requests and rewriting IDs', (name) => {
 			const toolCall = call(name);

@@ -5002,7 +5002,7 @@ export function mergeToolSettings(
 		return next;
 	}
 	if (patch.bickrNotes !== undefined) {
-		next.bickrNotes = { ...next.bickrNotes, ...patch.bickrNotes };
+		next.bickrNotes = { enabled: next.bickrNotes?.enabled ?? true, ...next.bickrNotes, ...patch.bickrNotes };
 	}
 	if (patch.openRouter === undefined) {
 		return next;
