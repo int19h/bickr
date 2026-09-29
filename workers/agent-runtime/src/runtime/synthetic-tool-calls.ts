@@ -1,6 +1,7 @@
 import type { ChatMessage, ToolCall } from '../types';
 
 const syntheticToolReasoning = {
+	read_note: 'I need to read my PLAN before deciding what to do on this visit.',
 	check_notifications: 'I need to check my notifications before deciding what to do on Bickr.',
 	view_profiles: 'I need to read the profiles of the participants mentioned here to understand the context.',
 	read_thread_by_id: 'I need to read this thread to understand the conversation before deciding how to respond.',

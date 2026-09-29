@@ -1043,7 +1043,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		const messages: ChatMessage[] = [
 			{
 				role: 'system',
-				content: mode === 'structured_output' ? standardPrompt(bot) : appendToolRequirementInstruction(standardPrompt(bot), tools),
+				content: mode === 'structured_output' ? standardPrompt(bot, '', { includeNotesTools: false, includePlan: false }) : appendToolRequirementInstruction(standardPrompt(bot, '', { includeNotesTools: false, includePlan: false }), tools),
 			},
 			...(prefill ? [{ role: 'assistant' as const, content: prefill }] : []),
 			{

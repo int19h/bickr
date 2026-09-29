@@ -627,7 +627,12 @@ export function BotEdit({
 							/>
 							<span>Allow this participant to keep private notes</span>
 						</label>
-						<p className="help">You can read and delete these notes on this participant's Notes tab. Disabling this tool keeps existing notes.</p>
+						<p className="help">You can create, read, edit, and delete notes on this participant's Notes tab. Disabling notes keeps them stored.</p>
+						<label className="check-row">
+							<input checked={draft.tools.planEnabled} disabled={!draft.tools.notesEnabled} onChange={(event) => setDraft((current) => ({ ...current, tools: { ...current.tools, planEnabled: event.target.checked } }))} type="checkbox" />
+							<span>Show the PLAN note at the start of each visit</span>
+						</label>
+						<p className="help">PLAN stays stored when you turn it off. The participant cannot see or change it until you turn it on.</p>
 					</section>
 
 					<section className="section">

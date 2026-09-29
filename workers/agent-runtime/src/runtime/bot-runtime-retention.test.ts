@@ -311,7 +311,7 @@ describe('BotRuntime storage retention', () => {
 		// the schema created — a table added later cannot be left behind.
 		expect(Object.keys(body.data.cleared.deletedRowsByTable).sort()).toEqual(tableNames().sort());
 		expect(body.data.cleared.deletedRows).toBeGreaterThan(0);
-		expect(body.data.cleared.deletedRowsByTable.notes).toBe(1);
+		expect(body.data.cleared.deletedRowsByTable.notes).toBe(2);
 		expect(body.data.cleared.deletedRowsByTable.note_links).toBe(1);
 		for (const table of tableNames()) {
 			// The cleared tombstone is the one row the rebuilt storage keeps: it is
@@ -344,7 +344,7 @@ describe('BotRuntime storage retention', () => {
 		addInternalServiceAuthHeader(headers, internalServiceSecret);
 		const response = await runtime.fetch(new Request(internalServiceUrl(`/bots/${botId}/events`), { method: 'DELETE', headers }));
 		expect(response.status).toBe(200);
-		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM notes`)[0]?.count).toBe(1);
+		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM notes`)[0]?.count).toBe(2);
 		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM note_links`)[0]?.count).toBe(1);
 	});
 
@@ -554,9 +554,9 @@ describe('BotRuntime storage retention', () => {
 		expect((await request('usr-visitor', 'POST', '/list', { cursor: 'private' })).status).toBe(403);
 		expect((await request('usr-visitor', 'POST', '/write', { id: 'private', content: 'changed' })).status).toBe(403);
 		expect((await request('usr-visitor', 'POST', '/delete', { id: 'private' })).status).toBe(403);
-		expect(await (await request('usr-owner', 'GET', '')).json()).toMatchObject({ data: { ids: ['private'] } });
+		expect(await (await request('usr-owner', 'GET', '')).json()).toMatchObject({ data: { ids: ['PLAN', 'private'] } });
 		expect(await (await request('usr-owner', 'POST', '/list', { limit: 1 })).json())
-			.toMatchObject({ data: { ids: ['private'], total: 1, nextCursor: null } });
+			.toMatchObject({ data: { ids: ['PLAN'], total: 2, nextCursor: 'PLAN' } });
 		expect((await request('usr-owner', 'POST', '/list', { limit: 51 })).status).toBe(400);
 		expect(await (await request('usr-owner', 'POST', '/read', { id: 'private' })).json())
 			.toMatchObject({ data: { note: { id: 'private', content: 'A private thought' } } });
@@ -567,7 +567,33 @@ describe('BotRuntime storage retention', () => {
 		expect((await request('usr-owner', 'POST', '/delete', { id: 'private' })).status).toBe(200);
 		expect(await (await request('usr-owner', 'POST', '/delete', { id: 'private' })).json())
 			.toMatchObject({ data: { outcome: 'not_found', id: 'private' } });
-		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM notes`)[0]?.count).toBe(1);
+		expect(rows<{ count: number }>(`SELECT COUNT(*) AS count FROM notes`)[0]?.count).toBe(2);
+	});
+
+	it('creates and edits owner notes without overwriting titles or stale revisions', async () => {
+		const runtime = construct();
+		const request = (path: string, body: unknown) => {
+			const headers = new Headers({ 'x-bickr-user-id': 'usr-owner', 'content-type': 'application/json' });
+			addInternalServiceAuthHeader(headers, internalServiceSecret);
+			return runtime.fetch(new Request(internalServiceUrl(`/bots/${botId}/notes/${path}`), {
+				method: 'POST', headers, body: JSON.stringify(body),
+			}));
+		};
+		const created = await request('create', { id: 'New Note', content: 'First' });
+		expect(created.status).toBe(200);
+		expect((await created.json()) as object).toMatchObject({ data: { note: { id: 'new note', revision: 0 } } });
+		const collision = await request('create', { id: ' new  note ', content: 'Replace?' });
+		expect(collision.status).toBe(409);
+		expect((await collision.json()) as object).toMatchObject({ details: { noteCause: 'title_conflict' } });
+		const edited = await request('edit', { id: 'new note', nextId: 'Renamed', content: 'Second', expectedRevision: 0 });
+		expect(edited.status).toBe(200);
+		expect((await edited.json()) as object).toMatchObject({ data: { note: { id: 'renamed', content: 'Second', revision: 1 } } });
+		const stale = await request('edit', { id: 'renamed', nextId: 'renamed', content: 'Old owner edit', expectedRevision: 0 });
+		expect(stale.status).toBe(409);
+		expect((await stale.json()) as object).toMatchObject({ details: { noteCause: 'stale_revision' } });
+		const reserved = await request('edit', { id: 'renamed', nextId: 'plan', content: 'No', expectedRevision: 1 });
+		expect(reserved.status).toBe(409);
+		expect((await reserved.json()) as object).toMatchObject({ details: { noteCause: 'reserved_title' } });
 	});
 
 	function insertMessage(

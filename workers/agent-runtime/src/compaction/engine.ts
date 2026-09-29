@@ -16,6 +16,7 @@ import {
 	type JsonObject,
 } from '@bickr/shared/model';
 import { isOpenRouterProviderBaseUrl } from '@bickr/shared/inference-settings';
+import { planEnabled } from '@bickr/shared/note-settings';
 import {
 	isMetaCompactionToolDefinition,
 	metaCompactionToolDefinition,
@@ -197,7 +198,10 @@ export function providerCompactionSystemInstruction(
 				...(setting ? [`Setting:\n${setting}`] : []),
 				`You MUST use ${providerCompactionToolName}. Do not use any other Bickr control.`,
 			].join('\n\n')
-		: appendToolRequirementInstruction(standardPrompt(bot, bot.worldPrompt), tools);
+		: appendToolRequirementInstruction(standardPrompt(bot, bot.worldPrompt ?? '', {
+			includeNotesTools: tools.some((tool) => 'function' in tool && tool.function.name === 'read_note'),
+			includePlan: planEnabled(bot.toolSettings),
+		}), tools);
 }
 
 const compactionImmediateSummaryInstruction =

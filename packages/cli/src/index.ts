@@ -458,7 +458,12 @@ async function botsNotesCommand(ctx: CommandContext, args: string[]): Promise<vo
 		return;
 	}
 	requireYes(options.flags, "note deletion");
-	await printMutation(ctx, ctx.client.request(`${path}/delete`, { method: "POST", body: { id } }), "Note deletion complete.");
+	const envelope = await ctx.client.request(`${path}/delete`, { method: "POST", body: { id } });
+	printEnvelope(ctx.output, envelope, (data) => {
+		const outcome = (data as { outcome?: string }).outcome;
+		const message = outcome === "reset" ? "PLAN reset to its default content." : outcome === "not_found" ? "Note was already absent." : "Note deleted.";
+		return `${message}\n${JSON.stringify(data, null, 2)}`;
+	});
 }
 
 async function readStdinText(): Promise<string> {

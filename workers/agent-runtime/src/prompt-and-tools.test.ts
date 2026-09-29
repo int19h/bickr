@@ -116,16 +116,29 @@ describe("Bickr function tools", () => {
 });
 
 describe("standard system prompt", () => {
+	it("explains note tools and hides PLAN instructions when PLAN access is off", () => {
+		const bot = promptParticipant();
+		const allNotes = standardPrompt(bot, "", { includeNotesTools: true, includePlan: true });
+		for (const name of ["list_notes", "read_note", "write_note", "delete_note"]) expect(allNotes).toContain(name);
+		expect(allNotes).toContain("u/username in a note title or content");
+		expect(allNotes).toContain('id "PLAN"');
+		const noPlan = standardPrompt(bot, "", { includeNotesTools: true, includePlan: false });
+		expect(noPlan).toContain("write_note");
+		expect(noPlan).not.toContain("PLAN");
+		const noNotes = standardPrompt(bot, "", { includeNotesTools: false, includePlan: false });
+		expect(noNotes).not.toContain("write_note");
+		expect(noNotes).not.toContain("PLAN");
+	});
 	it("requires valid JSON objects with quoted and escaped string literals", () => {
 		const participant = promptParticipant();
-		const prompt = standardPrompt(participant);
+		const prompt = standardPrompt(participant, "", { includeNotesTools: true, includePlan: true });
 
 		expect(prompt).toContain("Arguments for every Bickr tool must be a valid JSON object.");
 		expect(prompt).toContain("Every string literal, including authored prose, must be properly quoted and escaped.");
 	});
 
 	it("defines the composite self-author label without treating it as a handle argument", () => {
-		const prompt = standardPrompt(promptParticipant());
+		const prompt = standardPrompt(promptParticipant(), "", { includeNotesTools: true, includePlan: true });
 		const identityContract = `Your Bickr handle is u/foo
 
 In structured Bickr tool results, the author label u/foo (${providerSelfAuthor}) identifies content you wrote. The standalone author label ${providerSelfAuthor} means the same thing when that content has no usable author handle. Never write the (${providerSelfAuthor}) annotation in a thread, comment, reason, or any other content you author, and never include it in a Bickr tool argument. When a Bickr tool argument requests a participant handle or username, use only u/foo, without the (${providerSelfAuthor}) annotation.`;

@@ -4,7 +4,8 @@ import { runtimeDiagnostics, type RuntimeDiagnostic } from '@bickr/shared/runtim
 import { eventFromRow } from './events';
 import { ToolOutcomeUnknownError } from '../errors';
 import { completeToolBookkeeping } from './tools';
-import { BotNotesStore, normalizeNoteId, noteContent, noteFilterReferences, noteLinkViews, noteReferences, resolveNoteLinks, type BotNoteView } from './notes';
+import { BotNotesStore, normalizeNoteId, noteContent, noteFilterReferences, noteLinkViews, noteReferences, planNoteId, resolveNoteLinks, type BotNoteView } from './notes';
+import { notesEnabled, planEnabled } from '@bickr/shared/note-settings';
 import { type RuntimePauseIntent, proposedRunNextDueAt, runKeepsStandingSchedule, RunLiveness, untilRunStopped, boundedCleanup, runInactivityMs, finalizationRetryMs, transitionTimeoutMs, isRunProgressEvent } from './run-liveness';
 import { fail, ok, readJsonBody } from '@bickr/shared/api';
 import {
@@ -1015,7 +1016,7 @@ export function providerFunctionToolsForBot(
 ): ProviderToolDefinition[] {
 	const tickSettings = effectiveTickSettings(bot.tickSettings);
 	return toolDefinitionsForProviderRound(tickSettings.compactionMaxCharacters, {
-		includeNotesTools: bot.toolSettings?.bickrNotes?.enabled !== false,
+		includeNotesTools: notesEnabled(bot.toolSettings),
 		includeMetaCompactionTool: settings?.compactionMode === 'tool_call_cache_friendly',
 		includeLogOffTool: tickSettings.allowEarlyLogOff,
 		postingLimits: bot.effectivePostingSettings ?? effectivePostingSettings(undefined, bot.postingSettings),
@@ -1258,22 +1259,23 @@ export function providerMessagesWithReasoningPrefill(messages: ChatMessage[], re
 
 function contextBudgetPromptParts(bot: RuntimeBotDocument, settings: ProviderSettings): ContextBudgetPromptParts {
 	const { tools: providerTools } = providerToolsForBotRound(bot, settings);
+	const promptOptions = { includeNotesTools: notesEnabled(bot.toolSettings), includePlan: planEnabled(bot.toolSettings) };
 	const fixedSystemToolInstructionTools = providerTools;
 	const worldPrompt = stringValue(bot.worldPrompt) ?? '';
 	const botWithoutPrompt = { ...bot, prompt: { lang: bot.language, text: '' } };
 	const ordinaryToolCalls = providerToolCallsForSettings(settings);
 	const fixedSystemMessage =
 		ordinaryToolCalls === 'at_will'
-			? standardPrompt(botWithoutPrompt, '')
-			: appendToolRequirementInstruction(standardPrompt(botWithoutPrompt, ''), fixedSystemToolInstructionTools);
+			? standardPrompt(botWithoutPrompt, '', promptOptions)
+			: appendToolRequirementInstruction(standardPrompt(botWithoutPrompt, '', promptOptions), fixedSystemToolInstructionTools);
 	const personaSystemMessage =
 		ordinaryToolCalls === 'at_will'
-			? standardPrompt(bot, '')
-			: appendToolRequirementInstruction(standardPrompt(bot, ''), fixedSystemToolInstructionTools);
+			? standardPrompt(bot, '', promptOptions)
+			: appendToolRequirementInstruction(standardPrompt(bot, '', promptOptions), fixedSystemToolInstructionTools);
 	const fullSystemMessage =
 		ordinaryToolCalls === 'at_will'
-			? standardPrompt(bot, worldPrompt)
-			: appendToolRequirementInstruction(standardPrompt(bot, worldPrompt), fixedSystemToolInstructionTools);
+			? standardPrompt(bot, worldPrompt, promptOptions)
+			: appendToolRequirementInstruction(standardPrompt(bot, worldPrompt, promptOptions), fixedSystemToolInstructionTools);
 	return {
 		baseUrl: settings.baseUrl,
 		fixedSystemMessage,
@@ -1766,12 +1768,13 @@ CREATE TABLE IF NOT EXISTS loop_message_log_chunks (
 	text TEXT NOT NULL,
 	PRIMARY KEY (log_id, chunk_index)
 );
--- Retention: notes remain until the participant deletes one or the participant is deleted and its runtime storage is fully cleared.
+-- Retention: ordinary notes remain until deleted or storage is fully cleared. PLAN is created at live startup and reset after deletion.
 CREATE TABLE IF NOT EXISTS notes (
 	note_id TEXT PRIMARY KEY,
 	content TEXT NOT NULL,
 	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL
+	updated_at TEXT NOT NULL,
+	revision INTEGER NOT NULL DEFAULT 0
 );
 -- Retention: links follow their note and the same full-clear rule.
 CREATE TABLE IF NOT EXISTS note_links (
@@ -1832,6 +1835,8 @@ export class BotRuntime {
 			// nothing to migrate, so on erased storage they would write rows back for
 			// no gain: there is nothing legacy left in it, and never will be.
 			if (!this.runtimeStorageClearedAt) {
+				this.notes.migrateLegacyPlan();
+				this.notes.ensurePlan();
 				this.migrateLegacyLoopMessages();
 				this.migrateLegacyProviderToolCallHistory();
 				this.observeProviderToolCallHistoryInvariantAfterStartupMigration();
@@ -1876,6 +1881,13 @@ export class BotRuntime {
 		this.ensureProviderUsageColumns();
 		this.ensureInferenceSubmissionColumns();
 		this.ensureLoopMessageColumns();
+		this.ensureNoteColumns();
+	}
+
+	/** Old objects need this column before a note write can use revision guards. */
+	private ensureNoteColumns(): void {
+		const columns = new Set(this.state.storage.sql.exec<{ name: string }>('PRAGMA table_info(notes)').toArray().map((row) => row.name));
+		if (!columns.has('revision')) this.state.storage.sql.exec('ALTER TABLE notes ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
 	}
 
 	private ensureInjectionColumns(): void {
@@ -2288,6 +2300,29 @@ export class BotRuntime {
 			const written = this.writeNote(id, content, resolved.links);
 			return ok({ outcome: written.kind, note: written.note, unknownReferences: resolved.unknown });
 		}
+		if (request.method === 'POST' && url.pathname.endsWith('/notes/create')) {
+			await this.requireOwnerOrInternal(request, botId);
+			const body = runtimeRecord(await readJsonBody(request));
+			const id = normalizeNoteId(body.id);
+			const content = noteContent(body.content);
+			const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
+			const resolved = await resolveNoteLinks(this.env.BICKR_D1, bot.homeWorldId, noteReferences(id, content));
+			this.requireWritableRuntimeStorage();
+			return ok({ note: this.notes.create(id, content, resolved.links), unknownReferences: resolved.unknown });
+		}
+		if (request.method === 'POST' && url.pathname.endsWith('/notes/edit')) {
+			await this.requireOwnerOrInternal(request, botId);
+			const body = runtimeRecord(await readJsonBody(request));
+			const id = normalizeNoteId(body.id);
+			const nextId = normalizeNoteId(body.nextId);
+			const content = noteContent(body.content);
+			const expectedRevision = body.expectedRevision;
+			if (typeof expectedRevision !== 'number' || !Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new InputError('Note revision must be a nonnegative integer.');
+			const bot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
+			const resolved = await resolveNoteLinks(this.env.BICKR_D1, bot.homeWorldId, noteReferences(nextId, content));
+			this.requireWritableRuntimeStorage();
+			return ok({ note: this.notes.edit(id, nextId, content, resolved.links, expectedRevision), unknownReferences: resolved.unknown });
+		}
 		if (request.method === 'POST' && url.pathname.endsWith('/notes/read')) {
 			await this.requireOwnerOrInternal(request, botId);
 			const body = runtimeRecord(await readJsonBody(request));
@@ -2301,7 +2336,8 @@ export class BotRuntime {
 			await this.requireOwnerOrInternal(request, botId);
 			const body = runtimeRecord(await readJsonBody(request));
 			const id = normalizeNoteId(body.id);
-			return ok({ outcome: this.deleteNote(id), id });
+			const result = this.deleteNote(id);
+			return ok({ outcome: result.kind, id, ...(result.kind === 'reset' ? { note: result.note } : {}) });
 		}
 		if (request.method === 'POST' && url.pathname.endsWith('/recover-stale-run')) {
 			this.requireInternalMaintenance(request);
@@ -3680,7 +3716,7 @@ export class BotRuntime {
 					selfCorrectionAcknowledgements.push(metaCompactionToolMisuseSelfCorrection);
 					continue;
 				}
-				if (noteToolNames.has(canonicalName) && bot.toolSettings.bickrNotes?.enabled === false) {
+				if (noteToolNames.has(canonicalName) && !notesEnabled(bot.toolSettings)) {
 					pendingToolCallIds.delete(toolCall.id);
 					await this.dropGeneratedProviderToolCall(runId, requestEvent.seq, toolCall, 'disallowed_notes_tool');
 					selfCorrectionAcknowledgements.push(disallowedNotesToolSelfCorrectionContent);
@@ -5884,7 +5920,7 @@ export class BotRuntime {
 					)
 					.toArray(),
 			setLastSuccessfulLogOffSeq: (seq) => this.setLastSuccessfulLogOffSeq(seq, 'tool_result'),
-			listNotes: (cursor, limit, links, unknownFilters) => this.notes.list(cursor, limit, links, unknownFilters),
+			listNotes: (cursor, limit, links, unknownFilters, includePlan) => this.notes.list(cursor, limit, links, unknownFilters, includePlan),
 			readNote: (id) => this.notes.read(id),
 			writeNote: (id, content, links) => this.writeNote(id, content, links),
 			deleteNote: (id) => this.deleteNote(id),
@@ -5898,7 +5934,7 @@ export class BotRuntime {
 		return this.notes.write(id, content, links);
 	}
 
-	private deleteNote(id: string): 'deleted' | 'not_found' {
+	private deleteNote(id: string): ReturnType<BotNotesStore['delete']> {
 		this.requireWritableRuntimeStorage();
 		return this.notes.delete(id);
 	}
@@ -6008,19 +6044,28 @@ export class BotRuntime {
 		existingProfileUsernames: ReadonlySet<string>,
 		existingProviderContent: ProviderContextContentScope,
 	): Promise<string[]> {
-		const toolCalls: SyntheticToolCall[] = [syntheticToolCall(runId, 'check_notifications', 0, {})];
+		const toolCalls: SyntheticToolCall[] = [];
+		const results: ChatMessage[] = [];
 		const providerContext = providerSerializationContext({ botId: bot.id }, cloneProviderContextContentScope(existingProviderContent));
+		if (planEnabled(bot.toolSettings)) {
+			const plan = this.notes.read(planNoteId);
+			if (plan) {
+				const links = await noteLinkViews(this.env.BICKR_D1, bot.homeWorldId, plan.links);
+				const call = syntheticToolCall(runId, 'read_note', toolCalls.length, { id: planNoteId });
+				toolCalls.push(call);
+				results.push({
+					role: 'tool', tool_call_id: call.id,
+					content: JSON.stringify(providerToolResultPayload('read_note', { ...plan, links }, { id: planNoteId }, providerContext, {}, { kind: 'note_read', id: planNoteId, content: plan.content, links })),
+				});
+			}
+		}
+		const notificationCall = syntheticToolCall(runId, 'check_notifications', toolCalls.length, {});
+		toolCalls.push(notificationCall);
 		const notificationTokenBudget = notifications.length > 0 ? await this.readCommentTreeTokenBudget(bot) : undefined;
 		const notificationResult = providerCheckNotificationsResultWithInclusions(notifications, providerContext, notificationTokenBudget);
 		const includedNotificationIds = new Set(notificationResult.includedEventIds);
 		const includedNotifications = notifications.filter((notification) => includedNotificationIds.has(notification.id));
-		const results: ChatMessage[] = [
-			{
-				role: 'tool',
-				tool_call_id: toolCalls[0]?.id ?? syntheticToolCallId(runId, 0),
-				content: JSON.stringify(notificationResult.payload),
-			},
-		];
+		results.push({ role: 'tool', tool_call_id: notificationCall.id, content: JSON.stringify(notificationResult.payload) });
 		const usernames = referencedProfileUsernamesFromNotifications(includedNotifications, bot.handle, existingProfileUsernames);
 		if (usernames.length > 0) {
 			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId);
@@ -6035,7 +6080,9 @@ export class BotRuntime {
 		this.appendToolCallChainLoopMessages(
 			runId,
 			'synthetic_context',
-			"I'm logging into Bickr and checking my notifications.",
+			toolCalls[0]?.function.name === 'read_note'
+				? "I'm logging into Bickr, reading my PLAN, and checking my notifications."
+				: "I'm logging into Bickr and checking my notifications.",
 			toolCalls,
 			results,
 		);
@@ -6162,9 +6209,9 @@ export class BotRuntime {
 			);
 		}
 		const related = await botProfileRelationshipSummaries(this.env.BICKR_D1, bot.id, profiles);
-		if (bot.toolSettings.bickrNotes?.enabled === false) return related;
+		if (!notesEnabled(bot.toolSettings)) return related;
 		return related.map((profile) => {
-			const notes = this.notes.idsForEntity('participant', profile.id);
+			const notes = this.notes.idsForEntity('participant', profile.id, planEnabled(bot.toolSettings));
 			return { ...profile, associatedNoteIds: notes.ids, associatedNoteCount: notes.total };
 		});
 	}
@@ -6858,8 +6905,11 @@ export class BotRuntime {
 		providerTools: readonly ProviderToolDefinition[] = providerFunctionToolsForBot(bot),
 		toolCalls: BotInferenceToolCalls = 'require',
 	): ChatMessage[] {
-		const systemContent =
-			toolCalls === 'at_will' ? standardPrompt(bot, bot.worldPrompt) : appendToolRequirementInstruction(standardPrompt(bot, bot.worldPrompt), providerTools);
+		const baseSystemContent = standardPrompt(bot, bot.worldPrompt ?? '', {
+			includeNotesTools: notesEnabled(bot.toolSettings),
+			includePlan: planEnabled(bot.toolSettings),
+		});
+		const systemContent = toolCalls === 'at_will' ? baseSystemContent : appendToolRequirementInstruction(baseSystemContent, providerTools);
 		return [{ role: 'system', content: systemContent }, ...this.activeLoopMessagesForProvider()];
 	}
 

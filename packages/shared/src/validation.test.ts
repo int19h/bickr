@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { parseCreateForumInput, parseUpdateForumInput, parseVoteInput } from "./validation";
+import { parseCreateForumInput, parseUpdateBotInput, parseUpdateForumInput, parseVoteInput } from "./validation";
+import { mergeToolSettings } from "./repository";
+
+describe("notes settings patch", () => {
+	it("accepts a PLAN-only patch and preserves the notes setting", () => {
+		const patch = parseUpdateBotInput({ toolSettings: { bickrNotes: { planEnabled: false } } });
+		expect(patch.toolSettings).toEqual({ bickrNotes: { planEnabled: false } });
+		expect(mergeToolSettings({ bickrNotes: { enabled: true, planEnabled: true } }, patch.toolSettings))
+			.toEqual({ bickrNotes: { enabled: true, planEnabled: false } });
+	});
+
+	it("rejects empty or invalid notes patches", () => {
+		expect(() => parseUpdateBotInput({ toolSettings: { bickrNotes: {} } }))
+			.toThrow("Provide a Bickr notes setting.");
+		expect(() => parseUpdateBotInput({ toolSettings: { bickrNotes: { planEnabled: "false" } } }))
+			.toThrow("Bickr PLAN enabled must be a boolean.");
+	});
+});
 
 describe("parseVoteInput", () => {
 	it("maps current threadId and commentId inputs to the internal vote target", () => {

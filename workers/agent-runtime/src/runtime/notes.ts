@@ -2,12 +2,15 @@ import { extractCanonicalEntityReferences, type CanonicalEntityReference } from 
 import { RepositoryError } from '@bickr/shared/repository';
 import { d1SafeBoundParameters, type D1DatabaseLike } from '@bickr/shared/storage';
 import { InputError, normalizeHandleText } from '@bickr/shared/validation';
+import { planNoteId } from '@bickr/shared/note-settings';
 
 export const maxNotesPerBot = 500;
 export const maxNoteContentLength = 4_000;
 export const maxNoteLinks = 50;
 export const maxNoteListPage = 50;
 export const maxNoteFilters = 10;
+export { planNoteId };
+export const defaultPlanContent = '- Keep PLAN current with write_note.';
 
 // ZWJ is excluded with other format controls. This also rejects ZWJ emoji titles.
 const allowedNoteIdCharacter = /^[\p{L}\p{M}\p{N}\p{P}\p{S} ]+$/u;
@@ -15,7 +18,7 @@ const allowedNoteIdCharacter = /^[\p{L}\p{M}\p{N}\p{P}\p{S} ]+$/u;
 export type NoteEntityKind = 'participant' | 'forum';
 export type NoteLink = { kind: NoteEntityKind; entityId: string; handle: string };
 export type NoteLinkView = NoteLink & { deleted: boolean };
-export type BotNote = { id: string; content: string; createdAt: string; updatedAt: string; links: NoteLink[] };
+export type BotNote = { id: string; content: string; createdAt: string; updatedAt: string; revision: number; links: NoteLink[] };
 export type BotNoteView = Omit<BotNote, 'links'> & { links: NoteLinkView[] };
 export type NoteListPage = { ids: string[]; nextCursor: string | null; total: number; unknownFilters: string[] };
 
@@ -24,7 +27,7 @@ export function normalizeNoteId(value: unknown): string {
 	const id = value.normalize('NFKC').toLowerCase().replace(/\p{Zs}+/gu, ' ').trim();
 	if ([...id].length < 1 || [...id].length > 64) throw new InputError('Note title must contain 1-64 characters after normalization.');
 	if (!allowedNoteIdCharacter.test(id)) throw new InputError('Note title can contain letters, marks, numbers, punctuation, symbols, and spaces only.');
-	return id;
+	return id === 'plan' ? planNoteId : id;
 }
 
 export function noteReferences(id: string, content: string): CanonicalEntityReference[] {
@@ -110,79 +113,147 @@ export class BotNotesStore {
 	private readonly storage: Pick<DurableObjectStorage, 'sql' | 'transactionSync'>;
 	constructor(storage: Pick<DurableObjectStorage, 'sql' | 'transactionSync'>) { this.storage = storage; }
 
+	ensurePlan(): void {
+		const now = new Date().toISOString();
+		this.storage.sql.exec(
+			'INSERT INTO notes (note_id, content, created_at, updated_at, revision) VALUES (?, ?, ?, ?, 0) ON CONFLICT(note_id) DO NOTHING',
+			planNoteId, defaultPlanContent, now, now,
+		);
+	}
+
+	/** Base 9df9001 can write lowercase plan on rollback. Remove this check after that base is no longer a rollback target. */
+	migrateLegacyPlan(): void {
+		this.storage.transactionSync(() => {
+			const old = this.storage.sql.exec<{ note_id: string }>('SELECT note_id FROM notes WHERE note_id = ? LIMIT 1', 'plan').toArray()[0];
+			if (!old) return;
+			const current = this.storage.sql.exec<{ note_id: string }>('SELECT note_id FROM notes WHERE note_id = ? LIMIT 1', planNoteId).toArray()[0];
+			let target = planNoteId;
+			if (current) {
+				// Preserve both notes if an old release wrote plan after PLAN was created.
+				for (let suffix = 1; suffix <= maxNotesPerBot + 1; suffix++) {
+					const candidate = suffix === 1 ? 'legacy-plan' : `legacy-plan-${suffix}`;
+					const occupied = this.storage.sql.exec<{ note_id: string }>('SELECT note_id FROM notes WHERE note_id = ? LIMIT 1', candidate).toArray()[0];
+					if (!occupied) { target = candidate; break; }
+				}
+			}
+			if (target === planNoteId && current) throw new RepositoryError('conflict', 'No free title for the old plan note.', 409, { noteCause: 'title_conflict' });
+			this.storage.sql.exec('UPDATE notes SET note_id = ? WHERE note_id = ?', target, old.note_id);
+			this.storage.sql.exec('UPDATE note_links SET note_id = ? WHERE note_id = ?', target, old.note_id);
+		});
+	}
+
 	allIds(): string[] {
 		return this.storage.sql.exec<{ note_id: string }>(
-			'SELECT note_id FROM notes ORDER BY note_id LIMIT ?', maxNotesPerBot,
+			'SELECT note_id FROM notes ORDER BY note_id LIMIT ?', maxNotesPerBot + 1,
 		).toArray().map((row) => row.note_id);
 	}
 
-	list(cursor: string | null, limit: number, links: readonly NoteLink[] = [], unknownFilters: string[] = []): NoteListPage {
+	list(cursor: string | null, limit: number, links: readonly NoteLink[] = [], unknownFilters: string[] = [], includePlan = true): NoteListPage {
 		const size = Math.max(1, Math.min(maxNoteListPage, Math.floor(limit)));
 		const filter = links.length > 0 || unknownFilters.length > 0;
 		if (filter && links.length === 0) return { ids: [], nextCursor: null, total: 0, unknownFilters };
 		const linkWhere = links.map(() => '(l.entity_kind = ? AND l.entity_id = ?)').join(' OR ');
-		const predicate = filter ? ` AND EXISTS (SELECT 1 FROM note_links l WHERE l.note_id = n.note_id AND (${linkWhere}))` : '';
+		const predicate = `${includePlan ? '' : ' AND n.note_id <> ?'}${filter ? ` AND EXISTS (SELECT 1 FROM note_links l WHERE l.note_id = n.note_id AND (${linkWhere}))` : ''}`;
+		const visibilityArgs = includePlan ? [] : [planNoteId];
 		const linkArgs = links.flatMap((link) => [link.kind, link.entityId]);
-		const total = this.storage.sql.exec<{ count: number }>(`SELECT COUNT(*) AS count FROM notes n WHERE 1=1${predicate}`, ...linkArgs).one().count;
+		const total = this.storage.sql.exec<{ count: number }>(`SELECT COUNT(*) AS count FROM notes n WHERE 1=1${predicate}`, ...visibilityArgs, ...linkArgs).one().count;
 		const rows = this.storage.sql.exec<{ note_id: string }>(
 			`SELECT n.note_id FROM notes n WHERE n.note_id > ?${predicate} ORDER BY n.note_id LIMIT ?`,
-			cursor ?? '', ...linkArgs, size + 1,
+			cursor ?? '', ...visibilityArgs, ...linkArgs, size + 1,
 		).toArray();
 		const ids = rows.slice(0, size).map((row) => row.note_id);
 		return { ids, nextCursor: rows.length > size ? ids.at(-1) ?? null : null, total, unknownFilters };
 	}
 
 	read(id: string): BotNote | null {
-		const row = this.storage.sql.exec<{ note_id: string; content: string; created_at: string; updated_at: string }>(
-			'SELECT note_id, content, created_at, updated_at FROM notes WHERE note_id = ? LIMIT 1', id,
+		const row = this.storage.sql.exec<{ note_id: string; content: string; created_at: string; updated_at: string; revision: number }>(
+			'SELECT note_id, content, created_at, updated_at, revision FROM notes WHERE note_id = ? LIMIT 1', id,
 		).toArray()[0];
 		if (!row) return null;
 		const links = this.storage.sql.exec<{ entity_kind: NoteEntityKind; entity_id: string; handle: string }>(
 			'SELECT entity_kind, entity_id, handle FROM note_links WHERE note_id = ? ORDER BY entity_kind, handle LIMIT ?', id, maxNoteLinks,
 		).toArray().map((link) => ({ kind: link.entity_kind, entityId: link.entity_id, handle: link.handle }));
-		return { id: row.note_id, content: row.content, createdAt: row.created_at, updatedAt: row.updated_at, links };
+		return { id: row.note_id, content: row.content, createdAt: row.created_at, updatedAt: row.updated_at, revision: row.revision, links };
 	}
 
 	write(id: string, content: string, links: readonly NoteLink[]): { kind: 'created' | 'replaced'; note: BotNote } {
+		return this.writeRecord(id, content, links, 'upsert');
+	}
+
+	create(id: string, content: string, links: readonly NoteLink[]): BotNote {
+		return this.writeRecord(id, content, links, 'create_only').note;
+	}
+
+	private writeRecord(id: string, content: string, links: readonly NoteLink[], mode: 'upsert' | 'create_only'): { kind: 'created' | 'replaced'; note: BotNote } {
 		id = normalizeNoteId(id);
 		content = noteContent(content);
 		if (links.length > maxNoteLinks) throw new InputError(`A note can refer to at most ${maxNoteLinks} distinct profiles and forums.`);
 		return this.storage.transactionSync(() => {
-			const existing = this.storage.sql.exec<{ created_at: string }>('SELECT created_at FROM notes WHERE note_id = ? LIMIT 1', id).toArray()[0];
+			const existing = this.storage.sql.exec<{ created_at: string; revision: number }>('SELECT created_at, revision FROM notes WHERE note_id = ? LIMIT 1', id).toArray()[0];
+			if (existing && mode === 'create_only') throw new RepositoryError('conflict', 'A note with this title already exists.', 409, { noteCause: 'title_conflict' });
 			if (!existing) {
-				const count = this.storage.sql.exec<{ count: number }>('SELECT COUNT(*) AS count FROM notes').one().count;
-				if (count >= maxNotesPerBot) throw new RepositoryError('conflict', `A participant can keep at most ${maxNotesPerBot} notes.`, 409);
+				const count = this.storage.sql.exec<{ count: number }>('SELECT COUNT(*) AS count FROM notes WHERE note_id <> ?', planNoteId).one().count;
+				if (id !== planNoteId && count >= maxNotesPerBot) throw new RepositoryError('conflict', `A participant can keep at most ${maxNotesPerBot} notes.`, 409);
 			}
 			const now = new Date().toISOString();
 			this.storage.sql.exec(
-				'INSERT INTO notes (note_id, content, created_at, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(note_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at',
+				'INSERT INTO notes (note_id, content, created_at, updated_at, revision) VALUES (?, ?, ?, ?, 0) ON CONFLICT(note_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at, revision = notes.revision + 1',
 				id, content, now, now,
 			);
 			this.storage.sql.exec('DELETE FROM note_links WHERE note_id = ?', id);
 			for (const link of links) this.storage.sql.exec(
 				'INSERT INTO note_links (note_id, entity_kind, entity_id, handle) VALUES (?, ?, ?, ?)', id, link.kind, link.entityId, link.handle,
 			);
-			return { kind: existing ? 'replaced' as const : 'created' as const, note: { id, content, createdAt: existing?.created_at ?? now, updatedAt: now, links: [...links] } };
+			return { kind: existing ? 'replaced' as const : 'created' as const, note: { id, content, createdAt: existing?.created_at ?? now, updatedAt: now, revision: existing ? existing.revision + 1 : 0, links: [...links] } };
 		});
 	}
 
-	delete(id: string): 'deleted' | 'not_found' {
+	edit(id: string, nextId: string, content: string, links: readonly NoteLink[], expectedRevision: number): BotNote {
+		id = normalizeNoteId(id);
+		nextId = normalizeNoteId(nextId);
+		content = noteContent(content);
+		if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new InputError('Note revision must be a nonnegative integer.');
+		if (links.length > maxNoteLinks) throw new InputError(`A note can refer to at most ${maxNoteLinks} distinct profiles and forums.`);
 		return this.storage.transactionSync(() => {
-			const exists = this.storage.sql.exec<{ note_id: string }>('SELECT note_id FROM notes WHERE note_id = ? LIMIT 1', id).toArray()[0];
-			if (!exists) return 'not_found';
+			const existing = this.read(id);
+			if (!existing) throw new RepositoryError('not_found', 'Note not found.', 404);
+			if (existing.revision !== expectedRevision) throw new RepositoryError('conflict', 'This note changed. Reload it before saving.', 409, { noteCause: 'stale_revision' });
+			if ((id === planNoteId) !== (nextId === planNoteId)) throw new RepositoryError('conflict', 'The PLAN title is reserved.', 409, { noteCause: 'reserved_title' });
+			if (nextId !== id && this.read(nextId)) throw new RepositoryError('conflict', 'A note with this title already exists.', 409, { noteCause: 'title_conflict' });
+			const now = new Date().toISOString();
 			this.storage.sql.exec('DELETE FROM note_links WHERE note_id = ?', id);
-			this.storage.sql.exec('DELETE FROM notes WHERE note_id = ?', id);
-			return 'deleted';
+			this.storage.sql.exec('UPDATE notes SET note_id = ?, content = ?, updated_at = ?, revision = revision + 1 WHERE note_id = ?', nextId, content, now, id);
+			for (const link of links) this.storage.sql.exec(
+				'INSERT INTO note_links (note_id, entity_kind, entity_id, handle) VALUES (?, ?, ?, ?)', nextId, link.kind, link.entityId, link.handle,
+			);
+			return { id: nextId, content, createdAt: existing.createdAt, updatedAt: now, revision: existing.revision + 1, links: [...links] };
 		});
 	}
 
-	idsForEntity(kind: NoteEntityKind, entityId: string): { ids: string[]; total: number } {
+	delete(id: string): { kind: 'deleted' | 'not_found' } | { kind: 'reset'; note: BotNote } {
+		return this.storage.transactionSync(() => {
+			const exists = this.read(id);
+			if (!exists) return { kind: 'not_found' };
+			this.storage.sql.exec('DELETE FROM note_links WHERE note_id = ?', id);
+			if (id === planNoteId) {
+				const now = new Date().toISOString();
+				this.storage.sql.exec('UPDATE notes SET content = ?, updated_at = ?, revision = revision + 1 WHERE note_id = ?', defaultPlanContent, now, id);
+				return { kind: 'reset', note: { ...exists, content: defaultPlanContent, updatedAt: now, revision: exists.revision + 1, links: [] } };
+			}
+			this.storage.sql.exec('DELETE FROM notes WHERE note_id = ?', id);
+			return { kind: 'deleted' };
+		});
+	}
+
+	idsForEntity(kind: NoteEntityKind, entityId: string, includePlan = true): { ids: string[]; total: number } {
+		const predicate = includePlan ? '' : ' AND note_id <> ?';
+		const visibilityArgs = includePlan ? [] : [planNoteId];
 		const total = this.storage.sql.exec<{ count: number }>(
-			'SELECT COUNT(*) AS count FROM note_links WHERE entity_kind = ? AND entity_id = ?', kind, entityId,
+			`SELECT COUNT(*) AS count FROM note_links WHERE entity_kind = ? AND entity_id = ?${predicate}`, kind, entityId, ...visibilityArgs,
 		).one().count;
 		const ids = this.storage.sql.exec<{ note_id: string }>(
 			`SELECT l.note_id FROM note_links l JOIN notes n ON n.note_id = l.note_id
-			 WHERE l.entity_kind = ? AND l.entity_id = ? ORDER BY n.updated_at DESC, l.note_id LIMIT ?`, kind, entityId, maxNotesPerBot,
+			 WHERE l.entity_kind = ? AND l.entity_id = ?${includePlan ? '' : ' AND l.note_id <> ?'} ORDER BY n.updated_at DESC, l.note_id LIMIT ?`, kind, entityId, ...visibilityArgs, maxNotesPerBot + 1,
 		).toArray().map((row) => row.note_id);
 		return { ids, total };
 	}

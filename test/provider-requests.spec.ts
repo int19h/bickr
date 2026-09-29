@@ -1184,7 +1184,7 @@ describe("Provider requests", () => {
 				shortBio: lt("Tests prompts."),
 				prompt: lt("Stay terse."),
 			} as Parameters<typeof standardPrompt>[0];
-		const prompt = standardPrompt(promptBot);
+		const prompt = standardPrompt(promptBot, "", { includeNotesTools: true, includePlan: true });
 		expect(prompt).toContain("Avoid duplicate replies");
 		expect(prompt).toContain("already replied to that same comment");
 		expect(prompt).toContain("finish this Bickr visit with log_off");
@@ -1199,9 +1199,9 @@ describe("Provider requests", () => {
 				shortBio: lt("Tests prompts."),
 				prompt: lt("Stay terse."),
 			} as Parameters<typeof standardPrompt>[0];
-		const prompt = standardPrompt(promptBot, "The city is built on glass canals.");
+		const prompt = standardPrompt(promptBot, "The city is built on glass canals.", { includeNotesTools: true, includePlan: true });
 		expect(prompt).toContain("Stay terse.\n\nSetting:\nThe city is built on glass canals.");
-		expect(standardPrompt(promptBot, "  ")).not.toContain("Setting:");
+		expect(standardPrompt(promptBot, "  ", { includeNotesTools: true, includePlan: true })).not.toContain("Setting:");
 	});
 
 	it("includes the native-language prompt line only when enabled with a language", () => {
@@ -1215,9 +1215,9 @@ describe("Provider requests", () => {
 		} as Parameters<typeof standardPrompt>[0];
 		const nativeLanguageLine =
 			"Your native language is ja (BCP 47); all your thoughts and all content that you author must be in that language.";
-		expect(standardPrompt(promptBot)).toContain(nativeLanguageLine);
-		expect(standardPrompt({ ...promptBot, includeLanguageInSystemPrompt: false })).not.toContain(nativeLanguageLine);
-		expect(standardPrompt({ ...promptBot, language: null })).not.toContain(nativeLanguageLine);
+		expect(standardPrompt(promptBot, "", { includeNotesTools: true, includePlan: true })).toContain(nativeLanguageLine);
+		expect(standardPrompt({ ...promptBot, includeLanguageInSystemPrompt: false }, "", { includeNotesTools: true, includePlan: true })).not.toContain(nativeLanguageLine);
+		expect(standardPrompt({ ...promptBot, language: null }, "", { includeNotesTools: true, includePlan: true })).not.toContain(nativeLanguageLine);
 
 		const compactionPrompt = providerCompactionSystemInstruction(promptBot, [], "tool_call");
 		expect(compactionPrompt).toContain(nativeLanguageLine);
@@ -1338,7 +1338,7 @@ describe("Provider requests", () => {
 			blockConcurrencyWhile: (callback: () => Promise<void>) => {
 				pending.push(callback());
 			},
-			storage: { sql },
+			storage: { sql, transactionSync: <T>(closure: () => T) => closure() },
 		};
 		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 		try {
@@ -3627,8 +3627,9 @@ describe("Provider requests", () => {
 
 		it("returns only included notification IDs for delivery marking", async () => {
 			const appendedMessages: Array<Record<string, unknown>> = [];
-			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-				readCommentTreeTokenBudget: async () => 90,
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			notes: { read: () => null },
+			readCommentTreeTokenBudget: async () => 90,
 				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
 					appendedMessages.push(message);
 					return { seq: appendedMessages.length };
@@ -3680,6 +3681,7 @@ describe("Provider requests", () => {
 		it("marks the participant's own thread and comment as u/handle (MYSELF) in synthetic notification context", async () => {
 			const appendedMessages: Array<Record<string, unknown>> = [];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+				notes: { read: () => null },
 				readCommentTreeTokenBudget: async () => 4_000,
 				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
 					appendedMessages.push(message);

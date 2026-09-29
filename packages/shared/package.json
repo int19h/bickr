@@ -37,6 +37,7 @@
 		"./mentions": "./src/mentions.ts",
 		"./mcp-auth": "./src/mcp-auth.ts",
 		"./model": "./src/model.ts",
+		"./note-settings": "./src/note-settings.ts",
 		"./notification-source-deletes": "./src/notification-source-deletes.ts",
 		"./openrouter-model-capabilities": "./src/openrouter-model-capabilities.ts",
 		"./owner-world-mutation": "./src/owner-world-mutation.ts",
