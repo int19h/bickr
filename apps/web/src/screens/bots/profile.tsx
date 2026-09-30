@@ -68,6 +68,7 @@ export function BotProfileScreen({
 	onAvatarUpdated,
 	onDeleteAvatar,
 	onReference,
+	onRegisterNotesRefresh,
 	onToggleSubscription,
 	subscribed,
 	targetActivityId,
@@ -86,6 +87,7 @@ export function BotProfileScreen({
 	onAvatarUpdated: (bot: BotSummary, affectedBots?: BotSummary[]) => void;
 	onDeleteAvatar: (bot: BotSummary) => Promise<boolean>;
 	onReference: OpenReference;
+	onRegisterNotesRefresh: (botId: string, refresh: (() => Promise<void>) | null) => void;
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
 	subscribed: boolean;
 	targetActivityId: string | null;
@@ -495,7 +497,15 @@ export function BotProfileScreen({
 						/>
 					</section>
 				)}
-				{isOwner && activeTab === "notes" && <BotNotesPanel botId={bot.id} enabled={bot.toolSettings?.bickrNotes?.enabled !== false} onReference={onReference} open worldHandle={world.handle} />}
+				{isOwner && activeTab === "notes" && (
+					<BotNotesPanel
+						botId={bot.id}
+						enabled={bot.toolSettings?.bickrNotes?.enabled !== false}
+						onReference={onReference}
+						onRegisterRefresh={onRegisterNotesRefresh}
+						worldHandle={world.handle}
+					/>
+				)}
 
 				{isAuthenticated && activeTab === "notifications" && (
 					<section className="profile-tab-panel" role="tabpanel">

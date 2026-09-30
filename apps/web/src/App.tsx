@@ -33,6 +33,7 @@ import { personalForumDescription } from "@bickr/shared/personal-forums";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import {
 	Suspense,
+	useCallback,
 	useEffect,
 	useLayoutEffect,
 	useMemo,
@@ -262,6 +263,11 @@ function App() {
 	const [standaloneDisplay, setStandaloneDisplay] = useState(() => isStandaloneDisplayMode());
 	const dismissingHumanNotificationRequests = useRef(new Map<string, Promise<boolean>>());
 	const pendingFreshThreadIds = useRef(new Set<string>());
+	const notesRefreshRef = useRef<{ botId: string; refresh: () => Promise<void> } | null>(null);
+	const registerNotesRefresh = useCallback((botId: string, refresh: (() => Promise<void>) | null) => {
+		if (refresh) notesRefreshRef.current = { botId, refresh };
+		else if (notesRefreshRef.current?.botId === botId) notesRefreshRef.current = null;
+	}, []);
 	const { dismiss: dismissToast, handle: toastHandle, toasts } = useToasts();
 	const pushToast = toastHandle.push;
 
@@ -736,7 +742,12 @@ function App() {
 				) &&
 				activeWorld
 			) {
-				await Promise.all([loadForums(activeWorld.handle), loadWorldBots(activeWorld.handle)]);
+				const requests: Promise<unknown>[] = [loadForums(activeWorld.handle), loadWorldBots(activeWorld.handle)];
+				const notesRefresh = notesRefreshRef.current;
+				if (route === "bot-profile" && notesRefresh && notesRefresh.botId === activeBot?.id) {
+					requests.push(notesRefresh.refresh());
+				}
+				await Promise.all(requests);
 				return;
 			}
 			if (route === "my-bots") {
@@ -2228,6 +2239,7 @@ function App() {
 							onAvatarUpdated={applySavedBot}
 							onDeleteAvatar={deleteBotAvatar}
 							onReference={openReference}
+							onRegisterNotesRefresh={registerNotesRefresh}
 							onToggleSubscription={toggleSubscription}
 							subscribed={currentUser ? isSubscribed("bot", activeBot.id) : false}
 							targetActivityId={activeBotActivityId}

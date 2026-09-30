@@ -7017,6 +7017,12 @@ fieldset {
 	overflow-wrap: anywhere;
 }
 
+.bot-notes-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
 .bot-notes-content {
 	overflow-wrap: anywhere;
 	white-space: pre-wrap;
