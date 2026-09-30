@@ -80,7 +80,10 @@ export function BotNotesPanel({ botId, enabled, onReference, onRegisterRefresh, 
 	}, [loadNotes]);
 
 	useEffect(() => {
-		if (!selectedId) return;
+		if (!selectedId) {
+			setNoteLoading(false);
+			return;
+		}
 		void loadNote(selectedId);
 		return () => { noteRequest.current += 1; };
 	}, [loadNote, selectedId]);
@@ -145,10 +148,10 @@ export function BotNotesPanel({ botId, enabled, onReference, onRegisterRefresh, 
 						<p className="muted">{ids.length} private {ids.length === 1 ? "note" : "notes"}.</p>
 						<button
 							className="btn primary"
-								onClick={() => { setEditor({ mode: "create", original: null, title: "", content: "" }); setEditorError(""); }}
-								type="button"
-							>
-								Add note
+							onClick={() => { setEditor({ mode: "create", original: null, title: "", content: "" }); setEditorError(""); }}
+							type="button"
+						>
+							Add note
 							</button>
 					</div>
 					{ids.length === 0 ? <p>No notes yet. This participant can create notes during a visit.</p> : (
