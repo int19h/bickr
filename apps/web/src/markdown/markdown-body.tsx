@@ -1,5 +1,5 @@
-import { useId, useState, type ReactNode } from "react";
-import Markdown from "react-markdown";
+import { createContext, useContext, useId, useState, type ComponentProps, type ReactNode } from "react";
+import Markdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import { decodeString } from "micromark-util-decode-string";
@@ -36,63 +36,82 @@ const markText: Plugin<[], Root> = () => (tree, file) => {
 	walk(tree);
 };
 
-export function MarkdownBody({ text, referencePattern, renderText, renderPlain }: {
-	text: string;
+interface MarkdownContextValue {
+	bodyId: string;
 	referencePattern: RegExp;
 	renderText: (text: string) => ReactNode;
 	renderPlain: (text: string) => ReactNode;
-}) {
+}
+const MarkdownContext = createContext<MarkdownContextValue | null>(null);
+function useMarkdownContext(): MarkdownContextValue {
+	const value = useContext(MarkdownContext);
+	if (!value) throw new Error("Markdown components require their context provider");
+	return value;
+}
+export function MarkdownBody({ text, ...callbacks }: Omit<MarkdownContextValue, "bodyId"> & { text: string }) {
 	const bodyId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
-	function ordinaryText(raw: string): ReactNode {
-		const parts: ReactNode[] = [];
-		let cursor = 0;
-		for (const match of raw.matchAll(referencePattern)) {
-			const start = (match.index ?? 0) + (match[1]?.length ?? 0);
-			const end = (match.index ?? 0) + match[0].length;
-			// A backslash only escapes punctuation, not the u/f/w prefix letters.
-			if (markdownMarkerIsEscaped(raw, start) && /^[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/.test(raw.slice(start))) continue;
-			if (start > cursor) parts.push(<span key={`plain-${cursor}`}>{renderPlain(decodeString(raw.slice(cursor, start)))}</span>);
-			parts.push(<span key={`ref-${start}`}>{renderText(raw.slice(start, end))}</span>);
-			cursor = end;
-		}
-		if (cursor < raw.length) parts.push(<span key={`plain-${cursor}`}>{renderPlain(decodeString(raw.slice(cursor)))}</span>);
-		return parts;
+	return <MarkdownContext.Provider value={{ bodyId, ...callbacks }}><div className="markdown-body">
+		<Markdown remarkPlugins={[remarkGfm, markText, remarkBreaks]} remarkRehypeOptions={{ clobberPrefix: `bickr-md-${bodyId}-` }} components={markdownComponents}>{text}</Markdown>
+	</div></MarkdownContext.Provider>;
+}
+function ordinaryText(raw: string, { referencePattern, renderPlain, renderText }: MarkdownContextValue): ReactNode {
+	const parts: ReactNode[] = [];
+	let cursor = 0;
+	for (const match of raw.matchAll(referencePattern)) {
+		const start = (match.index ?? 0) + (match[1]?.length ?? 0);
+		const end = (match.index ?? 0) + match[0].length;
+		// A backslash only escapes punctuation, not the u/f/w prefix letters.
+		if (markdownMarkerIsEscaped(raw, start) && /^[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/.test(raw.slice(start))) continue;
+		if (start > cursor) parts.push(<span key={`plain-${cursor}`}>{renderPlain(decodeString(raw.slice(cursor, start)))}</span>);
+		parts.push(<span key={`ref-${start}`}>{renderText(raw.slice(start, end))}</span>);
+		cursor = end;
 	}
-	return <div className="markdown-body">
-		<Markdown remarkPlugins={[remarkGfm, markText, remarkBreaks]} remarkRehypeOptions={{ clobberPrefix: `bickr-md-${bodyId}-` }} components={{
-			span: ({ node, children }) => {
-				const raw = node?.properties["dataBickrSource"] ?? node?.properties["data-bickr-source"];
-				return <span>{typeof raw === "string" ? ordinaryText(raw) : children}</span>;
-			},
-			p: ({ children }) => <p dir="auto" data-markdown-block="true">{children}</p>,
-			h1: ({ children, id, className }) => <h2 id={id === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : id} className={className} dir="auto" data-markdown-block="true">{children}</h2>,
-			h2: ({ children, id, className }) => <h3 id={id === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : id} className={className} dir="auto" data-markdown-block="true">{children}</h3>,
-			h3: ({ children, id, className }) => <h4 id={id === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : id} className={className} dir="auto" data-markdown-block="true">{children}</h4>,
-			h4: ({ children, id, className }) => <h5 id={id === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : id} className={className} dir="auto" data-markdown-block="true">{children}</h5>,
-			h5: ({ children, id, className }) => <h6 id={id === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : id} className={className} dir="auto" data-markdown-block="true">{children}</h6>,
-			h6: ({ children, id, className }) => <h6 id={id === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : id} className={className} dir="auto" data-markdown-block="true">{children}</h6>,
-			li: ({ children, className, id }) => <li id={id === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : id} className={className} dir="auto" data-markdown-block="true">{children}</li>,
-			table: ({ children }) => <div className="markdown-table"><table>{children}</table></div>,
-			th: ({ children, style }) => <th style={style} dir="auto" data-markdown-cell="true">{children}</th>,
-			td: ({ children, style }) => <td style={style} dir="auto" data-markdown-cell="true">{children}</td>,
-			pre: ({ node, children }) => {
-				const code = node?.children[0];
-				if (code?.type === "element" && code.tagName === "code") {
-					const classes = code.properties.className;
-					const language = Array.isArray(classes) ? classes.find((value) => value === "language-svg" || value === "language-mermaid") : undefined;
-					const source = code.children.map((child) => child.type === "text" ? child.value : "").join("").replace(/\n$/, "");
-					if (language) return <DrawingBlock language={language === "language-svg" ? "svg" : "mermaid"} source={source} />;
-				}
-				return <pre data-markdown-block="true">{children}</pre>;
-			},
-			a: ({ node: _node, href, children, ...props }) => {
-				const match = href ? findBickrContentUrlMatches(href).find((candidate) => candidate.text === href) : undefined;
-				if (match) return <SpaLink to={match.route}>{children}</SpaLink>;
-				return <a {...props} aria-describedby={props["aria-describedby"] === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : props["aria-describedby"]} href={href} rel="noopener noreferrer">{children}</a>;
-			},
-			img: ({ src, alt }) => <MarkdownImage key={src} src={src} alt={alt ?? "Image"} />,
-		}}>{text}</Markdown>
-	</div>;
+	if (cursor < raw.length) parts.push(<span key={`plain-${cursor}`}>{renderPlain(decodeString(raw.slice(cursor)))}</span>);
+	return parts;
+}
+// Stable component types preserve text selections, drawing frames, and image state.
+// Context supplies current callbacks without replacing those component types.
+const markdownComponents: Components = {
+	span: ({ node, children }) => {
+		const context = useMarkdownContext();
+		const raw = node?.properties["dataBickrSource"] ?? node?.properties["data-bickr-source"];
+		return <span>{typeof raw === "string" ? ordinaryText(raw, context) : children}</span>;
+	},
+	p: ({ children }) => <p dir="auto" data-markdown-block="true">{children}</p>,
+	h1: ({ children, id, className }) => { const { bodyId } = useMarkdownContext(); return <h2 id={id === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : id} className={className} dir="auto" data-markdown-block="true">{children}</h2>; },
+	h2: ({ children, id, className }) => { const { bodyId } = useMarkdownContext(); return <h3 id={id === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : id} className={className} dir="auto" data-markdown-block="true">{children}</h3>; },
+	h3: ({ children, id, className }) => { const { bodyId } = useMarkdownContext(); return <h4 id={id === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : id} className={className} dir="auto" data-markdown-block="true">{children}</h4>; },
+	h4: ({ children, id, className }) => { const { bodyId } = useMarkdownContext(); return <h5 id={id === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : id} className={className} dir="auto" data-markdown-block="true">{children}</h5>; },
+	h5: ({ children, id, className }) => { const { bodyId } = useMarkdownContext(); return <h6 id={id === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : id} className={className} dir="auto" data-markdown-block="true">{children}</h6>; },
+	h6: ({ children, id, className }) => { const { bodyId } = useMarkdownContext(); return <h6 id={id === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : id} className={className} dir="auto" data-markdown-block="true">{children}</h6>; },
+	li: MarkdownListItem,
+	table: ({ children }) => <div className="markdown-table"><table>{children}</table></div>,
+	th: ({ children, style }) => <th style={style} dir="auto" data-markdown-cell="true">{children}</th>,
+	td: ({ children, style }) => <td style={style} dir="auto" data-markdown-cell="true">{children}</td>,
+	pre: MarkdownPre,
+	a: ({ node: _node, href, children, ...props }) => {
+		const { bodyId } = useMarkdownContext();
+		const match = href ? findBickrContentUrlMatches(href).find((candidate) => candidate.text === href) : undefined;
+		if (match) return <SpaLink to={match.route}>{children}</SpaLink>;
+		return <a {...props} aria-describedby={props["aria-describedby"] === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : props["aria-describedby"]} href={href} rel="noopener noreferrer">{children}</a>;
+	},
+	img: ({ src, alt }) => <MarkdownImage key={src} src={src} alt={alt ?? "Image"} />,
+};
+// Stable component types keep drawings mounted when a Markdown parent renders
+// again, including code fences inside list items.
+function MarkdownListItem({ children, className, id }: ComponentProps<"li">) {
+	return <li id={id} className={className} dir="auto" data-markdown-block="true">{children}</li>;
+}
+
+function MarkdownPre({ node, children }: ComponentProps<"pre"> & ExtraProps) {
+	const code = node?.children[0];
+	if (code?.type === "element" && code.tagName === "code") {
+		const classes = code.properties.className;
+		const language = Array.isArray(classes) ? classes.find((value) => value === "language-svg" || value === "language-mermaid") : undefined;
+		const source = code.children.map((child) => child.type === "text" ? child.value : "").join("").replace(/\n$/, "");
+		if (language) return <DrawingBlock language={language === "language-svg" ? "svg" : "mermaid"} source={source} />;
+	}
+	return <pre data-markdown-block="true">{children}</pre>;
 }
 function MarkdownImage({ src, alt }: { src?: string; alt: string }) {
 	const [loaded, setLoaded] = useState(false);
