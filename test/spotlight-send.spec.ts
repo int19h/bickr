@@ -1,3 +1,4 @@
+import { maxSpotlightFocusLength } from "@bickr/shared/validation";
 import {
 	authCookie,
 	contextFor,
@@ -99,6 +100,27 @@ async function deliveryRow(spotlightId: string, botId: string) {
 }
 
 describe("Spotlight send", () => {
+	it("preserves a 5000-character focus in storage and injection and rejects 5001 before delivery", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "spotlights");
+		const participant = await createBotForTest(cookie, "focus-limit", { enabled: true });
+		const thread = await createThreadForTest(forum.id, participant.id, "Focus limit", "Context.");
+		const runtime = runtimeStub();
+		const focusText = ` ${"x".repeat(maxSpotlightFocusLength - 6)} end `;
+		const input = { targetType: "threads", threadIds: [thread.id], botIds: [participant.id], focusText };
+		const accepted = await sendSpotlight(cookie, input, { AGENT_RUNTIME: runtime.fetcher });
+		expect(accepted.status).toBe(200);
+		const payload = await accepted.json() as SpotlightSendPayload;
+		expect(JSON.parse(runtime.injectedTexts[0]!).focus).toBe(focusText);
+		await expect(deliveryRow(payload.data.spotlightId, participant.id)).resolves.toMatchObject({ focusText });
+		const callsBeforeRejection = runtime.paths.length;
+		const rejected = await sendSpotlight(cookie, { ...input, focusText: `${focusText}x` }, { AGENT_RUNTIME: runtime.fetcher });
+		expect(rejected.status).toBe(400);
+		expect(await rejected.json()).toMatchObject({ error: "bad_request", message: "Focus thought must be at most 5000 characters." });
+		expect(runtime.paths).toHaveLength(callsBeforeRejection);
+	});
+
 	it("injects the unseen content each participant needs and starts its visit", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);

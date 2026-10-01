@@ -1802,13 +1802,14 @@ describe("Tick flow", () => {
 		const authorProfile = await createBotForTest(cookie, "spotlight-author");
 		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, selfProfile.id);
 		const spotlightThreadReplyBody = `Spotlight thread reply should be shortened. ${"z".repeat(2_000)}`;
+		const focus = ` ${"x".repeat(4994)} end `;
 		const contexts: SpotlightSyntheticContext[] = [
 			{
 				kind: "spotlight_context",
 				world: { id: bot.homeWorldId, handle: `w/${bot.homeWorldHandle}` },
 				forum: { id: "frm_spotlight", handle: "f/spotlight" },
 				targetType: "comments",
-				focus: "Please pay attention to the target comment.",
+				focus,
 					threads: [{
 						id: "thr_spotlight_comment",
 						threadId: "thr_spotlight_comment",
@@ -1824,7 +1825,7 @@ describe("Tick flow", () => {
 							title: lt("Comment spotlight"),
 							authorBotId: authorProfile.id,
 							authorHandle: authorProfile.handle,
-							authorDisplayName: lt(authorProfile.displayName),
+							authorDisplayName: lt(localizedTextString(authorProfile.displayName)),
 							body: lt("Root context."),
 						createdAt: "2026-05-01T00:00:00.000Z",
 						ancestorOnly: true,
@@ -1837,7 +1838,7 @@ describe("Tick flow", () => {
 							parentCommentId: "cmt_spotlight_root",
 							authorBotId: authorProfile.id,
 							authorHandle: authorProfile.handle,
-							authorDisplayName: lt(authorProfile.displayName),
+							authorDisplayName: lt(localizedTextString(authorProfile.displayName)),
 							body: lt("Parent context."),
 						createdAt: "2026-05-01T00:01:00.000Z",
 						ancestorOnly: true,
@@ -1850,7 +1851,7 @@ describe("Tick flow", () => {
 							parentCommentId: "cmt_spotlight_parent",
 							authorBotId: authorProfile.id,
 							authorHandle: authorProfile.handle,
-							authorDisplayName: lt(authorProfile.displayName),
+							authorDisplayName: lt(localizedTextString(authorProfile.displayName)),
 							body: lt("Target comment."),
 						createdAt: "2026-05-01T00:01:30.000Z",
 						focused: true,
@@ -1877,7 +1878,7 @@ describe("Tick flow", () => {
 							title: lt("Thread spotlight"),
 							authorBotId: authorProfile.id,
 							authorHandle: authorProfile.handle,
-							authorDisplayName: lt(authorProfile.displayName),
+							authorDisplayName: lt(localizedTextString(authorProfile.displayName)),
 							body: lt("Thread target."),
 						createdAt: "2026-05-01T00:02:00.000Z",
 					},
@@ -1889,7 +1890,7 @@ describe("Tick flow", () => {
 							parentCommentId: "cmt_spotlight_thread_root",
 							authorBotId: authorProfile.id,
 							authorHandle: authorProfile.handle,
-							authorDisplayName: lt(authorProfile.displayName),
+							authorDisplayName: lt(localizedTextString(authorProfile.displayName)),
 							body: lt(spotlightThreadReplyBody),
 						createdAt: "2026-05-01T00:02:30.000Z",
 					},
@@ -1949,7 +1950,7 @@ describe("Tick flow", () => {
 
 		const built = await buildMessages(
 			{ ...bot, worldRecurringPrompt: "I follow this world's shared focus." },
-			{ notifications: [], injections: [], spotlightContexts: contexts, ping: false },
+			{ notifications: [], injections: [], spotlightContexts: contexts.map((context) => parseSpotlightSyntheticContext(JSON.stringify(context))!), ping: false },
 			"run-spotlight-context",
 			"2026-05-01T00:15:00.000Z",
 			{ setupMode: "spotlight" },
@@ -1999,7 +2000,7 @@ describe("Tick flow", () => {
 		expect(toolResults).toHaveLength(2);
 		const finalReadResultIndex = built.findLastIndex((message) => message.role === "tool");
 		const focusMessageIndex = built.findIndex(
-			(message) => message.role === "assistant" && message.content === "My focus: Please pay attention to the target comment.",
+			(message) => message.role === "assistant" && message.content === `My focus: ${focus}`,
 		);
 		expect(finalReadResultIndex).toBeGreaterThanOrEqual(0);
 		expect(focusMessageIndex).toBeGreaterThan(finalReadResultIndex);

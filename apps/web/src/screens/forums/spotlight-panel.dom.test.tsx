@@ -9,6 +9,7 @@ import {
 	type LanguageTag,
 	type SpotlightDeliveryResult,
 } from "@bickr/shared/model";
+import { maxSpotlightFocusLength } from "@bickr/shared/validation";
 import { ToastContext } from "../../ui";
 import type { WorldView } from "../../components/content";
 import { SpotlightPanel } from "./spotlight-panel";
@@ -79,6 +80,7 @@ type SendCall = {
 	botIds: string[];
 	spotlightId?: string;
 	autoStartTick?: boolean;
+	focusText?: string;
 };
 
 type FetchHarness = {
@@ -144,7 +146,7 @@ afterEach(() => {
 	}
 });
 
-function mountPanel(bots: BotSummary[]): void {
+function mountPanel(bots: BotSummary[], initialFocusText = ""): void {
 	const container = document.createElement("div");
 	document.body.append(container);
 	const root = createRoot(container);
@@ -156,6 +158,7 @@ function mountPanel(bots: BotSummary[]): void {
 					<SpotlightPanel
 						commentIds={["cmt_one"]}
 						forum={forum}
+						initialFocusText={initialFocusText}
 						onClear={() => {
 							cleared += 1;
 						}}
@@ -207,6 +210,45 @@ const started = (botId: string): SpotlightDeliveryResult => ({
 });
 
 describe("Spotlight panel", () => {
+	it("shows the focus limit and sends all 5000 characters without trimming", async () => {
+		const focus = ` ${"x".repeat(maxSpotlightFocusLength - 6)} end `;
+		const harness = stubFetch((call) => ({ deliveries: call.botIds.map(started) }));
+		mountPanel([bot(1)], focus);
+		const textarea = container().querySelector<HTMLTextAreaElement>("textarea")!;
+		expect(textarea.maxLength).toBe(maxSpotlightFocusLength);
+		expect(textarea.value).toBe(focus);
+		expect(container().textContent).toContain("5000 / 5000 characters");
+		clickText("Select all");
+		clickText("Send");
+		await settle();
+		expect(harness.calls[0]?.focusText).toBe(focus);
+	});
+
+	it("keeps an overlength selected quote visible and blocks send until corrected", async () => {
+		const harness = stubFetch((call) => ({ deliveries: call.botIds.map(started) }));
+		const focus = "x".repeat(maxSpotlightFocusLength + 1);
+		mountPanel([bot(1)], focus);
+		clickText("Select all");
+		const textarea = container().querySelector<HTMLTextAreaElement>("textarea")!;
+		const sendButton = [...container().querySelectorAll("button")].find((button) => button.textContent?.includes("Send"))!;
+		expect(textarea.value).toBe(focus);
+		expect(textarea.getAttribute("aria-invalid")).toBe("true");
+		expect(container().textContent).toContain("5001 / 5000 characters");
+		expect(container().querySelector('[role="alert"]')?.textContent).toContain("Shorten it");
+		expect(sendButton.disabled).toBe(true);
+		clickText("Send");
+		expect(harness.calls).toHaveLength(0);
+		act(() => {
+			Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "Corrected focus");
+			textarea.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+		expect(sendButton.disabled).toBe(false);
+		expect(textarea.getAttribute("aria-invalid")).toBe("false");
+		clickText("Send");
+		await settle();
+		expect(harness.calls[0]?.focusText).toBe("Corrected focus");
+	});
+
 	it("selects and unselects the participants the filter currently shows", () => {
 		mountPanel([bot(1), bot(2), bot(3)]);
 

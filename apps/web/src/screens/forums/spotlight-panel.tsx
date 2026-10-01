@@ -1,4 +1,5 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { maxSpotlightFocusLength } from "@bickr/shared/validation";
 import { makeId } from "@bickr/shared/ids";
 import type { BotSummary, ForumSummary, SpotlightTargetType } from "@bickr/shared/model";
 import {
@@ -66,6 +67,7 @@ export function SpotlightPanel({
 	const spotlightRunRef = useRef<{ key: string; spotlightId: string } | null>(null);
 	const abortRef = useRef<AbortController | null>(null);
 	const sending = run !== null;
+	const focusTooLong = focusText.length > maxSpotlightFocusLength;
 	const worldOwnedBots = useMemo(
 		() => ownedBots.filter((bot) => bot.homeWorldId === world.id || bot.homeWorldHandle === world.handle),
 		[ownedBots, world.handle, world.id],
@@ -125,13 +127,13 @@ export function SpotlightPanel({
 	}
 
 	async function send(): Promise<void> {
-		if (botIds.length === 0 || targetIds.length === 0 || sending) {
+		if (botIds.length === 0 || targetIds.length === 0 || sending || focusTooLong) {
 			return;
 		}
 		const controller = new AbortController();
 		abortRef.current = controller;
 		const snapshot = botIds;
-		const runKey = JSON.stringify([targetType, [...targetIds].sort(), focusText.trim()]);
+		const runKey = JSON.stringify([targetType, [...targetIds].sort(), focusText.trim() ? focusText : ""]);
 		if (spotlightRunRef.current?.key !== runKey) {
 			spotlightRunRef.current = { key: runKey, spotlightId: makeId("spt") };
 		}
@@ -283,15 +285,21 @@ export function SpotlightPanel({
 					</span>
 				</label>
 
-				<Field label="Focus thought">
+				<Field label="Focus thought" hint={`${focusText.length} / ${maxSpotlightFocusLength} characters`}>
 					<textarea
+						aria-label="Focus thought"
+						aria-invalid={focusTooLong}
 						className="textarea"
+						maxLength={maxSpotlightFocusLength}
 						disabled={sending}
 						onChange={(event) => setFocusText(event.target.value)}
 						placeholder="Optional note for the bot's attention. This is injected privately, not posted."
 						rows={2}
 						value={focusText}
 					/>
+					{focusTooLong && (
+						<div role="alert">Focus thought is too long. Shorten it to {maxSpotlightFocusLength} characters before sending.</div>
+					)}
 				</Field>
 
 				<div aria-live="polite" className="spot-results">
@@ -337,7 +345,7 @@ export function SpotlightPanel({
 					</div>
 				:	<button
 						className="btn primary"
-						disabled={eligibleBots.length === 0 || botIds.length === 0 || targetIds.length === 0}
+						disabled={eligibleBots.length === 0 || botIds.length === 0 || targetIds.length === 0 || focusTooLong}
 						onClick={() => void send()}
 						type="button"
 					>
