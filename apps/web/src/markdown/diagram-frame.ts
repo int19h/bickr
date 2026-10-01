@@ -1,5 +1,6 @@
 import mermaid from "mermaid";
 import { isDiagramRequest, type DiagramResponse } from "./diagram-protocol";
+import { observeDiagramHeight } from "./diagram-layout";
 
 // All parsing, CSS, and layout measurement occur in the opaque sandbox frame.
 // Its CSP blocks network access even during Mermaid's pre-sanitization work.
@@ -18,11 +19,12 @@ window.addEventListener("message", async (event: MessageEvent<unknown>) => {
 		host.innerHTML = svg;
 		const drawing = host.querySelector("svg");
 		if (!drawing) throw new Error("Missing diagram");
-		drawing.style.maxWidth = "100%";
+		// Mermaid caps width at its natural layout size. Keep that cap so tall,
+		// narrow diagrams do not stretch to the full width of the post.
 		drawing.style.height = "auto";
 		for (const link of host.querySelectorAll("a")) link.replaceWith(...link.childNodes);
-		const height = Math.min(1200, Math.max(80, Math.ceil(host.getBoundingClientRect().height)));
-		reply({ kind: "ready", token, height });
+		const stopObserving = observeDiagramHeight(host, (height) => reply({ kind: "ready", token, height }));
+		window.addEventListener("pagehide", stopObserving, { once: true });
 	} catch {
 		document.getElementById("drawing")!.replaceChildren();
 		reply({ kind: "error", token });

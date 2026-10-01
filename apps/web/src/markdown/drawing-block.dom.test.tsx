@@ -3,12 +3,13 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DrawingBlock } from "./drawing-block";
+import { MarkdownBody } from "./markdown-body";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | undefined;
 let container: HTMLDivElement;
 afterEach(async () => { await act(async () => root?.unmount()); container?.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); });
-async function mount(source: string) {
-	vi.stubGlobal("IntersectionObserver", undefined);
+async function mount(source: string, lazy = false) {
+	if (!lazy) vi.stubGlobal("IntersectionObserver", undefined);
 	container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 	await act(async () => root!.render(<DrawingBlock language="mermaid" source={source} />));
 	return container.querySelector("iframe")!;
@@ -41,4 +42,53 @@ describe("Mermaid frame lifecycle", () => {
 		expect(container.querySelector("iframe")).toBeNull();
 		expect(container.querySelector("[role=status]")?.textContent).toContain("configuration");
 	});
+	it("accepts later height updates without replacing the frame", async () => {
+		const frame = await mount("graph TD; A-->B");
+		const send = vi.spyOn(frame.contentWindow!, "postMessage"); await message(frame.contentWindow!, { kind: "loaded" });
+		const token = (send.mock.calls[0]![0] as { token: string }).token;
+		await message(frame.contentWindow!, { kind: "ready", token, height: 700 });
+		await message(frame.contentWindow!, { kind: "ready", token, height: 150 });
+		expect(container.querySelector("iframe")).toBe(frame); expect(frame.style.height).toBe("150px");
+	});
+	it("reserves measured geometry during offscreen suspension", async () => {
+		let visibility: (entries: { isIntersecting: boolean }[]) => void = () => {};
+		vi.stubGlobal("IntersectionObserver", class {
+			constructor(callback: typeof visibility) { visibility = callback; }
+			observe() {} disconnect() {}
+		});
+		await mount("graph TD; A-->B", true);
+		expect(container.querySelector("iframe")).toBeNull();
+		await act(async () => visibility([{ isIntersecting: true }]));
+		const frame = container.querySelector("iframe")!;
+		const send = vi.spyOn(frame.contentWindow!, "postMessage"); await message(frame.contentWindow!, { kind: "loaded" });
+		const token = (send.mock.calls[0]![0] as { token: string }).token;
+		await message(frame.contentWindow!, { kind: "ready", token, height: 728 });
+		await act(async () => visibility([{ isIntersecting: false }]));
+		expect(container.querySelector("iframe")).toBeNull();
+		expect(container.querySelector<HTMLElement>('[aria-hidden="true"]')?.style.height).toBe("728px");
+		await act(async () => visibility([{ isIntersecting: true }]));
+		expect(container.querySelector<HTMLIFrameElement>("iframe")?.style.height).toBe("728px");
+	});
+	it("resets measurement and rejects old messages when source changes", async () => {
+		const frame = await mount("graph TD; A-->B");
+		const send = vi.spyOn(frame.contentWindow!, "postMessage"); await message(frame.contentWindow!, { kind: "loaded" });
+		const token = (send.mock.calls[0]![0] as { token: string }).token;
+		await message(frame.contentWindow!, { kind: "ready", token, height: 700 });
+		await act(async () => root!.render(<DrawingBlock language="mermaid" source="graph LR; C-->D" />));
+		const replacement = container.querySelector("iframe")!;
+		expect(replacement).not.toBe(frame); expect(replacement.style.height).toBe("180px");
+		await message(frame.contentWindow!, { kind: "ready", token, height: 1000 });
+		expect(replacement.style.height).toBe("180px");
+	});
+	it("keeps root and nested-list frames across unchanged Markdown renders", async () => {
+		for (const source of ["```mermaid\ngraph TD; A-->B\n```", "- Diagram\n\n  ```mermaid\n  graph TD; A-->B\n  ```"]) {
+			await mount("graph TD; A-->B");
+			const render = () => <MarkdownBody text={source} referencePattern={/never/g} renderText={(value) => value} renderPlain={(value) => value} />;
+			await act(async () => root!.render(render())); const frame = container.querySelector("iframe")!;
+			expect(frame).not.toBeNull(); await act(async () => root!.render(render()));
+			expect(container.querySelector("iframe")).toBe(frame);
+			await act(async () => root!.unmount()); root = undefined; container.remove();
+		}
+	});
+
 });

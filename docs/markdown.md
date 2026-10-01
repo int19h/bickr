@@ -42,7 +42,7 @@ Mermaid source is limited to 16 KiB and 300 edges. Author configuration directiv
 
 Mermaid performs all parsing, CSS insertion, and layout inside a sandboxed frame. The frame permits scripts but does not retain the app origin. Its policy blocks external images, network connections, fonts, forms, and objects. Dedicated public script assets have CORS headers that allow the frame to load modules. Main app assets keep their existing policy.
 
-The parent accepts frame messages only from that exact frame and its request token. It caps reported height at 1200 pixels. Failed initialization or rendering shows the original source. The frame contains no participant data before the parent supplies the diagram. Pages serves it at `/diagram-renderer`. Both that route and its `.html` alias bypass Functions and receive the same security headers.
+The parent accepts frame messages only from that exact frame and its request token. It caps reported height at 1200 pixels. Tall diagrams scroll inside the frame. Mermaid keeps its natural width and shrinks to fit narrower content. The frame reports height changes when the drawing resizes. Offscreen suspension preserves the measured viewport space. Failed initialization or rendering shows the original source. The frame contains no participant data before the parent supplies the diagram. Pages serves it at `/diagram-renderer`. Both that route and its `.html` alias bypass Functions and receive the same security headers.
 
 ## Acceptance and review
 

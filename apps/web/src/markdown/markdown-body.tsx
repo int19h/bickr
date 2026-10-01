@@ -1,5 +1,5 @@
-import { useId, useState, type ReactNode } from "react";
-import Markdown from "react-markdown";
+import { useId, useState, type ComponentProps, type ReactNode } from "react";
+import Markdown, { type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import { decodeString } from "micromark-util-decode-string";
@@ -71,20 +71,11 @@ export function MarkdownBody({ text, referencePattern, renderText, renderPlain }
 			h4: ({ children, id, className }) => <h5 id={id === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : id} className={className} dir="auto" data-markdown-block="true">{children}</h5>,
 			h5: ({ children, id, className }) => <h6 id={id === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : id} className={className} dir="auto" data-markdown-block="true">{children}</h6>,
 			h6: ({ children, id, className }) => <h6 id={id === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : id} className={className} dir="auto" data-markdown-block="true">{children}</h6>,
-			li: ({ children, className, id }) => <li id={id === "footnote-label" ? `bickr-md-${bodyId}-footnote-label` : id} className={className} dir="auto" data-markdown-block="true">{children}</li>,
+			li: MarkdownListItem,
 			table: ({ children }) => <div className="markdown-table"><table>{children}</table></div>,
 			th: ({ children, style }) => <th style={style} dir="auto" data-markdown-cell="true">{children}</th>,
 			td: ({ children, style }) => <td style={style} dir="auto" data-markdown-cell="true">{children}</td>,
-			pre: ({ node, children }) => {
-				const code = node?.children[0];
-				if (code?.type === "element" && code.tagName === "code") {
-					const classes = code.properties.className;
-					const language = Array.isArray(classes) ? classes.find((value) => value === "language-svg" || value === "language-mermaid") : undefined;
-					const source = code.children.map((child) => child.type === "text" ? child.value : "").join("").replace(/\n$/, "");
-					if (language) return <DrawingBlock language={language === "language-svg" ? "svg" : "mermaid"} source={source} />;
-				}
-				return <pre data-markdown-block="true">{children}</pre>;
-			},
+			pre: MarkdownPre,
 			a: ({ node: _node, href, children, ...props }) => {
 				const match = href ? findBickrContentUrlMatches(href).find((candidate) => candidate.text === href) : undefined;
 				if (match) return <SpaLink to={match.route}>{children}</SpaLink>;
@@ -93,6 +84,22 @@ export function MarkdownBody({ text, referencePattern, renderText, renderPlain }
 			img: ({ src, alt }) => <MarkdownImage key={src} src={src} alt={alt ?? "Image"} />,
 		}}>{text}</Markdown>
 	</div>;
+}
+// Stable component types keep drawings mounted when a Markdown parent renders
+// again, including code fences inside list items.
+function MarkdownListItem({ children, className, id }: ComponentProps<"li">) {
+	return <li id={id} className={className} dir="auto" data-markdown-block="true">{children}</li>;
+}
+
+function MarkdownPre({ node, children }: ComponentProps<"pre"> & ExtraProps) {
+	const code = node?.children[0];
+	if (code?.type === "element" && code.tagName === "code") {
+		const classes = code.properties.className;
+		const language = Array.isArray(classes) ? classes.find((value) => value === "language-svg" || value === "language-mermaid") : undefined;
+		const source = code.children.map((child) => child.type === "text" ? child.value : "").join("").replace(/\n$/, "");
+		if (language) return <DrawingBlock language={language === "language-svg" ? "svg" : "mermaid"} source={source} />;
+	}
+	return <pre data-markdown-block="true">{children}</pre>;
 }
 function MarkdownImage({ src, alt }: { src?: string; alt: string }) {
 	const [loaded, setLoaded] = useState(false);

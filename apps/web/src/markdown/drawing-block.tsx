@@ -3,12 +3,18 @@ import { prepareSvg } from "./svg-policy";
 import { isDiagramResponse, validDiagramSource, type DiagramRequest } from "./diagram-protocol";
 
 type DrawingState = { kind: "pending" } | { kind: "ready" } | { kind: "error"; reason: string };
-export function DrawingBlock({ language, source }: { language: "svg" | "mermaid"; source: string }) {
+type DrawingProps = { language: "svg" | "mermaid"; source: string };
+export function DrawingBlock(props: DrawingProps) {
+	// Measurement and readiness belong to one source and language.
+	return <DrawingContent key={`${props.language}:${props.source}`} {...props} />;
+}
+function DrawingContent({ language, source }: DrawingProps) {
 	const id = useId().replace(/[^a-zA-Z0-9_-]/g, "");
 	const container = useRef<HTMLDivElement>(null);
 	const svgHost = useRef<HTMLDivElement>(null);
 	const frame = useRef<HTMLIFrameElement>(null);
 	const [visible, setVisible] = useState(false);
+	const [started, setStarted] = useState(false);
 	const [state, setState] = useState<DrawingState>({ kind: "pending" });
 	const [height, setHeight] = useState(180);
 	useEffect(() => {
@@ -19,8 +25,9 @@ export function DrawingBlock({ language, source }: { language: "svg" | "mermaid"
 		return () => observer.disconnect();
 	}, []);
 	useEffect(() => {
-		setState({ kind: "pending" });
 		if (!visible) return;
+		setStarted(true);
+		setState({ kind: "pending" });
 		if (language === "svg") {
 			const result = prepareSvg(source, `bickr-svg-${id}`);
 			if (result.kind === "rejected") setState({ kind: "error", reason: result.reason });
@@ -48,6 +55,7 @@ export function DrawingBlock({ language, source }: { language: "svg" | "mermaid"
 		return () => { clearTimeout(timeout); window.removeEventListener("message", receive); };
 	}, [id, language, source, visible]);
 	return <div className="drawing-block" ref={container}>
+		{!visible && started && state.kind !== "error" && <div aria-hidden="true" data-selection-exclude="true" style={{ height: language === "svg" ? 360 : height }} />}
 		{visible && language === "svg" && <div className="svg-drawing" ref={svgHost} />}
 		{visible && language === "mermaid" && state.kind !== "error" && <iframe key={source} ref={frame} src="/diagram-renderer" sandbox="allow-scripts" referrerPolicy="no-referrer" title="Mermaid diagram" style={{ height }} />}
 		{state.kind === "pending" && <span data-selection-exclude="true">{visible ? "Rendering drawing…" : "Drawing loads when visible."}</span>}
