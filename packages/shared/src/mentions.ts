@@ -1,3 +1,4 @@
+import { markdownTextSpans, markdownMarkerIsEscaped } from "./markdown";
 /**
  * Participant mention canonicalization for bot-authored content.
  *
@@ -96,7 +97,10 @@ export function canonicalMentionText(handle: string): string {
  * order and without overlap. Candidates carry normalized handles; whether a
  * candidate is actually rewritten is decided later by resolution.
  */
-export function extractMentionCandidates(text: string): MentionCandidate[] {
+export function extractMentionCandidates(text: string, format: "plain" | "markdown" = "plain"): MentionCandidate[] {
+	if (format === "markdown") {
+		return markdownTextSpans(text).flatMap(({ start, end }) => extractMentionCandidates(text.slice(start, end)).filter((candidate) => !markdownMarkerIsEscaped(text, start + candidate.start)).map((candidate) => ({ ...candidate, start: start + candidate.start, end: start + candidate.end })));
+	}
 	const candidates: MentionCandidate[] = [];
 	for (let index = 0; index < text.length; index += 1) {
 		if (text[index] !== "@" || !hasQualifyingPredecessor(text, index)) {
@@ -117,7 +121,14 @@ export function extractMentionCandidates(text: string): MentionCandidate[] {
  * recognized for notification purposes only; they are already in stored form,
  * so there is nothing to rewrite.
  */
-export function extractCanonicalMentionHandles(text: string): string[] {
+export function extractCanonicalMentionHandles(text: string, format: "plain" | "markdown" = "plain"): string[] {
+	if (format === "markdown") {
+		return markdownTextSpans(text).flatMap(({ start, end }) => {
+			const raw = text.slice(start, end);
+			const unescaped = raw.replace(/\\[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/g, "  ");
+			return extractCanonicalMentionHandles(unescaped);
+		});
+	}
 	return extractCanonicalEntityReferences(text)
 		.filter((reference) => reference.kind === "participant")
 		.map((reference) => reference.handle);

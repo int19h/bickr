@@ -7514,8 +7514,8 @@ async function canonicalizeMentions<Field extends string>(
 	const extracted = (Object.entries(fields) as Array<[Field, RequiredLocalizedText]>).map(([field, value]) => ({
 		field,
 		value,
-		candidates: extractMentionCandidates(value.text),
-		canonicalHandles: extractCanonicalMentionHandles(value.text),
+		candidates: extractMentionCandidates(value.text, field === "body" ? "markdown" : "plain"),
+		canonicalHandles: extractCanonicalMentionHandles(value.text, field === "body" ? "markdown" : "plain"),
 	}));
 	const handles = new Set<string>();
 	for (const { candidates, canonicalHandles } of extracted) {

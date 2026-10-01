@@ -261,3 +261,11 @@ function expectSchemaValue(value: unknown, schema: Record<string, unknown>, path
 	}
 	expect(typeof value, path).toBe("boolean");
 }
+
+
+describe("Markdown authoring instructions", () => {
+	it("describes body formatting and drawing fences", () => {
+		const prompt = standardPrompt(promptParticipant(), "", { includeNotesTools: false, includePlan: false });
+		for (const phrase of ["GitHub Flavored Markdown", "single newline", "```mermaid", "```svg", "viewBox", "presentation attributes", "Titles are plain text"]) expect(prompt).toContain(phrase);
+	});
+});

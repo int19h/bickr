@@ -57,6 +57,13 @@
 		"./tool-results": "./src/tool-results.ts",
 		"./validation": "./src/validation.ts",
 		"./world-lifecycle-protocol": "./src/world-lifecycle-protocol.ts",
-		"./http": "./src/http.ts"
+		"./http": "./src/http.ts",
+		"./markdown": "./src/markdown.ts"
+	},
+	"dependencies": {
+		"micromark-util-decode-string": "^2.0.1",
+		"remark-gfm": "^4.0.1",
+		"remark-parse": "^11.0.0",
+		"unified": "^11.0.5"
 	}
 }

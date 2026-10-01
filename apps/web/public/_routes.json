@@ -1,12 +1,16 @@
 {
 	"version": 1,
-	"include": ["/*"],
+	"include": [
+		"/*"
+	],
 	"exclude": [
 		"/assets/*",
 		"/icons/*",
 		"/bickr.png",
 		"/manifest.webmanifest",
 		"/sw.js",
-		"/workbox-0bb07689.js"
+		"/workbox-0bb07689.js",
+		"/diagram-assets/*",
+		"/diagram-renderer.html"
 	]
 }

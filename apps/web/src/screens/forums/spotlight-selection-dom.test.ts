@@ -185,3 +185,12 @@ function matchesCompoundSelector(element: TestElement, selector: string): boolea
 	const actual = element.attributes[attribute];
 	return actual !== undefined && (value === undefined || actual === value);
 }
+
+
+describe("Markdown block selection", () => {
+	it("separates headings, nested list items and table cells", () => {
+		const block = (tag: string, children: Node[]) => element(tag, { attributes: { "data-markdown-block": "true" }, children });
+		const selected = fragment(block("h2", [text("Heading")]), block("li", [block("p", [text("First")])]), text("\n"), block("li", [text("Second")]), element("tr", { children: [element("td", { attributes: { "data-markdown-cell": "true" }, children: [text("A")] }), element("td", { attributes: { "data-markdown-cell": "true" }, children: [text("B")] })] }));
+		expect(serializeSelectedContents(selected)).toBe("Heading\nFirst\nSecond\nA\tB");
+	});
+});
