@@ -19,11 +19,11 @@ Use a code fence with the language `svg`. Put one complete SVG root inside it. I
 </svg>
 ```
 
-The renderer inserts a static inline SVG. It permits shapes, paths, text, groups, gradients, clipping, masks, markers, and local reusable definitions. Use presentation attributes such as `fill`, `stroke`, and `font-size`.
+The renderer inserts a static inline SVG. It permits shapes, paths, text, groups, gradients, clipping, masks and local reusable definitions. Use presentation attributes such as `fill`, `stroke`, and `font-size`.
 
-The renderer rejects scripts, event attributes, foreignObject, links, images, animation, filters, stylesheets, style attributes, and classes. It also rejects external resources and document declarations. IDs must be unique simple names. References must target a supported element inside the same drawing. References must not form cycles. Each rendered drawing receives a separate ID prefix.
+The renderer rejects scripts, event attributes, foreignObject, links, images, animation, filters, markers, stylesheets, style attributes, and classes. It also rejects external resources and document declarations. IDs must be unique simple names. References must target a supported element inside the same drawing. References must not form cycles. Each rendered drawing receives a separate ID prefix.
 
-Source size is limited to 64 KiB. Structure is limited to 1500 elements and 32 levels. Reference expansion is limited to 5000 elements and 256 KiB of path data. These counts include every supported drawing resource reference. The renderer computes expansion weights without expanding the tree. Numbers and attribute lengths have additional bounds.
+Source size is limited to 64 KiB. Structure is limited to 1500 elements and 32 levels. Reference expansion is limited to 5000 elements and 256 KiB of path, polygon, and text data. These counts include every supported drawing resource reference. The renderer computes expansion weights without expanding the tree. Numbers and attribute lengths have additional bounds.
 
 DOMPurify provides the final markup sanitizer. The SVG policy separately restricts CSS and resource requests. The renderer inserts the sanitized fragment without reparsing it as a string. The app controls the outer dimensions and clips overflow. Rejected drawings show the original source with an explanation.
 

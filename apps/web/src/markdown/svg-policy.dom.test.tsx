@@ -24,4 +24,13 @@ describe("inline SVG policy", () => {
 		const body = `<defs><path id="p" d="${path}"/></defs>` + '<use href="#p"/>'.repeat(30);
 		expect(prepareSvg(drawing(body), "x")).toMatchObject({ kind: "rejected", reason: expect.stringContaining("expansion") });
 	});
+	it("rejects foreign elements before namespace repair and disallows markers", () => {
+		for (const source of ['<svg viewBox="0 0 10 10"><img xmlns="http://www.w3.org/1999/xhtml" src="https://example.com/pixel"/></svg>', drawing('<marker id="m"><circle r="2"/></marker>'), drawing('<path d="M0 0L1 1" marker-mid="url(#m)"/>')]) expect(prepareSvg(source, "x").kind).toBe("rejected");
+	});
+	it("bounds expansion of polygon and text data", () => {
+		for (const geometry of ['<polyline points="' + '0,0 '.repeat(3000) + '"/>', '<text>' + 'x'.repeat(12000) + '</text>']) {
+			const source = drawing('<defs><g id="g">' + geometry + '</g></defs>' + '<use href="#g"/>'.repeat(30));
+			expect(prepareSvg(source, "x")).toMatchObject({ kind: "rejected", reason: expect.stringContaining("expansion") });
+		}
+	});
 });

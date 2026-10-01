@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -5,8 +6,9 @@ import { DrawingBlock } from "./drawing-block";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | undefined;
 let container: HTMLDivElement;
-afterEach(async () => { await act(async () => root?.unmount()); container?.remove(); vi.useRealTimers(); });
+afterEach(async () => { await act(async () => root?.unmount()); container?.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 async function mount(source: string) {
+	vi.stubGlobal("IntersectionObserver", undefined);
 	container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 	await act(async () => root!.render(<DrawingBlock language="mermaid" source={source} />));
 	return container.querySelector("iframe")!;
