@@ -11,6 +11,7 @@
 		"/sw.js",
 		"/workbox-0bb07689.js",
 		"/diagram-assets/*",
-		"/diagram-renderer.html"
+		"/diagram-renderer.html",
+		"/diagram-renderer"
 	]
 }

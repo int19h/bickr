@@ -49,7 +49,7 @@ export function DrawingBlock({ language, source }: { language: "svg" | "mermaid"
 	}, [id, language, source, visible]);
 	return <div className="drawing-block" ref={container}>
 		{visible && language === "svg" && <div className="svg-drawing" ref={svgHost} />}
-		{visible && language === "mermaid" && state.kind !== "error" && <iframe key={source} ref={frame} src="/diagram-renderer.html" sandbox="allow-scripts" referrerPolicy="no-referrer" title="Mermaid diagram" style={{ height }} />}
+		{visible && language === "mermaid" && state.kind !== "error" && <iframe key={source} ref={frame} src="/diagram-renderer" sandbox="allow-scripts" referrerPolicy="no-referrer" title="Mermaid diagram" style={{ height }} />}
 		{state.kind === "pending" && <span data-selection-exclude="true">{visible ? "Rendering drawing…" : "Drawing loads when visible."}</span>}
 		{state.kind === "error" && <p data-selection-exclude="true" role="status">{state.reason}</p>}
 		<details open={state.kind === "error"} data-selection-exclude="true"><summary>View {language === "svg" ? "SVG" : "Mermaid"} source</summary><pre><code>{source}</code></pre></details>
