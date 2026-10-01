@@ -33,4 +33,9 @@ describe("inline SVG policy", () => {
 			expect(prepareSvg(source, "x")).toMatchObject({ kind: "rejected", reason: expect.stringContaining("expansion") });
 		}
 	});
+	it("counts UTF-8 text bytes in reference expansion", () => {
+		const source = drawing('<defs><text id="t">' + '字'.repeat(4000) + '</text></defs>' + '<use href="#t"/>'.repeat(30));
+		expect(prepareSvg(source, "x")).toMatchObject({ kind: "rejected", reason: expect.stringContaining("expansion") });
+	});
+
 });

@@ -26,7 +26,7 @@ function boundedNumbers(value: string): boolean {
 }
 function numberList(value: string): boolean { return /^[\d\s.,eE+\-]+$/.test(value) && boundedNumbers(value); }
 function textBytes(element: Element): number {
-	return Array.from(element.childNodes).filter((node) => node.nodeType === 3 || node.nodeType === 4).reduce((sum, node) => sum + (node.textContent?.length ?? 0), 0);
+	return Array.from(element.childNodes).filter((node) => node.nodeType === 3 || node.nodeType === 4).reduce((sum, node) => sum + new TextEncoder().encode(node.textContent ?? "").length, 0);
 }
 function paint(value: string): boolean {
 	return /^(?:[a-z]+|#[\da-f]{3,8}|(?:rgb|rgba|hsl|hsla)\([\d\s.,%+\-]+\))$/i.test(value);

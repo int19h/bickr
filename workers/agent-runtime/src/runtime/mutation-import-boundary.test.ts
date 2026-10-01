@@ -118,7 +118,9 @@ describe("serialized entity mutation import boundary", () => {
 			governanceMutationNames,
 		));
 		expect(violations).toEqual([]);
-	});
+	// This parses every source module. Leave enough time for the full suite
+	// to share CPU with the scan as the repository grows.
+	}, 15_000);
 
 	it("keeps inference graph mutations inside the user coordinator queue", () => {
 		const repositorySource = readFileSync(resolve(process.cwd(), inferenceConfigurationRepositoryModule), "utf8");
