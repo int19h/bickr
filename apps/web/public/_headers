@@ -19,3 +19,9 @@
 
 /workbox-0bb07689.js
   ! Access-Control-Allow-Origin
+
+/diagram-assets/*
+  Access-Control-Allow-Origin: *
+
+/diagram-renderer.html
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts

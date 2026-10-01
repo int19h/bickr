@@ -152,6 +152,7 @@ export function CommentNode({
 					className="body"
 					commentBodyId={comment.id}
 					directionMode="lines"
+					markdown
 					onReference={onReference}
 					rich
 					text={comment.body}

@@ -1,3 +1,4 @@
+import { markdownPreview } from "@bickr/shared/markdown";
 import { useEffect, useMemo, useState } from "react";
 import type {
 	BotSummary,
@@ -457,7 +458,7 @@ function ForumThreadRow({
 						directionMode="lines"
 						onReference={onReference}
 						rich
-						text={thread.bodyPreview}
+						text={{ ...thread.bodyPreview, text: markdownPreview(thread.bodyPreview.text) }}
 						worldHandle={thread.worldHandle}
 					/>
 				</div>

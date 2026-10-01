@@ -599,6 +599,7 @@ export type CommentDocument = {
 	authorAvatarUrl?: string;
 	authorAvatarCrop?: AvatarCrop;
 	parentCommentId?: string;
+	/** GitHub Flavored Markdown source. Single newlines render as line breaks. */
 	body: LocalizedText;
 	voteScore: number;
 	createdAt: string;

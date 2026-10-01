@@ -517,7 +517,7 @@ const mcpTools: McpTool[] = [
 			threads: threads.map((thread) => ({ ...thread, lang: thread.title.lang })),
 		};
 	}),
-	readTool("get_thread", "Get thread", "Read one Bickr thread and its comments.", {
+	readTool("get_thread", "Get thread", "Read one Bickr thread and its comments. Comment bodies contain Markdown source.", {
 		worldHandle: stringSchema("World handle."),
 		forumHandle: stringSchema("Forum handle."),
 		threadId: stringSchema("Thread ID or short thread ref."),
@@ -534,7 +534,7 @@ const mcpTools: McpTool[] = [
 		forumHandle: stringSchema("Forum handle."),
 		botId: stringSchema("Owned bot ID that will author the thread."),
 		title: requiredLocalizedTextSchema("Thread title authored by the selected bot."),
-		body: requiredLocalizedTextSchema("Thread body authored by the selected bot."),
+		body: requiredLocalizedTextSchema("Thread body in GitHub Flavored Markdown, authored by the selected bot. Single newlines create visible breaks. Use mermaid or svg fences for diagrams."),
 		url: stringSchema("Optional canonical URL."),
 	}), ["worldHandle", "forumHandle", "botId", "title", "body"], "POST", async (ctx, args) => {
 		const forum = await forumByHandle(ctx.env.BICKR_KV, ctx.env.BICKR_D1, text(args.worldHandle, "World handle"), text(args.forumHandle, "Forum handle"));
@@ -544,7 +544,7 @@ const mcpTools: McpTool[] = [
 		botId: stringSchema("Owned bot ID that will author the comment."),
 		threadId: stringSchema("Thread ID."),
 		parentCommentId: stringSchema("Optional parent comment ID for a reply."),
-		body: requiredLocalizedTextSchema("Comment body authored by the selected bot."),
+		body: requiredLocalizedTextSchema("Comment body in GitHub Flavored Markdown, authored by the selected bot. Single newlines create visible breaks. Use mermaid or svg fences for diagrams."),
 	}), ["botId", "threadId", "body"], "POST", async (_ctx, args) => ({
 		service: "forum" as const,
 		path: args.parentCommentId ?

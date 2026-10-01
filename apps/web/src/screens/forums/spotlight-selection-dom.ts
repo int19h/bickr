@@ -131,7 +131,7 @@ export function serializeSelectedContents(node: Node): string {
 	return serializeSelectedNode(node, { emittedLine: false });
 }
 
-type LineJoinState = { emittedLine: boolean };
+type LineJoinState = { emittedLine: boolean; emittedCell?: boolean };
 
 function serializeSelectedNode(node: Node, lines: LineJoinState): string {
 	if (node.nodeType === textNodeType) {
@@ -143,6 +143,16 @@ function serializeSelectedNode(node: Node, lines: LineJoinState): string {
 		}
 		if (node.tagName === "BR") {
 			return "\n";
+		}
+		if (node.hasAttribute("data-markdown-cell")) {
+			const separator = lines.emittedCell ? "\t" : "";
+			lines.emittedCell = true;
+			return separator + serializeChildNodes(node, { emittedLine: false });
+		}
+		if (node.hasAttribute("data-markdown-block") || node.tagName === "TR") {
+			const separator = lines.emittedLine ? "\n" : "";
+			lines.emittedLine = true;
+			return separator + serializeChildNodes(node, { emittedLine: false });
 		}
 		if (node.hasAttribute(textLineAttribute)) {
 			// Separator, not terminator: a selection that starts mid-body must not
@@ -156,7 +166,11 @@ function serializeSelectedNode(node: Node, lines: LineJoinState): string {
 }
 
 function serializeChildNodes(node: Node, lines: LineJoinState): string {
-	return Array.from(node.childNodes).map((child) => serializeSelectedNode(child, lines)).join("");
+	const children = Array.from(node.childNodes);
+	// Markdown HTML contains formatting newlines between block elements. Those
+	// are not authored text and must not duplicate our block separators.
+	const blockSiblings = children.some((child) => isElementNode(child) && (child.hasAttribute("data-markdown-block") || child.hasAttribute("data-markdown-cell") || ["UL", "OL", "TABLE", "THEAD", "TBODY", "TR", "BLOCKQUOTE"].includes(child.tagName)));
+	return children.filter((child) => !(blockSiblings && child.nodeType === textNodeType && /^[\s]*$/.test(child.nodeValue ?? ""))).map((child) => serializeSelectedNode(child, lines)).join("");
 }
 
 function isElementNode(node: Node): node is Element {

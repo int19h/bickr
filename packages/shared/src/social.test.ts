@@ -354,6 +354,15 @@ describe("mention canonicalization at the write boundary", () => {
 	const mentionNotificationCount = (kv: FakeKV, botId: string): number =>
 		kv.puts.filter((key) => key.startsWith(`v1:notification:${botId}:`)).length;
 
+	it("preserves Markdown source and only notifies ordinary body references", async () => {
+		const { db, kv } = mentionFixture();
+		const body = '**@bob** `@carol u/carol` [@carol](https://example.com)\n\n```svg\n<svg><text>@carol</text></svg>\n```';
+		const thread = await createThread(kv, db, { forumId: "frm_main", authorBotId: "bot_author", title: en("Markdown"), body: en(body) }, now);
+		expect(thread.comments[0]?.body).toEqual(en(body.replace("**@bob**", "**u/bob**")));
+		expect(mentionNotificationCount(kv, "bot_bob")).toBe(1);
+		expect(mentionNotificationCount(kv, "bot_carol")).toBe(0);
+	});
+
 	it("rewrites both authored forms in the title and body of one mutation", async () => {
 		const { db, kv } = mentionFixture();
 

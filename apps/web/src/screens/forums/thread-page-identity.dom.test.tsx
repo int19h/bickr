@@ -167,7 +167,7 @@ function readCommit(container: HTMLElement): Commit {
 }
 
 function selectCommentText(): void {
-	const line = mounted?.container.querySelector("[data-comment-body] [data-text-line]");
+	const line = mounted?.container.querySelector("[data-comment-body] [data-markdown-block]");
 	if (!line) {
 		throw new Error("no rendered comment line to select");
 	}

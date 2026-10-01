@@ -12,7 +12,6 @@ import {
 	selectionExcludeAttribute,
 	spotlightToggleAttribute,
 	spotlightUiAttribute,
-	textLineAttribute,
 } from "../../selection-markers";
 import { CommentNode } from "./comment-tree";
 import { SpotlightPanel } from "./spotlight-panel";
@@ -78,15 +77,15 @@ afterEach(() => {
 });
 
 describe("selection markers in rendered thread markup", () => {
-	it("attributes a comment body to its comment and marks every rendered line", () => {
+	it("attributes a Markdown body to its comment and marks paragraphs", () => {
 		const html = renderComment();
 
 		expect(html).toContain(`${commentBodyAttribute}="${comment.id}"`);
-		expect(occurrences(html, `${textLineAttribute}="true"`)).toBe(3);
+		expect(occurrences(html, `data-markdown-block="true"`)).toBe(2);
 	});
 
-	it("excludes the filler that gives an empty rendered line its height", () => {
-		expect(renderComment()).toContain(`<span ${selectionExcludeAttribute}="true">\u00a0</span>`);
+	it("renders blank source lines as paragraph boundaries", () => {
+		expect(renderComment()).not.toContain("\u00a0");
 	});
 
 	it("excludes the translation controls rendered alongside comment text", () => {

@@ -1,3 +1,4 @@
+import { MarkdownBody } from "../markdown/markdown-body";
 import { createContext, useContext, useEffect, useId, useState, type ReactNode } from "react";
 import {
 	defaultTranslationPrompt,
@@ -665,6 +666,7 @@ export function TranslatableText({
 	className,
 	commentBodyId,
 	directionMode = "element",
+	markdown = false,
 	interactiveReferences = true,
 	onReference,
 	rich = false,
@@ -681,6 +683,7 @@ export function TranslatableText({
 	 */
 	commentBodyId?: string;
 	directionMode?: "element" | "lines";
+	markdown?: boolean;
 	interactiveReferences?: boolean;
 	onReference?: OpenReference;
 	rich?: boolean;
@@ -760,7 +763,10 @@ export function TranslatableText({
 	}
 
 	const content =
-		verticalBlockScript ?
+		markdown ? <MarkdownBody text={visibleText} referencePattern={richTextReferencePattern}
+			renderText={(text) => rich && onReference ? <RichText interactive={interactiveReferences} onReference={onReference} text={text} worldHandle={worldHandle} verticalScriptHandling={verticalBlockScript ? "none" : "inline"} /> : <PlainText text={text} />}
+			renderPlain={(text) => <PlainText text={text} verticalScriptHandling={verticalBlockScript ? "none" : "inline"} />}
+		/> : verticalBlockScript ?
 			rich && onReference ?
 				<RichText
 					interactive={interactiveReferences}
@@ -786,7 +792,7 @@ export function TranslatableText({
 		<Tag
 			className={[
 				"translatable-text",
-				directionMode === "lines" && !verticalBlockScript ? "bidi-line-text" : "",
+				directionMode === "lines" && !verticalBlockScript && !markdown ? "bidi-line-text" : "",
 				verticalBlockScript ? "vertical-script-block" : "",
 				verticalBlockScript ? `vertical-script-block-${verticalBlockScript}` : "",
 				className ?? "",
@@ -795,7 +801,7 @@ export function TranslatableText({
 			dir={dir}
 			lang={visibleLang ?? undefined}
 		>
-			<span className="translatable-content">{content}</span>
+			{markdown ? <div className="translatable-content">{content}</div> : <span className="translatable-content">{content}</span>}
 			{enabled && (
 				<span className="translation-controls" data-selection-exclude="true">
 					<button
