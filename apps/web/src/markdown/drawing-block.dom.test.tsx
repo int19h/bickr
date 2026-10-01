@@ -18,6 +18,7 @@ describe("Mermaid frame lifecycle", () => {
 	it("binds messages to the exact frame and token and clamps the height", async () => {
 		const frame = await mount("graph TD; A-->B");
 		expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+		expect(frame.getAttribute("src")).toBe("/diagram-renderer");
 		const send = vi.spyOn(frame.contentWindow!, "postMessage");
 		await message(window, { kind: "loaded" }); expect(send).not.toHaveBeenCalled();
 		await message(frame.contentWindow!, { kind: "loaded" });

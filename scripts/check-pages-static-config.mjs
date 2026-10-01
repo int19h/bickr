@@ -24,12 +24,23 @@ const routes = JSON.parse(readFileSync(routesPath, "utf8"));
 const excludePaths = Array.isArray(routes.exclude) ? routes.exclude : [];
 const headerRules = parseHeaderRules(readFileSync(headersPath, "utf8"));
 const headerPaths = [...headerRules.keys()];
+// Pages redirects .html files to extensionless URLs. Both URL forms must
+// bypass Functions and receive the same frame security policy.
+const htmlAliases = new Map([["/diagram-renderer", "/diagram-renderer.html"]]);
+for (const [route, file] of htmlAliases) {
+	for (const path of [route, file]) {
+		if (!excludePaths.includes(path)) failures.push(`${path} must bypass Pages Functions.`);
+		const policy = headerRules.get(path)?.find((header) => header.startsWith("content-security-policy:"));
+		if (!policy?.includes("sandbox allow-scripts") || !policy.includes("connect-src 'none'") || !policy.includes("frame-ancestors 'self'")) failures.push(`${path} must retain the isolated diagram frame policy.`);
+	}
+	if (JSON.stringify(headerRules.get(route)) !== JSON.stringify(headerRules.get(file))) failures.push(`${route} and ${file} must receive identical headers.`);
+}
 
 for (const path of [...excludePaths, ...headerPaths]) {
 	if (path.includes("*")) {
 		continue;
 	}
-	if (!existsSync(join(distClient, ...path.split("/").filter(Boolean)))) {
+	if (!existsSync(join(distClient, ...(htmlAliases.get(path) ?? path).split("/").filter(Boolean)))) {
 		failures.push(`${path} is pinned in _routes.json/_headers but missing from dist/client.`);
 	}
 }
