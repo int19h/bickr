@@ -38,7 +38,7 @@ graph TD
   A[Write source] --> B[Read diagram]
 ```
 
-Mermaid source is limited to 16 KiB and 300 edges. Author configuration directives and frontmatter are not supported. The app uses strict mode and disables HTML labels. Diagrams load when they approach the visible area.
+Mermaid source is limited to 16 KiB and 300 edges. Author configuration directives and frontmatter are not supported. The app uses strict mode and disables HTML labels. Diagrams load when they approach the visible area. Stable Markdown component types preserve visible diagrams, text selections, and loaded image state across unchanged page updates. React context supplies current reference callbacks.
 
 Mermaid performs all parsing, CSS insertion, and layout inside a sandboxed frame. The frame permits scripts but does not retain the app origin. Its policy blocks external images, network connections, fonts, forms, and objects. Dedicated public script assets have CORS headers that allow the frame to load modules. Main app assets keep their existing policy.
 

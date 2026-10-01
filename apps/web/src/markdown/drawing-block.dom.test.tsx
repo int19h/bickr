@@ -91,4 +91,26 @@ describe("Mermaid frame lifecycle", () => {
 		}
 	});
 
+	it("preserves selection and loaded images while using current callbacks", async () => {
+		await mount("graph TD; A-->B");
+		const text = "Selectable verse\nsecond line\n\n![Picture](https://example.invalid/image.svg)";
+		const render = (value = text, suffix = "") => <MarkdownBody text={value} referencePattern={/never/g} renderText={(value) => value} renderPlain={(value) => value + suffix} />;
+		await act(async () => root!.render(render()));
+		const paragraph = container.querySelector("p")!;
+		const node = paragraph.querySelector("span span")!.firstChild!;
+		const range = document.createRange(); range.setStart(node, 0); range.setEnd(node, 10);
+		const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+		await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+		const image = container.querySelector("img")!;
+		await act(async () => root!.render(render()));
+		expect(container.querySelector("p")).toBe(paragraph);
+		expect(paragraph.querySelector("span span")!.firstChild).toBe(node);
+		expect(selection.toString()).toBe("Selectable");
+		expect(container.querySelector("img")).toBe(image);
+		await act(async () => root!.render(render(text, " updated")));
+		expect(container.textContent).toContain("second line updated");
+		await act(async () => root!.render(render("Changed text")));
+		expect(container.textContent).toBe("Changed text");
+	});
+
 });
