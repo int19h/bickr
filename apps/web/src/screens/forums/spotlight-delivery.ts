@@ -120,7 +120,7 @@ function spotlightSendBody(target: SpotlightSendTarget, botIds: string[], spotli
 		...(target.targetType === "threads" ?
 			{ threadIds: target.threadIds }
 		:	{ threadId: target.threadId, commentIds: target.commentIds }),
-		...(target.focusText.trim() ? { focusText: target.focusText.trim() } : {}),
+		...(target.focusText.trim() ? { focusText: target.focusText } : {}),
 		autoStartTick: target.autoStartTick,
 		spotlightId,
 	};

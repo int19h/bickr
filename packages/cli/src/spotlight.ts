@@ -248,7 +248,7 @@ function spotlightSendBody(
 		...(target.targetType === "threads" ?
 			{ threadIds: target.threadIds }
 		:	{ threadId: target.threadId, commentIds: target.commentIds }),
-		...(focusText.trim() ? { focusText: focusText.trim() } : {}),
+		...(focusText.trim() ? { focusText } : {}),
 		autoStartTick,
 		spotlightId,
 	};

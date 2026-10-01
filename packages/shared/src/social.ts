@@ -128,7 +128,7 @@ import {
 	readJson,
 	writeJson,
 } from "./storage";
-import { InputError, normalizeHandle, requiredPostingBody, requiredThreadTitle } from "./validation";
+import { InputError, normalizeHandle, optionalSpotlightFocus, requiredPostingBody, requiredThreadTitle } from "./validation";
 import {
 	extractCanonicalMentionHandles,
 	extractMentionCandidates,
@@ -5191,7 +5191,7 @@ export async function sendSpotlightBatch(
 	}
 
 	const targetIdsJson = JSON.stringify(spotlightTargetIds(input));
-	const focusText = trimmedFocus(input.focusText) ?? null;
+	const focusText = optionalSpotlightFocus(input.focusText) ?? null;
 	// The caller names its own run, so the id exists before the first request
 	// does. A first response that never arrives is then still retryable under
 	// the same id, which is the only thing the runtime's per-spotlight
@@ -8144,6 +8144,7 @@ export async function buildSpotlightPlan(
 	input: SpotlightTargetInput,
 	now: string,
 ): Promise<SpotlightPlan> {
+	const focus = optionalSpotlightFocus(input.focusText);
 	const selectedBots = await ownedSpotlightBots(kv, db, userId, forum, input.botIds);
 	const eligibleBots = selectedBots.filter((bot) => bot.tickSettings.enabled);
 	const pausedBotIds = selectedBots.filter((bot) => !bot.tickSettings.enabled).map((bot) => bot.id);
@@ -8153,7 +8154,6 @@ export async function buildSpotlightPlan(
 	const threads = await spotlightThreads(kv, forum, input);
 	const plan = spotlightContentPlan(threads, input);
 	const seenByBotId = await seenSetsForBots(db, eligibleBots.map((bot) => bot.id), plan.seenItems);
-	const focus = trimmedFocus(input.focusText);
 
 	const drafts: SpotlightBotDraft[] = [];
 	for (const bot of eligibleBots) {
@@ -8638,11 +8638,6 @@ function spotlightPromptIncludedContent(item: SpotlightIncludedContent): Spotlig
 		promptItem[key === "focused" ? "My focus is on this comment" : key] = value;
 	}
 	return promptItem as SpotlightPromptIncludedContent;
-}
-
-function trimmedFocus(value: string | undefined): string | undefined {
-	const trimmed = value?.trim();
-	return trimmed ? trimmed.slice(0, 500) : undefined;
 }
 
 function commentAncestorIds(thread: ThreadDocument, comment: CommentDocument): string[] {

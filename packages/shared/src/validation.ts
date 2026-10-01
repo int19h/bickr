@@ -56,6 +56,16 @@ export class InputError extends Error {
 	}
 }
 
+/** UTF-16 code units, matching HTML textarea maxlength and String.length. */
+export const maxSpotlightFocusLength = 5_000;
+
+export function optionalSpotlightFocus(value: string | undefined): string | undefined {
+	if (value !== undefined && value.length > maxSpotlightFocusLength) {
+		throw new InputError(`Focus thought must be at most ${maxSpotlightFocusLength} characters.`);
+	}
+	return value?.trim() ? value : undefined;
+}
+
 export const maxBotShortBioLength = 1_200;
 const maxBotGroupTitleLength = 80;
 export const maxBotPromptLength = 64_000;

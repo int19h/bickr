@@ -8178,7 +8178,7 @@ export function parseSpotlightSyntheticContext(text: string): SpotlightSynthetic
 			...(stringValue(forum.description) ? { description: localizedTextValue(forum.description) } : {}),
 		},
 		targetType,
-		...(stringValue(record.focus) ? { focus: stringValue(record.focus)! } : {}),
+		...(typeof record.focus === 'string' && record.focus.trim() ? { focus: record.focus } : {}),
 		threads: Array.isArray(record.threads)
 			? record.threads
 					.map(runtimeRecord)
@@ -8383,20 +8383,22 @@ function spotlightSyntheticToolChains(context: SpotlightSyntheticContext): Synth
 }
 
 function spotlightFocusAssistantContent(contexts: readonly SpotlightSyntheticContext[]): string | null {
-	const focuses = uniqueStrings(
+	// Focus text is validated at submission; preserve it verbatim through dedupe
+	// and narration, including whitespace and the end of a long thought.
+	const focuses = [...new Set(
 		contexts
-			.map((context) => context.focus?.trim())
-			.filter((focus): focus is string => Boolean(focus)),
-	);
+			.map((context) => context.focus)
+			.filter((focus): focus is string => Boolean(focus?.trim())),
+	)];
 	if (focuses.length === 0) {
 		return null;
 	}
 	if (focuses.length === 1) {
-		return `My focus: ${truncateForContext(focuses[0]!, 700)}`;
+		return `My focus: ${focuses[0]!}`;
 	}
 	return [
 		'My focus:',
-		...focuses.map((focus) => `- ${truncateForContext(focus, 700)}`),
+		...focuses.map((focus) => `- ${focus}`),
 	].join('\n');
 }
 

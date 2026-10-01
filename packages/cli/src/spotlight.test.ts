@@ -149,7 +149,7 @@ describe("spotlight batching", () => {
 			targetType: "comments",
 			threadId: "thr_1",
 			commentIds: ["cmt_1", "cmt_2"],
-			focusText: "the second reply",
+			focusText: "  the second reply  ",
 		});
 		expect(calls[0]).not.toHaveProperty("threadIds");
 	});
