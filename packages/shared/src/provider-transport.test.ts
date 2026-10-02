@@ -14,6 +14,6 @@ describe("provider transport policy", () => {
 		const fetcher = vi.fn().mockResolvedValue(new Response("{}"));
 		vi.stubGlobal("fetch", fetcher);
 		await fetchProviderResponse("https://provider.example/v1", { headers: { authorization: "Bearer test" }, redirect: "follow" });
-		expect(fetcher).toHaveBeenCalledWith(new URL("https://provider.example/v1"), expect.objectContaining({ redirect: "error" }));
+		expect(fetcher).toHaveBeenCalledWith("https://provider.example/v1", expect.objectContaining({ redirect: "error" }));
 	});
 });

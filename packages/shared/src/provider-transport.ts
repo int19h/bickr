@@ -30,5 +30,5 @@ export function providerUrl(value: string | URL): URL {
 export function fetchProviderResponse(input: string | URL, init?: RequestInit): Promise<Response> {
 	// Workers forward Authorization on cross-origin redirects. Refuse redirects
 	// rather than let an endpoint send a provider credential to another origin.
-	return fetch(providerUrl(input), { ...init, redirect: "error" });
+	return fetch(providerUrl(input).href, { ...init, redirect: "error" });
 }
