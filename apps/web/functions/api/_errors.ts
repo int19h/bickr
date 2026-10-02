@@ -1,3 +1,4 @@
+import { BodySizeLimitError, BodyReadTimeoutError } from "@bickr/shared/bounded-body";
 import { fail } from "@bickr/shared/api";
 import { RepositoryError } from "@bickr/shared/repository";
 import { InputError } from "@bickr/shared/validation";
@@ -17,6 +18,8 @@ export function pageErrorResponse(error: unknown): Response {
 		return fail("bad_request", error.message, 400);
 	}
 
+	if (error instanceof BodySizeLimitError) return fail("bad_request", "The request body is too large.", 413);
+	if (error instanceof BodyReadTimeoutError) return fail("bad_request", "The request body took too long.", 408);
 	console.error("pages api error", error);
 	return fail("server_error", "Unexpected API error.", 500);
 }

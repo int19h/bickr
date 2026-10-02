@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import { localizedText, type BotDocument, type LanguageTag, type LocalizedText, type UserDocument } from "../packages/shared/src/model";
 import { inferenceConfigurationFields } from "../packages/shared/src/inference-configuration-owner";
@@ -17,6 +17,8 @@ import { onRequestPost as onRegisterPost } from "../apps/web/functions/oauth/reg
 import { handleAgentRuntimeRequest } from "../workers/agent-runtime/src/routes";
 import { listUserBots, listWorldBots } from "../packages/shared/src/repository";
 import { clearKv, resetD1Schema } from "./helpers/d1-schema";
+
+beforeEach(async () => { await resetD1Schema(testEnv.BICKR_D1); });
 
 type TestPagesContext = Parameters<typeof onRequestPost>[0];
 const en = "en" as LanguageTag;
@@ -2336,6 +2338,7 @@ function maintenanceAwareD1(database: unknown, enabled: boolean): unknown {
 	return {
 		batch: (statements: unknown[]) => db.batch(statements),
 		prepare: (sql: string) => {
+			if (sql.includes("auth_records") || (sql.includes("FROM users_index") && sql.includes("lifecycle_state"))) return testEnv.BICKR_D1.prepare(sql);
 			if (!sql.includes("FROM maintenance_control")) {
 				return db.prepare(sql);
 			}
@@ -2359,7 +2362,7 @@ function maintenanceAwareD1(database: unknown, enabled: boolean): unknown {
 
 function pagesContext(request: Request, env: Record<string, unknown> = {}): TestPagesContext {
 	return {
-		env,
+		env: { BICKR_D1: testEnv.BICKR_D1, ...env },
 		request,
 		params: {},
 		data: {},
@@ -2376,13 +2379,15 @@ async function jsonResponse(response: Response): Promise<Record<string, unknown>
 
 async function issueAccessToken(kv: KVNamespaceLike, scopes: string[], user = testUser()): Promise<string> {
 	await kv.put(kvKeys.user("usr_mcp"), JSON.stringify(user));
+	await testEnv.BICKR_D1.prepare("INSERT INTO entity_lifecycle_identity_claims(key_kind,key_scope,key_value,entity_kind,entity_id,owner_user_id,claim_state,created_at,updated_at) VALUES ('user_handle','global',?,'account',?,?,'active',?,?) ON CONFLICT DO NOTHING").bind(user.handle,user.id,user.id,user.createdAt,user.updatedAt).run();
+	await testEnv.BICKR_D1.prepare("INSERT INTO users_index(user_id,handle,display_name,created_at,updated_at,lifecycle_state) VALUES (?, ?, ?, ?, ?, 'active') ON CONFLICT(user_id) DO NOTHING").bind(user.id, user.handle, "MCP", user.createdAt, user.updatedAt).run();
 	const now = new Date();
-	const client = await registerMcpClient(kv, {
+	const client = await registerMcpClient(testEnv.BICKR_D1, {
 		clientName: "MCP Inspector",
 		redirectUris: ["http://localhost:5173/callback"],
 	}, now);
 	const codeVerifier = "correct-horse-battery-staple-correct-horse-battery-staple";
-	const issued = await createMcpAuthorizationCode(kv, {
+	const issued = await createMcpAuthorizationCode(testEnv.BICKR_D1, {
 		clientId: client.id,
 		redirectUri: "http://localhost:5173/callback",
 		resource: "https://bickr.social/mcp",
@@ -2391,7 +2396,7 @@ async function issueAccessToken(kv: KVNamespaceLike, scopes: string[], user = te
 		codeChallenge: await pkceS256(codeVerifier),
 		codeChallengeMethod: "S256",
 	}, now);
-	const tokens = await exchangeMcpAuthorizationCode(kv, {
+	const tokens = await exchangeMcpAuthorizationCode(testEnv.BICKR_D1, {
 		code: issued.code,
 		clientId: client.id,
 		redirectUri: "http://localhost:5173/callback",

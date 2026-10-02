@@ -1192,7 +1192,7 @@ function botActorTool(
 }
 
 async function mcpAuth(env: AppEnv, request: Request): Promise<McpAuthContext | null> {
-	return authForMcpAccessToken(env.BICKR_KV, bearerToken(request), new URL("/mcp", request.url).toString());
+	return authForMcpAccessToken(env.BICKR_KV, env.BICKR_D1, bearerToken(request), new URL("/mcp", request.url).toString());
 }
 
 function requireToolScopes(auth: McpAuthContext, scopes: McpScope[]): void {

@@ -65,7 +65,12 @@
 		"./bounded-body": "./src/bounded-body.ts",
 		"./provider-transport": "./src/provider-transport.ts",
 		"./openrouter-image-models": "./src/openrouter-image-models.ts",
-		"./avatar-members": "./src/avatar-members.ts"
+		"./avatar-members": "./src/avatar-members.ts",
+		"./auth-store": "./src/auth-store.ts",
+		"./auth-principal": "./src/auth-principal.ts",
+		"./auth-sessions": "./src/auth-sessions.ts",
+		"./auth-migration": "./src/auth-migration.ts",
+		"./auth-credentials": "./src/auth-credentials.ts"
 	},
 	"dependencies": {
 		"mdast-util-math": "^3.0.0",

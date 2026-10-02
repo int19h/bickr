@@ -8,15 +8,7 @@ import {
 	requireMaintenanceDisabled,
 } from "@bickr/shared/maintenance";
 import { testEntryResponse } from "./_test-entry";
-import {
-	consentCspPolicy,
-	contentSecurityPolicy,
-	serializeCspPolicy,
-} from "./_csp";
-import {
-	consentPagePolicySource,
-	type PagesSecurityData,
-} from "./oauth/_consent-csp";
+import { contentSecurityPolicy } from "./_csp";
 
 export const strictTransportSecurity = "max-age=31536000; includeSubDomains";
 export { contentSecurityPolicy } from "./_csp";
@@ -29,19 +21,17 @@ const stateChangingGetPaths = new Set([
 ]);
 const delegatedMaintenancePaths = new Set(["/api/__test__/service-proxy"]);
 
-export const onRequest: PagesFunction<AppEnv, string, PagesSecurityData> = async (context) => {
+export const onRequest: PagesFunction<AppEnv> = async (context) => {
 	const entryResponse = testEntryResponse(context.env, context.request);
 	if (entryResponse) {
-		return securityHeadersResponse(entryResponse, context.env, context.request);
+		return securityHeadersResponse(entryResponse, context.env);
 	}
 	const maintenanceResponse = await pagesMaintenanceResponse(context.request, context.env.BICKR_D1);
 	if (maintenanceResponse) {
-		return securityHeadersResponse(maintenanceResponse, context.env, context.request);
+		return securityHeadersResponse(maintenanceResponse, context.env);
 	}
 	const response = await context.next();
-	// The consent route is downstream, so the opaque request-scoped policy must
-	// be read only after next() has returned.
-	return securityHeadersResponse(response, context.env, context.request, context.data);
+	return securityHeadersResponse(response, context.env);
 };
 
 async function pagesMaintenanceResponse(request: Request, db: D1Database): Promise<Response | null> {
@@ -77,8 +67,6 @@ async function pagesMaintenanceResponse(request: Request, db: D1Database): Promi
 export function securityHeadersResponse(
 	response: Response,
 	env?: Pick<AppEnv, "BICKR_ENVIRONMENT" | "TEST_ENTRY_MODE">,
-	request?: Request,
-	data: PagesSecurityData = {},
 ): Response {
 	// WebSocket upgrade responses (the bot loop monitor proxied through
 	// /api/me/bots/:botId/runtime/monitor) must pass through untouched:
@@ -96,19 +84,7 @@ export function securityHeadersResponse(
 		appendVary(headers, "Cookie");
 	}
 	if (isHtmlResponse(headers)) {
-		const callbackSource = consentPagePolicySource(data);
-		if (callbackSource && request) {
-			headers.set(
-				"Content-Security-Policy",
-				serializeCspPolicy(consentCspPolicy(callbackSource, new URL(request.url).origin)),
-			);
-			console.info({
-				event: "mcp_oauth_consent_csp_applied",
-				callbackOrigin: callbackSource,
-			});
-		} else {
-			headers.set("Content-Security-Policy", contentSecurityPolicy);
-		}
+		headers.set("Content-Security-Policy", contentSecurityPolicy);
 		headers.delete("Access-Control-Allow-Origin");
 	}
 	return new Response(response.body, {

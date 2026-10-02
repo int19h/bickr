@@ -1,5 +1,3 @@
-import type { RedirectUriCspSource } from "@bickr/shared/mcp-auth";
-
 export const cspDirectiveOrder = [
 	"default-src",
 	"script-src",
@@ -28,7 +26,7 @@ type StaticCspSource =
 	| "https:"
 	| "wss:";
 
-export type CspSource = StaticCspSource | RedirectUriCspSource;
+export type CspSource = StaticCspSource;
 export type CspPolicy = Readonly<{ [Directive in CspDirective]: readonly CspSource[] }>;
 
 export const ordinaryCspPolicy = {
@@ -44,18 +42,6 @@ export const ordinaryCspPolicy = {
 	"base-uri": ["'self'"],
 	"form-action": ["'self'"],
 } as const satisfies CspPolicy;
-
-export function consentCspPolicy(callbackSource: RedirectUriCspSource, requestOrigin: string): CspPolicy {
-	// Blink and WebKit may check form-action against every redirect hop. This
-	// policy intentionally permits only the exact registered callback origin,
-	// so an HTTPS callback that later redirects to a custom scheme can still be
-	// blocked. Do not add scheme/client allowlists here; that is follow-up #136.
-	const formAction: readonly CspSource[] = callbackSource === requestOrigin ? ["'self'"] : ["'self'", callbackSource];
-	return {
-		...ordinaryCspPolicy,
-		"form-action": formAction,
-	};
-}
 
 export function serializeCspPolicy(policy: CspPolicy): string {
 	return cspDirectiveOrder

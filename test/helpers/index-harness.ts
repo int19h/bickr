@@ -1176,7 +1176,7 @@ export async function authCookieFor(profile: { subject: string; login: string; d
 		language: testLanguage,
 		displayName: localizedText(user.displayName.text, testLanguage),
 	});
-	const created = await createSession(testEnv.BICKR_KV, user.id);
+	const created = await createSession(testEnv.BICKR_D1, user.id);
 	return `${sessionCookieName}=${encodeURIComponent(created.cookieValue)}`;
 }
 

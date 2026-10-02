@@ -1,4 +1,4 @@
-import { makeId, randomToken, sha256Hex } from "./ids";
+import { makeId, randomToken } from "./ids";
 import { isD1UniqueConstraintError } from "./d1-errors";
 import type { LifecycleFailurePoint } from "./entity-lifecycle";
 import { objectIndexScopeStaleStatement } from "./object-index-scope";
@@ -47,7 +47,6 @@ import {
 	type CreateBotInput,
 	type CreateForumInput,
 	type CreateWorldInput,
-	type ApiErrorDetails,
 	type OpenRouterDatetimeToolSettings,
 	type OpenRouterDatetimeToolSettingsInput,
 	type OpenRouterServerToolSettings,
@@ -74,7 +73,6 @@ import {
 	type ThreadSettings,
 	type ThreadSettingsInput,
 	type PublicUser,
-	type SessionDocument,
 	type UpdateBotGroupInput,
 	type UpdateBotInput,
 	type UpdateUserProfileInput,
@@ -102,7 +100,6 @@ import {
 	type KVNamespaceLike,
 	chunks,
 	d1SafeBoundParameters,
-	deleteKey,
 	kvKeys,
 	objectIndexProjectionStatement,
 	putObjectIndex,
@@ -113,26 +110,10 @@ import { planBotTickSpread, type TickSpreadInput } from "./tick-spread";
 import { slugifyHandle } from "./validation";
 import { decodeOpaqueJsonCursor, encodeOpaqueJsonCursor } from "./opaque-json-cursor";
 
-export class RepositoryError extends Error {
-	readonly code: "bad_request" | "conflict" | "forbidden" | "not_found" | "server_error" | "unauthorized";
-	readonly status: number;
-	readonly details?: RepositoryErrorDetails;
-
-	constructor(
-		code: "bad_request" | "conflict" | "forbidden" | "not_found" | "server_error" | "unauthorized",
-		message: string,
-		status: number,
-		details?: RepositoryErrorDetails,
-	) {
-		super(message);
-		this.name = "RepositoryError";
-		this.code = code;
-		this.status = status;
-		this.details = details;
-	}
-}
-
-export type RepositoryErrorDetails = ApiErrorDetails;
+import { RepositoryError } from "./repository-error";
+export { RepositoryError, type RepositoryErrorDetails } from "./repository-error";
+export * from "./auth-sessions";
+import { activeAccountProjectionExists } from "./auth-principal";
 
 export type ProviderUserProfile = {
 	provider: AuthProvider;
@@ -297,46 +278,6 @@ export function booleanFromStored(value: number | boolean | null | undefined): b
 	return value === true || value === 1;
 }
 
-export type SessionCreateResult = {
-	cookieValue: string;
-	session: SessionDocument;
-};
-
-export type CliAuthRequestDocument = {
-	id: string;
-	type: "cliAuthRequest";
-	label: string;
-	userId?: string;
-	approvedAt?: string;
-	consumedAt?: string;
-	createdAt: string;
-	expiresAt: string;
-	updatedAt: string;
-};
-
-export type CliAuthStartResult = {
-	deviceCode: string;
-	request: CliAuthRequestDocument;
-};
-
-export type CliAuthPollResult =
-	| { status: "pending"; expiresAt: string }
-	| { status: "expired"; expiresAt: string }
-	| { status: "complete"; token: string; expiresAt: string };
-
-export type CliTokenDocument = {
-	id: string;
-	type: "cliToken";
-	userId: string;
-	label: string;
-	createdAt: string;
-	expiresAt: string;
-	updatedAt: string;
-};
-
-const sessionTtlSeconds = 60 * 60 * 24 * 30;
-const cliAuthRequestTtlSeconds = 10 * 60;
-const cliTokenTtlSeconds = 60 * 60 * 24 * 90;
 export const defaultInitialBotNotification =
 	"You have just finished creating your Bickr account and logged in for the first time.";
 export const introForumHandle = "intro";
@@ -773,211 +714,10 @@ async function updateProviderIdentity(
 		.run();
 }
 
-export async function createSession(
-	kv: KVNamespaceLike,
-	userId: string,
-	now = new Date(),
-): Promise<SessionCreateResult> {
-	const cookieValue = randomToken();
-	const sessionHash = await sha256Hex(cookieValue);
-	const createdAt = now.toISOString();
-	const expiresAt = new Date(now.getTime() + sessionTtlSeconds * 1000).toISOString();
-	const session: SessionDocument = {
-		id: `sid_${sessionHash.slice(0, 32)}`,
-		type: "session",
-		schemaVersion,
-		revision: 1,
-		userId,
-		expiresAt,
-		createdAt,
-		updatedAt: createdAt,
-	};
-
-	await writeJson(kv, kvKeys.session(sessionHash), session, { expirationTtl: sessionTtlSeconds });
-	return { cookieValue, session };
-}
-
-export async function userForSessionToken(
-	kv: KVNamespaceLike,
-	token: string | null | undefined,
-	dbOrNow?: D1DatabaseLike | Date,
-	now = dbOrNow instanceof Date ? dbOrNow : new Date(),
-): Promise<UserDocument | null> {
-	if (!token) {
-		return null;
-	}
-
-	const sessionHash = await sha256Hex(token);
-	const session = await readJson<SessionDocument>(kv, kvKeys.session(sessionHash));
-	if (!session || Date.parse(session.expiresAt) <= now.getTime()) {
-		return null;
-	}
-
-	const user = await readJson<UserDocument>(kv, kvKeys.user(session.userId));
-	if (!user || user.deletedAt) {
-		return null;
-	}
-	if (dbOrNow && !(dbOrNow instanceof Date) && !await activeAccountProjectionExists(dbOrNow, user.id)) {
-		return null;
-	}
-	return user;
-}
-
-export async function createCliAuthRequest(
-	kv: KVNamespaceLike,
-	input: { label?: string } = {},
-	now = new Date(),
-): Promise<CliAuthStartResult> {
-	const deviceCode = randomToken(24);
-	const requestHash = await sha256Hex(deviceCode);
-	const createdAt = now.toISOString();
-	const expiresAt = new Date(now.getTime() + cliAuthRequestTtlSeconds * 1000).toISOString();
-	const request: CliAuthRequestDocument = {
-		id: `car_${requestHash.slice(0, 32)}`,
-		type: "cliAuthRequest",
-		label: normalizedCliLabel(input.label),
-		createdAt,
-		expiresAt,
-		updatedAt: createdAt,
-	};
-	await writeJson(kv, kvKeys.cliAuthRequest(requestHash), request, { expirationTtl: cliAuthRequestTtlSeconds });
-	return { deviceCode, request };
-}
-
-export async function readCliAuthRequest(
-	kv: KVNamespaceLike,
-	deviceCode: string,
-	now = new Date(),
-): Promise<CliAuthRequestDocument | null> {
-	const request = await readJson<CliAuthRequestDocument>(kv, kvKeys.cliAuthRequest(await sha256Hex(deviceCode)));
-	if (!request || Date.parse(request.expiresAt) <= now.getTime()) {
-		return null;
-	}
-	return request;
-}
-
-export async function approveCliAuthRequest(
-	kv: KVNamespaceLike,
-	deviceCode: string,
-	userId: string,
-	now = new Date(),
-): Promise<CliAuthRequestDocument> {
-	const requestHash = await sha256Hex(deviceCode);
-	const request = await readJson<CliAuthRequestDocument>(kv, kvKeys.cliAuthRequest(requestHash));
-	if (!request || Date.parse(request.expiresAt) <= now.getTime()) {
-		throw new RepositoryError("not_found", "CLI login request expired or was not found.", 404);
-	}
-	if (request.consumedAt) {
-		throw new RepositoryError("conflict", "CLI login request has already been completed.", 409);
-	}
-	const updatedAt = now.toISOString();
-	const updated: CliAuthRequestDocument = {
-		...request,
-		userId,
-		approvedAt: request.approvedAt ?? updatedAt,
-		updatedAt,
-	};
-	await writeJson(kv, kvKeys.cliAuthRequest(requestHash), updated, {
-		expirationTtl: Math.max(1, Math.ceil((Date.parse(updated.expiresAt) - now.getTime()) / 1000)),
-	});
-	return updated;
-}
-
-export async function pollCliAuthRequest(
-	kv: KVNamespaceLike,
-	deviceCode: string,
-	now = new Date(),
-): Promise<CliAuthPollResult> {
-	const requestHash = await sha256Hex(deviceCode);
-	const request = await readJson<CliAuthRequestDocument>(kv, kvKeys.cliAuthRequest(requestHash));
-	if (!request) {
-		return { status: "expired", expiresAt: now.toISOString() };
-	}
-	if (Date.parse(request.expiresAt) <= now.getTime()) {
-		return { status: "expired", expiresAt: request.expiresAt };
-	}
-	if (!request.userId || !request.approvedAt) {
-		return { status: "pending", expiresAt: request.expiresAt };
-	}
-	if (request.consumedAt) {
-		return { status: "expired", expiresAt: request.expiresAt };
-	}
-	const token = `bckr_cli_${randomToken(32)}`;
-	const tokenHash = await sha256Hex(token);
-	const createdAt = now.toISOString();
-	const expiresAt = new Date(now.getTime() + cliTokenTtlSeconds * 1000).toISOString();
-	const tokenDocument: CliTokenDocument = {
-		id: `cli_${tokenHash.slice(0, 32)}`,
-		type: "cliToken",
-		userId: request.userId,
-		label: request.label,
-		createdAt,
-		expiresAt,
-		updatedAt: createdAt,
-	};
-	await writeJson(kv, kvKeys.cliToken(tokenHash), tokenDocument, { expirationTtl: cliTokenTtlSeconds });
-	await writeJson(kv, kvKeys.cliAuthRequest(requestHash), {
-		...request,
-		consumedAt: createdAt,
-		updatedAt: createdAt,
-	} satisfies CliAuthRequestDocument, {
-		expirationTtl: Math.max(1, Math.ceil((Date.parse(request.expiresAt) - now.getTime()) / 1000)),
-	});
-	return { status: "complete", token, expiresAt };
-}
-
-export async function userForCliToken(
-	kv: KVNamespaceLike,
-	token: string | null | undefined,
-	dbOrNow?: D1DatabaseLike | Date,
-	now = dbOrNow instanceof Date ? dbOrNow : new Date(),
-): Promise<UserDocument | null> {
-	if (!token) {
-		return null;
-	}
-	const tokenHash = await sha256Hex(token);
-	const document = await readJson<CliTokenDocument>(kv, kvKeys.cliToken(tokenHash));
-	if (!document || Date.parse(document.expiresAt) <= now.getTime()) {
-		return null;
-	}
-	const user = await readJson<UserDocument>(kv, kvKeys.user(document.userId));
-	if (!user || user.deletedAt) {
-		return null;
-	}
-	if (dbOrNow && !(dbOrNow instanceof Date) && !await activeAccountProjectionExists(dbOrNow, user.id)) {
-		return null;
-	}
-	return user;
-}
-
-async function activeAccountProjectionExists(db: D1DatabaseLike, userId: string): Promise<boolean> {
-	return Boolean(await db
-		.prepare(
-			`SELECT user_id AS id
-			 FROM users_index
-			 WHERE user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
-			 LIMIT 1`,
-		)
-		.bind(userId)
-		.first<{ id: string }>());
-}
-
 async function assertActiveAccountOwner(db: D1DatabaseLike, userId: string): Promise<void> {
 	if (!await activeAccountProjectionExists(db, userId)) {
 		throw new RepositoryError("not_found", "User not found.", 404);
 	}
-}
-
-export async function deleteCliToken(kv: KVNamespaceLike, token: string | null | undefined): Promise<void> {
-	if (!token) {
-		return;
-	}
-	await deleteKey(kv, kvKeys.cliToken(await sha256Hex(token)));
-}
-
-function normalizedCliLabel(value: string | null | undefined): string {
-	const label = value?.trim();
-	return label ? label.slice(0, 120) : "Bickr CLI";
 }
 
 export async function userById(kv: KVNamespaceLike, userId: string): Promise<UserDocument> {
@@ -986,14 +726,6 @@ export async function userById(kv: KVNamespaceLike, userId: string): Promise<Use
 		throw new RepositoryError("not_found", "User not found.", 404);
 	}
 	return normalizeUserDefaults(user);
-}
-
-export async function deleteSession(kv: KVNamespaceLike, token: string | null | undefined): Promise<void> {
-	if (!token) {
-		return;
-	}
-
-	await deleteKey(kv, kvKeys.session(await sha256Hex(token)));
 }
 
 export function publicUser(user: UserDocument): PublicUser {

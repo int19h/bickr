@@ -3,23 +3,21 @@ import {
 	mcpScopeString,
 	normalizeMcpScopes,
 	readMcpClient,
-	redirectUriCspSource,
+	mcpRedirectOrigin,
 	type McpScope,
-	type RedirectUriCspSource,
+	type McpRedirectOrigin,
 } from "@bickr/shared/mcp-auth";
 import { InputError } from "@bickr/shared/validation";
-import { currentUser, requireCompleteUser, type AppEnv } from "../api/_auth";
-import {
-	markConsentPagePolicy,
-	type PagesSecurityData,
-} from "./_consent-csp";
-import { oauthErrorResponse } from "./register";
+import { type AppEnv } from "../api/_auth";
+import { currentBrowserUser, requireBrowserConsentUser } from "../api/_browser-auth";
+import { oauthRequestParams } from "./_request";
+import { oauthErrorResponse } from "./_errors";
 
-export const onRequestGet: PagesFunction<AppEnv, never, PagesSecurityData> = async (context) => {
+export const onRequestGet: PagesFunction<AppEnv> = async (context) => {
 	const { env, request } = context;
 	try {
 		const params = authorizationParams(new URL(request.url).searchParams, request);
-		const client = await readMcpClient(env.BICKR_KV, params.clientId);
+		const client = await readMcpClient(env.BICKR_D1, params.clientId);
 		if (!client) {
 			return authorizePageResponse(context, { kind: "unknown_client", clientId: params.clientId });
 		}
@@ -27,7 +25,7 @@ export const onRequestGet: PagesFunction<AppEnv, never, PagesSecurityData> = asy
 		if (!registeredRedirectUri) {
 			return authorizePageResponse(context, { kind: "unregistered_redirect", clientId: client.id });
 		}
-		const user = await currentUser(env, request);
+		const user = await currentBrowserUser(env, request);
 		if (!user) {
 			return authorizePageResponse(context, {
 				kind: "sign_in",
@@ -38,12 +36,12 @@ export const onRequestGet: PagesFunction<AppEnv, never, PagesSecurityData> = asy
 		if (!user.profileCompletedAt) {
 			return authorizePageResponse(context, { kind: "incomplete_profile", clientId: client.id });
 		}
-		const callbackSource = redirectUriCspSource(registeredRedirectUri);
+		const callbackSource = mcpRedirectOrigin(registeredRedirectUri);
 		if (!callbackSource) {
 			// New registrations cannot reach this branch. Fail closed if stored data
 			// is ever corrupted or predates the shared registration invariant.
 			console.error({
-				event: "mcp_oauth_registered_redirect_not_csp_compatible",
+				event: "mcp_oauth_registered_redirect_invalid",
 				clientId: client.id,
 			});
 			return authorizePageResponse(context, { kind: "invalid_registered_redirect", clientId: client.id });
@@ -62,12 +60,11 @@ export const onRequestGet: PagesFunction<AppEnv, never, PagesSecurityData> = asy
 	}
 };
 
-export const onRequestPost: PagesFunction<AppEnv, never, PagesSecurityData> = async ({ env, request }) => {
+export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => {
 	try {
-		const user = await requireCompleteUser(env, request);
-		const form = await request.formData();
-		const params = authorizationParams(formParams(form), request);
-		const issued = await createMcpAuthorizationCode(env.BICKR_KV, {
+		const user = await requireBrowserConsentUser(env, request);
+		const params = authorizationParams(await oauthRequestParams(request), request);
+		const issued = await createMcpAuthorizationCode(env.BICKR_D1, {
 			clientId: params.clientId,
 			redirectUri: params.redirectUri,
 			resource: params.resource,
@@ -81,13 +78,14 @@ export const onRequestPost: PagesFunction<AppEnv, never, PagesSecurityData> = as
 		if (params.state !== undefined) {
 			redirect.searchParams.set("state", params.state);
 		}
-		return new Response(null, {
-			status: 302,
-			headers: {
-				location: redirect.toString(),
-				"cache-control": "no-store",
-			},
-		});
+		// A completed document ends the form navigation before the callback begins.
+		// The ordinary script-src 'self' permits this fixed script. Callback URLs
+		// never become script source or weaken the application's form-action.
+		return htmlPage("Bickr MCP Authorized", `
+			<p>Authorization is complete. Return to your MCP client.</p>
+			<p><a id="bickr-oauth-callback" href="${escapeHtml(redirect.toString())}" rel="noreferrer">Continue to the MCP client</a></p>
+			<script src="/assets/oauth-callback.js" defer></script>
+		`);
 	} catch (error) {
 		return oauthErrorResponse(error);
 	}
@@ -115,7 +113,7 @@ type AuthorizePage =
 		clientName: string;
 		userHandle: string;
 		params: AuthorizationParams;
-		callbackSource: RedirectUriCspSource;
+		callbackSource: McpRedirectOrigin;
 	};
 
 function authorizePageResponse(
@@ -146,7 +144,6 @@ function authorizePageResponse(
 				<p class="actions"><a class="button" href="/me/profile">Complete profile</a></p>
 			`);
 		case "consent":
-			markConsentPagePolicy(context.data, page.callbackSource);
 			return htmlPage("Authorize Bickr MCP", consentForm(page.clientName, page.userHandle, page.params));
 	}
 }
@@ -229,16 +226,6 @@ function oauthStartUrl(request: Request, provider: "github" | "google"): string 
 	return `${url.pathname}${url.search}`;
 }
 
-function formParams(form: FormData): URLSearchParams {
-	const params = new URLSearchParams();
-	for (const [name, value] of form.entries()) {
-		if (typeof value === "string") {
-			params.set(name, value);
-		}
-	}
-	return params;
-}
-
 function requiredParam(params: URLSearchParams, name: string): string {
 	const value = params.get(name)?.trim();
 	if (!value) {
@@ -270,6 +257,7 @@ function htmlPage(title: string, body: string, status = 200): Response {
 		headers: {
 			"cache-control": "no-store",
 			"content-type": "text/html; charset=utf-8",
+			"referrer-policy": "no-referrer",
 		},
 	});
 }

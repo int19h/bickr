@@ -1507,7 +1507,7 @@ describe("Pages functions", () => {
 			handle: githubUser.handle,
 			displayName: githubUser.displayName,
 		});
-		const githubSession = await createSession(testEnv.BICKR_KV, githubUser.id);
+		const githubSession = await createSession(testEnv.BICKR_D1, githubUser.id);
 		const githubCookie = `${sessionCookieName}=${encodeURIComponent(githubSession.cookieValue)}`;
 		const googleCookies = oauthCookieNames("google");
 		const googleSignInResponse = await googleCallback(

@@ -1,16 +1,20 @@
 import { approveCliAuthRequest, readCliAuthRequest } from "@bickr/shared/repository";
+import { fail } from "@bickr/shared/api";
+import { McpOAuthError } from "@bickr/shared/mcp-auth";
 import { InputError } from "@bickr/shared/validation";
-import { currentUser, requireCompleteUser, type AppEnv } from "../../_auth";
+import { type AppEnv } from "../../_auth";
+import { currentBrowserUser, requireBrowserConsentUser } from "../../_browser-auth";
+import { oauthRequestParams } from "../../../oauth/_request";
 import { pageErrorResponse } from "../../_errors";
 
 export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 	try {
 		const code = deviceCodeFromUrl(request);
-		const authRequest = await readCliAuthRequest(env.BICKR_KV, code);
+		const authRequest = await readCliAuthRequest(env.BICKR_D1, code);
 		if (!authRequest || Date.parse(authRequest.expiresAt) <= Date.now()) {
 			return htmlPage("Bickr CLI Login", "<p>This CLI login request has expired.</p>");
 		}
-		const user = await currentUser(env, request);
+		const user = await currentBrowserUser(env, request);
 		if (!user) {
 			return htmlPage("Bickr CLI Login", `
 				<p>Sign in to approve CLI access for <strong>${escapeHtml(authRequest.label)}</strong>.</p>
@@ -34,24 +38,26 @@ export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 			</form>
 		`);
 	} catch (error) {
+		if (error instanceof McpOAuthError) return fail("bad_request", error.message, error.status);
 		return pageErrorResponse(error);
 	}
 };
 
 export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => {
 	try {
-		const user = await requireCompleteUser(env, request);
-		const form = await request.formData();
+		const user = await requireBrowserConsentUser(env, request);
+		const form = await oauthRequestParams(request);
 		const code = form.get("code");
 		if (typeof code !== "string" || !code.trim()) {
 			throw new InputError("Device code is required.");
 		}
-		await approveCliAuthRequest(env.BICKR_KV, code, user.id);
+		await approveCliAuthRequest(env.BICKR_D1, code, user.id);
 		return htmlPage("Bickr CLI Login Approved", `
 			<p>CLI login approved for <strong>hu/${escapeHtml(user.handle)}</strong>.</p>
 			<p>You can close this tab and return to your terminal.</p>
 		`);
 	} catch (error) {
+		if (error instanceof McpOAuthError) return fail("bad_request", error.message, error.status);
 		return pageErrorResponse(error);
 	}
 };
@@ -92,6 +98,7 @@ function htmlPage(title: string, body: string): Response {
 		headers: {
 			"cache-control": "no-store",
 			"content-type": "text/html; charset=utf-8",
+			"referrer-policy": "no-referrer",
 		},
 	});
 }
