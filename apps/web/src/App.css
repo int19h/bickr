@@ -6414,21 +6414,26 @@ fieldset {
 }
 
 .comment-connector.ellipsis {
-	background: linear-gradient(to right, var(--rule-soft) 25%, transparent 25% 75%, var(--rule-soft) 75%);
+	--connector-dot-radius: 1px;
+	--connector-dot-spacing: 4px;
+	--connector-dot-center: 50%;
+	--connector-line-end: 25%;
+	--connector-line-resume: 75%;
+	/* Draw each dot on the line's center instead of using a font's glyph baseline. */
+	background:
+		radial-gradient(circle var(--connector-dot-radius) at calc(var(--connector-dot-center) - var(--connector-dot-spacing)) 50%, var(--rule-soft) 99%, transparent 100%),
+		radial-gradient(circle var(--connector-dot-radius) at var(--connector-dot-center) 50%, var(--rule-soft) 99%, transparent 100%),
+		radial-gradient(circle var(--connector-dot-radius) at calc(var(--connector-dot-center) + var(--connector-dot-spacing)) 50%, var(--rule-soft) 99%, transparent 100%),
+		linear-gradient(to right, var(--rule-soft) var(--connector-line-end), transparent var(--connector-line-end) var(--connector-line-resume), var(--rule-soft) var(--connector-line-resume));
 }
 
-.comment-connector.ellipsis::after {
-	color: var(--ink-4);
-	content: "⋯";
-	font-size: 14px;
-	left: 50%;
-	line-height: 2px;
-	position: absolute;
-	transform: translateX(-50%);
-}
-
-.comment-connector.ellipsis.zero-indent::after {
-	font-size: 10px;
+.comment-connector.ellipsis.zero-indent {
+	/* The rail occupies the first 2px, so keep all three dots clear of it. */
+	--connector-dot-radius: 0.5px;
+	--connector-dot-spacing: 2px;
+	--connector-dot-center: 5px;
+	--connector-line-end: 1px;
+	--connector-line-resume: 8px;
 }
 
 .comment-parent-link {
