@@ -1,5 +1,7 @@
+import { fetchProviderResponse } from '@bickr/shared/provider-transport';
 import {
 	providerBodyReadTimeoutMs,
+	providerResponseBodyMaxBytes,
 	providerFailureRawResponseMaxCharacters,
 	providerStreamIdleTimeoutMs,
 } from '../constants';
@@ -8,11 +10,13 @@ import {
 	ProviderRequestTimeoutError,
 	ProviderResponseBodyTimeoutError,
 	ProviderResponseInterruptedError,
+	ProviderStreamIncompleteError,
 	ProviderStreamIdleTimeoutError,
 	ResponseBodySizeLimitError,
 	RuntimeOperationTimeoutError,
 	TickStoppedError,
 } from '../errors';
+import { StreamReasoningDetails } from './reasoning-stream';
 import type { ProviderResponse, ProviderUsage, ReasoningDetail, ToolCall } from '../types';
 
 type ReadTextOptions = {
@@ -220,32 +224,54 @@ function sseEventData(raw: string): string {
 		.join('\n');
 }
 
+export type SseReadOptions = { maxBytes?: number; maxEventBytes?: number };
+
 export async function* readSse(
 	stream: ReadableStream<Uint8Array>,
 	signal?: AbortSignal,
 	idleTimeoutMs = providerStreamIdleTimeoutMs,
+	options: SseReadOptions = {},
 ): AsyncGenerator<SseEvent> {
 	const reader = stream.getReader();
 	const decoder = new TextDecoder();
 	let buffer = '';
+	let bytesRead = 0;
+	let pendingEventBytes = 0;
+	let boundarySearchFrom = 0;
+	let ended = false;
+	const maxBytes = options.maxBytes ?? providerResponseBodyMaxBytes;
+	const maxEventBytes = options.maxEventBytes ?? maxBytes;
+	const encoder = new TextEncoder();
+	function requireEventWithinLimit(text: string): void {
+		if (encoder.encode(text).byteLength > maxEventBytes) throw new ResponseBodySizeLimitError(maxEventBytes);
+	}
 	function* drainCompleteEvents(): Generator<SseEvent> {
-		let boundary = buffer.match(sseEventBoundaryPattern);
+		let drained = false;
+		let boundary = buffer.slice(boundarySearchFrom).match(sseEventBoundaryPattern);
 		while (boundary?.index !== undefined) {
-			const raw = buffer.slice(0, boundary.index);
+			const boundaryIndex = boundarySearchFrom + boundary.index;
+			const raw = buffer.slice(0, boundaryIndex);
+			requireEventWithinLimit(raw);
 			const boundaryText = boundary[0];
-			buffer = buffer.slice(boundary.index + boundaryText.length);
+			buffer = buffer.slice(boundaryIndex + boundaryText.length);
+			boundarySearchFrom = 0;
+			drained = true;
+
 			const data = sseEventData(raw);
 			if (data) {
 				yield { data, raw: `${raw}${boundaryText}` };
 			}
 			boundary = buffer.match(sseEventBoundaryPattern);
 		}
+		if (drained) pendingEventBytes = encoder.encode(buffer).byteLength;
+		boundarySearchFrom = Math.max(0, buffer.length - 3);
 	}
 	function residualEvent(): SseEvent | null {
 		if (!buffer) {
 			return null;
 		}
 		const raw = buffer;
+		requireEventWithinLimit(raw);
 		buffer = '';
 		const data = sseEventData(raw);
 		return data ? { data, raw } : null;
@@ -260,6 +286,7 @@ export async function* readSse(
 				throw new TickStoppedError();
 			}
 			if (done) {
+				ended = true;
 				buffer += decoder.decode();
 				yield* drainCompleteEvents();
 				const event = residualEvent();
@@ -268,10 +295,15 @@ export async function* readSse(
 				}
 				break;
 			}
+			pendingEventBytes += value.byteLength;
+			bytesRead += value.byteLength;
+			if (bytesRead > maxBytes) throw new ResponseBodySizeLimitError(maxBytes);
 			buffer += decoder.decode(value, { stream: true });
 			yield* drainCompleteEvents();
+			if (pendingEventBytes > maxEventBytes) throw new ResponseBodySizeLimitError(maxEventBytes);
 		}
 	} finally {
+		if (!ended) void reader.cancel('Provider stream consumer finished.').catch(() => {});
 		try {
 			reader.releaseLock();
 		} catch {
@@ -340,7 +372,7 @@ export async function providerFetchWithHeaderTimeout(
 		signal,
 		timeoutMs,
 		() => new ProviderRequestTimeoutError(timeoutMs),
-		(timeoutSignal) => fetch(endpoint, { ...init, signal: timeoutSignal }),
+		(timeoutSignal) => fetchProviderResponse(endpoint, { ...init, signal: timeoutSignal }),
 	);
 }
 
@@ -435,7 +467,10 @@ export async function consumeProviderResponse(
 ): Promise<ProviderResponse> {
 	let content = '';
 	let reasoning = '';
-	const reasoningDetails: ReasoningDetail[] = [];
+	let hasContentText = false;
+	let hasReasoningText = false;
+	const reasoningStream = new StreamReasoningDetails();
+	let completed = false;
 	const toolCalls = new Map<number, ToolCall>();
 	let usage: ProviderUsage | undefined;
 	let responseId: string | undefined = generationResponseId;
@@ -446,11 +481,12 @@ export async function consumeProviderResponse(
 	try {
 		for await (const event of readSse(stream, signal)) {
 			runtime.throwIfStopped(runId, signal);
-			const rawPreviewCaptured = providerResponsePartsAreEmpty(content, reasoning, reasoningDetails, [...toolCalls.values()]);
+			const rawPreviewCaptured = (!hasContentText && !hasReasoningText && reasoningStream.empty && toolCalls.size === 0);
 			if (rawPreviewCaptured) {
 				rawResponse = appendRawResponsePreview(rawResponse, event.raw);
 			}
 			if (event.data === '[DONE]') {
+				completed = true;
 				break;
 			}
 			let chunk: ProviderSseChunk;
@@ -477,19 +513,19 @@ export async function consumeProviderResponse(
 			}
 			if (delta.content) {
 				content += delta.content;
+				hasContentText ||= delta.content.trim().length > 0;
 				runtime.broadcastProviderDelta(runId, streamSeq, { kind: 'content', text: delta.content });
 			}
 			const plainReasoning = delta.reasoning ?? delta.reasoning_content;
 			let detailsReasoning = '';
 			if (Array.isArray(delta.reasoning_details) && delta.reasoning_details.length > 0) {
-				const mergedReasoningDetails = runtime.normalizeReasoningDetails([...reasoningDetails, ...delta.reasoning_details]);
-				reasoningDetails.length = 0;
-				reasoningDetails.push(...mergedReasoningDetails);
+				reasoningStream.append(delta.reasoning_details);
 				detailsReasoning = runtime.reasoningTextFromDetails(delta.reasoning_details);
 			}
 			const deltaReasoning = plainReasoning || detailsReasoning;
 			if (deltaReasoning) {
 				reasoning += deltaReasoning;
+				hasReasoningText ||= deltaReasoning.trim().length > 0;
 				runtime.broadcastProviderDelta(runId, streamSeq, { kind: 'reasoning', text: deltaReasoning });
 			}
 			for (const part of delta.tool_calls ?? []) {
@@ -513,16 +549,17 @@ export async function consumeProviderResponse(
 				runtime.broadcastProviderDelta(runId, streamSeq, { kind: 'tool_call', part });
 			}
 		}
+		if (!completed) throw new ProviderStreamIncompleteError();
 	} catch (error) {
 		if (error instanceof ProviderStreamIdleTimeoutError) {
 			throw error;
 		}
-		if (error instanceof TickStoppedError || runtime.isAbortError(error)) {
+		if (error instanceof TickStoppedError || runtime.isAbortError(error) || error instanceof ProviderStreamIncompleteError) {
 			throw new ProviderResponseInterruptedError(
 				{
 					content,
 					reasoning,
-					reasoningDetails,
+					reasoningDetails: reasoningStream.finish(runtime.normalizeReasoningDetails),
 					toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),
 					...(rawResponse ? { rawResponse } : {}),
 					...(skippedRawResponse ? { skippedRawResponse } : {}),
@@ -539,7 +576,7 @@ export async function consumeProviderResponse(
 	const response = {
 		content: runtime.repairInvalidUnicodeText(content),
 		reasoning: runtime.repairInvalidUnicodeText(reasoning),
-		reasoningDetails: runtime.repairInvalidUnicodeValue(reasoningDetails).value,
+		reasoningDetails: runtime.repairInvalidUnicodeValue(reasoningStream.finish(runtime.normalizeReasoningDetails)).value,
 		toolCalls: [...toolCalls.values()].filter((tool) => tool.function.name),
 		...(rawResponse ? { rawResponse } : {}),
 		...(skippedRawResponse ? { skippedRawResponse } : {}),
