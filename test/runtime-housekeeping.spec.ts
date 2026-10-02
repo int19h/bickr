@@ -106,10 +106,6 @@ function runtimeHousekeepingSql(input: {
 					.sort((left, right) => right.seq - left.seq)
 					.slice(0, 100));
 			}
-			if (/FROM events WHERE seq > \? AND type = 'input' LIMIT 1/.test(normalized)) {
-				const afterSeq = Number(params[0]);
-				return rows<T>(events.some((row) => row.seq > afterSeq && row.type === "input") ? [{ found: 1 }] : []);
-			}
 			if (/FROM events WHERE seq > \? AND type = 'tool_result' ORDER BY seq ASC/.test(normalized)) {
 				const afterSeq = Number(params[0]);
 				return rows<T>(events
@@ -257,7 +253,9 @@ describe("runtime housekeeping", () => {
 			{ id: 3, run_id: "run-after", request_seq: 10, completion_tokens: 200, created_at: "2026-07-01T00:00:00.000Z" },
 		];
 		const expected = legacyCounters({ events, inferenceSubmissions, providerUsage });
-		const lazySql = runtimeHousekeepingSql({ events, inferenceSubmissions, providerUsage });
+		// This fixture represents successful input preparation. Audit input
+		// events alone no longer establish that the iteration has started.
+		const lazySql = runtimeHousekeepingSql({ events, inferenceSubmissions, providerUsage, runtimeState: { last_committed_input_seq_v1: 9 } });
 
 		expect(cursorCounters(runtimeForSql(lazySql))).toEqual(expected);
 		expect(lazySql.runtimeStateValue("last_log_off_seq")).toMatchObject({ seq: expected.lastLogOffSeq, source: "lazy_backfill" });
@@ -267,7 +265,7 @@ describe("runtime housekeeping", () => {
 			events,
 			inferenceSubmissions,
 			providerUsage,
-			runtimeState: { last_log_off_seq: { seq: expected.lastLogOffSeq, source: "tool_result", updatedAt: "2026-07-01T00:00:00.000Z" } },
+			runtimeState: { last_committed_input_seq_v1: 9, last_log_off_seq: { seq: expected.lastLogOffSeq, source: "tool_result", updatedAt: "2026-07-01T00:00:00.000Z" } },
 		});
 		expect(cursorCounters(runtimeForSql(cursorSql))).toEqual(expected);
 		expect(cursorSql.backfillScans()).toBe(0);
