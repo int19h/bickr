@@ -1,10 +1,11 @@
--- Search indexes are derived data. Insert/update/delete triggers keep them in
--- the same transaction as their source row. Soft deletion removes index entries;
--- hard deletion removes them too. They retain no text after the source is gone.
--- Trigrams preserve substring matching for >=3 Unicode characters. The compact
--- short-token index supports the existing two-character queries and single
--- supplementary-plane characters (two UTF-16 code units in JavaScript).
--- Contentless-delete tables avoid a second stored copy of the source text.
+-- Derived substring tokens have the same retention as their source projection.
+-- Application projection writers generate short tokens in one linear pass. This
+-- migration does not tokenize historical text: an indexed, bounded sweep fills
+-- NULL markers after deployment. Search is unavailable until that sweep finishes.
+ALTER TABLE threads_index ADD COLUMN search_short_tokens TEXT;
+ALTER TABLE comments_index ADD COLUMN search_short_tokens TEXT;
+CREATE INDEX thread_search_pending ON threads_index(thread_id) WHERE search_short_tokens IS NULL AND deleted_at IS NULL;
+CREATE INDEX comment_search_pending ON comments_index(comment_id) WHERE search_short_tokens IS NULL AND deleted_at IS NULL AND is_root = 0;
 
 CREATE VIRTUAL TABLE thread_search_trigrams USING fts5(
     search_text, tokenize='trigram', content='', contentless_delete=1
@@ -12,46 +13,20 @@ CREATE VIRTUAL TABLE thread_search_trigrams USING fts5(
 CREATE VIRTUAL TABLE thread_search_short USING fts5(
     grams, content='', contentless_delete=1, detail=none
 );
-
--- UTF-8 lead bytes give each character's byte width. BLOB substr uses byte
--- offsets, so this walk is linear; TEXT substr would rescan all preceding
--- Unicode characters for every token. Materialize the lowered source once.
--- This view stores no data. Its rowid predicate selects one source row on writes.
-CREATE VIEW thread_search_short_source AS
-SELECT rowid, (
-    WITH RECURSIVE source(bytes, size) AS MATERIALIZED (
-        SELECT CAST(lower(search_text) AS BLOB), length(CAST(search_text AS BLOB))
-    ), positions(i, width) AS (
-        SELECT 1, CASE WHEN substr(bytes, 1, 1) < x'80' THEN 1 WHEN substr(bytes, 1, 1) < x'E0' THEN 2 WHEN substr(bytes, 1, 1) < x'F0' THEN 3 ELSE 4 END FROM source WHERE size > 0
-        UNION ALL
-        SELECT i + width, CASE WHEN substr(bytes, i + width, 1) < x'80' THEN 1 WHEN substr(bytes, i + width, 1) < x'E0' THEN 2 WHEN substr(bytes, i + width, 1) < x'F0' THEN 3 ELSE 4 END
-        FROM positions, source WHERE i + width <= size
-    )
-    SELECT coalesce(group_concat(
-        'x' || hex(substr(bytes, i, width)) || ' x' ||
-        hex(substr(bytes, i, width + (CASE WHEN substr(bytes, i + width, 1) < x'80' THEN 1 WHEN substr(bytes, i + width, 1) < x'E0' THEN 2 WHEN substr(bytes, i + width, 1) < x'F0' THEN 3 ELSE 4 END))), ' '
-    ), '') FROM positions, source
-) AS grams FROM threads_index WHERE deleted_at IS NULL;
-
-INSERT INTO thread_search_trigrams(rowid, search_text)
-    SELECT rowid, lower(search_text) FROM threads_index WHERE deleted_at IS NULL;
-INSERT INTO thread_search_short(rowid, grams)
-    SELECT rowid, grams FROM thread_search_short_source;
-
 CREATE TRIGGER thread_search_insert AFTER INSERT ON threads_index BEGIN
     INSERT INTO thread_search_trigrams(rowid, search_text)
-        SELECT new.rowid, lower(new.search_text) WHERE new.deleted_at IS NULL;
+        SELECT new.rowid, lower(new.search_text) WHERE new.deleted_at IS NULL AND new.search_short_tokens IS NOT NULL;
     INSERT INTO thread_search_short(rowid, grams)
-        SELECT rowid, grams FROM thread_search_short_source WHERE rowid = new.rowid;
+        SELECT new.rowid, new.search_short_tokens WHERE new.deleted_at IS NULL AND new.search_short_tokens IS NOT NULL;
 END;
-CREATE TRIGGER thread_search_update AFTER UPDATE OF search_text, deleted_at ON threads_index
-WHEN new.search_text IS NOT old.search_text OR new.deleted_at IS NOT old.deleted_at BEGIN
+CREATE TRIGGER thread_search_update AFTER UPDATE OF search_text, search_short_tokens, deleted_at ON threads_index
+WHEN new.search_text IS NOT old.search_text OR new.search_short_tokens IS NOT old.search_short_tokens OR new.deleted_at IS NOT old.deleted_at BEGIN
     DELETE FROM thread_search_trigrams WHERE rowid = old.rowid;
     DELETE FROM thread_search_short WHERE rowid = old.rowid;
     INSERT INTO thread_search_trigrams(rowid, search_text)
-        SELECT new.rowid, lower(new.search_text) WHERE new.deleted_at IS NULL;
+        SELECT new.rowid, lower(new.search_text) WHERE new.deleted_at IS NULL AND new.search_short_tokens IS NOT NULL;
     INSERT INTO thread_search_short(rowid, grams)
-        SELECT rowid, grams FROM thread_search_short_source WHERE rowid = new.rowid;
+        SELECT new.rowid, new.search_short_tokens WHERE new.deleted_at IS NULL AND new.search_short_tokens IS NOT NULL;
 END;
 CREATE TRIGGER thread_search_delete AFTER DELETE ON threads_index BEGIN
     DELETE FROM thread_search_trigrams WHERE rowid = old.rowid;
@@ -64,46 +39,20 @@ CREATE VIRTUAL TABLE comment_search_trigrams USING fts5(
 CREATE VIRTUAL TABLE comment_search_short USING fts5(
     grams, content='', contentless_delete=1, detail=none
 );
-
--- UTF-8 lead bytes give each character's byte width. BLOB substr uses byte
--- offsets, so this walk is linear; TEXT substr would rescan all preceding
--- Unicode characters for every token. Materialize the lowered source once.
--- This view stores no data. Its rowid predicate selects one source row on writes.
-CREATE VIEW comment_search_short_source AS
-SELECT rowid, (
-    WITH RECURSIVE source(bytes, size) AS MATERIALIZED (
-        SELECT CAST(lower(search_text) AS BLOB), length(CAST(search_text AS BLOB))
-    ), positions(i, width) AS (
-        SELECT 1, CASE WHEN substr(bytes, 1, 1) < x'80' THEN 1 WHEN substr(bytes, 1, 1) < x'E0' THEN 2 WHEN substr(bytes, 1, 1) < x'F0' THEN 3 ELSE 4 END FROM source WHERE size > 0
-        UNION ALL
-        SELECT i + width, CASE WHEN substr(bytes, i + width, 1) < x'80' THEN 1 WHEN substr(bytes, i + width, 1) < x'E0' THEN 2 WHEN substr(bytes, i + width, 1) < x'F0' THEN 3 ELSE 4 END
-        FROM positions, source WHERE i + width <= size
-    )
-    SELECT coalesce(group_concat(
-        'x' || hex(substr(bytes, i, width)) || ' x' ||
-        hex(substr(bytes, i, width + (CASE WHEN substr(bytes, i + width, 1) < x'80' THEN 1 WHEN substr(bytes, i + width, 1) < x'E0' THEN 2 WHEN substr(bytes, i + width, 1) < x'F0' THEN 3 ELSE 4 END))), ' '
-    ), '') FROM positions, source
-) AS grams FROM comments_index WHERE deleted_at IS NULL AND is_root = 0;
-
-INSERT INTO comment_search_trigrams(rowid, search_text)
-    SELECT rowid, lower(search_text) FROM comments_index WHERE deleted_at IS NULL AND is_root = 0;
-INSERT INTO comment_search_short(rowid, grams)
-    SELECT rowid, grams FROM comment_search_short_source;
-
 CREATE TRIGGER comment_search_insert AFTER INSERT ON comments_index BEGIN
     INSERT INTO comment_search_trigrams(rowid, search_text)
-        SELECT new.rowid, lower(new.search_text) WHERE new.deleted_at IS NULL AND new.is_root = 0;
+        SELECT new.rowid, lower(new.search_text) WHERE new.deleted_at IS NULL AND new.is_root = 0 AND new.search_short_tokens IS NOT NULL;
     INSERT INTO comment_search_short(rowid, grams)
-        SELECT rowid, grams FROM comment_search_short_source WHERE rowid = new.rowid;
+        SELECT new.rowid, new.search_short_tokens WHERE new.deleted_at IS NULL AND new.is_root = 0 AND new.search_short_tokens IS NOT NULL;
 END;
-CREATE TRIGGER comment_search_update AFTER UPDATE OF search_text, deleted_at, is_root ON comments_index
-WHEN new.search_text IS NOT old.search_text OR new.deleted_at IS NOT old.deleted_at OR new.is_root IS NOT old.is_root BEGIN
+CREATE TRIGGER comment_search_update AFTER UPDATE OF search_text, search_short_tokens, deleted_at, is_root ON comments_index
+WHEN new.search_text IS NOT old.search_text OR new.search_short_tokens IS NOT old.search_short_tokens OR new.deleted_at IS NOT old.deleted_at OR new.is_root IS NOT old.is_root BEGIN
     DELETE FROM comment_search_trigrams WHERE rowid = old.rowid;
     DELETE FROM comment_search_short WHERE rowid = old.rowid;
     INSERT INTO comment_search_trigrams(rowid, search_text)
-        SELECT new.rowid, lower(new.search_text) WHERE new.deleted_at IS NULL AND new.is_root = 0;
+        SELECT new.rowid, lower(new.search_text) WHERE new.deleted_at IS NULL AND new.is_root = 0 AND new.search_short_tokens IS NOT NULL;
     INSERT INTO comment_search_short(rowid, grams)
-        SELECT rowid, grams FROM comment_search_short_source WHERE rowid = new.rowid;
+        SELECT new.rowid, new.search_short_tokens WHERE new.deleted_at IS NULL AND new.is_root = 0 AND new.search_short_tokens IS NOT NULL;
 END;
 CREATE TRIGGER comment_search_delete AFTER DELETE ON comments_index BEGIN
     DELETE FROM comment_search_trigrams WHERE rowid = old.rowid;

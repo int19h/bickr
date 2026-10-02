@@ -33,6 +33,7 @@
 		"./inference-configuration-write-policy": "./src/inference-configuration-write-policy.ts",
 		"./inference-translation-role": "./src/inference-translation-role.ts",
 		"./inference-translation-role-migration": "./src/inference-translation-role-migration.ts",
+		"./indexed-substring-search": "./src/indexed-substring-search.ts",
 		"./index-versions": "./src/index-versions.ts",
 		"./index-repair": "./src/index-repair.ts",
 		"./internal-service": "./src/internal-service.ts",

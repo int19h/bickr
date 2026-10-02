@@ -2,16 +2,17 @@
 import { DatabaseSync } from "node:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath, URL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { refreshThreadHotScores, searchForumThreads } from "./social";
-import { substringSearchQuery } from "./indexed-substring-search";
+import { substringSearchQuery, shortSubstringTokens, rebuildForumSearchIndexes, forumSearchPending } from "./indexed-substring-search";
 import type { D1DatabaseLike, D1PreparedStatementLike } from "./storage";
 
 const migrationDirectory = fileURLToPath(new URL("../../../migrations/", import.meta.url));
 const databases: DatabaseSync[] = [];
 const now = "2026-10-02T00:00:00.000Z";
 
-function database(count = 0) {
+async function database(count = 0, skipBackfill = false) {
+	let migrated = false;
 	const sqlite = new DatabaseSync(":memory:");
 	databases.push(sqlite);
 	for (const file of readdirSync(migrationDirectory).filter((file) => file.endsWith(".sql") && file < "0061").sort()) {
@@ -22,12 +23,14 @@ function database(count = 0) {
 		search_text, created_at, last_activity_at) VALUES(?, ?, 'world', 'world', 'forum', 'forum', 'bot', 'bot', 'Bot', ?, ?, ?, ?, ?)`);
 	const thread = (id: string, text = "ancient body", forum = "forum") => {
 		insert.run(id, `${id}-root`, text, text, text.toLowerCase(), "2020-01-01T00:00:00.000Z", `2020-01-01T00:00:${id.endsWith("2") ? "02" : "01"}.000Z`);
+		if (migrated) sqlite.prepare("UPDATE threads_index SET search_short_tokens = ? WHERE thread_id = ?").run(shortSubstringTokens(text.toLowerCase()), id);
 		if (forum !== "forum") sqlite.prepare("UPDATE threads_index SET forum_id = ? WHERE thread_id = ?").run(forum, id);
 	};
 	sqlite.exec("BEGIN");
 	for (let i = 0; i < count; i++) thread(`historical-${String(i).padStart(6, "0")}`);
 	sqlite.exec("COMMIT");
 	sqlite.exec(readFileSync(`${migrationDirectory}/0061_thread_search_and_hot_refresh.sql`, "utf8"));
+	migrated = true;
 	let textRows = 0;
 	let threadWrites = 0;
 	const plans: string[] = [];
@@ -70,9 +73,11 @@ function database(count = 0) {
 	};
 	const comment = (id: string, threadId: string, text: string, createdAt = "2026-10-01T00:00:00.000Z") => {
 		sqlite.prepare(`INSERT INTO comments_index(comment_id, thread_id, world_id, forum_id, author_bot_id,
-			author_handle, body_preview, search_text, created_at, is_root) VALUES(?, ?, 'world', 'forum', 'bot', 'bot', ?, ?, ?, 0)`)
-			.run(id, threadId, text, text.toLowerCase(), createdAt);
+			author_handle, body_preview, search_text, search_short_tokens, created_at, is_root) VALUES(?, ?, 'world', 'forum', 'bot', 'bot', ?, ?, ?, ?, 0)`)
+			.run(id, threadId, text, text.toLowerCase(), shortSubstringTokens(text.toLowerCase()), createdAt);
 	};
+	if (!skipBackfill) while ((await rebuildForumSearchIndexes(db)).remaining) { /* bounded sweep */ }
+	textRows = 0; threadWrites = 0;
 	return { sqlite, db, thread, comment, plans, resetCounters() { textRows = 0; threadWrites = 0; }, counts: () => ({ textRows, threadWrites }) };
 }
 
@@ -80,7 +85,7 @@ afterEach(() => { for (const db of databases.splice(0)) db.close(); });
 
 describe("indexed forum substrings", () => {
 	it.each([100, 1_000, 10_000])("does not inspect %i historical text rows for absent long or short terms", async (size) => {
-		const fixture = database(size);
+		const fixture = await database(size);
 		for (const query of ["unmatched-token", "zz", "😀"]) {
 			fixture.resetCounters();
 			expect(await searchForumThreads(fixture.db, "forum", query, 20, now)).toEqual([]);
@@ -91,7 +96,7 @@ describe("indexed forum substrings", () => {
 	});
 
 	it("preserves literal, Unicode, scope, root, and deletion semantics", async () => {
-		const fixture = database();
+		const fixture = await database();
 		fixture.thread("match", 'Prefix foo%_\\"NEAR bar 😀 東京 suffix 😀😃 éü i̇');
 		fixture.thread("other", "outside needle", "elsewhere");
 		fixture.thread("deleted", "hidden needle");
@@ -112,17 +117,57 @@ describe("indexed forum substrings", () => {
 		}
 	});
 
-	it("selects one source row before generating short tokens for a write", () => {
-		const fixture = database(100);
-		const plan = fixture.sqlite.prepare("EXPLAIN QUERY PLAN SELECT grams FROM thread_search_short_source WHERE rowid = ?").all(1);
-		expect(plan.some((row) => String(row.detail).includes("SEARCH threads_index USING INTEGER PRIMARY KEY"))).toBe(true);
+	it("bounds index preparation and uses indexed readiness checks", async () => {
+		const fixture = await database(100, true);
+		expect(await forumSearchPending(fixture.db)).toBe(true);
+		await expect(searchForumThreads(fixture.db, "forum", "zz")).rejects.toMatchObject({ status: 503 });
+		expect(await rebuildForumSearchIndexes(fixture.db)).toEqual({ processed: 64, remaining: true });
+		expect(await rebuildForumSearchIndexes(fixture.db)).toEqual({ processed: 36, remaining: false });
+		expect(fixture.plans.some(plan => plan.includes("thread_search_pending"))).toBe(true);
+		expect(await searchForumThreads(fixture.db, "forum", "zz")).toEqual([]);
+	});
+
+	it("bounds backfill bytes and does not overwrite a concurrent projection", async () => {
+		const fixture = await database();
+		for (let index = 0; index < 6; index++) fixture.thread(`large-${index}`, 'a'.repeat(65_536));
+		fixture.sqlite.exec("UPDATE threads_index SET search_short_tokens = NULL");
+		expect(await rebuildForumSearchIndexes(fixture.db)).toEqual({ processed: 4, remaining: true });
+		expect(await rebuildForumSearchIndexes(fixture.db)).toEqual({ processed: 2, remaining: false });
+		fixture.thread("race", "old token");
+		fixture.sqlite.exec("UPDATE threads_index SET search_short_tokens = NULL WHERE thread_id = 'race'");
+		const batch = fixture.db.batch.bind(fixture.db);
+		fixture.db.batch = async statements => {
+			fixture.sqlite.prepare("UPDATE threads_index SET search_text = 'new token', search_short_tokens = ? WHERE thread_id = 'race'").run(shortSubstringTokens("new token"));
+			return batch(statements);
+		};
+		expect(await rebuildForumSearchIndexes(fixture.db)).toEqual({ processed: 0, remaining: false });
+		expect(await searchForumThreads(fixture.db, "forum", "old")).toEqual([]);
+		expect(await searchForumThreads(fixture.db, "forum", "new")).toHaveLength(1);
+	});
+
+	it("generates short tokens in linear work and lowercases source once in SQL", async () => {
+		const fixture = await database();
+		const original = TextEncoder.prototype.encode;
+		for (const length of [4_000, 8_000, 16_000, 32_000]) {
+			let encodedCharacters = 0;
+			const spy = vi.spyOn(TextEncoder.prototype, "encode").mockImplementation(function (this: TextEncoder, text = "") {
+				encodedCharacters += text.length; return original.call(this, text);
+			});
+			try {
+				const source = 'a😀東京'.repeat(length).slice(0, length);
+				fixture.resetCounters();
+				fixture.thread(`long-${length}`, source);
+				expect(encodedCharacters).toBeLessThanOrEqual(3 * source.length);
+				expect(fixture.counts().textRows).toBe(1);
+			} finally { spy.mockRestore(); }
+		}
 	});
 
 	it("updates both indexes with edits, soft deletion, restoration, and hard deletion", async () => {
-		const fixture = database();
+		const fixture = await database();
 		fixture.thread("edit", "before zz");
 		expect(await searchForumThreads(fixture.db, "forum", "zz")).toHaveLength(1);
-		fixture.sqlite.exec("UPDATE threads_index SET search_text = 'after yy' WHERE thread_id = 'edit'");
+		fixture.sqlite.prepare("UPDATE threads_index SET search_text = 'after yy', search_short_tokens = ? WHERE thread_id = 'edit'").run(shortSubstringTokens("after yy"));
 		expect(await searchForumThreads(fixture.db, "forum", "before")).toHaveLength(0);
 		expect(await searchForumThreads(fixture.db, "forum", "zz")).toHaveLength(0);
 		expect(await searchForumThreads(fixture.db, "forum", "yy")).toHaveLength(1);
@@ -137,7 +182,7 @@ describe("indexed forum substrings", () => {
 
 describe("bounded hot-count refresh", () => {
 	it("visits at most64 queued historical threads and writes no unchanged thread rows", async () => {
-		const fixture = database(1_000);
+		const fixture = await database(1_000);
 		expect(await refreshThreadHotScores(fixture.db, now)).toBe(64);
 		expect(fixture.counts().threadWrites).toBe(0);
 		expect(fixture.sqlite.prepare("SELECT count(*) AS total FROM thread_hot_refresh").get()?.total).toBe(936);
@@ -145,7 +190,7 @@ describe("bounded hot-count refresh", () => {
 	});
 
 	it("refreshes changed counts, schedules the next expiry, and removes idle threads", async () => {
-		const fixture = database();
+		const fixture = await database();
 		fixture.thread("active");
 		fixture.comment("old", "active", "old", "2020-01-01T00:00:00.000Z");
 		fixture.comment("new", "active", "recent", "2026-10-01T00:00:00.000Z");
@@ -159,7 +204,7 @@ describe("bounded hot-count refresh", () => {
 	});
 
 	it("queues comment deletion and drops deleted threads", async () => {
-		const fixture = database();
+		const fixture = await database();
 		fixture.thread("active");
 		fixture.comment("new", "active", "recent");
 		await refreshThreadHotScores(fixture.db, now);

@@ -1,5 +1,5 @@
 import { refreshDueThreadCommentCounts } from "./thread-hot-refresh";
-import { substringSearchQuery, substringCandidateSql } from "./indexed-substring-search";
+import { substringSearchQuery, substringCandidateSql, substringIndexFields, requireForumSearchReady } from "./indexed-substring-search";
 import { enqueueBotNotificationFanout, type BotNotificationTemplate } from "./bot-notification-fanout";
 import { enqueueHumanNotificationFanout, type HumanNotificationAudience } from "./human-notification-fanout";
 import { insertHumanNotification, type HumanNotificationInput } from "./human-notifications";
@@ -3882,6 +3882,7 @@ export async function searchThreads(
 	if (!search) {
 		return [];
 	}
+	await requireForumSearchReady(db);
 	const threadResults = await safeD1Search(() =>
 		db
 			.prepare(
@@ -3958,6 +3959,7 @@ export async function searchForumThreads(
 	if (!search) {
 		return [];
 	}
+	await requireForumSearchReady(db);
 	const threadResults = await safeD1Search(() =>
 		db
 			.prepare(
@@ -7597,14 +7599,15 @@ async function upsertThreadIndex(db: D1DatabaseLike, thread: ThreadDocument): Pr
 	const title = localizedTextFromStored(thread.title);
 	const bodyPreview = localizedPreview(root.body);
 	const rootBody = localizedTextString(root.body);
+	const search = substringIndexFields(`${title.text}\n${rootBody}`);
 	await db
 		.prepare(
 			`INSERT INTO threads_index (
 				thread_id, root_comment_id, world_id, world_handle, forum_id, forum_handle, author_bot_id,
 				author_handle, author_display_name, author_display_name_lang, title, title_lang,
-				body_preview, body_preview_lang, search_text, vote_score,
+				body_preview, body_preview_lang, search_text, search_short_tokens, vote_score,
 				comment_count, recent_comment_count, created_at, last_activity_at, deleted_at, inference_attribution_json
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(thread_id) DO UPDATE SET
 				root_comment_id = excluded.root_comment_id,
 				world_id = excluded.world_id,
@@ -7620,6 +7623,7 @@ async function upsertThreadIndex(db: D1DatabaseLike, thread: ThreadDocument): Pr
 				body_preview = excluded.body_preview,
 				body_preview_lang = excluded.body_preview_lang,
 				search_text = excluded.search_text,
+				search_short_tokens = excluded.search_short_tokens,
 				vote_score = excluded.vote_score,
 				comment_count = excluded.comment_count,
 				recent_comment_count = excluded.recent_comment_count,
@@ -7642,7 +7646,8 @@ async function upsertThreadIndex(db: D1DatabaseLike, thread: ThreadDocument): Pr
 			title.lang,
 			bodyPreview.text,
 			bodyPreview.lang,
-			`${title.text}\n${rootBody}`.toLowerCase(),
+			search.searchText,
+			search.shortTokens,
 			thread.voteScore,
 			thread.commentCount,
 			thread.recentCommentCount,
@@ -7661,17 +7666,19 @@ async function upsertCommentIndex(
 ): Promise<void> {
 	const bodyPreview = localizedPreview(comment.body);
 	const body = localizedTextString(comment.body);
+	const search = substringIndexFields(body);
 	await db
 		.prepare(
 			`INSERT INTO comments_index (
 				comment_id, thread_id, world_id, forum_id, author_bot_id, author_handle,
-				parent_comment_id, body_preview, body_preview_lang, search_text, vote_score, created_at, deleted_at, is_root, inference_attribution_json
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				parent_comment_id, body_preview, body_preview_lang, search_text, search_short_tokens, vote_score, created_at, deleted_at, is_root, inference_attribution_json
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(comment_id) DO UPDATE SET
 				parent_comment_id = excluded.parent_comment_id,
 				body_preview = excluded.body_preview,
 				body_preview_lang = excluded.body_preview_lang,
 				search_text = excluded.search_text,
+				search_short_tokens = excluded.search_short_tokens,
 				vote_score = excluded.vote_score,
 				deleted_at = excluded.deleted_at,
 				is_root = excluded.is_root,
@@ -7687,7 +7694,8 @@ async function upsertCommentIndex(
 			comment.parentCommentId ?? null,
 			bodyPreview.text,
 			bodyPreview.lang,
-			body.toLowerCase(),
+			search.searchText,
+			search.shortTokens,
 			comment.voteScore,
 			comment.createdAt,
 			comment.deletedAt ?? null,

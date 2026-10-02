@@ -1,3 +1,4 @@
+import { rebuildForumSearchIndexes } from "../packages/shared/src/indexed-substring-search";
 import { env } from "cloudflare:test";
 import { expect, it } from "vitest";
 import { resetD1Schema } from "./helpers/d1-schema";
@@ -11,6 +12,8 @@ it("maintains substring indexes and hot expiry through real D1 writes", async ()
 		search_text, created_at, last_activity_at)
 		VALUES('thread', 'root', 'world', 'world', 'forum', 'forum', 'bot', 'bot', 'Bot', 'Title', 'Body',
 		'prefix needle 😀 xy', '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z')`).run();
+	await expect(searchForumThreads(db, "forum", "needle")).rejects.toMatchObject({ status: 503 });
+	await rebuildForumSearchIndexes(db);
 	for (const query of ["needle", "xy", "😀"]) {
 		expect(await searchForumThreads(db, "forum", query)).toHaveLength(1);
 		expect(await searchThreads(db, "world", query)).toHaveLength(1);
@@ -18,6 +21,7 @@ it("maintains substring indexes and hot expiry through real D1 writes", async ()
 	await db.prepare(`INSERT INTO comments_index(comment_id, thread_id, world_id, forum_id, author_bot_id,
 		author_handle, body_preview, search_text, created_at, is_root)
 		VALUES('reply', 'thread', 'world', 'forum', 'bot', 'bot', 'Reply', 'reply needle 😀 xy', '2026-10-01T00:00:00.000Z', 0)`).run();
+	await rebuildForumSearchIndexes(db);
 	for (const query of ["needle", "xy", "😀"]) expect(await searchForumThreads(db, "forum", query)).toHaveLength(2);
 	expect(await refreshThreadHotScores(db, "2026-10-02T00:00:00.000Z")).toBe(1);
 	expect(await db.prepare("SELECT recent_comment_count AS count FROM threads_index").first("count")).toBe(1);
