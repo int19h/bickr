@@ -1,10 +1,10 @@
-import { readJsonBody } from "@bickr/shared/api";
 import { avatarMaxBytes, fetchRemoteAvatarBytes, validateAvatarFile, type AvatarContentType } from "@bickr/shared/avatar-storage";
 import { BodyReadTimeoutError, BodySizeLimitError, readBoundedRequest } from "@bickr/shared/bounded-body";
 import { InputError, requiredText } from "@bickr/shared/validation";
 
 // Leave room for multipart headers while bounding all fields before parsing.
 export const avatarUploadMaxBytes = avatarMaxBytes + 64 * 1024;
+export const avatarUrlJsonMaxBytes = 16 * 1024;
 
 type AvatarUploadBytes =
 	| { kind: "file"; bytes: Uint8Array; contentType: AvatarContentType; originalFilename?: string }
@@ -38,7 +38,19 @@ export async function avatarUploadBytes(request: Request): Promise<AvatarUploadB
 			...(file.name ? { originalFilename: file.name } : {}),
 		};
 	}
-	const body = await readJsonBody(request);
+	if (contentType.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
+		throw new InputError("Expected an application/json request body.");
+	}
+	let body: unknown;
+	try {
+		const bytes = await readBoundedRequest(request, { maxBytes: avatarUrlJsonMaxBytes, timeoutMs: 10_000 });
+		body = JSON.parse(new TextDecoder().decode(bytes));
+	} catch (error) {
+		if (error instanceof BodySizeLimitError) throw new InputError("Avatar URL request must be 16 KiB or smaller.");
+		if (error instanceof BodyReadTimeoutError) throw new InputError("Avatar URL request timed out.");
+		if (error instanceof SyntaxError) throw new InputError("Request body must be valid JSON.");
+		throw error;
+	}
 	const record = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
 	const sourceUrl = requiredText(record.url, "Avatar URL", 1_000);
 	const validated = await fetchRemoteAvatarBytes(sourceUrl, fetch, { signal: request.signal });
