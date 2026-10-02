@@ -6392,6 +6392,10 @@ fieldset {
 	left: 0;
 }
 
+.comment-rail.end.zero-indent {
+	height: calc(var(--comment-pad-top) + var(--comment-checkbox-bottom-from-main) + 8px);
+}
+
 .comment-connector {
 	background: var(--rule-soft);
 	height: 2px;
@@ -6402,7 +6406,9 @@ fieldset {
 	width: var(--comment-step);
 }
 
+/* At zero indents, the checkbox covers its usual connector. Use the free gutter below it. */
 .comment-connector.zero-indent {
+	top: calc(var(--comment-pad-top) + var(--comment-checkbox-bottom-from-main) + 4px);
 	left: 0;
 	width: var(--comment-checkbox-center);
 }
