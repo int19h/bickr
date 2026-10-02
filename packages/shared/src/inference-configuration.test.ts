@@ -17,6 +17,18 @@ import {
 import { defaultProviderModel } from "./model";
 
 describe("canonical inference configuration resolution", () => {
+	it("rejects unsafe provider URL writes without rewriting stored configuration", () => {
+		for (const baseUrl of ["http://provider.example/v1", "https://user:secret@provider.example/v1", "not-a-url"]) {
+			const overrides = { baseUrl: { kind: "value", value: baseUrl } };
+			expect(() => parseInferenceConfigurationOverrides(overrides)).toThrow();
+			expect(parseStoredInferenceConfigurationOverrides(overrides)).toEqual(overrides);
+		}
+		for (const baseUrl of ["https://provider.example/v1/", "http://127.0.0.1:1234/v1", "http://[::1]:1234/v1"]) {
+			const overrides = { baseUrl: { kind: "value", value: baseUrl } };
+			expect(parseInferenceConfigurationOverrides(overrides)).toEqual(overrides);
+		}
+	});
+
 	it("resolves arbitrary-depth fields independently and preserves falsy, empty, and equal explicit values", () => {
 		const account = node("account", "account_default", null, {
 			temperature: value(0.7),

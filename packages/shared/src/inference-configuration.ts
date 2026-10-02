@@ -47,6 +47,7 @@ import {
 } from "./inference-configuration-owner";
 import { isOpenRouterProviderBaseUrl } from "./inference-settings";
 import { sha256Hex } from "./ids";
+import { ProviderTransportError, providerUrl } from "./provider-transport";
 
 export const inferenceGraphSchemaVersion = 1;
 export const inferenceGraphCapabilityVersion = 2;
@@ -410,8 +411,8 @@ export class InferenceConfigurationDataError extends Error {
 		| "path_cycle"
 		| "path_over_limit";
 
-	constructor(kind: InferenceConfigurationDataError["kind"], message: string) {
-		super(message);
+	constructor(kind: InferenceConfigurationDataError["kind"], message: string, options?: ErrorOptions) {
+		super(message, options);
 		this.name = "InferenceConfigurationDataError";
 		this.kind = kind;
 	}
@@ -1316,6 +1317,14 @@ function parseFieldValue<K extends InferenceConfigurationField>(
 ): InferenceConfigurationFieldValues[K] {
 	if (stringFields.has(field)) {
 		if (typeof value !== "string" || !value.trim()) throw invalidOverride(field);
+		if (field === "baseUrl" && !allowMigrationOnlyStates) {
+			try {
+				providerUrl(value.trim());
+			} catch (error) {
+				if (!(error instanceof ProviderTransportError)) throw error;
+				throw new InferenceConfigurationDataError("invalid_overrides", error.message, { cause: error });
+			}
+		}
 		return value.trim() as InferenceConfigurationFieldValues[K];
 	}
 	if (numberFields.has(field)) {
