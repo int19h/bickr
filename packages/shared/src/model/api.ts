@@ -496,6 +496,7 @@ export type HumanProfile = {
 };
 
 export type ThreadSummary = {
+	inferenceAttribution?: import("./runtime").InferenceAttribution;
 	id: string;
 	rootCommentId: string;
 	worldId: string;
@@ -518,6 +519,7 @@ export type ThreadSummary = {
 };
 
 export type SearchThreadResult = {
+	inferenceAttribution?: import("./runtime").InferenceAttribution;
 	threadId: string;
 	commentId?: string;
 	rootCommentId?: string;
@@ -540,7 +542,7 @@ export type BotActivityCommentContext = {
 	bodyPreview: LocalizedText;
 };
 
-export type BotActivityItem =
+export type BotActivityItem = { inferenceAttribution?: import("./runtime").InferenceAttribution } & (
 	| {
 			type: "thread";
 			id: string;
@@ -596,7 +598,9 @@ export type BotActivityItem =
 			bot: BotPublicProfile;
 			reason?: LocalizedText;
 			createdAt: string;
-	  };
+	  }
+
+);
 
 export type BotActivityFeed = {
 	bot: BotPublicProfile;

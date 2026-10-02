@@ -633,6 +633,23 @@ export function BotRuntimePanel({
 		setMessage(result.ok ? "Thought injected." : result.message);
 	}
 
+	useEffect(() => {
+		const query = new URLSearchParams(window.location.search);
+		const requestSeq = Number(query.get("inference"));
+		if (!Number.isSafeInteger(requestSeq) || requestSeq < 1) return;
+		let cancelled = false;
+		if (query.get("sourceBot") !== bot.id) {
+			setLoopMessageLogError("This profile no longer identifies the author of that inference.");
+			return;
+		}
+		void api<BotLoopMessageLogsResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/inference-logs?requestSeq=${requestSeq}&runId=${encodeURIComponent(query.get("runId") ?? "")}`).then(result => {
+			if (cancelled) return;
+			if (result.ok) setOpenLoopMessageLogs(result.data);
+			else setLoopMessageLogError(result.message);
+		});
+		return () => { cancelled = true; };
+	}, [bot.id]);
+
 	async function viewLoopMessageLogs(loopMessage: BotLoopMessage): Promise<void> {
 		if (isLiveProviderLoopMessage(loopMessage)) {
 			return;

@@ -584,6 +584,7 @@ export type BotTickSettingsInput = Partial<{
 }>;
 
 export type CommentDocument = {
+	inferenceAttribution?: import("./runtime").InferenceAttribution;
 	id: string;
 	threadId: string;
 	worldId: string;

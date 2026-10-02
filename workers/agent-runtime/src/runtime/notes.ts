@@ -1,3 +1,4 @@
+import type { InferenceAttribution } from '@bickr/shared/model';
 import { extractCanonicalEntityReferences, type CanonicalEntityReference } from '@bickr/shared/mentions';
 import { RepositoryError } from '@bickr/shared/repository';
 import { d1SafeBoundParameters, type D1DatabaseLike } from '@bickr/shared/storage';
@@ -18,7 +19,7 @@ const allowedNoteIdCharacter = /^[\p{L}\p{M}\p{N}\p{P}\p{S} ]+$/u;
 export type NoteEntityKind = 'participant' | 'forum';
 export type NoteLink = { kind: NoteEntityKind; entityId: string; handle: string };
 export type NoteLinkView = NoteLink & { deleted: boolean };
-export type BotNote = { id: string; content: string; createdAt: string; updatedAt: string; revision: number; links: NoteLink[] };
+export type BotNote = { inferenceAttribution?: InferenceAttribution; id: string; content: string; createdAt: string; updatedAt: string; revision: number; links: NoteLink[] };
 export type BotNoteView = Omit<BotNote, 'links'> & { links: NoteLinkView[] };
 export type NoteListPage = { ids: string[]; nextCursor: string | null; total: number; unknownFilters: string[] };
 
@@ -166,25 +167,25 @@ export class BotNotesStore {
 	}
 
 	read(id: string): BotNote | null {
-		const row = this.storage.sql.exec<{ note_id: string; content: string; created_at: string; updated_at: string; revision: number }>(
-			'SELECT note_id, content, created_at, updated_at, revision FROM notes WHERE note_id = ? LIMIT 1', id,
+		const row = this.storage.sql.exec<{ note_id: string; content: string; created_at: string; updated_at: string; revision: number; inference_attribution_json: string | null }>(
+			'SELECT note_id, content, created_at, updated_at, revision, inference_attribution_json FROM notes WHERE note_id = ? LIMIT 1', id,
 		).toArray()[0];
 		if (!row) return null;
 		const links = this.storage.sql.exec<{ entity_kind: NoteEntityKind; entity_id: string; handle: string }>(
 			'SELECT entity_kind, entity_id, handle FROM note_links WHERE note_id = ? ORDER BY entity_kind, handle LIMIT ?', id, maxNoteLinks,
 		).toArray().map((link) => ({ kind: link.entity_kind, entityId: link.entity_id, handle: link.handle }));
-		return { id: row.note_id, content: row.content, createdAt: row.created_at, updatedAt: row.updated_at, revision: row.revision, links };
+		return { id: row.note_id, content: row.content, createdAt: row.created_at, updatedAt: row.updated_at, revision: row.revision, links, ...(row.inference_attribution_json ? { inferenceAttribution: JSON.parse(row.inference_attribution_json) as InferenceAttribution } : {}) };
 	}
 
-	write(id: string, content: string, links: readonly NoteLink[]): { kind: 'created' | 'replaced'; note: BotNote } {
-		return this.writeRecord(id, content, links, 'upsert');
+	write(id: string, content: string, links: readonly NoteLink[], inferenceAttribution?: InferenceAttribution): { kind: 'created' | 'replaced'; note: BotNote } {
+		return this.writeRecord(id, content, links, 'upsert', inferenceAttribution);
 	}
 
 	create(id: string, content: string, links: readonly NoteLink[]): BotNote {
 		return this.writeRecord(id, content, links, 'create_only').note;
 	}
 
-	private writeRecord(id: string, content: string, links: readonly NoteLink[], mode: 'upsert' | 'create_only'): { kind: 'created' | 'replaced'; note: BotNote } {
+	private writeRecord(id: string, content: string, links: readonly NoteLink[], mode: 'upsert' | 'create_only', inferenceAttribution?: InferenceAttribution): { kind: 'created' | 'replaced'; note: BotNote } {
 		id = normalizeNoteId(id);
 		content = noteContent(content);
 		if (links.length > maxNoteLinks) throw new InputError(`A note can refer to at most ${maxNoteLinks} distinct profiles and forums.`);
@@ -197,14 +198,14 @@ export class BotNotesStore {
 			}
 			const now = new Date().toISOString();
 			this.storage.sql.exec(
-				'INSERT INTO notes (note_id, content, created_at, updated_at, revision) VALUES (?, ?, ?, ?, 0) ON CONFLICT(note_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at, revision = notes.revision + 1',
-				id, content, now, now,
+				'INSERT INTO notes (note_id, content, created_at, updated_at, revision, inference_attribution_json) VALUES (?, ?, ?, ?, 0, ?) ON CONFLICT(note_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at, revision = notes.revision + 1, inference_attribution_json = excluded.inference_attribution_json',
+				id, content, now, now, inferenceAttribution ? JSON.stringify(inferenceAttribution) : null,
 			);
 			this.storage.sql.exec('DELETE FROM note_links WHERE note_id = ?', id);
 			for (const link of links) this.storage.sql.exec(
 				'INSERT INTO note_links (note_id, entity_kind, entity_id, handle) VALUES (?, ?, ?, ?)', id, link.kind, link.entityId, link.handle,
 			);
-			return { kind: existing ? 'replaced' as const : 'created' as const, note: { id, content, createdAt: existing?.created_at ?? now, updatedAt: now, revision: existing ? existing.revision + 1 : 0, links: [...links] } };
+			return { kind: existing ? 'replaced' as const : 'created' as const, note: { id, content, createdAt: existing?.created_at ?? now, updatedAt: now, revision: existing ? existing.revision + 1 : 0, links: [...links], ...(inferenceAttribution ? { inferenceAttribution } : {}) } };
 		});
 	}
 
@@ -222,7 +223,7 @@ export class BotNotesStore {
 			if (nextId !== id && this.read(nextId)) throw new RepositoryError('conflict', 'A note with this title already exists.', 409, { noteCause: 'title_conflict' });
 			const now = new Date().toISOString();
 			this.storage.sql.exec('DELETE FROM note_links WHERE note_id = ?', id);
-			this.storage.sql.exec('UPDATE notes SET note_id = ?, content = ?, updated_at = ?, revision = revision + 1 WHERE note_id = ?', nextId, content, now, id);
+			this.storage.sql.exec('UPDATE notes SET note_id = ?, content = ?, updated_at = ?, revision = revision + 1, inference_attribution_json = NULL WHERE note_id = ?', nextId, content, now, id);
 			for (const link of links) this.storage.sql.exec(
 				'INSERT INTO note_links (note_id, entity_kind, entity_id, handle) VALUES (?, ?, ?, ?)', nextId, link.kind, link.entityId, link.handle,
 			);
@@ -237,8 +238,9 @@ export class BotNotesStore {
 			this.storage.sql.exec('DELETE FROM note_links WHERE note_id = ?', id);
 			if (id === planNoteId) {
 				const now = new Date().toISOString();
-				this.storage.sql.exec('UPDATE notes SET content = ?, updated_at = ?, revision = revision + 1 WHERE note_id = ?', defaultPlanContent, now, id);
-				return { kind: 'reset', note: { ...exists, content: defaultPlanContent, updatedAt: now, revision: exists.revision + 1, links: [] } };
+				this.storage.sql.exec('UPDATE notes SET content = ?, updated_at = ?, revision = revision + 1, inference_attribution_json = NULL WHERE note_id = ?', defaultPlanContent, now, id);
+				const { inferenceAttribution: _attribution, ...manualNote } = exists;
+				return { kind: 'reset', note: { ...manualNote, content: defaultPlanContent, updatedAt: now, revision: exists.revision + 1, links: [] } };
 			}
 			this.storage.sql.exec('DELETE FROM notes WHERE note_id = ?', id);
 			return { kind: 'deleted' };

@@ -16,6 +16,20 @@ describe('private bot notes', () => {
 
 	afterEach(() => storage.database.close());
 
+	it('attributes the current note content and clears attribution after manual replacement, edit, and PLAN reset', () => {
+		const attribution = { model: 'vendor/model', parameters: { temperature: 0.4 }, source: { botId: 'bot-a', worldHandle: 'primary', botHandle: 'alice', runId: 'run-a', requestSeq: 7 } };
+		notes.write('draft', 'Generated', [], attribution);
+		expect(notes.read('draft')?.inferenceAttribution).toEqual(attribution);
+		notes.write('draft', 'Manual', []);
+		expect(notes.read('draft')).not.toHaveProperty('inferenceAttribution');
+		notes.write('draft', 'Generated again', [], attribution);
+		notes.edit('draft', 'draft', 'Edited manually', [], 2);
+		expect(notes.read('draft')).not.toHaveProperty('inferenceAttribution');
+		notes.write(planNoteId, 'Generated PLAN', [], attribution);
+		expect(notes.delete(planNoteId)).toMatchObject({ kind: 'reset' });
+		expect(notes.read(planNoteId)).not.toHaveProperty('inferenceAttribution');
+	});
+
 	it('keeps replacement and deletion consistent with entity links', () => {
 		const alice = { kind: 'participant' as const, entityId: 'bot-alice', handle: 'alice' };
 		const forum = { kind: 'forum' as const, entityId: 'forum-news', handle: 'news' };

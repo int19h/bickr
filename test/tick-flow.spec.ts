@@ -261,7 +261,9 @@ describe("Tick flow", () => {
 				expect.anything(),
 				expect.anything(),
 				expect.anything(),
-			);
+			expect.anything(),
+			expect.any(Number),
+		);
 		const replyTool = refreshedProviderTools.find(
 			(tool) => tool.type === "function" && tool.function.name === "reply_to_comment",
 		);

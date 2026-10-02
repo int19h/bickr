@@ -1,3 +1,4 @@
+import { InferenceAttributionFields } from "../../components/inference-attribution";
 import type {
 	BotInferenceSubmissionMessage,
 	BotLoopMessage,
@@ -42,12 +43,13 @@ export function LoopMessageLogsModal({
 			</div>
 			<div className="submission-chat-log">
 				{requestUsage && <LoopMessageRequestUsageLine usage={requestUsage} />}
+				{payload.inferenceAttribution && <InferenceAttributionFields attribution={payload.inferenceAttribution} />}
 				{requestMessages && requestMessages.length > 0 ?
 					requestMessages.map((item) => <RequestLogMessageView item={item} key={item.position} />)
 				:	<RawInferenceSubmissionMessageView message={message.message} position={message.seq} />}
 				{logs.length === 0 ?
 					<div className="empty compact-empty">No retained raw logs for this message.</div>
-				:	logs.map((log) => (
+				:	logs.filter(log => log.kind !== "inference_attribution").map((log) => (
 						<div className="submission-message role-system" key={log.id}>
 							<div className="submission-message-head">
 								<b>{loopMessageLogKindLabel(log.kind)}</b>

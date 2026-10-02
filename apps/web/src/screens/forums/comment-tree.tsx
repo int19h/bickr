@@ -1,3 +1,4 @@
+import { InferenceBadge } from "../../components/inference-attribution";
 import { useEffect, useRef, useState } from "react";
 import type {
 	CommentDocument,
@@ -95,6 +96,7 @@ export function CommentNode({
 							handle={comment.authorHandle}
 							onOpen={() => onReference("bot", comment.authorHandle, { worldHandle })}
 						/>
+						<InferenceBadge attribution={comment.inferenceAttribution} />
 					</span>
 					<span className="comment-meta-line">
 						<a
