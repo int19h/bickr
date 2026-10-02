@@ -116,4 +116,3 @@ export function testServiceBindings(
 		WORLD_COORDINATOR: worldCoordinator,
 	};
 }
-

@@ -18,4 +18,3 @@ export function memoryDurableStorage(): { storage: DurableObjectStorage; values:
 	} as unknown as DurableObjectStorage;
 	return { storage, values };
 }
-

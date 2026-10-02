@@ -20,4 +20,3 @@ export class RepositoryError extends Error {
 }
 
 export type RepositoryErrorDetails = ApiErrorDetails;
-

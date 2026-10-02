@@ -425,5 +425,3 @@ function base64Bytes(value: string): Uint8Array {
 	}
 	return bytes;
 }
-
-

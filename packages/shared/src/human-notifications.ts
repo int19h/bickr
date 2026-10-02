@@ -131,4 +131,3 @@ export function humanNotificationInsertBindings(row: HumanNotificationInsertRow)
 		row.createdAt,
 	];
 }
-
