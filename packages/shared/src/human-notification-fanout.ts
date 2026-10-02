@@ -101,7 +101,7 @@ async function audiencePage(db: D1DatabaseLike, event: Event, job: Job): Promise
 				WHERE home_world_id = ? AND lifecycle_state = 'active' AND deleted_at IS NULL AND owner_user_id > audience.user_id
 				ORDER BY owner_user_id LIMIT 1), count + 1
 			FROM audience WHERE user_id IS NOT NULL AND count < ?
-		) SELECT user_id AS userId FROM audience WHERE user_id IS NOT NULL`)
+		) SELECT user_id AS userId FROM audience WHERE user_id IS NOT NULL ORDER BY user_id`)
 			.bind(audience.worldId, job.userCursor, audience.worldId, humanNotificationFanoutPageSize)
 			.all<{ userId: string }>();
 		return (rows.results ?? []).map(row => row.userId);
