@@ -1,14 +1,18 @@
 # Authentication storage and cutover
 
+The cutover moves authentication records from KV to D1.
+
 D1 holds the authoritative authentication records. These operations use the primary D1 binding. Do not move these reads into a replica session or a KV cache. Authentication reads the profile from KV, then makes sure that D1 marks the account as active.
 
-A conditional update and all successor writes run in one `D1Database.batch()` transaction. A random claim identifies the request that consumed an OAuth code, refresh token, or CLI approval. Each successor insert requires that claim. If the batch fails, D1 rolls back consumption.
+A conditional update and its replacement credential writes run in one `D1Database.batch()` transaction. A random claim identifies the request that consumed an OAuth code, refresh token, or CLI approval. Each replacement credential insert requires that claim. If the batch fails, D1 rolls back consumption.
 
 Consumed refresh tokens stay until their grant expires. Reuse of a consumed code or refresh token revokes its grant and every token in that family. Clients must serialize refresh requests. A second concurrent refresh counts as replay.
 
 ## Browser consent and callbacks
 
-MCP and CLI consent require a browser session cookie and evidence of the same origin. Bearer tokens cannot approve access. An explicit `Origin` must match the request origin. If present, `Sec-Fetch-Site` must be `same-origin`. Without `Origin`, the request must include `Sec-Fetch-Site: same-origin`. GET displays each form. POST approves access.
+MCP and CLI consent require a browser session cookie and evidence of the same origin. Bearer tokens cannot approve access. An explicit `Origin` must match the request origin. If present, `Sec-Fetch-Site` must be `same-origin`. Without `Origin`, the request must include `Sec-Fetch-Site: same-origin`.
+
+GET displays each form. POST approves access. The browser session and origin requirements above apply to that approval.
 
 The OAuth POST response loads a fixed script from the same origin. The script starts a new navigation to the registered callback. A link provides a fallback when scripts are disabled. This preserves the ordinary `form-action 'self'` policy. It also avoids browser differences in policy enforcement during redirects after form submission.
 
@@ -30,7 +34,7 @@ Migration `0059_auth_state.sql` defines the tables and retention rules. `cleanup
 | Legacy revocation marker | Until the proven legacy credential expires |
 | Rate bucket | Two hours from its hour window start |
 
-Refresh does not extend the grant lifetime. Reads and writes enforce expiry. A cleanup delay cannot restore access. Each account has at most one revocation cutoff row. This row stays for the account's lifetime. It covers legacy credentials that the migration has not indexed.
+Refresh does not extend the grant lifetime. Reads and writes enforce expiry. A cleanup delay cannot restore access. Each account has at most one revocation cutoff row. This row stays for the account's lifetime. It covers legacy credentials that the migration did not index.
 
 Registration and CLI login initiation each have separate hourly limits. Each Cloudflare client address gets 20 attempts. The global limit is 200 attempts. An address refusal does not spend the global allowance. After the global limit, requests cannot create more address rows. The database stores address hashes, not raw addresses.
 
@@ -42,7 +46,7 @@ New writers use D1 only. The temporary reader uses storage version 2. It preserv
 
 Migration application fixes a deadline 90 days later. Requests cannot extend it. Storage version 3 disables the legacy reader after the sweep completes. The deadline denies legacy access if operational completion is delayed.
 
-Existing MCP access and refresh tokens require new authorization at cutover. Their old records lack reliable family lineage for replay detection. Existing OAuth codes and CLI approvals are retired. Restart those short flows.
+Existing MCP access and refresh tokens require new authorization at cutover. Their old records lack reliable family lineage for replay detection. The cutover retires existing OAuth codes and CLI approvals. Restart those short flows.
 
 The sweep preserves registered client metadata. Before client migration completes, existing clients can receive `invalid_client`. They must retry after cutover or register again.
 
@@ -83,7 +87,7 @@ The proxy adds internal service authentication. Keep public Worker URLs disabled
 5. Deploy the new writers.
 6. Keep ordinary auth traffic closed during client migration.
 
-KV listing is eventually consistent. A completed scan cannot prove that an old writer stopped. Complete the drain before marking any prefix complete.
+KV listings can omit recent writes until changes propagate. A completed scan cannot prove that an old writer stopped. Before marking any prefix complete, wait for old requests and KV propagation to finish.
 
 ### Inspect the data
 
@@ -113,7 +117,7 @@ Each page commits D1 imports before deleting KV keys. Repeated imports never rep
 10. Make sure that fresh OAuth and CLI authorization work.
 11. If either flow fails, restore site maintenance before diagnosis.
 
-Completion sets storage version 3 only when all eight prefixes have finished. Do not force this version manually. The sweep retains no plaintext bearer tokens. It imports existing hashed keys and documents.
+Completion sets storage version 3 only after all eight prefixes finish. Do not force this version manually. The sweep retains no plaintext bearer tokens. It imports existing hashed keys and documents.
 
 The next schema release removes the legacy reader, migration module, and two transition tables. Remove them only after the completed sweep passes the tests above. Permanent revocation behavior remains.
 
@@ -125,12 +129,10 @@ Provider sign-in state under `v1:oauth-return:` keeps its separate short lifetim
 
 `DELETE /api/me/auth/credentials` requires cookie authentication and the browser origin rules above. Its body limit is 1 KiB. The body selects one credential with `{"kind":"credential","id":"<inventory ID>"}`, or all credentials with `{"kind":"all"}`.
 
-A single-credential action only accepts records owned by the signed-in account. Revoking an MCP grant revokes its whole family. The all action also revokes pending approvals and legacy credentials that migration has not visited. It logs out the requesting browser.
+A single-credential action only accepts records owned by the signed-in account. Revoking an MCP grant revokes its whole family. The all action also revokes pending approvals and legacy credentials that migration did not visit. It logs out the requesting browser.
 
 The profile screen lists credentials through this API. It provides single-credential and all-credential revocation. The list reports incomplete legacy migration and loads at most one page at a time.
 
 Successful all-credential revocation clears the browser cookie and local session state. The browser does not send a second logout request. A failed revocation leaves the session visible and reports the error.
-
-## Sources
 
 Cloudflare documents [D1 batch transactions](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch), [read replication](https://developers.cloudflare.com/d1/best-practices/read-replication/), and [KV consistency](https://developers.cloudflare.com/kv/concepts/how-kv-works/). [RFC 9700 section 4.14](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14) describes refresh rotation and family revocation after replay.

@@ -186,11 +186,10 @@ const notificationPendingRetentionSeconds = 14 * secondsPerDay;
  */
 export const notificationKvExpirationTtlSeconds = notificationPendingRetentionSeconds;
 export const notificationPruneSelectLimit = 500;
-// Current Workers docs count KV and D1 calls as subrequests, so a row costs one
-// KV delete: 8k rows fit under the paid 10k default alongside ~16 selects, ~80
-// D1 delete batches and the tombstoned-bot rotation below. The prune runs on its
-// own 6-hourly trigger (workers/forum-coordinator/src/cron.ts), so this is 32k
-// rows/day of capacity against a measured 5-10k rows/day of expiry.
+// Workers count KV and D1 calls as subrequests. Each pruned row costs one KV
+// delete. The 8,000-row cap leaves room under the paid 10,000-subrequest default
+// for D1 queries and the tombstoned-bot rotation. The separate five-minute trigger
+// provides capacity for 2,304,000 rows per day before failures or deferred runs.
 export const notificationPruneMaxRowsPerRun = 8_000;
 /**
  * Tombstones use remaining capacity after pending expiry, capped here so the

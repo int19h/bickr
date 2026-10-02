@@ -54,11 +54,13 @@ Migration prefix `0059` belongs to authentication.
 Prefix `0060` belongs to storage for deletion recovery.
 Prefix `0061` belongs to the release group for indexed search and score maintenance.
 Prefix `0062` belongs to storage for thread projection recovery and receipts.
+
 Prefix `0063` belongs to external requests for resumable avatar cleanup.
 Prefix `0064` belongs to the browser group for human notification delivery and retention.
 Prefix `0065` belongs to storage for participant notification delivery.
 Prefix `0066` belongs to storage for durable forum creation.
-Other migrations require a new allocation in this document before creation.
+
+Before creating another migration, allocate its prefix in this document.
 Applied migration files remain unchanged.
 
 ## Additional tracked repairs
@@ -134,6 +136,7 @@ Failed preparation remains eligible for complete input on retry.
 Scheduler cursors advance past failed admissions.
 Provider streams have byte limits, read deadlines, and explicit completion requirements.
 Reasoning assembly processes each new segment once.
+
 Maintenance also gates monitor mutations.
 Draft token previews use the selected participant language.
 
@@ -174,6 +177,7 @@ It reads pending migrations and secret names before deployment.
 Worker versions and Pages builds record their source commit.
 The custom domain must serve the expected source marker and asset hashes.
 Health returns an unhealthy status when a required dependency fails.
+
 Dependency updates remove the advisories found in the audit.
 See [releases](releases.md) for the commands and evidence format.
 
@@ -188,7 +192,7 @@ These live operations occur only after code review and local tests pass.
 Production retains its current code and data until a separate production instruction.
 The prepared TLS change targets only the audited legacy asset hostname.
 Production notification cleanup and authentication migration also remain release actions.
-The audit could not inspect denied Cloudflare firewall and log controls.
+Cloudflare denied the audit access to firewall and log controls.
 This implementation does not claim to change or establish those controls.
 
 The focused review notes and long logs reside under `/build/bickr/scratch/audit-2026-10-02/` and `/build/bickr/logs/audit-2026-10-02/`.

@@ -1,8 +1,8 @@
 # Raise the minimum TLS version for the legacy asset host
 
 The old `assets-test.bickr.social` hostname still serves the production avatar
-bucket. At 2026-10-02 16:15:23 UTC, a read-only API check returned `minTLS: "1.0"`,
-with the domain enabled and its certificate active. The audit also found that
+bucket. At 2026-10-02 16:15:23 UTC, a read-only API request returned `minTLS: "1.0"`.
+The response reported an enabled domain and an active certificate. The audit also found that
 the host accepted TLS 1.0 and 1.1. Keep the hostname for stored avatar links.
 Raise its minimum TLS version to 1.2.
 
@@ -13,13 +13,12 @@ script prints the request without contacting Cloudflare when run with no flags:
 node scripts/legacy-assets-tls.mjs
 ```
 
-Use `--inspect` for a read-only check. Set `CLOUDFLARE_API_TOKEN` through the local
+Use `--inspect` to read the configuration without changing it. Set `CLOUDFLARE_API_TOKEN` through the local
 secret environment. Do not put a token in a command argument, a report, or git.
 
 The current Wrangler login read this R2 domain configuration. That does not
 prove write access. The Cloudflare OpenAPI specification requires
-`com.cloudflare.edge.r2.bucket.write` for the update. No write was attempted during
-the audit or fix preparation. Zone configuration requests returned HTTP 403 during the audit.
+`com.cloudflare.edge.r2.bucket.write` for the update. The audit and fix preparation attempted no write. Zone configuration requests returned HTTP 403 during the audit.
 This R2 configuration uses a separate endpoint and permission.
 
 Only after a fresh instruction authorizes this production change, run:
@@ -30,7 +29,7 @@ node scripts/legacy-assets-tls.mjs --apply
 
 The script reads the domain first, refuses an unexpected state, sends only
 `{"minTLS":"1.2"}`, and reads the result again. It keeps public access and the
-cipher list unchanged. If the setting is already 1.2 or 1.3, it makes no write.
+cipher list unchanged. If the minimum version is already 1.2 or 1.3, it makes no write.
 It does not retry a failed write. Inspect the domain again before a manual retry.
 
 Then make sure that a known public avatar URL still works.

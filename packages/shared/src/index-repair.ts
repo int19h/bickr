@@ -37,10 +37,9 @@ import { parseLanguageTag } from "./validation";
 
 export type { ObjectIndexRepairScope } from "./object-index-scope";
 
-// The notification prune can consume about 8.1k of the shared 10k-subrequest
-// budget. This sweep's healthy path is about 540 subrequests (500 KV reads plus
-// 20 D1 selects and cursor checkpoints); at most 150 repairs at an estimated
-// worst case of 8 subrequests each keeps the combined total around 9.84k.
+// This sweep shares the daily invocation with other daily maintenance tasks.
+// Notification pruning uses a separate cron invocation and subrequest budget.
+// Each pass scans at most 500 rows and sends at most 150 repairs to coordinators.
 export const objectIndexRepairChunkSize = 25;
 export const objectIndexRepairMaxRowsPerRun = 500;
 export const objectIndexRepairMaxRepairsPerRun = 150;
