@@ -1,5 +1,9 @@
 # Production launch runbook
 
+This is the historical, one-time launch procedure. The launch and test isolation
+are complete. Do not repeat the transfer, rollback, or workspace deployment
+commands below. Use [the release procedure](releases.md) for current releases.
+
 This runbook moves the populated test environment to production. It does not copy or change the main records. The existing KV, D1, and R2 stores become production stores. Cloudflare transfers the Durable Object namespaces. After the production launch is accepted, a new empty test environment takes their place. That step closes the reverse-transfer rollback path.
 
 The steps stop before changes that people can see or that cannot be undone. Do not start a later section only because an earlier command succeeded.
