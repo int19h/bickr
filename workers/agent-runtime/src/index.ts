@@ -1,5 +1,3 @@
-export * from './runtime/bot-runtime';
-export * from './coordinator';
-export * from './routes';
-
+export { BotRuntime } from './runtime/bot-runtime';
+export { UserBotsCoordinator } from './coordinator';
 export { default } from './routes';

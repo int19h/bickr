@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { botInferenceUsageRetentionDays } from "@bickr/shared/token-spend";
-import { BotRuntime, dispatchDueBots } from "../workers/agent-runtime/src/index";
+import { BotRuntime } from "../workers/agent-runtime/src/runtime/bot-runtime";
+import { dispatchDueBots } from "../workers/agent-runtime/src/runtime/scheduler";
 import type { RuntimeStorageRetentionResult } from "../workers/agent-runtime/src/types";
 
 type RuntimeEventFixtureRow = {

@@ -4,7 +4,7 @@ import { type BotDocument, type ForumDocument, type ThreadDocument } from "@bick
 import {
 	handleAgentRuntimeRequest,
 	runPendingUserBotsConvergenceTask,
-} from "../workers/agent-runtime/src/index";
+} from "../workers/agent-runtime/src/routes";
 import {
 	handleForumCoordinatorRequest,
 	runPendingObjectIndexConvergenceTask,

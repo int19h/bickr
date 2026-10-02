@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ExclusiveOperationQueue } from "@bickr/shared/exclusive-operation-queue";
 import { botById } from "@bickr/shared/repository";
 import { kvKeys } from "@bickr/shared/storage";
-import { handleAgentRuntimeRequest } from "../workers/agent-runtime/src/index";
+import { handleAgentRuntimeRequest } from "../workers/agent-runtime/src/routes";
 import {
 	authCookie,
 	createBotForTest,

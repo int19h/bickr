@@ -1,9 +1,9 @@
+import { runtimeMonitorInitialBackfillLimit } from "../workers/agent-runtime/src/constants";
 import { describe, expect, it } from "vitest";
 import {
 	readOptionalJsonBody,
 	runtimeMonitorBackfillCursor,
-	runtimeMonitorInitialBackfillLimit,
-} from "../workers/agent-runtime/src/index";
+} from "../workers/agent-runtime/src/runtime/bot-runtime";
 import { InputError } from "../packages/shared/src/validation";
 
 describe("runtime monitor backfill", () => {

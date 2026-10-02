@@ -1,8 +1,7 @@
 import { withTestRunLiveness } from "./helpers/index-harness";
 import { internalServiceTestEnv, internalServiceTestHeaders } from "./helpers/internal-service-auth";
 import { describe, expect, it } from "vitest";
-import { BotRuntime } from "../workers/agent-runtime/src/index";
-import { renewRuntimeRunLease } from "../workers/agent-runtime/src/runtime/bot-runtime";
+import { BotRuntime, renewRuntimeRunLease } from "../workers/agent-runtime/src/runtime/bot-runtime";
 import type { RuntimeRunTrigger } from "../workers/agent-runtime/src/types";
 import {
 	authCookie,

@@ -1,3 +1,9 @@
+import { defaultReasoningPrefill } from "@bickr/shared/model";
+import { PersistentCompactionReductionFailureError } from "../../workers/agent-runtime/src/errors";
+import { providerSelfAuthor } from "../../workers/agent-runtime/src/constants";
+import { providerSerializationContext, providerToolResultPayload } from "../../workers/agent-runtime/src/runtime/tool-results";
+import agentRuntimeWorker from "../../workers/agent-runtime/src/index";
+import { handleAgentRuntimeRequest } from "../../workers/agent-runtime/src/routes";
 export { memoryDurableStorage } from "./durable-storage";
 import { testServiceBindings } from "./coordinator-topology";
 import type { LoopMessageGroupEntry } from '../../workers/agent-runtime/src/types';
@@ -109,11 +115,8 @@ import { onRequestPost as applyWorldAvatarRoute } from "../../apps/web/functions
 import { onRequestPost as generateWorldAvatarRoute } from "../../apps/web/functions/api/worlds/[worldHandle]/avatar/generate";
 import { onRequestPost as promptWorldAvatarRoute } from "../../apps/web/functions/api/worlds/[worldHandle]/avatar/prompt";
 import {
-	default as agentRuntimeWorker,
-	handleAgentRuntimeRequest,
 	buildRuntimeLoopInput,
 	BotRuntime,
-	defaultReasoningPrefill,
 	effectiveLoopRecurringPrompt,
 	effectiveReasoningPrefill,
 	effectiveProviderSettingsForBot,
@@ -121,7 +124,6 @@ import {
 	formatRuntimeEventForContext,
 	formatRuntimeInputForContext,
 	parseSpotlightSyntheticContext,
-	PersistentCompactionReductionFailureError,
 	promptContextBudgetCacheFingerprint,
 	promptContextBudgetFromCounts,
 	providerChatCompletionRequest,
@@ -130,16 +132,13 @@ import {
 	providerNotificationEventVisibleForBot,
 	providerTranslationRequest,
 	runtimeFailureLogs,
-	providerSelfAuthor,
-	providerSerializationContext,
-	providerToolResultPayload,
 	providerTokenProbeRequest,
 	runtimeErrorLoopMessageContent,
 	textTokenCalibrationFromProviderTokenCalibrationSamples,
 	textTokenCalibrationFromPromptHistory,
 	truncateForContext,
 	toolUseRecoveryReminder,
-} from "../../workers/agent-runtime/src/index";
+} from "../../workers/agent-runtime/src/runtime/bot-runtime";
 import {
 	providerAvatarDescriptionReasoningForSettings,
 	providerCompactionMessages,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { providerAvatarImageStreamChunk } from "../index";
+import { providerAvatarImageStreamChunk } from "../runtime/bot-runtime";
 import { providerAvatarRequestedToolCalls, providerAvatarToolChoice } from "./provider";
 
 describe("provider avatar tool policy", () => {

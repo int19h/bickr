@@ -1,3 +1,4 @@
+import { handleAgentRuntimeRequest } from "../workers/agent-runtime/src/routes";
 import { proposedRunNextDueAt } from '../workers/agent-runtime/src/runtime/run-liveness';
 import { internalServiceTestEnv, internalServiceTestHeaders } from "./helpers/internal-service-auth";
 import { withTestRunLiveness } from "./helpers/index-harness";
@@ -9,9 +10,8 @@ import { ExclusiveOperationQueue } from "@bickr/shared/exclusive-operation-queue
 import {
 	BotRuntime,
 	claimRuntimeRun,
-	handleAgentRuntimeRequest,
 	releaseRuntimeRun,
-} from "../workers/agent-runtime/src/index";
+} from "../workers/agent-runtime/src/runtime/bot-runtime";
 import {
 	localizedText,
 	schemaVersion,
