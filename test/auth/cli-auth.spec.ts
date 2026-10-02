@@ -44,7 +44,7 @@ describe("CLI auth tokens", () => {
 		expect(stored).not.toContain(started.deviceCode);
 		expect((await userForCliToken(kv, completed.token, db, new Date("2026-05-25T00:04:00.000Z")))?.id).toBe("usr_cli");
 
-		await deleteCliToken(db, completed.token);
+		await deleteCliToken(kv, db, completed.token, new Date("2026-05-25T00:04:00.000Z"));
 		expect(await userForCliToken(kv, completed.token, db, new Date("2026-05-25T00:05:00.000Z"))).toBeNull();
 	});
 

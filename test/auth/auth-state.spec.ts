@@ -6,7 +6,7 @@ import { kvKeys, type D1DatabaseLike } from "../../packages/shared/src/storage";
 import { sha256Hex } from "../../packages/shared/src/ids";
 import { authKey, cleanupAuthRecords, consumeAuthRateLimit } from "../../packages/shared/src/auth-store";
 import { createMcpAuthorizationCode, exchangeMcpAuthorizationCode, registerMcpClient, refreshMcpTokenSet, authForMcpAccessToken } from "../../packages/shared/src/mcp-auth";
-import { approveCliAuthRequest, createCliAuthRequest, pollCliAuthRequest, createSession, userForSessionToken, userForCliToken, deleteCliToken } from "../../packages/shared/src/auth-sessions";
+import { approveCliAuthRequest, createCliAuthRequest, pollCliAuthRequest, createSession, userForSessionToken, userForCliToken, deleteCliToken, deleteSession } from "../../packages/shared/src/auth-sessions";
 import { listAccountCredentials, revokeAccountCredential, revokeAllAccountCredentials } from "../../packages/shared/src/auth-credentials";
 import { migrateLegacyAuthPage, finishLegacyAuthMigration, legacyAuthPrefixes } from "../../packages/shared/src/auth-migration";
 
@@ -121,7 +121,7 @@ describe("atomic authentication state", () => {
 		const dry = await migrateLegacyAuthPage(kv, db, { prefix: "cli_token", dryRun: true, now: later(2) });
 		expect(dry.copied).toBe(1);
 		expect(await db.prepare("SELECT 1 FROM auth_records WHERE kind = 'cli_token'").first()).toBeNull();
-		await deleteCliToken(db, token, later(3));
+		await deleteCliToken(kv, db, token, later(3));
 		await migrateLegacyAuthPage(kv, db, { prefix: "cli_token", dryRun: false, now: later(4) });
 		expect(await userForCliToken(kv, token, db, later(5))).toBeNull();
 	});
@@ -214,6 +214,18 @@ describe("atomic authentication state", () => {
 		for (let n = 0; n < 210; n++) await consumeAuthRateLimit(db, "register", `address-${n}`, now);
 		expect((await db.prepare("SELECT COUNT(*) AS count FROM auth_rate_buckets").first<{ count: number }>())?.count).toBe(201);
 		expect(await consumeAuthRateLimit(db, "register", "address-210", later(3600))).toBe(true);
+	});
+
+	it("does not allocate revocation records for unknown credentials or new-format logout", async () => {
+		for (const token of ["random", "bckr_cli_v2_unknown", "bckr_session_v2_unknown"]) {
+			await deleteCliToken(kv, db, token, now);
+			await deleteSession(kv, db, token, now);
+		}
+		expect(await db.prepare("SELECT 1 FROM auth_records").first()).toBeNull();
+		const session = await createSession(db, user.id, now);
+		await deleteSession(kv, db, session.cookieValue, later(1));
+		expect(await db.prepare("SELECT 1 FROM auth_records WHERE kind = 'revoked_legacy'").first()).toBeNull();
+		expect(await userForSessionToken(kv, session.cookieValue, db, later(2))).toBeNull();
 	});
 
 });

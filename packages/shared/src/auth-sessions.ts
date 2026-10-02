@@ -155,20 +155,27 @@ export async function userForCliToken(kv: KVNamespaceLike, token: string | null 
 	return document ? activeUser(kv, db, document.userId) : null;
 }
 
-async function revokeCredential(db: D1DatabaseLike, kind: "session" | "cli_token", token: string | null | undefined, now = new Date()): Promise<void> {
+async function revokeCredential(kv: KVNamespaceLike, db: D1DatabaseLike, kind: "session" | "cli_token", token: string | null | undefined, now = new Date()): Promise<void> {
 	if (!token) return;
+	// This exported boundary must remain safe even if a future caller does not
+	// authenticate first. Unknown values must not allocate revocation records.
+	const credential = await readCredential(kv, db, kind, token, now);
+	if (!credential) return;
 	const hash = await sha256Hex(token);
-	await db.batch([
-		db.prepare(`UPDATE auth_records SET revoked_at = ? WHERE record_key = ?`).bind(now.toISOString(), authKey(kind, hash)),
-		// The fixed 90-day lifetime covers every legacy token's maximum lifetime.
-		db.prepare(`INSERT INTO auth_records(record_key, kind, expires_at, document) VALUES (?, 'revoked_legacy', ?, '{}')
-			ON CONFLICT(record_key) DO NOTHING`).bind(authKey("revoked_legacy", hash), new Date(now.getTime() + cliTokenTtlSeconds * 1000).toISOString()),
-	]);
+	const statements = [db.prepare(`UPDATE auth_records SET revoked_at = ? WHERE record_key = ?`)
+		.bind(now.toISOString(), authKey(kind, hash))];
+	if (!token.startsWith("bckr_session_v2_") && !token.startsWith("bckr_cli_v2_")) {
+		// Only a proven legacy credential needs a marker while KV retires. Keep
+		// it until that credential expires, never for a new fixed lifetime.
+		statements.push(db.prepare(`INSERT INTO auth_records(record_key, kind, expires_at, document) VALUES (?, 'revoked_legacy', ?, '{}')
+			ON CONFLICT(record_key) DO NOTHING`).bind(authKey("revoked_legacy", hash), credential.expiresAt));
+	}
+	await db.batch(statements);
 }
 
-export async function deleteSession(db: D1DatabaseLike, token: string | null | undefined, now = new Date()): Promise<void> {
-	await revokeCredential(db, "session", token, now);
+export async function deleteSession(kv: KVNamespaceLike, db: D1DatabaseLike, token: string | null | undefined, now = new Date()): Promise<void> {
+	await revokeCredential(kv, db, "session", token, now);
 }
-export async function deleteCliToken(db: D1DatabaseLike, token: string | null | undefined, now = new Date()): Promise<void> {
-	await revokeCredential(db, "cli_token", token, now);
+export async function deleteCliToken(kv: KVNamespaceLike, db: D1DatabaseLike, token: string | null | undefined, now = new Date()): Promise<void> {
+	await revokeCredential(kv, db, "cli_token", token, now);
 }

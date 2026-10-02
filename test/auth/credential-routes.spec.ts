@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { onRequestGet, onRequestDelete } from "../../apps/web/functions/api/me/auth/credentials";
-import { authCookie, contextFor } from "../helpers/index-harness";
+import { onRequestPost as logout } from "../../apps/web/functions/api/auth/logout";
+import { authCookie, contextFor, testEnv } from "../helpers/index-harness";
 
 function revoke(body: string, cookie: string, origin = "https://bickr.social") {
 	return new Request("https://bickr.social/api/me/auth/credentials", { method: "DELETE", body,
@@ -26,4 +27,14 @@ describe("credential inventory routes", () => {
 		expect((await onRequestDelete(contextFor(revoke("{", cookie)))).status).toBe(400);
 		expect((await onRequestDelete(contextFor(revoke("x".repeat(1025), cookie)))).status).toBe(413);
 	});
+	it("does not persist public logout requests with forged cookies", async () => {
+		for (const token of ["random", "bckr_session_v2_unknown"]) {
+			const response = await logout(contextFor(new Request("https://bickr.social/api/auth/logout", {
+				method: "POST", headers: { cookie: `bickr_session=${token}` },
+			})));
+			expect(response.status).toBe(200);
+		}
+		expect(await testEnv.BICKR_D1.prepare("SELECT 1 FROM auth_records").first()).toBeNull();
+	});
+
 });

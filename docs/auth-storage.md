@@ -21,7 +21,7 @@ Migration `0059_auth_state.sql` defines the tables and their retention rules. `c
 | MCP access token | At most one hour and never after grant expiry |
 | Unused MCP client | 30 days |
 | MCP client after authorization | 180 days from authorization |
-| Legacy token revocation marker | 90 days after revocation |
+| Legacy token revocation marker | Until that proven legacy credential expires |
 | Rate bucket | Two hours from the start of its hour window |
 
 Refresh does not extend the grant lifetime. Expiry is enforced during reads and writes, so cleanup delay cannot restore authority. An account revocation cutoff has one row per account and stays for that account's lifetime. It also covers legacy credentials that the migration has not yet indexed.
