@@ -2962,8 +2962,7 @@ async function runDailyScheduledAgentRuntimeTasks(env: Env, scheduledTime: numbe
 			BOT_RUNTIME: env.BOT_RUNTIME,
 			...(env.INTERNAL_SERVICE_SECRET === undefined ? {} : { INTERNAL_SERVICE_SECRET: env.INTERNAL_SERVICE_SECRET }),
 		}, { now }),
-		// Weekly, but gated on its own KV marker rather than on the schedule: this
-		// cron is daily and six of every seven janitor calls do nothing (§2.7).
+		// The daily task starts a weekly cleanup. Frequent tasks resume its bounded pages.
 		runAvatarJanitor({
 			BICKR_D1: env.BICKR_D1,
 			BICKR_KV: env.BICKR_KV,
@@ -2979,11 +2978,7 @@ async function runDailyScheduledAgentRuntimeTasks(env: Env, scheduledTime: numbe
 		janitor: settledDailyMaintenanceResult(janitor),
 		inferenceGraphCleanup: settledDailyMaintenanceResult(inferenceGraphCleanup),
 	};
-	// A janitor run that refused to sweep is not a failed invocation, but it is
-	// the signal that the fleet outgrew the single-invocation design, so it is
-	// logged at error level rather than buried in the daily record.
-	const janitorRefused = janitor.status === 'fulfilled' &&
-		(janitor.value.status === 'skipped_over_budget' || janitor.value.status === 'aborted');
+	const janitorRefused = janitor.status === 'fulfilled' && janitor.value.status === 'aborted';
 	(retention.status === 'rejected' || janitor.status === 'rejected' ||
 		inferenceGraphCleanup.status === 'rejected' || janitorRefused ? console.error : console.log)(
 		JSON.stringify(record),
@@ -3062,6 +3057,11 @@ async function runFrequentScheduledAgentRuntimeTasks(env: Env, scheduledTime: nu
 			console.warn('global inference cost stats refresh failed', error);
 		}),
 		staleRunRecoveryPromise,
+		runAvatarJanitor(env, { now: new Date(scheduledTime).toISOString(), resumeOnly: true }).then((result) => {
+			if (result.status === 'in_progress' || result.status === 'swept' || result.status === 'aborted') {
+				(result.status === 'aborted' ? console.error : console.log)({ event: 'scheduled_avatar_cleanup', ...result });
+			}
+		}).catch((error) => console.error('Avatar cleanup continuation failed.', error)),
 	]);
 	return { kind: 'ordinary', staleRunRecovery };
 }
