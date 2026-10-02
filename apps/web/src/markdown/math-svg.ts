@@ -31,7 +31,7 @@ export function prepareMathSvg(markup: string): MathSvgResult {
 			if (name.startsWith("data-") || name === "aria-labelledby") { element.removeAttribute(name); continue; }
 			if (!attributes.includes(name)) return { kind: "rejected" };
 			if (name === "style") {
-				if (element !== svg || !/^vertical-align:\s*-?(?:\d+\.?\d*|\.\d+)ex;?$/.test(value) || Math.abs(parseFloat(value.split(":")[1]!)) > mathLimits.heightEx) return { kind: "rejected" };
+				if (element !== svg || !/^vertical-align:\s*(?:0|-?(?:\d+\.?\d*|\.\d+)ex);?$/.test(value) || Math.abs(parseFloat(value.split(":")[1]!)) > mathLimits.heightEx) return { kind: "rejected" };
 			} else if (name === "fill" || name === "stroke") {
 				if (!["currentColor", "none"].includes(value)) return { kind: "rejected" };
 			} else if (["d", "transform", "x", "y", "x1", "x2", "y1", "y2", "stroke-width", ...(element === svg ? [] : ["width", "height"])].includes(name) && !boundedNumbers(value)) return { kind: "rejected" };

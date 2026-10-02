@@ -36,6 +36,16 @@ for (const [route, file] of htmlAliases) {
 	if (JSON.stringify(headerRules.get(route)) !== JSON.stringify(headerRules.get(file))) failures.push(`${route} and ${file} must receive identical headers.`);
 }
 
+// Math conversion needs no imports or network requests after worker startup.
+const mathPolicy = headerRules.get("/math-assets/*")?.find((header) => header.startsWith("content-security-policy:"));
+if (!excludePaths.includes("/math-assets/*") || !mathPolicy?.includes("default-src 'none'") || !mathPolicy.includes("script-src 'none'") || !mathPolicy.includes("connect-src 'none'") || !mathPolicy.includes("worker-src 'none'")) {
+	failures.push("Math worker assets must bypass Functions and forbid network, script loading, and nested workers.");
+}
+const mathAssets = join(distClient, "math-assets");
+if (!existsSync(mathAssets) || readdirSync(mathAssets).filter((name) => name.endsWith(".js")).length !== 1) {
+	failures.push("The math worker must build as one self-contained script under /math-assets/.");
+}
+
 for (const path of [...excludePaths, ...headerPaths]) {
 	if (path.includes("*")) {
 		continue;

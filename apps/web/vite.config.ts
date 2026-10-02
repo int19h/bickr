@@ -3,6 +3,12 @@ import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
+	// A single self-contained worker runs under a response CSP that forbids
+	// imports, network access, nested workers, and evaluated code.
+	worker: {
+		format: "iife",
+		rollupOptions: { output: { entryFileNames: "math-assets/[name]-[hash].js" } },
+	},
 	build: {
 		outDir: "dist/client",
 	},

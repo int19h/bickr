@@ -5,6 +5,7 @@
 	],
 	"exclude": [
 		"/assets/*",
+		"/math-assets/*",
 		"/icons/*",
 		"/bickr.png",
 		"/manifest.webmanifest",

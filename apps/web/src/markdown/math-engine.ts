@@ -18,11 +18,23 @@ export function renderMath(source: string, display: boolean): MathResult {
 		// across participants. No HTML, require, autoload, or external loader runs.
 		const input = new TeX({ packages: ["base", "ams", "newcommand"], maxBuffer: mathLimits.sourceBytes, maxMacros: 1000,
 			formatError: () => { throw new MathParseError(); } });
-		const output = new SVG({ font: new MathJaxTexFont(), fontCache: "none", linebreaks: { inline: false } });
+		const output = new SVG({ fontData: new MathJaxTexFont(), fontCache: "none", linebreaks: { inline: false } });
 		const document = mathjax.document("", { InputJax: input, OutputJax: output });
 		const node = document.convert(source, { display, em: 16, ex: 8, containerWidth: 1280 });
 		const svg = adaptor.tags(node, "svg")[0];
 		if (!svg) return { kind: "rejected" };
+		// The lite adaptor serializes HTML, which allows raw '<' in attributes.
+		// Drop source metadata before serialization so the SVG is valid XML too.
+		const elements = [svg];
+		let count = 0;
+		while (elements.length) {
+			const element = elements.pop()!;
+			if (++count > mathLimits.elements) return { kind: "rejected" };
+			for (const child of adaptor.childNodes(element)) if ("children" in child) elements.push(child);
+			for (const { name } of adaptor.allAttributes(element)) {
+				if (name.startsWith("data-") || name === "aria-labelledby") adaptor.removeAttribute(element, name);
+			}
+		}
 		const markup = adaptor.outerHTML(svg);
 		return new TextEncoder().encode(markup).length <= mathLimits.svgBytes ? { kind: "rendered", svg: markup } : { kind: "rejected" };
 	} catch {
