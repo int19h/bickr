@@ -35,7 +35,6 @@ function renderComment(selectable: boolean): string {
 			comment={comment}
 			forumHandle="general"
 			implied={new Set()}
-			isLastSibling
 			onReference={() => undefined}
 			onToggle={selectable ? () => undefined : undefined}
 			rootCommentId={comment.id}

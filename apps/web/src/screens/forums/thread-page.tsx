@@ -25,7 +25,7 @@ import {
 } from "../../ui";
 import type { SubscriptionTarget } from "../subscriptions";
 import {
-	CommentNode,
+	CommentTree,
 	buildCommentTree,
 	commentDomId,
 	impliedAncestorIds,
@@ -256,53 +256,43 @@ function ThreadPageBody({
 				/>
 			)}
 
-			<div className="comment-tree">
-				{commentTree.length === 0 && <div className="empty compact-empty">No comments yet.</div>}
-				{commentTree.map((comment, index) => (
-					<CommentNode
-						comment={comment}
-						forumHandle={thread.forumHandle}
-						isLastSibling={index === commentTree.length - 1}
-						key={comment.id}
-						onToggle={canUseAccountActions ? (commentId, checked) => {
-							const nextSelectedCommentIds =
-								checked ?
-									[...new Set([...selectedCommentIds, commentId])]
-								:	selectedCommentIds.filter((id) => id !== commentId);
-							setThreadSelected(false);
-							if (checked) {
-								setSpotlightFocusSeed(focusSeedForCommentTargets(nextSelectedCommentIds));
-							} else if (nextSelectedCommentIds.length === 0) {
-								setSpotlightFocusSeed("");
-								selectionCapture.reset();
-							}
-							setSelectedComments((current) => {
-								const next = { ...current };
-								if (checked) {
-									next[commentId] = true;
-								} else {
-									delete next[commentId];
-								}
-								return next;
-							});
-						} : undefined}
-						implied={displayedImpliedCommentIds}
-						onReference={onReference}
-						onToggleSubscription={canUseAccountActions ? onToggleSubscription : undefined}
-						onRequestDelete={
-							canModerateForum || ownedBotIds.has(comment.authorBotId) ?
-								setConfirmComment
-							:	undefined
+			<CommentTree
+				roots={commentTree}
+				forumHandle={thread.forumHandle}
+				onToggle={canUseAccountActions ? (commentId, checked) => {
+					const nextSelectedCommentIds =
+						checked ?
+							[...new Set([...selectedCommentIds, commentId])]
+						:	selectedCommentIds.filter((id) => id !== commentId);
+					setThreadSelected(false);
+					if (checked) {
+						setSpotlightFocusSeed(focusSeedForCommentTargets(nextSelectedCommentIds));
+					} else if (nextSelectedCommentIds.length === 0) {
+						setSpotlightFocusSeed("");
+						selectionCapture.reset();
+					}
+					setSelectedComments((current) => {
+						const next = { ...current };
+						if (checked) {
+							next[commentId] = true;
+						} else {
+							delete next[commentId];
 						}
-						selected={selectedComments}
-						rootCommentId={thread.rootCommentId}
-						subscriptions={subscriptions}
-						targetCommentId={targetCommentId}
-						threadId={thread.id}
-						worldHandle={thread.worldHandle}
-					/>
-				))}
-			</div>
+						return next;
+					});
+				} : undefined}
+				implied={displayedImpliedCommentIds}
+				onReference={onReference}
+				onToggleSubscription={canUseAccountActions ? onToggleSubscription : undefined}
+				canDeleteComment={(comment) => canModerateForum || ownedBotIds.has(comment.authorBotId)}
+				onRequestDelete={setConfirmComment}
+				selected={selectedComments}
+				rootCommentId={thread.rootCommentId}
+				subscriptions={subscriptions}
+				targetCommentId={targetCommentId}
+				threadId={thread.id}
+				worldHandle={thread.worldHandle}
+			/>
 
 			{canUseAccountActions && threadSelected && (
 				<SpotlightPanel
