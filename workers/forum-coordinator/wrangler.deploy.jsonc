@@ -46,6 +46,7 @@
 			"index_name": "bickr-bot-search",
 		},
 	],
+	"services": [{ "binding": "AGENT_RUNTIME_SERVICE", "service": "bickr-agent-runtime" }],
 	"triggers": {
 		"crons": ["0 0 * * *", "0 */6 * * *", "*/5 * * * *"],
 	},

@@ -1,3 +1,4 @@
+import { addInternalServiceAuthHeader, internalServiceUrl } from "./internal-service";
 import { entityIndexVersions, type IndexedEntityType } from "./index-versions";
 import { type ObjectIndexRepairScope } from "./object-index-scope";
 import {
@@ -58,9 +59,19 @@ export type ObjectIndexConvergenceTask = {
 	afterObjectId?: string;
 };
 
-export type ObjectIndexRepairEnv = SearchVectorEnv & {
+export type ObjectIndexRepairOwnerEnv = SearchVectorEnv & {
 	BICKR_D1: D1DatabaseLike;
 	BICKR_KV: KVNamespaceLike;
+};
+
+export type OwnedObjectIndexRepairRequest = { entityType: IndexedEntityType; id: string; documentUpdatedAt?: string };
+export type OwnedObjectIndexRepairResult =
+	| { kind: "missing" | "unchanged" }
+	| { kind: "repaired"; document: IndexedDocument };
+
+export type ObjectIndexRepairEnv = ObjectIndexRepairOwnerEnv & {
+	/** Send the identity to its sole writer. Never send a KV snapshot to repair. */
+	repairOwnedObject: (request: OwnedObjectIndexRepairRequest) => Promise<OwnedObjectIndexRepairResult>;
 };
 
 type ObjectIndexRow = {
@@ -80,7 +91,7 @@ type ObjectIndexRepairCursor = {
 	afterObjectId: string;
 };
 
-type IndexedDocument = BotDocument | ForumDocument | ThreadDocument | UserDocument | WorldDocument;
+export type IndexedDocument = BotDocument | ForumDocument | ThreadDocument | UserDocument | WorldDocument;
 
 export async function repairObjectIndexes(
 	env: ObjectIndexRepairEnv,
@@ -118,14 +129,12 @@ export async function repairObjectIndexes(
 				if (storedDocument.revision <= row.revision && row.indexVersion >= currentIndexVersion) {
 					continue;
 				}
-				const document = await convergeDerivedRouteFields(
-					env.BICKR_KV,
-					storedDocument,
-					row,
-					options.documentUpdatedAt,
-				);
-				await repairIndexProjection(env, document, currentIndexVersion);
-				repaired += 1;
+				const result = await env.repairOwnedObject({
+					entityType: row.objectType,
+					id: row.objectId,
+					...(options.documentUpdatedAt ? { documentUpdatedAt: options.documentUpdatedAt } : {}),
+				});
+				if (result.kind === "repaired") repaired += 1;
 				if (repaired >= maxRepairsPerRun) {
 					return {
 						kind: "stop",
@@ -162,6 +171,26 @@ export async function repairObjectIndexes(
 	};
 }
 
+/** Call only while holding the entity owner's mutation queue. */
+export async function repairOwnedObjectIndex(
+	env: ObjectIndexRepairOwnerEnv,
+	request: OwnedObjectIndexRepairRequest,
+	options: { document?: IndexedDocument } = {},
+): Promise<OwnedObjectIndexRepairResult> {
+	const row = (await loadObjectIndexChunk(env.BICKR_D1, undefined, 1, undefined, request.id)).items[0];
+	if (!row || row.objectType !== request.entityType) return { kind: "missing" };
+	const stored = options.document ?? await readIndexedDocument(env.BICKR_KV, row);
+	if (!stored || stored.id !== request.id || stored.type !== request.entityType) return { kind: "missing" };
+	// KV can lag the committed index even inside the owning writer. A stale
+	// snapshot must never overwrite a newer projection or gain a new revision.
+	if (stored.revision < row.revision || (stored.revision === row.revision && row.indexVersion >= entityIndexVersions[stored.type])) {
+		return { kind: "unchanged" };
+	}
+	const document = await convergeDerivedRouteFields(env.BICKR_KV, stored, row, request.documentUpdatedAt);
+	await repairIndexProjection(env, document, entityIndexVersions[document.type]);
+	return { kind: "repaired", document };
+}
+
 export async function runObjectIndexConvergenceBatch(
 	env: ObjectIndexRepairEnv,
 	task: ObjectIndexConvergenceTask,
@@ -192,8 +221,9 @@ async function loadObjectIndexChunk(
 	cursor: string | undefined,
 	limit: number,
 	scope?: ObjectIndexRepairScope,
+	objectId?: string,
 ) {
-	const { clause, values } = objectIndexScopeClause(scope);
+	const { clause, values } = objectId ? { clause: "oi.object_id = ?", values: [objectId] } : objectIndexScopeClause(scope);
 	const cursorClause = cursor ? " AND oi.object_id > ?" : "";
 	const statement = db
 		.prepare(
@@ -383,7 +413,7 @@ function indexedDocumentKey(type: IndexedEntityType, id: string): string {
 }
 
 async function repairIndexProjection(
-	env: ObjectIndexRepairEnv,
+	env: ObjectIndexRepairOwnerEnv,
 	document: IndexedDocument,
 	indexVersion: number,
 ): Promise<void> {
@@ -444,4 +474,22 @@ function positiveInteger(value: number, name: string): number {
 		throw new Error(`${name} must be a positive integer.`);
 	}
 	return value;
+}
+
+/** The service routes each identity to its sole writer before rereading data. */
+export async function requestObjectIndexRepair(
+	service: { fetch(request: Request): Promise<Response> },
+	secret: string | undefined,
+	request: OwnedObjectIndexRepairRequest,
+): Promise<OwnedObjectIndexRepairResult> {
+	const headers = new Headers({ "content-type": "application/json" });
+	addInternalServiceAuthHeader(headers, secret);
+	const response = await service.fetch(new Request(internalServiceUrl(`/maintenance/indexes/${request.entityType}/${encodeURIComponent(request.id)}`), {
+		method: "POST", headers, body: JSON.stringify({ documentUpdatedAt: request.documentUpdatedAt }),
+	}));
+	if (!response.ok) throw new Error(`Object index repair coordinator returned HTTP ${response.status}.`);
+	const payload = await response.json() as { data?: { repair?: OwnedObjectIndexRepairResult } };
+	const result = payload.data?.repair;
+	if (!result || !["missing", "unchanged", "repaired"].includes(result.kind)) throw new Error("Invalid object index repair result.");
+	return result;
 }

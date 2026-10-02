@@ -60,6 +60,10 @@ import { json } from "@bickr/shared/http";
 import {
 	type ObjectIndexConvergenceTask,
 	repairObjectIndexes,
+	repairOwnedObjectIndex,
+	requestObjectIndexRepair,
+	type OwnedObjectIndexRepairRequest,
+	type OwnedObjectIndexRepairResult,
 	runObjectIndexConvergenceBatch,
 } from "@bickr/shared/index-repair";
 import {
@@ -110,12 +114,13 @@ export interface Env {
 	AI?: Ai;
 	BICKR_SEARCH_VECTORIZE?: Vectorize;
 	INTERNAL_SERVICE_SECRET?: string;
+	AGENT_RUNTIME_SERVICE: Fetcher;
 	WORLD_COORDINATOR: DurableObjectNamespace;
 	FORUM_COORDINATOR: DurableObjectNamespace;
 }
 
 type ForumCoordinatorEnv = Pick<Env, "AI" | "BICKR_D1" | "BICKR_KV" | "BICKR_SEARCH_VECTORIZE"> &
-	Partial<Pick<Env, "FORUM_COORDINATOR" | "INTERNAL_SERVICE_SECRET">>;
+	Partial<Pick<Env, "FORUM_COORDINATOR" | "WORLD_COORDINATOR" | "AGENT_RUNTIME_SERVICE" | "INTERNAL_SERVICE_SECRET">>;
 
 type CoordinatorContext = {
 	cache?: ThreadFreshCacheRef;
@@ -241,6 +246,13 @@ async function handleForumCoordinatorRequestExclusive(
 ): Promise<Response> {
 	try {
 		const url = new URL(request.url);
+		const repairInput = await objectIndexRepairInput(request, url);
+		if (repairInput) {
+			const document = repairInput.entityType === "thread" ? await readFreshThreadDocument(coordinator, repairInput.id) : null;
+			const repair = await repairOwnedObjectIndex(env, repairInput, { ...(document ? { document } : {}) });
+			if (repair.kind === "repaired" && repair.document.type === "thread") await writeFreshThread(coordinator, repair.document);
+			return ok({ repair });
+		}
 		const recovery = /^\/maintenance\/deletions\/(world|forum)\/([^/]+)$/.exec(url.pathname);
 		if (request.method === "POST" && recovery) {
 			const kind = recovery[1] as "world" | "forum";
@@ -248,6 +260,7 @@ async function handleForumCoordinatorRequestExclusive(
 			const intent = await readGovernanceDeletionIntent(env.BICKR_D1, kind, id);
 			if (intent) {
 				await projectGovernanceDeletionIntent(env.BICKR_KV, env.BICKR_D1, intent);
+				await deleteSearchVector(env, kind, id);
 				await startGovernanceDeletionTask(env, coordinator, kind === "world"
 					? { kind: "world_forums", worldId: id, deletedAt: intent.deletedAt }
 					: { kind: "forum_threads", forumId: id, deletedAt: intent.deletedAt });
@@ -940,7 +953,7 @@ async function runDailyForumCoordinatorMaintenance(env: Env, now: string): Promi
 		pruneBotInferenceUsage(env.BICKR_D1, new Date(now)),
 		pruneExpiredSpotlightDeliveries(env.BICKR_D1, { now }),
 		pruneHumanNotifications(env.BICKR_KV, env.BICKR_D1, { now }),
-		repairObjectIndexes(env),
+		repairObjectIndexes(indexRepairEnvironment(env)),
 	]);
 	// Log unconditionally and before failures propagate: the 2026-07-11 run
 	// deleted ~8k rows but left no log because a sibling Promise.all task
@@ -1007,6 +1020,9 @@ async function handleForumWorkerFetch(request: Request, env: Env): Promise<Respo
 	if (maintenanceResponse) {
 		return maintenanceResponse;
 	}
+
+	const repairInput = await objectIndexRepairInput(request, url);
+	if (repairInput) return ok({ repair: await routeObjectIndexRepair(env, repairInput) });
 
 	if (url.pathname === "/health") {
 		return json({
@@ -1194,7 +1210,7 @@ async function startObjectIndexConvergenceTask(
 		await coordinator.storage.setAlarm(Date.now() + governanceDeletionAlarmDelayMs);
 		return;
 	}
-	await runObjectIndexConvergenceBatch(env, task);
+	await runObjectIndexConvergenceBatch(indexRepairEnvironment(env, coordinator), task);
 }
 
 export async function runPendingObjectIndexConvergenceTask(
@@ -1210,7 +1226,7 @@ export async function runPendingObjectIndexConvergenceTask(
 	if (!task) {
 		return false;
 	}
-	const next = await runObjectIndexConvergenceBatch(env, task, options);
+	const next = await runObjectIndexConvergenceBatch(indexRepairEnvironment(env, coordinator), task, options);
 	if (next) {
 		await coordinator.storage?.put(objectIndexConvergenceTaskStorageKey, next);
 	} else {
@@ -1688,4 +1704,43 @@ function attributionFromRequest(request: Request, botId: string) {
 	let parsed: unknown;
 	try { parsed = JSON.parse(value); } catch { throw new InputError("Inference attribution must be valid JSON."); }
 	return parseInferenceAttribution(parsed, botId);
+}
+
+async function objectIndexRepairInput(request: Request, url: URL): Promise<OwnedObjectIndexRepairRequest | null> {
+	const match = /^\/maintenance\/indexes\/(user|bot|world|forum|thread)\/([^/]+)$/.exec(url.pathname);
+	if (request.method !== "POST" || !match) return null;
+	const body = await readJsonBody(request);
+	const documentUpdatedAt = body && typeof body === "object" ? (body as { documentUpdatedAt?: unknown }).documentUpdatedAt : undefined;
+	if (documentUpdatedAt !== undefined && (typeof documentUpdatedAt !== "string" || !Number.isFinite(Date.parse(documentUpdatedAt)))) {
+		throw new InputError("documentUpdatedAt must be a timestamp.");
+	}
+	return { entityType: match[1] as OwnedObjectIndexRepairRequest["entityType"], id: decodeURIComponent(match[2] ?? ""), ...(documentUpdatedAt ? { documentUpdatedAt } : {}) };
+}
+
+function indexRepairEnvironment(env: ForumCoordinatorEnv, coordinator?: CoordinatorContext) {
+	return { ...env, repairOwnedObject: (input: OwnedObjectIndexRepairRequest) => routeObjectIndexRepair(env, input, coordinator) };
+}
+
+async function routeObjectIndexRepair(env: ForumCoordinatorEnv, input: OwnedObjectIndexRepairRequest, coordinator?: CoordinatorContext): Promise<OwnedObjectIndexRepairResult> {
+	if (input.entityType === "bot" || input.entityType === "user") {
+		if (!env.AGENT_RUNTIME_SERVICE) {
+			if (!coordinator?.storage) return repairOwnedObjectIndex(env, input);
+			throw new Error("Account index repair requires the runtime service binding.");
+		}
+		const request = internalJsonRequest(env, `/${input.entityType === "bot" ? "bots" : "users"}/${encodeURIComponent(input.id)}/repair-index`, { documentUpdatedAt: input.documentUpdatedAt });
+		const response = await env.AGENT_RUNTIME_SERVICE.fetch(request);
+		if (!response.ok) throw new Error(`Account index repair returned HTTP ${response.status}.`);
+		const payload = await response.json() as { data: { repair: OwnedObjectIndexRepairResult } };
+		return payload.data.repair;
+	}
+	const namespace = input.entityType === "world" ? env.WORLD_COORDINATOR : env.FORUM_COORDINATOR;
+	if (!namespace) {
+		// Direct unit-test contexts are already a single caller. Deployed
+		// coordinators always have bindings and never use this adapter.
+		if (!coordinator?.storage) return repairOwnedObjectIndex(env, input);
+		throw new Error("Object index repair requires its coordinator binding.");
+	}
+	const id = namespace.idFromName(input.id);
+	if (id.toString() === coordinator?.objectId) return repairOwnedObjectIndex(env, input);
+	return requestObjectIndexRepair(namespace.get(id), env.INTERNAL_SERVICE_SECRET, input);
 }

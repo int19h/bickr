@@ -1,3 +1,5 @@
+import { softDeleteThread } from "@bickr/shared/social";
+import { repairOwnedObjectIndex } from "@bickr/shared/index-repair";
 import {
 	authCookie,
 	createBotForTest,
@@ -14,12 +16,34 @@ import {
 } from "./helpers/index-harness";
 import {
 	objectIndexRepairMaxRepairsPerRun,
-	repairObjectIndexes,
+	repairObjectIndexes as runRepairObjectIndexes,
+	type ObjectIndexRepairOwnerEnv,
 } from "@bickr/shared/index-repair";
 import { entityIndexVersions } from "@bickr/shared/index-versions";
 import { schemaVersion } from "@bickr/shared/model";
 
 describe("KV-to-index repair sweep", () => {
+	it("rereads under the owner after a mutation overtakes the discovery snapshot", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "repair-race");
+		const author = await createBotForTest(cookie, "repair-race-author");
+		const thread = await createThreadForTest(forum.id, author.id, "Race", "Original body");
+		await testEnv.BICKR_D1.prepare(`UPDATE objects_index SET index_version = 0 WHERE object_id = ?`).bind(thread.id).run();
+		const ownerEnv = { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV };
+		let routed = 0;
+		await runRepairObjectIndexes({ ...ownerEnv, repairOwnedObject: async (request) => {
+			if (request.id === thread.id) {
+				routed += 1;
+				await softDeleteThread(testEnv.BICKR_KV, testEnv.BICKR_D1, thread);
+			}
+			return repairOwnedObjectIndex(ownerEnv, request);
+		} });
+		expect(routed).toBe(1);
+		expect((await testEnv.BICKR_KV.get<{ deletedAt?: string }>(kvKeys.thread(thread.id), { type: "json" }))?.deletedAt).toBeTruthy();
+		expect((await testEnv.BICKR_D1.prepare(`SELECT deleted_at AS deletedAt FROM threads_index WHERE thread_id = ?`).bind(thread.id).first<{ deletedAt: string }>())?.deletedAt).toBeTruthy();
+	});
+
 	it("restores a stale thread projection from its newer KV document", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -281,4 +305,9 @@ async function seedDriftedUserObjects(count: number): Promise<string[]> {
 		));
 	}
 	return ids;
+}
+
+// These isolated tests provide the single-writer boundary directly.
+function repairObjectIndexes(env: ObjectIndexRepairOwnerEnv, options?: Parameters<typeof runRepairObjectIndexes>[1]) {
+	return runRepairObjectIndexes({ ...env, repairOwnedObject: (request) => repairOwnedObjectIndex(env, request) }, options);
 }

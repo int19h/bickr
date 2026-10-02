@@ -30,5 +30,6 @@
 	],
 	"ai": { "binding": "AI" },
 	"vectorize": [{ "binding": "BICKR_SEARCH_VECTORIZE", "index_name": "bickr-bot-search-test-v2" }],
+	"services": [{ "binding": "AGENT_RUNTIME_SERVICE", "service": "bickr-agent-runtime-test" }],
 	"triggers": { "crons": ["0 0 * * *", "0 */6 * * *", "*/5 * * * *"] },
 }
