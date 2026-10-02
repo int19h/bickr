@@ -1,5 +1,6 @@
 import { contextBudgetDraft } from './context-budget-draft';
 import { RuntimeInjectionStore, type PendingInjection } from './injections';
+import { RuntimeInputHistory } from './input-history';
 import { inferenceAttributionForRequest, inferenceAttributionHeader } from '@bickr/shared/inference-attribution';
 import type { InferenceAttribution } from '@bickr/shared/model';
 import { syntheticToolCallMessage, type SyntheticToolCall } from './synthetic-tool-calls';
@@ -1840,6 +1841,7 @@ export class BotRuntime {
 				this.notes.migrateLegacyPlan();
 				this.notes.ensurePlan();
 				this.migrateLegacyLoopMessages();
+				new RuntimeInputHistory(this.state.storage).initializeLegacy(this.latestSuccessfulLogOffToolResultSeq());
 				this.migrateLegacyProviderToolCallHistory();
 				this.observeProviderToolCallHistoryInvariantAfterStartupMigration();
 				this.backfillProviderTokenCalibrationSamples();
@@ -2706,7 +2708,7 @@ export class BotRuntime {
 					runContext.spotlightActionScope = spotlightActionScopeFromContexts(input.spotlightContexts);
 				}
 				const inputEvent = this.appendEvent(runId, 'input', input);
-				const builtMessages = await this.buildMessages(bot, input, runId, inputEvent.createdAt, { setupMode, pendingInjections });
+				const builtMessages = await this.buildMessages(bot, input, runId, inputEvent, { setupMode, pendingInjections });
 				if (setupMode === 'new_iteration') {
 					const deliveredNotificationIds = builtMessages.deliveredNotificationIds;
 					const deliveredSeenItems = uniqueSeenContentItems(
@@ -6000,7 +6002,7 @@ export class BotRuntime {
 		bot: RuntimeBotDocument,
 		input: LoopInput,
 		runId: string,
-		inputCreatedAt: string,
+		inputEvent: Pick<BotRuntimeEvent, 'seq' | 'createdAt'>,
 		options: { setupMode?: LoopSetupMode; pendingInjections?: readonly PendingInjection[] } = {},
 	): Promise<RuntimeLoopMessages> {
 		const setupMode = options.setupMode ?? 'new_iteration';
@@ -6008,7 +6010,7 @@ export class BotRuntime {
 		const collect = (entries: LoopMessageGroupEntry[]): void => { prepared.push(...entries); };
 		const deliveredNotificationIds = new Set<string>();
 		const elapsed =
-			setupMode === 'new_iteration' ? formatElapsedTimeSincePreviousVisit(this.previousTerminalTickEvent(runId), inputCreatedAt) : '';
+			setupMode === 'new_iteration' ? formatElapsedTimeSincePreviousVisit(this.previousTerminalTickEvent(runId), inputEvent.createdAt) : '';
 		if (elapsed) {
 			prepared.push({ runId, message: { role: 'user', content: elapsed }, origin: 'input' });
 		}
@@ -6041,9 +6043,12 @@ export class BotRuntime {
 			prepared.push({ runId, message: { role: 'assistant', content: recurringPrompt }, origin: 'synthetic_context' });
 		}
 		const pendingInjections = options.pendingInjections ?? [];
-		this.appendLoopMessageGroup(prepared, pendingInjections.length > 0
-			? () => new RuntimeInjectionStore(this.state.storage).acknowledge(pendingInjections)
-			: undefined);
+		this.appendLoopMessageGroup(prepared, () => {
+			new RuntimeInjectionStore(this.state.storage).acknowledge(pendingInjections);
+			// The earlier input event is an audit record, not a commit proof. Save
+			// this marker with history so a failed setup remains a new iteration.
+			new RuntimeInputHistory(this.state.storage).commit(inputEvent.seq);
+		});
 		const messages = this.activeLoopMessagesForProvider() as RuntimeLoopMessages;
 		Object.defineProperty(messages, 'deliveredNotificationIds', {
 			value: deliveredNotificationIds,
@@ -6281,18 +6286,7 @@ export class BotRuntime {
 	}
 
 	private currentIterationStartedSinceLastLogOff(): boolean {
-		const lastLogOffSeq = this.latestSuccessfulLogOffToolResultSeq();
-		const row = this.state.storage.sql
-			.exec<{ found: number }>(
-				`SELECT 1 AS found
-				 FROM events
-				 WHERE seq > ?
-				   AND type = 'input'
-				 LIMIT 1`,
-				lastLogOffSeq,
-			)
-			.toArray()[0];
-		return Boolean(row);
+		return new RuntimeInputHistory(this.state.storage).startedAfter(this.latestSuccessfulLogOffToolResultSeq());
 	}
 
 	private providerLoopInitialSuccessfulToolCallCount(): number {
