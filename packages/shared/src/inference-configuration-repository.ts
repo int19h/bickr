@@ -58,6 +58,7 @@ import {
 	type BickrInferenceDefaults,
 } from "./inference-configuration";
 import { decodeOpaqueJsonCursor, encodeOpaqueJsonCursor } from "./opaque-json-cursor";
+import { createInferenceSnapshotResolver } from "./inference-configuration-snapshot";
 import type { InferenceGraphConflictCause } from "./model";
 import { RepositoryError } from "./repository";
 import type { D1DatabaseLike, D1PreparedStatementLike } from "./storage";
@@ -1425,12 +1426,14 @@ function compareInferenceResolutions(
 		credentialSource: 0,
 		providerAccess: 0,
 	};
+	const resolveBefore = createInferenceSnapshotResolver(before, { defaults });
+	const resolveAfter = createInferenceSnapshotResolver(after, { defaults });
 	for (const id of affectedIds) {
 		const beforeNode = before.get(id);
 		const afterNode = after.get(id);
 		if (!beforeNode || !afterNode) throw new InferenceGraphRepositoryError("corrupt_graph", "Inference impact snapshot is incomplete.");
-		const beforeResolution = resolveInferenceConfiguration(pathFromSnapshot(beforeNode, before), { ...(defaults ? { defaults } : {}) });
-		const afterResolution = resolveInferenceConfiguration(pathFromSnapshot(afterNode, after), { ...(defaults ? { defaults } : {}) });
+		const beforeResolution = resolveBefore(id);
+		const afterResolution = resolveAfter(id);
 		if (beforeResolution.effective.model !== afterResolution.effective.model) changes.effectiveModel += 1;
 		if (beforeResolution.effective.baseUrl !== afterResolution.effective.baseUrl) changes.effectiveBaseUrl += 1;
 		if ((beforeResolution.effective.credential.kind === "available") !==
@@ -2008,7 +2011,7 @@ export function insertTranslationInferencePointerStatement(
 	).bind(input.ownerUserId, input.configurationId, input.now, input.now);
 }
 
-/** Transfers an account bootstrap credential inside the activation D1 batch. */
+/** Transfers a creation credential inside the activation D1 batch. */
 export function configurationCredentialValueStatement(
 	db: D1DatabaseLike,
 	input: { configurationId: string; ownerUserId: string; secret: string; now: string },

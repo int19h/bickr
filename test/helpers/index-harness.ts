@@ -1,3 +1,11 @@
+import { defaultReasoningPrefill } from "@bickr/shared/model";
+import { PersistentCompactionReductionFailureError } from "../../workers/agent-runtime/src/errors";
+import { providerSelfAuthor } from "../../workers/agent-runtime/src/constants";
+import { providerSerializationContext, providerToolResultPayload } from "../../workers/agent-runtime/src/runtime/tool-results";
+import agentRuntimeWorker from "../../workers/agent-runtime/src/index";
+import { handleAgentRuntimeRequest } from "../../workers/agent-runtime/src/routes";
+export { memoryDurableStorage } from "./durable-storage";
+import { testServiceBindings } from "./coordinator-topology";
 import type { LoopMessageGroupEntry } from '../../workers/agent-runtime/src/types';
 import { RunLiveness } from '../../workers/agent-runtime/src/runtime/run-liveness';
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -107,11 +115,8 @@ import { onRequestPost as applyWorldAvatarRoute } from "../../apps/web/functions
 import { onRequestPost as generateWorldAvatarRoute } from "../../apps/web/functions/api/worlds/[worldHandle]/avatar/generate";
 import { onRequestPost as promptWorldAvatarRoute } from "../../apps/web/functions/api/worlds/[worldHandle]/avatar/prompt";
 import {
-	default as agentRuntimeWorker,
-	handleAgentRuntimeRequest,
 	buildRuntimeLoopInput,
 	BotRuntime,
-	defaultReasoningPrefill,
 	effectiveLoopRecurringPrompt,
 	effectiveReasoningPrefill,
 	effectiveProviderSettingsForBot,
@@ -119,7 +124,6 @@ import {
 	formatRuntimeEventForContext,
 	formatRuntimeInputForContext,
 	parseSpotlightSyntheticContext,
-	PersistentCompactionReductionFailureError,
 	promptContextBudgetCacheFingerprint,
 	promptContextBudgetFromCounts,
 	providerChatCompletionRequest,
@@ -128,16 +132,13 @@ import {
 	providerNotificationEventVisibleForBot,
 	providerTranslationRequest,
 	runtimeFailureLogs,
-	providerSelfAuthor,
-	providerSerializationContext,
-	providerToolResultPayload,
 	providerTokenProbeRequest,
 	runtimeErrorLoopMessageContent,
 	textTokenCalibrationFromProviderTokenCalibrationSamples,
 	textTokenCalibrationFromPromptHistory,
 	truncateForContext,
 	toolUseRecoveryReminder,
-} from "../../workers/agent-runtime/src/index";
+} from "../../workers/agent-runtime/src/runtime/bot-runtime";
 import {
 	providerAvatarDescriptionReasoningForSettings,
 	providerCompactionMessages,
@@ -698,91 +699,11 @@ export type SpotlightSendPayload = {
 	data: SpotlightSendResult;
 };
 
-type TestCoordinatorHandler = (name: string, request: Request) => Promise<Response>;
-
-function testCoordinatorNamespace(handler: TestCoordinatorHandler): DurableObjectNamespace {
-	return {
-		idFromName: (name: string) => ({
-			name,
-			toString: () => name,
-		}) as unknown as DurableObjectId,
-		get: (id: DurableObjectId) => ({
-			fetch: (request: Request) => handler((id as DurableObjectId & { name?: string }).name ?? id.toString(), request),
-		}) as unknown as DurableObjectStub,
-	} as unknown as DurableObjectNamespace;
-}
-
-function testServiceBindings(
-	env: Partial<AppEnv>,
-	options: { failureInjector?: LifecycleFailureInjector } = {},
-): Pick<
-	AppEnv,
-	"AGENT_RUNTIME" | "BOT_RUNTIME" | "FORUM_COORDINATOR" | "FORUM_COORDINATOR_SERVICE" | "USER_BOTS" | "WORLD_COORDINATOR"
-> {
-	const internalServiceSecret = "test-internal-service-secret";
-	const forumQueues = new Map<string, ExclusiveOperationQueue>();
-	const forumRouteEnv = () => ({
-		...env,
-		INTERNAL_SERVICE_SECRET: env.INTERNAL_SERVICE_SECRET ?? internalServiceSecret,
-	}) as ForumCoordinatorEnv;
-	const coordinatorContext = (name: string) => ({
-		objectId: name,
-		queue: forumQueues.get(name) ?? (() => {
-			const queue = new ExclusiveOperationQueue();
-			forumQueues.set(name, queue);
-			return queue;
-		})(),
-	});
-	const worldCoordinator = testCoordinatorNamespace((name, request) =>
-		handleForumCoordinatorRequest(request, forumRouteEnv(), coordinatorContext(name)));
-	const forumCoordinator = testCoordinatorNamespace((name, request) =>
-		handleForumCoordinatorRequest(request, forumRouteEnv(), coordinatorContext(name)));
-	const forumCoordinatorService = {
-		fetch: (request: Request) => forumCoordinatorWorker.fetch(
-			request as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[0],
-			{
-				...forumRouteEnv(),
-				FORUM_COORDINATOR: env.FORUM_COORDINATOR ?? forumCoordinator,
-				WORLD_COORDINATOR: env.WORLD_COORDINATOR ?? worldCoordinator,
-			} as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[1],
-		),
-	} as unknown as Fetcher;
-
-	const userQueues = new Map<string, ExclusiveOperationQueue>();
-	let userBots: DurableObjectNamespace;
-	let botRuntime: DurableObjectNamespace;
-	const agentWorkerEnv = () => ({
-		...env,
-		BOT_RUNTIME: env.BOT_RUNTIME ?? botRuntime,
-		FORUM_COORDINATOR_SERVICE: env.FORUM_COORDINATOR_SERVICE ?? forumCoordinatorService,
-		INTERNAL_SERVICE_SECRET: env.INTERNAL_SERVICE_SECRET ?? internalServiceSecret,
-		USER_BOTS: env.USER_BOTS ?? userBots,
-	}) as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1];
-	userBots = testCoordinatorNamespace((name, request) => handleAgentRuntimeRequest(request, agentWorkerEnv(), {
-		objectId: name,
-		ownerUserId: name,
-		failureInjector: options.failureInjector,
-		queue: userQueues.get(name) ?? (() => {
-			const queue = new ExclusiveOperationQueue();
-			userQueues.set(name, queue);
-			return queue;
-		})(),
-	}));
-	botRuntime = testCoordinatorNamespace((_name, request) => handleAgentRuntimeRequest(request, agentWorkerEnv()));
-	const agentRuntime = {
-		fetch: (request: Request) => agentRuntimeWorker.fetch(
-			request as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
-			agentWorkerEnv(),
-		),
-	} as unknown as Fetcher;
-	return {
-		AGENT_RUNTIME: agentRuntime,
-		BOT_RUNTIME: botRuntime,
-		FORUM_COORDINATOR: forumCoordinator,
-		FORUM_COORDINATOR_SERVICE: forumCoordinatorService,
-		USER_BOTS: userBots,
-		WORLD_COORDINATOR: worldCoordinator,
-	};
+export function testCoordinatorEnv(overrides: Partial<AppEnv> = {}) {
+	const env: Partial<AppEnv> = { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV, INTERNAL_SERVICE_SECRET: "test-internal-service-secret", ...overrides };
+	const bindings = testServiceBindings(env);
+	for (const [name, binding] of Object.entries(bindings)) if (env[name as keyof AppEnv] === undefined) (env as Record<string, unknown>)[name] = binding;
+	return { ...env, AGENT_RUNTIME_SERVICE: env.AGENT_RUNTIME ?? bindings.AGENT_RUNTIME } as AppEnv & ForumCoordinatorEnv;
 }
 
 export function contextFor<F extends PagesFunction<AppEnv>>(
@@ -938,31 +859,6 @@ export function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export function memoryDurableStorage(): {
-	storage: DurableObjectStorage;
-	values: Map<string, unknown>;
-} {
-	const values = new Map<string, unknown>();
-	return {
-		storage: {
-			delete: async (key: string) => {
-				values.delete(key);
-			},
-			deleteAlarm: async () => {
-				values.delete("__alarm");
-			},
-			get: async <T = unknown>(key: string) => values.get(key) as T | undefined,
-			getAlarm: async () => (values.get("__alarm") as number | undefined) ?? null,
-			put: async (key: string, value: unknown) => {
-				values.set(key, value);
-			},
-			setAlarm: async (scheduledTime: number | Date) => {
-				values.set("__alarm", scheduledTime instanceof Date ? scheduledTime.getTime() : scheduledTime);
-			},
-		} as unknown as DurableObjectStorage,
-		values,
-	};
-}
 
 export type Deferred<T> = {
 	promise: Promise<T>;
@@ -1181,7 +1077,7 @@ export async function authCookieFor(profile: { subject: string; login: string; d
 		language: testLanguage,
 		displayName: localizedText(user.displayName.text, testLanguage),
 	});
-	const created = await createSession(testEnv.BICKR_KV, user.id);
+	const created = await createSession(testEnv.BICKR_D1, user.id);
 	return `${sessionCookieName}=${encodeURIComponent(created.cookieValue)}`;
 }
 
@@ -1728,7 +1624,7 @@ export function memoryInferenceSubmissionSql() {
 				return {
 					toArray: () => (row ? [row as T] : []),
 				};
-			} else if (/SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, display_messages_json, created_at\s+FROM inference_submissions\s+ORDER BY event_seq ASC/.test(sql)) {
+			} else if (/SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, created_at\s+FROM inference_submissions\s+ORDER BY event_seq ASC/.test(sql)) {
 				return {
 					toArray: () => [...rows].sort((left, right) => left.event_seq - right.event_seq) as T[],
 				};
@@ -2102,6 +1998,25 @@ export function testRuntimeForToolExecution(): BotRuntime {
 	}) as BotRuntime;
 }
 
+/** A storage-free message writer for loop orchestration tests. Transaction tests
+ * use RuntimeMessageStore with SQLite and never this adapter. */
+export function testAppendLoopMessageGroup(
+	this: {
+		appendLoopMessage: (runId: string, message: LoopMessageGroupEntry['message'], origin: LoopMessageGroupEntry['origin'], status?: LoopMessageGroupEntry['status'], options?: LoopMessageGroupEntry['options']) => BotLoopMessage;
+		recordLoopMessageLog: (seq: number, kind: string, text: string) => unknown;
+	},
+	entries: LoopMessageGroupEntry[],
+	commit?: () => void,
+): BotLoopMessage[] {
+	const inserted = entries.map(entry => {
+		const message = this.appendLoopMessage(entry.runId, entry.message, entry.origin, entry.status, entry.options);
+		for (const log of entry.extraLogs ?? []) this.recordLoopMessageLog(message.seq, log.kind, log.text);
+		return message;
+	});
+	commit?.();
+	return inserted;
+}
+
 function testAppendProviderToolResult(
 	this: { appendLoopMessageGroup(entries: LoopMessageGroupEntry[]): BotLoopMessage[]; clearPendingTool(runId: string): void },
 	assistant: LoopMessageGroupEntry,
@@ -2124,6 +2039,7 @@ export function testLoopMessageMemory(initial: Array<Record<string, unknown>> = 
 	const messages = [...initial];
 	return {
 		appendProviderToolResult: testAppendProviderToolResult,
+		appendLoopMessageGroup: testAppendLoopMessageGroup,
 		activeLoopMessagesForProvider: () => [...messages],
 		appendLoopMessage: (runId: string, message: Record<string, unknown>, origin: string, status = "complete") => {
 			seq += 1;
@@ -2660,6 +2576,9 @@ export function attachTestRunLiveness(runtime: object): RunLiveness {
 }
 
 export function withTestRunLiveness<T extends object>(runtime: T): T {
+	if (Object.hasOwn(runtime, 'appendLoopMessage') && !Object.hasOwn(runtime, 'appendLoopMessageGroup')) {
+		Object.assign(runtime, { appendLoopMessageGroup: testAppendLoopMessageGroup });
+	}
 	// Prototype-only test runtimes bypass the constructor that provisions PLAN.
 	const notes = (runtime as { notes?: { read?: (id: string) => unknown } }).notes;
 	if (notes) notes.read ??= () => null;

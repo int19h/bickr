@@ -9,8 +9,8 @@
 	"compatibility_flags": ["enable_request_signal"],
 	"pages_build_output_dir": "./dist/client",
 	// INTERNAL_SERVICE_SECRET is a Pages secret set with `wrangler pages secret put`.
-	// It is intentionally not in vars or secrets.required so deploys can roll out
-	// before the secret exists; receivers enforce auth once their secret is present.
+	// Set the same secret on Pages and both Workers before deploying.
+	// Internal requests fail closed when a receiver has no secret.
 	"services": [
 		{
 			"binding": "AGENT_RUNTIME",

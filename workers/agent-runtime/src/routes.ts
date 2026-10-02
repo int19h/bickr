@@ -1,13 +1,16 @@
+import { avatarUploadBytes } from "./avatar/upload";
+import { handleAuthMaintenance } from './auth-maintenance';
+import { cleanupAuthRecords } from '@bickr/shared/auth-store';
+import { dispatchDueBots } from './runtime/scheduler';
+export { dispatchDueBots } from './runtime/scheduler';
 import { dismissDiscordInvite } from "@bickr/shared/discord-invite";
+import { assertLegacyInferenceWriteSupported } from '@bickr/shared/inference-configuration-write-policy';
 import { fail, ok, readJsonBody } from '@bickr/shared/api';
 import type { AccountMutationResult } from '@bickr/shared/account-mutation-protocol';
 import {
 	copyAvatarImage,
-	fetchRemoteAvatarBytes,
 	normalizeAvatarPublicBaseUrl,
 	storeAvatarImage,
-	validateAvatarFile,
-	type AvatarContentType,
 } from '@bickr/shared/avatar-storage';
 import {
 	cleanupTerminalLifecycleOperations,
@@ -16,7 +19,8 @@ import {
 } from '@bickr/shared/entity-lifecycle';
 import { makeId } from '@bickr/shared/ids';
 import { json } from '@bickr/shared/http';
-import { type ObjectIndexConvergenceTask, runObjectIndexConvergenceBatch } from '@bickr/shared/index-repair';
+import { type ObjectIndexConvergenceTask, repairOwnedObjectIndex, runObjectIndexConvergenceBatch } from '@bickr/shared/index-repair';
+import { accountIndexRepairEnvironment, indexedObjectOwner } from './index-repair-owner';
 import {
 	providerEnvironmentSettingsFromBindings,
 	resolveBotProviderSettings,
@@ -101,8 +105,8 @@ import {
 	runInferenceGraphMigrationStep,
 	runInferenceProviderDefaultBarrierSweepStep,
 } from '@bickr/shared/inference-configuration-migration';
-import { addInternalServiceAuthHeader, internalServiceUrl, isTrustedInternalServiceRequest } from '@bickr/shared/internal-service';
-import { mutationMaintenanceResponse, readMaintenanceState } from '@bickr/shared/maintenance';
+import { internalServiceUrl, isTrustedInternalServiceRequest } from '@bickr/shared/internal-service';
+import { isExplicitMaintenanceRequest, mutationMaintenanceResponse, readMaintenanceState } from '@bickr/shared/maintenance';
 import {
 	botByHandle,
 	botById,
@@ -147,7 +151,6 @@ import {
 	parseUpdateBotGroupInput,
 	parseUpdateUserProfileInput,
 	parseUpdateWorldInput,
-	requiredText,
 } from '@bickr/shared/validation';
 import {
 	applyGeneratedAvatarForBot,
@@ -164,9 +167,6 @@ import {
 } from './avatar/service';
 import { runAvatarJanitor, type AvatarJanitorResult } from './avatar/janitor';
 import { worldDocumentForAvatar } from './avatar/target';
-import { scheduledDispatchBudget, scheduledDispatchSelectLimit, scheduledDispatchTimeoutMs } from './constants';
-import { RuntimeOperationTimeoutError } from './errors';
-import { withAbortableTimeout } from './provider/sse';
 import { agentRuntimeCronTaskSet } from './runtime/cron';
 import {
 	runInferenceProviderDefaultBarrierFleetStep,
@@ -370,6 +370,7 @@ const loggableRepositoryErrorCodes = {
 } as const satisfies Record<RepositoryError['code'], true>;
 
 const loggableInferenceGraphCauses = {
+	legacy_write_disabled: true,
 	account_default_required: true,
 	corrupt_graph: true,
 	cross_owner: true,
@@ -485,6 +486,43 @@ function publicEffectiveModelFailureEvent(
 }
 
 export const agentRuntimeRouteTable = [
+	{
+		id: 'auth-maintenance',
+		method: 'POST',
+		pattern: /^\/auth\/maintenance$/,
+		dispatch: 'direct',
+		handler: handleAuthMaintenance,
+	},
+	{
+		id: 'account-index-repair',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)(?:\/bots\/([^/]+))?\/repair-index$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) {
+				throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			}
+			requireSchedulerServiceRequest(context.request);
+			const ownerId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			if (context.coordinator.ownerUserId !== ownerId) {
+				throw new RepositoryError('forbidden', 'Index repair reached the wrong account coordinator.', 403);
+			}
+			const input = await readOptionalJsonBody(context.request);
+			const documentUpdatedAt = input && typeof input === 'object' ? (input as { documentUpdatedAt?: unknown }).documentUpdatedAt : undefined;
+			if (documentUpdatedAt !== undefined && (typeof documentUpdatedAt !== 'string' || !Number.isFinite(Date.parse(documentUpdatedAt)))) {
+				throw new InputError('documentUpdatedAt must be a timestamp.');
+			}
+			const request = {
+				entityType: context.match[2] ? 'bot' as const : 'user' as const,
+				id: context.match[2] ? decodeURIComponent(context.match[2]) : ownerId,
+				...(documentUpdatedAt ? { documentUpdatedAt } : {}),
+			};
+			const actualOwner = await indexedObjectOwner(context.env, request);
+			if (!actualOwner) return ok({ repair: { kind: 'missing' } });
+			if (actualOwner !== ownerId) throw new RepositoryError('forbidden', 'This account does not own the index entry.', 403);
+			return ok({ repair: await repairOwnedObjectIndex(context.env, request) });
+		},
+	},
 	{
 		id: 'account-bootstrap-dispatch',
 		method: 'POST',
@@ -1232,6 +1270,11 @@ export const agentRuntimeRouteTable = [
 		handler: async (context) => {
 			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
 			const input = parseUpdateUserProfileInput(await readJsonBody(context.request));
+			const compatibilityFieldMask = input.inferenceSettings === undefined ? null : legacyInferenceCompatibilityFieldMask(input.inferenceSettings);
+			// A null translation request disables the role. Its provider fields are
+			// cleared internally rather than submitted as obsolete configuration.
+			if (input.inferenceSettings?.translation === null && compatibilityFieldMask) compatibilityFieldMask.translationFields = [];
+			if (compatibilityFieldMask) await assertLegacyInferenceWriteSupported(context.env.BICKR_D1, userId, compatibilityFieldMask);
 			const version = await inferenceGraphReadVersion(context.env.BICKR_D1, userId);
 			const translationPatch = input.inferenceSettings?.translation;
 			let currentUser: Awaited<ReturnType<typeof userById>> | null = null;
@@ -1260,9 +1303,6 @@ export const agentRuntimeRouteTable = [
 					};
 				}
 			}
-			const compatibilityFieldMask = input.inferenceSettings === undefined
-				? null
-				: legacyInferenceCompatibilityFieldMask(input.inferenceSettings);
 			if (compatibilityFieldMask) {
 				const current = currentUser ?? await userById(context.env.BICKR_KV, userId);
 				await prepareLegacyInferenceCompatibilityWrite(context, userId, 'account', userId, current.revision, compatibilityFieldMask);
@@ -1458,6 +1498,11 @@ export const agentRuntimeRouteTable = [
 			const compatibilityFieldMask = settingsInput?.inferenceSettings === undefined
 				? null
 				: legacyInferenceCompatibilityFieldMask(settingsInput.inferenceSettings);
+			// The avatar write precedes the provider write. Recovery waits for both revisions.
+			if (compatibilityFieldMask) {
+				const current = await userById(context.env.BICKR_KV, userId);
+				await prepareLegacyInferenceCompatibilityWrite(context, userId, 'account', userId, current.revision, compatibilityFieldMask, 1);
+			}
 			let profile = await applyGeneratedAvatarForUser(
 				context.env,
 				userId,
@@ -1470,8 +1515,6 @@ export const agentRuntimeRouteTable = [
 				),
 			);
 				if (settingsInput?.inferenceSettings !== undefined && compatibilityFieldMask) {
-					const current = await userById(context.env.BICKR_KV, userId);
-					await prepareLegacyInferenceCompatibilityWrite(context, userId, 'account', userId, current.revision, compatibilityFieldMask);
 					profile = await updateUserProfile(context.env.BICKR_KV, context.env.BICKR_D1, userId, {
 					inferenceSettings: settingsInput.inferenceSettings,
 				});
@@ -1806,6 +1849,11 @@ export const agentRuntimeRouteTable = [
 			const compatibilityFieldMask = settingsInput?.inferenceSettings === undefined
 				? null
 				: legacyInferenceCompatibilityFieldMask(settingsInput.inferenceSettings);
+			// The avatar write precedes the provider write. Recovery waits for both revisions.
+			if (compatibilityFieldMask) {
+				const current = await rawBotById(context.env.BICKR_KV, context.env.BICKR_D1, botId);
+				await prepareLegacyInferenceCompatibilityWrite(context, userId, 'bot', botId, current.revision, compatibilityFieldMask, 1);
+			}
 			let bot = await applyGeneratedAvatarForBot(
 				context.env,
 				userId,
@@ -1820,8 +1868,6 @@ export const agentRuntimeRouteTable = [
 				),
 			);
 				if (settingsInput?.inferenceSettings !== undefined && compatibilityFieldMask) {
-					const current = await rawBotById(context.env.BICKR_KV, context.env.BICKR_D1, bot.id);
-					await prepareLegacyInferenceCompatibilityWrite(context, userId, 'bot', bot.id, current.revision, compatibilityFieldMask);
 					bot = await updateBot(context.env.BICKR_KV, context.env.BICKR_D1, bot.id, userId, {
 					inferenceSettings: settingsInput.inferenceSettings,
 				});
@@ -1914,6 +1960,12 @@ export const agentRuntimeRouteTable = [
 			const compatibilityFieldMask = settingsInput?.imageGeneration === undefined
 				? null
 				: legacyImageCompatibilityFieldMask(settingsInput.imageGeneration);
+			// The avatar write precedes the provider write. Recovery waits for both revisions.
+			if (compatibilityFieldMask) {
+				const current = await readJson<WorldDocument>(context.env.BICKR_KV, kvKeys.world(targetWorld.id));
+				if (!current) throw new RepositoryError('server_error', 'World compatibility source document is missing.', 500);
+				await prepareLegacyInferenceCompatibilityWrite(context, userId, 'world', targetWorld.id, current.revision, compatibilityFieldMask, 1);
+			}
 			let world = await applyGeneratedAvatarForWorld(
 				context.env,
 				userId,
@@ -1926,9 +1978,6 @@ export const agentRuntimeRouteTable = [
 				})),
 			);
 				if (settingsInput?.imageGeneration !== undefined && compatibilityFieldMask) {
-					const current = await readJson<WorldDocument>(context.env.BICKR_KV, kvKeys.world(targetWorld.id));
-					if (!current) throw new RepositoryError('server_error', 'World compatibility source document is missing.', 500);
-					await prepareLegacyInferenceCompatibilityWrite(context, userId, 'world', targetWorld.id, current.revision, compatibilityFieldMask);
 					world = requiredWorldMutationResult(await requestOwnerWorldMutation(context, targetWorld.id, userId, {
 					kind: 'world_update',
 					worldHandle: world.handle,
@@ -2078,17 +2127,19 @@ async function prepareLegacyInferenceCompatibilityWrite(
 	entityId: string,
 	currentRevision: number,
 	fieldMask: LegacyInferenceCompatibilityFieldMask,
+	intermediateWrites = 0,
 ): Promise<void> {
 	if (context.coordinator.ownerUserId && context.coordinator.ownerUserId !== ownerUserId) {
 		throw new RepositoryError('forbidden', 'Compatibility write was dispatched to the wrong coordinator.', 403);
 	}
 	await resumePendingLegacyInferenceCompatibilityWrite(context, ownerUserId);
 	if (legacyInferenceCompatibilityFieldMaskIsEmpty(fieldMask)) return;
+	await assertLegacyInferenceWriteSupported(context.env.BICKR_D1, ownerUserId, fieldMask);
 	await beginInferenceGraphCompatibilityWrite(context.env.BICKR_D1, {
 		ownerUserId,
 		kind,
 		entityId,
-		sourceRevision: currentRevision + 1,
+		sourceRevision: currentRevision + intermediateWrites + 1,
 		fieldMask,
 		now: new Date().toISOString(),
 	});
@@ -2575,28 +2626,6 @@ async function storedAvatarFromRequest(
 	});
 }
 
-type AvatarUploadBytes =
-	| { kind: 'file'; bytes: Uint8Array; contentType: AvatarContentType; originalFilename?: string }
-	| { kind: 'url'; bytes: Uint8Array; contentType: AvatarContentType; sourceUrl: string };
-
-async function avatarUploadBytes(request: Request): Promise<AvatarUploadBytes> {
-	const contentType = request.headers.get('content-type') ?? '';
-	if (contentType.toLowerCase().includes('multipart/form-data')) {
-		const file = (await request.formData()).get('file');
-		if (!(file instanceof File)) throw new InputError('Avatar upload must include a file.');
-		const validated = await validateAvatarFile(file);
-		return {
-			kind: 'file',
-			bytes: validated.bytes,
-			contentType: validated.contentType,
-			...(file.name ? { originalFilename: file.name } : {}),
-		};
-	}
-	const body = runtimeRecord(await readJsonBody(request));
-	const sourceUrl = requiredText(body.url, 'Avatar URL', 1_000);
-	const validated = await fetchRemoteAvatarBytes(sourceUrl);
-	return { kind: 'url', bytes: validated.bytes, contentType: validated.contentType, sourceUrl };
-}
 
 async function croppedAvatarFromRequest(
 	request: Request,
@@ -2640,33 +2669,6 @@ function parseAvatarCrop(value: unknown, avatar: AvatarImage): AvatarCrop {
 	return parsed;
 }
 
-/**
- * The scheduler-authenticated inference graph operations are the maintenance
- * work itself, so the shared mutation gate must not reject them; each one
- * enforces its own stricter rule inside its handler, behind internal-service and
- * scheduler auth. The agent Worker entry and the coordinator entry share this
- * single classification so neither gate can reject a request the other is built
- * to accept.
- *
- * All of them but one require maintenance mode in that handler. The exception is
- * `POST /inference-graph/cleanup`, which requires nothing beyond its auth
- * (design §2.6): unlike its siblings it moves no live configuration between
- * representations, only deleting terminal-phase migration bookkeeping past its
- * recorded `terminal_cleanup_at`. Requiring maintenance mode there would have
- * made the cleanup unreachable from the daily cron, which defers itself for
- * exactly as long as maintenance is on. It is still listed here because the
- * shared gate would otherwise reject it as an ordinary mutation.
- */
-function isInferenceGraphMaintenanceRequest(request: Request): boolean {
-	if (request.method !== 'POST') {
-		return false;
-	}
-	const pathname = new URL(request.url).pathname;
-	return /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate|provider-default-barrier-sweep)$/.test(pathname) ||
-		/^\/users\/[^/]+\/inference-translation-role\/migrate$/.test(pathname) ||
-		/^\/inference-graph\/(?:cleanup|activate-lifecycle|provider-default-barrier-sweep)$/.test(pathname);
-}
-
 export async function handleAgentRuntimeRequest(
 	request: Request,
 	env: Pick<
@@ -2686,7 +2688,7 @@ export async function handleAgentRuntimeRequest(
 ): Promise<Response> {
 	// Let the maintenance operations reach their own stricter gate while ordinary
 	// mutations keep the shared maintenance rejection behavior.
-	const maintenanceResponse = isInferenceGraphMaintenanceRequest(request)
+	const maintenanceResponse = isExplicitMaintenanceRequest(request)
 		? null
 		: await mutationMaintenanceResponse(request, env.BICKR_D1, { allowRuntimeStop: true, allowRuntimeStaleRunRecovery: true });
 	if (maintenanceResponse) {
@@ -2722,7 +2724,7 @@ async function handleAgentRuntimeRequestExclusive(
 }
 
 async function startUserBotsConvergenceTask(
-	env: Pick<Env, 'AI' | 'BICKR_D1' | 'BICKR_KV' | 'BICKR_SEARCH_VECTORIZE'>,
+	env: Pick<Env, 'AI' | 'BICKR_D1' | 'BICKR_KV' | 'BICKR_SEARCH_VECTORIZE'> & Partial<Pick<Env, 'FORUM_COORDINATOR_SERVICE' | 'INTERNAL_SERVICE_SECRET'>>,
 	coordinator: UserBotsCoordinatorContext,
 	task: ObjectIndexConvergenceTask,
 ): Promise<void> {
@@ -2733,11 +2735,11 @@ async function startUserBotsConvergenceTask(
 		await coordinator.storage.setAlarm(Date.now() + userBotsConvergenceAlarmDelayMs);
 		return;
 	}
-	await runObjectIndexConvergenceBatch(env, task);
+	await runObjectIndexConvergenceBatch(accountIndexRepairEnvironment(env, coordinator.ownerUserId), task);
 }
 
 export async function runPendingUserBotsConvergenceTask(
-	env: Pick<Env, 'AI' | 'BICKR_D1' | 'BICKR_KV' | 'BICKR_SEARCH_VECTORIZE'>,
+	env: Pick<Env, 'AI' | 'BICKR_D1' | 'BICKR_KV' | 'BICKR_SEARCH_VECTORIZE'> & Partial<Pick<Env, 'FORUM_COORDINATOR_SERVICE' | 'INTERNAL_SERVICE_SECRET'>>,
 	coordinator: UserBotsCoordinatorContext,
 	options: {
 		chunkSize?: number;
@@ -2749,7 +2751,7 @@ export async function runPendingUserBotsConvergenceTask(
 	if (!task) {
 		return false;
 	}
-	const next = await runObjectIndexConvergenceBatch(env, task, options);
+	const next = await runObjectIndexConvergenceBatch(accountIndexRepairEnvironment(env, coordinator.ownerUserId), task, options);
 	if (next) {
 		await coordinator.storage?.put(userBotsConvergenceTaskStorageKey, next);
 	} else {
@@ -2759,7 +2761,7 @@ export async function runPendingUserBotsConvergenceTask(
 }
 
 export async function runUserBotsConvergenceAlarm(
-	env: Pick<Env, 'AI' | 'BICKR_D1' | 'BICKR_KV' | 'BICKR_SEARCH_VECTORIZE'>,
+	env: Pick<Env, 'AI' | 'BICKR_D1' | 'BICKR_KV' | 'BICKR_SEARCH_VECTORIZE'> & Partial<Pick<Env, 'FORUM_COORDINATOR_SERVICE' | 'INTERNAL_SERVICE_SECRET'>>,
 	coordinator: UserBotsCoordinatorContext,
 	alarmInfo?: AlarmInvocationInfo,
 ): Promise<void> {
@@ -2808,7 +2810,7 @@ export async function handleAgentRuntimeWorkerRequest(request: Request, env: Env
 		// The same exemption the coordinator entry applies: without it the Worker
 		// edge would reject the maintenance operations before they can be routed
 		// to the handlers that require maintenance mode.
-		const maintenanceResponse = isInferenceGraphMaintenanceRequest(request)
+		const maintenanceResponse = isExplicitMaintenanceRequest(request)
 			? null
 			: await mutationMaintenanceResponse(request, env.BICKR_D1, { allowRuntimeStop: true, allowRuntimeStaleRunRecovery: true });
 		if (maintenanceResponse) {
@@ -2889,6 +2891,9 @@ export async function runScheduledAgentRuntimeTasks(
 	scheduledTime: number,
 	cron?: string,
 ): Promise<ScheduledAgentRuntimeTasksResult> {
+	await cleanupAuthRecords(env.BICKR_D1, new Date(scheduledTime)).catch((error) => {
+		console.error(JSON.stringify({ event: 'scheduled_auth_retention', outcome: 'failed', errorName: error instanceof Error ? error.name : 'unknown' }));
+	});
 	const taskSet = agentRuntimeCronTaskSet(cron);
 	if (taskSet === null) {
 		// A trigger this deployment does not recognize means the configuration and
@@ -2930,8 +2935,7 @@ async function runDailyScheduledAgentRuntimeTasks(env: Env, scheduledTime: numbe
 			BOT_RUNTIME: env.BOT_RUNTIME,
 			...(env.INTERNAL_SERVICE_SECRET === undefined ? {} : { INTERNAL_SERVICE_SECRET: env.INTERNAL_SERVICE_SECRET }),
 		}, { now }),
-		// Weekly, but gated on its own KV marker rather than on the schedule: this
-		// cron is daily and six of every seven janitor calls do nothing (§2.7).
+		// The daily task starts a weekly cleanup. Frequent tasks resume its bounded pages.
 		runAvatarJanitor({
 			BICKR_D1: env.BICKR_D1,
 			BICKR_KV: env.BICKR_KV,
@@ -2947,11 +2951,7 @@ async function runDailyScheduledAgentRuntimeTasks(env: Env, scheduledTime: numbe
 		janitor: settledDailyMaintenanceResult(janitor),
 		inferenceGraphCleanup: settledDailyMaintenanceResult(inferenceGraphCleanup),
 	};
-	// A janitor run that refused to sweep is not a failed invocation, but it is
-	// the signal that the fleet outgrew the single-invocation design, so it is
-	// logged at error level rather than buried in the daily record.
-	const janitorRefused = janitor.status === 'fulfilled' &&
-		(janitor.value.status === 'skipped_over_budget' || janitor.value.status === 'aborted');
+	const janitorRefused = janitor.status === 'fulfilled' && janitor.value.status === 'aborted';
 	(retention.status === 'rejected' || janitor.status === 'rejected' ||
 		inferenceGraphCleanup.status === 'rejected' || janitorRefused ? console.error : console.log)(
 		JSON.stringify(record),
@@ -3030,6 +3030,11 @@ async function runFrequentScheduledAgentRuntimeTasks(env: Env, scheduledTime: nu
 			console.warn('global inference cost stats refresh failed', error);
 		}),
 		staleRunRecoveryPromise,
+		runAvatarJanitor(env, { now: new Date(scheduledTime).toISOString(), resumeOnly: true }).then((result) => {
+			if (result.status === 'in_progress' || result.status === 'swept' || result.status === 'aborted') {
+				(result.status === 'aborted' ? console.error : console.log)({ event: 'scheduled_avatar_cleanup', ...result });
+			}
+		}).catch((error) => console.error('Avatar cleanup continuation failed.', error)),
 	]);
 	return { kind: 'ordinary', staleRunRecovery };
 }
@@ -3057,77 +3062,4 @@ async function runScheduledStaleRunRecovery(env: Env, scheduledTime: number): Pr
 		console.error(JSON.stringify({ event: 'scheduled_stale_run_recovery', scheduledTime, outcome }));
 		return outcome;
 	}
-}
-
-export async function dispatchDueBots(
-	env: Env,
-	scheduledTime: number,
-	options: { batchSize?: number; maxDispatches?: number } = {},
-): Promise<{ dispatched: number; budgetExhausted: boolean }> {
-	if ((await readMaintenanceState(env.BICKR_D1)).enabled) {
-		return { dispatched: 0, budgetExhausted: false };
-	}
-	const now = new Date(scheduledTime).toISOString();
-	const batchSize = Math.max(1, Math.floor(options.batchSize ?? scheduledDispatchSelectLimit));
-	const maxDispatches = Math.max(0, Math.floor(options.maxDispatches ?? scheduledDispatchBudget));
-	let dispatched = 0;
-	while (dispatched < maxDispatches) {
-		const limit = Math.min(batchSize, maxDispatches - dispatched);
-		const result = await env.BICKR_D1.prepare(
-			`SELECT runtime.bot_id AS botId
-			 FROM bot_runtime_index runtime
-			 JOIN bots_index bots
-			   ON bots.bot_id = runtime.bot_id
-			  AND bots.deleted_at IS NULL
-			  AND bots.lifecycle_state = 'active'
-			 WHERE runtime.enabled = 1
-			   AND runtime.next_due_at IS NOT NULL
-			   AND runtime.next_due_at <= ?
-			   AND (runtime.lease_expires_at IS NULL OR runtime.lease_expires_at <= ?)
-			 ORDER BY runtime.next_due_at ASC
-			 LIMIT ?`,
-		)
-			.bind(now, now, limit)
-			.all<{ botId: string }>();
-		const rows = result.results ?? [];
-		if (rows.length === 0) {
-			break;
-		}
-		// #17's D1 CAS admission is authoritative. If another scheduler or a
-		// stale page double-dispatches a bot, the BotRuntime DO rejects it safely.
-		await Promise.all(
-			rows.map(async (row) => {
-				const id = env.BOT_RUNTIME.idFromName(row.botId);
-				const parentSignal = new AbortController().signal;
-				try {
-					const headers = new Headers({
-						'content-type': 'application/json',
-						'x-bickr-scheduler': '1',
-					});
-					addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
-					await withAbortableTimeout(
-						parentSignal,
-						scheduledDispatchTimeoutMs,
-						() => new RuntimeOperationTimeoutError('Scheduled Bickr visit dispatch', scheduledDispatchTimeoutMs),
-						(signal) =>
-							env.BOT_RUNTIME.get(id).fetch(
-								new Request(internalServiceUrl(`/bots/${encodeURIComponent(row.botId)}/tick`), {
-									method: 'POST',
-									signal,
-									headers,
-									body: JSON.stringify({ background: true }),
-								}),
-							),
-					);
-				} catch (error) {
-					console.warn('scheduled bot tick dispatch failed', row.botId, error);
-				}
-			}),
-		);
-		dispatched += rows.length;
-		if (rows.length < limit) {
-			break;
-		}
-	}
-	return { dispatched, budgetExhausted: maxDispatches > 0 && dispatched >= maxDispatches };
 }

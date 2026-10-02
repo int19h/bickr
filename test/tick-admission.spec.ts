@@ -1,4 +1,6 @@
+import { handleAgentRuntimeRequest } from "../workers/agent-runtime/src/routes";
 import { proposedRunNextDueAt } from '../workers/agent-runtime/src/runtime/run-liveness';
+import { internalServiceTestEnv, internalServiceTestHeaders } from "./helpers/internal-service-auth";
 import { withTestRunLiveness } from "./helpers/index-harness";
 import { attachTestRunLiveness, memoryRuntimeSql } from "./helpers/index-harness";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -8,9 +10,8 @@ import { ExclusiveOperationQueue } from "@bickr/shared/exclusive-operation-queue
 import {
 	BotRuntime,
 	claimRuntimeRun,
-	handleAgentRuntimeRequest,
 	releaseRuntimeRun,
-} from "../workers/agent-runtime/src/index";
+} from "../workers/agent-runtime/src/runtime/bot-runtime";
 import {
 	localizedText,
 	schemaVersion,
@@ -634,7 +635,7 @@ function releasingRuntime(db: D1Database = testEnv.BICKR_D1): {
 	 ): Promise<{ nextDueAt: string | null; released: boolean }>;
 } {
 	return withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
-		env: { BICKR_D1: db, BICKR_KV: testEnv.BICKR_KV },
+		env: { ...internalServiceTestEnv, BICKR_D1: db, BICKR_KV: testEnv.BICKR_KV },
 		setRuntimeIndex: async (bot: BotDocument, status: 'idle' | 'failed', lastError: string | undefined, now: string, runId: string, trigger: RuntimeRunTrigger) => {
 			const nextDueAt = proposedRunNextDueAt(trigger, status, bot.tickSettings.intervalSeconds * 1000, Date.parse(now));
 			const released = await releaseRuntimeRun(db, { botId: bot.id, runId, status, lastError: lastError ?? null, now, nextDueAt });
@@ -664,6 +665,7 @@ function testRuntimeHarness(): RuntimeHarness {
 	const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 		state: fakeRuntimeState(),
 		env: {
+			...internalServiceTestEnv,
 			BICKR_D1: testEnv.BICKR_D1,
 			BICKR_KV: testEnv.BICKR_KV,
 		},
@@ -732,6 +734,7 @@ function tickRequest(): Request {
 	return new Request(`https://internal.bickr/bots/${botId}/tick`, {
 		method: "POST",
 		headers: {
+			...internalServiceTestHeaders,
 			"content-type": "application/json",
 			"x-bickr-scheduler": "1",
 		},
@@ -742,14 +745,14 @@ function tickRequest(): Request {
 function compactRequest(): Request {
 	return new Request(`https://internal.bickr/bots/${botId}/compact`, {
 		method: "POST",
-		headers: { "x-bickr-scheduler": "1" },
+		headers: { ...internalServiceTestHeaders, "x-bickr-scheduler": "1" },
 	});
 }
 
 function clearHistoryRequest(): Request {
 	return new Request(`https://internal.bickr/bots/${botId}/events`, {
 		method: "DELETE",
-		headers: { "x-bickr-scheduler": "1" },
+		headers: { ...internalServiceTestHeaders, "x-bickr-scheduler": "1" },
 	});
 }
 
@@ -895,9 +898,10 @@ async function runtimeIndexRow(rowBotId: string): Promise<RuntimeIndexRow> {
 
 async function patchTickEnabled(enabled: boolean): Promise<Response> {
 	return handleAgentRuntimeRequest(
-		new Request(`https://agent.internal/users/${ownerId}/bots/${botId}`, {
+		new Request(`https://internal.bickr/users/${ownerId}/bots/${botId}`, {
 			method: "PATCH",
 			headers: {
+				...internalServiceTestHeaders,
 				"content-type": "application/json",
 				"x-bickr-user-id": ownerId,
 				"idempotency-key": `tick-enabled-${String(enabled)}`,

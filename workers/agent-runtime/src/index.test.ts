@@ -3,7 +3,7 @@ import type { LanguageTag } from "@bickr/shared/model";
 import {
 	runtimeErrorLoopMessageContent,
 	syntheticLimitLogOffArgs,
-} from "./index";
+} from "./runtime/bot-runtime";
 
 describe("tool argument validation", () => {
 	it("uses localized text for synthetic limit log-off reasons", () => {

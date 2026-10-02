@@ -26,15 +26,23 @@ describe("isTrustedInternalServiceRequest", () => {
 		expect(isTrustedInternalServiceRequest(new Request("http://[::1]/health"), configuredSecret)).toBe(true);
 	});
 
-	it("preserves hostname-only internal trust and warns when no secret is configured", async () => {
+	it("rejects internal requests and warns once when no secret is configured", async () => {
 		vi.resetModules();
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const { isTrustedInternalServiceRequest: isTrusted } = await import("./internal-service");
 
-		expect(isTrusted(internalRequest(undefined), undefined)).toBe(true);
-		expect(isTrusted(internalRequest(undefined), undefined)).toBe(true);
+		expect(isTrusted(internalRequest(undefined), undefined)).toBe(false);
+		expect(isTrusted(internalRequest(configuredSecret), undefined)).toBe(false);
+		expect(isTrusted(internalRequest(""), "")).toBe(false);
 		expect(warn).toHaveBeenCalledTimes(1);
 		expect(warn.mock.calls[0]?.[0]).toContain("INTERNAL_SERVICE_SECRET");
+	});
+
+	it("does not trust an unrelated hostname even with the correct secret", () => {
+		const request = new Request("https://example.com/health", {
+			headers: { [internalServiceAuthHeader]: configuredSecret },
+		});
+		expect(isTrustedInternalServiceRequest(request, configuredSecret)).toBe(false);
 	});
 });
 

@@ -140,14 +140,14 @@ async function loadForumChunk(
 		db.prepare(
 			`SELECT forum_id AS id
 			 FROM forums_index
-			 WHERE world_id = ? AND deleted_at IS NULL AND forum_id > ?
+			 WHERE world_id = ? AND forum_id > ?
 			 ORDER BY forum_id ASC
 			 LIMIT ?`,
 		).bind(worldId, afterId, limit)
 	:	db.prepare(
 			`SELECT forum_id AS id
 			 FROM forums_index
-			 WHERE world_id = ? AND deleted_at IS NULL
+			 WHERE world_id = ?
 			 ORDER BY forum_id ASC
 			 LIMIT ?`,
 		).bind(worldId, limit);

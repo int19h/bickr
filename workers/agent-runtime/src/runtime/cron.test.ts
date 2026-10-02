@@ -289,7 +289,7 @@ describe('scheduled cron dispatch', () => {
 			staleRunRecovery: { kind: 'completed', sweep: { kind: 'stale_run_recovery_sweep', scanned: 0 } },
 		});
 		expect(calls).toContain('due_dispatch_query');
-		expect(JSON.parse(String(error.mock.calls[0]?.[0]))).toMatchObject({
+		expect(error.mock.calls.map(([message]) => JSON.parse(String(message))).find(record => record.event === 'scheduled_unrecognized_cron')).toMatchObject({
 			event: 'scheduled_unrecognized_cron',
 			cron: '7 7 7 7 7',
 		});
@@ -299,7 +299,9 @@ describe('scheduled cron dispatch', () => {
 	it('defers the daily set while maintenance mode is on', async () => {
 		const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 		const { env, calls } = dispatchEnv();
+		const prepare = env.BICKR_D1.prepare.bind(env.BICKR_D1);
 		vi.spyOn(env.BICKR_D1, 'prepare').mockImplementation(((sql: string) => {
+			if (sql.includes('DELETE FROM auth_records') || sql.includes('DELETE FROM auth_rate_buckets')) return prepare(sql);
 			if (!sql.includes('FROM maintenance_control')) {
 				throw new Error(`Unexpected query while maintenance is on: ${sql}`);
 			}
@@ -325,7 +327,7 @@ describe('scheduled cron dispatch', () => {
 
 		expect(result).toEqual({ kind: 'daily_deferred' });
 		expect(calls).not.toContain('retention_sweep_query');
-		expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toMatchObject({
+		expect(log.mock.calls.map(([message]) => JSON.parse(String(message))).find(record => record.event === 'scheduled_daily_tasks_deferred')).toMatchObject({
 			event: 'scheduled_daily_tasks_deferred',
 			reason: 'maintenance',
 		});

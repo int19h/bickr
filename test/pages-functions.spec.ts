@@ -1,3 +1,5 @@
+import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
+import { internalServiceTestEnv, internalServiceTestHeaders } from "./helpers/internal-service-auth";
 import {
 	addBotGroupMembersRoute,
 	agentRuntimeWorker,
@@ -374,25 +376,26 @@ describe("Pages functions", () => {
 		const spoofedAgent = await agentRuntimeWorker.fetch(
 			new Request("https://bickr-agent-runtime-test.example.workers.dev/health", {
 				headers: {
+					...internalServiceTestHeaders,
 					"x-bickr-scheduler": "1",
 					"x-bickr-user-id": "spoofed-user",
 				},
 			}) as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
-			{} as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+			internalServiceTestEnv as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
 		);
 		expect(spoofedAgent.status).toBe(404);
 
 		const internalAgent = await agentRuntimeWorker.fetch(
-			new Request("https://internal.bickr/health") as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
-			{ BICKR_D1: testEnv.BICKR_D1 } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+			new Request("https://internal.bickr/health", { headers: internalServiceTestHeaders }) as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
+			{ ...internalServiceTestEnv, BICKR_D1: testEnv.BICKR_D1 } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
 		);
 		expect(internalAgent.status).toBe(200);
 
 		const spoofedForumHealth = await forumCoordinatorWorker.fetch(
 			new Request("https://bickr-forum-coordinator-test.example.workers.dev/health", {
-				headers: { "x-bickr-scheduler": "1" },
+				headers: { ...internalServiceTestHeaders, "x-bickr-scheduler": "1" },
 			}) as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[0],
-			{} as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[1],
+			internalServiceTestEnv as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[1],
 		);
 		expect(spoofedForumHealth.status).toBe(404);
 
@@ -402,15 +405,15 @@ describe("Pages functions", () => {
 				"POST",
 				{ title: "Spoofed thread", body: "Public Worker URL" },
 				undefined,
-				{ "x-bickr-bot-id": "spoofed-bot" },
+				{ ...internalServiceTestHeaders, "x-bickr-bot-id": "spoofed-bot" },
 			) as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[0],
-			{} as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[1],
+			internalServiceTestEnv as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[1],
 		);
 		expect(spoofedForumBot.status).toBe(404);
 
 		const internalForum = await forumCoordinatorWorker.fetch(
-			new Request("https://internal.bickr/health") as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[0],
-			{ BICKR_D1: testEnv.BICKR_D1 } as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[1],
+			new Request("https://internal.bickr/health", { headers: internalServiceTestHeaders }) as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[0],
+			{ ...internalServiceTestEnv, BICKR_D1: testEnv.BICKR_D1 } as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[1],
 		);
 		expect(internalForum.status).toBe(200);
 	});
@@ -757,6 +760,7 @@ describe("Pages functions", () => {
 			),
 		);
 		expect(firstPatch.status, await firstPatch.clone().text()).toBe(200);
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
 		let rows = await testEnv.BICKR_D1.prepare(
 			`SELECT notification_id AS id, user_id AS userId, body, read_at AS readAt
 			 FROM human_notifications
@@ -776,6 +780,7 @@ describe("Pages functions", () => {
 			),
 		);
 		expect(secondPatch.status, await secondPatch.clone().text()).toBe(200);
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
 		rows = await testEnv.BICKR_D1.prepare(
 			`SELECT notification_id AS id, user_id AS userId, body, read_at AS readAt
 			 FROM human_notifications
@@ -810,6 +815,7 @@ describe("Pages functions", () => {
 			),
 		);
 		expect(recurringTogglePatch.status, await recurringTogglePatch.clone().text()).toBe(200);
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
 		rows = await testEnv.BICKR_D1.prepare(
 			`SELECT notification_id AS id, user_id AS userId, body, read_at AS readAt
 			 FROM human_notifications
@@ -830,6 +836,7 @@ describe("Pages functions", () => {
 			),
 		);
 		expect(thirdPatch.status, await thirdPatch.clone().text()).toBe(200);
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
 		rows = await testEnv.BICKR_D1.prepare(
 			`SELECT notification_id AS id, user_id AS userId, body, read_at AS readAt
 			 FROM human_notifications
@@ -1507,7 +1514,7 @@ describe("Pages functions", () => {
 			handle: githubUser.handle,
 			displayName: githubUser.displayName,
 		});
-		const githubSession = await createSession(testEnv.BICKR_KV, githubUser.id);
+		const githubSession = await createSession(testEnv.BICKR_D1, githubUser.id);
 		const githubCookie = `${sessionCookieName}=${encodeURIComponent(githubSession.cookieValue)}`;
 		const googleCookies = oauthCookieNames("google");
 		const googleSignInResponse = await googleCallback(
@@ -4290,9 +4297,11 @@ describe("Pages functions", () => {
 				{ text: "Hello." },
 			);
 			serviceRequest.headers.set("x-bickr-user-id", profilePayload.data.profile.id);
+			serviceRequest.headers.set(internalServiceAuthHeader, internalServiceTestEnv.INTERNAL_SERVICE_SECRET);
 			const serviceResponse = await agentRuntimeWorker.fetch(
 				serviceRequest as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
 				{
+					...internalServiceTestEnv,
 					BICKR_D1: testEnv.BICKR_D1,
 					BICKR_KV: testEnv.BICKR_KV,
 				} as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],

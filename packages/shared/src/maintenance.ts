@@ -78,6 +78,23 @@ export function isSafeHttpMethod(method: string): boolean {
 	return method === 'GET' || method === 'HEAD' || method === 'OPTIONS';
 }
 
+// These routes enforce service authentication and scheduler authority themselves.
+// Migration actions also require maintenance. Cleanup and inspection remain available.
+export function isExplicitMaintenanceRequest(request: Request): boolean {
+	if (request.method !== 'POST') return false;
+	const pathname = new URL(request.url).pathname;
+	return pathname === '/auth/maintenance' || /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate|provider-default-barrier-sweep)$/.test(pathname) ||
+		/^\/users\/[^/]+\/inference-translation-role\/migrate$/.test(pathname) ||
+		/^\/inference-graph\/(?:cleanup|activate-lifecycle|provider-default-barrier-sweep)$/.test(pathname);
+}
+
+/** These bounded derived-index operations are safe while public writes are paused. */
+export function isForumSearchMaintenanceRequest(request: Request): boolean {
+	const path = new URL(request.url).pathname;
+	return (request.method === 'POST' && path === '/maintenance/search-index/rebuild') ||
+		(request.method === 'GET' && path === '/maintenance/search-index/status');
+}
+
 export function isRuntimeStopRequest(request: Request): boolean {
 	if (request.method !== 'POST') {
 		return false;

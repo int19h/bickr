@@ -1,3 +1,6 @@
+import { contextBudgetDraft } from './context-budget-draft';
+import { RuntimeInjectionStore, type PendingInjection } from './injections';
+import { RuntimeInputHistory } from './input-history';
 import { inferenceAttributionForRequest, inferenceAttributionHeader } from '@bickr/shared/inference-attribution';
 import type { InferenceAttribution } from '@bickr/shared/model';
 import { syntheticToolCallMessage, type SyntheticToolCall } from './synthetic-tool-calls';
@@ -37,7 +40,7 @@ import {
 	internalServiceUrl,
 	isTrustedInternalServiceRequest,
 } from '@bickr/shared/internal-service';
-import { mutationMaintenanceResponse } from '@bickr/shared/maintenance';
+import { mutationMaintenanceResponse, requireMaintenanceDisabled, MaintenanceModeEnabledError, MaintenanceControlUnavailableError } from '@bickr/shared/maintenance';
 import {
 	botById,
 	botPublicProfile,
@@ -45,12 +48,10 @@ import {
 	enforceInferenceModelAccess,
 	listForums,
 	mergeInferenceSettings,
-	mergeTickSettings,
-	mergeToolSettings,
 	RepositoryError,
 	userById,
 } from '@bickr/shared/repository';
-import { effectivePostingSettings, mergePostingSettings } from '@bickr/shared/posting';
+import { effectivePostingSettings } from '@bickr/shared/posting';
 import {
 	deleteSearchVector,
 	upsertBotSearchVector,
@@ -443,7 +444,6 @@ import type {
 	RuntimeLoopInputBuild,
 	RuntimeLoopMessages,
 	InjectionMetadata,
-	InjectionRow,
 	LoopMessageRetentionCursor,
 	RuntimeStorageClearResult,
 	RuntimeStorageRetentionResult,
@@ -1841,6 +1841,7 @@ export class BotRuntime {
 				this.notes.migrateLegacyPlan();
 				this.notes.ensurePlan();
 				this.migrateLegacyLoopMessages();
+				new RuntimeInputHistory(this.state.storage).initializeLegacy(this.latestSuccessfulLogOffToolResultSeq());
 				this.migrateLegacyProviderToolCallHistory();
 				this.observeProviderToolCallHistoryInvariantAfterStartupMigration();
 				this.backfillProviderTokenCalibrationSamples();
@@ -2526,6 +2527,7 @@ export class BotRuntime {
 				return;
 			}
 			if (payload.type === 'inject' && payload.text?.trim()) {
+				await requireMaintenanceDisabled(this.env.BICKR_D1);
 				const injected = this.injectThought(payload.text.trim());
 				ws.send(JSON.stringify({ type: 'event', event: injected.event }));
 			}
@@ -2537,7 +2539,7 @@ export class BotRuntime {
 			ws.send(JSON.stringify({
 				type: 'error',
 				message: error instanceof Error ? error.message : 'Bad message.',
-				...(error instanceof RepositoryError ? { code: error.code } : {}),
+				...(error instanceof RepositoryError ? { code: error.code } : error instanceof MaintenanceModeEnabledError || error instanceof MaintenanceControlUnavailableError ? { code: 'maintenance' } : {}),
 				...(details?.runtimeStorageCause ? { runtimeStorageCause: details.runtimeStorageCause } : {}),
 			}));
 		}
@@ -2682,7 +2684,8 @@ export class BotRuntime {
 								return listPendingNotifications(this.env.BICKR_KV, this.env.BICKR_D1, bot.id);
 							})();
 				this.throwIfStopped(runId, abortController.signal);
-				const injections = this.consumeInjections(mode === 'spotlight' ? (options.injectionIds ?? []) : undefined);
+				const pendingInjections = new RuntimeInjectionStore(this.state.storage).pending(mode === 'spotlight' ? (options.injectionIds ?? []) : undefined);
+				const injections = pendingInjections.map(injection => injection.text);
 				if (mode === 'spotlight' && injections.length === 0) {
 					await this.renewProgressLease(bot.id, runId, abortController.signal);
 					const release = await this.finalizeRun(runId, 'tick_completed', { note: 'No pending spotlight injection was available.' });
@@ -2705,7 +2708,7 @@ export class BotRuntime {
 					runContext.spotlightActionScope = spotlightActionScopeFromContexts(input.spotlightContexts);
 				}
 				const inputEvent = this.appendEvent(runId, 'input', input);
-				const builtMessages = await this.buildMessages(bot, input, runId, inputEvent.createdAt, { setupMode });
+				const builtMessages = await this.buildMessages(bot, input, runId, inputEvent, { setupMode, pendingInjections });
 				if (setupMode === 'new_iteration') {
 					const deliveredNotificationIds = builtMessages.deliveredNotificationIds;
 					const deliveredSeenItems = uniqueSeenContentItems(
@@ -3772,7 +3775,7 @@ export class BotRuntime {
 				try {
 					await this.renewProgressLease(bot.id, runId, runContext.signal);
 					this.setPendingTool(runId, toolCall, args, assistantMessage!, providerResponseGroup.current?.seq ?? null);
-					result = await this.executeTool(bot, runId, toolCall.function.name, args, { ...runContext, inferenceAttribution: response.inferenceAttribution }, (success) => {
+					result = await this.executeTool(bot, runId, toolCall.function.name, args, { ...runContext, inferenceAttribution: response.inferenceAttribution, toolInvocationId: `${runId}:${requestEvent.seq}:${toolCall.id}` }, (success) => {
 						const recordedToolCall = success.effectiveArgs ? toolCallWithArguments(toolCall, JSON.stringify(providerToolArgs(success.name, success.effectiveArgs))) : toolCall;
 						appendAssistantToolResultPair(toolCall, { role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(success.providerResult) }, 'tool_result', 'complete', { displayEventSeq: success.displayEventSeq }, recordedToolCall);
 					});
@@ -4526,48 +4529,9 @@ export class BotRuntime {
 		return this.runtimeMessageStore().appendLoopMessage(runId, message, origin, status, options);
 	}
 
-	private appendLoopMessageGroup(
-		entries: LoopMessageGroupEntry[],
-	): BotLoopMessage[] {
+	private appendLoopMessageGroup(entries: LoopMessageGroupEntry[], commit?: () => void): BotLoopMessage[] {
 		assertExecutionPublication();
-		const hasHarnessOverrides =
-			Object.hasOwn(this, 'appendLoopMessage') || Object.hasOwn(this, 'insertLoopMessage') || Object.hasOwn(this, 'recordLoopMessageLog');
-		if (hasHarnessOverrides || typeof (this as unknown as { state?: DurableObjectState }).state?.storage?.sql?.exec !== 'function') {
-			const storage = (this as unknown as { state?: { storage?: { transactionSync?: <T>(closure: () => T) => T } } }).state?.storage;
-			if (typeof storage?.transactionSync !== 'function') {
-				return entries.map((entry) => {
-					const inserted = this.appendLoopMessage(entry.runId, entry.message, entry.origin, entry.status, entry.options);
-					for (const log of entry.extraLogs ?? []) {
-						this.recordLoopMessageLog(inserted.seq, log.kind, log.text);
-					}
-					return inserted;
-				});
-			}
-			const inserted: BotLoopMessage[] = [];
-			this.runStorageTransactionSync(() => {
-				for (const entry of entries) {
-					const message = this.insertLoopMessage({
-						runId: entry.runId,
-						message: entry.message,
-						origin: entry.origin,
-						status: entry.status,
-						streamSeq: entry.options?.streamSeq,
-						displayEventSeq: entry.options?.displayEventSeq,
-						broadcast: false,
-					});
-					this.recordLoopMessageLog(message.seq, 'message', JSON.stringify(entry.message));
-					for (const log of entry.extraLogs ?? []) {
-						this.recordLoopMessageLog(message.seq, log.kind, log.text);
-					}
-					inserted.push(message);
-				}
-			});
-			for (const message of inserted) {
-				this.broadcastLoopMessage(message);
-			}
-			return inserted;
-		}
-		return this.runtimeMessageStore().appendLoopMessageGroup(entries);
+		return this.runtimeMessageStore().appendLoopMessageGroup(entries, commit);
 	}
 
 	private appendProviderToolResult(assistant: LoopMessageGroupEntry, result: LoopMessageGroupEntry, group: BotLoopMessage | null): BotLoopMessage {
@@ -5044,8 +5008,8 @@ export class BotRuntime {
 
 	private inferenceSubmissionSummaries(): BotInferenceSubmissionSummary[] {
 		return this.state.storage.sql
-			.exec<InferenceSubmissionRow>(
-				`SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, display_messages_json, created_at
+			.exec<Omit<InferenceSubmissionRow, 'messages_json' | 'display_messages_json'>>(
+				`SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, created_at
 				 FROM inference_submissions
 				 ORDER BY event_seq ASC`,
 			)
@@ -5242,21 +5206,9 @@ export class BotRuntime {
 		const currentBot = await botById(this.env.BICKR_KV, this.env.BICKR_D1, botId);
 		const owner = await userById(this.env.BICKR_KV, currentBot.ownerUserId);
 		const inferenceSettings = enforceInferenceModelAccess(currentBot.inferenceSettings, owner.inferenceSettings);
-		const toolSettings = mergeToolSettings(currentBot.toolSettings, input?.toolSettings);
-		const postingSettings = mergePostingSettings(currentBot.postingSettings, input?.postingSettings);
-		const inputLanguage = input?.language ?? currentBot.language;
-		const includeLanguageInSystemPrompt =
-			input?.includeLanguageInSystemPrompt ?? currentBot.includeLanguageInSystemPrompt ?? false;
 		const bot = await this.botWithEffectivePostingSettings({
-			...currentBot,
-			includeLanguageInSystemPrompt,
-			displayName: input?.displayName ? { lang: inputLanguage, text: input.displayName } : currentBot.displayName,
-			prompt: input?.prompt ? { lang: inputLanguage, text: input.prompt } : currentBot.prompt,
-			shortBio: input?.shortBio ? { lang: inputLanguage, text: input.shortBio } : currentBot.shortBio,
+			...contextBudgetDraft(currentBot, input),
 			inferenceSettings,
-			toolSettings,
-			postingSettings,
-			tickSettings: mergeTickSettings(currentBot.tickSettings, input?.tickSettings),
 		});
 		const tickSettings = effectiveTickSettings(bot.tickSettings);
 		const selectedConfiguration = input?.configurationId
@@ -5950,12 +5902,13 @@ export class BotRuntime {
 		runContext: RunContext,
 		onResult?: (result: ToolResult) => void,
 	): Promise<ToolResult> {
+		const invocationId = runContext.toolInvocationId ?? `${runId}:${crypto.randomUUID()}`;
 		const tools = new RuntimeTools({
 			env: this.env,
 			appendEvent: this.appendEvent.bind(this),
 			replaceEventPayload: this.replaceEventPayload.bind(this),
 			throwIfStopped: this.throwIfStopped.bind(this),
-			forumService: (path, botId, body, signal) => this.forumService(path, botId, body, signal, runContext.inferenceAttribution),
+			forumService: (path, botId, body, signal) => this.forumService(path, botId, body, signal, runContext.inferenceAttribution, invocationId),
 			vectorSearchBots: (worldId, query, limit) => vectorSearchBots(this.env, worldId, query, limit),
 			readCommentTreeTokenBudget: this.readCommentTreeTokenBudget.bind(this),
 			providerContentInActiveContext: this.providerContentInActiveContext.bind(this),
@@ -5994,7 +5947,7 @@ export class BotRuntime {
 		return this.notes.delete(id);
 	}
 
-	private async forumService<T>(path: string, botId: string, body: unknown, signal: AbortSignal, inferenceAttribution?: InferenceAttribution): Promise<T> {
+	private async forumService<T>(path: string, botId: string, body: unknown, signal: AbortSignal, inferenceAttribution?: InferenceAttribution, invocationId?: string): Promise<T> {
 		if (signal.aborted) throw new TickStoppedError();
 		try {
 		return await withAbortableTimeout(
@@ -6007,13 +5960,15 @@ export class BotRuntime {
 					'x-bickr-bot-id': botId,
 				});
 				if (inferenceAttribution) headers.set('x-bickr-inference-attribution', inferenceAttributionHeader(inferenceAttribution));
+				const serializedBody = JSON.stringify(body);
+				if (invocationId) headers.set('x-bickr-idempotency-key', await sha256Hex(JSON.stringify([botId, invocationId, path, serializedBody])));
 				addInternalServiceAuthHeader(headers, this.env.INTERNAL_SERVICE_SECRET);
 				const response = await this.env.FORUM_COORDINATOR_SERVICE.fetch(
 					new Request(internalServiceUrl(path), {
 						method: 'POST',
 						signal: timeoutSignal,
 						headers,
-						body: JSON.stringify(body),
+						body: serializedBody,
 					}),
 				);
 				const payload = runtimeRecord(
@@ -6047,20 +6002,22 @@ export class BotRuntime {
 		bot: RuntimeBotDocument,
 		input: LoopInput,
 		runId: string,
-		inputCreatedAt: string,
-		options: { setupMode?: LoopSetupMode } = {},
+		inputEvent: Pick<BotRuntimeEvent, 'seq' | 'createdAt'>,
+		options: { setupMode?: LoopSetupMode; pendingInjections?: readonly PendingInjection[] } = {},
 	): Promise<RuntimeLoopMessages> {
 		const setupMode = options.setupMode ?? 'new_iteration';
+		const prepared: LoopMessageGroupEntry[] = [];
+		const collect = (entries: LoopMessageGroupEntry[]): void => { prepared.push(...entries); };
 		const deliveredNotificationIds = new Set<string>();
 		const elapsed =
-			setupMode === 'new_iteration' ? formatElapsedTimeSincePreviousVisit(this.previousTerminalTickEvent(runId), inputCreatedAt) : '';
+			setupMode === 'new_iteration' ? formatElapsedTimeSincePreviousVisit(this.previousTerminalTickEvent(runId), inputEvent.createdAt) : '';
 		if (elapsed) {
-			this.appendLoopMessage(runId, { role: 'user', content: elapsed }, 'input');
+			prepared.push({ runId, message: { role: 'user', content: elapsed }, origin: 'input' });
 		}
 		const existingProfileUsernames = this.profileUsernamesInActiveContext();
 		const existingProviderContent = this.providerContentInActiveContext();
 		if (input.spotlightContexts.length > 0) {
-			await this.appendSpotlightSyntheticContext(bot, runId, input.spotlightContexts, existingProfileUsernames, existingProviderContent);
+			await this.appendSpotlightSyntheticContext(bot, runId, input.spotlightContexts, existingProfileUsernames, existingProviderContent, collect);
 		} else if (setupMode === 'new_iteration') {
 			for (const id of await this.appendNotificationSyntheticContext(
 				bot,
@@ -6068,22 +6025,30 @@ export class BotRuntime {
 				input.notifications,
 				existingProfileUsernames,
 				existingProviderContent,
+				collect,
 			)) {
 				deliveredNotificationIds.add(id);
 			}
 		}
 		if (setupMode !== 'spotlight') {
 			for (const injection of input.injections) {
-				this.appendLoopMessage(runId, { role: 'assistant', content: injectedThoughtAssistantContent(injection, {}) }, 'injection');
+				prepared.push({ runId, message: { role: 'assistant', content: injectedThoughtAssistantContent(injection, {}) }, origin: 'injection' });
 			}
 			if (input.toolUseReminder) {
-				this.appendLoopMessage(runId, { role: 'assistant', content: input.toolUseReminder }, 'reminder');
+				prepared.push({ runId, message: { role: 'assistant', content: input.toolUseReminder }, origin: 'reminder' });
 			}
 		}
 		const recurringPrompt = effectiveLoopRecurringPrompt(bot);
 		if (setupMode === 'new_iteration' && recurringPrompt) {
-			this.appendLoopMessage(runId, { role: 'assistant', content: recurringPrompt }, 'synthetic_context');
+			prepared.push({ runId, message: { role: 'assistant', content: recurringPrompt }, origin: 'synthetic_context' });
 		}
+		const pendingInjections = options.pendingInjections ?? [];
+		this.appendLoopMessageGroup(prepared, () => {
+			new RuntimeInjectionStore(this.state.storage).acknowledge(pendingInjections);
+			// The earlier input event is an audit record, not a commit proof. Save
+			// this marker with history so a failed setup remains a new iteration.
+			new RuntimeInputHistory(this.state.storage).commit(inputEvent.seq);
+		});
 		const messages = this.activeLoopMessagesForProvider() as RuntimeLoopMessages;
 		Object.defineProperty(messages, 'deliveredNotificationIds', {
 			value: deliveredNotificationIds,
@@ -6099,6 +6064,7 @@ export class BotRuntime {
 		notifications: LoopNotification[],
 		existingProfileUsernames: ReadonlySet<string>,
 		existingProviderContent: ProviderContextContentScope,
+		collect?: (entries: LoopMessageGroupEntry[]) => void,
 	): Promise<string[]> {
 		const toolCalls: SyntheticToolCall[] = [];
 		const results: ChatMessage[] = [];
@@ -6141,6 +6107,8 @@ export class BotRuntime {
 				: "I log into Bickr and check my notifications.",
 			toolCalls,
 			results,
+			'complete',
+			collect,
 		);
 		return notificationResult.includedEventIds;
 	}
@@ -6151,6 +6119,7 @@ export class BotRuntime {
 		contexts: SpotlightSyntheticContext[],
 		existingProfileUsernames: ReadonlySet<string>,
 		existingProviderContent: ProviderContextContentScope,
+		collect?: (entries: LoopMessageGroupEntry[]) => void,
 	): Promise<void> {
 		const chains = contexts.flatMap(spotlightSyntheticToolChains);
 		const toolCalls: SyntheticToolCall[] = chains.map((chain, index) => syntheticToolCall(runId, chain.toolName, index, chain.args));
@@ -6183,10 +6152,13 @@ export class BotRuntime {
 			'While browsing Bickr, I stumbled on an interesting thread.',
 			toolCalls,
 			results,
+			'complete',
+			collect,
 		);
 		const focusContent = spotlightFocusAssistantContent(contexts);
 		if (focusContent) {
-			this.appendLoopMessage(runId, { role: 'assistant', content: focusContent }, 'synthetic_context');
+			const entries: LoopMessageGroupEntry[] = [{ runId, message: { role: 'assistant', content: focusContent }, origin: 'synthetic_context' }];
+			if (collect) collect(entries); else this.appendLoopMessageGroup(entries);
 		}
 	}
 
@@ -6197,6 +6169,7 @@ export class BotRuntime {
 		toolCalls: readonly SyntheticToolCall[],
 		results: readonly ChatMessage[],
 		status: BotLoopMessageStatus = 'complete',
+		collect?: (entries: LoopMessageGroupEntry[]) => void,
 	): void {
 		if (toolCalls.length !== results.length) {
 			throw new Error('Synthetic tool-call chain must have one result per request.');
@@ -6220,7 +6193,7 @@ export class BotRuntime {
 				});
 			}
 		}
-		this.appendLoopMessageGroup(entries);
+		if (collect) collect(entries); else this.appendLoopMessageGroup(entries);
 	}
 
 	private async syntheticProfilesForUsernames(
@@ -6313,18 +6286,7 @@ export class BotRuntime {
 	}
 
 	private currentIterationStartedSinceLastLogOff(): boolean {
-		const lastLogOffSeq = this.latestSuccessfulLogOffToolResultSeq();
-		const row = this.state.storage.sql
-			.exec<{ found: number }>(
-				`SELECT 1 AS found
-				 FROM events
-				 WHERE seq > ?
-				   AND type = 'input'
-				 LIMIT 1`,
-				lastLogOffSeq,
-			)
-			.toArray()[0];
-		return Boolean(row);
+		return new RuntimeInputHistory(this.state.storage).startedAfter(this.latestSuccessfulLogOffToolResultSeq());
 	}
 
 	private providerLoopInitialSuccessfulToolCallCount(): number {
@@ -6726,49 +6688,6 @@ export class BotRuntime {
 
 	private latestCompactionSummary(): string {
 		return this.runtimeEventsStore().latestCompactionSummary(compactedSummaryForContext);
-	}
-
-	private consumeInjections(injectionIds?: string[]): string[] {
-		const rows = injectionIds
-			? injectionIds.length === 0
-				? []
-				: injectionIds.flatMap((id) =>
-						this.state.storage.sql
-							.exec<InjectionRow>(
-								`SELECT
-									id,
-									text,
-									kind,
-									source_id AS sourceId,
-									spotlight_id AS spotlightId
-								 FROM injections
-								 WHERE consumed_at IS NULL AND id = ?`,
-								id,
-							)
-							.toArray(),
-					)
-			: this.state.storage.sql
-					.exec<InjectionRow>(
-						`SELECT
-							id,
-							text,
-							kind,
-							source_id AS sourceId,
-							spotlight_id AS spotlightId
-						 FROM injections
-						 WHERE consumed_at IS NULL
-						   AND kind != 'spotlight'
-						 ORDER BY created_at ASC
-						 LIMIT 10`,
-					)
-					.toArray();
-		if (rows.length > 0) {
-			const now = new Date().toISOString();
-			for (const row of rows) {
-				this.state.storage.sql.exec(`UPDATE injections SET consumed_at = ? WHERE id = ?`, now, row.id);
-			}
-		}
-		return rows.map((row) => row.text);
 	}
 
 	/**
@@ -10755,7 +10674,7 @@ function loopMessageContextLine(row: LoopMessageRow): string {
 	return `I recorded a ${message.role} message:\n${markdownQuoteForContext(content, 1_000)}`;
 }
 
-function inferenceSubmissionSummaryFromRow(row: InferenceSubmissionRow): BotInferenceSubmissionSummary {
+function inferenceSubmissionSummaryFromRow(row: Omit<InferenceSubmissionRow, 'messages_json' | 'display_messages_json'>): BotInferenceSubmissionSummary {
 	return {
 		submissionId: row.id,
 		seq: row.event_seq,

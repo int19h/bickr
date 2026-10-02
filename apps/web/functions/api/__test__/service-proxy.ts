@@ -1,6 +1,6 @@
 import { readJsonBody } from "@bickr/shared/api";
 import { addInternalServiceAuthHeader, internalServiceUrl } from "@bickr/shared/internal-service";
-import { mutationMaintenanceResponse } from "@bickr/shared/maintenance";
+import { isExplicitMaintenanceRequest, isForumSearchMaintenanceRequest, mutationMaintenanceResponse } from "@bickr/shared/maintenance";
 import { asRecord, InputError, requiredText } from "@bickr/shared/validation";
 import { type AppEnv } from "../_auth";
 import { pageErrorResponse } from "../_errors";
@@ -48,10 +48,10 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 			headers: serviceProxyHeaders(input.headers, env.INTERNAL_SERVICE_SECRET),
 			method: input.method,
 		});
-		// These scheduler-authenticated operations require maintenance in their
-		// agent-runtime handlers. The test proxy must let them reach that stricter
-		// gate; every other mutation retains the shared maintenance rejection.
-		const maintenanceResponse = isInferenceGraphMaintenanceOperation(input) ? null : await mutationMaintenanceResponse(serviceRequest, env.BICKR_D1, {
+		// Maintenance routes enforce their own service authentication and action rules.
+		const maintenanceOperation = (input.service === "agent-runtime" && isExplicitMaintenanceRequest(serviceRequest)) ||
+			(input.service === "forum-coordinator" && isForumSearchMaintenanceRequest(serviceRequest));
+		const maintenanceResponse = maintenanceOperation ? null : await mutationMaintenanceResponse(serviceRequest, env.BICKR_D1, {
 			allowRuntimeStop: true,
 			allowRuntimeStaleRunRecovery: true,
 		});
@@ -64,13 +64,6 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 		return pageErrorResponse(error);
 	}
 };
-
-function isInferenceGraphMaintenanceOperation(input: ServiceProxyInput): boolean {
-	if (input.service !== "agent-runtime" || input.method !== "POST") return false;
-	return /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate|provider-default-barrier-sweep)$/.test(input.path) ||
-		/^\/users\/[^/]+\/inference-translation-role\/migrate$/.test(input.path) ||
-		/^\/inference-graph\/(?:cleanup|activate-lifecycle|provider-default-barrier-sweep)$/.test(input.path);
-}
 
 function parseServiceProxyInput(input: unknown): ServiceProxyInput {
 	const record = asRecord(input);

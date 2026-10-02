@@ -12,9 +12,11 @@ export default defineConfig({
 					name: "node",
 					environment: "node",
 					include: [
+						"packages/shared/src/**/*.node.test.ts",
 						"packages/cli/src/**/*.test.ts",
 						"scripts/**/*.test.mjs",
 						"workers/agent-runtime/src/runtime/**/*.test.ts",
+						"workers/agent-runtime/src/avatar/janitor.test.ts",
 						// Reads the Wrangler configurations from disk, which needs a real
 						// filesystem rather than the workerd pool.
 						"workers/forum-coordinator/src/**/*.test.ts",
@@ -50,9 +52,11 @@ export default defineConfig({
 					name: "cloudflare",
 					exclude: [
 						...configDefaults.exclude,
+						"packages/shared/src/**/*.node.test.ts",
 						"packages/cli/src/**/*.test.ts",
 						"scripts/**/*.test.mjs",
 						"workers/agent-runtime/src/runtime/**/*.test.ts",
+						"workers/agent-runtime/src/avatar/janitor.test.ts",
 						"workers/forum-coordinator/src/**/*.test.ts",
 						domTests,
 					],

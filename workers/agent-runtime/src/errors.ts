@@ -277,6 +277,14 @@ export class ResponseBodySizeLimitError extends Error {
 	}
 }
 
+export class ProviderStreamIncompleteError extends Error {
+	readonly kind = 'provider_stream_incomplete';
+	constructor() {
+		super('Inference response ended before the provider completed it.');
+		this.name = 'ProviderStreamIncompleteError';
+	}
+}
+
 export class ProviderEmptyResponseError extends Error {
 	readonly kind = 'provider_empty_response';
 	readonly rawResponse?: string;

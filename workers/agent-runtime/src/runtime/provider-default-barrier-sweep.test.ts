@@ -22,7 +22,12 @@ describe('scheduled provider-default barrier maintenance', () => {
 				async delete() {},
 			},
 			BICKR_D1: {
+				async batch(statements: unknown[]) { return statements.map(() => ({ success: true, results: [], meta: { changes: 0 } })); },
 				prepare(sql: string) {
+					if (sql.includes('DELETE FROM auth_records') || sql.includes('DELETE FROM auth_rate_buckets')) {
+						const statement = { bind: () => statement };
+						return statement;
+					}
 					if (sql.includes("runtime.status = 'running'")) {
 						return {
 							bind() {

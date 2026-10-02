@@ -1,3 +1,4 @@
+import { useRequestIdentity } from "../../use-request-identity";
 import { InferenceBadge } from "../../components/inference-attribution";
 import type { InferenceAttribution } from "@bickr/shared/model";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -10,13 +11,19 @@ type NoteLink = { kind: "participant" | "forum"; entityId: string; handle: strin
 type Note = { inferenceAttribution?: InferenceAttribution; id: string; content: string; createdAt: string; updatedAt: string; revision: number; links: NoteLink[] };
 type Editor = { mode: "create" | "edit"; original: Note | null; title: string; content: string };
 
-export function BotNotesPanel({ botId, enabled, onReference, onRegisterRefresh, worldHandle }: {
+/** Each item owns its drafts, dialogs, and pending requests. */
+export function BotNotesPanel(props: Parameters<typeof BotNotesPanelContent>[0]) {
+	return <BotNotesPanelContent key={props.botId} {...props} />;
+}
+
+function BotNotesPanelContent({ botId, enabled, onReference, onRegisterRefresh, worldHandle }: {
 	botId: string;
 	enabled: boolean;
 	onReference: OpenReference;
 	onRegisterRefresh?: (botId: string, refresh: (() => Promise<void>) | null) => void;
 	worldHandle: string;
 }) {
+	const mutations = useRequestIdentity();
 	const [ids, setIds] = useState<string[]>([]);
 	const [loaded, setLoaded] = useState(false);
 	const [loading, setLoading] = useState(false);
@@ -104,8 +111,10 @@ export function BotNotesPanel({ botId, enabled, onReference, onRegisterRefresh, 
 	const filteredIds = useMemo(() => ids.filter((id) => id.toLocaleLowerCase().includes(filter.toLocaleLowerCase())), [filter, ids]);
 	const deleteSelected = async () => {
 		if (!selectedId) return;
+		const current = mutations.begin();
 		setDeleting(true);
 		const result = await api<{ outcome: "deleted" | "not_found" | "reset" }>(`${basePath}/delete`, { method: "POST", body: { id: selectedId } });
+		if (!current()) return;
 		setDeleting(false);
 		setDeleteConfirm(false);
 		if (!result.ok) {
@@ -122,6 +131,7 @@ export function BotNotesPanel({ botId, enabled, onReference, onRegisterRefresh, 
 	};
 	const saveEditor = async () => {
 		if (!editor || saving) return;
+		const current = mutations.begin();
 		setSaving(true);
 		setEditorError("");
 		const result = editor.mode === "create"
@@ -129,6 +139,7 @@ export function BotNotesPanel({ botId, enabled, onReference, onRegisterRefresh, 
 			: await api<{ note: Note }>(`${basePath}/edit`, { method: "POST", body: {
 				id: editor.original!.id, nextId: editor.title, content: editor.content, expectedRevision: editor.original!.revision,
 			} });
+		if (!current()) return;
 		setSaving(false);
 		if (!result.ok) {
 			setEditorError(result.details?.noteCause === "stale_revision" ? "This note changed. Reload it before editing." : result.message);

@@ -1,3 +1,5 @@
+import { runBotNotificationFanout } from "@bickr/shared/bot-notification-fanout";
+import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
 import { notificationSourceDeleteStatements } from "@bickr/shared/notification-source-deletes";
 import {
 	humanNotificationSweepArms,
@@ -259,6 +261,8 @@ describe("content deletion retracts its notifications", () => {
 			targetId: parent.id,
 		});
 
+		await runBotNotificationFanout(testEnv.BICKR_KV, testEnv.BICKR_D1);
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
 		expect(await botNotificationCountFor(`c/${parent.id}`)).toBeGreaterThan(2);
 		expect(await humanNotificationCountFor("source", "comment", parent.id)).toBeGreaterThan(0);
 
@@ -286,6 +290,9 @@ describe("content deletion retracts its notifications", () => {
 		await insertBotNotification({ id: "ntf_root", sourceObjectId: `c/${thread.rootCommentId}`, notificationType: "vote" });
 		await insertBotNotification({ id: "ntf_survivor", sourceObjectId: `t/${survivor.id}`, notificationType: "followed_activity" });
 
+		await runBotNotificationFanout(testEnv.BICKR_KV, testEnv.BICKR_D1);
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
+		expect(await botNotificationCountFor(`c/${comment.id}`)).toBeGreaterThan(0);
 		await deleteThread("thread-retraction", thread.id, cookie);
 
 		expect(await botNotificationCountFor(`t/${thread.id}`)).toBe(0);
@@ -306,6 +313,8 @@ describe("content deletion retracts its notifications", () => {
 		// A thread vote is normalized to the root comment, so its notification is
 		// filed under `c/<root comment id>` — which, for a short content id, is the
 		// thread id itself.
+		await runBotNotificationFanout(testEnv.BICKR_KV, testEnv.BICKR_D1);
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
 		expect(await botNotificationCountFor(`c/${thread.rootCommentId}`)).toBe(1);
 		expect(await humanNotificationCountFor("target", "comment", thread.rootCommentId)).toBeGreaterThan(0);
 

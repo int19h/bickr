@@ -13,10 +13,9 @@ import {
 	repositoryErrorCode,
 	selfCorrectionMessageForToolFailurePayload,
 	toolFailurePayload,
-	type ToolFailurePayload,
-} from "../index";
+} from "./bot-runtime";
 import type { BotRuntimeEvent } from "@bickr/shared/model";
-import type { RunContext, RuntimeBotDocument, RuntimeRow, ToolResult } from "../types";
+import type { RunContext, RuntimeBotDocument, RuntimeRow, ToolResult, ToolFailurePayload } from "../types";
 import { normalizeToolArgs } from "./tool-args";
 import {
 	assertNoDuplicateReplyInToolResultRows,

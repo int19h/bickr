@@ -25,7 +25,7 @@ export function printEnvelope<T>(ctx: OutputContext, envelope: ApiEnvelope<T>, r
 		throw new Error(envelope.message);
 	}
 	if (ctx.human) {
-		process.stdout.write(`${renderHuman(envelope.data)}\n`);
+		writeTerminal(`${renderHuman(envelope.data)}\n`);
 	} else {
 		printJson(envelope.data);
 	}
@@ -33,7 +33,7 @@ export function printEnvelope<T>(ctx: OutputContext, envelope: ApiEnvelope<T>, r
 
 export function printValue(ctx: OutputContext, value: unknown, renderHuman: () => string): void {
 	if (ctx.human) {
-		process.stdout.write(`${renderHuman()}\n`);
+		writeTerminal(`${renderHuman()}\n`);
 	} else {
 		printJson(value);
 	}
@@ -74,12 +74,12 @@ function singleLine(value: unknown): string {
 	}
 	const localized = localizedValueSingleLine(value);
 	if (localized !== undefined) {
-		return localized;
+		return terminalText(localized);
 	}
 	if (typeof value === "object") {
 		return JSON.stringify(value);
 	}
-	return String(value).replace(/\s+/g, " ").trim();
+	return terminalText(String(value)).replace(/\s+/g, " ").trim();
 }
 
 function truncate(value: string, width: number): string {
@@ -88,4 +88,14 @@ function truncate(value: string, width: number): string {
 
 function pad(value: string, width: number): string {
 	return `${value}${" ".repeat(Math.max(0, width - value.length))}`;
+}
+
+/** Keep formatter line breaks and tabs; show terminal commands as literal escapes. */
+export function terminalText(value: string): string {
+	return value.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g,
+		(character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
+export function writeTerminal(value: string, stream: Pick<NodeJS.WriteStream, "write"> = process.stdout): void {
+	stream.write(terminalText(value));
 }

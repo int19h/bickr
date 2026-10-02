@@ -1,3 +1,10 @@
+import { rebuildForumSearchIndexes, forumSearchPending } from "@bickr/shared/indexed-substring-search";
+import { isForumSearchMaintenanceRequest } from "@bickr/shared/maintenance";
+import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
+import { finishForumCreation, readForumCreationIntent } from "@bickr/shared/forum-creation";
+import { runBotNotificationFanout } from "@bickr/shared/bot-notification-fanout";
+import { commitThreadMutation, nextThreadMutationAlarm, pruneThreadMutationReceipts, readCanonicalThread, replayThreadMutation, replayThreadMutationReceipt, restoreResponse, saveResponse, stageThreadMutation, threadMutationIdentity, type ThreadMutationPlan, type CompactThreadMutationReply, type ThreadMutationReply } from "./thread-mutations";
+import { projectGovernanceDeletionIntent, readGovernanceDeletionIntent, type GovernanceDeletionIntent } from "@bickr/shared/governance-deletion-intents";
 import { parseInferenceAttribution } from "@bickr/shared/inference-attribution";
 import { fail, ok, readJsonBody } from "@bickr/shared/api";
 import { isD1UniqueConstraintError } from "@bickr/shared/d1-errors";
@@ -59,6 +66,10 @@ import { json } from "@bickr/shared/http";
 import {
 	type ObjectIndexConvergenceTask,
 	repairObjectIndexes,
+	repairOwnedObjectIndex,
+	requestObjectIndexRepair,
+	type OwnedObjectIndexRepairRequest,
+	type OwnedObjectIndexRepairResult,
 	runObjectIndexConvergenceBatch,
 } from "@bickr/shared/index-repair";
 import {
@@ -109,14 +120,17 @@ export interface Env {
 	AI?: Ai;
 	BICKR_SEARCH_VECTORIZE?: Vectorize;
 	INTERNAL_SERVICE_SECRET?: string;
+	AGENT_RUNTIME_SERVICE: Fetcher;
 	WORLD_COORDINATOR: DurableObjectNamespace;
 	FORUM_COORDINATOR: DurableObjectNamespace;
 }
 
 type ForumCoordinatorEnv = Pick<Env, "AI" | "BICKR_D1" | "BICKR_KV" | "BICKR_SEARCH_VECTORIZE"> &
-	Partial<Pick<Env, "FORUM_COORDINATOR" | "INTERNAL_SERVICE_SECRET">>;
+	Partial<Pick<Env, "FORUM_COORDINATOR" | "WORLD_COORDINATOR" | "AGENT_RUNTIME_SERVICE" | "INTERNAL_SERVICE_SECRET">> & { contentIdDb?: Env["BICKR_D1"] };
 
 type CoordinatorContext = {
+	receiptReply?: CompactThreadMutationReply;
+	stagingMutation?: boolean;
 	cache?: ThreadFreshCacheRef;
 	objectId: string;
 	queue?: ExclusiveOperationQueue;
@@ -240,6 +254,65 @@ async function handleForumCoordinatorRequestExclusive(
 ): Promise<Response> {
 	try {
 		const url = new URL(request.url);
+		if (coordinator.storage && !coordinator.stagingMutation && isThreadMutationRequest(request, url)) {
+			return await executeDurableThreadMutation(request, env, coordinator);
+		}
+		if (request.method === "POST" && url.pathname === "/maintenance/thread-mutations/recover" && coordinator.storage) {
+			await replayCoordinatorThreadMutation(env, coordinator);
+			await scheduleCoordinatorAlarmForPendingTasks(coordinator);
+			return ok({ recovered: true });
+		}
+		if (request.method === "POST" && url.pathname === "/maintenance/thread-mutations/commit" && coordinator.storage) {
+			const plan = await readJsonBody(request) as ThreadMutationPlan;
+			if (!plan.thread || plan.handoffThreadId || !plan.id || !plan.receiptKey.startsWith("thread-mutation/receipt/")) throw new InputError("Invalid thread mutation handoff.");
+			await replayCoordinatorThreadMutation(env, coordinator);
+			const receipt = await replayThreadMutationReceipt(coordinator.storage, plan);
+			if (!receipt) {
+				const existing = await readCanonicalThread(coordinator.storage);
+				if (existing?.id === plan.thread.id) return ok({ committed: true });
+				if (existing) throw new RepositoryError("conflict", "This coordinator already owns a different thread.", 409);
+				await commitThreadMutation(coordinator.storage, env.BICKR_D1, coordinator.objectId, plan);
+				await replayCoordinatorThreadMutation(env, coordinator);
+			}
+			await scheduleCoordinatorAlarmForPendingTasks(coordinator);
+			return ok({ committed: true });
+		}
+		const repairInput = await objectIndexRepairInput(request, url);
+		if (repairInput) {
+			const document = repairInput.entityType === "thread" ? await readFreshThreadDocument(coordinator, repairInput.id) : null;
+			const repair = await repairOwnedObjectIndex(env, repairInput, { ...(document ? { document } : {}) });
+			if (repair.kind === "repaired" && repair.document.type === "thread") {
+				await writeFreshThread(coordinator, repair.document);
+				coordinator.receiptReply = { kind: "repair", threadId: repair.document.id };
+			}
+			return ok({ repair });
+		}
+		const creationRecovery = /^\/maintenance\/forum-creations\/([^/]+)$/.exec(url.pathname);
+		if (request.method === "POST" && creationRecovery) {
+			const intent = await readForumCreationIntent(env.BICKR_D1, decodeURIComponent(creationRecovery[1] ?? ""));
+			if (!intent || intent.state !== "pending") return ok({ recovered: true });
+			try {
+				const forum = await finishForumCreation(env.BICKR_KV, env.BICKR_D1, intent);
+				await upsertForumSearchVector(env, forum);
+			} catch (error) {
+				if (!(error instanceof RepositoryError) || ![403, 409, 410].includes(error.status)) throw error;
+			}
+			return ok({ recovered: true });
+		}
+		const recovery = /^\/maintenance\/deletions\/(world|forum)\/([^/]+)$/.exec(url.pathname);
+		if (request.method === "POST" && recovery) {
+			const kind = recovery[1] as "world" | "forum";
+			const id = decodeURIComponent(recovery[2] ?? "");
+			const intent = await readGovernanceDeletionIntent(env.BICKR_D1, kind, id);
+			if (intent) {
+				await projectGovernanceDeletionIntent(env.BICKR_KV, env.BICKR_D1, intent);
+				await deleteSearchVector(env, kind, id);
+				await startGovernanceDeletionTask(env, coordinator, kind === "world"
+					? { kind: "world_forums", worldId: id, deletedAt: intent.deletedAt }
+					: { kind: "forum_threads", forumId: id, deletedAt: intent.deletedAt });
+			}
+			return ok({ recovered: !!intent });
+		}
 		const response =
 			await handleWorldCoordinatorMutation(request, env, coordinator, url) ??
 			await handleForumCoordinatorMutation(request, env, coordinator, url) ??
@@ -516,7 +589,7 @@ async function handleForumCoordinatorMutation(
 		const userId = requireUserHeader(request);
 		const worldHandle = normalizeHandle(decodeURIComponent(forumCreateMatch[1] ?? ""));
 		const input = parseCreateForumInput(await readJsonBody(request));
-		const forum = await createForum(env.BICKR_KV, env.BICKR_D1, worldHandle, input, userId);
+		const forum = await createForum(env.BICKR_KV, env.BICKR_D1, worldHandle, input, userId, undefined, request.headers.get("x-bickr-idempotency-key") ?? request.headers.get("idempotency-key") ?? undefined);
 		await upsertForumSearchVector(env, forum);
 		return ok({ forum, coordinator: coordinator.objectId }, { status: 201 });
 	}
@@ -600,7 +673,7 @@ async function handleThreadCoordinatorMutation(
 			...input,
 			forumId,
 			authorBotId: actor.botId,
-		}, undefined, { inferenceAttribution: attributionFromRequest(request, actor.botId) });
+		}, undefined, { inferenceAttribution: attributionFromRequest(request, actor.botId), contentIdDb: env.contentIdDb });
 		return okThread(coordinator, overlay, { thread }, { status: 201 });
 	}
 
@@ -640,6 +713,7 @@ async function handleCommentCoordinatorMutation(
 		}, undefined, {
 			...(latestThread ? { thread: latestThread } : {}),
 			inferenceAttribution: attributionFromRequest(request, actor.botId),
+			contentIdDb: env.contentIdDb,
 		});
 		await writeFreshThread(coordinator, thread);
 		return okThread(coordinator, overlay, { thread, comment }, { status: 201 });
@@ -696,6 +770,7 @@ async function createCommentReply(
 	}, undefined, {
 		...(latestThread ? { thread: latestThread } : {}),
 		inferenceAttribution: attributionFromRequest(request, actor.botId),
+		contentIdDb: env.contentIdDb,
 	});
 	await writeFreshThread(coordinator, thread);
 	return okThread(coordinator, overlay, { thread, comment }, { status: 201 });
@@ -738,6 +813,9 @@ function okThread(
 	payload: { thread: ThreadDocument; comment?: CommentDocument },
 	init?: ResponseInit,
 ): Response {
+	coordinator.receiptReply = { kind: "thread", threadId: payload.thread.id,
+		...(payload.comment ? { commentId: payload.comment.id } : {}), coordinator: coordinator.objectId,
+		status: init?.status ?? 200, allowDeleted: Boolean(payload.thread.deletedAt) };
 	const thread = threadWithCurrentAvatars(payload.thread, overlay);
 	// A response that names a single comment names one that is also in the
 	// thread, and consumers do compare the two. It is taken from the hydrated
@@ -863,8 +941,8 @@ export async function runScheduledForumCoordinatorTasks(env: Env, scheduledTime:
 	if (taskSet === null) {
 		// A trigger this deployment does not recognize means the configuration and
 		// the code have diverged. Running the daily set keeps the visible work
-		// (hot scores, index repair) going; a prune invocation skipped for six
-		// hours costs nothing that the next one cannot catch up on. The cron test
+		// (hot scores, index repair) going; a prune invocation skipped for five
+		// minutes costs nothing that the next one cannot catch up on. The cron test
 		// exists so this stays a theoretical path.
 		console.error(JSON.stringify({ event: "scheduled_unrecognized_cron", cron: cron ?? null, scheduledTime }));
 	}
@@ -873,7 +951,59 @@ export async function runScheduledForumCoordinatorTasks(env: Env, scheduledTime:
 			return await runDailyForumCoordinatorMaintenance(env, now);
 		case "notification_prune":
 			return await runForumCoordinatorNotificationPrune(env, now);
+		case "recovery":
+			if (!(await readMaintenanceState(env.BICKR_D1)).enabled) {
+				const results = await Promise.allSettled([recoverGovernanceDeletions(env, now), recoverForumCreations(env, now), recoverThreadMutations(env, now), runHumanNotificationFanout(env.BICKR_D1, now), rebuildForumSearchIndexes(env.BICKR_D1), runBotNotificationFanout(env.BICKR_KV, env.BICKR_D1, now), refreshThreadHotScores(env.BICKR_D1, now)]);
+				console.log(JSON.stringify({ event: "coordinator_recovery", scheduledTime: now, results }));
+				for (const result of results) if (result.status === "rejected") throw result.reason;
+			}
+			return;
 	}
+}
+
+
+export async function recoverForumCreations(env: Env, now: string): Promise<number> {
+	await env.BICKR_D1.prepare(`DELETE FROM forum_creation_intents WHERE forum_id IN (
+		SELECT forum_id FROM forum_creation_intents WHERE expires_at <= ? ORDER BY expires_at, forum_id LIMIT 100)`)
+		.bind(now).run();
+	const rows = await env.BICKR_D1.prepare(`SELECT forum_id AS id, world_id AS worldId FROM forum_creation_intents
+		WHERE state = 'pending' AND next_attempt_at <= ? ORDER BY next_attempt_at, forum_id LIMIT 25`).bind(now).all<{ id: string; worldId: string }>();
+	for (const row of rows.results ?? []) {
+		await env.BICKR_D1.prepare(`UPDATE forum_creation_intents SET next_attempt_at = ? WHERE forum_id = ? AND state = 'pending'`)
+			.bind(new Date(Date.parse(now) + 5 * 60_000).toISOString(), row.id).run();
+		try {
+			const response = await env.WORLD_COORDINATOR.get(env.WORLD_COORDINATOR.idFromName(row.worldId)).fetch(internalJsonRequest(env, `/maintenance/forum-creations/${encodeURIComponent(row.id)}`, {}));
+			if (!response.ok) console.error(JSON.stringify({ event: "forum_creation_recovery_failed", forumId: row.id, status: response.status }));
+		} catch (error) { console.error(JSON.stringify({ event: "forum_creation_recovery_failed", forumId: row.id, error: String(error) })); }
+	}
+	return rows.results?.length ?? 0;
+}
+
+/** A persisted D1 intent survives a missing task record or an exhausted alarm. */
+export async function recoverGovernanceDeletions(env: Env, now: string): Promise<number> {
+	const rows = await env.BICKR_D1.prepare(
+		`SELECT scope_kind AS kind, scope_id AS id, deleted_at AS deletedAt, document_json AS documentJson
+		 FROM governance_deletion_intents WHERE next_attempt_at <= ?
+		 ORDER BY next_attempt_at, scope_kind, scope_id LIMIT 25`,
+	).bind(now).all<GovernanceDeletionIntent>();
+	let recovered = 0;
+	for (const intent of rows.results ?? []) {
+		// Move a failing item behind its peers before external I/O. A lost call
+		// delays this item for five minutes but cannot starve the rest of the queue.
+		await env.BICKR_D1.prepare(
+			`UPDATE governance_deletion_intents SET next_attempt_at = ? WHERE scope_kind = ? AND scope_id = ?`,
+		).bind(new Date(Date.parse(now) + 5 * 60_000).toISOString(), intent.kind, intent.id).run();
+		const namespace = intent.kind === "world" ? env.WORLD_COORDINATOR : env.FORUM_COORDINATOR;
+		const response = await namespace.get(namespace.idFromName(intent.id)).fetch(
+			internalJsonRequest(env, `/maintenance/deletions/${intent.kind}/${encodeURIComponent(intent.id)}`, {}),
+		);
+		if (!response.ok) {
+			console.error(JSON.stringify({ event: "governance_deletion_recovery_failed", kind: intent.kind, id: intent.id, status: response.status }));
+			continue;
+		}
+		recovered += 1;
+	}
+	return recovered;
 }
 
 async function runDailyForumCoordinatorMaintenance(env: Env, now: string): Promise<void> {
@@ -895,7 +1025,7 @@ async function runDailyForumCoordinatorMaintenance(env: Env, now: string): Promi
 		pruneBotInferenceUsage(env.BICKR_D1, new Date(now)),
 		pruneExpiredSpotlightDeliveries(env.BICKR_D1, { now }),
 		pruneHumanNotifications(env.BICKR_KV, env.BICKR_D1, { now }),
-		repairObjectIndexes(env),
+		repairObjectIndexes(indexRepairEnvironment(env)),
 	]);
 	// Log unconditionally and before failures propagate: the 2026-07-11 run
 	// deleted ~8k rows but left no log because a sibling Promise.all task
@@ -924,7 +1054,7 @@ async function runDailyForumCoordinatorMaintenance(env: Env, now: string): Promi
 
 /**
  * The notification prune has a trigger of its own so that its per-invocation row
- * cap is backed by a subrequest budget of its own, four times a day, instead of
+ * cap is backed by a subrequest budget of its own every five minutes, instead of
  * competing with the daily sweeps for one.
  */
 async function runForumCoordinatorNotificationPrune(env: Env, now: string): Promise<void> {
@@ -958,10 +1088,19 @@ async function handleForumWorkerFetch(request: Request, env: Env): Promise<Respo
 	if (!isTrustedInternalServiceRequest(request, env.INTERNAL_SERVICE_SECRET)) {
 		return forumCoordinatorNotFoundResponse();
 	}
+	if (isForumSearchMaintenanceRequest(request)) {
+		if (request.headers.get("x-bickr-scheduler") !== "1") throw new RepositoryError("forbidden", "Search maintenance requires scheduler authority.", 403);
+		return request.method === "GET"
+			? ok({ ready: !(await forumSearchPending(env.BICKR_D1)) })
+			: ok(await rebuildForumSearchIndexes(env.BICKR_D1));
+	}
 	const maintenanceResponse = await mutationMaintenanceResponse(request, env.BICKR_D1);
 	if (maintenanceResponse) {
 		return maintenanceResponse;
 	}
+
+	const repairInput = await objectIndexRepairInput(request, url);
+	if (repairInput) return ok({ repair: await routeObjectIndexRepair(env, repairInput) });
 
 	if (url.pathname === "/health") {
 		return json({
@@ -1090,6 +1229,8 @@ async function runCoordinatorAlarm(
 	alarmInfo?: AlarmInvocationInfo,
 ): Promise<void> {
 	const operation = async () => {
+		await replayCoordinatorThreadMutation(env, coordinator);
+		if (coordinator.storage) await pruneThreadMutationReceipts(coordinator.storage);
 		await runPendingGovernanceDeletionTask(env, coordinator);
 		await runPendingObjectIndexConvergenceTask(env, coordinator);
 		await scheduleCoordinatorAlarmForPendingTasks(coordinator);
@@ -1130,6 +1271,8 @@ async function runGovernanceDeletionTask(
 		}, task);
 
 	if (result.done) {
+		await env.BICKR_D1.prepare(`DELETE FROM governance_deletion_intents WHERE scope_kind = ? AND scope_id = ?`)
+			.bind(task.kind === "world_forums" ? "world" : "forum", task.kind === "world_forums" ? task.worldId : task.forumId).run();
 		await coordinator.storage?.delete(governanceDeletionTaskStorageKey);
 		return;
 	}
@@ -1147,7 +1290,7 @@ async function startObjectIndexConvergenceTask(
 		await coordinator.storage.setAlarm(Date.now() + governanceDeletionAlarmDelayMs);
 		return;
 	}
-	await runObjectIndexConvergenceBatch(env, task);
+	await runObjectIndexConvergenceBatch(indexRepairEnvironment(env, coordinator), task);
 }
 
 export async function runPendingObjectIndexConvergenceTask(
@@ -1163,7 +1306,7 @@ export async function runPendingObjectIndexConvergenceTask(
 	if (!task) {
 		return false;
 	}
-	const next = await runObjectIndexConvergenceBatch(env, task, options);
+	const next = await runObjectIndexConvergenceBatch(indexRepairEnvironment(env, coordinator), task, options);
 	if (next) {
 		await coordinator.storage?.put(objectIndexConvergenceTaskStorageKey, next);
 	} else {
@@ -1180,8 +1323,11 @@ async function scheduleCoordinatorAlarmForPendingTasks(coordinator: CoordinatorC
 		coordinator.storage.get(governanceDeletionTaskStorageKey),
 		coordinator.storage.get(objectIndexConvergenceTaskStorageKey),
 	]);
+	const mutationAlarm = await nextThreadMutationAlarm(coordinator.storage);
 	if (deletionTask || convergenceTask) {
 		await coordinator.storage.setAlarm(Date.now() + governanceDeletionAlarmDelayMs);
+	} else if (mutationAlarm !== undefined) {
+		await coordinator.storage.setAlarm(mutationAlarm);
 	} else {
 		await coordinator.storage.deleteAlarm();
 	}
@@ -1504,6 +1650,8 @@ async function readFreshThreadDocument(
 	context: CoordinatorContext,
 	threadId: string,
 ): Promise<ThreadDocument | null> {
+	const canonical = context.storage ? await readCanonicalThread(context.storage) : undefined;
+	if (canonical?.id === threadId) return canonical;
 	const memoryEntry = freshCacheEntryForThread(context.cache?.entry ?? null, threadId, Date.now());
 	if (memoryEntry) {
 		return memoryEntry.thread;
@@ -1541,7 +1689,7 @@ async function writeFreshThread(
 	if (context.cache) {
 		context.cache.entry = entry;
 	}
-	await context.storage?.put(threadFreshCacheStorageKey, entry);
+	if (!context.stagingMutation) await context.storage?.put(threadFreshCacheStorageKey, entry);
 }
 
 function freshCacheEntryForThread(
@@ -1593,7 +1741,7 @@ function requireBotActor(request: Request): { botId: string } {
 
 function jsonRequest(env: InternalServiceAuthEnv, url: URL, original: Request, body: unknown): Request {
 	const headers = new Headers();
-	for (const name of ["x-bickr-user-id", "x-bickr-bot-id", "x-bickr-thread-id", "x-bickr-inference-attribution"]) {
+	for (const name of ["x-bickr-user-id", "x-bickr-bot-id", "x-bickr-thread-id", "x-bickr-inference-attribution", "x-bickr-idempotency-key"]) {
 		const value = original.headers.get(name);
 		if (value !== null) {
 			headers.set(name, value);
@@ -1641,4 +1789,126 @@ function attributionFromRequest(request: Request, botId: string) {
 	let parsed: unknown;
 	try { parsed = JSON.parse(value); } catch { throw new InputError("Inference attribution must be valid JSON."); }
 	return parseInferenceAttribution(parsed, botId);
+}
+
+async function objectIndexRepairInput(request: Request, url: URL): Promise<OwnedObjectIndexRepairRequest | null> {
+	const match = /^\/maintenance\/indexes\/(user|bot|world|forum|thread)\/([^/]+)$/.exec(url.pathname);
+	if (request.method !== "POST" || !match) return null;
+	const body = await readJsonBody(request);
+	const documentUpdatedAt = body && typeof body === "object" ? (body as { documentUpdatedAt?: unknown }).documentUpdatedAt : undefined;
+	if (documentUpdatedAt !== undefined && (typeof documentUpdatedAt !== "string" || !Number.isFinite(Date.parse(documentUpdatedAt)))) {
+		throw new InputError("documentUpdatedAt must be a timestamp.");
+	}
+	return { entityType: match[1] as OwnedObjectIndexRepairRequest["entityType"], id: decodeURIComponent(match[2] ?? ""), ...(documentUpdatedAt ? { documentUpdatedAt } : {}) };
+}
+
+function indexRepairEnvironment(env: ForumCoordinatorEnv, coordinator?: CoordinatorContext) {
+	return { ...env, repairOwnedObject: (input: OwnedObjectIndexRepairRequest) => routeObjectIndexRepair(env, input, coordinator) };
+}
+
+async function routeObjectIndexRepair(env: ForumCoordinatorEnv, input: OwnedObjectIndexRepairRequest, coordinator?: CoordinatorContext): Promise<OwnedObjectIndexRepairResult> {
+	if (input.entityType === "bot" || input.entityType === "user") {
+		if (!env.AGENT_RUNTIME_SERVICE) {
+			throw new Error("Account index repair requires the runtime service binding.");
+		}
+		const owner = input.entityType === "bot" ? await env.BICKR_D1.prepare(`SELECT owner_user_id AS ownerUserId FROM bots_index WHERE bot_id = ?`).bind(input.id).first<{ ownerUserId: string }>() : null;
+		if (input.entityType === "bot" && !owner) return { kind: "missing" };
+		const path = input.entityType === "bot" ? `/users/${encodeURIComponent(owner!.ownerUserId)}/bots/${encodeURIComponent(input.id)}/repair-index` : `/users/${encodeURIComponent(input.id)}/repair-index`;
+		const request = internalJsonRequest(env, path, { documentUpdatedAt: input.documentUpdatedAt });
+		request.headers.set("x-bickr-scheduler", "1");
+		request.headers.set("x-bickr-user-id", owner?.ownerUserId ?? input.id);
+		const response = await env.AGENT_RUNTIME_SERVICE.fetch(request);
+		if (!response.ok) throw new Error(`Account index repair returned HTTP ${response.status}.`);
+		const payload = await response.json() as { data: { repair: OwnedObjectIndexRepairResult } };
+		return payload.data.repair;
+	}
+	const namespace = input.entityType === "world" ? env.WORLD_COORDINATOR : env.FORUM_COORDINATOR;
+	if (!namespace) {
+		throw new Error("Object index repair requires its coordinator binding.");
+	}
+	const id = namespace.idFromName(input.id);
+	if (id.toString() === coordinator?.objectId) return repairOwnedObjectIndex(env, input);
+	return requestObjectIndexRepair(namespace.get(id), env.INTERNAL_SERVICE_SECRET, input);
+}
+
+function isThreadMutationRequest(request: Request, url: URL): boolean {
+	if (!["POST", "DELETE"].includes(request.method)) return false;
+	return url.pathname === "/votes" || /^\/threads\/[^/]+\/(comments|normalize|soft-delete)$/.test(url.pathname)
+		|| /^\/comments\/[^/]+\/replies$/.test(url.pathname)
+		|| /^\/forums\/[^/]+\/threads(?:\/[^/]+(?:\/comments\/[^/]+)?)?$/.test(url.pathname)
+		|| /^\/maintenance\/indexes\/thread\/[^/]+$/.test(url.pathname);
+}
+
+async function executeDurableThreadMutation(request: Request, env: ForumCoordinatorEnv, coordinator: CoordinatorContext): Promise<Response> {
+	const storage = coordinator.storage!;
+	await replayCoordinatorThreadMutation(env, coordinator);
+	await pruneThreadMutationReceipts(storage);
+	const identity = await threadMutationIdentity(request);
+	const receipt = await replayThreadMutationReceipt(storage, identity);
+	if (receipt) return renderThreadMutationReply(receipt, env, coordinator);
+	const staged = stageThreadMutation(env.BICKR_KV, env.BICKR_D1);
+	const stagedContext: CoordinatorContext = { ...coordinator, receiptReply: undefined, stagingMutation: true, cache: { entry: coordinator.cache?.entry ?? null } };
+	const response = await handleForumCoordinatorRequestExclusive(request, {
+		...env, BICKR_D1: staged.database as D1Database, BICKR_KV: staged.kv as KVNamespace, contentIdDb: env.BICKR_D1,
+	}, stagedContext);
+	if (!response.ok) return response;
+	const thread = staged.thread();
+	const creation = /^\/forums\/[^/]+\/threads$/.test(new URL(request.url).pathname);
+	const plan: ThreadMutationPlan = {
+		id: crypto.randomUUID(), createdAt: Date.now(), ...identity,
+		response: await saveResponse(response), reply: stagedContext.receiptReply, thread, sql: staged.sql, kv: staged.writes,
+		...(creation && thread && env.FORUM_COORDINATOR ? { handoffThreadId: thread.id } : {}),
+	};
+	await commitThreadMutation(storage, env.BICKR_D1, coordinator.objectId, plan);
+	if (coordinator.cache && !creation) coordinator.cache.entry = stagedContext.cache?.entry ?? null;
+	await replayCoordinatorThreadMutation(env, coordinator);
+	await scheduleCoordinatorAlarmForPendingTasks(coordinator);
+	return restoreResponse(plan.response);
+}
+
+async function renderThreadMutationReply(reply: ThreadMutationReply, env: ForumCoordinatorEnv, coordinator: CoordinatorContext): Promise<Response> {
+	if (reply.kind === "response") return restoreResponse(reply.response);
+	let thread = coordinator.storage ? await readCanonicalThread(coordinator.storage) : undefined;
+	if (thread?.id !== reply.threadId) {
+		// A creation receipt lives at the forum writer. The thread writer owns
+		// the current result, so even a long-delayed retry reads that writer.
+		if (!env.FORUM_COORDINATOR) throw new Error("Thread receipt replay requires its coordinator binding.");
+		const headers = new Headers();
+		addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
+		const response = await env.FORUM_COORDINATOR.get(env.FORUM_COORDINATOR.idFromName(reply.threadId)).fetch(new Request(internalServiceUrl(`/threads/${encodeURIComponent(reply.threadId)}`), { headers }));
+		if (response.status === 404) throw new RepositoryError("not_found", "The mutation succeeded, but its result was deleted.", 410);
+		if (!response.ok) throw new Error(`Thread receipt lookup returned HTTP ${response.status}.`);
+		const payload = await response.json() as { data: { thread: ThreadDocument } };
+		thread = payload.data.thread;
+	}
+	if (reply.kind === "repair") return ok({ repair: { kind: "repaired", document: thread } });
+	const comment = reply.commentId ? thread.comments.find((item) => item.id === reply.commentId) : undefined;
+	if ((!reply.allowDeleted && thread.deletedAt) || (reply.commentId && !comment)) throw new RepositoryError("not_found", "The mutation succeeded, but its result was deleted.", 410);
+	return okThread({ ...coordinator, objectId: reply.coordinator }, await mutationAvatarOverlay(env, thread), { thread, ...(comment ? { comment } : {}) }, { status: reply.status });
+}
+
+async function replayCoordinatorThreadMutation(env: ForumCoordinatorEnv, coordinator: CoordinatorContext): Promise<void> {
+	if (!coordinator.storage) return;
+	await replayThreadMutation(coordinator.storage, env.BICKR_D1, env.BICKR_KV, coordinator.objectId, async (threadId, plan) => {
+		if (!env.FORUM_COORDINATOR) throw new Error("Thread creation requires its coordinator binding.");
+		const response = await env.FORUM_COORDINATOR.get(env.FORUM_COORDINATOR.idFromName(threadId)).fetch(
+			internalJsonRequest(env, "/maintenance/thread-mutations/commit", plan),
+		);
+		if (!response.ok) throw new Error(`Thread mutation handoff returned HTTP ${response.status}.`);
+	});
+}
+
+async function recoverThreadMutations(env: Env, now: string): Promise<number> {
+	const rows = await env.BICKR_D1.prepare(`SELECT coordinator_id AS id FROM thread_mutation_wakes WHERE next_attempt_at <= ? ORDER BY next_attempt_at, coordinator_id LIMIT 25`).bind(now).all<{ id: string }>();
+	for (const row of rows.results ?? []) {
+		await env.BICKR_D1.prepare(`UPDATE thread_mutation_wakes SET next_attempt_at = ? WHERE coordinator_id = ?`)
+			.bind(new Date(Date.parse(now) + 5 * 60_000).toISOString(), row.id).run();
+		try {
+			const response = await env.FORUM_COORDINATOR.get(env.FORUM_COORDINATOR.idFromString(row.id)).fetch(internalJsonRequest(env, "/maintenance/thread-mutations/recover", {}));
+			if (!response.ok) console.error(JSON.stringify({ event: "thread_mutation_recovery_failed", coordinator: row.id, status: response.status }));
+		} catch (error) {
+			console.error(JSON.stringify({ event: "thread_mutation_recovery_failed", coordinator: row.id, error: String(error) }));
+		}
+	}
+	return rows.results?.length ?? 0;
 }

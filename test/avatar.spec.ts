@@ -1,3 +1,6 @@
+import { beforeEach } from "vitest";
+import { loadOpenRouterImageCatalog } from "@bickr/shared/openrouter-image-models";
+beforeEach(() => loadOpenRouterImageCatalog.clear());
 import {
 	agentRuntimeWorker,
 	applyUserAvatarRoute,
@@ -1190,7 +1193,7 @@ describe("Avatar", () => {
 			expect(accepted.status, await accepted.clone().text()).toBe(200);
 			expect(fetchMock).toHaveBeenCalledWith(
 				"https://images.example/avatar.png",
-				expect.objectContaining({ redirect: "follow" }),
+				expect.objectContaining({ redirect: "manual" }),
 			);
 		} finally {
 			vi.stubGlobal("fetch", originalFetch);
@@ -2692,11 +2695,11 @@ describe("Avatar", () => {
 
 			const request = new Request(`https://internal.bickr${path}`, {
 				method: "POST",
-				headers: { "x-bickr-user-id": userId },
+				headers: { "x-bickr-user-id": userId, "x-bickr-internal-auth": "avatar-route-secret" },
 			});
 			const response = await agentRuntimeWorker.fetch(
 				request as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
-				{ BICKR_D1: testEnv.BICKR_D1, USER_BOTS: namespace } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+				{ BICKR_D1: testEnv.BICKR_D1, USER_BOTS: namespace, INTERNAL_SERVICE_SECRET: "avatar-route-secret" } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
 			);
 
 			expect(response.status).toBe(200);
@@ -2727,11 +2730,11 @@ describe("Avatar", () => {
 			const path = `/users/${userId}/worlds/${worldHandle}/avatar/prompt-settings`;
 			const request = new Request(`https://internal.bickr${path}`, {
 				method: "GET",
-				headers: { "x-bickr-user-id": userId },
+				headers: { "x-bickr-user-id": userId, "x-bickr-internal-auth": "avatar-route-secret" },
 			});
 			const response = await agentRuntimeWorker.fetch(
 				request as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
-				{ USER_BOTS: namespace } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+				{ USER_BOTS: namespace, INTERNAL_SERVICE_SECRET: "avatar-route-secret" } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
 			);
 			expect(response.status).toBe(200);
 			expect(routed).toEqual({
@@ -2759,11 +2762,11 @@ describe("Avatar", () => {
 		};
 		const request = new Request(`https://internal.bickr/users/${userId}/bots/spread-ticks`, {
 			method: "POST",
-			headers: { "x-bickr-user-id": userId },
+			headers: { "x-bickr-user-id": userId, "x-bickr-internal-auth": "avatar-route-secret" },
 		});
 		const response = await agentRuntimeWorker.fetch(
 			request as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
-			{ BICKR_D1: testEnv.BICKR_D1, USER_BOTS: namespace } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+			{ BICKR_D1: testEnv.BICKR_D1, USER_BOTS: namespace, INTERNAL_SERVICE_SECRET: "avatar-route-secret" } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
 		);
 
 		expect(response.status).toBe(200);

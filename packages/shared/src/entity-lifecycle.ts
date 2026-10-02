@@ -5,6 +5,7 @@ import { InputError } from "./validation";
 import type {
 	D1DatabaseLike,
 	D1PreparedStatementLike,
+	D1Result,
 } from "./storage";
 
 export const lifecycleTerminalRetentionDays = 30;
@@ -139,6 +140,7 @@ export type InferenceGraphActivationTransition =
 			entityKind: "world" | "bot";
 			projectionStatements?: readonly D1PreparedStatementLike[];
 			fixedConfigurationStatement: D1PreparedStatementLike;
+			fixedCredentialStatement?: D1PreparedStatementLike;
 	  };
 
 export type LifecycleActivationTransition =
@@ -653,7 +655,7 @@ async function beginDeleteLifecycleInternal(
 					throw new RepositoryError("not_found", `${lifecycleEntityLabel(input.entityKind)} not found.`, 404);
 			}
 		}
-		if ((results.at(-1)?.meta?.changes ?? 0) !== 1) {
+		if (!lifecycleIndexStateChanged(results.at(-1), input.entityId)) {
 			throw new RepositoryError("server_error", "Lifecycle deletion failed to hide its active record.", 500);
 		}
 	} catch (error) {
@@ -752,7 +754,7 @@ export async function activateLifecycleEntity(
 			.bind(now, now, cleanupAt, operation.operationId),
 	]);
 	const indexResult = results[projectionStatements.length + extensionStatements.length + 1];
-	if ((indexResult?.meta?.changes ?? 0) !== 1) {
+	if (!lifecycleIndexStateChanged(indexResult, operation.entityId)) {
 		throw new RepositoryError("server_error", "Lifecycle activation failed to make the entity visible.", 500);
 	}
 }
@@ -1327,7 +1329,7 @@ async function lifecycleActivationExtensionStatements(
 			...(transition.accountCredentialStatement ? [transition.accountCredentialStatement] : []),
 			transition.translationReferenceStatement,
 		]
-		: [transition.fixedConfigurationStatement];
+		: [transition.fixedConfigurationStatement, ...(transition.fixedCredentialStatement ? [transition.fixedCredentialStatement] : [])];
 }
 
 async function lifecycleDeletionExtensionStatements(
@@ -1364,6 +1366,13 @@ async function lifecycleActivationMode(
 	return row.mode;
 }
 
+// D1 change counts include trigger writes. RETURNING names the exact index row
+// whose lifecycle state changed, independent of bookkeeping in those triggers.
+function lifecycleIndexStateChanged(result: D1Result | undefined, entityId: string): boolean {
+	const rows = result?.results as Array<{ entityId: string }> | undefined;
+	return rows?.length === 1 && rows[0]?.entityId === entityId;
+}
+
 function lifecycleIndexStateStatement(
 	db: D1DatabaseLike,
 	entityKind: LifecycleEntityKind,
@@ -1380,15 +1389,15 @@ function lifecycleIndexStateStatement(
 	switch (entityKind) {
 		case "account":
 			return bind(db.prepare(
-				`UPDATE users_index SET lifecycle_state = ? WHERE user_id = ? AND deleted_at IS NULL${operationGuard}`,
+				`UPDATE users_index SET lifecycle_state = ? WHERE user_id = ? AND deleted_at IS NULL${operationGuard} RETURNING user_id AS entityId`,
 			));
 		case "world":
 			return bind(db.prepare(
-				`UPDATE worlds_index SET lifecycle_state = ? WHERE world_id = ? AND deleted_at IS NULL${operationGuard}`,
+				`UPDATE worlds_index SET lifecycle_state = ? WHERE world_id = ? AND deleted_at IS NULL${operationGuard} RETURNING world_id AS entityId`,
 			));
 		case "bot":
 			return bind(db.prepare(
-				`UPDATE bots_index SET lifecycle_state = ? WHERE bot_id = ? AND deleted_at IS NULL${operationGuard}`,
+				`UPDATE bots_index SET lifecycle_state = ? WHERE bot_id = ? AND deleted_at IS NULL${operationGuard} RETURNING bot_id AS entityId`,
 			));
 	}
 }

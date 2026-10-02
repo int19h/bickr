@@ -282,7 +282,8 @@ describe('BotRuntime storage retention', () => {
 			`INSERT INTO events (run_id, type, payload_json, token_estimate, compacted_by, created_at)
 			 VALUES ('run-1', 'input', '{}', 1, NULL, ?)`,
 		).run(daysAgo(1));
-		database.prepare(`INSERT INTO runtime_state (key, value_json) VALUES ('last_log_off_seq', '1')`).run();
+		database.prepare(`INSERT INTO runtime_state (key, value_json) VALUES ('last_log_off_seq', '1')
+			ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`).run();
 		database.prepare(
 			`INSERT INTO provider_usage (
 				run_id, request_seq, requested_model, model, context_window_tokens, provider_base_url,

@@ -41,6 +41,7 @@ const createdWorld = {
 
 /** Only the routes this flow actually touches; anything else answers empty. */
 const routes: Array<[RegExp, Handler]> = [
+	[/^\/api\/me\/auth\/credentials/, () => ({ ok: true, payload: { ok: true, data: { credentials: [], nextCursor: null, legacyMigrationComplete: true } } })],
 	[/^\/api\/session/, () => ({ ok: true, payload: { ok: true, data: { authenticated: true, user } } })],
 	[/^\/api\/worlds$/, (_path, init) =>
 		init?.method === "POST" ?
@@ -50,7 +51,7 @@ const routes: Array<[RegExp, Handler]> = [
 	[/^\/api\/worlds\/[^/]+\/forums/, () => ({ ok: true, payload: { ok: true, data: { forums: [] } } })],
 	[/^\/api\/worlds\/[^/]+\/bots/, () => ({ ok: true, payload: { ok: true, data: { bots: [] } } })],
 	[/^\/api\/worlds\/[^/]+\/groups/, () => ({ ok: true, payload: { ok: true, data: { groups: [] } } })],
-	[/^\/api\/me\/profile/, () => ({ ok: true, payload: { ok: true, data: { profile: { user, inferenceSettings: {} } } } })],
+	[/^\/api\/me\/profile/, () => ({ ok: true, payload: { ok: true, data: { profile: { ...user, inferenceSettings: {}, authIdentities: [], uiLocale: "system" } } } })],
 	[/^\/api\/me\/bots/, () => ({ ok: true, payload: { ok: true, data: { bots: [] } } })],
 	[/^\/api\/me\/notifications/, () => ({ ok: true, payload: { ok: true, data: { unreadCount: 0, notifications: [] } } })],
 	[/^\/api\/me\/subscriptions/, () => ({ ok: true, payload: { ok: true, data: { subscriptions: [] } } })],
@@ -137,4 +138,47 @@ describe("screen-driven mutations", () => {
 			"Created world saltmarsh.",
 		]);
 	});
+});
+
+it.each(["http", "network"])("keeps the session visible if sign out fails (%s)", async (failure) => {
+	act(() => { window.history.pushState({}, "", "/me/profile"); window.dispatchEvent(new PopStateEvent("popstate")); });
+	await flush();
+	vi.stubGlobal("fetch", (input: string, init?: RequestInit) => {
+		if (String(input) === "/api/auth/logout") return failure === "network" ? Promise.reject(new Error("Connection failed"))
+			: Promise.resolve(new Response(JSON.stringify({ ok: false, error: "internal_error", message: "Sign out failed" }), { status: 500 }));
+		return Promise.resolve(respond(String(input), init));
+	});
+	await vi.waitFor(async () => {
+		await flush();
+		expect([...container.querySelectorAll("button")].some((button) => button.textContent?.trim() === "Sign out")).toBe(true);
+	});
+	await act(async () => button("Sign out").click());
+	await flush();
+	expect(container.textContent).not.toContain("Signed out.");
+	expect(button("Sign out")).toBeDefined();
+	expect(window.location.pathname).toBe("/me/profile");
+	expect(container.querySelector(".toast-error")).not.toBeNull();
+});
+
+it("clears the session after account-wide revocation without a second logout request", async () => {
+	let logoutRequests = 0;
+	vi.stubGlobal("fetch", (input: string, init?: RequestInit) => {
+		if (String(input) === "/api/auth/logout") {
+			logoutRequests += 1;
+			return Promise.reject(new Error("The network failed after revocation."));
+		}
+		if (String(input) === "/api/me/auth/credentials" && init?.method === "DELETE") return Promise.resolve(Response.json({ ok: true, data: { revoked: true } }));
+		return Promise.resolve(respond(String(input), init));
+	});
+	act(() => { window.history.pushState({}, "", "/me/profile"); window.dispatchEvent(new PopStateEvent("popstate")); });
+	await vi.waitFor(async () => {
+		await flush();
+		expect([...container.querySelectorAll("button")].some((entry) => entry.textContent?.trim() === "Revoke all access")).toBe(true);
+	});
+	await act(async () => button("Revoke all access").click());
+	await act(async () => button("Revoke").click());
+	await flush();
+		expect(logoutRequests).toBe(0);
+		expect(window.location.pathname).toBe("/");
+		expect(container.textContent).not.toContain("Account access");
 });

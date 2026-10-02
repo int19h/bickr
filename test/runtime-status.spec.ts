@@ -1,7 +1,7 @@
 import { withTestRunLiveness } from "./helpers/index-harness";
+import { internalServiceTestEnv, internalServiceTestHeaders } from "./helpers/internal-service-auth";
 import { describe, expect, it } from "vitest";
-import { BotRuntime } from "../workers/agent-runtime/src/index";
-import { renewRuntimeRunLease } from "../workers/agent-runtime/src/runtime/bot-runtime";
+import { BotRuntime, renewRuntimeRunLease } from "../workers/agent-runtime/src/runtime/bot-runtime";
 import type { RuntimeRunTrigger } from "../workers/agent-runtime/src/types";
 import {
 	authCookie,
@@ -72,7 +72,7 @@ describe("BotRuntime status", () => {
 
 		const response = await harness.runtime.fetch(
 			new Request(`https://internal.bickr/bots/${botId}/status`, {
-				headers: { "x-bickr-scheduler": "1" },
+				headers: { ...internalServiceTestHeaders, "x-bickr-scheduler": "1" },
 			}),
 		);
 
@@ -267,6 +267,7 @@ function runtimeHarness(
 	const terminalRuns = new Set<string>();
 	const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
 		env: {
+			...internalServiceTestEnv,
 			BICKR_D1: db,
 			BICKR_KV: testEnv.BICKR_KV,
 		},

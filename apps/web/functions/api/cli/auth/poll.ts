@@ -11,7 +11,7 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 			throw new InputError("Device code is required.");
 		}
 		return ok(await pollCliAuthRequest(
-			env.BICKR_KV,
+			env.BICKR_D1,
 			requiredText((body as { deviceCode?: unknown }).deviceCode, "Device code", 300),
 		));
 	} catch (error) {

@@ -1,3 +1,4 @@
+import { commitForumCreation, retryForumCreation } from "./forum-creation";
 import { makeId, randomToken, sha256Hex } from "./ids";
 import { isD1UniqueConstraintError } from "./d1-errors";
 import type { LifecycleFailurePoint } from "./entity-lifecycle";
@@ -47,7 +48,6 @@ import {
 	type CreateBotInput,
 	type CreateForumInput,
 	type CreateWorldInput,
-	type ApiErrorDetails,
 	type OpenRouterDatetimeToolSettings,
 	type OpenRouterDatetimeToolSettingsInput,
 	type OpenRouterServerToolSettings,
@@ -74,7 +74,6 @@ import {
 	type ThreadSettings,
 	type ThreadSettingsInput,
 	type PublicUser,
-	type SessionDocument,
 	type UpdateBotGroupInput,
 	type UpdateBotInput,
 	type UpdateUserProfileInput,
@@ -102,7 +101,6 @@ import {
 	type KVNamespaceLike,
 	chunks,
 	d1SafeBoundParameters,
-	deleteKey,
 	kvKeys,
 	objectIndexProjectionStatement,
 	putObjectIndex,
@@ -113,26 +111,10 @@ import { planBotTickSpread, type TickSpreadInput } from "./tick-spread";
 import { slugifyHandle } from "./validation";
 import { decodeOpaqueJsonCursor, encodeOpaqueJsonCursor } from "./opaque-json-cursor";
 
-export class RepositoryError extends Error {
-	readonly code: "bad_request" | "conflict" | "forbidden" | "not_found" | "server_error" | "unauthorized";
-	readonly status: number;
-	readonly details?: RepositoryErrorDetails;
-
-	constructor(
-		code: "bad_request" | "conflict" | "forbidden" | "not_found" | "server_error" | "unauthorized",
-		message: string,
-		status: number,
-		details?: RepositoryErrorDetails,
-	) {
-		super(message);
-		this.name = "RepositoryError";
-		this.code = code;
-		this.status = status;
-		this.details = details;
-	}
-}
-
-export type RepositoryErrorDetails = ApiErrorDetails;
+import { RepositoryError } from "./repository-error";
+export { RepositoryError, type RepositoryErrorDetails } from "./repository-error";
+export * from "./auth-sessions";
+import { activeAccountProjectionExists } from "./auth-principal";
 
 export type ProviderUserProfile = {
 	provider: AuthProvider;
@@ -297,46 +279,6 @@ export function booleanFromStored(value: number | boolean | null | undefined): b
 	return value === true || value === 1;
 }
 
-export type SessionCreateResult = {
-	cookieValue: string;
-	session: SessionDocument;
-};
-
-export type CliAuthRequestDocument = {
-	id: string;
-	type: "cliAuthRequest";
-	label: string;
-	userId?: string;
-	approvedAt?: string;
-	consumedAt?: string;
-	createdAt: string;
-	expiresAt: string;
-	updatedAt: string;
-};
-
-export type CliAuthStartResult = {
-	deviceCode: string;
-	request: CliAuthRequestDocument;
-};
-
-export type CliAuthPollResult =
-	| { status: "pending"; expiresAt: string }
-	| { status: "expired"; expiresAt: string }
-	| { status: "complete"; token: string; expiresAt: string };
-
-export type CliTokenDocument = {
-	id: string;
-	type: "cliToken";
-	userId: string;
-	label: string;
-	createdAt: string;
-	expiresAt: string;
-	updatedAt: string;
-};
-
-const sessionTtlSeconds = 60 * 60 * 24 * 30;
-const cliAuthRequestTtlSeconds = 10 * 60;
-const cliTokenTtlSeconds = 60 * 60 * 24 * 90;
 export const defaultInitialBotNotification =
 	"You have just finished creating your Bickr account and logged in for the first time.";
 export const introForumHandle = "intro";
@@ -773,211 +715,10 @@ async function updateProviderIdentity(
 		.run();
 }
 
-export async function createSession(
-	kv: KVNamespaceLike,
-	userId: string,
-	now = new Date(),
-): Promise<SessionCreateResult> {
-	const cookieValue = randomToken();
-	const sessionHash = await sha256Hex(cookieValue);
-	const createdAt = now.toISOString();
-	const expiresAt = new Date(now.getTime() + sessionTtlSeconds * 1000).toISOString();
-	const session: SessionDocument = {
-		id: `sid_${sessionHash.slice(0, 32)}`,
-		type: "session",
-		schemaVersion,
-		revision: 1,
-		userId,
-		expiresAt,
-		createdAt,
-		updatedAt: createdAt,
-	};
-
-	await writeJson(kv, kvKeys.session(sessionHash), session, { expirationTtl: sessionTtlSeconds });
-	return { cookieValue, session };
-}
-
-export async function userForSessionToken(
-	kv: KVNamespaceLike,
-	token: string | null | undefined,
-	dbOrNow?: D1DatabaseLike | Date,
-	now = dbOrNow instanceof Date ? dbOrNow : new Date(),
-): Promise<UserDocument | null> {
-	if (!token) {
-		return null;
-	}
-
-	const sessionHash = await sha256Hex(token);
-	const session = await readJson<SessionDocument>(kv, kvKeys.session(sessionHash));
-	if (!session || Date.parse(session.expiresAt) <= now.getTime()) {
-		return null;
-	}
-
-	const user = await readJson<UserDocument>(kv, kvKeys.user(session.userId));
-	if (!user || user.deletedAt) {
-		return null;
-	}
-	if (dbOrNow && !(dbOrNow instanceof Date) && !await activeAccountProjectionExists(dbOrNow, user.id)) {
-		return null;
-	}
-	return user;
-}
-
-export async function createCliAuthRequest(
-	kv: KVNamespaceLike,
-	input: { label?: string } = {},
-	now = new Date(),
-): Promise<CliAuthStartResult> {
-	const deviceCode = randomToken(24);
-	const requestHash = await sha256Hex(deviceCode);
-	const createdAt = now.toISOString();
-	const expiresAt = new Date(now.getTime() + cliAuthRequestTtlSeconds * 1000).toISOString();
-	const request: CliAuthRequestDocument = {
-		id: `car_${requestHash.slice(0, 32)}`,
-		type: "cliAuthRequest",
-		label: normalizedCliLabel(input.label),
-		createdAt,
-		expiresAt,
-		updatedAt: createdAt,
-	};
-	await writeJson(kv, kvKeys.cliAuthRequest(requestHash), request, { expirationTtl: cliAuthRequestTtlSeconds });
-	return { deviceCode, request };
-}
-
-export async function readCliAuthRequest(
-	kv: KVNamespaceLike,
-	deviceCode: string,
-	now = new Date(),
-): Promise<CliAuthRequestDocument | null> {
-	const request = await readJson<CliAuthRequestDocument>(kv, kvKeys.cliAuthRequest(await sha256Hex(deviceCode)));
-	if (!request || Date.parse(request.expiresAt) <= now.getTime()) {
-		return null;
-	}
-	return request;
-}
-
-export async function approveCliAuthRequest(
-	kv: KVNamespaceLike,
-	deviceCode: string,
-	userId: string,
-	now = new Date(),
-): Promise<CliAuthRequestDocument> {
-	const requestHash = await sha256Hex(deviceCode);
-	const request = await readJson<CliAuthRequestDocument>(kv, kvKeys.cliAuthRequest(requestHash));
-	if (!request || Date.parse(request.expiresAt) <= now.getTime()) {
-		throw new RepositoryError("not_found", "CLI login request expired or was not found.", 404);
-	}
-	if (request.consumedAt) {
-		throw new RepositoryError("conflict", "CLI login request has already been completed.", 409);
-	}
-	const updatedAt = now.toISOString();
-	const updated: CliAuthRequestDocument = {
-		...request,
-		userId,
-		approvedAt: request.approvedAt ?? updatedAt,
-		updatedAt,
-	};
-	await writeJson(kv, kvKeys.cliAuthRequest(requestHash), updated, {
-		expirationTtl: Math.max(1, Math.ceil((Date.parse(updated.expiresAt) - now.getTime()) / 1000)),
-	});
-	return updated;
-}
-
-export async function pollCliAuthRequest(
-	kv: KVNamespaceLike,
-	deviceCode: string,
-	now = new Date(),
-): Promise<CliAuthPollResult> {
-	const requestHash = await sha256Hex(deviceCode);
-	const request = await readJson<CliAuthRequestDocument>(kv, kvKeys.cliAuthRequest(requestHash));
-	if (!request) {
-		return { status: "expired", expiresAt: now.toISOString() };
-	}
-	if (Date.parse(request.expiresAt) <= now.getTime()) {
-		return { status: "expired", expiresAt: request.expiresAt };
-	}
-	if (!request.userId || !request.approvedAt) {
-		return { status: "pending", expiresAt: request.expiresAt };
-	}
-	if (request.consumedAt) {
-		return { status: "expired", expiresAt: request.expiresAt };
-	}
-	const token = `bckr_cli_${randomToken(32)}`;
-	const tokenHash = await sha256Hex(token);
-	const createdAt = now.toISOString();
-	const expiresAt = new Date(now.getTime() + cliTokenTtlSeconds * 1000).toISOString();
-	const tokenDocument: CliTokenDocument = {
-		id: `cli_${tokenHash.slice(0, 32)}`,
-		type: "cliToken",
-		userId: request.userId,
-		label: request.label,
-		createdAt,
-		expiresAt,
-		updatedAt: createdAt,
-	};
-	await writeJson(kv, kvKeys.cliToken(tokenHash), tokenDocument, { expirationTtl: cliTokenTtlSeconds });
-	await writeJson(kv, kvKeys.cliAuthRequest(requestHash), {
-		...request,
-		consumedAt: createdAt,
-		updatedAt: createdAt,
-	} satisfies CliAuthRequestDocument, {
-		expirationTtl: Math.max(1, Math.ceil((Date.parse(request.expiresAt) - now.getTime()) / 1000)),
-	});
-	return { status: "complete", token, expiresAt };
-}
-
-export async function userForCliToken(
-	kv: KVNamespaceLike,
-	token: string | null | undefined,
-	dbOrNow?: D1DatabaseLike | Date,
-	now = dbOrNow instanceof Date ? dbOrNow : new Date(),
-): Promise<UserDocument | null> {
-	if (!token) {
-		return null;
-	}
-	const tokenHash = await sha256Hex(token);
-	const document = await readJson<CliTokenDocument>(kv, kvKeys.cliToken(tokenHash));
-	if (!document || Date.parse(document.expiresAt) <= now.getTime()) {
-		return null;
-	}
-	const user = await readJson<UserDocument>(kv, kvKeys.user(document.userId));
-	if (!user || user.deletedAt) {
-		return null;
-	}
-	if (dbOrNow && !(dbOrNow instanceof Date) && !await activeAccountProjectionExists(dbOrNow, user.id)) {
-		return null;
-	}
-	return user;
-}
-
-async function activeAccountProjectionExists(db: D1DatabaseLike, userId: string): Promise<boolean> {
-	return Boolean(await db
-		.prepare(
-			`SELECT user_id AS id
-			 FROM users_index
-			 WHERE user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
-			 LIMIT 1`,
-		)
-		.bind(userId)
-		.first<{ id: string }>());
-}
-
 async function assertActiveAccountOwner(db: D1DatabaseLike, userId: string): Promise<void> {
 	if (!await activeAccountProjectionExists(db, userId)) {
 		throw new RepositoryError("not_found", "User not found.", 404);
 	}
-}
-
-export async function deleteCliToken(kv: KVNamespaceLike, token: string | null | undefined): Promise<void> {
-	if (!token) {
-		return;
-	}
-	await deleteKey(kv, kvKeys.cliToken(await sha256Hex(token)));
-}
-
-function normalizedCliLabel(value: string | null | undefined): string {
-	const label = value?.trim();
-	return label ? label.slice(0, 120) : "Bickr CLI";
 }
 
 export async function userById(kv: KVNamespaceLike, userId: string): Promise<UserDocument> {
@@ -986,14 +727,6 @@ export async function userById(kv: KVNamespaceLike, userId: string): Promise<Use
 		throw new RepositoryError("not_found", "User not found.", 404);
 	}
 	return normalizeUserDefaults(user);
-}
-
-export async function deleteSession(kv: KVNamespaceLike, token: string | null | undefined): Promise<void> {
-	if (!token) {
-		return;
-	}
-
-	await deleteKey(kv, kvKeys.session(await sha256Hex(token)));
 }
 
 export function publicUser(user: UserDocument): PublicUser {
@@ -1381,8 +1114,12 @@ async function createForum(
 	input: CreateForumInput,
 	userId: string,
 	now = new Date().toISOString(),
+	requestKey = crypto.randomUUID(),
 ): Promise<ForumSummary> {
 	const world = await worldByHandle(db, worldHandle);
+	const requestHash = await sha256Hex(JSON.stringify([world.id, input]));
+	const retried = await retryForumCreation(kv, db, userId, requestKey, requestHash);
+	if (retried) return forumSummary(retried);
 	const existing = await db
 		.prepare(
 			`SELECT forum_id AS id
@@ -1417,11 +1154,7 @@ async function createForum(
 		updatedAt: now,
 	};
 
-	await writeJson(kv, kvKeys.forum(forum.id), forum);
-	await upsertForumIndexProjection(db, forum);
-	await putObjectIndex(db, forum, "forum", entityIndexVersions.forum, forum.worldId);
-
-	return forumSummary(forum);
+	return forumSummary(await commitForumCreation(kv, db, forum, requestKey, requestHash));
 }
 
 async function attachBotOwners(db: D1DatabaseLike, bots: BotSummary[]): Promise<BotSummary[]> {
@@ -3594,7 +3327,7 @@ async function effectiveBotDocument(
 
 	context.visiting.add(normalized.id);
 	try {
-		const sourceRaw = await sourceRawBotForLinkedClone(kv, db, cloneSource);
+		const sourceRaw = await sourceRawBotForLinkedClone(kv, db, cloneSource, normalized.ownerUserId);
 		const sourceEffective = await effectiveBotDocument(kv, db, sourceRaw, context, depth + 1);
 		const effectiveLanguage = normalized.language ?? sourceEffective.language;
 		const effectiveIncludeLanguageInSystemPrompt =
@@ -3631,15 +3364,20 @@ async function sourceRawBotForLinkedClone(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	cloneSource: BotCloneSource,
+	ownerUserId: string,
 ): Promise<BotDocument> {
-	try {
-		return await rawBotById(kv, db, cloneSource.sourceBotId);
-	} catch (error) {
-		if (error instanceof RepositoryError && error.code === "not_found") {
-			throw new RepositoryError("server_error", "Linked clone source is missing.", 500);
-		}
-		throw error;
+	// Account deletion can hide a source before its clones. Retained source data
+	// still supplies those clones, but it never becomes a public active profile.
+	const row = await db.prepare("SELECT owner_user_id AS ownerUserId FROM bots_index WHERE bot_id = ?")
+		.bind(cloneSource.sourceBotId).first<{ ownerUserId: string }>();
+	const source = await readJson<BotDocument>(kv, kvKeys.bot(cloneSource.sourceBotId));
+	if (!row || !source || source.id !== cloneSource.sourceBotId) {
+		throw new RepositoryError("server_error", "Linked clone source is missing.", 500);
 	}
+	if (row.ownerUserId !== ownerUserId || source.ownerUserId !== ownerUserId) {
+		throw new RepositoryError("server_error", "Linked clone source belongs to a different profile.", 500);
+	}
+	return normalizeBotDefaults(source);
 }
 
 async function cloneSourceSummary(
@@ -3665,7 +3403,7 @@ function cloneSourceBotProfile(bot: BotDocument): NonNullable<BotCloneSourceSumm
 		id: bot.id,
 		homeWorldId: bot.homeWorldId,
 		homeWorldHandle: bot.homeWorldHandle,
-		handle: bot.handle,
+		handle: bot.deletedAt ? bot.handleAtDeletion ?? bot.handle : bot.handle,
 		language: bot.language,
 		includeLanguageInSystemPrompt: bot.includeLanguageInSystemPrompt,
 		displayName: bot.displayName,
@@ -4050,15 +3788,29 @@ export async function upsertWorldIndexProjection(
 export async function upsertForumIndexProjection(
 	db: D1DatabaseLike,
 	forum: ForumDocument,
+	options: { requireActiveOwner?: boolean } = {},
 ): Promise<ForumDocument> {
 	const normalized = normalizeForumDefaults(forum);
-	await db
+	const result = await forumIndexProjectionStatement(db, normalized, options).run();
+	if (options.requireActiveOwner && (result.meta?.changes ?? 0) < 1) throw new RepositoryError("forbidden", "The account or world no longer accepts new forums.", 403);
+	await upsertForumSearchIndex(db, normalized);
+	return normalized;
+}
+
+export function forumIndexProjectionStatement(
+	db: D1DatabaseLike,
+	forum: ForumDocument,
+	options: { requireActiveOwner?: boolean } = {},
+): D1PreparedStatementLike {
+	const normalized = normalizeForumDefaults(forum);
+	return db
 		.prepare(
 			`INSERT INTO forums_index (
 				forum_id, world_id, world_handle, handle, language, description, description_lang,
 				created_by_user_id, created_at, updated_at, deleted_at, personal_bot_id,
 				thread_comment_limit, read_only
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+			WHERE ${options.requireActiveOwner ? "EXISTS (SELECT 1 FROM users_index WHERE user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active') AND EXISTS (SELECT 1 FROM worlds_index WHERE world_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active')" : "1"}
 			ON CONFLICT(forum_id) DO UPDATE SET
 				world_handle = excluded.world_handle,
 				handle = excluded.handle,
@@ -4086,10 +3838,8 @@ export async function upsertForumIndexProjection(
 			normalized.personalBotId ?? null,
 			normalized.threadSettings?.commentLimit ?? null,
 			booleanSql(normalized.readOnly),
-		)
-		.run();
-	await upsertForumSearchIndex(db, normalized);
-	return normalized;
+			...(options.requireActiveOwner ? [normalized.createdByUserId, normalized.worldId] : []),
+		);
 }
 
 export async function upsertBotIndexProjection(

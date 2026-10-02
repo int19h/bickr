@@ -2,11 +2,28 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
+const releaseCommit = process.env.BICKR_RELEASE_COMMIT;
+if (releaseCommit !== undefined && !/^[a-f0-9]{40}$/.test(releaseCommit)) {
+	throw new Error("BICKR_RELEASE_COMMIT must be a full Git commit SHA.");
+}
+
 export default defineConfig({
+	// A single self-contained worker runs under a response CSP that forbids
+	// imports, network access, nested workers, and evaluated code.
+	worker: {
+		format: "iife",
+		rollupOptions: { output: { entryFileNames: "math-assets/[name]-[hash].js" } },
+	},
 	build: {
 		outDir: "dist/client",
 	},
 	plugins: [
+		{
+			name: "bickr-release-commit",
+			transformIndexHtml: () => releaseCommit ? [{
+				tag: "meta", attrs: { name: "bickr-release", content: releaseCommit }, injectTo: "head" as const,
+			}] : [],
+		},
 		react(),
 		VitePWA({
 			includeManifestIcons: false,

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import { ExclusiveOperationQueue } from "@bickr/shared/exclusive-operation-queue";
+import { canonicalBotInference } from "@bickr/shared/inference-configuration-consumers";
+import { accountDefaultConfigurationId, insertAccountDefaultConfigurationStatement } from "@bickr/shared/inference-configuration-repository";
 import {
 	InjectedLifecycleFailure,
 	hashLifecycleRequest,
@@ -1131,9 +1133,16 @@ describe("lifecycle failure injection", () => {
 		}
 	});
 
-	it("keeps a create credential out of request JSON and replays it from the short-lived secret store", async () => {
+	it("keeps a create credential out of request JSON and transfers it into the canonical graph after retry", async () => {
 		const user = await seedAccount("credential-retry");
 		const world = await createWorld(testEnv.BICKR_KV, testEnv.BICKR_D1, worldInput("credential-retry-home"), user.id);
+		await insertAccountDefaultConfigurationStatement(testEnv.BICKR_D1, {
+			configurationId: await accountDefaultConfigurationId(user.id), ownerUserId: user.id, now: user.createdAt,
+		}).run();
+		await testEnv.BICKR_D1.batch([
+			testEnv.BICKR_D1.prepare("UPDATE entity_lifecycle_control SET activation_mode = 'inference_graph_required' WHERE id = 1"),
+			testEnv.BICKR_D1.prepare("UPDATE inference_graph_users SET cutover_version = 1, writer_version = 1, verified_cutover_at = ? WHERE owner_user_id = ?").bind(user.createdAt, user.id),
+		]);
 		const key = "credential-retry-key";
 		const credential = "sk-lifecycle-retry-secret";
 		const input = {
@@ -1159,6 +1168,7 @@ describe("lifecycle failure injection", () => {
 		expect(second.ok).toBe(true);
 		const bot = (await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, user.id)).find((candidate) => candidate.handle === input.handle);
 		expect((await rawBotById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot?.id ?? "")).inferenceSettings.openRouterApiKey).toBe(credential);
+		expect((await canonicalBotInference(testEnv.BICKR_D1, user.id, bot?.id ?? "", testEnv as never))?.providerSettings.apiKey).toBe(credential);
 		expect((await testEnv.BICKR_D1.prepare(
 			`SELECT COUNT(*) AS count FROM entity_lifecycle_secrets WHERE operation_id = ?`,
 		).bind(operation?.operationId).first<{ count: number }>())?.count).toBe(0);

@@ -1,3 +1,4 @@
+import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
 import { completeToolBookkeeping } from '../workers/agent-runtime/src/runtime/tools';
 import type { ToolResult } from '../workers/agent-runtime/src/types';
 import {
@@ -72,6 +73,7 @@ import {
 	sseStream,
 	standardPrompt,
 	streamedProviderRateLimit,
+	testAppendLoopMessageGroup,
 	testEnv,
 	testLanguage,
 	testRuntimeForToolExecution,
@@ -904,6 +906,7 @@ describe("Provider requests", () => {
 			spotlightMutation: true,
 			spotlightTickTerminator: true,
 		});
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
 		const voteNotifications = await testEnv.BICKR_D1.prepare(
 			`SELECT target_id AS targetId, spotlight_id AS spotlightId
 			 FROM human_notifications
@@ -932,6 +935,7 @@ describe("Provider requests", () => {
 			spotlightMutation: true,
 			spotlightTickTerminator: true,
 		});
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
 		const followNotifications = await testEnv.BICKR_D1.prepare(
 			`SELECT target_id AS targetId, spotlight_id AS spotlightId
 			 FROM human_notifications
@@ -3139,6 +3143,7 @@ describe("Provider requests", () => {
 				events.push({ seq, type, payload });
 				return runtimeEvent(seq, runId, type as BotRuntimeEvent["type"], payload);
 			},
+			appendLoopMessageGroup: testAppendLoopMessageGroup,
 			appendLoopMessage: (
 				runId: string,
 				message: Record<string, unknown>,
@@ -3630,6 +3635,7 @@ describe("Provider requests", () => {
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			notes: { read: () => null },
 			readCommentTreeTokenBudget: async () => 90,
+				appendLoopMessageGroup: testAppendLoopMessageGroup,
 				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
 					appendedMessages.push(message);
 					return { seq: appendedMessages.length };
@@ -3683,6 +3689,7 @@ describe("Provider requests", () => {
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				notes: { read: () => null },
 				readCommentTreeTokenBudget: async () => 4_000,
+				appendLoopMessageGroup: testAppendLoopMessageGroup,
 				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
 					appendedMessages.push(message);
 					return { seq: appendedMessages.length };

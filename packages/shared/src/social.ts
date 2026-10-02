@@ -1,3 +1,8 @@
+import { refreshDueThreadCommentCounts } from "./thread-hot-refresh";
+import { substringSearchQuery, substringCandidateSql, substringIndexFields, requireForumSearchReady } from "./indexed-substring-search";
+import { enqueueBotNotificationFanout, type BotNotificationTemplate } from "./bot-notification-fanout";
+import { enqueueHumanNotificationFanout, type HumanNotificationAudience } from "./human-notification-fanout";
+import { insertHumanNotification, type HumanNotificationInput } from "./human-notifications";
 import { storedInferenceAttribution } from "./inference-attribution";
 import type { InferenceAttribution } from "./model";
 import { isD1UniqueConstraintError } from "./d1-errors";
@@ -181,18 +186,15 @@ const notificationPendingRetentionSeconds = 14 * secondsPerDay;
  */
 export const notificationKvExpirationTtlSeconds = notificationPendingRetentionSeconds;
 export const notificationPruneSelectLimit = 500;
-// Current Workers docs count KV and D1 calls as subrequests, so a row costs one
-// KV delete: 8k rows fit under the paid 10k default alongside ~16 selects, ~80
-// D1 delete batches and the tombstoned-bot rotation below. The prune runs on its
-// own 6-hourly trigger (workers/forum-coordinator/src/cron.ts), so this is 32k
-// rows/day of capacity against a measured 5-10k rows/day of expiry.
+// Workers count KV and D1 calls as subrequests. Each pruned row costs one KV
+// delete. The 8,000-row cap leaves room under the paid 10,000-subrequest default
+// for D1 queries and the tombstoned-bot rotation. The separate five-minute trigger
+// provides capacity for 2,304,000 rows per day before failures or deferred runs.
 export const notificationPruneMaxRowsPerRun = 8_000;
 /**
- * The tombstoned-bot pass runs first, so without a sub-budget one deleted bot
- * carrying a large legacy backlog would spend the whole run and leave ordinary
- * expiry no slots at all for as many invocations as that backlog lasts. A
- * quarter of the run is enough to drain a deleted bot in a handful of
- * invocations while the expiry pass keeps up with its 5-10k rows/day.
+ * Tombstones use remaining capacity after pending expiry, capped here so the
+ * retired-status pass can also progress. Pending expiry receives the full
+ * 8,000-row budget when needed; orphan work cannot reduce that capacity.
  */
 export const notificationOrphanPruneMaxRowsPerRun = 2_000;
 /**
@@ -241,6 +243,8 @@ export type NotificationPruneResult = {
 	budgetExhausted: boolean;
 	/** Rows deleted because their bot is tombstoned in `bots_index`. */
 	orphanedBotRows: number;
+	/** Oldest pending non-bootstrap row still past the cutoff, or null. */
+	oldestExpiredPendingAt: string | null;
 	/** Tombstoned bots whose deterministic bootstrap document was deleted by key. */
 	tombstonedBotsSwept: number;
 	/** The backstop pass over rows whose source comment or thread is tombstoned. */
@@ -1398,14 +1402,15 @@ export async function applyHumanSubscriptionChanges(
 					`INSERT INTO human_subscriptions (
 						subscription_id, user_id, world_id, scope_type, scope_id,
 						active, auto_created, created_at, updated_at
-					) VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?)
+					) SELECT ?, ?, ?, ?, ?, 1, 0, ?, ?
+					WHERE EXISTS (SELECT 1 FROM users_index WHERE user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active')
 					ON CONFLICT(user_id, scope_type, scope_id) DO UPDATE SET
 						world_id = excluded.world_id,
 						active = 1,
 						auto_created = excluded.auto_created,
 						updated_at = excluded.updated_at`,
 				)
-					.bind(makeId("hsb"), userId, change.worldId, change.scopeType, change.scopeId, now, now),
+					.bind(makeId("hsb"), userId, change.worldId, change.scopeType, change.scopeId, now, now, userId),
 			);
 		} else {
 			statements.push(
@@ -1420,7 +1425,10 @@ export async function applyHumanSubscriptionChanges(
 	}
 
 	if (statements.length > 0) {
-		await db.batch(statements);
+		const results = await db.batch(statements);
+		if ([...latestByKey.values()].some((change, index) => change.active && (results[index]?.meta?.changes ?? 0) < 1)) {
+			throw repositoryError("forbidden", "This account no longer accepts subscriptions.", 403);
+		}
 	}
 }
 
@@ -1437,12 +1445,13 @@ export async function upsertHumanSubscription(
 ): Promise<HumanSubscription> {
 	await validateHumanSubscriptionTargets(db, [input]);
 	const id = makeId("hsb");
-	await db
+	const inserted = await db
 		.prepare(
 			`INSERT INTO human_subscriptions (
 				subscription_id, user_id, world_id, scope_type, scope_id,
 				active, auto_created, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
+			) SELECT ?, ?, ?, ?, ?, 1, ?, ?, ?
+			WHERE EXISTS (SELECT 1 FROM users_index WHERE user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active')
 			ON CONFLICT(user_id, scope_type, scope_id) DO UPDATE SET
 				world_id = excluded.world_id,
 				active = 1,
@@ -1458,8 +1467,10 @@ export async function upsertHumanSubscription(
 			input.autoCreated ? 1 : 0,
 			now,
 			now,
+			input.userId,
 		)
 		.run();
+	if ((inserted.meta?.changes ?? 0) < 1) throw repositoryError("forbidden", "This account no longer accepts subscriptions.", 403);
 	const row = await db
 		.prepare(
 			`SELECT
@@ -2169,13 +2180,12 @@ async function notifyHumanThreadCreated(
 	actor: BotDocument,
 	now: string,
 ): Promise<void> {
-	const users = await subscribedUsersForScopes(db, [
+	const audience: HumanNotificationAudience = { kind: "subscriptions", scopes: [
 		{ scopeType: "world", scopeId: thread.worldId },
 		{ scopeType: "forum", scopeId: thread.forumId },
 		{ scopeType: "bot", scopeId: actor.id },
-	]);
-	const notifications: HumanNotificationInput[] = [...users].map((userId) => ({
-		userId,
+	] };
+	const notification = {
 		worldId: thread.worldId,
 		eventKey: `thread_created:${thread.id}`,
 		notificationType: "thread_created",
@@ -2188,8 +2198,8 @@ async function notifyHumanThreadCreated(
 		body: threadTitle(thread),
 		urlPath: threadUrlPath(thread),
 		now,
-	}));
-	await insertHumanNotifications(db, notifications);
+	} satisfies Omit<HumanNotificationInput, "userId">;
+	await enqueueHumanNotificationFanout(db, { audience, notification, source: { kind: "thread", id: thread.id } });
 }
 
 async function notifyHumanCommentCreated(
@@ -2200,14 +2210,13 @@ async function notifyHumanCommentCreated(
 	now: string,
 ): Promise<void> {
 	const ancestorIds = commentAncestorIds(thread, comment);
-	const users = await subscribedUsersForScopes(db, [
+	const audience: HumanNotificationAudience = { kind: "subscriptions", scopes: [
 		{ scopeType: "world", scopeId: thread.worldId },
 		{ scopeType: "thread", scopeId: thread.id },
 		{ scopeType: "bot", scopeId: actor.id },
 		...ancestorIds.map((scopeId) => ({ scopeType: "comment" as const, scopeId })),
-	]);
-	const notifications: HumanNotificationInput[] = [...users].map((userId) => ({
-		userId,
+	] };
+	const notification = {
 		worldId: thread.worldId,
 		eventKey: `comment_created:${comment.id}`,
 		notificationType: "comment_created",
@@ -2220,8 +2229,8 @@ async function notifyHumanCommentCreated(
 		body: localizedPreview(comment.body),
 		urlPath: commentUrlPath(thread, comment.id),
 		now,
-	}));
-	await insertHumanNotifications(db, notifications);
+	} satisfies Omit<HumanNotificationInput, "userId">;
+	await enqueueHumanNotificationFanout(db, { audience, notification, source: { kind: "comment", id: comment.id } });
 }
 
 async function notifyHumanVoteCast(
@@ -2235,13 +2244,12 @@ async function notifyHumanVoteCast(
 	if (input.value === 0) {
 		return;
 	}
-	const users = await subscribedUsersForScopes(db, [
+	const audience: HumanNotificationAudience = { kind: "subscriptions", scopes: [
 		{ scopeType: "world", scopeId: thread.worldId },
 		{ scopeType: "bot", scopeId: actor.id },
-	]);
+	] };
 	const direction = input.value > 0 ? "upvoted" : "downvoted";
-	const notifications: HumanNotificationInput[] = [...users].map((userId) => ({
-		userId,
+	const notification = {
 		worldId: thread.worldId,
 		eventKey: `vote_cast:comment:${input.targetId}:${actor.id}:${input.value}:${now}`,
 		notificationType: "vote_cast",
@@ -2256,8 +2264,8 @@ async function notifyHumanVoteCast(
 		...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
 		...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
 		now,
-	}));
-	await insertHumanNotifications(db, notifications);
+	} satisfies Omit<HumanNotificationInput, "userId">;
+	await enqueueHumanNotificationFanout(db, { audience, notification, source: { kind: "comment", id: input.targetId } });
 }
 
 async function notifyHumanFollowCreated(
@@ -2267,12 +2275,11 @@ async function notifyHumanFollowCreated(
 	now: string,
 	options: BotActivityNotificationOptions = {},
 ): Promise<void> {
-	const users = await subscribedUsersForScopes(db, [
+	const audience: HumanNotificationAudience = { kind: "subscriptions", scopes: [
 		{ scopeType: "world", scopeId: follower.homeWorldId },
 		{ scopeType: "bot", scopeId: follower.id },
-	]);
-	const notifications: HumanNotificationInput[] = [...users].map((userId) => ({
-		userId,
+	] };
+	const notification = {
 		worldId: follower.homeWorldId,
 		eventKey: `bot_followed:${follower.id}:${followed.id}`,
 		notificationType: "bot_followed",
@@ -2287,8 +2294,8 @@ async function notifyHumanFollowCreated(
 		...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
 		...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
 		now,
-	}));
-	await insertHumanNotifications(db, notifications);
+	} satisfies Omit<HumanNotificationInput, "userId">;
+	await enqueueHumanNotificationFanout(db, { audience, notification, source: { kind: "bot", id: followed.id } });
 }
 
 async function notifyHumanFollowRemoved(
@@ -2298,12 +2305,11 @@ async function notifyHumanFollowRemoved(
 	now: string,
 	options: BotActivityNotificationOptions = {},
 ): Promise<void> {
-	const users = await subscribedUsersForScopes(db, [
+	const audience: HumanNotificationAudience = { kind: "subscriptions", scopes: [
 		{ scopeType: "world", scopeId: follower.homeWorldId },
 		{ scopeType: "bot", scopeId: follower.id },
-	]);
-	const notifications: HumanNotificationInput[] = [...users].map((userId) => ({
-		userId,
+	] };
+	const notification = {
 		worldId: follower.homeWorldId,
 		eventKey: `bot_unfollowed:${follower.id}:${followed.id}:${now}`,
 		notificationType: "bot_unfollowed",
@@ -2318,8 +2324,8 @@ async function notifyHumanFollowRemoved(
 		...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
 		...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
 		now,
-	}));
-	await insertHumanNotifications(db, notifications);
+	} satisfies Omit<HumanNotificationInput, "userId">;
+	await enqueueHumanNotificationFanout(db, { audience, notification, source: { kind: "bot", id: followed.id } });
 }
 
 export async function recordSpotlightToolHumanNotification(
@@ -2505,71 +2511,23 @@ export async function recordWorldSettingsChangedHumanNotifications(
 	if (changed.length === 0) {
 		return;
 	}
-	const ownerRows = await db
-		.prepare(
-			`SELECT DISTINCT owner_user_id AS userId
-			 FROM bots_index
-			 WHERE home_world_id = ?
-			   AND deleted_at IS NULL
-			   AND lifecycle_state = 'active'
-			   AND owner_user_id != ?`,
-		)
-		.bind(input.updated.id, input.editorUserId)
-		.all<{ userId: string }>();
-	const users = (ownerRows.results ?? []).map((row) => row.userId).filter(Boolean);
-	if (users.length === 0) {
-		return;
-	}
-	const title = `${localizedTextString(input.updated.name)} settings changed`;
-	const body = `World settings changed: ${changed.join(", ")}.`;
-	const urlPath = `/w/${encodeURIComponent(input.updated.handle)}/edit`;
-	for (const userId of users) {
-		const existing = await db
-			.prepare(
-				`SELECT notification_id AS id
-				 FROM human_notifications
-				 WHERE user_id = ?
-				   AND world_id = ?
-				   AND notification_type = 'world_settings_changed'
-				   AND read_at IS NULL
-				   AND archived_at IS NULL
-				 ORDER BY created_at DESC, notification_id DESC
-				 LIMIT 1`,
-			)
-			.bind(userId, input.updated.id)
-			.first<{ id: string }>();
-		if (existing) {
-			await db
-				.prepare(
-					`UPDATE human_notifications
-					 SET title = ?,
-					     title_lang = ?,
-					     body = ?,
-					     body_lang = ?,
-					     url_path = ?,
-					     target_id = ?,
-					     created_at = ?
-					 WHERE notification_id = ?`,
-				)
-				.bind(title, null, body, null, urlPath, input.updated.id, now, existing.id)
-				.run();
-			continue;
-		}
-		await insertHumanNotification(db, {
-			userId,
+	await enqueueHumanNotificationFanout(db, {
+		audience: { kind: "world_owners", worldId: input.updated.id, excludeUserId: input.editorUserId },
+		source: { kind: "world", id: input.updated.id, revision: input.updated.revision },
+		notification: {
 			worldId: input.updated.id,
-			eventKey: `world_settings_changed:${input.updated.id}:${now}`,
+			eventKey: `world_settings_changed:${input.updated.id}:${input.updated.revision}`,
 			notificationType: "world_settings_changed",
 			sourceType: "world",
 			sourceId: input.updated.id,
 			targetType: "world",
 			targetId: input.updated.id,
-			title,
-			body,
-			urlPath,
+			title: `${localizedTextString(input.updated.name)} settings changed`,
+			body: `World settings changed: ${changed.join(", ")}.`,
+			urlPath: `/w/${encodeURIComponent(input.updated.handle)}/edit`,
 			now,
-		});
-	}
+		},
+	});
 }
 
 function worldSettingsChangeLabels(previous: WorldDocument, updated: WorldDocument): string[] {
@@ -2595,137 +2553,6 @@ function worldSettingsChangeLabels(previous: WorldDocument, updated: WorldDocume
 		labels.push("avatar generation settings");
 	}
 	return labels;
-}
-
-async function subscribedUsersForScopes(
-	db: D1DatabaseLike,
-	scopes: SubscriptionScopeTarget[],
-): Promise<Set<string>> {
-	const users = new Set<string>();
-	const unique = new Map(scopes.map((scope) => [`${scope.scopeType}:${scope.scopeId}`, scope]));
-	const selected = [...unique.values()];
-	if (selected.length === 0) {
-		return users;
-	}
-	const maxScopesPerQuery = Math.floor(d1MaxBoundParameters / 2);
-	for (let index = 0; index < selected.length; index += maxScopesPerQuery) {
-		const batch = selected.slice(index, index + maxScopesPerQuery);
-		const selectedRows = batch.map(() => "(?, ?)").join(", ");
-		const result = await db
-			.prepare(
-				`WITH selected(scope_type, scope_id) AS (VALUES ${selectedRows})
-				 SELECT DISTINCT human_subscriptions.user_id AS userId
-				 FROM human_subscriptions
-				 JOIN selected
-				   ON selected.scope_type = human_subscriptions.scope_type
-				  AND selected.scope_id = human_subscriptions.scope_id
-				 WHERE human_subscriptions.active = 1`,
-			)
-			.bind(...batch.flatMap((scope) => [scope.scopeType, scope.scopeId]))
-			.all<{ userId: string }>();
-		for (const row of result.results ?? []) {
-			users.add(row.userId);
-		}
-	}
-	return users;
-}
-
-async function insertHumanNotification(
-	db: D1DatabaseLike,
-	input: HumanNotificationInput,
-): Promise<void> {
-	await insertHumanNotificationRows(db, [humanNotificationInsertRow(input)]);
-}
-
-async function insertHumanNotifications(
-	db: D1DatabaseLike,
-	inputs: HumanNotificationInput[],
-): Promise<void> {
-	if (inputs.length === 0) {
-		return;
-	}
-	await insertHumanNotificationRows(db, inputs.map(humanNotificationInsertRow));
-}
-
-function humanNotificationInsertRow(input: HumanNotificationInput): HumanNotificationInsertRow {
-	const title = localizedTextFromStored(input.title);
-	const body = localizedTextFromStored(input.body);
-	const actorDisplayName = input.actor ? localizedTextFromStored(input.actor.displayName) : null;
-	return {
-		id: makeId("hnt"),
-		userId: input.userId,
-		worldId: input.worldId,
-		eventKey: input.eventKey,
-		notificationType: input.notificationType,
-		actorBotId: input.actor?.id ?? null,
-		actorHandle: input.actor?.handle ?? null,
-		actorDisplayName: actorDisplayName?.text ?? null,
-		actorDisplayNameLang: actorDisplayName?.lang ?? null,
-		sourceType: input.sourceType ?? null,
-		sourceId: input.sourceId ?? null,
-		targetType: input.targetType ?? null,
-		targetId: input.targetId ?? null,
-		title: title.text,
-		titleLang: title.lang,
-		body: body.text,
-		bodyLang: body.lang,
-		urlPath: input.urlPath,
-		spotlightId: input.spotlightId ?? null,
-		spotlightLabel: input.spotlightLabel ?? null,
-		createdAt: input.now,
-	};
-}
-
-async function insertHumanNotificationRows(
-	db: D1DatabaseLike,
-	rows: HumanNotificationInsertRow[],
-): Promise<void> {
-	if (rows.length === 0) {
-		return;
-	}
-	const parametersPerRow = 21;
-	const maxRowsPerStatement = Math.floor(d1MaxBoundParameters / parametersPerRow);
-	const statements = chunks(rows, maxRowsPerStatement).map((batch) => {
-		const values = batch.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)").join(", ");
-		return db
-			.prepare(
-				`INSERT OR IGNORE INTO human_notifications (
-					notification_id, user_id, world_id, event_key, notification_type,
-					actor_bot_id, actor_handle, actor_display_name, actor_display_name_lang,
-					source_type, source_id, target_type, target_id,
-					title, title_lang, body, body_lang, url_path, spotlight_id, spotlight_label,
-					created_at, read_at, archived_at
-				) VALUES ${values}`,
-			)
-			.bind(...batch.flatMap(humanNotificationInsertBindings));
-	});
-	await db.batch(statements);
-}
-
-function humanNotificationInsertBindings(row: HumanNotificationInsertRow): unknown[] {
-	return [
-		row.id,
-		row.userId,
-		row.worldId,
-		row.eventKey,
-		row.notificationType,
-		row.actorBotId,
-		row.actorHandle,
-		row.actorDisplayName,
-		row.actorDisplayNameLang,
-		row.sourceType,
-		row.sourceId,
-		row.targetType,
-		row.targetId,
-		row.title,
-		row.titleLang,
-		row.body,
-		row.bodyLang,
-		row.urlPath,
-		row.spotlightId,
-		row.spotlightLabel,
-		row.createdAt,
-	];
 }
 
 async function insertBotActivityEvent(
@@ -2797,7 +2624,7 @@ export async function createThread(
 	db: D1DatabaseLike,
 	input: CreateThreadInput,
 	now = new Date().toISOString(),
-	options: { inferenceAttribution?: InferenceAttribution } = {},
+	options: { inferenceAttribution?: InferenceAttribution; contentIdDb?: D1DatabaseLike } = {},
 ): Promise<ThreadDocument> {
 	const forum = await forumById(kv, db, input.forumId);
 	await assertForumAcceptsNewContent(db, forum.id);
@@ -2827,7 +2654,7 @@ export async function createThread(
 		);
 	}
 
-	const threadId = await reserveContentId(db, "thread", now);
+	const threadId = await reserveContentId(options.contentIdDb ?? db, "thread", now);
 	const rootCommentId = rootCommentIdForThreadId(threadId);
 	const rootComment: CommentDocument = {
 		id: rootCommentId,
@@ -2919,7 +2746,7 @@ export async function createThread(
 		message: `${localizedTextString(bot.displayName)} created "${threadTitle(thread)}".`,
 		payload: threadPostPayload,
 	});
-	await createMergedNotifications(kv, db, thread.worldId, notificationRecipients, now);
+	await createMergedNotifications(kv, db, thread.worldId, notificationRecipients, now, bot.id);
 	await notifyHumanThreadCreated(db, thread, bot, now);
 
 	return thread;
@@ -2966,7 +2793,7 @@ export async function createComment(
 	db: D1DatabaseLike,
 	input: CreateCommentInput,
 	now = new Date().toISOString(),
-	options: { thread?: ThreadDocument; inferenceAttribution?: InferenceAttribution } = {},
+	options: { thread?: ThreadDocument; inferenceAttribution?: InferenceAttribution; contentIdDb?: D1DatabaseLike } = {},
 ): Promise<CreateCommentResult> {
 	const thread = normalizeThreadDefaults(options.thread ?? await readThread(kv, input.threadId));
 	if (thread.id !== input.threadId) {
@@ -2997,7 +2824,7 @@ export async function createComment(
 	requiredPostingBody(body.text, "Comment body", postingHardLimit(postingSettings.commentBodyCharacters));
 
 	const comment: CommentDocument = {
-		id: await reserveContentId(db, "comment", now),
+		id: await reserveContentId(options.contentIdDb ?? db, "comment", now),
 		threadId: thread.id,
 		worldId: thread.worldId,
 		forumId: thread.forumId,
@@ -3088,7 +2915,7 @@ export async function createComment(
 			comment: notificationCommentRef(comment),
 		},
 	});
-	await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, now);
+	await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, now, bot.id);
 	await notifyHumanCommentCreated(db, updated, comment, bot, now);
 
 	return { thread: updated, comment };
@@ -3205,7 +3032,7 @@ export async function setVote(
 				},
 			});
 		}
-		await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, now);
+		await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, now, voter.id);
 		await notifyHumanVoteCast(db, updated, voteInput, voter, now, {
 			activityId,
 			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
@@ -3471,7 +3298,7 @@ export async function followBot(
 				actor: notificationProfileRef(follower),
 			},
 		});
-		await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, now);
+		await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, now, follower.id);
 		await notifyHumanFollowCreated(db, follower, followed, now, {
 			activityId,
 			reason: options.reason,
@@ -3532,7 +3359,7 @@ export async function unfollowBot(
 				actor: notificationProfileRef(follower),
 			},
 		});
-		await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, now);
+		await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, now, follower.id);
 		await notifyHumanFollowRemoved(db, follower, followed, now, {
 			activityId,
 			reason: options.reason,
@@ -3853,7 +3680,7 @@ export async function searchBots(
 	query: string,
 	limit = 20,
 ): Promise<BotSearchResult[]> {
-	const term = likePatternForSearch(query);
+	const term = substringSearchQuery(query)?.likePattern;
 	if (!term) {
 		return [];
 	}
@@ -4050,10 +3877,11 @@ export async function searchThreads(
 	limit = 20,
 	now = new Date().toISOString(),
 ): Promise<SearchThreadResult[]> {
-	const term = likePatternForSearch(query);
-	if (!term) {
+	const search = substringSearchQuery(query);
+	if (!search) {
 		return [];
 	}
+	await requireForumSearchReady(db);
 	const threadResults = await safeD1Search(() =>
 		db
 			.prepare(
@@ -4077,11 +3905,11 @@ export async function searchThreads(
 					${threadHotScoreSql} AS score
 				 FROM threads_index t
 				 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
-				 WHERE t.world_id = ? AND t.deleted_at IS NULL AND lower(t.search_text) LIKE ? ESCAPE '\\'
+				 WHERE t.rowid IN (${substringCandidateSql("thread", search)}) AND t.world_id = ? AND t.deleted_at IS NULL AND lower(t.search_text) LIKE ? ESCAPE '\\'
 				 ORDER BY t.last_activity_at DESC
 				 LIMIT ?`,
 			)
-			.bind(now, worldId, term, limit)
+			.bind(now, search.match, worldId, search.likePattern, limit)
 			.all<SearchThreadResultRow>(),
 	);
 	const commentResults = await safeD1Search(() =>
@@ -4107,11 +3935,11 @@ export async function searchThreads(
 				 FROM comments_index c
 				 JOIN threads_index t ON t.thread_id = c.thread_id
 				 LEFT JOIN bots_index b ON b.bot_id = c.author_bot_id
-				 WHERE c.world_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND c.is_root = 0 AND lower(c.search_text) LIKE ? ESCAPE '\\'
+				 WHERE c.rowid IN (${substringCandidateSql("comment", search)}) AND c.world_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND c.is_root = 0 AND lower(c.search_text) LIKE ? ESCAPE '\\'
 				 ORDER BY c.created_at DESC
 				 LIMIT ?`,
 			)
-			.bind(worldId, term, limit)
+			.bind(search.match, worldId, search.likePattern, limit)
 			.all<SearchThreadResultRow>(),
 	);
 	return [...(threadResults.results ?? []), ...(commentResults.results ?? [])]
@@ -4126,10 +3954,11 @@ export async function searchForumThreads(
 	limit = 20,
 	now = new Date().toISOString(),
 ): Promise<SearchThreadResult[]> {
-	const term = likePatternForSearch(query);
-	if (!term) {
+	const search = substringSearchQuery(query);
+	if (!search) {
 		return [];
 	}
+	await requireForumSearchReady(db);
 	const threadResults = await safeD1Search(() =>
 		db
 			.prepare(
@@ -4153,11 +3982,11 @@ export async function searchForumThreads(
 					${threadHotScoreSql} AS score
 				 FROM threads_index t
 				 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
-				 WHERE t.forum_id = ? AND t.deleted_at IS NULL AND lower(t.search_text) LIKE ? ESCAPE '\\'
+				 WHERE t.rowid IN (${substringCandidateSql("thread", search)}) AND t.forum_id = ? AND t.deleted_at IS NULL AND lower(t.search_text) LIKE ? ESCAPE '\\'
 				 ORDER BY t.last_activity_at DESC
 				 LIMIT ?`,
 			)
-			.bind(now, forumId, term, limit)
+			.bind(now, search.match, forumId, search.likePattern, limit)
 			.all<SearchThreadResultRow>(),
 	);
 	const commentResults = await safeD1Search(() =>
@@ -4183,11 +4012,11 @@ export async function searchForumThreads(
 				 FROM comments_index c
 				 JOIN threads_index t ON t.thread_id = c.thread_id
 				 LEFT JOIN bots_index b ON b.bot_id = c.author_bot_id
-				 WHERE c.forum_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND c.is_root = 0 AND lower(c.search_text) LIKE ? ESCAPE '\\'
+				 WHERE c.rowid IN (${substringCandidateSql("comment", search)}) AND c.forum_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND c.is_root = 0 AND lower(c.search_text) LIKE ? ESCAPE '\\'
 				 ORDER BY c.created_at DESC
 				 LIMIT ?`,
 			)
-			.bind(forumId, term, limit)
+			.bind(search.match, forumId, search.likePattern, limit)
 			.all<SearchThreadResultRow>(),
 	);
 	return [...(threadResults.results ?? []), ...(commentResults.results ?? [])]
@@ -4853,48 +4682,6 @@ type HumanNotificationRow = {
 	archivedAt: string | null;
 };
 
-type HumanNotificationInput = {
-	userId: string;
-	worldId: string;
-	eventKey: string;
-	notificationType: HumanNotificationType;
-	actor?: BotDocument | BotSummary;
-	sourceType?: string;
-	sourceId?: string;
-	targetType?: string;
-	targetId?: string;
-	title: LocalizedText | string;
-	body: LocalizedText | string;
-	urlPath: string;
-	spotlightId?: string;
-	spotlightLabel?: string;
-	now: string;
-};
-
-type HumanNotificationInsertRow = {
-	id: string;
-	userId: string;
-	worldId: string;
-	eventKey: string;
-	notificationType: HumanNotificationType;
-	actorBotId: string | null;
-	actorHandle: string | null;
-	actorDisplayName: string | null;
-	actorDisplayNameLang: string | null;
-	sourceType: string | null;
-	sourceId: string | null;
-	targetType: string | null;
-	targetId: string | null;
-	title: string;
-	titleLang: string | null;
-	body: string;
-	bodyLang: string | null;
-	urlPath: string;
-	spotlightId: string | null;
-	spotlightLabel: string | null;
-	createdAt: string;
-};
-
 type BotActivityNotificationOptions = {
 	activityId?: string;
 	reason?: LocalizedText | string;
@@ -4916,10 +4703,7 @@ type BotActivityEventInput = {
 	replace?: boolean;
 };
 
-type SubscriptionScopeTarget = {
-	scopeType: HumanSubscriptionScope;
-	scopeId: string;
-};
+
 
 const humanNotificationColumns = `
 	hn.notification_id AS id,
@@ -6291,20 +6075,10 @@ export async function pruneExpiredNotifications(
 		batches: 0,
 		budgetExhausted: false,
 		orphanedBotRows: 0,
+		oldestExpiredPendingAt: null,
 		tombstonedBotsSwept: 0,
 		orphanedSources: { scannedRows: 0, deletedRows: 0, budgetExhausted: false },
 	};
-
-	// Tombstoned bots first. Their notifications are undeliverable at any age, and
-	// their pending bootstrap rows are exempt from expiry, so nothing else ever
-	// reaches them — but the pass is capped so that a single deleted bot's backlog
-	// cannot spend the run the expiry passes below need.
-	await pruneTombstonedBotNotifications(kv, db, result, {
-		selectLimit,
-		maxRows: orphanMaxRowsPerRun,
-		botsPerRun: tombstonedBotsPerRun,
-		kvDeleteChunkSize,
-	});
 
 	// Pending rows past the retention window: the steady-state bulk, and the arm
 	// that must always make progress.
@@ -6314,6 +6088,15 @@ export async function pruneExpiredNotifications(
 		kvDeleteChunkSize,
 		select: (limit, cursor: ExpiredPendingCursor | undefined) => selectExpiredPendingNotifications(db, cutoff, limit, cursor),
 		cursorOf: (row) => ({ createdAt: row.createdAt, id: row.id }),
+	});
+
+	// Tombstones use remaining capacity. Bootstrap rows are exempt from expiry,
+	// so this pass remains necessary even when the ordinary queue is empty.
+	await pruneTombstonedBotNotifications(kv, db, result, {
+		selectLimit,
+		maxRows: Math.min(orphanMaxRowsPerRun, maxRowsPerRun - result.selectedRows),
+		botsPerRun: tombstonedBotsPerRun,
+		kvDeleteChunkSize,
 	});
 
 	// Whatever the run has left goes to the legacy leftovers, which are a fixed
@@ -6331,6 +6114,7 @@ export async function pruneExpiredNotifications(
 	// Last, on a budget of its own: the backstop is referential cleanup with no
 	// deadline, so it must never be able to displace the expiry passes above.
 	result.orphanedSources = await sweepOrphanedBotNotifications(kv, db, options.sourceSweep ?? {});
+	result.oldestExpiredPendingAt = (await selectExpiredPendingNotifications(db, cutoff, 1))[0]?.createdAt ?? null;
 	return result;
 }
 
@@ -7377,12 +7161,17 @@ type NotificationRecipientDraft = {
 	payload: NotificationEventPayload;
 };
 
-function newNotificationRecipientDrafts(): Map<string, NotificationRecipientDraft> {
-	return new Map();
+type NotificationRecipientDrafts = {
+	direct: Map<string, NotificationRecipientDraft>;
+	follower?: { botId: string; template: BotNotificationTemplate };
+};
+
+function newNotificationRecipientDrafts(): NotificationRecipientDrafts {
+	return { direct: new Map() };
 }
 
 function addNotificationRecipient(
-	recipients: Map<string, NotificationRecipientDraft>,
+	recipients: NotificationRecipientDrafts,
 	input: {
 		botId: string;
 		notificationType: NotificationType;
@@ -7392,9 +7181,9 @@ function addNotificationRecipient(
 		payload: NotificationEventPayload;
 	},
 ): void {
-	const existing = recipients.get(input.botId);
+	const existing = recipients.direct.get(input.botId);
 	if (!existing) {
-		recipients.set(input.botId, {
+		recipients.direct.set(input.botId, {
 			botId: input.botId,
 			notificationType: input.notificationType,
 			deliveryReasons: new Set([input.deliveryReason]),
@@ -7441,62 +7230,44 @@ export function notificationTypePriority(type: NotificationType): number {
 }
 
 async function addFollowerActivityRecipients(
-	db: D1DatabaseLike,
-	recipients: Map<string, NotificationRecipientDraft>,
+	_db: D1DatabaseLike,
+	recipients: NotificationRecipientDrafts,
 	actorBotId: string,
-	input: {
-		notificationType: NotificationType;
-		sourceObjectId?: string;
-		message: LocalizedText | string;
-		payload: NotificationEventPayload;
-	},
+	input: BotNotificationTemplate,
 ): Promise<void> {
-	const result = await db
-		.prepare(
-			`SELECT follower_bot_id AS botId
-			 FROM follows
-			 WHERE followed_bot_id = ?`,
-		)
-		.bind(actorBotId)
-		.all<{ botId: string }>();
-	for (const row of result.results ?? []) {
-		if (row.botId === actorBotId) {
-			continue;
-		}
-		addNotificationRecipient(recipients, {
-			botId: row.botId,
-			notificationType: input.notificationType,
-			deliveryReason: "followed_profile_activity",
-			...(input.sourceObjectId ? { sourceObjectId: input.sourceObjectId } : {}),
-			message: input.message,
-			payload: input.payload,
-		});
-	}
+	recipients.follower = { botId: actorBotId, template: input };
 }
 
 async function createMergedNotifications(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	worldId: string,
-	recipients: Map<string, NotificationRecipientDraft>,
+	recipients: NotificationRecipientDrafts,
 	now: string,
+	actorBotId: string,
 ): Promise<void> {
-	const notifications = [...recipients.values()].map((recipient) =>
-		notificationDocumentFromInput({
-			worldId,
-			botId: recipient.botId,
-			notificationType: recipient.notificationType,
-			...(recipient.sourceObjectId ? { sourceObjectId: recipient.sourceObjectId } : {}),
-			message: localizedTextFromStored(recipient.message),
-			deliveryReasons: orderedDeliveryReasons(recipient.deliveryReasons),
-			payload: recipient.payload,
-			now,
-		}),
-	);
-	if (notifications.length > 0) {
-		await writeNotificationDocuments(kv, notifications);
-		await db.batch(notificationInsertStatements(db, notifications));
-	}
+	if (recipients.direct.size === 0 && !recipients.follower) return;
+	// A mention body is identical for every mentioned recipient. Store that
+	// template once instead of copying it into the durable event N times.
+	const templates: BotNotificationTemplate[] = [];
+	const templateIds = new Map<string, number>();
+	const templateId = (template: BotNotificationTemplate) => {
+		const key = JSON.stringify(template);
+		const existing = templateIds.get(key);
+		if (existing !== undefined) return existing;
+		const id = templates.length;
+		templates.push(template);
+		templateIds.set(key, id);
+		return id;
+	};
+	const direct = [...recipients.direct.values()].map(({ botId, deliveryReasons, ...template }) => ({
+		botId, template: templateId(template), reasons: orderedDeliveryReasons(deliveryReasons),
+	}));
+	const follower = recipients.follower ? { botId: recipients.follower.botId, template: templateId(recipients.follower.template) } : undefined;
+	await enqueueBotNotificationFanout(kv, db, {
+		id: crypto.randomUUID(), worldId, actorBotId, createdAt: now, templates, direct,
+		...(follower ? { follower } : {}),
+	});
 }
 
 /**
@@ -7827,14 +7598,15 @@ async function upsertThreadIndex(db: D1DatabaseLike, thread: ThreadDocument): Pr
 	const title = localizedTextFromStored(thread.title);
 	const bodyPreview = localizedPreview(root.body);
 	const rootBody = localizedTextString(root.body);
+	const search = substringIndexFields(`${title.text}\n${rootBody}`);
 	await db
 		.prepare(
 			`INSERT INTO threads_index (
 				thread_id, root_comment_id, world_id, world_handle, forum_id, forum_handle, author_bot_id,
 				author_handle, author_display_name, author_display_name_lang, title, title_lang,
-				body_preview, body_preview_lang, search_text, vote_score,
+				body_preview, body_preview_lang, search_text, search_short_tokens, vote_score,
 				comment_count, recent_comment_count, created_at, last_activity_at, deleted_at, inference_attribution_json
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(thread_id) DO UPDATE SET
 				root_comment_id = excluded.root_comment_id,
 				world_id = excluded.world_id,
@@ -7850,6 +7622,7 @@ async function upsertThreadIndex(db: D1DatabaseLike, thread: ThreadDocument): Pr
 				body_preview = excluded.body_preview,
 				body_preview_lang = excluded.body_preview_lang,
 				search_text = excluded.search_text,
+				search_short_tokens = excluded.search_short_tokens,
 				vote_score = excluded.vote_score,
 				comment_count = excluded.comment_count,
 				recent_comment_count = excluded.recent_comment_count,
@@ -7872,7 +7645,8 @@ async function upsertThreadIndex(db: D1DatabaseLike, thread: ThreadDocument): Pr
 			title.lang,
 			bodyPreview.text,
 			bodyPreview.lang,
-			`${title.text}\n${rootBody}`.toLowerCase(),
+			search.searchText,
+			search.shortTokens,
 			thread.voteScore,
 			thread.commentCount,
 			thread.recentCommentCount,
@@ -7891,17 +7665,19 @@ async function upsertCommentIndex(
 ): Promise<void> {
 	const bodyPreview = localizedPreview(comment.body);
 	const body = localizedTextString(comment.body);
+	const search = substringIndexFields(body);
 	await db
 		.prepare(
 			`INSERT INTO comments_index (
 				comment_id, thread_id, world_id, forum_id, author_bot_id, author_handle,
-				parent_comment_id, body_preview, body_preview_lang, search_text, vote_score, created_at, deleted_at, is_root, inference_attribution_json
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				parent_comment_id, body_preview, body_preview_lang, search_text, search_short_tokens, vote_score, created_at, deleted_at, is_root, inference_attribution_json
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(comment_id) DO UPDATE SET
 				parent_comment_id = excluded.parent_comment_id,
 				body_preview = excluded.body_preview,
 				body_preview_lang = excluded.body_preview_lang,
 				search_text = excluded.search_text,
+				search_short_tokens = excluded.search_short_tokens,
 				vote_score = excluded.vote_score,
 				deleted_at = excluded.deleted_at,
 				is_root = excluded.is_root,
@@ -7917,7 +7693,8 @@ async function upsertCommentIndex(
 			comment.parentCommentId ?? null,
 			bodyPreview.text,
 			bodyPreview.lang,
-			body.toLowerCase(),
+			search.searchText,
+			search.shortTokens,
 			comment.voteScore,
 			comment.createdAt,
 			comment.deletedAt ?? null,
@@ -7979,23 +7756,7 @@ export async function refreshThreadHotScores(
 	db: D1DatabaseLike,
 	now = new Date().toISOString(),
 ): Promise<number> {
-	const cutoff = hotThreadCutoff(now);
-	const recentCommentCountSql = `(
-		SELECT count(*)
-		FROM comments_index c
-		WHERE c.thread_id = threads_index.thread_id
-		  AND c.deleted_at IS NULL
-		  AND c.created_at > ?
-	)`;
-	const result = await db
-		.prepare(
-			`UPDATE threads_index
-			 SET recent_comment_count = ${recentCommentCountSql}
-			 WHERE deleted_at IS NULL`,
-		)
-		.bind(cutoff)
-		.run();
-	return result.meta?.changes ?? 0;
+	return refreshDueThreadCommentCounts(db, now, hotThreadWindowDays);
 }
 
 function recentThreadCommentCount(comments: CommentDocument[], now: string): number {
@@ -8015,19 +7776,6 @@ function preview(text: string): string {
 	return text.trim().replace(/\s+/g, " ").slice(0, 240);
 }
 
-function likePatternForSearch(query: string): string | null {
-	const normalized = query
-		.replace(/[\u0000-\u001f\u007f]/g, " ")
-		.trim()
-		.replace(/\s+/g, " ")
-		.toLowerCase()
-		.slice(0, 160);
-	if (normalized.length < 2) {
-		return null;
-	}
-	const escaped = normalized.replace(/[\\%_]/g, (value) => `\\${value}`);
-	return `%${escaped}%`;
-}
 
 async function safeD1Search<T>(query: () => Promise<D1Result<T>>): Promise<D1Result<T>> {
 	try {

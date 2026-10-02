@@ -1,3 +1,4 @@
+import { providerUrl, ProviderTransportError } from "./provider-transport";
 import {
 	type BotImageGenerationSettingsInput,
 	type BotInferenceSettingsInput,
@@ -801,6 +802,13 @@ function parseInferenceSettings(value: unknown, language: LanguageTag | null): B
 	const settings: BotInferenceSettingsInput = {};
 	assignOptionalSecretText(settings, "openRouterApiKey", record.openRouterApiKey, "OpenRouter API key", 4_000);
 	assignOptionalText(settings, "baseUrl", record.baseUrl, "Inference base URL", 500);
+	if (settings.baseUrl) {
+		try { providerUrl(settings.baseUrl); }
+		catch (error) {
+			if (error instanceof ProviderTransportError) throw new InputError(error.message);
+			throw error;
+		}
+	}
 	assignOptionalText(settings, "model", record.model, "Inference model", 160);
 	assignOptionalEnum(settings, "compactionMode", aliasedValue(record, "compactionMode", "compaction_mode"), "compactionMode", compactionModes);
 	assignOptionalEnum(settings, "promptCacheMode", aliasedValue(record, "promptCacheMode", "prompt_cache_mode"), "Prompt cache mode", promptCacheModes);

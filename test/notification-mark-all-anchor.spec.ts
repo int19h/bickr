@@ -1,3 +1,4 @@
+import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
 import { beforeEach, describe, expect, it } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import {
@@ -31,6 +32,7 @@ const worldId = "wld_anchor";
 const botId = "bot_anchor";
 const tieAt = "2026-05-06T12:00:00.000Z";
 const afterAt = "2026-05-06T12:00:03.000Z";
+let worldRevision = 1;
 const readAt = "2026-05-06T12:00:09.000Z";
 
 /** Sorts above every id below it; the anchor in the tie case. */
@@ -65,6 +67,15 @@ async function insertNotification(
  * backs it, so the claim goes in first.
  */
 async function insertOwnedBot(): Promise<void> {
+	await testEnv.BICKR_D1.batch([
+		testEnv.BICKR_D1.prepare(`INSERT INTO entity_lifecycle_identity_claims (key_kind,key_scope,key_value,entity_kind,entity_id,owner_user_id,claim_state,created_at,updated_at)
+			VALUES ('user_handle','global','anchor-user','account',?,?,'active',?,?)`).bind(userId,userId,tieAt,tieAt),
+		testEnv.BICKR_D1.prepare(`INSERT INTO users_index (user_id,handle,display_name,created_at,updated_at) VALUES (?,'anchor-user','Anchor User',?,?)`).bind(userId,tieAt,tieAt),
+		testEnv.BICKR_D1.prepare(`INSERT INTO entity_lifecycle_identity_claims (key_kind,key_scope,key_value,entity_kind,entity_id,owner_user_id,claim_state,created_at,updated_at)
+			VALUES ('world_handle','global','anchor-world','world',?,'usr_editor','active',?,?)`).bind(worldId,tieAt,tieAt),
+		testEnv.BICKR_D1.prepare(`INSERT INTO worlds_index (world_id,handle,name,description,created_by_user_id,visibility,created_at,updated_at)
+			VALUES (?,'anchor-world','Anchor World','','usr_editor','public',?,?)`).bind(worldId,tieAt,tieAt),
+	]);
 	await testEnv.BICKR_D1
 		.prepare(
 			`INSERT INTO entity_lifecycle_identity_claims (
@@ -114,10 +125,11 @@ function world(name: string): WorldDocument {
 async function recordSettingsChange(now: string, name: string): Promise<void> {
 	await recordWorldSettingsChangedHumanNotifications(db(), {
 		previous: world("Anchor World"),
-		updated: world(name),
+		updated: { ...world(name), revision: ++worldRevision },
 		editorUserId: "usr_editor",
 		now,
 	});
+	await runHumanNotificationFanout(db(), now);
 }
 
 async function unreadIds(): Promise<string[]> {
@@ -187,7 +199,16 @@ function dbWithWriteBetweenStatements(between: () => Promise<void>): D1DatabaseL
 
 describe("mark-all never reaches a notification that arrived after the gesture", () => {
 	beforeEach(async () => {
+		worldRevision = 1;
 		await resetD1Schema(testEnv.BICKR_D1);
+	});
+
+	it("keeps the latest world revision when two changes share one timestamp", async () => {
+		await insertOwnedBot();
+		await recordSettingsChange(tieAt, "First title");
+		await recordSettingsChange(tieAt, "Second title");
+		expect(await testEnv.BICKR_D1.prepare("SELECT title FROM human_notifications").all()).toMatchObject({ results: [{ title: "Second title settings changed" }] });
+		expect(await testEnv.BICKR_D1.prepare("SELECT COUNT(*) AS count FROM human_notification_fanout").first()).toEqual({ count: 2 });
 	});
 
 	it("leaves a row written after the anchor in the anchor's millisecond unread, id order notwithstanding", async () => {

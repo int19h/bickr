@@ -1,0 +1,3 @@
+# Public placeholder for local development only.
+# Keep this value the same in the Pages and both Worker .dev.vars files.
+INTERNAL_SERVICE_SECRET=dev-internal-service-secret

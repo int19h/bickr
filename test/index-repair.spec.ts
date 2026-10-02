@@ -1,3 +1,5 @@
+import { softDeleteThread, readThread } from "@bickr/shared/social";
+import { repairOwnedObjectIndex } from "@bickr/shared/index-repair";
 import {
 	authCookie,
 	createBotForTest,
@@ -14,12 +16,61 @@ import {
 } from "./helpers/index-harness";
 import {
 	objectIndexRepairMaxRepairsPerRun,
-	repairObjectIndexes,
+	repairObjectIndexes as runRepairObjectIndexes,
+	type ObjectIndexRepairOwnerEnv,
 } from "@bickr/shared/index-repair";
 import { entityIndexVersions } from "@bickr/shared/index-versions";
 import { schemaVersion } from "@bickr/shared/model";
 
 describe("KV-to-index repair sweep", () => {
+	it("never replaces a hidden lifecycle projection with a live KV snapshot", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "hidden-repair");
+		const bot = await createBotForTest(cookie, "hidden-repair-author");
+		const thread = await createThreadForTest(forum.id, bot.id, "Hidden", "Body");
+		const world = await testEnv.BICKR_D1.prepare(`SELECT world_id AS id, created_by_user_id AS owner FROM worlds_index WHERE handle = 'patch-notes'`).first<{ id: string; owner: string }>();
+		const env = { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV };
+		for (const [entityType, table, column, id, hasLifecycle] of [
+			["forum", "forums_index", "forum_id", forum.id, false],
+			["thread", "threads_index", "thread_id", thread.id, false],
+			["bot", "bots_index", "bot_id", bot.id, true],
+			["world", "worlds_index", "world_id", world!.id, true],
+			["user", "users_index", "user_id", world!.owner, true],
+		] as const) {
+			await testEnv.BICKR_D1.prepare(`UPDATE objects_index SET index_version = 0 WHERE object_id = ?`).bind(id).run();
+			for (const state of hasLifecycle ? ["pending", "deleting", "deleted"] : ["deleted"]) {
+				if (hasLifecycle) await testEnv.BICKR_D1.prepare(`UPDATE entity_lifecycle_identity_claims SET claim_state = ?, operation_id = CASE WHEN ? = 'pending' THEN (SELECT operation_id FROM entity_lifecycle_operations WHERE entity_id = ? LIMIT 1) ELSE NULL END WHERE entity_id = ?`).bind(state === "pending" ? "pending" : "active", state, id, id).run();
+				await testEnv.BICKR_D1.prepare(`UPDATE ${table} SET deleted_at = ? ${hasLifecycle ? ", lifecycle_state = ?" : ""} WHERE ${column} = ?`)
+					.bind(state === "deleted" ? "2026-01-01T00:00:00Z" : null, ...(hasLifecycle ? [state === "deleted" ? "deleting" : state] : []), id).run();
+				expect(await repairOwnedObjectIndex(env, { entityType, id })).toEqual({ kind: "unchanged" });
+				expect(await testEnv.BICKR_D1.prepare(`SELECT deleted_at AS deletedAt ${hasLifecycle ? ", lifecycle_state AS state" : ""} FROM ${table} WHERE ${column} = ?`).bind(id).first())
+					.toEqual({ deletedAt: state === "deleted" ? "2026-01-01T00:00:00Z" : null, ...(hasLifecycle ? { state: state === "deleted" ? "deleting" : state } : {}) });
+			}
+		}
+	});
+
+	it("rereads under the owner after a mutation overtakes the discovery snapshot", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, "repair-race");
+		const author = await createBotForTest(cookie, "repair-race-author");
+		const thread = await createThreadForTest(forum.id, author.id, "Race", "Original body");
+		await testEnv.BICKR_D1.prepare(`UPDATE objects_index SET index_version = 0 WHERE object_id = ?`).bind(thread.id).run();
+		const ownerEnv = { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV };
+		let routed = 0;
+		await runRepairObjectIndexes({ ...ownerEnv, repairOwnedObject: async (request) => {
+			if (request.id === thread.id) {
+				routed += 1;
+				await softDeleteThread(testEnv.BICKR_KV, testEnv.BICKR_D1, await readThread(testEnv.BICKR_KV, thread.id));
+			}
+			return repairOwnedObjectIndex(ownerEnv, request);
+		} });
+		expect(routed).toBe(1);
+		expect((await testEnv.BICKR_KV.get<{ deletedAt?: string }>(kvKeys.thread(thread.id), { type: "json" }))?.deletedAt).toBeTruthy();
+		expect((await testEnv.BICKR_D1.prepare(`SELECT deleted_at AS deletedAt FROM threads_index WHERE thread_id = ?`).bind(thread.id).first<{ deletedAt: string }>())?.deletedAt).toBeTruthy();
+	});
+
 	it("restores a stale thread projection from its newer KV document", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
@@ -281,4 +332,9 @@ async function seedDriftedUserObjects(count: number): Promise<string[]> {
 		));
 	}
 	return ids;
+}
+
+// These isolated tests provide the single-writer boundary directly.
+function repairObjectIndexes(env: ObjectIndexRepairOwnerEnv, options?: Parameters<typeof runRepairObjectIndexes>[1]) {
+	return runRepairObjectIndexes({ ...env, repairOwnedObject: (request) => repairOwnedObjectIndex(env, request) }, options);
 }

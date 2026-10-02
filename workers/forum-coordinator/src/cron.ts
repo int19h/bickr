@@ -1,7 +1,7 @@
 /**
  * The forum-coordinator Worker's cron triggers.
  *
- * Two schedules with different jobs share one `scheduled` handler, so the
+ * Three schedules with different jobs share one `scheduled` handler, so the
  * handler has to know which trigger fired. These expressions are the contract
  * with `wrangler.jsonc` (every environment), `wrangler.deploy.jsonc` and
  * `wrangler.recreate-test.jsonc`; the cron test asserts each declared trigger
@@ -13,25 +13,25 @@
 export const forumCoordinatorDailyCronExpression = "0 0 * * *";
 
 /**
- * The notification prune, on its own trigger (design doc §2.3). It is capped at
- * 8k rows per invocation because each row costs a KV delete subrequest, and the
- * daily run's remaining work already claims most of one invocation's budget.
- * Four invocations a day give it 32k rows/day of capacity — comfortably above
- * the 5-10k rows/day of undelivered expiry the redesign leaves behind — each
- * with a subrequest budget of its own.
+ * Each prune has its own 8k-row subrequest budget. Running every five minutes
+ * gives expiry a fixed share of capacity even while orphan cleanup is busy.
+ * The one-minute offset separates it from the recovery queue's schedule.
  */
-export const forumCoordinatorNotificationPruneCronExpression = "0 */6 * * *";
+export const forumCoordinatorNotificationPruneCronExpression = "1-59/5 * * * *";
 
-export type ForumCoordinatorCronTaskSet = "daily" | "notification_prune";
+/** Bounded recovery of persisted work whose original invocation was lost. */
+export const forumCoordinatorRecoveryCronExpression = "*/5 * * * *";
+
+export type ForumCoordinatorCronTaskSet = "daily" | "notification_prune" | "recovery";
 
 /**
- * Both expressions fire at midnight, which is fine: cron triggers are delivered
- * as separate invocations with separate budgets, and the two task sets share no
- * work.
+ * Cloudflare delivers each trigger as a separate invocation with its own
+ * budget. The task map keeps maintenance work attached to its intended budget.
  */
 export const forumCoordinatorCronTaskSets = {
 	[forumCoordinatorDailyCronExpression]: "daily",
 	[forumCoordinatorNotificationPruneCronExpression]: "notification_prune",
+	[forumCoordinatorRecoveryCronExpression]: "recovery",
 } as const satisfies Record<string, ForumCoordinatorCronTaskSet>;
 
 export type ForumCoordinatorCronExpression = keyof typeof forumCoordinatorCronTaskSets;

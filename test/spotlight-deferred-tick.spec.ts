@@ -18,9 +18,11 @@ import {
 	runtimeEvent,
 	seedWorld,
 	testEnv,
+	testAppendLoopMessageGroup,
 	type BotRuntimeEvent,
 	type SpotlightSyntheticContext,
 } from "./helpers/index-harness";
+import type { RuntimeStorageRetentionResult } from "../workers/agent-runtime/src/types";
 
 /**
  * The deferred spotlight visit.
@@ -41,7 +43,7 @@ type SimulatedRun = {
 
 type DeferredHarness = {
 	fetch(request: Request): Promise<Response>;
-	sql: ReturnType<typeof memoryRuntimeSql>;
+	sql: Pick<ReturnType<typeof memoryRuntimeSql>, "injections">;
 	events: BotRuntimeEvent[];
 	runs: SimulatedRun[];
 	settle(): Promise<void>;
@@ -61,7 +63,17 @@ function spotlightContext(threadId: string, rootCommentId: string): SpotlightSyn
 }
 
 function deferredHarness(): DeferredHarness {
-	const sql = memoryRuntimeSql();
+	const storedSql = memoryRuntimeSql();
+	let changes = 0;
+	const sql = { ...storedSql, exec<T>(query: string, ...params: unknown[]) {
+		if (query === 'SELECT changes() AS count') {
+			return { one: () => ({ count: changes } as T), toArray: () => [{ count: changes } as T] };
+		}
+		if (query.startsWith('UPDATE injections SET consumed_at')) {
+			changes = storedSql.injections().some(row => row.id === params[1] && row.consumedAt === null) ? 1 : 0;
+		}
+		return storedSql.exec<T>(query, ...params);
+	} };
 	const events: BotRuntimeEvent[] = [];
 	const runs: SimulatedRun[] = [];
 	const background: Array<Promise<unknown>> = [];
@@ -80,6 +92,7 @@ function deferredHarness(): DeferredHarness {
 			FORUM_COORDINATOR_SERVICE: {
 				fetch: async (request: Request) =>
 					handleForumCoordinatorRequest(request, {
+						INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
 						BICKR_D1: testEnv.BICKR_D1,
 						BICKR_KV: testEnv.BICKR_KV,
 					}),
@@ -108,7 +121,8 @@ function deferredHarness(): DeferredHarness {
 			tokenEstimate: 0,
 			createdAt: new Date().toISOString(),
 		}),
-		buildMessages: async () => Object.assign([], { deliveredNotificationIds: new Set<string>() }),
+		appendLoopMessageGroup: testAppendLoopMessageGroup,
+		notes: { read: () => null },
 		// What the participant says is another subsystem's subject. Standing in
 		// for the loop here keeps these tests about which visit reads which
 		// injection, and keeps two visits of the same thread from colliding in
@@ -136,7 +150,11 @@ function deferredHarness(): DeferredHarness {
 		compactIfNeeded: async () => {},
 		currentIterationStartedSinceLastLogOff: () => true,
 		exportRecentProviderUsage: async () => {},
-		pruneRuntimeStorageAfterTick: () => {},
+		pruneRuntimeStorageAfterTick: (): RuntimeStorageRetentionResult => ({
+			events: 0, providerUsage: 0,
+			loopMessages: { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0, pendingMore: false },
+			injections: { deletedInjections: 0, droppedQueueEntries: 0 },
+		}),
 		readCommentTreeTokenBudget: async () => 10_000,
 	}) as unknown as { fetch(request: Request): Promise<Response> };
 	attachTestRunLiveness(runtime);

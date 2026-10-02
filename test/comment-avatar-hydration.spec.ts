@@ -146,7 +146,7 @@ async function coordinatorThreadDocument(threadId: string): Promise<ServedThread
 
 async function mcpAccessToken(userId: string): Promise<string> {
 	const now = new Date();
-	const client = await registerMcpClient(testEnv.BICKR_KV, {
+	const client = await registerMcpClient(testEnv.BICKR_D1, {
 		clientName: "Avatar hydration client",
 		redirectUris: ["http://localhost:5173/callback"],
 	}, now);
@@ -157,7 +157,7 @@ async function mcpAccessToken(userId: string): Promise<string> {
 		.replace(/\+/g, "-")
 		.replace(/\//g, "_")
 		.replace(/=+$/, "");
-	const issued = await createMcpAuthorizationCode(testEnv.BICKR_KV, {
+	const issued = await createMcpAuthorizationCode(testEnv.BICKR_D1, {
 		clientId: client.id,
 		redirectUri: "http://localhost:5173/callback",
 		resource: "https://bickr.social/mcp",
@@ -166,7 +166,7 @@ async function mcpAccessToken(userId: string): Promise<string> {
 		codeChallenge,
 		codeChallengeMethod: "S256",
 	}, now);
-	const tokens = await exchangeMcpAuthorizationCode(testEnv.BICKR_KV, {
+	const tokens = await exchangeMcpAuthorizationCode(testEnv.BICKR_D1, {
 		code: issued.code,
 		clientId: client.id,
 		redirectUri: "http://localhost:5173/callback",

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { botInferenceUsageRetentionDays } from "@bickr/shared/token-spend";
-import { BotRuntime, dispatchDueBots } from "../workers/agent-runtime/src/index";
+import { BotRuntime } from "../workers/agent-runtime/src/runtime/bot-runtime";
+import { dispatchDueBots } from "../workers/agent-runtime/src/runtime/scheduler";
 import type { RuntimeStorageRetentionResult } from "../workers/agent-runtime/src/types";
 
 type RuntimeEventFixtureRow = {
@@ -106,10 +107,6 @@ function runtimeHousekeepingSql(input: {
 					.sort((left, right) => right.seq - left.seq)
 					.slice(0, 100));
 			}
-			if (/FROM events WHERE seq > \? AND type = 'input' LIMIT 1/.test(normalized)) {
-				const afterSeq = Number(params[0]);
-				return rows<T>(events.some((row) => row.seq > afterSeq && row.type === "input") ? [{ found: 1 }] : []);
-			}
 			if (/FROM events WHERE seq > \? AND type = 'tool_result' ORDER BY seq ASC/.test(normalized)) {
 				const afterSeq = Number(params[0]);
 				return rows<T>(events
@@ -138,7 +135,7 @@ function runtimeHousekeepingSql(input: {
 				return rows<T>([{ tokens }]);
 			}
 			if (/^DELETE FROM events WHERE created_at < \? AND run_id != \? AND seq < \?$/.test(normalized)) {
-				const [cutoff, activeRunId, beforeSeq] = [String(params[0]), String(params[1]), Number(params[2])];
+				const [cutoff, activeRunId, beforeSeq] = [String(params[0]), String(params[1]), Number(params.at(-1))];
 				const retained = events.filter((row) => !(row.created_at < cutoff && row.run_id !== activeRunId && row.seq < beforeSeq));
 				changes = events.length - retained.length;
 				events.splice(0, events.length, ...retained);
@@ -257,7 +254,9 @@ describe("runtime housekeeping", () => {
 			{ id: 3, run_id: "run-after", request_seq: 10, completion_tokens: 200, created_at: "2026-07-01T00:00:00.000Z" },
 		];
 		const expected = legacyCounters({ events, inferenceSubmissions, providerUsage });
-		const lazySql = runtimeHousekeepingSql({ events, inferenceSubmissions, providerUsage });
+		// This fixture represents successful input preparation. Audit input
+		// events alone no longer establish that the iteration has started.
+		const lazySql = runtimeHousekeepingSql({ events, inferenceSubmissions, providerUsage, runtimeState: { last_committed_input_seq_v1: 9 } });
 
 		expect(cursorCounters(runtimeForSql(lazySql))).toEqual(expected);
 		expect(lazySql.runtimeStateValue("last_log_off_seq")).toMatchObject({ seq: expected.lastLogOffSeq, source: "lazy_backfill" });
@@ -267,7 +266,7 @@ describe("runtime housekeeping", () => {
 			events,
 			inferenceSubmissions,
 			providerUsage,
-			runtimeState: { last_log_off_seq: { seq: expected.lastLogOffSeq, source: "tool_result", updatedAt: "2026-07-01T00:00:00.000Z" } },
+			runtimeState: { last_committed_input_seq_v1: 9, last_log_off_seq: { seq: expected.lastLogOffSeq, source: "tool_result", updatedAt: "2026-07-01T00:00:00.000Z" } },
 		});
 		expect(cursorCounters(runtimeForSql(cursorSql))).toEqual(expected);
 		expect(cursorSql.backfillScans()).toBe(0);
@@ -351,10 +350,10 @@ describe("runtime housekeeping", () => {
 							prepareCalls.push({ sql, params });
 							return {
 								async all<T>() {
-									const limit = Number(params[2]);
+									const limit = Number(params.at(-1));
 									return {
 										success: true,
-										results: botIds.splice(0, limit).map((botId) => ({ botId }) as T),
+										results: botIds.splice(0, limit).map((botId) => ({ botId, nextDueAt: "2026-07-10T00:00:00.000Z" }) as T),
 									};
 								},
 							};
@@ -385,6 +384,6 @@ describe("runtime housekeeping", () => {
 		expect(started).toHaveLength(25);
 		expect(prepareCalls).toHaveLength(2);
 		expect(prepareCalls[0]?.sql).toContain("ORDER BY runtime.next_due_at ASC");
-		expect(prepareCalls.map((call) => call.params[2])).toEqual([20, 5]);
+		expect(prepareCalls.map((call) => call.params.at(-1))).toEqual([20, 5]);
 	});
 });

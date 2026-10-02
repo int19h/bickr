@@ -1985,14 +1985,20 @@ function App() {
 		}
 	}
 
+	function clearAuthenticatedState(): void {
+		setSession({ authenticated: false, user: null });
+		setUserProfile(null);
+		setBots([]);
+		setBotsByWorld({});
+		setCreateBotWorldHandle(null);
+		navigate({ route: "worlds" });
+	}
+
 	async function logout(): Promise<void> {
 		await submit(async () => {
-			await api("/api/auth/logout", { method: "POST" });
-			setSession({ authenticated: false, user: null });
-			setBots([]);
-			setBotsByWorld({});
-			setCreateBotWorldHandle(null);
-			navigate({ route: "worlds" });
+			const result = await api("/api/auth/logout", { method: "POST" });
+			if (!result.ok) throw new Error(result.message);
+			clearAuthenticatedState();
 			return "Signed out.";
 		});
 	}
@@ -2396,6 +2402,7 @@ function App() {
 								onOpenAvatarGeneration={() => navigate({ route: "profile-avatar" })}
 								onSave={updateProfile}
 								onSignOut={() => void logout()}
+								onSessionRevoked={clearAuthenticatedState}
 								user={currentUser}
 							/>
 						:	<LoginScreen embedded status="Sign in to edit your profile." />

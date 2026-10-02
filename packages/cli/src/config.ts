@@ -1,5 +1,6 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { homedir, platform } from "node:os";
 
 export const defaultHost = "https://bickr.social";
@@ -39,8 +40,7 @@ export async function saveToken(host: string, token: string, env: NodeJS.Process
 			[normalizedHost]: { token, createdAt: new Date().toISOString() },
 		},
 	};
-	await mkdir(dirname(configPath), { recursive: true, mode: 0o700 });
-	await writeFile(configPath, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+	await writeConfig(configPath, next);
 }
 
 export async function deleteToken(host: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
@@ -56,8 +56,7 @@ export async function deleteToken(host: string, env: NodeJS.ProcessEnv = process
 	if (Object.keys(tokens).length === 0) {
 		delete next.tokens;
 	}
-	await mkdir(dirname(configPath), { recursive: true, mode: 0o700 });
-	await writeFile(configPath, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+	await writeConfig(configPath, next);
 }
 
 export async function clearConfig(env: NodeJS.ProcessEnv = process.env): Promise<void> {
@@ -102,5 +101,21 @@ async function loadConfig(configPath: string): Promise<CliConfig> {
 			return {};
 		}
 		throw error;
+	}
+}
+
+/** A private replacement also tightens permissions on an existing public file. */
+async function writeConfig(configPath: string, config: CliConfig): Promise<void> {
+	await mkdir(dirname(configPath), { recursive: true, mode: 0o700 });
+	const temporaryPath = `${configPath}.${randomUUID()}.tmp`;
+	const file = await open(temporaryPath, "wx", 0o600);
+	try {
+		await file.writeFile(`${JSON.stringify(config, null, 2)}\n`);
+		await file.sync();
+		await file.close();
+		await rename(temporaryPath, configPath);
+	} finally {
+		await file.close();
+		await rm(temporaryPath, { force: true });
 	}
 }

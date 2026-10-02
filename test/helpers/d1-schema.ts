@@ -1,3 +1,11 @@
+import migration0066 from "../../migrations/0066_forum_creation_intents.sql?raw";
+import migration0065 from "../../migrations/0065_bot_notification_fanout.sql?raw";
+import migration0064 from "../../migrations/0064_human_notification_fanout.sql?raw";
+import migration0063 from "../../migrations/0063_avatar_janitor_epochs.sql?raw";
+import migration0062 from "../../migrations/0062_thread_mutation_recovery.sql?raw";
+import migration0061 from "../../migrations/0061_thread_search_and_hot_refresh.sql?raw";
+import migration0060 from "../../migrations/0060_governance_deletion_intents.sql?raw";
+import migration0059 from "../../migrations/0059_auth_state.sql?raw";
 import migration0058 from "../../migrations/0058_artifact_inference_attribution.sql?raw";
 import migration0057 from "../../migrations/0057_discord_invite_dismissals.sql?raw";
 import migration0056 from '../../migrations/0056_runtime_admission_fence.sql?raw';
@@ -118,6 +126,14 @@ const migrationSql = [
 	migration0056,
 	migration0057,
 	migration0058,
+	migration0059,
+	migration0060,
+	migration0061,
+	migration0062,
+	migration0063,
+	migration0064,
+	migration0065,
+	migration0066,
 ];
 
 type D1SchemaRow = {

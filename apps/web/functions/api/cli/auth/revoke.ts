@@ -12,7 +12,7 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 		if (auth.kind !== "bearer") {
 			return fail("bad_request", "Current request is not authenticated with a CLI token.", 400);
 		}
-		await deleteCliToken(env.BICKR_KV, auth.token);
+		await deleteCliToken(env.BICKR_KV, env.BICKR_D1, auth.token);
 		return ok({ revoked: true });
 	} catch (error) {
 		return pageErrorResponse(error);

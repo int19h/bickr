@@ -33,7 +33,7 @@ export function isTrustedInternalServiceRequest(request: Request, secret: string
 	}
 	if (!hasConfiguredInternalServiceSecret(secret)) {
 		warnMissingInternalServiceSecret();
-		return true;
+		return false;
 	}
 	return request.headers.get(internalServiceAuthHeader) === secret;
 }
@@ -48,7 +48,7 @@ function warnMissingInternalServiceSecret(): void {
 	}
 	warnedMissingInternalServiceSecret = true;
 	console.warn(
-		"Bickr internal-service auth is not configured; trusting internal.bickr by hostname only. " +
+		"Bickr internal-service auth is not configured; rejecting internal.bickr requests. " +
 			"Set INTERNAL_SERVICE_SECRET on every internal service sender and receiver.",
 	);
 }

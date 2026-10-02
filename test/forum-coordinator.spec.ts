@@ -1,3 +1,4 @@
+import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
 import { attachTestRunLiveness } from "./helpers/index-harness";
 import {
 	authCookie,
@@ -840,6 +841,7 @@ describe("Forum coordinator", () => {
 		expect(activeBot?.lastActiveAt).toBeDefined();
 		expect(Date.parse(activeBot?.lastActiveAt ?? "")).toBeGreaterThanOrEqual(Date.parse(activeBot?.createdAt ?? ""));
 
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
 		const humanNotifications = await testEnv.BICKR_D1.prepare(
 			`SELECT notification_type AS notificationType, title, body, url_path AS urlPath
 			 FROM human_notifications
@@ -1925,7 +1927,7 @@ describe("Forum coordinator", () => {
 		]);
 	});
 
-	it("serves recent thread writes from the coordinator cache until the freshness window expires", async () => {
+	it("keeps canonical thread writes after the old cache freshness window expires", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "fresh-cache");
@@ -2006,7 +2008,7 @@ describe("Forum coordinator", () => {
 			context,
 	);
 	const expiredPayload = (await expiredRead.json()) as { data: { thread: { comments: unknown[] } } };
-	expect(expiredPayload.data.thread.comments).toHaveLength(1);
+	expect(expiredPayload.data.thread.comments).toHaveLength(3);
 });
 
 	it("serializes concurrent replies to the same comment through the coordinator queue", async () => {
@@ -3297,6 +3299,7 @@ describe("Forum coordinator", () => {
 				}),
 			]),
 		);
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
 		const humanUnfollow = await testEnv.BICKR_D1.prepare(
 			`SELECT body, url_path AS urlPath
 			 FROM human_notifications
@@ -3791,7 +3794,6 @@ describe("Forum coordinator", () => {
 				buildMessages: async () => messages,
 				clearStopRequest: () => {},
 				compactIfNeeded: async () => {},
-				consumeInjections: () => [contextText],
 				effectiveProviderSettings: () => ({
 					apiKey: "test-key",
 					baseUrl: "https://openrouter.ai/api/v1",
@@ -3809,6 +3811,10 @@ describe("Forum coordinator", () => {
 				},
 			});
 			attachTestRunLiveness(runtime);
+			runtime.state.storage.sql.exec(
+				'INSERT INTO injections (id,text,kind,source_id,spotlight_id,created_at) VALUES (?,?,?,?,?,?)',
+				`inj-${spotlightId}`, contextText, 'spotlight', null, spotlightId, new Date().toISOString(),
+			);
 			const runTick = (BotRuntime.prototype as unknown as {
 				runTick: (
 					botId: string,

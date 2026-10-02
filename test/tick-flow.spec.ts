@@ -63,6 +63,14 @@ import type {
 import { TickStoppedError } from "../workers/agent-runtime/src/errors";
 import { claimRuntimeRun } from "../workers/agent-runtime/src/runtime/bot-runtime";
 
+// These prompt tests use explicit message writers to observe published messages.
+// Supply runtime storage for the input commit marker.
+function attachInputHistoryStorage(runtime: object): void {
+	if (!Object.hasOwn(runtime, 'state')) {
+		Object.assign(runtime, { state: { storage: { sql: memoryRuntimeSql() } } });
+	}
+}
+
 type TerminalRaceMethods = {
 	renewProgressLease(botId: string, runId: string, signal: AbortSignal): Promise<void>;
 	finalizeRun(runId: string, type: 'tick_completed', payload: Record<string, unknown>): Promise<boolean>;
@@ -680,67 +688,6 @@ describe("Tick flow", () => {
 		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 1 })).toContain("use Bickr controls to browse");
 	});
 
-	it("detects whether a new tick is continuing the iteration after the last logoff", () => {
-		function started(rows: Array<{ seq: number; type: BotRuntimeEvent["type"]; payload: unknown }>): boolean {
-			const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
-				state: {
-					storage: {
-						sql: {
-							exec<T>(sql: string, ...params: unknown[]) {
-								if (/SELECT value_json FROM runtime_state WHERE key = \?/.test(sql)) {
-									return { toArray: () => [] };
-								}
-								if (/INSERT INTO runtime_state/.test(sql)) {
-									return { toArray: () => [] };
-								}
-								if (/WHERE type = 'tool_result'/s.test(sql)) {
-									return {
-										toArray: () => rows
-											.filter((row) => row.type === "tool_result")
-											.sort((left, right) => right.seq - left.seq)
-											.slice(0, 20)
-											.map((row) => ({
-												seq: row.seq,
-												run_id: `run-${row.seq}`,
-												type: row.type,
-												payload_json: JSON.stringify(row.payload),
-												token_estimate: 0,
-												created_at: "2026-05-01T00:00:00.000Z",
-												compacted_by: null,
-											} as T)),
-									};
-								}
-								if (/type = 'input'/s.test(sql)) {
-									const afterSeq = Number(params[0]);
-									return {
-										toArray: () => rows.some((row) => row.seq > afterSeq && row.type === "input") ? [{ found: 1 } as T] : [],
-									};
-								}
-								return { toArray: () => [] };
-							},
-						},
-					},
-				},
-			}));
-			return (BotRuntime.prototype as unknown as { currentIterationStartedSinceLastLogOff: () => boolean })
-				.currentIterationStartedSinceLastLogOff
-				.bind(runtime)();
-		}
-
-		expect(started([{ seq: 1, type: "input", payload: { notifications: [] } }])).toBe(true);
-		expect(started([
-			{ seq: 1, type: "input", payload: { notifications: [] } },
-			{ seq: 2, type: "tool_result", payload: { name: "log_off", result: { ok: true } } },
-			{ seq: 3, type: "tick_completed", payload: {} },
-		])).toBe(false);
-		expect(started([
-			{ seq: 1, type: "input", payload: { notifications: [] } },
-			{ seq: 2, type: "tool_result", payload: { name: "log_off", result: { ok: true } } },
-			{ seq: 3, type: "tick_completed", payload: {} },
-			{ seq: 4, type: "input", payload: { spotlightContexts: [{}] } },
-		])).toBe(true);
-	});
-
 	it("replays compacted ledger continuity transparently in future provider chats", async () => {
 		const ledgerMessages: Array<{ role: string; content?: string | null }> = [
 			{ role: "assistant", content: "I remember that I promised Müller I would follow up on release notes." },
@@ -772,12 +719,13 @@ describe("Tick flow", () => {
 			activeLoopMessageRows: () => [],
 			profileUsernamesInActiveContext: () => new Set<string>(),
 		}));
+		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
 				bot: Parameters<typeof standardPrompt>[0] & Record<string, unknown>,
 				input: Record<string, unknown>,
 				runId: string,
-				inputCreatedAt: string,
+				inputEvent: { seq: number; createdAt: string },
 			) => Promise<Array<{ role: string; content?: string | null }>>;
 		}).buildMessages.bind(runtime);
 
@@ -797,7 +745,7 @@ describe("Tick flow", () => {
 				ping: true,
 			} as Record<string, unknown>,
 			"run-current",
-			"2026-05-01T00:15:00.000Z",
+			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 		);
 
 		expect(messages[0]).toEqual({ role: "assistant", content: "I remember that I promised Müller I would follow up on release notes." });
@@ -832,12 +780,13 @@ describe("Tick flow", () => {
 			activeLoopMessageRows: () => [],
 			profileUsernamesInActiveContext: () => new Set<string>(),
 		}));
+		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
 				bot: Parameters<typeof standardPrompt>[0] & Record<string, unknown>,
 				input: Record<string, unknown>,
 				runId: string,
-				inputCreatedAt: string,
+				inputEvent: { seq: number; createdAt: string },
 			) => Promise<Array<{ role: string; content?: string | null }>>;
 		}).buildMessages.bind(runtime);
 
@@ -857,7 +806,7 @@ describe("Tick flow", () => {
 				ping: false,
 			} as Record<string, unknown>,
 			"run-no-recurring",
-			"2026-05-01T00:15:00.000Z",
+			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 		);
 
 		expect(messages.some((message) => message.content === defaultReasoningPrefill("release-sage"))).toBe(false);
@@ -904,12 +853,13 @@ describe("Tick flow", () => {
 			activeLoopMessageRows: () => [],
 			profileUsernamesInActiveContext: () => new Set<string>(),
 		}));
+		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
 				bot: Parameters<typeof standardPrompt>[0] & { worldRecurringPrompt?: string },
 				input: Record<string, unknown>,
 				runId: string,
-				inputCreatedAt: string,
+				inputEvent: { seq: number; createdAt: string },
 			) => Promise<Array<{ role: string; content?: string | null }>>;
 		}).buildMessages.bind(runtime);
 		const combined = "I remember that this world values primary sources.\n\nI should inspect the release notes.  ";
@@ -926,7 +876,7 @@ describe("Tick flow", () => {
 			} as Parameters<typeof standardPrompt>[0] & { worldRecurringPrompt: string },
 			{ notifications: [], injections: [], spotlightContexts: [], ping: false },
 			"run-world-recurring",
-			"2026-05-01T00:15:00.000Z",
+			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 		);
 
 		expect(messages.filter((message) => message.content === combined)).toEqual([
@@ -996,12 +946,13 @@ describe("Tick flow", () => {
 			activeLoopMessageRows: () => [],
 			profileUsernamesInActiveContext: () => new Set<string>(),
 		}));
+		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
 				bot: Parameters<typeof standardPrompt>[0] & Record<string, unknown>,
 				input: Record<string, unknown>,
 				runId: string,
-				inputCreatedAt: string,
+				inputEvent: { seq: number; createdAt: string },
 				options?: { setupMode?: "new_iteration" | "continuation" | "spotlight" },
 			) => Promise<Array<{ role: string; content?: string | null }>>;
 		}).buildMessages.bind(runtime);
@@ -1024,7 +975,7 @@ describe("Tick flow", () => {
 				toolUseReminder: "Use Bickr controls directly.",
 			} as Record<string, unknown>,
 			"run-continuation",
-			"2026-05-01T00:15:00.000Z",
+			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 			{ setupMode: "continuation" },
 		);
 
@@ -1105,19 +1056,20 @@ describe("Tick flow", () => {
 				activeLoopMessagesForProvider: () => messages,
 				activeLoopMessageRows: () => activeRows,
 			}));
+			attachInputHistoryStorage(runtime);
 			const buildMessages = (BotRuntime.prototype as unknown as {
 				buildMessages: (
 					bot: BotDocument & { worldRecurringPrompt?: string },
 					input: Record<string, unknown>,
 					runId: string,
-					inputCreatedAt: string,
+					inputEvent: { seq: number; createdAt: string },
 				) => Promise<Array<Record<string, unknown>>>;
 			}).buildMessages.bind(runtime);
 			return buildMessages(
 				{ ...bot, toolSettings: { bickrNotes: { enabled: notesEnabled } } },
 				{ notifications: [notification], injections: [], spotlightContexts: [], ping: false },
 				"run-profile-context",
-				"2026-05-01T00:15:00.000Z",
+				{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 			);
 		}
 
@@ -1295,12 +1247,13 @@ describe("Tick flow", () => {
 			activeLoopMessagesForProvider: () => messages,
 			activeLoopMessageRows: () => activeRows,
 		}));
+		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
 				bot: BotDocument,
 				input: Record<string, unknown>,
 				runId: string,
-				inputCreatedAt: string,
+				inputEvent: { seq: number; createdAt: string },
 				options?: { setupMode?: "new_iteration" | "continuation" | "spotlight" },
 			) => Promise<Array<Record<string, unknown>>>;
 		}).buildMessages.bind(runtime);
@@ -1308,7 +1261,7 @@ describe("Tick flow", () => {
 			bot,
 			{ notifications, injections: [], spotlightContexts: [], ping: false },
 			"run-notification-dedupe",
-			"2026-05-01T00:15:00.000Z",
+			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 		);
 		const checkNotificationsResult = built
 			.filter((message) => message.role === "tool")
@@ -1359,12 +1312,13 @@ describe("Tick flow", () => {
 			activeLoopMessagesForProvider: () => messages,
 			activeLoopMessageRows: () => [],
 		}));
+			attachInputHistoryStorage(runtime);
 			const buildMessages = (BotRuntime.prototype as unknown as {
 				buildMessages: (
 					bot: BotDocument & { worldRecurringPrompt?: string },
 				input: Record<string, unknown>,
 				runId: string,
-				inputCreatedAt: string,
+				inputEvent: { seq: number; createdAt: string },
 			) => Promise<Array<Record<string, unknown>>>;
 		}).buildMessages.bind(runtime);
 		const longCommentText = "C".repeat(1_600);
@@ -1387,7 +1341,7 @@ describe("Tick flow", () => {
 				ping: false,
 			},
 			"run-notification-budget",
-			"2026-05-01T00:15:00.000Z",
+			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 		);
 			const checkNotificationsResult = messages
 				.filter((message) => message.role === "tool")
@@ -1422,12 +1376,13 @@ describe("Tick flow", () => {
 			activeLoopMessagesForProvider: () => messages,
 			activeLoopMessageRows: () => [],
 		}));
+		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
 				bot: BotDocument & { worldRecurringPrompt?: string },
 				input: Record<string, unknown>,
 				runId: string,
-				inputCreatedAt: string,
+				inputEvent: { seq: number; createdAt: string },
 			) => Promise<Array<Record<string, unknown>>>;
 		}).buildMessages.bind(runtime);
 		const replier = { id: "bot_drop_other", username: "u/notice-drop-other", displayName: lt("Notice Drop Other") };
@@ -1447,7 +1402,7 @@ describe("Tick flow", () => {
 			bot,
 			{ notifications, injections: [], spotlightContexts: [], ping: false },
 			"run-notification-drop",
-			"2026-05-01T00:15:00.000Z",
+			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 		);
 		const checkNotificationsResult = messages
 			.filter((message) => message.role === "tool")
@@ -1940,12 +1895,13 @@ describe("Tick flow", () => {
 			activeLoopMessagesForProvider: () => messages,
 			activeLoopMessageRows: () => activeRows,
 		}));
+		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
 				bot: BotDocument & { worldRecurringPrompt?: string },
 				input: Record<string, unknown>,
 				runId: string,
-				inputCreatedAt: string,
+				inputEvent: { seq: number; createdAt: string },
 				options?: { setupMode?: "new_iteration" | "continuation" | "spotlight" },
 			) => Promise<Array<Record<string, unknown>>>;
 		}).buildMessages.bind(runtime);
@@ -1954,7 +1910,7 @@ describe("Tick flow", () => {
 			{ ...bot, worldRecurringPrompt: "I follow this world's shared focus." },
 			{ notifications: [], injections: [], spotlightContexts: contexts.map((context) => parseSpotlightSyntheticContext(JSON.stringify(context))!), ping: false },
 			"run-spotlight-context",
-			"2026-05-01T00:15:00.000Z",
+			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 			{ setupMode: "spotlight" },
 		);
 		const setup = built.find((message) => Array.isArray(message.tool_calls));
@@ -2081,12 +2037,13 @@ describe("Tick flow", () => {
 			activeLoopMessagesForProvider: () => messages,
 			activeLoopMessageRows: () => [],
 		}));
+		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
 				bot: BotDocument,
 				input: Record<string, unknown>,
 				runId: string,
-				inputCreatedAt: string,
+				inputEvent: { seq: number; createdAt: string },
 				options?: { setupMode?: "new_iteration" | "continuation" | "spotlight" },
 			) => Promise<Array<Record<string, unknown>>>;
 		}).buildMessages.bind(runtime);
@@ -2095,7 +2052,7 @@ describe("Tick flow", () => {
 			bot,
 			{ notifications: [], injections: [], spotlightContexts: contexts, ping: false },
 			"run-spotlight-self",
-			"2026-05-01T00:15:00.000Z",
+			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 			{ setupMode: "spotlight" },
 		);
 		const profileRead = built.filter((message) => message.role === 'tool')
@@ -2183,12 +2140,13 @@ describe("Tick flow", () => {
 			activeLoopMessagesForProvider: () => messages,
 			activeLoopMessageRows: () => [],
 		}));
+		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
 				bot: BotDocument,
 				input: Record<string, unknown>,
 				runId: string,
-				inputCreatedAt: string,
+				inputEvent: { seq: number; createdAt: string },
 				options?: { setupMode?: "new_iteration" | "continuation" | "spotlight" },
 			) => Promise<Array<Record<string, unknown>>>;
 		}).buildMessages.bind(runtime);
@@ -2198,7 +2156,7 @@ describe("Tick flow", () => {
 			bot,
 			{ notifications: [], injections: [], spotlightContexts: contexts, ping: false },
 			"run-deep-spotlight",
-			"2026-05-01T00:30:00.000Z",
+			{ seq: 1, createdAt: "2026-05-01T00:30:00.000Z" },
 			{ setupMode: "spotlight" },
 		);
 		expect(Date.now() - start).toBeLessThan(2_000);
@@ -3659,7 +3617,6 @@ async function terminalTransitionRaceHarness(suffix: string): Promise<TerminalTr
 			events.push(type);
 			return { createdAt: new Date().toISOString() };
 		},
-		consumeInjections: () => [],
 		exportRecentProviderUsage: async () => {},
 		pruneRuntimeStorageAfterTick: () => ({
 			events: 0,

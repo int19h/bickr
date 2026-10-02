@@ -4,7 +4,7 @@ import { type BotDocument, type ForumDocument, type ThreadDocument } from "@bick
 import {
 	handleAgentRuntimeRequest,
 	runPendingUserBotsConvergenceTask,
-} from "../workers/agent-runtime/src/index";
+} from "../workers/agent-runtime/src/routes";
 import {
 	handleForumCoordinatorRequest,
 	runPendingObjectIndexConvergenceTask,
@@ -22,6 +22,7 @@ import {
 	resetD1Schema,
 	seedWorld,
 	testEnv,
+	testCoordinatorEnv,
 	userIdForHandle,
 } from "./helpers/index-harness";
 import { clearKv } from "./helpers/d1-schema";
@@ -147,9 +148,9 @@ describe("rename convergence tasks", () => {
 			},
 		} as KVNamespace;
 		await expect(runPendingObjectIndexConvergenceTask(
-			{ ...env, BICKR_KV: failingKv },
+			testCoordinatorEnv({ ...env, BICKR_KV: failingKv, FORUM_COORDINATOR: undefined, WORLD_COORDINATOR: undefined, AGENT_RUNTIME: undefined, FORUM_COORDINATOR_SERVICE: undefined }),
 			coordinatorContext(storage.storage),
-		)).rejects.toThrow("simulated interrupted KV batch");
+		)).rejects.toThrow("Object index repair coordinator returned HTTP 500");
 		expect(storage.values.has("object-index-convergence-task")).toBe(true);
 
 		await runPendingObjectIndexConvergenceTask(env, coordinatorContext(storage.storage));
@@ -209,6 +210,7 @@ describe("rename convergence tasks", () => {
 			{ "x-bickr-user-id": userId },
 		);
 		const agentEnv = {
+			...testCoordinatorEnv(),
 			BICKR_D1: testEnv.BICKR_D1,
 			BICKR_KV: testEnv.BICKR_KV,
 			...search.env,
@@ -235,7 +237,7 @@ describe("rename convergence tasks", () => {
 function forumEnv(
 	searchEnv: ReturnType<typeof fakeSearchBindings>["env"],
 ): Parameters<typeof handleForumCoordinatorRequest>[1] {
-	return {
+	return testCoordinatorEnv({
 		BICKR_D1: testEnv.BICKR_D1,
 		BICKR_KV: testEnv.BICKR_KV,
 		INTERNAL_SERVICE_SECRET: internalSecret,
@@ -243,7 +245,7 @@ function forumEnv(
 		...(searchEnv.BICKR_SEARCH_VECTORIZE ? {
 			BICKR_SEARCH_VECTORIZE: searchEnv.BICKR_SEARCH_VECTORIZE as Vectorize,
 		} : {}),
-	};
+	});
 }
 
 function coordinatorContext(storage: DurableObjectStorage) {

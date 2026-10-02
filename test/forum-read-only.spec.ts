@@ -1,3 +1,4 @@
+import { repairOwnedObjectIndex } from "@bickr/shared/index-repair";
 import {
 	authCookie,
 	contextFor,
@@ -23,7 +24,7 @@ import {
 } from "./helpers/index-harness";
 import type { TestForum } from "./helpers/index-harness";
 import { normalizeKvDocuments } from "@bickr/shared/kv-normalization-sweep";
-import { repairObjectIndexes } from "@bickr/shared/index-repair";
+import { repairObjectIndexes as runRepairObjectIndexes, type ObjectIndexRepairOwnerEnv } from "@bickr/shared/index-repair";
 import { createThread } from "@bickr/shared/social";
 import type { ApiErrorPayload, ForumDocument, ForumSummary } from "@bickr/shared/model";
 import type { D1DatabaseLike, D1PreparedStatementLike } from "@bickr/shared/storage";
@@ -341,3 +342,8 @@ describe("read-only forums", () => {
 		expect(description).not.toMatch(/\b(bot|agent|AI|assistant)\b/i);
 	});
 });
+
+// These isolated tests provide the single-writer boundary directly.
+function repairObjectIndexes(env: ObjectIndexRepairOwnerEnv, options?: Parameters<typeof runRepairObjectIndexes>[1]) {
+	return runRepairObjectIndexes({ ...env, repairOwnedObject: (request) => repairOwnedObjectIndex(env, request) }, options);
+}

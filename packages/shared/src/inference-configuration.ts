@@ -47,6 +47,7 @@ import {
 } from "./inference-configuration-owner";
 import { isOpenRouterProviderBaseUrl } from "./inference-settings";
 import { sha256Hex } from "./ids";
+import { ProviderTransportError, providerUrl } from "./provider-transport";
 
 export const inferenceGraphSchemaVersion = 1;
 export const inferenceGraphCapabilityVersion = 2;
@@ -312,6 +313,13 @@ export type InferenceResolution = {
 	providerAuthorizationAdjustment: InferenceProviderAuthorizationAdjustment;
 };
 
+export type InferenceResolutionValues = Pick<InferenceResolution, "raw" | "effective" | "providerAuthorizationAdjustment">;
+
+export type InheritedInferenceInput = {
+	raw: ResolvedRawInferenceFields;
+	credential: InferenceCredentialResolution;
+};
+
 export type InferenceFieldAdjustment =
 	| InferenceProviderAuthorizationAdjustment
 	| { kind: "provider_or_model_default"; effective: unknown }
@@ -403,8 +411,8 @@ export class InferenceConfigurationDataError extends Error {
 		| "path_cycle"
 		| "path_over_limit";
 
-	constructor(kind: InferenceConfigurationDataError["kind"], message: string) {
-		super(message);
+	constructor(kind: InferenceConfigurationDataError["kind"], message: string, options?: ErrorOptions) {
+		super(message, options);
 		this.name = "InferenceConfigurationDataError";
 		this.kind = kind;
 	}
@@ -417,8 +425,22 @@ export function resolveInferenceConfiguration(
 	validateInferenceConfigurationPath(path);
 	const defaults = options.defaults ?? defaultBickrInferenceDefaults;
 	const raw = resolveRawInferenceFields(path, defaults.fields);
+	return {
+		selectedConfigurationId: path[0].id,
+		path,
+		...resolveInferenceConfigurationValues({ raw, credential: resolveCredential(path, defaults) }, options),
+	};
+}
+
+/** Apply provider policy after inheritance, without constructing an ancestor path. */
+export function resolveInferenceConfigurationValues(
+	input: InheritedInferenceInput,
+	options: ResolveInferenceConfigurationOptions = {},
+): InferenceResolutionValues {
+	const defaults = options.defaults ?? defaultBickrInferenceDefaults;
+	const { raw } = input;
 	const baseUrl = requiredRawValue(raw.baseUrl, "base URL");
-	const credential = credentialAuthorizedForBaseUrl(raw.baseUrl, resolveCredential(path, defaults));
+	const credential = credentialAuthorizedForBaseUrl(raw.baseUrl, input.credential);
 	const authorization = authorizedModel(raw.model, raw.baseUrl, credential, defaults);
 	const effectiveModel = authorization.model;
 	const openRouter = isOpenRouterProviderBaseUrl(baseUrl);
@@ -481,8 +503,6 @@ export function resolveInferenceConfiguration(
 		...(options.learnedCompactionFloor ? { learnedFloor: options.learnedCompactionFloor } : {}),
 	});
 	return {
-		selectedConfigurationId: path[0].id,
-		path,
 		raw,
 		effective: {
 			baseUrl,
@@ -524,6 +544,51 @@ export function resolveInferenceConfiguration(
 		},
 		providerAuthorizationAdjustment: authorization.adjustment,
 	};
+}
+
+/** Reuse inherited values while preserving their distance from the selected node. */
+export function inheritInferenceConfigurationInput(
+	node: InferenceConfigurationNode,
+	parent: InheritedInferenceInput | undefined,
+	account: InheritedInferenceInput | undefined,
+	accountDepth: number,
+	defaults: BickrInferenceDefaults = defaultBickrInferenceDefaults,
+): InheritedInferenceInput {
+	const raw = Object.fromEntries(inferenceConfigurationFields.map((field) => {
+		const override = node.overrides[field];
+		if (override?.kind === "account_default") {
+			if (!account || node.kind === "account_default") {
+				throw new InferenceConfigurationDataError("invalid_path", `Account default cannot use the Account-default state for ${field}.`);
+			}
+			return [field, inheritedRawField(account.raw[field], accountDepth)];
+		}
+		if (!override && parent) return [field, inheritedRawField(parent.raw[field], 1)];
+		return [field, resolveRawInferenceField([node], field, defaults.fields[field])];
+	})) as ResolvedRawInferenceFields;
+	let credential: InferenceCredentialResolution;
+	if (node.credential.mode === "account_default") {
+		if (!account || node.kind === "account_default") {
+			throw new InferenceConfigurationDataError("invalid_path", "Account default cannot use Account-default credential mode.");
+		}
+		credential = { ...account.credential, source: inheritedInferenceSource(account.credential.source, accountDepth) };
+	} else if (node.credential.mode === "inherit" && parent) {
+		credential = { ...parent.credential, source: inheritedInferenceSource(parent.credential.source, 1) };
+	} else {
+		credential = resolveCredential([node], defaults);
+	}
+	return { raw, credential };
+}
+
+function inheritedRawField<K extends InferenceConfigurationField>(
+	field: ResolvedRawInferenceField<K>,
+	distance: number,
+): ResolvedRawInferenceField<K> {
+	if (field.provenance.kind === "unset") return field;
+	return { ...field, provenance: { kind: "configured", source: inheritedInferenceSource(field.provenance.source, distance) } } as ResolvedRawInferenceField<K>;
+}
+
+function inheritedInferenceSource(source: InferenceSource, distance: number): InferenceSource {
+	return source.kind === "bickr_default" ? source : { ...source, depth: source.depth + distance };
 }
 
 export type AvatarInferenceTarget = "participant" | "world";
@@ -1252,6 +1317,14 @@ function parseFieldValue<K extends InferenceConfigurationField>(
 ): InferenceConfigurationFieldValues[K] {
 	if (stringFields.has(field)) {
 		if (typeof value !== "string" || !value.trim()) throw invalidOverride(field);
+		if (field === "baseUrl" && !allowMigrationOnlyStates) {
+			try {
+				providerUrl(value.trim());
+			} catch (error) {
+				if (!(error instanceof ProviderTransportError)) throw error;
+				throw new InferenceConfigurationDataError("invalid_overrides", error.message, { cause: error });
+			}
+		}
 		return value.trim() as InferenceConfigurationFieldValues[K];
 	}
 	if (numberFields.has(field)) {

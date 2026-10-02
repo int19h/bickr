@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BotRuntime } from '../index';
+import { BotRuntime } from '../runtime/bot-runtime';
 import { providerCompactionSummaryProperty } from '../prompt-and-tools';
 
 describe('Structured output', () => {

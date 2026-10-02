@@ -135,7 +135,7 @@ export async function completeProviderSession(
 	}
 
 	const user = await requestAccountBootstrap(env, request, profile);
-	const session = await createSession(env.BICKR_KV, user.id);
+	const session = await createSession(env.BICKR_D1, user.id);
 	return { sessionCookieValue: session.cookieValue };
 }
 

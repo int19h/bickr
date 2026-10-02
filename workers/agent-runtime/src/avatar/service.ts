@@ -1,3 +1,5 @@
+import { worldAvatarMembers } from "@bickr/shared/avatar-members";
+import type { WorldAvatarMemberSelection } from "@bickr/shared/avatar-prompts";
 import {
 	isAvatarContentType,
 	normalizeAvatarPublicBaseUrl,
@@ -8,7 +10,6 @@ import {
 } from '@bickr/shared/avatar-storage';
 import {
 	mergeInferenceSettings,
-	listWorldBots,
 	botById,
 	RepositoryError,
 	userById,
@@ -104,7 +105,7 @@ export type AvatarProvider = {
 	describeWorldMembers(
 		settings: ProviderSettings,
 		world: WorldDocument,
-		members: readonly BotSummary[],
+		members: WorldAvatarMemberSelection,
 		options?: { prefill?: string; signal?: AbortSignal; stream?: AvatarGenerationStreamSink },
 	): Promise<string>;
 	invalidGeneratedImage(settings: ImageGenerationProviderSettings, error: InputError): Error;
@@ -355,6 +356,7 @@ export async function applyGeneratedAvatarForBot(
 		throw new RepositoryError('forbidden', "Only this participant's owner can update its avatar.", 403);
 	}
 	const avatar = await promoteAvatarCandidate(requireAvatarBucket(env), {
+		target: 'bot',
 		botId: bot.id,
 		worldId: bot.homeWorldId,
 		candidate,
@@ -373,10 +375,6 @@ export async function applyGeneratedAvatarForUser(
 	persist: (userId: string, avatar: AvatarImage) => Promise<UserProfile>,
 ): Promise<UserProfile> {
 	const user = await userById(env.BICKR_KV, userId);
-	const expectedPrefix = `users/${encodeURIComponent(user.id)}/avatar-candidates/`;
-	if (!candidate.key.startsWith(expectedPrefix)) {
-		throw new InputError('Avatar candidate key is invalid for this profile.');
-	}
 	const avatar = await promoteAvatarCandidate(requireAvatarBucket(env), {
 		target: 'user',
 		userId: user.id,
@@ -513,7 +511,7 @@ async function prefillTextAvatarPrompt(
 					: target.canonicalProviderSettings
 				: runtime.effectiveProviderSettingsForWorldPrompt(target.owner, env, promptSettingsOverride);
 			if (input.mode === 'members') {
-				const members = await listWorldBots(env.BICKR_KV, env.BICKR_D1, target.world.handle);
+				const members = await worldAvatarMembers(env.BICKR_D1, target.world.id);
 				return provider.describeWorldMembers(settings, target.world, members, { prefill: input.prefill, ...options });
 			}
 			return provider.describeWorld(settings, target.world, { prefill: input.prefill, ...options });

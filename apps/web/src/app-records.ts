@@ -1,4 +1,4 @@
-import { worldAvatarMembersPromptUserContent } from "@bickr/shared/avatar-prompts";
+import { selectWorldAvatarMembers, worldAvatarMembersPromptUserContent } from "@bickr/shared/avatar-prompts";
 import {
 	defaultProviderModel,
 	defaultTranslationPrompt,
@@ -71,10 +71,11 @@ export function worldAvatarMembersPromptSizeTitle(world: WorldSummary, members: 
 	if (!members) {
 		return "Member bios are still loading; prompt size will appear here once they are available.";
 	}
+	const selection = selectWorldAvatarMembers(members);
 	const source = worldAvatarMembersPromptUserContent(world, members);
 	const characters = Array.from(source).length;
 	const approximateTokens = Math.ceil(characters / 4);
-	return `Will send ${formatExactTokenCount(characters)} characters, about ${formatExactTokenCount(approximateTokens)} tokens, from ${members.length} member bio${members.length === 1 ? "" : "s"}.`;
+	return `Will send ${formatExactTokenCount(characters)} characters, about ${formatExactTokenCount(approximateTokens)} tokens, from ${selection.members.length} member bio${selection.members.length === 1 ? "" : "s"}.${selection.kind === "sample" ? " Uses a sample of the world members." : ""}`;
 }
 
 export function visibleForums(forums: ForumSummary[]): ForumSummary[] {

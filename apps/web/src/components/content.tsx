@@ -1,3 +1,6 @@
+import { translationCache, translationCacheKey } from "./translation-cache";
+import { useRequestIdentity } from "../use-request-identity";
+import { referenceIndex, referenceBot } from "./reference-index";
 import { usePublicBotEffectiveModel } from "../inference/public-bot-model";
 import { shortModelName } from "./inference-attribution";
 import { MarkdownBody } from "../markdown/markdown-body";
@@ -24,7 +27,6 @@ import {
 	Icon,
 	ToastContext,
 	avatarStyle,
-	hash,
 	initials,
 	useViewportConstrainedPopout,
 	type TextLike,
@@ -101,14 +103,14 @@ export function referenceMeta(
 ): ReferenceMeta | null {
 	const lookupWorldHandle = worldHandle ?? data.activeWorldHandle ?? undefined;
 	if (kind === "world") {
-		const world = data.worlds.find((item) => item.handle === name);
+		const world = referenceIndex(data).worlds.get(name);
 		return world ? { title: world.name, description: world.description } : null;
 	}
 	if (kind === "forum") {
 		if (!lookupWorldHandle) {
 			return null;
 		}
-		const forum = data.forumsByWorld[lookupWorldHandle]?.find((item) => item.handle === name);
+		const forum = referenceIndex(data).forums.get(lookupWorldHandle)?.get(name);
 		if (!forum) {
 			return null;
 		}
@@ -118,18 +120,16 @@ export function referenceMeta(
 			:	{ title: `f/${forum.handle}`, description: forum.description };
 	}
 	if (kind === "bot") {
-		const bot =
-			(lookupWorldHandle ? data.botsByWorld[lookupWorldHandle]?.find((item) => item.handle === name) : undefined) ??
-			(worldHandle ? undefined : allKnownBots(data).find((item) => item.handle === name));
+		const bot = referenceBot(data, name, worldHandle);
 		return bot ? { title: bot.displayName, description: bot.shortBio, bot } : null;
 	}
 	if (kind === "human") {
-		const human = data.humans.find((item) => item.handle === name);
+		const human = referenceIndex(data).humans.get(name);
 		if (!human) {
 			return null;
 		}
-		const worlds = data.worlds.filter((world) => world.createdByUserId === human.id).map((world) => `w/${world.handle}`);
-		const botCount = allKnownBots(data).filter((bot) => bot.ownerUserId === human.id).length;
+		const worlds = referenceIndex(data).ownedWorlds.get(human.id) ?? [];
+		const botCount = referenceIndex(data).ownedBotCounts.get(human.id) ?? 0;
 		return {
 			title: human.displayName,
 			description: `Worlds: ${worlds.length ? worlds.join(", ") : "none"} · ${botCount} bot${botCount === 1 ? "" : "s"} owned`,
@@ -161,20 +161,7 @@ export function personalForumBot(forum: ForumSummary, data: ReferenceData): BotS
 	if (!forum.personalBotId) {
 		return null;
 	}
-	return allKnownBots(data).find((bot) => bot.id === forum.personalBotId) ?? null;
-}
-
-function allKnownBots(data: ReferenceData): BotSummary[] {
-	const byId = new Map<string, BotSummary>();
-	for (const bot of data.bots) {
-		byId.set(bot.id, bot);
-	}
-	for (const worldBots of Object.values(data.botsByWorld)) {
-		for (const bot of worldBots) {
-			byId.set(bot.id, bot);
-		}
-	}
-	return [...byId.values()];
+	return referenceIndex(data).bots.get(forum.personalBotId) ?? null;
 }
 
 function referenceRoute(
@@ -191,9 +178,7 @@ function referenceRoute(
 		return { route: "forum", worldHandle: lookupWorldHandle, forumHandle: name };
 	}
 	if (kind === "bot") {
-		const bot =
-			(lookupWorldHandle ? data.botsByWorld[lookupWorldHandle]?.find((item) => item.handle === name) : undefined) ??
-			(worldHandle ? undefined : allKnownBots(data).find((item) => item.handle === name));
+		const bot = referenceBot(data, name, worldHandle);
 		const botWorldHandle = bot?.homeWorldHandle ?? lookupWorldHandle;
 		return botWorldHandle ? { route: "bot-profile", worldHandle: botWorldHandle, botHandle: name } : null;
 	}
@@ -537,9 +522,6 @@ export const richTextReferencePattern = new RegExp(
 	"giu",
 );
 
-const translationCacheVersion = 1;
-const translationCacheStorageKey = "bickr.translation.cache.v1";
-const translationViewStorageKey = "bickr.translation.view.v1";
 type VerticalScriptKind = "mong" | "phag";
 type VerticalScriptHandling = "inline" | "none";
 
@@ -664,7 +646,14 @@ function isTrailingVerticalScriptRunConnector(character: string): boolean {
 	);
 }
 
-export function TranslatableText({
+export function TranslatableText(props: Parameters<typeof TranslatableTextContent>[0]) {
+	const config = useContext(TranslationContext);
+	const source = typeof props.text === "string" ? props.text : localizedTextString(props.text);
+	const key = JSON.stringify([config.enabled, config.identity, config.prompt, source]);
+	return <TranslatableTextContent key={key} {...props} />;
+}
+
+function TranslatableTextContent({
 	as,
 	className,
 	commentBodyId,
@@ -694,6 +683,7 @@ export function TranslatableText({
 	verticalScriptLayout?: "inline" | "block";
 	worldHandle?: string;
 }) {
+	const requests = useRequestIdentity();
 	const translationConfig = useContext(TranslationContext);
 	const toast = useContext(ToastContext);
 	const sourceText = typeof text === "string" ? text : localizedTextString(text);
@@ -703,13 +693,13 @@ export function TranslatableText({
 			translationCacheKey(sourceText, translationConfig.identity, translationConfig.prompt)
 		:	null;
 	const [cachedTranslation, setCachedTranslation] = useState<string | null>(() =>
-		cacheKey ? readTranslationCacheValue(cacheKey) : null,
+		cacheKey ? translationCache.read(cacheKey)?.translation ?? null : null,
 	);
 	const [showTranslation, setShowTranslation] = useState(() => {
 		if (!cacheKey) {
 			return false;
 		}
-		return Boolean(readTranslationCacheValue(cacheKey) && (readTranslationViewState(cacheKey) ?? true));
+		return Boolean(translationCache.read(cacheKey)?.translation && (translationCache.read(cacheKey)?.show ?? true));
 	});
 	const [loading, setLoading] = useState(false);
 	const Tag = as ?? "span";
@@ -730,9 +720,9 @@ export function TranslatableText({
 			setLoading(false);
 			return;
 		}
-		const nextTranslation = readTranslationCacheValue(cacheKey);
+		const nextTranslation = translationCache.read(cacheKey)?.translation ?? null;
 		setCachedTranslation(nextTranslation);
-		setShowTranslation(Boolean(nextTranslation && (readTranslationViewState(cacheKey) ?? true)));
+		setShowTranslation(Boolean(nextTranslation && (translationCache.read(cacheKey)?.show ?? true)));
 		setLoading(false);
 	}, [cacheKey]);
 
@@ -740,18 +730,19 @@ export function TranslatableText({
 		if (!cacheKey || loading) {
 			return;
 		}
+		const current = requests.begin();
 		setLoading(true);
 		const result = await api<{ translation: string }>("/api/me/translate", {
 			method: "POST",
 			body: { text: sourceText },
 		});
+		if (!current()) return;
 		setLoading(false);
 		if (!result.ok) {
 			toast.push(result.message, "error");
 			return;
 		}
-		writeTranslationCacheValue(cacheKey, result.data.translation);
-		writeTranslationViewState(cacheKey, true);
+		translationCache.write(cacheKey, result.data.translation);
 		setCachedTranslation(result.data.translation);
 		setShowTranslation(true);
 	}
@@ -761,7 +752,7 @@ export function TranslatableText({
 			return;
 		}
 		const next = !showTranslation;
-		writeTranslationViewState(cacheKey, next);
+		translationCache.setVisible(cacheKey, next);
 		setShowTranslation(next);
 	}
 
@@ -1031,52 +1022,6 @@ function appendVerticalScriptText(
 			parts.push(segment.text);
 		}
 		cursor += segment.text.length;
-	}
-}
-
-function translationCacheKey(text: string, identity: string, prompt: string): string {
-	return `${translationCacheVersion}:${hash(`${identity}\n${prompt}\n${text}`)}:${text.length}`;
-}
-
-function readTranslationCacheValue(key: string): string | null {
-	const value = readTranslationStorage(translationCacheStorageKey)[key];
-	return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function writeTranslationCacheValue(key: string, translation: string): void {
-	const cache = readTranslationStorage(translationCacheStorageKey);
-	cache[key] = translation;
-	writeTranslationStorage(translationCacheStorageKey, cache);
-}
-
-function readTranslationViewState(key: string): boolean | null {
-	const value = readTranslationStorage(translationViewStorageKey)[key];
-	return typeof value === "boolean" ? value : null;
-}
-
-function writeTranslationViewState(key: string, showTranslation: boolean): void {
-	const state = readTranslationStorage(translationViewStorageKey);
-	state[key] = showTranslation;
-	writeTranslationStorage(translationViewStorageKey, state);
-}
-
-function readTranslationStorage(key: string): Record<string, string | boolean> {
-	try {
-		const raw = window.localStorage.getItem(key);
-		const parsed = raw ? JSON.parse(raw) : {};
-		return parsed && typeof parsed === "object" && !Array.isArray(parsed) ?
-				(parsed as Record<string, string | boolean>)
-			:	{};
-	} catch {
-		return {};
-	}
-}
-
-function writeTranslationStorage(key: string, value: Record<string, string | boolean>): void {
-	try {
-		window.localStorage.setItem(key, JSON.stringify(value));
-	} catch {
-		// Browser storage can be unavailable or full; translation still works for the current render.
 	}
 }
 

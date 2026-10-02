@@ -1,3 +1,4 @@
+import { compileInputSchema, InputSchemaError, type InputSchema, type InputValidator } from "@bickr/shared/input-schema";
 import { parseAccountMutationResult } from "@bickr/shared/account-mutation-protocol";
 import {
 	inferenceConfigurationFields,
@@ -114,7 +115,8 @@ type ToolAnnotations = {
 type McpToolBase = {
 	name: string;
 	description: string;
-	inputSchema: Record<string, unknown>;
+	inputSchema: InputSchema;
+	validateArguments: InputValidator;
 	outputSchema?: Record<string, unknown>;
 	annotations: ToolAnnotations;
 	scopes: McpScope[];
@@ -128,7 +130,7 @@ type ReadMcpTool = McpToolBase & {
 
 type MutationMcpTool = McpToolBase & {
 	kind: "mutation";
-	operationSchema: Record<string, unknown>;
+	validateOperation: InputValidator;
 	executeOperation: (ctx: ToolContext, args: Record<string, unknown>) => Promise<unknown>;
 	legacyArguments?: (args: Record<string, unknown>) => Record<string, unknown>;
 };
@@ -259,13 +261,14 @@ async function callTool(ctx: ToolContext, params: unknown): Promise<unknown> {
 		return toolError({ error: "not_found", message: `Unknown Bickr MCP tool: ${name}` });
 	}
 	requireToolScopes(ctx.auth, tool.scopes);
-	const args = record.arguments && typeof record.arguments === "object" && !Array.isArray(record.arguments) ?
-		record.arguments as Record<string, unknown>
-	:	{};
+	if (record.arguments !== undefined && (!record.arguments || typeof record.arguments !== "object" || Array.isArray(record.arguments))) {
+		return toolError({ error: "bad_request", message: "Arguments must be an object." });
+	}
+	const args = (record.arguments ?? {}) as Record<string, unknown>;
 	switch (tool.kind) {
 		case "read":
 			try {
-				validateMcpInput(args, tool.inputSchema, "Arguments");
+				tool.validateArguments(args, "Arguments");
 				const result = await tool.execute(ctx, args);
 				return await toolResult({ kind: tool.resultKind, payload: result }, ctx);
 			} catch (error) {
@@ -302,7 +305,7 @@ async function callMutationTool(
 			// Compatibility for tool definitions cached before the bulk schema rollout.
 			// Retire this singleton path after 2026-09-01 once clients have refreshed tools/list.
 			const legacyArguments = tool.legacyArguments ? tool.legacyArguments(args) : args;
-			validateMcpInput(legacyArguments, tool.operationSchema, "Arguments");
+			tool.validateOperation(legacyArguments, "Arguments");
 			const result = await tool.executeOperation(ctx, legacyArguments);
 			if (isApiFailure(result)) return toolError(result);
 			try {
@@ -311,7 +314,8 @@ async function callMutationTool(
 				return successfulSingletonMutationWithWarning(error);
 			}
 		}
-		const operations = mutationOperations(args, tool.operationSchema);
+		tool.validateArguments(args, "Arguments");
+		const operations = mutationOperations(args);
 		const results: MutationOperationResult[] = [];
 		// Preserve input order and avoid concurrent writes to the same logical entity.
 		for (const operation of operations) {
@@ -337,65 +341,19 @@ async function callMutationTool(
 	}
 }
 
-function mutationOperations(args: Record<string, unknown>, operationSchema: Record<string, unknown>): MutationOperation[] {
-	if (Object.keys(args).some((key) => key !== "operations")) {
-		throw new InputError("Bulk mutation arguments can contain only operations.");
-	}
-	if (!Array.isArray(args.operations) || args.operations.length === 0) {
-		throw new InputError("Operations must be a non-empty array.");
-	}
-	if (args.operations.length > maxMutationOperations) {
-		throw new InputError(`At most ${maxMutationOperations} operations may be submitted at once.`);
-	}
-	const operationProperties = schemaProperties(operationSchema);
-	const allowedKeys = new Set(["operationId", ...Object.keys(operationProperties)]);
-	const requiredKeys = schemaRequired(operationSchema);
+function mutationOperations(args: Record<string, unknown>): MutationOperation[] {
+	// The published envelope schema has already checked types, required keys,
+	// array limits, and every operation before the first operation can commit.
+	const records = args.operations as Array<Record<string, unknown> & { operationId: string }>;
 	const seenIds = new Set<string>();
-	return args.operations.map((value, index) => {
-		if (!value || typeof value !== "object" || Array.isArray(value)) {
-			throw new InputError(`Operation ${index + 1} must be an object.`);
-		}
-		const record = value as Record<string, unknown>;
-		const unexpectedKey = Object.keys(record).find((key) => !allowedKeys.has(key));
-		if (unexpectedKey) {
-			throw new InputError(`Operation ${index + 1} contains unsupported argument ${unexpectedKey}.`);
-		}
-		const missingKey = requiredKeys.find((key) => !(key in record));
-		if (missingKey) {
-			throw new InputError(`Operation ${index + 1} is missing required argument ${missingKey}.`);
-		}
-		if (typeof record.operationId !== "string" || !record.operationId.trim()) {
-			throw new InputError(`Operation ${index + 1} ID is required.`);
-		}
+	return records.map((record) => {
 		const operationId = record.operationId;
-		if (seenIds.has(operationId)) {
-			throw new InputError(`Operation ID ${operationId} is duplicated.`);
-		}
+		if (!operationId.trim()) throw new InputError("Operation ID must not be blank.");
+		if (seenIds.has(operationId)) throw new InputError(`Operation ID ${operationId} is duplicated.`);
 		seenIds.add(operationId);
 		const { operationId: _operationId, ...operationArguments } = record;
-		validateMcpInput(operationArguments, operationSchema, `Operation ${index + 1}`);
 		return { operationId, arguments: operationArguments };
 	});
-}
-
-function validateMcpInput(value: unknown, schema: Record<string, unknown>, label: string): void {
-	if (value === null) return;
-	const properties = schema.properties;
-	if (properties && typeof properties === "object" && !Array.isArray(properties)) {
-		if (!value || typeof value !== "object" || Array.isArray(value)) {
-			throw new InputError(`${label} must be an object.`);
-		}
-		const record = value as Record<string, unknown>;
-		const allowed = properties as Record<string, unknown>;
-		const unexpected = Object.keys(record).find((key) => !(key in allowed));
-		if (unexpected) throw new InputError(`${label} contains unsupported argument ${unexpected}.`);
-		for (const [key, child] of Object.entries(record)) {
-			const childSchema = allowed[key];
-			if (childSchema && typeof childSchema === "object" && !Array.isArray(childSchema)) {
-				validateMcpInput(child, childSchema as Record<string, unknown>, `${label}.${key}`);
-			}
-		}
-	}
 }
 
 function assertNeverMcpTool(tool: never): never {
@@ -474,7 +432,7 @@ const mcpTools: McpTool[] = [
 	}), ["worldHandle"], "destructive", "agent", "DELETE", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}`, undefined, "world"),
 	readTool("list_forums", "List forums", "List forums in a Bickr world. Every forum reports readOnly: a read-only forum keeps its threads and comments readable and still accepts votes, but takes no new threads or replies.", {
 		worldHandle: stringSchema("World handle."),
-	}, async ({ env }, args) => ({ forums: await listForums(env.BICKR_D1, text(args.worldHandle, "World handle")) }), "forums"),
+	}, async ({ env }, args) => ({ forums: await listForums(env.BICKR_D1, text(args.worldHandle, "World handle")) }), "forums", ["worldHandle"]),
 	serviceTool("create_forum", "Create forum", "Create a forum in a Bickr world.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		handle: stringSchema("Forum handle."),
@@ -516,7 +474,7 @@ const mcpTools: McpTool[] = [
 			forum: mcpForum(forum),
 			threads: threads.map((thread) => ({ ...thread, lang: thread.title.lang })),
 		};
-	}),
+	}, "opaque", ["worldHandle","forumHandle"]),
 	readTool("get_thread", "Get thread", "Read one Bickr thread and its comments. Comment bodies contain Markdown source.", {
 		worldHandle: stringSchema("World handle."),
 		forumHandle: stringSchema("Forum handle."),
@@ -528,7 +486,7 @@ const mcpTools: McpTool[] = [
 			throw new Error("Thread not found in this forum.");
 		}
 		return { thread };
-	}, "thread"),
+	}, "thread", ["worldHandle","forumHandle","threadId"]),
 	botActorTool("create_thread", "Create thread", "Create a Bickr thread as one of the signed-in human user's bots.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		forumHandle: stringSchema("Forum handle."),
@@ -610,7 +568,7 @@ const mcpTools: McpTool[] = [
 		`/users/${encodeURIComponent(auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}`,
 		"GET",
 		auth.user.id,
-	)),
+	), "opaque", ["configurationId"]),
 	readTool("get_fixed_inference_configuration", "Get fixed inference configuration", "Resolve Account default, Translation, an owned world, or an owned participant directly without paging through the inference library.", {
 		kind: enumSchema(["account_default", "translation", "world", "participant"], "Fixed inference configuration kind."),
 		worldId: stringSchema("Owned world ID when kind is world."),
@@ -640,7 +598,7 @@ const mcpTools: McpTool[] = [
 		const set = canonicalAnnotationSetFromEnvelope(payload);
 		if (set.annotations.length === 0) throw new RepositoryError("not_found", "Fixed inference configuration not found.", 404);
 		return { annotation: set.annotations[0], graphRevision: set.graphRevision };
-	}),
+	}, "opaque", ["kind"]),
 	serviceTool("create_inference_configuration", "Create inference configuration", "Create a reusable custom inference configuration.", bodySchema({
 		name: stringSchema("Configuration display name."),
 		parentId: stringSchema("Inheritance source configuration ID."),
@@ -677,7 +635,7 @@ const mcpTools: McpTool[] = [
 		return servicePayload(env.AGENT_RUNTIME, env, request,
 			`/users/${encodeURIComponent(auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}/parent-candidates${params.size ? `?${params}` : ""}`,
 			"GET", auth.user.id);
-	}),
+	}, "opaque", ["configurationId"]),
 	readTool("list_inference_configuration_children", "List inference configuration children", "List a configuration's immediate children, with the unfiltered immediate-child total alongside the matching page.", {
 		configurationId: stringSchema("Configuration ID."),
 		query: stringSchema("Optional prefix matched against custom name, world handle, participant handle, and participant home-world handle."),
@@ -692,14 +650,14 @@ const mcpTools: McpTool[] = [
 		return servicePayload(env.AGENT_RUNTIME, env, request,
 			`/users/${encodeURIComponent(auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}/children${params.size ? `?${params}` : ""}`,
 			"GET", auth.user.id);
-	}),
+	}, "opaque", ["configurationId"]),
 	readTool("get_inference_configuration_delete_impact", "Get inference configuration delete impact", "Preview immediate-child reparenting for a custom configuration deletion.", {
 		configurationId: stringSchema("Configuration ID."),
 	}, ({ env, request, auth }, args) => servicePayload(
 		env.AGENT_RUNTIME, env, request,
 		`/users/${encodeURIComponent(auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}/impact`,
 		"GET", auth.user.id,
-	)),
+	), "opaque", ["configurationId"]),
 	readTool("get_inference_configuration_parent_impact", "Get inference inheritance impact", "Preview bounded effective-setting changes for a candidate inheritance source.", {
 		configurationId: stringSchema("Configuration ID."),
 		parentId: stringSchema("Candidate inheritance source configuration ID."),
@@ -710,7 +668,7 @@ const mcpTools: McpTool[] = [
 			`/users/${encodeURIComponent(auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}/impact?${params}`,
 			"GET", auth.user.id,
 		);
-	}),
+	}, "opaque", ["configurationId","parentId"]),
 	serviceTool("delete_inference_configuration", "Delete inference configuration", "Delete a custom configuration and reparent its immediate children atomically.", bodySchema({
 		configurationId: stringSchema("Configuration ID."),
 		expectedRevision: integerSchema("Expected configuration revision."),
@@ -727,14 +685,14 @@ const mcpTools: McpTool[] = [
 			...(valueString(args.cursor) ? { cursor: valueString(args.cursor)! } : {}),
 			...(args.limit !== undefined ? { limit: boundedMcpCollectionLimit(args.limit) } : {}),
 		},
-	), "bots"),
+	), "bots", ["worldHandle"]),
 	readTool("get_bot", "Get bot", "Read one Bickr bot by ID.", {
 		botId: stringSchema("Bot ID."),
 	}, async (ctx, args) => {
 		const bot = await botById(ctx.env.BICKR_KV, ctx.env.BICKR_D1, text(args.botId, "Bot ID"));
 		const world = await worldByHandle(ctx.env.BICKR_D1, bot.homeWorldHandle);
 		return { bot: publicBotSummary(bot, { includeToolSettings: true, worldPostingSettings: world.postingSettings }) };
-	}, "bot"),
+	}, "bot", ["botId"]),
 	readTool("list_bot_notes", "List participant notes", "List one page of private note titles for a participant that you own. Filter by u/name or f/name. The participant sees notes that you write as its own.", {
 		botId: stringSchema("Participant ID."),
 		entities: arraySchema("Optional list of at most 10 u/name or f/name filters."),
@@ -813,7 +771,7 @@ const mcpTools: McpTool[] = [
 		text(args.worldHandle, "World handle"),
 		auth.user.id,
 		mcpCollectionPage(args),
-	), "groups"),
+	), "groups", ["worldHandle"]),
 	serviceTool("create_group", "Create bot group", "Create a Bickr bot group.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		lang: requiredLanguageSchema("Selected group language. Use a BCP 47 tag such as \"en\", \"ja\", \"zh-Hant\", or \"ar\"."),
@@ -862,16 +820,16 @@ const mcpTools: McpTool[] = [
 				types: parseSearchTypes(valueString(args.types)),
 			}),
 		};
-	}, "search"),
+	}, "search", ["query"]),
 	readTool("export_thread", "Export thread", "Export one Bickr thread as structured data.", { ref: stringSchema("Thread reference.") }, async ({ env }, args) => ({
 		export: await exportThreadRef(env, text(args.ref, "Thread reference")),
-	})),
+	}), "opaque", ["ref"]),
 	readTool("export_forum", "Export forum", "Export Bickr forum threads as structured data.", { ref: stringSchema("Forum reference."), limit: integerSchema("Limit."), offset: integerSchema("Offset.") }, async ({ env }, args) => ({
 		export: await exportForumRef(env, text(args.ref, "Forum reference"), {
 			limit: boundedLimit(valueString(args.limit), 40, 1000),
 			offset: boundedOffset(valueString(args.offset)),
 		}),
-	})),
+	}), "opaque", ["ref"]),
 	readTool("list_notifications", "List notifications", "List Bickr notifications for the signed-in human user.", {
 		status: enumSchema(["unread", "all"], "Notification status."),
 		limit: integerSchema("Limit."),
@@ -969,7 +927,7 @@ const mcpTools: McpTool[] = [
 
 export function mcpToolMetadataForTest(): Array<{
 	name: string;
-	inputSchema: Record<string, unknown>;
+	inputSchema: InputSchema;
 	outputSchema?: Record<string, unknown>;
 	annotations: Record<string, unknown>;
 	scopes: McpScope[];
@@ -989,19 +947,19 @@ function runtimeTools(): McpTool[] {
 			botId: stringSchema("Bot ID."),
 			page: integerSchema("Optional page."),
 			after: integerSchema("Optional event sequence cursor."),
-		}, ({ env, request, auth }, args) => servicePayload(env.AGENT_RUNTIME, env, request, path(args), "GET", auth.user.id));
-	const runtimeActionSchema = bodySchema({
+		}, ({ env, request, auth }, args) => servicePayload(env.AGENT_RUNTIME, env, request, path(args), "GET", auth.user.id), "opaque", ["botId"]);
+	const runtimeActionSchema = withRequired(bodySchema({
 		botId: stringSchema("Bot ID."),
 		text: stringSchema("Text for inject_runtime."),
 		body: objectSchema("Optional runtime action body."),
-	});
+	}), ["botId"]);
 	const action = (
 		name: string,
 		title: string,
 		description: string,
 		path: (args: Record<string, unknown>) => string,
 		body?: (args: Record<string, unknown>) => unknown,
-		inputSchema: Record<string, unknown> = runtimeActionSchema,
+		inputSchema: InputSchema = runtimeActionSchema,
 	): McpTool =>
 		runtimeTool(name, title, description, inputSchema, async ({ env, request, auth }, args) =>
 			servicePayload(env.AGENT_RUNTIME, env, request, path(args), "POST", auth.user.id, body?.(args)));
@@ -1016,7 +974,7 @@ function runtimeTools(): McpTool[] {
 		action("run_runtime_tick", "Run runtime tick", "Start a Bickr bot runtime tick.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/tick`, (args) => args.body),
 		action("stop_runtime", "Stop runtime", "Stop a Bickr bot runtime.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/stop`),
 		action("compact_runtime", "Compact runtime", "Compact a Bickr bot runtime context.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/compact`),
-		action("inject_runtime", "Inject runtime text", "Inject text into a Bickr bot runtime.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/inject`, (args) => ({ text: text(args.text, "Injection text") })),
+		action("inject_runtime", "Inject runtime text", "Inject text into a Bickr bot runtime.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/inject`, (args) => ({ text: text(args.text, "Injection text") }), withRequired(runtimeActionSchema, ["botId", "text"])),
 		action(
 			"update_runtime_context_budget",
 			"Update runtime context budget",
@@ -1035,16 +993,18 @@ function readTool(
 	name: string,
 	title: string,
 	description: string,
-	properties: Record<string, unknown>,
+	properties: Record<string, InputSchema>,
 	execute: ReadMcpTool["execute"],
 	resultKind: McpPayloadEnvelope["kind"] = "opaque",
 	required: string[] = [],
 ): ReadMcpTool {
+	const inputSchema = required.length > 0 ? withRequired(objectInputSchema(properties), required) : objectInputSchema(properties);
 	return {
 		kind: "read",
 		name,
 		description,
-		inputSchema: required.length > 0 ? withRequired(objectInputSchema(properties), required) : objectInputSchema(properties),
+		inputSchema,
+		validateArguments: compileInputSchema(inputSchema),
 		...(outputSchemaForMcpTool(name) ? { outputSchema: outputSchemaForMcpTool(name) } : {}),
 		annotations: { title, readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 		scopes: ["bickr.read"],
@@ -1071,22 +1031,24 @@ function writeTool(
 	name: string,
 	title: string,
 	description: string,
-	inputSchema: Record<string, unknown>,
+	inputSchema: InputSchema,
 	execute: MutationMcpTool["executeOperation"],
 	effect: McpMutationEffect = "write",
 	resultKind: McpPayloadEnvelope["kind"] = "opaque",
 	legacyArguments?: (args: Record<string, unknown>) => Record<string, unknown>,
 ): MutationMcpTool {
+	const envelopeSchema = mutationInputSchema(inputSchema);
 	return {
 		kind: "mutation",
 		name,
 		description,
-		inputSchema: mutationInputSchema(inputSchema),
+		inputSchema: envelopeSchema,
+		validateArguments: compileInputSchema(envelopeSchema),
+		validateOperation: compileInputSchema(inputSchema),
 		...(outputSchemaForMcpTool(name) ? { outputSchema: outputSchemaForMcpTool(name) } : {}),
 		annotations: mutationAnnotations(title, effect),
 		scopes: ["bickr.write"],
 		resultKind,
-		operationSchema: inputSchema,
 		executeOperation: execute,
 		...(legacyArguments ? { legacyArguments } : {}),
 	};
@@ -1096,20 +1058,22 @@ function runtimeTool(
 	name: string,
 	title: string,
 	description: string,
-	inputSchema: Record<string, unknown>,
+	inputSchema: InputSchema,
 	execute: MutationMcpTool["executeOperation"],
 	resultKind: McpPayloadEnvelope["kind"] = "opaque",
 ): MutationMcpTool {
+	const envelopeSchema = mutationInputSchema(inputSchema);
 	return {
 		kind: "mutation",
 		name,
 		description,
-		inputSchema: mutationInputSchema(inputSchema),
+		inputSchema: envelopeSchema,
+		validateArguments: compileInputSchema(envelopeSchema),
+		validateOperation: compileInputSchema(inputSchema),
 		...(outputSchemaForMcpTool(name) ? { outputSchema: outputSchemaForMcpTool(name) } : {}),
 		annotations: mutationAnnotations(title, "destructive"),
 		scopes: ["bickr.runtime"],
 		resultKind,
-		operationSchema: inputSchema,
 		executeOperation: execute,
 	};
 }
@@ -1118,7 +1082,7 @@ function serviceTool(
 	name: string,
 	title: string,
 	description: string,
-	inputSchema: Record<string, unknown>,
+	inputSchema: InputSchema,
 	required: string[],
 	effect: McpMutationEffect,
 	service: "forum" | "agent",
@@ -1168,7 +1132,7 @@ function botActorTool(
 	name: string,
 	title: string,
 	description: string,
-	inputSchema: Record<string, unknown>,
+	inputSchema: InputSchema,
 	required: string[],
 	method: string,
 	route: (ctx: ToolContext, args: Record<string, unknown>) => Promise<{
@@ -1192,7 +1156,7 @@ function botActorTool(
 }
 
 async function mcpAuth(env: AppEnv, request: Request): Promise<McpAuthContext | null> {
-	return authForMcpAccessToken(env.BICKR_KV, bearerToken(request), new URL("/mcp", request.url).toString());
+	return authForMcpAccessToken(env.BICKR_KV, env.BICKR_D1, bearerToken(request), new URL("/mcp", request.url).toString());
 }
 
 function requireToolScopes(auth: McpAuthContext, scopes: McpScope[]): void {
@@ -1857,6 +1821,9 @@ function toolError(value: unknown): Record<string, unknown> {
 }
 
 function errorPayload(error: unknown): Record<string, unknown> {
+	if (error instanceof InputSchemaError) {
+		return { error: "bad_request", message: error.message, path: error.path, keyword: error.keyword };
+	}
 	if (error instanceof RepositoryError) {
 		return { error: error.code, message: error.message };
 	}
@@ -1923,7 +1890,7 @@ function corsHeaders(): Record<string, string> {
 	};
 }
 
-function objectInputSchema(properties: Record<string, unknown>): Record<string, unknown> {
+function objectInputSchema(properties: Record<string, InputSchema>): InputSchema {
 	return {
 		type: "object",
 		properties,
@@ -1931,7 +1898,7 @@ function objectInputSchema(properties: Record<string, unknown>): Record<string, 
 	};
 }
 
-function mutationInputSchema(operationSchema: Record<string, unknown>): Record<string, unknown> {
+function mutationInputSchema(operationSchema: InputSchema): InputSchema {
 	const properties = schemaProperties(operationSchema);
 	const required = schemaRequired(operationSchema);
 	if ("operationId" in properties) {
@@ -1956,15 +1923,15 @@ function mutationInputSchema(operationSchema: Record<string, unknown>): Record<s
 	}), ["operations"]);
 }
 
-function schemaProperties(schema: Record<string, unknown>): Record<string, unknown> {
+function schemaProperties(schema: InputSchema): Readonly<Record<string, InputSchema>> {
 	const properties = schema.properties;
 	if (!properties || typeof properties !== "object" || Array.isArray(properties)) {
 		throw new Error("MCP mutation operation schema must define object properties.");
 	}
-	return properties as Record<string, unknown>;
+	return properties;
 }
 
-function schemaRequired(schema: Record<string, unknown>): string[] {
+function schemaRequired(schema: InputSchema): readonly string[] {
 	if (schema.required === undefined) {
 		return [];
 	}
@@ -1974,33 +1941,33 @@ function schemaRequired(schema: Record<string, unknown>): string[] {
 	return schema.required;
 }
 
-function bodySchema(properties: Record<string, unknown>): Record<string, unknown> {
+function bodySchema(properties: Record<string, InputSchema>): InputSchema {
 	return objectInputSchema(properties);
 }
 
-function withRequired(schema: Record<string, unknown>, required: string[]): Record<string, unknown> {
+function withRequired(schema: InputSchema, required: string[]): InputSchema {
 	return { ...schema, required };
 }
 
-function stringSchema(description: string): Record<string, unknown> {
+function stringSchema(description: string): InputSchema {
 	return { type: "string", description };
 }
 
-function requiredLanguageSchema(description: string): Record<string, unknown> {
+function requiredLanguageSchema(description: string): InputSchema {
 	return {
 		type: "string",
 		description: `${description} Use a specific BCP 47 tag such as "en", "ja", or "zh-Hant"; never use "und".`,
 	};
 }
 
-function languageSchema(description: string): Record<string, unknown> {
+function languageSchema(description: string): InputSchema {
 	return {
 		type: ["string", "null"],
 		description: `${description} Use null only when unspecified or inherited; otherwise use a specific BCP 47 tag, never "und".`,
 	};
 }
 
-function localizedTextSchema(description: string): Record<string, unknown> {
+function localizedTextSchema(description: string): InputSchema {
 	return {
 		type: "object",
 		description,
@@ -2013,25 +1980,25 @@ function localizedTextSchema(description: string): Record<string, unknown> {
 	};
 }
 
-function nullableLocalizedTextSchema(description: string): Record<string, unknown> {
+function nullableLocalizedTextSchema(description: string): InputSchema {
 	return {
 		...localizedTextSchema(description),
 		type: ["object", "null"],
 	};
 }
 
-function requiredLocalizedTextSchema(description: string): Record<string, unknown> {
+function requiredLocalizedTextSchema(description: string): InputSchema {
 	return localizedTextSchema(`${description} Provide an object like {"lang":"ja","text":"将軍家"} or {"lang":"en","text":"my text"}; plain strings are not accepted.`);
 }
 
-function uiLocaleSchema(description: string): Record<string, unknown> {
+function uiLocaleSchema(description: string): InputSchema {
 	return {
 		type: "string",
 		description: `${description} Use "system" to follow the client/browser language, or a specific BCP 47 tag such as "en", "es", "ja", "zh-Hant", "uk", or "eo".`,
 	};
 }
 
-function integerSchema(description: string): Record<string, unknown> {
+function integerSchema(description: string): InputSchema {
 	return { type: "integer", description };
 }
 
@@ -2050,7 +2017,7 @@ function mcpCollectionPage(args: Record<string, unknown>): { cursor?: string; li
 	};
 }
 
-function threadSettingsSchema(description: string): Record<string, unknown> {
+function threadSettingsSchema(description: string): InputSchema {
 	return {
 		type: ["object", "null"],
 		description,
@@ -2066,11 +2033,11 @@ function threadSettingsSchema(description: string): Record<string, unknown> {
 	};
 }
 
-function objectSchema(description: string): Record<string, unknown> {
+function objectSchema(description: string): InputSchema {
 	return { type: ["object", "null"], description, additionalProperties: true };
 }
 
-function profilePromptInferenceSettingsSchema(description: string): Record<string, unknown> {
+function profilePromptInferenceSettingsSchema(description: string): InputSchema {
 	return {
 		type: ["object", "null"],
 		description,
@@ -2089,7 +2056,7 @@ function profilePromptInferenceSettingsSchema(description: string): Record<strin
 	};
 }
 
-function participantPromptInferenceSettingsSchema(description: string): Record<string, unknown> {
+function participantPromptInferenceSettingsSchema(description: string): InputSchema {
 	return {
 		type: ["object", "null"],
 		description,
@@ -2102,7 +2069,7 @@ function participantPromptInferenceSettingsSchema(description: string): Record<s
 	};
 }
 
-function promptOnlyImageGenerationSchema(description: string): Record<string, unknown> {
+function promptOnlyImageGenerationSchema(description: string): InputSchema {
 	return {
 		type: ["object", "null"],
 		description,
@@ -2111,7 +2078,7 @@ function promptOnlyImageGenerationSchema(description: string): Record<string, un
 	};
 }
 
-function inferenceOverridesSchema(patch: boolean): Record<string, unknown> {
+function inferenceOverridesSchema(patch: boolean): InputSchema {
 	return {
 		type: "object",
 		description: patch ? "Typed reusable inference override patch." : "Typed reusable inference overrides.",
@@ -2123,7 +2090,7 @@ function inferenceOverridesSchema(patch: boolean): Record<string, unknown> {
 function inferenceOverrideSchema(
 	field: typeof inferenceConfigurationFields[number],
 	patch: boolean,
-): Record<string, unknown> {
+): InputSchema {
 	const states = inferenceFieldOverrideStates[field];
 	const kinds = [
 		...(patch ? ["inherit"] : []),
@@ -2143,7 +2110,7 @@ function inferenceOverrideSchema(
 	};
 }
 
-function inferenceFieldValueSchema(field: typeof inferenceConfigurationFields[number]): Record<string, unknown> {
+function inferenceFieldValueSchema(field: typeof inferenceConfigurationFields[number]): InputSchema {
 	if (isNumericInferenceField(field)) {
 		const domain = numericInferenceFieldDomains[field];
 		return {
@@ -2196,8 +2163,8 @@ function inferenceFieldValueSchema(field: typeof inferenceConfigurationFields[nu
 
 function closedDiscriminatedValueSchema(
 	kinds: readonly string[],
-	extraProperties: Record<string, unknown>,
-): Record<string, unknown> {
+	extraProperties: Record<string, InputSchema>,
+): InputSchema {
 	return {
 		type: "object",
 		properties: { kind: enumSchema(kinds, "Discriminated value kind."), ...extraProperties },
@@ -2210,7 +2177,7 @@ function assertNeverInferenceField(field: never): never {
 	throw new Error(`Missing MCP schema for inference field ${String(field)}.`);
 }
 
-function inferenceCredentialSchema(): Record<string, unknown> {
+function inferenceCredentialSchema(): InputSchema {
 	return {
 		type: "object",
 		description: "Closed credential intent. Read results are always redacted.",
@@ -2223,7 +2190,7 @@ function inferenceCredentialSchema(): Record<string, unknown> {
 	};
 }
 
-function outputSchemaForMcpTool(name: string): Record<string, unknown> | undefined {
+function outputSchemaForMcpTool(name: string): InputSchema | undefined {
 	switch (name) {
 		case "get_profile": return profileOutputSchema();
 		case "get_fixed_inference_configuration": return withRequired(bodySchema({
@@ -2248,7 +2215,7 @@ function outputSchemaForMcpTool(name: string): Record<string, unknown> | undefin
 	}
 }
 
-function inferenceImpactOutputSchema(): Record<string, unknown> {
+function inferenceImpactOutputSchema(): InputSchema {
 	return withRequired({
 		type: "object",
 		properties: {
@@ -2286,7 +2253,7 @@ function inferenceImpactOutputSchema(): Record<string, unknown> {
 	}, ["kind", "configurationId", "immediateDependentCount", "transitiveDependentCount", "affectedConfigurationCount", "changes", "warnings"]);
 }
 
-function profileOutputSchema(): Record<string, unknown> {
+function profileOutputSchema(): InputSchema {
 	return withRequired(bodySchema({
 		profile: withRequired({
 			type: "object",
@@ -2304,7 +2271,7 @@ function profileOutputSchema(): Record<string, unknown> {
 	}), ["profile"]);
 }
 
-function canonicalAnnotationOutputSchema(): Record<string, unknown> {
+function canonicalAnnotationOutputSchema(): InputSchema {
 	return withRequired(bodySchema({
 		kind: enumSchema(["canonical", "legacy_compatibility"], "Annotation state."),
 		reference: withRequired(bodySchema({
@@ -2318,7 +2285,7 @@ function canonicalAnnotationOutputSchema(): Record<string, unknown> {
 	}), ["kind", "reference"]);
 }
 
-function inferenceConfigurationSummaryOutputSchema(): Record<string, unknown> {
+function inferenceConfigurationSummaryOutputSchema(): InputSchema {
 	return withRequired({
 		type: "object",
 		properties: {
@@ -2341,7 +2308,7 @@ function inferenceConfigurationSummaryOutputSchema(): Record<string, unknown> {
 	}, ["id", "kind", "identity", "displayName", "revision", "updatedAt", "credentialMode", "effectiveModel", "credentialAvailability"]);
 }
 
-function inferenceConfigurationOutputSchema(): Record<string, unknown> {
+function inferenceConfigurationOutputSchema(): InputSchema {
 	return withRequired({
 		type: "object",
 		properties: {
@@ -2357,7 +2324,7 @@ function inferenceConfigurationOutputSchema(): Record<string, unknown> {
 	}, ["id", "kind", "identity", "revision", "graphRevision", "fields", "path"]);
 }
 
-function inferenceConfigurationIdentityOutputSchema(): Record<string, unknown> {
+function inferenceConfigurationIdentityOutputSchema(): InputSchema {
 	return withRequired({
 		type: "object",
 		properties: {
@@ -2371,7 +2338,7 @@ function inferenceConfigurationIdentityOutputSchema(): Record<string, unknown> {
 	}, ["kind"]);
 }
 
-function inferenceConfigurationFieldsOutputSchema(): Record<string, unknown> {
+function inferenceConfigurationFieldsOutputSchema(): InputSchema {
 	return withRequired({
 		type: "object",
 		properties: { supportsPrefill: prefillInferenceConfigurationFieldOutputSchema() },
@@ -2380,7 +2347,7 @@ function inferenceConfigurationFieldsOutputSchema(): Record<string, unknown> {
 	}, [...inferenceConfigurationFields]);
 }
 
-function prefillInferenceConfigurationFieldOutputSchema(): Record<string, unknown> {
+function prefillInferenceConfigurationFieldOutputSchema(): InputSchema {
 	const policy = withRequired({
 		type: "object",
 		properties: {
@@ -2406,8 +2373,8 @@ function prefillInferenceConfigurationFieldOutputSchema(): Record<string, unknow
 	}, ["effective", "adjustment"]);
 }
 
-function genericInferenceConfigurationFieldOutputSchema(): Record<string, unknown> {
-	const outcomeProperties = {
+function genericInferenceConfigurationFieldOutputSchema(): InputSchema {
+	const outcomeProperties: Record<string, InputSchema> = {
 		request: singleKeyDiscriminatedSchema({
 			value: {},
 			explicitNone: { type: "null" },
@@ -2443,7 +2410,7 @@ function genericInferenceConfigurationFieldOutputSchema(): Record<string, unknow
 	}, ["override", "request", "effective", "provenance", "adjustment", "inherited"]);
 }
 
-function inferenceFieldProvenanceOutputSchema(): Record<string, unknown> {
+function inferenceFieldProvenanceOutputSchema(): InputSchema {
 	const configurationSource = withRequired({
 		type: "object",
 		properties: {
@@ -2472,7 +2439,7 @@ function inferenceFieldProvenanceOutputSchema(): Record<string, unknown> {
 	});
 }
 
-function singleKeyDiscriminatedSchema(properties: Record<string, unknown>): Record<string, unknown> {
+function singleKeyDiscriminatedSchema(properties: Record<string, InputSchema>): InputSchema {
 	return {
 		type: "object",
 		properties,
@@ -2482,7 +2449,7 @@ function singleKeyDiscriminatedSchema(properties: Record<string, unknown>): Reco
 	};
 }
 
-function inferenceConfigurationPathEntryOutputSchema(): Record<string, unknown> {
+function inferenceConfigurationPathEntryOutputSchema(): InputSchema {
 	return withRequired({
 		type: "object",
 		properties: {
@@ -2497,7 +2464,7 @@ function inferenceConfigurationPathEntryOutputSchema(): Record<string, unknown> 
 	}, ["id", "displayName", "revision", "kind", "identity"]);
 }
 
-function inferenceConfigurationPageOutputSchema(): Record<string, unknown> {
+function inferenceConfigurationPageOutputSchema(): InputSchema {
 	return withRequired({
 		type: "object",
 		properties: {
@@ -2508,7 +2475,7 @@ function inferenceConfigurationPageOutputSchema(): Record<string, unknown> {
 	}, ["items"]);
 }
 
-function inferenceApiOutputSchema(field: string, schema: Record<string, unknown>): Record<string, unknown> {
+function inferenceApiOutputSchema(field: string, schema: InputSchema): InputSchema {
 	return withRequired({
 		type: "object",
 		properties: {
@@ -2519,11 +2486,11 @@ function inferenceApiOutputSchema(field: string, schema: Record<string, unknown>
 	}, ["ok", "data"]);
 }
 
-function inferenceMutationOutputSchema(): Record<string, unknown> {
+function inferenceMutationOutputSchema(): InputSchema {
 	return mutationOutputSchema({ type: ["object", "null"], additionalProperties: true });
 }
 
-function mutationOutputSchema(resultSchema: Record<string, unknown>): Record<string, unknown> {
+function mutationOutputSchema(resultSchema: InputSchema): InputSchema {
 	return withRequired({
 		type: "object",
 		properties: {
@@ -2546,7 +2513,7 @@ function mutationOutputSchema(resultSchema: Record<string, unknown>): Record<str
 	}, ["results", "succeeded", "failed", "indeterminate"]);
 }
 
-function ownedBotNotificationListOutputSchema(): Record<string, unknown> {
+function ownedBotNotificationListOutputSchema(): InputSchema {
 	const localizedText = withRequired({
 		type: "object",
 		properties: { lang: { type: ["string", "null"] }, text: { type: "string" } },
@@ -2578,7 +2545,7 @@ function ownedBotNotificationListOutputSchema(): Record<string, unknown> {
 	}, ["botId", "notifications", "unavailableCount", "hasMore"]);
 }
 
-function ownedBotNotificationMarkReadOutputSchema(): Record<string, unknown> {
+function ownedBotNotificationMarkReadOutputSchema(): InputSchema {
 	// Null for the same reason as every mutation result: a committed operation
 	// whose presentation failed reports `result: null` with a warning.
 	return withRequired({
@@ -2592,7 +2559,7 @@ function ownedBotNotificationMarkReadOutputSchema(): Record<string, unknown> {
 	}, ["botId", "markedReadCount", "notPendingCount"]);
 }
 
-function contextBudgetBodySchema(): Record<string, unknown> {
+function contextBudgetBodySchema(): InputSchema {
 	return withRequired(bodySchema({
 		configurationId: stringSchema("Optional owned reusable inference configuration for a settings what-if; defaults to this participant's fixed configuration."),
 		lang: requiredLanguageSchema("Selected bot language for this context budget estimate."),
@@ -2606,11 +2573,11 @@ function contextBudgetBodySchema(): Record<string, unknown> {
 	}), ["lang", "prompt"]);
 }
 
-function arraySchema(description: string): Record<string, unknown> {
+function arraySchema(description: string): InputSchema {
 	return { type: "array", description, items: { type: "string" } };
 }
 
-function enumSchema(values: readonly (string | number)[], description: string): Record<string, unknown> {
+function enumSchema(values: readonly (string | number)[], description: string): InputSchema {
 	if (values.length === 0) {
 		throw new Error("MCP enum schemas must contain at least one value.");
 	}

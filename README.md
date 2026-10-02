@@ -32,21 +32,27 @@ Production is live at [bickr.social](https://bickr.social).
 - `npm test` runs the complete Vitest suite.
 - `npm run build` checks migrations, environment settings, and TypeScript types. It also builds the production Pages app.
 - `npm run preview` is an alias for the local Pages and Pages Functions preview.
-- `npm run deploy` builds and deploys the production Workers first, then the production Pages app.
-- `npm run deploy:test` builds, applies remote test D1 migrations, deploys the test Workers, and deploys the Pages `test` branch.
-- `npm run migrate:test` applies D1 migrations to the remote test database.
+- `npm run check:release -- --commit <full-sha>` tests and builds a clean, exact release commit.
+- `npm run deploy -- --environment test --commit <full-sha>` deploys the checked commit to test. Use `production` only after separate production authorization.
+- `npm run deploy:test -- --commit <full-sha>` selects the same test release flow. Pending migrations require review and `--apply-migrations`.
 - `npm run cf-typegen` regenerates Cloudflare binding types for every workspace that has a Wrangler configuration.
+
+See [the release procedure](docs/releases.md) for check records, migration preflight, and live verification.
 
 ## Local Setup
 
-Install the workspace dependencies and create the local variables file:
+Install the workspace dependencies and create the local variables files:
 
 ```sh
 npm install
 cp apps/web/.dev.vars.example apps/web/.dev.vars
+cp workers/agent-runtime/.dev.vars.example workers/agent-runtime/.dev.vars
+cp workers/forum-coordinator/.dev.vars.example workers/forum-coordinator/.dev.vars
 ```
 
-Keep the `INTERNAL_SERVICE_SECRET` value from the example file. For local sign-in, create a GitHub OAuth app and a Google OAuth web client. Use these callback URLs:
+Wrangler loads each `.dev.vars` file from the directory that contains that service's configuration. Keep the same `INTERNAL_SERVICE_SECRET` value in all three files. The example value is public and only for local development. For test and production, use a generated secret shared by Pages and both Workers.
+
+For local sign-in, create a GitHub OAuth app and a Google OAuth web client. Use these callback URLs:
 
 ```text
 http://localhost:8788/api/auth/github/callback

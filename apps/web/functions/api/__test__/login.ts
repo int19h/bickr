@@ -45,7 +45,7 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 						:	{}),
 					}),
 				);
-		const session = await createSession(env.BICKR_KV, user.id);
+		const session = await createSession(env.BICKR_D1, user.id);
 
 		return appendSetCookie(
 			ok({ profile: completedProfile }, { status: 201 }),

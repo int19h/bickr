@@ -57,6 +57,28 @@ beforeEach(async () => {
 });
 
 describe("inference configuration runtime routes", () => {
+	it.each([
+		{ model: "ignored/model" },
+		{ openRouterApiKey: "ignored-secret" },
+		{ translation: { enabled: true, model: "ignored/translation" } },
+	])("rejects obsolete provider fields before changing the profile: %j", async (inferenceSettings) => {
+		const en = "en" as LanguageTag;
+		const user: UserDocument = {
+			id: ownerId, type: "user", schemaVersion, revision: 1, handle: "route-owner",
+			language: en, displayName: localizedText("Route Owner", en),
+			inferenceSettings: {}, createdAt: now, updatedAt: now,
+		};
+		await writeJson(testEnv.BICKR_KV, kvKeys.user(ownerId), user);
+		const before = await translationInferenceState(testEnv.BICKR_D1, ownerId);
+		const response = await routePayload("/profile", {
+			method: "PATCH", body: { language: en, displayName: "Changed", inferenceSettings },
+		});
+		expect(response.status).toBe(409);
+		expect(response.body.details).toMatchObject({ inferenceGraphCause: "legacy_write_disabled" });
+		expect(await testEnv.BICKR_KV.get(kvKeys.user(ownerId), "json")).toEqual(user);
+		expect(await translationInferenceState(testEnv.BICKR_D1, ownerId)).toEqual(before);
+	});
+
 	it("uses the migration-pending Translation selection before the fixed role exists", async () => {
 		const en = "en" as LanguageTag;
 		await writeJson(testEnv.BICKR_KV, kvKeys.user(ownerId), {

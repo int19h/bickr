@@ -56,6 +56,16 @@ describe('provider response groups', () => {
 		expect(store.loopMessagesAfter(0)).toEqual(before);
 	});
 
+	it('rolls back a new assistant and tool group, logs, and broadcasts on a write failure', () => {
+		const broadcast = vi.fn();
+		store = new RuntimeMessageStore(storage, broadcast);
+		storage.database.exec("CREATE TRIGGER fail_tool BEFORE INSERT ON loop_messages WHEN NEW.role = 'tool' BEGIN SELECT RAISE(ABORT, 'tool write failed'); END");
+		expect(() => store.appendLoopMessageGroup(pair('first'))).toThrow('tool write failed');
+		expect(store.loopMessagesAfter(0)).toEqual([]);
+		expect(storage.database.prepare('SELECT COUNT(*) AS count FROM loop_message_logs').get()).toMatchObject({ count: 0 });
+		expect(broadcast).not.toHaveBeenCalled();
+	});
+
 	it('rolls back assistant expansion, logs, and pending cleanup if result persistence fails', () => {
 		const first = store.appendProviderToolResult(...pair('first'), null);
 		storage.database.prepare("INSERT INTO runtime_state VALUES ('pending_tool_v2', ?)").run(JSON.stringify({ runId: 'run' }));
