@@ -1,14 +1,12 @@
+import { avatarUploadBytes } from "./avatar/upload";
 import { dismissDiscordInvite } from "@bickr/shared/discord-invite";
 import { assertLegacyInferenceWriteSupported } from '@bickr/shared/inference-configuration-write-policy';
 import { fail, ok, readJsonBody } from '@bickr/shared/api';
 import type { AccountMutationResult } from '@bickr/shared/account-mutation-protocol';
 import {
 	copyAvatarImage,
-	fetchRemoteAvatarBytes,
 	normalizeAvatarPublicBaseUrl,
 	storeAvatarImage,
-	validateAvatarFile,
-	type AvatarContentType,
 } from '@bickr/shared/avatar-storage';
 import {
 	cleanupTerminalLifecycleOperations,
@@ -148,7 +146,6 @@ import {
 	parseUpdateBotGroupInput,
 	parseUpdateUserProfileInput,
 	parseUpdateWorldInput,
-	requiredText,
 } from '@bickr/shared/validation';
 import {
 	applyGeneratedAvatarForBot,
@@ -2582,28 +2579,6 @@ async function storedAvatarFromRequest(
 	});
 }
 
-type AvatarUploadBytes =
-	| { kind: 'file'; bytes: Uint8Array; contentType: AvatarContentType; originalFilename?: string }
-	| { kind: 'url'; bytes: Uint8Array; contentType: AvatarContentType; sourceUrl: string };
-
-async function avatarUploadBytes(request: Request): Promise<AvatarUploadBytes> {
-	const contentType = request.headers.get('content-type') ?? '';
-	if (contentType.toLowerCase().includes('multipart/form-data')) {
-		const file = (await request.formData()).get('file');
-		if (!(file instanceof File)) throw new InputError('Avatar upload must include a file.');
-		const validated = await validateAvatarFile(file);
-		return {
-			kind: 'file',
-			bytes: validated.bytes,
-			contentType: validated.contentType,
-			...(file.name ? { originalFilename: file.name } : {}),
-		};
-	}
-	const body = runtimeRecord(await readJsonBody(request));
-	const sourceUrl = requiredText(body.url, 'Avatar URL', 1_000);
-	const validated = await fetchRemoteAvatarBytes(sourceUrl);
-	return { kind: 'url', bytes: validated.bytes, contentType: validated.contentType, sourceUrl };
-}
 
 async function croppedAvatarFromRequest(
 	request: Request,

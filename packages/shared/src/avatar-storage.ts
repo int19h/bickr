@@ -1,3 +1,4 @@
+import { BodyReadTimeoutError, BodySizeLimitError, readBoundedBytes, withBodyDeadline } from "./bounded-body";
 import { type AvatarImage, type AvatarImageSource } from "./model";
 import { InputError } from "./validation";
 
@@ -55,34 +56,44 @@ export function normalizeAvatarPublicBaseUrl(value: string | undefined): string 
 export async function fetchRemoteAvatarBytes(
 	url: string,
 	fetcher: RemoteAvatarFetch = fetch,
+	options: { signal?: AbortSignal } = {},
 ): Promise<ValidatedAvatarBytes> {
-	const parsed = remoteAvatarUrl(url);
-	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), 15_000);
-	let response: Response;
+	let parsed = remoteAvatarUrl(url);
 	try {
-		response = await fetcher(parsed.toString(), {
-			headers: { accept: avatarAcceptedContentTypes.join(", ") },
-			redirect: "follow",
-			signal: controller.signal,
+		return await withBodyDeadline(15_000, options.signal, async (signal) => {
+			for (let redirects = 0; ; redirects++) {
+				const response = await fetcher(parsed.toString(), {
+					headers: { accept: avatarAcceptedContentTypes.join(", ") },
+					redirect: "manual",
+					signal,
+				});
+				if ([301, 302, 303, 307, 308].includes(response.status)) {
+					void response.body?.cancel().catch(() => {});
+					const location = response.headers.get("location");
+					if (!location || redirects >= 5) throw new InputError("Avatar URL has too many or invalid redirects.");
+					// Every hop must satisfy the same policy as the original URL.
+					parsed = remoteAvatarUrl(new URL(location, parsed).toString());
+					continue;
+				}
+				if (!response.ok) {
+					void response.body?.cancel().catch(() => {});
+					throw new InputError(`Avatar URL returned HTTP ${response.status}.`);
+				}
+				const contentLength = response.headers.get("content-length");
+				if (contentLength && Number(contentLength) > avatarMaxBytes) {
+					void response.body?.cancel().catch(() => {});
+					throw new BodySizeLimitError(avatarMaxBytes);
+				}
+				if (!response.body) throw new InputError("Avatar URL did not return an image body.");
+				const bytes = await readBoundedBytes(response.body, { maxBytes: avatarMaxBytes, signal });
+				return validateAvatarBytes(bytes, response.headers.get("content-type") ?? undefined);
+			}
 		});
 	} catch (error) {
-		if (isAbortError(error)) {
-			throw new InputError("Avatar URL fetch timed out.");
-		}
+		if (error instanceof BodyReadTimeoutError) throw new InputError("Avatar URL fetch timed out.");
+		if (error instanceof BodySizeLimitError) throw new InputError("Avatar image must be 10 MB or smaller.");
 		throw error;
-	} finally {
-		clearTimeout(timeout);
 	}
-	if (!response.ok) {
-		throw new InputError(`Avatar URL returned HTTP ${response.status}.`);
-	}
-	const contentLength = response.headers.get("content-length");
-	if (contentLength && Number(contentLength) > avatarMaxBytes) {
-		throw new InputError("Avatar image must be 10 MB or smaller.");
-	}
-	const bytes = await readCappedBytes(response.body, avatarMaxBytes);
-	return validateAvatarBytes(bytes, response.headers.get("content-type") ?? undefined);
 }
 
 export async function validateAvatarFile(file: File): Promise<ValidatedAvatarBytes> {
@@ -272,33 +283,6 @@ function remoteAvatarUrl(value: string): URL {
 	return parsed;
 }
 
-async function readCappedBytes(body: ReadableStream | null, maxBytes: number): Promise<Uint8Array> {
-	if (!body) {
-		throw new InputError("Avatar URL did not return an image body.");
-	}
-	const reader = body.getReader();
-	const chunks: Uint8Array[] = [];
-	let total = 0;
-	while (true) {
-		const { done, value } = await reader.read();
-		if (done) {
-			break;
-		}
-		total += value.byteLength;
-		if (total > maxBytes) {
-			await reader.cancel("Avatar image byte limit reached.");
-			throw new InputError("Avatar image must be 10 MB or smaller.");
-		}
-		chunks.push(value);
-	}
-	const bytes = new Uint8Array(total);
-	let offset = 0;
-	for (const chunk of chunks) {
-		bytes.set(chunk, offset);
-		offset += chunk.byteLength;
-	}
-	return bytes;
-}
 
 export function avatarContentTypeFromBytes(bytes: Uint8Array): DetectedAvatarContentType | null {
 	if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
@@ -442,6 +426,4 @@ function base64Bytes(value: string): Uint8Array {
 	return bytes;
 }
 
-function isAbortError(error: unknown): boolean {
-	return Boolean(error && typeof error === "object" && "name" in error && (error as { name?: unknown }).name === "AbortError");
-}
+
