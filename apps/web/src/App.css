@@ -8233,3 +8233,13 @@ dialog.discord-invite .modal-foot { flex-wrap: wrap; }
 button.inference-model-name { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
 button.inference-model-name:hover { text-decoration: underline; }
 .inference-attribution-fields .input { width: 100%; }
+
+.math-expression { display: inline; }
+.math-output { display: inline-block; max-width: 100%; overflow-x: auto; }
+.math-output svg { max-width: none; }
+.math-display { display: block; max-width: 100%; overflow-x: auto; padding: .4em 0; }
+.math-fallback, .math-source code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.math-controls { font-size: .7em; margin-inline-start: .3em; }
+.math-controls button, .math-source button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--border-color, #aaa); border-radius: 3px; cursor: pointer; }
+.math-source { display: block; max-width: 100%; padding: .3em; }
+.math-output[hidden] { display: none; }
