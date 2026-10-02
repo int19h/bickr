@@ -545,7 +545,17 @@ describe("MCP endpoint", () => {
 	it("validates set_subscription scopes before upserting", async () => {
 		const kv = new MapKV();
 		const accessToken = await issueAccessToken(kv, ["bickr.write"]);
-		const callSetSubscription = async (worldId: string, actualWorldId: string | null) => {
+		const now = new Date().toISOString();
+		await testEnv.BICKR_D1.batch([
+			activeIdentityClaim("world_handle", "global", "mcp-world", "world", "w_mcp", "usr_mcp"),
+			testEnv.BICKR_D1.prepare(`INSERT INTO worlds_index
+				(world_id, handle, name, description, created_by_user_id, visibility, created_at, updated_at, lifecycle_state)
+				VALUES ('w_mcp', 'mcp-world', 'MCP world', '', 'usr_mcp', 'public', ?, ?, 'active')`).bind(now, now),
+			testEnv.BICKR_D1.prepare(`INSERT INTO forums_index
+				(forum_id, world_id, world_handle, handle, description, created_by_user_id, created_at, updated_at)
+				VALUES ('frm_mcp', 'w_mcp', 'mcp-world', 'mcp-forum', '', 'usr_mcp', ?, ?)`).bind(now, now),
+		]);
+		const callSetSubscription = async (worldId: string, scopeId = "frm_mcp") => {
 			const response = await callMcp(kv, accessToken, {
 				jsonrpc: "2.0",
 				id: 1,
@@ -554,15 +564,15 @@ describe("MCP endpoint", () => {
 					name: "set_subscription",
 					arguments: {
 						scopeType: "forum",
-						scopeId: "frm_mcp",
+						scopeId,
 						worldId,
 					},
 				},
-			}, { BICKR_D1: mcpSubscriptionD1(actualWorldId) });
+			}, { BICKR_D1: testEnv.BICKR_D1 });
 			return (await jsonResponse(response)).result as Record<string, unknown>;
 		};
 
-		const valid = await callSetSubscription("w_mcp", "w_mcp");
+		const valid = await callSetSubscription("w_mcp");
 		expect(valid).toMatchObject({
 			structuredContent: {
 				subscription: { scopeType: "forum", scopeId: "frm_mcp", worldId: "w_mcp" },
@@ -570,7 +580,7 @@ describe("MCP endpoint", () => {
 		});
 		expect(valid).not.toHaveProperty("isError");
 
-		const wrongWorld = await callSetSubscription("w_other", "w_mcp");
+		const wrongWorld = await callSetSubscription("w_other");
 		expect(wrongWorld).toMatchObject({
 			isError: true,
 			structuredContent: {
@@ -578,13 +588,15 @@ describe("MCP endpoint", () => {
 			},
 		});
 
-		const nonexistent = await callSetSubscription("w_mcp", null);
+		const nonexistent = await callSetSubscription("w_mcp", "frm_missing");
 		expect(nonexistent).toMatchObject({
 			isError: true,
 			structuredContent: {
 				message: "Subscription forum scope not found.",
 			},
 		});
+		expect((await testEnv.BICKR_D1.prepare("SELECT world_id AS worldId, scope_id AS scopeId FROM human_subscriptions").all()).results)
+			.toEqual([{ worldId: "w_mcp", scopeId: "frm_mcp" }]);
 	});
 
 	it("advertises closed prompt-only entity schemas", () => {
@@ -2371,7 +2383,8 @@ function maintenanceAwareD1(database: unknown, enabled: boolean): unknown {
 	return {
 		batch: (statements: unknown[]) => db.batch(statements),
 		prepare: (sql: string) => {
-			if (sql.includes("auth_records") || (sql.includes("FROM users_index") && sql.includes("lifecycle_state"))) return testEnv.BICKR_D1.prepare(sql);
+			// Route the principal lookup, not unrelated writes with an account-state subquery.
+			if (sql.includes("auth_records") || sql.trimStart().startsWith("SELECT user_id FROM users_index")) return testEnv.BICKR_D1.prepare(sql);
 			if (!sql.includes("FROM maintenance_control")) {
 				return db.prepare(sql);
 			}
@@ -2551,57 +2564,6 @@ function mcpSettingsD1(): unknown {
 	return {
 		batch: async () => [],
 		prepare: (sql: string) => ({ ...statement, sql, values: [] }),
-	};
-}
-
-function mcpSubscriptionD1(actualWorldId: string | null): unknown {
-	let stored: Record<string, unknown> | null = null;
-	return {
-		batch: async () => [],
-		prepare: (sql: string) => {
-			const statement = {
-				values: [] as unknown[],
-				bind(...values: unknown[]) {
-					this.values = values;
-					return this;
-				},
-				async all<T>() {
-					if (!sql.includes("actualWorldId")) {
-						return { success: true, results: [] as T[] };
-					}
-					return {
-						success: true,
-						results: [{
-							position: 0,
-							scopeType: this.values[0],
-							scopeId: this.values[1],
-							claimedWorldId: this.values[2],
-							actualWorldId,
-						}] as T[],
-					};
-				},
-				async run() {
-					if (sql.includes("INSERT INTO human_subscriptions")) {
-						stored = {
-							id: this.values[0],
-							userId: this.values[1],
-							worldId: this.values[2],
-							scopeType: this.values[3],
-							scopeId: this.values[4],
-							active: 1,
-							autoCreated: this.values[5],
-							createdAt: this.values[6],
-							updatedAt: this.values[7],
-						};
-					}
-					return { success: true, meta: { changes: 1 } };
-				},
-				async first<T>() {
-					return stored as T | null;
-				},
-			};
-			return statement;
-		},
 	};
 }
 
