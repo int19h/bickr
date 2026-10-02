@@ -33,7 +33,15 @@ export async function migrateLegacyAuthPage(kv: AuthMigrationKV, db: D1DatabaseL
 	for (const key of page.keys) {
 		result.scanned++;
 		if (options.prefix === "session" || options.prefix === "cli_token" || options.prefix === "mcp_client") {
-			const raw = await kv.get(key.name, { type: "json" });
+			let raw: unknown;
+			try { raw = await kv.get(key.name, { type: "json" }); }
+			catch (error) {
+				if (!(error instanceof SyntaxError)) throw error;
+				// A malformed historical document has no authority. Count it in
+				// dry runs, then retire it with this page during the real sweep.
+				result.invalid++;
+				continue;
+			}
 			const document = legacyDocument(raw, options.prefix, transition.until, now);
 			if (document) {
 				result.copied++;

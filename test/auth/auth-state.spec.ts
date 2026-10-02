@@ -228,4 +228,13 @@ describe("atomic authentication state", () => {
 		expect(await userForSessionToken(kv, session.cookieValue, db, later(2))).toBeNull();
 	});
 
+	it("reports malformed legacy JSON without pinning the migration page", async () => {
+		const key = kvKeys.cliToken("malformed");
+		await kv.put(key, "{");
+		expect(await migrateLegacyAuthPage(kv, db, { prefix: "cli_token", dryRun: true, now })).toMatchObject({ scanned: 1, invalid: 1 });
+		expect(await kv.get(key)).toBe("{");
+		expect(await migrateLegacyAuthPage(kv, db, { prefix: "cli_token", dryRun: false, now })).toMatchObject({ scanned: 1, invalid: 1, done: true });
+		expect(await kv.get(key)).toBeNull();
+	});
+
 });
