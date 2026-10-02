@@ -1,4 +1,5 @@
-import { makeId, randomToken } from "./ids";
+import { commitForumCreation, retryForumCreation } from "./forum-creation";
+import { makeId, randomToken, sha256Hex } from "./ids";
 import { isD1UniqueConstraintError } from "./d1-errors";
 import type { LifecycleFailurePoint } from "./entity-lifecycle";
 import { objectIndexScopeStaleStatement } from "./object-index-scope";
@@ -1113,8 +1114,12 @@ async function createForum(
 	input: CreateForumInput,
 	userId: string,
 	now = new Date().toISOString(),
+	requestKey = crypto.randomUUID(),
 ): Promise<ForumSummary> {
 	const world = await worldByHandle(db, worldHandle);
+	const requestHash = await sha256Hex(JSON.stringify([world.id, input]));
+	const retried = await retryForumCreation(kv, db, userId, requestKey, requestHash);
+	if (retried) return forumSummary(retried);
 	const existing = await db
 		.prepare(
 			`SELECT forum_id AS id
@@ -1149,16 +1154,7 @@ async function createForum(
 		updatedAt: now,
 	};
 
-	try {
-		await upsertForumIndexProjection(db, forum, { requireActiveOwner: true });
-	} catch (error) {
-		if (isD1UniqueConstraintError(error)) throw new RepositoryError("conflict", "A forum with that handle already exists in this world.", 409);
-		throw error;
-	}
-	await writeJson(kv, kvKeys.forum(forum.id), forum);
-	await putObjectIndex(db, forum, "forum", entityIndexVersions.forum, forum.worldId);
-
-	return forumSummary(forum);
+	return forumSummary(await commitForumCreation(kv, db, forum, requestKey, requestHash));
 }
 
 async function attachBotOwners(db: D1DatabaseLike, bots: BotSummary[]): Promise<BotSummary[]> {
@@ -3795,7 +3791,19 @@ export async function upsertForumIndexProjection(
 	options: { requireActiveOwner?: boolean } = {},
 ): Promise<ForumDocument> {
 	const normalized = normalizeForumDefaults(forum);
-	const result = await db
+	const result = await forumIndexProjectionStatement(db, normalized, options).run();
+	if (options.requireActiveOwner && (result.meta?.changes ?? 0) < 1) throw new RepositoryError("forbidden", "The account or world no longer accepts new forums.", 403);
+	await upsertForumSearchIndex(db, normalized);
+	return normalized;
+}
+
+export function forumIndexProjectionStatement(
+	db: D1DatabaseLike,
+	forum: ForumDocument,
+	options: { requireActiveOwner?: boolean } = {},
+): D1PreparedStatementLike {
+	const normalized = normalizeForumDefaults(forum);
+	return db
 		.prepare(
 			`INSERT INTO forums_index (
 				forum_id, world_id, world_handle, handle, language, description, description_lang,
@@ -3831,11 +3839,7 @@ export async function upsertForumIndexProjection(
 			normalized.threadSettings?.commentLimit ?? null,
 			booleanSql(normalized.readOnly),
 			...(options.requireActiveOwner ? [normalized.createdByUserId, normalized.worldId] : []),
-		)
-		.run();
-	if (options.requireActiveOwner && (result.meta?.changes ?? 0) < 1) throw new RepositoryError("forbidden", "The account or world no longer accepts new forums.", 403);
-	await upsertForumSearchIndex(db, normalized);
-	return normalized;
+		);
 }
 
 export async function upsertBotIndexProjection(

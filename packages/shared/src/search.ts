@@ -1,3 +1,4 @@
+import type { ForumDocument } from "./model";
 import { isCloudflareRateLimitError, retryCloudflareOperation } from "./cloudflare";
 import {
 	avatarCropFromJson,
@@ -1158,15 +1159,22 @@ async function hydrateSemanticType(
 	return result.results ?? [];
 }
 
+export function forumSearchIndexStatements(db: D1DatabaseLike, forum: ForumDocument) {
+	return searchIndexEntityStatements(db, { ...forum, type: "forum" });
+}
+
 async function replaceSearchIndexEntity(db: D1DatabaseLike, entity: SearchIndexEntity): Promise<void> {
+	await db.batch(searchIndexEntityStatements(db, entity));
+}
+
+function searchIndexEntityStatements(db: D1DatabaseLike, entity: SearchIndexEntity) {
 	const deleteStatement = db
 		.prepare(`DELETE FROM search_entities_fts WHERE entity_type = ? AND entity_id = ?`)
 		.bind(entity.type, entity.id);
 	if (entity.deletedAt || (entity.type === "forum" && entity.personalBotId)) {
-		await deleteStatement.run();
-		return;
+		return [deleteStatement];
 	}
-	await db.batch([
+	return [
 		deleteStatement,
 		db
 			.prepare(
@@ -1189,7 +1197,7 @@ async function replaceSearchIndexEntity(db: D1DatabaseLike, entity: SearchIndexE
 				searchBody(entity),
 				entity.updatedAt,
 			),
-	]);
+	];
 }
 
 async function upsertSearchVector(env: SearchVectorEnv, entity: SearchVectorEntity): Promise<void> {

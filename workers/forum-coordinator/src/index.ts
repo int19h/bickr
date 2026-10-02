@@ -1,3 +1,5 @@
+import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
+import { finishForumCreation, readForumCreationIntent } from "@bickr/shared/forum-creation";
 import { runBotNotificationFanout } from "@bickr/shared/bot-notification-fanout";
 import { commitThreadMutation, nextThreadMutationAlarm, pruneThreadMutationReceipts, readCanonicalThread, replayThreadMutation, replayThreadMutationReceipt, restoreResponse, saveResponse, stageThreadMutation, threadMutationIdentity, type ThreadMutationPlan, type CompactThreadMutationReply, type ThreadMutationReply } from "./thread-mutations";
 import { projectGovernanceDeletionIntent, readGovernanceDeletionIntent, type GovernanceDeletionIntent } from "@bickr/shared/governance-deletion-intents";
@@ -282,6 +284,18 @@ async function handleForumCoordinatorRequestExclusive(
 				coordinator.receiptReply = { kind: "repair", threadId: repair.document.id };
 			}
 			return ok({ repair });
+		}
+		const creationRecovery = /^\/maintenance\/forum-creations\/([^/]+)$/.exec(url.pathname);
+		if (request.method === "POST" && creationRecovery) {
+			const intent = await readForumCreationIntent(env.BICKR_D1, decodeURIComponent(creationRecovery[1] ?? ""));
+			if (!intent || intent.state !== "pending") return ok({ recovered: true });
+			try {
+				const forum = await finishForumCreation(env.BICKR_KV, env.BICKR_D1, intent);
+				await upsertForumSearchVector(env, forum);
+			} catch (error) {
+				if (!(error instanceof RepositoryError) || ![403, 409, 410].includes(error.status)) throw error;
+			}
+			return ok({ recovered: true });
 		}
 		const recovery = /^\/maintenance\/deletions\/(world|forum)\/([^/]+)$/.exec(url.pathname);
 		if (request.method === "POST" && recovery) {
@@ -573,7 +587,7 @@ async function handleForumCoordinatorMutation(
 		const userId = requireUserHeader(request);
 		const worldHandle = normalizeHandle(decodeURIComponent(forumCreateMatch[1] ?? ""));
 		const input = parseCreateForumInput(await readJsonBody(request));
-		const forum = await createForum(env.BICKR_KV, env.BICKR_D1, worldHandle, input, userId);
+		const forum = await createForum(env.BICKR_KV, env.BICKR_D1, worldHandle, input, userId, undefined, request.headers.get("x-bickr-idempotency-key") ?? request.headers.get("idempotency-key") ?? undefined);
 		await upsertForumSearchVector(env, forum);
 		return ok({ forum, coordinator: coordinator.objectId }, { status: 201 });
 	}
@@ -937,7 +951,7 @@ export async function runScheduledForumCoordinatorTasks(env: Env, scheduledTime:
 			return await runForumCoordinatorNotificationPrune(env, now);
 		case "recovery":
 			if (!(await readMaintenanceState(env.BICKR_D1)).enabled) {
-				const results = await Promise.allSettled([recoverGovernanceDeletions(env, now), recoverThreadMutations(env, now), runBotNotificationFanout(env.BICKR_KV, env.BICKR_D1, now), refreshThreadHotScores(env.BICKR_D1, now)]);
+				const results = await Promise.allSettled([recoverGovernanceDeletions(env, now), recoverForumCreations(env, now), recoverThreadMutations(env, now), runHumanNotificationFanout(env.BICKR_D1, now), runBotNotificationFanout(env.BICKR_KV, env.BICKR_D1, now), refreshThreadHotScores(env.BICKR_D1, now)]);
 				console.log(JSON.stringify({ event: "coordinator_recovery", scheduledTime: now, results }));
 				for (const result of results) if (result.status === "rejected") throw result.reason;
 			}
@@ -945,6 +959,23 @@ export async function runScheduledForumCoordinatorTasks(env: Env, scheduledTime:
 	}
 }
 
+
+export async function recoverForumCreations(env: Env, now: string): Promise<number> {
+	await env.BICKR_D1.prepare(`DELETE FROM forum_creation_intents WHERE forum_id IN (
+		SELECT forum_id FROM forum_creation_intents WHERE expires_at <= ? ORDER BY expires_at, forum_id LIMIT 100)`)
+		.bind(now).run();
+	const rows = await env.BICKR_D1.prepare(`SELECT forum_id AS id, world_id AS worldId FROM forum_creation_intents
+		WHERE state = 'pending' AND next_attempt_at <= ? ORDER BY next_attempt_at, forum_id LIMIT 25`).bind(now).all<{ id: string; worldId: string }>();
+	for (const row of rows.results ?? []) {
+		await env.BICKR_D1.prepare(`UPDATE forum_creation_intents SET next_attempt_at = ? WHERE forum_id = ? AND state = 'pending'`)
+			.bind(new Date(Date.parse(now) + 5 * 60_000).toISOString(), row.id).run();
+		try {
+			const response = await env.WORLD_COORDINATOR.get(env.WORLD_COORDINATOR.idFromName(row.worldId)).fetch(internalJsonRequest(env, `/maintenance/forum-creations/${encodeURIComponent(row.id)}`, {}));
+			if (!response.ok) console.error(JSON.stringify({ event: "forum_creation_recovery_failed", forumId: row.id, status: response.status }));
+		} catch (error) { console.error(JSON.stringify({ event: "forum_creation_recovery_failed", forumId: row.id, error: String(error) })); }
+	}
+	return rows.results?.length ?? 0;
+}
 
 /** A persisted D1 intent survives a missing task record or an exhausted alarm. */
 export async function recoverGovernanceDeletions(env: Env, now: string): Promise<number> {
@@ -1821,7 +1852,7 @@ async function executeDurableThreadMutation(request: Request, env: ForumCoordina
 		...(creation && thread && env.FORUM_COORDINATOR ? { handoffThreadId: thread.id } : {}),
 	};
 	await commitThreadMutation(storage, env.BICKR_D1, coordinator.objectId, plan);
-	if (coordinator.cache && !creation) coordinator.cache.entry = stagedContext.cache.entry;
+	if (coordinator.cache && !creation) coordinator.cache.entry = stagedContext.cache?.entry ?? null;
 	await replayCoordinatorThreadMutation(env, coordinator);
 	await scheduleCoordinatorAlarmForPendingTasks(coordinator);
 	return restoreResponse(plan.response);

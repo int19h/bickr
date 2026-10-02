@@ -3299,6 +3299,7 @@ describe("Forum coordinator", () => {
 				}),
 			]),
 		);
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
 		const humanUnfollow = await testEnv.BICKR_D1.prepare(
 			`SELECT body, url_path AS urlPath
 			 FROM human_notifications

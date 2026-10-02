@@ -15,6 +15,7 @@
 		"./d1-errors": "./src/d1-errors.ts",
 		"./exclusive-operation-queue": "./src/exclusive-operation-queue.ts",
 		"./entity-lifecycle": "./src/entity-lifecycle.ts",
+		"./forum-creation": "./src/forum-creation.ts",
 		"./governance": "./src/governance.ts",
 		"./governance-deletion-intents": "./src/governance-deletion-intents.ts",
 		"./governance-deletion-sweep": "./src/governance-deletion-sweep.ts",
