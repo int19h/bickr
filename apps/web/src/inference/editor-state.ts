@@ -8,26 +8,20 @@ export type StaleConflict = {
 	server: RedactedInferenceConfigurationDto;
 };
 
-/** What a reload may do to the drafts an owner is holding. */
+/** How a reload handles the current drafts. */
 export type RefreshDecision = "adopt" | "keep_drafts" | "conflict";
 
 /**
- * A reload never resolves a conflict on the owner's behalf. Clean drafts adopt
- * the server copy; drafts held against the same revision keep their edits while
- * the refreshed effective and inherited values are adopted around them; a
- * newer revision under dirty drafts is a conflict the owner must resolve, so
- * the loaded revision — the one a save is still expected against — stays put.
+ * Clean drafts adopt the server copy. If the revision is unchanged, keep the
+ * edits and refresh the inherited values. If the revision changed, keep the
+ * loaded revision until the user resolves the conflict.
  */
 export function refreshDecision(input: { currentRevision: number; nextRevision: number; dirty: boolean }): RefreshDecision {
 	if (!input.dirty) return "adopt";
 	return input.nextRevision === input.currentRevision ? "keep_drafts" : "conflict";
 }
 
-/**
- * The comparison an owner is shown before choosing. It names every field whose
- * draft differs from the server copy, plus the name when an unsaved rename or a
- * rename made elsewhere disagrees with it.
- */
+/** List fields and the name that differ from the saved copy. */
 export function staleConflict(
 	server: RedactedInferenceConfigurationDto,
 	drafts: InferenceFieldDraftMap | null,

@@ -70,3 +70,26 @@ it("keeps a newer name typed while a rename is pending", async () => {
 	await act(async () => pending.get("/api/me/inference-configurations/cfg_A/rename")!({ configuration: dto("cfg_A", 2) }));
 	expect(box.querySelector<HTMLInputElement>("#inference-name")?.value).toBe("Next name");
 });
+it("keeps an in-flight save active when a stale-conflict reload is clicked", async () => {
+	await render("cfg_A"); await respond("cfg_A");
+	await act(async () => box.querySelector<HTMLInputElement>('[aria-label="Override Model"]')!.click());
+	const label = [...box.querySelectorAll("label")].find(entry => entry.textContent === "Model")!;
+	const input = box.querySelector<HTMLInputElement>(`#${CSS.escape(label.htmlFor)}`)!;
+	await act(async () => {
+		Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "changed-model");
+		input.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+	await act(async () => window.dispatchEvent(new Event("focus")));
+	await respond("cfg_A", 2);
+	expect(box.textContent).toContain("now at revision 2");
+	await act(async () => [...box.querySelectorAll("button")].find(button => button.textContent === "Save changes")!.click());
+	const finishSave = pending.get("/api/me/inference-configurations/cfg_A")!;
+	const reload = [...box.querySelectorAll("button")].find(button => button.textContent?.includes("Reload saved values"))!;
+	expect(reload.disabled).toBe(true);
+	await act(async () => reload.click());
+	expect(pending.get("/api/me/inference-configurations/cfg_A")).toBe(finishSave);
+	await act(async () => finishSave({ configuration: dto("cfg_A", 3) }));
+	expect(box.textContent).not.toContain("Saving...");
+	expect(box.textContent).not.toContain("now at revision 2");
+	expect(changed).toHaveBeenCalledTimes(1);
+});

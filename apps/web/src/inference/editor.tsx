@@ -82,7 +82,7 @@ function InferenceConfigurationEditorScreenContent({
 	const [loadError, setLoadError] = useState<ApiFailure | null>(null);
 	const [drafts, setDrafts] = useState<InferenceFieldDraftMap | null>(null);
 	const [nameDraft, setNameDraft] = useState("");
-	const [busy, setBusy] = useState(false);
+	const [busy, setBusyState] = useState(false);
 	const [message, setMessage] = useState("");
 	const [error, setError] = useState("");
 	const [stale, setStale] = useState<StaleConflict | null>(null);
@@ -105,6 +105,12 @@ function InferenceConfigurationEditorScreenContent({
 		latest.current = { dto, drafts, nameDraft, busy };
 	});
 
+	function setBusy(value: boolean): void {
+		// Block refresh handlers before React disables the controls.
+		latest.current.busy = value;
+		setBusyState(value);
+	}
+
 	/**
 	 * `drafts` says whether the owner's field edits are replaced; `name` says the
 	 * same for an unsaved rename. A rename is only ever adopted from the response
@@ -126,6 +132,7 @@ function InferenceConfigurationEditorScreenContent({
 
 	const refresh = useCallback(
 		async () => {
+			if (latest.current.busy) return null;
 			const current = requests.begin();
 			const result = await loadConfiguration(configurationId);
 			if (!current()) return null;
@@ -403,7 +410,7 @@ function InferenceConfigurationEditorScreenContent({
 					</p>
 					<p>{staleComparisonText(stale)}</p>
 					<div className="inline-controls">
-						<button className="btn compact" onClick={() => void refresh()} type="button">
+						<button className="btn compact" disabled={busy} onClick={() => void refresh()} type="button">
 							Reload saved values (discards your edits)
 						</button>
 						<button
