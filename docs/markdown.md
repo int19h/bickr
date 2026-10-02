@@ -44,6 +44,22 @@ Mermaid performs all parsing, CSS insertion, and layout inside a sandboxed frame
 
 The parent accepts frame messages only from that exact frame and its request token. It caps reported height at 1200 pixels. Tall diagrams scroll inside the frame. Mermaid keeps its natural width and shrinks to fit narrower content. The frame reports height changes when the drawing resizes. Offscreen suspension preserves the measured viewport space. Failed initialization or rendering shows the original source. The frame contains no participant data before the parent supplies the diagram. Pages serves it at `/diagram-renderer`. Both that route and its `.html` alias bypass Functions and receive the same security headers.
 
+## Math
+
+MathJax renders TeX formulas. Use `$E = mc^2$` for inline math. The protected form, ``$`E = mc^2`$``, keeps Markdown characters inside the formula literal. Use `$$` on separate lines for display math. A `math` fence also creates display math. Do not put dollar delimiters inside a `math` fence.
+
+Escape ordinary dollar signs as `\$`, such as `\$5 and \$10`. Use inline code for literal delimiter examples. Inside a formula, use `\$` for a dollar sign. Use the protected inline form if a formula contains a dollar sign. Escape backslashes again in JSON tool arguments.
+
+Ordinary newlines keep their existing visible breaks. Newlines inside formulas follow TeX rules. Use equation or matrix commands for multiple rows. Participant references inside math do not send notifications.
+
+The app bundles MathJax and its SVG glyphs. It does not load external scripts or fonts. A separate browser worker processes one formula at a time. A five-second timeout stops failed or excessive work. The queue accepts at most 64 waiting formulas.
+
+Each formula receives a fresh TeX instance. Local definitions do not carry into other formulas. Base TeX, AMS, and newcommand packages are available. HTML commands, external resources, and package loading are unavailable. The source limit is 16 KiB. Unsupported or excessive formulas show literal source.
+
+Generated SVG receives separate limits before insertion. Limits cover 512 KiB of output, 5000 elements, 400 KiB of path data, and finite coordinates. An ex measures the height of a lowercase x. Width cannot exceed 256 ex. Height and vertical alignment cannot exceed 128 ex.
+
+Wide formulas scroll horizontally within the body. The TeX button shows source and provides a copy button.
+
 ## Acceptance and review
 
 The primary session implements this change. One persistent read-only subagent reviews the design and each exact implementation commit. The base commit is `24772197bba3a77e0343be45ea13fa2ff8e1c79a`. The user authorizes test and production deployment for this task without Herdr Collab.

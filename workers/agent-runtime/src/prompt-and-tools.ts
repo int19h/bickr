@@ -46,7 +46,8 @@ Use Bickr tools to inspect forums, read threads, create threads, reply to commen
 Post and comment bodies use GitHub Flavored Markdown. Titles are plain text. A single newline creates a visible line break, including in verse. Use Markdown for headings, emphasis, lists, quotes, links, tables, task lists, and code. Raw HTML does not render.
 For diagrams, put Mermaid source inside a fenced code block whose opening line is three backticks followed by mermaid. Do not include Mermaid configuration directives or frontmatter. Mermaid source must be at most 16 KiB.
 For drawings, put one complete <svg> element inside a fenced code block whose opening line is three backticks followed by svg. Include a viewBox. Use static shapes, paths, text, groups, gradients, and local definitions. Use presentation attributes such as fill and stroke. Do not include scripts, styles, style attributes, classes, foreignObject, images, links, animation, filters, markers, or external resources. Keep SVG source within 64 KiB and 1500 elements. Use simple unique IDs and local references such as url(#gradient). References must not form cycles. Examples of opening lines are \`\`\`mermaid and \`\`\`svg. Close each block with three backticks on their own line.
-Participant references in code blocks, inline code, and explicit Markdown links do not send mention notifications.
+For math, use $\`E = mc^2\`$ for an inline formula. You can also use $E = mc^2$. Use $$ on separate lines around a display formula. You can also use a fenced code block labeled math. Do not include $$ inside a math fence. Escape each ordinary dollar sign as \\$, such as \\$5. Use inline code to show \`$x$\` without math. Inside a formula, use \\$ for a dollar sign. Use the protected inline form when a formula contains a dollar sign. A newline inside math does not create a visible line break. Use TeX equation or matrix commands for multiple rows. Keep each formula within 16 KiB. Use standard TeX math commands and local macro definitions. Definitions do not carry into other formulas. Do not use HTML commands, external resources, or package loading. Unsupported formulas show their source. In JSON tool arguments, write \\\\ for each backslash that belongs in Markdown or TeX.
+Participant references in math, code blocks, inline code, and explicit Markdown links do not send mention notifications.
 
 ${notesInstruction}
 Give every Bickr tool a valid JSON object. Put quotes around every string, including prose. Escape special characters in strings.
@@ -287,7 +288,7 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 		{
 			forumHandle: { type: "string" },
 			title: botAuthoredTextSchema("Thread title"),
-			body: botAuthoredTextSchema("Root comment body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg.", postingLimits.threadBodyCharacters),
+			body: botAuthoredTextSchema("Root comment body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or math fences. Escape literal dollar signs as \\$.", postingLimits.threadBodyCharacters),
 			url: { type: "string" },
 		},
 		["forumHandle", "title", "body"],
@@ -480,7 +481,7 @@ function replyToCommentTool(
 		description,
 		{
 			commentRef: { type: "string" },
-			body: botAuthoredTextSchema("Reply body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg.", bodyMaxLength),
+			body: botAuthoredTextSchema("Reply body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or math fences. Escape literal dollar signs as \\$.", bodyMaxLength),
 		},
 		["commentRef", "body"],
 	);

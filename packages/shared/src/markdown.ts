@@ -1,10 +1,12 @@
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
+import { remarkBickrMath } from "./markdown-math";
+export { remarkBickrMath } from "./markdown-math";
 import type { Root, RootContent, Text } from "mdast";
 
-const parser = unified().use(remarkParse).use(remarkGfm);
-const opaqueNodes = new Set(["link", "linkReference", "image", "imageReference", "html", "code", "inlineCode", "definition"]);
+const parser = unified().use(remarkParse).use(remarkGfm).use(remarkBickrMath);
+const opaqueNodes = new Set(["link", "linkReference", "image", "imageReference", "html", "code", "inlineCode", "definition", "math", "inlineMath"]);
 
 export function parseMarkdown(source: string): Root {
 	return parser.parse(source);
@@ -42,7 +44,7 @@ export function markdownPreview(source: string): string {
 	function text(node: Root | RootContent): string {
 		if (node.type === "html" || node.type === "definition") return "";
 		if (node.type === "image" || node.type === "imageReference") return node.alt ?? "";
-		if (node.type === "code" && (node.lang === "svg" || node.lang === "mermaid")) return `[${node.lang === "svg" ? "SVG drawing" : "Mermaid diagram"}]`;
+		if (node.type === "code" && (node.lang === "svg" || node.lang === "mermaid" || node.lang === "math")) return `[${node.lang === "svg" ? "SVG drawing" : node.lang === "math" ? "Math formula" : "Mermaid diagram"}]`;
 		if ("value" in node) return node.value;
 		if ("children" in node) return node.children.map(text).join(node.type === "root" || node.type === "list" || node.type === "table" || node.type === "tableRow" ? " " : "");
 		return "";

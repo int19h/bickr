@@ -3,7 +3,7 @@ import Markdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import { decodeString } from "micromark-util-decode-string";
-import { markdownMarkerIsEscaped } from "@bickr/shared/markdown";
+import { markdownMarkerIsEscaped, remarkBickrMath } from "@bickr/shared/markdown";
 import type { Root, RootContent, Literal } from "mdast";
 
 interface BickrText extends Literal { type: "bickrText"; value: string }
@@ -14,6 +14,7 @@ declare module "mdast" {
 import type { Plugin } from "unified";
 import { findBickrContentUrlMatches } from "../content-links";
 import { SpaLink } from "../components/navigation";
+import { MathExpression } from "./math-expression";
 import { DrawingBlock } from "./drawing-block";
 
 // Keep raw spelling beside each ordinary text leaf. Links and code stay opaque.
@@ -21,6 +22,11 @@ import { DrawingBlock } from "./drawing-block";
 const markText: Plugin<[], Root> = () => (tree, file) => {
 	const source = String(file);
 	function walk(node: Root | RootContent): void {
+		if (node.type === "math" || node.type === "inlineMath") {
+			const raw = source.slice(node.position?.start.offset, node.position?.end.offset);
+			node.data = { hName: "span", hProperties: { "data-math-source": node.value, "data-math-display": node.type === "math" || raw.startsWith("$$") }, hChildren: [] };
+			return;
+		}
 		if (["link", "linkReference", "image", "imageReference", "html", "code", "inlineCode", "definition"].includes(node.type) || !("children" in node)) return;
 		for (let index = 0; index < node.children.length; index += 1) {
 			const child = node.children[index]!;
@@ -51,7 +57,7 @@ function useMarkdownContext(): MarkdownContextValue {
 export function MarkdownBody({ text, ...callbacks }: Omit<MarkdownContextValue, "bodyId"> & { text: string }) {
 	const bodyId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
 	return <MarkdownContext.Provider value={{ bodyId, ...callbacks }}><div className="markdown-body">
-		<Markdown remarkPlugins={[remarkGfm, markText, remarkBreaks]} remarkRehypeOptions={{ clobberPrefix: `bickr-md-${bodyId}-` }} components={markdownComponents}>{text}</Markdown>
+		<Markdown remarkPlugins={[remarkGfm, remarkBickrMath, markText, remarkBreaks]} remarkRehypeOptions={{ clobberPrefix: `bickr-md-${bodyId}-` }} components={markdownComponents}>{text}</Markdown>
 	</div></MarkdownContext.Provider>;
 }
 function ordinaryText(raw: string, { referencePattern, renderPlain, renderText }: MarkdownContextValue): ReactNode {
@@ -74,6 +80,8 @@ function ordinaryText(raw: string, { referencePattern, renderPlain, renderText }
 const markdownComponents: Components = {
 	span: ({ node, children }) => {
 		const context = useMarkdownContext();
+		const mathSource = node?.properties["dataMathSource"] ?? node?.properties["data-math-source"];
+		if (typeof mathSource === "string") return <MathExpression source={mathSource} display={node?.properties["dataMathDisplay"] === true || node?.properties["data-math-display"] === true} />;
 		const raw = node?.properties["dataBickrSource"] ?? node?.properties["data-bickr-source"];
 		return <span>{typeof raw === "string" ? ordinaryText(raw, context) : children}</span>;
 	},
@@ -109,6 +117,7 @@ function MarkdownPre({ node, children }: ComponentProps<"pre"> & ExtraProps) {
 		const classes = code.properties.className;
 		const language = Array.isArray(classes) ? classes.find((value) => value === "language-svg" || value === "language-mermaid") : undefined;
 		const source = code.children.map((child) => child.type === "text" ? child.value : "").join("").replace(/\n$/, "");
+		if (Array.isArray(classes) && classes.includes("language-math")) return <MathExpression source={source} display />;
 		if (language) return <DrawingBlock language={language === "language-svg" ? "svg" : "mermaid"} source={source} />;
 	}
 	return <pre data-markdown-block="true">{children}</pre>;

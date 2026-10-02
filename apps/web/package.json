@@ -14,6 +14,8 @@
 	},
 	"dependencies": {
 		"@bickr/shared": "0.1.0",
+		"@mathjax/mathjax-tex-font": "^4.1.3",
+		"@mathjax/src": "^4.1.3",
 		"dompurify": "^3.4.16",
 		"mermaid": "^12.0.0",
 		"oauth4webapi": "^3.8.5",
