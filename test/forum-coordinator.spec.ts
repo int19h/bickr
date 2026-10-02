@@ -1927,7 +1927,7 @@ describe("Forum coordinator", () => {
 		]);
 	});
 
-	it("serves recent thread writes from the coordinator cache until the freshness window expires", async () => {
+	it("keeps canonical thread writes after the old cache freshness window expires", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "fresh-cache");
@@ -2008,7 +2008,7 @@ describe("Forum coordinator", () => {
 			context,
 	);
 	const expiredPayload = (await expiredRead.json()) as { data: { thread: { comments: unknown[] } } };
-	expect(expiredPayload.data.thread.comments).toHaveLength(1);
+	expect(expiredPayload.data.thread.comments).toHaveLength(3);
 });
 
 	it("serializes concurrent replies to the same comment through the coordinator queue", async () => {

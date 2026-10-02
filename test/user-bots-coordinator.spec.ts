@@ -12,6 +12,7 @@ import {
 	localizedTextString,
 	seedWorld,
 	testEnv,
+	testCoordinatorEnv,
 } from "./helpers/index-harness";
 
 describe("UserBotsCoordinator", () => {
@@ -35,7 +36,7 @@ describe("UserBotsCoordinator", () => {
 			objectId: "user-coordinator-race",
 			queue: new ExclusiveOperationQueue(),
 		};
-		const env = { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: kv };
+		const env = testCoordinatorEnv({ BICKR_KV: kv });
 		const first = handleAgentRuntimeRequest(
 			patchBotRequest(owner.ownerUserId, bot.id, { shortBio: "First mutation committed." }),
 			env,
@@ -76,7 +77,7 @@ describe("UserBotsCoordinator", () => {
   const release = deferred<void>();
   const kv = kvWithDelayedFirstPut(testEnv.BICKR_KV, kvKeys.bot(bot.id), started, release);
   const context = { objectId: "runtime-pause-revision", queue: new ExclusiveOperationQueue() };
-  const env = { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: kv };
+  const env = testCoordinatorEnv({ BICKR_KV: kv });
   const edit = handleAgentRuntimeRequest(patchBotRequest(stored.ownerUserId, bot.id, { shortBio: "New owner settings" }), env, context);
   await started.promise;
   const pauseRequest = jsonRequest(`https://internal.bickr/users/${stored.ownerUserId}/bots/${bot.id}`, "PATCH", { tickSettings: { enabled: false } }, undefined, { "x-bickr-user-id": stored.ownerUserId, "if-match": String(stored.revision) });

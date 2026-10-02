@@ -1,3 +1,5 @@
+export { memoryDurableStorage } from "./durable-storage";
+import { testServiceBindings } from "./coordinator-topology";
 import type { LoopMessageGroupEntry } from '../../workers/agent-runtime/src/types';
 import { RunLiveness } from '../../workers/agent-runtime/src/runtime/run-liveness';
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -698,91 +700,11 @@ export type SpotlightSendPayload = {
 	data: SpotlightSendResult;
 };
 
-type TestCoordinatorHandler = (name: string, request: Request) => Promise<Response>;
-
-function testCoordinatorNamespace(handler: TestCoordinatorHandler): DurableObjectNamespace {
-	return {
-		idFromName: (name: string) => ({
-			name,
-			toString: () => name,
-		}) as unknown as DurableObjectId,
-		get: (id: DurableObjectId) => ({
-			fetch: (request: Request) => handler((id as DurableObjectId & { name?: string }).name ?? id.toString(), request),
-		}) as unknown as DurableObjectStub,
-	} as unknown as DurableObjectNamespace;
-}
-
-function testServiceBindings(
-	env: Partial<AppEnv>,
-	options: { failureInjector?: LifecycleFailureInjector } = {},
-): Pick<
-	AppEnv,
-	"AGENT_RUNTIME" | "BOT_RUNTIME" | "FORUM_COORDINATOR" | "FORUM_COORDINATOR_SERVICE" | "USER_BOTS" | "WORLD_COORDINATOR"
-> {
-	const internalServiceSecret = "test-internal-service-secret";
-	const forumQueues = new Map<string, ExclusiveOperationQueue>();
-	const forumRouteEnv = () => ({
-		...env,
-		INTERNAL_SERVICE_SECRET: env.INTERNAL_SERVICE_SECRET ?? internalServiceSecret,
-	}) as ForumCoordinatorEnv;
-	const coordinatorContext = (name: string) => ({
-		objectId: name,
-		queue: forumQueues.get(name) ?? (() => {
-			const queue = new ExclusiveOperationQueue();
-			forumQueues.set(name, queue);
-			return queue;
-		})(),
-	});
-	const worldCoordinator = testCoordinatorNamespace((name, request) =>
-		handleForumCoordinatorRequest(request, forumRouteEnv(), coordinatorContext(name)));
-	const forumCoordinator = testCoordinatorNamespace((name, request) =>
-		handleForumCoordinatorRequest(request, forumRouteEnv(), coordinatorContext(name)));
-	const forumCoordinatorService = {
-		fetch: (request: Request) => forumCoordinatorWorker.fetch(
-			request as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[0],
-			{
-				...forumRouteEnv(),
-				FORUM_COORDINATOR: env.FORUM_COORDINATOR ?? forumCoordinator,
-				WORLD_COORDINATOR: env.WORLD_COORDINATOR ?? worldCoordinator,
-			} as unknown as Parameters<typeof forumCoordinatorWorker.fetch>[1],
-		),
-	} as unknown as Fetcher;
-
-	const userQueues = new Map<string, ExclusiveOperationQueue>();
-	let userBots: DurableObjectNamespace;
-	let botRuntime: DurableObjectNamespace;
-	const agentWorkerEnv = () => ({
-		...env,
-		BOT_RUNTIME: env.BOT_RUNTIME ?? botRuntime,
-		FORUM_COORDINATOR_SERVICE: env.FORUM_COORDINATOR_SERVICE ?? forumCoordinatorService,
-		INTERNAL_SERVICE_SECRET: env.INTERNAL_SERVICE_SECRET ?? internalServiceSecret,
-		USER_BOTS: env.USER_BOTS ?? userBots,
-	}) as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1];
-	userBots = testCoordinatorNamespace((name, request) => handleAgentRuntimeRequest(request, agentWorkerEnv(), {
-		objectId: name,
-		ownerUserId: name,
-		failureInjector: options.failureInjector,
-		queue: userQueues.get(name) ?? (() => {
-			const queue = new ExclusiveOperationQueue();
-			userQueues.set(name, queue);
-			return queue;
-		})(),
-	}));
-	botRuntime = testCoordinatorNamespace((_name, request) => handleAgentRuntimeRequest(request, agentWorkerEnv()));
-	const agentRuntime = {
-		fetch: (request: Request) => agentRuntimeWorker.fetch(
-			request as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
-			agentWorkerEnv(),
-		),
-	} as unknown as Fetcher;
-	return {
-		AGENT_RUNTIME: agentRuntime,
-		BOT_RUNTIME: botRuntime,
-		FORUM_COORDINATOR: forumCoordinator,
-		FORUM_COORDINATOR_SERVICE: forumCoordinatorService,
-		USER_BOTS: userBots,
-		WORLD_COORDINATOR: worldCoordinator,
-	};
+export function testCoordinatorEnv(overrides: Partial<AppEnv> = {}) {
+	const env: Partial<AppEnv> = { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV, INTERNAL_SERVICE_SECRET: "test-internal-service-secret", ...overrides };
+	const bindings = testServiceBindings(env);
+	for (const [name, binding] of Object.entries(bindings)) if (env[name as keyof AppEnv] === undefined) (env as Record<string, unknown>)[name] = binding;
+	return { ...env, AGENT_RUNTIME_SERVICE: env.AGENT_RUNTIME ?? bindings.AGENT_RUNTIME } as AppEnv & ForumCoordinatorEnv;
 }
 
 export function contextFor<F extends PagesFunction<AppEnv>>(
@@ -938,26 +860,6 @@ export function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export function memoryDurableStorage(): { storage: DurableObjectStorage; values: Map<string, unknown> } {
-	const values = new Map<string, unknown>();
-	const storage = {
-		delete: async (key: string) => values.delete(key),
-		deleteAlarm: async () => { values.delete("__alarm"); },
-		get: async <T = unknown>(key: string) => structuredClone(values.get(key)) as T | undefined,
-		getAlarm: async () => (values.get("__alarm") as number | undefined) ?? null,
-		put: async (key: string, value: unknown) => { values.set(key, structuredClone(value)); },
-		setAlarm: async (time: number | Date) => { values.set("__alarm", time instanceof Date ? time.getTime() : time); },
-		list: async (options: { prefix?: string; end?: string; limit?: number } = {}) => new Map([...values.entries()]
-			.filter(([key]) => (!options.prefix || key.startsWith(options.prefix)) && (!options.end || key < options.end))
-			.sort(([a], [b]) => a.localeCompare(b)).slice(0, options.limit)),
-		transaction: async <T>(callback: (transaction: DurableObjectTransaction) => Promise<T>) => {
-			const before = structuredClone(values);
-			try { return await callback(storage as unknown as DurableObjectTransaction); }
-			catch (error) { values.clear(); for (const [key, value] of before) values.set(key, value); throw error; }
-		},
-	} as unknown as DurableObjectStorage;
-	return { storage, values };
-}
 
 export type Deferred<T> = {
 	promise: Promise<T>;

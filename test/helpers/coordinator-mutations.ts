@@ -1,3 +1,4 @@
+import { testServiceBindings } from "./coordinator-topology";
 import { ExclusiveOperationQueue } from "@bickr/shared/exclusive-operation-queue";
 import { addInternalServiceAuthHeader, internalServiceUrl } from "@bickr/shared/internal-service";
 import type {
@@ -201,28 +202,17 @@ export async function userCoordinatorMutation(
 	body?: unknown,
 	extraHeaders: Record<string, string> = {},
 ): Promise<Record<string, unknown>> {
-	const forumQueue = new ExclusiveOperationQueue();
-	const forumService = {
-		fetch: (request: Request) => handleForumCoordinatorRequest(request, env as never, {
-			objectId: "test-world-coordinator",
-			queue: forumQueue,
-		}),
-	};
+	const internalSecret = "test-coordinator-internal-secret";
+	const bindings = testServiceBindings({ ...env, INTERNAL_SERVICE_SECRET: internalSecret } as never);
 	const headers = new Headers({ "x-bickr-user-id": userId, ...extraHeaders });
 	if (body !== undefined) {
 		headers.set("content-type", "application/json");
 	}
-	const response = await handleAgentRuntimeRequest(new Request(
-		`https://agent.internal/users/${encodeURIComponent(userId)}${path}`,
+	addInternalServiceAuthHeader(headers, internalSecret);
+	const response = await bindings.AGENT_RUNTIME.fetch(new Request(
+		internalServiceUrl(`/users/${encodeURIComponent(userId)}${path}`),
 		{ method, headers, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) },
-	), {
-		...env,
-		FORUM_COORDINATOR_SERVICE: forumService,
-	} as never, {
-		objectId: "test-user-coordinator",
-		ownerUserId: userId,
-		queue: new ExclusiveOperationQueue(),
-	});
+	));
 	return coordinatorPayload(response);
 }
 
