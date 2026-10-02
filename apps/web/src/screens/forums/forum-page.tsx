@@ -1,3 +1,4 @@
+import { useRequestIdentity } from "../../use-request-identity";
 import { InferenceBadge } from "../../components/inference-attribution";
 import { markdownPreview } from "@bickr/shared/markdown";
 import { useEffect, useMemo, useState } from "react";
@@ -53,7 +54,12 @@ function ForumDescription({
 	);
 }
 
-export function ForumPage({
+/** Each item owns its drafts, dialogs, and pending requests. */
+export function ForumPage(props: Parameters<typeof ForumPageContent>[0]) {
+	return <ForumPageContent key={props.forum.id} {...props} />;
+}
+
+function ForumPageContent({
 	currentUserId,
 	forum,
 	loadedAt,
@@ -84,6 +90,8 @@ export function ForumPage({
 	threads: ThreadSummary[];
 	world: WorldView;
 }) {
+	const searches = useRequestIdentity();
+	const activityRequests = useRequestIdentity();
 	const [search, setSearch] = useState("");
 	const [sort, setSort] = useState("hot");
 	const [selected, setSelected] = useState<Record<string, boolean>>({});
@@ -101,7 +109,9 @@ export function ForumPage({
 	const canModerateForum = Boolean(currentUserId && (world.createdByUserId === currentUserId || forum.createdByUserId === currentUserId));
 
 	useEffect(() => {
+		const current = searches.begin();
 		const query = search.trim();
+		setSearchResults([]);
 		if (!query) {
 			setSearchResults([]);
 			setSearchMessage("");
@@ -114,6 +124,7 @@ export function ForumPage({
 			void api<{ threads: SearchThreadResult[] }>(
 				`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}/search?q=${encodeURIComponent(query)}`,
 			).then((result) => {
+				if (!current()) return;
 				if (result.ok) {
 					setSearchResults(result.data.threads);
 				} else {
@@ -123,8 +134,8 @@ export function ForumPage({
 				setSearchLoading(false);
 			});
 		}, 250);
-		return () => window.clearTimeout(handle);
-	}, [forum.handle, forum.worldHandle, search]);
+		return () => { window.clearTimeout(handle); searches.invalidate(); };
+	}, [forum.handle, forum.worldHandle, search, searches]);
 
 	useEffect(() => {
 		setActivityNotice(null);
@@ -135,10 +146,11 @@ export function ForumPage({
 			if (document.visibilityState !== "visible") {
 				return;
 			}
+			const current = activityRequests.begin();
 			void api<{ activity: ForumActivityNotice }>(
 				`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}/activity?since=${encodeURIComponent(loadedAt)}`,
 			).then((result) => {
-				if (result.ok) {
+				if (current() && result.ok) {
 					const activity = result.data.activity;
 					setActivityNotice(
 						activity.newThreadCount > 0 || activity.updatedThreadCount > 0 ? activity : null,
@@ -147,8 +159,8 @@ export function ForumPage({
 			});
 		};
 		const handle = window.setInterval(check, 18_000);
-		return () => window.clearInterval(handle);
-	}, [forum.handle, forum.worldHandle, loadedAt]);
+		return () => { window.clearInterval(handle); activityRequests.invalidate(); };
+	}, [forum.handle, forum.worldHandle, loadedAt, activityRequests]);
 
 	function changeSort(nextSort: string): void {
 		setSort(nextSort);

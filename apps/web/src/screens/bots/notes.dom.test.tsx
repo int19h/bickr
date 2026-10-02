@@ -110,3 +110,14 @@ describe('owner note editor', () => {
 		expect(container.querySelector('[role="tabpanel"]')?.getAttribute('aria-busy')).toBe('false');
 	});
 });
+
+it('discards an open note draft when the participant changes', async () => {
+	await act(async () => root.render(<BotNotesPanel botId="bot-one" enabled onReference={() => undefined} worldHandle="main" />));
+	await act(async () => button('Add note').click());
+	await act(async () => type(container.querySelector<HTMLInputElement>('.modal input')!, 'Private to one'));
+	await act(async () => root.render(<BotNotesPanel botId="bot-two" enabled onReference={() => undefined} worldHandle="main" />));
+	expect(container.querySelector('.modal')).toBeNull();
+	await act(async () => button('Add note').click());
+	expect(container.querySelector<HTMLInputElement>('.modal input')!.value).toBe('');
+	expect(requests.filter((request) => request.path.endsWith('/create'))).toEqual([]);
+});

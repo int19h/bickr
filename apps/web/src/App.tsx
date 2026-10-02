@@ -1987,7 +1987,8 @@ function App() {
 
 	async function logout(): Promise<void> {
 		await submit(async () => {
-			await api("/api/auth/logout", { method: "POST" });
+			const result = await api("/api/auth/logout", { method: "POST" });
+			if (!result.ok) throw new Error(result.message);
 			setSession({ authenticated: false, user: null });
 			setBots([]);
 			setBotsByWorld({});

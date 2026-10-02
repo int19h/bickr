@@ -1,3 +1,6 @@
+import { draftsAfterSave, refreshDecision, staleConflict, staleComparisonText, type StaleConflict } from "./editor-state";
+export { refreshDecision, staleConflict, staleComparisonText, conflictingFieldLabels, type StaleConflict, type RefreshDecision } from "./editor-state";
+import { useRequestIdentity } from "../use-request-identity";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { InferenceConfigurationField } from "@bickr/shared/inference-configuration";
 import type {
@@ -36,12 +39,9 @@ import {
 	draftMapFromFields,
 	draftsChanged,
 	effectiveValueText,
-	inferenceEditorFields,
 	inferenceFieldGroups,
 	inferenceFieldLabels,
 	overridePatchFromDrafts,
-	sameDraft,
-	draftFromOverride,
 	type InferenceFieldDraft,
 	type InferenceFieldDraftMap,
 } from "./field-model";
@@ -54,29 +54,12 @@ import { ConfigurationSummaryRow, KindBadge } from "./summary";
 import { useConfigurationPage } from "./use-configuration-page";
 import { createErrorMessage } from "./library";
 
-export type StaleConflict = {
-	fields: string[];
-	nameChanged: boolean;
-	/** The server copy, held for comparison only until the owner chooses. */
-	server: RedactedInferenceConfigurationDto;
-};
-
-/** What a reload may do to the drafts an owner is holding. */
-export type RefreshDecision = "adopt" | "keep_drafts" | "conflict";
-
-/**
- * A reload never resolves a conflict on the owner's behalf. Clean drafts adopt
- * the server copy; drafts held against the same revision keep their edits while
- * the refreshed effective and inherited values are adopted around them; a
- * newer revision under dirty drafts is a conflict the owner must resolve, so
- * the loaded revision — the one a save is still expected against — stays put.
- */
-export function refreshDecision(input: { currentRevision: number; nextRevision: number; dirty: boolean }): RefreshDecision {
-	if (!input.dirty) return "adopt";
-	return input.nextRevision === input.currentRevision ? "keep_drafts" : "conflict";
+/** Each item owns its drafts, dialogs, and pending requests. */
+export function InferenceConfigurationEditorScreen(props: Parameters<typeof InferenceConfigurationEditorScreenContent>[0]) {
+	return <InferenceConfigurationEditorScreenContent key={props.configurationId} {...props} />;
 }
 
-export function InferenceConfigurationEditorScreen({
+function InferenceConfigurationEditorScreenContent({
 	configurationId,
 	modelSuggestions = [],
 	onInferenceChanged,
@@ -94,6 +77,7 @@ export function InferenceConfigurationEditorScreen({
 	onNavigate: (route: ParsedRoute) => void;
 	returnTo?: InferenceReturnTarget;
 }) {
+	const requests = useRequestIdentity();
 	const [dto, setDto] = useState<RedactedInferenceConfigurationDto | null>(null);
 	const [loadError, setLoadError] = useState<ApiFailure | null>(null);
 	const [drafts, setDrafts] = useState<InferenceFieldDraftMap | null>(null);
@@ -115,9 +99,10 @@ export function InferenceConfigurationEditorScreen({
 		dto: RedactedInferenceConfigurationDto | null;
 		drafts: InferenceFieldDraftMap | null;
 		nameDraft: string;
-	}>({ dto: null, drafts: null, nameDraft: "" });
+		busy: boolean;
+	}>({ dto: null, drafts: null, nameDraft: "", busy: false });
 	useEffect(() => {
-		latest.current = { dto, drafts, nameDraft };
+		latest.current = { dto, drafts, nameDraft, busy };
 	});
 
 	/**
@@ -141,7 +126,9 @@ export function InferenceConfigurationEditorScreen({
 
 	const refresh = useCallback(
 		async () => {
+			const current = requests.begin();
 			const result = await loadConfiguration(configurationId);
+			if (!current()) return null;
 			if (!result.ok) {
 				setLoadError(result);
 				return null;
@@ -151,7 +138,7 @@ export function InferenceConfigurationEditorScreen({
 			setError("");
 			return result.data;
 		},
-		[apply, configurationId],
+		[apply, configurationId, requests],
 	);
 
 	useEffect(() => {
@@ -167,10 +154,13 @@ export function InferenceConfigurationEditorScreen({
 	// made in another tab without promising realtime cross-tab updates. A failed
 	// refocus load is not allowed to replace an editor that holds unsaved edits.
 	const refreshOnFocus = useCallback(async () => {
-		const held = latest.current;
-		if (!held.dto || !held.drafts) return;
+		if (!latest.current.dto || latest.current.busy) return;
+		const current = requests.begin();
 		const result = await loadConfiguration(configurationId);
-		if (!result.ok) return;
+		if (!current() || !result.ok) return;
+		// Read drafts after the await: the owner can type while the request runs.
+		const held = latest.current;
+		if (!held.dto || !held.drafts || held.busy) return;
 		const nameDirty = held.dto.kind === "custom" && held.nameDraft.trim() !== held.dto.identity.name;
 		const decision = refreshDecision({
 			currentRevision: held.dto.revision,
@@ -182,7 +172,7 @@ export function InferenceConfigurationEditorScreen({
 			return;
 		}
 		apply(result.data, decision === "adopt" ? { drafts: "reset", name: "adopt" } : { drafts: "keep", name: "keep" });
-	}, [apply, configurationId]);
+	}, [apply, configurationId, requests]);
 
 	useEffect(() => {
 		function onFocus(): void {
@@ -235,6 +225,7 @@ export function InferenceConfigurationEditorScreen({
 			setMessage("No field changes to save.");
 			return;
 		}
+		const current = requests.begin();
 		setBusy(true);
 		setError("");
 		setMessage("");
@@ -243,12 +234,15 @@ export function InferenceConfigurationEditorScreen({
 			expectedRevision: expectedRevision ?? dto.revision,
 			overrides: patch.patch,
 		});
+		if (!current()) return;
 		setBusy(false);
 		if (!result.ok) {
 			await handleMutationFailure(result);
 			return;
 		}
-		apply(result.data, { drafts: "reset", name: nameDirty ? "keep" : "adopt" });
+		apply(result.data, { drafts: "keep", name: "keep" });
+		setDrafts(draftsAfterSave(result.data, drafts, latest.current.drafts ?? drafts));
+		setStale(null);
 		onInferenceChanged?.();
 		setMessage("Saved. Effective values below are recomputed from the server.");
 		toast.push("Saved inference configuration", "success");
@@ -263,12 +257,14 @@ export function InferenceConfigurationEditorScreen({
 		// not adopted either: adopting it would let the next save overwrite the
 		// other copy without the owner ever choosing to. The server copy is held
 		// beside the drafts for comparison until they do.
+		const current = requests.begin();
 		const fresh = await loadConfiguration(configurationId);
+		if (!current()) return;
 		if (!fresh.ok) {
 			setError(failure.message);
 			return;
 		}
-		setStale(staleConflict(fresh.data, drafts, nameDraft));
+		setStale(staleConflict(fresh.data, latest.current.drafts, latest.current.nameDraft));
 		setError("");
 	}
 
@@ -291,6 +287,7 @@ export function InferenceConfigurationEditorScreen({
 
 	async function saveName(expectedRevision?: number): Promise<void> {
 		if (!dto || dto.kind !== "custom") return;
+		const current = requests.begin();
 		setBusy(true);
 		setError("");
 		const result = await renameConfiguration({
@@ -298,6 +295,7 @@ export function InferenceConfigurationEditorScreen({
 			name: nameDraft.trim(),
 			expectedRevision: expectedRevision ?? dto.revision,
 		});
+		if (!current()) return;
 		setBusy(false);
 		if (!result.ok) {
 			await handleMutationFailure(result);
@@ -305,16 +303,18 @@ export function InferenceConfigurationEditorScreen({
 		}
 		// The saved name is the one the owner typed, so this is the only refresh
 		// allowed to replace the name draft.
-		apply(result.data, { drafts: "keep", name: "adopt" });
+		apply(result.data, { drafts: "keep", name: latest.current.nameDraft === nameDraft ? "adopt" : "keep" });
 		onInferenceChanged?.();
 		toast.push("Renamed configuration", "success");
 	}
 
 	async function saveParent(parentId: string): Promise<void> {
 		if (!dto) return;
+		const current = requests.begin();
 		setBusy(true);
 		setError("");
 		const result = await reparentConfiguration({ configurationId: dto.id, parentId, expectedRevision: dto.revision });
+		if (!current()) return;
 		setBusy(false);
 		if (!result.ok) {
 			await handleMutationFailure(result);
@@ -329,8 +329,10 @@ export function InferenceConfigurationEditorScreen({
 
 	async function confirmDelete(): Promise<void> {
 		if (!dto || !deleteImpact) return;
+		const current = requests.begin();
 		setBusy(true);
 		const result = await deleteConfiguration({ configurationId: dto.id, expectedRevision: dto.revision });
+		if (!current()) return;
 		setBusy(false);
 		if (!result.ok) {
 			setDeleteImpact(null);
@@ -344,6 +346,7 @@ export function InferenceConfigurationEditorScreen({
 
 	async function applyCredential(action: CredentialAction, secret?: string): Promise<void> {
 		if (!dto) return;
+		const current = requests.begin();
 		setBusy(true);
 		setError("");
 		const result = await updateConfiguration({
@@ -355,6 +358,7 @@ export function InferenceConfigurationEditorScreen({
 				: action === "none" ? { mode: "none" }
 				: { mode: "inherit" },
 		});
+		if (!current()) return;
 		setBusy(false);
 		if (!result.ok) {
 			await handleMutationFailure(result);
@@ -530,7 +534,9 @@ export function InferenceConfigurationEditorScreen({
 						disabled={busy}
 						onClick={() => {
 							void (async () => {
+								const current = requests.begin();
 								const impact = await loadDeleteImpact(dto.id);
+								if (!current()) return;
 								if (impact.ok) setDeleteImpact(impact.data);
 								else setError(impact.message);
 							})();
@@ -635,40 +641,6 @@ export function deleteImpactLines(
 	];
 }
 
-/**
- * The comparison an owner is shown before choosing. It names every field whose
- * draft differs from the server copy, plus the name when an unsaved rename or a
- * rename made elsewhere disagrees with it.
- */
-export function staleConflict(
-	server: RedactedInferenceConfigurationDto,
-	drafts: InferenceFieldDraftMap | null,
-	nameDraft: string,
-): StaleConflict {
-	return {
-		fields: conflictingFieldLabels(drafts, server),
-		nameChanged: server.kind === "custom" && nameDraft.trim() !== server.identity.name,
-		server,
-	};
-}
-
-export function staleComparisonText(stale: Pick<StaleConflict, "fields" | "nameChanged">): string {
-	const differing = [...stale.fields, ...(stale.nameChanged ? ["Name"] : [])];
-	return differing.length > 0
-		? `Differs from the saved copy: ${differing.join(", ")}.`
-		: "Your edited fields match the saved copy; only the revision moved.";
-}
-
-export function conflictingFieldLabels(
-	drafts: InferenceFieldDraftMap | null,
-	server: RedactedInferenceConfigurationDto,
-): string[] {
-	if (!drafts) return [];
-	return inferenceEditorFields
-		.filter((field) => !sameDraft(drafts[field], draftFromOverride(field, server.fields[field].override)))
-		.map((field) => inferenceFieldLabels[field]);
-}
-
 export function impactWarningText(warning: InferenceImpactWarning): string {
 	switch (warning.kind) {
 		case "effective_model_changes":
@@ -741,18 +713,18 @@ function ParentPickerModal({
 	// An impact preview belongs to the candidate it was requested for: a slower
 	// answer for an earlier candidate must never describe, or confirm, the
 	// current selection.
-	const selectedCandidateRef = useRef<string | null>(null);
+	const impactRequests = useRequestIdentity();
 	const impact = impactForSelection(answer, candidateId);
 
 	async function selectCandidate(id: string): Promise<void> {
-		selectedCandidateRef.current = id;
+		const current = impactRequests.begin();
 		setCandidateId(id);
 		setAnswer(null);
 		setConfirmed(false);
 		setImpactError("");
 		setLoadingImpact(true);
 		const result = await loadParentImpact(configuration.id, id);
-		if (selectedCandidateRef.current !== id) return;
+		if (!current()) return;
 		setLoadingImpact(false);
 		if (result.ok) setAnswer({ candidateId: id, impact: result.data });
 		else setImpactError(result.message);
