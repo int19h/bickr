@@ -1,4 +1,5 @@
 import { dismissDiscordInvite } from "@bickr/shared/discord-invite";
+import { assertLegacyInferenceWriteSupported } from '@bickr/shared/inference-configuration-write-policy';
 import { fail, ok, readJsonBody } from '@bickr/shared/api';
 import type { AccountMutationResult } from '@bickr/shared/account-mutation-protocol';
 import {
@@ -1232,6 +1233,11 @@ export const agentRuntimeRouteTable = [
 		handler: async (context) => {
 			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
 			const input = parseUpdateUserProfileInput(await readJsonBody(context.request));
+			const compatibilityFieldMask = input.inferenceSettings === undefined ? null : legacyInferenceCompatibilityFieldMask(input.inferenceSettings);
+			// A null translation request disables the role. Its provider fields are
+			// cleared internally rather than submitted as obsolete configuration.
+			if (input.inferenceSettings?.translation === null && compatibilityFieldMask) compatibilityFieldMask.translationFields = [];
+			if (compatibilityFieldMask) await assertLegacyInferenceWriteSupported(context.env.BICKR_D1, userId, compatibilityFieldMask);
 			const version = await inferenceGraphReadVersion(context.env.BICKR_D1, userId);
 			const translationPatch = input.inferenceSettings?.translation;
 			let currentUser: Awaited<ReturnType<typeof userById>> | null = null;
@@ -1260,9 +1266,6 @@ export const agentRuntimeRouteTable = [
 					};
 				}
 			}
-			const compatibilityFieldMask = input.inferenceSettings === undefined
-				? null
-				: legacyInferenceCompatibilityFieldMask(input.inferenceSettings);
 			if (compatibilityFieldMask) {
 				const current = currentUser ?? await userById(context.env.BICKR_KV, userId);
 				await prepareLegacyInferenceCompatibilityWrite(context, userId, 'account', userId, current.revision, compatibilityFieldMask);
@@ -1458,6 +1461,7 @@ export const agentRuntimeRouteTable = [
 			const compatibilityFieldMask = settingsInput?.inferenceSettings === undefined
 				? null
 				: legacyInferenceCompatibilityFieldMask(settingsInput.inferenceSettings);
+			if (compatibilityFieldMask) await assertLegacyInferenceWriteSupported(context.env.BICKR_D1, userId, compatibilityFieldMask);
 			let profile = await applyGeneratedAvatarForUser(
 				context.env,
 				userId,
@@ -1806,6 +1810,7 @@ export const agentRuntimeRouteTable = [
 			const compatibilityFieldMask = settingsInput?.inferenceSettings === undefined
 				? null
 				: legacyInferenceCompatibilityFieldMask(settingsInput.inferenceSettings);
+			if (compatibilityFieldMask) await assertLegacyInferenceWriteSupported(context.env.BICKR_D1, userId, compatibilityFieldMask);
 			let bot = await applyGeneratedAvatarForBot(
 				context.env,
 				userId,
@@ -1914,6 +1919,7 @@ export const agentRuntimeRouteTable = [
 			const compatibilityFieldMask = settingsInput?.imageGeneration === undefined
 				? null
 				: legacyImageCompatibilityFieldMask(settingsInput.imageGeneration);
+			if (compatibilityFieldMask) await assertLegacyInferenceWriteSupported(context.env.BICKR_D1, userId, compatibilityFieldMask);
 			let world = await applyGeneratedAvatarForWorld(
 				context.env,
 				userId,
@@ -2084,6 +2090,7 @@ async function prepareLegacyInferenceCompatibilityWrite(
 	}
 	await resumePendingLegacyInferenceCompatibilityWrite(context, ownerUserId);
 	if (legacyInferenceCompatibilityFieldMaskIsEmpty(fieldMask)) return;
+	await assertLegacyInferenceWriteSupported(context.env.BICKR_D1, ownerUserId, fieldMask);
 	await beginInferenceGraphCompatibilityWrite(context.env.BICKR_D1, {
 		ownerUserId,
 		kind,

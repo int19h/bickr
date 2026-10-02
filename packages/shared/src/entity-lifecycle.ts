@@ -139,6 +139,7 @@ export type InferenceGraphActivationTransition =
 			entityKind: "world" | "bot";
 			projectionStatements?: readonly D1PreparedStatementLike[];
 			fixedConfigurationStatement: D1PreparedStatementLike;
+			fixedCredentialStatement?: D1PreparedStatementLike;
 	  };
 
 export type LifecycleActivationTransition =
@@ -1327,7 +1328,7 @@ async function lifecycleActivationExtensionStatements(
 			...(transition.accountCredentialStatement ? [transition.accountCredentialStatement] : []),
 			transition.translationReferenceStatement,
 		]
-		: [transition.fixedConfigurationStatement];
+		: [transition.fixedConfigurationStatement, ...(transition.fixedCredentialStatement ? [transition.fixedCredentialStatement] : [])];
 }
 
 async function lifecycleDeletionExtensionStatements(

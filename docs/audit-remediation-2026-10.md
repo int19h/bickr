@@ -52,6 +52,7 @@ The browser group coordinates font dependency changes with the release group.
 
 Migration prefix `0059` belongs to authentication.
 Prefixes `0060` and `0061` belong to storage.
+Prefix `0062` belongs to storage for thread projection recovery and receipts.
 Other migrations require a new allocation in this document before creation.
 Applied migration files remain unchanged.
 

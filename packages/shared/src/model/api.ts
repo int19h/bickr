@@ -1019,6 +1019,7 @@ export type InferenceGraphConflictCause =
 	| "invalid_parent"
 	| "fixed_entry_requires_lifecycle"
 	| "account_default_required"
+	| "legacy_write_disabled"
 	| "unexpected_unique_conflict";
 
 export type InferenceGraphErrorCause = InferenceGraphConflictCause | "corrupt_graph";

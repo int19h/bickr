@@ -34,6 +34,7 @@ import {
 import {
 	accountDefaultConfigurationId,
 	botConfigurationId,
+	configurationCredentialValueStatement,
 } from "@bickr/shared/inference-configuration-repository";
 import { humanSubscriptionScopeDeleteStatements } from "@bickr/shared/human-subscriptions";
 import { deterministicId, makeId } from "@bickr/shared/ids";
@@ -180,6 +181,8 @@ export async function runBotCreateOperation(
 		await lifecycleCheckpoint(context.coordinator.failureInjector, `${lifecyclePrefix}.activate.d1` as LifecycleFailurePoint);
 		const activatedAt = new Date().toISOString();
 		if (await lifecycleUsesInferenceGraph(context.env.BICKR_D1)) {
+			const configurationId = await botConfigurationId(request.botId);
+			const credential = await lifecycleSecretValue(context.env.BICKR_D1, operation.operationId, "bot_openrouter_api_key");
 			const parentId = request.input.cloneSourceBotId
 				? await botConfigurationId(request.input.cloneSourceBotId)
 				: await accountDefaultConfigurationId(request.userId);
@@ -188,13 +191,16 @@ export async function runBotCreateOperation(
 				entityKind: "bot",
 				fixedConfigurationStatement: insertFixedConfigurationStatement(context.env.BICKR_D1, {
 					kind: "bot",
-					configurationId: await botConfigurationId(request.botId),
+					configurationId,
 					ownerUserId: request.userId,
 					parentId,
 					botId: request.botId,
 					now: activatedAt,
 					overrides: inferenceOverridesFromLegacySettings(request.input.inferenceSettings),
 				}),
+				...(credential ? { fixedCredentialStatement: configurationCredentialValueStatement(context.env.BICKR_D1, {
+					configurationId, ownerUserId: request.userId, secret: credential, now: activatedAt,
+				}) } : {}),
 			}, activatedAt);
 		} else {
 			await activateLifecycleEntity(context.env.BICKR_D1, operation, { kind: "legacy_compatible" }, activatedAt);

@@ -2011,7 +2011,7 @@ export function insertTranslationInferencePointerStatement(
 	).bind(input.ownerUserId, input.configurationId, input.now, input.now);
 }
 
-/** Transfers an account bootstrap credential inside the activation D1 batch. */
+/** Transfers a creation credential inside the activation D1 batch. */
 export function configurationCredentialValueStatement(
 	db: D1DatabaseLike,
 	input: { configurationId: string; ownerUserId: string; secret: string; now: string },
