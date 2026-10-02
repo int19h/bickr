@@ -19,6 +19,7 @@
 		"./governance-deletion-intents": "./src/governance-deletion-intents.ts",
 		"./governance-deletion-sweep": "./src/governance-deletion-sweep.ts",
 		"./handles": "./src/handles.ts",
+		"./human-notification-fanout": "./src/human-notification-fanout.ts",
 		"./human-subscriptions": "./src/human-subscriptions.ts",
 		"./ids": "./src/ids.ts",
 		"./inference-attribution": "./src/inference-attribution.ts",

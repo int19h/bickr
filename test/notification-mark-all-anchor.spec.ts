@@ -1,3 +1,4 @@
+import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
 import { beforeEach, describe, expect, it } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import {
@@ -65,6 +66,15 @@ async function insertNotification(
  * backs it, so the claim goes in first.
  */
 async function insertOwnedBot(): Promise<void> {
+	await testEnv.BICKR_D1.batch([
+		testEnv.BICKR_D1.prepare(`INSERT INTO entity_lifecycle_identity_claims (key_kind,key_scope,key_value,entity_kind,entity_id,owner_user_id,claim_state,created_at,updated_at)
+			VALUES ('user_handle','global','anchor-user','account',?,?,'active',?,?)`).bind(userId,userId,tieAt,tieAt),
+		testEnv.BICKR_D1.prepare(`INSERT INTO users_index (user_id,handle,display_name,created_at,updated_at) VALUES (?,'anchor-user','Anchor User',?,?)`).bind(userId,tieAt,tieAt),
+		testEnv.BICKR_D1.prepare(`INSERT INTO entity_lifecycle_identity_claims (key_kind,key_scope,key_value,entity_kind,entity_id,owner_user_id,claim_state,created_at,updated_at)
+			VALUES ('world_handle','global','anchor-world','world',?,'usr_editor','active',?,?)`).bind(worldId,tieAt,tieAt),
+		testEnv.BICKR_D1.prepare(`INSERT INTO worlds_index (world_id,handle,name,description,created_by_user_id,visibility,created_at,updated_at)
+			VALUES (?,'anchor-world','Anchor World','','usr_editor','public',?,?)`).bind(worldId,tieAt,tieAt),
+	]);
 	await testEnv.BICKR_D1
 		.prepare(
 			`INSERT INTO entity_lifecycle_identity_claims (
@@ -118,6 +128,7 @@ async function recordSettingsChange(now: string, name: string): Promise<void> {
 		editorUserId: "usr_editor",
 		now,
 	});
+	await runHumanNotificationFanout(db(), now);
 }
 
 async function unreadIds(): Promise<string[]> {

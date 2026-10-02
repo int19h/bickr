@@ -1,3 +1,4 @@
+import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
 import { attachTestRunLiveness } from "./helpers/index-harness";
 import {
 	authCookie,
@@ -840,6 +841,7 @@ describe("Forum coordinator", () => {
 		expect(activeBot?.lastActiveAt).toBeDefined();
 		expect(Date.parse(activeBot?.lastActiveAt ?? "")).toBeGreaterThanOrEqual(Date.parse(activeBot?.createdAt ?? ""));
 
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
 		const humanNotifications = await testEnv.BICKR_D1.prepare(
 			`SELECT notification_type AS notificationType, title, body, url_path AS urlPath
 			 FROM human_notifications
