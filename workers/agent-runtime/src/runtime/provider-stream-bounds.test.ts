@@ -34,6 +34,10 @@ describe('provider stream bounds and completion', () => {
 	it('limits the whole response across many small frames', async () => {
 		await expect(readAll(stream(Array(20).fill('data: x\n\n')).body, { maxBytes: 100 })).rejects.toBeInstanceOf(ResponseBodySizeLimitError);
 	});
+	it.each([['data: abc\n\n'], ['data: abc\n', '\n']])('enforces the same event bound across delimiter splits (%j)', async (...frames: string[]) => {
+		await expect(readAll(stream(frames).body, { maxBytes: 100, maxEventBytes: 10 })).rejects.toBeInstanceOf(ResponseBodySizeLimitError);
+	});
+
 	it('accepts exact byte bounds and split Unicode with split CRLF framing', async () => {
 		const text = 'data: é\r\n\r\n';
 		const bytes = new TextEncoder().encode(text);

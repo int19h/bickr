@@ -251,8 +251,10 @@ export async function* readSse(
 		while (boundary?.index !== undefined) {
 			const boundaryIndex = boundarySearchFrom + boundary.index;
 			const raw = buffer.slice(0, boundaryIndex);
-			requireEventWithinLimit(raw);
 			const boundaryText = boundary[0];
+			// Count framing too so splitting a delimiter across chunks cannot
+			// change whether the same event fits the bound.
+			requireEventWithinLimit(raw + boundaryText);
 			buffer = buffer.slice(boundaryIndex + boundaryText.length);
 			boundarySearchFrom = 0;
 			drained = true;
