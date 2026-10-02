@@ -1,3 +1,5 @@
+import { refreshDueThreadCommentCounts } from "./thread-hot-refresh";
+import { substringSearchQuery, substringCandidateSql } from "./indexed-substring-search";
 import { storedInferenceAttribution } from "./inference-attribution";
 import type { InferenceAttribution } from "./model";
 import { isD1UniqueConstraintError } from "./d1-errors";
@@ -3853,7 +3855,7 @@ export async function searchBots(
 	query: string,
 	limit = 20,
 ): Promise<BotSearchResult[]> {
-	const term = likePatternForSearch(query);
+	const term = substringSearchQuery(query)?.likePattern;
 	if (!term) {
 		return [];
 	}
@@ -4050,8 +4052,8 @@ export async function searchThreads(
 	limit = 20,
 	now = new Date().toISOString(),
 ): Promise<SearchThreadResult[]> {
-	const term = likePatternForSearch(query);
-	if (!term) {
+	const search = substringSearchQuery(query);
+	if (!search) {
 		return [];
 	}
 	const threadResults = await safeD1Search(() =>
@@ -4077,11 +4079,11 @@ export async function searchThreads(
 					${threadHotScoreSql} AS score
 				 FROM threads_index t
 				 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
-				 WHERE t.world_id = ? AND t.deleted_at IS NULL AND lower(t.search_text) LIKE ? ESCAPE '\\'
+				 WHERE t.rowid IN (${substringCandidateSql("thread", search)}) AND t.world_id = ? AND t.deleted_at IS NULL AND lower(t.search_text) LIKE ? ESCAPE '\\'
 				 ORDER BY t.last_activity_at DESC
 				 LIMIT ?`,
 			)
-			.bind(now, worldId, term, limit)
+			.bind(now, search.match, worldId, search.likePattern, limit)
 			.all<SearchThreadResultRow>(),
 	);
 	const commentResults = await safeD1Search(() =>
@@ -4107,11 +4109,11 @@ export async function searchThreads(
 				 FROM comments_index c
 				 JOIN threads_index t ON t.thread_id = c.thread_id
 				 LEFT JOIN bots_index b ON b.bot_id = c.author_bot_id
-				 WHERE c.world_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND c.is_root = 0 AND lower(c.search_text) LIKE ? ESCAPE '\\'
+				 WHERE c.rowid IN (${substringCandidateSql("comment", search)}) AND c.world_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND c.is_root = 0 AND lower(c.search_text) LIKE ? ESCAPE '\\'
 				 ORDER BY c.created_at DESC
 				 LIMIT ?`,
 			)
-			.bind(worldId, term, limit)
+			.bind(search.match, worldId, search.likePattern, limit)
 			.all<SearchThreadResultRow>(),
 	);
 	return [...(threadResults.results ?? []), ...(commentResults.results ?? [])]
@@ -4126,8 +4128,8 @@ export async function searchForumThreads(
 	limit = 20,
 	now = new Date().toISOString(),
 ): Promise<SearchThreadResult[]> {
-	const term = likePatternForSearch(query);
-	if (!term) {
+	const search = substringSearchQuery(query);
+	if (!search) {
 		return [];
 	}
 	const threadResults = await safeD1Search(() =>
@@ -4153,11 +4155,11 @@ export async function searchForumThreads(
 					${threadHotScoreSql} AS score
 				 FROM threads_index t
 				 LEFT JOIN bots_index b ON b.bot_id = t.author_bot_id
-				 WHERE t.forum_id = ? AND t.deleted_at IS NULL AND lower(t.search_text) LIKE ? ESCAPE '\\'
+				 WHERE t.rowid IN (${substringCandidateSql("thread", search)}) AND t.forum_id = ? AND t.deleted_at IS NULL AND lower(t.search_text) LIKE ? ESCAPE '\\'
 				 ORDER BY t.last_activity_at DESC
 				 LIMIT ?`,
 			)
-			.bind(now, forumId, term, limit)
+			.bind(now, search.match, forumId, search.likePattern, limit)
 			.all<SearchThreadResultRow>(),
 	);
 	const commentResults = await safeD1Search(() =>
@@ -4183,11 +4185,11 @@ export async function searchForumThreads(
 				 FROM comments_index c
 				 JOIN threads_index t ON t.thread_id = c.thread_id
 				 LEFT JOIN bots_index b ON b.bot_id = c.author_bot_id
-				 WHERE c.forum_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND c.is_root = 0 AND lower(c.search_text) LIKE ? ESCAPE '\\'
+				 WHERE c.rowid IN (${substringCandidateSql("comment", search)}) AND c.forum_id = ? AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND c.is_root = 0 AND lower(c.search_text) LIKE ? ESCAPE '\\'
 				 ORDER BY c.created_at DESC
 				 LIMIT ?`,
 			)
-			.bind(forumId, term, limit)
+			.bind(search.match, forumId, search.likePattern, limit)
 			.all<SearchThreadResultRow>(),
 	);
 	return [...(threadResults.results ?? []), ...(commentResults.results ?? [])]
@@ -7979,23 +7981,7 @@ export async function refreshThreadHotScores(
 	db: D1DatabaseLike,
 	now = new Date().toISOString(),
 ): Promise<number> {
-	const cutoff = hotThreadCutoff(now);
-	const recentCommentCountSql = `(
-		SELECT count(*)
-		FROM comments_index c
-		WHERE c.thread_id = threads_index.thread_id
-		  AND c.deleted_at IS NULL
-		  AND c.created_at > ?
-	)`;
-	const result = await db
-		.prepare(
-			`UPDATE threads_index
-			 SET recent_comment_count = ${recentCommentCountSql}
-			 WHERE deleted_at IS NULL`,
-		)
-		.bind(cutoff)
-		.run();
-	return result.meta?.changes ?? 0;
+	return refreshDueThreadCommentCounts(db, now, hotThreadWindowDays);
 }
 
 function recentThreadCommentCount(comments: CommentDocument[], now: string): number {
@@ -8015,19 +8001,6 @@ function preview(text: string): string {
 	return text.trim().replace(/\s+/g, " ").slice(0, 240);
 }
 
-function likePatternForSearch(query: string): string | null {
-	const normalized = query
-		.replace(/[\u0000-\u001f\u007f]/g, " ")
-		.trim()
-		.replace(/\s+/g, " ")
-		.toLowerCase()
-		.slice(0, 160);
-	if (normalized.length < 2) {
-		return null;
-	}
-	const escaped = normalized.replace(/[\\%_]/g, (value) => `\\${value}`);
-	return `%${escaped}%`;
-}
 
 async function safeD1Search<T>(query: () => Promise<D1Result<T>>): Promise<D1Result<T>> {
 	try {

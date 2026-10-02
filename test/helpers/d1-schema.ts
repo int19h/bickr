@@ -1,4 +1,5 @@
 import migration0062 from "../../migrations/0062_thread_mutation_recovery.sql?raw";
+import migration0061 from "../../migrations/0061_thread_search_and_hot_refresh.sql?raw";
 import migration0060 from "../../migrations/0060_governance_deletion_intents.sql?raw";
 import migration0059 from "../../migrations/0059_auth_state.sql?raw";
 import migration0058 from "../../migrations/0058_artifact_inference_attribution.sql?raw";
@@ -123,6 +124,7 @@ const migrationSql = [
 	migration0058,
 	migration0059,
 	migration0060,
+	migration0061,
 	migration0062,
 ];
 
