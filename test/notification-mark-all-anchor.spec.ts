@@ -32,6 +32,7 @@ const worldId = "wld_anchor";
 const botId = "bot_anchor";
 const tieAt = "2026-05-06T12:00:00.000Z";
 const afterAt = "2026-05-06T12:00:03.000Z";
+let worldRevision = 1;
 const readAt = "2026-05-06T12:00:09.000Z";
 
 /** Sorts above every id below it; the anchor in the tie case. */
@@ -124,7 +125,7 @@ function world(name: string): WorldDocument {
 async function recordSettingsChange(now: string, name: string): Promise<void> {
 	await recordWorldSettingsChangedHumanNotifications(db(), {
 		previous: world("Anchor World"),
-		updated: world(name),
+		updated: { ...world(name), revision: ++worldRevision },
 		editorUserId: "usr_editor",
 		now,
 	});
@@ -198,7 +199,16 @@ function dbWithWriteBetweenStatements(between: () => Promise<void>): D1DatabaseL
 
 describe("mark-all never reaches a notification that arrived after the gesture", () => {
 	beforeEach(async () => {
+		worldRevision = 1;
 		await resetD1Schema(testEnv.BICKR_D1);
+	});
+
+	it("keeps the latest world revision when two changes share one timestamp", async () => {
+		await insertOwnedBot();
+		await recordSettingsChange(tieAt, "First title");
+		await recordSettingsChange(tieAt, "Second title");
+		expect(await testEnv.BICKR_D1.prepare("SELECT title FROM human_notifications").all()).toMatchObject({ results: [{ title: "Second title settings changed" }] });
+		expect(await testEnv.BICKR_D1.prepare("SELECT COUNT(*) AS count FROM human_notification_fanout").first()).toEqual({ count: 2 });
 	});
 
 	it("leaves a row written after the anchor in the anchor's millisecond unread, id order notwithstanding", async () => {

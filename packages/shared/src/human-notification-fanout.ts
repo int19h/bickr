@@ -6,9 +6,9 @@ import type { D1DatabaseLike } from "./storage";
 export type HumanNotificationAudience =
 	| { kind: "subscriptions"; scopes: Array<{ scopeType: HumanSubscriptionScope; scopeId: string }> }
 	| { kind: "world_owners"; worldId: string; excludeUserId: string };
-type Source = { kind: "thread" | "comment" | "bot" | "world"; id: string };
+type Source = { kind: "thread" | "comment" | "bot"; id: string } | { kind: "world"; id: string; revision: number };
 type Event = { audience: HumanNotificationAudience; source: Source; notification: HumanNotificationInsertRow };
-type Job = { eventId: string; eventJson: string; scopeIndex: number; userCursor: string };
+type Job = { eventSequence: number; eventId: string; eventJson: string; scopeIndex: number; userCursor: string };
 
 export const humanNotificationFanoutPageSize = 50;
 const defaultPagesPerRun = 100;
@@ -20,7 +20,7 @@ export async function enqueueHumanNotificationFanout(
 	input: { audience: HumanNotificationAudience; source: Source; notification: Omit<HumanNotificationInput, "userId"> },
 ): Promise<void> {
 	const createdAt = input.notification.now;
-	const eventId = await deterministicId("hnt", JSON.stringify([input.notification.eventKey, createdAt]));
+	const eventId = await deterministicId("hnt", JSON.stringify([input.notification.eventKey, input.source.kind === "world" ? input.source.revision : createdAt]));
 	const audience = input.audience.kind === "subscriptions"
 		? { ...input.audience, scopes: [...new Map(input.audience.scopes.map(scope => [JSON.stringify(scope), scope])).values()] }
 		: input.audience;
@@ -38,8 +38,8 @@ export async function enqueueHumanNotificationFanout(
  * Each page reads one indexed scope and commits notification rows and its cursor
  * in one transaction. A competing or replayed page cannot recreate a consumed
  * notification: every insert checks the old cursor inside that same transaction.
- * Subscription changes before delivery take effect; new subscriptions after the
- * event are excluded. One recipient may occur in several scopes; event keys dedup.
+ * Unsubscription before delivery takes effect; membership/subscription activations
+ * after the event's D1 publication are excluded by sequence, not wall-clock time. One recipient may occur in several scopes; event keys dedup.
  */
 export async function runHumanNotificationFanout(
 	db: D1DatabaseLike,
@@ -54,7 +54,7 @@ export async function runHumanNotificationFanout(
 	let pages = 0;
 	let recipients = 0;
 	// Fair rotation by updated_at prevents one large audience from pinning new jobs.
-	const jobs = await db.prepare(`SELECT event_id AS eventId, event_json AS eventJson,
+	const jobs = await db.prepare(`SELECT sequence AS eventSequence, event_id AS eventId, event_json AS eventJson,
 		scope_index AS scopeIndex, user_cursor AS userCursor FROM human_notification_fanout
 		WHERE phase = 'pending' AND expires_at > ? ORDER BY updated_at, event_id LIMIT ?`)
 		.bind(now, maxPages).all<Job>();
@@ -91,18 +91,18 @@ async function audiencePage(db: D1DatabaseLike, event: Event, job: Job): Promise
 	if (audience.kind === "world_owners") {
 		const rows = await db.prepare(`SELECT DISTINCT owner_user_id AS userId FROM bots_index
 			WHERE home_world_id = ? AND lifecycle_state = 'active' AND deleted_at IS NULL
-				AND owner_user_id > ? AND owner_user_id != ? AND created_at <= ?
+				AND owner_user_id > ? AND owner_user_id != ? AND membership_after_sequence < ?
 			ORDER BY owner_user_id LIMIT ?`)
-			.bind(audience.worldId, job.userCursor, audience.excludeUserId, event.notification.createdAt, humanNotificationFanoutPageSize)
+			.bind(audience.worldId, job.userCursor, audience.excludeUserId, job.eventSequence, humanNotificationFanoutPageSize)
 			.all<{ userId: string }>();
 		return (rows.results ?? []).map(row => row.userId);
 	}
 	const scope = audience.scopes[job.scopeIndex];
 	if (!scope) return [];
 	const rows = await db.prepare(`SELECT user_id AS userId FROM human_subscriptions
-		WHERE scope_type = ? AND scope_id = ? AND active = 1 AND user_id > ? AND created_at <= ?
+		WHERE scope_type = ? AND scope_id = ? AND active = 1 AND user_id > ? AND activation_after_sequence < ?
 		ORDER BY user_id LIMIT ?`)
-		.bind(scope.scopeType, scope.scopeId, job.userCursor, event.notification.createdAt, humanNotificationFanoutPageSize)
+		.bind(scope.scopeType, scope.scopeId, job.userCursor, job.eventSequence, humanNotificationFanoutPageSize)
 		.all<{ userId: string }>();
 	return (rows.results ?? []).map(row => row.userId);
 }
@@ -133,8 +133,8 @@ function notificationPageStatement(db: D1DatabaseLike, event: Event, job: Job, d
 	const audience = event.audience;
 	const scope = audience.kind === "subscriptions" ? audience.scopes[job.scopeIndex]! : null;
 	const audienceWhere = audience.kind === "subscriptions"
-		? `EXISTS (SELECT 1 FROM human_subscriptions WHERE user_id = recipients.value AND scope_type = ? AND scope_id = ? AND active = 1 AND created_at <= data.created_at)`
-		: `EXISTS (SELECT 1 FROM bots_index WHERE owner_user_id = recipients.value AND home_world_id = ? AND owner_user_id != ? AND lifecycle_state = 'active' AND deleted_at IS NULL AND created_at <= data.created_at)`;
+		? `EXISTS (SELECT 1 FROM human_subscriptions WHERE user_id = recipients.value AND scope_type = ? AND scope_id = ? AND active = 1 AND activation_after_sequence < data.sequence)`
+		: `EXISTS (SELECT 1 FROM bots_index WHERE owner_user_id = recipients.value AND home_world_id = ? AND owner_user_id != ? AND lifecycle_state = 'active' AND deleted_at IS NULL AND membership_after_sequence < data.sequence)`;
 	const audienceBindings = audience.kind === "subscriptions" ? [scope!.scopeType, scope!.scopeId] : [audience.worldId, audience.excludeUserId];
 	// Reuse the newest unread world-settings row, as the synchronous writer did.
 	// The timestamp condition prevents a delayed older job overwriting newer text.
@@ -142,19 +142,19 @@ function notificationPageStatement(db: D1DatabaseLike, event: Event, job: Job, d
 		WHERE old.user_id = recipients.value AND old.world_id = data.world_id
 		AND old.notification_type = 'world_settings_changed' AND old.read_at IS NULL AND old.archived_at IS NULL
 		ORDER BY old.created_at DESC, old.notification_id DESC LIMIT 1`;
-	return db.prepare(`WITH data AS (SELECT ? AS event_id, ? AS world_id, ? AS event_key, ? AS notification_type,
+	return db.prepare(`WITH data AS (SELECT ? AS sequence, ? AS event_id, ? AS world_id, ? AS event_key, ? AS notification_type,
 		? AS actor_bot_id, ? AS actor_handle, ? AS actor_display_name, ? AS actor_display_name_lang,
 		? AS source_type, ? AS source_id, ? AS target_type, ? AS target_id, ? AS title, ? AS title_lang,
-		? AS body, ? AS body_lang, ? AS url_path, ? AS spotlight_id, ? AS spotlight_label, ? AS created_at),
+		? AS body, ? AS body_lang, ? AS url_path, ? AS spotlight_id, ? AS spotlight_label, ? AS created_at, ? AS world_settings_revision),
 		recipients AS (SELECT json_extract(value, '$.userId') AS value, json_extract(value, '$.notificationId') AS notification_id FROM json_each(?))
 		INSERT INTO human_notifications (notification_id, user_id, world_id, event_key, notification_type,
 		actor_bot_id, actor_handle, actor_display_name, actor_display_name_lang, source_type, source_id,
-		target_type, target_id, title, title_lang, body, body_lang, url_path, spotlight_id, spotlight_label, created_at, read_at, archived_at)
+		target_type, target_id, title, title_lang, body, body_lang, url_path, spotlight_id, spotlight_label, created_at, read_at, archived_at, world_settings_revision)
 		SELECT ${coalesce ? `COALESCE((${existing}), recipients.notification_id)` : "recipients.notification_id"},
 		recipients.value, data.world_id, ${coalesce ? `COALESCE((SELECT event_key FROM human_notifications WHERE notification_id = (${existing})), data.event_key)` : "data.event_key"}, data.notification_type,
 		data.actor_bot_id, data.actor_handle, data.actor_display_name, data.actor_display_name_lang,
 		data.source_type, data.source_id, data.target_type, data.target_id, data.title, data.title_lang, data.body, data.body_lang,
-		data.url_path, data.spotlight_id, data.spotlight_label, data.created_at, NULL, NULL
+		data.url_path, data.spotlight_id, data.spotlight_label, data.created_at, NULL, NULL, data.world_settings_revision
 		FROM recipients CROSS JOIN data
 		WHERE EXISTS (SELECT 1 FROM human_notification_fanout WHERE event_id = data.event_id
 			AND phase = 'pending' AND scope_index = ? AND user_cursor = ? AND expires_at > ?)
@@ -165,11 +165,13 @@ function notificationPageStatement(db: D1DatabaseLike, event: Event, job: Job, d
 		AND ${audienceWhere}
 		ON CONFLICT(notification_id) ${coalesce ? `DO UPDATE SET title = excluded.title, title_lang = excluded.title_lang,
 			body = excluded.body, body_lang = excluded.body_lang, url_path = excluded.url_path,
-			target_id = excluded.target_id, created_at = excluded.created_at
-			WHERE human_notifications.created_at <= excluded.created_at` : "DO NOTHING"}
+			target_id = excluded.target_id, created_at = excluded.created_at, world_settings_revision = excluded.world_settings_revision
+			WHERE (human_notifications.world_settings_revision IS NULL AND human_notifications.created_at <= excluded.created_at)
+			OR human_notifications.world_settings_revision < excluded.world_settings_revision` : "DO NOTHING"}
 		ON CONFLICT(user_id, event_key) DO NOTHING`)
-		.bind(job.eventId, row.worldId, row.eventKey, row.notificationType, row.actorBotId, row.actorHandle,
+		.bind(job.eventSequence, job.eventId, row.worldId, row.eventKey, row.notificationType, row.actorBotId, row.actorHandle,
 			row.actorDisplayName, row.actorDisplayNameLang, row.sourceType, row.sourceId, row.targetType, row.targetId,
 			row.title, row.titleLang, row.body, row.bodyLang, row.urlPath, row.spotlightId, row.spotlightLabel, row.createdAt,
+			(event.source.kind === "world" ? event.source.revision : null),
 			JSON.stringify(deliveries), job.scopeIndex, job.userCursor, now, event.source.id, ...audienceBindings);
 }

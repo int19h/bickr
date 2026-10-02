@@ -2514,10 +2514,10 @@ export async function recordWorldSettingsChangedHumanNotifications(
 	}
 	await enqueueHumanNotificationFanout(db, {
 		audience: { kind: "world_owners", worldId: input.updated.id, excludeUserId: input.editorUserId },
-		source: { kind: "world", id: input.updated.id },
+		source: { kind: "world", id: input.updated.id, revision: input.updated.revision },
 		notification: {
 			worldId: input.updated.id,
-			eventKey: `world_settings_changed:${input.updated.id}:${now}`,
+			eventKey: `world_settings_changed:${input.updated.id}:${input.updated.revision}`,
 			notificationType: "world_settings_changed",
 			sourceType: "world",
 			sourceId: input.updated.id,

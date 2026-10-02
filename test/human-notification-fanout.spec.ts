@@ -10,7 +10,7 @@ const now = "2026-10-02T00:00:00.000Z";
 const worldId = "wld_fanout";
 const input = {
 	audience: { kind: "subscriptions" as const, scopes: [{ scopeType: "world" as const, scopeId: worldId }] },
-	source: { kind: "world" as const, id: worldId },
+	source: { kind: "world" as const, id: worldId, revision: 1 },
 	notification: { worldId, eventKey: "event1", notificationType: "thread_created" as const, title: "Title", body: "Body", urlPath: "/", now: createdAt },
 };
 
@@ -100,13 +100,15 @@ describe("human notification fanout", () => {
 		expect(await count()).toBe(2);
 	});
 
-	it("deduplicates overlapping subscriptions and excludes subscriptions created after the event", async () => {
+	it("deduplicates overlapping subscriptions and excludes same-time subscriptions added after publication", async () => {
 		await recipients(2);
-		await db.prepare("UPDATE human_subscriptions SET created_at = ? WHERE user_id = 'usr_0001'").bind(now).run();
-		await db.prepare(`INSERT INTO human_subscriptions SELECT subscription_id || '-bot', user_id,world_id,'bot','bot_a',active,auto_created,created_at,updated_at FROM human_subscriptions`).run();
+		await db.prepare("DELETE FROM human_subscriptions WHERE user_id = 'usr_0001'").run();
+		await db.prepare(`INSERT INTO human_subscriptions (subscription_id,user_id,world_id,scope_type,scope_id,active,auto_created,created_at,updated_at)
+			SELECT subscription_id || '-bot', user_id,world_id,'bot','bot_a',active,auto_created,created_at,updated_at FROM human_subscriptions`).run();
 		await enqueueHumanNotificationFanout(db, { ...input, audience: { kind: "subscriptions", scopes: [...input.audience.scopes, { scopeType: "bot", scopeId: "bot_a" }] } });
-		await runHumanNotificationFanout(db, now, { maxPages: 1 });
-		await runHumanNotificationFanout(db, now, { maxPages: 1 });
+		await db.prepare(`INSERT INTO human_subscriptions (subscription_id,user_id,world_id,scope_type,scope_id,active,auto_created,created_at,updated_at)
+			VALUES ('late', 'usr_0001', ?, 'world', ?, 1, 0, ?, ?)`).bind(worldId, worldId, createdAt, createdAt).run();
+		await runHumanNotificationFanout(db, now);
 		expect(await count()).toBe(1);
 	});
 
@@ -120,7 +122,7 @@ describe("human notification fanout", () => {
 		await enqueueHumanNotificationFanout(db, settings);
 		await runHumanNotificationFanout(db, now, { maxPages: 1 });
 		const first = await db.prepare("SELECT rowid, notification_id FROM human_notifications").first();
-		await enqueueHumanNotificationFanout(db, { ...settings, notification: { ...settings.notification, eventKey: "settings2", now, title: "New settings" } });
+		await enqueueHumanNotificationFanout(db, { ...settings, source: { ...settings.source, revision: 2 }, notification: { ...settings.notification, eventKey: "settings2", now: createdAt, title: "New settings" } });
 		await runHumanNotificationFanout(db, now, { maxPages: 1 });
 		expect(await count()).toBe(1);
 		expect(await db.prepare("SELECT rowid, notification_id FROM human_notifications").first()).toEqual(first);
@@ -129,7 +131,7 @@ describe("human notification fanout", () => {
 		await runHumanNotificationFanout(db, now, { maxPages: 1 });
 		expect(await db.prepare("SELECT title FROM human_notifications").first()).toEqual({ title: "New settings" });
 		await db.prepare("UPDATE human_notifications SET read_at = ?").bind(now).run();
-		await enqueueHumanNotificationFanout(db, { ...settings, notification: { ...settings.notification, eventKey: "settings3", now } });
+		await enqueueHumanNotificationFanout(db, { ...settings, source: { ...settings.source, revision: 3 }, notification: { ...settings.notification, eventKey: "settings3", now } });
 		await runHumanNotificationFanout(db, now, { maxPages: 1 });
 		expect(await count()).toBe(2);
 	});
@@ -139,6 +141,31 @@ describe("human notification fanout", () => {
 		await enqueueHumanNotificationFanout(db, input);
 		expect(await runHumanNotificationFanout(db, "2026-11-01T00:00:00.000Z")).toMatchObject({ expiredJobs: 1, pages: 0, pending: false });
 		expect(await count()).toBe(0);
+	});
+
+	it("excludes reactivation after an event but keeps redundant active updates eligible", async () => {
+		await recipients(2);
+		await db.prepare("UPDATE human_subscriptions SET active = 0 WHERE user_id = 'usr_0000'").run();
+		await enqueueHumanNotificationFanout(db, input);
+		await db.prepare("UPDATE human_subscriptions SET active = 1, updated_at = ?").bind(createdAt).run();
+		await runHumanNotificationFanout(db, now);
+		expect((await db.prepare("SELECT user_id FROM human_notifications").all()).results).toEqual([{ user_id: "usr_0001" }]);
+	});
+
+	it("excludes world membership created after publication in the same millisecond", async () => {
+		const owners = await recipients(2);
+		async function addMember(index: number) {
+			const id = `bot_member_${index}`;
+			await claim("bot_handle", worldId, id, "bot", id, owners[index]!);
+			await db.prepare(`INSERT INTO bots_index (bot_id,home_world_id,home_world_handle,handle,display_name,owner_user_id,short_bio,created_at,updated_at)
+				VALUES (?, ?, 'fanout', ?, 'Member', ?, '', ?, ?)`).bind(id, worldId, id, owners[index], createdAt, createdAt).run();
+		}
+		await addMember(0);
+		await enqueueHumanNotificationFanout(db, { ...input, audience: { kind: "world_owners", worldId, excludeUserId: "usr_editor" },
+			notification: { ...input.notification, notificationType: "world_settings_changed" } });
+		await addMember(1);
+		await runHumanNotificationFanout(db, now);
+		expect((await db.prepare("SELECT user_id FROM human_notifications").all()).results).toEqual([{ user_id: owners[0] }]);
 	});
 
 	it("finishes small multi-scope jobs within one pump invocation", async () => {
@@ -169,9 +196,9 @@ describe("human notification fanout", () => {
 
 	it("uses keyset indexes for both audience shapes", async () => {
 		const subscriptions = await db.prepare(`EXPLAIN QUERY PLAN SELECT user_id FROM human_subscriptions WHERE scope_type = 'world'
-			AND scope_id = ? AND active = 1 AND user_id > '' AND created_at <= ? ORDER BY user_id LIMIT 50`).bind(worldId, now).all<{ detail: string }>();
+			AND scope_id = ? AND active = 1 AND user_id > '' AND activation_after_sequence < ? ORDER BY user_id LIMIT 50`).bind(worldId, 1).all<{ detail: string }>();
 		const owners = await db.prepare(`EXPLAIN QUERY PLAN SELECT DISTINCT owner_user_id FROM bots_index WHERE home_world_id = ?
-			AND lifecycle_state = 'active' AND deleted_at IS NULL AND owner_user_id > '' AND created_at <= ? ORDER BY owner_user_id LIMIT 50`).bind(worldId, now).all<{ detail: string }>();
+			AND lifecycle_state = 'active' AND deleted_at IS NULL AND owner_user_id > '' AND membership_after_sequence < ? ORDER BY owner_user_id LIMIT 50`).bind(worldId, 1).all<{ detail: string }>();
 		expect(subscriptions.results?.map(row => row.detail).join(" ")).toContain("human_subscriptions_fanout");
 		expect(owners.results?.map(row => row.detail).join(" ")).toContain("bots_index_human_fanout");
 		expect([...subscriptions.results!, ...owners.results!].some(row => row.detail.includes("TEMP B-TREE"))).toBe(false);
