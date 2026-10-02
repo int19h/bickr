@@ -355,6 +355,7 @@ export async function applyGeneratedAvatarForBot(
 		throw new RepositoryError('forbidden', "Only this participant's owner can update its avatar.", 403);
 	}
 	const avatar = await promoteAvatarCandidate(requireAvatarBucket(env), {
+		target: 'bot',
 		botId: bot.id,
 		worldId: bot.homeWorldId,
 		candidate,
@@ -373,10 +374,6 @@ export async function applyGeneratedAvatarForUser(
 	persist: (userId: string, avatar: AvatarImage) => Promise<UserProfile>,
 ): Promise<UserProfile> {
 	const user = await userById(env.BICKR_KV, userId);
-	const expectedPrefix = `users/${encodeURIComponent(user.id)}/avatar-candidates/`;
-	if (!candidate.key.startsWith(expectedPrefix)) {
-		throw new InputError('Avatar candidate key is invalid for this profile.');
-	}
 	const avatar = await promoteAvatarCandidate(requireAvatarBucket(env), {
 		target: 'user',
 		userId: user.id,
