@@ -26,6 +26,22 @@ async function readAll(body: ReadableStream<Uint8Array>, options: { maxBytes: nu
 }
 
 describe('provider stream bounds and completion', () => {
+	it('does not repeatedly slice a growing event when the provider sends tiny chunks', async () => {
+		const slice = String.prototype.slice;
+		for (const length of [32_768, 65_536]) {
+			const text = `data: ${'x'.repeat(length - 8)}\n\n`;
+			const chunks = Array.from({ length: length / 16 }, (_, index) => text.slice(index * 16, (index + 1) * 16));
+			let slicedCharacters = 0;
+			const spy = vi.spyOn(String.prototype, 'slice').mockImplementation(function (this: string, start, end) {
+				if (this.startsWith('data:')) slicedCharacters += this.length;
+				return slice.call(this, start, end);
+			});
+			try {
+				expect(await readAll(stream(chunks).body, { maxBytes: length })).toEqual(['x'.repeat(length - 8)]);
+				expect(slicedCharacters).toBeLessThanOrEqual(length * 2);
+			} finally { spy.mockRestore(); }
+		}
+	});
 	it('cancels an oversized incomplete frame', async () => {
 		const input = stream(['data: ', 'a'.repeat(11)], false);
 		await expect(readAll(input.body, { maxBytes: 100, maxEventBytes: 10 })).rejects.toBeInstanceOf(ResponseBodySizeLimitError);

@@ -17,6 +17,7 @@ import {
 	TickStoppedError,
 } from '../errors';
 import { StreamReasoningDetails } from './reasoning-stream';
+import { SseFrameBuffer } from './sse-frames';
 import type { ProviderResponse, ProviderUsage, ReasoningDetail, ToolCall } from '../types';
 
 type ReadTextOptions = {
@@ -214,8 +215,6 @@ export function isAbortError(error: unknown): boolean {
 	return Boolean(error && typeof error === 'object' && 'name' in error && (error as { name?: unknown }).name === 'AbortError');
 }
 
-const sseEventBoundaryPattern = /\r?\n\r?\n/;
-
 function sseEventData(raw: string): string {
 	return raw
 		.split(/\r?\n/)
@@ -233,51 +232,11 @@ export async function* readSse(
 	options: SseReadOptions = {},
 ): AsyncGenerator<SseEvent> {
 	const reader = stream.getReader();
-	const decoder = new TextDecoder();
-	let buffer = '';
 	let bytesRead = 0;
-	let pendingEventBytes = 0;
-	let boundarySearchFrom = 0;
 	let ended = false;
 	const maxBytes = options.maxBytes ?? providerResponseBodyMaxBytes;
 	const maxEventBytes = options.maxEventBytes ?? maxBytes;
-	const encoder = new TextEncoder();
-	function requireEventWithinLimit(text: string): void {
-		if (encoder.encode(text).byteLength > maxEventBytes) throw new ResponseBodySizeLimitError(maxEventBytes);
-	}
-	function* drainCompleteEvents(): Generator<SseEvent> {
-		let drained = false;
-		let boundary = buffer.slice(boundarySearchFrom).match(sseEventBoundaryPattern);
-		while (boundary?.index !== undefined) {
-			const boundaryIndex = boundarySearchFrom + boundary.index;
-			const raw = buffer.slice(0, boundaryIndex);
-			const boundaryText = boundary[0];
-			// Count framing too so splitting a delimiter across chunks cannot
-			// change whether the same event fits the bound.
-			requireEventWithinLimit(raw + boundaryText);
-			buffer = buffer.slice(boundaryIndex + boundaryText.length);
-			boundarySearchFrom = 0;
-			drained = true;
-
-			const data = sseEventData(raw);
-			if (data) {
-				yield { data, raw: `${raw}${boundaryText}` };
-			}
-			boundary = buffer.match(sseEventBoundaryPattern);
-		}
-		if (drained) pendingEventBytes = encoder.encode(buffer).byteLength;
-		boundarySearchFrom = Math.max(0, buffer.length - 3);
-	}
-	function residualEvent(): SseEvent | null {
-		if (!buffer) {
-			return null;
-		}
-		const raw = buffer;
-		requireEventWithinLimit(raw);
-		buffer = '';
-		const data = sseEventData(raw);
-		return data ? { data, raw } : null;
-	}
+	const frames = new SseFrameBuffer(maxEventBytes);
 	try {
 		while (true) {
 			if (signal?.aborted) {
@@ -289,20 +248,17 @@ export async function* readSse(
 			}
 			if (done) {
 				ended = true;
-				buffer += decoder.decode();
-				yield* drainCompleteEvents();
-				const event = residualEvent();
-				if (event) {
-					yield event;
-				}
+				const raw = frames.finish();
+				const data = sseEventData(raw);
+				if (data) yield { data, raw };
 				break;
 			}
-			pendingEventBytes += value.byteLength;
 			bytesRead += value.byteLength;
 			if (bytesRead > maxBytes) throw new ResponseBodySizeLimitError(maxBytes);
-			buffer += decoder.decode(value, { stream: true });
-			yield* drainCompleteEvents();
-			if (pendingEventBytes > maxEventBytes) throw new ResponseBodySizeLimitError(maxEventBytes);
+			for (const raw of frames.push(value)) {
+				const data = sseEventData(raw);
+				if (data) yield { data, raw };
+			}
 		}
 	} finally {
 		if (!ended) void reader.cancel('Provider stream consumer finished.').catch(() => {});
