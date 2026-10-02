@@ -17,7 +17,8 @@ import {
 } from '@bickr/shared/entity-lifecycle';
 import { makeId } from '@bickr/shared/ids';
 import { json } from '@bickr/shared/http';
-import { type ObjectIndexConvergenceTask, runObjectIndexConvergenceBatch } from '@bickr/shared/index-repair';
+import { type ObjectIndexConvergenceTask, repairOwnedObjectIndex, runObjectIndexConvergenceBatch } from '@bickr/shared/index-repair';
+import { accountIndexRepairEnvironment, indexedObjectOwner } from './index-repair-owner';
 import {
 	providerEnvironmentSettingsFromBindings,
 	resolveBotProviderSettings,
@@ -482,6 +483,36 @@ function publicEffectiveModelFailureEvent(
 }
 
 export const agentRuntimeRouteTable = [
+	{
+		id: 'account-index-repair',
+		method: 'POST',
+		pattern: /^\/users\/([^/]+)(?:\/bots\/([^/]+))?\/repair-index$/,
+		dispatch: 'user-coordinator',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) {
+				throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			}
+			requireSchedulerServiceRequest(context.request);
+			const ownerId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			if (context.coordinator.ownerUserId !== ownerId) {
+				throw new RepositoryError('forbidden', 'Index repair reached the wrong account coordinator.', 403);
+			}
+			const input = await readOptionalJsonBody(context.request);
+			const documentUpdatedAt = input && typeof input === 'object' ? (input as { documentUpdatedAt?: unknown }).documentUpdatedAt : undefined;
+			if (documentUpdatedAt !== undefined && (typeof documentUpdatedAt !== 'string' || !Number.isFinite(Date.parse(documentUpdatedAt)))) {
+				throw new InputError('documentUpdatedAt must be a timestamp.');
+			}
+			const request = {
+				entityType: context.match[2] ? 'bot' as const : 'user' as const,
+				id: context.match[2] ? decodeURIComponent(context.match[2]) : ownerId,
+				...(documentUpdatedAt ? { documentUpdatedAt } : {}),
+			};
+			const actualOwner = await indexedObjectOwner(context.env, request);
+			if (!actualOwner) return ok({ repair: { kind: 'missing' } });
+			if (actualOwner !== ownerId) throw new RepositoryError('forbidden', 'This account does not own the index entry.', 403);
+			return ok({ repair: await repairOwnedObjectIndex(context.env, request) });
+		},
+	},
 	{
 		id: 'account-bootstrap-dispatch',
 		method: 'POST',
@@ -2703,7 +2734,7 @@ async function handleAgentRuntimeRequestExclusive(
 }
 
 async function startUserBotsConvergenceTask(
-	env: Pick<Env, 'AI' | 'BICKR_D1' | 'BICKR_KV' | 'BICKR_SEARCH_VECTORIZE'>,
+	env: Pick<Env, 'AI' | 'BICKR_D1' | 'BICKR_KV' | 'BICKR_SEARCH_VECTORIZE'> & Partial<Pick<Env, 'FORUM_COORDINATOR_SERVICE' | 'INTERNAL_SERVICE_SECRET'>>,
 	coordinator: UserBotsCoordinatorContext,
 	task: ObjectIndexConvergenceTask,
 ): Promise<void> {
@@ -2714,11 +2745,11 @@ async function startUserBotsConvergenceTask(
 		await coordinator.storage.setAlarm(Date.now() + userBotsConvergenceAlarmDelayMs);
 		return;
 	}
-	await runObjectIndexConvergenceBatch(env, task);
+	await runObjectIndexConvergenceBatch(accountIndexRepairEnvironment(env, coordinator.ownerUserId), task);
 }
 
 export async function runPendingUserBotsConvergenceTask(
-	env: Pick<Env, 'AI' | 'BICKR_D1' | 'BICKR_KV' | 'BICKR_SEARCH_VECTORIZE'>,
+	env: Pick<Env, 'AI' | 'BICKR_D1' | 'BICKR_KV' | 'BICKR_SEARCH_VECTORIZE'> & Partial<Pick<Env, 'FORUM_COORDINATOR_SERVICE' | 'INTERNAL_SERVICE_SECRET'>>,
 	coordinator: UserBotsCoordinatorContext,
 	options: {
 		chunkSize?: number;
@@ -2730,7 +2761,7 @@ export async function runPendingUserBotsConvergenceTask(
 	if (!task) {
 		return false;
 	}
-	const next = await runObjectIndexConvergenceBatch(env, task, options);
+	const next = await runObjectIndexConvergenceBatch(accountIndexRepairEnvironment(env, coordinator.ownerUserId), task, options);
 	if (next) {
 		await coordinator.storage?.put(userBotsConvergenceTaskStorageKey, next);
 	} else {
@@ -2740,7 +2771,7 @@ export async function runPendingUserBotsConvergenceTask(
 }
 
 export async function runUserBotsConvergenceAlarm(
-	env: Pick<Env, 'AI' | 'BICKR_D1' | 'BICKR_KV' | 'BICKR_SEARCH_VECTORIZE'>,
+	env: Pick<Env, 'AI' | 'BICKR_D1' | 'BICKR_KV' | 'BICKR_SEARCH_VECTORIZE'> & Partial<Pick<Env, 'FORUM_COORDINATOR_SERVICE' | 'INTERNAL_SERVICE_SECRET'>>,
 	coordinator: UserBotsCoordinatorContext,
 	alarmInfo?: AlarmInvocationInfo,
 ): Promise<void> {
