@@ -49,3 +49,24 @@ it("does not publish the remainder after its source or recipient is deleted", as
 	await runBotNotificationFanout(testEnv.BICKR_KV, testEnv.BICKR_D1, new Date(Date.now() + 60_000).toISOString());
 	expect(await countNotifications(thread.id)).toBe(0);
 });
+
+it("advances bounded raw pages without sending an older event to later followers", async () => {
+	const { author, thread } = await audience(125);
+	const event = (await testEnv.BICKR_D1.prepare(`SELECT sequence FROM bot_notification_fanouts LIMIT 1`).first<{ sequence: number }>())!;
+	// Re-follow after the first page, with the same old timestamp. Sequence
+	// ordering excludes these recipients without relying on clock precision.
+	await testEnv.BICKR_D1.prepare(`DELETE FROM follows WHERE followed_bot_id = ? AND follower_bot_id > 'audience-00049'`).bind(author.id).run();
+	await testEnv.BICKR_D1.prepare(`INSERT INTO follows (world_id, follower_bot_id, followed_bot_id, created_at)
+		SELECT home_world_id, bot_id, ?, created_at FROM bots_index WHERE bot_id > 'audience-00049' AND bot_id < 'audience.'`).bind(author.id).run();
+	expect(await testEnv.BICKR_D1.prepare(`SELECT min(activation_after_sequence) AS sequence FROM follows WHERE followed_bot_id = ? AND follower_bot_id > 'audience-00049'`).bind(author.id).first()).toEqual({ sequence: event.sequence });
+	const first = await runBotNotificationFanout(testEnv.BICKR_KV, testEnv.BICKR_D1, new Date(Date.now() + 60_000).toISOString());
+	expect(first.candidates).toBe(50);
+	expect(first.recipients).toBe(0);
+	expect(await countNotifications(thread.id)).toBe(50);
+	expect(await testEnv.BICKR_D1.prepare(`SELECT after_bot_id AS cursor FROM bot_notification_fanouts LIMIT 1`).first()).toEqual({ cursor: "audience-00099" });
+	const second = await runBotNotificationFanout(testEnv.BICKR_KV, testEnv.BICKR_D1, new Date(Date.now() + 10 * 60_000).toISOString());
+	expect(second.candidates).toBe(25);
+	expect(second.recipients).toBe(0);
+	expect(await countNotifications(thread.id)).toBe(50);
+	expect(await testEnv.BICKR_D1.prepare(`SELECT event_id FROM bot_notification_fanouts LIMIT 1`).first()).toBeNull();
+});

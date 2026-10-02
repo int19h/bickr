@@ -40,7 +40,10 @@ bounded child deletion task and removes the intent after the children converge.
 Bot notification fanout publishes at most 50 recipients with the originating
 mutation. The durable job holds one copy of each message variant. Later pages
 advance an indexed recipient cursor. Publication and cursor advancement share a
-D1 batch. Deleted sources and inactive recipients fail the visibility checks.
+D1 batch. A follow records the last published event sequence. New follows and
+re-follows cannot receive older events. Each page visits at most 50 raw candidate
+IDs, including ineligible IDs, then checks eligibility in the publication batch.
+Deleted sources and inactive recipients fail the visibility checks.
 Human notifications use their own bounded delivery jobs. The scheduled recovery
 pumps both queues without holding a content writer for the full audience.
 Notification retention runs every five minutes on a separate trigger, one minute
