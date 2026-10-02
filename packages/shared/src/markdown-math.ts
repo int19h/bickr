@@ -3,14 +3,18 @@ import type { Root } from "mdast";
 import { math } from "micromark-extension-math";
 import { mathFromMarkdown } from "mdast-util-math";
 import { markdownLineEnding } from "micromark-util-character";
-import type { Construct, State, Tokenizer } from "micromark-util-types";
+import type { Construct, State, Tokenizer, TokenizeContext } from "micromark-util-types";
 
 // GitHub protects inline TeX with $`...`$. Keep inner dollar signs and Markdown
 // opaque at the lexer boundary, where escapes and code spans still have meaning.
+// Once a protected opener reaches EOF, later openers in the same text stream
+// cannot find a close either. Cache that fact weakly to avoid quadratic retries.
+const noProtectedClose = new WeakSet<TokenizeContext>();
 const githubInline: Construct = {
 	name: "githubMath",
 	previous(code) { return code !== 36 || this.events.at(-1)?.[1].type === "characterEscape"; },
 	tokenize(effects, ok, nok) {
+		const context = this;
 		let protectedForm = false;
 		let escaped = false;
 		let hasData = false;
@@ -20,6 +24,7 @@ const githubInline: Construct = {
 		}
 		function opening(code: number | null): State | undefined {
 			if (code === 36 || code === null) return nok(code);
+			if (code === 96 && noProtectedClose.has(context)) return nok(code);
 			if (code === 96) { protectedForm = true; effects.consume(code); return beginData; }
 			return beginData(code);
 		}
@@ -27,7 +32,7 @@ const githubInline: Construct = {
 			effects.exit("mathTextSequence"); effects.enter("mathTextData"); return data(code);
 		}
 		function data(code: number | null): State | undefined {
-			if (code === null) return nok(code);
+			if (code === null) { if (protectedForm) noProtectedClose.add(context); return nok(code); }
 			if (hasData && !escaped && code === (protectedForm ? 96 : 36)) return effects.check({ tokenize: close }, finish, consume)(code);
 			return consume(code);
 		}
@@ -51,7 +56,7 @@ const githubInline: Construct = {
 };
 
 export const remarkBickrMath: Plugin<[], Root> = function () {
-	const syntax = math();
+	const syntax = math({ singleDollarTextMath: false });
 	const flow = syntax.flow?.[36];
 	if (!flow || Array.isArray(flow)) throw new Error("Expected one math flow construct");
 	const tokenizeFlow = flow.tokenize;

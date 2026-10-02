@@ -29,4 +29,14 @@ describe("shared GitHub math syntax", () => {
 		expect(formulas('- $x$\n- $`y_$z`$')).toHaveLength(2);
 		expect(formulas('[label $x$](https://example.com)')).toHaveLength(1);
 	});
+	it("bounds repeated unmatched protected openers without changing ordinary math", () => {
+		const source = '$`a '.repeat(4000);
+		const start = performance.now();
+		expect(formulas(source)).toEqual([]);
+		expect(performance.now() - start).toBeLessThan(1000);
+		expect(formulas(source + '$z$')).toEqual([{type:'inlineMath',value:'z'}]);
+		expect(formulas('$`unclosed\n\n$`x`$')).toEqual([{type:'inlineMath',value:'x'}]);
+		expect(formulas('$`unclosed \\`$ still unclosed')).toEqual([]);
+	});
+
 });
