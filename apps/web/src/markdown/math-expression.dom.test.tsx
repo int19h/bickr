@@ -44,4 +44,17 @@ describe('Markdown math rendering', () => {
 		expect(window.getSelection()?.toString()).toBe('x');expect(container.querySelector('.math-source button')?.textContent).toBe('Source selected');
 	});
 
+	it('renders formulas in direct and reference links with controls outside anchors', async () => {
+		const text = '[label $x$](https://example.com) and [other $`y`$][ref]\n\n[ref]: https://example.org'; await render(text);
+		expect(jobs.map(job => job.source)).toEqual(['x','y']);
+		for (const job of jobs) await act(async () => job.complete({kind:'rendered',svg:markup}));
+		expect(container.querySelectorAll('a svg')).toHaveLength(2);
+		expect(container.querySelector('a button')).toBeNull();
+		expect(container.querySelectorAll('button[aria-label="View math source"]')).toHaveLength(2);
+		const svg = container.querySelector('a svg');await render(text);expect(jobs).toHaveLength(2);expect(container.querySelector('a svg')).toBe(svg);
+		const writeText=vi.fn().mockResolvedValue(undefined);vi.stubGlobal('navigator',{clipboard:{writeText}});
+		await act(async () => container.querySelectorAll<HTMLButtonElement>('button[aria-label="View math source"]')[1]!.click());
+		await act(async () => container.querySelector<HTMLButtonElement>('.math-source button')!.click());expect(writeText).toHaveBeenCalledWith('y');
+	});
+
 });
