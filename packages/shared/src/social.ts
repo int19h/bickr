@@ -1,5 +1,6 @@
 import { refreshDueThreadCommentCounts } from "./thread-hot-refresh";
 import { substringSearchQuery, substringCandidateSql } from "./indexed-substring-search";
+import { enqueueBotNotificationFanout, type BotNotificationTemplate } from "./bot-notification-fanout";
 import { storedInferenceAttribution } from "./inference-attribution";
 import type { InferenceAttribution } from "./model";
 import { isD1UniqueConstraintError } from "./d1-errors";
@@ -1400,14 +1401,15 @@ export async function applyHumanSubscriptionChanges(
 					`INSERT INTO human_subscriptions (
 						subscription_id, user_id, world_id, scope_type, scope_id,
 						active, auto_created, created_at, updated_at
-					) VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?)
+					) SELECT ?, ?, ?, ?, ?, 1, 0, ?, ?
+					WHERE EXISTS (SELECT 1 FROM users_index WHERE user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active')
 					ON CONFLICT(user_id, scope_type, scope_id) DO UPDATE SET
 						world_id = excluded.world_id,
 						active = 1,
 						auto_created = excluded.auto_created,
 						updated_at = excluded.updated_at`,
 				)
-					.bind(makeId("hsb"), userId, change.worldId, change.scopeType, change.scopeId, now, now),
+					.bind(makeId("hsb"), userId, change.worldId, change.scopeType, change.scopeId, now, now, userId),
 			);
 		} else {
 			statements.push(
@@ -1422,7 +1424,10 @@ export async function applyHumanSubscriptionChanges(
 	}
 
 	if (statements.length > 0) {
-		await db.batch(statements);
+		const results = await db.batch(statements);
+		if ([...latestByKey.values()].some((change, index) => change.active && (results[index]?.meta?.changes ?? 0) < 1)) {
+			throw repositoryError("forbidden", "This account no longer accepts subscriptions.", 403);
+		}
 	}
 }
 
@@ -1439,12 +1444,13 @@ export async function upsertHumanSubscription(
 ): Promise<HumanSubscription> {
 	await validateHumanSubscriptionTargets(db, [input]);
 	const id = makeId("hsb");
-	await db
+	const inserted = await db
 		.prepare(
 			`INSERT INTO human_subscriptions (
 				subscription_id, user_id, world_id, scope_type, scope_id,
 				active, auto_created, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
+			) SELECT ?, ?, ?, ?, ?, 1, ?, ?, ?
+			WHERE EXISTS (SELECT 1 FROM users_index WHERE user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active')
 			ON CONFLICT(user_id, scope_type, scope_id) DO UPDATE SET
 				world_id = excluded.world_id,
 				active = 1,
@@ -1460,8 +1466,10 @@ export async function upsertHumanSubscription(
 			input.autoCreated ? 1 : 0,
 			now,
 			now,
+			input.userId,
 		)
 		.run();
+	if ((inserted.meta?.changes ?? 0) < 1) throw repositoryError("forbidden", "This account no longer accepts subscriptions.", 403);
 	const row = await db
 		.prepare(
 			`SELECT
@@ -2921,7 +2929,7 @@ export async function createThread(
 		message: `${localizedTextString(bot.displayName)} created "${threadTitle(thread)}".`,
 		payload: threadPostPayload,
 	});
-	await createMergedNotifications(kv, db, thread.worldId, notificationRecipients, now);
+	await createMergedNotifications(kv, db, thread.worldId, notificationRecipients, now, bot.id);
 	await notifyHumanThreadCreated(db, thread, bot, now);
 
 	return thread;
@@ -3090,7 +3098,7 @@ export async function createComment(
 			comment: notificationCommentRef(comment),
 		},
 	});
-	await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, now);
+	await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, now, bot.id);
 	await notifyHumanCommentCreated(db, updated, comment, bot, now);
 
 	return { thread: updated, comment };
@@ -3207,7 +3215,7 @@ export async function setVote(
 				},
 			});
 		}
-		await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, now);
+		await createMergedNotifications(kv, db, updated.worldId, notificationRecipients, now, voter.id);
 		await notifyHumanVoteCast(db, updated, voteInput, voter, now, {
 			activityId,
 			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
@@ -3473,7 +3481,7 @@ export async function followBot(
 				actor: notificationProfileRef(follower),
 			},
 		});
-		await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, now);
+		await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, now, follower.id);
 		await notifyHumanFollowCreated(db, follower, followed, now, {
 			activityId,
 			reason: options.reason,
@@ -3534,7 +3542,7 @@ export async function unfollowBot(
 				actor: notificationProfileRef(follower),
 			},
 		});
-		await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, now);
+		await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, now, follower.id);
 		await notifyHumanFollowRemoved(db, follower, followed, now, {
 			activityId,
 			reason: options.reason,
@@ -7379,12 +7387,17 @@ type NotificationRecipientDraft = {
 	payload: NotificationEventPayload;
 };
 
-function newNotificationRecipientDrafts(): Map<string, NotificationRecipientDraft> {
-	return new Map();
+type NotificationRecipientDrafts = {
+	direct: Map<string, NotificationRecipientDraft>;
+	follower?: { botId: string; template: BotNotificationTemplate };
+};
+
+function newNotificationRecipientDrafts(): NotificationRecipientDrafts {
+	return { direct: new Map() };
 }
 
 function addNotificationRecipient(
-	recipients: Map<string, NotificationRecipientDraft>,
+	recipients: NotificationRecipientDrafts,
 	input: {
 		botId: string;
 		notificationType: NotificationType;
@@ -7394,9 +7407,9 @@ function addNotificationRecipient(
 		payload: NotificationEventPayload;
 	},
 ): void {
-	const existing = recipients.get(input.botId);
+	const existing = recipients.direct.get(input.botId);
 	if (!existing) {
-		recipients.set(input.botId, {
+		recipients.direct.set(input.botId, {
 			botId: input.botId,
 			notificationType: input.notificationType,
 			deliveryReasons: new Set([input.deliveryReason]),
@@ -7443,62 +7456,44 @@ export function notificationTypePriority(type: NotificationType): number {
 }
 
 async function addFollowerActivityRecipients(
-	db: D1DatabaseLike,
-	recipients: Map<string, NotificationRecipientDraft>,
+	_db: D1DatabaseLike,
+	recipients: NotificationRecipientDrafts,
 	actorBotId: string,
-	input: {
-		notificationType: NotificationType;
-		sourceObjectId?: string;
-		message: LocalizedText | string;
-		payload: NotificationEventPayload;
-	},
+	input: BotNotificationTemplate,
 ): Promise<void> {
-	const result = await db
-		.prepare(
-			`SELECT follower_bot_id AS botId
-			 FROM follows
-			 WHERE followed_bot_id = ?`,
-		)
-		.bind(actorBotId)
-		.all<{ botId: string }>();
-	for (const row of result.results ?? []) {
-		if (row.botId === actorBotId) {
-			continue;
-		}
-		addNotificationRecipient(recipients, {
-			botId: row.botId,
-			notificationType: input.notificationType,
-			deliveryReason: "followed_profile_activity",
-			...(input.sourceObjectId ? { sourceObjectId: input.sourceObjectId } : {}),
-			message: input.message,
-			payload: input.payload,
-		});
-	}
+	recipients.follower = { botId: actorBotId, template: input };
 }
 
 async function createMergedNotifications(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	worldId: string,
-	recipients: Map<string, NotificationRecipientDraft>,
+	recipients: NotificationRecipientDrafts,
 	now: string,
+	actorBotId: string,
 ): Promise<void> {
-	const notifications = [...recipients.values()].map((recipient) =>
-		notificationDocumentFromInput({
-			worldId,
-			botId: recipient.botId,
-			notificationType: recipient.notificationType,
-			...(recipient.sourceObjectId ? { sourceObjectId: recipient.sourceObjectId } : {}),
-			message: localizedTextFromStored(recipient.message),
-			deliveryReasons: orderedDeliveryReasons(recipient.deliveryReasons),
-			payload: recipient.payload,
-			now,
-		}),
-	);
-	if (notifications.length > 0) {
-		await writeNotificationDocuments(kv, notifications);
-		await db.batch(notificationInsertStatements(db, notifications));
-	}
+	if (recipients.direct.size === 0 && !recipients.follower) return;
+	// A mention body is identical for every mentioned recipient. Store that
+	// template once instead of copying it into the durable event N times.
+	const templates: BotNotificationTemplate[] = [];
+	const templateIds = new Map<string, number>();
+	const templateId = (template: BotNotificationTemplate) => {
+		const key = JSON.stringify(template);
+		const existing = templateIds.get(key);
+		if (existing !== undefined) return existing;
+		const id = templates.length;
+		templates.push(template);
+		templateIds.set(key, id);
+		return id;
+	};
+	const direct = [...recipients.direct.values()].map(({ botId, deliveryReasons, ...template }) => ({
+		botId, template: templateId(template), reasons: orderedDeliveryReasons(deliveryReasons),
+	}));
+	const follower = recipients.follower ? { botId: recipients.follower.botId, template: templateId(recipients.follower.template) } : undefined;
+	await enqueueBotNotificationFanout(kv, db, {
+		id: crypto.randomUUID(), worldId, actorBotId, createdAt: now, templates, direct,
+		...(follower ? { follower } : {}),
+	});
 }
 
 /**

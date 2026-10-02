@@ -1149,8 +1149,13 @@ async function createForum(
 		updatedAt: now,
 	};
 
+	try {
+		await upsertForumIndexProjection(db, forum, { requireActiveOwner: true });
+	} catch (error) {
+		if (isD1UniqueConstraintError(error)) throw new RepositoryError("conflict", "A forum with that handle already exists in this world.", 409);
+		throw error;
+	}
 	await writeJson(kv, kvKeys.forum(forum.id), forum);
-	await upsertForumIndexProjection(db, forum);
 	await putObjectIndex(db, forum, "forum", entityIndexVersions.forum, forum.worldId);
 
 	return forumSummary(forum);
@@ -3787,15 +3792,17 @@ export async function upsertWorldIndexProjection(
 export async function upsertForumIndexProjection(
 	db: D1DatabaseLike,
 	forum: ForumDocument,
+	options: { requireActiveOwner?: boolean } = {},
 ): Promise<ForumDocument> {
 	const normalized = normalizeForumDefaults(forum);
-	await db
+	const result = await db
 		.prepare(
 			`INSERT INTO forums_index (
 				forum_id, world_id, world_handle, handle, language, description, description_lang,
 				created_by_user_id, created_at, updated_at, deleted_at, personal_bot_id,
 				thread_comment_limit, read_only
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+			WHERE ${options.requireActiveOwner ? "EXISTS (SELECT 1 FROM users_index WHERE user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active') AND EXISTS (SELECT 1 FROM worlds_index WHERE world_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active')" : "1"}
 			ON CONFLICT(forum_id) DO UPDATE SET
 				world_handle = excluded.world_handle,
 				handle = excluded.handle,
@@ -3823,8 +3830,10 @@ export async function upsertForumIndexProjection(
 			normalized.personalBotId ?? null,
 			normalized.threadSettings?.commentLimit ?? null,
 			booleanSql(normalized.readOnly),
+			...(options.requireActiveOwner ? [normalized.createdByUserId, normalized.worldId] : []),
 		)
 		.run();
+	if (options.requireActiveOwner && (result.meta?.changes ?? 0) < 1) throw new RepositoryError("forbidden", "The account or world no longer accepts new forums.", 403);
 	await upsertForumSearchIndex(db, normalized);
 	return normalized;
 }

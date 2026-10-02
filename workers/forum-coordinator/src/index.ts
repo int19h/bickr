@@ -1,3 +1,4 @@
+import { runBotNotificationFanout } from "@bickr/shared/bot-notification-fanout";
 import { commitThreadMutation, nextThreadMutationAlarm, pruneThreadMutationReceipts, readCanonicalThread, replayThreadMutation, replayThreadMutationReceipt, restoreResponse, saveResponse, stageThreadMutation, threadMutationIdentity, type ThreadMutationPlan } from "./thread-mutations";
 import { projectGovernanceDeletionIntent, readGovernanceDeletionIntent, type GovernanceDeletionIntent } from "@bickr/shared/governance-deletion-intents";
 import { parseInferenceAttribution } from "@bickr/shared/inference-attribution";
@@ -929,7 +930,7 @@ export async function runScheduledForumCoordinatorTasks(env: Env, scheduledTime:
 			return await runForumCoordinatorNotificationPrune(env, now);
 		case "recovery":
 			if (!(await readMaintenanceState(env.BICKR_D1)).enabled) {
-				const results = await Promise.allSettled([recoverGovernanceDeletions(env, now), recoverThreadMutations(env, now)]);
+				const results = await Promise.allSettled([recoverGovernanceDeletions(env, now), recoverThreadMutations(env, now), runBotNotificationFanout(env.BICKR_KV, env.BICKR_D1, now), refreshThreadHotScores(env.BICKR_D1, now)]);
 				console.log(JSON.stringify({ event: "coordinator_recovery", scheduledTime: now, results }));
 				for (const result of results) if (result.status === "rejected") throw result.reason;
 			}

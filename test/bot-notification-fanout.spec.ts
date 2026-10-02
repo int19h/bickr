@@ -1,0 +1,51 @@
+import { beforeEach, expect, it } from "vitest";
+import { runBotNotificationFanout } from "@bickr/shared/bot-notification-fanout";
+import { clearKv, resetD1Schema } from "./helpers/d1-schema";
+import { authCookie, createBotForTest, createForumForTest, createThreadForTest, seedWorld, testEnv } from "./helpers/index-harness";
+
+beforeEach(async () => { await resetD1Schema(testEnv.BICKR_D1); await clearKv(testEnv.BICKR_KV); });
+
+async function audience(count: number) {
+	const cookie = await authCookie();
+	await seedWorld(cookie);
+	const forum = await createForumForTest(cookie, "fanout");
+	const author = await createBotForTest(cookie, "fanout-author");
+	for (let offset = 0; offset < count; offset += 50) {
+		await testEnv.BICKR_D1.batch(Array.from({ length: Math.min(50, count - offset) }, (_, index) => {
+			const id = `audience-${String(offset + index).padStart(5, "0")}`;
+			return [testEnv.BICKR_D1.prepare(`INSERT INTO entity_lifecycle_identity_claims (key_kind, key_scope, key_value, entity_kind, entity_id, owner_user_id, claim_state, created_at, updated_at) SELECT 'bot_handle', home_world_id, ?, 'bot', ?, owner_user_id, 'active', created_at, updated_at FROM bots_index WHERE bot_id = ?`).bind(id, id, author.id), testEnv.BICKR_D1.prepare(`INSERT INTO bots_index (bot_id, home_world_id, home_world_handle, handle, display_name, owner_user_id, short_bio, created_at, updated_at)
+				SELECT ?, home_world_id, home_world_handle, ?, display_name, owner_user_id, short_bio, created_at, updated_at FROM bots_index WHERE bot_id = ?`).bind(id, id, author.id)];
+		}).flat());
+	}
+	await testEnv.BICKR_D1.prepare(`INSERT INTO follows (world_id, follower_bot_id, followed_bot_id, created_at)
+		SELECT home_world_id, bot_id, ?, created_at FROM bots_index WHERE bot_id >= 'audience-' AND bot_id < 'audience.'`).bind(author.id).run();
+	const thread = await createThreadForTest(forum.id, author.id, "Bounded delivery", "Payload");
+	return { author, thread };
+}
+
+async function countNotifications(threadId: string) {
+	return (await testEnv.BICKR_D1.prepare(`SELECT count(*) AS count FROM notifications WHERE source_object_id = ?`).bind(`t/${threadId}`).first<{ count: number }>())!.count;
+}
+
+it("publishes only one 50-recipient page inline and drains larger audiences through bounded indexed pages", async () => {
+	const { author, thread } = await audience(125);
+	expect(await countNotifications(thread.id)).toBe(50);
+	const first = await runBotNotificationFanout(testEnv.BICKR_KV, testEnv.BICKR_D1, new Date(Date.now() + 60_000).toISOString());
+	expect(first.recipients).toBe(50);
+	expect(await countNotifications(thread.id)).toBe(100);
+	const second = await runBotNotificationFanout(testEnv.BICKR_KV, testEnv.BICKR_D1, new Date(Date.now() + 10 * 60_000).toISOString());
+	expect(second.recipients).toBe(25);
+	expect(await countNotifications(thread.id)).toBe(125);
+	expect(await testEnv.BICKR_D1.prepare(`SELECT event_id FROM bot_notification_fanouts LIMIT 1`).first()).toBeNull();
+	const plan = await testEnv.BICKR_D1.prepare(`EXPLAIN QUERY PLAN SELECT follower_bot_id FROM follows WHERE followed_bot_id = ? AND follower_bot_id > ? ORDER BY follower_bot_id LIMIT 50`).bind(author.id, "audience-00049").all<{ detail: string }>();
+	expect(plan.results.map((row) => row.detail).join(" ")).toContain("follows_recipient_page");
+	expect(plan.results.map((row) => row.detail).join(" ")).not.toContain("TEMP B-TREE");
+});
+
+it("does not publish the remainder after its source or recipient is deleted", async () => {
+	const { thread } = await audience(125);
+	await testEnv.BICKR_D1.prepare(`UPDATE threads_index SET deleted_at = ? WHERE thread_id = ?`).bind(new Date().toISOString(), thread.id).run();
+	await testEnv.BICKR_D1.prepare(`DELETE FROM notifications WHERE source_object_id = ?`).bind(`t/${thread.id}`).run();
+	await runBotNotificationFanout(testEnv.BICKR_KV, testEnv.BICKR_D1, new Date(Date.now() + 60_000).toISOString());
+	expect(await countNotifications(thread.id)).toBe(0);
+});

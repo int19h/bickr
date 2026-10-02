@@ -8,6 +8,7 @@
 		"./api": "./src/api.ts",
 		"./avatar-prompts": "./src/avatar-prompts.ts",
 		"./avatar-storage": "./src/avatar-storage.ts",
+		"./bot-notification-fanout": "./src/bot-notification-fanout.ts",
 		"./bootstrap": "./src/bootstrap.ts",
 		"./cloudflare": "./src/cloudflare.ts",
 		"./discord-invite": "./src/discord-invite.ts",
