@@ -1488,7 +1488,10 @@ export const agentRuntimeRouteTable = [
 			const compatibilityFieldMask = settingsInput?.inferenceSettings === undefined
 				? null
 				: legacyInferenceCompatibilityFieldMask(settingsInput.inferenceSettings);
-			if (compatibilityFieldMask) await assertLegacyInferenceWriteSupported(context.env.BICKR_D1, userId, compatibilityFieldMask);
+			if (compatibilityFieldMask) {
+				const current = await userById(context.env.BICKR_KV, userId);
+				await prepareLegacyInferenceCompatibilityWrite(context, userId, 'account', userId, current.revision, compatibilityFieldMask);
+			}
 			let profile = await applyGeneratedAvatarForUser(
 				context.env,
 				userId,
@@ -1501,8 +1504,6 @@ export const agentRuntimeRouteTable = [
 				),
 			);
 				if (settingsInput?.inferenceSettings !== undefined && compatibilityFieldMask) {
-					const current = await userById(context.env.BICKR_KV, userId);
-					await prepareLegacyInferenceCompatibilityWrite(context, userId, 'account', userId, current.revision, compatibilityFieldMask);
 					profile = await updateUserProfile(context.env.BICKR_KV, context.env.BICKR_D1, userId, {
 					inferenceSettings: settingsInput.inferenceSettings,
 				});
@@ -1837,7 +1838,10 @@ export const agentRuntimeRouteTable = [
 			const compatibilityFieldMask = settingsInput?.inferenceSettings === undefined
 				? null
 				: legacyInferenceCompatibilityFieldMask(settingsInput.inferenceSettings);
-			if (compatibilityFieldMask) await assertLegacyInferenceWriteSupported(context.env.BICKR_D1, userId, compatibilityFieldMask);
+			if (compatibilityFieldMask) {
+				const current = await rawBotById(context.env.BICKR_KV, context.env.BICKR_D1, botId);
+				await prepareLegacyInferenceCompatibilityWrite(context, userId, 'bot', botId, current.revision, compatibilityFieldMask);
+			}
 			let bot = await applyGeneratedAvatarForBot(
 				context.env,
 				userId,
@@ -1852,8 +1856,6 @@ export const agentRuntimeRouteTable = [
 				),
 			);
 				if (settingsInput?.inferenceSettings !== undefined && compatibilityFieldMask) {
-					const current = await rawBotById(context.env.BICKR_KV, context.env.BICKR_D1, bot.id);
-					await prepareLegacyInferenceCompatibilityWrite(context, userId, 'bot', bot.id, current.revision, compatibilityFieldMask);
 					bot = await updateBot(context.env.BICKR_KV, context.env.BICKR_D1, bot.id, userId, {
 					inferenceSettings: settingsInput.inferenceSettings,
 				});
@@ -1946,7 +1948,11 @@ export const agentRuntimeRouteTable = [
 			const compatibilityFieldMask = settingsInput?.imageGeneration === undefined
 				? null
 				: legacyImageCompatibilityFieldMask(settingsInput.imageGeneration);
-			if (compatibilityFieldMask) await assertLegacyInferenceWriteSupported(context.env.BICKR_D1, userId, compatibilityFieldMask);
+			if (compatibilityFieldMask) {
+				const current = await readJson<WorldDocument>(context.env.BICKR_KV, kvKeys.world(targetWorld.id));
+				if (!current) throw new RepositoryError('server_error', 'World compatibility source document is missing.', 500);
+				await prepareLegacyInferenceCompatibilityWrite(context, userId, 'world', targetWorld.id, current.revision, compatibilityFieldMask);
+			}
 			let world = await applyGeneratedAvatarForWorld(
 				context.env,
 				userId,
@@ -1959,9 +1965,6 @@ export const agentRuntimeRouteTable = [
 				})),
 			);
 				if (settingsInput?.imageGeneration !== undefined && compatibilityFieldMask) {
-					const current = await readJson<WorldDocument>(context.env.BICKR_KV, kvKeys.world(targetWorld.id));
-					if (!current) throw new RepositoryError('server_error', 'World compatibility source document is missing.', 500);
-					await prepareLegacyInferenceCompatibilityWrite(context, userId, 'world', targetWorld.id, current.revision, compatibilityFieldMask);
 					world = requiredWorldMutationResult(await requestOwnerWorldMutation(context, targetWorld.id, userId, {
 					kind: 'world_update',
 					worldHandle: world.handle,

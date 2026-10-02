@@ -19,6 +19,7 @@ import {
 	translationToolCallStrategy,
 } from "./inference-configuration-consumers";
 import {
+	InferenceGraphRepositoryError,
 	inferenceGraphReadVersion,
 	inferenceConfigurationPathFromSnapshot,
 	insertAccountDefaultConfigurationStatement,
@@ -1962,22 +1963,20 @@ export async function beginInferenceGraphCompatibilityWrite(
 ): Promise<void> {
 	const version = await inferenceGraphReadVersion(db, input.ownerUserId);
 	if (version.writerVersion !== 1) return;
-	const projectionExists = await db.prepare(
-		`SELECT owner_user_id AS id FROM inference_graph_legacy_projections WHERE owner_user_id = ? LIMIT 1`,
-	).bind(input.ownerUserId).first<{ id: string }>();
-	if (!projectionExists) return;
-	await db.prepare(
+	const claimed = await db.prepare(
 		`INSERT INTO inference_graph_convergence (
 			owner_user_id, phase, d1_revision, kv_revision, operation_json,
 			created_at, updated_at, terminal_cleanup_at
-		) VALUES (?, 'pending_kv', ?, ?, ?, ?, ?, NULL)
+		) SELECT graph.owner_user_id, 'pending_kv', graph.graph_revision, ?, ?, ?, ?, NULL
+		  FROM inference_graph_users AS graph
+		  JOIN inference_graph_legacy_projections AS projection ON projection.owner_user_id = graph.owner_user_id
+		  WHERE graph.owner_user_id = ? AND graph.writer_version = 1
 		ON CONFLICT(owner_user_id) DO UPDATE SET
 			phase = 'pending_kv', d1_revision = excluded.d1_revision,
 			kv_revision = excluded.kv_revision, operation_json = excluded.operation_json,
-			updated_at = excluded.updated_at, terminal_cleanup_at = NULL`,
+			updated_at = excluded.updated_at, terminal_cleanup_at = NULL
+		RETURNING owner_user_id AS ownerUserId`,
 	).bind(
-		input.ownerUserId,
-		version.graphRevision,
 		input.sourceRevision,
 		JSON.stringify({
 			kind: input.kind,
@@ -1987,7 +1986,11 @@ export async function beginInferenceGraphCompatibilityWrite(
 		}),
 		input.now,
 		input.now,
-	).run();
+		input.ownerUserId,
+	).first<{ ownerUserId: string }>();
+	if (!claimed && version.cutoverVersion !== 0) {
+		throw new InferenceGraphRepositoryError("legacy_write_disabled", "Use the inference configuration API to change provider configuration for this profile.");
+	}
 }
 
 export type PendingInferenceGraphCompatibilityWrite = {
@@ -2147,6 +2150,11 @@ export async function cleanupInferenceGraphTerminalState(
 				SELECT projection.rowid FROM inference_graph_legacy_projections AS projection
 				JOIN inference_graph_users AS graph ON graph.owner_user_id = projection.owner_user_id
 				WHERE projection.cleanup_at <= ? AND graph.cutover_version != 2
+					AND NOT EXISTS (
+						SELECT 1 FROM inference_graph_convergence AS pending
+						WHERE pending.owner_user_id = projection.owner_user_id
+							AND pending.phase IN ('pending_kv', 'pending_d1')
+					)
 				ORDER BY projection.cleanup_at, projection.owner_user_id LIMIT ?
 			) RETURNING owner_user_id`,
 		).bind(now, boundedLimit),

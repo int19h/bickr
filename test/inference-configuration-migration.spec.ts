@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, expectTypeOf, it } from "vitest";
+import { assertLegacyInferenceWriteSupported } from "@bickr/shared/inference-configuration-write-policy";
 import { env as testEnv } from "cloudflare:test";
 import {
 	activateInferenceGraphLifecycle,
@@ -1298,6 +1299,19 @@ describe("restartable inference graph migration", () => {
 		).bind(ownerId).first<{ count: number }>())?.count).toBe(2);
 	});
 
+	it("refuses a compatibility write when cleanup removes its projection after the preliminary read", async () => {
+		await migrateToCutover(deploymentEnv);
+		const fieldMask = { fields: ["temperature"] as const, translationFields: [], credential: false };
+		const mask = { ...fieldMask, fields: [...fieldMask.fields] };
+		await assertLegacyInferenceWriteSupported(testEnv.BICKR_D1, ownerId, mask);
+		await cleanupInferenceGraphTerminalState(testEnv.BICKR_D1, "2026-09-04T00:00:00.000Z", 10);
+		await expect(beginInferenceGraphCompatibilityWrite(testEnv.BICKR_D1, {
+			ownerUserId: ownerId, kind: "account", entityId: ownerId, sourceRevision: 2,
+			fieldMask: mask, now: "2026-09-04T00:00:01.000Z",
+		})).rejects.toMatchObject({ causeKind: "legacy_write_disabled" });
+		expect(await pendingInferenceGraphCompatibilityWrite(testEnv.BICKR_D1, ownerId)).toBeNull();
+	});
+
 	it("tracks compatibility convergence, bounded fleet readiness, activation, and 30-day cleanup", async () => {
 		let result = await runInferenceGraphMigrationStep(testEnv, ownerId, now);
 		for (let attempt = 0; attempt < 12 && !result.complete; attempt += 1) {
@@ -1319,6 +1333,8 @@ describe("restartable inference graph migration", () => {
 			phase: "pending_kv",
 			sourceRevision: 2,
 		});
+		expect(await cleanupInferenceGraphTerminalState(testEnv.BICKR_D1, "2026-09-04T00:00:00.000Z", 10))
+			.toMatchObject({ projections: 0, convergence: 0 });
 		await markInferenceGraphCompatibilitySourceWritten(testEnv.BICKR_D1, ownerId, 2, "2026-08-04T00:01:01.000Z");
 		expect(await pendingInferenceGraphCompatibilityWrite(testEnv.BICKR_D1, ownerId)).toMatchObject({ phase: "pending_d1" });
 		const rootId = await accountDefaultConfigurationId(ownerId);
@@ -1335,7 +1351,7 @@ describe("restartable inference graph migration", () => {
 			.toEqual({ activationMode: "inference_graph_required" });
 		expect(await cleanupInferenceGraphTerminalState(testEnv.BICKR_D1, "2026-09-04T00:00:00.000Z", 1))
 			.toEqual({
-				operations: 1,
+				operations: 0,
 				projections: 1,
 				convergence: 1,
 				providerDefaultBarrierCandidates: 0,
