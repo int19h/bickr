@@ -69,8 +69,8 @@ describe('durable thought delivery', () => {
 			f.runtime.activeAbortController = null;
 		};
 		const build = async (tick: { runId: string; setupMode: string }) => {
-			// The audit record precedes preparation in runAdmittedTick. It must
-			// never be mistaken for a successfully committed input history group.
+			// runAdmittedTick writes the audit record before it prepares input.
+			// Only the committed history group proves that preparation succeeded.
 			const input = storage.sql.exec<{ seq: number }>("INSERT INTO events (run_id,type,payload_json,token_estimate,created_at) VALUES (?, 'input', '{}', 0, '2026-10-02') RETURNING seq", tick.runId).toArray()[0]!;
 			const pending = f.injections.pending();
 			return f.runtime.buildMessages(bot, { spotlightContexts: [], notifications: [], injections: pending.map(row => row.text) }, tick.runId, { seq: input.seq, createdAt: '2026-10-02' }, { setupMode: tick.setupMode, pendingInjections: pending });

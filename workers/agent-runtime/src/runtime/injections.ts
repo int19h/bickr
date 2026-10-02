@@ -3,8 +3,8 @@ import type { InjectionRow } from '../types';
 
 export type PendingInjection = Pick<InjectionRow, 'id' | 'text'>;
 
-/** Pending input remains in the existing injections table until history commits.
- * Existing injection retention also owns consumed rows; this adds no store. */
+/** Keep pending input in the injections table until history commits.
+ * The existing retention rule removes consumed rows. */
 export class RuntimeInjectionStore {
 	private readonly storage: Pick<DurableObjectStorage, 'sql'>;
 	constructor(storage: Pick<DurableObjectStorage, 'sql'>) { this.storage = storage; }

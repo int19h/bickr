@@ -63,8 +63,8 @@ import type {
 import { TickStoppedError } from "../workers/agent-runtime/src/errors";
 import { claimRuntimeRun } from "../workers/agent-runtime/src/runtime/bot-runtime";
 
-// Prompt-focused fixtures observe message publication through explicit writers.
-// Supply the separate runtime-state store required by the atomic input marker.
+// These prompt tests use explicit message writers to observe published messages.
+// Supply runtime storage for the input commit marker.
 function attachInputHistoryStorage(runtime: object): void {
 	if (!Object.hasOwn(runtime, 'state')) {
 		Object.assign(runtime, { state: { storage: { sql: memoryRuntimeSql() } } });
