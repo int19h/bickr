@@ -1,3 +1,4 @@
+import { loadOpenRouterImageCatalog } from "@bickr/shared/openrouter-image-models";
 import { worldAvatarMembersPromptUserContent } from '@bickr/shared/avatar-prompts';
 import { avatarContentTypeFromBytes, avatarMaxBytes, validateAvatarDataUrl } from '@bickr/shared/avatar-storage';
 import { isOpenRouterProviderBaseUrl } from '@bickr/shared/inference-settings';
@@ -88,7 +89,7 @@ export type AvatarProviderRuntime = {
 	sanitizeMessages(messages: readonly ChatMessage[]): ChatMessage[];
 	reasoningForSettings(settings: Pick<ProviderSettings, 'model' | 'reasoningEffort' | 'reasoningRequest'> & { baseUrl?: string }): ProviderReasoningConfig | undefined;
 	structuredOutputReasoningForSettings(settings: Pick<ProviderSettings, 'baseUrl' | 'model'>): ProviderReasoningConfig | undefined;
-	readSse(stream: ReadableStream<Uint8Array>, signal?: AbortSignal, idleTimeoutMs?: number): AsyncGenerator<{ data: string; raw: string }>;
+	readSse(stream: ReadableStream<Uint8Array>, signal?: AbortSignal, idleTimeoutMs?: number, options?: { maxBytes?: number; maxEventBytes?: number }): AsyncGenerator<{ data: string; raw: string }>;
 	streamErrorFromChunk(chunk: Record<string, unknown>): Error | null;
 	usageFromValue(value: unknown): ProviderUsage | undefined;
 	metadataProviderName(payload: unknown): string | null;
@@ -682,7 +683,9 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		let cost: number | null = null;
 		let imageCount = 0;
 		try {
-			for await (const event of runtime.readSse(response.body, signal, providerImageBodyReadTimeoutMs)) {
+			for await (const event of runtime.readSse(response.body, signal, providerImageBodyReadTimeoutMs, {
+				maxBytes: providerImageResponseBodyMaxBytes, maxEventBytes: providerImageResponseBodyMaxBytes,
+			})) {
 				if (event.data === '[DONE]') {
 					break;
 				}
@@ -738,7 +741,9 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		let cost: number | null = null;
 		let imageCount = 0;
 		try {
-			for await (const event of runtime.readSse(response.body, signal, providerImageBodyReadTimeoutMs)) {
+			for await (const event of runtime.readSse(response.body, signal, providerImageBodyReadTimeoutMs, {
+				maxBytes: providerImageResponseBodyMaxBytes, maxEventBytes: providerImageResponseBodyMaxBytes,
+			})) {
 				if (event.data === '[DONE]') {
 					break;
 				}
@@ -764,6 +769,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 					await stream.assistantImage(imageCount);
 					if (type === 'image_generation.completed' && !dataUrl) {
 						dataUrl = eventDataUrl;
+						break;
 					}
 				}
 			}
@@ -859,42 +865,16 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 			return null;
 		}
 		try {
-			const response = await fetch('https://openrouter.ai/api/v1/images/models', {
-				headers: { accept: 'application/json' },
-				...(signal ? { signal } : {}),
-			});
-			if (!response.ok) {
-				return null;
-			}
-			const payload = (await response.json()) as { data?: unknown };
-			const data = Array.isArray(payload.data) ? payload.data : [];
-			const requestedModel = normalizedProviderModelId(settings.model);
-			if (!requestedModel) {
-				return null;
-			}
-			for (const item of data) {
-				const record = runtimeRecord(item);
-				if (normalizedProviderModelId(stringValue(record.id)) !== requestedModel) {
-					continue;
-				}
-				const architecture = runtimeRecord(record.architecture);
-				return {
-					input: stringArrayValue(architecture.input_modalities),
-					output: stringArrayValue(architecture.output_modalities),
-					supportsStreaming: record.supports_streaming === true,
-				};
-			}
+			const model = (await loadOpenRouterImageCatalog(signal)).model(settings.model);
+			return model ? {
+				input: [...model.inputModalities], output: [...model.outputModalities], supportsStreaming: model.supportsStreaming,
+			} : null;
 		} catch (error) {
 			if (signal?.aborted || runtime.isStoppedError(error) || isAbortError(error)) {
 				throw error;
 			}
 			return null;
 		}
-		return null;
-	}
-
-	function normalizedProviderModelId(model: string | undefined): string {
-		return model?.trim().toLowerCase().split(':')[0] ?? '';
 	}
 
 	function providerImageDataUrl(payload: unknown): string | null {
@@ -1228,9 +1208,6 @@ function stringValue(value: unknown): string | undefined {
 	return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
-function stringArrayValue(value: unknown): string[] {
-	return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
-}
 
 function numberValue(value: unknown): number | undefined {
 	return typeof value === 'number' && Number.isFinite(value) ? value : undefined;

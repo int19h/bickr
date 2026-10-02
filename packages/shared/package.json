@@ -63,7 +63,8 @@
 		"./http": "./src/http.ts",
 		"./markdown": "./src/markdown.ts",
 		"./bounded-body": "./src/bounded-body.ts",
-		"./provider-transport": "./src/provider-transport.ts"
+		"./provider-transport": "./src/provider-transport.ts",
+		"./openrouter-image-models": "./src/openrouter-image-models.ts"
 	},
 	"dependencies": {
 		"mdast-util-math": "^3.0.0",

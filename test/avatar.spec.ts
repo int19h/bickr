@@ -1,3 +1,6 @@
+import { beforeEach } from "vitest";
+import { loadOpenRouterImageCatalog } from "@bickr/shared/openrouter-image-models";
+beforeEach(() => loadOpenRouterImageCatalog.clear());
 import {
 	agentRuntimeWorker,
 	applyUserAvatarRoute,
@@ -1190,7 +1193,7 @@ describe("Avatar", () => {
 			expect(accepted.status, await accepted.clone().text()).toBe(200);
 			expect(fetchMock).toHaveBeenCalledWith(
 				"https://images.example/avatar.png",
-				expect.objectContaining({ redirect: "follow" }),
+				expect.objectContaining({ redirect: "manual" }),
 			);
 		} finally {
 			vi.stubGlobal("fetch", originalFetch);
