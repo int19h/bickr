@@ -105,6 +105,8 @@ export type D1PreparedStatementLike = {
 };
 
 export type D1DatabaseLike = {
+	/** A mutation planner records writes; readers cannot observe them until commit. */
+	readonly writesDeferred?: true;
 	batch(statements: D1PreparedStatementLike[]): Promise<Array<D1Result>>;
 	prepare(query: string): D1PreparedStatementLike;
 };

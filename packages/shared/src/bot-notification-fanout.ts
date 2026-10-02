@@ -22,10 +22,11 @@ const retentionMs = 14 * 24 * 60 * 60_000;
 export async function enqueueBotNotificationFanout(kv: KVNamespaceLike, db: D1DatabaseLike, event: BotNotificationFanout): Promise<void> {
 	await db.prepare(`INSERT INTO bot_notification_fanouts (event_id, payload_json, after_bot_id, created_at, next_attempt_at) VALUES (?, ?, '', ?, ?)`)
 		.bind(event.id, JSON.stringify(event), event.createdAt, event.createdAt).run();
-	// Take one bounded first page so small audiences keep their immediate
-	// behavior. The event itself is supplied because a mutation planner has not
-	// published the staged INSERT yet. Its projection batch commits both.
-	await deliverBotNotificationChunk(kv, db, event, "");
+	// A staged event has no publication sequence yet. Its audience must wait
+	// until the content and event commit together; selecting now could skip a
+	// follower who joins during the later KV wait. Immediate writers can safely
+	// publish one bounded page after their real event INSERT completes.
+	if (!db.writesDeferred) await deliverBotNotificationChunk(kv, db, event, "");
 }
 
 export async function runBotNotificationFanout(kv: KVNamespaceLike, db: D1DatabaseLike, now = new Date().toISOString()): Promise<{ events: number; candidates: number; recipients: number }> {
@@ -62,7 +63,7 @@ async function deliverBotNotificationChunk(kv: KVNamespaceLike, db: D1DatabaseLi
 		SELECT value AS botId, 0 AS followed FROM json_each(?) WHERE value > ? ORDER BY value LIMIT ?
 	), followers AS (
 		SELECT follower_bot_id AS botId,
-			CASE WHEN activation_after_sequence < COALESCE((SELECT sequence FROM bot_notification_fanouts WHERE event_id = ?), 9223372036854775807) THEN 1 ELSE 0 END AS followed
+			CASE WHEN activation_after_sequence < (SELECT sequence FROM bot_notification_fanouts WHERE event_id = ?) THEN 1 ELSE 0 END AS followed
 		FROM follows
 		WHERE followed_bot_id = ? AND follower_bot_id > ? ORDER BY follower_bot_id LIMIT ?
 	), audience AS (SELECT * FROM direct UNION ALL SELECT * FROM followers)

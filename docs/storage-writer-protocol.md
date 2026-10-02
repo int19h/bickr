@@ -37,8 +37,9 @@ same D1 batch that hides the entity. The intent survives KV failures, missing
 Durable Object task state, and alarm failures. The owning coordinator resumes the
 bounded child deletion task and removes the intent after the children converge.
 
-Bot notification fanout publishes at most 50 recipients with the originating
-mutation. The durable job holds one copy of each message variant. Later pages
+Bot notification fanout stores its event with the originating mutation. A
+staged thread mutation selects no recipients until that transaction commits.
+Immediate writers may publish one bounded page after their event INSERT. The durable job holds one copy of each message variant. Later pages
 advance an indexed recipient cursor. Publication and cursor advancement share a
 D1 batch. A follow records the last published event sequence. New follows and
 re-follows cannot receive older events. Each page visits at most 50 raw candidate

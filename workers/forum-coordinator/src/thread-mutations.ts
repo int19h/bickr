@@ -189,6 +189,7 @@ export function stageThreadMutation(kv: KVNamespaceLike, db: D1DatabaseLike) {
 		}
 	}
 	const database: D1DatabaseLike = {
+		writesDeferred: true,
 		prepare: (query) => new Statement(query),
 		batch: async (statements) => {
 			const results: D1Result[] = [];

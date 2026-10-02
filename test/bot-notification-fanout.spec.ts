@@ -1,7 +1,7 @@
 import { beforeEach, expect, it } from "vitest";
 import { runBotNotificationFanout } from "@bickr/shared/bot-notification-fanout";
 import { clearKv, resetD1Schema } from "./helpers/d1-schema";
-import { authCookie, createBotForTest, createForumForTest, createThreadForTest, seedWorld, testEnv } from "./helpers/index-harness";
+import { authCookie, createBotForTest, createForumForTest, createThreadForTest, seedWorld, testEnv, handleForumCoordinatorRequest, memoryDurableStorage, ExclusiveOperationQueue, jsonRequest, requiredLt } from "./helpers/index-harness";
 
 beforeEach(async () => { await resetD1Schema(testEnv.BICKR_D1); await clearKv(testEnv.BICKR_KV); });
 
@@ -69,4 +69,38 @@ it("advances bounded raw pages without sending an older event to later followers
 	expect(second.recipients).toBe(0);
 	expect(await countNotifications(thread.id)).toBe(50);
 	expect(await testEnv.BICKR_D1.prepare(`SELECT event_id FROM bot_notification_fanouts LIMIT 1`).first()).toBeNull();
+});
+
+
+it("does not select a staged audience before its event is published", async () => {
+	const { author, thread } = await audience(125);
+	await testEnv.BICKR_D1.prepare(`DELETE FROM bot_notification_fanouts`).run();
+	await testEnv.BICKR_D1.prepare(`DELETE FROM notifications`).run();
+	const newcomer = "aaa-before-publication";
+	await testEnv.BICKR_D1.batch([
+		testEnv.BICKR_D1.prepare(`INSERT INTO entity_lifecycle_identity_claims (key_kind, key_scope, key_value, entity_kind, entity_id, owner_user_id, claim_state, created_at, updated_at)
+		 SELECT 'bot_handle', home_world_id, ?, 'bot', ?, owner_user_id, 'active', created_at, updated_at FROM bots_index WHERE bot_id = ?`).bind(newcomer, newcomer, author.id),
+		testEnv.BICKR_D1.prepare(`INSERT INTO bots_index (bot_id, home_world_id, home_world_handle, handle, display_name, owner_user_id, short_bio, created_at, updated_at)
+		 SELECT ?, home_world_id, home_world_handle, ?, display_name, owner_user_id, short_bio, created_at, updated_at FROM bots_index WHERE bot_id = ?`).bind(newcomer, newcomer, author.id),
+	]);
+	let joined = false;
+	let notificationWrites = 0;
+	const kv = { get: testEnv.BICKR_KV.get.bind(testEnv.BICKR_KV), delete: testEnv.BICKR_KV.delete.bind(testEnv.BICKR_KV), put: async (key: string, value: string) => {
+		if (key.startsWith("v1:notification:")) notificationWrites += 1;
+		if (!joined && key.startsWith("v1:thread:")) {
+			joined = true;
+			await testEnv.BICKR_D1.prepare(`INSERT INTO follows (world_id, follower_bot_id, followed_bot_id, created_at)
+			 SELECT home_world_id, bot_id, ?, created_at FROM bots_index WHERE bot_id = ?`).bind(author.id, newcomer).run();
+		}
+		await testEnv.BICKR_KV.put(key, value);
+	} } as KVNamespace;
+	const request = jsonRequest(`https://internal.bickr/threads/${thread.id}/comments`, "POST", { body: requiredLt("Published together") }, undefined, { "x-bickr-bot-id": author.id });
+	const response = await handleForumCoordinatorRequest(request, { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: kv }, { objectId: thread.id, queue: new ExclusiveOperationQueue(), storage: memoryDurableStorage().storage });
+	expect(response.status).toBe(201);
+	expect(joined).toBe(true);
+	expect(notificationWrites).toBe(0);
+	expect(await testEnv.BICKR_D1.prepare(`SELECT after_bot_id AS cursor FROM bot_notification_fanouts`).first()).toEqual({ cursor: "" });
+	const result = await runBotNotificationFanout(testEnv.BICKR_KV, testEnv.BICKR_D1, new Date(Date.now() + 60_000).toISOString());
+	expect(result.candidates).toBe(50);
+	expect(await testEnv.BICKR_D1.prepare(`SELECT bot_id FROM notifications WHERE bot_id = ?`).bind(newcomer).first()).toEqual({ bot_id: newcomer });
 });
