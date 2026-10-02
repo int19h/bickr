@@ -43,7 +43,7 @@ type SimulatedRun = {
 
 type DeferredHarness = {
 	fetch(request: Request): Promise<Response>;
-	sql: ReturnType<typeof memoryRuntimeSql>;
+	sql: Pick<ReturnType<typeof memoryRuntimeSql>, "injections">;
 	events: BotRuntimeEvent[];
 	runs: SimulatedRun[];
 	settle(): Promise<void>;
@@ -152,7 +152,7 @@ function deferredHarness(): DeferredHarness {
 		exportRecentProviderUsage: async () => {},
 		pruneRuntimeStorageAfterTick: (): RuntimeStorageRetentionResult => ({
 			events: 0, providerUsage: 0,
-			loopMessages: { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0 },
+			loopMessages: { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0, pendingMore: false },
 			injections: { deletedInjections: 0, droppedQueueEntries: 0 },
 		}),
 		readCommentTreeTokenBudget: async () => 10_000,
