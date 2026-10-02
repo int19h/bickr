@@ -1,3 +1,5 @@
+import forumCoordinatorWorker from "../workers/forum-coordinator/src/index";
+import { commitThreadMutation, pruneThreadMutationReceipts, replayThreadMutationReceipt } from "../workers/forum-coordinator/src/thread-mutations";
 import { beforeEach, describe, expect, it } from "vitest";
 import { readThread } from "@bickr/shared/social";
 import { type ForumDocument } from "@bickr/shared/model";
@@ -26,6 +28,65 @@ async function fixture() {
 }
 
 describe("durable thread mutations", () => {
+	it("retains a replacement receipt when an old expiry entry survives the cleanup budget", async () => {
+		const durable = memoryDurableStorage();
+		const oldTime = Date.now() - 31 * 24 * 60 * 60_000;
+		for (let index = 0; index < 26; index += 1) {
+			await commitThreadMutation(durable.storage, testEnv.BICKR_D1, "receipt-owner", {
+				id: String(index), createdAt: oldTime + index, requestHash: "same", receiptKey: `thread-mutation/receipt/${index}`,
+				response: { status: 200, headers: [], body: "{}" }, thread: null, kv: [], sql: [],
+			});
+		}
+		await pruneThreadMutationReceipts(durable.storage);
+		const identity = { requestHash: "same", receiptKey: "thread-mutation/receipt/25" };
+		await commitThreadMutation(durable.storage, testEnv.BICKR_D1, "receipt-owner", {
+			id: "replacement", createdAt: Date.now(), ...identity,
+			response: { status: 201, headers: [], body: "fresh" }, thread: null, kv: [], sql: [],
+		});
+		await pruneThreadMutationReceipts(durable.storage);
+		expect(await replayThreadMutationReceipt(durable.storage, identity)).toEqual({ kind: "response", response: { status: 201, headers: [], body: "fresh" } });
+	});
+
+	it("preserves vote retry identity through the Worker router and stores compact receipts", async () => {
+		const f = await fixture();
+		const cookie = await authCookie();
+		const voter = await createBotForTest(cookie, "durable-voter");
+		const owner = f.context();
+		const namespace = {
+			idFromName: (id: string) => id as unknown as DurableObjectId,
+			get: () => ({ fetch: (request: Request) => handleForumCoordinatorRequest(request, f.env, owner) }),
+		} as unknown as DurableObjectNamespace;
+		const env = { ...f.env, FORUM_COORDINATOR: namespace, WORLD_COORDINATOR: namespace, INTERNAL_SERVICE_SECRET: "test-secret" } as Parameters<typeof forumCoordinatorWorker.fetch>[1];
+		const vote = (key: string, value: number) => forumCoordinatorWorker.fetch(jsonRequest("https://internal.bickr/votes", "POST", { commentId: f.thread.rootCommentId, value }, undefined, {
+			"x-bickr-bot-id": voter.id, "x-bickr-idempotency-key": key, "x-bickr-internal-auth": "test-secret",
+		}) as never, env);
+		expect((await vote("up", 1)).status).toBe(200);
+		expect((await vote("down", -1)).status).toBe(200);
+		expect((await vote("up", 1)).status).toBe(200);
+		expect((await vote("up", -1)).status).toBe(409);
+		expect(await testEnv.BICKR_D1.prepare(`SELECT value FROM votes WHERE target_type = 'comment' AND target_id = ? AND bot_id = ?`).bind(f.thread.rootCommentId, voter.id).first()).toEqual({ value: -1 });
+		const receiptChunks = [...f.durable.values.entries()].filter(([key, value]) => key.startsWith("thread-mutation/receipt/") && typeof value === "string");
+		expect(receiptChunks).toHaveLength(2);
+		for (const [, chunk] of receiptChunks) {
+			expect(String(chunk).length).toBeLessThan(1024);
+			expect(String(chunk)).not.toContain("Root.");
+		}
+	});
+
+	it("replays a comment identity against the current thread and never recreates a deleted result", async () => {
+		const f = await fixture();
+		const response = await handleForumCoordinatorRequest(f.post("post-reply"), f.env, f.context());
+		const payload = await response.json() as { data: { comment: { id: string } } };
+		await handleForumCoordinatorRequest(f.post("post-later", "Later reply"), f.env, f.context());
+		const retry = await handleForumCoordinatorRequest(f.post("post-reply"), f.env, f.context());
+		const replayed = await retry.json() as { data: { comment: { id: string }; thread: { comments: unknown[] } } };
+		expect(replayed.data.comment.id).toBe(payload.data.comment.id);
+		expect(replayed.data.thread.comments).toHaveLength(3);
+		await handleForumCoordinatorRequest(new Request(`https://internal.bickr/forums/${f.forum.id}/threads/${f.thread.id}/comments/${payload.data.comment.id}`, { method: "DELETE", headers: { "x-bickr-user-id": f.owner } }), f.env, f.context());
+		expect((await handleForumCoordinatorRequest(f.post("post-reply"), f.env, f.context())).status).toBe(410);
+		expect((await readThread(testEnv.BICKR_KV, f.thread.id)).comments).toHaveLength(2);
+	});
+
 	it("recovers creation after the thread writer commits but its handoff response is lost", async () => {
 		const f = await fixture();
 		const owners = new Map<string, ReturnType<typeof f.context>>();

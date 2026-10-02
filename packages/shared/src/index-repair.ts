@@ -75,6 +75,7 @@ export type ObjectIndexRepairEnv = ObjectIndexRepairOwnerEnv & {
 };
 
 type ObjectIndexRow = {
+	projectionHidden: number;
 	objectId: string;
 	objectType: string;
 	revision: number;
@@ -179,6 +180,9 @@ export async function repairOwnedObjectIndex(
 ): Promise<OwnedObjectIndexRepairResult> {
 	const row = (await loadObjectIndexChunk(env.BICKR_D1, undefined, 1, undefined, request.id)).items[0];
 	if (!row || row.objectType !== request.entityType) return { kind: "missing" };
+	// Lifecycle transitions publish their visibility fence before KV. Only the
+	// lifecycle operation may finish that transition; repair must not activate it.
+	if (row.projectionHidden) return { kind: "unchanged" };
 	const stored = options.document ?? await readIndexedDocument(env.BICKR_KV, row);
 	if (!stored || stored.id !== request.id || stored.type !== request.entityType) return { kind: "missing" };
 	// KV can lag the committed index even inside the owning writer. A stale
@@ -231,6 +235,13 @@ async function loadObjectIndexChunk(
 			        oi.object_type AS objectType,
 			        oi.revision,
 			        oi.index_version AS indexVersion,
+			        CASE oi.object_type
+			          WHEN 'user' THEN object_user.deleted_at IS NOT NULL OR object_user.lifecycle_state <> 'active'
+			          WHEN 'world' THEN object_world.deleted_at IS NOT NULL OR object_world.lifecycle_state <> 'active'
+			          WHEN 'bot' THEN object_bot.deleted_at IS NOT NULL OR object_bot.lifecycle_state <> 'active'
+			          WHEN 'forum' THEN object_forum.deleted_at IS NOT NULL
+			          WHEN 'thread' THEN object_thread.deleted_at IS NOT NULL
+			          ELSE 0 END AS projectionHidden,
 			        canonical_world.handle AS canonicalWorldHandle,
 			        canonical_forum.handle AS canonicalForumHandle,
 			        object_forum.handle AS indexedForumHandle,
@@ -238,6 +249,10 @@ async function loadObjectIndexChunk(
 			        object_forum.description AS indexedForumDescription,
 			        object_forum.description_lang AS indexedForumDescriptionLang
 			 FROM objects_index oi
+			 LEFT JOIN users_index object_user
+			   ON oi.object_type = 'user' AND object_user.user_id = oi.object_id
+			 LEFT JOIN worlds_index object_world
+			   ON oi.object_type = 'world' AND object_world.world_id = oi.object_id
 			 LEFT JOIN forums_index object_forum
 			   ON oi.object_type = 'forum' AND object_forum.forum_id = oi.object_id
 			 LEFT JOIN bots_index object_bot

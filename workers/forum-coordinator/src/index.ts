@@ -1,5 +1,5 @@
 import { runBotNotificationFanout } from "@bickr/shared/bot-notification-fanout";
-import { commitThreadMutation, nextThreadMutationAlarm, pruneThreadMutationReceipts, readCanonicalThread, replayThreadMutation, replayThreadMutationReceipt, restoreResponse, saveResponse, stageThreadMutation, threadMutationIdentity, type ThreadMutationPlan } from "./thread-mutations";
+import { commitThreadMutation, nextThreadMutationAlarm, pruneThreadMutationReceipts, readCanonicalThread, replayThreadMutation, replayThreadMutationReceipt, restoreResponse, saveResponse, stageThreadMutation, threadMutationIdentity, type ThreadMutationPlan, type CompactThreadMutationReply, type ThreadMutationReply } from "./thread-mutations";
 import { projectGovernanceDeletionIntent, readGovernanceDeletionIntent, type GovernanceDeletionIntent } from "@bickr/shared/governance-deletion-intents";
 import { parseInferenceAttribution } from "@bickr/shared/inference-attribution";
 import { fail, ok, readJsonBody } from "@bickr/shared/api";
@@ -125,6 +125,7 @@ type ForumCoordinatorEnv = Pick<Env, "AI" | "BICKR_D1" | "BICKR_KV" | "BICKR_SEA
 	Partial<Pick<Env, "FORUM_COORDINATOR" | "WORLD_COORDINATOR" | "AGENT_RUNTIME_SERVICE" | "INTERNAL_SERVICE_SECRET">> & { contentIdDb?: Env["BICKR_D1"] };
 
 type CoordinatorContext = {
+	receiptReply?: CompactThreadMutationReply;
 	stagingMutation?: boolean;
 	cache?: ThreadFreshCacheRef;
 	objectId: string;
@@ -276,7 +277,10 @@ async function handleForumCoordinatorRequestExclusive(
 		if (repairInput) {
 			const document = repairInput.entityType === "thread" ? await readFreshThreadDocument(coordinator, repairInput.id) : null;
 			const repair = await repairOwnedObjectIndex(env, repairInput, { ...(document ? { document } : {}) });
-			if (repair.kind === "repaired" && repair.document.type === "thread") await writeFreshThread(coordinator, repair.document);
+			if (repair.kind === "repaired" && repair.document.type === "thread") {
+				await writeFreshThread(coordinator, repair.document);
+				coordinator.receiptReply = { kind: "repair", threadId: repair.document.id };
+			}
 			return ok({ repair });
 		}
 		const recovery = /^\/maintenance\/deletions\/(world|forum)\/([^/]+)$/.exec(url.pathname);
@@ -793,6 +797,9 @@ function okThread(
 	payload: { thread: ThreadDocument; comment?: CommentDocument },
 	init?: ResponseInit,
 ): Response {
+	coordinator.receiptReply = { kind: "thread", threadId: payload.thread.id,
+		...(payload.comment ? { commentId: payload.comment.id } : {}), coordinator: coordinator.objectId,
+		status: init?.status ?? 200, allowDeleted: Boolean(payload.thread.deletedAt) };
 	const thread = threadWithCurrentAvatars(payload.thread, overlay);
 	// A response that names a single comment names one that is also in the
 	// thread, and consumers do compare the two. It is taken from the hydrated
@@ -1695,7 +1702,7 @@ function requireBotActor(request: Request): { botId: string } {
 
 function jsonRequest(env: InternalServiceAuthEnv, url: URL, original: Request, body: unknown): Request {
 	const headers = new Headers();
-	for (const name of ["x-bickr-user-id", "x-bickr-bot-id", "x-bickr-thread-id", "x-bickr-inference-attribution"]) {
+	for (const name of ["x-bickr-user-id", "x-bickr-bot-id", "x-bickr-thread-id", "x-bickr-inference-attribution", "x-bickr-idempotency-key"]) {
 		const value = original.headers.get(name);
 		if (value !== null) {
 			headers.set(name, value);
@@ -1799,9 +1806,9 @@ async function executeDurableThreadMutation(request: Request, env: ForumCoordina
 	await pruneThreadMutationReceipts(storage);
 	const identity = await threadMutationIdentity(request);
 	const receipt = await replayThreadMutationReceipt(storage, identity);
-	if (receipt) return receipt;
+	if (receipt) return renderThreadMutationReply(receipt, env, coordinator);
 	const staged = stageThreadMutation(env.BICKR_KV, env.BICKR_D1);
-	const stagedContext = { ...coordinator, stagingMutation: true, cache: { entry: coordinator.cache?.entry ?? null } };
+	const stagedContext: CoordinatorContext = { ...coordinator, receiptReply: undefined, stagingMutation: true, cache: { entry: coordinator.cache?.entry ?? null } };
 	const response = await handleForumCoordinatorRequestExclusive(request, {
 		...env, BICKR_D1: staged.database as D1Database, BICKR_KV: staged.kv as KVNamespace, contentIdDb: env.BICKR_D1,
 	}, stagedContext);
@@ -1810,7 +1817,7 @@ async function executeDurableThreadMutation(request: Request, env: ForumCoordina
 	const creation = /^\/forums\/[^/]+\/threads$/.test(new URL(request.url).pathname);
 	const plan: ThreadMutationPlan = {
 		id: crypto.randomUUID(), createdAt: Date.now(), ...identity,
-		response: await saveResponse(response), thread, sql: staged.sql, kv: staged.writes,
+		response: await saveResponse(response), reply: stagedContext.receiptReply, thread, sql: staged.sql, kv: staged.writes,
 		...(creation && thread && env.FORUM_COORDINATOR ? { handoffThreadId: thread.id } : {}),
 	};
 	await commitThreadMutation(storage, env.BICKR_D1, coordinator.objectId, plan);
@@ -1818,6 +1825,27 @@ async function executeDurableThreadMutation(request: Request, env: ForumCoordina
 	await replayCoordinatorThreadMutation(env, coordinator);
 	await scheduleCoordinatorAlarmForPendingTasks(coordinator);
 	return restoreResponse(plan.response);
+}
+
+async function renderThreadMutationReply(reply: ThreadMutationReply, env: ForumCoordinatorEnv, coordinator: CoordinatorContext): Promise<Response> {
+	if (reply.kind === "response") return restoreResponse(reply.response);
+	let thread = coordinator.storage ? await readCanonicalThread(coordinator.storage) : undefined;
+	if (thread?.id !== reply.threadId) {
+		// A creation receipt lives at the forum writer. The thread writer owns
+		// the current result, so even a long-delayed retry reads that writer.
+		if (!env.FORUM_COORDINATOR) throw new Error("Thread receipt replay requires its coordinator binding.");
+		const headers = new Headers();
+		addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
+		const response = await env.FORUM_COORDINATOR.get(env.FORUM_COORDINATOR.idFromName(reply.threadId)).fetch(new Request(internalServiceUrl(`/threads/${encodeURIComponent(reply.threadId)}`), { headers }));
+		if (response.status === 404) throw new RepositoryError("not_found", "The mutation succeeded, but its result was deleted.", 410);
+		if (!response.ok) throw new Error(`Thread receipt lookup returned HTTP ${response.status}.`);
+		const payload = await response.json() as { data: { thread: ThreadDocument } };
+		thread = payload.data.thread;
+	}
+	if (reply.kind === "repair") return ok({ repair: { kind: "repaired", document: thread } });
+	const comment = reply.commentId ? thread.comments.find((item) => item.id === reply.commentId) : undefined;
+	if ((!reply.allowDeleted && thread.deletedAt) || (reply.commentId && !comment)) throw new RepositoryError("not_found", "The mutation succeeded, but its result was deleted.", 410);
+	return okThread({ ...coordinator, objectId: reply.coordinator }, await mutationAvatarOverlay(env, thread), { thread, ...(comment ? { comment } : {}) }, { status: reply.status });
 }
 
 async function replayCoordinatorThreadMutation(env: ForumCoordinatorEnv, coordinator: CoordinatorContext): Promise<void> {

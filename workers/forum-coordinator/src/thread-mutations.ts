@@ -6,7 +6,12 @@ import { kvKeys, type D1DatabaseLike, type D1PreparedStatementLike, type D1Resul
 type SqlWrite = { sql: string; bindings: unknown[] };
 type KvWrite = { kind: "put"; key: string; value: string; options?: { expirationTtl?: number } } | { kind: "delete"; key: string };
 type SavedResponse = { status: number; headers: [string, string][]; body: string };
+export type CompactThreadMutationReply =
+	| { kind: "thread"; threadId: string; commentId?: string; coordinator: string; status: number; allowDeleted: boolean }
+	| { kind: "repair"; threadId: string };
+export type ThreadMutationReply = CompactThreadMutationReply | { kind: "response"; response: SavedResponse };
 export type ThreadMutationPlan = {
+	reply?: CompactThreadMutationReply;
 	id: string;
 	createdAt: number;
 	requestHash: string;
@@ -19,12 +24,14 @@ export type ThreadMutationPlan = {
 	handoffThreadId?: string;
 };
 
-type MutationReceipt = { requestHash: string; expiresAt: number; response: SavedResponse };
+type MutationReceipt = { requestHash: string; expiresAt: number; reply: ThreadMutationReply };
 const pendingKey = "thread-mutation/pending";
 const canonicalKey = "thread-mutation/canonical";
 const receiptPrefix = "thread-mutation/receipt/";
 const expiryPrefix = "thread-mutation/expiry/";
-// Receipts expire after 30 days. Each mutation/alarm removes at most 25 expired
+// Receipts contain result identities, not historical thread snapshots. A vote
+// or reply therefore costs a fixed amount even on a large thread. Receipts
+// expire after 30 days. Each mutation/alarm removes at most 25 expired
 // receipts. Their indexed expiry also schedules a cleanup alarm when idle.
 const receiptLifetimeMs = 30 * 24 * 60 * 60_000;
 // A document/plan can exceed the SQLite 2 MB value limit. Split JSON into small
@@ -72,14 +79,17 @@ export async function threadMutationIdentity(request: Request) {
 	return { requestHash: await digest(identity), receiptKey: receiptPrefix + await digest(request.headers.get("x-bickr-idempotency-key") ?? crypto.randomUUID()) };
 }
 
-export async function replayThreadMutationReceipt(storage: DurableObjectStorage, identity: { requestHash: string; receiptKey: string }): Promise<Response | undefined> {
+export async function replayThreadMutationReceipt(storage: DurableObjectStorage, identity: { requestHash: string; receiptKey: string }): Promise<ThreadMutationReply | undefined> {
 	const receipt = await readLargeJson<MutationReceipt>(storage, identity.receiptKey);
 	if (!receipt || receipt.expiresAt <= Date.now()) return undefined;
 	if (receipt.requestHash !== identity.requestHash) throw new RepositoryError("conflict", "The mutation key was already used for a different request.", 409);
-	return restoreResponse(receipt.response);
+	return receipt.reply;
 }
 
 export async function commitThreadMutation(storage: DurableObjectStorage, db: D1DatabaseLike, coordinatorId: string, plan: ThreadMutationPlan): Promise<void> {
+	// Non-thread operations must remain small. Thread responses always use the
+	// explicit compact descriptor supplied by their response producer.
+	if (!plan.reply && new TextEncoder().encode(plan.response.body).byteLength > 65_536) throw new Error("Mutation receipt exceeds its size bound.");
 	// Discovery is published first. A recovery request must pass this same
 	// coordinator queue, so it cannot clear the wake while commit is in flight.
 	await db.prepare(`INSERT INTO thread_mutation_wakes (coordinator_id, next_attempt_at) VALUES (?, ?)
@@ -89,7 +99,7 @@ export async function commitThreadMutation(storage: DurableObjectStorage, db: D1
 		await writeLargeJson(transaction, pendingKey, plan);
 		if (plan.thread && !plan.handoffThreadId) await writeLargeJson(transaction, canonicalKey, plan.thread);
 		const expiresAt = plan.createdAt + receiptLifetimeMs;
-		await writeLargeJson(transaction, plan.receiptKey, { requestHash: plan.requestHash, expiresAt, response: plan.response } satisfies MutationReceipt);
+		await writeLargeJson(transaction, plan.receiptKey, { requestHash: plan.requestHash, expiresAt, reply: plan.reply ?? { kind: "response", response: plan.response } } satisfies MutationReceipt);
 		await transaction.put(`${expiryPrefix}${String(expiresAt).padStart(16, "0")}/${plan.id}`, plan.receiptKey);
 		await transaction.setAlarm(Date.now() + 1_000);
 	});
@@ -135,7 +145,9 @@ export async function pruneThreadMutationReceipts(storage: DurableObjectStorage)
 	if (expired.size === 0) return;
 	await storage.transaction(async (transaction) => {
 		for (const [key, receiptKey] of expired) {
-			await deleteLargeJson(transaction, receiptKey);
+			const receipt = await readLargeJson<MutationReceipt>(transaction, receiptKey);
+			const indexedExpiry = Number(key.slice(expiryPrefix.length).split("/")[0]);
+			if (receipt?.expiresAt === indexedExpiry) await deleteLargeJson(transaction, receiptKey);
 			await transaction.delete(key);
 		}
 	});
