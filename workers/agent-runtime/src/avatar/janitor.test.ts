@@ -39,6 +39,8 @@ type Fixture = {
 	objects?: { key: string; agedDays: number }[];
 	marker?: string;
 	failD1?: (sql: string) => boolean;
+	beforeFirst?: (sql: string) => Promise<void>;
+	beforeRun?: (sql: string) => Promise<void>;
 	failKv?: (key: string) => boolean;
 	failList?: boolean;
 	/** Report every page as truncated, with a cursor the janitor cannot use. */
@@ -52,6 +54,7 @@ type JanitorHarness = {
 	listCalls: number;
 	kvReads: number;
 	kvValues: Map<string, string>;
+	lastRunAt: string | undefined;
 };
 
 function bot(id: string, options: { avatarUrl?: string; deletedAt?: string } = {}): IndexRow {
@@ -99,9 +102,9 @@ function harness(fixture: Fixture): JanitorHarness {
 			let values: SQLInputValue[] = [];
 			const statement = {
 				bind(...args: unknown[]) { values = args as SQLInputValue[]; return statement; },
-				async first<T>() { return (db.prepare(sql).get(...values) ?? null) as T | null; },
+				async first<T>() { await fixture.beforeFirst?.(sql); return (db.prepare(sql).get(...values) ?? null) as T | null; },
 				async all<T>() { return { success: true, results: db.prepare(sql).all(...values) as T[] }; },
-				async run() { return { success: true, meta: { changes: Number(db.prepare(sql).run(...values).changes) } }; },
+				async run() { await fixture.beforeRun?.(sql); return { success: true, meta: { changes: Number(db.prepare(sql).run(...values).changes) } }; },
 			};
 			return statement;
 		},
@@ -175,16 +178,12 @@ function harness(fixture: Fixture): JanitorHarness {
 		env,
 		deleted,
 		kvValues,
+		get lastRunAt() { return (db.prepare('SELECT last_run_at AS value FROM avatar_janitor_control WHERE id = 1').get()?.value as string | null) ?? undefined; },
 		get kvReads() { return state.kvReads; },
 		get listCalls() {
 			return state.listCalls;
 		},
 	} as JanitorHarness;
-}
-
-function markerOf(kvValues: Map<string, string>): string | undefined {
-	const stored = kvValues.get(kvKeys.avatarJanitorLastRun);
-	return stored ? (JSON.parse(stored) as { lastRunAt: string }).lastRunAt : undefined;
 }
 
 describe('R2 avatar janitor', () => {
@@ -224,7 +223,7 @@ describe('R2 avatar janitor', () => {
 			retainedInGrace: 2,
 		});
 		expect(test.deleted).toEqual(['worlds/w1/bots/bot_a/avatars/replaced.png']);
-		expect(markerOf(test.kvValues)).toBe(now);
+		expect(test.lastRunAt).toBe(now);
 	});
 
 	it('keeps the avatar a live linked clone inherits from a tombstoned source', async () => {
@@ -336,7 +335,12 @@ describe('R2 avatar janitor', () => {
 
 		const due = harness({ objects, marker: new Date(nowMs - avatarJanitorIntervalMs - 60_000).toISOString() });
 		expect(await runAvatarJanitor(due.env, { now })).toMatchObject({ status: 'swept', deleted: 1 });
-		expect(markerOf(due.kvValues)).toBe(now);
+		expect(due.lastRunAt).toBe(now);
+		const reads = due.kvReads;
+		due.kvValues.set(kvKeys.avatarJanitorLastRun, JSON.stringify({ lastRunAt: '2099-01-01T00:00:00.000Z' }));
+		expect(await runStep(due.env, { now })).toMatchObject({ status: 'skipped_not_due', lastRunAt: now });
+		expect(due.kvReads).toBe(reads);
+
 	});
 
 	it('aborts the deletion phase when any read fails, and retries on the next run', async () => {
@@ -351,7 +355,7 @@ describe('R2 avatar janitor', () => {
 		});
 		expect(d1Failure.deleted).toEqual([]);
 		// No marker: a transient failure must not cost the fleet a whole week.
-		expect(markerOf(d1Failure.kvValues)).toBeUndefined();
+		expect(d1Failure.lastRunAt).toBeUndefined();
 
 		const kvFailure = harness({ bots, documents, objects, failKv: (key) => key === kvKeys.bot('bot_a') });
 		expect(await runAvatarJanitor(kvFailure.env, { now })).toMatchObject({
@@ -366,14 +370,14 @@ describe('R2 avatar janitor', () => {
 			failure: { kind: 'read_error', phase: 'sweep' },
 		});
 		expect(listFailure.deleted).toEqual([]);
-		expect(markerOf(listFailure.kvValues)).toBeUndefined();
+		expect(listFailure.lastRunAt).toBeUndefined();
 
 		const deleteFailure = harness({ bots, documents, objects, failDelete: true });
 		expect(await runAvatarJanitor(deleteFailure.env, { now })).toMatchObject({
 			status: 'aborted',
 			failure: { kind: 'read_error', phase: 'sweep' },
 		});
-		expect(markerOf(deleteFailure.kvValues)).toBeUndefined();
+		expect(deleteFailure.lastRunAt).toBeUndefined();
 	});
 
 	it('resolves a clone chain that simply ends, and keeps sweeping', async () => {
@@ -390,7 +394,7 @@ describe('R2 avatar janitor', () => {
 		});
 
 		expect(await runAvatarJanitor(test.env, { now })).toMatchObject({ status: 'swept', deleted: 1 });
-		expect(markerOf(test.kvValues)).toBe(now);
+		expect(test.lastRunAt).toBe(now);
 	});
 
 	it('aborts without deleting when a live indexed entity has no document', async () => {
@@ -412,7 +416,7 @@ describe('R2 avatar janitor', () => {
 			expect(test.deleted).toEqual([]);
 			// No marker: the refusal is re-derived and re-logged daily until an owner
 			// reconciles the index with the documents.
-			expect(markerOf(test.kvValues)).toBeUndefined();
+			expect(test.lastRunAt).toBeUndefined();
 		}
 	});
 
@@ -435,7 +439,7 @@ describe('R2 avatar janitor', () => {
 			},
 		});
 		expect(missingSource.deleted).toEqual([]);
-		expect(markerOf(missingSource.kvValues)).toBeUndefined();
+		expect(missingSource.lastRunAt).toBeUndefined();
 
 		const cycle = harness({
 			bots: [bot('bot_clone')],
@@ -456,7 +460,7 @@ describe('R2 avatar janitor', () => {
 			failure: { kind: 'unresolved_clone_chain', reason: 'cycle', botId: 'bot_clone' },
 		});
 		expect(cycle.deleted).toEqual([]);
-		expect(markerOf(cycle.kvValues)).toBeUndefined();
+		expect(cycle.lastRunAt).toBeUndefined();
 
 		// A chain longer than the repository's own effective-document limit: the
 		// janitor cannot see where it ends, so it does not guess that it ends here.
@@ -478,7 +482,7 @@ describe('R2 avatar janitor', () => {
 			failure: { kind: 'unresolved_clone_chain', reason: 'depth_exhausted', botId: 'bot_clone' },
 		});
 		expect(deepChain.deleted).toEqual([]);
-		expect(markerOf(deepChain.kvValues)).toBeUndefined();
+		expect(deepChain.lastRunAt).toBeUndefined();
 	});
 
 	it('aborts a truncated listing it cannot continue', async () => {
@@ -491,7 +495,7 @@ describe('R2 avatar janitor', () => {
 		});
 		expect(missing.listCalls).toBe(1);
 		expect(missing.deleted).toEqual([]);
-		expect(markerOf(missing.kvValues)).toBeUndefined();
+		expect(missing.lastRunAt).toBeUndefined();
 
 		// A cursor that does not advance would otherwise spin until the invocation
 		// is killed, or sweep against a bucket listed twice and truncated anyway.
@@ -502,7 +506,7 @@ describe('R2 avatar janitor', () => {
 		});
 		expect(repeated.listCalls).toBe(2);
 		expect(repeated.deleted).toEqual([]);
-		expect(markerOf(repeated.kvValues)).toBeUndefined();
+		expect(repeated.lastRunAt).toBeUndefined();
 	});
 
 	it('resumes a fleet larger than the old ceiling without restarting the listing', async () => {
@@ -526,7 +530,7 @@ describe('R2 avatar janitor', () => {
 		}
 		expect(finished).toBe(true);
 		expect(test.listCalls).toBe(1);
-		expect(markerOf(test.kvValues)).toBe(now);
+		expect(test.lastRunAt).toBe(now);
 	});
 
 	it('reclaims many old objects in bounded batches', async () => {
@@ -587,6 +591,55 @@ describe('R2 avatar janitor', () => {
 		const test = harness({});
 		expect(await runStep(test.env, { now, resumeOnly: true })).toMatchObject({ status: 'skipped_inactive' });
 		expect(test.listCalls).toBe(0);
+	});
+
+	it.each([true, false])('rechecks idle scheduling after a competing cleanup (resumeOnly=%s)', async (resumeOnly) => {
+		const fixture: Fixture = {};
+		const test = harness(fixture);
+		expect(await runStep(test.env, { now })).toMatchObject({ status: 'in_progress', phase: 'sweep' });
+		let entered!: () => void;
+		let release!: () => void;
+		const started = new Promise<void>((resolve) => { entered = resolve; });
+		const paused = new Promise<void>((resolve) => { release = resolve; });
+		fixture.beforeFirst = async (sql) => {
+			if (sql.startsWith('UPDATE avatar_janitor_control SET lease_token = ?')) {
+				fixture.beforeFirst = undefined;
+				entered();
+				await paused;
+			}
+		};
+		const resumer = runStep(test.env, { now, resumeOnly });
+		await started;
+		expect(await runStep(test.env, { now })).toMatchObject({ status: 'swept' });
+		release();
+		expect(await resumer).toMatchObject({ status: resumeOnly ? 'skipped_inactive' : 'skipped_not_due' });
+		expect(test.listCalls).toBe(1);
+		expect(test.lastRunAt).toBe(now);
+		expect(test.kvValues.has(kvKeys.avatarJanitorLastRun)).toBe(false);
+	});
+
+	it('fences the completion timestamp when a cleanup lease expires', async () => {
+		const fixture: Fixture = {};
+		const test = harness(fixture);
+		expect(await runStep(test.env, { now })).toMatchObject({ status: 'in_progress', phase: 'sweep' });
+		let entered!: () => void;
+		let release!: () => void;
+		const started = new Promise<void>((resolve) => { entered = resolve; });
+		const paused = new Promise<void>((resolve) => { release = resolve; });
+		fixture.beforeRun = async (sql) => {
+			if (sql.startsWith("UPDATE avatar_janitor_control SET phase = 'idle'")) {
+				fixture.beforeRun = undefined;
+				entered();
+				await paused;
+			}
+		};
+		const original = runStep(test.env, { now });
+		await started;
+		const later = new Date(nowMs + 16 * 60_000).toISOString();
+		expect(await runStep(test.env, { now: later })).toMatchObject({ status: 'swept' });
+		release();
+		expect(await original).toMatchObject({ status: 'aborted', failure: { errorName: 'JanitorLeaseLost' } });
+		expect(test.lastRunAt).toBe(later);
 	});
 
 	it('serializes concurrent calls and fences an expired lease', async () => {

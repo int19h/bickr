@@ -1,5 +1,5 @@
 import { type BotDocument, type UserDocument, type WorldDocument } from '@bickr/shared/model';
-import { kvKeys, readJson, writeJson, type D1DatabaseLike, type D1PreparedStatementLike, type KVNamespaceLike } from '@bickr/shared/storage';
+import { kvKeys, readJson, type D1DatabaseLike, type D1PreparedStatementLike, type KVNamespaceLike } from '@bickr/shared/storage';
 
 export const avatarJanitorIntervalMs = 7 * 24 * 60 * 60 * 1_000;
 export const avatarJanitorGraceMs = 7 * 24 * 60 * 60 * 1_000;
@@ -29,7 +29,7 @@ type Counts = { entities: number; cloneSourceReads: number; objects: number; del
 type Phase = 'list' | 'mark' | 'sweep' | 'cleanup';
 type Checkpoint = Counts & { version: 1; startedAt: string; cursor: string; entity: EntityKind; failure?: AvatarJanitorFailure };
 type State = { epoch: string; phase: Phase; checkpoint: Checkpoint; token: string };
-type Control = { epoch: string | null; phase: Phase | 'idle'; checkpoint: string | null; token: string | null; leaseUntil: string | null };
+type Control = { epoch: string | null; phase: Phase | 'idle'; checkpoint: string | null; token: string | null; leaseUntil: string | null; lastRunAt: string | null };
 export type AvatarJanitorResult =
 	| { kind: 'avatar_janitor'; status: 'skipped_not_due'; lastRunAt: string; dueAt: string }
 	| { kind: 'avatar_janitor'; status: 'skipped_unconfigured'; missing: 'bucket' | 'public_base_url' }
@@ -72,21 +72,22 @@ export async function runAvatarJanitor(env: AvatarJanitorEnv, options: { now?: s
 	let state: State | undefined;
 	let leaseToken: string | undefined;
 	try {
-		const control = await db.prepare(`SELECT epoch, phase, checkpoint_json AS checkpoint, lease_token AS token, lease_until AS leaseUntil FROM avatar_janitor_control WHERE id = 1`).first<Control>();
+		const control = await db.prepare(`SELECT epoch, phase, checkpoint_json AS checkpoint, lease_token AS token, lease_until AS leaseUntil, last_run_at AS lastRunAt FROM avatar_janitor_control WHERE id = 1`).first<Control>();
 		if (!control) throw new Error('Avatar cleanup control row is missing.');
-		if (control.phase === 'idle') {
-			if (options.resumeOnly) return { kind: 'avatar_janitor', status: 'skipped_inactive' };
-			const marker = await readJanitorMarker(env.BICKR_KV);
-			const last = marker ? Date.parse(marker.lastRunAt) : Number.NaN;
-			if (!options.force && Number.isFinite(last) && last + avatarJanitorIntervalMs > nowMs) {
-				return { kind: 'avatar_janitor', status: 'skipped_not_due', lastRunAt: new Date(last).toISOString(), dueAt: new Date(last + avatarJanitorIntervalMs).toISOString() };
-			}
-		}
+		if (control.phase === 'idle' && options.resumeOnly) return { kind: 'avatar_janitor', status: 'skipped_inactive' };
 		const token = crypto.randomUUID();
-		const claimed = await db.prepare(`UPDATE avatar_janitor_control SET lease_token = ?, lease_until = ? WHERE id = 1 AND (lease_token IS NULL OR lease_until <= ?) RETURNING epoch, phase, checkpoint_json AS checkpoint`).bind(token, new Date(nowMs + leaseMs).toISOString(), now).first<Control>();
+		const claimed = await db.prepare(`UPDATE avatar_janitor_control SET lease_token = ?, lease_until = ? WHERE id = 1 AND (lease_token IS NULL OR lease_until <= ?) RETURNING epoch, phase, checkpoint_json AS checkpoint, last_run_at AS lastRunAt`).bind(token, new Date(nowMs + leaseMs).toISOString(), now).first<Control>();
 		if (!claimed) return { kind: 'avatar_janitor', status: 'skipped_busy' };
 		leaseToken = token;
 		if (claimed.phase === 'idle') {
+			// Another invocation may finish between the first read and this claim.
+			// Both start conditions must use the state protected by our lease.
+			if (options.resumeOnly) return { kind: 'avatar_janitor', status: 'skipped_inactive' };
+			const legacyMarker = claimed.lastRunAt === null ? await readJanitorMarker(env.BICKR_KV) : null;
+			const last = Date.parse(claimed.lastRunAt ?? legacyMarker?.lastRunAt ?? '');
+			if (!options.force && Number.isFinite(last) && last + avatarJanitorIntervalMs > nowMs) {
+				return { kind: 'avatar_janitor', status: 'skipped_not_due', lastRunAt: new Date(last).toISOString(), dueAt: new Date(last + avatarJanitorIntervalMs).toISOString() };
+			}
 			state = { epoch: crypto.randomUUID(), token, phase: 'list', checkpoint: { version: 1, startedAt: now, cursor: '', entity: 'bot', entities: 0, cloneSourceReads: 0, objects: 0, deleted: 0, retainedInGrace: 0, deletedSample: [] } };
 			await save(db, state);
 		} else {
@@ -106,8 +107,7 @@ export async function runAvatarJanitor(env: AvatarJanitorEnv, options: { now?: s
 					const result: AvatarJanitorResult = state.checkpoint.failure
 						? { kind: 'avatar_janitor', status: 'aborted', failure: state.checkpoint.failure }
 						: { kind: 'avatar_janitor', status: 'swept', ...counts(state.checkpoint) };
-					if (!state.checkpoint.failure) await writeJanitorMarker(env.BICKR_KV, now);
-					const completed = await db.prepare(`UPDATE avatar_janitor_control SET phase = 'idle', epoch = NULL, checkpoint_json = NULL WHERE id = 1 AND lease_token = ?`).bind(token).run();
+					const completed = await db.prepare(`UPDATE avatar_janitor_control SET phase = 'idle', epoch = NULL, checkpoint_json = NULL, last_run_at = CASE WHEN ? THEN ? ELSE last_run_at END WHERE id = 1 AND lease_token = ?`).bind(state.checkpoint.failure ? 0 : 1, now, token).run();
 					if (completed.meta?.changes !== 1) throw new JanitorLeaseLost();
 					return result;
 				}
@@ -313,10 +313,6 @@ async function readJanitorMarker(kv: KVNamespaceLike): Promise<AvatarJanitorMark
 	}
 	const lastRunAt = (value as Record<string, unknown>).lastRunAt;
 	return typeof lastRunAt === 'string' && lastRunAt.length > 0 ? { lastRunAt } : null;
-}
-
-async function writeJanitorMarker(kv: KVNamespaceLike, now: string): Promise<void> {
-	await writeJson(kv, kvKeys.avatarJanitorLastRun, { lastRunAt: now } satisfies AvatarJanitorMarker);
 }
 
 function errorName(error: unknown): string {

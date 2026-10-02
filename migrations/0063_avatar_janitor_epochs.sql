@@ -7,7 +7,8 @@ CREATE TABLE avatar_janitor_control (
  phase TEXT NOT NULL CHECK (phase IN ('idle', 'list', 'mark', 'sweep', 'cleanup')),
  checkpoint_json TEXT,
  lease_token TEXT,
- lease_until TEXT
+ lease_until TEXT,
+ last_run_at TEXT
 );
 INSERT INTO avatar_janitor_control(id, phase) VALUES (1, 'idle');
 CREATE TABLE avatar_janitor_marks (
