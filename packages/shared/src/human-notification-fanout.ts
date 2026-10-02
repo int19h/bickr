@@ -35,11 +35,12 @@ export async function enqueueHumanNotificationFanout(
 }
 
 /**
- * Each page reads one indexed scope and commits notification rows and its cursor
- * in one transaction. A competing or replayed page cannot recreate a consumed
- * notification: every insert checks the old cursor inside that same transaction.
- * Unsubscription before delivery takes effect; membership/subscription activations
- * after the event's D1 publication are excluded by sequence, not wall-clock time. One recipient may occur in several scopes; event keys dedup.
+ * Each page reads at most 50 audience candidates. It commits notification rows
+ * and its cursor in one transaction. Every insert checks the old cursor, so a
+ * competing or replayed page cannot recreate a consumed notification.
+ * Delivery checks current membership and its activation sequence. This excludes
+ * users who unsubscribed or joined after the event. Event keys remove duplicates
+ * when a recipient appears in several scopes.
  */
 export async function runHumanNotificationFanout(
 	db: D1DatabaseLike,
@@ -89,20 +90,30 @@ export async function runHumanNotificationFanout(
 async function audiencePage(db: D1DatabaseLike, event: Event, job: Job): Promise<string[]> {
 	const audience = event.audience;
 	if (audience.kind === "world_owners") {
-		const rows = await db.prepare(`SELECT DISTINCT owner_user_id AS userId FROM bots_index
-			WHERE home_world_id = ? AND lifecycle_state = 'active' AND deleted_at IS NULL
-				AND owner_user_id > ? AND owner_user_id != ? AND membership_after_sequence < ?
-			ORDER BY owner_user_id LIMIT ?`)
-			.bind(audience.worldId, job.userCursor, audience.excludeUserId, job.eventSequence, humanNotificationFanoutPageSize)
+		// DISTINCT can scan every participant of one owner before reaching LIMIT.
+		// Each step seeks past that owner's full index range, with at most 50 seeks.
+		const rows = await db.prepare(`WITH RECURSIVE audience(user_id, count) AS (
+			SELECT (SELECT owner_user_id FROM bots_index
+				WHERE home_world_id = ? AND lifecycle_state = 'active' AND deleted_at IS NULL AND owner_user_id > ?
+				ORDER BY owner_user_id LIMIT 1), 1
+			UNION ALL
+			SELECT (SELECT owner_user_id FROM bots_index
+				WHERE home_world_id = ? AND lifecycle_state = 'active' AND deleted_at IS NULL AND owner_user_id > audience.user_id
+				ORDER BY owner_user_id LIMIT 1), count + 1
+			FROM audience WHERE user_id IS NOT NULL AND count < ?
+		) SELECT user_id AS userId FROM audience WHERE user_id IS NOT NULL`)
+			.bind(audience.worldId, job.userCursor, audience.worldId, humanNotificationFanoutPageSize)
 			.all<{ userId: string }>();
 		return (rows.results ?? []).map(row => row.userId);
 	}
 	const scope = audience.scopes[job.scopeIndex];
 	if (!scope) return [];
+	// Apply activation eligibility in the write, after this bounded candidate page.
+	// Filtering here can scan an unlimited number of newer subscriptions.
 	const rows = await db.prepare(`SELECT user_id AS userId FROM human_subscriptions
-		WHERE scope_type = ? AND scope_id = ? AND active = 1 AND user_id > ? AND activation_after_sequence < ?
+		WHERE scope_type = ? AND scope_id = ? AND active = 1 AND user_id > ?
 		ORDER BY user_id LIMIT ?`)
-		.bind(scope.scopeType, scope.scopeId, job.userCursor, job.eventSequence, humanNotificationFanoutPageSize)
+		.bind(scope.scopeType, scope.scopeId, job.userCursor, humanNotificationFanoutPageSize)
 		.all<{ userId: string }>();
 	return (rows.results ?? []).map(row => row.userId);
 }
@@ -137,7 +148,7 @@ function notificationPageStatement(db: D1DatabaseLike, event: Event, job: Job, d
 		: `EXISTS (SELECT 1 FROM bots_index WHERE owner_user_id = recipients.value AND home_world_id = ? AND owner_user_id != ? AND lifecycle_state = 'active' AND deleted_at IS NULL AND membership_after_sequence < data.sequence)`;
 	const audienceBindings = audience.kind === "subscriptions" ? [scope!.scopeType, scope!.scopeId] : [audience.worldId, audience.excludeUserId];
 	// Reuse the newest unread world-settings row, as the synchronous writer did.
-	// The timestamp condition prevents a delayed older job overwriting newer text.
+	// The revision condition prevents a delayed older job overwriting newer text.
 	const existing = `SELECT old.notification_id FROM human_notifications AS old
 		WHERE old.user_id = recipients.value AND old.world_id = data.world_id
 		AND old.notification_type = 'world_settings_changed' AND old.read_at IS NULL AND old.archived_at IS NULL

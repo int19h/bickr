@@ -23,8 +23,6 @@ CREATE INDEX human_notification_fanout_expiry
 -- They have no independent retention beyond the indexed source rows.
 CREATE INDEX human_subscriptions_fanout
     ON human_subscriptions (scope_type, scope_id, active, user_id);
-CREATE INDEX bots_index_human_fanout
-    ON bots_index (home_world_id, lifecycle_state, deleted_at, owner_user_id);
 CREATE INDEX human_notifications_world_unread
     ON human_notifications (user_id, world_id, notification_type, read_at, archived_at, created_at DESC, notification_id DESC);
 
@@ -49,6 +47,10 @@ END;
 -- World-settings audiences use the same publication boundary for membership.
 -- A new/activated participant cannot subscribe its owner to an older event.
 ALTER TABLE bots_index ADD COLUMN membership_after_sequence INTEGER NOT NULL DEFAULT 0;
+-- Owner pages seek past all participants of each owner. Delivery then checks
+-- that exact owner's eligible membership range without scanning newer members.
+CREATE INDEX bots_index_human_fanout
+    ON bots_index (home_world_id, lifecycle_state, deleted_at, owner_user_id, membership_after_sequence);
 CREATE TRIGGER bots_index_human_membership_insert AFTER INSERT ON bots_index
 BEGIN
     UPDATE bots_index SET membership_after_sequence = COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'human_notification_fanout'), 0)

@@ -39,6 +39,20 @@ async function recipients(count: number) {
 	return ids;
 }
 
+async function members(owners: string[]) {
+	for (let start = 0; start < owners.length; start += 50) {
+		await db.batch(owners.slice(start, start + 50).flatMap((owner, offset) => {
+			const id = `bot_member_${start + offset}`;
+			return [
+				db.prepare(`INSERT INTO entity_lifecycle_identity_claims (key_kind,key_scope,key_value,entity_kind,entity_id,owner_user_id,claim_state,created_at,updated_at)
+					VALUES ('bot_handle',?,?,'bot',?,?,'active',?,?)`).bind(worldId,id,id,owner,createdAt,createdAt),
+				db.prepare(`INSERT INTO bots_index (bot_id,home_world_id,home_world_handle,handle,display_name,owner_user_id,short_bio,created_at,updated_at)
+					VALUES (?,?,'fanout',?,'Member',?,'',?,?)`).bind(id,worldId,id,owner,createdAt,createdAt),
+			];
+		}));
+	}
+}
+
 async function count() { return (await db.prepare("SELECT COUNT(*) AS n FROM human_notifications").first<{ n: number }>())!.n; }
 
 describe("human notification fanout", () => {
@@ -152,6 +166,62 @@ describe("human notification fanout", () => {
 		expect((await db.prepare("SELECT user_id FROM human_notifications").all()).results).toEqual([{ user_id: "usr_0001" }]);
 	});
 
+	it("advances through bounded pages when every subscription is newer than the event", async () => {
+		await enqueueHumanNotificationFanout(db, input);
+		await recipients(123);
+		expect(await runHumanNotificationFanout(db, now, { maxPages: 1 })).toMatchObject({ recipients: 0, pending: true });
+		expect(await db.prepare("SELECT user_cursor FROM human_notification_fanout").first()).toEqual({ user_cursor: "usr_0049" });
+		expect(await runHumanNotificationFanout(db, now, { maxPages: 1 })).toMatchObject({ recipients: 0, pending: true });
+		expect(await runHumanNotificationFanout(db, now, { maxPages: 1 })).toMatchObject({ recipients: 0, pending: false });
+		expect(await count()).toBe(0);
+	});
+
+	it("seeks past large owner groups and checks late memberships through an indexed range", async () => {
+		const [owner] = await recipients(1);
+		await enqueueHumanNotificationFanout(db, { ...input, audience: { kind: "world_owners", worldId, excludeUserId: "usr_editor" } });
+		await members(Array.from({ length: 300 }, () => owner!));
+		const pageReads: number[] = [];
+		const nativeStatements = new WeakMap<D1PreparedStatementLike, D1PreparedStatementLike>();
+		function track(statement: D1PreparedStatementLike, sql: string): D1PreparedStatementLike {
+			const tracked: D1PreparedStatementLike = {
+				bind: (...args) => track(statement.bind(...args), sql),
+				first: <T>() => statement.first<T>(),
+				run: () => statement.run(),
+				all: async <T>() => {
+					const result = await statement.all<T>();
+					if (sql.startsWith("WITH RECURSIVE audience")) pageReads.push(Number(result.meta?.rows_read));
+					return result;
+				},
+			};
+			nativeStatements.set(tracked, statement);
+			return tracked;
+		}
+		const measured: D1DatabaseLike = {
+			prepare: sql => track(db.prepare(sql), sql),
+			batch: statements => db.batch(statements.map(statement => nativeStatements.get(statement) ?? statement)),
+		};
+		expect(await runHumanNotificationFanout(measured, now, { maxPages: 1 })).toMatchObject({ recipients: 0, pending: false });
+		expect(pageReads).toHaveLength(1);
+		expect(pageReads[0]).toBeLessThan(10);
+		const eligible = await db.prepare(`EXPLAIN QUERY PLAN SELECT 1 FROM bots_index WHERE home_world_id = ?
+			AND lifecycle_state = 'active' AND deleted_at IS NULL AND owner_user_id = ? AND membership_after_sequence < ? LIMIT 1`)
+			.bind(worldId, owner, 1).all<{ detail: string }>();
+		const plan = eligible.results?.map(row => row.detail).join(" ");
+		expect(plan).toContain("bots_index_human_fanout");
+		expect(plan).toContain("membership_after_sequence<?");
+	});
+
+	it("resumes distinct owners in pages of 50 without duplicate notifications", async () => {
+		const owners = await recipients(123);
+		await members(owners.flatMap(owner => [owner, owner]));
+		await enqueueHumanNotificationFanout(db, { ...input, audience: { kind: "world_owners", worldId, excludeUserId: owners[0]! } });
+		expect(await runHumanNotificationFanout(db, now, { maxPages: 1 })).toMatchObject({ recipients: 49, pending: true });
+		expect(await db.prepare("SELECT user_cursor FROM human_notification_fanout").first()).toEqual({ user_cursor: "usr_0049" });
+		expect(await runHumanNotificationFanout(db, now, { maxPages: 1 })).toMatchObject({ recipients: 50, pending: true });
+		expect(await runHumanNotificationFanout(db, now, { maxPages: 1 })).toMatchObject({ recipients: 23, pending: false });
+		expect(await count()).toBe(122);
+	});
+
 	it("excludes world membership created after publication in the same millisecond", async () => {
 		const owners = await recipients(2);
 		async function addMember(index: number) {
@@ -196,9 +266,9 @@ describe("human notification fanout", () => {
 
 	it("uses keyset indexes for both audience shapes", async () => {
 		const subscriptions = await db.prepare(`EXPLAIN QUERY PLAN SELECT user_id FROM human_subscriptions WHERE scope_type = 'world'
-			AND scope_id = ? AND active = 1 AND user_id > '' AND activation_after_sequence < ? ORDER BY user_id LIMIT 50`).bind(worldId, 1).all<{ detail: string }>();
-		const owners = await db.prepare(`EXPLAIN QUERY PLAN SELECT DISTINCT owner_user_id FROM bots_index WHERE home_world_id = ?
-			AND lifecycle_state = 'active' AND deleted_at IS NULL AND owner_user_id > '' AND membership_after_sequence < ? ORDER BY owner_user_id LIMIT 50`).bind(worldId, 1).all<{ detail: string }>();
+			AND scope_id = ? AND active = 1 AND user_id > '' ORDER BY user_id LIMIT 50`).bind(worldId).all<{ detail: string }>();
+		const owners = await db.prepare(`EXPLAIN QUERY PLAN SELECT owner_user_id FROM bots_index WHERE home_world_id = ?
+			AND lifecycle_state = 'active' AND deleted_at IS NULL AND owner_user_id > '' ORDER BY owner_user_id LIMIT 1`).bind(worldId).all<{ detail: string }>();
 		expect(subscriptions.results?.map(row => row.detail).join(" ")).toContain("human_subscriptions_fanout");
 		expect(owners.results?.map(row => row.detail).join(" ")).toContain("bots_index_human_fanout");
 		expect([...subscriptions.results!, ...owners.results!].some(row => row.detail.includes("TEMP B-TREE"))).toBe(false);
