@@ -109,8 +109,9 @@ Each page commits D1 imports before deleting KV keys. Repeated imports never rep
 6. Make sure that all eight prefixes are empty.
 7. Make sure that migrated browser and CLI credentials work.
 8. Make sure that old MCP families fail.
-9. Make sure that fresh OAuth and CLI authorization work.
-10. Reopen auth traffic.
+9. Reopen controlled authentication traffic in the selected test environment.
+10. Make sure that fresh OAuth and CLI authorization work.
+11. If either flow fails, restore site maintenance before diagnosis.
 
 Completion sets storage version 3 only when all eight prefixes have finished. Do not force this version manually. The sweep retains no plaintext bearer tokens. It imports existing hashed keys and documents.
 
