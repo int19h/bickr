@@ -80,6 +80,7 @@ function deferredHarness(): DeferredHarness {
 			FORUM_COORDINATOR_SERVICE: {
 				fetch: async (request: Request) =>
 					handleForumCoordinatorRequest(request, {
+						INTERNAL_SERVICE_SECRET: "test-internal-service-secret",
 						BICKR_D1: testEnv.BICKR_D1,
 						BICKR_KV: testEnv.BICKR_KV,
 					}),

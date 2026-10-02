@@ -1,4 +1,5 @@
 import { onRequest as pagesMiddleware } from '../apps/web/functions/_middleware';
+import { internalServiceTestEnv, internalServiceTestHeaders } from "./helpers/internal-service-auth";
 import { onRequestGet as maintenanceStatus } from '../apps/web/functions/api/maintenance';
 import {
 	deferAlarmDuringMaintenance,
@@ -186,6 +187,7 @@ describe('maintenance control', () => {
 			},
 		};
 		const workerEnv = {
+			...internalServiceTestEnv,
 			BICKR_D1: testEnv.BICKR_D1,
 			BICKR_KV: testEnv.BICKR_KV,
 			USER_BOTS: userBots,
@@ -194,6 +196,7 @@ describe('maintenance control', () => {
 			new Request(internalServiceUrl(path), {
 				method: 'POST',
 				headers: {
+					...internalServiceTestHeaders,
 					'content-type': 'application/json',
 					'x-bickr-scheduler': '1',
 					'x-bickr-user-id': maintenanceOwnerId,
@@ -252,7 +255,7 @@ describe('maintenance control', () => {
 		]);
 
 		const statusRequest = new Request(internalServiceUrl('/inference-graph/provider-default-barrier-sweep/status?limit=1'), {
-			headers: { 'x-bickr-scheduler': '1' },
+			headers: { ...internalServiceTestHeaders, 'x-bickr-scheduler': '1' },
 		}) as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0];
 		const sweepStatus = await agentRuntimeWorker.fetch(statusRequest, workerEnv);
 		expect(sweepStatus.status).toBe(200);
@@ -297,13 +300,14 @@ describe('maintenance control', () => {
 		// live write can reach those rows.
 		await setMaintenance(false);
 		const workerEnv = {
+			...internalServiceTestEnv,
 			BICKR_D1: testEnv.BICKR_D1,
 			BICKR_KV: testEnv.BICKR_KV,
 		} as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1];
 		const cleanupRequest = (headers: Record<string, string>) =>
 			new Request(internalServiceUrl('/inference-graph/cleanup'), {
 				method: 'POST',
-				headers: { 'content-type': 'application/json', ...headers },
+				headers: { ...internalServiceTestHeaders, 'content-type': 'application/json', ...headers },
 				body: JSON.stringify({ limit: 1 }),
 			}) as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0];
 
