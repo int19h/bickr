@@ -6428,12 +6428,11 @@ fieldset {
 }
 
 .comment-connector.ellipsis.zero-indent {
-	/* The rail occupies the first 2px, so keep all three dots clear of it. */
-	--connector-dot-radius: 0.5px;
-	--connector-dot-spacing: 2px;
-	--connector-dot-center: 5px;
-	--connector-line-end: 1px;
-	--connector-line-resume: 8px;
+	/* Use the free gutter below the checkbox so three dots also stay distinct at 1x resolution. */
+	--connector-dot-center: 9px;
+	--connector-line-end: 3px;
+	--connector-line-resume: 15px;
+	width: var(--comment-check);
 }
 
 .comment-parent-link {
