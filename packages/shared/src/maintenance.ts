@@ -88,6 +88,13 @@ export function isExplicitMaintenanceRequest(request: Request): boolean {
 		/^\/inference-graph\/(?:cleanup|activate-lifecycle|provider-default-barrier-sweep)$/.test(pathname);
 }
 
+/** These bounded derived-index operations are safe while public writes are paused. */
+export function isForumSearchMaintenanceRequest(request: Request): boolean {
+	const path = new URL(request.url).pathname;
+	return (request.method === 'POST' && path === '/maintenance/search-index/rebuild') ||
+		(request.method === 'GET' && path === '/maintenance/search-index/status');
+}
+
 export function isRuntimeStopRequest(request: Request): boolean {
 	if (request.method !== 'POST') {
 		return false;

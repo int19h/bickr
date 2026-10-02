@@ -1,3 +1,5 @@
+import { rebuildForumSearchIndexes, forumSearchPending } from "@bickr/shared/indexed-substring-search";
+import { isForumSearchMaintenanceRequest } from "@bickr/shared/maintenance";
 import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
 import { finishForumCreation, readForumCreationIntent } from "@bickr/shared/forum-creation";
 import { runBotNotificationFanout } from "@bickr/shared/bot-notification-fanout";
@@ -939,8 +941,8 @@ export async function runScheduledForumCoordinatorTasks(env: Env, scheduledTime:
 	if (taskSet === null) {
 		// A trigger this deployment does not recognize means the configuration and
 		// the code have diverged. Running the daily set keeps the visible work
-		// (hot scores, index repair) going; a prune invocation skipped for six
-		// hours costs nothing that the next one cannot catch up on. The cron test
+		// (hot scores, index repair) going; a prune invocation skipped for five
+		// minutes costs nothing that the next one cannot catch up on. The cron test
 		// exists so this stays a theoretical path.
 		console.error(JSON.stringify({ event: "scheduled_unrecognized_cron", cron: cron ?? null, scheduledTime }));
 	}
@@ -951,7 +953,7 @@ export async function runScheduledForumCoordinatorTasks(env: Env, scheduledTime:
 			return await runForumCoordinatorNotificationPrune(env, now);
 		case "recovery":
 			if (!(await readMaintenanceState(env.BICKR_D1)).enabled) {
-				const results = await Promise.allSettled([recoverGovernanceDeletions(env, now), recoverForumCreations(env, now), recoverThreadMutations(env, now), runHumanNotificationFanout(env.BICKR_D1, now), runBotNotificationFanout(env.BICKR_KV, env.BICKR_D1, now), refreshThreadHotScores(env.BICKR_D1, now)]);
+				const results = await Promise.allSettled([recoverGovernanceDeletions(env, now), recoverForumCreations(env, now), recoverThreadMutations(env, now), runHumanNotificationFanout(env.BICKR_D1, now), rebuildForumSearchIndexes(env.BICKR_D1), runBotNotificationFanout(env.BICKR_KV, env.BICKR_D1, now), refreshThreadHotScores(env.BICKR_D1, now)]);
 				console.log(JSON.stringify({ event: "coordinator_recovery", scheduledTime: now, results }));
 				for (const result of results) if (result.status === "rejected") throw result.reason;
 			}
@@ -1052,7 +1054,7 @@ async function runDailyForumCoordinatorMaintenance(env: Env, now: string): Promi
 
 /**
  * The notification prune has a trigger of its own so that its per-invocation row
- * cap is backed by a subrequest budget of its own, four times a day, instead of
+ * cap is backed by a subrequest budget of its own every five minutes, instead of
  * competing with the daily sweeps for one.
  */
 async function runForumCoordinatorNotificationPrune(env: Env, now: string): Promise<void> {
@@ -1085,6 +1087,12 @@ async function handleForumWorkerFetch(request: Request, env: Env): Promise<Respo
 	const url = new URL(request.url);
 	if (!isTrustedInternalServiceRequest(request, env.INTERNAL_SERVICE_SECRET)) {
 		return forumCoordinatorNotFoundResponse();
+	}
+	if (isForumSearchMaintenanceRequest(request)) {
+		if (request.headers.get("x-bickr-scheduler") !== "1") throw new RepositoryError("forbidden", "Search maintenance requires scheduler authority.", 403);
+		return request.method === "GET"
+			? ok({ ready: !(await forumSearchPending(env.BICKR_D1)) })
+			: ok(await rebuildForumSearchIndexes(env.BICKR_D1));
 	}
 	const maintenanceResponse = await mutationMaintenanceResponse(request, env.BICKR_D1);
 	if (maintenanceResponse) {

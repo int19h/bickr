@@ -28,15 +28,15 @@ describe("forum-coordinator cron triggers", () => {
 	it("maps each declared expression to its task set and nothing else", () => {
 		expect(forumCoordinatorCronTaskSet(forumCoordinatorDailyCronExpression)).toBe("daily");
 		expect(forumCoordinatorCronTaskSet(forumCoordinatorNotificationPruneCronExpression)).toBe("notification_prune");
-		expect(forumCoordinatorCronTaskSet("  0   */6  *  *  * ")).toBe("notification_prune");
+		expect(forumCoordinatorCronTaskSet("  1-59/5   *  *  *  * ")).toBe("notification_prune");
 		expect(forumCoordinatorCronTaskSet("*/5 * * * *")).toBe("recovery");
 		expect(forumCoordinatorCronTaskSet("*/7 * * * *")).toBeNull();
 		expect(forumCoordinatorCronTaskSet(undefined)).toBeNull();
 	});
 
-	it("gives the prune four invocations a day, each with its own subrequest budget", () => {
+	it("gives the prune 288 invocations per day with a separate budget", () => {
 		const [minute, hour] = forumCoordinatorNotificationPruneCronExpression.split(" ");
-		expect(minute).toBe("0");
-		expect(hour).toBe("*/6");
+		expect(minute).toBe("1-59/5");
+		expect(hour).toBe("*");
 	});
 });

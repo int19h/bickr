@@ -1,6 +1,6 @@
 import { readJsonBody } from "@bickr/shared/api";
 import { addInternalServiceAuthHeader, internalServiceUrl } from "@bickr/shared/internal-service";
-import { isExplicitMaintenanceRequest, mutationMaintenanceResponse } from "@bickr/shared/maintenance";
+import { isExplicitMaintenanceRequest, isForumSearchMaintenanceRequest, mutationMaintenanceResponse } from "@bickr/shared/maintenance";
 import { asRecord, InputError, requiredText } from "@bickr/shared/validation";
 import { type AppEnv } from "../_auth";
 import { pageErrorResponse } from "../_errors";
@@ -49,7 +49,8 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 			method: input.method,
 		});
 		// Maintenance routes enforce their own service authentication and action rules.
-		const maintenanceOperation = input.service === "agent-runtime" && isExplicitMaintenanceRequest(serviceRequest);
+		const maintenanceOperation = (input.service === "agent-runtime" && isExplicitMaintenanceRequest(serviceRequest)) ||
+			(input.service === "forum-coordinator" && isForumSearchMaintenanceRequest(serviceRequest));
 		const maintenanceResponse = maintenanceOperation ? null : await mutationMaintenanceResponse(serviceRequest, env.BICKR_D1, {
 			allowRuntimeStop: true,
 			allowRuntimeStaleRunRecovery: true,
