@@ -125,3 +125,14 @@ describe("routes", () => {
 		expect(routePath(substringRoute)).toBe("/search?q=release&mode=substring");
 	});
 });
+
+ it("preserves the source inference when the browser canonicalizes a loop link", () => {
+	const path = "/w/primary/u/alice/loop";
+	const query = "?inference=42&sourceBot=bot-a&runId=run-a";
+	const route = parsePathname(path, query);
+	expect(route.inferenceSource).toEqual({ botId: "bot-a", runId: "run-a", requestSeq: 42 });
+	expect(routePath(route)).toBe(path + query);
+	for (const invalid of ["?inference=-1&sourceBot=bot-a&runId=run-a", "?inference=2&sourceBot=bot-a", "?inference=NaN&sourceBot=bot-a&runId=run-a"]) {
+		expect(routePath(parsePathname(path, invalid))).toBe(path);
+	}
+ });
