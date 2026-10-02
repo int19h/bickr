@@ -3,8 +3,9 @@ import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import {
 	assertChecks, assertCommit, buildDirectory, buildManifest, checksPath, migrationState,
-	releasePlan, repoRoot, run, sha256, workerDeploymentMatches,
+	releasePlan, repoRoot, run, workerDeploymentMatches,
 } from "./release-support.mjs";
+import { verifyPublicRelease } from "./verify-release.mjs";
 
 const { values } = parseArgs({ options: {
 	environment: { type: "string" }, commit: { type: "string" },
@@ -94,17 +95,7 @@ async function release() {
 		if (pages?.deployment_trigger?.metadata?.commit_hash !== plan.commit || pages?.environment !== (plan.environment === "test" ? "preview" : "production")) {
 			throw new Error("Pages deployment source or environment does not match the release.");
 		}
-		// Verify the custom domain, since a successful upload need not mean the alias changed.
-		const health = await fetch(`${plan.origin}/api/runtime/health`, { cache: "no-store", signal: AbortSignal.timeout(40_000) });
-		if (!health.ok || (await health.json()).ok !== true) throw new Error("The custom domain runtime health check failed.");
-		const index = await fetch(`${plan.origin}/?release=${plan.commit}`, { cache: "no-store", signal: AbortSignal.timeout(30_000) });
-		if (!index.ok || sha256(Buffer.from(await index.arrayBuffer())) !== checks.build["index.html"]) throw new Error("The custom domain does not serve the checked Pages build.");
-		// Fetch the entry assets as well, to detect a new index with missing or stale bundles.
-		const html = readFileSync(join(buildDirectory, "index.html"), "utf8");
-		for (const [, path] of html.matchAll(/(?:src|href)="(\/assets\/[^"?#]+)"/g)) {
-			const asset = await fetch(`${plan.origin}${path}`, { signal: AbortSignal.timeout(30_000) });
-			if (!asset.ok || sha256(Buffer.from(await asset.arrayBuffer())) !== checks.build[path.slice(1)]) throw new Error(`The custom domain asset does not match: ${path}`);
-		}
+		await verifyPublicRelease(plan, checks, readFileSync(join(buildDirectory, "index.html"), "utf8"));
 		record.status = "verified";
 		record.verifiedAt = new Date().toISOString();
 	} catch (error) {

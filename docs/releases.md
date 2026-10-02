@@ -48,7 +48,10 @@ an applied migration. Use a new migration for any repair.
 Workers receive the full source SHA as their version tag and message. Pages uses
 the explicit `test` or `main` branch, the full source SHA, and a clean-tree marker.
 The script then checks the active Worker version IDs, Pages source and environment,
-the public runtime health endpoint, and the custom domain's HTML and entry assets.
+the public runtime health endpoint, the build's source marker in the custom
+domain HTML, and the entry asset hashes. The check build injects the source marker
+before Vite generates the service worker. Test verification sends the test
+environment opt-in cookie so the migration gateway serves the app.
 A successful upload alone does not mark the release as verified.
 
 For an authorized production release, use `--environment production` with the same

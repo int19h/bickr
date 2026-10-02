@@ -11,7 +11,7 @@ assertCommit(values.commit);
 rmSync(checksPath, { force: true });
 run("npm", ["ci"], { stdio: "inherit" });
 run("npm", ["test", "--", "--maxWorkers=2"], { stdio: "inherit" });
-run("npm", ["run", "build"], { stdio: "inherit" });
+run("npm", ["run", "build"], { stdio: "inherit", env: { ...process.env, BICKR_RELEASE_COMMIT: values.commit } });
 assertCommit(values.commit);
 const checks = {
 	kind: "release-checks", schemaVersion: 1, status: "passed", commit: values.commit,
