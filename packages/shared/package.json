@@ -15,6 +15,7 @@
 		"./exclusive-operation-queue": "./src/exclusive-operation-queue.ts",
 		"./entity-lifecycle": "./src/entity-lifecycle.ts",
 		"./governance": "./src/governance.ts",
+		"./governance-deletion-intents": "./src/governance-deletion-intents.ts",
 		"./governance-deletion-sweep": "./src/governance-deletion-sweep.ts",
 		"./handles": "./src/handles.ts",
 		"./human-subscriptions": "./src/human-subscriptions.ts",

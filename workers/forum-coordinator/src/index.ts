@@ -1,3 +1,4 @@
+import { projectGovernanceDeletionIntent, readGovernanceDeletionIntent, type GovernanceDeletionIntent } from "@bickr/shared/governance-deletion-intents";
 import { parseInferenceAttribution } from "@bickr/shared/inference-attribution";
 import { fail, ok, readJsonBody } from "@bickr/shared/api";
 import { isD1UniqueConstraintError } from "@bickr/shared/d1-errors";
@@ -240,6 +241,19 @@ async function handleForumCoordinatorRequestExclusive(
 ): Promise<Response> {
 	try {
 		const url = new URL(request.url);
+		const recovery = /^\/maintenance\/deletions\/(world|forum)\/([^/]+)$/.exec(url.pathname);
+		if (request.method === "POST" && recovery) {
+			const kind = recovery[1] as "world" | "forum";
+			const id = decodeURIComponent(recovery[2] ?? "");
+			const intent = await readGovernanceDeletionIntent(env.BICKR_D1, kind, id);
+			if (intent) {
+				await projectGovernanceDeletionIntent(env.BICKR_KV, env.BICKR_D1, intent);
+				await startGovernanceDeletionTask(env, coordinator, kind === "world"
+					? { kind: "world_forums", worldId: id, deletedAt: intent.deletedAt }
+					: { kind: "forum_threads", forumId: id, deletedAt: intent.deletedAt });
+			}
+			return ok({ recovered: !!intent });
+		}
 		const response =
 			await handleWorldCoordinatorMutation(request, env, coordinator, url) ??
 			await handleForumCoordinatorMutation(request, env, coordinator, url) ??
@@ -873,7 +887,38 @@ export async function runScheduledForumCoordinatorTasks(env: Env, scheduledTime:
 			return await runDailyForumCoordinatorMaintenance(env, now);
 		case "notification_prune":
 			return await runForumCoordinatorNotificationPrune(env, now);
+		case "recovery":
+			if (!(await readMaintenanceState(env.BICKR_D1)).enabled) await recoverGovernanceDeletions(env, now);
+			return;
 	}
+}
+
+
+/** A persisted D1 intent survives a missing task record or an exhausted alarm. */
+export async function recoverGovernanceDeletions(env: Env, now: string): Promise<number> {
+	const rows = await env.BICKR_D1.prepare(
+		`SELECT scope_kind AS kind, scope_id AS id, deleted_at AS deletedAt, document_json AS documentJson
+		 FROM governance_deletion_intents WHERE next_attempt_at <= ?
+		 ORDER BY next_attempt_at, scope_kind, scope_id LIMIT 25`,
+	).bind(now).all<GovernanceDeletionIntent>();
+	let recovered = 0;
+	for (const intent of rows.results ?? []) {
+		// Move a failing item behind its peers before external I/O. A lost call
+		// delays this item for five minutes but cannot starve the rest of the queue.
+		await env.BICKR_D1.prepare(
+			`UPDATE governance_deletion_intents SET next_attempt_at = ? WHERE scope_kind = ? AND scope_id = ?`,
+		).bind(new Date(Date.parse(now) + 5 * 60_000).toISOString(), intent.kind, intent.id).run();
+		const namespace = intent.kind === "world" ? env.WORLD_COORDINATOR : env.FORUM_COORDINATOR;
+		const response = await namespace.get(namespace.idFromName(intent.id)).fetch(
+			internalJsonRequest(env, `/maintenance/deletions/${intent.kind}/${encodeURIComponent(intent.id)}`, {}),
+		);
+		if (!response.ok) {
+			console.error(JSON.stringify({ event: "governance_deletion_recovery_failed", kind: intent.kind, id: intent.id, status: response.status }));
+			continue;
+		}
+		recovered += 1;
+	}
+	return recovered;
 }
 
 async function runDailyForumCoordinatorMaintenance(env: Env, now: string): Promise<void> {
@@ -1130,6 +1175,8 @@ async function runGovernanceDeletionTask(
 		}, task);
 
 	if (result.done) {
+		await env.BICKR_D1.prepare(`DELETE FROM governance_deletion_intents WHERE scope_kind = ? AND scope_id = ?`)
+			.bind(task.kind === "world_forums" ? "world" : "forum", task.kind === "world_forums" ? task.worldId : task.forumId).run();
 		await coordinator.storage?.delete(governanceDeletionTaskStorageKey);
 		return;
 	}

@@ -1,3 +1,4 @@
+import migration0060 from "../../migrations/0060_governance_deletion_intents.sql?raw";
 import migration0058 from "../../migrations/0058_artifact_inference_attribution.sql?raw";
 import migration0057 from "../../migrations/0057_discord_invite_dismissals.sql?raw";
 import migration0056 from '../../migrations/0056_runtime_admission_fence.sql?raw';
@@ -118,6 +119,7 @@ const migrationSql = [
 	migration0056,
 	migration0057,
 	migration0058,
+	migration0060,
 ];
 
 type D1SchemaRow = {

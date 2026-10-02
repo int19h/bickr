@@ -22,7 +22,10 @@ export const forumCoordinatorDailyCronExpression = "0 0 * * *";
  */
 export const forumCoordinatorNotificationPruneCronExpression = "0 */6 * * *";
 
-export type ForumCoordinatorCronTaskSet = "daily" | "notification_prune";
+/** Bounded recovery of persisted work whose original invocation was lost. */
+export const forumCoordinatorRecoveryCronExpression = "*/5 * * * *";
+
+export type ForumCoordinatorCronTaskSet = "daily" | "notification_prune" | "recovery";
 
 /**
  * Both expressions fire at midnight, which is fine: cron triggers are delivered
@@ -31,6 +34,7 @@ export type ForumCoordinatorCronTaskSet = "daily" | "notification_prune";
  */
 export const forumCoordinatorCronTaskSets = {
 	[forumCoordinatorDailyCronExpression]: "daily",
+	[forumCoordinatorRecoveryCronExpression]: "recovery",
 	[forumCoordinatorNotificationPruneCronExpression]: "notification_prune",
 } as const satisfies Record<string, ForumCoordinatorCronTaskSet>;
 

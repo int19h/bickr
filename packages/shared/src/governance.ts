@@ -1,3 +1,4 @@
+import { governanceDeletionIntentStatement } from "./governance-deletion-intents";
 import {
 	avatarCropJson,
 	type AvatarImage,
@@ -226,8 +227,6 @@ async function deleteWorld(
 		deletedAt: now,
 	};
 	await softDeleteBotGroupsForWorld(db, world.id, deleted.deletedAt);
-	await writeJson(kv, kvKeys.world(deleted.id), deleted);
-	await deleteOptions.checkpoint?.("world.delete.kv");
 	// The tombstone and the subscription rows it orphans go in one batch, so a
 	// crash between them cannot strand rows on a world nothing can reach. Only
 	// the world's own scope, for the same reason as the forum delete: the forums
@@ -237,7 +236,10 @@ async function deleteWorld(
 			.prepare(`UPDATE worlds_index SET handle = ?, updated_at = ?, deleted_at = ? WHERE world_id = ?`)
 			.bind(tombstonedHandle, deleted.updatedAt, deleted.deletedAt, deleted.id),
 		...humanSubscriptionScopeDeleteStatements(db, [{ scopeType: "world", scopeId: deleted.id }]),
+		governanceDeletionIntentStatement(db, deleted),
 	]);
+	await writeJson(kv, kvKeys.world(deleted.id), deleted);
+	await deleteOptions.checkpoint?.("world.delete.kv");
 	await upsertWorldSearchIndex(db, deleted);
 	await putObjectIndex(db, deleted, "world", entityIndexVersions.world, deleted.id);
 	await deleteOptions.checkpoint?.("world.delete.indexes.d1");
@@ -435,7 +437,6 @@ async function markForumDeleted(
 		updatedAt: now,
 		deletedAt: now,
 	};
-	await writeJson(kv, kvKeys.forum(deleted.id), deleted);
 	// One batch, so the tombstone and the rows it orphans land together. Only the
 	// forum's own scope: its threads (and their comments) are soft deleted by the
 	// governance deletion sweep this delete schedules, and each of those clears
@@ -445,7 +446,9 @@ async function markForumDeleted(
 			.prepare(`UPDATE forums_index SET handle = ?, updated_at = ?, deleted_at = ? WHERE forum_id = ? AND deleted_at IS NULL`)
 			.bind(tombstonedHandle, now, now, deleted.id),
 		...humanSubscriptionScopeDeleteStatements(db, [{ scopeType: "forum", scopeId: deleted.id }]),
+		governanceDeletionIntentStatement(db, deleted),
 	]);
+	await writeJson(kv, kvKeys.forum(deleted.id), deleted);
 	await upsertForumSearchIndex(db, deleted);
 	await putObjectIndex(db, deleted, "forum", entityIndexVersions.forum, deleted.worldId);
 	return deleted;

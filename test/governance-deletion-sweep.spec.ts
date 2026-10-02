@@ -29,6 +29,31 @@ beforeEach(async () => {
 });
 
 describe("coordinator-routed governance deletion", () => {
+	it.each(["put", "setAlarm"] as const)("recovers a committed forum deletion after durable storage %s fails", async (failure) => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const forum = await createForumForTest(cookie, `lost-intent-${failure.toLowerCase()}`);
+		const author = await createBotForTest(cookie, `lost-intent-author-${failure.toLowerCase()}`);
+		const thread = await createThreadForTest(forum.id, author.id, "Stranded child", "Must be deleted.");
+		const document = await requiredForumDocument(forum.id);
+		const broken = memoryDurableStorage();
+		broken.storage[failure] = async () => { throw new Error("Injected durable storage failure"); };
+		const response = await handleForumCoordinatorRequest(new Request(`https://internal.bickr/forums/${forum.id}/soft-delete`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ worldId: document.worldId, deletedAt: "2026-10-02T12:00:00.000Z" }),
+		}), coordinatorEnv(testEnv.BICKR_KV), { objectId: forum.id, storage: broken.storage });
+		expect(response.status).toBe(500);
+		expect((await requiredForumDocument(forum.id)).deletedAt).toBeTruthy();
+		expect(await testEnv.BICKR_D1.prepare(`SELECT scope_id FROM governance_deletion_intents WHERE scope_id = ?`).bind(forum.id).first()).not.toBeNull();
+		// Reconstruct the coordinator from empty storage, exactly as discovery
+		// does when the first invocation never saved a task or its alarm.
+		const recovered = await handleForumCoordinatorRequest(new Request(`https://internal.bickr/maintenance/deletions/forum/${forum.id}`, { method: "POST" }), coordinatorEnv(testEnv.BICKR_KV), coordinatorContext(forum.id));
+		expect(recovered.status).toBe(200);
+		expect((await testEnv.BICKR_KV.get<ThreadDocument>(kvKeys.thread(thread.id), { type: "json" }))?.deletedAt).toBeTruthy();
+		expect(await testEnv.BICKR_D1.prepare(`SELECT scope_id FROM governance_deletion_intents WHERE scope_id = ?`).bind(forum.id).first()).toBeNull();
+	});
+
 	it("routes world/forum lifecycle operations to the same ID-named coordinators as child creation", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
