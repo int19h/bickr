@@ -1,7 +1,7 @@
 /**
  * The forum-coordinator Worker's cron triggers.
  *
- * Two schedules with different jobs share one `scheduled` handler, so the
+ * Three schedules with different jobs share one `scheduled` handler, so the
  * handler has to know which trigger fired. These expressions are the contract
  * with `wrangler.jsonc` (every environment), `wrangler.deploy.jsonc` and
  * `wrangler.recreate-test.jsonc`; the cron test asserts each declared trigger
@@ -34,8 +34,8 @@ export type ForumCoordinatorCronTaskSet = "daily" | "notification_prune" | "reco
  */
 export const forumCoordinatorCronTaskSets = {
 	[forumCoordinatorDailyCronExpression]: "daily",
-	[forumCoordinatorRecoveryCronExpression]: "recovery",
 	[forumCoordinatorNotificationPruneCronExpression]: "notification_prune",
+	[forumCoordinatorRecoveryCronExpression]: "recovery",
 } as const satisfies Record<string, ForumCoordinatorCronTaskSet>;
 
 export type ForumCoordinatorCronExpression = keyof typeof forumCoordinatorCronTaskSets;

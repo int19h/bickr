@@ -29,7 +29,8 @@ describe("forum-coordinator cron triggers", () => {
 		expect(forumCoordinatorCronTaskSet(forumCoordinatorDailyCronExpression)).toBe("daily");
 		expect(forumCoordinatorCronTaskSet(forumCoordinatorNotificationPruneCronExpression)).toBe("notification_prune");
 		expect(forumCoordinatorCronTaskSet("  0   */6  *  *  * ")).toBe("notification_prune");
-		expect(forumCoordinatorCronTaskSet("*/5 * * * *")).toBeNull();
+		expect(forumCoordinatorCronTaskSet("*/5 * * * *")).toBe("recovery");
+		expect(forumCoordinatorCronTaskSet("*/7 * * * *")).toBeNull();
 		expect(forumCoordinatorCronTaskSet(undefined)).toBeNull();
 	});
 
