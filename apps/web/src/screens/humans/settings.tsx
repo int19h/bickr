@@ -45,6 +45,7 @@ export function ProfileScreen({
 	onOpenAvatarGeneration,
 	onSave,
 	onSignOut,
+	onSessionRevoked,
 	user,
 }: {
 	busy: boolean;
@@ -53,6 +54,7 @@ export function ProfileScreen({
 	onOpenAvatarGeneration: () => void;
 	onSave: (draft: UpdateUserProfileInput) => Promise<UserProfile | null>;
 	onSignOut: () => void;
+	onSessionRevoked: () => void;
 	user: PublicUser;
 }) {
 	const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -338,7 +340,7 @@ export function ProfileScreen({
 				</div>
 
 				<aside className="edit-aside">
-					<AccountCredentials userId={user.id} onSessionRevoked={onSignOut} />
+					<AccountCredentials userId={user.id} onSessionRevoked={onSessionRevoked} />
 					<section className="section">
 						<div className="section-head">
 							<h2>Account</h2>

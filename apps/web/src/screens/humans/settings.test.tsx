@@ -36,6 +36,7 @@ function render(): string {
 			onOpenAvatarGeneration={() => undefined}
 			onSave={async () => null}
 			onSignOut={() => undefined}
+			onSessionRevoked={() => undefined}
 			user={user()}
 		/>,
 	);

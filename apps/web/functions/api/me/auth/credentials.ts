@@ -1,7 +1,7 @@
 import { ok } from "@bickr/shared/api";
 import { listAccountCredentials, revokeAccountCredential, revokeAllAccountCredentials } from "@bickr/shared/auth-credentials";
 import { InputError } from "@bickr/shared/validation";
-import { requireUser, type AppEnv } from "../../_auth";
+import { appendSetCookie, clearCookieHeader, requireUser, sessionCookieName, type AppEnv } from "../../_auth";
 import { requireBrowserConsentUser } from "../../_browser-auth";
 import { pageErrorResponse } from "../../_errors";
 import { readBoundedRequest } from "@bickr/shared/bounded-body";
@@ -25,7 +25,8 @@ export const onRequestDelete: PagesFunction<AppEnv> = async ({ env, request }) =
 		else if (selection.kind === "credential" && typeof selection.id === "string" && selection.id.length <= 200) {
 			await revokeAccountCredential(env.BICKR_D1, user.id, selection.id);
 		} else throw new InputError("Choose a credential or all credentials.");
-		return ok({ revoked: true });
+		const response = ok({ revoked: true });
+		return selection.kind === "all" ? appendSetCookie(response, clearCookieHeader(request, sessionCookieName)) : response;
 	} catch (error) {
 		if (error instanceof SyntaxError) return pageErrorResponse(new InputError("The request body is malformed."));
 		return pageErrorResponse(error);

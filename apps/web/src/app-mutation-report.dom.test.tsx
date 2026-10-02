@@ -159,3 +159,26 @@ it.each(["http", "network"])("keeps the session visible if sign out fails (%s)",
 	expect(window.location.pathname).toBe("/me/profile");
 	expect(container.querySelector(".toast-error")).not.toBeNull();
 });
+
+it("clears the session after account-wide revocation without a second logout request", async () => {
+	let logoutRequests = 0;
+	vi.stubGlobal("fetch", (input: string, init?: RequestInit) => {
+		if (String(input) === "/api/auth/logout") {
+			logoutRequests += 1;
+			return Promise.reject(new Error("The network failed after revocation."));
+		}
+		if (String(input) === "/api/me/auth/credentials" && init?.method === "DELETE") return Promise.resolve(Response.json({ ok: true, data: { revoked: true } }));
+		return Promise.resolve(respond(String(input), init));
+	});
+	act(() => { window.history.pushState({}, "", "/me/profile"); window.dispatchEvent(new PopStateEvent("popstate")); });
+	await vi.waitFor(async () => {
+		await flush();
+		expect([...container.querySelectorAll("button")].some((entry) => entry.textContent?.trim() === "Revoke all access")).toBe(true);
+	});
+	await act(async () => button("Revoke all access").click());
+	await act(async () => button("Revoke").click());
+	await flush();
+		expect(logoutRequests).toBe(0);
+		expect(window.location.pathname).toBe("/");
+		expect(container.textContent).not.toContain("Account access");
+});

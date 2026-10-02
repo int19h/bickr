@@ -9,6 +9,12 @@ function revoke(body: string, cookie: string, origin = "https://bickr.social") {
 }
 
 describe("credential inventory routes", () => {
+	it("clears the browser cookie after account-wide revocation", async () => {
+		const cookie = await authCookie();
+		const response = await onRequestDelete(contextFor(revoke('{"kind":"all"}', cookie)));
+		expect(response.status).toBe(200);
+		expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
+	});
 	it("lists and revokes the current browser session", async () => {
 		const cookie = await authCookie();
 		const request = new Request("https://bickr.social/api/me/auth/credentials", { headers: { cookie } });
