@@ -72,6 +72,10 @@ export async function finishForumCreation(kv: KVNamespaceLike, db: D1DatabaseLik
 				.bind(new Date(Date.now() + receiptLifetimeMs).toISOString(), forum.id),
 		]);
 	} catch (error) {
+		// A lost batch response does not mean activation failed. Its receipt is
+		// the decision, including when account deletion has since started.
+		const committed = await readForumCreationIntent(db, intent.forumId);
+		if (committed?.state === "active") return finishForumCreation(kv, db, committed);
 		// D1 does not expose trigger error codes. Determine the typed cause from
 		// canonical parent state instead of matching a database error message.
 		if (!await activeParentWorldHandle(db, intent)) {
@@ -94,6 +98,8 @@ async function activeParentWorldHandle(db: D1DatabaseLike, intent: ForumCreation
 }
 
 async function cancelForumCreation(kv: KVNamespaceLike, db: D1DatabaseLike, intent: ForumCreationIntent) {
+	const current = await readForumCreationIntent(db, intent.forumId);
+	if (current?.state !== "pending") return;
 	await kv.delete(kvKeys.forum(intent.forumId));
 	await db.prepare(`UPDATE forum_creation_intents SET state = 'cancelled', document_json = NULL, expires_at = ? WHERE forum_id = ? AND state = 'pending'`)
 		.bind(new Date(Date.now() + receiptLifetimeMs).toISOString(), intent.forumId).run();

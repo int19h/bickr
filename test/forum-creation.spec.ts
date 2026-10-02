@@ -60,6 +60,20 @@ describe("durable forum creation", () => {
 		expect((await retry.json() as { data: { forum: { description: { text: string } } } }).data.forum.description.text).toBe("Updated after creation");
 	});
 
+	it("keeps a committed forum when the batch response is lost and account deletion starts", async () => {
+		const f = await fixture();
+		const db = { prepare: testEnv.BICKR_D1.prepare.bind(testEnv.BICKR_D1), batch: async (statements: D1PreparedStatement[]) => {
+			await testEnv.BICKR_D1.batch(statements);
+			await testEnv.BICKR_D1.prepare(`UPDATE users_index SET lifecycle_state = 'deleting' WHERE user_id = ?`).bind(f.world.owner).run();
+			throw new Error("Lost activation response");
+		} } as D1Database;
+		expect((await handleForumCoordinatorRequest(f.request(), { ...f.env, BICKR_D1: db }, f.context)).status).toBe(201);
+		const row = await testEnv.BICKR_D1.prepare(`SELECT forum_id AS id, state FROM forum_creation_intents WHERE request_key = 'new-forum'`).first<{ id: string; state: string }>();
+		expect(row?.state).toBe("active");
+		expect(await testEnv.BICKR_KV.get(kvKeys.forum(row!.id))).not.toBeNull();
+		expect(await visibleCount()).toBe(1);
+	});
+
 	it("cancels publication when account deletion starts while KV is awaited", async () => {
 		const f = await fixture();
 		const kv = { get: testEnv.BICKR_KV.get.bind(testEnv.BICKR_KV), delete: testEnv.BICKR_KV.delete.bind(testEnv.BICKR_KV), put: async (key: string, value: string) => {
