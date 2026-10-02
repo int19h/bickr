@@ -7,7 +7,7 @@ The audit report records the evidence and the earlier deployment snapshots.
 The primary agent integrates changes on `codex/audit-remediation`.
 Each implementation group uses a separate worktree and branch.
 The primary agent assigns independent review after each group supplies commits and test results.
-All reviewers inspect the same final commit before release.
+Each reviewer inspects their assigned scope at the same final commit before release.
 
 ## Scope and acceptance
 
@@ -99,8 +99,97 @@ The Herdr identity probe returned `unverifiable` for this host.
 No agent assumes another session identity.
 Built-in agent messages and this repository record preserve coordination until native identity is available.
 
-## Progress
+## Implemented repairs
 
-Implementation started from the clean base commit.
-All seven groups are active.
-Each group will record its commits, tests, remaining work, and review result here before delivery.
+Authentication now stores single-use claims and successor credentials in one D1 transaction.
+A reused refresh credential revokes its family.
+Browser, CLI, and MCP authentication all require an active account.
+Registration has bounded admission and retention.
+Browser consent requires a session cookie and same-origin evidence.
+The callback page starts a new navigation through a fixed local script.
+
+The profile screen lists access credentials and supports individual or complete revocation.
+Complete revocation clears the browser state after the server accepts it.
+The protected maintenance route imports old browser and CLI credentials in bounded pages.
+Old MCP grants need fresh authorization because their stored records lack reliable family identity.
+The migration has a fixed deadline and a version that disables its temporary reader.
+See [authentication storage](auth-storage.md) for release procedures.
+
+Storage repair now enters the entity coordinator that owns ordinary writes.
+A repair cannot replace a hidden, deleting, or terminal projection with an older active document.
+Thread mutations store their canonical document, projection plan, retry receipt, and alarm in one Durable Object transaction.
+Projection recovery uses a D1 receipt to prevent duplicate counters and notifications.
+Forum creation and deletion each keep durable intent before external storage work.
+See [storage writers](storage-writer-protocol.md) for ownership and recovery rules.
+
+Notification delivery now uses durable jobs with indexed recipient cursors.
+A page delivers at most 50 recipients and advances its cursor in the same transaction.
+Publication sequence boundaries exclude subscriptions that activate after an event.
+World revision identities prevent same-millisecond events from collapsing or overwriting newer notification content.
+Retention prioritizes expired pending notifications and reports its backlog.
+The schema files define each job and receipt lifetime.
+
+Runtime input history, injected thought acknowledgements, and the successful-input marker commit together.
+Failed preparation remains eligible for complete input on retry.
+Scheduler cursors advance past failed admissions.
+Provider streams have byte limits, read deadlines, and explicit completion requirements.
+Reasoning assembly processes each new segment once.
+Maintenance also gates monitor mutations.
+Draft token previews use the selected participant language.
+
+Provider requests share body budgets, deadlines, endpoint validation, and redirect rejection.
+Avatar promotion and deletion require ownership of the selected candidate.
+Multipart uploads have a total budget before parsing.
+Image catalogs use a bounded cache, and world avatar prompts use a bounded projection.
+Avatar cleanup stores progress across runs and fences each lease change.
+See [avatar retention](avatar-retention-epochs.md) for deletion proof and recovery.
+
+Inference impact resolution caches ancestor results for each immutable graph snapshot.
+Deep inheritance chains no longer repeat every ancestor walk for each descendant.
+Canonical provider input requires HTTPS, with explicit loopback development exceptions.
+Linked clones retain access to their deleted source document within the same account.
+Obsolete provider writes return a typed conflict after cutover.
+New participant credentials enter canonical storage in the activation transaction.
+
+Browser editors bind drafts and pending requests to one resource identity.
+A save preserves edits made after submission.
+A manual reload cannot cancel an in-flight save.
+Forum search discards responses for older queries.
+Translation cache keys include the full source text and language pair.
+The cache has entry and byte limits, and reference lists share one participant index.
+
+CLI text escapes terminal control sequences.
+Credential writes atomically replace the file with private permissions.
+Math rendering removes metadata that breaks XML parsing and supplies the bundled font through the supported interface.
+The math worker retains its network and dynamic-code restrictions.
+
+Substring search now uses indexed candidates with the existing literal-match rules.
+Short-token generation makes one linear pass through source text.
+A bounded migration fills old rows and reports unavailable search until the index is complete.
+Hot-score maintenance processes due threads instead of rewriting all retained threads.
+See [forum indexes](forum-query-indexes.md) for test warmup and growth limits.
+
+The release process requires an explicit environment, exact commit, clean tree, and matching test/build record.
+It reads pending migrations and secret names before deployment.
+Worker versions and Pages builds record their source commit.
+The custom domain must serve the expected source marker and asset hashes.
+Health returns an unhealthy status when a required dependency fails.
+Dependency updates remove the advisories found in the audit.
+See [releases](releases.md) for the commands and evidence format.
+
+## Validation and remaining live work
+
+Each group supplies focused regression results and independent review notes.
+The final integration requires the complete suite and build at one commit.
+The release record stores their exact commit, lockfile hash, and build hashes.
+Test deployment also requires authentication migration, search warmup, and live browser smoke tests.
+These live operations occur only after code review and local tests pass.
+
+Production retains its current code and data until a separate production instruction.
+The prepared TLS change targets only the audited legacy asset hostname.
+Production notification cleanup and authentication migration also remain release actions.
+The audit could not inspect denied Cloudflare firewall and log controls.
+This implementation does not claim to change or establish those controls.
+
+The focused review notes and long logs reside under `/build/bickr/scratch/audit-2026-10-02/` and `/build/bickr/logs/audit-2026-10-02/`.
+The pull request and release record link the final results.
