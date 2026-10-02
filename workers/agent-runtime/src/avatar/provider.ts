@@ -1,5 +1,5 @@
 import { loadOpenRouterImageCatalog } from "@bickr/shared/openrouter-image-models";
-import { worldAvatarMembersPromptUserContent } from '@bickr/shared/avatar-prompts';
+import { worldAvatarSelectedMembersPromptUserContent, type WorldAvatarMemberSelection } from '@bickr/shared/avatar-prompts';
 import { avatarContentTypeFromBytes, avatarMaxBytes, validateAvatarDataUrl } from '@bickr/shared/avatar-storage';
 import { isOpenRouterProviderBaseUrl } from '@bickr/shared/inference-settings';
 import {
@@ -11,7 +11,6 @@ import {
 	type BotDocument,
 	type BotInferenceSubmissionMessage,
 	type BotInferenceSubmissionToolCall,
-	type BotSummary,
 	type JsonObject,
 	type WorldDocument,
 } from '@bickr/shared/model';
@@ -174,12 +173,12 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 	async function fetchProviderWorldAvatarMembersDescription(
 		settings: ProviderSettings,
 		world: WorldDocument,
-		members: readonly BotSummary[],
+		members: WorldAvatarMemberSelection,
 		options: ProviderAvatarDescriptionOptions = {},
 	): Promise<string> {
 		return fetchProviderWorldAvatarDescriptionFromUserContent(
 			settings,
-			worldAvatarMembersPromptUserContent(world, members),
+			worldAvatarSelectedMembersPromptUserContent(world, members),
 			options,
 		);
 	}

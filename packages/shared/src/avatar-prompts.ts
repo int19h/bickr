@@ -4,12 +4,27 @@ type WorldAvatarPromptWorld = Pick<WorldDocument | WorldSummary, "description" |
 	prompt?: LocalizedText | string;
 };
 
-type WorldAvatarPromptMember = Pick<BotSummary, "displayName" | "handle" | "shortBio">;
+export type WorldAvatarPromptMember = Pick<BotSummary, "displayName" | "handle" | "shortBio">;
+export const worldAvatarMemberLimit = 100;
+export type WorldAvatarMemberSelection =
+	| { kind: "all"; members: readonly WorldAvatarPromptMember[] }
+	| { kind: "sample"; members: readonly WorldAvatarPromptMember[] };
+
+export function selectWorldAvatarMembers(members: readonly WorldAvatarPromptMember[]): WorldAvatarMemberSelection {
+	return members.length > worldAvatarMemberLimit
+		? { kind: "sample", members: members.slice(0, worldAvatarMemberLimit) }
+		: { kind: "all", members };
+}
 
 export function worldAvatarMembersPromptUserContent(
 	world: WorldAvatarPromptWorld,
-	members: readonly WorldAvatarPromptMember[],
+	input: readonly WorldAvatarPromptMember[],
 ): string {
+	return worldAvatarSelectedMembersPromptUserContent(world, selectWorldAvatarMembers(input));
+}
+
+export function worldAvatarSelectedMembersPromptUserContent(world: WorldAvatarPromptWorld, selection: WorldAvatarMemberSelection): string {
+	const members = selection.members;
 	const lines = [
 		"Create a complete visual prompt for a public world avatar from this world context and its member profiles.",
 		"",
@@ -22,7 +37,9 @@ export function worldAvatarMembersPromptUserContent(
 		"Prompt:",
 		emptyFallback(world.prompt),
 		"",
-		`Members (${members.length}):`,
+		selection.kind === "sample"
+			? `Members (sample of ${members.length}; more members exist):`
+			: `Members (${members.length}):`,
 	];
 	if (members.length === 0) {
 		lines.push("(none)");

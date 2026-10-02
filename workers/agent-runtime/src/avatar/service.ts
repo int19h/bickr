@@ -1,3 +1,5 @@
+import { worldAvatarMembers } from "@bickr/shared/avatar-members";
+import type { WorldAvatarMemberSelection } from "@bickr/shared/avatar-prompts";
 import {
 	isAvatarContentType,
 	normalizeAvatarPublicBaseUrl,
@@ -8,7 +10,6 @@ import {
 } from '@bickr/shared/avatar-storage';
 import {
 	mergeInferenceSettings,
-	listWorldBots,
 	botById,
 	RepositoryError,
 	userById,
@@ -104,7 +105,7 @@ export type AvatarProvider = {
 	describeWorldMembers(
 		settings: ProviderSettings,
 		world: WorldDocument,
-		members: readonly BotSummary[],
+		members: WorldAvatarMemberSelection,
 		options?: { prefill?: string; signal?: AbortSignal; stream?: AvatarGenerationStreamSink },
 	): Promise<string>;
 	invalidGeneratedImage(settings: ImageGenerationProviderSettings, error: InputError): Error;
@@ -510,7 +511,7 @@ async function prefillTextAvatarPrompt(
 					: target.canonicalProviderSettings
 				: runtime.effectiveProviderSettingsForWorldPrompt(target.owner, env, promptSettingsOverride);
 			if (input.mode === 'members') {
-				const members = await listWorldBots(env.BICKR_KV, env.BICKR_D1, target.world.handle);
+				const members = await worldAvatarMembers(env.BICKR_D1, target.world.id);
 				return provider.describeWorldMembers(settings, target.world, members, { prefill: input.prefill, ...options });
 			}
 			return provider.describeWorld(settings, target.world, { prefill: input.prefill, ...options });
