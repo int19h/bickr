@@ -128,6 +128,6 @@ it("drains small jobs up to 100 while capping total candidate work at 500", asyn
 	expect(await runBotNotificationFanout(testEnv.BICKR_KV, testEnv.BICKR_D1, new Date(Date.now() + 60_000).toISOString())).toEqual({ events: 11, candidates: 500, recipients: 500 });
 	expect(await countNotifications(thread.id)).toBe(600);
 	expect(await testEnv.BICKR_D1.prepare(`SELECT count(*) AS count FROM bot_notification_fanouts WHERE after_bot_id = ''`).first()).toEqual({ count: 3 });
-	const failingKv = { get: testEnv.BICKR_KV.get.bind(testEnv.BICKR_KV), delete: testEnv.BICKR_KV.delete.bind(testEnv.BICKR_KV), put: async () => { throw new Error("Injected fanout payload failure"); } } as KVNamespace;
+	const failingKv = { get: testEnv.BICKR_KV.get.bind(testEnv.BICKR_KV), delete: testEnv.BICKR_KV.delete.bind(testEnv.BICKR_KV), put: async () => { throw new Error("Injected fanout payload failure"); } };
 	expect(await runBotNotificationFanout(failingKv, testEnv.BICKR_D1, new Date(Date.now() + 10 * 60_000).toISOString())).toEqual({ events: 10, candidates: 500, recipients: 0 });
 });

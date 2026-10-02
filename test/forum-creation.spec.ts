@@ -66,7 +66,7 @@ describe("durable forum creation", () => {
 			await testEnv.BICKR_D1.batch(statements);
 			await testEnv.BICKR_D1.prepare(`UPDATE users_index SET lifecycle_state = 'deleting' WHERE user_id = ?`).bind(f.world.owner).run();
 			throw new Error("Lost activation response");
-		} } as D1Database;
+		} } as unknown as D1Database;
 		expect((await handleForumCoordinatorRequest(f.request(), { ...f.env, BICKR_D1: db }, f.context)).status).toBe(201);
 		const row = await testEnv.BICKR_D1.prepare(`SELECT forum_id AS id, state FROM forum_creation_intents WHERE request_key = 'new-forum'`).first<{ id: string; state: string }>();
 		expect(row?.state).toBe("active");
