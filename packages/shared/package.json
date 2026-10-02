@@ -59,7 +59,9 @@
 		"./validation": "./src/validation.ts",
 		"./world-lifecycle-protocol": "./src/world-lifecycle-protocol.ts",
 		"./http": "./src/http.ts",
-		"./markdown": "./src/markdown.ts"
+		"./markdown": "./src/markdown.ts",
+		"./bounded-body": "./src/bounded-body.ts",
+		"./provider-transport": "./src/provider-transport.ts"
 	},
 	"dependencies": {
 		"mdast-util-math": "^3.0.0",
