@@ -1,5 +1,5 @@
 import { beforeEach, expect, it } from "vitest";
-import { runBotNotificationFanout } from "@bickr/shared/bot-notification-fanout";
+import { runBotNotificationFanout, type BotNotificationFanout } from "@bickr/shared/bot-notification-fanout";
 import { clearKv, resetD1Schema } from "./helpers/d1-schema";
 import { authCookie, createBotForTest, createForumForTest, createThreadForTest, seedWorld, testEnv, handleForumCoordinatorRequest, memoryDurableStorage, ExclusiveOperationQueue, jsonRequest, requiredLt } from "./helpers/index-harness";
 
@@ -103,4 +103,31 @@ it("does not select a staged audience before its event is published", async () =
 	const result = await runBotNotificationFanout(testEnv.BICKR_KV, testEnv.BICKR_D1, new Date(Date.now() + 60_000).toISOString());
 	expect(result.candidates).toBe(50);
 	expect(await testEnv.BICKR_D1.prepare(`SELECT bot_id FROM notifications WHERE bot_id = ?`).bind(newcomer).first()).toEqual({ bot_id: newcomer });
+});
+
+
+it("drains small jobs up to 100 while capping total candidate work at 500", async () => {
+	const { thread } = await audience(125);
+	const template = (await testEnv.BICKR_D1.prepare(`SELECT payload_json AS payload FROM bot_notification_fanouts LIMIT 1`).first<{ payload: string }>())!;
+	const source = JSON.parse(template.payload) as BotNotificationFanout;
+	await testEnv.BICKR_D1.prepare(`DELETE FROM bot_notification_fanouts`).run();
+	await testEnv.BICKR_D1.prepare(`DELETE FROM notifications`).run();
+	const seed = (count: number, small: boolean) => testEnv.BICKR_D1.batch(Array.from({ length: count }, (_, index) => {
+		const event: BotNotificationFanout = { ...source, id: `${small ? "small" : "large"}-${index}`,
+			...(small ? { follower: undefined, direct: [{ botId: "audience-00000", template: 0, reasons: ["followed_profile_activity"] }] } : {}),
+		};
+		return testEnv.BICKR_D1.prepare(`INSERT INTO bot_notification_fanouts (event_id, payload_json, after_bot_id, created_at, next_attempt_at) VALUES (?, ?, '', ?, ?)`)
+			.bind(event.id, JSON.stringify(event), event.createdAt, event.createdAt);
+	}));
+	await seed(100, true);
+	expect(await runBotNotificationFanout(testEnv.BICKR_KV, testEnv.BICKR_D1, new Date(Date.now() + 60_000).toISOString())).toEqual({ events: 100, candidates: 100, recipients: 100 });
+	await seed(13, false);
+	await seed(1, true);
+	// Place a one-recipient job between large jobs to leave a final 49-ID page.
+	await testEnv.BICKR_D1.prepare(`UPDATE bot_notification_fanouts SET event_id = 'large-1a', payload_json = json_set(payload_json, '$.id', 'large-1a') WHERE event_id = 'small-0'`).run();
+	expect(await runBotNotificationFanout(testEnv.BICKR_KV, testEnv.BICKR_D1, new Date(Date.now() + 60_000).toISOString())).toEqual({ events: 11, candidates: 500, recipients: 500 });
+	expect(await countNotifications(thread.id)).toBe(600);
+	expect(await testEnv.BICKR_D1.prepare(`SELECT count(*) AS count FROM bot_notification_fanouts WHERE after_bot_id = ''`).first()).toEqual({ count: 3 });
+	const failingKv = { get: testEnv.BICKR_KV.get.bind(testEnv.BICKR_KV), delete: testEnv.BICKR_KV.delete.bind(testEnv.BICKR_KV), put: async () => { throw new Error("Injected fanout payload failure"); } } as KVNamespace;
+	expect(await runBotNotificationFanout(failingKv, testEnv.BICKR_D1, new Date(Date.now() + 10 * 60_000).toISOString())).toEqual({ events: 10, candidates: 500, recipients: 0 });
 });

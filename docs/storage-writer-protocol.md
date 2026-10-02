@@ -45,6 +45,8 @@ D1 batch. A follow records the last published event sequence. New follows and
 re-follows cannot receive older events. Each page visits at most 50 raw candidate
 IDs, including ineligible IDs, then checks eligibility in the publication batch.
 Deleted sources and inactive recipients fail the visibility checks.
+The bot pump checks at most 100 jobs and 500 candidate IDs per run. Small
+audiences can use the job budget without increasing the recipient budget.
 Human notifications use their own bounded delivery jobs. The scheduled recovery
 pumps both queues without holding a content writer for the full audience.
 Notification retention runs every five minutes on a separate trigger, one minute

@@ -30,11 +30,16 @@ export async function enqueueBotNotificationFanout(kv: KVNamespaceLike, db: D1Da
 }
 
 export async function runBotNotificationFanout(kv: KVNamespaceLike, db: D1DatabaseLike, now = new Date().toISOString()): Promise<{ events: number; candidates: number; recipients: number }> {
-	const rows = await db.prepare(`SELECT event_id AS id, payload_json AS payload, after_bot_id AS afterBotId FROM bot_notification_fanouts WHERE next_attempt_at <= ? ORDER BY next_attempt_at, event_id LIMIT 10`)
+	const rows = await db.prepare(`SELECT event_id AS id, payload_json AS payload, after_bot_id AS afterBotId FROM bot_notification_fanouts WHERE next_attempt_at <= ? ORDER BY next_attempt_at, event_id LIMIT 100`)
 		.bind(now).all<{ id: string; payload: string; afterBotId: string }>();
 	let recipients = 0;
 	let candidates = 0;
+	let events = 0;
 	for (const row of rows.results ?? []) {
+		// Small events can use the job budget without reducing the fixed cap on
+		// recipient work. A large audience cannot consume more than 500 IDs.
+		if (candidates >= 500) break;
+		events += 1;
 		await db.prepare(`UPDATE bot_notification_fanouts SET next_attempt_at = ? WHERE event_id = ?`)
 			.bind(new Date(Date.parse(now) + 5 * 60_000).toISOString(), row.id).run();
 		try {
@@ -43,17 +48,21 @@ export async function runBotNotificationFanout(kv: KVNamespaceLike, db: D1Databa
 				await db.prepare(`DELETE FROM bot_notification_fanouts WHERE event_id = ?`).bind(row.id).run();
 				continue;
 			}
-			const delivered = await deliverBotNotificationChunk(kv, db, event, row.afterBotId);
+			const pageSize = Math.min(recipientChunkSize, 500 - candidates);
+			// Reserve before I/O. A failed page can have performed payload writes;
+			// it must not reset the work budget and let another 100 pages run.
+			candidates += pageSize;
+			const delivered = await deliverBotNotificationChunk(kv, db, event, row.afterBotId, pageSize);
 			recipients += delivered.recipients;
-			candidates += delivered.candidates;
+			candidates -= pageSize - delivered.candidates;
 		} catch (error) {
 			console.error(JSON.stringify({ event: "bot_notification_fanout_failed", eventId: row.id, error: String(error) }));
 		}
 	}
-	return { events: rows.results?.length ?? 0, candidates, recipients };
+	return { events, candidates, recipients };
 }
 
-async function deliverBotNotificationChunk(kv: KVNamespaceLike, db: D1DatabaseLike, event: BotNotificationFanout, afterBotId: string): Promise<{ candidates: number; recipients: number }> {
+async function deliverBotNotificationChunk(kv: KVNamespaceLike, db: D1DatabaseLike, event: BotNotificationFanout, afterBotId: string, pageSize = recipientChunkSize): Promise<{ candidates: number; recipients: number }> {
 	const direct = new Map(event.direct.map((recipient) => [recipient.botId, recipient]));
 	// Both arms seek after the same ID. Each arm is bounded before UNION, so a
 	// very popular profile cannot force a complete follower scan or sort. New
@@ -68,8 +77,8 @@ async function deliverBotNotificationChunk(kv: KVNamespaceLike, db: D1DatabaseLi
 		WHERE followed_bot_id = ? AND follower_bot_id > ? ORDER BY follower_bot_id LIMIT ?
 	), audience AS (SELECT * FROM direct UNION ALL SELECT * FROM followers)
 	SELECT botId, MAX(followed) AS followed FROM audience GROUP BY botId ORDER BY botId LIMIT ?`)
-		.bind(JSON.stringify(event.direct.map((recipient) => recipient.botId)), afterBotId, recipientChunkSize,
-			event.id, event.follower?.botId ?? "", afterBotId, recipientChunkSize, recipientChunkSize)
+		.bind(JSON.stringify(event.direct.map((recipient) => recipient.botId)), afterBotId, pageSize,
+			event.id, event.follower?.botId ?? "", afterBotId, pageSize, pageSize)
 		.all<{ botId: string; followed: number }>();
 	const rows = selected.results ?? [];
 	const notifications: NotificationDocument[] = [];
@@ -119,7 +128,7 @@ async function deliverBotNotificationChunk(kv: KVNamespaceLike, db: D1DatabaseLi
 			 WHEN 'c/' THEN EXISTS (SELECT 1 FROM comments_index c JOIN threads_index t ON t.thread_id = c.thread_id JOIN forums_index f ON f.forum_id = t.forum_id WHERE c.comment_id = substr(json_extract(n.value, '$.sourceObjectId'), 3) AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND f.deleted_at IS NULL)
 			 ELSE 1 END`)
 			.bind(event.worldId, event.createdAt, JSON.stringify(notifications.map(({ event: _event, ...metadata }) => ({ ...metadata, directRecipient: direct.has(metadata.botId) }))), event.actorBotId, event.worldId, event.id, afterBotId, event.id, event.follower?.botId ?? ""),
-		rows.length < recipientChunkSize
+		rows.length < pageSize
 			? db.prepare(`DELETE FROM bot_notification_fanouts WHERE event_id = ? AND after_bot_id = ?`).bind(event.id, afterBotId)
 			: db.prepare(`UPDATE bot_notification_fanouts SET after_bot_id = ? WHERE event_id = ? AND after_bot_id = ?`).bind(nextCursor, event.id, afterBotId),
 	]);
