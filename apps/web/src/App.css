@@ -6415,10 +6415,12 @@ fieldset {
 
 .comment-connector.ellipsis {
 	--connector-dot-radius: 1px;
-	--connector-dot-spacing: 4px;
+	--connector-dot-spacing: 3px;
 	--connector-dot-center: 50%;
-	--connector-line-end: 25%;
-	--connector-line-resume: 75%;
+	--connector-line-end: 2px;
+	--connector-line-resume: calc(100% - 2px);
+	/* Stop before the checkbox so its opaque background cannot hide the last dot. */
+	width: calc(var(--comment-step) - var(--comment-checkbox-center));
 	/* Draw each dot on the line's center instead of using a font's glyph baseline. */
 	background:
 		radial-gradient(circle var(--connector-dot-radius) at calc(var(--connector-dot-center) - var(--connector-dot-spacing)) 50%, var(--rule-soft) 99%, transparent 100%),
@@ -6429,6 +6431,7 @@ fieldset {
 
 .comment-connector.ellipsis.zero-indent {
 	/* Use the free gutter below the checkbox so three dots also stay distinct at 1x resolution. */
+	--connector-dot-spacing: 4px;
 	--connector-dot-center: 9px;
 	--connector-line-end: 3px;
 	--connector-line-resume: 15px;
