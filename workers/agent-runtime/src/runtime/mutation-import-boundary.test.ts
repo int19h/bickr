@@ -415,6 +415,14 @@ describe("serialized entity mutation import boundary", () => {
 		]));
 	});
 
+	it("allows a canonical writer to re-export an unrelated read helper", () => {
+		const helper = resolve(process.cwd(), "packages/shared/src/virtual-read-helper.ts");
+		expect(mutationEscapeViolations([
+			{ filename: resolve(process.cwd(), repositoryModule), source: 'export * from "./virtual-read-helper";' },
+			{ filename: helper, source: 'export const readValue = () => null;' },
+		], new Set(["createBot"]), new Set())).toEqual([]);
+	});
+
 	it("scans JavaScript module extensions for direct writer-module side doors", () => {
 		const script = resolve(process.cwd(), "scripts/virtual-writer-bypass.mjs");
 		expect(mutationBoundaryViolations(
@@ -974,7 +982,9 @@ function mutationEscapeViolations(
 						}
 						edges.push({ from: moduleAuthorityNode(exportedFrom), to: moduleAuthorityNode(filename) });
 						exports.push({ path, exportedName: "*", targetNode: moduleAuthorityNode(filename) });
-						imports.push({ path, sourceFilename: exportedFrom, targetNode: moduleAuthorityNode(filename) });
+						// Inspect the source of a star export. The destination can already
+						// own authority through another export or its canonical seed.
+						imports.push({ path, sourceFilename: exportedFrom, targetNode: moduleAuthorityNode(exportedFrom) });
 					}
 				} else if (ts.isNamespaceExport(statement.exportClause)) {
 					if (exportedFrom) {
@@ -1064,7 +1074,7 @@ function mutationEscapeViolations(
 	for (const imported of imports) {
 		if (imported.sourceFilename === repositoryFilename || imported.sourceFilename === governanceFilename) continue;
 		for (const kind of taints.get(imported.targetNode) ?? []) {
-			violations.push(`${imported.path}: imports ${kind} mutation authority from an intermediate module`);
+			violations.push(`${imported.path}: imports ${kind} mutation authority from an intermediate module (${imported.targetNode})`);
 		}
 	}
 	for (const imported of dynamicImports) {

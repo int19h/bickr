@@ -32,8 +32,8 @@ search to return HTTP 503 with an explicit rebuilding message, so missing index
 entries cannot silently omit results. The readiness query uses an index to find pending rows.
 Search reads never rebuild rows or scan all rows as an alternative.
 
-After every deployed database drains the NULL markers, retire the old projection writers.
-Then remove the migration sweep. Record that removal
+Retire the old projection writers before the final sweep.
+After every deployed database drains the NULL markers, remove the migration sweep. Record that removal
 with the next search schema version. A future version must not stack another
 fallback on the current migration. Existing applied migrations remain immutable.
 

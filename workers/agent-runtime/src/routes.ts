@@ -2892,7 +2892,7 @@ export async function runScheduledAgentRuntimeTasks(
 	cron?: string,
 ): Promise<ScheduledAgentRuntimeTasksResult> {
 	await cleanupAuthRecords(env.BICKR_D1, new Date(scheduledTime)).catch((error) => {
-		console.error('Authentication retention failed.', error);
+		console.error(JSON.stringify({ event: 'scheduled_auth_retention', outcome: 'failed', errorName: error instanceof Error ? error.name : 'unknown' }));
 	});
 	const taskSet = agentRuntimeCronTaskSet(cron);
 	if (taskSet === null) {
