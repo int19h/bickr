@@ -3659,7 +3659,6 @@ async function terminalTransitionRaceHarness(suffix: string): Promise<TerminalTr
 			events.push(type);
 			return { createdAt: new Date().toISOString() };
 		},
-		consumeInjections: () => [],
 		exportRecentProviderUsage: async () => {},
 		pruneRuntimeStorageAfterTick: () => ({
 			events: 0,

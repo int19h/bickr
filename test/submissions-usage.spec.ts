@@ -464,7 +464,7 @@ describe("Submissions and usage", () => {
 	it("stores routed OpenRouter provider names with provider usage", async () => {
 		const sql = capturingProviderUsageSql();
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			state: { storage: { sql } },
+			state: { storage: { sql, transactionSync: <T>(run: () => T): T => run() } },
 		});
 		const recordProviderUsage = (BotRuntime.prototype as unknown as {
 			recordProviderUsage: (input: RecordProviderUsageInputForTest) => Promise<void>;
@@ -498,7 +498,7 @@ describe("Submissions and usage", () => {
 	it("stores OpenRouter router metadata provider names without generation lookup", async () => {
 		const sql = capturingProviderUsageSql();
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			state: { storage: { sql } },
+			state: { storage: { sql, transactionSync: <T>(run: () => T): T => run() } },
 		});
 		const recordProviderUsage = (BotRuntime.prototype as unknown as {
 			recordProviderUsage: (input: RecordProviderUsageInputForTest) => Promise<void>;
@@ -566,7 +566,7 @@ describe("Submissions and usage", () => {
 	it("keeps provider usage when OpenRouter provider metadata is unavailable", async () => {
 		const sql = capturingProviderUsageSql();
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			state: { storage: { sql } },
+			state: { storage: { sql, transactionSync: <T>(run: () => T): T => run() } },
 		});
 		const recordProviderUsage = (BotRuntime.prototype as unknown as {
 			recordProviderUsage: (input: RecordProviderUsageInputForTest) => Promise<void>;
@@ -589,7 +589,7 @@ describe("Submissions and usage", () => {
 	it("stores direct provider hosts without OpenRouter metadata lookups", async () => {
 		const sql = capturingProviderUsageSql();
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			state: { storage: { sql } },
+			state: { storage: { sql, transactionSync: <T>(run: () => T): T => run() } },
 		});
 		const recordProviderUsage = (BotRuntime.prototype as unknown as {
 			recordProviderUsage: (input: RecordProviderUsageInputForTest) => Promise<void>;
@@ -620,7 +620,7 @@ describe("Submissions and usage", () => {
 		const interruptedUsage = providerUsageForTest(23, 7);
 		let eventSeq = 0;
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
-			state: { storage: { sql } },
+			state: { storage: { sql, transactionSync: <T>(run: () => T): T => run() } },
 			appendEvent: (runId: string, type: BotRuntimeEvent["type"], payload: unknown) => {
 				eventSeq += 1;
 				return runtimeEvent(eventSeq, runId, type, payload);

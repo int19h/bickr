@@ -1728,7 +1728,7 @@ export function memoryInferenceSubmissionSql() {
 				return {
 					toArray: () => (row ? [row as T] : []),
 				};
-			} else if (/SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, messages_json, display_messages_json, created_at\s+FROM inference_submissions\s+ORDER BY event_seq ASC/.test(sql)) {
+			} else if (/SELECT id, event_seq, run_id, purpose, model, provider_base_url, message_count, created_at\s+FROM inference_submissions\s+ORDER BY event_seq ASC/.test(sql)) {
 				return {
 					toArray: () => [...rows].sort((left, right) => left.event_seq - right.event_seq) as T[],
 				};
@@ -2102,6 +2102,25 @@ export function testRuntimeForToolExecution(): BotRuntime {
 	}) as BotRuntime;
 }
 
+/** A storage-free message writer for loop orchestration tests. Transaction tests
+ * use RuntimeMessageStore with SQLite and never this adapter. */
+export function testAppendLoopMessageGroup(
+	this: {
+		appendLoopMessage: (runId: string, message: LoopMessageGroupEntry['message'], origin: LoopMessageGroupEntry['origin'], status?: LoopMessageGroupEntry['status'], options?: LoopMessageGroupEntry['options']) => BotLoopMessage;
+		recordLoopMessageLog: (seq: number, kind: string, text: string) => unknown;
+	},
+	entries: LoopMessageGroupEntry[],
+	commit?: () => void,
+): BotLoopMessage[] {
+	const inserted = entries.map(entry => {
+		const message = this.appendLoopMessage(entry.runId, entry.message, entry.origin, entry.status, entry.options);
+		for (const log of entry.extraLogs ?? []) this.recordLoopMessageLog(message.seq, log.kind, log.text);
+		return message;
+	});
+	commit?.();
+	return inserted;
+}
+
 function testAppendProviderToolResult(
 	this: { appendLoopMessageGroup(entries: LoopMessageGroupEntry[]): BotLoopMessage[]; clearPendingTool(runId: string): void },
 	assistant: LoopMessageGroupEntry,
@@ -2124,6 +2143,7 @@ export function testLoopMessageMemory(initial: Array<Record<string, unknown>> = 
 	const messages = [...initial];
 	return {
 		appendProviderToolResult: testAppendProviderToolResult,
+		appendLoopMessageGroup: testAppendLoopMessageGroup,
 		activeLoopMessagesForProvider: () => [...messages],
 		appendLoopMessage: (runId: string, message: Record<string, unknown>, origin: string, status = "complete") => {
 			seq += 1;
@@ -2660,6 +2680,9 @@ export function attachTestRunLiveness(runtime: object): RunLiveness {
 }
 
 export function withTestRunLiveness<T extends object>(runtime: T): T {
+	if (Object.hasOwn(runtime, 'appendLoopMessage') && !Object.hasOwn(runtime, 'appendLoopMessageGroup')) {
+		Object.assign(runtime, { appendLoopMessageGroup: testAppendLoopMessageGroup });
+	}
 	// Prototype-only test runtimes bypass the constructor that provisions PLAN.
 	const notes = (runtime as { notes?: { read?: (id: string) => unknown } }).notes;
 	if (notes) notes.read ??= () => null;

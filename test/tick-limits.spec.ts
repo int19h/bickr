@@ -1987,58 +1987,6 @@ describe("Tick limits and recovery", () => {
 		expect(messages[2]?.tool_call_id).toBe('call-vote');
 	});
 
-	it("rolls back grouped assistant and tool rows when a transactional write fails", () => {
-		const inserted: Array<{ role: string }> = [];
-		let transactionCount = 0;
-		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
-			state: {
-				storage: {
-					sql: {},
-					transactionSync: <T,>(closure: () => T): T => {
-						transactionCount += 1;
-						const snapshot = [...inserted];
-						try {
-							return closure();
-						} catch (error) {
-							inserted.splice(0, inserted.length, ...snapshot);
-							throw error;
-						}
-					},
-				},
-			},
-			appendLoopMessage: () => {
-				throw new Error("appendLoopMessageGroup must use transactionSync when storage is available.");
-			},
-			broadcastLoopMessage: () => {},
-			insertLoopMessage: (input: { message: BotInferenceSubmissionMessage }) => {
-				inserted.push({ role: input.message.role });
-				if (input.message.role === "tool") {
-					throw new Error("simulated tool insert failure");
-				}
-				return {
-					seq: inserted.length,
-					runId: "run-transactional-group",
-					role: input.message.role,
-					message: input.message,
-					origin: "provider_response",
-					tokenEstimate: 0,
-					createdAt: new Date().toISOString(),
-				};
-			},
-			recordLoopMessageLog: () => {},
-		}));
-		const appendLoopMessageGroup = (BotRuntime.prototype as unknown as {
-			appendLoopMessageGroup: (entries: Array<{ runId: string; message: BotInferenceSubmissionMessage; origin: string }>) => unknown[];
-		}).appendLoopMessageGroup.bind(runtime);
-
-		expect(() => appendLoopMessageGroup([
-			{ runId: "run-transactional-group", message: { role: "assistant", content: null, tool_calls: [{ id: "call-a", type: "function", function: { name: "read_thread", arguments: "{}" } }] }, origin: "provider_response" },
-			{ runId: "run-transactional-group", message: { role: "tool", tool_call_id: "call-a", content: "{}" }, origin: "tool_result" },
-		])).toThrow("simulated tool insert failure");
-		expect(transactionCount).toBe(1);
-		expect(inserted).toEqual([]);
-	});
-
 	it("runs a provider loop on migrated legacy history without request-time repair", async () => {
 		const rows: LoopMessageRowForTest[] = [
 			loopMessageRowForMessage(1, {

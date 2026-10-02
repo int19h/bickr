@@ -1,3 +1,4 @@
+import { testAppendLoopMessageGroup } from './helpers/index-harness';
 import {
 	BotRuntime,
 	customProviderBaseUrl,
@@ -1941,6 +1942,7 @@ describe("Compaction", () => {
 				events.push({ type, payload });
 				return { seq: events.length, runId, type, payload, tokenEstimate: 0, createdAt: new Date().toISOString() };
 			},
+			appendLoopMessageGroup: testAppendLoopMessageGroup,
 			appendLoopMessage: () => ({ seq: 99, runId: "run-budget", role: "assistant", message: {}, origin: "provider_response", tokenEstimate: 0, createdAt: new Date().toISOString() }),
 			appendProviderMessages: async () => {},
 			callProvider: async (_settings: unknown, messages: Array<Record<string, unknown>>) => {
@@ -2023,6 +2025,7 @@ describe("Compaction", () => {
 				events.push({ type, payload });
 				return { seq: events.length, runId, type, payload, tokenEstimate: 0, createdAt: new Date().toISOString() };
 			},
+			appendLoopMessageGroup: testAppendLoopMessageGroup,
 			appendLoopMessage: () => ({ seq: 99, runId: "run-current-compact", role: "assistant", message: {}, origin: "provider_response", tokenEstimate: 0, createdAt: new Date().toISOString() }),
 			appendProviderMessages: async () => {},
 			callProvider: async (_settings: unknown, messages: Array<Record<string, unknown>>) => {

@@ -3791,7 +3791,6 @@ describe("Forum coordinator", () => {
 				buildMessages: async () => messages,
 				clearStopRequest: () => {},
 				compactIfNeeded: async () => {},
-				consumeInjections: () => [contextText],
 				effectiveProviderSettings: () => ({
 					apiKey: "test-key",
 					baseUrl: "https://openrouter.ai/api/v1",
@@ -3809,6 +3808,10 @@ describe("Forum coordinator", () => {
 				},
 			});
 			attachTestRunLiveness(runtime);
+			runtime.state.storage.sql.exec(
+				'INSERT INTO injections (id,text,kind,source_id,spotlight_id,created_at) VALUES (?,?,?,?,?,?)',
+				`inj-${spotlightId}`, contextText, 'spotlight', null, spotlightId, new Date().toISOString(),
+			);
 			const runTick = (BotRuntime.prototype as unknown as {
 				runTick: (
 					botId: string,

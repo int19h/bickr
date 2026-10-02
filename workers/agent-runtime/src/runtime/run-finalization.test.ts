@@ -20,7 +20,7 @@ async function harness() {
 		env: { BICKR_D1: { prepare: () => statement } },
 		liveness: new RunLiveness(storage), activeRunId: 'run', activeAbortController: controller,
 		runtimeStorageClearedAt: null,
-		consumeInjections: () => [], renewProgressLease: async () => {},
+		renewProgressLease: async () => {},
 		exportRecentProviderUsage: vi.fn(async () => {}), startQueuedSpotlightTick: vi.fn(),
 		pruneRuntimeStorageAfterTick: () => ({ events: 0, providerUsage: 0, loopMessages: { deletedMessages: 0, deletedLogs: 0, stampedSummaries: 0 }, injections: { deletedInjections: 0, droppedQueueEntries: 0 } }),
 	});

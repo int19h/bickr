@@ -115,13 +115,14 @@ export class RuntimeMessageStore {
 		return written[0]!;
 	}
 
-	appendLoopMessageGroup(entries: LoopMessageGroupEntry[]): BotLoopMessage[] {
-		return this.writeLoopMessageGroup(entries);
+	appendLoopMessageGroup(entries: LoopMessageGroupEntry[], commit?: () => void): BotLoopMessage[] {
+		return this.writeLoopMessageGroup(entries, { commit });
 	}
 
 	private writeLoopMessageGroup(entries: LoopMessageGroupEntry[], options: {
 		extend?: { seq: number; call: ToolCall; runId: string };
 		clearPendingRunId?: string;
+		commit?: () => void;
 	} = {}): BotLoopMessage[] {
 		const inserted: BotLoopMessage[] = [];
 		let prunedDiagnosticCount = 0;
@@ -146,17 +147,12 @@ export class RuntimeMessageStore {
 			if (options.clearPendingRunId) {
 				this.storage.sql.exec(`DELETE FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2') AND json_extract(value_json, '$.runId') = ?`, options.clearPendingRunId);
 			}
+			options.commit?.();
 			if (entries.some((entry) => isRuntimeDiagnosticLoopMessageOrigin(entry.origin))) {
 				prunedDiagnosticCount = this.pruneRuntimeDiagnosticLoopMessages();
 			}
 		};
-		if (typeof this.storage.transactionSync === 'function') {
-			this.storage.transactionSync(appendEntries);
-		} else {
-			// Constructor-free unit harnesses can provide only the SQL surface;
-			// production Durable Object storage always takes the transaction path.
-			appendEntries();
-		}
+		this.storage.transactionSync(appendEntries);
 		for (const loopMessage of inserted) {
 			this.broadcastLoopMessage(loopMessage);
 		}

@@ -72,6 +72,7 @@ import {
 	sseStream,
 	standardPrompt,
 	streamedProviderRateLimit,
+	testAppendLoopMessageGroup,
 	testEnv,
 	testLanguage,
 	testRuntimeForToolExecution,
@@ -3139,6 +3140,7 @@ describe("Provider requests", () => {
 				events.push({ seq, type, payload });
 				return runtimeEvent(seq, runId, type as BotRuntimeEvent["type"], payload);
 			},
+			appendLoopMessageGroup: testAppendLoopMessageGroup,
 			appendLoopMessage: (
 				runId: string,
 				message: Record<string, unknown>,
@@ -3630,6 +3632,7 @@ describe("Provider requests", () => {
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			notes: { read: () => null },
 			readCommentTreeTokenBudget: async () => 90,
+				appendLoopMessageGroup: testAppendLoopMessageGroup,
 				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
 					appendedMessages.push(message);
 					return { seq: appendedMessages.length };
@@ -3683,6 +3686,7 @@ describe("Provider requests", () => {
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				notes: { read: () => null },
 				readCommentTreeTokenBudget: async () => 4_000,
+				appendLoopMessageGroup: testAppendLoopMessageGroup,
 				appendLoopMessage: (_runId: string, message: Record<string, unknown>) => {
 					appendedMessages.push(message);
 					return { seq: appendedMessages.length };
