@@ -1,56 +1,107 @@
 # Authentication storage and cutover
 
-Authentication records use D1 as their authority. Use the primary D1 binding for these operations. Do not put these reads in a replica session or cache their answers in KV. Account authentication also checks the active `users_index` row after reading the profile from KV.
+D1 holds the authoritative authentication records. These operations use the primary D1 binding. Do not move these reads into a replica session or a KV cache. Authentication reads the profile from KV, then checks the active account row in D1.
 
-A conditional update and all successor writes run in one `D1Database.batch()` transaction. A random claim identifies the one request that consumed an OAuth code, refresh token, or CLI approval. Each successor insert requires that claim. A failed batch rolls back consumption. Refresh tokens keep their consumed state until their grant expires. Reuse of a consumed code or refresh token revokes its grant and all access and refresh tokens in that family. Clients must serialize refreshes; a second concurrent refresh is treated as replay.
+A conditional update and all successor writes run in one `D1Database.batch()` transaction. A random claim identifies the request that consumed an OAuth code, refresh token, or CLI approval. Each successor insert requires that claim. If the batch fails, D1 rolls back consumption.
 
-The browser consent endpoints require a browser session cookie and same-origin request evidence. A bearer token cannot approve either MCP or CLI access. An explicit `Origin` must match the request origin. When supplied, `Sec-Fetch-Site` must be `same-origin`. With no `Origin`, `Sec-Fetch-Site: same-origin` is required. Both forms have a GET for display and a POST for approval.
+Consumed refresh tokens stay until their grant expires. Reuse of a consumed code or refresh token revokes its grant and every token in that family. Clients must serialize refresh requests. A second concurrent refresh counts as replay.
 
-The OAuth POST response loads a fixed same-origin script that starts a fresh top-level navigation to the registered callback. It also provides a fallback link. This keeps the ordinary `form-action 'self'` policy and avoids browser differences when that directive checks a cross-origin redirect after a form submission. The page has `Referrer-Policy: no-referrer`. Callback URIs use HTTPS or HTTP on `localhost`, `127.0.0.1`, or `[::1]`. They cannot contain user information or a fragment. Exact registered URI matching still applies.
+## Browser consent and callbacks
+
+MCP and CLI consent require a browser session cookie and evidence of the same origin. Bearer tokens cannot approve access. An explicit `Origin` must match the request origin. If present, `Sec-Fetch-Site` must be `same-origin`. Without `Origin`, the request must include `Sec-Fetch-Site: same-origin`. GET displays each form. POST approves access.
+
+The OAuth POST response loads a fixed script from the same origin. The script starts a new navigation to the registered callback. A link provides a fallback when scripts are disabled. This preserves the ordinary `form-action 'self'` policy. It also avoids browser differences in policy checks during redirects after form submission.
+
+The response sets `Referrer-Policy: no-referrer`. Callback URIs use HTTPS. HTTP is permitted only for `localhost`, `127.0.0.1`, or `[::1]`. Callback URIs cannot contain user information or a fragment. The callback must exactly match a registered URI.
 
 ## Retention and admission
 
-Migration `0059_auth_state.sql` defines the tables and their retention rules. `cleanupAuthRecords(db, now?)` deletes at most 500 expired auth records and 500 expired rate buckets per call, using expiry indexes. Schedule it in the maintenance path, including ticks that skip bot dispatch. Repeat bounded maintenance calls when a backlog exists.
+Migration `0059_auth_state.sql` defines the tables and retention rules. `cleanupAuthRecords(db, now?)` deletes at most 500 expired auth records and 500 expired rate buckets per call. Both queries use expiry indexes. Scheduled maintenance calls this function even when it skips bot dispatch. Repeated bounded calls clear a backlog.
 
 | Record | Absolute lifetime |
 | --- | --- |
 | Browser session | 30 days |
 | CLI token | 90 days |
 | CLI approval or OAuth code | 10 minutes |
-| MCP grant and its refresh lineage | 90 days from initial exchange |
-| MCP access token | At most one hour and never after grant expiry |
+| MCP grant and refresh lineage | 90 days from initial exchange |
+| MCP access token | One hour, capped by grant expiry |
 | Unused MCP client | 30 days |
 | MCP client after authorization | 180 days from authorization |
-| Legacy token revocation marker | Until that proven legacy credential expires |
-| Rate bucket | Two hours from the start of its hour window |
+| Legacy revocation marker | Until the proven legacy credential expires |
+| Rate bucket | Two hours from its hour window start |
 
-Refresh does not extend the grant lifetime. Expiry is enforced during reads and writes, so cleanup delay cannot restore authority. An account revocation cutoff has one row per account and stays for that account's lifetime. It also covers legacy credentials that the migration has not yet indexed.
+Refresh does not extend the grant lifetime. Reads and writes enforce expiry. A cleanup delay cannot restore access. Each account has at most one revocation cutoff row. This row stays for the account's lifetime. It covers legacy credentials that the migration has not indexed.
 
-Unauthenticated registration and CLI login initiation each permit 20 attempts per Cloudflare client address and 200 attempts globally per fixed hour. A rejected address does not spend the remaining global allowance. After the global allowance is spent, requests cannot create more address rows. Stored subjects are SHA-256 hashes, not raw addresses. Auth request bodies have a 16 KiB limit and a ten-second read deadline. Registration events and admission failures produce structured logs without bearer tokens. The fixed quotas trade availability under shared-address or global abuse for bounded storage; tune them explicitly when real usage requires it.
+Registration and CLI login initiation each have separate hourly limits. Each Cloudflare client address gets 20 attempts. The global limit is 200 attempts. An address refusal does not spend the global allowance. After the global limit, requests cannot create more address rows. The database stores address hashes, not raw addresses.
+
+Auth request bodies have a 16 KiB limit and a ten-second read deadline. Structured logs record registration and admission failures without bearer tokens. Fixed quotas bound storage growth, but shared addresses and global abuse can reduce availability. Change the quotas explicitly when measured usage requires it.
 
 ## One-time KV migration
 
-New writers only write D1. The temporary schema-version-2 reader preserves valid existing browser sessions and CLI tokens. It never writes or repairs a record. It checks primary D1 revocation state before accepting a legacy token. Migration application fixes a deadline 90 days later; no request extends it. Schema version 3 disables the legacy reader sooner when the sweep finishes.
+New writers use D1 only. The temporary reader uses storage version 2. It preserves valid browser sessions and CLI tokens without writing or repairing records. It checks primary D1 revocation state before accepting legacy credentials.
 
-Existing MCP access and refresh tokens must be authorized again at cutover. The old records lack reliable refresh-family lineage, so importing them cannot provide replay detection. Existing OAuth codes and CLI approval requests are retired too. Restart those short-lived flows. Registered client metadata is preserved by the explicit sweep. Until client migration completes, an existing client may receive `invalid_client`; it must retry after cutover or register again.
+Migration application fixes a deadline 90 days later. Requests cannot extend it. Storage version 3 disables the legacy reader after the sweep completes. The deadline denies legacy access if operational completion is delayed.
 
-Use the exported maintenance functions through the protected internal maintenance route. They require `BICKR_KV` and `BICKR_D1`; no new binding is needed. The route must require internal service authentication and scheduler authorization. Do not expose it as a public OAuth action.
+Existing MCP access and refresh tokens require new authorization at cutover. Their old records lack reliable family lineage for replay detection. Existing OAuth codes and CLI approvals are retired. Restart those short flows.
 
-1. Apply migration 0059 before deploying the D1 writers. Stop old writers for the cutover. Use the site's maintenance control and account for in-flight requests and KV propagation before marking any prefix complete. KV listing is eventually consistent. The sweep cannot prove that a still-running old writer has stopped.
-2. Deploy the new writers. Keep ordinary auth traffic closed while client metadata migrates. Use `migrateLegacyAuthPage(kv, db, { prefix, dryRun: true, cursor? })` to inspect pages. Dry runs change neither D1 nor KV and do not advance progress. Continue with the returned cursor until `done` is true.
-3. For each prefix, call `migrateLegacyAuthPage(kv, db, { prefix, dryRun: false })` until `done` is true. The function reads at most 50 keys. Real runs use their D1 progress cursor. Do not supply a caller cursor. The eight prefixes are `session`, `cli_token`, `mcp_client`, `cli_request`, `mcp_code`, `mcp_access`, `mcp_refresh`, and `mcp_grant`.
-4. Each page commits the D1 imports before deleting its KV keys. Retry a failed call. Imports do not replace an existing record or a legacy revocation marker. The page result reports scanned, eligible-for-copy, retired, and invalid counts; `copied` means eligible imports, including rows already present on retry.
-5. Call `finishLegacyAuthMigration(db)`. It returns true when all eight prefixes have completed and schema version 3 is set. Do not force this version manually. Verify that migrated browser and CLI credentials work, old MCP families fail, fresh authorization works, and all prefixes are empty after propagation. Then reopen auth traffic.
-6. Remove the temporary legacy reader and migration module in the next schema release after the completed sweep and verification. That release must also remove the two transition/progress tables. Keep permanent revocation behavior. The fixed 90-day cutoff fails closed if operational completion is delayed.
+The sweep preserves registered client metadata. Before client migration completes, existing clients can receive `invalid_client`. They must retry after cutover or register again.
 
-The sweep retains no plaintext bearer token. It imports existing hashed keys and documents. OAuth provider sign-in state (`v1:oauth-return:`) still uses its separate short TTL and is outside this migration.
+The protected maintenance route calls the exported migration functions. The functions need `BICKR_KV` and `BICKR_D1`, with no new bindings. The route requires internal service authentication and scheduler authorization. Public OAuth routes cannot invoke it.
+
+### Prepare the cutover
+
+1. Apply migration 0059 before deploying the D1 writers.
+2. Enable the site's maintenance control.
+3. Stop old auth writers.
+4. Wait for outstanding requests and KV propagation to finish.
+5. Deploy the new writers.
+6. Keep ordinary auth traffic closed during client migration.
+
+KV listing is eventually consistent. A completed scan cannot prove that an old writer stopped. Complete the drain before marking any prefix complete.
+
+### Inspect the data
+
+The dry-run call is `migrateLegacyAuthPage(kv, db, { prefix, dryRun: true, cursor? })`. It reads at most 50 keys. It changes neither D1 nor KV. It does not advance saved progress.
+
+1. Run a dry-run page for each prefix below.
+2. Continue each prefix with its returned cursor until `done` is true.
+3. Review the counts before migration.
+
+The prefixes are `session`, `cli_token`, `mcp_client`, `cli_request`, `mcp_code`, `mcp_access`, `mcp_refresh`, and `mcp_grant`.
+
+### Migrate the data
+
+The real call is `migrateLegacyAuthPage(kv, db, { prefix, dryRun: false })`. It uses the saved D1 cursor. A real call does not accept a caller-selected cursor.
+
+Each page commits D1 imports before deleting KV keys. Repeated imports never replace existing records or legacy revocation markers. The result includes `scanned`, `copied`, `retired`, `invalid`, `cursor`, and `done`. The `copied` count includes eligible imports that already exist after a retry.
+
+1. Run real migration pages for each prefix until `done` is true.
+2. Retry a failed page.
+3. Call `finishLegacyAuthMigration(db)`.
+4. Confirm that it returns true.
+5. Wait for KV propagation to finish.
+6. Verify that all eight prefixes are empty.
+7. Verify migrated browser and CLI credentials.
+8. Verify that old MCP families fail.
+9. Verify fresh OAuth and CLI authorization.
+10. Reopen auth traffic.
+
+Completion sets storage version 3 only when all eight prefixes have finished. Do not force this version manually. The sweep retains no plaintext bearer tokens. It imports existing hashed keys and documents.
+
+The next schema release removes the legacy reader, migration module, and two transition tables. Remove them only after sweep completion and verification. Permanent revocation behavior remains.
+
+Provider sign-in state under `v1:oauth-return:` keeps its separate short lifetime. It is outside this migration.
 
 ## Credential inventory and revocation
 
-`GET /api/me/auth/credentials?after=<cursor>` returns at most 100 browser sessions, CLI tokens, or MCP grants and a `nextCursor`. IDs are record identifiers, not bearer tokens. It also reports `legacyMigrationComplete`. Before the sweep finishes, legacy browser/CLI credentials can be missing from the list.
+`GET /api/me/auth/credentials?after=<cursor>` returns at most 100 browser sessions, CLI tokens, or MCP grants. It returns `nextCursor` and `legacyMigrationComplete`. Record IDs are not bearer tokens. Until migration completes, the list can omit legacy browser and CLI credentials.
 
-`DELETE /api/me/auth/credentials` requires cookie authentication and the same browser origin checks as consent. Its JSON body is either `{"kind":"credential","id":"<inventory ID>"}` or `{"kind":"all"}`. The body limit is 1 KiB. A single-ID action only revokes a credential belonging to the signed-in account. Revoking an MCP grant revokes its entire family. The all action also revokes pending approvals and not-yet-migrated legacy credentials. It logs out the browser that issued it. Credential management has reusable storage hooks for a future account UI; this change supplies the API.
+`DELETE /api/me/auth/credentials` requires cookie authentication and the browser origin checks above. Its body limit is 1 KiB. The body selects one credential with `{"kind":"credential","id":"<inventory ID>"}`, or all credentials with `{"kind":"all"}`.
+
+A single-credential action only accepts records owned by the signed-in account. Revoking an MCP grant revokes its whole family. The all action also revokes pending approvals and legacy credentials that migration has not visited. It logs out the requesting browser.
+
+This change supplies the API and reusable storage functions. The account UI uses the same interface.
 
 ## Sources
 
-Cloudflare documents [D1 batch transactions](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch), [read replication](https://developers.cloudflare.com/d1/best-practices/read-replication/), and [KV consistency](https://developers.cloudflare.com/kv/concepts/how-kv-works/). [RFC 9700 section 4.14](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14) describes refresh-token rotation and family revocation after replay.
+Cloudflare documents [D1 batch transactions](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch), [read replication](https://developers.cloudflare.com/d1/best-practices/read-replication/), and [KV consistency](https://developers.cloudflare.com/kv/concepts/how-kv-works/). [RFC 9700 section 4.14](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14) describes refresh rotation and family revocation after replay.
