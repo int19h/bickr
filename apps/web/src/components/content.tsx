@@ -1,3 +1,5 @@
+import { usePublicBotEffectiveModel } from "../inference/public-bot-model";
+import { shortModelName } from "./inference-attribution";
 import { MarkdownBody } from "../markdown/markdown-body";
 import { createContext, useContext, useEffect, useId, useState, type ReactNode } from "react";
 import {
@@ -301,6 +303,7 @@ export function ReferencePopover({
 					<TranslatableText as="span" className="ref-pop-title" text={meta.bot.displayName} />
 					<span className="ref-pop-username">
 						<ReferenceLabel isBot kind="bot" name={meta.bot.handle} />
+						<HoverModelName bot={meta.bot} />
 					</span>
 					{meta.bot.shortBio && (
 						<TranslatableText
@@ -1075,4 +1078,9 @@ function writeTranslationStorage(key: string, value: Record<string, string | boo
 	} catch {
 		// Browser storage can be unavailable or full; translation still works for the current render.
 	}
+}
+
+function HoverModelName({ bot }: { bot: BotSummary }) {
+	const state = usePublicBotEffectiveModel(bot.homeWorldHandle, bot.handle, bot.id);
+	return state.status === "resolved" ? <span className="inference-model-name" title={state.effectiveModel}> · {shortModelName(state.effectiveModel)}</span> : null;
 }

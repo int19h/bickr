@@ -1,3 +1,4 @@
+import { InferenceBadge } from "../../components/inference-attribution";
 import { markdownPreview } from "@bickr/shared/markdown";
 import { useEffect, useMemo, useState } from "react";
 import type {
@@ -273,7 +274,7 @@ export function ForumPage({
 								<TranslatableText as="span" className="title" text={result.title} />
 								<TranslatableText as="span" className="snippet" text={result.snippet} />
 							<span className="meta">
-								{authorLabel(result.authorDisplayName, result.authorHandle)} / {result.commentId ? "comment" : "thread"} / <TimeAgoLabel value={result.createdAt} />
+								{authorLabel(result.authorDisplayName, result.authorHandle)}<InferenceBadge attribution={result.inferenceAttribution} /> / {result.commentId ? "comment" : "thread"} / <TimeAgoLabel value={result.createdAt} />
 							</span>
 						</SpaLink>
 					))}
@@ -470,6 +471,7 @@ function ForumThreadRow({
 							handle={thread.authorHandle}
 							onOpen={() => onReference("bot", thread.authorHandle, { worldHandle: thread.worldHandle })}
 						/>
+						<InferenceBadge attribution={thread.inferenceAttribution} />
 					</span>
 					<span>{thread.commentCount} comments</span>
 					<span>active <TimeAgoLabel value={thread.lastActivityAt} /></span>

@@ -1,3 +1,5 @@
+import { inferenceAttributionForRequest } from '@bickr/shared/inference-attribution';
+import type { InferenceAttribution } from '@bickr/shared/model';
 import { syntheticToolCallMessage, type SyntheticToolCall } from './synthetic-tool-calls';
 import { withRunExecution, assertExecutionPublication, settleOutsideExecution } from './execution-scope';
 import { runtimeDiagnostics, type RuntimeDiagnostic } from '@bickr/shared/runtime-diagnostics';
@@ -1774,7 +1776,8 @@ CREATE TABLE IF NOT EXISTS notes (
 	content TEXT NOT NULL,
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
-	revision INTEGER NOT NULL DEFAULT 0
+	revision INTEGER NOT NULL DEFAULT 0,
+	inference_attribution_json TEXT
 );
 -- Retention: links follow their note and the same full-clear rule.
 CREATE TABLE IF NOT EXISTS note_links (
@@ -1881,6 +1884,7 @@ export class BotRuntime {
 		this.ensureProviderUsageColumns();
 		this.ensureInferenceSubmissionColumns();
 		this.ensureLoopMessageColumns();
+		this.state.storage.sql.exec('CREATE INDEX IF NOT EXISTS loop_messages_request ON loop_messages (stream_seq, seq)');
 		this.ensureNoteColumns();
 	}
 
@@ -1888,6 +1892,7 @@ export class BotRuntime {
 	private ensureNoteColumns(): void {
 		const columns = new Set(this.state.storage.sql.exec<{ name: string }>('PRAGMA table_info(notes)').toArray().map((row) => row.name));
 		if (!columns.has('revision')) this.state.storage.sql.exec('ALTER TABLE notes ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
+		if (!columns.has('inference_attribution_json')) this.state.storage.sql.exec('ALTER TABLE notes ADD COLUMN inference_attribution_json TEXT');
 	}
 
 	private ensureInjectionColumns(): void {
@@ -2240,6 +2245,19 @@ export class BotRuntime {
 					page: Number.isFinite(page) ? page : 1,
 				}),
 			);
+		}
+
+		if (request.method === 'GET' && url.pathname.endsWith('/inference-logs')) {
+			await this.requireOwnerOrInternal(request, botId);
+			const requestSeq = Number(url.searchParams.get('requestSeq'));
+			if (!Number.isSafeInteger(requestSeq) || requestSeq < 1) throw new InputError('Inference request sequence must be a positive integer.');
+			const runId = url.searchParams.get('runId');
+			if (!runId) throw new InputError('Inference run ID is required.');
+			const row = this.state.storage.sql.exec<{ seq: number }>(
+				'SELECT seq FROM loop_messages WHERE stream_seq = ? AND run_id = ? AND deleted_at IS NULL ORDER BY seq LIMIT 1', requestSeq, runId,
+			).toArray()[0];
+			if (!row) throw new RepositoryError('not_found', 'The source inference is no longer retained in this loop.', 404);
+			return ok(this.loopMessageLogsForSeq(row.seq));
 		}
 
 		const messageLogSeq = messageLogsSeqFromPath(url.pathname);
@@ -3464,6 +3482,7 @@ export class BotRuntime {
 						requestEvent.createdAt,
 						requestMaxCompletionTokens,
 						providerPromptCacheSessionId(bot.id),
+						bot,
 					);
 				} catch (error) {
 					if (error instanceof ProviderResponseInterruptedError) {
@@ -3568,6 +3587,7 @@ export class BotRuntime {
 				if (response.requestBody) {
 					logs.push({ kind: 'provider_request', text: response.requestBody });
 				}
+				if (response.inferenceAttribution) logs.push({ kind: 'inference_attribution', text: JSON.stringify(response.inferenceAttribution) });
 				logs.push({ kind: 'provider_response', text: JSON.stringify(providerResponseLogPayload(response, responseStatus)) });
 				providerResponseLogsRecorded = true;
 				return logs;
@@ -3751,7 +3771,7 @@ export class BotRuntime {
 				try {
 					await this.renewProgressLease(bot.id, runId, runContext.signal);
 					this.setPendingTool(runId, toolCall, args, assistantMessage!, providerResponseGroup.current?.seq ?? null);
-					result = await this.executeTool(bot, runId, toolCall.function.name, args, runContext, (success) => {
+					result = await this.executeTool(bot, runId, toolCall.function.name, args, { ...runContext, inferenceAttribution: response.inferenceAttribution }, (success) => {
 						const recordedToolCall = success.effectiveArgs ? toolCallWithArguments(toolCall, JSON.stringify(providerToolArgs(success.name, success.effectiveArgs))) : toolCall;
 						appendAssistantToolResultPair(toolCall, { role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(success.providerResult) }, 'tool_result', 'complete', { displayEventSeq: success.displayEventSeq }, recordedToolCall);
 					});
@@ -3931,6 +3951,7 @@ export class BotRuntime {
 		createdAt = new Date().toISOString(),
 		maxCompletionTokens = providerContextCompletionReserveTokens,
 		promptCacheSessionId?: string,
+		bot?: BotDocument,
 	): Promise<ProviderResponse> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		let requestSettings = settings;
@@ -3973,6 +3994,7 @@ export class BotRuntime {
 				maxCompletionTokens,
 			);
 			const body = stringifyProviderRequest(request);
+			const inferenceAttribution = bot ? this.recordInferenceAttribution(request, bot, runId, streamSeq) : undefined;
 			calibrationAttempt += 1;
 			lastBody = body;
 
@@ -3992,7 +4014,7 @@ export class BotRuntime {
 						usage: response.usage,
 					});
 				}
-				return { ...response, requestBody: body };
+				return { ...response, requestBody: body, inferenceAttribution };
 			} catch (error) {
 				this.recordProviderTokenCalibrationSampleFromError({
 					attempt: calibrationAttempt,
@@ -4005,7 +4027,7 @@ export class BotRuntime {
 					settings: requestSettings,
 				});
 				if (error instanceof ProviderResponseInterruptedError) {
-					throw new ProviderResponseInterruptedError({ ...error.response, requestBody: body }, error.originalError);
+					throw new ProviderResponseInterruptedError({ ...error.response, requestBody: body, inferenceAttribution }, error.originalError);
 				}
 				if (error instanceof TickStoppedError || isAbortError(error)) {
 					throw error;
@@ -4157,7 +4179,7 @@ export class BotRuntime {
 		bot?: BotDocument,
 		initialReasoning?: CompactionAttemptReasoningState,
 	): Promise<
-		Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse'> & {
+		Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse' | 'inferenceAttribution'> & {
 			compactionReasoning: CompactionAttemptReasoningState;
 			content: string;
 		}
@@ -4215,6 +4237,7 @@ export class BotRuntime {
 				providerCompactionReasoningForSelection(attemptState.reasoning.selection),
 			);
 			const body = stringifyProviderRequest(request);
+			const inferenceAttribution = bot ? this.recordInferenceAttribution(request, bot, runId, requestSeq) : undefined;
 			try {
 				const response = await this.fetchProviderCompactionResponse(requestSettings, endpoint, body, signal, limits, mode);
 				if (response.usage) {
@@ -4235,6 +4258,7 @@ export class BotRuntime {
 					...response,
 					compactionReasoning: attemptState.reasoning,
 					requestBody: body,
+					inferenceAttribution,
 				};
 			} catch (error) {
 				this.recordProviderTokenCalibrationSampleFromError({
@@ -4352,6 +4376,7 @@ export class BotRuntime {
 				options: { streamSeq },
 				extraLogs: [
 					...(response.requestBody ? [{ kind: 'provider_request' as const, text: response.requestBody }] : []),
+					...(response.inferenceAttribution ? [{ kind: 'inference_attribution' as const, text: JSON.stringify(response.inferenceAttribution) }] : []),
 					{
 						kind: 'provider_response',
 						text: JSON.stringify(providerResponseLogPayload(response, 'invalid', dropped)),
@@ -4557,6 +4582,11 @@ export class BotRuntime {
 		const cause = options.cause ?? stringValue(payload.message) ?? 'Unexpected Bickr visit error.';
 		const message = ownerFacingRuntimeErrorMessage(cause) ?? 'Unexpected Bickr visit error.';
 		this.markPendingCompactionEventsFailed(runId, message);
+		const failedInference = logs.some(log => log.kind === 'provider_request' || log.kind === 'compaction_request')
+			? this.state.storage.sql.exec<{ attribution: string | null }>(
+				"SELECT json_extract(payload_json, '$.inferenceAttribution') AS attribution FROM events WHERE run_id = ? AND type IN ('provider_request', 'compaction') ORDER BY seq DESC LIMIT 1", runId,
+			).toArray()[0] : undefined;
+		const attribution = failedInference?.attribution ? JSON.parse(failedInference.attribution) as InferenceAttribution : undefined;
 		const loopMessage = this.appendLoopMessage(
 			runId,
 			{
@@ -4564,7 +4594,10 @@ export class BotRuntime {
 				content: runtimeErrorLoopMessageContent(cause),
 			},
 			'runtime_error',
+			'complete',
+			attribution ? { streamSeq: attribution.source.requestSeq } : {},
 		);
+		if (attribution) this.recordLoopMessageLog(loopMessage.seq, 'inference_attribution', JSON.stringify(attribution));
 		for (const log of logs) {
 			this.recordLoopMessageLog(loopMessage.seq, log.kind, log.text);
 		}
@@ -4639,11 +4672,30 @@ export class BotRuntime {
 		}
 		const requestUsage = row.stream_seq ? this.loopMessageRequestUsage(row.run_id, row.stream_seq) : undefined;
 		const requestMessages = this.loopMessageRequestMessages(response.logs, requestUsage);
+		const attributionLog = response.logs.find(log => log.kind === 'inference_attribution');
+		const inferenceAttribution = attributionLog ? JSON.parse(attributionLog.text) as InferenceAttribution : row.stream_seq ? this.eventInferenceAttribution(row.stream_seq) : undefined;
 		return {
 			...response,
 			...(requestMessages.length > 0 ? { requestMessages } : {}),
 			...(requestUsage ? { requestUsage } : {}),
+			...(inferenceAttribution ? { inferenceAttribution } : {}),
 		};
+	}
+
+	private recordInferenceAttribution(request: unknown, bot: BotDocument, runId: string, requestSeq: number): InferenceAttribution {
+		assertExecutionPublication();
+		const attribution = inferenceAttributionForRequest({ ...runtimeRecord(request), bickr: effectiveTickSettings(bot.tickSettings) }, {
+			botId: bot.id, worldHandle: bot.homeWorldHandle, botHandle: bot.handle, runId, requestSeq,
+		});
+		// The snapshot changes only while retrying this request. Artifact writes
+		// receive the successful response's copy, never mutable ambient state.
+		if (this.hasRuntimeStorage()) this.state.storage.sql.exec("UPDATE events SET payload_json = json_set(payload_json, '$.inferenceAttribution', json(?)) WHERE seq = ? AND run_id = ?", JSON.stringify(attribution), requestSeq, runId);
+		return attribution;
+	}
+
+	private eventInferenceAttribution(requestSeq: number): InferenceAttribution | undefined {
+		const row = this.state.storage.sql.exec<{ attribution: string | null }>("SELECT json_extract(payload_json, '$.inferenceAttribution') AS attribution FROM events WHERE seq = ? LIMIT 1", requestSeq).toArray()[0];
+		return row?.attribution ? JSON.parse(row.attribution) as InferenceAttribution : undefined;
 	}
 
 	private loopMessageRequestUsage(runId: string, requestSeq: number): BotLoopMessageRequestUsage | undefined {
@@ -5900,7 +5952,7 @@ export class BotRuntime {
 			appendEvent: this.appendEvent.bind(this),
 			replaceEventPayload: this.replaceEventPayload.bind(this),
 			throwIfStopped: this.throwIfStopped.bind(this),
-			forumService: this.forumService.bind(this),
+			forumService: (path, botId, body, signal) => this.forumService(path, botId, body, signal, runContext.inferenceAttribution),
 			vectorSearchBots: (worldId, query, limit) => vectorSearchBots(this.env, worldId, query, limit),
 			readCommentTreeTokenBudget: this.readCommentTreeTokenBudget.bind(this),
 			providerContentInActiveContext: this.providerContentInActiveContext.bind(this),
@@ -5922,16 +5974,16 @@ export class BotRuntime {
 			setLastSuccessfulLogOffSeq: (seq) => this.setLastSuccessfulLogOffSeq(seq, 'tool_result'),
 			listNotes: (cursor, limit, links, unknownFilters, includePlan) => this.notes.list(cursor, limit, links, unknownFilters, includePlan),
 			readNote: (id) => this.notes.read(id),
-			writeNote: (id, content, links) => this.writeNote(id, content, links),
+			writeNote: (id, content, links) => this.writeNote(id, content, links, runContext.inferenceAttribution),
 			deleteNote: (id) => this.deleteNote(id),
 			viewProfiles: (profileBot, usernames, profileRunId, seenVia) => this.viewProfilesForUsernames(profileBot, usernames, profileRunId, seenVia, true, false),
 		});
 		return tools.executeTool(bot, runId, name, args, runContext, onResult);
 	}
 
-	private writeNote(id: string, content: string, links: Parameters<BotNotesStore['write']>[2]): ReturnType<BotNotesStore['write']> {
+	private writeNote(id: string, content: string, links: Parameters<BotNotesStore['write']>[2], inferenceAttribution?: InferenceAttribution): ReturnType<BotNotesStore['write']> {
 		this.requireWritableRuntimeStorage();
-		return this.notes.write(id, content, links);
+		return this.notes.write(id, content, links, inferenceAttribution);
 	}
 
 	private deleteNote(id: string): ReturnType<BotNotesStore['delete']> {
@@ -5939,7 +5991,7 @@ export class BotRuntime {
 		return this.notes.delete(id);
 	}
 
-	private async forumService<T>(path: string, botId: string, body: unknown, signal: AbortSignal): Promise<T> {
+	private async forumService<T>(path: string, botId: string, body: unknown, signal: AbortSignal, inferenceAttribution?: InferenceAttribution): Promise<T> {
 		if (signal.aborted) throw new TickStoppedError();
 		try {
 		return await withAbortableTimeout(
@@ -5951,6 +6003,7 @@ export class BotRuntime {
 					'content-type': 'application/json',
 					'x-bickr-bot-id': botId,
 				});
+				if (inferenceAttribution) headers.set('x-bickr-inference-attribution', JSON.stringify(inferenceAttribution));
 				addInternalServiceAuthHeader(headers, this.env.INTERNAL_SERVICE_SECRET);
 				const response = await this.env.FORUM_COORDINATOR_SERVICE.fetch(
 					new Request(internalServiceUrl(path), {
@@ -7163,7 +7216,7 @@ export class BotRuntime {
 		const providerTools = providerToolsForBotRound(bot, settings).tools;
 		const providerActive = Boolean(settings.apiKey || settings.usesCustomBaseUrl || this.env.BICKR_SIMULATION_MODE === 'provider');
 		let response:
-			| (Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse'> & {
+			| (Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse' | 'inferenceAttribution'> & {
 					compactionReasoning: CompactionAttemptReasoningState;
 					content: string;
 			  })
@@ -7246,6 +7299,7 @@ export class BotRuntime {
 			} else {
 				this.replaceEventPayload(summaryEvent, {
 					...compactionEventPayload,
+					inferenceAttribution: this.eventInferenceAttribution(summaryEvent.seq),
 					status: 'pending',
 				});
 			}
@@ -7291,6 +7345,7 @@ export class BotRuntime {
 				const failedReasoning = failedCompactionReasoningDiagnostic(error);
 				this.replaceEventPayload(summaryEvent, {
 					...compactionEventPayload,
+					inferenceAttribution: this.eventInferenceAttribution(summaryEvent.seq),
 					...(failedReasoning ? { compactionReasoning: failedReasoning } : {}),
 					status: 'failed',
 					error: runtimeErrorText(error),
@@ -7342,6 +7397,7 @@ export class BotRuntime {
 				);
 			}
 			this.recordLoopMessageLog(summaryMessage.seq, 'message', JSON.stringify(summaryMessage.message));
+			if (response.inferenceAttribution) this.recordLoopMessageLog(summaryMessage.seq, 'inference_attribution', JSON.stringify(response.inferenceAttribution));
 			if (response.requestBody) {
 				this.recordLoopMessageLog(summaryMessage.seq, 'compaction_request', response.requestBody);
 			}
@@ -7350,6 +7406,7 @@ export class BotRuntime {
 			}
 			this.replaceEventPayloadWithoutBroadcast(summaryEvent, {
 				...compactionEventPayload,
+					inferenceAttribution: this.eventInferenceAttribution(summaryEvent.seq),
 				compactionReasoning: compactionReasoningDiagnostic(response.compactionReasoning),
 				status: 'complete',
 				summary,

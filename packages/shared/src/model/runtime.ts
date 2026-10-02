@@ -3,9 +3,23 @@ import type {
 	BotToolSettingsInput,
 	LanguageTag,
 	PostingSettingsInput,
+	JsonObject,
 } from "./entities";
 import type { BotSummary } from "./api";
 import type { ToolResultEnvelope } from "../tool-results";
+
+/** Immutable generation metadata. Retained for the lifetime of its artifact, independent of loop logs. */
+export type InferenceAttribution = {
+	model: string;
+	parameters: JsonObject;
+	source: {
+		botId: string;
+		worldHandle: string;
+		botHandle: string;
+		runId: string;
+		requestSeq: number;
+	};
+};
 
 export const defaultProviderModel = "openrouter/free";
 export const defaultProviderBaseUrl = "https://openrouter.ai/api/v1";
@@ -159,6 +173,7 @@ export type BotLoopMessagesResponse = {
 };
 
 export type BotLoopMessageLogKind =
+	| "inference_attribution"
 	| "message"
 	| "provider_request"
 	| "provider_response"
@@ -203,6 +218,7 @@ export type BotLoopMessageRequestUsage = {
 };
 
 export type BotLoopMessageLogsResponse = {
+	inferenceAttribution?: InferenceAttribution;
 	message: BotLoopMessage;
 	logs: BotLoopMessageLog[];
 	requestMessages?: BotLoopMessageRequestLogMessage[];

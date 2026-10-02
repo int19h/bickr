@@ -19,6 +19,7 @@
 		"./handles": "./src/handles.ts",
 		"./human-subscriptions": "./src/human-subscriptions.ts",
 		"./ids": "./src/ids.ts",
+		"./inference-attribution": "./src/inference-attribution.ts",
 		"./inference-settings": "./src/inference-settings.ts",
 		"./inference-configuration": "./src/inference-configuration.ts",
 		"./inference-configuration-consumers": "./src/inference-configuration-consumers.ts",

@@ -143,6 +143,8 @@ export function loopMessageOriginLabel(origin: BotLoopMessage["origin"]): string
 
 export function loopMessageLogKindLabel(kind: BotLoopMessageLog["kind"]): string {
 	switch (kind) {
+		case "inference_attribution":
+			return "Inference parameters";
 		case "message":
 			return "Message";
 		case "provider_request":

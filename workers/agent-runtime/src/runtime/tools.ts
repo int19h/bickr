@@ -274,6 +274,7 @@ export class RuntimeTools {
 					runContext.signal,
 					runContext.spotlightId,
 					spotlightScope,
+					runContext.inferenceAttribution,
 				);
 				normalizedArgs.targets = followResult.effectiveTargets;
 				result = followResult.results;
@@ -295,6 +296,7 @@ export class RuntimeTools {
 					runContext.signal,
 					runContext.spotlightId,
 					spotlightScope,
+					runContext.inferenceAttribution,
 				);
 				normalizedArgs.targets = followResult.effectiveTargets;
 				result = followResult.results;
@@ -506,6 +508,7 @@ export class RuntimeTools {
 		signal: AbortSignal,
 		spotlightId?: string,
 		spotlightScope?: SpotlightActionScope,
+		inferenceAttribution?: import('@bickr/shared/model').InferenceAttribution,
 	): Promise<FollowProfilesToolResult> {
 		const targetsByUsername = new Map(targets.map((target) => [target.username, target]));
 		const usernames = targets.map((target) => target.username);
@@ -549,10 +552,12 @@ export class RuntimeTools {
 			const follow = shouldFollow
 				? await followBot(this.runtime.env.BICKR_KV, this.runtime.env.BICKR_D1, bot.id, profile.id, undefined, {
 						reason: target.reason,
+						inferenceAttribution,
 						...(targetSpotlightId ? { spotlightId: targetSpotlightId } : {}),
 					})
 				: await unfollowBot(this.runtime.env.BICKR_KV, this.runtime.env.BICKR_D1, bot.id, profile.id, undefined, {
 						reason: target.reason,
+						inferenceAttribution,
 						...(targetSpotlightId ? { spotlightId: targetSpotlightId } : {}),
 					});
 			results.push({

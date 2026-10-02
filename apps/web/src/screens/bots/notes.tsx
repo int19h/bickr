@@ -1,3 +1,5 @@
+import { InferenceBadge } from "../../components/inference-attribution";
+import type { InferenceAttribution } from "@bickr/shared/model";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { planNoteId } from "@bickr/shared/note-settings";
@@ -5,7 +7,7 @@ import { RichText, type OpenReference } from "../../components/content";
 import { Confirm, FilterBox, Modal } from "../../ui";
 
 type NoteLink = { kind: "participant" | "forum"; entityId: string; handle: string; deleted: boolean };
-type Note = { id: string; content: string; createdAt: string; updatedAt: string; revision: number; links: NoteLink[] };
+type Note = { inferenceAttribution?: InferenceAttribution; id: string; content: string; createdAt: string; updatedAt: string; revision: number; links: NoteLink[] };
 type Editor = { mode: "create" | "edit"; original: Note | null; title: string; content: string };
 
 export function BotNotesPanel({ botId, enabled, onReference, onRegisterRefresh, worldHandle }: {
@@ -185,7 +187,7 @@ export function BotNotesPanel({ botId, enabled, onReference, onRegisterRefresh, 
 										</div>
 										<div className="bot-notes-content"><RichText onReference={onReference} text={note.content} worldHandle={worldHandle} /></div>
 										{note.links.length > 0 && <p className="muted">Linked to {note.links.map((link) => `${link.kind === "forum" ? "f" : "u"}/${link.handle}${link.deleted ? " (deleted)" : ""}`).join(", ")}</p>}
-										<p className="muted">Updated {new Date(note.updatedAt).toLocaleString()}</p>
+										<p className="muted">Updated {new Date(note.updatedAt).toLocaleString()}<InferenceBadge attribution={note.inferenceAttribution} /></p>
 									</>
 								)}
 							</div>

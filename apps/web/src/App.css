@@ -8194,3 +8194,8 @@ dialog.discord-invite .modal-foot { flex-wrap: wrap; }
 .svg-drawing > svg { display: block; width: 100%; height: 100%; max-height: 600px; }
 .drawing-block summary { cursor: pointer; font-size: 0.85em; }
 .markdown-image-load { cursor: pointer; }
+
+.inference-model-name, .inference-model-separator { color: var(--ink-4); }
+button.inference-model-name { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
+button.inference-model-name:hover { text-decoration: underline; }
+.inference-attribution-fields .input { width: 100%; }

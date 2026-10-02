@@ -301,6 +301,7 @@ export type ProviderUsage = {
 };
 
 export type ProviderResponse = {
+	inferenceAttribution?: import('@bickr/shared/model').InferenceAttribution;
 	content: string;
 	reasoning: string;
 	reasoningDetails: ReasoningDetail[];
@@ -565,6 +566,7 @@ export type PendingSpotlightTick = {
 };
 
 export type RunContext = {
+	inferenceAttribution?: import('@bickr/shared/model').InferenceAttribution;
 	mode: TickMode;
 	setupMode: LoopSetupMode;
 	spotlightId?: string;

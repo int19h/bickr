@@ -1,3 +1,5 @@
+import { storedInferenceAttribution } from "./inference-attribution";
+import type { InferenceAttribution } from "./model";
 import { isD1UniqueConstraintError } from "./d1-errors";
 import { deterministicId, formatCommentRef, formatThreadRef, isMadeId, isShortContentId, makeId, makeShortContentId, parseObjectRef, type ContentRef } from "./ids";
 import { entityIndexVersions } from "./index-versions";
@@ -335,6 +337,7 @@ type ThreadSummaryRow = Omit<ThreadSummary, "authorAvatarCrop" | "authorDisplayN
 	bodyPreview: string;
 	bodyPreviewLang: string | null;
 	lockCommentLimit: number | null;
+	inferenceAttributionJson?: string | null;
 };
 type SearchThreadResultRow = Omit<SearchThreadResult, "authorAvatarCrop" | "authorDisplayName" | "title" | "snippet"> & {
 	authorAvatarCrop: string | null;
@@ -344,6 +347,7 @@ type SearchThreadResultRow = Omit<SearchThreadResult, "authorAvatarCrop" | "auth
 	titleLang: string | null;
 	snippet: string;
 	snippetLang: string | null;
+	inferenceAttributionJson?: string | null;
 };
 type BotProfileListRow = {
 	id: string;
@@ -398,10 +402,12 @@ function threadSummaryFromRow(row: ThreadSummaryRow): ThreadSummary {
 		bodyPreview,
 		bodyPreviewLang,
 		lockCommentLimit,
+		inferenceAttributionJson,
 		...thread
 	} = row;
 	return {
 		...thread,
+		...storedInferenceAttribution(inferenceAttributionJson),
 		authorDisplayName: localizedTextFromIndex(authorDisplayName, authorDisplayNameLang),
 		title: localizedTextFromIndex(title, titleLang),
 		bodyPreview: localizedTextFromIndex(bodyPreview, bodyPreviewLang),
@@ -420,10 +426,12 @@ function searchThreadResultFromRow(row: SearchThreadResultRow): SearchThreadResu
 		titleLang,
 		snippet,
 		snippetLang,
+		inferenceAttributionJson,
 		...thread
 	} = row;
 	return {
 		...thread,
+		...storedInferenceAttribution(inferenceAttributionJson),
 		authorDisplayName: localizedTextFromIndex(authorDisplayName, authorDisplayNameLang),
 		title: localizedTextFromIndex(title, titleLang),
 		snippet: localizedTextFromIndex(snippet, snippetLang),
@@ -680,6 +688,7 @@ export async function listThreads(
 			`SELECT
 				t.thread_id AS id,
 				t.root_comment_id AS rootCommentId,
+				t.inference_attribution_json AS inferenceAttributionJson,
 				t.world_id AS worldId,
 				t.world_handle AS worldHandle,
 				t.forum_id AS forumId,
@@ -770,6 +779,7 @@ export async function listHotThreads(
 			`SELECT
 				t.thread_id AS id,
 				t.root_comment_id AS rootCommentId,
+				t.inference_attribution_json AS inferenceAttributionJson,
 				t.world_id AS worldId,
 				t.world_handle AS worldHandle,
 				t.forum_id AS forumId,
@@ -1679,6 +1689,7 @@ async function subscriptionThreadSummariesByIds(
 		(placeholders) => `SELECT
 			t.thread_id AS id,
 			t.root_comment_id AS rootCommentId,
+				t.inference_attribution_json AS inferenceAttributionJson,
 			t.world_id AS worldId,
 			t.world_handle AS worldHandle,
 			t.forum_id AS forumId,
@@ -2727,8 +2738,8 @@ async function insertBotActivityEvent(
 		.prepare(
 			`${input.replace ? "INSERT OR REPLACE" : "INSERT"} INTO bot_activity_events (
 				activity_id, world_id, bot_id, activity_type, target_type, target_id,
-				value, reason, reason_lang, created_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				value, reason, reason_lang, created_at, inference_attribution_json
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
 		.bind(
 			activityId,
@@ -2741,6 +2752,7 @@ async function insertBotActivityEvent(
 			reason?.text ?? null,
 			reason?.lang ?? null,
 			input.now,
+			input.inferenceAttribution ? JSON.stringify(input.inferenceAttribution) : null,
 		)
 		.run();
 	return activityId;
@@ -2785,6 +2797,7 @@ export async function createThread(
 	db: D1DatabaseLike,
 	input: CreateThreadInput,
 	now = new Date().toISOString(),
+	options: { inferenceAttribution?: InferenceAttribution } = {},
 ): Promise<ThreadDocument> {
 	const forum = await forumById(kv, db, input.forumId);
 	await assertForumAcceptsNewContent(db, forum.id);
@@ -2827,6 +2840,7 @@ export async function createThread(
 		// No avatar is persisted: hydrateThreadForRead derives it on every read
 		// path from the author's current one (§2.7).
 		body,
+		...(options.inferenceAttribution ? { inferenceAttribution: options.inferenceAttribution } : {}),
 		voteScore: 0,
 		createdAt: now,
 		updatedAt: now,
@@ -2952,7 +2966,7 @@ export async function createComment(
 	db: D1DatabaseLike,
 	input: CreateCommentInput,
 	now = new Date().toISOString(),
-	options: { thread?: ThreadDocument } = {},
+	options: { thread?: ThreadDocument; inferenceAttribution?: InferenceAttribution } = {},
 ): Promise<CreateCommentResult> {
 	const thread = normalizeThreadDefaults(options.thread ?? await readThread(kv, input.threadId));
 	if (thread.id !== input.threadId) {
@@ -2994,6 +3008,7 @@ export async function createComment(
 		// path from the author's current one (§2.7).
 		parentCommentId,
 		body,
+		...(options.inferenceAttribution ? { inferenceAttribution: options.inferenceAttribution } : {}),
 		voteScore: 0,
 		createdAt: now,
 		updatedAt: now,
@@ -3084,7 +3099,7 @@ export async function setVote(
 	db: D1DatabaseLike,
 	input: VoteInput,
 	now = new Date().toISOString(),
-	options: { thread?: ThreadDocument; spotlightId?: string; spotlightLabel?: string } = {},
+	options: { thread?: ThreadDocument; spotlightId?: string; spotlightLabel?: string; inferenceAttribution?: InferenceAttribution } = {},
 ): Promise<ThreadDocument> {
 	const voter = await botById(kv, db, input.botId);
 	const target = await resolveVoteTarget(kv, db, input, options.thread);
@@ -3128,13 +3143,14 @@ export async function setVote(
 		await db
 			.prepare(
 				`INSERT INTO votes (
-					world_id, target_type, target_id, bot_id, value, created_at, updated_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?)
+					world_id, target_type, target_id, bot_id, value, created_at, updated_at, inference_attribution_json
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(target_type, target_id, bot_id) DO UPDATE SET
 					value = excluded.value,
+					inference_attribution_json = excluded.inference_attribution_json,
 					updated_at = excluded.updated_at`,
 			)
-			.bind(target.thread.worldId, voteInput.targetType, voteInput.targetId, voteInput.botId, voteInput.value, now, now)
+			.bind(target.thread.worldId, voteInput.targetType, voteInput.targetId, voteInput.botId, voteInput.value, now, now, options.inferenceAttribution ? JSON.stringify(options.inferenceAttribution) : null)
 			.run();
 	}
 
@@ -3158,6 +3174,7 @@ export async function setVote(
 			targetId: voteInput.targetId,
 			value: voteInput.value,
 			reason: voteInput.reason,
+			inferenceAttribution: options.inferenceAttribution,
 			now,
 			replace: true,
 		});
@@ -3407,7 +3424,7 @@ export async function followBot(
 	followerBotId: string,
 	followedBotId: string,
 	now = new Date().toISOString(),
-	options: { reason?: LocalizedText | string; spotlightId?: string; spotlightLabel?: string } = {},
+	options: { reason?: LocalizedText | string; spotlightId?: string; spotlightLabel?: string; inferenceAttribution?: InferenceAttribution } = {},
 ): Promise<{ activityId?: string; following: boolean }> {
 	if (followerBotId === followedBotId) {
 		throw repositoryError("bad_request", "A bot cannot follow itself.", 400);
@@ -3424,10 +3441,10 @@ export async function followBot(
 	if (!existing) {
 		await db
 			.prepare(
-				`INSERT INTO follows (world_id, follower_bot_id, followed_bot_id, created_at)
-				 VALUES (?, ?, ?, ?)`,
+				`INSERT INTO follows (world_id, follower_bot_id, followed_bot_id, created_at, inference_attribution_json)
+				 VALUES (?, ?, ?, ?, ?)`,
 			)
-			.bind(follower.homeWorldId, followerBotId, followedBotId, now)
+			.bind(follower.homeWorldId, followerBotId, followedBotId, now, options.inferenceAttribution ? JSON.stringify(options.inferenceAttribution) : null)
 			.run();
 		activityId = await insertBotActivityEvent(db, {
 			worldId: follower.homeWorldId,
@@ -3436,6 +3453,7 @@ export async function followBot(
 			targetType: "bot",
 			targetId: followed.id,
 			reason: options.reason,
+			inferenceAttribution: options.inferenceAttribution,
 			now,
 		});
 		// Follows are the followee's news only; who else follows the follower is
@@ -3473,7 +3491,7 @@ export async function unfollowBot(
 	followerBotId: string,
 	followedBotId: string,
 	now = new Date().toISOString(),
-	options: { reason?: LocalizedText | string; spotlightId?: string; spotlightLabel?: string } = {},
+	options: { reason?: LocalizedText | string; spotlightId?: string; spotlightLabel?: string; inferenceAttribution?: InferenceAttribution } = {},
 ): Promise<{ activityId?: string; following: boolean }> {
 	const follower = await botById(kv, db, followerBotId);
 	const followed = await botById(kv, db, followedBotId);
@@ -3495,6 +3513,7 @@ export async function unfollowBot(
 			targetType: "bot",
 			targetId: followed.id,
 			reason: options.reason,
+			inferenceAttribution: options.inferenceAttribution,
 			now,
 		});
 		// The mirror of the follow notification: the followee is told, and the
@@ -4041,6 +4060,7 @@ export async function searchThreads(
 				`SELECT
 					t.thread_id AS threadId,
 					t.root_comment_id AS rootCommentId,
+				t.inference_attribution_json AS inferenceAttributionJson,
 					t.root_comment_id AS commentId,
 					t.forum_handle AS forumHandle,
 					t.title,
@@ -4070,6 +4090,7 @@ export async function searchThreads(
 				`SELECT
 					c.thread_id AS threadId,
 					c.comment_id AS commentId,
+					c.inference_attribution_json AS inferenceAttributionJson,
 					t.forum_handle AS forumHandle,
 					t.title AS title,
 					t.title_lang AS titleLang,
@@ -4115,6 +4136,7 @@ export async function searchForumThreads(
 				`SELECT
 					t.thread_id AS threadId,
 					t.root_comment_id AS rootCommentId,
+				t.inference_attribution_json AS inferenceAttributionJson,
 					t.root_comment_id AS commentId,
 					t.forum_handle AS forumHandle,
 					t.title,
@@ -4144,6 +4166,7 @@ export async function searchForumThreads(
 				`SELECT
 					c.thread_id AS threadId,
 					c.comment_id AS commentId,
+					c.inference_attribution_json AS inferenceAttributionJson,
 					t.forum_handle AS forumHandle,
 					t.title AS title,
 					t.title_lang AS titleLang,
@@ -4219,13 +4242,13 @@ function activityQueryScope(scope: ActivityScope, source: ActivityQuerySource): 
 
 function activityFromScopeRow<T extends BotActivityItem>(
 	scope: ActivityScope,
-	row: Partial<WorldActivityActorRow>,
+	row: Partial<WorldActivityActorRow> & { inferenceAttributionJson?: string | null },
 	activity: T,
 ): T {
 	if (scope.scope === "bot") {
-		return activity;
+		return { ...activity, ...storedInferenceAttribution(row.inferenceAttributionJson) };
 	}
-	return worldActivityFromRow(worldActivityActorRow(row), activity);
+	return worldActivityFromRow(worldActivityActorRow(row), { ...activity, ...storedInferenceAttribution(row.inferenceAttributionJson) });
 }
 
 function worldActivityActorRow(row: Partial<WorldActivityActorRow>): WorldActivityActorRow {
@@ -4277,6 +4300,7 @@ async function threadActivities(
 			`SELECT
 				t.thread_id AS threadId,
 				t.root_comment_id AS rootCommentId,
+				t.inference_attribution_json AS inferenceAttributionJson,
 				t.world_handle AS worldHandle,
 				t.forum_handle AS forumHandle,
 				t.title,
@@ -4294,6 +4318,7 @@ async function threadActivities(
 		)
 		.bind(scope.id, limit)
 		.all<Partial<WorldActivityActorRow> & {
+			inferenceAttributionJson?: string | null;
 			threadId: string;
 			rootCommentId: string;
 			worldHandle: string;
@@ -4334,6 +4359,7 @@ async function commentActivities(
 	const result = await db
 		.prepare(
 			`SELECT
+				c.inference_attribution_json AS inferenceAttributionJson,
 				c.comment_id AS commentId,
 				c.thread_id AS threadId,
 				c.parent_comment_id AS parentCommentId,
@@ -4362,6 +4388,7 @@ async function commentActivities(
 		)
 		.bind(scope.id, limit)
 		.all<Partial<WorldActivityActorRow> & {
+			inferenceAttributionJson?: string | null;
 			commentId: string;
 			threadId: string;
 			parentCommentId: string | null;
@@ -4419,6 +4446,7 @@ async function voteEventActivities(
 	const result = await db
 		.prepare(
 			`SELECT
+				e.inference_attribution_json AS inferenceAttributionJson,
 				e.target_id AS targetId,
 				e.value AS value,
 				e.reason,
@@ -4451,6 +4479,7 @@ async function voteEventActivities(
 		)
 		.bind(scope.id, limit)
 		.all<Partial<WorldActivityActorRow> & {
+			inferenceAttributionJson?: string | null;
 			targetId: string;
 			value: number;
 			reason: string | null;
@@ -4511,6 +4540,7 @@ async function followActivities(
 	const result = await db
 		.prepare(
 			`SELECT
+				f.inference_attribution_json AS inferenceAttributionJson,
 				f.followed_bot_id AS followedBotId,
 				f.created_at AS createdAt,
 				b.home_world_id AS homeWorldId,
@@ -4540,6 +4570,7 @@ async function followActivities(
 		)
 		.bind(scope.id, limit)
 		.all<Partial<WorldActivityActorRow> & {
+			inferenceAttributionJson?: string | null;
 			followedBotId: string;
 			createdAt: string;
 			homeWorldId: string;
@@ -4589,6 +4620,7 @@ async function followEventActivities(
 	const result = await db
 		.prepare(
 			`SELECT
+				e.inference_attribution_json AS inferenceAttributionJson,
 				e.activity_id AS activityId,
 				e.activity_type AS activityType,
 				e.reason,
@@ -4620,6 +4652,7 @@ async function followEventActivities(
 		)
 		.bind(scope.id, limit)
 		.all<Partial<WorldActivityActorRow> & {
+			inferenceAttributionJson?: string | null;
 			activityId: string;
 			activityType: "follow" | "unfollow";
 			reason: string | null;
@@ -4870,6 +4903,7 @@ type BotActivityNotificationOptions = {
 };
 
 type BotActivityEventInput = {
+	inferenceAttribution?: InferenceAttribution;
 	activityId?: string;
 	worldId: string;
 	botId: string;
@@ -7799,8 +7833,8 @@ async function upsertThreadIndex(db: D1DatabaseLike, thread: ThreadDocument): Pr
 				thread_id, root_comment_id, world_id, world_handle, forum_id, forum_handle, author_bot_id,
 				author_handle, author_display_name, author_display_name_lang, title, title_lang,
 				body_preview, body_preview_lang, search_text, vote_score,
-				comment_count, recent_comment_count, created_at, last_activity_at, deleted_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				comment_count, recent_comment_count, created_at, last_activity_at, deleted_at, inference_attribution_json
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(thread_id) DO UPDATE SET
 				root_comment_id = excluded.root_comment_id,
 				world_id = excluded.world_id,
@@ -7820,7 +7854,8 @@ async function upsertThreadIndex(db: D1DatabaseLike, thread: ThreadDocument): Pr
 				comment_count = excluded.comment_count,
 				recent_comment_count = excluded.recent_comment_count,
 				last_activity_at = excluded.last_activity_at,
-				deleted_at = excluded.deleted_at`,
+				deleted_at = excluded.deleted_at,
+				inference_attribution_json = excluded.inference_attribution_json`,
 		)
 		.bind(
 			thread.id,
@@ -7844,6 +7879,7 @@ async function upsertThreadIndex(db: D1DatabaseLike, thread: ThreadDocument): Pr
 			thread.createdAt,
 			thread.lastActivityAt,
 			thread.deletedAt ?? null,
+			root.inferenceAttribution ? JSON.stringify(root.inferenceAttribution) : null,
 		)
 		.run();
 }
@@ -7859,8 +7895,8 @@ async function upsertCommentIndex(
 		.prepare(
 			`INSERT INTO comments_index (
 				comment_id, thread_id, world_id, forum_id, author_bot_id, author_handle,
-				parent_comment_id, body_preview, body_preview_lang, search_text, vote_score, created_at, deleted_at, is_root
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				parent_comment_id, body_preview, body_preview_lang, search_text, vote_score, created_at, deleted_at, is_root, inference_attribution_json
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(comment_id) DO UPDATE SET
 				parent_comment_id = excluded.parent_comment_id,
 				body_preview = excluded.body_preview,
@@ -7868,7 +7904,8 @@ async function upsertCommentIndex(
 				search_text = excluded.search_text,
 				vote_score = excluded.vote_score,
 				deleted_at = excluded.deleted_at,
-				is_root = excluded.is_root`,
+				is_root = excluded.is_root,
+				inference_attribution_json = excluded.inference_attribution_json`,
 		)
 		.bind(
 			comment.id,
@@ -7885,6 +7922,7 @@ async function upsertCommentIndex(
 			comment.createdAt,
 			comment.deletedAt ?? null,
 			comment.id === thread.rootCommentId ? 1 : 0,
+			comment.inferenceAttribution ? JSON.stringify(comment.inferenceAttribution) : null,
 		)
 		.run();
 }

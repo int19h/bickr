@@ -1,3 +1,4 @@
+import { parseInferenceAttribution } from "@bickr/shared/inference-attribution";
 import { fail, ok, readJsonBody } from "@bickr/shared/api";
 import { isD1UniqueConstraintError } from "@bickr/shared/d1-errors";
 import { ExclusiveOperationQueue } from "@bickr/shared/exclusive-operation-queue";
@@ -599,7 +600,7 @@ async function handleThreadCoordinatorMutation(
 			...input,
 			forumId,
 			authorBotId: actor.botId,
-		});
+		}, undefined, { inferenceAttribution: attributionFromRequest(request, actor.botId) });
 		return okThread(coordinator, overlay, { thread }, { status: 201 });
 	}
 
@@ -638,6 +639,7 @@ async function handleCommentCoordinatorMutation(
 			authorBotId: actor.botId,
 		}, undefined, {
 			...(latestThread ? { thread: latestThread } : {}),
+			inferenceAttribution: attributionFromRequest(request, actor.botId),
 		});
 		await writeFreshThread(coordinator, thread);
 		return okThread(coordinator, overlay, { thread, comment }, { status: 201 });
@@ -693,6 +695,7 @@ async function createCommentReply(
 		authorBotId: actor.botId,
 	}, undefined, {
 		...(latestThread ? { thread: latestThread } : {}),
+		inferenceAttribution: attributionFromRequest(request, actor.botId),
 	});
 	await writeFreshThread(coordinator, thread);
 	return okThread(coordinator, overlay, { thread, comment }, { status: 201 });
@@ -826,6 +829,7 @@ async function handleVoteCoordinatorMutation(
 	}, undefined, {
 		...(latestThread ? { thread: latestThread } : {}),
 		...(spotlightId ? { spotlightId } : {}),
+		inferenceAttribution: attributionFromRequest(request, actor.botId),
 	});
 	await writeFreshThread(coordinator, thread);
 	return okThread(coordinator, overlay, { thread });
@@ -1589,7 +1593,7 @@ function requireBotActor(request: Request): { botId: string } {
 
 function jsonRequest(env: InternalServiceAuthEnv, url: URL, original: Request, body: unknown): Request {
 	const headers = new Headers();
-	for (const name of ["x-bickr-user-id", "x-bickr-bot-id", "x-bickr-thread-id"]) {
+	for (const name of ["x-bickr-user-id", "x-bickr-bot-id", "x-bickr-thread-id", "x-bickr-inference-attribution"]) {
 		const value = original.headers.get(name);
 		if (value !== null) {
 			headers.set(name, value);
@@ -1628,4 +1632,13 @@ function errorResponse(error: unknown): Response {
 
 	console.error("forum coordinator error", error);
 	return fail("server_error", "Unexpected forum coordinator error.", 500);
+}
+
+function attributionFromRequest(request: Request, botId: string) {
+	const value = request.headers.get("x-bickr-inference-attribution");
+	if (!value) return undefined;
+	if (value.length > 16_384) throw new InputError("Inference attribution exceeds its size limit.");
+	let parsed: unknown;
+	try { parsed = JSON.parse(value); } catch { throw new InputError("Inference attribution must be valid JSON."); }
+	return parseInferenceAttribution(parsed, botId);
 }

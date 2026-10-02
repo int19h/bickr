@@ -1,3 +1,4 @@
+import { InferenceBadge } from "../../components/inference-attribution";
 import type {
 	BotActivityItem,
 	BotPublicProfile,
@@ -79,11 +80,13 @@ export function BotActivityCard({
 							displayName={actor.displayName}
 							handle={actor.handle}
 							worldHandle={actor.homeWorldHandle}
-						/>{" "}
+						/>
+						<InferenceBadge attribution={activity.inferenceAttribution} />{" "}
 						/{" "}
 					</>
 				)}
 				<BotActivityTitle activity={activity} onReference={onReference} summary={summary} />
+				{!actor && <InferenceBadge attribution={activity.inferenceAttribution} />}
 			</span>
 			<BotActivityBody activity={activity} onReference={onReference} />
 			<span className="activity-meta">
