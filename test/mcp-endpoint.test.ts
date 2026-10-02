@@ -986,11 +986,11 @@ describe("MCP endpoint", () => {
 			structuredContent: { failed: 1, indeterminate: 0, results: [{ status: "failed", error: { ok: false, error: "bad_request" } }] },
 		});
 		expect(await markRead("bot_mcp_paused", [])).toMatchObject({
-			structuredContent: { results: [{ status: "failed", error: { error: "bad_request" } }] },
+			structuredContent: { error: "bad_request", keyword: "minItems" },
 		});
 		expect(await call("mark_bot_notifications_read", {
 			operations: [{ operationId: "mark-bad-shape", botId: "bot_mcp_paused", notificationIds: "ntf_mcp_old" }],
-		})).toMatchObject({ structuredContent: { results: [{ status: "failed", error: { error: "bad_request" } }] } });
+		})).toMatchObject({ structuredContent: { error: "bad_request", keyword: "type" } });
 		expect(await markRead("bot_mcp_missing", ["ntf_mcp_old"])).toMatchObject({
 			structuredContent: { results: [{ status: "failed", error: { error: "not_found" } }] },
 		});
@@ -1854,7 +1854,7 @@ describe("MCP endpoint", () => {
 		expect(rejected.callCount).toBe(0);
 		expect(rejected.result).toMatchObject({
 			isError: true,
-			structuredContent: { message: expect.stringContaining("At most 20 operations") },
+			structuredContent: { error: "bad_request", keyword: "maxItems" },
 		});
 	});
 
@@ -1906,7 +1906,40 @@ describe("MCP endpoint", () => {
 		const body = await jsonResponse(response);
 
 		expect(callCount).toBe(0);
-		expect(body.result).toMatchObject({ isError: true, structuredContent: { message: expect.stringContaining("threadId") } });
+		expect(body.result).toMatchObject({ isError: true, structuredContent: { error: "bad_request", keyword: "required" } });
+	});
+
+	it("enforces published input constraints before any service request or bulk operation", async () => {
+		const kv = new MapKV();
+		const accessToken = await issueAccessToken(kv, ["bickr.read", "bickr.write", "bickr.runtime"]);
+		let callCount = 0;
+		const services = { AGENT_RUNTIME: { fetch: async () => { callCount++; return Response.json({ ok: true, data: { accepted: true } }); } }, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" };
+		const cases: Array<{ name: string; args: unknown; keyword: string }> = [
+			{ name: "get_runtime_status", args: {}, keyword: "required" },
+			{ name: "inject_runtime", args: { operations: [{ operationId: "one", botId: "bot" }] }, keyword: "required" },
+			{ name: "get_profile", args: { extra: true }, keyword: "additionalProperties" },
+			{ name: "list_threads", args: { worldHandle: "world", forumHandle: "forum", sort: "unsupported" }, keyword: "enum" },
+			{ name: "update_world", args: { operations: [{ operationId: "one", worldHandle: "world", recurringPromptEnabled: "false" }] }, keyword: "type" },
+			{ name: "update_world", args: { operations: [{ operationId: "one", worldHandle: "world", threadSettings: { commentLimit: 0 } }] }, keyword: "minimum" },
+			{ name: "add_group_bots", args: { operations: [{ operationId: "one", worldHandle: "world", groupId: "group", botIds: [1] }] }, keyword: "type" },
+			{ name: "update_world", args: { operations: [{ operationId: "one", worldHandle: null }] }, keyword: "type" },
+			// Validate the entire batch before its first side effect.
+			{ name: "inject_runtime", args: { operations: [{ operationId: "valid", botId: "bot", text: "hello" }, { operationId: "invalid", botId: 4, text: "hello" }] }, keyword: "type" },
+		];
+		for (const entry of cases) {
+			const response = await callMcp(kv, accessToken, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: entry.name, arguments: entry.args } }, services);
+			expect((await jsonResponse(response)).result).toMatchObject({ isError: true, structuredContent: { error: "bad_request", keyword: entry.keyword } });
+		}
+		for (const args of [null, [], false, "wrong"]) {
+			const response = await callMcp(kv, accessToken, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "get_profile", arguments: args } }, services);
+			expect((await jsonResponse(response)).result).toMatchObject({ isError: true, structuredContent: { error: "bad_request" } });
+		}
+		expect(callCount).toBe(0);
+		const response = await callMcp(kv, accessToken, { jsonrpc: "2.0", id: 1, method: "tools/call", params: {
+			name: "inject_runtime", arguments: { operations: [{ operationId: "nullable", botId: "bot", text: "hello", body: null }] },
+		} }, services);
+		expect((await jsonResponse(response)).result).toMatchObject({ structuredContent: { succeeded: 1 } });
+		expect(callCount).toBe(1);
 	});
 
 	it("rejects JSON-RPC batch request bodies for the advertised MCP protocol", async () => {

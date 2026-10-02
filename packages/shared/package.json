@@ -72,7 +72,8 @@
 		"./auth-principal": "./src/auth-principal.ts",
 		"./auth-sessions": "./src/auth-sessions.ts",
 		"./auth-migration": "./src/auth-migration.ts",
-		"./auth-credentials": "./src/auth-credentials.ts"
+		"./auth-credentials": "./src/auth-credentials.ts",
+		"./input-schema": "./src/input-schema.ts"
 	},
 	"dependencies": {
 		"mdast-util-math": "^3.0.0",
