@@ -1,4 +1,4 @@
-import { softDeleteThread } from "@bickr/shared/social";
+import { softDeleteThread, readThread } from "@bickr/shared/social";
 import { repairOwnedObjectIndex } from "@bickr/shared/index-repair";
 import {
 	authCookie,
@@ -35,7 +35,7 @@ describe("KV-to-index repair sweep", () => {
 		await runRepairObjectIndexes({ ...ownerEnv, repairOwnedObject: async (request) => {
 			if (request.id === thread.id) {
 				routed += 1;
-				await softDeleteThread(testEnv.BICKR_KV, testEnv.BICKR_D1, thread);
+				await softDeleteThread(testEnv.BICKR_KV, testEnv.BICKR_D1, await readThread(testEnv.BICKR_KV, thread.id));
 			}
 			return repairOwnedObjectIndex(ownerEnv, request);
 		} });

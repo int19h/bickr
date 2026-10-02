@@ -2797,7 +2797,7 @@ export async function createThread(
 	db: D1DatabaseLike,
 	input: CreateThreadInput,
 	now = new Date().toISOString(),
-	options: { inferenceAttribution?: InferenceAttribution } = {},
+	options: { inferenceAttribution?: InferenceAttribution; contentIdDb?: D1DatabaseLike } = {},
 ): Promise<ThreadDocument> {
 	const forum = await forumById(kv, db, input.forumId);
 	await assertForumAcceptsNewContent(db, forum.id);
@@ -2827,7 +2827,7 @@ export async function createThread(
 		);
 	}
 
-	const threadId = await reserveContentId(db, "thread", now);
+	const threadId = await reserveContentId(options.contentIdDb ?? db, "thread", now);
 	const rootCommentId = rootCommentIdForThreadId(threadId);
 	const rootComment: CommentDocument = {
 		id: rootCommentId,
@@ -2966,7 +2966,7 @@ export async function createComment(
 	db: D1DatabaseLike,
 	input: CreateCommentInput,
 	now = new Date().toISOString(),
-	options: { thread?: ThreadDocument; inferenceAttribution?: InferenceAttribution } = {},
+	options: { thread?: ThreadDocument; inferenceAttribution?: InferenceAttribution; contentIdDb?: D1DatabaseLike } = {},
 ): Promise<CreateCommentResult> {
 	const thread = normalizeThreadDefaults(options.thread ?? await readThread(kv, input.threadId));
 	if (thread.id !== input.threadId) {
@@ -2997,7 +2997,7 @@ export async function createComment(
 	requiredPostingBody(body.text, "Comment body", postingHardLimit(postingSettings.commentBodyCharacters));
 
 	const comment: CommentDocument = {
-		id: await reserveContentId(db, "comment", now),
+		id: await reserveContentId(options.contentIdDb ?? db, "comment", now),
 		threadId: thread.id,
 		worldId: thread.worldId,
 		forumId: thread.forumId,
