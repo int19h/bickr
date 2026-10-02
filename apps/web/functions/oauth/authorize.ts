@@ -9,7 +9,7 @@ import {
 } from "@bickr/shared/mcp-auth";
 import { InputError } from "@bickr/shared/validation";
 import { type AppEnv } from "../api/_auth";
-import { currentBrowserUser, requireBrowserConsentUser } from "../api/_browser-auth";
+import { browserConsentHeaders, currentBrowserUser, requireBrowserConsentUser, type BrowserConsentPageKind } from "../api/_browser-auth";
 import { oauthRequestParams } from "./_request";
 import { oauthErrorResponse } from "./_errors";
 
@@ -81,7 +81,7 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 		// A completed document ends the form navigation before the callback begins.
 		// The ordinary script-src 'self' permits this fixed script. Callback URLs
 		// never become script source or weaken the application's form-action.
-		return htmlPage("Bickr MCP Authorized", `
+		return htmlPage("complete", "Bickr MCP Authorized", `
 			<p>Authorization is complete. Return to your MCP client.</p>
 			<p><a id="bickr-oauth-callback" href="${escapeHtml(redirect.toString())}" rel="noreferrer">Continue to the MCP client</a></p>
 			<script src="/assets/oauth-callback.js" defer></script>
@@ -126,12 +126,13 @@ function authorizePageResponse(
 		case "unregistered_redirect":
 		case "invalid_registered_redirect":
 			return htmlPage(
+				"form",
 				"Bickr MCP Authorization",
 				"<p>This MCP client is not registered correctly.</p>",
 				400,
 			);
 		case "sign_in":
-			return htmlPage("Bickr MCP Authorization", `
+			return htmlPage("form", "Bickr MCP Authorization", `
 				<p>Sign in to authorize <strong>${escapeHtml(page.clientName)}</strong> for Bickr.</p>
 				<p class="actions">
 					<a class="button" href="${escapeHtml(oauthStartUrl(context.request, "github"))}">Sign in with GitHub</a>
@@ -139,12 +140,12 @@ function authorizePageResponse(
 				</p>
 			`);
 		case "incomplete_profile":
-			return htmlPage("Bickr MCP Authorization", `
+			return htmlPage("form", "Bickr MCP Authorization", `
 				<p>Complete your Bickr profile before authorizing this MCP client.</p>
 				<p class="actions"><a class="button" href="/me/profile">Complete profile</a></p>
 			`);
 		case "consent":
-			return htmlPage("Authorize Bickr MCP", consentForm(page.clientName, page.userHandle, page.params));
+			return htmlPage("form", "Authorize Bickr MCP", consentForm(page.clientName, page.userHandle, page.params));
 	}
 }
 
@@ -234,7 +235,7 @@ function requiredParam(params: URLSearchParams, name: string): string {
 	return value;
 }
 
-function htmlPage(title: string, body: string, status = 200): Response {
+function htmlPage(kind: BrowserConsentPageKind, title: string, body: string, status = 200): Response {
 	return new Response(`<!doctype html>
 <html lang="en">
 <head>
@@ -254,11 +255,7 @@ function htmlPage(title: string, body: string, status = 200): Response {
 <body><main><h1>${escapeHtml(title)}</h1>${body}</main></body>
 </html>`, {
 		status,
-		headers: {
-			"cache-control": "no-store",
-			"content-type": "text/html; charset=utf-8",
-			"referrer-policy": "no-referrer",
-		},
+		headers: browserConsentHeaders(kind),
 	});
 }
 

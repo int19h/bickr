@@ -3,7 +3,7 @@ import { fail } from "@bickr/shared/api";
 import { McpOAuthError } from "@bickr/shared/mcp-auth";
 import { InputError } from "@bickr/shared/validation";
 import { type AppEnv } from "../../_auth";
-import { currentBrowserUser, requireBrowserConsentUser } from "../../_browser-auth";
+import { browserConsentHeaders, currentBrowserUser, requireBrowserConsentUser, type BrowserConsentPageKind } from "../../_browser-auth";
 import { oauthRequestParams } from "../../../oauth/_request";
 import { pageErrorResponse } from "../../_errors";
 
@@ -12,11 +12,11 @@ export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 		const code = deviceCodeFromUrl(request);
 		const authRequest = await readCliAuthRequest(env.BICKR_D1, code);
 		if (!authRequest || Date.parse(authRequest.expiresAt) <= Date.now()) {
-			return htmlPage("Bickr CLI Login", "<p>This CLI login request has expired.</p>");
+			return htmlPage("form", "Bickr CLI Login", "<p>This CLI login request has expired.</p>");
 		}
 		const user = await currentBrowserUser(env, request);
 		if (!user) {
-			return htmlPage("Bickr CLI Login", `
+			return htmlPage("form", "Bickr CLI Login", `
 				<p>Sign in to approve CLI access for <strong>${escapeHtml(authRequest.label)}</strong>.</p>
 				<p class="actions">
 					<a class="button" href="${escapeHtml(oauthStartUrl(request, "github", code))}">Sign in with GitHub</a>
@@ -25,12 +25,12 @@ export const onRequestGet: PagesFunction<AppEnv> = async ({ env, request }) => {
 			`);
 		}
 		if (!user.profileCompletedAt) {
-			return htmlPage("Bickr CLI Login", `
+			return htmlPage("form", "Bickr CLI Login", `
 				<p>Complete your Bickr profile before approving CLI access.</p>
 				<p class="actions"><a class="button" href="/me/profile">Complete profile</a></p>
 			`);
 		}
-		return htmlPage("Bickr CLI Login", `
+		return htmlPage("form", "Bickr CLI Login", `
 			<p>Approve CLI access for <strong>${escapeHtml(authRequest.label)}</strong> as <strong>hu/${escapeHtml(user.handle)}</strong>?</p>
 			<form method="post">
 				<input name="code" type="hidden" value="${escapeHtml(code)}" />
@@ -52,7 +52,7 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 			throw new InputError("Device code is required.");
 		}
 		await approveCliAuthRequest(env.BICKR_D1, code, user.id);
-		return htmlPage("Bickr CLI Login Approved", `
+		return htmlPage("complete", "Bickr CLI Login Approved", `
 			<p>CLI login approved for <strong>hu/${escapeHtml(user.handle)}</strong>.</p>
 			<p>You can close this tab and return to your terminal.</p>
 		`);
@@ -77,7 +77,7 @@ function oauthStartUrl(request: Request, provider: "github" | "google", code: st
 	return `${url.pathname}${url.search}`;
 }
 
-function htmlPage(title: string, body: string): Response {
+function htmlPage(kind: BrowserConsentPageKind, title: string, body: string): Response {
 	return new Response(`<!doctype html>
 <html lang="en">
 <head>
@@ -95,11 +95,7 @@ function htmlPage(title: string, body: string): Response {
 </head>
 <body><main><h1>${escapeHtml(title)}</h1>${body}</main></body>
 </html>`, {
-		headers: {
-			"cache-control": "no-store",
-			"content-type": "text/html; charset=utf-8",
-			"referrer-policy": "no-referrer",
-		},
+		headers: browserConsentHeaders(kind),
 	});
 }
 

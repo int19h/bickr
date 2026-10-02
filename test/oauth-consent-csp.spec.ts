@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { onRequest as middleware, contentSecurityPolicy } from "../apps/web/functions/_middleware";
 import { onRequestGet, onRequestPost } from "../apps/web/functions/oauth/authorize";
-import { onRequestPost as cliApprove } from "../apps/web/functions/api/cli/auth/approve";
+import { onRequestGet as cliConsent, onRequestPost as cliApprove } from "../apps/web/functions/api/cli/auth/approve";
 import { exchangeMcpAuthorizationCode, mcpRedirectOrigin, registerMcpClient } from "../packages/shared/src/mcp-auth";
 import { createCliAuthRequest, approveCliAuthRequest, pollCliAuthRequest } from "../packages/shared/src/auth-sessions";
 import { authCookie, contextFor, testEnv, type AppEnv } from "./helpers/index-harness";
@@ -46,8 +46,27 @@ describe("browser consent and callback navigation", () => {
 		const response = await run(onRequestGet, new Request(`https://bickr.social/oauth/authorize?${params}`, { headers: { cookie: await authCookie() } }));
 		expect(response.status).toBe(200);
 		expect(response.headers.get("content-security-policy")).toBe(contentSecurityPolicy);
-		expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+		// Native form POSTs under no-referrer send Origin: null. The form must
+		// preserve its origin while the completed callback document hides it.
+		expect(response.headers.get("referrer-policy")).toBe("same-origin");
 		expect(await testEnv.BICKR_D1.prepare("SELECT 1 FROM auth_records WHERE kind = 'mcp_code'").first()).toBeNull();
+	});
+	it("preserves the CLI form origin and hides the completed document referrer", async () => {
+		const cookie = await authCookie();
+		const device = await createCliAuthRequest(testEnv.BICKR_D1);
+		const url = `https://bickr.social/api/cli/auth/approve?code=${encodeURIComponent(device.deviceCode)}`;
+		const formResponse = await run(cliConsent, new Request(url, { headers: { cookie } }));
+		expect(formResponse.status).toBe(200);
+		expect(formResponse.headers.get("referrer-policy")).toBe("same-origin");
+		expect(formResponse.headers.get("content-security-policy")).toBe(contentSecurityPolicy);
+		expect(await formResponse.text()).toContain("Approve CLI Login");
+		const approved = await run(cliApprove, new Request(url, {
+			method: "POST", body: new URLSearchParams({ code: device.deviceCode }),
+			headers: { cookie, origin: "https://bickr.social", "sec-fetch-site": "same-origin" },
+		}));
+		expect(approved.status).toBe(200);
+		expect(approved.headers.get("referrer-policy")).toBe("no-referrer");
+		expect((await pollCliAuthRequest(testEnv.BICKR_D1, device.deviceCode)).status).toBe("complete");
 	});
 	it("preserves query/state and redeems the issued code with PKCE", async () => {
 		const params = await form("https://client.example/callback?existing=kept");
@@ -69,9 +88,16 @@ describe("browser consent and callback navigation", () => {
 		{ origin: "null", "sec-fetch-site": "same-origin" },
 		{ origin: "https://bickr.social", "sec-fetch-site": "cross-site" },
 	])("rejects cross-origin or conflicting browser provenance", async (headers) => {
-		const response = await run(onRequestPost, request(await form(), await authCookie(), headers));
+		const cookie = await authCookie();
+		const response = await run(onRequestPost, request(await form(), cookie, headers));
 		expect(response.status).toBe(403);
 		expect(await testEnv.BICKR_D1.prepare("SELECT 1 FROM auth_records WHERE kind = 'mcp_code'").first()).toBeNull();
+		const device = await createCliAuthRequest(testEnv.BICKR_D1);
+		const cliResponse = await run(cliApprove, new Request("https://bickr.social/api/cli/auth/approve", {
+			method: "POST", body: new URLSearchParams({ code: device.deviceCode }), headers: { cookie, ...headers },
+		}));
+		expect(cliResponse.status).toBe(403);
+		expect((await pollCliAuthRequest(testEnv.BICKR_D1, device.deviceCode)).status).toBe("pending");
 	});
 	it("requires origin evidence and cookie authentication", async () => {
 		const req = request(await form(), await authCookie()); req.headers.delete("origin"); req.headers.delete("sec-fetch-site");

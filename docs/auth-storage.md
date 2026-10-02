@@ -14,9 +14,11 @@ MCP and CLI consent require a browser session cookie and evidence of the same or
 
 GET displays each form. POST approves access. The browser session and origin requirements above apply to that approval.
 
+Consent forms use `Referrer-Policy: same-origin`. This keeps the origin on native form submissions and suppresses referrers to other origins. A `no-referrer` form sends `Origin: null`, which the approval guard rejects.
+
 The OAuth POST response loads a fixed script from the same origin. The script starts a new navigation to the registered callback. A link provides a fallback when scripts are disabled. This preserves the ordinary `form-action 'self'` policy. It also avoids browser differences in policy enforcement during redirects after form submission.
 
-The response sets `Referrer-Policy: no-referrer`. Callback URIs use HTTPS. HTTP is permitted only for `localhost`, `127.0.0.1`, or `[::1]`. Callback URIs cannot contain user information or a fragment. The callback must exactly match a registered URI.
+The completed response sets `Referrer-Policy: no-referrer`. CLI completion uses the same policy. Callback URIs use HTTPS. HTTP is permitted only for `localhost`, `127.0.0.1`, or `[::1]`. Callback URIs cannot contain user information or a fragment. The callback must exactly match a registered URI.
 
 ## Retention and admission
 
