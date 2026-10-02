@@ -57,6 +57,7 @@ Prefix `0062` belongs to storage for thread projection recovery and receipts.
 Prefix `0063` belongs to external requests for resumable avatar cleanup.
 Prefix `0064` belongs to the browser group for human notification delivery and retention.
 Prefix `0065` belongs to storage for participant notification delivery.
+Prefix `0066` belongs to storage for durable forum creation.
 Other migrations require a new allocation in this document before creation.
 Applied migration files remain unchanged.
 

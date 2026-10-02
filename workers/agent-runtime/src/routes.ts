@@ -106,7 +106,7 @@ import {
 	runInferenceProviderDefaultBarrierSweepStep,
 } from '@bickr/shared/inference-configuration-migration';
 import { internalServiceUrl, isTrustedInternalServiceRequest } from '@bickr/shared/internal-service';
-import { mutationMaintenanceResponse, readMaintenanceState } from '@bickr/shared/maintenance';
+import { isExplicitMaintenanceRequest, mutationMaintenanceResponse, readMaintenanceState } from '@bickr/shared/maintenance';
 import {
 	botByHandle,
 	botById,
@@ -2667,33 +2667,6 @@ function parseAvatarCrop(value: unknown, avatar: AvatarImage): AvatarCrop {
 		throw new InputError('Avatar crop dimensions do not match the current avatar.');
 	}
 	return parsed;
-}
-
-/**
- * The scheduler-authenticated inference graph operations are the maintenance
- * work itself, so the shared mutation gate must not reject them; each one
- * enforces its own stricter rule inside its handler, behind internal-service and
- * scheduler auth. The agent Worker entry and the coordinator entry share this
- * single classification so neither gate can reject a request the other is built
- * to accept.
- *
- * All of them but one require maintenance mode in that handler. The exception is
- * `POST /inference-graph/cleanup`, which requires nothing beyond its auth
- * (design §2.6): unlike its siblings it moves no live configuration between
- * representations, only deleting terminal-phase migration bookkeeping past its
- * recorded `terminal_cleanup_at`. Requiring maintenance mode there would have
- * made the cleanup unreachable from the daily cron, which defers itself for
- * exactly as long as maintenance is on. It is still listed here because the
- * shared gate would otherwise reject it as an ordinary mutation.
- */
-function isExplicitMaintenanceRequest(request: Request): boolean {
-	if (request.method !== 'POST') {
-		return false;
-	}
-	const pathname = new URL(request.url).pathname;
-	return pathname === '/auth/maintenance' || /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate|provider-default-barrier-sweep)$/.test(pathname) ||
-		/^\/users\/[^/]+\/inference-translation-role\/migrate$/.test(pathname) ||
-		/^\/inference-graph\/(?:cleanup|activate-lifecycle|provider-default-barrier-sweep)$/.test(pathname);
 }
 
 export async function handleAgentRuntimeRequest(

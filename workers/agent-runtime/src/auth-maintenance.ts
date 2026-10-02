@@ -1,7 +1,7 @@
-import { ok } from "@bickr/shared/api";
+import { fail, ok } from "@bickr/shared/api";
 import { finishLegacyAuthMigration, legacyAuthPrefixes, migrateLegacyAuthPage, type LegacyAuthPrefix } from "@bickr/shared/auth-migration";
 import { cleanupAuthRecords } from "@bickr/shared/auth-store";
-import { readBoundedRequest } from "@bickr/shared/bounded-body";
+import { BodyReadTimeoutError, BodySizeLimitError, readBoundedRequest } from "@bickr/shared/bounded-body";
 import { isTrustedInternalServiceRequest } from "@bickr/shared/internal-service";
 import { readMaintenanceState } from "@bickr/shared/maintenance";
 import { RepositoryError } from "@bickr/shared/repository";
@@ -31,7 +31,13 @@ export async function handleAuthMaintenance(context: AgentRuntimeRouteContext): 
 	if (!isTrustedInternalServiceRequest(request, env.INTERNAL_SERVICE_SECRET) || request.headers.get("x-bickr-scheduler") !== "1") {
 		throw new RepositoryError("unauthorized", "Authentication is required.", 401);
 	}
-	const bytes = await readBoundedRequest(request, { maxBytes: 8192, timeoutMs: 10_000 });
+	let bytes: Uint8Array;
+	try { bytes = await readBoundedRequest(request, { maxBytes: 8192, timeoutMs: 10_000 }); }
+	catch (error) {
+		if (error instanceof BodySizeLimitError) return fail("bad_request", "The request body is too large.", 413);
+		if (error instanceof BodyReadTimeoutError) return fail("bad_request", "The request body took too long.", 408);
+		throw error;
+	}
 	let value: unknown;
 	try { value = JSON.parse(new TextDecoder().decode(bytes)); }
 	catch { throw new InputError("The maintenance request must contain valid JSON."); }

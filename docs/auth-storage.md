@@ -1,6 +1,6 @@
 # Authentication storage and cutover
 
-D1 holds the authoritative authentication records. These operations use the primary D1 binding. Do not move these reads into a replica session or a KV cache. Authentication reads the profile from KV, then checks the active account row in D1.
+D1 holds the authoritative authentication records. These operations use the primary D1 binding. Do not move these reads into a replica session or a KV cache. Authentication reads the profile from KV, then makes sure that D1 marks the account as active.
 
 A conditional update and all successor writes run in one `D1Database.batch()` transaction. A random claim identifies the request that consumed an OAuth code, refresh token, or CLI approval. Each successor insert requires that claim. If the batch fails, D1 rolls back consumption.
 
@@ -10,7 +10,7 @@ Consumed refresh tokens stay until their grant expires. Reuse of a consumed code
 
 MCP and CLI consent require a browser session cookie and evidence of the same origin. Bearer tokens cannot approve access. An explicit `Origin` must match the request origin. If present, `Sec-Fetch-Site` must be `same-origin`. Without `Origin`, the request must include `Sec-Fetch-Site: same-origin`. GET displays each form. POST approves access.
 
-The OAuth POST response loads a fixed script from the same origin. The script starts a new navigation to the registered callback. A link provides a fallback when scripts are disabled. This preserves the ordinary `form-action 'self'` policy. It also avoids browser differences in policy checks during redirects after form submission.
+The OAuth POST response loads a fixed script from the same origin. The script starts a new navigation to the registered callback. A link provides a fallback when scripts are disabled. This preserves the ordinary `form-action 'self'` policy. It also avoids browser differences in policy enforcement during redirects after form submission.
 
 The response sets `Referrer-Policy: no-referrer`. Callback URIs use HTTPS. HTTP is permitted only for `localhost`, `127.0.0.1`, or `[::1]`. Callback URIs cannot contain user information or a fragment. The callback must exactly match a registered URI.
 
@@ -38,7 +38,7 @@ Auth request bodies have a 16 KiB limit and a ten-second read deadline. Structur
 
 ## One-time KV migration
 
-New writers use D1 only. The temporary reader uses storage version 2. It preserves valid browser sessions and CLI tokens without writing or repairing records. It checks primary D1 revocation state before accepting legacy credentials.
+New writers use D1 only. The temporary reader uses storage version 2. It preserves valid browser sessions and CLI tokens without writing or repairing records. It reads primary D1 revocation state before accepting legacy credentials.
 
 Migration application fixes a deadline 90 days later. Requests cannot extend it. Storage version 3 disables the legacy reader after the sweep completes. The deadline denies legacy access if operational completion is delayed.
 
@@ -46,12 +46,38 @@ Existing MCP access and refresh tokens require new authorization at cutover. The
 
 The sweep preserves registered client metadata. Before client migration completes, existing clients can receive `invalid_client`. They must retry after cutover or register again.
 
-The protected maintenance route calls the exported migration functions. The functions need `BICKR_KV` and `BICKR_D1`, with no new bindings. The route requires internal service authentication and scheduler authorization. Public OAuth routes cannot invoke it.
+The protected `POST /auth/maintenance` route calls the exported migration functions. The functions need `BICKR_KV` and `BICKR_D1`, with no new bindings. The route requires internal service authentication and scheduler authorization. Public OAuth routes cannot invoke it.
+
+The route accepts a JSON object with a `kind` field. Its body limit is 8 KiB, with a ten-second read deadline.
+
+| Action | Request | Effect |
+| --- | --- | --- |
+| Inspect progress | `{"kind":"status"}` | Read the version and eight prefix cursors. |
+| Preview a page | `{"kind":"dry_run","prefix":"session"}` | Read up to 50 keys without changing progress. |
+| Import a page | `{"kind":"migrate","prefix":"session"}` | Use the saved cursor and commit one page. |
+| Complete the sweep | `{"kind":"finish"}` | Set version 3 after every prefix completes. |
+| Remove expired records | `{"kind":"cleanup"}` | Run bounded authentication retention. |
+
+Only a dry run accepts an optional `cursor`. Import and completion require site maintenance. Inspection, previews, and retention remain available outside maintenance.
+
+In test, use the Pages service proxy at `https://test.bickr.social/api/__test__/service-proxy`. Read the test secret from the local `.dev.vars` file without printing it. Send the secret in `x-test-auth-secret` and use this JSON body:
+
+```json
+{
+  "service": "agent-runtime",
+  "method": "POST",
+  "path": "/auth/maintenance",
+  "headers": { "x-bickr-scheduler": "1" },
+  "body": { "kind": "status" }
+}
+```
+
+The proxy adds internal service authentication. Keep public Worker URLs disabled. Production needs a separately authorized internal maintenance path.
 
 ### Prepare the cutover
 
-1. Apply migration 0059 before deploying the D1 writers.
-2. Enable the site's maintenance control.
+1. Enable the site maintenance control.
+2. Apply migration 0059 before deploying the D1 writers.
 3. Stop old auth writers.
 4. Wait for outstanding requests and KV propagation to finish.
 5. Deploy the new writers.
@@ -78,17 +104,17 @@ Each page commits D1 imports before deleting KV keys. Repeated imports never rep
 1. Run real migration pages for each prefix until `done` is true.
 2. Retry a failed page.
 3. Call `finishLegacyAuthMigration(db)`.
-4. Confirm that it returns true.
+4. Make sure that it returns true.
 5. Wait for KV propagation to finish.
-6. Verify that all eight prefixes are empty.
-7. Verify migrated browser and CLI credentials.
-8. Verify that old MCP families fail.
-9. Verify fresh OAuth and CLI authorization.
+6. Make sure that all eight prefixes are empty.
+7. Make sure that migrated browser and CLI credentials work.
+8. Make sure that old MCP families fail.
+9. Make sure that fresh OAuth and CLI authorization work.
 10. Reopen auth traffic.
 
 Completion sets storage version 3 only when all eight prefixes have finished. Do not force this version manually. The sweep retains no plaintext bearer tokens. It imports existing hashed keys and documents.
 
-The next schema release removes the legacy reader, migration module, and two transition tables. Remove them only after sweep completion and verification. Permanent revocation behavior remains.
+The next schema release removes the legacy reader, migration module, and two transition tables. Remove them only after the completed sweep passes the tests above. Permanent revocation behavior remains.
 
 Provider sign-in state under `v1:oauth-return:` keeps its separate short lifetime. It is outside this migration.
 
@@ -96,11 +122,13 @@ Provider sign-in state under `v1:oauth-return:` keeps its separate short lifetim
 
 `GET /api/me/auth/credentials?after=<cursor>` returns at most 100 browser sessions, CLI tokens, or MCP grants. It returns `nextCursor` and `legacyMigrationComplete`. Record IDs are not bearer tokens. Until migration completes, the list can omit legacy browser and CLI credentials.
 
-`DELETE /api/me/auth/credentials` requires cookie authentication and the browser origin checks above. Its body limit is 1 KiB. The body selects one credential with `{"kind":"credential","id":"<inventory ID>"}`, or all credentials with `{"kind":"all"}`.
+`DELETE /api/me/auth/credentials` requires cookie authentication and the browser origin rules above. Its body limit is 1 KiB. The body selects one credential with `{"kind":"credential","id":"<inventory ID>"}`, or all credentials with `{"kind":"all"}`.
 
 A single-credential action only accepts records owned by the signed-in account. Revoking an MCP grant revokes its whole family. The all action also revokes pending approvals and legacy credentials that migration has not visited. It logs out the requesting browser.
 
-This change supplies the API and reusable storage functions. The account UI uses the same interface.
+The profile screen lists credentials through this API. It provides single-credential and all-credential revocation. The list reports incomplete legacy migration and loads at most one page at a time.
+
+Successful all-credential revocation clears the browser cookie and local session state. The browser does not send a second logout request. A failed revocation leaves the session visible and reports the error.
 
 ## Sources
 
