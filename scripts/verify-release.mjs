@@ -6,7 +6,7 @@ function entryAssets(html) {
 
 export async function verifyPublicRelease(plan, checks, localHtml, request = fetch) {
 	// Test's migration gateway requires the same explicit opt-in as a browser.
-	// Send it on the entry and asset requests; it grants no account identity.
+	// Send it on the entry and asset requests. It grants no account identity.
 	const headers = plan.environment === "test" ? { cookie: "bickr_test_environment=1" } : {};
 	const get = (path, timeout) => request(`${plan.origin}${path}`, { headers, cache: "no-store", signal: AbortSignal.timeout(timeout) });
 	const health = await get("/api/runtime/health", 40_000);

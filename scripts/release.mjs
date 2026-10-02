@@ -99,8 +99,8 @@ async function release() {
 		record.status = "verified";
 		record.verifiedAt = new Date().toISOString();
 	} catch (error) {
-		// A failed upload can have reached Cloudflare. Keep the started step and raw
-		// Wrangler operation records; do not retry or roll back automatically.
+		// A failed upload can leave changes in Cloudflare. Keep the started step and raw
+		// Wrangler operation records. Do not retry or roll back automatically.
 		record.status = "failed";
 		record.failedAt = new Date().toISOString();
 		throw error;

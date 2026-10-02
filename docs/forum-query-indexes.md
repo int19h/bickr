@@ -19,21 +19,21 @@ SQL insert/update/delete triggers update both FTS indexes in the same source
 transaction. Unchanged text and tokens do not rewrite indexes. Soft deletion and
 hard deletion remove entries. Root comments are excluded. The derived column and
 indexes have the same retention as their source rows. Tokens add storage and work
-to writes. A common substring can still yield many candidates to filter and sort;
-result limits alone cannot bound that work.
+to writes. A common substring can still yield many candidates to filter and sort.
+Result limits alone cannot bound that work.
 
 The migration leaves old token columns NULL. It does not tokenize old text inside
 DDL. Partial indexes select pending rows. `rebuildForumSearchIndexes` processes at
 most 64 candidate rows and 256 KiB of source text per table per call. It permits
-one larger historical row so the cursor can progress. A compare-and-set on the
-source text prevents the sweep from overwriting a concurrent projection update.
+one larger historical row so the cursor can progress. The sweep updates tokens only if the source text still matches.
+This condition prevents the sweep from overwriting a concurrent projection update.
 The five-minute recovery cron runs this bounded sweep. Pending live rows cause
 search to return HTTP 503 with an explicit rebuilding message, so missing index
-entries cannot silently omit results. Readiness uses indexed existence checks.
-Search reads never rebuild rows and have no full-scan fallback.
+entries cannot silently omit results. The readiness query uses an index to find pending rows.
+Search reads never rebuild rows or scan all rows as an alternative.
 
-Remove the migration sweep after every deployed database has drained the NULL
-markers and the old projection writers have been retired. Record that removal
+After every deployed database drains the NULL markers, retire the old projection writers.
+Then remove the migration sweep. Record that removal
 with the next search schema version. A future version must not stack another
 fallback on the current migration. Existing applied migrations remain immutable.
 
@@ -49,29 +49,29 @@ fallback on the current migration. Existing applied migrations remain immutable.
    and returns `processed` and `remaining`. Repeat while `remaining` is true.
    Keep `TEST_AUTH_SECRET` in an environment variable, outside command logs.
    The scheduled sweep also makes progress every five minutes.
-4. Read status again, then exercise both two-character and longer searches on
-   `test.bickr.social`. Check edits, replies, soft deletion, and projection repair.
+4. Read status again, then use both two-character and longer searches on
+   `test.bickr.social`. Make sure that edits, replies, soft deletion, and projection repair produce the expected results.
    Record readiness beside migration, version, health, and bundle evidence.
 
 The endpoint is the existing Pages `POST /api/__test__/service-proxy`. Its JSON
 body selects the service, relative path, method, and scheduler header. Direct
 public Worker URLs remain disabled. Production needs separate authorization and
-its own warmup plan; these test proxy instructions do not apply there.
+its own warmup plan. These test proxy instructions do not apply there.
 
 ## Hot counts
 
 `thread_hot_refresh` holds at most one row per thread. Comment writes mark a
 thread dirty. A maintenance call selects at most 64 due rows, recomputes counts,
 and schedules each next comment expiry. One atomic D1 batch updates the count
-and queue. Threads without a future expiry leave the queue; thread deletion
-removes its entry. Migration seeds old live threads once. The queue is not an
+and queue. Threads without a future expiry leave the queue. Thread deletion
+removes its entry. The migration puts old live threads in the queue once. The queue is not an
 event history. `refreshThreadHotScores` returns processed entries, not changed
-counts; 64 means more work may remain. Recovery calls it every five minutes.
+counts. A result of 64 means that more work can remain. Recovery calls it every five minutes.
 
 Regression checks use real SQLite plans and operation counts. No-match long,
 two-character, and emoji searches over 100, 1,000, and 10,000 historical threads
 evaluate zero source text rows. Token generation encodes at most three times the
-input character count; SQL lower() runs once for 4K through 32K Unicode writes.
+input character count. SQL lower() runs once for 4K through 32K Unicode writes.
 Backfill tests cover row/byte budgets and concurrent edits. Workerd tests apply
 the actual migration and exercise readiness, search, expiry, and deletion.
 
