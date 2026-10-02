@@ -174,7 +174,7 @@ describe("human notification fanout", () => {
 		expect(await runHumanNotificationFanout(db, now)).toMatchObject({ pages: 2, recipients: 3, pending: false });
 	});
 
-	it.each(["comment", "thread", "forum"])("suppresses delivery when its %s is deleted", async kind => {
+	it.each(["comment", "thread", "forum"] as const)("suppresses delivery when its %s is deleted", async kind => {
 		await recipients(1);
 		await db.batch([
 			db.prepare(`INSERT INTO forums_index (forum_id,world_id,world_handle,handle,description,created_by_user_id,created_at,updated_at)
