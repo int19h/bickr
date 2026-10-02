@@ -1,14 +1,26 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import { readFileSync } from 'node:fs';
+import { URL as NodeURL } from 'node:url';
 import { kvKeys } from '@bickr/shared/storage';
 import {
 	avatarJanitorGraceMs,
 	avatarJanitorIntervalMs,
 	avatarJanitorMaxDeletesPerRun,
-	avatarJanitorMaxEntities,
-	runAvatarJanitor,
+	runAvatarJanitor as runStep,
 	type AvatarJanitorEnv,
 	type EntityKind,
 } from './janitor';
+
+const connections: DatabaseSync[] = [];
+afterEach(() => { for (const db of connections.splice(0)) db.close(); });
+async function runAvatarJanitor(...args: Parameters<typeof runStep>) {
+	for (let i = 0; i < 1_000; i++) {
+		const result = await runStep(...args);
+		if (result.status !== 'in_progress') return result;
+	}
+	throw new Error('Janitor failed to finish within the test budget.');
+}
 
 const now = '2026-08-17T03:23:00.000Z';
 const nowMs = Date.parse(now);
@@ -38,6 +50,7 @@ type JanitorHarness = {
 	env: AvatarJanitorEnv;
 	deleted: string[];
 	listCalls: number;
+	kvReads: number;
 	kvValues: Map<string, string>;
 };
 
@@ -67,18 +80,47 @@ function harness(fixture: Fixture): JanitorHarness {
 		kvValues.set(kvKeys.avatarJanitorLastRun, JSON.stringify({ lastRunAt: fixture.marker }));
 	}
 	const deleted: string[] = [];
-	const state = { listCalls: 0 };
-	const live = (table: keyof typeof rows) => rows[table].filter((row) => row.deletedAt === null);
-	const tableOf = (sql: string): keyof typeof rows | null =>
-		sql.includes('FROM bots_index') ? 'bots_index'
-		: sql.includes('FROM worlds_index') ? 'worlds_index'
-		: sql.includes('FROM users_index') ? 'users_index'
-		: null;
+	const state = { listCalls: 0, kvReads: 0 };
+	const db = new DatabaseSync(':memory:');
+	connections.push(db);
+	db.exec(`CREATE TABLE bots_index (bot_id TEXT PRIMARY KEY, avatar_url TEXT, deleted_at TEXT, home_world_id TEXT DEFAULT 'w1', lifecycle_state TEXT DEFAULT 'active');
+	 CREATE TABLE worlds_index (world_id TEXT PRIMARY KEY, avatar_url TEXT, deleted_at TEXT);
+	 CREATE TABLE users_index (user_id TEXT PRIMARY KEY, avatar_url TEXT, deleted_at TEXT);
+	 CREATE TABLE bot_clone_sources (bot_id TEXT PRIMARY KEY, source_bot_id TEXT, linked INTEGER);`);
+	db.exec(readFileSync(new NodeURL('../../../../migrations/0063_avatar_janitor_epochs.sql', import.meta.url), 'utf8'));
+	for (const [table, column] of [['bots_index', 'bot_id'], ['worlds_index', 'world_id'], ['users_index', 'user_id']] as const) {
+		const insert = db.prepare(`INSERT INTO ${table} (${column}, avatar_url, deleted_at) VALUES (?, ?, ?)`);
+		for (const row of rows[table]) insert.run(row.id, row.avatarUrl, row.deletedAt);
+	}
+	for (const row of clones) db.prepare('INSERT INTO bot_clone_sources VALUES (?, ?, ?)').run(row.botId, row.sourceBotId, row.linked);
+	const database: AvatarJanitorEnv['BICKR_D1'] = {
+		prepare(sql) {
+			if (fixture.failD1?.(sql)) throw new Error('D1 read failed');
+			let values: SQLInputValue[] = [];
+			const statement = {
+				bind(...args: unknown[]) { values = args as SQLInputValue[]; return statement; },
+				async first<T>() { return (db.prepare(sql).get(...values) ?? null) as T | null; },
+				async all<T>() { return { success: true, results: db.prepare(sql).all(...values) as T[] }; },
+				async run() { return { success: true, meta: { changes: Number(db.prepare(sql).run(...values).changes) } }; },
+			};
+			return statement;
+		},
+		async batch(statements) {
+			db.exec('BEGIN');
+			try {
+				const results = [];
+				for (const statement of statements) results.push(await statement.run());
+				db.exec('COMMIT');
+				return results;
+			} catch (error) { db.exec('ROLLBACK'); throw error; }
+		},
+	};
 
 	const env: AvatarJanitorEnv = {
 		BICKR_R2_PUBLIC_BASE_URL: publicBaseUrl,
 		BICKR_KV: {
 			async get(key: string) {
+				state.kvReads += 1;
 				if (fixture.failKv?.(key)) {
 					throw new Error(`KV read failed for ${key}`);
 				}
@@ -95,49 +137,7 @@ function harness(fixture: Fixture): JanitorHarness {
 				kvValues.delete(key);
 			},
 		},
-		BICKR_D1: {
-			prepare(sql: string) {
-				if (fixture.failD1?.(sql)) {
-					throw new Error(`D1 query failed: ${sql}`);
-				}
-				const bindable = {
-					bind(...values: unknown[]) {
-						return {
-							async first<T>() {
-								return {
-									bots: live('bots_index').length,
-									worlds: live('worlds_index').length,
-									users: live('users_index').length,
-								} as T;
-							},
-							async all<T>() {
-								if (sql.includes('FROM bot_clone_sources')) {
-									return { success: true, results: [...clones] as T[] };
-								}
-								const table = tableOf(sql);
-								if (!table) {
-									throw new Error(`Unexpected janitor query: ${sql}`);
-								}
-								const keyed = sql.includes('> ?');
-								const after = keyed ? String(values[0]) : '';
-								const limit = Number(values[keyed ? 1 : 0]);
-								const page = live(table)
-									.slice()
-									.sort((left, right) => left.id.localeCompare(right.id))
-									.filter((row) => row.id > after)
-									.slice(0, limit)
-									.map((row) => ({ id: row.id, avatarUrl: row.avatarUrl }));
-								return { success: true, results: page as T[] };
-							},
-							async run() {
-								return { success: true };
-							},
-						};
-					},
-				};
-				return { ...bindable, ...bindable.bind() };
-			},
-		} as unknown as AvatarJanitorEnv['BICKR_D1'],
+		BICKR_D1: database,
 		BICKR_R2: {
 			async list(options?: { cursor?: string; limit?: number }) {
 				state.listCalls += 1;
@@ -175,6 +175,7 @@ function harness(fixture: Fixture): JanitorHarness {
 		env,
 		deleted,
 		kvValues,
+		get kvReads() { return state.kvReads; },
 		get listCalls() {
 			return state.listCalls;
 		},
@@ -504,38 +505,109 @@ describe('R2 avatar janitor', () => {
 		expect(markerOf(repeated.kvValues)).toBeUndefined();
 	});
 
-	it('skips the week when the fleet exceeds the single-invocation budget', async () => {
-		const bots = Array.from({ length: avatarJanitorMaxEntities + 1 }, (_item, index) => bot(`bot_${index}`));
-		const test = harness({ bots, objects: [{ key: 'worlds/w1/bots/bot_a/avatars/orphan.png', agedDays: 30 }] });
-
-		expect(await runAvatarJanitor(test.env, { now })).toMatchObject({
-			status: 'skipped_over_budget',
-			overrun: { kind: 'entities', counted: avatarJanitorMaxEntities + 1, limit: avatarJanitorMaxEntities },
-		});
-		// Nothing was read past the assertion, and nothing was deleted.
-		expect(test.listCalls).toBe(0);
+	it('resumes a fleet larger than the old ceiling without restarting the listing', async () => {
+		const bots = Array.from({ length: 2_001 }, (_, index) => bot(`bot_${index}`));
+		const documents = Object.fromEntries(bots.map((row) => [kvKeys.bot(row.id), botDocument(row.id)]));
+		const test = harness({ bots, documents, objects: [{ key: 'worlds/w1/bots/bot_a/avatars/orphan.png', agedDays: 30 }] });
+		expect(await runStep(test.env, { now })).toMatchObject({ status: 'in_progress', phase: 'mark' });
 		expect(test.deleted).toEqual([]);
-		// The marker moves: an unchanged fleet would only repeat this refusal daily.
+		expect(test.kvReads).toBeLessThanOrEqual(41);
+		let finished = false;
+		for (let invocation = 0; invocation < 100; invocation++) {
+			const before = test.kvReads;
+			const result = await runStep(test.env, { now });
+			expect(test.kvReads - before).toBeLessThanOrEqual(40);
+			if (result.status === 'swept') {
+				expect(result).toMatchObject({ entities: 2_001, deleted: 1 });
+				finished = true;
+				break;
+			}
+			expect(result.status).toBe('in_progress');
+		}
+		expect(finished).toBe(true);
+		expect(test.listCalls).toBe(1);
 		expect(markerOf(test.kvValues)).toBe(now);
 	});
 
-	it('refuses a run that wants to delete implausibly many objects', async () => {
-		const objects = Array.from({ length: avatarJanitorMaxDeletesPerRun + 1 }, (_item, index) => ({
-			key: `worlds/w1/bots/bot_a/avatars/orphan-${index}.png`,
-			agedDays: 30,
+	it('reclaims many old objects in bounded batches', async () => {
+		const objects = Array.from({ length: avatarJanitorMaxDeletesPerRun * 11 }, (_, index) => ({
+			key: `worlds/w1/bots/bot_a/avatars/orphan-${index}.png`, agedDays: 30,
 		}));
 		const test = harness({ objects });
+		let previous = 0;
+		for (let i = 0; i < 100; i++) {
+			const result = await runStep(test.env, { now });
+			expect(test.deleted.length - previous).toBeLessThanOrEqual(avatarJanitorMaxDeletesPerRun);
+			previous = test.deleted.length;
+			if (result.status === 'swept') break;
+			expect(result.status).toBe('in_progress');
+		}
+		expect(new Set(test.deleted).size).toBe(objects.length);
+		expect(test.listCalls).toBe(2);
+	});
 
-		expect(await runAvatarJanitor(test.env, { now })).toMatchObject({
-			status: 'aborted',
-			failure: {
-				kind: 'delete_volume',
-				deletable: avatarJanitorMaxDeletesPerRun + 1,
-				limit: avatarJanitorMaxDeletesPerRun,
-			},
+	it('pins index references changed after their mark page', async () => {
+		const oldKey = 'worlds/w1/bots/bot_a/avatars/old.png';
+		const newKey = 'worlds/w1/bots/bot_a/avatars/new.png';
+		const test = harness({
+			bots: [bot('bot_a', { avatarUrl: `${publicBaseUrl}/${oldKey}` })],
+			documents: { [kvKeys.bot('bot_a')]: botDocument('bot_a', { key: oldKey }) },
+			objects: [{ key: oldKey, agedDays: 30 }, { key: newKey, agedDays: 30 }],
 		});
+		expect(await runStep(test.env, { now })).toMatchObject({ status: 'in_progress', phase: 'sweep' });
+		await test.env.BICKR_D1.prepare('UPDATE bots_index SET avatar_url = ? WHERE bot_id = ?').bind(`${publicBaseUrl}/${newKey}`, 'bot_a').run();
+		expect(await runAvatarJanitor(test.env, { now })).toMatchObject({ status: 'swept', deleted: 0 });
 		expect(test.deleted).toEqual([]);
-		expect(markerOf(test.kvValues)).toBeUndefined();
+		for (const table of ['avatar_janitor_marks', 'avatar_janitor_objects', 'avatar_janitor_cursors']) {
+			expect(await test.env.BICKR_D1.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first()).toMatchObject({ n: 0 });
+		}
+	});
+
+	it('pins the old source URL when it changes before that source is marked', async () => {
+		const oldKey = 'worlds/w1/bots/zz_source/avatars/old.png';
+		const newKey = 'worlds/w1/bots/zz_source/avatars/new.png';
+		const bots = [...Array.from({ length: 40 }, (_, i) => bot(`bot_${i}`)), bot('zz_source', { avatarUrl: `${publicBaseUrl}/${oldKey}` })];
+		const source = botDocument('zz_source', { key: oldKey }) as { avatar: { key: string } };
+		const documents = Object.fromEntries(bots.map((row) => [kvKeys.bot(row.id), row.id === 'zz_source' ? source : botDocument(row.id)]));
+		const test = harness({ bots, documents, objects: [{ key: oldKey, agedDays: 30 }] });
+		expect(await runStep(test.env, { now })).toMatchObject({ status: 'in_progress', phase: 'mark' });
+		source.avatar.key = newKey;
+		await test.env.BICKR_D1.prepare('UPDATE bots_index SET avatar_url = ? WHERE bot_id = ?').bind(`${publicBaseUrl}/${newKey}`, 'zz_source').run();
+		expect(await runAvatarJanitor(test.env, { now })).toMatchObject({ status: 'swept', deleted: 0 });
+	});
+
+	it('protects an interrupted deterministic import older than the grace window', async () => {
+		const key = 'worlds/w1/bots/bot_a/avatars/lifecycle-import.png';
+		const test = harness({ bots: [bot('bot_a')], documents: { [kvKeys.bot('bot_a')]: botDocument('bot_a') }, objects: [{ key, agedDays: 90 }] });
+		await test.env.BICKR_D1.prepare("UPDATE bots_index SET lifecycle_state = 'pending' WHERE bot_id = 'bot_a'").run();
+		expect(await runAvatarJanitor(test.env, { now })).toMatchObject({ status: 'swept', deleted: 0 });
+	});
+
+	it('does not start a new epoch for a resume-only call', async () => {
+		const test = harness({});
+		expect(await runStep(test.env, { now, resumeOnly: true })).toMatchObject({ status: 'skipped_inactive' });
+		expect(test.listCalls).toBe(0);
+	});
+
+	it('serializes concurrent calls and fences an expired lease', async () => {
+		const test = harness({});
+		let release!: (value: { objects: []; truncated: false }) => void;
+		let entered!: () => void;
+		const started = new Promise<void>((resolve) => { entered = resolve; });
+		let calls = 0;
+		test.env.BICKR_R2!.list = async () => {
+			if (++calls === 1) { entered(); return new Promise((resolve) => { release = resolve; }); }
+			return { objects: [], truncated: false };
+		};
+		const original = runStep(test.env, { now });
+		await started;
+		expect(await runStep(test.env, { now })).toMatchObject({ status: 'skipped_busy' });
+		const later = new Date(nowMs + 16 * 60_000).toISOString();
+		expect(await runStep(test.env, { now: later })).toMatchObject({ status: 'in_progress', phase: 'sweep' });
+		release({ objects: [], truncated: false });
+		expect(await original).toMatchObject({ status: 'aborted', failure: { errorName: 'JanitorLeaseLost' } });
+		expect(await test.env.BICKR_D1.prepare('SELECT phase FROM avatar_janitor_control WHERE id = 1').first()).toMatchObject({ phase: 'sweep' });
+		expect(await runAvatarJanitor(test.env, { now: later })).toMatchObject({ status: 'swept' });
 	});
 
 	it('reports a missing bucket or public base URL instead of sweeping blind', async () => {

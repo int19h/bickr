@@ -15,7 +15,15 @@ import {
 	updateBotAvatar,
 	userIdForHandle,
 } from "./helpers/index-harness";
-import { runAvatarJanitor, type AvatarJanitorBucket } from "../workers/agent-runtime/src/avatar/janitor";
+import { runAvatarJanitor as runStep, type AvatarJanitorBucket } from "../workers/agent-runtime/src/avatar/janitor";
+
+async function runAvatarJanitor(...args: Parameters<typeof runStep>) {
+	for (let i = 0; i < 100; i++) {
+		const result = await runStep(...args);
+		if (result.status !== 'in_progress') return result;
+	}
+	throw new Error('Janitor did not finish.');
+}
 
 const publicBaseUrl = "https://test-assets.bickr.social";
 
