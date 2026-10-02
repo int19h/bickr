@@ -1,4 +1,4 @@
-export type ProviderTransportErrorKind = "invalid_url" | "insecure_url" | "embedded_credentials";
+export type ProviderTransportErrorKind = "invalid_url" | "insecure_url" | "embedded_credentials" | "redirect";
 
 export class ProviderTransportError extends Error {
 	readonly kind: ProviderTransportErrorKind;
@@ -27,8 +27,13 @@ export function providerUrl(value: string | URL): URL {
 	return url;
 }
 
-export function fetchProviderResponse(input: string | URL, init?: RequestInit): Promise<Response> {
+export async function fetchProviderResponse(input: string | URL, init?: RequestInit): Promise<Response> {
 	// Workers forward Authorization on cross-origin redirects. Refuse redirects
 	// rather than let an endpoint send a provider credential to another origin.
-	return fetch(providerUrl(input).href, { ...init, redirect: "error" });
+	const response = await fetch(providerUrl(input).href, { ...init, redirect: "manual" });
+	if (response.status >= 300 && response.status < 400) {
+		void response.body?.cancel().catch(() => {});
+		throw new ProviderTransportError("redirect", "Provider endpoint redirected the request. Configure its final HTTPS URL.");
+	}
+	return response;
 }
