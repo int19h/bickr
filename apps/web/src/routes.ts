@@ -46,6 +46,7 @@ export type ParsedRoute = {
 	botHandle?: string;
 	botProfileTab?: BotProfileTab;
 	botActivityId?: string;
+	inferenceSource?: { botId: string; runId: string; requestSeq: number };
 	configurationId?: string;
 	humanHandle?: string;
 	returnTo?: InferenceReturnTarget;
@@ -152,7 +153,7 @@ export function parsePathname(pathname: string, search = ""): ParsedRoute {
 		if ((parts[2] === "u" || parts[2] === "b") && parts[3]) {
 			const botHandle = parts[3];
 			if (parts[4] === "loop") {
-				return { route: "bot-loop", worldHandle, botHandle };
+				return { route: "bot-loop", worldHandle, botHandle, ...inferenceSourceRouteSearch(search) };
 			}
 			if (parts[4] === "edit") {
 				return { route: "bot-edit", worldHandle, botHandle };
@@ -193,8 +194,11 @@ export function routePath(parsed: ParsedRoute): string {
 			return botProfileRoutePath(parsed);
 		case "bot-avatar":
 			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}/avatar`;
-		case "bot-loop":
-			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}/loop`;
+		case "bot-loop": {
+			const base = `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}/loop`;
+			const source = parsed.inferenceSource;
+			return source ? `${base}?${new URLSearchParams({ inference: String(source.requestSeq), sourceBot: source.botId, runId: source.runId })}` : base;
+		}
 		case "bot-edit":
 			return `/w/${encodeURIComponent(parsed.worldHandle ?? "")}/u/${encodeURIComponent(parsed.botHandle ?? "")}/edit`;
 		case "my-bots":
@@ -413,4 +417,13 @@ function positivePage(value: string | null): number {
 function worldTabFromSearch(search: string): WorldTab {
 	const tab = new URLSearchParams(search).get("tab");
 	return tab === "bots" || tab === "groups" || tab === "activity" || tab === "notifications" || tab === "lore" ? tab : "forums";
+}
+
+function inferenceSourceRouteSearch(search: string): Pick<ParsedRoute, "inferenceSource"> {
+	const query = new URLSearchParams(search);
+	const requestSeq = Number(query.get("inference"));
+	const botId = query.get("sourceBot");
+	const runId = query.get("runId");
+	if (!Number.isSafeInteger(requestSeq) || requestSeq < 1 || !botId || !runId || botId.length > 128 || runId.length > 128) return {};
+	return { inferenceSource: { botId, runId, requestSeq } };
 }
