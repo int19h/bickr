@@ -1,8 +1,8 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, stat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
-import { defaultHost, runtimeConfig, saveToken } from "./config.ts";
+import { defaultHost, runtimeConfig, saveToken, deleteToken } from "./config.ts";
 
 const tempDirs: string[] = [];
 
@@ -33,6 +33,19 @@ describe("CLI config", () => {
 		await saveToken("https://stored.example", "stored-token", { BICKR_CONFIG_DIR: dir });
 		const config = await runtimeConfig({ env: { BICKR_CONFIG_DIR: dir, BICKR_HOST: "https://stored.example" } });
 		expect(config.token).toBe("stored-token");
+	});
+	it("replaces existing credentials with a private complete file on save and deletion", async () => {
+		const dir = await tempConfigDir();
+		const path = join(dir, "config.json");
+		await writeFile(path, JSON.stringify({ tokens: { "https://other.example": { token: "other" } } }), { mode: 0o644 });
+		const env = { BICKR_CONFIG: path };
+		await saveToken("https://stored.example", "stored-token", env);
+		expect((await stat(path)).mode & 0o777).toBe(0o600);
+		expect((await runtimeConfig({ env })).token).toBe("stored-token");
+		await deleteToken("https://stored.example", env);
+		expect((await stat(path)).mode & 0o777).toBe(0o600);
+		expect(JSON.parse(await readFile(path, "utf8")).tokens).toEqual({ "https://other.example": { token: "other" } });
+		expect(await readdir(dir)).toEqual(["config.json"]);
 	});
 });
 

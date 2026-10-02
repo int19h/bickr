@@ -24,7 +24,7 @@ import { BickrClient, ApiError, unwrap, type ApiEnvelope } from "./client.ts";
 import { deleteToken, runtimeConfig, saveToken } from "./config.ts";
 import { anyFlagPresent, flagPresent, languageFlag, languageForTextUpdate, languageLabel, localizedInput, localizedValueLang, localizedValueSingleLine, localizedValueText, optionalLocalizedInput, requiredLanguageFlag } from "./localized.ts";
 import { openBrowser } from "./open.ts";
-import { detail, outputContext, printEnvelope, printJson, printValue, table, type OutputContext } from "./output.ts";
+import { detail, terminalText, outputContext, printEnvelope, printJson, printValue, table, type OutputContext } from "./output.ts";
 import { parseRange } from "./range.ts";
 import { botIdForRef, forumPartsForRef, parseBickrPath, resolveBotTargets, resolveRef, threadPartsForRef, worldHandleForRef } from "./ref.ts";
 import {
@@ -134,18 +134,18 @@ async function authCommand(ctx: CommandContext, args: string[]): Promise<void> {
 		});
 		const start = unwrap(envelope);
 		if (ctx.output.human) {
-			process.stdout.write(`Approve this CLI session:\n${start.approveUrl}\n`);
+			process.stdout.write(`Approve this CLI session:\n${terminalText(start.approveUrl)}\n`);
 		} else {
-			process.stderr.write(`Approve this CLI session: ${start.approveUrl}\n`);
+			writeStderr(`Approve this CLI session: ${terminalText(start.approveUrl)}\n`);
 		}
 		if (flagBoolean(options.flags, "no-open")) {
-			process.stderr.write("Browser launch skipped. Waiting for approval; open the URL manually.\n");
+			writeStderr("Browser launch skipped. Waiting for approval; open the URL manually.\n");
 		} else {
 			const browser = await openBrowser(start.approveUrl);
 			if (browser.opened) {
-				process.stderr.write("Opened approval URL in a browser.\n");
+				writeStderr("Opened approval URL in a browser.\n");
 			} else {
-				process.stderr.write(`Could not open a browser automatically (${browser.reason}). Waiting for approval; open the URL manually.\n`);
+				writeStderr(`Could not open a browser automatically (${browser.reason}). Waiting for approval; open the URL manually.\n`);
 			}
 		}
 		const intervalMs = Math.max(1, start.pollIntervalSeconds) * 1_000;
@@ -161,10 +161,10 @@ async function authCommand(ctx: CommandContext, args: string[]): Promise<void> {
 				method: "POST",
 			}));
 			if (poll.status === "pending") {
-				process.stderr.write(".");
+				writeStderr(".");
 				continue;
 			}
-			process.stderr.write("\n");
+			writeStderr("\n");
 			if (poll.status === "expired" || !poll.token) {
 				throw new Error("CLI login approval expired.");
 			}
@@ -759,7 +759,7 @@ async function spotlightCommand(ctx: CommandContext, args: string[]): Promise<vo
 		.filter((bot) => !bot.tickSettings.enabled)
 		.map((bot) => ({ botId: bot.id, ref: botRefText(bot), reason: "paused" }));
 	for (const participant of skipped) {
-		process.stderr.write(`Skipping ${participant.ref}: paused participants cannot receive a spotlight.\n`);
+		writeStderr(`Skipping ${participant.ref}: paused participants cannot receive a spotlight.\n`);
 	}
 	if (eligible.length === 0) {
 		// Still an outcome of this run, not a crash: the document is written the
@@ -775,7 +775,7 @@ async function spotlightCommand(ctx: CommandContext, args: string[]): Promise<vo
 		return;
 	}
 	const handleById = new Map(eligible.map((bot) => [bot.id, botRefText(bot)]));
-	process.stderr.write(
+	writeStderr(
 		`Spotlight ${spotlightId}: ${eligible.length} participant${eligible.length === 1 ? "" : "s"} in batches of ${Math.min(batchSize, maxSpotlightSendBots)}.\n`,
 	);
 	const result = await sendSpotlightInBatches({
@@ -789,19 +789,19 @@ async function spotlightCommand(ctx: CommandContext, args: string[]): Promise<vo
 		timeoutMs: timeoutSeconds === undefined ? defaultSpotlightTimeoutMs : timeoutSeconds * 1_000,
 		onBatch: (progress) => {
 			const failed = progress.deliveries.filter((delivery) => spotlightDeliveryFailureMessage(delivery) !== null).length;
-			process.stderr.write(
+			writeStderr(
 				`Batch ${progress.batch}/${progress.batchCount}: ${progress.deliveries.length - failed} delivered, ${failed} failed.\n`,
 			);
 			for (const delivery of progress.deliveries) {
 				const failure = spotlightDeliveryFailureMessage(delivery);
 				if (failure !== null) {
-					process.stderr.write(`  ${handleById.get(delivery.botId) ?? delivery.botId}: ${failure}\n`);
+					writeStderr(`  ${handleById.get(delivery.botId) ?? delivery.botId}: ${failure}\n`);
 				}
 			}
 		},
 	});
 	if (result.failure) {
-		process.stderr.write(`Spotlight stopped: ${result.failure.code}: ${result.failure.message}\n`);
+		writeStderr(`Spotlight stopped: ${result.failure.code}: ${result.failure.message}\n`);
 	}
 	// A participant is still owed the spotlight whether its own delivery failed
 	// or its batch never ran. Naming the run id here is the only way a rerun can
@@ -809,7 +809,7 @@ async function spotlightCommand(ctx: CommandContext, args: string[]): Promise<vo
 	// skips whoever was already reached, and nothing else remembers the id.
 	const owed = eligible.length - spotlightDeliveredCount(result);
 	if (owed > 0) {
-		process.stderr.write(
+		writeStderr(
 			`${owed} participant${owed === 1 ? "" : "s"} still owed this spotlight. Rerun the same command with --spotlight-id ${spotlightId}; participants already reached are skipped.\n`,
 		);
 	}
@@ -1507,14 +1507,18 @@ Text writes:
 
 main(process.argv.slice(2)).catch((error: unknown) => {
 	if (error instanceof ApiError) {
-		process.stderr.write(`${error.code}: ${error.message}\n`);
+		writeStderr(`${error.code}: ${error.message}\n`);
 		if (error.details) {
-			process.stderr.write(`${JSON.stringify(error.details, null, 2)}\n`);
+			writeStderr(`${JSON.stringify(error.details, null, 2)}\n`);
 		}
 	} else if (error instanceof CliUsageError || error instanceof Error) {
-		process.stderr.write(`${error.message}\n`);
+		writeStderr(`${error.message}\n`);
 	} else {
-		process.stderr.write("Unexpected CLI error.\n");
+		writeStderr("Unexpected CLI error.\n");
 	}
 	process.exitCode = 1;
 });
+
+function writeStderr(value: string): void {
+	process.stderr.write(terminalText(value));
+}
