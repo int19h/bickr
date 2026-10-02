@@ -1,7 +1,7 @@
 import { draftsAfterSave, refreshDecision, staleConflict, staleComparisonText, type StaleConflict } from "./editor-state";
 export { refreshDecision, staleConflict, staleComparisonText, conflictingFieldLabels, type StaleConflict, type RefreshDecision } from "./editor-state";
 import { useRequestIdentity } from "../use-request-identity";
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { InferenceConfigurationField } from "@bickr/shared/inference-configuration";
 import type {
 	InferenceConfigurationSummary,
@@ -101,7 +101,7 @@ function InferenceConfigurationEditorScreenContent({
 		nameDraft: string;
 		busy: boolean;
 	}>({ dto: null, drafts: null, nameDraft: "", busy: false });
-	useEffect(() => {
+	useLayoutEffect(() => {
 		latest.current = { dto, drafts, nameDraft, busy };
 	});
 

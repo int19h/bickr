@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 
 /** Latest request wins. Unmount invalidates every pending completion. */
 export function useRequestIdentity() {
@@ -12,6 +12,6 @@ export function useRequestIdentity() {
 			},
 		};
 	});
-	useEffect(() => () => requests.invalidate(), [requests]);
+	useLayoutEffect(() => () => requests.invalidate(), [requests]);
 	return requests;
 }
