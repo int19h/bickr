@@ -1,5 +1,8 @@
 import { InferenceBadge } from "../../components/inference-attribution";
-import { useEffect, useRef, useState } from "react";
+import {
+	useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
+	type ComponentProps, type CSSProperties,
+} from "react";
 import type {
 	CommentDocument,
 	HumanSubscription,
@@ -24,15 +27,16 @@ import { TimeAgoLabel } from "../../components/record-display";
 import { SpotlightTargetCheckbox } from "./spotlight-target-checkbox";
 import type { SubscriptionTarget } from "../subscriptions";
 
-type CommentTreeNode = CommentDocument & {
-	replies: CommentTreeNode[];
-};
+import { commentIndentLimit, layoutCommentTree, type CommentLayoutRow, type CommentTreeNode } from "./comment-layout";
 
 export function CommentNode({
 	comment,
 	forumHandle,
 	implied,
-	isLastSibling,
+	layout,
+	parentAvailable = true,
+	onGoToParent,
+	parentHighlighted = false,
 	onReference,
 	onRequestDelete,
 	onToggle,
@@ -47,7 +51,10 @@ export function CommentNode({
 	comment: CommentTreeNode;
 	forumHandle: string;
 	implied: Set<string>;
-	isLastSibling: boolean;
+	layout?: CommentLayoutRow;
+	parentAvailable?: boolean;
+	onGoToParent?: (parentId: string) => void;
+	parentHighlighted?: boolean;
 	onReference: OpenReference;
 	onRequestDelete?: (comment: CommentDocument) => void;
 	onToggle?: (commentId: string, checked: boolean) => void;
@@ -68,12 +75,25 @@ export function CommentNode({
 	const subscribed = subscriptions.some((subscription) =>
 		subscription.scopeType === "comment" && subscription.scopeId === comment.id && subscription.active,
 	);
-	const hasReplies = comment.replies.length > 0;
+	const hasParentArrow = !isRootComment && Boolean(comment.parentCommentId);
 	return (
 		<div
-			className={`comment ${isTarget ? "flash" : ""} ${indeterminate ? "implied" : ""} ${isLastSibling ? "last-sibling" : ""} ${hasReplies ? "has-replies" : ""}`}
+			className={`comment ${isTarget ? "flash" : ""} ${indeterminate ? "implied" : ""} ${parentHighlighted ? "parent-highlight" : ""}`}
+			data-display-depth={layout?.depth ?? 0}
+			style={{ "--comment-depth": layout?.depth ?? 0 } as CSSProperties}
 			id={commentDomId(comment.id)}
 		>
+			{layout?.rails.map((rail) => (
+				<span
+					aria-hidden="true"
+					className={`comment-rail ${rail.kind} ${layout.zeroIndent ? "zero-indent" : ""}`}
+					key={`${rail.depth}-${rail.kind}`}
+					style={{ "--rail-depth": rail.depth } as CSSProperties}
+				/>
+			))}
+			{layout && layout.connector !== "none" && (
+				<span aria-hidden="true" className={`comment-connector ${layout.connector} ${layout.zeroIndent ? "zero-indent" : ""}`} />
+			)}
 			<div
 				aria-hidden={onToggle ? undefined : true}
 				className={onToggle ? "checkcell" : "checkcell placeholder"}
@@ -87,104 +107,164 @@ export function CommentNode({
 					/>
 				)}
 			</div>
-			<div className="comment-main">
-				<div className="head">
-					<span className="comment-author-line">
-						<Avatar actor="bot" colorSeed={comment.authorHandle} crop={comment.authorAvatarCrop} imageUrl={comment.authorAvatarUrl} name={comment.authorDisplayName} size="sm" />
-						<AuthorReference
-							displayName={comment.authorDisplayName}
-							handle={comment.authorHandle}
-							onOpen={() => onReference("bot", comment.authorHandle, { worldHandle })}
-						/>
-						<InferenceBadge attribution={comment.inferenceAttribution} />
-					</span>
-					<span className="comment-meta-line">
-						<a
-							aria-label={`Link to ${commentRef}`}
-							className="comment-anchor-link"
-							href={commentHref}
-							title={commentRef}
+			{hasParentArrow && (
+				<button
+					aria-label={parentAvailable ? "Go to parent comment" : "Parent comment is unavailable"}
+					className="comment-parent-link"
+					disabled={!parentAvailable}
+					onClick={() => onGoToParent?.(comment.parentCommentId!)}
+					title={parentAvailable ? "Go to parent comment" : "Parent comment is unavailable"}
+					type="button"
+				>⮤</button>
+			)}
+			<div className="head">
+				<span className="comment-author-line">
+					<Avatar actor="bot" colorSeed={comment.authorHandle} crop={comment.authorAvatarCrop} imageUrl={comment.authorAvatarUrl} name={comment.authorDisplayName} size="sm" />
+					<AuthorReference
+						displayName={comment.authorDisplayName}
+						handle={comment.authorHandle}
+						onOpen={() => onReference("bot", comment.authorHandle, { worldHandle })}
+					/>
+					<InferenceBadge attribution={comment.inferenceAttribution} />
+				</span>
+				<span className="comment-meta-line">
+					<a
+						aria-label={`Link to ${commentRef}`}
+						className="comment-anchor-link"
+						href={commentHref}
+						title={commentRef}
+					>
+						<Icon name="link" size={13} />
+					</a>
+					<CommentVoteCount
+						commentId={comment.id}
+						forumHandle={forumHandle}
+						onReference={onReference}
+						threadId={threadId}
+						voteScore={comment.voteScore}
+						worldHandle={worldHandle}
+					/>
+					<TimeAgoLabel className="comment-time" value={comment.createdAt} />
+					{comment.readState?.isNew && <span className="new-mark">new</span>}
+				</span>
+				<span className="comment-actions">
+					{onRequestDelete && !isRootComment && (
+						<button
+							aria-label="Delete comment"
+							className="comment-watch danger"
+							onClick={() => onRequestDelete(comment)}
+							title="Delete comment"
+							type="button"
 						>
-							<Icon name="link" size={13} />
-						</a>
-						<CommentVoteCount
-							commentId={comment.id}
-							forumHandle={forumHandle}
-							onReference={onReference}
-							threadId={threadId}
-							voteScore={comment.voteScore}
-							worldHandle={worldHandle}
-						/>
-						<TimeAgoLabel className="comment-time" value={comment.createdAt} />
-						{comment.readState?.isNew && <span className="new-mark">new</span>}
-					</span>
-					<span className="comment-actions">
-						{onRequestDelete && !isRootComment && (
-							<button
-								aria-label="Delete comment"
-								className="comment-watch danger"
-								onClick={() => onRequestDelete(comment)}
-								title="Delete comment"
-								type="button"
-							>
-								<Icon name="trash" size={12} />
-							</button>
-						)}
-						{onToggleSubscription && (
-							<button
-								aria-label={subscribed ? "Stop watching replies" : "Watch replies"}
-								aria-pressed={subscribed}
-								className={`comment-watch ${subscribed ? "active" : ""}`}
-								onClick={() =>
-									void onToggleSubscription(
-										{ scopeType: "comment", scopeId: comment.id, worldId: comment.worldId },
-										!subscribed,
-									)
-								}
-								title={subscribed ? "Stop watching replies" : "Watch replies"}
-								type="button"
-							>
-								<Icon name="bell" size={12} />
-							</button>
-						)}
-					</span>
-				</div>
-				<TranslatableText
-					as="div"
-					className="body"
-					commentBodyId={comment.id}
-					directionMode="lines"
-					markdown
-					onReference={onReference}
-					rich
-					text={comment.body}
-					verticalScriptLayout="block"
-					worldHandle={worldHandle}
-				/>
-				{comment.replies.length > 0 && (
-					<div className="replies">
-						{comment.replies.map((reply, index) => (
-							<CommentNode
-								comment={reply}
-								forumHandle={forumHandle}
-								implied={implied}
-								isLastSibling={index === comment.replies.length - 1}
-								key={reply.id}
-								onReference={onReference}
-								onRequestDelete={onRequestDelete}
-								onToggle={onToggle}
-								onToggleSubscription={onToggleSubscription}
-								rootCommentId={rootCommentId}
-								selected={selected}
-								subscriptions={subscriptions}
-								targetCommentId={targetCommentId}
-								threadId={threadId}
-								worldHandle={worldHandle}
-							/>
-						))}
-					</div>
-				)}
+							<Icon name="trash" size={12} />
+						</button>
+					)}
+					{onToggleSubscription && (
+						<button
+							aria-label={subscribed ? "Stop watching replies" : "Watch replies"}
+							aria-pressed={subscribed}
+							className={`comment-watch ${subscribed ? "active" : ""}`}
+							onClick={() =>
+								void onToggleSubscription(
+									{ scopeType: "comment", scopeId: comment.id, worldId: comment.worldId },
+									!subscribed,
+								)
+							}
+							title={subscribed ? "Stop watching replies" : "Watch replies"}
+							type="button"
+						>
+							<Icon name="bell" size={12} />
+						</button>
+					)}
+				</span>
 			</div>
+			<TranslatableText
+				as="div"
+				className="body"
+				commentBodyId={comment.id}
+				directionMode="lines"
+				markdown
+				onReference={onReference}
+				rich
+				text={comment.body}
+				verticalScriptLayout="block"
+				worldHandle={worldHandle}
+			/>
+		</div>
+	);
+}
+
+type CommentNodeProps = ComponentProps<typeof CommentNode>;
+
+type CommentTreeProps = Omit<CommentNodeProps, "comment" | "layout" | "parentAvailable" | "onGoToParent" | "parentHighlighted"> & {
+	roots: CommentTreeNode[];
+	canDeleteComment?: (comment: CommentDocument) => boolean;
+};
+
+export function CommentTree({ roots, canDeleteComment, ...props }: CommentTreeProps) {
+	const treeRef = useRef<HTMLDivElement>(null);
+	const probeRef = useRef<HTMLSpanElement>(null);
+	const [indentLimit, setIndentLimit] = useState(0);
+	const [parentHighlight, setParentHighlight] = useState<string | null>(null);
+	const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const rows = useMemo(() => layoutCommentTree(roots, indentLimit), [roots, indentLimit]);
+	const availableIds = useMemo(() => new Set(rows.map((row) => row.comment.id)), [rows]);
+
+	useLayoutEffect(() => {
+		const tree = treeRef.current;
+		const probe = probeRef.current;
+		if (!tree || !probe) return;
+		const measure = () => {
+			const firstRow = tree.querySelector<HTMLElement>(".comment");
+			if (!firstRow) return;
+			const style = getComputedStyle(firstRow);
+			const gutter = parseFloat(style.gridTemplateColumns.split(" ")[0]!) || 18;
+			const gap = parseFloat(style.columnGap) || 0;
+			setIndentLimit(commentIndentLimit(tree.getBoundingClientRect().width, window.innerWidth, gutter + gap, probe.getBoundingClientRect().width));
+		};
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(tree);
+		observer.observe(probe);
+		window.addEventListener("resize", measure);
+		return () => {
+			observer.disconnect();
+			window.removeEventListener("resize", measure);
+		};
+	}, [roots.length]);
+
+	useEffect(() => () => {
+		if (highlightTimer.current !== null) clearTimeout(highlightTimer.current);
+	}, []);
+
+	const goToParent = useCallback((id: string) => {
+		const parent = document.getElementById(commentDomId(id));
+		if (!parent) return;
+		parent.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+		setParentHighlight(id);
+		if (highlightTimer.current !== null) clearTimeout(highlightTimer.current);
+		highlightTimer.current = setTimeout(() => {
+			setParentHighlight(null);
+			highlightTimer.current = null;
+		}, 1800);
+	}, []);
+
+	return (
+		<div className="comment-tree" ref={treeRef}>
+			<span aria-hidden="true" className="comment-width-probe" ref={probeRef} />
+			{roots.length === 0 && <div className="empty compact-empty">No comments yet.</div>}
+			{rows.map((row) => (
+				<CommentNode
+					{...props}
+					comment={row.comment}
+					key={row.comment.id}
+					layout={row}
+					onRequestDelete={canDeleteComment?.(row.comment) ? props.onRequestDelete : undefined}
+					onGoToParent={goToParent}
+					parentAvailable={availableIds.has(row.comment.parentCommentId ?? "")}
+					parentHighlighted={parentHighlight === row.comment.id}
+				/>
+			))}
 		</div>
 	);
 }

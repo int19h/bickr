@@ -127,7 +127,6 @@ function renderComment(translation = { enabled: false, identity: "", model: "", 
 				comment={comment}
 				forumHandle={forum.handle}
 				implied={new Set()}
-				isLastSibling
 				onReference={() => undefined}
 				onToggle={() => undefined}
 				rootCommentId="cmt_root"

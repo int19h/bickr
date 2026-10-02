@@ -3579,12 +3579,6 @@ fieldset {
 	gap: 8px;
 }
 
-.comment {
-	border-left: 2px solid var(--rule);
-	padding-left: 10px;
-	white-space: pre-wrap;
-}
-
 .section {
 	margin-bottom: 32px;
 }
@@ -6338,69 +6332,139 @@ fieldset {
 
 .comment-tree {
 	padding: 10px 0 24px;
+	position: relative;
+}
+
+.comment-width-probe {
+	height: 0;
+	position: absolute;
+	visibility: hidden;
+	width: 132ch;
 }
 
 .comment {
 	--comment-checkbox-size: 18px;
 	--comment-check: var(--comment-checkbox-size);
 	--comment-content-gap: 8px;
-	--comment-gap: 12px;
 	--comment-link-size: 18px;
-	--comment-left-pad: 0px;
 	--comment-pad-top: 10px;
 	--comment-checkbox-center: calc(var(--comment-checkbox-size) / 2);
 	--comment-control-center: 11px;
 	--comment-checkbox-top: calc(var(--comment-control-center) - var(--comment-checkbox-center));
 	--comment-checkbox-midline: calc(var(--comment-pad-top) + var(--comment-control-center));
 	--comment-checkbox-bottom-from-main: calc(var(--comment-checkbox-top) + var(--comment-checkbox-size));
-	--comment-rail-offset: calc(var(--comment-check) + var(--comment-content-gap) - var(--comment-checkbox-center));
-	--comment-rail-left: calc(-1 * var(--comment-rail-offset) - 1px);
-	--comment-connector-width: calc(var(--comment-rail-offset) + var(--comment-checkbox-center) + 1px);
+	--comment-step: calc(var(--comment-check) + var(--comment-content-gap));
 	border-left: none;
 	border-radius: 4px;
 	display: grid;
 	column-gap: var(--comment-content-gap);
-	grid-template-columns: var(--comment-check) minmax(0, 1fr);
-	margin-left: 0;
-	padding: var(--comment-pad-top) 0 10px var(--comment-left-pad);
+	grid-template-columns: var(--comment-check) minmax(0, 132ch);
+	grid-template-rows: auto auto;
+	margin-left: calc(var(--comment-depth, 0) * var(--comment-step));
+	margin-top: 4px;
+	padding: var(--comment-pad-top) 0 10px;
 	position: relative;
-	row-gap: var(--comment-gap);
+	row-gap: 0;
 	transition: background 200ms;
 	white-space: normal;
 }
 
-.comment::before {
-	content: none;
-}
-
-.comment::after {
-	content: none;
-}
-
-.comment .replies > .comment {
-	--comment-left-pad: 0px;
-}
-
-.comment .replies > .comment::before {
+.comment-rail {
 	background: var(--rule-soft);
-	content: "";
+	bottom: -4px;
+	left: calc(var(--comment-checkbox-center) + (var(--rail-depth) - var(--comment-depth)) * var(--comment-step) - 1px);
+	pointer-events: none;
+	position: absolute;
+	top: -4px;
+	width: 2px;
+}
+
+.comment-rail.end {
+	bottom: auto;
+	height: calc(var(--comment-checkbox-midline) + 4px);
+}
+
+.comment-rail.start {
+	top: calc(var(--comment-pad-top) + var(--comment-checkbox-bottom-from-main));
+}
+
+.comment-rail.zero-indent {
+	left: 0;
+}
+
+.comment-rail.end.zero-indent {
+	height: calc(var(--comment-pad-top) + var(--comment-checkbox-bottom-from-main) + 8px);
+}
+
+.comment-connector {
+	background: var(--rule-soft);
 	height: 2px;
-	left: var(--comment-rail-left);
+	left: calc(var(--comment-checkbox-center) - var(--comment-step));
+	pointer-events: none;
 	position: absolute;
 	top: var(--comment-checkbox-midline);
-	width: var(--comment-connector-width);
-	z-index: 2;
+	width: var(--comment-step);
 }
 
-.comment .replies > .comment.last-sibling::after {
-	background: var(--paper);
-	bottom: -4px;
-	content: "";
-	left: var(--comment-rail-left);
+/* At zero indents, the checkbox covers its usual connector. Use the free gutter below it. */
+.comment-connector.zero-indent {
+	top: calc(var(--comment-pad-top) + var(--comment-checkbox-bottom-from-main) + 4px);
+	left: 0;
+	width: var(--comment-checkbox-center);
+}
+
+.comment-connector.ellipsis {
+	background: linear-gradient(to right, var(--rule-soft) 25%, transparent 25% 75%, var(--rule-soft) 75%);
+}
+
+.comment-connector.ellipsis::after {
+	color: var(--ink-4);
+	content: "⋯";
+	font-size: 14px;
+	left: 50%;
+	line-height: 2px;
 	position: absolute;
-	top: calc(var(--comment-checkbox-midline) + 1px);
-	width: 2px;
-	z-index: 1;
+	transform: translateX(-50%);
+}
+
+.comment-connector.ellipsis.zero-indent::after {
+	font-size: 10px;
+}
+
+.comment-parent-link {
+	align-self: start;
+	background: transparent;
+	color: var(--ink-4);
+	cursor: pointer;
+	font-size: 18px;
+	grid-column: 1;
+	grid-row: 2;
+	height: 22px;
+	line-height: 1;
+	padding: 0;
+	position: relative;
+	width: var(--comment-check);
+}
+
+.comment-parent-link:hover {
+	color: var(--accent-ink);
+}
+
+.comment-parent-link:disabled {
+	cursor: default;
+	opacity: 0.5;
+}
+
+.comment.parent-highlight {
+	background: color-mix(in oklch, var(--accent) 10%, var(--paper));
+	outline: 1px dashed color-mix(in oklch, var(--accent) 35%, transparent);
+	outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.comment {
+		transition: none;
+	}
 }
 
 .comment.implied {
@@ -6414,6 +6478,8 @@ fieldset {
 }
 
 .comment .checkcell {
+	grid-column: 1;
+	grid-row: 1;
 	display: grid;
 	justify-items: center;
 	align-content: start;
@@ -6439,6 +6505,9 @@ fieldset {
 }
 
 .comment .head {
+	grid-column: 2;
+	grid-row: 1;
+	min-width: 0;
 	align-items: center;
 	color: var(--ink-3);
 	display: flex;
@@ -6476,24 +6545,6 @@ fieldset {
 	position: absolute;
 	right: 0;
 	top: 0;
-}
-
-.comment-main {
-	max-width: 132ch;
-	min-width: 0;
-	position: relative;
-	width: 100%;
-}
-
-.comment.has-replies > .comment-main::before {
-	background: var(--rule-soft);
-	bottom: 0;
-	content: "";
-	left: var(--comment-rail-left);
-	position: absolute;
-	top: var(--comment-checkbox-bottom-from-main);
-	width: 2px;
-	z-index: 0;
 }
 
 .vote-popover-wrap {
@@ -6637,24 +6688,14 @@ fieldset {
 }
 
 .comment .body {
+	grid-column: 2;
+	grid-row: 2;
+	min-width: 0;
 	color: var(--ink);
 	font-size: calc(14px * var(--font-scale));
 	line-height: 1.55;
 	max-width: 100%;
 	white-space: pre-wrap;
-}
-
-.comment .replies {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	margin-top: 8px;
-	padding-left: 0;
-	position: relative;
-}
-
-.comment .replies::before {
-	content: none;
 }
 
 .profile-head {
@@ -7965,16 +8006,9 @@ button.avatar-large-preview:not(:disabled),
 		width: 100%;
 	}
 
-	.comment .replies {
-		padding-left: 0;
-	}
-
 	.comment {
 		--comment-check: var(--comment-checkbox-size);
 		--comment-content-gap: 6px;
-		--comment-gap: 8px;
-		--comment-left-pad: 0px;
-		margin-left: 0;
 	}
 
 	.notification-page-card {
