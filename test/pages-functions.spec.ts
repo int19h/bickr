@@ -1,3 +1,4 @@
+import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
 import { internalServiceTestEnv, internalServiceTestHeaders } from "./helpers/internal-service-auth";
 import {
 	addBotGroupMembersRoute,
@@ -759,6 +760,7 @@ describe("Pages functions", () => {
 			),
 		);
 		expect(firstPatch.status, await firstPatch.clone().text()).toBe(200);
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
 		let rows = await testEnv.BICKR_D1.prepare(
 			`SELECT notification_id AS id, user_id AS userId, body, read_at AS readAt
 			 FROM human_notifications
@@ -778,6 +780,7 @@ describe("Pages functions", () => {
 			),
 		);
 		expect(secondPatch.status, await secondPatch.clone().text()).toBe(200);
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
 		rows = await testEnv.BICKR_D1.prepare(
 			`SELECT notification_id AS id, user_id AS userId, body, read_at AS readAt
 			 FROM human_notifications
@@ -812,6 +815,7 @@ describe("Pages functions", () => {
 			),
 		);
 		expect(recurringTogglePatch.status, await recurringTogglePatch.clone().text()).toBe(200);
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
 		rows = await testEnv.BICKR_D1.prepare(
 			`SELECT notification_id AS id, user_id AS userId, body, read_at AS readAt
 			 FROM human_notifications
@@ -832,6 +836,7 @@ describe("Pages functions", () => {
 			),
 		);
 		expect(thirdPatch.status, await thirdPatch.clone().text()).toBe(200);
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
 		rows = await testEnv.BICKR_D1.prepare(
 			`SELECT notification_id AS id, user_id AS userId, body, read_at AS readAt
 			 FROM human_notifications

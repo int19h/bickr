@@ -1,3 +1,4 @@
+import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
 import { completeToolBookkeeping } from '../workers/agent-runtime/src/runtime/tools';
 import type { ToolResult } from '../workers/agent-runtime/src/types';
 import {
@@ -905,6 +906,7 @@ describe("Provider requests", () => {
 			spotlightMutation: true,
 			spotlightTickTerminator: true,
 		});
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
 		const voteNotifications = await testEnv.BICKR_D1.prepare(
 			`SELECT target_id AS targetId, spotlight_id AS spotlightId
 			 FROM human_notifications
@@ -933,6 +935,7 @@ describe("Provider requests", () => {
 			spotlightMutation: true,
 			spotlightTickTerminator: true,
 		});
+		await runHumanNotificationFanout(testEnv.BICKR_D1);
 		const followNotifications = await testEnv.BICKR_D1.prepare(
 			`SELECT target_id AS targetId, spotlight_id AS spotlightId
 			 FROM human_notifications

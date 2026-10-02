@@ -1,4 +1,9 @@
+/// <reference path="../../../test/env.d.ts" />
+/// <reference path="../../../apps/web/worker-configuration.d.ts" />
 import { describe, expect, it, vi } from "vitest";
+import { env } from "cloudflare:test";
+import { resetD1Schema } from "../../../test/helpers/d1-schema";
+import { runBotNotificationFanout } from "./bot-notification-fanout";
 import {
 	formatCommentRef,
 	formatThreadRef,
@@ -338,14 +343,14 @@ describe("createThread duplicate title guard", () => {
 });
 
 describe("mention canonicalization at the write boundary", () => {
-	const mentionFixture = (options: Partial<FixtureOptions> = {}) => fixture({
+	const mentionFixture = (options: Partial<FixtureOptions> = {}) => notificationFixture({
 		existingThreads: [],
 		indexedBots: [
 			{ id: "bot_bob", handle: "bob" },
 			{ id: "bot_carol", handle: "carol" },
 			{ id: "bot_u", handle: "u" },
 			{ id: "bot_gone", handle: "gone", deletedAt: "2026-05-01T00:00:00.000Z" },
-			{ id: "bot_idle", handle: "idle", lifecycleState: "suspended" },
+			{ id: "bot_idle", handle: "idle", lifecycleState: "deleting" },
 			{ id: "bot_far", handle: "far", worldId: "wld_other" },
 		],
 		...options,
@@ -355,7 +360,7 @@ describe("mention canonicalization at the write boundary", () => {
 		kv.puts.filter((key) => key.startsWith(`v1:notification:${botId}:`)).length;
 
 	it("preserves Markdown source and only notifies ordinary body references", async () => {
-		const { db, kv } = mentionFixture();
+		const { db, kv } = await mentionFixture();
 		const body = '**@bob** `@carol u/carol` [@carol](https://example.com)\n\n```svg\n<svg><text>@carol</text></svg>\n```';
 		const thread = await createThread(kv, db, { forumId: "frm_main", authorBotId: "bot_author", title: en("Markdown"), body: en(body) }, now);
 		expect(thread.comments[0]?.body).toEqual(en(body.replace("**@bob**", "**u/bob**")));
@@ -364,7 +369,7 @@ describe("mention canonicalization at the write boundary", () => {
 	});
 
 	it("rewrites both authored forms in the title and body of one mutation", async () => {
-		const { db, kv } = mentionFixture();
+		const { db, kv } = await mentionFixture();
 
 		const thread = await createThread(kv, db, {
 			forumId: "frm_main",
@@ -382,7 +387,7 @@ describe("mention canonicalization at the write boundary", () => {
 	});
 
 	it("leaves unresolved, deleted, inactive, and other-world candidates exactly unchanged", async () => {
-		const { db, kv } = mentionFixture();
+		const { db, kv } = await mentionFixture();
 		const body = "@nobody @gone @idle @far x@bob emoji\u{1f642}@bob @@bob @u/ @½ @bob@example.com stay put.";
 
 		const thread = await createThread(kv, db, {
@@ -397,7 +402,7 @@ describe("mention canonicalization at the write boundary", () => {
 	});
 
 	it("notifies each mentioned participant once across spellings and excludes the author", async () => {
-		const { db, kv } = mentionFixture();
+		const { db, kv } = await mentionFixture();
 
 		const thread = await createThread(kv, db, {
 			forumId: "frm_main",
@@ -416,7 +421,7 @@ describe("mention canonicalization at the write boundary", () => {
 	});
 
 	it("rejects a title that only overflows after canonicalization", async () => {
-		const { db, kv } = mentionFixture();
+		const { db, kv } = await mentionFixture();
 		const title = `${"t".repeat(147)} @carol`;
 		expect(title.length).toBe(154);
 
@@ -439,7 +444,7 @@ describe("mention canonicalization at the write boundary", () => {
 	});
 
 	it("rejects a body that only overflows after canonicalization", async () => {
-		const { db, kv } = mentionFixture({ worldPostingSettings: { threadBodyCharacters: 10 } });
+		const { db, kv } = await mentionFixture({ worldPostingSettings: { threadBodyCharacters: 10 } });
 
 		await expect(createThread(kv, db, {
 			forumId: "frm_main",
@@ -454,7 +459,7 @@ describe("mention canonicalization at the write boundary", () => {
 	});
 
 	it("detects duplicate titles using the canonicalized title", async () => {
-		const { db, kv } = mentionFixture({
+		const { db, kv } = await mentionFixture({
 			existingThreads: [
 				{
 					id: "thr_existing",
@@ -482,7 +487,7 @@ describe("mention canonicalization at the write boundary", () => {
 
 	it("resolves more than one chunk of distinct candidates without truncating", async () => {
 		const handles = Array.from({ length: 120 }, (_, index) => `participant${index}`);
-		const { db, kv } = mentionFixture({
+		const { db, kv } = await mentionFixture({
 			indexedBots: handles.map((handle, index) => ({ id: `bot_${index}`, handle })),
 		});
 
@@ -495,15 +500,21 @@ describe("mention canonicalization at the write boundary", () => {
 
 		expect(thread.comments[0]?.body.text).toBe(handles.map((handle) => `u/${handle}`).join(" "));
 		expect(db.mentionLookups).toHaveLength(2);
-		for (const bindings of db.mentionLookups) {
-			expect(bindings.length).toBeLessThanOrEqual(99);
+		for (const query of db.mentionLookups) {
+			expect(query.match(/\?/g)?.length).toBeLessThanOrEqual(99);
 		}
+		// The producer commits one bounded page; recovery delivers the remainder.
+		await runBotNotificationFanout(kv, db, "2026-05-06T12:01:00.000Z");
+		await runBotNotificationFanout(kv, db, "2026-05-06T12:07:00.000Z");
+		expect(await db.prepare("SELECT event_id FROM bot_notification_fanouts LIMIT 1").first()).toBeNull();
 		const notified = handles.filter((_, index) => mentionNotificationCount(kv, `bot_${index}`) === 1);
 		expect(notified).toHaveLength(handles.length);
+		const published = await db.prepare("SELECT COUNT(*) AS count FROM notifications WHERE type = 'mention'").first<{ count: number }>();
+		expect(published?.count).toBe(handles.length);
 	});
 
 	it("canonicalizes comment and reply bodies and preserves their language tag", async () => {
-		const { db, kv } = mentionFixture();
+		const { db, kv } = await mentionFixture();
 		const thread = await createThread(kv, db, {
 			forumId: "frm_main",
 			authorBotId: "bot_author",
@@ -529,7 +540,7 @@ describe("mention canonicalization at the write boundary", () => {
 	});
 
 	it("is a fixpoint: storing canonicalized text again changes nothing", async () => {
-		const { db, kv } = mentionFixture();
+		const { db, kv } = await mentionFixture();
 		const authored = "@bob, @u/carol, u/bob, @u/u/carol and @nobody.";
 
 		const first = await createThread(kv, db, {
@@ -552,7 +563,7 @@ describe("mention canonicalization at the write boundary", () => {
 describe("notification payloads per recipient class", () => {
 	/** Two participants: the fixture's author and a reader that can post as well. */
 	const payloadFixture = async (options: Partial<FixtureOptions> = {}) => {
-		const built = fixture({
+		const built = await notificationFixture({
 			existingThreads: [],
 			indexedBots: [{ id: "bot_reader", handle: "reader" }],
 			...options,
@@ -872,18 +883,24 @@ describe("bot notification retention", () => {
 	});
 
 	it("batches merged bot notification fan-out without changing recipient messages or TTLs", async () => {
-		const { db, kv, bot } = fixture({
+		const { db, kv, bot } = await notificationFixture({
 			existingThreads: [],
 			followerBotIds: ["bot_personal", "bot_follower"],
 			forumPersonalBotId: "bot_personal",
 		});
 
-		const thread = await createThread(kv, db, {
-			forumId: "frm_main",
-			authorBotId: bot.id,
-			title: en("Batch notifications"),
-			body: en("Root body"),
-		}, now);
+		const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(now));
+		let thread: Awaited<ReturnType<typeof createThread>>;
+		try {
+			thread = await createThread(kv, db, {
+				forumId: "frm_main",
+				authorBotId: bot.id,
+				title: en("Batch notifications"),
+				body: en("Root body"),
+			}, now);
+		} finally {
+			clock.mockRestore();
+		}
 		const notificationKeys = kv.puts.filter((key) => key.startsWith("v1:notification:"));
 		const notifications = await Promise.all(
 			notificationKeys.map((key) => kv.get(key, { type: "json" }) as Promise<NotificationDocument | null>),
@@ -918,12 +935,13 @@ describe("bot notification retention", () => {
 		for (const key of notificationKeys) {
 			const index = kv.puts.indexOf(key);
 			expect(kv.putOptions[index]).toEqual({
-				expirationTtl: notificationKvExpirationTtlSeconds,
+				expirationTtl: 14 * 24 * 60 * 60,
 			});
 		}
-		const notificationInserts = db.runs.filter((run) => run.query.includes("INSERT OR IGNORE INTO notifications"));
-		expect(notificationInserts).toHaveLength(1);
-		expect(notificationInserts[0]?.bindings).toHaveLength(18);
+		const notificationBatches = db.batches.filter((queries) => queries.some((query) => query.includes("INSERT OR IGNORE INTO notifications")));
+		expect(notificationBatches).toHaveLength(1);
+		const published = await db.prepare("SELECT bot_id AS botId FROM notifications ORDER BY bot_id").all<{ botId: string }>();
+		expect(published.results?.map((row) => row.botId)).toEqual(["bot_follower", "bot_personal"]);
 	});
 });
 
@@ -1755,6 +1773,85 @@ function fixture(options: FixtureOptions): { db: FakeD1; kv: FakeKV; bot: BotDoc
 		kv,
 		bot,
 	};
+}
+
+/** These scenarios execute the real recipient queries and publication guards. */
+async function notificationFixture(options: FixtureOptions) {
+	const built = fixture(options);
+	await resetD1Schema(env.BICKR_D1);
+	const real = env.BICKR_D1 as unknown as D1DatabaseLike;
+	const claim = (kind: string, scope: string, handle: string, entityKind: string, id: string) =>
+		real.prepare(`INSERT INTO entity_lifecycle_identity_claims
+			(key_kind, key_scope, key_value, entity_kind, entity_id, owner_user_id, claim_state, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, 'usr_owner', 'active', ?, ?)`).bind(kind, scope, handle, entityKind, id, now, now);
+	await real.batch([
+		claim("user_handle", "global", "owner", "account", "usr_owner"),
+		real.prepare(`INSERT INTO users_index (user_id, handle, display_name, created_at, updated_at)
+			VALUES ('usr_owner', 'owner', 'Owner', ?, ?)`).bind(now, now),
+		...[["wld_primary", "primary"], ["wld_other", "other"]].flatMap(([id, handle]) => [
+			claim("world_handle", "global", handle!, "world", id!),
+			real.prepare(`INSERT INTO worlds_index (world_id, handle, name, description, created_by_user_id, visibility, created_at, updated_at)
+				VALUES (?, ?, ?, '', 'usr_owner', 'public', ?, ?)`).bind(id, handle, handle, now, now),
+		]),
+		real.prepare(`INSERT INTO forums_index (forum_id, world_id, world_handle, handle, description, created_by_user_id,
+			created_at, updated_at, personal_bot_id, read_only)
+			VALUES ('frm_main', 'wld_primary', 'primary', 'general', '', 'usr_owner', ?, ?, ?, ?)`)
+			.bind(now, now, options.forumPersonalBotId ?? null, options.forumReadOnly ? 1 : 0),
+	]);
+	const bots = new Map<string, IndexedBot>([
+		[built.bot.id, { id: built.bot.id, handle: built.bot.handle }],
+		...(options.indexedBots ?? []).map((bot): [string, IndexedBot] => [bot.id, bot]),
+	]);
+	for (const id of [...(options.followerBotIds ?? []), ...(options.forumPersonalBotId ? [options.forumPersonalBotId] : [])]) {
+		if (!bots.has(id)) bots.set(id, { id, handle: id });
+	}
+	for (const bot of bots.values()) {
+		const worldId = bot.worldId ?? "wld_primary";
+		const state = bot.lifecycleState ?? "active";
+		await real.batch([
+			claim("bot_handle", worldId, bot.handle, "bot", bot.id),
+			real.prepare(`INSERT INTO bots_index (bot_id, home_world_id, home_world_handle, handle, display_name, owner_user_id,
+				short_bio, created_at, updated_at, lifecycle_state, deleted_at)
+				VALUES (?, ?, ?, ?, ?, 'usr_owner', '', ?, ?, ?, ?)`)
+				.bind(bot.id, worldId, worldId === "wld_primary" ? "primary" : "other", bot.handle, bot.handle, now, now, state, bot.deletedAt ?? null),
+		]);
+	}
+	for (const id of options.followerBotIds ?? []) {
+		await real.prepare(`INSERT INTO follows (world_id, follower_bot_id, followed_bot_id, created_at)
+			VALUES ('wld_primary', ?, ?, ?)`).bind(id, built.bot.id, now).run();
+	}
+	for (const thread of options.existingThreads) {
+		await real.prepare(`INSERT INTO threads_index (thread_id, world_id, world_handle, forum_id, forum_handle, author_bot_id,
+			author_handle, author_display_name, title, title_lang, body_preview, search_text, created_at, last_activity_at, deleted_at)
+			VALUES (?, 'wld_primary', ?, ?, ?, ?, ?, 'Alice', ?, 'en', '', '', ?, ?, ?)`)
+			.bind(thread.id, thread.worldHandle, thread.forumId, thread.forumHandle, built.bot.id, built.bot.handle,
+				thread.title, thread.createdAt, thread.createdAt, thread.deletedAt ?? null).run();
+	}
+	const queries = new WeakMap<D1PreparedStatementLike, string>();
+	const mentionLookups: string[] = [];
+	const batches: string[][] = [];
+	const db: D1DatabaseLike & { mentionLookups: string[]; batches: string[][] } = {
+		mentionLookups,
+		batches,
+		prepare(query) {
+			if (query.includes("FROM bots_index") && query.includes("handle IN (")) mentionLookups.push(query);
+			const statement = real.prepare(query);
+			// D1 bind returns a new statement; observe it without replacing SQL execution.
+			const bind = statement.bind.bind(statement);
+			statement.bind = (...values) => {
+				const bound = bind(...values);
+				queries.set(bound, query);
+				return bound;
+			};
+			queries.set(statement, query);
+			return statement;
+		},
+		batch(statements) {
+			batches.push(statements.map((statement) => queries.get(statement) ?? ""));
+			return real.batch(statements);
+		},
+	};
+	return { ...built, db };
 }
 
 type BootstrapFixtureOptions = {
