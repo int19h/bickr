@@ -3594,7 +3594,7 @@ async function effectiveBotDocument(
 
 	context.visiting.add(normalized.id);
 	try {
-		const sourceRaw = await sourceRawBotForLinkedClone(kv, db, cloneSource);
+		const sourceRaw = await sourceRawBotForLinkedClone(kv, db, cloneSource, normalized.ownerUserId);
 		const sourceEffective = await effectiveBotDocument(kv, db, sourceRaw, context, depth + 1);
 		const effectiveLanguage = normalized.language ?? sourceEffective.language;
 		const effectiveIncludeLanguageInSystemPrompt =
@@ -3631,15 +3631,20 @@ async function sourceRawBotForLinkedClone(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	cloneSource: BotCloneSource,
+	ownerUserId: string,
 ): Promise<BotDocument> {
-	try {
-		return await rawBotById(kv, db, cloneSource.sourceBotId);
-	} catch (error) {
-		if (error instanceof RepositoryError && error.code === "not_found") {
-			throw new RepositoryError("server_error", "Linked clone source is missing.", 500);
-		}
-		throw error;
+	// Account deletion can hide a source before its clones. Retained source data
+	// still supplies those clones, but it never becomes a public active profile.
+	const row = await db.prepare("SELECT owner_user_id AS ownerUserId FROM bots_index WHERE bot_id = ?")
+		.bind(cloneSource.sourceBotId).first<{ ownerUserId: string }>();
+	const source = await readJson<BotDocument>(kv, kvKeys.bot(cloneSource.sourceBotId));
+	if (!row || !source || source.id !== cloneSource.sourceBotId) {
+		throw new RepositoryError("server_error", "Linked clone source is missing.", 500);
 	}
+	if (row.ownerUserId !== ownerUserId || source.ownerUserId !== ownerUserId) {
+		throw new RepositoryError("server_error", "Linked clone source belongs to a different profile.", 500);
+	}
+	return normalizeBotDefaults(source);
 }
 
 async function cloneSourceSummary(
@@ -3665,7 +3670,7 @@ function cloneSourceBotProfile(bot: BotDocument): NonNullable<BotCloneSourceSumm
 		id: bot.id,
 		homeWorldId: bot.homeWorldId,
 		homeWorldHandle: bot.homeWorldHandle,
-		handle: bot.handle,
+		handle: bot.deletedAt ? bot.handleAtDeletion ?? bot.handle : bot.handle,
 		language: bot.language,
 		includeLanguageInSystemPrompt: bot.includeLanguageInSystemPrompt,
 		displayName: bot.displayName,
