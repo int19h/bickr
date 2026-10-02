@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { agentRuntimeRouteTable, matchAgentRuntimeRoute } from './routes';
 
 const routeCases = [
+	{ method: 'POST', path: '/auth/maintenance', handlerId: 'auth-maintenance' },
+	{ method: 'POST', path: '/users/user-1/repair-index', handlerId: 'account-index-repair' },
 	{ method: 'POST', path: '/accounts/bootstrap', handlerId: 'account-bootstrap-dispatch' },
 	{ method: 'POST', path: '/users/user-1/lifecycle/recover', handlerId: 'lifecycle-recovery' },
 	{ method: 'PUT', path: '/users/user-1/avatar', handlerId: 'user-avatar-upload' },

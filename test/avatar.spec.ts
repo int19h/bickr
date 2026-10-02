@@ -2695,11 +2695,11 @@ describe("Avatar", () => {
 
 			const request = new Request(`https://internal.bickr${path}`, {
 				method: "POST",
-				headers: { "x-bickr-user-id": userId },
+				headers: { "x-bickr-user-id": userId, "x-bickr-internal-auth": "avatar-route-secret" },
 			});
 			const response = await agentRuntimeWorker.fetch(
 				request as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
-				{ BICKR_D1: testEnv.BICKR_D1, USER_BOTS: namespace } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+				{ BICKR_D1: testEnv.BICKR_D1, USER_BOTS: namespace, INTERNAL_SERVICE_SECRET: "avatar-route-secret" } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
 			);
 
 			expect(response.status).toBe(200);
@@ -2730,11 +2730,11 @@ describe("Avatar", () => {
 			const path = `/users/${userId}/worlds/${worldHandle}/avatar/prompt-settings`;
 			const request = new Request(`https://internal.bickr${path}`, {
 				method: "GET",
-				headers: { "x-bickr-user-id": userId },
+				headers: { "x-bickr-user-id": userId, "x-bickr-internal-auth": "avatar-route-secret" },
 			});
 			const response = await agentRuntimeWorker.fetch(
 				request as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
-				{ USER_BOTS: namespace } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+				{ USER_BOTS: namespace, INTERNAL_SERVICE_SECRET: "avatar-route-secret" } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
 			);
 			expect(response.status).toBe(200);
 			expect(routed).toEqual({
@@ -2762,11 +2762,11 @@ describe("Avatar", () => {
 		};
 		const request = new Request(`https://internal.bickr/users/${userId}/bots/spread-ticks`, {
 			method: "POST",
-			headers: { "x-bickr-user-id": userId },
+			headers: { "x-bickr-user-id": userId, "x-bickr-internal-auth": "avatar-route-secret" },
 		});
 		const response = await agentRuntimeWorker.fetch(
 			request as unknown as Parameters<typeof agentRuntimeWorker.fetch>[0],
-			{ BICKR_D1: testEnv.BICKR_D1, USER_BOTS: namespace } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
+			{ BICKR_D1: testEnv.BICKR_D1, USER_BOTS: namespace, INTERNAL_SERVICE_SECRET: "avatar-route-secret" } as unknown as Parameters<typeof agentRuntimeWorker.fetch>[1],
 		);
 
 		expect(response.status).toBe(200);

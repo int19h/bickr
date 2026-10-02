@@ -24,6 +24,7 @@ import { authProviderLabel, authStartHref } from "../chrome";
 import { FixedConfigurationAction, fixedConfigurationReference, useFixedConfiguration } from "../../inference/links";
 import { LanguageField, textLang } from "../../components/form-fields";
 import { TimeAgoLabel } from "../../components/record-display";
+import { AccountCredentials } from "./credentials";
 
 type UserMutationResponse = { profile: UserProfile };
 
@@ -337,6 +338,7 @@ export function ProfileScreen({
 				</div>
 
 				<aside className="edit-aside">
+					<AccountCredentials userId={user.id} onSessionRevoked={onSignOut} />
 					<section className="section">
 						<div className="section-head">
 							<h2>Account</h2>

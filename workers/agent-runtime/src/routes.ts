@@ -1,4 +1,6 @@
 import { avatarUploadBytes } from "./avatar/upload";
+import { handleAuthMaintenance } from './auth-maintenance';
+import { cleanupAuthRecords } from '@bickr/shared/auth-store';
 import { dispatchDueBots } from './runtime/scheduler';
 export { dispatchDueBots } from './runtime/scheduler';
 import { dismissDiscordInvite } from "@bickr/shared/discord-invite";
@@ -368,6 +370,7 @@ const loggableRepositoryErrorCodes = {
 } as const satisfies Record<RepositoryError['code'], true>;
 
 const loggableInferenceGraphCauses = {
+	legacy_write_disabled: true,
 	account_default_required: true,
 	corrupt_graph: true,
 	cross_owner: true,
@@ -483,6 +486,13 @@ function publicEffectiveModelFailureEvent(
 }
 
 export const agentRuntimeRouteTable = [
+	{
+		id: 'auth-maintenance',
+		method: 'POST',
+		pattern: /^\/auth\/maintenance$/,
+		dispatch: 'direct',
+		handler: handleAuthMaintenance,
+	},
 	{
 		id: 'account-index-repair',
 		method: 'POST',
@@ -1488,9 +1498,10 @@ export const agentRuntimeRouteTable = [
 			const compatibilityFieldMask = settingsInput?.inferenceSettings === undefined
 				? null
 				: legacyInferenceCompatibilityFieldMask(settingsInput.inferenceSettings);
+			// The avatar write precedes the provider write. Recovery waits for both revisions.
 			if (compatibilityFieldMask) {
 				const current = await userById(context.env.BICKR_KV, userId);
-				await prepareLegacyInferenceCompatibilityWrite(context, userId, 'account', userId, current.revision, compatibilityFieldMask);
+				await prepareLegacyInferenceCompatibilityWrite(context, userId, 'account', userId, current.revision, compatibilityFieldMask, 1);
 			}
 			let profile = await applyGeneratedAvatarForUser(
 				context.env,
@@ -1838,9 +1849,10 @@ export const agentRuntimeRouteTable = [
 			const compatibilityFieldMask = settingsInput?.inferenceSettings === undefined
 				? null
 				: legacyInferenceCompatibilityFieldMask(settingsInput.inferenceSettings);
+			// The avatar write precedes the provider write. Recovery waits for both revisions.
 			if (compatibilityFieldMask) {
 				const current = await rawBotById(context.env.BICKR_KV, context.env.BICKR_D1, botId);
-				await prepareLegacyInferenceCompatibilityWrite(context, userId, 'bot', botId, current.revision, compatibilityFieldMask);
+				await prepareLegacyInferenceCompatibilityWrite(context, userId, 'bot', botId, current.revision, compatibilityFieldMask, 1);
 			}
 			let bot = await applyGeneratedAvatarForBot(
 				context.env,
@@ -1948,10 +1960,11 @@ export const agentRuntimeRouteTable = [
 			const compatibilityFieldMask = settingsInput?.imageGeneration === undefined
 				? null
 				: legacyImageCompatibilityFieldMask(settingsInput.imageGeneration);
+			// The avatar write precedes the provider write. Recovery waits for both revisions.
 			if (compatibilityFieldMask) {
 				const current = await readJson<WorldDocument>(context.env.BICKR_KV, kvKeys.world(targetWorld.id));
 				if (!current) throw new RepositoryError('server_error', 'World compatibility source document is missing.', 500);
-				await prepareLegacyInferenceCompatibilityWrite(context, userId, 'world', targetWorld.id, current.revision, compatibilityFieldMask);
+				await prepareLegacyInferenceCompatibilityWrite(context, userId, 'world', targetWorld.id, current.revision, compatibilityFieldMask, 1);
 			}
 			let world = await applyGeneratedAvatarForWorld(
 				context.env,
@@ -2114,6 +2127,7 @@ async function prepareLegacyInferenceCompatibilityWrite(
 	entityId: string,
 	currentRevision: number,
 	fieldMask: LegacyInferenceCompatibilityFieldMask,
+	intermediateWrites = 0,
 ): Promise<void> {
 	if (context.coordinator.ownerUserId && context.coordinator.ownerUserId !== ownerUserId) {
 		throw new RepositoryError('forbidden', 'Compatibility write was dispatched to the wrong coordinator.', 403);
@@ -2125,7 +2139,7 @@ async function prepareLegacyInferenceCompatibilityWrite(
 		ownerUserId,
 		kind,
 		entityId,
-		sourceRevision: currentRevision + 1,
+		sourceRevision: currentRevision + intermediateWrites + 1,
 		fieldMask,
 		now: new Date().toISOString(),
 	});
@@ -2672,12 +2686,12 @@ function parseAvatarCrop(value: unknown, avatar: AvatarImage): AvatarCrop {
  * exactly as long as maintenance is on. It is still listed here because the
  * shared gate would otherwise reject it as an ordinary mutation.
  */
-function isInferenceGraphMaintenanceRequest(request: Request): boolean {
+function isExplicitMaintenanceRequest(request: Request): boolean {
 	if (request.method !== 'POST') {
 		return false;
 	}
 	const pathname = new URL(request.url).pathname;
-	return /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate|provider-default-barrier-sweep)$/.test(pathname) ||
+	return pathname === '/auth/maintenance' || /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate|provider-default-barrier-sweep)$/.test(pathname) ||
 		/^\/users\/[^/]+\/inference-translation-role\/migrate$/.test(pathname) ||
 		/^\/inference-graph\/(?:cleanup|activate-lifecycle|provider-default-barrier-sweep)$/.test(pathname);
 }
@@ -2701,7 +2715,7 @@ export async function handleAgentRuntimeRequest(
 ): Promise<Response> {
 	// Let the maintenance operations reach their own stricter gate while ordinary
 	// mutations keep the shared maintenance rejection behavior.
-	const maintenanceResponse = isInferenceGraphMaintenanceRequest(request)
+	const maintenanceResponse = isExplicitMaintenanceRequest(request)
 		? null
 		: await mutationMaintenanceResponse(request, env.BICKR_D1, { allowRuntimeStop: true, allowRuntimeStaleRunRecovery: true });
 	if (maintenanceResponse) {
@@ -2823,7 +2837,7 @@ export async function handleAgentRuntimeWorkerRequest(request: Request, env: Env
 		// The same exemption the coordinator entry applies: without it the Worker
 		// edge would reject the maintenance operations before they can be routed
 		// to the handlers that require maintenance mode.
-		const maintenanceResponse = isInferenceGraphMaintenanceRequest(request)
+		const maintenanceResponse = isExplicitMaintenanceRequest(request)
 			? null
 			: await mutationMaintenanceResponse(request, env.BICKR_D1, { allowRuntimeStop: true, allowRuntimeStaleRunRecovery: true });
 		if (maintenanceResponse) {
@@ -2904,6 +2918,9 @@ export async function runScheduledAgentRuntimeTasks(
 	scheduledTime: number,
 	cron?: string,
 ): Promise<ScheduledAgentRuntimeTasksResult> {
+	await cleanupAuthRecords(env.BICKR_D1, new Date(scheduledTime)).catch((error) => {
+		console.error('Authentication retention failed.', error);
+	});
 	const taskSet = agentRuntimeCronTaskSet(cron);
 	if (taskSet === null) {
 		// A trigger this deployment does not recognize means the configuration and

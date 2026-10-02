@@ -41,6 +41,7 @@ const createdWorld = {
 
 /** Only the routes this flow actually touches; anything else answers empty. */
 const routes: Array<[RegExp, Handler]> = [
+	[/^\/api\/me\/auth\/credentials/, () => ({ ok: true, payload: { ok: true, data: { credentials: [], nextCursor: null, legacyMigrationComplete: true } } })],
 	[/^\/api\/session/, () => ({ ok: true, payload: { ok: true, data: { authenticated: true, user } } })],
 	[/^\/api\/worlds$/, (_path, init) =>
 		init?.method === "POST" ?

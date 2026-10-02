@@ -703,7 +703,7 @@ describe("restartable inference graph migration", () => {
 		expect(annotation?.enabled && annotation.effectiveModel).toBe("translator/model");
 	});
 
-	it("preserves cutover-1 behavior before sweep while normalizing only obsolete KV inference fields", async () => {
+	it("preserves cutover-1 behavior for prompt-only writes before the role sweep", async () => {
 		await migrateToCutover(deploymentEnv);
 		const before = await translationRoleMigrationStatus(testEnv.BICKR_D1, ownerId, true);
 		expect(before).toMatchObject({
@@ -734,7 +734,6 @@ describe("restartable inference graph migration", () => {
 			headers: { "content-type": "application/json", "x-bickr-user-id": ownerId },
 			body: JSON.stringify({ language: en, inferenceSettings: { translation: {
 				prompt: localizedText("Preserve the authored transition prompt", en),
-				model: "obsolete/legacy-model",
 			} } }),
 		}), testEnv, { objectId: "user-coordinator-test", ownerUserId: ownerId });
 		expect(response.status, await response.clone().text()).toBe(200);
@@ -843,11 +842,14 @@ describe("restartable inference graph migration", () => {
 			 ORDER BY configuration_id`,
 		).bind(ownerId).all<{ configurationId: string; revision: number }>();
 
-		const enabled = await patch({ inferenceSettings: { translation: {
+		const obsolete = await patch({ inferenceSettings: { translation: {
 			enabled: true,
 			model: "must-not-recreate-legacy/model",
 			providerRouting: { order: ["must-not-move-pointer"] },
 		} } });
+		expect(obsolete.status).toBe(409);
+		expect(await canonicalTranslationInferenceState(testEnv.BICKR_D1, ownerId)).toMatchObject({ enabled: false });
+		const enabled = await patch({ inferenceSettings: { translation: { enabled: true } } });
 		expect(enabled.status, await enabled.clone().text()).toBe(200);
 		const enabledPayload = await enabled.json() as { data?: { profile?: { translationInference?: { enabled?: boolean; configurationId?: string } } } };
 		expect(enabledPayload.data?.profile?.translationInference?.enabled).toBe(true);
@@ -1320,6 +1322,8 @@ describe("restartable inference graph migration", () => {
 		const fleet = await listInferenceGraphFleetStatus(testEnv.BICKR_D1, { limit: 1 });
 		expect(fleet.items).toHaveLength(1);
 		expect(fleet.items[0]).toMatchObject({ ownerUserId: ownerId, ready: true });
+		expect(await activateInferenceGraphLifecycle(testEnv.BICKR_D1, "2026-08-04T00:00:30.000Z"))
+			.toEqual({ activationMode: "inference_graph_required" });
 
 		await beginInferenceGraphCompatibilityWrite(testEnv.BICKR_D1, {
 			ownerUserId: ownerId,
@@ -1347,8 +1351,6 @@ describe("restartable inference graph migration", () => {
 		await completeInferenceGraphCompatibilityWrite(testEnv.BICKR_D1, ownerId, "2026-08-04T00:01:02.000Z");
 		expect(await pendingInferenceGraphCompatibilityWrite(testEnv.BICKR_D1, ownerId)).toBeNull();
 
-		expect(await activateInferenceGraphLifecycle(testEnv.BICKR_D1, "2026-08-04T00:02:00.000Z"))
-			.toEqual({ activationMode: "inference_graph_required" });
 		expect(await cleanupInferenceGraphTerminalState(testEnv.BICKR_D1, "2026-09-04T00:00:00.000Z", 1))
 			.toEqual({
 				operations: 0,
