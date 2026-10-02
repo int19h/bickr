@@ -138,7 +138,7 @@ function runtimeHousekeepingSql(input: {
 				return rows<T>([{ tokens }]);
 			}
 			if (/^DELETE FROM events WHERE created_at < \? AND run_id != \? AND seq < \?$/.test(normalized)) {
-				const [cutoff, activeRunId, beforeSeq] = [String(params[0]), String(params[1]), Number(params[2])];
+				const [cutoff, activeRunId, beforeSeq] = [String(params[0]), String(params[1]), Number(params.at(-1))];
 				const retained = events.filter((row) => !(row.created_at < cutoff && row.run_id !== activeRunId && row.seq < beforeSeq));
 				changes = events.length - retained.length;
 				events.splice(0, events.length, ...retained);
@@ -351,10 +351,10 @@ describe("runtime housekeeping", () => {
 							prepareCalls.push({ sql, params });
 							return {
 								async all<T>() {
-									const limit = Number(params[2]);
+									const limit = Number(params.at(-1));
 									return {
 										success: true,
-										results: botIds.splice(0, limit).map((botId) => ({ botId }) as T),
+										results: botIds.splice(0, limit).map((botId) => ({ botId, nextDueAt: "2026-07-10T00:00:00.000Z" }) as T),
 									};
 								},
 							};
@@ -385,6 +385,6 @@ describe("runtime housekeeping", () => {
 		expect(started).toHaveLength(25);
 		expect(prepareCalls).toHaveLength(2);
 		expect(prepareCalls[0]?.sql).toContain("ORDER BY runtime.next_due_at ASC");
-		expect(prepareCalls.map((call) => call.params[2])).toEqual([20, 5]);
+		expect(prepareCalls.map((call) => call.params.at(-1))).toEqual([20, 5]);
 	});
 });
