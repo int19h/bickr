@@ -64,6 +64,11 @@ async function database(count = 0, skipBackfill = false) {
 			try {
 				const results = batch.map((statement) => {
 					const state = statements.get(statement)!;
+					if (/RETURNING/i.test(state.sql)) {
+						const results = sqlite.prepare(state.sql).all(...state.values as []);
+						// D1 changes includes derived trigger writes, unlike returned rows.
+						return { success: true, results, meta: { changes: results.length * 7 } };
+					}
 					return { success: true, meta: { changes: Number(sqlite.prepare(state.sql).run(...state.values as []).changes) } };
 				});
 				sqlite.exec("COMMIT");

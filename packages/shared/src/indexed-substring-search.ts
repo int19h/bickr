@@ -74,12 +74,12 @@ export async function rebuildForumSearchIndexes(db: D1DatabaseLike): Promise<{ p
 			sum(length(CAST(text AS BLOB))) OVER (ORDER BY id) AS bytes FROM candidates
 		) SELECT id, text FROM sized WHERE ordinal = 1 OR bytes <= 262144 ORDER BY id`).all<{ id: string; text: string }>();
 		const statements = (rows.results ?? []).map(row => db.prepare(
-			`UPDATE ${source.table} SET search_short_tokens = ? WHERE ${source.id} = ? AND search_text = ? AND search_short_tokens IS NULL`,
+			`UPDATE ${source.table} SET search_short_tokens = ? WHERE ${source.id} = ? AND search_text = ? AND search_short_tokens IS NULL RETURNING ${source.id} AS id`,
 		).bind(shortSubstringTokens(row.text), row.id, row.text));
 		if (statements.length) {
 			const result = await db.batch(statements);
 			if (result.some(item => !item.success)) throw new Error('Forum search index batch failed.');
-			processed += result.reduce((sum, item) => sum + (item.meta?.changes ?? 0), 0);
+			processed += result.reduce((sum, item) => sum + (item.results?.length ?? 0), 0);
 		}
 	}
 	return { processed, remaining: await forumSearchPending(db) };
