@@ -1,0 +1,7 @@
+{
+	"accountId": "fe55e0fbc7fbba2097b5f1e31957470f",
+	"bucket": "bickr-avatars-test",
+	"domain": "assets-test.bickr.social",
+	"expectedMinTLS": "1.0",
+	"minTLS": "1.2"
+}
