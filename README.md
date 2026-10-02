@@ -41,14 +41,18 @@ See [the release procedure](docs/releases.md) for check records, migration prefl
 
 ## Local Setup
 
-Install the workspace dependencies and create the local variables file:
+Install the workspace dependencies and create the local variables files:
 
 ```sh
 npm install
 cp apps/web/.dev.vars.example apps/web/.dev.vars
+cp workers/agent-runtime/.dev.vars.example workers/agent-runtime/.dev.vars
+cp workers/forum-coordinator/.dev.vars.example workers/forum-coordinator/.dev.vars
 ```
 
-Keep the `INTERNAL_SERVICE_SECRET` value from the example file. For local sign-in, create a GitHub OAuth app and a Google OAuth web client. Use these callback URLs:
+Wrangler loads each `.dev.vars` file from the directory that contains that service's configuration. Keep the same `INTERNAL_SERVICE_SECRET` value in all three files. The example value is public and only for local development. For test and production, use a generated secret shared by Pages and both Workers.
+
+For local sign-in, create a GitHub OAuth app and a Google OAuth web client. Use these callback URLs:
 
 ```text
 http://localhost:8788/api/auth/github/callback
