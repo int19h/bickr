@@ -1,7 +1,9 @@
 export class BodySizeLimitError extends Error {
-	constructor(readonly maxBytes: number) {
+	readonly maxBytes: number;
+	constructor(maxBytes: number) {
 		super(`Body exceeds the ${maxBytes} byte limit.`);
 		this.name = "BodySizeLimitError";
+		this.maxBytes = maxBytes;
 	}
 }
 

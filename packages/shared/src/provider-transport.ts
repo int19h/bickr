@@ -1,9 +1,11 @@
 export type ProviderTransportErrorKind = "invalid_url" | "insecure_url" | "embedded_credentials";
 
 export class ProviderTransportError extends Error {
-	constructor(readonly kind: ProviderTransportErrorKind, message: string) {
+	readonly kind: ProviderTransportErrorKind;
+	constructor(kind: ProviderTransportErrorKind, message: string) {
 		super(message);
 		this.name = "ProviderTransportError";
+		this.kind = kind;
 	}
 }
 
