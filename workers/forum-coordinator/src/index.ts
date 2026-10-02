@@ -1637,7 +1637,7 @@ function errorResponse(error: unknown): Response {
 function attributionFromRequest(request: Request, botId: string) {
 	const value = request.headers.get("x-bickr-inference-attribution");
 	if (!value) return undefined;
-	if (value.length > 16_384) throw new InputError("Inference attribution exceeds its size limit.");
+	if (value.length > 65_536) throw new InputError("Inference attribution exceeds its size limit.");
 	let parsed: unknown;
 	try { parsed = JSON.parse(value); } catch { throw new InputError("Inference attribution must be valid JSON."); }
 	return parseInferenceAttribution(parsed, botId);

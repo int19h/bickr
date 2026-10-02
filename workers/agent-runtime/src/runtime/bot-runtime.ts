@@ -1,4 +1,4 @@
-import { inferenceAttributionForRequest } from '@bickr/shared/inference-attribution';
+import { inferenceAttributionForRequest, inferenceAttributionHeader } from '@bickr/shared/inference-attribution';
 import type { InferenceAttribution } from '@bickr/shared/model';
 import { syntheticToolCallMessage, type SyntheticToolCall } from './synthetic-tool-calls';
 import { withRunExecution, assertExecutionPublication, settleOutsideExecution } from './execution-scope';
@@ -3483,6 +3483,7 @@ export class BotRuntime {
 						requestMaxCompletionTokens,
 						providerPromptCacheSessionId(bot.id),
 						bot,
+						requestContextWindowTokens,
 					);
 				} catch (error) {
 					if (error instanceof ProviderResponseInterruptedError) {
@@ -3952,6 +3953,7 @@ export class BotRuntime {
 		maxCompletionTokens = providerContextCompletionReserveTokens,
 		promptCacheSessionId?: string,
 		bot?: BotDocument,
+		requestContextWindowTokens?: number,
 	): Promise<ProviderResponse> {
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		let requestSettings = settings;
@@ -3994,7 +3996,7 @@ export class BotRuntime {
 				maxCompletionTokens,
 			);
 			const body = stringifyProviderRequest(request);
-			const inferenceAttribution = bot ? this.recordInferenceAttribution(request, bot, runId, streamSeq) : undefined;
+			const inferenceAttribution = bot ? this.recordInferenceAttribution(request, bot, runId, streamSeq, requestContextWindowTokens) : undefined;
 			calibrationAttempt += 1;
 			lastBody = body;
 
@@ -4178,6 +4180,7 @@ export class BotRuntime {
 		createdAt = new Date().toISOString(),
 		bot?: BotDocument,
 		initialReasoning?: CompactionAttemptReasoningState,
+		requestContextWindowTokens?: number,
 	): Promise<
 		Pick<ProviderResponse, 'usage' | 'responseId' | 'responseModel' | 'responseProviderName' | 'requestBody' | 'rawResponse' | 'inferenceAttribution'> & {
 			compactionReasoning: CompactionAttemptReasoningState;
@@ -4237,7 +4240,7 @@ export class BotRuntime {
 				providerCompactionReasoningForSelection(attemptState.reasoning.selection),
 			);
 			const body = stringifyProviderRequest(request);
-			const inferenceAttribution = bot ? this.recordInferenceAttribution(request, bot, runId, requestSeq) : undefined;
+			const inferenceAttribution = bot ? this.recordInferenceAttribution(request, bot, runId, requestSeq, requestContextWindowTokens) : undefined;
 			try {
 				const response = await this.fetchProviderCompactionResponse(requestSettings, endpoint, body, signal, limits, mode);
 				if (response.usage) {
@@ -4682,9 +4685,9 @@ export class BotRuntime {
 		};
 	}
 
-	private recordInferenceAttribution(request: unknown, bot: BotDocument, runId: string, requestSeq: number): InferenceAttribution {
+	private recordInferenceAttribution(request: unknown, bot: BotDocument, runId: string, requestSeq: number, requestContextWindowTokens?: number): InferenceAttribution {
 		assertExecutionPublication();
-		const attribution = inferenceAttributionForRequest({ ...runtimeRecord(request), bickr: effectiveTickSettings(bot.tickSettings) }, {
+		const attribution = inferenceAttributionForRequest({ ...runtimeRecord(request), bickr: { ...effectiveTickSettings(bot.tickSettings), ...(requestContextWindowTokens !== undefined ? { contextWindowTokens: requestContextWindowTokens } : {}) } }, {
 			botId: bot.id, worldHandle: bot.homeWorldHandle, botHandle: bot.handle, runId, requestSeq,
 		});
 		// The snapshot changes only while retrying this request. Artifact writes
@@ -6003,7 +6006,7 @@ export class BotRuntime {
 					'content-type': 'application/json',
 					'x-bickr-bot-id': botId,
 				});
-				if (inferenceAttribution) headers.set('x-bickr-inference-attribution', JSON.stringify(inferenceAttribution));
+				if (inferenceAttribution) headers.set('x-bickr-inference-attribution', inferenceAttributionHeader(inferenceAttribution));
 				addInternalServiceAuthHeader(headers, this.env.INTERNAL_SERVICE_SECRET);
 				const response = await this.env.FORUM_COORDINATOR_SERVICE.fetch(
 					new Request(internalServiceUrl(path), {
@@ -7327,6 +7330,7 @@ export class BotRuntime {
 							summaryEvent.createdAt,
 							bot,
 							compactionReasoning,
+							requestContextWindowTokens,
 						)
 					: {
 							compactionReasoning,

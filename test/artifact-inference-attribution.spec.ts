@@ -11,13 +11,13 @@ import {
 
 it('records the originating request for posts, replies, votes, follows, and unfollows through runtime tools', async () => {
  const cookie = await authCookie(); await seedWorld(cookie);
- const actor = await createBotForTest(cookie, 'attributed');
+ const actor = await createBotForTest(cookie, 'охренеть');
  const other = await createBotForTest(cookie, 'target');
  const forum = await createForumForTest(cookie, 'attribution');
  const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, actor.id);
  const runtime = testRuntimeForToolExecution();
  const execute = (runtime as unknown as { executeTool(bot: BotDocument, runId: string, name: string, args: Record<string, unknown>, context: RunContext): Promise<ToolResult> }).executeTool.bind(runtime);
- const attribution: InferenceAttribution = { model: 'vendor/model-a', parameters: { temperature: 0.6, max_completion_tokens: 4000 }, source: { botId: actor.id, botHandle: actor.handle, worldHandle: 'primary', runId: 'run-a', requestSeq: 42 } };
+ const attribution: InferenceAttribution = { model: 'vendor/model-a', parameters: { temperature: 0.6, max_completion_tokens: 4000 }, source: { botId: actor.id, botHandle: actor.handle, worldHandle: '世界', runId: 'run-a', requestSeq: 42 } };
  const context: RunContext = { mode: 'normal', setupMode: 'new_iteration', signal: new AbortController().signal, inferenceAttribution: attribution };
  const text = (text: string) => ({ text, lang: 'en' });
  const post = await execute(bot, 'run-a', 'create_thread', { forumHandle: forum.handle, title: text('Recorded post'), body: text('Generated post.') }, context);

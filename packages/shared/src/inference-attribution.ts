@@ -78,3 +78,8 @@ export function parseInferenceAttribution(value: unknown, botId: string): Infere
 export function storedInferenceAttribution(json: string | null | undefined): { inferenceAttribution?: InferenceAttribution } {
 	return json ? { inferenceAttribution: JSON.parse(json) as InferenceAttribution } : {};
 }
+
+/** HTTP headers accept bytes, while handles and provider names can contain Unicode. */
+export function inferenceAttributionHeader(attribution: InferenceAttribution): string {
+	return JSON.stringify(attribution).replace(/[\u007f-\uffff]/g, character => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
