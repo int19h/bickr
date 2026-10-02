@@ -9,8 +9,8 @@
 		"enabled": true,
 	},
 	// INTERNAL_SERVICE_SECRET is a Worker secret set with `wrangler secret put`.
-	// Do not place it in vars; it is intentionally not in secrets.required so
-	// deploys can roll out before the secret exists.
+	// Set the same secret on Pages and both Workers before deploying.
+	// Internal requests fail closed when a receiver has no secret.
 	"durable_objects": {
 		"bindings": [
 			{
