@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MarkdownBody } from "./markdown-body";
 import { RichText, PlainText, richTextReferencePattern } from "../components/content";
-const render = (text: string) => renderToStaticMarkup(<MarkdownBody text={text} referencePattern={richTextReferencePattern} renderText={(text) => <RichText text={text} onReference={() => undefined} />} renderPlain={(text) => <PlainText text={text} />} />);
+const render = (text: string) => renderToStaticMarkup(<MarkdownBody text={text} referencePattern={richTextReferencePattern} renderText={(text) => <RichText text={text} onReference={() => undefined} />} renderPlain={(text) => <PlainText text={text} />} />).replace(/ data-(?:markdown-source|md-[a-z-]+)="[^"]*"/g, "");
 describe("Markdown bodies", () => {
 	it("renders GFM, paragraphs, and verse breaks", () => {
 		const html = render("# Title\n\n**bold** *italic* ~~gone~~\nsecond verse\n\n- [x] task\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\n> quote\n\n```js\nconst x = 1;\n```");

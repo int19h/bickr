@@ -271,3 +271,10 @@ function countDocumentListeners() {
 		},
 	};
 }
+
+function collapse():void { window.getSelection()!.removeAllRanges(); act(()=>document.dispatchEvent(new Event("selectionchange"))); }
+function pointer(type:string,target:Element):void { act(()=>target.dispatchEvent(new Event(type,{bubbles:true}))); }
+it("drops a cleared selection before a later Spotlight attempt",()=>{const h=mountThread();selectCommentText();collapse();click("[data-spotlight-toggle]");expect(h.seeds).toEqual([""]);});
+it("preserves a selection that collapses during checkbox activation",()=>{const h=mountThread();selectCommentText();pointer("pointerdown",container().querySelector("[data-spotlight-toggle]")!);collapse();click("[data-spotlight-toggle]");expect(h.seeds).toEqual(["> worth spotlighting"]);});
+it.each(["pointercancel","pointerup"])("drops a reservation after %s outside the checkbox",type=>{const h=mountThread();selectCommentText();pointer("pointerdown",container().querySelector("[data-spotlight-toggle]")!);collapse();pointer(type,container().querySelector("[data-comment-body]")!);click("[data-spotlight-toggle]");expect(h.seeds).toEqual([""]);});
+it("drops a reservation when the window loses focus",()=>{const h=mountThread();selectCommentText();pointer("pointerdown",container().querySelector("[data-spotlight-toggle]")!);collapse();act(()=>window.dispatchEvent(new Event("blur")));click("[data-spotlight-toggle]");expect(h.seeds).toEqual([""]);});

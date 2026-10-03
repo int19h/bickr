@@ -23,7 +23,7 @@ describe('Markdown math rendering', () => {
 	it('keeps SVG and text selection across unchanged parent renders', async () => {
 		const text = 'Selectable verse\n\n$x$'; await render(text);
 		await act(async () => jobs[0]!.complete({ kind:'rendered', svg:markup })); const svg = container.querySelector('svg'); expect(svg).not.toBeNull();
-		const node = container.querySelector('p span span')!.firstChild!; const range = document.createRange(); range.setStart(node,0);range.setEnd(node,10);const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);
+		const node = container.querySelector('[data-md-leaf]')!.firstChild!; const range = document.createRange(); range.setStart(node,0);range.setEnd(node,10);const selection=window.getSelection()!;selection.removeAllRanges();selection.addRange(range);
 		await render(text); expect(jobs).toHaveLength(1);expect(container.querySelector('svg')).toBe(svg);expect(selection.toString()).toBe('Selectable');
 	});
 	it('resets changed source, cancels old work, and retains rejected source', async () => {
@@ -31,30 +31,16 @@ describe('Markdown math rendering', () => {
 		await act(async () => old.complete({ kind:'rendered',svg:markup }));expect(container.querySelector('svg')).toBeNull();
 		await act(async () => jobs[1]!.complete({kind:'rejected'})); expect(container.querySelector('.math-fallback')?.textContent).toBe('y');
 	});
-	it('copies the original TeX from the source view', async () => {
-		const writeText=vi.fn().mockResolvedValue(undefined);vi.stubGlobal('navigator',{clipboard:{writeText}});await render('$x_1$');
-		await act(async () => container.querySelector<HTMLButtonElement>('button')!.click());
-		expect(container.querySelector('.math-source code')?.textContent).toBe('x_1');
-		await act(async () => container.querySelector<HTMLButtonElement>('.math-source button')!.click());expect(writeText).toHaveBeenCalledWith('x_1');
-	});
-	it('selects source when clipboard access fails', async () => {
-		vi.stubGlobal('navigator',{clipboard:{writeText:vi.fn().mockRejectedValue(new Error('denied'))}});await render('$x$');
-		await act(async () => container.querySelector<HTMLButtonElement>('button')!.click());
-		await act(async () => container.querySelector<HTMLButtonElement>('.math-source button')!.click());
-		expect(window.getSelection()?.toString()).toBe('x');expect(container.querySelector('.math-source button')?.textContent).toBe('Source selected');
-	});
+	it('omits source buttons for formulas', async () => { await render('$x$'); expect(container.querySelector('button')).toBeNull(); });
 
-	it('renders formulas in direct and reference links with controls outside anchors', async () => {
+	it('renders formulas in direct and reference links without source buttons', async () => {
 		const text = '[label $x$](https://example.com) and [other $`y`$][ref]\n\n[ref]: https://example.org'; await render(text);
 		expect(jobs.map(job => job.source)).toEqual(['x','y']);
 		for (const job of jobs) await act(async () => job.complete({kind:'rendered',svg:markup}));
 		expect(container.querySelectorAll('a svg')).toHaveLength(2);
 		expect(container.querySelector('a button')).toBeNull();
-		expect(container.querySelectorAll('button[aria-label="View math source"]')).toHaveLength(2);
+		expect(container.querySelectorAll('button')).toHaveLength(0);
 		const svg = container.querySelector('a svg');await render(text);expect(jobs).toHaveLength(2);expect(container.querySelector('a svg')).toBe(svg);
-		const writeText=vi.fn().mockResolvedValue(undefined);vi.stubGlobal('navigator',{clipboard:{writeText}});
-		await act(async () => container.querySelectorAll<HTMLButtonElement>('button[aria-label="View math source"]')[1]!.click());
-		await act(async () => container.querySelector<HTMLButtonElement>('.math-source button')!.click());expect(writeText).toHaveBeenCalledWith('y');
 	});
 
 });

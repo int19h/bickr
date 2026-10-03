@@ -1,6 +1,6 @@
-import { useEffect, useRef } from "react";
-import { classifyActivation, readDocumentSelection } from "./spotlight-selection-dom";
-import { createSpotlightSelectionController, type SpotlightSelectionController } from "./spotlight-selection";
+import { useEffect, useRef } from 'react';
+import { classifyActivation, readDocumentSelection } from './spotlight-selection-dom';
+import { createSpotlightSelectionController, type SpotlightSelectionController } from './spotlight-selection';
 
 /**
  * Wires the thread's Spotlight selection capture to the document.
@@ -25,13 +25,43 @@ export function useSpotlightSelectionCapture(): SpotlightSelectionController {
 		// no better: the same collapse invalidates it. Each read is already scoped
 		// to the selection rather than to the thread (see `candidateBodies`).
 		const onSelectionChange = () => controller.observeSelectionChange();
+		let expiry: ReturnType<typeof setTimeout> | undefined;
+		const isToggle = (target: EventTarget | null) =>
+			target instanceof Element &&
+			Boolean(target.closest('[data-spotlight-toggle]') || target.closest('label')?.querySelector('[data-spotlight-toggle]'));
+		const cancel = () => {
+			clearTimeout(expiry);
+			controller.cancelActivation();
+		};
+		const begin = () => {
+			clearTimeout(expiry);
+			controller.beginActivation();
+			expiry = setTimeout(cancel, 5000);
+		};
+		const onPointerDown = (event: PointerEvent) => {
+			if (isToggle(event.target)) begin();
+			else cancel();
+		};
+		const onPointerUp = (event: PointerEvent) => {
+			if (!isToggle(event.target)) cancel();
+		};
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (isToggle(event.target) && (event.key === ' ' || event.key === 'Enter')) begin();
+			else cancel();
+		};
 		const onClick = (event: MouseEvent) => {
 			const activation = classifyActivation(event.target instanceof Element ? event.target : null);
 			if (activation) {
 				controller.observeActivation(activation);
+				queueMicrotask(cancel);
 			}
 		};
-		document.addEventListener("selectionchange", onSelectionChange);
+		document.addEventListener('selectionchange', onSelectionChange);
+		document.addEventListener('pointerdown', onPointerDown, true);
+		document.addEventListener('pointerup', onPointerUp, true);
+		document.addEventListener('pointercancel', cancel, true);
+		document.addEventListener('keydown', onKeyDown, true);
+		window.addEventListener('blur', cancel);
 		// Capture phase, not bubble. Thread controls — content references, author
 		// and ordinary references, translation controls — call `stopPropagation()`
 		// from their React handlers, which stops the native event at React's root
@@ -39,19 +69,19 @@ export function useSpotlightSelectionCapture(): SpotlightSelectionController {
 		// activations that must retire the capture, so a bubble-phase listener
 		// misses the ones that matter most.
 		//
-		// Seeing a click before the activated control handles it cannot race a
-		// Spotlight toggle: activations are classified by where the target sits in
-		// the document, so a toggle's own click classifies as `spotlight` and
-		// leaves the capture alone for the `change` handler that follows. Nothing
-		// here calls `preventDefault` or `stopPropagation`, so running first
-		// changes no other behavior. Selection dismissal is still deliberately not
-		// observed — on mobile the tap that clears the selection frequently lands
-		// somewhere other than the eventual checkbox, and invalidating on it is
-		// exactly the bug this replaces.
-		document.addEventListener("click", onClick, true);
+		// Only a pointer/key activation that already targets Spotlight can
+		// preserve capture across focus collapse. Cancellation expires it.
+
+		document.addEventListener('click', onClick, true);
 		return () => {
-			document.removeEventListener("selectionchange", onSelectionChange);
-			document.removeEventListener("click", onClick, true);
+			document.removeEventListener('selectionchange', onSelectionChange);
+			document.removeEventListener('pointerdown', onPointerDown, true);
+			document.removeEventListener('pointerup', onPointerUp, true);
+			document.removeEventListener('pointercancel', cancel, true);
+			document.removeEventListener('keydown', onKeyDown, true);
+			window.removeEventListener('blur', cancel);
+			clearTimeout(expiry);
+			document.removeEventListener('click', onClick, true);
 			controller.reset();
 		};
 	}, [controller]);
