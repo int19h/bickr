@@ -107,16 +107,6 @@ export function CommentNode({
 					/>
 				)}
 			</div>
-			{hasParentArrow && (
-				<button
-					aria-label={parentAvailable ? "Go to parent comment" : "Parent comment is unavailable"}
-					className="comment-parent-link"
-					disabled={!parentAvailable}
-					onClick={() => onGoToParent?.(comment.parentCommentId!)}
-					title={parentAvailable ? "Go to parent comment" : "Parent comment is unavailable"}
-					type="button"
-				>⮤</button>
-			)}
 			<div className="head">
 				<span className="comment-author-line">
 					<Avatar actor="bot" colorSeed={comment.authorHandle} crop={comment.authorAvatarCrop} imageUrl={comment.authorAvatarUrl} name={comment.authorDisplayName} size="sm" />
@@ -127,55 +117,69 @@ export function CommentNode({
 					/>
 					<InferenceBadge attribution={comment.inferenceAttribution} />
 				</span>
-				<span className="comment-meta-line">
-					<a
-						aria-label={`Link to ${commentRef}`}
-						className="comment-anchor-link"
-						href={commentHref}
-						title={commentRef}
-					>
-						<Icon name="link" size={13} />
-					</a>
-					<CommentVoteCount
-						commentId={comment.id}
-						forumHandle={forumHandle}
-						onReference={onReference}
-						threadId={threadId}
-						voteScore={comment.voteScore}
-						worldHandle={worldHandle}
-					/>
-					<TimeAgoLabel className="comment-time" value={comment.createdAt} />
-					{comment.readState?.isNew && <span className="new-mark">new</span>}
-				</span>
-				<span className="comment-actions">
-					{onRequestDelete && !isRootComment && (
-						<button
-							aria-label="Delete comment"
-							className="comment-watch danger"
-							onClick={() => onRequestDelete(comment)}
-							title="Delete comment"
-							type="button"
+				<span className="comment-header-controls">
+					<span className="comment-meta-line">
+						{hasParentArrow && (
+							<button
+								aria-label={parentAvailable ? "Go to parent comment" : "Parent comment is unavailable"}
+								className="comment-anchor-link comment-parent-link"
+								disabled={!parentAvailable}
+								onClick={() => onGoToParent?.(comment.parentCommentId!)}
+								title={parentAvailable ? "Go to parent comment" : "Parent comment is unavailable"}
+								type="button"
+							>
+								<Icon name="replyUp" size={13} />
+							</button>
+						)}
+						<a
+							aria-label={`Link to ${commentRef}`}
+							className="comment-anchor-link"
+							href={commentHref}
+							title={commentRef}
 						>
-							<Icon name="trash" size={12} />
-						</button>
-					)}
-					{onToggleSubscription && (
-						<button
-							aria-label={subscribed ? "Stop watching replies" : "Watch replies"}
-							aria-pressed={subscribed}
-							className={`comment-watch ${subscribed ? "active" : ""}`}
-							onClick={() =>
-								void onToggleSubscription(
-									{ scopeType: "comment", scopeId: comment.id, worldId: comment.worldId },
-									!subscribed,
-								)
-							}
-							title={subscribed ? "Stop watching replies" : "Watch replies"}
-							type="button"
-						>
-							<Icon name="bell" size={12} />
-						</button>
-					)}
+							<Icon name="link" size={13} />
+						</a>
+						<CommentVoteCount
+							commentId={comment.id}
+							forumHandle={forumHandle}
+							onReference={onReference}
+							threadId={threadId}
+							voteScore={comment.voteScore}
+							worldHandle={worldHandle}
+						/>
+						<TimeAgoLabel className="comment-time" value={comment.createdAt} />
+						{comment.readState?.isNew && <span className="new-mark">new</span>}
+					</span>
+					{((onRequestDelete && !isRootComment) || onToggleSubscription) && <span className="comment-actions">
+						{onRequestDelete && !isRootComment && (
+							<button
+								aria-label="Delete comment"
+								className="comment-watch danger"
+								onClick={() => onRequestDelete(comment)}
+								title="Delete comment"
+								type="button"
+							>
+								<Icon name="trash" size={12} />
+							</button>
+						)}
+						{onToggleSubscription && (
+							<button
+								aria-label={subscribed ? "Stop watching replies" : "Watch replies"}
+								aria-pressed={subscribed}
+								className={`comment-watch ${subscribed ? "active" : ""}`}
+								onClick={() =>
+									void onToggleSubscription(
+										{ scopeType: "comment", scopeId: comment.id, worldId: comment.worldId },
+										!subscribed,
+									)
+								}
+								title={subscribed ? "Stop watching replies" : "Watch replies"}
+								type="button"
+							>
+								<Icon name="bell" size={12} />
+							</button>
+						)}
+					</span>}
 				</span>
 			</div>
 			<TranslatableText
