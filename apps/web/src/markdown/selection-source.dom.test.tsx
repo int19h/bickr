@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, it, expect, vi } from 'vitest';
+import { selectedMarkdown } from './selection-source';
 import { MarkdownBody } from './markdown-body';
 import { readDocumentSelection } from '../screens/forums/spotlight-selection-dom';
 vi.mock('./math-service', () => ({ mathService: { render: () => () => {} } }));
@@ -111,4 +112,40 @@ it('keeps full-body source and formula fences byte-for-byte', async () => {
 it('maps escaped text and CRLF continuation lines', async () => {
 	await render('> first\r\n> a \\*b\\* &amp; c');
 	expect(selected(textRange('first\na *b* & c', 6, 13))).toBe('> a \\*b\\* &amp;');
+});
+
+it('retains reference and footnote definitions from table headers', async () => {
+	await render(
+		'| [Head][ref] and note[^a] | Value |\n| --- | --- |\n| A | Beta |\n\n[ref]: https://example.com\n\n[^a]: [Foot][f]\n\n[f]: https://foot.example',
+	);
+	const result = selected(textRange('Beta', 0, 2))!;
+	expect(result).toContain('[ref]: https://example.com');
+	expect(result).toContain('[^a]: [Foot][f]');
+	expect(result).toContain('[f]: https://foot.example');
+});
+it('keeps the complete referenced definition when a disjoint range selects only part of it', () => {
+	const source = 'note[^a]\n\n[^a]: first second';
+	const start = source.indexOf('second');
+	const result = selectedMarkdown(source, [
+		{ start: 0, end: 8 },
+		{ start, end: start + 6 },
+	]);
+	expect(result).toContain('[^a]: first second');
+	expect(result.match(/\[\^a\]:/g)).toHaveLength(1);
+});
+it('resolves duplicate references to the first definition', async () => {
+	await render('[label][r]\n\n[r]: https://first.example\n[r]: https://second.example');
+	const result = selected(textRange('label', 1, 4))!;
+	expect(result).toContain('https://first.example');
+	expect(result).not.toContain('https://second.example');
+});
+
+it('resolves duplicate footnotes to the first rendered definition', async () => {
+	await render('note[^a]\n\n[^a]: First body\n\n[^a]: Second body');
+	expect(container.querySelector('section[data-footnotes]')?.textContent).toContain('First body');
+	const range = document.createRange();
+	range.selectNodeContents(container.querySelector('p')!);
+	const result = selected(range)!;
+	expect(result).toContain('[^a]: First body');
+	expect(result).not.toContain('Second body');
 });

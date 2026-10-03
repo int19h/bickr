@@ -29,8 +29,19 @@ export function selectedMarkdown(source: string, intervals: readonly SourceInter
 	const tree = parseMarkdown(source);
 	const dependencies = new Set<string>();
 	const definitions = new Map<string, RootContent>();
-	for (const node of tree.children)
-		if (node.type === 'definition' || node.type === 'footnoteDefinition') definitions.set(`${node.type}:${node.identifier}`, node);
+	for (const node of tree.children) {
+		if (node.type === 'definition' || node.type === 'footnoteDefinition') {
+			const key = `${node.type}:${node.identifier}`;
+			// Markdown resolves the first definition, even if later spellings
+			// repeat the normalized identifier with a different target.
+			if (!definitions.has(key)) definitions.set(key, node);
+		}
+	}
+	function scanDependencies(node: RootContent): void {
+		if (node.type === 'linkReference' || node.type === 'imageReference') dependencies.add(`definition:${node.identifier}`);
+		if (node.type === 'footnoteReference') dependencies.add(`footnoteDefinition:${node.identifier}`);
+		if ('children' in node) node.children.forEach((child) => scanDependencies(child as RootContent));
+	}
 	function prune(node: RootContent, top = false): RootContent | null {
 		const span = bounds(node);
 		if (!span || !intervals.some((i) => overlaps(i, span))) return null;
@@ -75,6 +86,7 @@ export function selectedMarkdown(source: string, intervals: readonly SourceInter
 					);
 			}
 			if (node.type === 'table') {
+				scanDependencies(node.children[0]!);
 				const rows = node.children.slice(1).flatMap((row) => {
 					if (!bounds(row) || !intervals.some((i) => overlaps(i, bounds(row)!))) return [];
 					return [
@@ -103,25 +115,28 @@ export function selectedMarkdown(source: string, intervals: readonly SourceInter
 		if (node.type === 'code') return full && top ? rawNode(source.slice(span.start, span.end)) : node;
 		return rawNode(source.slice(span.start, span.end));
 	}
-	const children = tree.children.map((node) => prune(node, true)).filter((node): node is RootContent => node !== null);
-	const appended = new Set<string>(
-		tree.children
-			.filter((n) => n.type === 'footnoteDefinition' && bounds(n) && intervals.some((i) => overlaps(i, bounds(n)!)))
-			.map((n) => `footnoteDefinition:${'identifier' in n ? n.identifier : ''}`),
-	);
+	const children: RootContent[] = [];
+	const selectedDefinitions = new Map<string, number>();
+	for (const node of tree.children) {
+		const selected = prune(node, true);
+		if (!selected) continue;
+		if (node.type === 'footnoteDefinition') selectedDefinitions.set(`footnoteDefinition:${node.identifier}`, children.length);
+		children.push(selected);
+	}
+	const appended = new Set<string>();
 	for (const key of dependencies) {
 		if (appended.has(key)) continue;
 		const definition = definitions.get(key);
 		if (!definition) continue;
 		appended.add(key);
-		const scan = (node: RootContent) => {
-			if (node.type === 'linkReference' || node.type === 'imageReference') dependencies.add(`definition:${node.identifier}`);
-			if (node.type === 'footnoteReference') dependencies.add(`footnoteDefinition:${node.identifier}`);
-			if ('children' in node) node.children.forEach((n) => scan(n as RootContent));
-		};
-		scan(definition);
+		scanDependencies(definition);
 		const span = bounds(definition)!;
-		children.push(rawNode(source.slice(span.start, span.end)));
+		const complete = rawNode(source.slice(span.start, span.end));
+		const selectedIndex = selectedDefinitions.get(key);
+		// A selected fragment of a referenced footnote cannot replace the
+		// complete definition that gives the selected reference its meaning.
+		if (selectedIndex === undefined) children.push(complete);
+		else children[selectedIndex] = complete;
 	}
 	return children.length ? toMarkdown({ type: 'root', children } as Root, options).trimEnd() : '';
 }
