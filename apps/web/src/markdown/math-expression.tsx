@@ -12,6 +12,13 @@ function MathContent({ source, display, ...sourceAttributes }: Props) {
 		return mathService.render(source, display, (result) => {
 			const prepared = result.kind === 'rendered' ? prepareMathSvg(result.svg) : { kind: 'rejected' as const };
 			if (prepared.kind === 'ready') {
+				if (!display) {
+					const svg = prepared.fragment.querySelector('svg')!;
+					// The scroll wrapper participates in the text line. Apply the
+					// validated MathJax baseline offset there, not inside the wrapper.
+					if (host.current) host.current.style.verticalAlign = svg.style.verticalAlign;
+					svg.style.removeProperty('vertical-align');
+				}
 				host.current?.replaceChildren(prepared.fragment);
 				setState('ready');
 			} else setState('rejected');
