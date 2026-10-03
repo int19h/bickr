@@ -53,7 +53,10 @@ export function useSpotlightSelectionCapture(): SpotlightSelectionController {
 			const activation = classifyActivation(event.target instanceof Element ? event.target : null);
 			if (activation) {
 				controller.observeActivation(activation);
-				queueMicrotask(cancel);
+				// Firefox can run microtasks between native event listeners. Wait
+				// until the next task so React's click listener can consume capture.
+				clearTimeout(expiry);
+				expiry = setTimeout(cancel, 0);
 			}
 		};
 		document.addEventListener('selectionchange', onSelectionChange);

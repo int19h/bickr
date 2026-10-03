@@ -278,3 +278,23 @@ it("drops a cleared selection before a later Spotlight attempt",()=>{const h=mou
 it("preserves a selection that collapses during checkbox activation",()=>{const h=mountThread();selectCommentText();pointer("pointerdown",container().querySelector("[data-spotlight-toggle]")!);collapse();click("[data-spotlight-toggle]");expect(h.seeds).toEqual(["> worth spotlighting"]);});
 it.each(["pointercancel","pointerup"])("drops a reservation after %s outside the checkbox",type=>{const h=mountThread();selectCommentText();pointer("pointerdown",container().querySelector("[data-spotlight-toggle]")!);collapse();pointer(type,container().querySelector("[data-comment-body]")!);click("[data-spotlight-toggle]");expect(h.seeds).toEqual([""]);});
 it("drops a reservation when the window loses focus",()=>{const h=mountThread();selectCommentText();pointer("pointerdown",container().querySelector("[data-spotlight-toggle]")!);collapse();act(()=>window.dispatchEvent(new Event("blur")));click("[data-spotlight-toggle]");expect(h.seeds).toEqual([""]);});
+
+it("preserves activation across a microtask checkpoint but expires an unconsumed click on the next task", async () => {
+	const harness = mountThread();
+	const target = container().querySelector("[data-spotlight-toggle]")!;
+	// Stop before React's listener, then simulate Firefox's checkpoint before
+	// the consuming listener. Ordinary synchronous dispatch misses this race.
+	container().addEventListener("click", (event) => event.stopPropagation(), true);
+	const activate = () => {
+		selectCommentText();
+		pointer("pointerdown", target);
+		collapse();
+		pointer("click", target);
+	};
+	activate();
+	await Promise.resolve();
+	expect(harness.controller!.consumeFocusText([commentId])).toBe("> worth spotlighting");
+	activate();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(harness.controller!.consumeFocusText([commentId])).toBe("");
+});
