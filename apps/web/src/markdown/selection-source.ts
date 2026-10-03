@@ -1,5 +1,6 @@
 import { parseMarkdown } from '@bickr/shared/markdown';
 import { toMarkdown } from 'mdast-util-to-markdown';
+import { mathToMarkdown } from 'mdast-util-math';
 import { gfmToMarkdown } from 'mdast-util-gfm';
 import type { Root, RootContent, Literal } from 'mdast';
 import { sourceTextUnits } from './source-text';
@@ -16,7 +17,7 @@ declare module 'mdast' {
 	}
 }
 export type SourceInterval = { start: number; end: number };
-const options = { extensions: [gfmToMarkdown()], handlers: { selectionSource: (node: SelectionSource) => node.value } };
+const options = { extensions: [gfmToMarkdown(), mathToMarkdown()], handlers: { selectionSource: (node: SelectionSource) => node.value } };
 const rawNode = (value: string): SelectionSource => ({ type: 'selectionSource', value });
 const overlaps = (a: SourceInterval, b: SourceInterval) => a.start < b.end && a.end > b.start;
 function bounds(node: RootContent): SourceInterval | null {
@@ -28,15 +29,18 @@ export function selectedMarkdown(source: string, intervals: readonly SourceInter
 	if (intervals.some((i) => i.start === 0 && i.end === source.length)) return source.trimEnd();
 	const tree = parseMarkdown(source);
 	const dependencies = new Set<string>();
-	const definitions = new Map<string, RootContent>();
-	for (const node of tree.children) {
+	type Definition = Extract<RootContent, { type: 'definition' | 'footnoteDefinition' }>;
+	const definitions = new Map<string, { node: Definition; nested: boolean }>();
+	function indexDefinitions(node: Root | RootContent, nested = false): void {
 		if (node.type === 'definition' || node.type === 'footnoteDefinition') {
 			const key = `${node.type}:${node.identifier}`;
-			// Markdown resolves the first definition, even if later spellings
-			// repeat the normalized identifier with a different target.
-			if (!definitions.has(key)) definitions.set(key, node);
+			// Rendering resolves the first definition in document order,
+			// including definitions declared inside lists and blockquotes.
+			if (!definitions.has(key)) definitions.set(key, { node, nested });
 		}
+		if ('children' in node) node.children.forEach((child) => indexDefinitions(child as RootContent, nested || node.type !== 'root'));
 	}
+	indexDefinitions(tree);
 	function scanDependencies(node: RootContent): void {
 		if (node.type === 'linkReference' || node.type === 'imageReference') dependencies.add(`definition:${node.identifier}`);
 		if (node.type === 'footnoteReference') dependencies.add(`footnoteDefinition:${node.identifier}`);
@@ -126,12 +130,13 @@ export function selectedMarkdown(source: string, intervals: readonly SourceInter
 	const appended = new Set<string>();
 	for (const key of dependencies) {
 		if (appended.has(key)) continue;
-		const definition = definitions.get(key);
-		if (!definition) continue;
+		const entry = definitions.get(key);
+		if (!entry) continue;
+		const definition = entry.node;
 		appended.add(key);
 		scanDependencies(definition);
 		const span = bounds(definition)!;
-		const complete = rawNode(source.slice(span.start, span.end));
+		const complete = rawNode(entry.nested ? toMarkdown(definition, options).trimEnd() : source.slice(span.start, span.end));
 		const selectedIndex = selectedDefinitions.get(key);
 		// A selected fragment of a referenced footnote cannot replace the
 		// complete definition that gives the selected reference its meaning.

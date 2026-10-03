@@ -149,3 +149,20 @@ it('resolves duplicate footnotes to the first rendered definition', async () => 
 	expect(result).toContain('[^a]: First body');
 	expect(result).not.toContain('Second body');
 });
+
+it('retains nested reference and footnote definitions as standalone context', async () => {
+	await render('[label][r] and note[^a]\n\n> [r]: https://example.com\n> [^a]: First body');
+	const range = document.createRange();
+	range.selectNodeContents(container.querySelector('p')!);
+	const result = selected(range)!;
+	expect(result).toContain('[r]: https://example.com');
+	expect(result).toContain('[^a]: First body');
+	expect(result).not.toContain('> [r]:');
+	expect(result).not.toContain('> [^a]:');
+});
+it('retains definitions inside lists and resolves them in document order', () => {
+	const source = '[label][r]\n\n- [r]: https://first.example\n\n[r]: https://second.example';
+	const result = selectedMarkdown(source, [{ start: 1, end: 4 }]);
+	expect(result).toContain('[r]: https://first.example');
+	expect(result).not.toContain('second.example');
+});
