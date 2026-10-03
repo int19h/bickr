@@ -32,6 +32,19 @@ describe('Markdown math rendering', () => {
 		await act(async () => jobs[1]!.complete({kind:'rejected'})); expect(container.querySelector('.math-fallback')?.textContent).toBe('y');
 	});
 	it('omits source buttons for formulas', async () => { await render('$x$'); expect(container.querySelector('button')).toBeNull(); });
+	it('moves validated inline baseline offsets to the scroll wrapper and leaves display offsets intact', async () => {
+		await render('$x_0$ and $y$\n\n$$z$$');
+		const shifted = markup.replace('<svg ', '<svg style="vertical-align: -0.25ex;" ');
+		for (const [index, job] of jobs.entries()) {
+			await act(async () => job.complete({ kind: 'rendered', svg: index === 1 ? markup : shifted }));
+		}
+		const outputs = container.querySelectorAll<HTMLElement>('.math-output');
+		expect(outputs[0]!.style.verticalAlign).toBe('-0.25ex');
+		expect(outputs[0]!.querySelector('svg')!.style.verticalAlign).toBe('');
+		expect(outputs[1]!.style.verticalAlign).toBe('');
+		expect(outputs[2]!.style.verticalAlign).toBe('');
+		expect(outputs[2]!.querySelector('svg')!.style.verticalAlign).toBe('-0.25ex');
+	});
 
 	it('renders formulas in direct and reference links without source buttons', async () => {
 		const text = '[label $x$](https://example.com) and [other $`y`$][ref]\n\n[ref]: https://example.org'; await render(text);

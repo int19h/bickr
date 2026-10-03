@@ -8244,6 +8244,10 @@ button.inference-model-name:hover { text-decoration: underline; }
 .math-expression { display: inline; }
 .math-output { display: inline-block; max-width: 100%; overflow-x: auto; }
 .math-output svg { max-width: none; }
+/* A flex item's baseline excludes the scroll wrapper's scrollbar. An
+   overflow inline-block instead uses its bottom edge, lifting the formula. */
+.math-expression:not(.math-display) .math-output { display: inline-flex; }
+.math-expression:not(.math-display) .math-output svg { display: block; flex-shrink: 0; }
 .math-display { display: block; max-width: 100%; overflow-x: auto; padding: .4em 0; }
 .math-fallback { white-space: pre-wrap; overflow-wrap: anywhere; }
 .math-output[hidden] { display: none; }
