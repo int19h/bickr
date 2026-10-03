@@ -52,7 +52,7 @@ function parentButton(id: string) { return row(id).querySelector<HTMLButtonEleme
 describe("responsive comment tree", () => {
 	it("groups the parent link, self-link, metadata, and available actions in header order", async () => {
 		await act(async () => root.render(<CommentTree {...props} roots={roots}
-			onRequestDelete={() => undefined} onToggleSubscription={async () => undefined} />));
+			canDeleteComment={() => true} onRequestDelete={() => undefined} onToggleSubscription={async () => undefined} />));
 		const controls = row("c").querySelector(".comment-header-controls")!;
 		const parent = parentButton("c");
 		expect(controls.contains(parent)).toBe(true);
