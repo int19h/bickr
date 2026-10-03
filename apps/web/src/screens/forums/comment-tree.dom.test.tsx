@@ -50,6 +50,21 @@ function row(id: string) { return host.querySelector<HTMLElement>(`#comment-${id
 function parentButton(id: string) { return row(id).querySelector<HTMLButtonElement>(".comment-parent-link")!; }
 
 describe("responsive comment tree", () => {
+	it("groups the parent link, self-link, metadata, and available actions in header order", async () => {
+		await act(async () => root.render(<CommentTree {...props} roots={roots}
+			onRequestDelete={() => undefined} onToggleSubscription={async () => undefined} />));
+		const controls = row("c").querySelector(".comment-header-controls")!;
+		const parent = parentButton("c");
+		expect(controls.contains(parent)).toBe(true);
+		expect(parent.querySelector("svg")?.getAttribute("width")).toBe("13");
+		expect(parent.nextElementSibling?.matches("a.comment-anchor-link")).toBe(true);
+		expect(controls.querySelector('[aria-label="Delete comment"]')).not.toBeNull();
+		expect(controls.querySelector('[aria-label="Watch replies"]')).not.toBeNull();
+		expect(row("r").querySelector('[aria-label="Delete comment"]')).toBeNull();
+		await render(false);
+		expect(row("c").querySelector(".comment-actions")).toBeNull();
+		expect(parentButton("c").closest(".comment-header-controls")).not.toBeNull();
+	});
 	it("keeps rows, text selection, and checkbox identity when indentation changes", async () => {
 		await render();
 		const original = row("c");

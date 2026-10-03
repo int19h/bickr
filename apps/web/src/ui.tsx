@@ -50,7 +50,8 @@ export type IconName =
 	| "original"
 	| "chat"
 	| "arrowUp"
-	| "arrowDown";
+	| "arrowDown"
+	| "replyUp";
 
 export function Modal({
 	children,
@@ -264,6 +265,11 @@ export function Icon({ className, name, size = 16 }: { className?: string; name:
 		strokeWidth: 1.6,
 	};
 	const icons: Record<IconName, ReactNode> = {
+		replyUp: (
+			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
+				<path d="M20 19h-7a6 6 0 0 1-6-6V5m-4 4 4-4 4 4" />
+			</svg>
+		),
 		plus: (
 			<svg height={size} viewBox="0 0 24 24" width={size} {...stroke}>
 				<path d="M12 5v14M5 12h14" />

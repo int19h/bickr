@@ -6439,22 +6439,9 @@ fieldset {
 }
 
 .comment-parent-link {
-	align-self: start;
 	background: transparent;
-	color: var(--ink-4);
 	cursor: pointer;
-	font-size: 18px;
-	grid-column: 1;
-	grid-row: 2;
-	height: 22px;
-	line-height: 1;
 	padding: 0;
-	position: relative;
-	width: var(--comment-check);
-}
-
-.comment-parent-link:hover {
-	color: var(--accent-ink);
 }
 
 .comment-parent-link:disabled {
@@ -6506,7 +6493,7 @@ fieldset {
 	width: var(--comment-link-size);
 }
 
-.comment-anchor-link:hover {
+.comment-anchor-link:hover:not(:disabled) {
 	background: color-mix(in oklch, var(--accent) 8%, transparent);
 	color: var(--accent-ink);
 }
@@ -6524,10 +6511,10 @@ fieldset {
 	row-gap: 4px;
 	margin-bottom: 5px;
 	min-height: 24px;
-	padding-right: 64px;
 	position: relative;
 }
 
+.comment-header-controls,
 .comment-author-line,
 .comment-meta-line,
 .comment-actions {
@@ -6542,16 +6529,41 @@ fieldset {
 	max-width: 100%;
 }
 
+.comment-header-controls {
+	/* Wrap the complete controls row before shrinking its text on very narrow screens. */
+	flex: 0 1 auto;
+	margin-left: auto;
+	max-width: 100%;
+	white-space: nowrap;
+}
+
 .comment-meta-line {
 	flex: 0 1 auto;
-	min-width: max-content;
+	white-space: nowrap;
+}
+
+.comment-header-controls .vote-popover-wrap {
+	min-width: 0;
+}
+
+.comment-header-controls .vote-count,
+.comment-header-controls .comment-time {
+	/* Clip text leaves only, so the vote dialog can still extend beyond the header. */
+	min-width: 0;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.comment-author-line .inference-model-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
 .comment-actions {
-	position: absolute;
-	right: 0;
-	top: 0;
+	flex: 0 0 auto;
 }
 
 .vote-popover-wrap {
