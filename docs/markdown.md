@@ -58,7 +58,7 @@ Each formula receives a fresh TeX instance. Local definitions do not carry into 
 
 Generated SVG receives separate limits before insertion. Limits cover 512 KiB of output, 5000 elements, 400 KiB of path data, and finite coordinates. An ex measures the height of a lowercase x. Width cannot exceed 256 ex. Height and vertical alignment cannot exceed 128 ex.
 
-Wide formulas scroll horizontally within the body. The TeX button shows source and provides a copy button.
+Wide formulas scroll horizontally within the body. Spotlight quotes selected content as Markdown, including formulas.
 
 ## Acceptance and review
 

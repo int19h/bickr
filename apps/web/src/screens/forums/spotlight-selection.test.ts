@@ -48,6 +48,7 @@ describe("Spotlight selection capture", () => {
 		selection.set(selected({ commentId: "cmt_reply", text: "worth spotlighting" }));
 		controller.observeSelectionChange();
 		// The selection handles are dismissed and focus moves to the checkbox.
+		controller.beginActivation();
 		selection.set(collapsed);
 		controller.observeSelectionChange();
 
@@ -61,6 +62,7 @@ describe("Spotlight selection capture", () => {
 		selection.set(selected({ commentId: "cmt_reply", text: "worth spotlighting" }));
 		controller.observeSelectionChange();
 		// `selectionchange` is queued as a task, so activation can win the race.
+		controller.beginActivation();
 		selection.set(collapsed);
 
 		expect(controller.consumeFocusText(threadCommentIds)).toBe("> worth spotlighting");
@@ -81,6 +83,7 @@ describe("Spotlight selection capture", () => {
 			{ commentId: "cmt_other", text: "an unrelated aside" },
 		));
 		controller.observeSelectionChange();
+		controller.beginActivation();
 		selection.set(collapsed);
 
 		expect(controller.consumeFocusText(spotlightTargetCommentIds(["cmt_reply"], parentById))).toBe(
@@ -107,6 +110,7 @@ describe("Spotlight selection capture", () => {
 
 		selection.set(selected({ commentId: "cmt_reply", text: "worth spotlighting" }));
 		controller.observeSelectionChange();
+		controller.beginActivation();
 		selection.set(collapsed);
 
 		expect(controller.consumeFocusText(threadCommentIds)).toBe("> worth spotlighting");
@@ -183,6 +187,7 @@ describe("Spotlight selection capture", () => {
 		controller.observeSelectionChange();
 		expect(controller.consumeFocusText(threadCommentIds)).toBe("> worth spotlighting");
 
+		controller.beginActivation();
 		selection.set(collapsed);
 		controller.observeSelectionChange();
 		selection.set(selected(capture));
@@ -199,6 +204,7 @@ describe("Spotlight selection capture", () => {
 
 		// Tapping the unrelated control dismissed the selection, so nothing is
 		// left that a later read could confuse with the reader's next one.
+		controller.beginActivation();
 		selection.set(collapsed);
 		controller.observeActivation({ kind: "unrelated" });
 		selection.set(selected(capture));
@@ -207,16 +213,16 @@ describe("Spotlight selection capture", () => {
 		expect(controller.consumeFocusText(threadCommentIds)).toBe("> worth spotlighting");
 	});
 
-	it("keeps the capture when the selection only collapses", () => {
-		const selection = liveSelection(selected({ commentId: "cmt_reply", text: "worth spotlighting" }));
-		const controller = createSpotlightSelectionController(selection.read);
-		controller.observeSelectionChange();
-
-		selection.set(collapsed);
-		controller.observeSelectionChange();
-
-		expect(controller.snapshot().captures).toEqual([{ commentId: "cmt_reply", text: "worth spotlighting" }]);
-	});
+	it("drops a selection that is cleared before activation", () => {
+        const selection=liveSelection(selected({commentId:"cmt_reply",text:"old text"}));
+        const controller=createSpotlightSelectionController(selection.read);controller.observeSelectionChange();
+        selection.set(collapsed);controller.observeSelectionChange();expect(controller.consumeFocusText(threadCommentIds)).toBe("");
+    });
+    it("drops a canceled activation reservation", () => {
+        const selection=liveSelection(selected({commentId:"cmt_reply",text:"old text"}));
+        const controller=createSpotlightSelectionController(selection.read);controller.beginActivation();selection.set(collapsed);controller.cancelActivation();
+        expect(controller.consumeFocusText(threadCommentIds)).toBe("");
+    });
 
 	it("keeps the capture while the reader selects inside the Spotlight panel", () => {
 		const selection = liveSelection(selected({ commentId: "cmt_reply", text: "worth spotlighting" }));
@@ -227,6 +233,7 @@ describe("Spotlight selection capture", () => {
 		controller.observeSelectionChange();
 
 		expect(controller.snapshot().captures).toEqual([{ commentId: "cmt_reply", text: "worth spotlighting" }]);
+		controller.beginActivation();
 		selection.set(collapsed);
 		expect(controller.consumeFocusText(threadCommentIds)).toBe("> worth spotlighting");
 	});
@@ -238,6 +245,7 @@ describe("Spotlight selection capture", () => {
 
 		selection.set(selected());
 		controller.observeSelectionChange();
+		controller.beginActivation();
 		selection.set(collapsed);
 
 		expect(controller.consumeFocusText(threadCommentIds)).toBe("");
@@ -247,6 +255,7 @@ describe("Spotlight selection capture", () => {
 		const selection = liveSelection(selected({ commentId: "cmt_reply", text: "worth spotlighting" }));
 		const controller = createSpotlightSelectionController(selection.read);
 		controller.observeSelectionChange();
+		controller.beginActivation();
 		selection.set(collapsed);
 
 		controller.observeActivation({ kind: "unrelated" });
@@ -258,6 +267,7 @@ describe("Spotlight selection capture", () => {
 		const selection = liveSelection(selected({ commentId: "cmt_reply", text: "worth spotlighting" }));
 		const controller = createSpotlightSelectionController(selection.read);
 		controller.observeSelectionChange();
+		controller.beginActivation();
 		selection.set(collapsed);
 
 		// The capture-phase listener always sees the checkbox's own click before
@@ -272,6 +282,7 @@ describe("Spotlight selection capture", () => {
 		const selection = liveSelection(selected({ commentId: "cmt_reply", text: "worth spotlighting" }));
 		const controller = createSpotlightSelectionController(selection.read);
 		controller.observeSelectionChange();
+		controller.beginActivation();
 		selection.set(collapsed);
 
 		controller.reset();
@@ -288,6 +299,7 @@ describe("Spotlight selection capture", () => {
 			{ commentId: "cmt_other", text: "an unrelated aside" },
 		));
 		controller.observeSelectionChange();
+		controller.beginActivation();
 		selection.set(collapsed);
 
 		expect(controller.consumeFocusText(["cmt_root"])).toBe("> the opening claim");
@@ -297,6 +309,7 @@ describe("Spotlight selection capture", () => {
 		const selection = liveSelection(selected({ commentId: "cmt_reply", text: "first line\n\nthird line" }));
 		const controller = createSpotlightSelectionController(selection.read);
 		controller.observeSelectionChange();
+		controller.beginActivation();
 		selection.set(collapsed);
 
 		expect(controller.consumeFocusText(threadCommentIds)).toBe("> first line\n> \n> third line");
@@ -317,10 +330,10 @@ describe("consumeSpotlightFocusText", () => {
 		expect(consumption.state.freshness).toBe("retired");
 	});
 
-	it("ignores a live selection that only collapsed", () => {
+	it("preserves a collapsed selection only during activation", () => {
 		const state = armed({ commentId: "cmt_root", text: "the opening claim" });
 
-		expect(consumeSpotlightFocusText(state, { live: collapsed, targetCommentIds: ["cmt_root"] }).focusText).toBe(
+		expect(consumeSpotlightFocusText(state, { live: collapsed, targetCommentIds: ["cmt_root"], activationPending: true }).focusText).toBe(
 			"> the opening claim",
 		);
 	});
@@ -344,7 +357,8 @@ describe("observeSelection", () => {
 	it("replaces the capture only for a new non-collapsed selection", () => {
 		const captured = observeSelection(emptySpotlightSelection, selected({ commentId: "cmt_root", text: "claim" }));
 
-		expect(observeSelection(captured, collapsed)).toBe(captured);
+		expect(observeSelection(captured, collapsed)).toBe(emptySpotlightSelection);
+        expect(observeSelection(captured, collapsed, true)).toBe(captured);
 		expect(observeSelection(captured, neutral)).toBe(captured);
 		expect(observeSelection(captured, selected()).captures).toEqual([]);
 	});

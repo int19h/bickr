@@ -1,19 +1,7 @@
 /**
- * Spotlight selection capture state, with no DOM dependency.
- *
- * Mobile browsers collapse a text selection while dismissing the selection
- * handles and moving focus into a checkbox, so by the time a Spotlight
- * checkbox's `change` handler runs the live selection is routinely already
- * gone — and no pointer event reliably precedes that collapse. Capture is
- * therefore eager: every relevant `selectionchange` is serialized immediately
- * into raw per-comment strings that outlive the collapse, and activation only
- * consumes what was captured earlier.
- *
- * Nothing here touches `Range`, `Node`, or `document`; live `Range` objects are
- * never retained, because they are invalidated by exactly the collapse this
- * feature exists to survive. The adapter in `spotlight-selection-dom.ts`
- * classifies the live selection into a `SelectionObservation`, and every
- * capture, invalidation, and consumption rule lives here as a pure transition.
+ * Serialize selections eagerly without retaining mutable browser ranges.
+ * A cleared selection expires immediately. Only an explicit pending Spotlight
+ * activation preserves capture across the browser's focus-induced collapse.
  */
 
 /** Raw, unquoted selected text from exactly one comment body. */
@@ -22,16 +10,7 @@ export type CommentSelectionCapture = {
 	readonly text: string;
 };
 
-/**
- * One `selectionchange`, classified by the adapter.
- *
- * `collapsed` and `neutral` deliberately retain the previous capture: a
- * collapse is the mobile failure this feature exists to survive, and a
- * selection inside Spotlight's own UI is not the reader replacing their thread
- * selection. Only `selected` replaces the capture, and it replaces it even when
- * it carries no captures at all — a fresh selection outside every comment body
- * means the reader moved on, so the old text must not resurface.
- */
+/** A current selection, a cleared selection, or editing inside Spotlight. */
 export type SelectionObservation =
 	| { readonly kind: "collapsed" }
 	| { readonly kind: "neutral" }
@@ -80,17 +59,13 @@ export const emptySpotlightSelection: SpotlightSelectionState = { captures: [], 
 export function observeSelection(
 	state: SpotlightSelectionState,
 	observation: SelectionObservation,
+	preserveCollapsed = false,
 ): SpotlightSelectionState {
 	switch (observation.kind) {
 		case "collapsed":
-		case "neutral":
-			// A collapse never invalidates an armed capture — that is the mobile
-			// dismissal this feature exists to survive — and neither does the reader
-			// selecting inside Spotlight's own UI. Both do drop a retired
-			// fingerprint: the spent selection is gone from the document, so
-			// whatever the reader selects next is a new selection even when it is
-			// the very same words.
-			return state.freshness === "armed" ? state : emptySpotlightSelection;
+            return preserveCollapsed && state.freshness === "armed" ? state : emptySpotlightSelection;
+        case "neutral":
+            return state.freshness === "armed" ? state : emptySpotlightSelection;
 		case "selected":
 			// Reading the same selection again is not a new selection, whether it
 			// arrives as the queued `selectionchange` for one already consumed live
@@ -169,12 +144,14 @@ export function consumeSpotlightFocusText(
 	{
 		live,
 		targetCommentIds,
+		activationPending = false,
 	}: {
 		readonly live: SelectionObservation | null;
 		readonly targetCommentIds: readonly string[];
+		readonly activationPending?: boolean;
 	},
 ): SpotlightFocusConsumption {
-	const current = live ? observeSelection(state, live) : state;
+	const current = live ? observeSelection(state, live, activationPending) : state;
 	return {
 		state: retireSelection(current, live),
 		focusText:
@@ -277,6 +254,8 @@ export function captureSelectedComments<TRange, TBody>(
 export type SpotlightSelectionController = {
 	/** Re-reads the live selection and applies it to the retained capture. */
 	readonly observeSelectionChange: () => void;
+	readonly beginActivation: () => void;
+	readonly cancelActivation: () => void;
 	readonly observeActivation: (activation: ActivationObservation) => void;
 	/** Quotes the capture for these comments and retires it. */
 	readonly consumeFocusText: (targetCommentIds: readonly string[]) => string;
@@ -298,19 +277,25 @@ export function createSpotlightSelectionController(
 	readSelection: () => SelectionObservation,
 ): SpotlightSelectionController {
 	let state = emptySpotlightSelection;
+	let activationPending = false;
 	return {
+		beginActivation: () => { state = observeSelection(state, readSelection()); activationPending = true; },
+		cancelActivation: () => { activationPending = false; state = observeSelection(state, readSelection()); },
 		observeSelectionChange: () => {
-			state = observeSelection(state, readSelection());
+			state = observeSelection(state, readSelection(), activationPending);
 		},
 		observeActivation: (activation) => {
+			if (activation.kind === "unrelated") activationPending = false;
 			state = observeActivation(state, { activation, live: readSelection() });
 		},
 		consumeFocusText: (targetCommentIds) => {
-			const consumption = consumeSpotlightFocusText(state, { live: readSelection(), targetCommentIds });
+			const consumption = consumeSpotlightFocusText(state, { live: readSelection(), targetCommentIds, activationPending });
+			activationPending = false;
 			state = consumption.state;
 			return consumption.focusText;
 		},
 		reset: () => {
+			activationPending = false;
 			state = retireSelection(state, readSelection());
 		},
 		snapshot: () => state,

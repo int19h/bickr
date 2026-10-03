@@ -1,3 +1,4 @@
+import { markdownWithinSelection } from "../../markdown/selection-dom";
 /**
  * The document adapter for Spotlight selection capture.
  *
@@ -116,7 +117,7 @@ function selectedTextWithinNode(range: Range, node: Element): string {
 	if (range.compareBoundaryPoints(Range.END_TO_END, nodeRange) > 0) {
 		clippedRange.setEnd(nodeRange.endContainer, nodeRange.endOffset);
 	}
-	return serializeSelectedContents(clippedRange.cloneContents());
+	return markdownWithinSelection(clippedRange, node, serializeSelectedContents) ?? serializeSelectedContents(clippedRange.cloneContents());
 }
 
 /**

@@ -3,12 +3,12 @@ import { prepareSvg } from "./svg-policy";
 import { isDiagramResponse, validDiagramSource, type DiagramRequest } from "./diagram-protocol";
 
 type DrawingState = { kind: "pending" } | { kind: "ready" } | { kind: "error"; reason: string };
-type DrawingProps = { language: "svg" | "mermaid"; source: string };
+type DrawingProps = { language: "svg" | "mermaid"; source: string; "data-md-start"?: number; "data-md-end"?: number; "data-md-atomic"?: boolean };
 export function DrawingBlock(props: DrawingProps) {
 	// Measurement and readiness belong to one source and language.
 	return <DrawingContent key={`${props.language}:${props.source}`} {...props} />;
 }
-function DrawingContent({ language, source }: DrawingProps) {
+function DrawingContent({ language, source, ...sourceAttributes }: DrawingProps) {
 	const id = useId().replace(/[^a-zA-Z0-9_-]/g, "");
 	const container = useRef<HTMLDivElement>(null);
 	const svgHost = useRef<HTMLDivElement>(null);
@@ -54,7 +54,7 @@ function DrawingContent({ language, source }: DrawingProps) {
 		window.addEventListener("message", receive);
 		return () => { clearTimeout(timeout); window.removeEventListener("message", receive); };
 	}, [id, language, source, visible]);
-	return <div className="drawing-block" ref={container}>
+	return <div className="drawing-block" ref={container} {...sourceAttributes}>
 		{!visible && started && state.kind !== "error" && <div aria-hidden="true" data-selection-exclude="true" style={{ height: language === "svg" ? 360 : height }} />}
 		{visible && language === "svg" && <div className="svg-drawing" ref={svgHost} />}
 		{visible && language === "mermaid" && state.kind !== "error" && <iframe key={source} ref={frame} src="/diagram-renderer" sandbox="allow-scripts" referrerPolicy="no-referrer" title="Mermaid diagram" style={{ height }} />}
