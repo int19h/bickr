@@ -18,7 +18,7 @@ export class AppErrorBoundary extends Component<{ children: ReactNode }, { faile
 		return (
 			<main className="login-wrap">
 				<div className="login-card" role="alert">
-					<h1>Bickr could not display this page.</h1>
+					<h1>Bickr cannot display this page.</h1>
 					<p>Reload the app to try again. Unsaved changes can be lost.</p>
 					<button className="btn" type="button" onClick={() => window.location.reload()}>Reload app</button>
 				</div>

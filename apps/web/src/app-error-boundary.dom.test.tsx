@@ -30,7 +30,7 @@ it.each([new RangeError("Maximum call stack size exceeded"), new Error("private 
 	"retains an explicit recovery screen after %s", error => {
 		const reload = vi.spyOn(window.location, "reload").mockImplementation(() => undefined);
 		act(() => root.render(<StrictMode><AppErrorBoundary><Failure error={error} /></AppErrorBoundary></StrictMode>));
-		expect(container.querySelector('[role="alert"]')?.textContent).toContain("Bickr could not display this page.");
+		expect(container.querySelector('[role="alert"]')?.textContent).toContain("Bickr cannot display this page.");
 		expect(container.textContent).toContain("Unsaved changes can be lost.");
 		expect(container.textContent).not.toContain(error.message);
 		const reports = diagnostics.mock.calls.filter((args: unknown[]) => args[0] === "Bickr rendering failed");
