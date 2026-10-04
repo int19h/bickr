@@ -59,10 +59,14 @@ export const remarkBickrMath: Plugin<[], Root> = function () {
 	const syntax = math({ singleDollarTextMath: false });
 	const flow = syntax.flow?.[36];
 	if (!flow || Array.isArray(flow)) throw new Error("Expected one math flow construct");
+	// math() returns a fresh extension but shares its flow construct. Mutating
+	// that construct stacks wrappers across every Markdown render in the session.
+	const localFlow: Construct = { ...flow };
+	syntax.flow![36] = localFlow;
 	const tokenizeFlow = flow.tokenize;
 	// The upstream flow parser treats opening-line text as metadata. GitHub also
 	// accepts $$formula$$ on one line, which must instead reach its text parser.
-	flow.tokenize = function (effects, ok, nok) {
+	localFlow.tokenize = function (effects, ok, nok) {
 		const original = tokenizeFlow.call(this, effects, ok, nok);
 		const oneLine: Construct = { tokenize(checkEffects, checkOk, checkNok) {
 			let line = ""; checkEffects.enter("mathFlowFenceMeta");
