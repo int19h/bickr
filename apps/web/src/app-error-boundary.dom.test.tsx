@@ -33,7 +33,7 @@ it.each([new RangeError("Maximum call stack size exceeded"), new Error("private 
 		expect(container.querySelector('[role="alert"]')?.textContent).toContain("Bickr could not display this page.");
 		expect(container.textContent).toContain("Unsaved changes can be lost.");
 		expect(container.textContent).not.toContain(error.message);
-		const reports = diagnostics.mock.calls.filter(args => args[0] === "Bickr rendering failed");
+		const reports = diagnostics.mock.calls.filter((args: unknown[]) => args[0] === "Bickr rendering failed");
 		expect(reports).toHaveLength(1);
 		expect(reports[0]![1]).toBe(error);
 		expect(reports[0]![2]).toContain("Failure");
