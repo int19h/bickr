@@ -892,7 +892,7 @@ async function exportCommand(ctx: CommandContext, args: string[]): Promise<void>
 	}
 	const params = new URLSearchParams({ ref, format: requestedFormat });
 	if (kind === "forum") {
-		const range = parseRange(flagString(options.flags, "range"));
+		const range = parseRange(flagString(options.flags, "range"), "1-40", 1000);
 		params.set("offset", String(range.offset));
 		params.set("limit", String(range.limit));
 	}
@@ -970,7 +970,7 @@ async function notificationsCommand(ctx: CommandContext, args: string[]): Promis
 	const [subcommand, ...rest] = args;
 	const options = parseCommandOptions(rest);
 	if (subcommand === "list") {
-		const range = parseRange(flagString(options.flags, "range"), "1-30");
+		const range = parseRange(flagString(options.flags, "range"), "1-30", 100);
 		const params = new URLSearchParams({
 			limit: String(range.limit),
 			offset: String(range.offset),
@@ -1136,16 +1136,19 @@ async function listThreads(
 		);
 		return unwrap(envelope).threads;
 	}
+	if (flagString(flags, "range")) throw new CliUsageError("Use either --all or --range.");
 	const threads: ThreadSummary[] = [];
-	for (let offset = 0;; offset += 500) {
-		const envelope = await ctx.client.request<{ threads: ThreadSummary[] }>(
+	let offset = 0;
+	for (;;) {
+		const envelope = await ctx.client.request<{ threads: ThreadSummary[]; pagination?: { hasMore: boolean; offset: number } }>(
 			`${forumApiPath(forum)}/threads?sort=${encodeURIComponent(sort)}&limit=500&offset=${offset}`,
 		);
-		const page = unwrap(envelope).threads;
-		threads.push(...page);
-		if (page.length < 500) {
-			return threads;
-		}
+		const data = unwrap(envelope);
+		threads.push(...data.threads);
+		if (!(data.pagination?.hasMore ?? data.threads.length === 500)) return threads;
+		const nextOffset = (data.pagination?.offset ?? offset) + data.threads.length;
+		if (nextOffset <= offset || !Number.isSafeInteger(nextOffset)) throw new CliUsageError("Thread pagination did not advance.");
+		offset = nextOffset;
 	}
 }
 

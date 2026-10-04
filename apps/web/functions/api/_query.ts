@@ -11,5 +11,5 @@ export function boundedOffset(value: string | null): number {
 	if (!Number.isFinite(parsed)) {
 		return 0;
 	}
-	return Math.max(0, Math.floor(parsed));
+	return Math.min(Number.MAX_SAFE_INTEGER - 1, Math.max(0, Math.floor(parsed)));
 }

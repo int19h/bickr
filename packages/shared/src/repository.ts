@@ -987,13 +987,13 @@ export async function listWorldsPage(
 	db: D1DatabaseLike,
 	page: BotSummaryPageInput = {},
 ): Promise<WorldSummaryPage<WorldListSummary>> {
-	const paging = botSummaryPaging(page);
+	const paging = collectionPaging(page, { kind: "worlds", scope: "global" });
 	const result = await db.prepare(
 		`WITH selected AS (
-			SELECT world_id, updated_at, handle FROM worlds_index
+			SELECT world_id, created_at, updated_at, handle FROM worlds_index
 			WHERE deleted_at IS NULL AND lifecycle_state = 'active'
-				AND (updated_at < ? OR (updated_at = ? AND handle > ?))
-			ORDER BY updated_at DESC, handle ASC LIMIT ?
+				AND (created_at < ? OR (created_at = ? AND world_id > ?))
+			ORDER BY created_at DESC, world_id ASC LIMIT ?
 		), forum_counts AS (
 			SELECT forums.world_id, COUNT(*) AS forumCount FROM forums_index AS forums
 			JOIN selected ON selected.world_id = forums.world_id
@@ -1010,8 +1010,8 @@ export async function listWorldsPage(
 		 FROM selected JOIN worlds_index AS w ON w.world_id = selected.world_id
 		 LEFT JOIN forum_counts ON forum_counts.world_id = w.world_id
 		 LEFT JOIN bot_counts ON bot_counts.world_id = w.world_id
-		 ORDER BY selected.updated_at DESC, selected.handle ASC`,
-	).bind(paging.updatedAt, paging.updatedAt, paging.handle, paging.queryLimit)
+		 ORDER BY selected.created_at DESC, selected.world_id ASC`,
+	).bind(paging.createdAt, paging.createdAt, paging.id, paging.queryLimit)
 		.all<WorldSummaryIndexRow & Pick<WorldListSummary, "forumCount" | "botCount">>();
 	const rows = result.results ?? [];
 	const selected = rows.slice(0, paging.limit);
@@ -1020,7 +1020,7 @@ export async function listWorldsPage(
 	return {
 		worlds: selected.map(worldSummaryFromIndexRow),
 		hasMore,
-		...(hasMore && last ? { nextCursor: encodeBotSummaryCursor({ updatedAt: last.updatedAt, handle: last.handle }) } : {}),
+		...(hasMore && last ? { nextCursor: paging.cursor(last.createdAt, last.id) } : {}),
 	};
 }
 
@@ -1173,7 +1173,8 @@ export type BotSummaryPage = {
 
 export type BotSummaryPageInput = { cursor?: string; limit?: number };
 
-type BotSummaryCursor = { updatedAt: string; handle: string };
+type CollectionScope = { kind: "worlds" | "owned_worlds" | "owned_bots" | "world_bots" | "groups"; scope: string };
+type CollectionCursor = CollectionScope & { schemaVersion: 2; createdAt: string; id: string };
 
 const maximumBotSummaryPageSize = 100;
 
@@ -1194,15 +1195,15 @@ export async function listUserBots(
 	userId: string,
 	page?: BotSummaryPageInput,
 ): Promise<BotSummary[] | BotSummaryPage> {
-	const paging = botSummaryPaging(page);
+	const paging = collectionPaging(page, { kind: "owned_bots", scope: userId });
 	const selectedPageSql = page
-		? `AND (updated_at < ? OR (updated_at = ? AND handle > ?)) ORDER BY updated_at DESC, handle ASC LIMIT ?`
+		? `AND (created_at < ? OR (created_at = ? AND bot_id > ?)) ORDER BY created_at DESC, bot_id ASC LIMIT ?`
 		: "";
-	const resultOrderSql = "selected.updated_at DESC, selected.handle ASC";
+	const resultOrderSql = page ? "selected.created_at DESC, selected.id ASC" : "selected.updated_at DESC, selected.handle ASC";
 	const result = await db
 		.prepare(
 			`WITH selected AS (
-				SELECT bot_id AS id, updated_at, handle
+				SELECT bot_id AS id, created_at, updated_at, handle
 				FROM bots_index
 				WHERE owner_user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
 					${selectedPageSql}
@@ -1228,6 +1229,7 @@ export async function listUserBots(
 			 )
 			 SELECT
 				selected.id AS id,
+				selected.created_at AS createdAt,
 				selected.updated_at AS updatedAt,
 				selected.handle AS handle,
 				runtime.next_due_at AS nextDueAt,
@@ -1235,13 +1237,13 @@ export async function listUserBots(
 			 FROM selected
 			 LEFT JOIN bot_runtime_index runtime ON runtime.bot_id = selected.id
 			 LEFT JOIN activity ON activity.bot_id = selected.id
-			 GROUP BY selected.id, runtime.next_due_at, selected.updated_at, selected.handle
+			 GROUP BY selected.id, runtime.next_due_at, selected.created_at, selected.updated_at, selected.handle
 			 ORDER BY ${resultOrderSql}`,
 		)
 		.bind(...(page
-			? [userId, paging.updatedAt, paging.updatedAt, paging.handle, paging.queryLimit]
+			? [userId, paging.createdAt, paging.createdAt, paging.id, paging.queryLimit]
 			: [userId]))
-		.all<{ id: string; updatedAt: string; handle: string; nextDueAt: string | null; lastActiveAt: string | null }>();
+		.all<{ id: string; createdAt: string; updatedAt: string; handle: string; nextDueAt: string | null; lastActiveAt: string | null }>();
 	const allRows = result.results ?? [];
 	const hasMore = allRows.length > paging.limit;
 	const rows = allRows.slice(0, paging.limit);
@@ -1268,44 +1270,33 @@ export async function listUserBots(
 	return {
 		bots: summaries,
 		hasMore,
-		...(hasMore && last ? { nextCursor: encodeBotSummaryCursor(last) } : {}),
+		...(hasMore && last ? { nextCursor: paging.cursor(last.createdAt, last.id) } : {}),
 	};
 }
 
-function botSummaryPaging(page: BotSummaryPageInput | undefined): {
-	limit: number;
-	queryLimit: number;
-	updatedAt: string;
-	handle: string;
-} {
-	if (!page) return { limit: Number.MAX_SAFE_INTEGER - 1, queryLimit: Number.MAX_SAFE_INTEGER, updatedAt: "9999-12-31T23:59:59.999Z", handle: "" };
-	const limit = page.limit ?? maximumBotSummaryPageSize;
-	if (!Number.isInteger(limit) || limit < 1 || limit > maximumBotSummaryPageSize) {
-		throw new RepositoryError("bad_request", `Participant page limit must be between 1 and ${maximumBotSummaryPageSize}.`, 400);
+function collectionPaging(page: BotSummaryPageInput | undefined, scope: CollectionScope) {
+	const limit = page ? page.limit ?? maximumBotSummaryPageSize : Number.MAX_SAFE_INTEGER - 1;
+	if (!Number.isInteger(limit) || limit < 1 || (page && limit > maximumBotSummaryPageSize)) {
+		throw new RepositoryError("bad_request", "Collection page limit must be between 1 and 100.", 400);
 	}
-	const cursor = page.cursor ? decodeBotSummaryCursor(page.cursor) : undefined;
-	return {
-		limit,
-		queryLimit: limit + 1,
-		updatedAt: cursor?.updatedAt ?? "9999-12-31T23:59:59.999Z",
-		handle: cursor?.handle ?? "",
-	};
-}
-
-function encodeBotSummaryCursor(row: BotSummaryCursor): string {
-	return encodeOpaqueJsonCursor({ updatedAt: row.updatedAt, handle: row.handle } satisfies BotSummaryCursor);
-}
-
-function decodeBotSummaryCursor(value: string): BotSummaryCursor {
-	try {
-		const parsed = decodeOpaqueJsonCursor(value);
-		if (isRecord(parsed) && typeof parsed.updatedAt === "string" && typeof parsed.handle === "string") {
-			return { updatedAt: parsed.updatedAt, handle: parsed.handle };
+	let after: CollectionCursor | undefined;
+	if (page?.cursor) {
+		try {
+			const parsed = decodeOpaqueJsonCursor(page.cursor);
+			if (isRecord(parsed) && parsed.schemaVersion === 2 && parsed.kind === scope.kind && parsed.scope === scope.scope
+				&& typeof parsed.createdAt === "string" && parsed.createdAt.length > 0 && typeof parsed.id === "string" && parsed.id.length > 0) {
+				after = parsed as CollectionCursor;
+			}
+		} catch {
+			// Invalid and obsolete cursors use the same typed restart response.
 		}
-	} catch {
-		// Parsing failures all map to one typed public input error.
+		if (!after) throw new RepositoryError("bad_request", "Collection cursor is invalid or obsolete. Restart from the first page.", 400);
 	}
-	throw new RepositoryError("bad_request", "Participant page cursor is invalid.", 400);
+	return {
+		limit, queryLimit: limit + 1,
+		createdAt: after?.createdAt ?? "9999-12-31T23:59:59.999Z", id: after?.id ?? "",
+		cursor: (createdAt: string, id: string) => encodeOpaqueJsonCursor({ ...scope, schemaVersion: 2, createdAt, id } satisfies CollectionCursor),
+	};
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -2121,15 +2112,15 @@ export async function listWorldBots(
 	page?: BotSummaryPageInput,
 ): Promise<BotSummary[] | BotSummaryPage> {
 	const world = await worldByHandle(db, worldHandle);
-	const paging = botSummaryPaging(page);
+	const paging = collectionPaging(page, { kind: "world_bots", scope: world.id });
 	const selectedPageSql = page
-		? `AND (updated_at < ? OR (updated_at = ? AND handle > ?)) ORDER BY updated_at DESC, handle ASC LIMIT ?`
+		? `AND (created_at < ? OR (created_at = ? AND bot_id > ?)) ORDER BY created_at DESC, bot_id ASC LIMIT ?`
 		: `ORDER BY handle ASC`;
-	const resultOrderSql = page ? `selected.updated_at DESC, selected.handle ASC` : `selected.handle ASC`;
+	const resultOrderSql = page ? `selected.created_at DESC, selected.id ASC` : `selected.handle ASC`;
 	const result = await db
 		.prepare(
 			`WITH selected AS (
-				SELECT bot_id AS id, updated_at, handle
+				SELECT bot_id AS id, created_at, updated_at, handle
 				FROM bots_index
 				WHERE home_world_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
 					${selectedPageSql}
@@ -2155,6 +2146,7 @@ export async function listWorldBots(
 			 )
 			 SELECT
 				selected.id AS id,
+				selected.created_at AS createdAt,
 				selected.updated_at AS updatedAt,
 				selected.handle AS handle,
 				runtime.next_due_at AS nextDueAt,
@@ -2162,13 +2154,13 @@ export async function listWorldBots(
 			 FROM selected
 			 LEFT JOIN bot_runtime_index runtime ON runtime.bot_id = selected.id
 			 LEFT JOIN activity ON activity.bot_id = selected.id
-			 GROUP BY selected.id, runtime.next_due_at, selected.updated_at, selected.handle
+			 GROUP BY selected.id, runtime.next_due_at, selected.created_at, selected.updated_at, selected.handle
 			 ORDER BY ${resultOrderSql}`,
 		)
 		.bind(...(page
-			? [world.id, paging.updatedAt, paging.updatedAt, paging.handle, paging.queryLimit]
+			? [world.id, paging.createdAt, paging.createdAt, paging.id, paging.queryLimit]
 			: [world.id]))
-		.all<{ id: string; updatedAt: string; handle: string; nextDueAt: string | null; lastActiveAt: string | null }>();
+		.all<{ id: string; createdAt: string; updatedAt: string; handle: string; nextDueAt: string | null; lastActiveAt: string | null }>();
 	const allRows = result.results ?? [];
 	const hasMore = allRows.length > paging.limit;
 	const rows = allRows.slice(0, paging.limit);
@@ -2191,7 +2183,7 @@ export async function listWorldBots(
 	return {
 		bots: summaries,
 		hasMore,
-		...(hasMore && last ? { nextCursor: encodeBotSummaryCursor(last) } : {}),
+		...(hasMore && last ? { nextCursor: paging.cursor(last.createdAt, last.id) } : {}),
 	};
 }
 
@@ -2234,16 +2226,16 @@ export async function listBotGroupsPage(
 	presentationPage: { maximumEntities: 100; truncated: boolean };
 }> {
 	const world = await worldByHandle(db, worldHandle);
-	const paging = botSummaryPaging(page);
+	const paging = collectionPaging(page, { kind: "groups", scope: `${world.id}:${userId}` });
 	const groupsResult = await db.prepare(
 		`SELECT group_id AS id, world_id AS worldId, owner_user_id AS ownerUserId,
 			language, custom_title AS customTitle, custom_title_lang AS customTitleLang,
 			created_at AS createdAt, updated_at AS updatedAt
 		 FROM bot_groups
 		 WHERE world_id = ? AND owner_user_id = ? AND deleted_at IS NULL
-			AND (updated_at < ? OR (updated_at = ? AND group_id > ?))
-		 ORDER BY updated_at DESC, group_id ASC LIMIT ?`,
-	).bind(world.id, userId, paging.updatedAt, paging.updatedAt, paging.handle, paging.queryLimit).all<BotGroupRow>();
+			AND (created_at < ? OR (created_at = ? AND group_id > ?))
+		 ORDER BY created_at DESC, group_id ASC LIMIT ?`,
+	).bind(world.id, userId, paging.createdAt, paging.createdAt, paging.id, paging.queryLimit).all<BotGroupRow>();
 	const allGroups = groupsResult.results ?? [];
 	const groups = allGroups.slice(0, paging.limit);
 	const hasMore = allGroups.length > paging.limit;
@@ -2261,7 +2253,7 @@ export async function listBotGroupsPage(
 	return {
 		groups: await botGroupSummaries(kv, db, groups, members.slice(0, 100)),
 		hasMore,
-		...(hasMore && last ? { nextCursor: encodeBotSummaryCursor({ updatedAt: last.updatedAt, handle: last.id }) } : {}),
+		...(hasMore && last ? { nextCursor: paging.cursor(last.createdAt, last.id) } : {}),
 		presentationPage: {
 			maximumEntities: 100,
 			truncated: members.length > 100,
@@ -2663,14 +2655,14 @@ export async function listOwnedWorldsPage(
 	userId: string,
 	page: BotSummaryPageInput = {},
 ): Promise<WorldSummaryPage> {
-	const paging = botSummaryPaging(page);
+	const paging = collectionPaging(page, { kind: "owned_worlds", scope: userId });
 	const result = await db.prepare(
 		`SELECT ${worldSummarySelectColumns()}
 		 FROM worlds_index
 		 WHERE created_by_user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
-			AND (updated_at < ? OR (updated_at = ? AND handle > ?))
-		 ORDER BY updated_at DESC, handle ASC LIMIT ?`,
-	).bind(userId, paging.updatedAt, paging.updatedAt, paging.handle, paging.queryLimit).all<WorldSummaryIndexRow>();
+			AND (created_at < ? OR (created_at = ? AND world_id > ?))
+		 ORDER BY created_at DESC, world_id ASC LIMIT ?`,
+	).bind(userId, paging.createdAt, paging.createdAt, paging.id, paging.queryLimit).all<WorldSummaryIndexRow>();
 	const rows = result.results ?? [];
 	const selected = rows.slice(0, paging.limit);
 	const last = selected.at(-1);
@@ -2678,7 +2670,7 @@ export async function listOwnedWorldsPage(
 	return {
 		worlds: selected.map(worldSummaryFromIndexRow),
 		hasMore,
-		...(hasMore && last ? { nextCursor: encodeBotSummaryCursor({ updatedAt: last.updatedAt, handle: last.handle }) } : {}),
+		...(hasMore && last ? { nextCursor: paging.cursor(last.createdAt, last.id) } : {}),
 	};
 }
 

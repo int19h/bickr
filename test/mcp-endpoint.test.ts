@@ -1369,7 +1369,7 @@ describe("MCP endpoint", () => {
 		expect((await storedBot(visiting.id)).tickSettings.enabled).toBe(true);
 	});
 
-	it("preserves legacy world/user bot ordering while MCP pages use recency keysets", async () => {
+	it("preserves legacy world/user bot ordering while MCP pages use immutable identity keysets", async () => {
 		await resetD1Schema(testEnv.BICKR_D1);
 		await clearKv(testEnv.BICKR_KV);
 		await testEnv.BICKR_D1.batch([
@@ -1404,12 +1404,12 @@ describe("MCP endpoint", () => {
 		const legacy = await listWorldBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "mcp-world");
 		const page = await listWorldBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "mcp-world", { limit: 1 });
 		expect(legacy.map((bot) => bot.handle)).toEqual(["alpha", "zeta"]);
-		expect(page.bots.map((bot) => bot.handle)).toEqual(["zeta"]);
+		expect(page.bots.map((bot) => bot.handle)).toEqual(["alpha"]);
 		expect(page.hasMore).toBe(true);
 		const legacyOwned = await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "usr_mcp");
 		const ownedPage = await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "usr_mcp", { limit: 1 });
 		expect(legacyOwned.map((bot) => bot.handle)).toEqual(["zeta", "alpha"]);
-		expect(ownedPage.bots.map((bot) => bot.handle)).toEqual(["zeta"]);
+		expect(ownedPage.bots.map((bot) => bot.handle)).toEqual(["alpha"]);
 		expect(ownedPage.hasMore).toBe(true);
 	});
 
@@ -1459,7 +1459,7 @@ describe("MCP endpoint", () => {
 			).bind(bot.id, bot.handle, bot.displayName.text, bot.createdAt, bot.updatedAt),
 		]));
 
-		const expected = [...handles].sort();
+		const expected = [...handles];
 		const actual: string[] = [];
 		const ownerHandles: string[] = [];
 		let cursor: string | undefined;
@@ -1522,19 +1522,92 @@ describe("MCP endpoint", () => {
 		expect(mcpWorlds.map((world) => world.handle)).toEqual(["世界-🪐", "ascii-world"]);
 		expect(JSON.stringify(mcpWorlds)).toContain("World name 世界🪐");
 
-		const asciiLegacy = btoa(JSON.stringify({ updatedAt, handle: "ascii" }));
-		expect((await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "usr_mcp", {
-			limit: 100, cursor: asciiLegacy,
-		})).bots.map((bot) => bot.handle)).toEqual(expected.slice(1));
-		const latin1Legacy = btoa(JSON.stringify({ updatedAt, handle: "café" }));
-		expect((await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "usr_mcp", {
-			limit: 100, cursor: latin1Legacy,
-		})).bots.map((bot) => bot.handle)).toEqual(expected.slice(expected.indexOf("café") + 1));
+		for (const handle of ["ascii", "café", "漢字🪐"]) {
+			const legacy = encodeOpaqueJsonCursor({ updatedAt, handle });
+			await expect(listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "usr_mcp", { cursor: legacy }))
+				.rejects.toMatchObject({ code: "bad_request", status: 400 });
+		}
 
 		for (const malformed of ["v1.", "v1.not-base64!", `v1.${btoa(String.fromCharCode(0xc3))}`]) {
 			await expect(listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "usr_mcp", { cursor: malformed }))
 				.rejects.toMatchObject({ code: "bad_request", status: 400 });
 		}
+	});
+
+	it("enumerates more than 100 owned and world participants once while profiles change", async () => {
+		await resetD1Schema(testEnv.BICKR_D1);
+		await clearKv(testEnv.BICKR_KV);
+		await testEnv.BICKR_D1.batch([
+			activeIdentityClaim("world_handle", "global", "mcp-world", "world", "w_mcp", "usr_mcp"),
+			testEnv.BICKR_D1.prepare(`INSERT INTO worlds_index (world_id, handle, name, description,
+				created_by_user_id, visibility, created_at, updated_at, lifecycle_state)
+				VALUES ('w_mcp', 'mcp-world', 'World', '', 'usr_mcp', 'public', ?, ?, 'active')`)
+				.bind("2026-08-11T00:00:00.000Z", "2026-08-11T00:00:00.000Z"),
+		]);
+		const bots = Array.from({ length: 121 }, (_, i) => testBot({ id: `bot_page_${String(i).padStart(3, "0")}`, handle: `page-${i}` }));
+		await Promise.all(bots.map((bot) => writeJson(testEnv.BICKR_KV, kvKeys.bot(bot.id), bot)));
+		await testEnv.BICKR_D1.batch(bots.flatMap((bot) => [
+			activeIdentityClaim("bot_handle", "w_mcp", bot.handle, "bot", bot.id, "usr_mcp"),
+			testEnv.BICKR_D1.prepare(`INSERT INTO bots_index (bot_id, home_world_id, home_world_handle,
+				handle, display_name, owner_user_id, short_bio, created_at, updated_at, lifecycle_state)
+				VALUES (?, 'w_mcp', 'mcp-world', ?, 'Fixture', 'usr_mcp', '', ?, ?, 'active')`)
+				.bind(bot.id, bot.handle, bot.createdAt, bot.updatedAt),
+		]));
+		// Handles are only unique within a world. An owner page needs a global ID key.
+		const duplicate = { ...bots[0]!, id: "bot_page_duplicate", homeWorldId: "w_second", homeWorldHandle: "second" };
+		await writeJson(testEnv.BICKR_KV, kvKeys.bot(duplicate.id), duplicate);
+		await testEnv.BICKR_D1.batch([
+			testEnv.BICKR_D1.prepare(`INSERT INTO worlds_index (world_id, handle, name, description, created_by_user_id, visibility, created_at, updated_at, lifecycle_state)
+				VALUES ('w_second', 'second', 'Second', '', 'usr_mcp', 'public', ?, ?, 'active')`).bind(duplicate.createdAt, duplicate.updatedAt),
+			testEnv.BICKR_D1.prepare(`INSERT INTO bots_index (bot_id, home_world_id, home_world_handle, handle, display_name, owner_user_id, short_bio, created_at, updated_at, lifecycle_state)
+				VALUES (?, 'w_second', 'second', ?, 'Duplicate', 'usr_mcp', '', ?, ?, 'active')`).bind(duplicate.id, duplicate.handle, duplicate.createdAt, duplicate.updatedAt),
+		]);
+
+		const token = await issueAccessToken(testEnv.BICKR_KV, ["bickr.read"]);
+		const call = async (name: string, args: Record<string, unknown>) => {
+			const response = await callMcp(testEnv.BICKR_KV, token, { jsonrpc: "2.0", id: 1, method: "tools/call",
+				params: { name, arguments: args } }, { BICKR_D1: testEnv.BICKR_D1,
+				AGENT_RUNTIME: canonicalAnnotationService([]), INTERNAL_SERVICE_SECRET: "test-internal-service-secret" });
+			return (await jsonResponse(response)).result as { isError?: boolean; structuredContent: { bots: Array<{id: string}>; hasMore: boolean; nextCursor?: string } };
+		};
+		for (const name of ["list_my_bots", "list_world_bots"]) {
+			const args = name === "list_world_bots" ? { worldHandle: "mcp-world" } : {};
+			const first = await call(name, args);
+			expect(first.isError).not.toBe(true);
+			expect(first.structuredContent.bots).toHaveLength(100);
+			await testEnv.BICKR_D1.prepare(`UPDATE bots_index SET updated_at = '2026-10-03T00:00:00.000Z', display_name = 'Edited' WHERE owner_user_id = 'usr_mcp'`).run();
+			const second = await call(name, { ...args, cursor: first.structuredContent.nextCursor });
+			expect(second.isError).not.toBe(true);
+			expect(second.structuredContent.bots).toHaveLength(name === "list_my_bots" ? 22 : 21);
+			expect(second.structuredContent.hasMore).toBe(false);
+			expect(new Set([...first.structuredContent.bots, ...second.structuredContent.bots].map((bot) => bot.id)).size).toBe(name === "list_my_bots" ? 122 : 121);
+		}
+		const first = await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "usr_mcp", { limit: 1 });
+		await expect(listWorldBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "mcp-world", { cursor: first.nextCursor }))
+			.rejects.toMatchObject({ code: "bad_request", status: 400 });
+		await expect(listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "usr_other", { cursor: first.nextCursor }))
+			.rejects.toMatchObject({ code: "bad_request", status: 400 });
+	});
+
+	it("exposes only the pagination arguments each runtime read implements", async () => {
+		const token = await issueAccessToken(testEnv.BICKR_KV, ["bickr.read"]);
+		const paths: string[] = [];
+		const invoke = async (name: string, args: Record<string, unknown>) => {
+			const response = await callMcp(testEnv.BICKR_KV, token, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }, {
+				AGENT_RUNTIME: { fetch: async (request: Request) => { const url = new URL(request.url); paths.push(url.pathname + url.search); return Response.json({ok: true, data: {}}); } },
+			});
+			return (await jsonResponse(response)).result as {isError?: boolean};
+		};
+		expect((await invoke("list_runtime_messages", {botId: "bot_1", page: 2})).isError).not.toBe(true);
+		expect((await invoke("list_runtime_events", {botId: "bot_1", after: 0})).isError).not.toBe(true);
+		expect(paths).toEqual(["/bots/bot_1/messages?page=2", "/bots/bot_1/events?after=0"]);
+		for (const [name, args] of [
+			["get_runtime_status", {botId: "bot_1", page: 2}],
+			["list_runtime_submissions", {botId: "bot_1", after: 1}],
+			["list_runtime_messages", {botId: "bot_1", after: 1}],
+			["list_runtime_events", {botId: "bot_1", page: 2}],
+		] as const) expect((await invoke(name, args)).isError).toBe(true);
+		expect(paths).toHaveLength(2);
 	});
 
 	it("executes mutation batches in order and correlates every result", async () => {

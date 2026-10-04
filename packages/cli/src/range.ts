@@ -7,7 +7,7 @@ export type InclusiveRange = {
 	limit: number;
 };
 
-export function parseRange(value: string | undefined, defaultRange = "1-40"): InclusiveRange {
+export function parseRange(value: string | undefined, defaultRange = "1-40", maximumSize = 500): InclusiveRange {
 	const raw = value?.trim() || defaultRange;
 	const match = /^(\d+)-(\d+)$/.exec(raw);
 	if (!match) {
@@ -17,6 +17,9 @@ export function parseRange(value: string | undefined, defaultRange = "1-40"): In
 	const end = Number(match[2]);
 	if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 1 || end < start) {
 		throw new CliUsageError("Range must start at 1 and end at or after the start.");
+	}
+	if (end - start + 1 > maximumSize) {
+		throw new CliUsageError(`Range can contain at most ${maximumSize} items. Request smaller ranges.`);
 	}
 	return {
 		start,

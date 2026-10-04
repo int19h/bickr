@@ -1,3 +1,5 @@
+import type { ForumThreadPagination } from "@bickr/shared/social";
+import { PageSelector } from "../../components/page-selector";
 import { useRequestIdentity } from "../../use-request-identity";
 import { InferenceBadge } from "../../components/inference-attribution";
 import { markdownPreview } from "@bickr/shared/markdown";
@@ -70,6 +72,7 @@ function ForumPageContent({
 	onRefresh,
 	onToggleSubscription,
 	onUpdateForum,
+	pagination,
 	ownedBots,
 	subscribed,
 	threads,
@@ -82,7 +85,8 @@ function ForumPageContent({
 	onDeleteForum: (forum: ForumSummary) => Promise<boolean>;
 	onDeleteThread: (thread: ThreadSummary) => Promise<boolean>;
 	onReference: OpenReference;
-	onRefresh: (sort: string) => Promise<ThreadSummary[]>;
+	onRefresh: (sort: string, page?: number) => Promise<ThreadSummary[]>;
+	pagination?: ForumThreadPagination & { sort: string };
 	onToggleSubscription: (target: SubscriptionTarget, active: boolean) => Promise<void>;
 	onUpdateForum: (forum: ForumSummary, input: UpdateForumInput) => Promise<boolean>;
 	ownedBots: BotSummary[];
@@ -93,7 +97,8 @@ function ForumPageContent({
 	const searches = useRequestIdentity();
 	const activityRequests = useRequestIdentity();
 	const [search, setSearch] = useState("");
-	const [sort, setSort] = useState("hot");
+	const sort = pagination?.sort ?? "hot";
+	const page = pagination?.currentPage ?? 1;
 	const [selected, setSelected] = useState<Record<string, boolean>>({});
 	const [searchResults, setSearchResults] = useState<SearchThreadResult[]>([]);
 	const [searchLoading, setSearchLoading] = useState(false);
@@ -162,9 +167,14 @@ function ForumPageContent({
 		return () => { window.clearInterval(handle); activityRequests.invalidate(); };
 	}, [forum.handle, forum.worldHandle, loadedAt, activityRequests]);
 
+	useEffect(() => { setSelected({}); }, [sort, page]);
+	useEffect(() => {
+		const visible = new Set(threads.map((thread) => thread.id));
+		setSelected((current) => Object.fromEntries(Object.entries(current).filter(([id]) => visible.has(id))));
+	}, [threads]);
+
 	function changeSort(nextSort: string): void {
-		setSort(nextSort);
-		void onRefresh(nextSort);
+		void onRefresh(nextSort, 1);
 	}
 
 	return (
@@ -188,10 +198,10 @@ function ForumPageContent({
 					</p>
 					<div className="stats">
 						<span>
-							<b>{threads.length}</b> threads
+							<b>{pagination?.total ?? threads.length}</b> threads
 						</span>
 						<span>
-							<b>{threads.reduce((total, thread) => total + thread.commentCount, 0)}</b> comments
+							<b>{threads.reduce((total, thread) => total + thread.commentCount, 0)}</b> comments on this page
 						</span>
 						{newCount > 0 && (
 							<span className="accent-stat">
@@ -226,10 +236,10 @@ function ForumPageContent({
 						</>
 					)}
 					<div className="seg" role="tablist">
-						<button aria-pressed={sort === "hot"} onClick={() => changeSort("hot")} type="button">
+						<button disabled={loading} aria-pressed={sort === "hot"} onClick={() => changeSort("hot")} type="button">
 							Hot
 						</button>
-						<button aria-pressed={sort === "recent"} onClick={() => changeSort("recent")} type="button">
+						<button disabled={loading} aria-pressed={sort === "recent"} onClick={() => changeSort("recent")} type="button">
 							New
 						</button>
 					</div>
@@ -323,7 +333,8 @@ function ForumPageContent({
 				</div>
 			)}
 
-			<div className="thread-list">
+			<PageSelector label="Forum thread pages" currentPage={page} pageCount={pagination?.pageCount ?? 1} disabled={loading} onSelect={(next) => void onRefresh(sort, next)} />
+			<div className="thread-list" aria-busy={loading}>
 				{threads.length === 0 && !loading && <div className="empty compact-empty">No threads yet.</div>}
 				{threads.map((thread) => (
 					<ForumThreadRow
@@ -340,6 +351,8 @@ function ForumPageContent({
 					/>
 				))}
 			</div>
+
+			<PageSelector label="Forum thread pages" currentPage={page} pageCount={pagination?.pageCount ?? 1} disabled={loading} onSelect={(next) => void onRefresh(sort, next)} />
 
 			{canUseAccountActions && selectedIds.length > 0 && (
 				<SpotlightPanel

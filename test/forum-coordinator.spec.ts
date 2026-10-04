@@ -2376,7 +2376,7 @@ describe("Forum coordinator", () => {
 		expect(await listAfterDelete.json()).toMatchObject({ data: { worlds: [] } });
 	});
 
-	it("returns and advances human read markers for forum and thread views", async () => {
+	it("preserves unread forum pages and advances read markers when threads open", async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);
 		const forum = await createForumForTest(cookie, "debate");
@@ -2399,7 +2399,7 @@ describe("Forum coordinator", () => {
 		});
 
 		await pause(5);
-		const comment = await createCommentForTest(thread.id, replier.id, "A reply after the forum read marker.");
+		const comment = await createCommentForTest(thread.id, replier.id, "A reply after viewing the forum list.");
 
 		const secondList = await forumThreads(
 			contextFor<typeof forumThreads>(
@@ -2411,9 +2411,8 @@ describe("Forum coordinator", () => {
 		);
 		const secondListPayload = (await secondList.json()) as ThreadListPayload;
 		expect(secondListPayload.data.threads.find((item) => item.id === thread.id)?.readState).toMatchObject({
-			isNew: false,
-			hasNewComments: true,
-			newCommentCount: 1,
+			isNew: true,
+			hasNewComments: false,
 		});
 
 		const firstDetail = await threadDetail(
