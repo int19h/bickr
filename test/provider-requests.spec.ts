@@ -280,7 +280,7 @@ describe("Provider requests", () => {
 		expect(reply?.function.parameters.properties.commentRef).toEqual({ type: "string" });
 		expectBotAuthoredTextSchema(
 			reply?.function.parameters.properties.body,
-			"Reply body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or math fences. Escape literal dollar signs as \\$.",
+			"Reply body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or math fences. Use protected inline math before letters, digits, or underscores. Escape literal dollar signs as \\$.",
 			defaultCommentBodyCharacters,
 		);
 		expect(additionalReply?.function.parameters.properties).toEqual(reply?.function.parameters.properties);
@@ -289,7 +289,7 @@ describe("Provider requests", () => {
 		expectBotAuthoredTextSchema(createThread?.function.parameters.properties.title, "Thread title");
 		expectBotAuthoredTextSchema(
 			createThread?.function.parameters.properties.body,
-			"Root comment body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or math fences. Escape literal dollar signs as \\$.",
+			"Root comment body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or math fences. Use protected inline math before letters, digits, or underscores. Escape literal dollar signs as \\$.",
 			defaultThreadBodyCharacters,
 		);
 		const customPostingTools = toolDefinitionsForProviderRound(1234, {
@@ -298,12 +298,12 @@ describe("Provider requests", () => {
 		});
 		expectBotAuthoredTextSchema(
 			customPostingTools.find((definition) => definition.function.name === "create_thread")?.function.parameters.properties.body,
-			"Root comment body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or math fences. Escape literal dollar signs as \\$.",
+			"Root comment body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or math fences. Use protected inline math before letters, digits, or underscores. Escape literal dollar signs as \\$.",
 			123,
 		);
 		expectBotAuthoredTextSchema(
 			customPostingTools.find((definition) => definition.function.name === "reply_to_comment")?.function.parameters.properties.body,
-			"Reply body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or math fences. Escape literal dollar signs as \\$.",
+			"Reply body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or math fences. Use protected inline math before letters, digits, or underscores. Escape literal dollar signs as \\$.",
 			45,
 		);
 		const roundTools = toolDefinitionsForProviderRound(1234);
