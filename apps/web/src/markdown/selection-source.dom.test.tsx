@@ -62,6 +62,16 @@ it('preserves math delimiters and excludes zero-width boundary contacts', async 
 	expect(selected(range)).toBe('$x^2$');
 	expect(selected(textRange('first '))).toBe('first');
 });
+it('renders paired currency as selectable text while retaining real math beside it', async () => {
+	const currency = '($185,000 deferred against $22,000 proceeding)';
+	await render(`${currency}\n\nReal $x^2$`);
+	expect(container.querySelectorAll('.math-expression')).toHaveLength(1);
+	expect(container.querySelector('p')!.textContent).toBe(currency);
+	expect(selected(textRange(currency))).toBe(currency);
+	const range = document.createRange();
+	range.selectNodeContents(container.querySelector('.math-expression')!);
+	expect(selected(range)).toBe('$x^2$');
+});
 it('quotes normalized references as their original atomic tokens', async () => {
 	await render('ask u/Alice now');
 	expect(selected(textRange('U/ALICE', 2, 4))).toBe('u/Alice');

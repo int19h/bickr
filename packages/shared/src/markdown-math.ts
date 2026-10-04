@@ -2,7 +2,7 @@ import type { Plugin } from "unified";
 import type { Root } from "mdast";
 import { math } from "micromark-extension-math";
 import { mathFromMarkdown } from "mdast-util-math";
-import { markdownLineEnding } from "micromark-util-character";
+import { asciiAlphanumeric, markdownLineEnding } from "micromark-util-character";
 import type { Construct, State, Tokenizer, TokenizeContext } from "micromark-util-types";
 
 // GitHub protects inline TeX with $`...`$. Keep inner dollar signs and Markdown
@@ -33,7 +33,9 @@ const githubInline: Construct = {
 		}
 		function data(code: number | null): State | undefined {
 			if (code === null) { if (protectedForm) noProtectedClose.add(context); return nok(code); }
-			if (hasData && !escaped && code === (protectedForm ? 96 : 36)) return effects.check({ tokenize: close }, finish, consume)(code);
+			// A bad ordinary closer rejects this candidate, rather than swallowing
+			// currency or a later formula into TeX. Protected TeX permits inner `$`.
+			if (hasData && !escaped && code === (protectedForm ? 96 : 36)) return effects.check({ tokenize: close }, finish, protectedForm ? consume : nok)(code);
 			return consume(code);
 		}
 		function consume(code: number | null): State | undefined {
@@ -49,7 +51,11 @@ const githubInline: Construct = {
 		function close(checkEffects: Parameters<Tokenizer>[0], checkOk: State, checkNok: State): State {
 			return (code) => {
 				checkEffects.enter("mathTextSequence"); checkEffects.consume(code); checkEffects.exit("mathTextSequence");
-				return protectedForm ? (next) => next === 36 ? checkOk(next) : checkNok(next) : checkOk;
+				return protectedForm ?
+					(next) => next === 36 ? checkOk(next) : checkNok(next) :
+					// GitHub leaves `$5 and $10` literal: the second dollar starts
+					// a word/number, so it cannot close an ordinary math span.
+					(next) => asciiAlphanumeric(next) || next === 95 ? checkNok(next) : checkOk(next);
 			};
 		}
 	},
