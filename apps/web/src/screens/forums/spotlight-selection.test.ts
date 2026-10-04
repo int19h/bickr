@@ -476,3 +476,26 @@ describe("quoteSpotlightFocusText", () => {
 		expect(quoteSpotlightFocusText(" \r\n first line\r\nsecond line \r\n ")).toBe("> first line\n> second line");
 	});
 });
+
+
+describe("Spotlight activation reservation", () => {
+	it("keeps the original capture when activation starts again after focus collapse", () => {
+		const selection = liveSelection(selected({ commentId: "cmt_reply", text: "selected formula $x$" }));
+		const controller = createSpotlightSelectionController(selection.read);
+		controller.beginActivation();
+		selection.set(collapsed);
+		controller.observeSelectionChange();
+		controller.beginActivation();
+		expect(controller.consumeFocusText(threadCommentIds)).toBe("> selected formula $x$");
+		expect(controller.consumeFocusText(threadCommentIds)).toBe("");
+	});
+
+	it("does not revive a stale capture when activation begins after an unreported clear", () => {
+		const selection = liveSelection(selected({ commentId: "cmt_reply", text: "old selection" }));
+		const controller = createSpotlightSelectionController(selection.read);
+		controller.observeSelectionChange();
+		selection.set(collapsed);
+		controller.beginActivation();
+		expect(controller.consumeFocusText(threadCommentIds)).toBe("");
+	});
+});

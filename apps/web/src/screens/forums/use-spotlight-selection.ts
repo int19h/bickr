@@ -28,7 +28,7 @@ export function useSpotlightSelectionCapture(): SpotlightSelectionController {
 		let expiry: ReturnType<typeof setTimeout> | undefined;
 		const isToggle = (target: EventTarget | null) =>
 			target instanceof Element &&
-			Boolean(target.closest('[data-spotlight-toggle]') || target.closest('label')?.querySelector('[data-spotlight-toggle]'));
+			Boolean(target.closest('[data-spotlight-toggle]') || target.closest('label')?.control?.matches('[data-spotlight-toggle]'));
 		const cancel = () => {
 			clearTimeout(expiry);
 			controller.cancelActivation();
@@ -50,7 +50,13 @@ export function useSpotlightSelectionCapture(): SpotlightSelectionController {
 			else cancel();
 		};
 		const onClick = (event: MouseEvent) => {
-			const activation = classifyActivation(event.target instanceof Element ? event.target : null);
+			const toggle = isToggle(event.target);
+			// Assistive and programmatic clicks need no preceding pointer/key
+			// event. Reserve before React renders the panel or moves focus.
+			// Label clicks also complete an activation, even if their default
+			// forwarding to the checkbox is prevented by another listener.
+			if (toggle) begin();
+			const activation = toggle ? { kind: 'spotlight' as const } : classifyActivation(event.target instanceof Element ? event.target : null);
 			if (activation) {
 				controller.observeActivation(activation);
 				// Firefox can run microtasks between native event listeners. Wait
@@ -72,7 +78,7 @@ export function useSpotlightSelectionCapture(): SpotlightSelectionController {
 		// activations that must retire the capture, so a bubble-phase listener
 		// misses the ones that matter most.
 		//
-		// Only a pointer/key activation that already targets Spotlight can
+		// Only an activation that already targets Spotlight can
 		// preserve capture across focus collapse. Cancellation expires it.
 
 		document.addEventListener('click', onClick, true);

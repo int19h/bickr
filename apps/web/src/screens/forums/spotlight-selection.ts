@@ -279,7 +279,14 @@ export function createSpotlightSelectionController(
 	let state = emptySpotlightSelection;
 	let activationPending = false;
 	return {
-		beginActivation: () => { state = observeSelection(state, readSelection()); activationPending = true; },
+		beginActivation: () => {
+			// Pointer, repeated keys, and label forwarding can start the same
+			// activation again after focus already collapsed the live selection.
+			// Only the first start takes a snapshot. Cancellation ends its lifetime.
+			if (activationPending) return;
+			state = observeSelection(state, readSelection());
+			activationPending = true;
+		},
 		cancelActivation: () => { activationPending = false; state = observeSelection(state, readSelection()); },
 		observeSelectionChange: () => {
 			state = observeSelection(state, readSelection(), activationPending);
