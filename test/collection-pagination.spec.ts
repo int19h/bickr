@@ -34,6 +34,6 @@ describe("collection pages", () => {
 			await testEnv.BICKR_D1.prepare("UPDATE bot_groups SET updated_at = '2026-10-03T00:00:00.000Z'").run();
 			if (!cursor) break;
 		}
-		expect(groups).toEqual(["group_0", "group_1", "group_2"]);
+		expect(groups).toEqual(["group_2", "group_1", "group_0"]);
 	});
 });

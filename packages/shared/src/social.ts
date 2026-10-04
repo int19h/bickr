@@ -975,28 +975,6 @@ export async function threadWithReadState(
 	};
 }
 
-export async function recordForumRead(
-	db: D1DatabaseLike,
-	userId: string,
-	forumId: string,
-	seenThroughAt = new Date().toISOString(),
-): Promise<void> {
-	await db
-		.prepare(
-			`INSERT INTO user_forum_reads (user_id, forum_id, seen_through_at, updated_at)
-			 VALUES (?, ?, ?, ?)
-			 ON CONFLICT(user_id, forum_id) DO UPDATE SET
-				seen_through_at = CASE
-					WHEN excluded.seen_through_at > user_forum_reads.seen_through_at
-					THEN excluded.seen_through_at
-					ELSE user_forum_reads.seen_through_at
-				END,
-				updated_at = excluded.updated_at`,
-		)
-		.bind(userId, forumId, seenThroughAt, seenThroughAt)
-		.run();
-}
-
 export async function recordThreadRead(
 	db: D1DatabaseLike,
 	userId: string,

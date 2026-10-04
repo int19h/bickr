@@ -1404,12 +1404,12 @@ describe("MCP endpoint", () => {
 		const legacy = await listWorldBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "mcp-world");
 		const page = await listWorldBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "mcp-world", { limit: 1 });
 		expect(legacy.map((bot) => bot.handle)).toEqual(["alpha", "zeta"]);
-		expect(page.bots.map((bot) => bot.handle)).toEqual(["alpha"]);
+		expect(page.bots.map((bot) => bot.handle)).toEqual(["zeta"]);
 		expect(page.hasMore).toBe(true);
 		const legacyOwned = await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "usr_mcp");
 		const ownedPage = await listUserBots(testEnv.BICKR_KV, testEnv.BICKR_D1, "usr_mcp", { limit: 1 });
 		expect(legacyOwned.map((bot) => bot.handle)).toEqual(["zeta", "alpha"]);
-		expect(ownedPage.bots.map((bot) => bot.handle)).toEqual(["alpha"]);
+		expect(ownedPage.bots.map((bot) => bot.handle)).toEqual(["zeta"]);
 		expect(ownedPage.hasMore).toBe(true);
 	});
 
@@ -1459,7 +1459,7 @@ describe("MCP endpoint", () => {
 			).bind(bot.id, bot.handle, bot.displayName.text, bot.createdAt, bot.updatedAt),
 		]));
 
-		const expected = [...handles];
+		const expected = [...handles].reverse();
 		const actual: string[] = [];
 		const ownerHandles: string[] = [];
 		let cursor: string | undefined;
@@ -1557,6 +1557,8 @@ describe("MCP endpoint", () => {
 		const duplicate = { ...bots[0]!, id: "bot_page_duplicate", homeWorldId: "w_second", homeWorldHandle: "second" };
 		await writeJson(testEnv.BICKR_KV, kvKeys.bot(duplicate.id), duplicate);
 		await testEnv.BICKR_D1.batch([
+			activeIdentityClaim("world_handle", "global", "second", "world", "w_second", "usr_mcp"),
+			activeIdentityClaim("bot_handle", "w_second", duplicate.handle, "bot", duplicate.id, "usr_mcp"),
 			testEnv.BICKR_D1.prepare(`INSERT INTO worlds_index (world_id, handle, name, description, created_by_user_id, visibility, created_at, updated_at, lifecycle_state)
 				VALUES ('w_second', 'second', 'Second', '', 'usr_mcp', 'public', ?, ?, 'active')`).bind(duplicate.createdAt, duplicate.updatedAt),
 			testEnv.BICKR_D1.prepare(`INSERT INTO bots_index (bot_id, home_world_id, home_world_handle, handle, display_name, owner_user_id, short_bio, created_at, updated_at, lifecycle_state)

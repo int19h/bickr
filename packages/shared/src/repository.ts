@@ -992,8 +992,8 @@ export async function listWorldsPage(
 		`WITH selected AS (
 			SELECT world_id, created_at, updated_at, handle FROM worlds_index
 			WHERE deleted_at IS NULL AND lifecycle_state = 'active'
-				AND (created_at < ? OR (created_at = ? AND world_id > ?))
-			ORDER BY created_at DESC, world_id ASC LIMIT ?
+				AND (created_at, world_id) < (?, ?)
+			ORDER BY created_at DESC, world_id DESC LIMIT ?
 		), forum_counts AS (
 			SELECT forums.world_id, COUNT(*) AS forumCount FROM forums_index AS forums
 			JOIN selected ON selected.world_id = forums.world_id
@@ -1010,8 +1010,8 @@ export async function listWorldsPage(
 		 FROM selected JOIN worlds_index AS w ON w.world_id = selected.world_id
 		 LEFT JOIN forum_counts ON forum_counts.world_id = w.world_id
 		 LEFT JOIN bot_counts ON bot_counts.world_id = w.world_id
-		 ORDER BY selected.created_at DESC, selected.world_id ASC`,
-	).bind(paging.createdAt, paging.createdAt, paging.id, paging.queryLimit)
+		 ORDER BY selected.created_at DESC, selected.world_id DESC`,
+	).bind(paging.createdAt, paging.id, paging.queryLimit)
 		.all<WorldSummaryIndexRow & Pick<WorldListSummary, "forumCount" | "botCount">>();
 	const rows = result.results ?? [];
 	const selected = rows.slice(0, paging.limit);
@@ -1197,9 +1197,9 @@ export async function listUserBots(
 ): Promise<BotSummary[] | BotSummaryPage> {
 	const paging = collectionPaging(page, { kind: "owned_bots", scope: userId });
 	const selectedPageSql = page
-		? `AND (created_at < ? OR (created_at = ? AND bot_id > ?)) ORDER BY created_at DESC, bot_id ASC LIMIT ?`
+		? `AND (created_at, bot_id) < (?, ?) ORDER BY created_at DESC, bot_id DESC LIMIT ?`
 		: "";
-	const resultOrderSql = page ? "selected.created_at DESC, selected.id ASC" : "selected.updated_at DESC, selected.handle ASC";
+	const resultOrderSql = page ? "selected.created_at DESC, selected.id DESC" : "selected.updated_at DESC, selected.handle ASC";
 	const result = await db
 		.prepare(
 			`WITH selected AS (
@@ -1241,7 +1241,7 @@ export async function listUserBots(
 			 ORDER BY ${resultOrderSql}`,
 		)
 		.bind(...(page
-			? [userId, paging.createdAt, paging.createdAt, paging.id, paging.queryLimit]
+			? [userId, paging.createdAt, paging.id, paging.queryLimit]
 			: [userId]))
 		.all<{ id: string; createdAt: string; updatedAt: string; handle: string; nextDueAt: string | null; lastActiveAt: string | null }>();
 	const allRows = result.results ?? [];
@@ -1294,7 +1294,7 @@ function collectionPaging(page: BotSummaryPageInput | undefined, scope: Collecti
 	}
 	return {
 		limit, queryLimit: limit + 1,
-		createdAt: after?.createdAt ?? "9999-12-31T23:59:59.999Z", id: after?.id ?? "",
+		createdAt: after?.createdAt ?? "9999-12-31T23:59:59.999Z", id: after?.id ?? "\uffff",
 		cursor: (createdAt: string, id: string) => encodeOpaqueJsonCursor({ ...scope, schemaVersion: 2, createdAt, id } satisfies CollectionCursor),
 	};
 }
@@ -2114,9 +2114,9 @@ export async function listWorldBots(
 	const world = await worldByHandle(db, worldHandle);
 	const paging = collectionPaging(page, { kind: "world_bots", scope: world.id });
 	const selectedPageSql = page
-		? `AND (created_at < ? OR (created_at = ? AND bot_id > ?)) ORDER BY created_at DESC, bot_id ASC LIMIT ?`
+		? `AND (created_at, bot_id) < (?, ?) ORDER BY created_at DESC, bot_id DESC LIMIT ?`
 		: `ORDER BY handle ASC`;
-	const resultOrderSql = page ? `selected.created_at DESC, selected.id ASC` : `selected.handle ASC`;
+	const resultOrderSql = page ? `selected.created_at DESC, selected.id DESC` : `selected.handle ASC`;
 	const result = await db
 		.prepare(
 			`WITH selected AS (
@@ -2158,7 +2158,7 @@ export async function listWorldBots(
 			 ORDER BY ${resultOrderSql}`,
 		)
 		.bind(...(page
-			? [world.id, paging.createdAt, paging.createdAt, paging.id, paging.queryLimit]
+			? [world.id, paging.createdAt, paging.id, paging.queryLimit]
 			: [world.id]))
 		.all<{ id: string; createdAt: string; updatedAt: string; handle: string; nextDueAt: string | null; lastActiveAt: string | null }>();
 	const allRows = result.results ?? [];
@@ -2233,9 +2233,9 @@ export async function listBotGroupsPage(
 			created_at AS createdAt, updated_at AS updatedAt
 		 FROM bot_groups
 		 WHERE world_id = ? AND owner_user_id = ? AND deleted_at IS NULL
-			AND (created_at < ? OR (created_at = ? AND group_id > ?))
-		 ORDER BY created_at DESC, group_id ASC LIMIT ?`,
-	).bind(world.id, userId, paging.createdAt, paging.createdAt, paging.id, paging.queryLimit).all<BotGroupRow>();
+			AND (created_at, group_id) < (?, ?)
+		 ORDER BY created_at DESC, group_id DESC LIMIT ?`,
+	).bind(world.id, userId, paging.createdAt, paging.id, paging.queryLimit).all<BotGroupRow>();
 	const allGroups = groupsResult.results ?? [];
 	const groups = allGroups.slice(0, paging.limit);
 	const hasMore = allGroups.length > paging.limit;
@@ -2660,9 +2660,9 @@ export async function listOwnedWorldsPage(
 		`SELECT ${worldSummarySelectColumns()}
 		 FROM worlds_index
 		 WHERE created_by_user_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'
-			AND (created_at < ? OR (created_at = ? AND world_id > ?))
-		 ORDER BY created_at DESC, world_id ASC LIMIT ?`,
-	).bind(userId, paging.createdAt, paging.createdAt, paging.id, paging.queryLimit).all<WorldSummaryIndexRow>();
+			AND (created_at, world_id) < (?, ?)
+		 ORDER BY created_at DESC, world_id DESC LIMIT ?`,
+	).bind(userId, paging.createdAt, paging.id, paging.queryLimit).all<WorldSummaryIndexRow>();
 	const rows = result.results ?? [];
 	const selected = rows.slice(0, paging.limit);
 	const last = selected.at(-1);
