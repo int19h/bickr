@@ -8263,3 +8263,19 @@ button.inference-model-name:hover { text-decoration: underline; }
 .math-display { display: block; max-width: 100%; overflow-x: auto; padding: .4em 0; }
 .math-fallback { white-space: pre-wrap; overflow-wrap: anywhere; }
 .math-output[hidden] { display: none; }
+
+.forum-page-pager {
+	margin-block: 12px;
+}
+
+.forum-page-pager button {
+	background: none;
+	border: 0;
+	cursor: pointer;
+	font: inherit;
+}
+
+.forum-page-pager button:disabled {
+	cursor: wait;
+	opacity: .6;
+}

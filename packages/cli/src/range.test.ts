@@ -17,3 +17,9 @@ describe("CLI ranges", () => {
 		expect(() => parseRange("10")).toThrow(CliUsageError);
 	});
 });
+
+it("rejects ranges that exceed the endpoint page limit", () => {
+	expect(() => parseRange("1-501")).toThrow("at most 500");
+	expect(() => parseRange("1-101", "1-30", 100)).toThrow("at most 100");
+	expect(parseRange("41-1040", "1-40", 1000)).toMatchObject({ offset: 40, limit: 1000 });
+});

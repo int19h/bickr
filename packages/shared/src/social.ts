@@ -370,7 +370,6 @@ type BotProfileListRow = {
 };
 type FollowerCountRow = { id: string; followers: number };
 type FollowUsernameRow = { handle: string };
-type NewCommentCountRow = { threadId: string; count: number };
 
 function localizedTextFromIndex(text: string, lang: string | null | undefined): LocalizedText {
 	return localizedTextFromStored({ lang: lang ?? null, text });
@@ -685,7 +684,7 @@ export async function listThreads(
 	now = new Date().toISOString(),
 ): Promise<ThreadSummary[]> {
 	const order =
-		sort === "hot" ? `${threadHotScoreSql} DESC, t.last_activity_at DESC` : "t.last_activity_at DESC, t.created_at DESC";
+		sort === "hot" ? `${threadHotScoreSql} DESC, t.last_activity_at DESC, t.thread_id ASC` : "t.last_activity_at DESC, t.created_at DESC, t.thread_id ASC";
 	const hotCutoff = sort === "hot" ? hotThreadCutoff(now) : null;
 	const result = await db
 		.prepare(
@@ -726,6 +725,24 @@ export async function listThreads(
 	return (result.results ?? []).map(threadSummaryFromRow);
 }
 
+export type ForumThreadPagination = {
+	currentPage: number;
+	pageCount: number;
+	pageSize: number;
+	total: number;
+	offset: number;
+	hasMore: boolean;
+};
+
+export async function countThreads(db: D1DatabaseLike, forumId: string, sort: "recent" | "hot", now: string): Promise<number> {
+	const row = await db.prepare(`SELECT COUNT(*) AS count FROM threads_index t
+		JOIN forums_index f ON f.forum_id = t.forum_id AND f.deleted_at IS NULL
+		JOIN worlds_index w ON w.world_id = t.world_id AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
+		WHERE t.forum_id = ? AND t.deleted_at IS NULL ${sort === "hot" ? "AND t.last_activity_at > ?" : ""}`)
+		.bind(...(sort === "hot" ? [forumId, hotThreadCutoff(now)] : [forumId])).first<{ count: number }>();
+	return row?.count ?? 0;
+}
+
 export async function listThreadsWithReadState(
 	db: D1DatabaseLike,
 	forumId: string,
@@ -733,43 +750,34 @@ export async function listThreadsWithReadState(
 	sort: "recent" | "hot" = "recent",
 	limit = 40,
 	offset = 0,
+	now = new Date().toISOString(),
 ): Promise<ThreadSummary[]> {
-	const threads = await listThreads(db, forumId, sort, limit, offset);
-	if (!userId) {
-		return threads;
-	}
-	const seenThroughAt = await forumSeenThroughAt(db, userId, forumId);
-	if (!seenThroughAt) {
-		return threads.map((thread) => ({
-			...thread,
-			readState: {
-				isNew: true,
-				hasNewComments: false,
-				newCommentCount: thread.commentCount,
-			},
-		}));
-	}
-	const readStates = threads.map((thread) => {
-		const isNew = Date.parse(thread.createdAt) > Date.parse(seenThroughAt);
-		return {
-			thread,
-			isNew,
-			hasNewComments: !isNew && Date.parse(thread.lastActivityAt) > Date.parse(seenThroughAt),
-		};
+	const threads = await listThreads(db, forumId, sort, limit, offset, now);
+	if (!userId || threads.length === 0) return threads;
+	// A listed page does not imply that the reader saw the rest of the forum.
+	// Resolve each displayed thread's own cutoff in one bounded query.
+	const result = await db.prepare(`WITH seen AS (
+		SELECT t.thread_id AS threadId,
+			MAX(COALESCE(fr.seen_through_at, ''), COALESCE(tr.seen_through_at, '')) AS seenThroughAt
+		FROM threads_index t
+		LEFT JOIN user_forum_reads fr ON fr.user_id = ? AND fr.forum_id = t.forum_id
+		LEFT JOIN user_thread_reads tr ON tr.user_id = ? AND tr.thread_id = t.thread_id
+		WHERE t.forum_id = ? AND t.thread_id IN (SELECT value FROM json_each(?))
+	)
+	SELECT seen.threadId, seen.seenThroughAt, COUNT(c.comment_id) AS count
+	FROM seen LEFT JOIN comments_index c ON c.thread_id = seen.threadId
+		AND c.deleted_at IS NULL AND c.created_at > seen.seenThroughAt
+	GROUP BY seen.threadId, seen.seenThroughAt`)
+		.bind(userId, userId, forumId, JSON.stringify(threads.map((thread) => thread.id)))
+		.all<{ threadId: string; seenThroughAt: string; count: number }>();
+	const seenById = new Map((result.results ?? []).map((row) => [row.threadId, row]));
+	return threads.map((thread) => {
+		const seen = seenById.get(thread.id);
+		const cutoff = seen?.seenThroughAt ?? "";
+		const isNew = !cutoff || thread.createdAt > cutoff;
+		const hasNewComments = !isNew && thread.lastActivityAt > cutoff;
+		return { ...thread, readState: { isNew, hasNewComments, newCommentCount: isNew ? thread.commentCount : hasNewComments ? seen?.count ?? 0 : 0 } };
 	});
-	const newCommentCounts = await countNewCommentsForThreads(
-		db,
-		readStates.filter((state) => state.hasNewComments).map((state) => state.thread.id),
-		seenThroughAt,
-	);
-	return readStates.map(({ thread, isNew, hasNewComments }) => ({
-		...thread,
-		readState: {
-			isNew,
-			hasNewComments,
-			newCommentCount: hasNewComments ? newCommentCounts.get(thread.id) ?? 0 : 0,
-		},
-	}));
 }
 
 export async function listHotThreads(
@@ -965,28 +973,6 @@ export async function threadWithReadState(
 			readState: { isNew: Date.parse(comment.createdAt) > Date.parse(seenThroughAt) },
 		})),
 	};
-}
-
-export async function recordForumRead(
-	db: D1DatabaseLike,
-	userId: string,
-	forumId: string,
-	seenThroughAt = new Date().toISOString(),
-): Promise<void> {
-	await db
-		.prepare(
-			`INSERT INTO user_forum_reads (user_id, forum_id, seen_through_at, updated_at)
-			 VALUES (?, ?, ?, ?)
-			 ON CONFLICT(user_id, forum_id) DO UPDATE SET
-				seen_through_at = CASE
-					WHEN excluded.seen_through_at > user_forum_reads.seen_through_at
-					THEN excluded.seen_through_at
-					ELSE user_forum_reads.seen_through_at
-				END,
-				updated_at = excluded.updated_at`,
-		)
-		.bind(userId, forumId, seenThroughAt, seenThroughAt)
-		.run();
 }
 
 export async function recordThreadRead(
@@ -7789,18 +7775,6 @@ async function safeD1Search<T>(query: () => Promise<D1Result<T>>): Promise<D1Res
 	}
 }
 
-async function forumSeenThroughAt(
-	db: D1DatabaseLike,
-	userId: string,
-	forumId: string,
-): Promise<string | null> {
-	const row = await db
-		.prepare(`SELECT seen_through_at AS seenThroughAt FROM user_forum_reads WHERE user_id = ? AND forum_id = ?`)
-		.bind(userId, forumId)
-		.first<{ seenThroughAt: string }>();
-	return row?.seenThroughAt ?? null;
-}
-
 async function threadSeenThroughAt(
 	db: D1DatabaseLike,
 	userId: string,
@@ -7829,36 +7803,6 @@ async function countNewComments(
 	return row?.count ?? 0;
 }
 
-async function countNewCommentsForThreads(
-	db: D1DatabaseLike,
-	threadIds: string[],
-	seenThroughAt: string,
-): Promise<Map<string, number>> {
-	const counts = new Map<string, number>();
-	const uniqueThreadIds = [...new Set(threadIds)];
-	if (uniqueThreadIds.length === 0) {
-		return counts;
-	}
-	const maxThreadIdsPerQuery = d1MaxBoundParameters - 1;
-	for (const batch of chunks(uniqueThreadIds, maxThreadIdsPerQuery)) {
-		const placeholders = batch.map(() => "?").join(", ");
-		const result = await db
-			.prepare(
-				`SELECT thread_id AS threadId, COUNT(*) AS count
-				 FROM comments_index
-				 WHERE thread_id IN (${placeholders})
-				   AND deleted_at IS NULL
-				   AND created_at > ?
-				 GROUP BY thread_id`,
-			)
-			.bind(...batch, seenThroughAt)
-			.all<NewCommentCountRow>();
-		for (const row of result.results ?? []) {
-			counts.set(row.threadId, row.count);
-		}
-	}
-	return counts;
-}
 
 type SpotlightContentDraft = {
 	content: SpotlightIncludedContent[];

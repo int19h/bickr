@@ -17,7 +17,7 @@ const defaultLoopPageWindowSize = 25;
 const defaultLoopPageJumpSize = 25;
 
 export function loopPagePagerItems(
-	page: BotLoopMessagePage | null,
+	page: Pick<BotLoopMessagePage, "currentPage" | "pageCount" | "pages"> | null,
 	options: { windowSize?: number; jumpSize?: number } = {},
 ): LoopPagePagerItem[] {
 	if (!page) {

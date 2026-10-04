@@ -1100,7 +1100,7 @@ describe("ensureBootstrapNotification", () => {
 });
 
 describe("thread list read state", () => {
-	it("uses grouped unread comment counts equivalent to the old per-thread computation", async () => {
+	it("uses one bounded query for unread counts and forum cutoffs", async () => {
 		const seenThroughAt = "2026-05-06T12:00:00.000Z";
 		const comments: ReadStateCommentFixture[] = [
 			{ threadId: "thr_active", createdAt: "2026-05-06T12:00:01.000Z" },
@@ -1141,7 +1141,7 @@ describe("thread list read state", () => {
 			hasNewComments: true,
 			newCommentCount: oldPerThreadCount("thr_missing_count"),
 		});
-		expect(stateById.get("thr_new")).toMatchObject({ isNew: true, hasNewComments: false, newCommentCount: 0 });
+		expect(stateById.get("thr_new")).toMatchObject({ isNew: true, hasNewComments: false, newCommentCount: 1 });
 		expect(db.groupedCountQueries).toHaveLength(1);
 		expect(db.singleCountQueries).toHaveLength(0);
 	});
@@ -2344,6 +2344,14 @@ class ReadStateFakeD1 implements D1DatabaseLike {
 	}
 
 	all<T>(query: string, bindings: unknown[]): D1Result<T> {
+		if (query.includes("WITH seen AS")) {
+			this.groupedCountQueries.push(bindings);
+			const threadIds = JSON.parse(String(bindings.at(-1))) as string[];
+			const rows = threadIds.map((threadId) => ({threadId, seenThroughAt: this.seenThroughAt ?? "",
+				count: this.commentCount(threadId, this.seenThroughAt ?? "")}));
+			return {success: true, results: rows as T[]};
+		}
+
 		if (query.includes("FROM threads_index")) {
 			const limit = Number(bindings.at(-2) ?? this.threads.length);
 			const offset = Number(bindings.at(-1) ?? 0);

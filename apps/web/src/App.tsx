@@ -1,3 +1,4 @@
+import type { ForumThreadPagination } from "@bickr/shared/social";
 import { DiscordInvite } from "./components/discord-invite";
 import {
 	localizedText,
@@ -221,6 +222,9 @@ function App() {
 	const [bots, setBots] = useState<BotSummary[]>([]);
 	const [botsByWorld, setBotsByWorld] = useState<Record<string, BotSummary[]>>({});
 	const [botGroupsByWorld, setBotGroupsByWorld] = useState<Record<string, BotGroupSummary[]>>({});
+	const threadPageRequests = useRef(new Map<string, number>());
+	const [threadPagesByForum, setThreadPagesByForum] = useState<Record<string, ForumThreadPagination & { sort: string }>>({});
+	const [threadLoadingByForum, setThreadLoadingByForum] = useState<Record<string, boolean>>({});
 	const [threadsByForum, setThreadsByForum] = useState<Record<string, ThreadSummary[]>>({});
 	const [threadDocuments, setThreadDocuments] = useState<Record<string, ThreadDocument>>({});
 	const [route, setRoute] = useState<Route>(initialRoute.route);
@@ -243,7 +247,7 @@ function App() {
 	const [createBotWorldHandle, setCreateBotWorldHandle] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [refreshing, setRefreshing] = useState(false);
-	const [threadsLoading, setThreadsLoading] = useState(false);
+
 	const [threadLoading, setThreadLoading] = useState(false);
 	const [themePreference, setThemePreference] = useState<ThemePreference>(() => readThemePreference());
 	const [fontScalePercent, setFontScalePercent] = useState<FontScalePercent>(() => readStoredFontScalePercent());
@@ -872,20 +876,25 @@ function App() {
 		return result.data.groups;
 	}
 
-	async function loadThreads(forum: ForumSummary, sort = "hot"): Promise<ThreadSummary[]> {
-		setThreadsLoading(true);
-		const result = await api<{ threads: ThreadSummary[]; loadedAt?: string }>(
-			`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}/threads?sort=${encodeURIComponent(sort)}`,
+	async function loadThreads(forum: ForumSummary, sort?: string, page?: number): Promise<ThreadSummary[]> {
+		const prior = threadPagesByForum[forum.id];
+		const selectedSort = sort ?? prior?.sort ?? "hot";
+		const selectedPage = page ?? prior?.currentPage ?? 1;
+		const generation = (threadPageRequests.current.get(forum.id) ?? 0) + 1;
+		threadPageRequests.current.set(forum.id, generation);
+		setThreadLoadingByForum((current) => ({ ...current, [forum.id]: true }));
+		const result = await api<{ threads: ThreadSummary[]; loadedAt: string; pagination: ForumThreadPagination }>(
+			`/api/worlds/${encodeURIComponent(forum.worldHandle)}/forums/${encodeURIComponent(forum.handle)}/threads?sort=${encodeURIComponent(selectedSort)}&page=${selectedPage}&limit=40`,
 		);
-		setThreadsLoading(false);
+		if (threadPageRequests.current.get(forum.id) !== generation) return [];
+		setThreadLoadingByForum((current) => ({ ...current, [forum.id]: false }));
 		if (!result.ok) {
 			reportError(result.message);
 			return [];
 		}
 		setThreadsByForum((current) => ({ ...current, [forum.id]: result.data.threads }));
-		if (result.data.loadedAt) {
-			setForumLoadedAtById((current) => ({ ...current, [forum.id]: result.data.loadedAt! }));
-		}
+		setThreadPagesByForum((current) => ({ ...current, [forum.id]: { ...result.data.pagination, sort: selectedSort } }));
+		setForumLoadedAtById((current) => ({ ...current, [forum.id]: result.data.loadedAt }));
 		return result.data.threads;
 	}
 
@@ -1638,6 +1647,7 @@ function App() {
 			if (activeThreadId === thread.id) {
 				navigate({ route: "forum", worldHandle: forum.worldHandle, forumHandle: forum.handle });
 			}
+			await loadThreads(forum);
 			return "Deleted thread.";
 		});
 	}
@@ -2198,11 +2208,12 @@ function App() {
 							forum={activeForum}
 							currentUserId={currentUser?.id ?? null}
 							loadedAt={forumLoadedAtById[activeForum.id]}
-							loading={threadsLoading}
+							loading={Boolean(threadLoadingByForum[activeForum.id])}
 							onDeleteForum={deleteForum}
 							onDeleteThread={(thread) => deleteThread(activeForum, thread)}
 							onReference={openReference}
-							onRefresh={(sort) => loadThreads(activeForum, sort)}
+							onRefresh={(sort, page) => loadThreads(activeForum, sort, page)}
+							pagination={threadPagesByForum[activeForum.id]}
 							onToggleSubscription={toggleSubscription}
 							onUpdateForum={updateForum}
 							ownedBots={currentUser ? bots : []}

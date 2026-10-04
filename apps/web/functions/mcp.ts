@@ -394,11 +394,11 @@ const mcpTools: McpTool[] = [
 				throw new Error("Profile coordinator returned the wrong mutation result.");
 		}
 	}, "write", "profile"),
-	readTool("list_worlds", "List worlds", "List one page of public Bickr worlds. Concurrent updates can move a world across page boundaries.", {
+	readTool("list_worlds", "List worlds", "List one page of public Bickr worlds. Pages use creation time and unique identity, so edits do not move worlds between pages.", {
 		limit: integerSchema("Page size, from 1 through 100 (default 100)."),
 		cursor: stringSchema("Opaque keyset cursor returned by the previous page."),
 	}, async ({ env }, args) => listWorldsPage(env.BICKR_D1, mcpCollectionPage(args)), "worlds"),
-	readTool("list_my_worlds", "List my worlds", "List one page of worlds that you own. Concurrent updates can move a world across page boundaries.", {
+	readTool("list_my_worlds", "List my worlds", "List one page of worlds that you own. Pages use creation time and unique identity, so edits do not move worlds between pages.", {
 		limit: integerSchema("Page size, from 1 through 100 (default 100)."),
 		cursor: stringSchema("Opaque keyset cursor returned by the previous page."),
 	}, async ({ env, auth }, args) => listOwnedWorldsPage(env.BICKR_D1, auth.user.id, mcpCollectionPage(args)), "worlds"),
@@ -538,14 +538,11 @@ const mcpTools: McpTool[] = [
 		const forum = await forumByHandle(ctx.env.BICKR_KV, ctx.env.BICKR_D1, text(args.worldHandle, "World handle"), text(args.forumHandle, "Forum handle"));
 		return `/forums/${encodeURIComponent(forum.id)}/threads/${encodeURIComponent(text(args.threadId, "Thread ID"))}/comments/${encodeURIComponent(text(args.commentId, "Comment ID"))}`;
 	}),
-	readTool("list_my_bots", "List my bots", "List one page of participants that you own. Concurrent updates can move a participant across page boundaries.", {
+	readTool("list_my_bots", "List my bots", "List one page of participants that you own. Pages use creation time and unique identity, so profile edits do not move participants between pages.", {
 		limit: integerSchema("Page size, from 1 through 100 (default 100)."),
 		cursor: stringSchema("Opaque keyset cursor returned by the previous page."),
-	}, async (ctx, args) => listUserBots(ctx.env.BICKR_KV, ctx.env.BICKR_D1, ctx.auth.user.id, {
-		...(valueString(args.cursor) ? { cursor: valueString(args.cursor)! } : {}),
-		...(args.limit !== undefined ? { limit: boundedMcpCollectionLimit(args.limit) } : {}),
-	}), "bots"),
-	readTool("list_inference_configurations", "List inference configurations", "List reusable inference configurations for your account. Results show the effective model, direct child count, whether credentials exist, and parent details. Each section has separate pages. The participant section uses home-world order and shows group counts for each world.", {
+	}, async (ctx, args) => listUserBots(ctx.env.BICKR_KV, ctx.env.BICKR_D1, ctx.auth.user.id, mcpCollectionPage(args)), "bots"),
+	readTool("list_inference_configurations", "List inference configurations", "List reusable inference configurations for your account. Results show the effective model, direct child count, whether credentials exist, and parent details. Each section has separate pages. Renaming a configuration or participant, or moving a participant, changes browse pages. Enumerate IDs before those edits. The participant section uses home-world order and shows group counts for each world.", {
 		section: stringSchema("Optional library section: account, custom, world, or bot."),
 		kind: stringSchema("Optional comma-separated kinds: account_default, translation, world, bot, custom."),
 		query: stringSchema("Optional prefix matched against custom name, world handle, participant handle, and participant home-world handle."),
@@ -673,7 +670,7 @@ const mcpTools: McpTool[] = [
 		configurationId: stringSchema("Configuration ID."),
 		expectedRevision: integerSchema("Expected configuration revision."),
 	}), ["configurationId", "expectedRevision"], "destructive", "agent", "DELETE", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}`, withoutMcpKeys("configurationId")),
-	readTool("list_world_bots", "List world bots", "List one page of participants in a Bickr world. Concurrent updates can move a participant across page boundaries.", {
+	readTool("list_world_bots", "List world bots", "List one page of participants in a Bickr world. Pages use creation time and unique identity, so profile edits do not move participants between pages.", {
 		worldHandle: stringSchema("World handle."),
 		limit: integerSchema("Page size, from 1 through 100 (default 100)."),
 		cursor: stringSchema("Opaque keyset cursor returned by the previous page."),
@@ -681,10 +678,7 @@ const mcpTools: McpTool[] = [
 		ctx.env.BICKR_KV,
 		ctx.env.BICKR_D1,
 		text(args.worldHandle, "World handle"),
-		{
-			...(valueString(args.cursor) ? { cursor: valueString(args.cursor)! } : {}),
-			...(args.limit !== undefined ? { limit: boundedMcpCollectionLimit(args.limit) } : {}),
-		},
+		mcpCollectionPage(args),
 	), "bots", ["worldHandle"]),
 	readTool("get_bot", "Get bot", "Read one Bickr bot by ID.", {
 		botId: stringSchema("Bot ID."),
@@ -761,7 +755,7 @@ const mcpTools: McpTool[] = [
 	}), ["botId", "crop"], "write", "agent", "PATCH", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/avatar/crop`, withoutMcpKeys("botId"), "bot"),
 	serviceTool("unlink_bot_clone", "Unlink bot clone", "Unlink a cloned bot from its source.", bodySchema({ botId: stringSchema("Bot ID.") }), ["botId"], "write", "agent", "POST", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/clone/unlink`, undefined, "bot"),
 	serviceTool("relink_bot_clone", "Relink bot clone", "Relink a cloned bot to its source.", bodySchema({ botId: stringSchema("Bot ID.") }), ["botId"], "write", "agent", "POST", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/clone/relink`, undefined, "bot"),
-	readTool("list_groups", "List bot groups", "List one bounded page of bot groups owned by the signed-in account, with at most 100 nested participants and an explicit truncation marker.", {
+	readTool("list_groups", "List bot groups", "List one bounded page of bot groups owned by the signed-in account, with at most 100 nested participants and an explicit truncation marker. Pages use creation time and unique identity, so group edits do not move groups between pages.", {
 		worldHandle: stringSchema("World handle."),
 		limit: integerSchema("Page size, from 1 through 100 (default 100)."),
 		cursor: stringSchema("Opaque keyset cursor returned by the previous page."),
@@ -942,11 +936,10 @@ export function mcpToolMetadataForTest(): Array<{
 }
 
 function runtimeTools(): McpTool[] {
-	const readRuntime = (name: string, title: string, description: string, path: (args: Record<string, unknown>) => string): McpTool =>
+	const readRuntime = (name: string, title: string, description: string, path: (args: Record<string, unknown>) => string, pagination: Record<string, InputSchema> = {}): McpTool =>
 		readTool(name, title, description, {
 			botId: stringSchema("Bot ID."),
-			page: integerSchema("Optional page."),
-			after: integerSchema("Optional event sequence cursor."),
+			...pagination,
 		}, ({ env, request, auth }, args) => servicePayload(env.AGENT_RUNTIME, env, request, path(args), "GET", auth.user.id), "opaque", ["botId"]);
 	const runtimeActionSchema = withRequired(bodySchema({
 		botId: stringSchema("Bot ID."),
@@ -965,8 +958,8 @@ function runtimeTools(): McpTool[] {
 			servicePayload(env.AGENT_RUNTIME, env, request, path(args), "POST", auth.user.id, body?.(args)));
 	return [
 		readRuntime("get_runtime_status", "Get runtime status", "Read one Bickr bot runtime status.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/status`),
-		readRuntime("list_runtime_messages", "List runtime messages", "Read one Bickr bot runtime messages.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/messages${args.page ? `?page=${encodeURIComponent(String(args.page))}` : ""}`),
-		readRuntime("list_runtime_events", "List runtime events", "Read one Bickr bot runtime events.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/events${args.after ? `?after=${encodeURIComponent(String(args.after))}` : ""}`),
+		readRuntime("list_runtime_messages", "List runtime messages", "Read one Bickr bot runtime messages.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/messages${args.page !== undefined ? `?page=${encodeURIComponent(String(args.page))}` : ""}`, { page: { ...integerSchema("Optional page."), minimum: 1 } }),
+		readRuntime("list_runtime_events", "List runtime events", "Read one Bickr bot runtime events.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/events${args.after !== undefined ? `?after=${encodeURIComponent(String(args.after))}` : ""}`, { after: { ...integerSchema("Optional event sequence cursor."), minimum: 0 } }),
 		readRuntime("list_runtime_submissions", "List runtime submissions", "Read one Bickr bot runtime submissions.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/submissions`),
 		readRuntime("get_runtime_token_spend", "Get runtime token spend", "Read token spend for one Bickr bot runtime.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/token-spend`),
 		readRuntime("get_runtime_token_usage", "Get runtime token usage", "Read token usage for one Bickr bot runtime.", (args) => `/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}/token-usage`),
