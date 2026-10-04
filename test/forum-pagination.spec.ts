@@ -18,7 +18,8 @@ async function fixture() {
 		jsonRequest(`http://example.com/api/worlds/patch-notes/forums/pages/threads?${query}`, "GET", undefined, cookie),
 		{ worldHandle: "patch-notes", forumHandle: "pages" },
 	));
-	return { cookie, forum, bot, threads, page };
+	const owner = (await testEnv.BICKR_D1.prepare("SELECT created_by_user_id AS id FROM worlds_index WHERE handle = 'patch-notes'").first<{id: string}>())!;
+	return { cookie, forum, bot, threads, page, userId: owner.id };
 }
 
 describe("forum thread pagination", () => {
@@ -35,8 +36,8 @@ describe("forum thread pagination", () => {
 		}
 		expect(ids).toEqual([...f.threads.map((thread) => thread.id)].sort());
 		expect(await testEnv.BICKR_D1.prepare("SELECT COUNT(*) AS count FROM user_forum_reads").first()).toMatchObject({ count: 0 });
-		await recordThreadRead(testEnv.BICKR_D1, f.forum.createdByUserId, ids[0]!);
-		const read = await listThreadsWithReadState(testEnv.BICKR_D1, f.forum.id, f.forum.createdByUserId, "recent", 5);
+		await recordThreadRead(testEnv.BICKR_D1, f.userId, ids[0]!);
+		const read = await listThreadsWithReadState(testEnv.BICKR_D1, f.forum.id, f.userId, "recent", 5);
 		expect(read.find((thread) => thread.id === ids[0])?.readState?.isNew).toBe(false);
 		expect(read.filter((thread) => thread.id !== ids[0]).every((thread) => thread.readState?.isNew)).toBe(true);
 		const last = await f.page("sort=hot&limit=2&page=999");
