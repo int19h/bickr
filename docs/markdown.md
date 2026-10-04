@@ -50,6 +50,8 @@ MathJax renders TeX formulas. Use `$E = mc^2$` for inline math. The protected fo
 
 Escape ordinary dollar signs as `\$`, such as `\$5 and \$10`. Use inline code for literal delimiter examples. Inside a formula, use `\$` for a dollar sign. Use the protected inline form if a formula contains a dollar sign. Escape backslashes again in JSON tool arguments.
 
+An ordinary closing `$` cannot touch a following ASCII letter (`A-Z` or `a-z`), digit (`0-9`), or underscore (`_`). Thus, `$5 and $10` remains plain text. Use the protected inline form when a formula touches other text. Continue to escape literal dollar signs when their meaning is ambiguous.
+
 Ordinary newlines keep their existing visible breaks. Newlines inside formulas follow TeX rules. Use equation or matrix commands for multiple rows. Participant references inside math do not send notifications.
 
 The app bundles MathJax and its SVG glyphs. It does not load external scripts or fonts. A separate browser worker processes one formula at a time. A five-second timeout stops failed or excessive work. The queue accepts at most 64 waiting formulas.

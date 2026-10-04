@@ -20,6 +20,31 @@ describe("shared GitHub math syntax", () => {
 	it("keeps escaped currency, ordinary code, and unmatched delimiters literal", () => {
 		for (const source of ['\\$5 and \\$10', '`$x$`', '```text\n$x$\n```', '$unfinished', '$`unfinished', '\\$x\\$']) expect(formulas(source)).toEqual([]);
 	});
+	it("keeps prices and ordinary closing dollars followed by ASCII word characters literal", () => {
+		for (const source of [
+			'($185,000 deferred against $22,000 proceeding)', '$5 and $10', '$5 and $10 and $15',
+			...['2', 'a', 'Z', '_'].map(suffix => `$x$${suffix}`),
+		]) expect(formulas(source), source).toEqual([]);
+	});
+	it("keeps valid ordinary boundaries and protected math next to other text", () => {
+		for (const suffix of ['', ' ', '.', ',', ')', 'é', 'α']) {
+			expect(formulas(`$x$${suffix}`), suffix).toEqual([{ type: 'inlineMath', value: 'x' }]);
+		}
+		expect(formulas('$1$')).toEqual([{ type: 'inlineMath', value: '1' }]);
+		for (const suffix of ['2', 'a', '_']) {
+			expect(formulas('$`x`$' + suffix), suffix).toEqual([{ type: 'inlineMath', value: 'x' }]);
+		}
+	});
+	it("rejects a bad currency closer without consuming a later valid formula", () => {
+		const source = '$5 and $10, then $x^2$ and $`y_0`$';
+		expect(formulas(source)).toEqual([{ type: 'inlineMath', value: 'x^2' }, { type: 'inlineMath', value: 'y_0' }]);
+		expect(formulas('$5 and $x$')).toEqual([{ type: 'inlineMath', value: 'x' }]);
+	});
+	it("keeps participant references between prices visible to notification extraction", () => {
+		const source = '$185,000 deferred for u/reader against $22,000 proceeding; $u/hidden$';
+		const visible = markdownTextSpans(source).map(({ start, end }) => source.slice(start, end)).join('');
+		expect(visible).toBe('$185,000 deferred for u/reader against $22,000 proceeding; ');
+	});
 	it("excludes math from notification spans and keeps source in previews", () => {
 		const source = 'u/visible $u/hidden$ $`u/protected`$\n\n$$\nu/block\n$$\n\n```math\nu/fenced\n```';
 		expect(markdownTextSpans(source).map(({ start, end }) => source.slice(start, end)).join("")).toBe('u/visible  ');
