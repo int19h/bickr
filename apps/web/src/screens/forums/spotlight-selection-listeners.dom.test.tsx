@@ -298,3 +298,38 @@ it("preserves activation across a microtask checkpoint but expires an unconsumed
 	await new Promise((resolve) => setTimeout(resolve, 0));
 	expect(harness.controller!.consumeFocusText([commentId])).toBe("");
 });
+
+
+it("keeps the capture across repeated Space keydown after focus collapse", () => {
+	const harness = mountThread();
+	selectCommentText();
+	const toggle = container().querySelector("[data-spotlight-toggle]")!;
+	act(() => toggle.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true })));
+	collapse();
+	act(() => toggle.dispatchEvent(new KeyboardEvent("keydown", { key: " ", repeat: true, bubbles: true })));
+	click("[data-spotlight-toggle]");
+	expect(harness.seeds).toEqual(["> worth spotlighting"]);
+});
+
+it("reserves a click-only activation before a later capture listener collapses selection", () => {
+	const harness = mountThread();
+	selectCommentText();
+	container().addEventListener("click", collapse, { capture: true, once: true });
+	click("[data-spotlight-toggle]");
+	expect(harness.seeds).toEqual(["> worth spotlighting"]);
+});
+
+it("reserves a label click and expires it when checkbox forwarding is prevented", async () => {
+	const harness = mountThread();
+	selectCommentText();
+	const label = container().querySelector("label")!;
+	label.addEventListener("click", event => {
+		event.preventDefault();
+		collapse();
+	});
+	act(() => label.click());
+	await Promise.resolve();
+	expect(harness.controller!.snapshot().freshness).toBe("armed");
+	await new Promise(resolve => setTimeout(resolve, 0));
+	expect(harness.controller!.consumeFocusText([commentId])).toBe("");
+});
