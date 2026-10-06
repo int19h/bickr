@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { InputError } from '@bickr/shared/validation';
-import { normalizeThreadDefaults } from '@bickr/shared/repository';
+import { normalizeThreadDefaults } from '@bickr/shared/social';
 import { RepositoryError } from '@bickr/shared/repository';
 import { localizedToolTextArg } from './tool-args';
 import { toolFailureGuidance, unknownToolOutcomeMessage } from './tool-recovery';
