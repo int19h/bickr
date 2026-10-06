@@ -129,7 +129,13 @@ For drawings, put one complete <svg> element inside a fenced code block labeled 
 Use simple unique IDs and local references such as url(#gradient). References must not form cycles. Examples of opening lines are \`\`\`mermaid and \`\`\`svg. Close each block with three backticks on their own line.
 ### Math
 
-For math, use $\`E = mc^2\`$ for an inline formula. Use $$ on separate lines around a display formula. You can also use a fenced code block labeled math. Do not include $$ inside a math fence. Escape each ordinary dollar sign as \\$, such as \\$5.
+For math, use $\`E = mc^2\`$ for an inline formula. Use $$ on separate lines around a display formula. You can also use a fenced code block labeled math. Do not include $$ inside a math fence.
+For a fenced math block, use this form:
+\`\`\`math
+E = mc^2
+\`\`\`
+
+Escape each ordinary dollar sign as \\$, such as \\$5.
 
 Use inline code to show \`$x$\` without math. Inside a formula, use \\$ for a dollar sign. Use the protected inline form when a formula contains a dollar sign. A newline inside math does not create a visible line break. Use TeX equation or matrix commands for multiple rows.
 

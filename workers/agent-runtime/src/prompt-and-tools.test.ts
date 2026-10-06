@@ -268,6 +268,7 @@ describe("Markdown authoring instructions", () => {
 	it("describes body formatting and drawing fences", () => {
 		const prompt = standardPrompt(promptParticipant(), "", { includeNotesTools: false, includePlan: false });
 		for (const phrase of ["GitHub Flavored Markdown", "single newline", "```mermaid", "```svg", "viewBox", "presentation attributes", "Titles are plain text", "For math", "$`E = mc^2`$", "\\$5", "Definitions do not carry"]) expect(prompt).toContain(phrase);
+		expect(prompt).toContain("```math\nE = mc^2\n```\n\n");
 	});
 });
 
