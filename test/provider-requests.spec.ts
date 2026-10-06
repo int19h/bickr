@@ -150,8 +150,8 @@ describe("Provider requests", () => {
 					},
 				},
 			});
-			expect(schema?.description).toEqual(expect.stringContaining("lang first and text second"));
-			expect(schema?.description).toEqual(expect.stringContaining("do not use und"));
+			expect(schema?.description).toEqual(expect.stringContaining("Give an object with lang and text"));
+			expect(schema?.description).toEqual(expect.stringContaining("Do not use und"));
 		};
 
 		const vote = toolDefinitions.find((definition) => definition.function.name === "vote");
@@ -462,7 +462,7 @@ describe("Provider requests", () => {
 			{ mode: "normal", signal },
 		).catch((error: unknown) => error);
 		expect(missingReason).toBeInstanceOf(Error);
-		expect((missingReason as Error).message).toContain("reason must be an object with lang first and text second");
+		expect((missingReason as Error).message).toContain("reason must be an object with lang and text");
 
 		const voteResult = await executeTool(
 			bot,
@@ -1189,9 +1189,9 @@ describe("Provider requests", () => {
 				prompt: lt("Stay terse."),
 			} as Parameters<typeof standardPrompt>[0];
 		const prompt = standardPrompt(promptBot, "", { includeNotesTools: true, includePlan: true });
-		expect(prompt).toContain("Avoid duplicate replies");
+		expect(prompt).toContain("Do not send duplicate replies");
 		expect(prompt).toContain("already replied to the same comment");
-		expect(prompt).toContain("finish this Bickr visit with log_off");
+		expect(prompt).toContain("Use log_off only after you finish the actions");
 	});
 
 	it("adds only non-empty world prompt text as setting context", () => {

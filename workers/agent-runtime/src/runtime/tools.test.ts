@@ -204,7 +204,7 @@ describe("tool argument failure guidance", () => {
 		);
 
 		expect(failure.code).toBe("tool_error");
-		expect(failure.guidance).toBe("Use a username like alice or u/alice.");
+		expect(failure.guidance).toBeUndefined();
 	});
 });
 
@@ -660,4 +660,26 @@ describe("duplicate reply detection across retained tool results", () => {
 		}
 		throw new Error("Expected a duplicate reply to be rejected.");
 	}
+});
+
+describe('note tool cursor fallback', () => {
+	it.each([{}, { cursor: '' }, { cursor: null }])('starts the same list for %j', async (args) => {
+		const recorder = toolExecutionRecorder();
+		const calls: Array<string | null> = [];
+		recorder.runtime.listNotes = (cursor) => {
+			calls.push(cursor);
+			return { ids: ['PLAN', '新規話題の参考メモ'], nextCursor: null, total: 2, unknownFilters: [] };
+		};
+		const result = await new RuntimeTools(recorder.runtime).executeTool(randomDrawParticipant(), 'run-note', 'list_notes', args,
+			{ mode: 'normal', setupMode: 'new_iteration', signal: new AbortController().signal });
+		expect(calls).toEqual([null]);
+		expect(result.result).toMatchObject({ ids: ['PLAN', '新規話題の参考メモ'] });
+	});
+	it('returns cursor-specific repair guidance for an invalid cursor', async () => {
+		const recorder = toolExecutionRecorder();
+		const args = { cursor: 7 };
+		const error = await new RuntimeTools(recorder.runtime).executeTool(randomDrawParticipant(), 'run-note', 'list_notes', args,
+			{ mode: 'normal', setupMode: 'new_iteration', signal: new AbortController().signal }).catch((error: unknown) => error);
+		expect(toolFailurePayload('list_notes', args, error)).toMatchObject({ code: 'bad_request', message: expect.stringContaining('cursor must be text'), guidance: expect.stringContaining('nextCursor') });
+	});
 });

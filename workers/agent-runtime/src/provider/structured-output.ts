@@ -117,7 +117,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		}
 		const content = providerMessageTextContent(message.content);
 		if (!content) {
-			throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} response was empty.`, { rawResponse });
+			throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} response was empty. Return a JSON object with nonempty text in ${spec.property}.`, { rawResponse });
 		}
 		const parsed = parseProviderStructuredMessageContent(content, spec, rawResponse);
 		return providerStructuredOutputPropertyFromRecord(parsed, spec, rawResponse, []);
@@ -150,7 +150,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 				}
 			}
 		}
-		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} response must be a JSON object.`, {
+		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} response must be a JSON object. Give only ${spec.property} with its text value.`, {
 			rawResponse,
 			...(spec.kind === 'compaction' ? {} : { outputText: content }),
 		});
@@ -336,7 +336,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 			: [];
 		const errorOptions = { rawResponse, requiredToolName: spec.toolName, toolCalls };
 		if (toolCalls.length === 0) {
-			throw new ProviderStructuredOutputValidationError(spec.kind, `No ${spec.toolName} tool call was returned.`, errorOptions);
+			throw new ProviderStructuredOutputValidationError(spec.kind, `No ${spec.toolName} tool call was returned. Call ${spec.toolName} once with nonempty text in ${spec.property}.`, errorOptions);
 		}
 		const wrongToolCall = toolCalls.find((toolCall) => toolCall.function.name !== spec.toolName);
 		if (wrongToolCall) {
@@ -353,7 +353,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		if (toolCalls.length !== 1) {
 			throw new ProviderStructuredOutputValidationError(
 				spec.kind,
-				`Expected exactly one ${spec.toolName} tool call, but received ${toolCalls.length}.`,
+				`Expected one ${spec.toolName} tool call, but received ${toolCalls.length}. Call ${spec.toolName} exactly once.`,
 				{
 					rawResponse,
 					requiredToolName: spec.toolName,
@@ -365,7 +365,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		if (toolCall.function.name !== spec.toolName) {
 			throw new ProviderStructuredOutputValidationError(
 				spec.kind,
-				`Expected tool ${spec.toolName}, but received ${toolCall.function.name || 'unknown'}.`,
+				`Expected tool ${spec.toolName}, but received ${toolCall.function.name || 'unknown'}. Call ${spec.toolName} instead.`,
 				{
 					rawResponse,
 					requiredToolName: spec.toolName,
@@ -377,7 +377,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		try {
 			parsed = JSON.parse(toolCall.function.arguments);
 		} catch {
-			throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.toolName} arguments were not valid JSON.`, {
+			throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.toolName} arguments were not valid JSON. Give a JSON object with text in ${spec.property}. Escape special characters in strings.`, {
 				rawResponse,
 				requiredToolName: spec.toolName,
 				toolCalls,
@@ -395,7 +395,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
 			throw new ProviderStructuredOutputValidationError(
 				spec.kind,
-				spec.toolName ? `The ${spec.toolName} arguments must be a JSON object.` : 'The structured output must be a JSON object.',
+				spec.toolName ? `The ${spec.toolName} arguments must be a JSON object. Put ${spec.property} and its text value inside {}.` : `The structured output must be a JSON object. Put ${spec.property} and its text value inside {}.`,
 				{
 					rawResponse,
 					requiredToolName: spec.toolName,
@@ -409,7 +409,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		if (extraKeys.length > 0) {
 			throw new ProviderStructuredOutputValidationError(
 				spec.kind,
-				`Unexpected ${spec.toolName ? 'argument' : 'field'} ${extraKeys.join(', ')}; only ${spec.property} is allowed.`,
+				`Unexpected ${spec.toolName ? 'argument' : 'field'}: ${extraKeys.join(', ')}. Remove those fields. Give only ${spec.property}.`,
 				{
 					rawResponse,
 					requiredToolName: spec.toolName,
@@ -419,7 +419,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		}
 		const value = record[spec.property];
 		if (typeof value !== 'string' || value.trim().length === 0) {
-			throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} argument must be a non-empty string.`, {
+			throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} argument must be a nonempty string. Put the text in ${spec.property}.`, {
 				rawResponse,
 				requiredToolName: spec.toolName,
 				toolCalls,
@@ -430,7 +430,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 			if (transcriptLine) {
 				throw new ProviderStructuredOutputValidationError(
 					spec.kind,
-					`The ${spec.label} argument must be ordinary first-person prose, not a transcript or runtime-event line (${JSON.stringify(transcriptLine)}). Regenerate the summary without labeled Action:, Result:, Input:, or New thought: lines.`,
+					`Write ${spec.label} as ordinary first-person prose. Remove the transcript line ${JSON.stringify(transcriptLine)}. Do not use labeled Action:, Result:, Input:, or New thought: lines.`,
 					{
 						rawResponse,
 						requiredToolName: spec.toolName,
@@ -445,7 +445,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		if (value.length < minCharacters) {
 			throw new ProviderStructuredOutputValidationError(
 				spec.kind,
-				`The ${spec.label} argument must be at least ${minCharacters} characters.`,
+				`The ${spec.label} argument must be at least ${minCharacters} characters. Add relevant detail to the text.`,
 				{
 					rawResponse,
 					requiredToolName: spec.toolName,
@@ -457,7 +457,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		if (reduction && !reduction.reduces) {
 			throw new ProviderStructuredOutputValidationError(
 				spec.kind,
-				`The ${spec.label} argument did not reduce the compacted context (${reduction.replacementTokens} estimated replacement tokens vs ${reduction.compactedTokens} compacted tokens).`,
+				`The ${spec.label} argument did not reduce the context. Its estimated length is ${reduction.replacementTokens} tokens, versus ${reduction.compactedTokens} tokens before replacement. Shorten the summary while retaining the required facts.`,
 				{
 					rawResponse,
 					requiredToolName: spec.toolName,
@@ -470,7 +470,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		if (value.length > spec.maxCharacters && !reduction) {
 			throw new ProviderStructuredOutputValidationError(
 				spec.kind,
-				`The ${spec.label} argument must be at most ${spec.maxCharacters} characters.`,
+				`The ${spec.label} argument must be at most ${spec.maxCharacters} characters. Shorten the text.`,
 				{
 					rawResponse,
 					requiredToolName: spec.toolName,

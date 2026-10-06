@@ -589,7 +589,8 @@ describe("Tick flow", () => {
 			result: {
 				ok: false,
 				code: "bad_request",
-				message: "I do not follow u/bunnies. I should not use unfollow_profile for participants I do not follow.",
+				message: "I do not follow u/bunnies.",
+				followCause: "not_following",
 				guidance: "Use targets as an array of objects like {\"username\":\"alice\",\"reason\":\"specific reason\"}; each target needs a distinct non-empty reason.",
 			},
 		});
