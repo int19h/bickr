@@ -123,7 +123,7 @@ Participant references in math, code blocks, inline code, and explicit Markdown 
 
 ### Code blocks
 
-Start each fenced code block with three backticks and a label, such as mermaid, svg, or math. Close each block with three backticks on their own line.
+For a labeled code block, start with three backticks followed by its label, such as mermaid, svg, or math. Close each block with three backticks on their own line.
 
 ### Diagrams
 
