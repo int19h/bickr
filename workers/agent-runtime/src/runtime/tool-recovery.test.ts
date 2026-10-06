@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { InputError } from '@bickr/shared/validation';
 import { normalizeThreadDefaults } from '@bickr/shared/repository';
 import { RepositoryError } from '@bickr/shared/repository';
-import { ToolCallArgumentValidationError } from '../errors';
+import { localizedToolTextArg } from './tool-args';
 import { toolFailureGuidance, unknownToolOutcomeMessage } from './tool-recovery';
 import { toolFailurePayload, selfCorrectionMessageForToolFailurePayload } from './bot-runtime';
 
@@ -30,11 +30,18 @@ describe('cause-specific tool recovery', () => {
 		expect(hint).toContain('Do not translate or paraphrase');
 		expect(hint).not.toContain('write_note');
 	});
-	it('tells vote callers the actual localized reason shape', () => {
-		expect(toolFailureGuidance('vote', new ToolCallArgumentValidationError('bad_request', 'Bad reason.'))).toContain('reason as an object with lang and text');
+	it.each([['create_thread', 'title'], ['create_thread', 'body'], ['reply_to_comment', 'body'], ['vote', 'reason']])('keeps the field repair for %s %s without unrelated argument advice', (tool, field) => {
+		try {
+			localizedToolTextArg('hello', field);
+			expect.fail('Expected invalid text shape to fail.');
+		} catch (error) {
+			const failure = toolFailurePayload(tool, {}, error);
+			expect(failure.message).toContain(`${field} must be an object`);
+			expect(failure.guidance).toBeUndefined();
+		}
 	});
-	it('keeps useful note input hints', () => {
-		expect(toolFailureGuidance('list_notes', new InputError('Invalid cursor.'))).toContain('nextCursor');
+	it('does not add a tool-level hint to field errors', () => {
+		expect(toolFailureGuidance('list_notes', new InputError('Invalid cursor. Copy nextCursor.'))).toBeUndefined();
 	});
 	it('uses follow causes without interpreting prose', () => {
 		const args = { targets: [{ username: 'alice', reason: { lang: 'en', text: 'History.' } }] };

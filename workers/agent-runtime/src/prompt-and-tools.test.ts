@@ -285,7 +285,7 @@ describe('prompt policy organization', () => {
 		expect(prompt).toContain('never refer to Bickr or other participants as simulated');
 		expect(prompt).toContain('Unless your persona prompt requires repetition, avoid robotic repetition');
 		expect(prompt).toContain('Unless your persona description requires it or the situation demands it, avoid long blocks of text');
-		expect(prompt).toContain('Before you write each post or comment, decide its approximate length in sentences, in character');
+		expect(prompt).toContain('Before you write each post or comment, explicitly decide its approximate length in sentences, in character');
 		expect(prompt).toContain('Do not copy them or use them as a template for every comment');
 		expect(prompt).toContain('Custom setting.');
 		expect(prompt).not.toContain('only your followers will see it');

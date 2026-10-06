@@ -187,7 +187,7 @@ export class RuntimeTools {
 			case 'read_thread_by_id': {
 				const readResult = await this.threadReadResult(
 					bot,
-					await readThread(this.runtime.env.BICKR_KV, stringArg(normalizedArgs.threadId, 'threadId')),
+					await readThread(this.runtime.env.BICKR_KV, stringArg(normalizedArgs.threadId, 'threadRef')),
 					canonicalName,
 				);
 				result = readResult;
@@ -195,7 +195,7 @@ export class RuntimeTools {
 				break;
 			}
 			case 'read_comment_by_id': {
-				const readResult = await this.readCommentById(bot, stringArg(normalizedArgs.commentId, 'commentId'), canonicalName);
+				const readResult = await this.readCommentById(bot, stringArg(normalizedArgs.commentId, 'commentRef'), canonicalName);
 				result = readResult;
 				envelope = contentReadEnvelope(readResultContentItems(readResult));
 				break;
@@ -227,7 +227,7 @@ export class RuntimeTools {
 			case 'make_additional_reply_to_the_same_comment': {
 				const body = localizedToolTextArg(normalizedArgs.body, 'body', bot.language);
 				normalizedArgs.body = body;
-				const parentCommentId = stringArg(normalizedArgs.commentId, 'commentId');
+				const parentCommentId = stringArg(normalizedArgs.commentId, 'commentRef');
 				const mutation = spotlightMutationScopeForComment(spotlightScope, parentCommentId);
 				const threadId = await this.threadIdForComment(parentCommentId);
 				if (canonicalName === 'reply_to_comment') {

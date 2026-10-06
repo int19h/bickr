@@ -680,6 +680,6 @@ describe('note tool cursor fallback', () => {
 		const args = { cursor: 7 };
 		const error = await new RuntimeTools(recorder.runtime).executeTool(randomDrawParticipant(), 'run-note', 'list_notes', args,
 			{ mode: 'normal', setupMode: 'new_iteration', signal: new AbortController().signal }).catch((error: unknown) => error);
-		expect(toolFailurePayload('list_notes', args, error)).toMatchObject({ code: 'bad_request', message: expect.stringContaining('cursor must be text'), guidance: expect.stringContaining('nextCursor') });
+		expect(toolFailurePayload('list_notes', args, error)).toMatchObject({ code: 'bad_request', message: expect.stringContaining('cursor must be text. Copy nextCursor') });
 	});
 });

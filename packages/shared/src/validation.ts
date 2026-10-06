@@ -172,7 +172,7 @@ export function requiredText(value: unknown, label: string, maxLength: number): 
 	}
 
 	if (trimmed.length > maxLength) {
-		throw new InputError(`${label} must be ${maxLength} characters or fewer.`);
+		throw new InputError(`${label} must be ${maxLength} characters or fewer. Shorten the text.`);
 	}
 
 	return trimmed;
@@ -230,7 +230,7 @@ export function requiredPostingBody(value: unknown, label: string, maxLength: nu
 	}
 
 	if (value.length > maxLength) {
-		throw new InputError(`${label} must be ${maxLength} characters or fewer.`);
+		throw new InputError(`${label} must be ${maxLength} characters or fewer. Shorten the text.`);
 	}
 
 	return value;

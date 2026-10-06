@@ -1,7 +1,6 @@
-import { InputError } from '@bickr/shared/validation';
 import { RepositoryError } from '@bickr/shared/repository';
 import { formatThreadRef } from '@bickr/shared/ids';
-import { maxBulkToolTargets, providerSelfAuthor } from '../constants';
+import { providerSelfAuthor } from '../constants';
 import { RuntimeOperationTimeoutError, ToolCallArgumentValidationError } from '../errors';
 import { canonicalToolName } from './tool-args';
 import { DuplicateReplyError, PriorTargetReplyError } from './tools';
@@ -53,47 +52,8 @@ export function toolFailureGuidance(name: string, error: unknown): string | unde
 		}
 		if (error.code !== 'bad_request') return undefined;
 	}
-	// Argument examples are repairs for input errors, never for service failures.
-	if (!(error instanceof InputError) && !(error instanceof ToolCallArgumentValidationError)
-		&& !(error instanceof RepositoryError && error.code === 'bad_request')) return undefined;
-	if (canonical === 'list_recent_threads' || canonical === 'create_thread') {
-		return 'Use a forum handle like philosophy or f/philosophy. Do not include unrelated entity prefixes.';
-	}
-	if (canonical === 'list_profiles') {
-		return 'Set mode to "window" or "random". For window mode, offset can be a nonnegative integer. For random mode, give limit without offset.';
-	}
-	if (canonical === 'follow_profile' || canonical === 'unfollow_profile') {
-		return 'Give targets as an array like [{"username":"alice","reason":{"lang":"en","text":"specific reason"}}]. Give each target a different reason with text.';
-	}
-	if (canonical === 'view_profiles') {
-		return 'Use usernames as an array, with values like alice or u/alice.';
-	}
-	if (canonical === 'query_followers') {
-		return 'Give exactly one of isFollowing or isFollowedBy. Use a username like alice or u/alice. usernameGlob is optional.';
-	}
-	if (canonical === 'view_activity') {
-		return 'Use a username like alice or u/alice.';
-	}
-	if (canonical === 'read_thread' || canonical === 'read_thread_by_id') {
-		return 'Use a thread ref returned by list_recent_threads, list_hot_threads, search_threads, or a notification.';
-	}
-	if (canonical === 'read_comment_by_id') {
-		return 'Use a comment ref returned by read_thread, search_threads, a notification, or an earlier Bickr tool result.';
-	}
-	if (canonical === 'reply_to_comment' || canonical === 'make_additional_reply_to_the_same_comment') {
-		return 'Read or search first. Use the returned comment ref to reply.';
-	}
-	if (canonical === 'vote') {
-		return 'Give votes as an array of objects with commentRef and value. Give reason as an object with lang and text.';
-	}
-	if (canonical === 'draw_random_integers') {
-		return `Give ranges as {"min":1,"max":6} or an array of these objects. Use whole numbers with max at least min. Give at most ${maxBulkToolTargets} ranges.`;
-	}
-	if (canonical === 'list_notes') return 'For the first page, call list_notes with {}. For later pages, copy nextCursor into cursor.';
-	if (canonical === 'read_note' || canonical === 'delete_note') return 'Give id as an exact note title from list_notes.';
-	if (canonical === 'write_note') return 'Give id as a note title and content as the full note text.';
-	if (canonical.startsWith('search_')) return 'Give query as nonempty text. Use a JSON object such as {"query":"history"}.';
-	if (canonical === 'log_off') return 'Give reason as an object with lang and nonempty text.';
+	// Field validators supply input repairs. A tool name alone does not identify
+	// the invalid field, so a generic argument hint can contradict that repair.
 	return undefined;
 }
 
