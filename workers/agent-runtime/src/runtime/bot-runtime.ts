@@ -2968,7 +2968,7 @@ export class BotRuntime {
 				return;
 			}
 			const stopped = this.hasStopRequest(journal.runId);
-			const message = stopped ? 'This Bickr visit was stopped.' : 'This Bickr visit closed after five minutes without progress. I do not know whether a pending website action finished. Read the page before I try again.';
+			const message = stopped ? 'This Bickr visit was stopped.' : 'This Bickr visit closed after five minutes without progress. I do not know whether a pending website action finished. I will read the page. If the outcome remains unknown, I will not repeat the action.';
 			const runId = journal.runId;
 			settleOutsideExecution(() => this.state.storage.transactionSync(() => {
 				journal = this.liveness.finish(runId, stopped ? 'idle' : 'failed', message, stopped ? 'tick_stopped' : 'tick_failed')!;
@@ -9148,7 +9148,7 @@ function apiErrorDetails(value: unknown): ApiErrorPayload['details'] | undefined
 	const details = runtimeRecord(value);
 	const existingThread = apiErrorExistingThread(details.existingThread);
 	const forumWriteCause = apiErrorForumWriteCause(details.forumWriteCause);
-	const followCause = details.followCause === 'self_follow' || details.followCause === 'already_following' || details.followCause === 'not_following' ? details.followCause : undefined;
+	const followCause = details.followCause === 'self_follow' ? details.followCause : undefined;
 	if (!existingThread && !forumWriteCause && !followCause) {
 		return undefined;
 	}
@@ -9345,7 +9345,7 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 			toolName: name,
 			args,
 			...(stringValue(failed.guidance) ? { guidance: stringValue(failed.guidance)! } : {}),
-			...(failed.followCause === 'self_follow' || failed.followCause === 'already_following' || failed.followCause === 'not_following' ? { followCause: failed.followCause } : {}),
+			...(failed.followCause === 'self_follow' ? { followCause: failed.followCause } : {}),
 		});
 	}
 	if (name === 'list_accessible_forums' && Array.isArray(result)) {
@@ -9472,8 +9472,10 @@ function toolFailureAssistantContent(failure: ToolFailurePayload): string {
 	}
 	const action = toolCallHistorySummary({ name: failure.toolName, args: failure.args });
 	const message = safeContextText(failure.message || 'The Bickr page showed an error.', 260);
-	const guidance = failure.guidance ? ` The Bickr app gives this hint: ${failure.guidance}` : '';
-	return `The Bickr page shows an error after this action: ${action}. Error: ${message} ${toolFailureSelfCorrection(failure)}${guidance}`;
+	const correction = failure.guidance
+		? `The Bickr app gives this hint: ${failure.guidance}`
+		: toolFailureSelfCorrection(failure);
+	return `The Bickr page shows an error after this action: ${action}. Error: ${message} ${correction}`;
 }
 
 export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailurePayload): string | null {
@@ -9518,15 +9520,6 @@ export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailureP
 		const path = failure.existingUrlPath ? ` at ${failure.existingUrlPath}` : '';
 		return `I already posted that comment${comment}${thread}${path}. Posting it again creates a duplicate. I will read it or choose a different action.`;
 	}
-	if (failure.toolName === 'follow_profile' && failure.followCause === 'already_following') {
-		return followToolSelfCorrectionMessage(
-			'follow_profile',
-			historyUsernames(failure.args).map((username) => ({
-				username,
-				reason: 'already_following',
-			})),
-		);
-	}
 	if (
 		failure.toolName === 'follow_profile' &&
 		failure.followCause === 'self_follow'
@@ -9536,15 +9529,6 @@ export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailureP
 			historyUsernames(failure.args).map((username) => ({
 				username,
 				reason: 'self_follow',
-			})),
-		);
-	}
-	if (failure.toolName === 'unfollow_profile' && failure.followCause === 'not_following') {
-		return followToolSelfCorrectionMessage(
-			'unfollow_profile',
-			historyUsernames(failure.args).map((username) => ({
-				username,
-				reason: 'not_following',
 			})),
 		);
 	}
@@ -9570,19 +9554,20 @@ function toolFailureSelfCorrection(failure: Pick<ToolFailurePayload, 'code' | 't
 			return 'This change conflicts with existing Bickr data. I need to choose another action.';
 		case 'not_found':
 			return 'That target is unavailable. I need to find a current target with a Bickr tool before I try again.';
+		case 'self_author_annotation_in_handle':
 		case 'bad_request':
-			return 'I used the controls incorrectly. I need to correct the details before I try again.';
+			return 'I will repair the call.';
 		case 'invalid_arguments_json':
 			return 'I need to send valid JSON arguments for that tool before I try again.';
 		case 'arguments_not_json_object':
 			return 'I need to send a JSON object as the tool arguments before I try again.';
 		case 'server_error':
-			return 'Bickr failed to complete the request. I will choose another action.';
+			return 'I will choose another action.';
 		case 'forbidden':
 		case 'unauthorized':
-			return 'This action is unavailable. I will choose another permitted action.';
+			return 'I will choose another permitted action.';
 		case 'timeout':
-			return 'Bickr did not return a result in time. I need to inspect the current state. I will choose another action.';
+			return 'I will read the page. If the outcome remains unknown, I will not repeat the action.';
 		default:
 			return 'I do not know the cause of this failure. I will choose another action.';
 	}

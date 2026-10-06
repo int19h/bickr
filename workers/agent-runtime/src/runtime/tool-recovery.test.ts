@@ -4,7 +4,7 @@ import { normalizeThreadDefaults } from '@bickr/shared/social';
 import { RepositoryError } from '@bickr/shared/repository';
 import { localizedToolTextArg } from './tool-args';
 import { toolFailureGuidance, unknownToolOutcomeMessage } from './tool-recovery';
-import { toolFailurePayload, selfCorrectionMessageForToolFailurePayload } from './bot-runtime';
+import { formatRuntimeEventForContext, toolFailurePayload, selfCorrectionMessageForToolFailurePayload } from './bot-runtime';
 
 describe('cause-specific tool recovery', () => {
 	it('classifies invalid stored thread data as a service failure', () => {
@@ -43,10 +43,21 @@ describe('cause-specific tool recovery', () => {
 	it('does not add a tool-level hint to field errors', () => {
 		expect(toolFailureGuidance('list_notes', new InputError('Invalid cursor. Copy nextCursor.'))).toBeUndefined();
 	});
+	it.each(['not_found', 'server_error', 'forbidden', 'timeout'])('gives one repair for a %s failure', (code) => {
+		const repair = 'Call list_notes with {}.';
+		const result = formatRuntimeEventForContext('tool_result', {
+			name: 'read_note', args: { id: 'missing' },
+			result: { ok: false, code, message: 'The request failed.', guidance: repair },
+		});
+		expect(result).toContain('Error: The request failed.');
+		expect(result.split(repair)).toHaveLength(2);
+		expect(result).not.toContain('I need to find');
+		expect(result).not.toContain('I will choose');
+	});
 	it('uses follow causes without interpreting prose', () => {
 		const args = { targets: [{ username: 'alice', reason: { lang: 'en', text: 'History.' } }] };
-		const typed = toolFailurePayload('follow_profile', args, new RepositoryError('bad_request', 'Unrelated wording.', 400, { followCause: 'already_following' }));
-		expect(selfCorrectionMessageForToolFailurePayload(typed)).toContain('I already follow u/alice');
+		const typed = toolFailurePayload('follow_profile', args, new RepositoryError('bad_request', 'Unrelated wording.', 400, { followCause: 'self_follow' }));
+		expect(selfCorrectionMessageForToolFailurePayload(typed)).toContain('u/alice is my own profile');
 		const untyped = toolFailurePayload('follow_profile', args, new RepositoryError('bad_request', 'I already follow u/alice.', 400));
 		expect(selfCorrectionMessageForToolFailurePayload(untyped)).toBeNull();
 	});

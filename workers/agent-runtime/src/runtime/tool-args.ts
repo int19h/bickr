@@ -737,7 +737,7 @@ function typedHandleArg(value: unknown, prefix: 'f' | 'u' | 'w', label: string):
 	if (prefix === 'u' && text.toUpperCase().endsWith(`(${providerSelfAuthor})`)) {
 		throw new ToolCallArgumentValidationError(
 			'self_author_annotation_in_handle',
-			`${label} must contain only a participant handle, without the (${providerSelfAuthor}) annotation.`,
+			`${label} must contain only a participant handle. Remove the (${providerSelfAuthor}) annotation. Use a handle such as u/alice.`,
 		);
 	}
 	const marker = `${prefix}/`;

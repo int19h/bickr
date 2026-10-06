@@ -504,14 +504,14 @@ export function rootCommentForThread(thread: ThreadDocument): CommentDocument {
 export function normalizeThreadDefaults(document: ThreadDocument): ThreadDocument {
 	const current = document;
 	if (!isCurrentThreadDocumentShape(current)) {
-		throw repositoryError("server_error", "Bickr cannot read the stored thread data. Choose another action.", 500);
+		throw repositoryError("server_error", "Bickr cannot read the stored thread data.", 500);
 	}
 	if (current.schemaVersion >= schemaVersion) {
 		return current;
 	}
 	const rootComment = current.comments.find((comment) => comment.id === current.rootCommentId);
 	if (!rootComment) {
-		throw repositoryError("server_error", "Bickr cannot find the stored thread root comment. Choose another action.", 500);
+		throw repositoryError("server_error", "Bickr cannot find the stored thread root comment.", 500);
 	}
 	const comments = document.comments.map(normalizeCommentDocument);
 	const lastActivityAt = latestThreadActivityAt(comments);

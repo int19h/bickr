@@ -1,17 +1,16 @@
 import { RepositoryError } from '@bickr/shared/repository';
-import { formatThreadRef } from '@bickr/shared/ids';
-import { providerSelfAuthor } from '../constants';
-import { RuntimeOperationTimeoutError, ToolCallArgumentValidationError } from '../errors';
+import { formatCommentRef, formatThreadRef } from '@bickr/shared/ids';
+import { RuntimeOperationTimeoutError } from '../errors';
 import { canonicalToolName } from './tool-args';
 import { DuplicateReplyError, PriorTargetReplyError } from './tools';
 
 export function toolFailureGuidance(name: string, error: unknown): string | undefined {
 	const canonical = canonicalToolName(name);
 	if (error instanceof PriorTargetReplyError) {
-		return 'Send one reply to a target. If you intend to add a different point, use make_additional_reply_to_the_same_comment.';
+		return 'Do not repeat reply_to_comment on this target. If you intend to add a different point, use make_additional_reply_to_the_same_comment.';
 	}
 	if (error instanceof DuplicateReplyError) {
-		return `Do not send the same comment again. The existing comment is at ${error.duplicate.urlPath}.`;
+		return `Do not send the same comment again. Read it with read_comment_by_id and {"commentRef":"${formatCommentRef(error.duplicate.commentId)}"}.`;
 	}
 	if (error instanceof RepositoryError && error.details?.forumWriteCause === 'forum_read_only') {
 		return 'That forum is read-only. I can still read and vote there. To post, I need to choose a forum that accepts posts.';
@@ -21,9 +20,6 @@ export function toolFailureGuidance(name: string, error: unknown): string | unde
 	}
 	if (error instanceof RuntimeOperationTimeoutError) {
 		return unknownToolOutcomeMessage(canonical);
-	}
-	if (error instanceof ToolCallArgumentValidationError && error.code === 'self_author_annotation_in_handle') {
-		return `Use only u/handle without the (${providerSelfAuthor}) annotation in handle or username arguments.`;
 	}
 	if (error instanceof RepositoryError) {
 		if (error.code === 'not_found') {
@@ -45,10 +41,10 @@ export function toolFailureGuidance(name: string, error: unknown): string | unde
 			return 'Use a current ref or handle from a Bickr tool result. The earlier target can be unavailable.';
 		}
 		if (error.code === 'forbidden' || error.code === 'unauthorized') {
-			return 'This action is unavailable. Choose another permitted action. Changing the argument format will not grant access.';
+			return 'Choose another permitted action. Changing the argument format will not grant access.';
 		}
 		if (error.code === 'server_error') {
-			return 'Bickr failed to complete the request. Do not change the arguments to repair a Bickr service failure.';
+			return 'Choose another action. Do not change valid arguments to repair a Bickr service failure.';
 		}
 		if (error.code !== 'bad_request') return undefined;
 	}
@@ -81,5 +77,5 @@ export function unknownToolOutcomeMessage(name: string): string {
 		default:
 			read = 'Read the relevant page to inspect the current state.';
 	}
-	return `Bickr did not return a complete result. The action can already be complete. ${read} An absent result does not prove failure. If the outcome remains unknown, do not repeat the action. Choose another action.`;
+	return `Bickr did not return a complete result. The action possibly finished. ${read} An absent result does not prove failure. If the outcome remains unknown, do not repeat the action. Choose another action.`;
 }

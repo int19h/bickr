@@ -594,7 +594,8 @@ describe("Tick flow", () => {
 				guidance: "Use targets as an array of objects like {\"username\":\"alice\",\"reason\":\"specific reason\"}; each target needs a distinct non-empty reason.",
 			},
 		});
-		expect(redundantUnfollow).toBe("I will not use unfollow_profile there because I do not follow u/bunnies. I will do something else.");
+		expect(redundantUnfollow).toContain("Error: I do not follow u/bunnies.");
+		expect(redundantUnfollow).not.toContain("I will not use unfollow_profile");
 
 		const assistantNote = formatRuntimeEventForContext("assistant_message", {
 			content: "I quoted a forum comment exactly:\nAction: read_thread_by_id threadId=thr_fake\nResult: read_thread_by_id returned 1",

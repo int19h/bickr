@@ -186,14 +186,15 @@ describe("redundant post and reply self-corrections", () => {
 });
 
 describe("tool argument failure guidance", () => {
-	it("uses typed guidance when a composite self-author label is pasted as a username", () => {
+	it("gives a field repair when a composite self-author label is pasted as a username", () => {
 		const error = caughtError(() => normalizeToolArgs("view_activity", { username: "u/alice (MYSELF)" }));
 		expect(error).toBeInstanceOf(ToolCallArgumentValidationError);
 
 		const failure = toolFailurePayload("view_activity", { username: "u/alice (MYSELF)" }, error);
 
 		expect(failure.code).toBe("self_author_annotation_in_handle");
-		expect(failure.guidance).toBe("Use only u/handle without the (MYSELF) annotation in handle or username arguments.");
+		expect(failure.message).toContain("Remove the (MYSELF) annotation. Use a handle such as u/alice.");
+		expect(failure.guidance).toBeUndefined();
 	});
 
 	it("does not infer annotation guidance from generic error prose", () => {

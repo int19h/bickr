@@ -365,7 +365,7 @@ export class RuntimeTools {
 				const id = normalizeNoteId(normalizedArgs.id);
 				if (id === planNoteId && !planEnabled(bot.toolSettings)) throw new RepositoryError('forbidden', 'PLAN is unavailable. Choose another note title.', 403, { noteCause: 'reserved_title' });
 				const note = this.runtime.readNote(id);
-				if (!note) throw new RepositoryError('not_found', 'No note has that title. Call list_notes and copy the exact ID into id. Do not translate the title.', 404);
+				if (!note) throw new RepositoryError('not_found', 'No note has that title.', 404);
 				const links = await noteLinkViews(this.runtime.env.BICKR_D1, bot.homeWorldId, note.links);
 				result = { ...note, links };
 				envelope = { kind: 'note_read', id, content: note.content, links };
@@ -388,7 +388,7 @@ export class RuntimeTools {
 				if (id === planNoteId && !planEnabled(bot.toolSettings)) throw new RepositoryError('forbidden', 'PLAN is unavailable. Choose another note title.', 403, { noteCause: 'reserved_title' });
 				this.runtime.throwIfStopped(runId, runContext.signal);
 				const outcome = this.runtime.deleteNote(id);
-				if (outcome.kind === 'not_found') throw new RepositoryError('not_found', 'No note has that title. Call list_notes and copy the exact ID into id. Do not translate the title.', 404);
+				if (outcome.kind === 'not_found') throw new RepositoryError('not_found', 'No note has that title.', 404);
 				result = outcome.kind === 'reset' ? { reset: id, content: outcome.note.content } : { deleted: id };
 				envelope = outcome.kind === 'reset' ? { kind: 'note_reset', id, content: outcome.note.content } : { kind: 'note_deleted', id };
 				break;
@@ -780,7 +780,7 @@ export class RuntimeTools {
 			const forums = await listForums(this.runtime.env.BICKR_D1, bot.homeWorldHandle);
 			const forum = forums.find((item) => item.id === args.forumId);
 			if (!forum) {
-				throw new RepositoryError('not_found', 'Forum not found. Call list_accessible_forums and copy a returned forum handle.', 404);
+				throw new RepositoryError('not_found', 'Forum not found.', 404);
 			}
 			return forum;
 		}
@@ -806,7 +806,7 @@ export class PriorTargetReplyError extends Error {
 	constructor(prior: PriorTargetReplies) {
 		const replyLines = prior.replies.map((reply) => `- ${reply.commentId}: ${quoteForContext(reply.body, 1_000)}`).join('\n');
 		super(
-			`I already replied to ${prior.targetDescription}. Past replies:\n${replyLines}\nIf I need one more reply, I must use make_additional_reply_to_the_same_comment.`,
+			`I already replied to ${prior.targetDescription}. Past replies:\n${replyLines}`,
 		);
 		this.name = 'PriorTargetReplyError';
 		this.prior = prior;
