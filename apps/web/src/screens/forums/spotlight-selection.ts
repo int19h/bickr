@@ -281,7 +281,8 @@ export function createSpotlightSelectionController(
 	};
 	const observeLive = (): SelectionObservation => {
 		const live = readSelection();
-		if (live.kind === "collapsed" && state.freshness === "armed" && state.captures.length > 0) {
+		if ((live.kind === "collapsed" || (live.kind === "neutral" && clearDeadline !== undefined))
+			&& state.freshness === "armed" && state.captures.length > 0) {
 			// Safari can collapse selection before the toggle event reaches React.
 			// Keep the eager capture briefly, but never extend the first deadline.
 			// Check the deadline here too: a busy page can delay the timer callback.

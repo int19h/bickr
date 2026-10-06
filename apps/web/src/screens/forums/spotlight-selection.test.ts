@@ -529,6 +529,24 @@ describe("Spotlight clearing delay", () => {
 		expect(controller.consumeFocusText(threadCommentIds)).toBe("");
 	});
 
+	it.each([100, 300, 400])("does not let panel selection bypass expiry at %i ms", time => {
+		const { controller, selection, at } = clearingCapture();
+		at(time);
+		selection.set(neutral);
+		controller.observeSelectionChange();
+		at(1000);
+		expect(controller.consumeFocusText(threadCommentIds)).toBe("");
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("expires pending capture when a delayed callback reads panel selection", () => {
+		const { controller, selection, at } = clearingCapture();
+		selection.set(neutral);
+		at(400);
+		vi.advanceTimersByTime(300);
+		expect(controller.snapshot()).toBe(emptySpotlightSelection);
+	});
+
 	it("does not schedule clearing for an empty or spent capture", () => {
 		vi.useFakeTimers();
 		const controller = createSpotlightSelectionController(() => collapsed);
