@@ -390,7 +390,7 @@ export function localizedToolTextArg(value: unknown, label: string, language?: L
 	}
 	const record = runtimeRecord(value);
 	if (!Object.hasOwn(record, 'lang') || !Object.hasOwn(record, 'text')) {
-		throw new ToolCallArgumentValidationError('bad_request', `${label} must be an object with lang and text. For example, use ${localizedToolTextPropertyExample(label, 'ja', '将軍家')} or ${localizedToolTextPropertyExample(label, 'en', 'my text')}.`);
+		throw new ToolCallArgumentValidationError('bad_request', `${label} must be an object with lang and text. Set ${label} to an object such as ${localizedToolTextValueExample('ja', '将軍家')} or ${localizedToolTextValueExample('en', 'my text')}.`);
 	}
 	const lang = languageTagArg(record.lang, `${label}.lang`);
 	if (typeof record.text !== 'string' || !record.text.trim()) {
@@ -410,13 +410,13 @@ export function localizedArgumentText(value: unknown): string | undefined {
 
 function localizedToolTextStringError(text: string, label: string, language?: LanguageTag | null): string {
 	const lang = language ?? ('en' as LanguageTag);
-	const provided = `${JSON.stringify(label)}:${JSON.stringify(text)}`;
-	const expected = localizedToolTextPropertyExample(label, lang, text);
-	return `The tool call is invalid. ${label} must be an object. You sent the string ${provided}. Send an object like ${expected}.`;
+	const provided = JSON.stringify(text);
+	const expected = localizedToolTextValueExample(lang, text);
+	return `The tool call is invalid. ${label} must be an object. You sent the string ${provided}. Set ${label} to ${expected}.`;
 }
 
-function localizedToolTextPropertyExample(label: string, lang: string, text: string): string {
-	return `${JSON.stringify(label)}:${JSON.stringify({ lang, text })}`;
+function localizedToolTextValueExample(lang: string, text: string): string {
+	return JSON.stringify({ lang, text });
 }
 
 function languageTagArg(value: unknown, label: string): LanguageTag {

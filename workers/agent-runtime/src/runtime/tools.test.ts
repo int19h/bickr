@@ -683,3 +683,16 @@ describe('note tool cursor fallback', () => {
 		expect(toolFailurePayload('list_notes', args, error)).toMatchObject({ code: 'bad_request', message: expect.stringContaining('cursor must be text. Copy nextCursor') });
 	});
 });
+
+
+describe('public argument names in missing-ref errors', () => {
+	it.each([['read_thread_by_id', 'threadRef'], ['read_comment_by_id', 'commentRef'], ['reply_to_comment', 'commentRef']])('names the advertised field for %s', async (tool, field) => {
+		const recorder = toolExecutionRecorder();
+		const args = { body: { lang: 'en', text: 'Reply.' } };
+		const error = await new RuntimeTools(recorder.runtime).executeTool(randomDrawParticipant(), 'run-ref', tool, args,
+			{ mode: 'normal', setupMode: 'new_iteration', signal: new AbortController().signal }).catch((error: unknown) => error);
+		const failure = toolFailurePayload(tool, args, error);
+		expect(failure).toMatchObject({ code: 'bad_request', message: expect.stringContaining(`${field} must be nonempty text`) });
+		expect(failure.message).not.toMatch(/threadId|commentId/);
+	});
+});
