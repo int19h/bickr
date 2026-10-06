@@ -25,71 +25,25 @@ export function useSpotlightSelectionCapture(): SpotlightSelectionController {
 		// no better: the same collapse invalidates it. Each read is already scoped
 		// to the selection rather than to the thread (see `candidateBodies`).
 		const onSelectionChange = () => controller.observeSelectionChange();
-		let expiry: ReturnType<typeof setTimeout> | undefined;
-		const isToggle = (target: EventTarget | null) =>
-			target instanceof Element &&
-			Boolean(target.closest('[data-spotlight-toggle]') || target.closest('label')?.control?.matches('[data-spotlight-toggle]'));
-		const cancel = () => {
-			clearTimeout(expiry);
-			controller.cancelActivation();
-		};
-		const begin = () => {
-			clearTimeout(expiry);
-			controller.beginActivation();
-			expiry = setTimeout(cancel, 5000);
-		};
-		const onPointerDown = (event: PointerEvent) => {
-			if (isToggle(event.target)) begin();
-			else cancel();
-		};
-		const onPointerUp = (event: PointerEvent) => {
-			if (!isToggle(event.target)) cancel();
-		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (isToggle(event.target) && (event.key === ' ' || event.key === 'Enter')) begin();
-			else cancel();
-		};
 		const onClick = (event: MouseEvent) => {
-			const toggle = isToggle(event.target);
-			// Assistive and programmatic clicks need no preceding pointer/key
-			// event. Reserve before React renders the panel or moves focus.
-			// Label clicks also complete an activation, even if their default
-			// forwarding to the checkbox is prevented by another listener.
-			if (toggle) begin();
-			const activation = toggle ? { kind: 'spotlight' as const } : classifyActivation(event.target instanceof Element ? event.target : null);
-			if (activation) {
-				controller.observeActivation(activation);
-				// Firefox can run microtasks between native event listeners. Wait
-				// until the next task so React's click listener can consume capture.
-				clearTimeout(expiry);
-				expiry = setTimeout(cancel, 0);
-			}
+			const target = event.target instanceof Element ? event.target : null;
+			// Labels can forward clicks to a checkbox outside the label itself.
+			const toggle = target?.closest('[data-spotlight-toggle]')
+				|| target?.closest('label')?.control?.matches('[data-spotlight-toggle]');
+			const activation = toggle ? { kind: 'spotlight' as const } : classifyActivation(target);
+			if (activation) controller.observeActivation(activation);
 		};
 		document.addEventListener('selectionchange', onSelectionChange);
-		document.addEventListener('pointerdown', onPointerDown, true);
-		document.addEventListener('pointerup', onPointerUp, true);
-		document.addEventListener('pointercancel', cancel, true);
-		document.addEventListener('keydown', onKeyDown, true);
-		window.addEventListener('blur', cancel);
 		// Capture phase, not bubble. Thread controls — content references, author
 		// and ordinary references, translation controls — call `stopPropagation()`
 		// from their React handlers, which stops the native event at React's root
 		// container, below `document`. Those clicks are precisely the unrelated
 		// activations that must retire the capture, so a bubble-phase listener
 		// misses the ones that matter most.
-		//
-		// Only an activation that already targets Spotlight can
-		// preserve capture across focus collapse. Cancellation expires it.
 
 		document.addEventListener('click', onClick, true);
 		return () => {
 			document.removeEventListener('selectionchange', onSelectionChange);
-			document.removeEventListener('pointerdown', onPointerDown, true);
-			document.removeEventListener('pointerup', onPointerUp, true);
-			document.removeEventListener('pointercancel', cancel, true);
-			document.removeEventListener('keydown', onKeyDown, true);
-			window.removeEventListener('blur', cancel);
-			clearTimeout(expiry);
 			document.removeEventListener('click', onClick, true);
 			controller.reset();
 		};

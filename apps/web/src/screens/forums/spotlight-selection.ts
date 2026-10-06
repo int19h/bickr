@@ -1,7 +1,7 @@
 /**
  * Serialize selections eagerly without retaining mutable browser ranges.
- * A cleared selection expires immediately. Only an explicit pending Spotlight
- * activation preserves capture across the browser's focus-induced collapse.
+ * A short clearing delay preserves capture across focus-induced collapse.
+ * The controller owns that delay and retires deliberately cleared selections.
  */
 
 /** Raw, unquoted selected text from exactly one comment body. */
@@ -59,13 +59,11 @@ export const emptySpotlightSelection: SpotlightSelectionState = { captures: [], 
 export function observeSelection(
 	state: SpotlightSelectionState,
 	observation: SelectionObservation,
-	preserveCollapsed = false,
 ): SpotlightSelectionState {
 	switch (observation.kind) {
 		case "collapsed":
-            return preserveCollapsed && state.freshness === "armed" ? state : emptySpotlightSelection;
-        case "neutral":
-            return state.freshness === "armed" ? state : emptySpotlightSelection;
+		case "neutral":
+			return state.freshness === "armed" ? state : emptySpotlightSelection;
 		case "selected":
 			// Reading the same selection again is not a new selection, whether it
 			// arrives as the queued `selectionchange` for one already consumed live
@@ -144,14 +142,12 @@ export function consumeSpotlightFocusText(
 	{
 		live,
 		targetCommentIds,
-		activationPending = false,
 	}: {
 		readonly live: SelectionObservation | null;
 		readonly targetCommentIds: readonly string[];
-		readonly activationPending?: boolean;
 	},
 ): SpotlightFocusConsumption {
-	const current = live ? observeSelection(state, live, activationPending) : state;
+	const current = live ? observeSelection(state, live) : state;
 	return {
 		state: retireSelection(current, live),
 		focusText:
@@ -254,8 +250,6 @@ export function captureSelectedComments<TRange, TBody>(
 export type SpotlightSelectionController = {
 	/** Re-reads the live selection and applies it to the retained capture. */
 	readonly observeSelectionChange: () => void;
-	readonly beginActivation: () => void;
-	readonly cancelActivation: () => void;
 	readonly observeActivation: (activation: ActivationObservation) => void;
 	/** Quotes the capture for these comments and retires it. */
 	readonly consumeFocusText: (targetCommentIds: readonly string[]) => string;
@@ -275,34 +269,62 @@ export type SpotlightSelectionController = {
  */
 export function createSpotlightSelectionController(
 	readSelection: () => SelectionObservation,
+	now: () => number = () => performance.now(),
 ): SpotlightSelectionController {
 	let state = emptySpotlightSelection;
-	let activationPending = false;
+	let clearTimer: ReturnType<typeof setTimeout> | undefined;
+	let clearDeadline: number | undefined;
+	const cancelClear = () => {
+		clearTimeout(clearTimer);
+		clearTimer = undefined;
+		clearDeadline = undefined;
+	};
+	const observeLive = (): SelectionObservation => {
+		const live = readSelection();
+		if ((live.kind === "collapsed" || (live.kind === "neutral" && clearDeadline !== undefined))
+			&& state.freshness === "armed" && state.captures.length > 0) {
+			// Safari can collapse selection before the toggle event reaches React.
+			// Keep the eager capture briefly, but never extend the first deadline.
+			// Check the deadline here too: a busy page can delay the timer callback.
+			if (clearDeadline !== undefined && now() >= clearDeadline) {
+				cancelClear();
+				state = emptySpotlightSelection;
+			} else {
+				clearDeadline ??= now() + 300;
+				if (clearTimer === undefined) {
+					clearTimer = setTimeout(() => {
+						clearTimer = undefined;
+						// A fresh selection can precede its queued selectionchange event.
+						// Read it before expiring the old capture.
+						observeLive();
+					}, Math.max(0, clearDeadline - now()));
+				}
+			}
+		} else {
+			cancelClear();
+			state = observeSelection(state, live);
+		}
+		return live;
+	};
 	return {
-		beginActivation: () => {
-			// Pointer, repeated keys, and label forwarding can start the same
-			// activation again after focus already collapsed the live selection.
-			// Only the first start takes a snapshot. Cancellation ends its lifetime.
-			if (activationPending) return;
-			state = observeSelection(state, readSelection());
-			activationPending = true;
-		},
-		cancelActivation: () => { activationPending = false; state = observeSelection(state, readSelection()); },
-		observeSelectionChange: () => {
-			state = observeSelection(state, readSelection(), activationPending);
-		},
+		observeSelectionChange: () => { observeLive(); },
 		observeActivation: (activation) => {
-			if (activation.kind === "unrelated") activationPending = false;
-			state = observeActivation(state, { activation, live: readSelection() });
+			if (activation.kind === "unrelated") {
+				cancelClear();
+				state = observeActivation(state, { activation, live: readSelection() });
+			} else {
+				observeLive();
+			}
 		},
 		consumeFocusText: (targetCommentIds) => {
-			const consumption = consumeSpotlightFocusText(state, { live: readSelection(), targetCommentIds, activationPending });
-			activationPending = false;
+			const live = observeLive();
+			const consumption = consumeSpotlightFocusText(state, { live, targetCommentIds });
+			cancelClear();
 			state = consumption.state;
 			return consumption.focusText;
 		},
 		reset: () => {
-			activationPending = false;
+			cancelClear();
 			state = retireSelection(state, readSelection());
 		},
 		snapshot: () => state,

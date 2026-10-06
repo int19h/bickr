@@ -1,6 +1,6 @@
 import { StrictMode, act, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SpotlightSelectionController } from "./spotlight-selection";
 import { SpotlightTargetCheckbox } from "./spotlight-target-checkbox";
 import { useSpotlightSelectionCapture } from "./use-spotlight-selection";
@@ -83,6 +83,7 @@ afterEach(() => {
 		mounted = null;
 	}
 	window.getSelection()?.removeAllRanges();
+	vi.useRealTimers();
 });
 
 function mountThread(): Harness {
@@ -274,31 +275,33 @@ function countDocumentListeners() {
 
 function collapse():void { window.getSelection()!.removeAllRanges(); act(()=>document.dispatchEvent(new Event("selectionchange"))); }
 function pointer(type:string,target:Element):void { act(()=>target.dispatchEvent(new Event(type,{bubbles:true}))); }
-it("drops a cleared selection before a later Spotlight attempt",()=>{const h=mountThread();selectCommentText();collapse();click("[data-spotlight-toggle]");expect(h.seeds).toEqual([""]);});
-it("preserves a selection that collapses during checkbox activation",()=>{const h=mountThread();selectCommentText();pointer("pointerdown",container().querySelector("[data-spotlight-toggle]")!);collapse();click("[data-spotlight-toggle]");expect(h.seeds).toEqual(["> worth spotlighting"]);});
-it.each(["pointercancel","pointerup"])("drops a reservation after %s outside the checkbox",type=>{const h=mountThread();selectCommentText();pointer("pointerdown",container().querySelector("[data-spotlight-toggle]")!);collapse();pointer(type,container().querySelector("[data-comment-body]")!);click("[data-spotlight-toggle]");expect(h.seeds).toEqual([""]);});
-it("drops a reservation when the window loses focus",()=>{const h=mountThread();selectCommentText();pointer("pointerdown",container().querySelector("[data-spotlight-toggle]")!);collapse();act(()=>window.dispatchEvent(new Event("blur")));click("[data-spotlight-toggle]");expect(h.seeds).toEqual([""]);});
-
-it("preserves activation across a microtask checkpoint but expires an unconsumed click on the next task", async () => {
+it("drops a cleared selection after 300 ms before a later Spotlight attempt", () => {
+	vi.useFakeTimers();
 	const harness = mountThread();
-	const target = container().querySelector("[data-spotlight-toggle]")!;
-	// Stop before React's listener, then simulate Firefox's checkpoint before
-	// the consuming listener. Ordinary synchronous dispatch misses this race.
-	container().addEventListener("click", (event) => event.stopPropagation(), true);
-	const activate = () => {
-		selectCommentText();
-		pointer("pointerdown", target);
-		collapse();
-		pointer("click", target);
-	};
-	activate();
-	await Promise.resolve();
-	expect(harness.controller!.consumeFocusText([commentId])).toBe("> worth spotlighting");
-	activate();
-	await new Promise((resolve) => setTimeout(resolve, 0));
-	expect(harness.controller!.consumeFocusText([commentId])).toBe("");
+	selectCommentText();
+	collapse();
+	act(() => vi.advanceTimersByTime(300));
+	click("[data-spotlight-toggle]");
+	expect(harness.seeds).toEqual([""]);
 });
 
+it("preserves a selection that collapses before any checkbox pointer event", () => {
+	const harness = mountThread();
+	selectCommentText();
+	collapse();
+	click("[data-spotlight-toggle]");
+	expect(harness.seeds).toEqual(["> worth spotlighting"]);
+});
+
+it("preserves capture across a microtask checkpoint before React consumes it", async () => {
+	const harness = mountThread();
+	selectCommentText();
+	container().addEventListener("click", event => event.stopPropagation(), true);
+	collapse();
+	pointer("click", container().querySelector("[data-spotlight-toggle]")!);
+	await Promise.resolve();
+	expect(harness.controller!.consumeFocusText([commentId])).toBe("> worth spotlighting");
+});
 
 it("keeps the capture across repeated Space keydown after focus collapse", () => {
 	const harness = mountThread();
@@ -311,7 +314,7 @@ it("keeps the capture across repeated Space keydown after focus collapse", () =>
 	expect(harness.seeds).toEqual(["> worth spotlighting"]);
 });
 
-it("reserves a click-only activation before a later capture listener collapses selection", () => {
+it("preserves a click-only activation before a later capture listener collapses selection", () => {
 	const harness = mountThread();
 	selectCommentText();
 	container().addEventListener("click", collapse, { capture: true, once: true });
@@ -319,7 +322,8 @@ it("reserves a click-only activation before a later capture listener collapses s
 	expect(harness.seeds).toEqual(["> worth spotlighting"]);
 });
 
-it("reserves a label click and expires it when checkbox forwarding is prevented", async () => {
+it("expires collapsed capture after a label click prevents checkbox forwarding", async () => {
+	vi.useFakeTimers();
 	const harness = mountThread();
 	selectCommentText();
 	const label = container().querySelector("label")!;
@@ -330,6 +334,6 @@ it("reserves a label click and expires it when checkbox forwarding is prevented"
 	act(() => label.click());
 	await Promise.resolve();
 	expect(harness.controller!.snapshot().freshness).toBe("armed");
-	await new Promise(resolve => setTimeout(resolve, 0));
+	act(() => vi.advanceTimersByTime(300));
 	expect(harness.controller!.consumeFocusText([commentId])).toBe("");
 });
