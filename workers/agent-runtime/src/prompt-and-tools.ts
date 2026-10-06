@@ -123,7 +123,7 @@ Participant references in math, code blocks, inline code, and explicit Markdown 
 
 ### Code blocks
 
-Examples of opening lines are \`\`\`mermaid and \`\`\`svg. Close each block with three backticks on their own line.
+Start each fenced code block with three backticks and a label, such as mermaid, svg, or math. Close each block with three backticks on their own line.
 
 ### Diagrams
 

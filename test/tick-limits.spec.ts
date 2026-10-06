@@ -47,7 +47,7 @@ import type {
 } from "./helpers/index-harness";
 import type { RuntimeErrorCause } from "@bickr/shared/runtime-errors";
 import { loopMessageContributesToProviderHistory } from "../workers/agent-runtime/src/provider/sanitize";
-import { malformedToolCallSelfCorrection } from "../workers/agent-runtime/src/runtime/bot-runtime";
+import { malformedToolCallSelfCorrection, toolFailurePayload } from "../workers/agent-runtime/src/runtime/bot-runtime";
 import { RuntimeTools } from "../workers/agent-runtime/src/runtime/tools";
 
 type CapturedLoopMessage = {
@@ -2291,7 +2291,7 @@ describe("Tick limits and recovery", () => {
 		expect(rejected).toBeInstanceOf(Error);
 		expect((rejected as Error).message).toContain(`I already replied to comment ${parent.id}.`);
 		expect((rejected as Error).message).toContain("Earlier reply.");
-		expect((rejected as Error).message).toContain("make_additional_reply_to_the_same_comment");
+		expect(toolFailurePayload("reply_to_comment", {}, rejected).guidance).toContain("make_additional_reply_to_the_same_comment");
 		let currentThread = await readThread(testEnv.BICKR_KV, thread.id);
 		expect(currentThread.comments.filter((comment) => comment.parentCommentId === parent.id && comment.authorBotId === replier.id)).toHaveLength(1);
 
