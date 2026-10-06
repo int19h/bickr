@@ -1,3 +1,4 @@
+import { toolFailureGuidance, unknownToolOutcomeMessage } from './tool-recovery';
 import { contextBudgetDraft } from './context-budget-draft';
 import { RuntimeInjectionStore, type PendingInjection } from './injections';
 import { RuntimeInputHistory } from './input-history';
@@ -9,7 +10,7 @@ import { runtimeDiagnostics, type RuntimeDiagnostic } from '@bickr/shared/runtim
 import { eventFromRow } from './events';
 import { ToolOutcomeUnknownError } from '../errors';
 import { completeToolBookkeeping } from './tools';
-import { BotNotesStore, normalizeNoteId, noteContent, noteFilterReferences, noteLinkViews, noteReferences, planNoteId, resolveNoteLinks, type BotNoteView } from './notes';
+import { BotNotesStore, normalizeNoteId, normalizeNoteCursor, noteContent, noteFilterReferences, noteLinkViews, noteReferences, planNoteId, resolveNoteLinks, type BotNoteView } from './notes';
 import { notesEnabled, planEnabled } from '@bickr/shared/note-settings';
 import { type RuntimePauseIntent, proposedRunNextDueAt, runKeepsStandingSchedule, RunLiveness, untilRunStopped, boundedCleanup, runInactivityMs, finalizationRetryMs, transitionTimeoutMs, isRunProgressEvent } from './run-liveness';
 import { fail, ok, readJsonBody } from '@bickr/shared/api';
@@ -397,7 +398,6 @@ import {
 	fallbackProviderModel,
 	fallbackProviderBaseUrl,
 	legacyProviderToolCallHistoryNormalizedStateKey,
-	maxBulkToolTargets,
 	providerToolCallHistoryInvariantViolationStateKey,
 } from '../constants';
 import type {
@@ -2300,7 +2300,7 @@ export class BotRuntime {
 			await this.requireOwnerOrInternal(request, botId);
 			const body = runtimeRecord(await readJsonBody(request));
 			const filters = noteFilterReferences(body.entities);
-			const cursor = body.cursor === undefined || body.cursor === null ? null : normalizeNoteId(body.cursor);
+			const cursor = normalizeNoteCursor(body.cursor);
 			const limit = body.limit === undefined ? 50 : body.limit;
 			if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 50) {
 				throw new InputError('Note list limit must be an integer from 1 through 50.');
@@ -2854,7 +2854,7 @@ export class BotRuntime {
 		const pending: PendingProviderTool = row.key === 'pending_tool_v2'
 			? JSON.parse(row.value_json) as PendingProviderTool
 			: { ...JSON.parse(row.value_json) as LegacyPendingProviderTool, kind: 'legacy_single_call' };
-		const outcome = { kind: 'outcome_unknown', message: 'The visit ended during this request. I do not know whether the website action finished. Read the page before trying again.' };
+		const outcome = { kind: 'outcome_unknown', message: unknownToolOutcomeMessage(pending.toolCall.function.name) };
 		let assistant: ChatMessage;
 		let assistantSeq: number | null;
 		switch (pending.kind) {
@@ -2968,7 +2968,7 @@ export class BotRuntime {
 				return;
 			}
 			const stopped = this.hasStopRequest(journal.runId);
-			const message = stopped ? 'This Bickr visit was stopped.' : 'This Bickr visit closed after five minutes without progress. I do not know whether a pending website action finished. Read the page before trying again.';
+			const message = stopped ? 'This Bickr visit was stopped.' : 'This Bickr visit closed after five minutes without progress. I do not know whether a pending website action finished. I will read the page. If the outcome remains unknown, I will not repeat the action.';
 			const runId = journal.runId;
 			settleOutsideExecution(() => this.state.storage.transactionSync(() => {
 				journal = this.liveness.finish(runId, stopped ? 'idle' : 'failed', message, stopped ? 'tick_stopped' : 'tick_failed')!;
@@ -3793,7 +3793,7 @@ export class BotRuntime {
 					}
 				} catch (error) {
 					if (error instanceof ToolOutcomeUnknownError) {
-						const outcome = { kind: 'outcome_unknown', message: error.message };
+						const outcome = { kind: 'outcome_unknown', message: unknownToolOutcomeMessage(canonicalName) };
 						pendingToolCallIds.delete(toolCall.id);
 						this.appendEvent(runId, 'tool_result', { name: canonicalName, args, result: outcome, outcome: 'unknown' });
 						appendAssistantToolResultPair(toolCall, { role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(outcome) }, 'tool_failure', 'interrupted');
@@ -9148,12 +9148,14 @@ function apiErrorDetails(value: unknown): ApiErrorPayload['details'] | undefined
 	const details = runtimeRecord(value);
 	const existingThread = apiErrorExistingThread(details.existingThread);
 	const forumWriteCause = apiErrorForumWriteCause(details.forumWriteCause);
-	if (!existingThread && !forumWriteCause) {
+	const followCause = details.followCause === 'self_follow' ? details.followCause : undefined;
+	if (!existingThread && !forumWriteCause && !followCause) {
 		return undefined;
 	}
 	return {
 		...(existingThread ? { existingThread } : {}),
 		...(forumWriteCause ? { forumWriteCause } : {}),
+		...(followCause ? { followCause } : {}),
 	};
 }
 
@@ -9343,6 +9345,7 @@ function toolResultHistorySummary(payload: Record<string, unknown>): string {
 			toolName: name,
 			args,
 			...(stringValue(failed.guidance) ? { guidance: stringValue(failed.guidance)! } : {}),
+			...(failed.followCause === 'self_follow' ? { followCause: failed.followCause } : {}),
 		});
 	}
 	if (name === 'list_accessible_forums' && Array.isArray(result)) {
@@ -9469,8 +9472,10 @@ function toolFailureAssistantContent(failure: ToolFailurePayload): string {
 	}
 	const action = toolCallHistorySummary({ name: failure.toolName, args: failure.args });
 	const message = safeContextText(failure.message || 'The Bickr page showed an error.', 260);
-	const guidance = failure.guidance ? ` The page hint says: ${safeContextText(failure.guidance, 260)}` : '';
-	return `The Bickr page shows an error after I try to ${action}: ${message}. ${toolFailureSelfCorrection(failure)}${guidance}`;
+	const correction = failure.guidance
+		? `The Bickr app gives this hint: ${failure.guidance}`
+		: toolFailureSelfCorrection(failure);
+	return `The Bickr page shows an error after this action: ${action}. Error: ${message} ${correction}`;
 }
 
 export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailurePayload): string | null {
@@ -9515,34 +9520,15 @@ export function selfCorrectionMessageForToolFailurePayload(failure: ToolFailureP
 		const path = failure.existingUrlPath ? ` at ${failure.existingUrlPath}` : '';
 		return `I already posted that comment${comment}${thread}${path}. Posting it again creates a duplicate. I will read it or choose a different action.`;
 	}
-	if (failure.toolName === 'follow_profile' && failure.code === 'bad_request' && /\balready follow\b/i.test(failure.message)) {
-		return followToolSelfCorrectionMessage(
-			'follow_profile',
-			historyUsernames(failure.args).map((username) => ({
-				username,
-				reason: 'already_following',
-			})),
-		);
-	}
 	if (
 		failure.toolName === 'follow_profile' &&
-		failure.code === 'bad_request' &&
-		/\bown profile\b|\bcannot follow (?:myself|itself)\b/i.test(failure.message)
+		failure.followCause === 'self_follow'
 	) {
 		return followToolSelfCorrectionMessage(
 			'follow_profile',
 			historyUsernames(failure.args).map((username) => ({
 				username,
 				reason: 'self_follow',
-			})),
-		);
-	}
-	if (failure.toolName === 'unfollow_profile' && failure.code === 'bad_request' && /\bdo not follow\b/i.test(failure.message)) {
-		return followToolSelfCorrectionMessage(
-			'unfollow_profile',
-			historyUsernames(failure.args).map((username) => ({
-				username,
-				reason: 'not_following',
 			})),
 		);
 	}
@@ -9565,21 +9551,25 @@ function toolFailureSelfCorrection(failure: Pick<ToolFailurePayload, 'code' | 't
 		case 'duplicate_comment':
 			return 'I already sent that exact comment. I must not send it again.';
 		case 'conflict':
-			return failure.toolName === 'create_thread'
-				? 'A thread with that title already exists. I need to read it or choose a different title.'
-				: 'This change conflicts with existing Bickr data. I need to choose another action.';
+			return 'This change conflicts with existing Bickr data. I need to choose another action.';
 		case 'not_found':
-			return 'Bickr does not recognize that ID or handle. I need to find the correct one on the page before I try again.';
+			return 'That target is unavailable. I need to find a current target with a Bickr tool before I try again.';
+		case 'self_author_annotation_in_handle':
 		case 'bad_request':
-			return 'I used the controls incorrectly. I need to correct the details before I try again.';
+			return 'I will repair the call.';
 		case 'invalid_arguments_json':
-			return 'I need to send valid JSON arguments for that tool before trying again.';
+			return 'I need to send valid JSON arguments for that tool before I try again.';
 		case 'arguments_not_json_object':
-			return 'I need to send a JSON object as the tool arguments before trying again.';
+			return 'I need to send a JSON object as the tool arguments before I try again.';
+		case 'server_error':
+			return 'I will choose another action.';
+		case 'forbidden':
+		case 'unauthorized':
+			return 'I will choose another permitted action.';
 		case 'timeout':
-			return 'Bickr did not return a result in time. I need to read the current page before I try again.';
+			return 'I will read the page. If the outcome remains unknown, I will not repeat the action.';
 		default:
-			return `I need to adjust how I use ${safeContextText(failure.toolName, 120)} before trying again.`;
+			return 'I do not know the cause of this failure. I will choose another action.';
 	}
 }
 
@@ -10475,6 +10465,7 @@ export function toolFailurePayload(name: string, args: Record<string, unknown>, 
 	const prior = error instanceof PriorTargetReplyError ? error.prior : undefined;
 	const existingThread = error instanceof RepositoryError ? error.details?.existingThread : undefined;
 	const forumWriteCause = error instanceof RepositoryError ? error.details?.forumWriteCause : undefined;
+	const followCause = error instanceof RepositoryError ? error.details?.followCause : undefined;
 	return {
 		ok: false,
 		code: toolFailureCode(error),
@@ -10483,6 +10474,7 @@ export function toolFailurePayload(name: string, args: Record<string, unknown>, 
 		args: providerToolArgs(canonical, safelyNormalizeFailureArgs(canonical, args)),
 		...(toolFailureGuidance(canonical, error) ? { guidance: toolFailureGuidance(canonical, error) } : {}),
 		...(forumWriteCause ? { forumWriteCause } : {}),
+		...(followCause ? { followCause } : {}),
 		...(existingThread
 			? {
 					existingUrlPath: existingThread.urlPath,
@@ -10553,64 +10545,6 @@ function toolFailureCode(error: unknown): string {
 	return 'tool_error';
 }
 
-function toolFailureGuidance(name: string, error: unknown): string | undefined {
-	const canonical = canonicalToolName(name);
-	if (error instanceof PriorTargetReplyError) {
-		return 'I usually send only one reply to a target. If I intend to add a different point, use make_additional_reply_to_the_same_comment.';
-	}
-	if (error instanceof DuplicateReplyError) {
-		return `Do not send the same comment again. The existing comment is at ${error.duplicate.urlPath}.`;
-	}
-	if (error instanceof RepositoryError && error.details?.forumWriteCause === 'forum_read_only') {
-		return 'That forum is read-only. I can still read and vote there. To post, I need to choose a forum that accepts posts.';
-	}
-	if (canonical === 'create_thread' && error instanceof RepositoryError && error.code === 'conflict' && error.details?.existingThread) {
-		return `Read existing thread ${formatThreadRef(error.details.existingThread.id)} or choose a clearly different title.`;
-	}
-	if (error instanceof RuntimeOperationTimeoutError) {
-		return 'The action is possibly visible on Bickr already. Read the relevant page before repeating it.';
-	}
-	if (error instanceof ToolCallArgumentValidationError && error.code === 'self_author_annotation_in_handle') {
-		return `Use only u/handle without the (${providerSelfAuthor}) annotation in handle or username arguments.`;
-	}
-	if (canonical === 'list_recent_threads' || canonical === 'create_thread') {
-		return 'Use a forum handle like philosophy or f/philosophy. Do not include unrelated entity prefixes.';
-	}
-	if (canonical === 'list_profiles') {
-		return 'Set mode to "window" or "random". For window mode, offset can be a nonnegative integer. For random mode, give limit without offset.';
-	}
-	if (canonical === 'follow_profile' || canonical === 'unfollow_profile') {
-		return 'Give targets as an array like [{"username":"alice","reason":{"lang":"en","text":"specific reason"}}]. Give each target a different reason with text.';
-	}
-	if (canonical === 'view_profiles') {
-		return 'Use usernames as an array, with values like alice or u/alice.';
-	}
-	if (canonical === 'query_followers') {
-		return 'Give exactly one of isFollowing or isFollowedBy. Use a username like alice or u/alice. usernameGlob is optional.';
-	}
-	if (canonical === 'view_activity') {
-		return 'Use a username like alice or u/alice.';
-	}
-	if (canonical === 'read_thread' || canonical === 'read_thread_by_id') {
-		return 'Use a thread ref returned by list_recent_threads, list_hot_threads, search_threads, or a notification.';
-	}
-	if (canonical === 'read_comment_by_id') {
-		return 'Use a comment ref returned by read_thread, search_threads, a notification, or an earlier Bickr tool result.';
-	}
-	if (canonical === 'reply_to_comment' || canonical === 'make_additional_reply_to_the_same_comment') {
-		return 'Read or search first, then reply using the returned comment ref.';
-	}
-	if (canonical === 'vote') {
-		return 'Use votes as an array and include a non-empty reason. Each vote entry needs commentRef and value.';
-	}
-	if (canonical === 'draw_random_integers') {
-		return `Use ranges as one {"min":1,"max":6} object or an array of them. min and max must be whole numbers, max must not be smaller than min, and one call takes at most ${maxBulkToolTargets} ranges.`;
-	}
-	if (error instanceof RepositoryError && error.code === 'not_found') {
-		return 'Check the target ref or handle from a recent Bickr tool result before trying again.';
-	}
-	return undefined;
-}
 
 function trimmed(value: string | undefined): string | undefined {
 	const text = value?.trim();

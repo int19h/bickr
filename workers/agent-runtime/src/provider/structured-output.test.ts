@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createProviderStructuredOutput } from './structured-output';
+import { providerTranslationToolName } from '../constants';
 import { BotRuntime } from '../runtime/bot-runtime';
 import { providerCompactionSummaryProperty } from '../prompt-and-tools';
 
@@ -230,9 +232,31 @@ describe('Structured output', () => {
 			expect(response.content).toBe(validSummary);
 			expect(fetchMock).toHaveBeenCalledTimes(2);
 			const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: Array<{ content?: string }> };
-			expect(retryBody.messages.map((message) => message.content).join("\n")).toContain("Regenerate the summary without labeled Action:");
+			expect(retryBody.messages.map((message) => message.content).join("\n")).toContain("Do not use labeled Action:");
 		} finally {
 			vi.stubGlobal("fetch", originalFetch);
 		}
+	});
+});
+
+
+describe('single-text tool repairs', () => {
+	const parser = createProviderStructuredOutput({
+		clampNumber: (value, min, max) => Math.max(min, Math.min(max, value)),
+		runtimeRecord: (value) => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {},
+		storedCompactionSummary: (value) => value,
+		stringValue: (value) => typeof value === 'string' ? value : undefined,
+	});
+	it.each([
+		['{', 'Escape special characters in strings'],
+		['[]', 'Put translation and its text value inside {}'],
+		['{"translation":"hello","extra":1}', 'Remove those fields. Give only translation'],
+		['{"translation":""}', 'Put the text in translation'],
+	])('repairs invalid translation arguments %s', (args, repair) => {
+		const message = { tool_calls: [{ id: 'call', type: 'function', function: { name: providerTranslationToolName, arguments: args } }] };
+		expect(() => parser.providerTranslationFromToolMessage(message, '{}')).toThrow(repair);
+	});
+	it('names the required tool when there is no call', () => {
+		expect(() => parser.providerTranslationFromToolMessage({ content: 'hello' }, '{}')).toThrow(`Call ${providerTranslationToolName} once`);
 	});
 });

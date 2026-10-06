@@ -17,18 +17,18 @@ describe('tool argument validation', () => {
 	it('reports malformed tool-call JSON with the parser message', () => {
 		const malformed = rawToolCall('call_bad_json', 'vote', '{"reason":');
 
-		expect(() => parseToolArgs(malformed)).toThrow(/Malformed tool call! The arguments for vote are not valid JSON: /);
+		expect(() => parseToolArgs(malformed)).toThrow(/The tool call is invalid. The arguments for vote are not valid JSON\./);
 	});
 
 	it('reports non-object tool-call JSON as a malformed tool call', () => {
 		const malformed = rawToolCall('call_string_json', 'vote', '"not an object"');
 
-		expect(() => parseToolArgs(malformed)).toThrow('Malformed tool call! The arguments for vote must be a JSON object, but a string was provided.');
+		expect(() => parseToolArgs(malformed)).toThrow('The tool call is invalid. The arguments for vote must be a JSON object. You supplied a string. Put the arguments inside {}.');
 	});
 
 	it('uses the property name and bot language when a localized text argument is a raw string', () => {
 		expect(() => localizedToolTextArg('foo', 'reason', enLang)).toThrow(
-			'Malformed tool call! reason must be an object. You sent the string "reason":"foo". Send an object like "reason":{"lang":"en","text":"foo"}.',
+			'The tool call is invalid. reason must be an object. You sent the string "foo". Set reason to {"lang":"en","text":"foo"}.',
 		);
 	});
 
@@ -36,13 +36,13 @@ describe('tool argument validation', () => {
 		const ja = 'ja' as LanguageTag;
 
 		expect(() => localizedToolTextArg('将軍家', 'targets[0].reason', ja)).toThrow(
-			'Malformed tool call! targets[0].reason must be an object. You sent the string "targets[0].reason":"将軍家". Send an object like "targets[0].reason":{"lang":"ja","text":"将軍家"}.',
+			'The tool call is invalid. targets[0].reason must be an object. You sent the string "将軍家". Set targets[0].reason to {"lang":"ja","text":"将軍家"}.',
 		);
 	});
 
 	it('names the offending localized text property in shape errors', () => {
 		expect(() => localizedToolTextArg({ text: 'foo' }, 'reason', enLang)).toThrow(
-			'reason must be an object with lang first and text second, for example "reason":{"lang":"ja","text":"将軍家"} or "reason":{"lang":"en","text":"my text"}.',
+			'reason must be an object with lang and text. Set reason to an object such as {"lang":"ja","text":"将軍家"} or {"lang":"en","text":"my text"}.',
 		);
 	});
 
@@ -154,12 +154,12 @@ describe('random range arguments', () => {
 	});
 
 	const invalid: Array<{ label: string; ranges: unknown; message: string }> = [
-		{ label: 'a missing ranges argument', ranges: undefined, message: 'ranges is required.' },
-		{ label: 'an empty array', ranges: [], message: 'ranges must include at least one range.' },
+		{ label: 'a missing ranges argument', ranges: undefined, message: 'ranges is required. For example, use {"ranges":[{"min":1,"max":6}]}.' },
+		{ label: 'an empty array', ranges: [], message: 'ranges must include at least one range. For example, use {"ranges":[{"min":1,"max":6}]}.' },
 		{
 			label: 'more ranges than the bulk cap',
 			ranges: Array.from({ length: 33 }, () => ({ min: 1, max: 6 })),
-			message: 'ranges can include at most 32 ranges.',
+			message: 'ranges can include at most 32 ranges. Split the ranges across separate calls.',
 		},
 		{ label: 'max below min', ranges: [{ min: 6, max: 1 }], message: 'ranges[0].max must be greater than or equal to ranges[0].min.' },
 		{
@@ -194,7 +194,7 @@ describe('random range arguments', () => {
 			ranges: '["{\\"min\\":1,\\"max\\":6}"]',
 			message: 'ranges[0] must be an object like {"min":1,"max":6}.',
 		},
-		{ label: 'a string that decodes to an empty array', ranges: '[]', message: 'ranges must include at least one range.' },
+		{ label: 'a string that decodes to an empty array', ranges: '[]', message: 'ranges must include at least one range. For example, use {"ranges":[{"min":1,"max":6}]}.' },
 		{
 			label: 'a string that decodes to a numeric string endpoint',
 			ranges: '[{"min":"1","max":6}]',

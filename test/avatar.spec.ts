@@ -1320,7 +1320,7 @@ describe("Avatar", () => {
 		);
 		expect(overlongAspectRatio.status).toBe(400);
 		const overlongAspectRatioBody = (await overlongAspectRatio.json()) as { ok: false; message: string };
-		expect(overlongAspectRatioBody.message).toBe("Image aspect ratio must be 40 characters or fewer.");
+		expect(overlongAspectRatioBody.message).toBe("Image aspect ratio must be 40 characters or fewer. Shorten the text.");
 
 		const r2 = fakeR2Bucket();
 		const originalFetch = globalThis.fetch;

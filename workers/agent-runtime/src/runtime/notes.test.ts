@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { extractCanonicalEntityReferences } from '@bickr/shared/mentions';
-import { BotNotesStore, defaultPlanContent, maxNotesPerBot, normalizeNoteId, noteContent, noteFilterReferences, noteReferences, planNoteId } from './notes';
+import { BotNotesStore, defaultPlanContent, maxNotesPerBot, normalizeNoteCursor, normalizeNoteId, noteContent, noteFilterReferences, noteReferences, planNoteId } from './notes';
 import { runtimeSchema } from './bot-runtime';
 import { createRuntimeTestStorage, type RuntimeTestStorage } from './sqlite-test-helper';
 
@@ -15,6 +15,14 @@ describe('private bot notes', () => {
 	});
 
 	afterEach(() => storage.database.close());
+
+	it('starts at the same page for omitted, null, and empty cursors and preserves later pages', () => {
+		notes.write('新規話題の参考メモ', 'Japanese reference.', []);
+		notes.write('other', 'Other reference.', []);
+		const first = notes.list(normalizeNoteCursor(undefined), 1);
+		for (const cursor of [null, '']) expect(notes.list(normalizeNoteCursor(cursor), 1)).toEqual(first);
+		expect(notes.list(normalizeNoteCursor(first.nextCursor), 1).ids).toEqual(['新規話題の参考メモ']);
+	});
 
 	it('attributes the current note content and clears attribution after manual replacement, edit, and PLAN reset', () => {
 		const attribution = { model: 'vendor/model', parameters: { temperature: 0.4 }, source: { botId: 'bot-a', worldHandle: 'primary', botHandle: 'alice', runId: 'run-a', requestSeq: 7 } };
@@ -177,7 +185,7 @@ describe('private bot notes', () => {
 		notes.write(secondId, 'second', []);
 		const first = notes.list(null, 1);
 		expect(first).toMatchObject({ ids: [firstId], nextCursor: firstId, total: 2 });
-		expect(notes.list(normalizeNoteId(first.nextCursor), 1).ids).toEqual([secondId]);
+		expect(notes.list(normalizeNoteCursor(first.nextCursor), 1).ids).toEqual([secondId]);
 	});
 
 	it('finds canonical references without treating a URL or an at-mention as a link', () => {
@@ -191,5 +199,21 @@ describe('private bot notes', () => {
 		]);
 		expect(noteFilterReferences(['  u/Ａlice  '])).toEqual([{ kind: 'participant', handle: 'alice' }]);
 		expect(() => noteFilterReferences(['@alice'])).toThrow();
+	});
+});
+
+describe('note pagination cursor input', () => {
+	it.each([undefined, null, ''])('treats %j as the start of the list', (value) => {
+		expect(normalizeNoteCursor(value)).toBeNull();
+	});
+	it('preserves Japanese titles and canonicalizes returned titles', () => {
+		expect(normalizeNoteCursor('新規話題の参考メモ')).toBe('新規話題の参考メモ');
+		expect(normalizeNoteCursor(' PLAN ')).toBe('PLAN');
+	});
+	it.each([42, {}, [], ' ', 'a\nb', 'a'.repeat(65)])('names the cursor and its repair for %j', (value) => {
+		expect(() => normalizeNoteCursor(value)).toThrow(/cursor.*Copy nextCursor.*omit cursor/);
+	});
+	it.each(['', null, ' '])('keeps %j invalid as an actual note ID', (value) => {
+		expect(() => normalizeNoteId(value)).toThrow(/id/);
 	});
 });

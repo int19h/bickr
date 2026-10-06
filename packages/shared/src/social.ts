@@ -504,14 +504,14 @@ export function rootCommentForThread(thread: ThreadDocument): CommentDocument {
 export function normalizeThreadDefaults(document: ThreadDocument): ThreadDocument {
 	const current = document;
 	if (!isCurrentThreadDocumentShape(current)) {
-		throw new InputError("Thread document does not match the current schema.");
+		throw repositoryError("server_error", "Bickr cannot read the stored thread data.", 500);
 	}
 	if (current.schemaVersion >= schemaVersion) {
 		return current;
 	}
 	const rootComment = current.comments.find((comment) => comment.id === current.rootCommentId);
 	if (!rootComment) {
-		throw new InputError("Thread document root comment is missing.");
+		throw repositoryError("server_error", "Bickr cannot find the stored thread root comment.", 500);
 	}
 	const comments = document.comments.map(normalizeCommentDocument);
 	const lastActivityAt = latestThreadActivityAt(comments);
@@ -617,10 +617,10 @@ async function forumById(
 		throw repositoryError("not_found", "Forum not found.", 404);
 	}
 	if (!world) {
-		throw repositoryError("not_found", "This forum's world was not found.", 404);
+		throw repositoryError("not_found", "The forum is unavailable. Choose another forum.", 404);
 	}
 	if (row.worldDeletedAt || world.deletedAt) {
-		throw repositoryError("not_found", "This forum's world has been deleted.", 410);
+		throw repositoryError("not_found", "The forum is no longer available. Choose another forum.", 410);
 	}
 	if (row.forumDeletedAt || forum.deletedAt) {
 		throw repositoryError("not_found", "This forum has been deleted.", 410);
@@ -3240,7 +3240,7 @@ export async function followBot(
 	options: { reason?: LocalizedText | string; spotlightId?: string; spotlightLabel?: string; inferenceAttribution?: InferenceAttribution } = {},
 ): Promise<{ activityId?: string; following: boolean }> {
 	if (followerBotId === followedBotId) {
-		throw repositoryError("bad_request", "A bot cannot follow itself.", 400);
+		throw repositoryError("bad_request", "You cannot follow your own profile. Choose another participant.", 400, { followCause: "self_follow" });
 	}
 	const follower = await botById(kv, db, followerBotId);
 	const followed = await botById(kv, db, followedBotId);
@@ -7692,7 +7692,7 @@ async function upsertCommentIndex(
 
 function assertBotInWorld(bot: BotDocument, worldId: string): void {
 	if (bot.homeWorldId !== worldId) {
-		throw repositoryError("forbidden", "Bot cannot act in this world.", 403);
+		throw repositoryError("forbidden", "You cannot access that resource. Choose another resource from a Bickr tool result.", 403);
 	}
 }
 
@@ -7703,7 +7703,7 @@ async function effectivePostingSettingsForAuthor(
 ): Promise<ReturnType<typeof effectivePostingSettings>> {
 	const world = await readJson<WorldDocument>(kv, kvKeys.world(worldId));
 	if (!world || world.deletedAt) {
-		throw repositoryError("server_error", "World document is missing.", 500);
+		throw repositoryError("server_error", "Bickr cannot load the data for this request.", 500);
 	}
 	return effectivePostingSettings(world.postingSettings, bot.postingSettings);
 }
@@ -7714,7 +7714,7 @@ async function effectiveThreadSettingsForForum(
 ): Promise<ReturnType<typeof effectiveThreadSettings>> {
 	const world = await readJson<WorldDocument>(kv, kvKeys.world(forum.worldId));
 	if (!world || world.deletedAt) {
-		throw repositoryError("server_error", "World document is missing.", 500);
+		throw repositoryError("server_error", "Bickr cannot load the data for this request.", 500);
 	}
 	return effectiveThreadSettings(world.threadSettings, forum.threadSettings);
 }

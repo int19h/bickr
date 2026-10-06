@@ -935,6 +935,7 @@ export type ApiErrorDetails = {
 	 * message, which is composed at each generation site.
 	 */
 	forumWriteCause?: ForumWriteErrorCause;
+	followCause?: "self_follow";
 	/**
 	 * Typed cause for a rejected spotlight request. The send route's stale-read
 	 * retry and the owner UI both branch on this instead of the message text.

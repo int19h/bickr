@@ -186,14 +186,15 @@ describe("redundant post and reply self-corrections", () => {
 });
 
 describe("tool argument failure guidance", () => {
-	it("uses typed guidance when a composite self-author label is pasted as a username", () => {
+	it("gives a field repair when a composite self-author label is pasted as a username", () => {
 		const error = caughtError(() => normalizeToolArgs("view_activity", { username: "u/alice (MYSELF)" }));
 		expect(error).toBeInstanceOf(ToolCallArgumentValidationError);
 
 		const failure = toolFailurePayload("view_activity", { username: "u/alice (MYSELF)" }, error);
 
 		expect(failure.code).toBe("self_author_annotation_in_handle");
-		expect(failure.guidance).toBe("Use only u/handle without the (MYSELF) annotation in handle or username arguments.");
+		expect(failure.message).toContain("Remove the (MYSELF) annotation. Use a handle such as u/alice.");
+		expect(failure.guidance).toBeUndefined();
 	});
 
 	it("does not infer annotation guidance from generic error prose", () => {
@@ -204,7 +205,7 @@ describe("tool argument failure guidance", () => {
 		);
 
 		expect(failure.code).toBe("tool_error");
-		expect(failure.guidance).toBe("Use a username like alice or u/alice.");
+		expect(failure.guidance).toBeUndefined();
 	});
 });
 
@@ -660,4 +661,39 @@ describe("duplicate reply detection across retained tool results", () => {
 		}
 		throw new Error("Expected a duplicate reply to be rejected.");
 	}
+});
+
+describe('note tool cursor fallback', () => {
+	it.each([{}, { cursor: '' }, { cursor: null }])('starts the same list for %j', async (args) => {
+		const recorder = toolExecutionRecorder();
+		const calls: Array<string | null> = [];
+		recorder.runtime.listNotes = (cursor) => {
+			calls.push(cursor);
+			return { ids: ['PLAN', '新規話題の参考メモ'], nextCursor: null, total: 2, unknownFilters: [] };
+		};
+		const result = await new RuntimeTools(recorder.runtime).executeTool(randomDrawParticipant(), 'run-note', 'list_notes', args,
+			{ mode: 'normal', setupMode: 'new_iteration', signal: new AbortController().signal });
+		expect(calls).toEqual([null]);
+		expect(result.result).toMatchObject({ ids: ['PLAN', '新規話題の参考メモ'] });
+	});
+	it('returns cursor-specific repair guidance for an invalid cursor', async () => {
+		const recorder = toolExecutionRecorder();
+		const args = { cursor: 7 };
+		const error = await new RuntimeTools(recorder.runtime).executeTool(randomDrawParticipant(), 'run-note', 'list_notes', args,
+			{ mode: 'normal', setupMode: 'new_iteration', signal: new AbortController().signal }).catch((error: unknown) => error);
+		expect(toolFailurePayload('list_notes', args, error)).toMatchObject({ code: 'bad_request', message: expect.stringContaining('cursor must be text. Copy nextCursor') });
+	});
+});
+
+
+describe('public argument names in missing-ref errors', () => {
+	it.each([['read_thread_by_id', 'threadRef'], ['read_comment_by_id', 'commentRef'], ['reply_to_comment', 'commentRef']])('names the advertised field for %s', async (tool, field) => {
+		const recorder = toolExecutionRecorder();
+		const args = { body: { lang: 'en', text: 'Reply.' } };
+		const error = await new RuntimeTools(recorder.runtime).executeTool(randomDrawParticipant(), 'run-ref', tool, args,
+			{ mode: 'normal', setupMode: 'new_iteration', signal: new AbortController().signal }).catch((error: unknown) => error);
+		const failure = toolFailurePayload(tool, args, error);
+		expect(failure).toMatchObject({ code: 'bad_request', message: expect.stringContaining(`${field} must be nonempty text`) });
+		expect(failure.message).not.toMatch(/threadId|commentId/);
+	});
 });

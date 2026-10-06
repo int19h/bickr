@@ -212,7 +212,7 @@ describe("createThread duplicate title guard", () => {
 			body: en("x".repeat(161)),
 		}, now)).rejects.toMatchObject({
 			name: "InputError",
-			message: "Thread body must be 160 characters or fewer.",
+			message: "Thread body must be 160 characters or fewer. Shorten the text.",
 		});
 	});
 
@@ -240,7 +240,7 @@ describe("createThread duplicate title guard", () => {
 			body: en("x".repeat(81)),
 		}, now)).rejects.toMatchObject({
 			name: "InputError",
-			message: "Comment body must be 80 characters or fewer.",
+			message: "Comment body must be 80 characters or fewer. Shorten the text.",
 		});
 	});
 
@@ -432,7 +432,7 @@ describe("mention canonicalization at the write boundary", () => {
 			body: en("Root body"),
 		}, now)).rejects.toMatchObject({
 			name: "InputError",
-			message: "Thread title must be 160 characters or fewer.",
+			message: "Thread title must be 160 characters or fewer. Shorten the text.",
 		});
 		expect(kv.puts).toEqual([]);
 		await expect(createThread(kv, db, {
@@ -453,7 +453,7 @@ describe("mention canonicalization at the write boundary", () => {
 			body: en("@bob @bob @bob @carol"),
 		}, now)).rejects.toMatchObject({
 			name: "InputError",
-			message: "Thread body must be 20 characters or fewer.",
+			message: "Thread body must be 20 characters or fewer. Shorten the text.",
 		});
 		expect(kv.puts).toEqual([]);
 	});

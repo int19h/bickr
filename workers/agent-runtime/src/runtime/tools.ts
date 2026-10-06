@@ -46,10 +46,10 @@ import {
 	type ThreadDocument,
 	type ThreadSummary,
 } from '@bickr/shared/model';
-import { SelfCorrectingToolCallError } from '../errors';
+import { SelfCorrectingToolCallError, ToolCallArgumentValidationError } from '../errors';
 import { repairInvalidUnicodeText, unicodeSafeSlice } from '../provider/sanitize';
 import { randomIntegersForRanges } from './random-integers';
-import { normalizeNoteId, noteContent, noteFilterReferences, noteLinkViews, noteReferences, planNoteId, resolveNoteLinks, type BotNote, type NoteLink, type NoteListPage } from './notes';
+import { normalizeNoteId, normalizeNoteCursor, noteContent, noteFilterReferences, noteLinkViews, noteReferences, planNoteId, resolveNoteLinks, type BotNote, type NoteLink, type NoteListPage } from './notes';
 import type { ViewedProfileResult } from '@bickr/shared/tool-results';
 import type {
 	DuplicateReply,
@@ -187,7 +187,7 @@ export class RuntimeTools {
 			case 'read_thread_by_id': {
 				const readResult = await this.threadReadResult(
 					bot,
-					await readThread(this.runtime.env.BICKR_KV, stringArg(normalizedArgs.threadId, 'threadId')),
+					await readThread(this.runtime.env.BICKR_KV, stringArg(normalizedArgs.threadId, 'threadRef')),
 					canonicalName,
 				);
 				result = readResult;
@@ -195,7 +195,7 @@ export class RuntimeTools {
 				break;
 			}
 			case 'read_comment_by_id': {
-				const readResult = await this.readCommentById(bot, stringArg(normalizedArgs.commentId, 'commentId'), canonicalName);
+				const readResult = await this.readCommentById(bot, stringArg(normalizedArgs.commentId, 'commentRef'), canonicalName);
 				result = readResult;
 				envelope = contentReadEnvelope(readResultContentItems(readResult));
 				break;
@@ -227,7 +227,7 @@ export class RuntimeTools {
 			case 'make_additional_reply_to_the_same_comment': {
 				const body = localizedToolTextArg(normalizedArgs.body, 'body', bot.language);
 				normalizedArgs.body = body;
-				const parentCommentId = stringArg(normalizedArgs.commentId, 'commentId');
+				const parentCommentId = stringArg(normalizedArgs.commentId, 'commentRef');
 				const mutation = spotlightMutationScopeForComment(spotlightScope, parentCommentId);
 				const threadId = await this.threadIdForComment(parentCommentId);
 				if (canonicalName === 'reply_to_comment') {
@@ -355,7 +355,7 @@ export class RuntimeTools {
 			case 'list_notes': {
 				const filters = noteFilterReferences(normalizedArgs.entities);
 				const resolved = await resolveNoteLinks(this.runtime.env.BICKR_D1, bot.homeWorldId, filters);
-				const cursor = normalizedArgs.cursor === undefined ? null : normalizeNoteId(normalizedArgs.cursor);
+				const cursor = normalizeNoteCursor(normalizedArgs.cursor);
 				const page = this.runtime.listNotes(cursor, numberArg(normalizedArgs.limit, 50, 50), resolved.links, resolved.unknown, planEnabled(bot.toolSettings));
 				result = page;
 				envelope = { kind: 'note_listed', ...page };
@@ -365,7 +365,7 @@ export class RuntimeTools {
 				const id = normalizeNoteId(normalizedArgs.id);
 				if (id === planNoteId && !planEnabled(bot.toolSettings)) throw new RepositoryError('forbidden', 'PLAN is unavailable. Choose another note title.', 403, { noteCause: 'reserved_title' });
 				const note = this.runtime.readNote(id);
-				if (!note) throw new RepositoryError('not_found', 'Note not found.', 404);
+				if (!note) throw new RepositoryError('not_found', 'No note has that title.', 404);
 				const links = await noteLinkViews(this.runtime.env.BICKR_D1, bot.homeWorldId, note.links);
 				result = { ...note, links };
 				envelope = { kind: 'note_read', id, content: note.content, links };
@@ -388,7 +388,7 @@ export class RuntimeTools {
 				if (id === planNoteId && !planEnabled(bot.toolSettings)) throw new RepositoryError('forbidden', 'PLAN is unavailable. Choose another note title.', 403, { noteCause: 'reserved_title' });
 				this.runtime.throwIfStopped(runId, runContext.signal);
 				const outcome = this.runtime.deleteNote(id);
-				if (outcome.kind === 'not_found') throw new RepositoryError('not_found', 'Note not found.', 404);
+				if (outcome.kind === 'not_found') throw new RepositoryError('not_found', 'No note has that title.', 404);
 				result = outcome.kind === 'reset' ? { reset: id, content: outcome.note.content } : { deleted: id };
 				envelope = outcome.kind === 'reset' ? { kind: 'note_reset', id, content: outcome.note.content } : { kind: 'note_deleted', id };
 				break;
@@ -428,7 +428,7 @@ export class RuntimeTools {
 				envelope = { kind: 'opaque', value: result };
 				break;
 			default:
-				throw new Error(`Unknown tool: ${canonicalName}`);
+				throw new ToolCallArgumentValidationError('bad_request', `Unknown tool: ${canonicalName}. Choose a tool from the available tool list.`);
 		}
 		this.runtime.throwIfStopped(runId, runContext.signal);
 		if (effectiveArgs) {
@@ -735,7 +735,7 @@ export class RuntimeTools {
 		}
 		// This attempt was refused before dispatch. Let the participant choose a
 		// different action without reclassifying it as a newly unknown mutation.
-		throw new SelfCorrectingToolCallError('I do not know whether my earlier identical reply was posted. Read the page before I try again. This reply was not sent.');
+		throw new SelfCorrectingToolCallError('I do not know whether my earlier identical reply was posted. Use read_comment_by_id to inspect the target. This reply was not sent. If the earlier outcome remains unknown, do not repeat the reply.');
 	}
 
 	private async threadReadResult(bot: RuntimeBotDocument, thread: ThreadDocument, operation: string, targetCommentId?: string) {
@@ -780,7 +780,7 @@ export class RuntimeTools {
 			const forums = await listForums(this.runtime.env.BICKR_D1, bot.homeWorldHandle);
 			const forum = forums.find((item) => item.id === args.forumId);
 			if (!forum) {
-				throw new Error('Forum not found.');
+				throw new RepositoryError('not_found', 'Forum not found.', 404);
 			}
 			return forum;
 		}
@@ -806,7 +806,7 @@ export class PriorTargetReplyError extends Error {
 	constructor(prior: PriorTargetReplies) {
 		const replyLines = prior.replies.map((reply) => `- ${reply.commentId}: ${quoteForContext(reply.body, 1_000)}`).join('\n');
 		super(
-			`I already replied to ${prior.targetDescription}. Past replies:\n${replyLines}\nIf I need one more reply, I must use make_additional_reply_to_the_same_comment.`,
+			`I already replied to ${prior.targetDescription}. Past replies:\n${replyLines}`,
 		);
 		this.name = 'PriorTargetReplyError';
 		this.prior = prior;

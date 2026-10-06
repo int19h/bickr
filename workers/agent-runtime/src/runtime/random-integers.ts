@@ -52,10 +52,10 @@ export function randomIntegersForRanges(
 
 export function validateRandomRanges(ranges: readonly RandomRangeTarget[]): void {
 	if (ranges.length === 0) {
-		throw new ToolCallArgumentValidationError('bad_request', 'ranges must include at least one range.');
+		throw new ToolCallArgumentValidationError('bad_request', 'ranges must include at least one range. For example, use {"ranges":[{"min":1,"max":6}]}.');
 	}
 	if (ranges.length > maxBulkToolTargets) {
-		throw new ToolCallArgumentValidationError('bad_request', `ranges can include at most ${maxBulkToolTargets} ranges.`);
+		throw new ToolCallArgumentValidationError('bad_request', `ranges can include at most ${maxBulkToolTargets} ranges. Split the ranges across separate calls.`);
 	}
 	for (const [index, range] of ranges.entries()) {
 		assertSafeEndpoint(range.min, `ranges[${index}].min`);

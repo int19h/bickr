@@ -4,7 +4,7 @@ import {
 	type LanguageTag,
 	type RequiredLocalizedText,
 } from '@bickr/shared/model';
-import { normalizeHandle } from '@bickr/shared/validation';
+import { InputError, normalizeHandle } from '@bickr/shared/validation';
 import { maxBulkToolTargets, providerSelfAuthor } from '../constants';
 import { ToolCallArgumentValidationError } from '../errors';
 import { validateRandomRanges, type RandomRangeTarget } from './random-integers';
@@ -294,7 +294,7 @@ export function parseToolArgsWithDiagnostics(toolCall: ToolCall): ParsedToolArgs
 		}
 		throw new ToolCallArgumentValidationError(
 			'arguments_not_json_object',
-			`Malformed tool call! The arguments for ${canonicalToolName(toolCall.function.name || 'unknown_tool')} must be a JSON object, but ${jsonValueKind(parsed)} was provided.`,
+			`The tool call is invalid. The arguments for ${canonicalToolName(toolCall.function.name || 'unknown_tool')} must be a JSON object. You supplied ${jsonValueKind(parsed)}. Put the arguments inside {}.`,
 		);
 	} catch (error) {
 		if (error instanceof ToolCallArgumentValidationError) {
@@ -302,7 +302,7 @@ export function parseToolArgsWithDiagnostics(toolCall: ToolCall): ParsedToolArgs
 		}
 		throw new ToolCallArgumentValidationError(
 			'invalid_arguments_json',
-			`Malformed tool call! The arguments for ${canonicalToolName(toolCall.function.name || 'unknown_tool')} are not valid JSON: ${errorMessage(error)}`,
+			`The tool call is invalid. The arguments for ${canonicalToolName(toolCall.function.name || 'unknown_tool')} are not valid JSON. Put quotes around strings and escape special characters. JSON parser error: ${errorMessage(error)}`,
 		);
 	}
 }
@@ -379,7 +379,7 @@ function toolUsesForumHandle(name: string): boolean {
 
 export function stringArg(value: unknown, label: string): string {
 	if (typeof value !== 'string' || !value.trim()) {
-		throw new Error(`${label} is required.`);
+		throw new ToolCallArgumentValidationError('bad_request', `${label} must be nonempty text. Give ${label} as a JSON string.`);
 	}
 	return value.trim();
 }
@@ -390,11 +390,11 @@ export function localizedToolTextArg(value: unknown, label: string, language?: L
 	}
 	const record = runtimeRecord(value);
 	if (!Object.hasOwn(record, 'lang') || !Object.hasOwn(record, 'text')) {
-		throw new ToolCallArgumentValidationError('bad_request', `${label} must be an object with lang first and text second, for example ${localizedToolTextPropertyExample(label, 'ja', '将軍家')} or ${localizedToolTextPropertyExample(label, 'en', 'my text')}.`);
+		throw new ToolCallArgumentValidationError('bad_request', `${label} must be an object with lang and text. Set ${label} to an object such as ${localizedToolTextValueExample('ja', '将軍家')} or ${localizedToolTextValueExample('en', 'my text')}.`);
 	}
 	const lang = languageTagArg(record.lang, `${label}.lang`);
 	if (typeof record.text !== 'string' || !record.text.trim()) {
-		throw new ToolCallArgumentValidationError('bad_request', `${label}.text is required.`);
+		throw new ToolCallArgumentValidationError('bad_request', `${label}.text must be nonempty text. Put the content in the text field.`);
 	}
 	return { lang, text: record.text };
 }
@@ -410,18 +410,18 @@ export function localizedArgumentText(value: unknown): string | undefined {
 
 function localizedToolTextStringError(text: string, label: string, language?: LanguageTag | null): string {
 	const lang = language ?? ('en' as LanguageTag);
-	const provided = `${JSON.stringify(label)}:${JSON.stringify(text)}`;
-	const expected = localizedToolTextPropertyExample(label, lang, text);
-	return `Malformed tool call! ${label} must be an object. You sent the string ${provided}. Send an object like ${expected}.`;
+	const provided = JSON.stringify(text);
+	const expected = localizedToolTextValueExample(lang, text);
+	return `The tool call is invalid. ${label} must be an object. You sent the string ${provided}. Set ${label} to ${expected}.`;
 }
 
-function localizedToolTextPropertyExample(label: string, lang: string, text: string): string {
-	return `${JSON.stringify(label)}:${JSON.stringify({ lang, text })}`;
+function localizedToolTextValueExample(lang: string, text: string): string {
+	return JSON.stringify({ lang, text });
 }
 
 function languageTagArg(value: unknown, label: string): LanguageTag {
 	if (typeof value !== 'string' || !value.trim() || value.trim().toLowerCase() === 'und') {
-		throw new ToolCallArgumentValidationError('bad_request', `${label} must be a specific BCP 47 language tag such as "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong", or "non"; do not use "und".`);
+		throw new ToolCallArgumentValidationError('bad_request', `${label} must be a specific BCP 47 language tag such as "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong", or "non". Do not use "und".`);
 	}
 	try {
 		const canonical = Intl.getCanonicalLocales(value.trim())[0];
@@ -438,7 +438,7 @@ function threadRefArg(value: unknown, label: string): string {
 	const text = stringArg(value, label);
 	const threadId = parseThreadRef(text);
 	if (!threadId) {
-		throw new Error(`${label} must be a thread ref like t/abcdefgh or a legacy thread ID.`);
+		throw new ToolCallArgumentValidationError('bad_request', `${label} must be a thread ref or a legacy thread ID. Copy a thread ref from a tool result.`);
 	}
 	return threadId;
 }
@@ -447,7 +447,7 @@ function commentRefArg(value: unknown, label: string): string {
 	const text = stringArg(value, label);
 	const commentId = parseCommentRef(text);
 	if (!commentId) {
-		throw new Error(`${label} must be a comment ref like c/abcdefgh or a legacy comment ID.`);
+		throw new ToolCallArgumentValidationError('bad_request', `${label} must be a comment ref or a legacy comment ID. Copy a comment ref from a tool result.`);
 	}
 	return commentId;
 }
@@ -460,11 +460,11 @@ export function listProfilesToolArgs(args: ToolArgs): ListProfilesToolArgs {
 	const mode = stringValue(args.mode);
 	const limit = numberArg(args.limit, 20);
 	if (mode !== 'window' && mode !== 'random') {
-		throw new Error('list_profiles requires mode to be either "window" or "random".');
+		throw new ToolCallArgumentValidationError('bad_request', 'mode must be "window" or "random". For example, call list_profiles with {"mode":"window","limit":20,"offset":0}.');
 	}
 	if (mode === 'random') {
 		if (args.offset !== null && args.offset !== undefined && args.offset !== '') {
-			throw new Error('list_profiles offset is only valid when mode is "window".');
+			throw new ToolCallArgumentValidationError('bad_request', 'offset is only valid when mode is "window". For mode "random", omit offset.');
 		}
 		return { mode, limit };
 	}
@@ -479,7 +479,7 @@ export function queryFollowersToolArgs(args: ToolArgs): QueryFollowersToolArgs {
 	const hasIsFollowing = stringValue(args.isFollowing) !== undefined;
 	const hasIsFollowedBy = stringValue(args.isFollowedBy) !== undefined;
 	if (hasIsFollowing === hasIsFollowedBy) {
-		throw new Error('query_followers requires exactly one of isFollowing or isFollowedBy.');
+		throw new ToolCallArgumentValidationError('bad_request', 'Give exactly one of isFollowing or isFollowedBy. For followers, use {"isFollowing":"u/alice"}. For followed profiles, use {"isFollowedBy":"u/alice"}.');
 	}
 	const username = usernameArg(hasIsFollowing ? args.isFollowing : args.isFollowedBy);
 	const usernameGlob = optionalStringArg(args.usernameGlob, 'usernameGlob');
@@ -493,7 +493,7 @@ function optionalStringArg(value: unknown, label: string): string | undefined {
 		return undefined;
 	}
 	if (typeof value !== 'string') {
-		throw new Error(`${label} must be a string.`);
+		throw new ToolCallArgumentValidationError('bad_request', `${label} must be a JSON string. Omit ${label} if you do not need it.`);
 	}
 	const text = value.trim();
 	return text ? text : undefined;
@@ -501,14 +501,14 @@ function optionalStringArg(value: unknown, label: string): string | undefined {
 
 export function usernamesArg(value: unknown): string[] {
 	if (!Array.isArray(value)) {
-		throw new Error('usernames must be a non-empty array.');
+		throw new ToolCallArgumentValidationError('bad_request', 'usernames must be a nonempty array. For example, use {"usernames":["u/alice"]}.');
 	}
 	const usernames = uniqueStrings(value.map((item, index) => typedHandleArg(item, 'u', `usernames[${index}]`)));
 	if (usernames.length === 0) {
-		throw new Error('usernames must include at least one username.');
+		throw new ToolCallArgumentValidationError('bad_request', 'usernames must include at least one username. Copy a participant handle into the usernames array.');
 	}
 	if (usernames.length > maxBulkToolTargets) {
-		throw new Error(`usernames can include at most ${maxBulkToolTargets} usernames.`);
+		throw new ToolCallArgumentValidationError('bad_request', `usernames can include at most ${maxBulkToolTargets} usernames. Split the usernames across separate calls.`);
 	}
 	return usernames;
 }
@@ -516,7 +516,7 @@ export function usernamesArg(value: unknown): string[] {
 function followToolTargetsFromLegacyArgs(args: ToolArgs, language?: LanguageTag | null): FollowToolTarget[] {
 	const rawUsernames = 'usernames' in args ? args.usernames : 'username' in args ? [args.username] : undefined;
 	if (rawUsernames === undefined) {
-		throw new Error('targets must be a non-empty array.');
+		throw new ToolCallArgumentValidationError('bad_request', 'targets must be a nonempty array. Give each target a username and a reason with lang and text.');
 	}
 	const reason = localizedToolTextArg(args.reason, 'reason', language);
 	return usernamesArg(rawUsernames).map((username) => ({ username, reason }));
@@ -550,11 +550,11 @@ export function followToolTargetsForProviderDedupe(args: ToolArgs): {
 
 function followToolTargetArrayArg(value: unknown, language?: LanguageTag | null): FollowToolTarget[] {
 	if (!Array.isArray(value)) {
-		throw new Error('targets must be a non-empty array.');
+		throw new ToolCallArgumentValidationError('bad_request', 'targets must be a nonempty array. Give each target a username and a reason with lang and text.');
 	}
 	const targets = value.map((item, index) => followToolTargetArg(item, index, language));
 	if (targets.length === 0) {
-		throw new Error('targets must include at least one participant.');
+		throw new ToolCallArgumentValidationError('bad_request', 'targets must include at least one participant. Give each target a username and a reason with lang and text.');
 	}
 	return targets;
 }
@@ -574,16 +574,16 @@ function dedupeFollowToolTargets(targets: readonly FollowToolTarget[]): FollowTo
 
 function validateFollowToolTargets(targets: readonly FollowToolTarget[]): void {
 	if (targets.length === 0) {
-		throw new Error('targets must include at least one participant.');
+		throw new ToolCallArgumentValidationError('bad_request', 'targets must include at least one participant. Give each target a username and a reason with lang and text.');
 	}
 	if (targets.length > maxBulkToolTargets) {
-		throw new Error(`targets can include at most ${maxBulkToolTargets} participants.`);
+		throw new ToolCallArgumentValidationError('bad_request', `targets can include at most ${maxBulkToolTargets} participants. Split the targets across separate calls.`);
 	}
 	const seenReasons = new Set<string>();
 	for (const target of targets) {
 		const reasonKey = localizedTextString(target.reason).toLocaleLowerCase();
 		if (seenReasons.has(reasonKey)) {
-			throw new Error('targets contains duplicate reasons. Give each participant a distinct reason.');
+			throw new ToolCallArgumentValidationError('bad_request', 'targets contains duplicate reasons. Give each participant a distinct reason.');
 		}
 		seenReasons.add(reasonKey);
 	}
@@ -621,7 +621,7 @@ function followToolTargetArg(value: unknown, index: number, language?: LanguageT
  */
 export function randomRangesArg(value: unknown): RandomRangeTarget[] {
 	if (value === null || value === undefined) {
-		throw new ToolCallArgumentValidationError('bad_request', 'ranges is required.');
+		throw new ToolCallArgumentValidationError('bad_request', 'ranges is required. For example, use {"ranges":[{"min":1,"max":6}]}.');
 	}
 	const decoded = typeof value === 'string' ? decodedRandomRangesArg(value) : value;
 	const items = Array.isArray(decoded) ? decoded : [decoded];
@@ -693,20 +693,20 @@ function randomRangeEndpointArg(value: unknown, label: string): number {
 
 export function voteTargetsArg(value: unknown): VoteToolTarget[] {
 	if (!Array.isArray(value)) {
-		throw new Error('votes must be a non-empty array.');
+		throw new ToolCallArgumentValidationError('bad_request', 'votes must be a nonempty array. Give each entry a commentRef and a value.');
 	}
 	const votes = value.map(voteTargetArg);
 	if (votes.length === 0) {
-		throw new Error('votes must include at least one vote.');
+		throw new ToolCallArgumentValidationError('bad_request', 'votes must include at least one vote. Give each entry a commentRef and a value.');
 	}
 	if (votes.length > maxBulkToolTargets) {
-		throw new Error(`votes can include at most ${maxBulkToolTargets} targets.`);
+		throw new ToolCallArgumentValidationError('bad_request', `votes can include at most ${maxBulkToolTargets} targets. Split the votes across separate calls.`);
 	}
 	const seen = new Set<string>();
 	for (const vote of votes) {
 		const key = vote.commentId;
 		if (seen.has(key)) {
-			throw new Error(`votes contains duplicate comment ${key}.`);
+			throw new ToolCallArgumentValidationError('bad_request', `votes contains duplicate comment ${key}. Include each comment only once.`);
 		}
 		seen.add(key);
 	}
@@ -727,7 +727,7 @@ function voteTargetArg(value: unknown, index: number): VoteToolTarget {
 function voteValueArg(value: unknown, label: string): -1 | 0 | 1 {
 	const vote = Number(value);
 	if (vote !== -1 && vote !== 0 && vote !== 1) {
-		throw new Error(`${label} must be -1, 0, or 1.`);
+		throw new ToolCallArgumentValidationError('bad_request', `${label} must be -1, 0, or 1. Use -1 to downvote, 0 to clear, or 1 to upvote.`);
 	}
 	return vote;
 }
@@ -737,14 +737,19 @@ function typedHandleArg(value: unknown, prefix: 'f' | 'u' | 'w', label: string):
 	if (prefix === 'u' && text.toUpperCase().endsWith(`(${providerSelfAuthor})`)) {
 		throw new ToolCallArgumentValidationError(
 			'self_author_annotation_in_handle',
-			`${label} must contain only a participant handle, without the (${providerSelfAuthor}) annotation.`,
+			`${label} must contain only a participant handle. Remove the (${providerSelfAuthor}) annotation. Use a handle such as u/alice.`,
 		);
 	}
 	const marker = `${prefix}/`;
 	while (text.toLowerCase().startsWith(marker)) {
 		text = text.slice(marker.length).trim();
 	}
-	return normalizeHandle(text);
+	try {
+		return normalizeHandle(text);
+	} catch (error) {
+		if (!(error instanceof InputError)) throw error;
+		throw new ToolCallArgumentValidationError('bad_request', `${label} is not a valid handle. Copy a ${marker} handle from a tool result.`);
+	}
 }
 
 function nonNegativeIntegerArg(value: unknown, label: string, fallback: number): number {
@@ -753,7 +758,7 @@ function nonNegativeIntegerArg(value: unknown, label: string, fallback: number):
 	}
 	const parsed = Number(value);
 	if (!Number.isInteger(parsed) || parsed < 0) {
-		throw new Error(`${label} must be a non-negative integer.`);
+		throw new ToolCallArgumentValidationError('bad_request', `${label} must be a nonnegative integer. Give 0 for the first page.`);
 	}
 	return parsed;
 }

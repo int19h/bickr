@@ -24,10 +24,28 @@ export type BotNoteView = Omit<BotNote, 'links'> & { links: NoteLinkView[] };
 export type NoteListPage = { ids: string[]; nextCursor: string | null; total: number; unknownFilters: string[] };
 
 export function normalizeNoteId(value: unknown): string {
-	if (typeof value !== 'string') throw new InputError('Note ID must be text.');
+	return normalizeNoteTitle(value, 'id');
+}
+
+export function normalizeNoteCursor(value: unknown): string | null {
+	// Some providers fill optional strings with an empty value. Keep this fallback
+	// out of the tool schema so that participants use returned cursors normally.
+	if (value === undefined || value === null || value === '') return null;
+	return normalizeNoteTitle(value, 'cursor');
+}
+
+function normalizeNoteTitle(value: unknown, field: 'id' | 'cursor'): string {
+	const repair = field === 'cursor'
+		? 'Copy nextCursor from the previous list_notes result. To start a new list, omit cursor.'
+		: 'Give id as the note title. For an existing note, copy an ID from list_notes.';
+	if (typeof value !== 'string') throw new InputError(`${field} must be text. ${repair}`);
 	const id = value.normalize('NFKC').toLowerCase().replace(/\p{Zs}+/gu, ' ').trim();
-	if ([...id].length < 1 || [...id].length > 64) throw new InputError('Note title must contain 1-64 characters after normalization.');
-	if (!allowedNoteIdCharacter.test(id)) throw new InputError('Note title can contain letters, marks, numbers, punctuation, symbols, and spaces only.');
+	if ([...id].length < 1 || [...id].length > 64) {
+		throw new InputError(`${field} must contain 1-64 characters after normalization. ${repair}`);
+	}
+	if (!allowedNoteIdCharacter.test(id)) {
+		throw new InputError(`${field} can contain letters, marks, numbers, punctuation, symbols, and spaces only. ${repair}`);
+	}
 	return id === 'plan' ? planNoteId : id;
 }
 
@@ -36,10 +54,10 @@ export function noteReferences(id: string, content: string): CanonicalEntityRefe
 }
 
 export function noteContent(value: unknown): string {
-	if (typeof value !== 'string') throw new InputError(`Note content must be 1-${maxNoteContentLength} characters.`);
+	if (typeof value !== 'string') throw new InputError(`content must be text with 1-${maxNoteContentLength} characters. Give the full note text in content.`);
 	const length = [...value].length;
 	if (length < 1 || length > maxNoteContentLength) {
-		throw new InputError(`Note content must be 1-${maxNoteContentLength} characters.`);
+		throw new InputError(`content must be text with 1-${maxNoteContentLength} characters. Give the full note text in content.`);
 	}
 	return value;
 }
@@ -47,13 +65,13 @@ export function noteContent(value: unknown): string {
 export function noteFilterReferences(value: unknown): CanonicalEntityReference[] {
 	if (value === undefined) return [];
 	if (!Array.isArray(value) || value.length > maxNoteFilters || value.some((entry) => typeof entry !== 'string')) {
-		throw new InputError(`Note filters must be a list of at most ${maxNoteFilters} f/ or u/ handles.`);
+		throw new InputError(`entities must be an array of at most ${maxNoteFilters} f/ or u/ handles. For example, use {"entities":["u/alice"]}.`);
 	}
 	const references = value.flatMap((entry) => {
 		const found = extractCanonicalEntityReferences(entry);
 		return found.length === 1 && normalizeHandleText(entry) === `${found[0]!.kind === 'forum' ? 'f' : 'u'}/${found[0]!.handle}` ? found : [];
 	});
-	if (references.length !== value.length) throw new InputError('Each note filter must be one f/ or u/ handle.');
+	if (references.length !== value.length) throw new InputError('Each entities entry must be one f/ or u/ handle. For example, use {"entities":["u/alice","f/news"]}.');
 	return references;
 }
 
@@ -63,7 +81,7 @@ export async function resolveNoteLinks(
 	references: readonly CanonicalEntityReference[],
 ): Promise<{ links: NoteLink[]; unknown: string[] }> {
 	const unique = new Map(references.map((reference) => [`${reference.kind}:${reference.handle}`, reference]));
-	if (unique.size > maxNoteLinks) throw new InputError(`A note can refer to at most ${maxNoteLinks} distinct profiles and forums.`);
+	if (unique.size > maxNoteLinks) throw new InputError(`A note can refer to at most ${maxNoteLinks} distinct profiles and forums. Remove some references from the title or content.`);
 	const links: NoteLink[] = [];
 	const found = new Set<string>();
 	for (const kind of ['participant', 'forum'] as const) {
@@ -188,13 +206,13 @@ export class BotNotesStore {
 	private writeRecord(id: string, content: string, links: readonly NoteLink[], mode: 'upsert' | 'create_only', inferenceAttribution?: InferenceAttribution): { kind: 'created' | 'replaced'; note: BotNote } {
 		id = normalizeNoteId(id);
 		content = noteContent(content);
-		if (links.length > maxNoteLinks) throw new InputError(`A note can refer to at most ${maxNoteLinks} distinct profiles and forums.`);
+		if (links.length > maxNoteLinks) throw new InputError(`A note can refer to at most ${maxNoteLinks} distinct profiles and forums. Remove some references from the title or content.`);
 		return this.storage.transactionSync(() => {
 			const existing = this.storage.sql.exec<{ created_at: string; revision: number }>('SELECT created_at, revision FROM notes WHERE note_id = ? LIMIT 1', id).toArray()[0];
 			if (existing && mode === 'create_only') throw new RepositoryError('conflict', 'A note with this title already exists.', 409, { noteCause: 'title_conflict' });
 			if (!existing) {
 				const count = this.storage.sql.exec<{ count: number }>('SELECT COUNT(*) AS count FROM notes WHERE note_id <> ?', planNoteId).one().count;
-				if (id !== planNoteId && count >= maxNotesPerBot) throw new RepositoryError('conflict', `A participant can keep at most ${maxNotesPerBot} notes.`, 409);
+				if (id !== planNoteId && count >= maxNotesPerBot) throw new RepositoryError('conflict', `You can keep at most ${maxNotesPerBot} notes. Replace an existing note, or delete an unneeded note before creating another.`, 409);
 			}
 			const now = new Date().toISOString();
 			this.storage.sql.exec(
@@ -214,7 +232,7 @@ export class BotNotesStore {
 		nextId = normalizeNoteId(nextId);
 		content = noteContent(content);
 		if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new InputError('Note revision must be a nonnegative integer.');
-		if (links.length > maxNoteLinks) throw new InputError(`A note can refer to at most ${maxNoteLinks} distinct profiles and forums.`);
+		if (links.length > maxNoteLinks) throw new InputError(`A note can refer to at most ${maxNoteLinks} distinct profiles and forums. Remove some references from the title or content.`);
 		return this.storage.transactionSync(() => {
 			const existing = this.read(id);
 			if (!existing) throw new RepositoryError('not_found', 'Note not found.', 404);

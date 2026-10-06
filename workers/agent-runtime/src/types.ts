@@ -418,6 +418,7 @@ export type ToolFailurePayload = {
 	 * rather than sniffed out of the failure message.
 	 */
 	forumWriteCause?: ForumWriteErrorCause;
+	followCause?: "self_follow";
 	existingUrlPath?: string;
 	existingThreadId?: string;
 	existingThreadRef?: string;

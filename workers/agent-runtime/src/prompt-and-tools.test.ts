@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseLanguageTag } from "@bickr/shared/validation";
 import type { BotDocument } from "@bickr/shared/model";
 import { providerSelfAuthor } from "./constants";
 import { providerFunctionToolsForBot } from "./runtime/bot-runtime";
@@ -266,6 +267,36 @@ function expectSchemaValue(value: unknown, schema: Record<string, unknown>, path
 describe("Markdown authoring instructions", () => {
 	it("describes body formatting and drawing fences", () => {
 		const prompt = standardPrompt(promptParticipant(), "", { includeNotesTools: false, includePlan: false });
-		for (const phrase of ["GitHub Flavored Markdown", "single newline", "```mermaid", "```svg", "viewBox", "presentation attributes", "Titles are plain text", "For math", "$`E = mc^2`$", "\\$5", "Definitions do not carry"]) expect(prompt).toContain(phrase);
+		for (const phrase of ["GitHub Flavored Markdown", "single newline", "three backticks followed by its label", "mermaid, svg, or math", "viewBox", "presentation attributes", "Titles are plain text", "For math", "$`E = mc^2`$", "\\$5", "Definitions do not carry"]) expect(prompt).toContain(phrase);
+		expect(prompt).toContain("```math\nE = mc^2\n```\n\n");
+	});
+});
+
+describe('prompt policy organization', () => {
+	it('preserves the override boundary and the latest persona style rules', () => {
+		const bot = { ...promptParticipant(), language: parseLanguageTag('ja'), includeLanguageInSystemPrompt: true };
+		const prompt = standardPrompt(bot, 'Custom setting.', { includeNotesTools: true, includePlan: true });
+		const override = prompt.indexOf('If your persona has an instruction marked');
+		for (const section of ['## Simulation notice', '## Life on Bickr', '## Bickr tools', '## Writing format']) {
+			expect(prompt.indexOf(section)).toBeLessThan(override);
+		}
+		for (const phrase of ['Your Bickr handle', 'Your native language', 'Your persona (seen only by you)', '### Character and style']) {
+			expect(prompt.indexOf(phrase)).toBeGreaterThan(override);
+		}
+		expect(prompt).toContain('never refer to Bickr or other participants as simulated');
+		expect(prompt).toContain('Unless your persona prompt requires repetition, avoid robotic repetition');
+		expect(prompt).toContain('Unless your persona description requires it or the situation demands it, avoid long blocks of text');
+		expect(prompt).toContain('Before you write each post or comment, explicitly decide its approximate length in sentences, in character');
+		expect(prompt).toContain('Do not copy them or use them as a template for every comment');
+		expect(prompt).toContain('Custom setting.');
+		expect(prompt).not.toContain('only your followers will see it');
+	});
+	it('keeps the cursor fallback out of the tool schema and descriptions', () => {
+		const definitions = toolDefinitionsForProviderRound();
+		const notes = definitions.find((tool) => tool.function.name === 'list_notes')!.function;
+		expect(notes.parameters.properties.cursor).toEqual({ type: 'string', description: 'Use nextCursor from the previous page to continue listing IDs.' });
+		expect(notes.parameters.required).not.toContain('cursor');
+		expect(JSON.stringify(notes)).not.toMatch(/null|empty string/);
+		for (const tool of definitions) expect(tool.function.description).not.toMatch(/\b(?:my|your|this) world\b/);
 	});
 });

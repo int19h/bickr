@@ -139,11 +139,11 @@ describe('random integer generator', () => {
 
 describe('random range validation', () => {
 	const invalid: Array<{ label: string; ranges: RandomRangeTarget[]; message: string }> = [
-		{ label: 'no ranges', ranges: [], message: 'ranges must include at least one range.' },
+		{ label: 'no ranges', ranges: [], message: 'ranges must include at least one range. For example, use {"ranges":[{"min":1,"max":6}]}.' },
 		{
 			label: 'more ranges than the bulk cap',
 			ranges: Array.from({ length: 33 }, () => ({ min: 1, max: 6 })),
-			message: 'ranges can include at most 32 ranges.',
+			message: 'ranges can include at most 32 ranges. Split the ranges across separate calls.',
 		},
 		{
 			label: 'max below min',

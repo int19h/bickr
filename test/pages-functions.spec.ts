@@ -3877,7 +3877,7 @@ describe("Pages functions", () => {
 		expect(tooLong.status).toBe(400);
 		expect(await tooLong.json()).toMatchObject({
 			ok: false,
-			message: "Prompt must be 64000 characters or fewer.",
+			message: "Prompt must be 64000 characters or fewer. Shorten the text.",
 		});
 	});
 
