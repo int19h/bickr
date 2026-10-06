@@ -2477,7 +2477,7 @@ describe("Tick limits and recovery", () => {
 		expect(secondRequest[toolMessageIndexes[0]!]?.tool_call_id).toBe("call-read");
 		expect(secondRequest[toolMessageIndexes[1]!]?.tool_call_id).toBe("call-reply-fail");
 		expect(acknowledgementIndex).toBeGreaterThan(toolMessageIndexes[1]!);
-		expect(String(secondRequest[acknowledgementIndex]?.content)).toContain("body must be an object");
+		expect(String(secondRequest[acknowledgementIndex]?.content)).toContain("Copy a comment ref from a tool result.");
 	});
 
 	it("finishes a parallel tool batch before applying persistent failure handling", async () => {
