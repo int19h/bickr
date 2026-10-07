@@ -127,14 +127,50 @@ Provider sign-in state under `v1:oauth-return:` keeps its separate short lifetim
 
 ## Credential inventory and revocation
 
-`GET /api/me/auth/credentials?after=<cursor>` returns at most 100 browser sessions, CLI tokens, or MCP grants. It returns `nextCursor` and `legacyMigrationComplete`. Record IDs are not bearer tokens. Until migration completes, the list can omit legacy browser and CLI credentials.
+`GET /api/me/auth/credentials?after=<cursor>` returns at most 100 active browser sessions, CLI tokens, or MCP grants.
+The query excludes revoked and expired records before pagination.
+An account revocation cutoff excludes every credential created at or before that cutoff.
+The response includes `nextCursor` and `legacyMigrationComplete`.
+Until migration completes, the list can omit legacy browser and CLI credentials.
 
-`DELETE /api/me/auth/credentials` requires cookie authentication and the browser origin rules above. Its body limit is 1 KiB. The body selects one credential with `{"kind":"credential","id":"<inventory ID>"}`, or all credentials with `{"kind":"all"}`.
+Each credential has a `kind` field that defines its metadata.
+Browser sessions include saved browser details and an `isCurrent` marker.
+Only an authenticated cookie identifies the current session.
+CLI tokens include their original issuer label.
+MCP grants include the registered client name, client ID, and permissions.
+The client name comes from an indexed join to the existing client record.
 
-A single-credential action only accepts records owned by the signed-in account. Revoking an MCP grant revokes its whole family. The all action also revokes pending approvals and legacy credentials that migration did not visit. It logs out the requesting browser.
+New browser sessions save descriptive browser and operating system names at sign-in.
+These names do not affect authentication.
+The writer does not store raw browser headers, addresses, versions, or device fingerprints.
+Older sessions without saved details remain unknown.
+MCP app names come from the client and are not verified identities.
 
-The profile screen lists credentials through this API. It provides single-credential and all-credential revocation. The list reports incomplete legacy migration and loads at most one page at a time.
+`PATCH /api/me/auth/credentials` accepts `{"id":"<inventory ID>","name":"Work laptop"}`.
+The route requires browser cookie authentication and the same-origin rules above.
+Names have a 120-character limit and cannot contain control characters.
+The writer trims the name and removes the custom-name field when the name is empty.
+The conditional update requires active access that belongs to an active account.
+It preserves the original identity, expiry, and revocation state.
 
-Successful all-credential revocation clears the browser cookie and local session state. The browser does not send a second logout request. A failed revocation leaves the session visible and reports the error.
+`DELETE /api/me/auth/credentials` also requires browser cookie authentication and the same-origin rules above.
+The body selects one credential with `{"kind":"credential","id":"<inventory ID>"}`, or all credentials with `{"kind":"all"}`.
+Both mutation routes enforce a 1 KiB body limit.
+A single-credential action accepts only records owned by the signed-in account.
+Revoking an MCP grant revokes its whole family.
+The all action also revokes pending approvals and legacy credentials that migration did not visit.
+
+The response includes `sessionRevoked`.
+Revoking the current browser session or all access clears the browser cookie.
+The profile screen clears local session state immediately after that accepted response.
+A failed mutation leaves access visible and reports the error.
+After another credential is revoked, the screen reloads the first page.
+
+The Account infobox precedes Account access on the profile screen.
+Entries show recognizable names, short dates, and actions for each kind.
+Expandable details keep public record IDs and the original identity when a custom name is present.
+Record IDs are not bearer tokens.
+Custom names and browser details use the existing fixed authentication retention rules.
+No new store or data migration is necessary.
 
 Cloudflare documents [D1 batch transactions](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch), [read replication](https://developers.cloudflare.com/d1/best-practices/read-replication/), and [KV consistency](https://developers.cloudflare.com/kv/concepts/how-kv-works/). [RFC 9700 section 4.14](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14) describes refresh rotation and family revocation after replay.

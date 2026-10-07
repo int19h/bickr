@@ -3639,6 +3639,71 @@ fieldset {
 	border-radius: var(--radius-lg);
 }
 
+.account-access,
+.credential-card,
+.credential-card > * {
+	min-width: 0;
+}
+
+.credential-card {
+	padding: 14px;
+	overflow-wrap: anywhere;
+}
+
+.credential-title {
+	font-weight: 600;
+	line-height: 1.4;
+}
+
+.credential-meta,
+.credential-details {
+	color: var(--ink-3);
+	font-size: calc(12px * var(--font-scale));
+	line-height: 1.5;
+	margin-top: 6px;
+}
+
+.credential-current {
+	color: var(--ink);
+	display: inline-block;
+	margin-left: 8px;
+}
+
+.credential-details summary {
+	cursor: pointer;
+}
+
+.credential-details p {
+	margin: 6px 0;
+}
+
+.credential-details code {
+	white-space: normal;
+}
+
+.account-access .actions {
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 12px;
+}
+
+.account-access .btn {
+	max-width: 100%;
+	white-space: normal;
+}
+
+.credential-name-form {
+	display: grid;
+	gap: 8px;
+	margin-top: 12px;
+}
+
+.credential-name-form .input {
+	min-width: 0;
+	width: 100%;
+}
+
+
 .runtime-card {
 	padding: 4px 14px;
 }

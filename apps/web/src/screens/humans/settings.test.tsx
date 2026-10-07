@@ -43,6 +43,10 @@ function render(): string {
 }
 
 describe("ProfileScreen inference boundary", () => {
+	it("shows the account infobox before account access", () => {
+		const markup = render();
+		expect(markup.indexOf("<h2>Account</h2>")).toBeLessThan(markup.indexOf("<h2>Account access</h2>"));
+	});
 	it("keeps profile data and the translation toggle and prompt", () => {
 		const markup = render();
 		expect(markup).toContain("Inline translations");

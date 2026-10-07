@@ -2,6 +2,7 @@ import { ok, readJsonBody } from "@bickr/shared/api";
 import { parseAccountMutationResult } from "@bickr/shared/account-mutation-protocol";
 import {
 	createSession,
+	browserSessionDetails,
 	listUserAuthIdentities,
 	RepositoryError,
 	userProfile,
@@ -45,7 +46,7 @@ export const onRequestPost: PagesFunction<AppEnv> = async ({ env, request }) => 
 						:	{}),
 					}),
 				);
-		const session = await createSession(env.BICKR_D1, user.id);
+		const session = await createSession(env.BICKR_D1, user.id, new Date(), browserSessionDetails(request.headers.get("user-agent")));
 
 		return appendSetCookie(
 			ok({ profile: completedProfile }, { status: 201 }),

@@ -5,6 +5,7 @@ import { parseAccountMutationResult } from "@bickr/shared/account-mutation-proto
 import { type AuthProvider } from "@bickr/shared/model";
 import {
 	createSession,
+	browserSessionDetails,
 	RepositoryError,
 	type ProviderUserProfile,
 } from "@bickr/shared/repository";
@@ -135,7 +136,7 @@ export async function completeProviderSession(
 	}
 
 	const user = await requestAccountBootstrap(env, request, profile);
-	const session = await createSession(env.BICKR_D1, user.id);
+	const session = await createSession(env.BICKR_D1, user.id, new Date(), browserSessionDetails(request.headers.get("user-agent")));
 	return { sessionCookieValue: session.cookieValue };
 }
 
