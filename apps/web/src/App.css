@@ -3655,6 +3655,11 @@ fieldset {
 	line-height: 1.4;
 }
 
+/* Confirm renders in a portal, outside the card's wrapping rules. */
+.credential-confirm-name {
+	overflow-wrap: anywhere;
+}
+
 .credential-meta,
 .credential-details {
 	color: var(--ink-3);

@@ -92,6 +92,7 @@ describe("recognizable account access", () => {
 		expect(container.querySelector("details")?.textContent).toContain("Original name: Claude Desktop");
 		await act(async () => button("Disconnect").click());
 		expect(document.querySelector(".confirm-body")?.textContent).toContain("Claude at work");
+		expect(document.querySelector(".credential-confirm-name")?.textContent).toBe("Claude at work");
 		expect(document.querySelector(".confirm-body")?.textContent).toContain("Its access and refresh tokens will no longer work");
 		expect(document.querySelector(".confirm-body")?.textContent).not.toContain("browser");
 	});

@@ -157,7 +157,7 @@ function CredentialPanel({ onSessionRevoked }: { onSessionRevoked: () => void })
 			<button className="btn danger" disabled={busy} onClick={() => setSelection({ kind: "all" })} type="button">Revoke all access</button>
 		</div>
 		<Confirm open={selection !== null} title={selected ? `${selected.action}?` : "Revoke all account access?"}
-			body={selected ? <><p>{selection?.kind === "credential" && (selection.credential.customName || originalName(selection.credential))}</p><p>{selected.consequence}</p></>
+			body={selected ? <><p className="credential-confirm-name">{selection?.kind === "credential" && (selection.credential.customName || originalName(selection.credential))}</p><p>{selected.consequence}</p></>
 				: "This signs you out on every device and disconnects all apps. You can sign in again."}
 			confirmText={selected?.action ?? "Revoke"} danger onClose={() => setSelection(null)} onConfirm={() => { if (selection && !busy) void revoke(selection); }} />
 	</section>;
