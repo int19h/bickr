@@ -1,0 +1,3 @@
+export default {
+	"tools.provide_summary.description": "保存压缩后的第一人称记忆摘要。只在收到指示时使用。"
+} as const;

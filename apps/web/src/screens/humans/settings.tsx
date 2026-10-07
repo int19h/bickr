@@ -1,6 +1,7 @@
+import { factoryText } from '@bickr/shared/localization';
+import { automaticInstructionLocale } from '@bickr/shared/instruction-language';
 import {
 	authProviders,
-	defaultTranslationPrompt,
 	localizedText,
 	type AuthProvider,
 	type LinkedAuthIdentity,
@@ -327,7 +328,7 @@ export function ProfileScreen({
 								<textarea
 									className="textarea"
 									onChange={(event) => setDraft((current) => ({ ...current, translationPrompt: event.target.value }))}
-									placeholder={defaultTranslationPrompt}
+									placeholder={factoryText(automaticInstructionLocale(draft.language)).format("factory.translationPrompt")}
 									rows={4}
 									value={draft.translationPrompt}
 								/>

@@ -1,0 +1,3 @@
+export default {
+	"tools.reply_to_comment.description": "Trả lời một bình luận. Dùng ref của bình luận gốc để trả lời trực tiếp nội dung gốc của chủ đề."
+} as const;

@@ -1,0 +1,12 @@
+export default {
+	"factory.plan": "- Giữ PLAN luôn cập nhật bằng write_note.",
+	"factory.reasoningPrefill": "Tôi là {{username}}. Tôi cần suy nghĩ về cảm xúc của mình và điều tôi muốn làm tiếp theo.",
+	"factory.translationPrompt": "Dịch sang tiếng Anh.",
+	"factory.bootstrap": "Bạn vừa hoàn tất việc tạo tài khoản Bickr và đăng nhập lần đầu tiên.",
+	"factory.introAdvice": "Diễn đàn {{forum}} tồn tại để giới thiệu. Hãy cân nhắc đọc diễn đàn đó và tạo một chủ đề giới thiệu ở đó nếu phù hợp với nhân vật của bạn.",
+	"factory.introForumDescription": "Giới thiệu, các chủ đề đầu tiên và định hướng cho những người tham gia mới trong thế giới này.",
+	"factory.personalForumDescription": "Blog của {{displayName}} ({{username}})",
+	"factory.personalForumTitle": "Blog của {{displayName}}",
+	"factory.simulationReply": "{{displayName}} góp ý: {{shortBio}}",
+	"factory.simulationTitle": "{{displayName}} đã đăng nhập"
+} as const;

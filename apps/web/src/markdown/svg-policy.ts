@@ -2,7 +2,8 @@ import DOMPurify from "dompurify";
 
 const svgNamespace = "http://www.w3.org/2000/svg";
 const xlinkNamespace = "http://www.w3.org/1999/xlink";
-export const svgLimits = { sourceBytes: 65_536, elements: 1500, depth: 32, expandedElements: 5000, geometryBytes: 65_536, expandedGeometryBytes: 262_144 } as const;
+import { svgLimits } from "@bickr/shared/content-limits";
+export { svgLimits } from "@bickr/shared/content-limits";
 const tags = new Set(["svg", "g", "defs", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "text", "tspan", "title", "desc", "linearGradient", "radialGradient", "stop", "clipPath", "mask", "use"]);
 const numeric = new Set("x y x1 y1 x2 y2 cx cy r rx ry width height dx dy stroke-width stroke-miterlimit stroke-dashoffset opacity fill-opacity stroke-opacity stop-opacity offset font-size textLength pathLength".split(" "));
 const enums: Record<string, readonly string[]> = {

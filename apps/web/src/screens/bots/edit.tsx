@@ -1,3 +1,6 @@
+import { resolveInstructionLocale } from '@bickr/shared/instruction-language';
+import { factoryText } from '@bickr/shared/localization';
+import { InstructionLanguageField } from "../../components/instruction-language-field";
 import {
 	contextWindowTokensMax,
 	contextWindowTokensMin,
@@ -87,6 +90,10 @@ export function BotEdit({
 		bot.displayName,
 		bot.id,
 		bot.includeLanguageInSystemPrompt,
+		bot.instructionLanguage,
+		bot.instructionLocale,
+		bot.cloneSource?.linked,
+		bot.cloneSource?.sourceBot?.instructionLocale,
 		bot.inferenceSettings,
 		bot.language,
 		bot.localOverrides,
@@ -132,6 +139,9 @@ export function BotEdit({
 	const savedPrompt = textValue(bot.localOverrides?.prompt ?? bot.prompt ?? "");
 	const savedInferenceSettings = botEditableInferenceSettings(bot);
 	const effectiveDraftLanguage = languageInputValue(draft.language);
+	const draftInstructionLocale = resolveInstructionLocale(draft.instructionLanguage,
+		effectiveDraftLanguage ?? (linkedClone ? bot.cloneSource?.sourceBot?.language ?? bot.language : null),
+		linkedClone ? bot.cloneSource?.sourceBot?.instructionLocale ?? null : null);
 	const effectiveDraftDisplayName = draft.displayName.trim() || (linkedClone ? textValue(bot.displayName) : "");
 	const effectiveDraftShortBio = draft.shortBio.trim() || (linkedClone ? textValue(bot.shortBio) : "");
 	const effectiveDraftPrompt = draft.prompt.trim() || (linkedClone ? textValue(bot.prompt ?? "") : "");
@@ -150,6 +160,8 @@ export function BotEdit({
 			shortBio: effectiveDraftShortBio,
 			prompt: effectiveDraftPrompt,
 			language: editLanguage,
+			instructionLanguage: draft.instructionLanguage,
+			resolvedInstructionLocale: draftInstructionLocale,
 			includeLanguageInSystemPrompt: effectiveDraftIncludeLanguageInSystemPrompt,
 			worldPrompt: textValue(world?.prompt),
 		},
@@ -162,6 +174,7 @@ export function BotEdit({
 	const promptBudgetLoading = promptBudget.status === "loading" && promptBudget.requestKey === promptBudgetRequestKey;
 	const dirty =
 		effectiveDraftLanguage !== savedLanguage ||
+		JSON.stringify(draft.instructionLanguage) !== JSON.stringify(bot.instructionLanguage ?? { kind: "auto" }) ||
 		includeLanguageInSystemPromptInputFromDraft(draft.includeLanguageInSystemPrompt, linkedClone) !==
 			savedIncludeLanguageInSystemPrompt ||
 		draft.displayName !== savedDisplayName ||
@@ -256,6 +269,7 @@ export function BotEdit({
 				method: "POST",
 				body: {
 					language: editLanguage,
+			instructionLanguage: draft.instructionLanguage,
 					includeLanguageInSystemPrompt: effectiveDraftIncludeLanguageInSystemPrompt,
 					displayName: effectiveDraftDisplayName,
 					prompt: effectiveDraftPrompt,
@@ -596,7 +610,7 @@ export function BotEdit({
 									disabled={!draft.recurringPromptEnabled}
 									maxLength={maxBotReasoningPrefillLength}
 									onChange={(event) => setDraft((current) => ({ ...current, recurringPrompt: event.target.value }))}
-									placeholder={defaultReasoningPrefill(bot.handle)}
+									placeholder={defaultReasoningPrefill(factoryText(draftInstructionLocale), bot.handle)}
 									rows={3}
 									value={draft.recurringPrompt}
 								/>
@@ -853,21 +867,24 @@ export function BotEditProfileSection({
 						</div>
 					</Field>
 				</div>
-				<LanguageField
-					hint={linkedClone ? "blank inherits source" : undefined}
-					onChange={(language) => setDraft((current) => ({ ...current, language }))}
-					placeholder={linkedClone ? bot.language ?? "source" : undefined}
-					systemPromptControl={{
-						allowInherit: linkedClone,
-						inheritedValue: linkedClone ?
-							bot.cloneSource?.sourceBot?.includeLanguageInSystemPrompt ?? bot.includeLanguageInSystemPrompt
-						:	null,
-						onChange: (includeLanguageInSystemPrompt) =>
-							setDraft((current) => ({ ...current, includeLanguageInSystemPrompt })),
-						value: draft.includeLanguageInSystemPrompt,
-					}}
-					value={draft.language}
-				/>
+				<div className="field-row">
+					<LanguageField
+						hint={linkedClone ? "blank inherits source" : undefined}
+						onChange={(language) => setDraft((current) => ({ ...current, language }))}
+						placeholder={linkedClone ? bot.language ?? "source" : undefined}
+						systemPromptControl={{
+							allowInherit: linkedClone,
+							inheritedValue: linkedClone ?
+								bot.cloneSource?.sourceBot?.includeLanguageInSystemPrompt ?? bot.includeLanguageInSystemPrompt
+							:	null,
+							onChange: (includeLanguageInSystemPrompt) =>
+								setDraft((current) => ({ ...current, includeLanguageInSystemPrompt })),
+							value: draft.includeLanguageInSystemPrompt,
+						}}
+						value={draft.language}
+					/>
+					<InstructionLanguageField linkedClone={linkedClone} onChange={(instructionLanguage) => setDraft((current) => ({ ...current, instructionLanguage }))} value={draft.instructionLanguage} />
+				</div>
 				<Field hint={linkedClone ? "blank inherits source" : "required"} label="Short bio">
 					<textarea
 						className="textarea short-bio-editor"

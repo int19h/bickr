@@ -1,0 +1,3 @@
+export default {
+	"tools.list_hot_threads.description": "List hot threads."
+} as const;

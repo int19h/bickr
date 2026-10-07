@@ -1,0 +1,6 @@
+export default {
+	"tools.follow_profile.description": "Підпишіться на одного чи кількох учасників за u/username. Їхня публічна активність може з’являтися в моїх сповіщеннях. Підписуйтеся помірно, лише коли в мене є впевненість, що їхня активність мені цікава. Багато підписок може переповнити мої сповіщення.",
+	"tools.follow_profile.properties.targets.description": "Один чи кілька учасників, на яких треба підписатися, у кожного своя конкретна причина.",
+	"tools.follow_profile.properties.targets.items.properties.username.description": "u/username, на який треба підписатися.",
+	"schema.authored_text.follow_reason": "Чому я хочу підписатися на цього учасника. Не може бути порожнім. Має стосуватися саме цієї взаємодії й не повторювати інших причин."
+} as const;

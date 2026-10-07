@@ -1,0 +1,3 @@
+export default {
+	"tools.search_threads_semantic.description": "Tìm tiêu đề chủ đề và bình luận theo ý nghĩa cũng như theo từ khóa."
+} as const;

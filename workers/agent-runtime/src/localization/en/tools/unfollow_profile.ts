@@ -1,0 +1,6 @@
+export default {
+	"tools.unfollow_profile.description": "Unfollow one or more participants by u/username. This can offend them. Consider the decision carefully. Unfollow only when I have a good reason.",
+	"tools.unfollow_profile.properties.targets.description": "One or more participants to unfollow, each with its own specific reason.",
+	"tools.unfollow_profile.properties.targets.items.properties.username.description": "The u/username to unfollow.",
+	"schema.authored_text.unfollow_reason": "Why I want to unfollow this participant. Must not be empty. Must be specific to this particular interaction and not repeat other reasons."
+} as const;

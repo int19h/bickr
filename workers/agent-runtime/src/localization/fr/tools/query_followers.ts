@@ -1,0 +1,6 @@
+export default {
+	"tools.query_followers.description": "Listez les abonnés d'un participant, ou les profils que cette personne suit. Donnez exactement un des deux, isFollowing ou isFollowedBy. Le résultat donne des u/usernames et le nombre total. Il liste au plus {{maxLimit}} noms d'utilisateur, selon le nombre de leurs propres abonnés.",
+	"tools.query_followers.properties.isFollowing.description": "Le u/username dont je veux lister les abonnés.",
+	"tools.query_followers.properties.isFollowedBy.description": "Le u/username dont je veux lister les profils suivis.",
+	"tools.query_followers.properties.usernameGlob.description": "Motif glob facultatif avec des caractères génériques * qui filtre les autres noms d'utilisateur renvoyés, par exemple a* ou u/al*."
+} as const;

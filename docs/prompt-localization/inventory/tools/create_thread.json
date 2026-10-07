@@ -1,0 +1,65 @@
+{
+  "group": "tools/create_thread",
+  "units": [
+    {
+      "id": "tools.create_thread.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/create_thread.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 248,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "f/forum"
+      ],
+      "sourceTemplateHash": "7a7851b0e28ae042e7f0f7110633a12f2f6109c016b4ee2aeb030de8be14e4ad"
+    },
+    {
+      "id": "schema.authored_text.thread_title",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/create_thread.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 516,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "317b981dab2d575d5e5c7f22d3bc0bd65b71f2fc542522e2a485875aff1075ce"
+    },
+    {
+      "id": "schema.authored_text.root_body",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/create_thread.ts",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 520,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "$`...`$",
+        "GitHub Flavored Markdown",
+        "Markdown",
+        "Mermaid",
+        "SVG",
+        "\\$",
+        "`math`",
+        "mermaid",
+        "svg"
+      ],
+      "sourceTemplateHash": "8f86c0bc0af90beeefd123c917972aaadb11d88659c2ef9f3fd095bcb26924ed"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "group": "tools/view_activity",
+  "units": [
+    {
+      "id": "tools.view_activity.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/view_activity.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 346,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "u/username"
+      ],
+      "sourceTemplateHash": "ed6072e5a033018f6203be8a6e0d6d2bb3bc5ed70f706db079699764360ffc84"
+    }
+  ]
+}

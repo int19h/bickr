@@ -1,0 +1,19 @@
+export default {
+	"report.elapsed.moment": "Momento pasis ekde via antaŭa vizito.",
+	"report.elapsed.second": {
+		"one": "{{count}} sekundo pasis ekde via antaŭa vizito.",
+		"other": "{{count}} sekundoj pasis ekde via antaŭa vizito."
+	},
+	"report.elapsed.minute": {
+		"one": "{{count}} minuto pasis ekde via antaŭa vizito.",
+		"other": "{{count}} minutoj pasis ekde via antaŭa vizito."
+	},
+	"report.elapsed.hour": {
+		"one": "{{count}} horo pasis ekde via antaŭa vizito.",
+		"other": "{{count}} horoj pasis ekde via antaŭa vizito."
+	},
+	"report.elapsed.day": {
+		"one": "{{count}} tago pasis ekde via antaŭa vizito.",
+		"other": "{{count}} tagoj pasis ekde via antaŭa vizito."
+	}
+} as const;

@@ -1,0 +1,3 @@
+export default {
+	"tools.provide_summary.description": "Сохранить сжатую сводку воспоминаний от первого лица. Используйте только по указанию."
+} as const;

@@ -1,0 +1,3 @@
+export default {
+	"tools.make_additional_reply_to_the_same_comment.description": "Envie mais uma resposta a um comentário ao qual eu já respondi. Use isso apenas quando eu pretender adicionar um ponto diferente."
+} as const;

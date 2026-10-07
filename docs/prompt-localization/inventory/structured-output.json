@@ -1,0 +1,1945 @@
+{
+  "group": "structured-output",
+  "units": [
+    {
+      "id": "structured_output.unexpected_tools.compaction",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "JSON",
+        "META:"
+      ],
+      "sourceTemplateHash": "3053c5ae2473c8300368c035c430c9aa71b8d05483487de49a23ca94723b349f"
+    },
+    {
+      "id": "structured_output.unexpected_tools.other",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "JSON"
+      ],
+      "sourceTemplateHash": "72bdff326db292e9e80f6992ffdb66d298f7ff7378e6f39bb3098749c77c8fb2"
+    },
+    {
+      "id": "structured_output.empty.compaction",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 124,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 157,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 426,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 452,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 477,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "JSON"
+      ],
+      "sourceTemplateHash": "6ce261baceb2aaa1652d0504942f7395169eb39dfafe8dd7abffdc710210cf1b"
+    },
+    {
+      "id": "structured_output.empty.translation",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 5
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 124,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 157,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 426,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 452,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 477,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "JSON"
+      ],
+      "sourceTemplateHash": "c6c869ae8705ef0db941715fd65fa7dfda9097adcf744f9a2b35d70a0162b4ae"
+    },
+    {
+      "id": "structured_output.empty.avatar_description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 6
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 124,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 157,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 426,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 452,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 477,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "JSON"
+      ],
+      "sourceTemplateHash": "98ff48ba231def7c8fe102ce000f271026ec4d502b17e6b2c9c56259173b7c4b"
+    },
+    {
+      "id": "structured_output.invalid_json.compaction",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 7
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 124,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 157,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 426,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 452,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 477,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "JSON"
+      ],
+      "sourceTemplateHash": "a8d506799f855d9ea16a9d779d1f3a16377dc231a2e3045a704ecd33247a9ab5"
+    },
+    {
+      "id": "structured_output.invalid_json.translation",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 8
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 124,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 157,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 426,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 452,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 477,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "JSON"
+      ],
+      "sourceTemplateHash": "90fed5e8186779597df0e76b23071f5d2c0e1478ba030004917e08fbb3bc3ac6"
+    },
+    {
+      "id": "structured_output.invalid_json.avatar_description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 9
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 124,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 157,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 426,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 452,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 477,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "JSON"
+      ],
+      "sourceTemplateHash": "f884967c54f5ac97caaf47b27fafd52779dad83187f69023ca5c6eeffdd72b24"
+    },
+    {
+      "id": "structured_output.missing_tool",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 10
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "toolName"
+      ],
+      "sourceTemplateHash": "ffa224dd47057e32d849d78cb46461c72da015481a728a701c932b98f40cb2d2"
+    },
+    {
+      "id": "structured_output.wrong_tool",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 11
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "receivedTool",
+        "toolName"
+      ],
+      "sourceTemplateHash": "37d860f2cfd63f8622f58dd5105fdd09846685b5df5fa718cabe8dff362b927e"
+    },
+    {
+      "id": "structured_output.tool_count",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 12
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "toolName"
+      ],
+      "sourceTemplateHash": "d5d307f790fc34489cc86cfffcce81b36df2dff74f6acee2f68ddaef23944770"
+    },
+    {
+      "id": "structured_output.tool_mismatch",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 16
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "receivedTool",
+        "toolName"
+      ],
+      "sourceTemplateHash": "aae0b1dd8a3f24653bcb8dd8ac1421c8d6bbb8717b3110e43156edbc542e1edd"
+    },
+    {
+      "id": "structured_output.invalid_arguments_json",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 17
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "JSON",
+        "toolName"
+      ],
+      "sourceTemplateHash": "e8d94bc7884566547e80e5cbbe343fe08f1295b09f465cb0c81118bfbc399550"
+    },
+    {
+      "id": "structured_output.arguments_object",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 18
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "JSON",
+        "toolName",
+        "{}"
+      ],
+      "sourceTemplateHash": "b915dab00f16f5f5efdaf80c84f5b4c0aaf2e6b4dea1ae697a6961770f050dfe"
+    },
+    {
+      "id": "structured_output.output_object",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 19
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "JSON",
+        "{}"
+      ],
+      "sourceTemplateHash": "357689cecbb741ba979003a99df00fdfaa9f636b25b41037e82481b198b91c30"
+    },
+    {
+      "id": "structured_output.extra_arguments",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 20
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "f158ff83a9dededffc3c302d60d42d8adcd07723c7d6e712e722bd71d6694f58"
+    },
+    {
+      "id": "structured_output.extra_fields",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 24
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "2c455cec6f01da3acecea1e27cbe45e9b01e1b377a2a081899f7dbcfa4d4c218"
+    },
+    {
+      "id": "structured_output.nonempty.compaction",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 28
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 124,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 157,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 426,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 452,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 477,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "fe4e2efe6e1b94a5dbb1c3fa3c0a0f8caafad780a5c75875e0de6512214359d6"
+    },
+    {
+      "id": "structured_output.nonempty.translation",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 29
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 124,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 157,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 426,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 452,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 477,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "64bc0bc15a03e0db0f42de645d1119c0543375e2b0367a691cbad2ecbcaae1ac"
+    },
+    {
+      "id": "structured_output.nonempty.avatar_description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 30
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 124,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 157,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 426,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 452,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 477,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "b54537fd32ddf94e90fd3b409833807dbf7ae03f058713b1b7dacbaeb3453080"
+    },
+    {
+      "id": "structured_output.transcript",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 31
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "9821950d2a171213712fc16dc361b7627ed443f81b6c4fe9e8e08b8abab1f7c3"
+    },
+    {
+      "id": "structured_output.minimum.compaction",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 32
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 124,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 157,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 426,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 452,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 477,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "ba35961a9069aeff8ead52a4adc7b6c342e1b4afdbb8513f1d7afc073c1d358e"
+    },
+    {
+      "id": "structured_output.minimum.translation",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 36
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 124,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 157,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 426,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 452,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 477,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "8676daf4fa5bf3b61082753a4895c9d4f1eca5dbedd2768ee93e82c2c782a81c"
+    },
+    {
+      "id": "structured_output.minimum.avatar_description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 40
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 124,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 157,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 426,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 452,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 477,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "831cf578db276e58c9a95e67bee8155dfff87f7c2dec68b939cc16ce6623c491"
+    },
+    {
+      "id": "structured_output.maximum.compaction",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 44
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 124,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 157,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 426,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 452,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 477,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "ffc2f939df4c4d65515ce9269a61c8373045e13647d3b8190d36fd5b5ce83e7a"
+    },
+    {
+      "id": "structured_output.maximum.translation",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 48
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 124,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 157,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 426,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 452,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 477,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "f0a029bba0b8d5b234e4cd7a9baf87fa43d20842983ffc3633d3353aa302ab20"
+    },
+    {
+      "id": "structured_output.maximum.avatar_description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 52
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 124,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 157,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 426,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 452,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 477,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "ae8dbd5a35af96a7af2d040cad45879b9c7328e5b4101d811aa11fa56abb66a4"
+    },
+    {
+      "id": "structured_output.wrong_tool.unnamed",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 56
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "toolName"
+      ],
+      "sourceTemplateHash": "7a7999190020de30e69338cece78ad91a789d914aae8cd55a0e73580bba7f3b6"
+    },
+    {
+      "id": "structured_output.tool_mismatch.unnamed",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 57
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "toolName"
+      ],
+      "sourceTemplateHash": "91cd3de1c7de83883b1bec54c58e5cd5b060bb8c7afc3a46c5ce3828b1020b5d"
+    },
+    {
+      "id": "structured_output.nonreducing.estimate",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 58
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "replacementTokens"
+      ],
+      "sourceTemplateHash": "205d1963eb3d2f896920e2e872b90ad79564dea3a84fa453b0a26e93db03d08c"
+    },
+    {
+      "id": "structured_output.nonreducing.before",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 62
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "compactedTokens"
+      ],
+      "sourceTemplateHash": "7efae12faead0c304587ea9b7d38b1a3c857ad4fc77a21035893bf47be04ca2f"
+    },
+    {
+      "id": "structured_output.nonempty.compaction.field",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 66
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 124,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 157,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 426,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 452,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 477,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "99b9328ebd8e00b6d97d1c77ddcb41853ffdf0edd808366bf32920a0c26060e9"
+    },
+    {
+      "id": "structured_output.nonempty.translation.field",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 67
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 124,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 157,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 426,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 452,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 477,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "9345c2c28f329024a039d9ad6fb9fd8899f28f2120584d11cbc6659f4e41c30f"
+    },
+    {
+      "id": "structured_output.nonempty.avatar_description.field",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
+        "line": 68
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 114,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 115,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 124,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 157,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 343,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 349,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 360,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 372,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 384,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 402,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 426,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 437,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 452,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 464,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 477,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "5605d78b2cc1252bf59ca0a23a3e6ed84f65a79b9a95341515e0ebe3fce1ce2a"
+    }
+  ]
+}

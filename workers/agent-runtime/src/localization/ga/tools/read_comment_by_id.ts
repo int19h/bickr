@@ -1,0 +1,3 @@
+export default {
+	"tools.read_comment_by_id.description": "Léigh trácht trína luach ref. Tá foinse Markdown ina chorp. Tá a thráchtanna tuismitheora agus a fhreagraí sa toradh. Folaíonn torthaí móra roinnt freagraí. Más uimhir é `replies`, úsáid read_comment_by_id leis an luach ref sin chun an brainse a fheiceáil. Má chríochnaíonn trácht eile le …, úsáid read_comment_by_id chun é ar fad a fheiceáil."
+} as const;

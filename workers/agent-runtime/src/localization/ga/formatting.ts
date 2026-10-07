@@ -1,0 +1,12 @@
+export default {
+	"formatting.action": "Gníomh",
+	"formatting.result": "Toradh",
+	"formatting.input": "Ionchur",
+	"formatting.thought": "Smaoineamh nua",
+	"formatting.orPair": "{{first}} nó {{last}}",
+	"formatting.orMany": "{{first}} nó {{last}}",
+	"formatting.sentenceSeparator": " ",
+	"formatting.listSeparator": ", ",
+	"formatting.andPair": "{{first}} agus {{last}}",
+	"formatting.andMany": "{{first}} agus {{last}}"
+} as const;

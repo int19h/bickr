@@ -1,0 +1,307 @@
+{
+  "group": "avatar",
+  "units": [
+    {
+      "id": "avatar.image.participant_system",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/avatar/provider.ts",
+          "line": 128,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "7523e202c9937ce0b3227f3ead5d7b0ab34e36b180b694f07b2d9cc8a400a70a"
+    },
+    {
+      "id": "avatar.image.world_system",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/avatar/provider.ts",
+          "line": 129,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "ef85c09e117a55785fe7483f4c48f52ccbea653db375f84d8e0f58adfbfb1e49"
+    },
+    {
+      "id": "avatar.describe_current.participant_system",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/avatar/provider.ts",
+          "line": 130,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "91c2b7035b01c3652e22394b335bfe4a7f7b1cce949d1a63c15270cdf44626a4"
+    },
+    {
+      "id": "avatar.describe_current.world_system",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
+        "line": 5
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/avatar/provider.ts",
+          "line": 131,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "4f12e5f919114aa9a3ba0a004441cddf47e3e8fd687cdfbb5cd28fb4a75cd385"
+    },
+    {
+      "id": "avatar.world_source.system",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
+        "line": 6
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/avatar/provider.ts",
+          "line": 219,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "fddcbc801f00db929a658d3ec2679f610f1afa293d6295c24fa64c81cf6a42b7"
+    },
+    {
+      "id": "avatar.image.world_refresh",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
+        "line": 7
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/avatar/provider.ts",
+          "line": 509,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "5ddad47df072fd8add916598504a35259059da1e08ef02be48ce5a612a0320b3"
+    },
+    {
+      "id": "avatar.image.participant_refresh",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
+        "line": 8
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/avatar/provider.ts",
+          "line": 510,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "4b18daaba408bf8c94de81c76496f624758a378329904a41091a80093b6c3c2e"
+    },
+    {
+      "id": "avatar.describe_current.world",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
+        "line": 9
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/avatar/provider.ts",
+          "line": 534,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "5d42ef7ba4af744798d5619b6873c89418395388b80529291402ee50d5b4cc30"
+    },
+    {
+      "id": "avatar.describe_current.participant",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
+        "line": 10
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/avatar/provider.ts",
+          "line": 535,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "3b2c5307f71eb6afc650c0c7e130de7ca3a1b76e511b79cad4d57339ceeea657"
+    },
+    {
+      "id": "avatar.persona_description.structured",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
+        "line": 11
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/avatar/provider.ts",
+          "line": 1019,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "JSON"
+      ],
+      "sourceTemplateHash": "8897b314a28093c12b9c6240377b580476d3e1bfb7fbfeed59ffa2277a431af6"
+    },
+    {
+      "id": "avatar.persona_description.tool",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
+        "line": 12
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/avatar/provider.ts",
+          "line": 1020,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "toolName"
+      ],
+      "sourceTemplateHash": "d53e48b99ab97dc8393c7d00a076e4f01382d0a4019f781f18d4361e00f104f8"
+    },
+    {
+      "id": "avatar.persona_description.repair_structured",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
+        "line": 13
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/avatar/provider.ts",
+          "line": 1151,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "JSON",
+        "description"
+      ],
+      "sourceTemplateHash": "28598ffafab20db564c93357af85ab66eae1ce51611002988883cb64dc7e2306"
+    },
+    {
+      "id": "avatar.persona_description.repair_tool",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
+        "line": 14
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/avatar/provider.ts",
+          "line": 1160,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "toolName"
+      ],
+      "sourceTemplateHash": "0177ef2f45f3cdeef1dffe6f57a4c41626efa43434a0d353bdc55d88fd9d370e"
+    },
+    {
+      "id": "avatar.world_source.description_and_detail",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
+        "line": 15
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/avatar/provider.ts",
+          "line": 196,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "worldName"
+      ],
+      "sourceTemplateHash": "7aea6f6de5228e248974bf58febaaa8652b95c0662465fa6de32fbf4ae954f33"
+    },
+    {
+      "id": "avatar.world_source.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
+        "line": 16
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/avatar/provider.ts",
+          "line": 197,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "worldName"
+      ],
+      "sourceTemplateHash": "1e65f1b796fad6d36e3eb2a9b066738e6fb4c58e1aa7aa00912694e87868d346"
+    },
+    {
+      "id": "avatar.world_source.detail",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
+        "line": 17
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/avatar/provider.ts",
+          "line": 198,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "worldName"
+      ],
+      "sourceTemplateHash": "33e469dd3e04a6f737f9c718f2f02d5263e81c552528e21d42646d06bdceb38a"
+    },
+    {
+      "id": "avatar.image.currentIncluded",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
+        "line": 18
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/avatar/provider.ts",
+          "line": 511,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/avatar/provider.ts",
+          "line": 539,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "d8522a708b43b091ea1662681724c1aeebdd758788dc696622e4f62079835907"
+    }
+  ]
+}

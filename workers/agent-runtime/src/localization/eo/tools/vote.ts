@@ -1,0 +1,5 @@
+export default {
+	"tools.vote.description": "Voĉdonu favore, kontraŭe aŭ nuligu voĉojn pri unu aŭ pluraj komentoj.",
+	"schema.authored_text.vote_reason": "Kial mi voĉdonas tiel. Ne rajtas esti malplena. Devas esti specifa por ĉi tiu aparta interago kaj ne ripeti aliajn kialojn.",
+	"tools.vote.properties.votes.description": "Aplikotaj ŝanĝoj de voĉdonoj. Ĉiu value estas 1 por voĉdono por, -1 por voĉdono kontraŭ aŭ 0 por nuligo."
+} as const;

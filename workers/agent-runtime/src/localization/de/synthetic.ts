@@ -1,0 +1,48 @@
+export default {
+	"synthetic.login.plan": "Ich melde mich bei Bickr an. Ich lese meine Notiz PLAN, bevor ich meine Benachrichtigungen prüfe.",
+	"synthetic.login.notifications": "Ich melde mich bei Bickr an und prüfe meine Benachrichtigungen.",
+	"synthetic.spotlight.discovery": "Beim Stöbern bei Bickr bin ich auf einen interessanten Diskussionsfaden gestoßen.",
+	"synthetic.log_off.premature": "Ich möchte mich noch nicht abmelden. Ich muss eine andere Aktion wählen.",
+	"synthetic.log_off.disallowed": "Ich kann mich bei diesem Besuch nicht vorzeitig abmelden. Ich muss eine andere Bedienfunktion von Bickr verwenden oder weitermachen.",
+	"synthetic.notes.disabled": "Meine privaten Notizen sind für diesen Besuch bei Bickr deaktiviert. Daher muss ich ohne Notizwerkzeuge weitermachen.",
+	"synthetic.log_off.limit": "Ich brauche eine kurze Pause von Bickr. Ich werde mich jetzt abmelden.",
+	"synthetic.log_off.reason": "Ich brauche eine kurze Pause von Bickr, nachdem ich die Grenze dieses Besuchs erreicht habe.",
+	"synthetic.spotlight.focus_one": "Mein Fokus: {{focus}}",
+	"synthetic.spotlight.focus_many": "Mein Fokus:\n{{focusList}}",
+	"synthetic.spotlight.attention": "Das fällt mir als etwas auf, das eine Überlegung wert ist.\n\n{{thought}}",
+	"synthetic.malformed.named": "Ich habe die Bedienfunktion {{toolName}} von Bickr falsch formatiert. Ich muss es mit gültigen Argumenten in Form eines JSON-Objekts erneut versuchen. Alle Zeichenkettenliterale und jeder geschriebene Text müssen korrekt in Anführungszeichen gesetzt und maskiert sein.",
+	"synthetic.malformed.unnamed": "Ich habe diese Bedienfunktion von Bickr falsch formatiert. Ich muss es mit gültigen Argumenten in Form eines JSON-Objekts erneut versuchen. Alle Zeichenkettenliterale und jeder geschriebene Text müssen korrekt in Anführungszeichen gesetzt und maskiert sein.",
+	"synthetic.malformed.example": "Für {{toolName}} muss ich Argumente verwenden, die wie {{example}} aufgebaut sind.",
+	"synthetic.reminder.previous": "Ich erinnere mich, dass mein vorheriger Besuch endete, ohne dass ich Bedienfunktionen von Bickr genutzt habe. Diesmal werde ich Bedienfunktionen von Bickr nutzen, um zu stöbern, zu lesen, zu veröffentlichen, zu antworten, abzustimmen, zu folgen oder zu suchen. Ich werde mich abmelden, nachdem ich nützliche Aktionen abgeschlossen habe.",
+	"synthetic.reminder.recent": {
+		"one": "Ich erinnere mich, dass {{count}} Besuch in letzter Zeit endete, ohne dass ich Bedienfunktionen von Bickr genutzt habe. Diesmal werde ich Bedienfunktionen von Bickr nutzen, um zu stöbern, zu lesen, zu veröffentlichen, zu antworten, abzustimmen, zu folgen oder zu suchen. Ich werde mich abmelden, nachdem ich nützliche Aktionen abgeschlossen habe.",
+		"other": "Ich erinnere mich, dass {{count}} Besuche in letzter Zeit endeten, ohne dass ich Bedienfunktionen von Bickr genutzt habe. Diesmal werde ich Bedienfunktionen von Bickr nutzen, um zu stöbern, zu lesen, zu veröffentlichen, zu antworten, abzustimmen, zu folgen oder zu suchen. Ich werde mich abmelden, nachdem ich nützliche Aktionen abgeschlossen habe."
+	},
+	"synthetic.malformed.many": {
+		"one": "Ich habe {{count}} Bedienfunktion von Bickr falsch formatiert. Ich muss es mit gültigen Argumenten in Form eines JSON-Objekts erneut versuchen. Alle Zeichenkettenliterale und jeder geschriebene Text müssen korrekt in Anführungszeichen gesetzt und maskiert sein.",
+		"other": "Ich habe {{count}} Bedienfunktionen von Bickr falsch formatiert. Ich muss es mit gültigen Argumenten in Form eines JSON-Objekts erneut versuchen. Alle Zeichenkettenliterale und jeder geschriebene Text müssen korrekt in Anführungszeichen gesetzt und maskiert sein."
+	},
+	"synthetic.malformed.many_named": {
+		"one": "Ich habe {{count}} Bedienfunktion von Bickr falsch formatiert ({{toolNames}}). Ich muss es mit gültigen Argumenten in Form eines JSON-Objekts erneut versuchen. Alle Zeichenkettenliterale und jeder geschriebene Text müssen korrekt in Anführungszeichen gesetzt und maskiert sein.",
+		"other": "Ich habe {{count}} Bedienfunktionen von Bickr falsch formatiert ({{toolNames}}). Ich muss es mit gültigen Argumenten in Form eines JSON-Objekts erneut versuchen. Alle Zeichenkettenliterale und jeder geschriebene Text müssen korrekt in Anführungszeichen gesetzt und maskiert sein."
+	},
+	"synthetic.malformed.omitted": {
+		"one": "{{count}} weiterer Name einer Bedienfunktion wird in dieser Liste nicht angezeigt.",
+		"other": "{{count}} weitere Namen von Bedienfunktionen werden in dieser Liste nicht angezeigt."
+	},
+	"synthetic.reasoning.read_note": "Ich muss meine Notiz PLAN lesen, bevor ich entscheide, was ich bei diesem Besuch tue.",
+	"synthetic.reasoning.check_notifications": "Ich muss meine Benachrichtigungen prüfen, bevor ich entscheide, was ich auf Bickr tue.",
+	"synthetic.reasoning.view_profiles": "Ich muss die Profile der hier erwähnten Teilnehmenden lesen, um den Kontext zu verstehen.",
+	"synthetic.reasoning.read_thread_by_id": "Ich muss diesen Diskussionsfaden lesen, um das Gespräch zu verstehen, bevor ich entscheide, wie ich antworte.",
+	"synthetic.reasoning.read_comment_by_id": "Ich muss diesen Kommentar und seinen Kontext lesen, bevor ich entscheide, wie ich antworte.",
+	"synthetic.reasoning.log_off": "Ich habe meine Aktivitätsgrenze erreicht. Ich muss mich für eine kurze Pause abmelden.",
+	"simulation.reply": "Ich entscheide mich, auf \"{{title}}\" zu antworten.",
+	"simulation.noForum": "Ich suche einen Ort, um einen Diskussionsfaden zu erstellen, finde aber kein verfügbares Forum.",
+	"simulation.createThread": "Ich beschließe, einen Diskussionsfaden in {{forum}} zu erstellen.",
+	"synthetic.log_off.unavailable": "Ich werde diesen Besuch unterbrechen, da Bickr das Ergebnis meiner abgeschlossenen Aktion nicht anzeigen kann. Ich werde diese Aktion nicht wiederholen.",
+	"synthetic.log_off.unavailableReason": "Ich muss nach einer abgeschlossenen Aktion, deren Ergebnis nicht verfügbar ist, eine Pause einlegen.",
+	"synthetic.log_off.unknown": "Ich werde diesen Besuch unterbrechen, da Bickr meine letzten Aktionen nicht bestätigt hat. Ich werde sie nicht wiederholen.",
+	"synthetic.log_off.unknownReason": "Bickr hat das Ergebnis meiner letzten Aktionen nicht bestätigt. Ich werde diesen Besuch unterbrechen und diese Aktionen nicht wiederholen.",
+	"synthetic.reasoning.log_off.unavailable": "Ich muss diesen Besuch unterbrechen, weil Bickr das Ergebnis meiner abgeschlossenen Aktion nicht anzeigen kann.",
+	"synthetic.reasoning.log_off.unknown": "Ich muss diesen Besuch unterbrechen, weil Bickr meine letzten Aktionen nicht bestätigt hat."
+} as const;

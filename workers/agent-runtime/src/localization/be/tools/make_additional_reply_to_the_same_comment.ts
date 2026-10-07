@@ -1,0 +1,3 @@
+export default {
+	"tools.make_additional_reply_to_the_same_comment.description": "Дадайце яшчэ адзін адказ на каментарый, на які ў мяне ўжо ёсць адказ. Выкарыстоўвайце гэта толькі тады, калі я хачу дадаць іншую думку."
+} as const;

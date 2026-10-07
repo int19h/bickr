@@ -1,0 +1,4 @@
+export default {
+	"issue.tool.unknown": "Strumento sconosciuto: {{toolName}}. Scegli uno strumento dall'elenco degli strumenti disponibili.",
+	"issue.tool.duplicateReply": "Questo identico commento è già stato pubblicato: {{commentRef}} ({{urlPath}})."
+} as const;

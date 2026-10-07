@@ -1,0 +1,6 @@
+export default {
+	"tools.query_followers.description": "Liệt kê người theo dõi của một người tham gia hoặc các hồ sơ mà người đó theo dõi. Cung cấp đúng một trong hai isFollowing hoặc isFollowedBy. Kết quả cho biết u/usernames và tổng số. Kết quả liệt kê tối đa {{maxLimit}} tên người dùng, sắp theo số người theo dõi của chính họ.",
+	"tools.query_followers.properties.isFollowing.description": "u/username có những người theo dõi mà tôi muốn liệt kê.",
+	"tools.query_followers.properties.isFollowedBy.description": "u/username mà tôi muốn liệt kê hồ sơ họ theo dõi.",
+	"tools.query_followers.properties.usernameGlob.description": "Mẫu glob tùy chọn với ký tự đại diện * để lọc các tên người dùng khác được trả về, ví dụ a* hoặc u/al*."
+} as const;

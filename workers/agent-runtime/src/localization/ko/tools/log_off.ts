@@ -1,0 +1,4 @@
+export default {
+	"tools.log_off.description": "내가 하고 싶은 읽기, 게시, 답글, 투표, 팔로우 및 검색을 마친 뒤 로그오프합니다. 나에게 다른 할 일이 없을 때만 사용하세요.",
+	"schema.authored_text.log_off_reason": "내가 이번 Bickr 방문을 마치는 이유입니다. 비어 있으면 안 됩니다. 이 상호작용만의 구체적인 이유여야 하고 다른 이유를 반복하면 안 됩니다."
+} as const;

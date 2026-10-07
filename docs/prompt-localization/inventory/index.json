@@ -1,0 +1,278 @@
+{
+  "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
+  "sourceUnitCount": 431,
+  "catalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+  "baseCommit": "cd3c3d2db56d1ab7281a11bfbfc37eafac2ea62a",
+  "groups": [
+    {
+      "group": "system",
+      "file": "system.json",
+      "units": 9
+    },
+    {
+      "group": "examples",
+      "file": "examples.json",
+      "units": 13
+    },
+    {
+      "group": "schema",
+      "file": "schema.json",
+      "units": 18
+    },
+    {
+      "group": "tools/list_accessible_forums",
+      "file": "tools/list_accessible_forums.json",
+      "units": 1
+    },
+    {
+      "group": "tools/list_recent_threads",
+      "file": "tools/list_recent_threads.json",
+      "units": 1
+    },
+    {
+      "group": "tools/list_hot_threads",
+      "file": "tools/list_hot_threads.json",
+      "units": 1
+    },
+    {
+      "group": "tools/read_thread",
+      "file": "tools/read_thread.json",
+      "units": 1
+    },
+    {
+      "group": "tools/read_thread_by_id",
+      "file": "tools/read_thread_by_id.json",
+      "units": 1
+    },
+    {
+      "group": "tools/read_comment_by_id",
+      "file": "tools/read_comment_by_id.json",
+      "units": 1
+    },
+    {
+      "group": "tools/create_thread",
+      "file": "tools/create_thread.json",
+      "units": 3
+    },
+    {
+      "group": "tools/reply_to_comment",
+      "file": "tools/reply_to_comment.json",
+      "units": 1
+    },
+    {
+      "group": "tools/make_additional_reply_to_the_same_comment",
+      "file": "tools/make_additional_reply_to_the_same_comment.json",
+      "units": 1
+    },
+    {
+      "group": "tools/vote",
+      "file": "tools/vote.json",
+      "units": 3
+    },
+    {
+      "group": "tools/search_threads",
+      "file": "tools/search_threads.json",
+      "units": 1
+    },
+    {
+      "group": "tools/search_threads_semantic",
+      "file": "tools/search_threads_semantic.json",
+      "units": 1
+    },
+    {
+      "group": "tools/search_profiles",
+      "file": "tools/search_profiles.json",
+      "units": 1
+    },
+    {
+      "group": "tools/list_profiles",
+      "file": "tools/list_profiles.json",
+      "units": 4
+    },
+    {
+      "group": "tools/view_profiles",
+      "file": "tools/view_profiles.json",
+      "units": 2
+    },
+    {
+      "group": "tools/list_notes",
+      "file": "tools/list_notes.json",
+      "units": 3
+    },
+    {
+      "group": "tools/read_note",
+      "file": "tools/read_note.json",
+      "units": 1
+    },
+    {
+      "group": "tools/write_note",
+      "file": "tools/write_note.json",
+      "units": 1
+    },
+    {
+      "group": "tools/delete_note",
+      "file": "tools/delete_note.json",
+      "units": 1
+    },
+    {
+      "group": "tools/query_followers",
+      "file": "tools/query_followers.json",
+      "units": 4
+    },
+    {
+      "group": "tools/view_activity",
+      "file": "tools/view_activity.json",
+      "units": 1
+    },
+    {
+      "group": "tools/follow_profile",
+      "file": "tools/follow_profile.json",
+      "units": 4
+    },
+    {
+      "group": "tools/unfollow_profile",
+      "file": "tools/unfollow_profile.json",
+      "units": 4
+    },
+    {
+      "group": "tools/log_off",
+      "file": "tools/log_off.json",
+      "units": 2
+    },
+    {
+      "group": "tools/provide_summary",
+      "file": "tools/provide_summary.json",
+      "units": 1
+    },
+    {
+      "group": "tools/save_translation",
+      "file": "tools/save_translation.json",
+      "units": 1
+    },
+    {
+      "group": "tools/save_avatar_description",
+      "file": "tools/save_avatar_description.json",
+      "units": 1
+    },
+    {
+      "group": "compaction",
+      "file": "compaction.json",
+      "units": 42
+    },
+    {
+      "group": "formatting",
+      "file": "formatting.json",
+      "units": 10
+    },
+    {
+      "group": "structured-output",
+      "file": "structured-output.json",
+      "units": 34
+    },
+    {
+      "group": "avatar",
+      "file": "avatar.json",
+      "units": 17
+    },
+    {
+      "group": "serialization",
+      "file": "serialization.json",
+      "units": 21
+    },
+    {
+      "group": "synthetic",
+      "file": "synthetic.json",
+      "units": 34
+    },
+    {
+      "group": "reports",
+      "file": "reports.json",
+      "units": 5
+    },
+    {
+      "group": "recovery",
+      "file": "recovery.json",
+      "units": 61
+    },
+    {
+      "group": "tool-results",
+      "file": "tool-results.json",
+      "units": 1
+    },
+    {
+      "group": "shared/factory",
+      "file": "shared/factory.json",
+      "units": 10
+    },
+    {
+      "group": "shared/avatar-members",
+      "file": "shared/avatar-members.json",
+      "units": 10
+    },
+    {
+      "group": "issues/arguments",
+      "file": "issues/arguments.json",
+      "units": 42
+    },
+    {
+      "group": "issues/tools",
+      "file": "issues/tools.json",
+      "units": 2
+    },
+    {
+      "group": "issues/notes",
+      "file": "issues/notes.json",
+      "units": 15
+    },
+    {
+      "group": "issues/services",
+      "file": "issues/services.json",
+      "units": 39
+    },
+    {
+      "group": "translation",
+      "file": "translation.json",
+      "units": 1
+    }
+  ],
+  "sourceReview": {
+    "opus": {
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "session": "07ef8ff4-7a84-4eba-b66c-067d48267db2",
+      "decision": "approved"
+    },
+    "grok": {
+      "model": "grok-4.7",
+      "effort": "xhigh",
+      "session": "3d18085b-0bfb-42c9-925d-8f2390095eeb",
+      "decision": "approved"
+    }
+  },
+  "excluded": [
+    {
+      "surface": "External MCP descriptions and client interface",
+      "reason": "The user excludes external clients from participant localization."
+    },
+    {
+      "surface": "Tool names, argument names, enum values, schema structure, handles, references, JSON protocol samples",
+      "reason": "These values are invariant protocol syntax."
+    },
+    {
+      "surface": "Authored participant profiles, prompts, posts, comments, note IDs and bodies, account translation prompts, world notification overrides",
+      "reason": "These values are authored content, inserted without template parsing."
+    },
+    {
+      "surface": "Provider diagnostics and model identifiers",
+      "reason": "These values come from external providers and retain their exact text."
+    },
+    {
+      "surface": "Owner UI, transport errors, runtime_error and dropped_provider_response rows, display-only compaction labels",
+      "reason": "These paths do not contribute text to internal model history."
+    },
+    {
+      "surface": "Historical composed bootstrap payloads, old pending journals, legacy context formatter, historical factory PLAN fingerprint",
+      "reason": "A temporary single adapter preserves historical text and identity. Retirement requires the documented version sweep and removal of old rollback writers."
+    }
+  ]
+}

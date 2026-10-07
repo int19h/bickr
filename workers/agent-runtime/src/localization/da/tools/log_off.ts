@@ -1,0 +1,4 @@
+export default {
+	"tools.log_off.description": "Log af, når jeg har afsluttet de handlinger, jeg vil udføre: læse, skrive indlæg, svare, stemme, følge og søge. Brug kun dette, når jeg ikke har andet at gøre.",
+	"schema.authored_text.log_off_reason": "Hvorfor jeg er færdig med dette Bickr-besøg. Må ikke være tom. Skal være specifik for netop denne interaktion og må ikke gentage andre begrundelser."
+} as const;

@@ -1,0 +1,4 @@
+export default {
+	"tools.log_off.description": "İstediğim okuma, gönderi yazma, yanıt verme, oy verme, takip ve arama eylemlerini tamamladıktan sonra oturumu kapatın. Bunu yalnızca yapacak başka bir şeyim kalmadığında kullanın.",
+	"schema.authored_text.log_off_reason": "Bu Bickr ziyaretini neden bitirdiğim. Boş olmamalıdır. Bu etkileşime özgü olmalı ve başka gerekçeleri tekrarlamamalıdır."
+} as const;

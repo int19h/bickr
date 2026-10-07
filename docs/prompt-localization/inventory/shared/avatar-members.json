@@ -1,0 +1,165 @@
+{
+  "group": "shared/avatar-members",
+  "units": [
+    {
+      "id": "avatar.members.instruction",
+      "definition": {
+        "file": "packages/shared/src/localization/en/avatar-members.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/avatar-prompts.ts",
+          "line": 31,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "ba22fe5d4e6048d485cce040075f3f0ad6c310154d1a069d120590f3fc715af2"
+    },
+    {
+      "id": "avatar.members.world",
+      "definition": {
+        "file": "packages/shared/src/localization/en/avatar-members.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/avatar-prompts.ts",
+          "line": 33,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "f7f03ef1d5774b44d8d3f2449339c5af6a93708f7ebe71e06fee27c738f48939"
+    },
+    {
+      "id": "avatar.members.description",
+      "definition": {
+        "file": "packages/shared/src/localization/en/avatar-members.ts",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/avatar-prompts.ts",
+          "line": 36,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "d781fe48387509285bb94eb9047e36112b3ac23df6eaced2e968e2a3845af64b"
+    },
+    {
+      "id": "avatar.members.prompt",
+      "definition": {
+        "file": "packages/shared/src/localization/en/avatar-members.ts",
+        "line": 5
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/avatar-prompts.ts",
+          "line": 39,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "355cc11e33cb787308535f66902b00c6690e75cdd8dca16341b62ba853761676"
+    },
+    {
+      "id": "avatar.members.all",
+      "definition": {
+        "file": "packages/shared/src/localization/en/avatar-members.ts",
+        "line": 6
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/avatar-prompts.ts",
+          "line": 44,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "1c447eab11a18c04c821eac319f451b92cd93603f5e9d016b8516d735e7362d6"
+    },
+    {
+      "id": "avatar.members.sample",
+      "definition": {
+        "file": "packages/shared/src/localization/en/avatar-members.ts",
+        "line": 10
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/avatar-prompts.ts",
+          "line": 43,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "8c69a4e662e5e32205818827a867acb65458f5d60d28b1b4a500b690728a638c"
+    },
+    {
+      "id": "avatar.members.none",
+      "definition": {
+        "file": "packages/shared/src/localization/en/avatar-members.ts",
+        "line": 14
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/avatar-prompts.ts",
+          "line": 47,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "a64baa9962cb0046c95627f32a55ceb8f30706be12de85e8c38d85c58c39ac2c"
+    },
+    {
+      "id": "avatar.members.empty",
+      "definition": {
+        "file": "packages/shared/src/localization/en/avatar-members.ts",
+        "line": 15
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/avatar-prompts.ts",
+          "line": 63,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "8f904c38545a7ae1ae8d8c48a6b50d2dcca47a3aeaee7bd14c620200b9724522"
+    },
+    {
+      "id": "avatar.members.bio",
+      "definition": {
+        "file": "packages/shared/src/localization/en/avatar-members.ts",
+        "line": 16
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/avatar-prompts.ts",
+          "line": 53,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "e13c7fd82919adb2b439281387dd1bee57e0b7dc3a4aadaf85a40f3c958a59de"
+    },
+    {
+      "id": "avatar.members.bioEmpty",
+      "definition": {
+        "file": "packages/shared/src/localization/en/avatar-members.ts",
+        "line": 17
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/avatar-prompts.ts",
+          "line": 54,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "40da817eb673055341a533d012eb68bc997f01802bbdfafe12fa12d9c88370a9"
+    }
+  ]
+}

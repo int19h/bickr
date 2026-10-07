@@ -1,3 +1,6 @@
+import type { LocalizedProviderSettings } from "../workers/agent-runtime/src/provider-requests";
+import { botText as testBotText } from "../workers/agent-runtime/src/localization";
+const englishInstructions = testBotText("en");
 import {
 	BotRuntime,
 	compactionReasoningPolicyForModel,
@@ -71,7 +74,7 @@ describe("Structured output", () => {
 				shortBio: "Summarizes release work.",
 				prompt: "Prefer concise changelog memory.",
 			});
-			const compactedMessages: Parameters<typeof providerCompactionMessages>[1] = [
+			const compactedMessages: Parameters<typeof providerCompactionMessages>[2] = [
 				{
 					role: "assistant",
 					content: "I decided to read a thread about changelogs.",
@@ -84,9 +87,9 @@ describe("Structured output", () => {
 					}),
 				},
 			];
-			const messages = providerCompactionMessages(bot, compactedMessages);
+			const messages = providerCompactionMessages(englishInstructions, bot, compactedMessages);
 			const request = providerCompactionRequest(
-				{
+				{ text: englishInstructions,
 					model: "test-model",
 					providerRouting: { sort: "price" },
 					reasoningEffort: "high",
@@ -110,15 +113,15 @@ describe("Structured output", () => {
 				type: "json_schema",
 				json_schema: {
 					name: "compaction_summary",
-					description: providerCompactionSummarySchemaDescription,
+					description: providerCompactionSummarySchemaDescription(englishInstructions),
 					strict: true,
 					schema: {
 						type: "object",
-						description: providerCompactionSummarySchemaDescription,
+						description: providerCompactionSummarySchemaDescription(englishInstructions),
 						properties: {
 							[providerCompactionSummaryProperty]: {
 								type: "string",
-								description: providerCompactionSummaryPropertyDescription,
+								description: providerCompactionSummaryPropertyDescription(englishInstructions),
 								minLength: 1,
 								maxLength: 4000,
 							},
@@ -153,7 +156,7 @@ describe("Structured output", () => {
 		it("omits no-thinking compaction wording for every enabled reasoning selection", () => {
 			const bot = fakeBotDocument({ handle: "release-sage" });
 			const compactedMessages = [{ role: "assistant" as const, content: "I remember a long release discussion." }];
-			const explicitMessages = providerCompactionMessages(
+			const explicitMessages = providerCompactionMessages(englishInstructions,
 				bot,
 				compactedMessages,
 				undefined,
@@ -161,7 +164,7 @@ describe("Structured output", () => {
 				"structured_output",
 				compactionReasoningPolicyForModel("deepseek/deepseek-v4-flash-0731", true).selection,
 			);
-			const modelDefaultMessages = providerCompactionMessages(
+			const modelDefaultMessages = providerCompactionMessages(englishInstructions,
 				bot,
 				compactedMessages,
 				undefined,
@@ -180,12 +183,12 @@ describe("Structured output", () => {
 
 		it("builds isolated tool-call provider compaction requests when selected", () => {
 			const bot = { ...fakeBotDocument({ prompt: "Prefer concise changelog memory." }), handle: "release-sage", displayName: lt("Release Sage") };
-			const compactedMessages: Parameters<typeof providerCompactionMessages>[1] = [
+			const compactedMessages: Parameters<typeof providerCompactionMessages>[2] = [
 				{ role: "assistant", content: "I decided to read a thread about changelogs." },
 			];
 			const limits = { minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 };
-			const messages = providerCompactionMessages(bot, compactedMessages, limits, undefined, "tool_call");
-			const request = providerCompactionRequest({ model: "test-model" }, messages, limits, undefined, "tool_call");
+			const messages = providerCompactionMessages(englishInstructions, bot, compactedMessages, limits, undefined, "tool_call");
+			const request = providerCompactionRequest({ text: englishInstructions, model: "test-model" }, messages, limits, undefined, "tool_call");
 
 			expect(request.tool_choice).toBe("required");
 			const requestTools = request.tools ?? [];
@@ -199,10 +202,10 @@ describe("Structured output", () => {
 				},
 			});
 			expect(metaTool?.type === "function" ? metaTool.function.parameters.description : undefined)
-				.toBe(providerCompactionSummarySchemaDescription);
+				.toBe(providerCompactionSummarySchemaDescription(englishInstructions));
 			expect(metaTool?.type === "function" ? metaTool.function.parameters.properties[providerCompactionSummaryProperty] : undefined).toMatchObject({
 				type: "string",
-				description: providerCompactionSummaryPropertyDescription,
+				description: providerCompactionSummaryPropertyDescription(englishInstructions),
 				minLength: 1,
 				maxLength: 4000,
 			});
@@ -217,7 +220,7 @@ describe("Structured output", () => {
 				content: `Call ${metaCompactionToolName}. Put the summary in the "${providerCompactionSummaryProperty}" argument. Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between 1 and 4000 characters. Do not reply as plain text.`,
 			});
 			const railroadRequest = providerCompactionRequest(
-				{
+				{ text: englishInstructions,
 					model: "test-model",
 					toolCallRequest: { kind: "strategy", strategy: "railroad" },
 				},
@@ -227,7 +230,7 @@ describe("Structured output", () => {
 				"tool_call",
 			);
 			const coercedAtWillRequest = providerCompactionRequest(
-				{
+				{ text: englishInstructions,
 					model: "test-model",
 					toolCallRequest: { kind: "strategy", strategy: "at_will" },
 				},
@@ -239,7 +242,7 @@ describe("Structured output", () => {
 			expect("tool_choice" in railroadRequest).toBe(false);
 			expect("tool_choice" in coercedAtWillRequest).toBe(false);
 			const providerDefaultRequest = providerCompactionRequest(
-				{
+				{ text: englishInstructions,
 					model: "test-model",
 					toolCallRequest: { kind: "provider_default" },
 				},
@@ -257,14 +260,14 @@ describe("Structured output", () => {
 
 		it("builds cache-friendly provider compaction requests with the shared tool schema", () => {
 			const bot = fakeBotDocument({ prompt: "Prefer concise changelog memory." });
-			const compactedMessages: Parameters<typeof providerCompactionMessages>[1] = [
+			const compactedMessages: Parameters<typeof providerCompactionMessages>[2] = [
 				{ role: "assistant", content: "I decided to read a thread about changelogs." },
 			];
 			const limits = { minLength: 250, maxLength: 4000 };
-			const tools = toolDefinitionsForProviderRound(limits.maxLength, { includeMetaCompactionTool: true });
-			const messages = providerCompactionMessages(bot, compactedMessages, limits, tools, "tool_call_cache_friendly");
+			const tools = toolDefinitionsForProviderRound(englishInstructions, limits.maxLength, { includeMetaCompactionTool: true });
+			const messages = providerCompactionMessages(englishInstructions, bot, compactedMessages, limits, tools, "tool_call_cache_friendly");
 			const request = providerCompactionRequest(
-				{ model: "test-model" },
+				{ text: englishInstructions, model: "test-model" },
 				messages,
 				{ ...limits, maxCompletionTokens: 1000 },
 				tools,
@@ -272,13 +275,13 @@ describe("Structured output", () => {
 			);
 
 			const requestTools = request.tools ?? [];
-			expect(requestTools).toHaveLength(toolDefinitionsForProviderRound().length);
+			expect(requestTools).toHaveLength(toolDefinitionsForProviderRound(englishInstructions).length);
 			expect(requestTools.some((tool) => tool.type === "function" && tool.function.name === "read_thread")).toBe(true);
 			const metaTool = requestTools.find((tool) => tool.type === "function" && tool.function.name === metaCompactionToolName);
 			expect(metaTool?.type === "function" ? metaTool.function.parameters.description : undefined)
-				.toBe(providerCompactionSummarySchemaDescription);
+				.toBe(providerCompactionSummarySchemaDescription(englishInstructions));
 			expect(metaTool?.type === "function" ? metaTool.function.parameters.properties[providerCompactionSummaryProperty] : undefined).toMatchObject({
-				description: providerCompactionSummaryPropertyDescription,
+				description: providerCompactionSummaryPropertyDescription(englishInstructions),
 				minLength: 1,
 				maxLength: 4000,
 			});
@@ -300,8 +303,8 @@ describe("Structured output", () => {
 				compactedMessages,
 				{ tokensPerCharacter: 0.25, sampleCount: 3 },
 			);
-			const messages = providerCompactionMessages(bot, compactedMessages, limits);
-			const request = providerCompactionRequest({ model: "test-model" }, messages, limits);
+			const messages = providerCompactionMessages(englishInstructions, bot, compactedMessages, limits);
+			const request = providerCompactionRequest({ text: englishInstructions, model: "test-model" }, messages, limits);
 
 			expect(limits).toMatchObject({
 				minLength: 3001,
@@ -330,13 +333,13 @@ describe("Structured output", () => {
 				fakeBotDocument({ contextWindowTokens: 20_000 }),
 				compactedMessages,
 				calibration,
-				toolDefinitionsForProviderRound(),
+				toolDefinitionsForProviderRound(englishInstructions),
 			);
 			const longPromptLimits = providerCompactionSummaryLimitsForChat(
 				fakeBotDocument({ contextWindowTokens: 20_000, prompt: "x".repeat(25_000) }),
 				compactedMessages,
 				calibration,
-				toolDefinitionsForProviderRound(),
+				toolDefinitionsForProviderRound(englishInstructions),
 			);
 
 			expect(longPromptLimits.nextCompactionTokens).toBe(shortPromptLimits.nextCompactionTokens);
@@ -356,7 +359,7 @@ describe("Structured output", () => {
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
 					callProviderForCompaction: (
-						settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+						settings: LocalizedProviderSettings,
 						messages: Parameters<typeof providerCompactionRequest>[1],
 						runId: string,
 						signal: AbortSignal,
@@ -366,7 +369,7 @@ describe("Structured output", () => {
 				let thrown: unknown;
 				try {
 					await callProviderForCompaction(
-						{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+						{ text: englishInstructions, baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
 						[{ role: "user", content: "Compact the retained activity." }],
 						"run-compaction-provider-failed",
 						new AbortController().signal,
@@ -411,14 +414,12 @@ describe("Structured output", () => {
 				deleteRuntimeState,
 			});
 			const compactionReasoningForSettings = (BotRuntime.prototype as unknown as {
-				compactionReasoningForSettings: (settings: {
-					baseUrl: string;
-					model: string;
-				}) => CompactionReasoningDiagnostic & { runtimeFallback: unknown };
+				compactionReasoningForSettings: (settings: LocalizedProviderSettings) => CompactionReasoningDiagnostic & { runtimeFallback: unknown };
 			}).compactionReasoningForSettings.bind(runtime);
 
-			expect(compactionReasoningForSettings({
+			expect(compactionReasoningForSettings({ text: englishInstructions,
 				baseUrl: customProviderBaseUrl,
+				temperature: 0.2,
 				model,
 			})).toEqual({
 				decision: { kind: "learned_floor", floor: { kind: "explicit_effort", effort: "minimal" } },
@@ -434,8 +435,9 @@ describe("Structured output", () => {
 					support: "unknown",
 				},
 			});
-			expect(compactionReasoningForSettings({
+			expect(compactionReasoningForSettings({ text: englishInstructions,
 				baseUrl: "https://openrouter.ai/api/v1",
+				temperature: 0.2,
 				model,
 			})).toEqual({
 				decision: { kind: "baseline", selection: { kind: "reasoning_disabled" } },
@@ -484,14 +486,10 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const compactionReasoningForSettings = (BotRuntime.prototype as unknown as {
-					compactionReasoningForSettings: (settings: {
-						baseUrl: string;
-						compactionReasoning: { kind: "explicit_effort"; effort: "low" };
-						model: string;
-					}) => CompactionReasoningDiagnostic & { runtimeFallback: { kind: "none" } };
+					compactionReasoningForSettings: (settings: LocalizedProviderSettings) => CompactionReasoningDiagnostic & { runtimeFallback: { kind: "none" } };
 				}).compactionReasoningForSettings.bind(runtime);
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<CompactionProviderResult>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<CompactionProviderResult>;
 				}).callProviderForCompaction.bind(runtime);
 				const settings = {
 					baseUrl: "https://openrouter.ai/api/v1",
@@ -500,7 +498,7 @@ describe("Structured output", () => {
 					temperature: 0.2,
 				};
 
-				const reasoning = compactionReasoningForSettings(settings);
+				const reasoning = compactionReasoningForSettings({ ...settings, text: englishInstructions });
 				expect(reasoning).toEqual({
 					decision: {
 						kind: "configuration",
@@ -520,7 +518,7 @@ describe("Structured output", () => {
 				});
 
 				const response = await callProviderForCompaction(
-					settings,
+					{ ...settings, text: englishInstructions },
 					[{ role: "user", content: "Compact the retained activity." }],
 					"run-unlisted-openrouter-compaction",
 					new AbortController().signal,
@@ -577,14 +575,10 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const compactionReasoningForSettings = (BotRuntime.prototype as unknown as {
-					compactionReasoningForSettings: (settings: {
-						baseUrl: string;
-						compactionReasoning: { kind: "explicit_effort"; effort: "low" };
-						model: string;
-					}) => CompactionReasoningDiagnostic & { runtimeFallback: { kind: "none" } };
+					compactionReasoningForSettings: (settings: LocalizedProviderSettings) => CompactionReasoningDiagnostic & { runtimeFallback: { kind: "none" } };
 				}).compactionReasoningForSettings.bind(runtime);
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<CompactionProviderResult>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<CompactionProviderResult>;
 				}).callProviderForCompaction.bind(runtime);
 				const settings = {
 					baseUrl: "https://openrouter.ai/api/v1",
@@ -592,12 +586,12 @@ describe("Structured output", () => {
 					model: "provider/not-yet-in-the-capabilities-table",
 					temperature: 0.2,
 				};
-				const reasoning = compactionReasoningForSettings(settings);
+				const reasoning = compactionReasoningForSettings({ ...settings, text: englishInstructions });
 
 				let thrown: unknown;
 				try {
 					await callProviderForCompaction(
-						settings,
+						{ ...settings, text: englishInstructions },
 						[{ role: "user", content: "Compact the retained activity." }],
 						"run-unlisted-openrouter-rejection",
 						new AbortController().signal,
@@ -696,7 +690,7 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<CompactionProviderResult>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<CompactionProviderResult>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const settings = {
@@ -705,7 +699,7 @@ describe("Structured output", () => {
 					temperature: 0.2,
 				};
 				const response = await callProviderForCompaction(
-					settings,
+					{ ...settings, text: englishInstructions },
 					[{ role: "user", content: "Compact the retained activity." }],
 					"run-compaction-reasoning-fallback",
 					new AbortController().signal,
@@ -745,7 +739,7 @@ describe("Structured output", () => {
 
 				fetchMock.mockClear();
 				await callProviderForCompaction(
-					{
+					{ text: englishInstructions,
 						...settings,
 						reasoningEffort: "high",
 						compactionReasoning: { kind: "model_default" },
@@ -772,7 +766,7 @@ describe("Structured output", () => {
 				runtimeState.set(fallbackStateKey, unrecognizedSameModelState);
 				fetchMock.mockClear();
 				await callProviderForCompaction(
-					settings,
+					{ ...settings, text: englishInstructions },
 					[{ role: "user", content: "Compact with same-model unrecognized state." }],
 					"run-compaction-unrecognized-frozen-state",
 					new AbortController().signal,
@@ -785,7 +779,7 @@ describe("Structured output", () => {
 
 				fetchMock.mockClear();
 				await callProviderForCompaction(
-					{ ...settings, model: "google/gemini-3.1-flash-lite-preview" },
+					{ text: englishInstructions, ...settings, model: "google/gemini-3.1-flash-lite-preview" },
 					[{ role: "user", content: "Compact the retained activity after a model change." }],
 					"run-compaction-model-changed",
 					new AbortController().signal,
@@ -836,13 +830,13 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<CompactionProviderResult>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<CompactionProviderResult>;
 				}).callProviderForCompaction.bind(runtime);
 
 				let thrown: unknown;
 				try {
 					await callProviderForCompaction(
-						{
+						{ text: englishInstructions,
 							baseUrl: customProviderBaseUrl,
 							model: "openai/gpt-5.1-codex-mini",
 							temperature: 0.2,
@@ -920,11 +914,11 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const response = await callProviderForCompaction(
-					{
+					{ text: englishInstructions,
 						baseUrl: customProviderBaseUrl,
 						model: "google/gemini-2.5-pro",
 						temperature: 0.2,
@@ -934,7 +928,7 @@ describe("Structured output", () => {
 					new AbortController().signal,
 					{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
 					[
-						...toolDefinitionsForProviderRound(),
+						...toolDefinitionsForProviderRound(englishInstructions),
 						{ type: "openrouter:web_search", parameters: { max_results: 3 } } satisfies ProviderToolDefinition,
 					],
 				);
@@ -990,12 +984,12 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string }>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<{ content: string }>;
 				}).callProviderForCompaction.bind(runtime);
 
 				for (const model of ["unknown/provider-model", "openrouter/free"]) {
 					const response = await callProviderForCompaction(
-						{ baseUrl: "https://openrouter.ai/api/v1", model, temperature: 0.2 },
+						{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model, temperature: 0.2 },
 						[{ role: "user", content: "Compact the retained activity." }],
 						`run-compaction-conservative-${model}`,
 						new AbortController().signal,
@@ -1055,11 +1049,11 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const response = await callProviderForCompaction(
-					{
+					{ text: englishInstructions,
 						baseUrl: "https://openrouter.ai/api/v1",
 						model: "xiaomi/mimo-v2.5",
 						providerRouting: { only: ["xiaomi/fp8"] },
@@ -1070,7 +1064,7 @@ describe("Structured output", () => {
 					new AbortController().signal,
 					{ minLength: 1, maxLength: 4000, maxCompletionTokens: 1000 },
 					[
-						...toolDefinitionsForProviderRound(),
+						...toolDefinitionsForProviderRound(englishInstructions),
 						{ type: "openrouter:web_search", parameters: { max_results: 3 } } satisfies ProviderToolDefinition,
 					],
 					"tool_call_cache_friendly",
@@ -1106,11 +1100,11 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string }>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<{ content: string }>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const response = await callProviderForCompaction(
-					{
+					{ text: englishInstructions,
 						baseUrl: "https://openrouter.ai/api/v1",
 						model: "openai/gpt-5-mini",
 						reasoningEffort: "minimal",
@@ -1150,7 +1144,7 @@ describe("Structured output", () => {
 			});
 			const callProvider = (BotRuntime.prototype as unknown as {
 				callProvider: (
-					settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+					settings: LocalizedProviderSettings,
 					messages: Array<Record<string, unknown>>,
 					tools: ProviderToolDefinition[],
 					runId: string,
@@ -1163,9 +1157,9 @@ describe("Structured output", () => {
 			let thrown: unknown;
 			try {
 				await callProvider(
-					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					{ text: englishInstructions, baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
 					[{ role: "user", content: "Use a page control." }],
-					toolDefinitionsForProviderRound(),
+					toolDefinitionsForProviderRound(englishInstructions),
 					"run-empty-provider-stream",
 					1,
 					new AbortController().signal,
@@ -1232,11 +1226,11 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const response = await callProviderForCompaction(
-					{
+					{ text: englishInstructions,
 						baseUrl: "https://openrouter.ai/api/v1",
 						model: "deepseek/deepseek-v4-flash-0731",
 						temperature: 0.2,
@@ -1287,11 +1281,11 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const response = await callProviderForCompaction(
-					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					{ text: englishInstructions, baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
 					[{ role: "user", content: "Compact the retained activity." }],
 					"run-compaction-structured",
 					new AbortController().signal,
@@ -1327,11 +1321,11 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string }>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<{ content: string }>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const response = await callProviderForCompaction(
-					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					{ text: englishInstructions, baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
 					[{ role: "user", content: "Compact the retained activity." }],
 					"run-compaction-soft-max",
 					new AbortController().signal,
@@ -1392,11 +1386,11 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const response = await callProviderForCompaction(
-					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					{ text: englishInstructions, baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
 					[
 						{ role: "system", content: "System prompt." },
 						{ role: "assistant", content: "Old retained activity that should not be repeated in the retry." },
@@ -1429,7 +1423,7 @@ describe("Structured output", () => {
 						role: "system",
 						content: expect.stringContaining("META: Repair the memory summary."),
 					}),
-					{ role: "user", content: "The Bickr app is ready for my next step." },
+					{ role: "user", content: "The Bickr app is ready for your next step." },
 					{ role: "assistant", content: nonCompactingSummary },
 					{ role: "user", content: "Produce the replacement memory summary now." },
 				]);
@@ -1476,11 +1470,11 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const rejection = await callProviderForCompaction(
-					{
+					{ text: englishInstructions,
 						baseUrl: "https://openrouter.ai/api/v1",
 						model: "deepseek/deepseek-v4-flash-0731",
 						temperature: 0.2,
@@ -1572,11 +1566,11 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const response = await callProviderForCompaction(
-					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					{ text: englishInstructions, baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
 					[{ role: "user", content: "Compact the retained activity." }],
 					"run-compaction-schema-calibration",
 					new AbortController().signal,
@@ -1634,11 +1628,11 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const response = await callProviderForCompaction(
-					{
+					{ text: englishInstructions,
 						baseUrl: "https://openrouter.ai/api/v1",
 						model: "deepseek/deepseek-v4-flash-0731",
 						temperature: 0.2,
@@ -1690,11 +1684,11 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string }>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<{ content: string }>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const response = await callProviderForCompaction(
-					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					{ text: englishInstructions, baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
 					[{ role: "user", content: "Compact the retained activity." }],
 					"run-compaction-tool-short",
 					new AbortController().signal,
@@ -1748,11 +1742,11 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<CompactionProviderResult>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<CompactionProviderResult>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const response = await callProviderForCompaction(
-					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					{ text: englishInstructions, baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
 					[{ role: "user", content: "Compact the retained activity." }],
 					"run-compaction-repair",
 					new AbortController().signal,
@@ -1821,11 +1815,11 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const response = await callProviderForCompaction(
-					{
+					{ text: englishInstructions,
 						baseUrl: "https://openrouter.ai/api/v1",
 						model: "deepseek/deepseek-v4-flash-0731",
 						temperature: 0.2,
@@ -1863,7 +1857,7 @@ describe("Structured output", () => {
 				const retryBody = bodies[1]!;
 				expect(retryBody.messages).toEqual([
 					{ role: "system", content: "System prompt." },
-					{ role: "user", content: "The Bickr app is ready for my next step." },
+					{ role: "user", content: "The Bickr app is ready for your next step." },
 					{ role: "assistant", content: overlongSummary },
 					expect.objectContaining({
 						role: "user",
@@ -1915,11 +1909,11 @@ describe("Structured output", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<{ content: string; requestBody?: string }>;
 				}).callProviderForCompaction.bind(runtime);
 
 				const response = await callProviderForCompaction(
-					{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+					{ text: englishInstructions, baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
 					[{ role: "user", content: "Compact the retained activity." }],
 					"run-compaction-ordinary-tool-repair",
 					new AbortController().signal,

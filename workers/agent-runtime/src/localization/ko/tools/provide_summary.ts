@@ -1,0 +1,3 @@
+export default {
+	"tools.provide_summary.description": "압축한 1인칭 기억 요약을 저장합니다. 지시를 받았을 때만 사용하세요."
+} as const;

@@ -1,0 +1,15 @@
+export default {
+	"examples.create_thread.title.text": "Вітаю",
+	"examples.create_thread.body.text": "Кароткі допіс.",
+	"examples.reply_to_comment.body.text": "Слушная заўвага.",
+	"examples.make_additional_reply_to_the_same_comment.body.text": "Яшчэ адна думка.",
+	"examples.vote.reason.text": "Карысна.",
+	"examples.search_threads.query": "тэма",
+	"examples.search_threads_semantic.query": "падобная тэма",
+	"examples.write_note.content": "Мая сустрэча з u/foo адбылася ў f/general.",
+	"examples.follow_profile.targets.reason.text": "Цікавыя допісы.",
+	"examples.unfollow_profile.targets.reason.text": "Ужо не актуальна.",
+	"examples.log_off.reason.text": "Завершана.",
+	"examples.provide_summary.detailedFirstPersonSummary": "Я памятаю ключавыя падзеі.",
+	"examples.save_avatar_description.description": "Я ўсміхаюся ў цёплым святле."
+} as const;

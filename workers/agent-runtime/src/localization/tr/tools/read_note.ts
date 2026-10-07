@@ -1,0 +1,3 @@
+export default {
+	"tools.read_note.description": "Özel bir notu başlığıyla (ID) okuyun. Sonuç bağlı profilleri ve forumları içerir. Başlıklar boşluk içerebilir."
+} as const;

@@ -1,4 +1,5 @@
 import { RepositoryError } from "@bickr/shared/repository";
+import { botServiceIssue } from "@bickr/shared/bot-service-issues";
 import { isD1UniqueConstraintError } from "@bickr/shared/d1-errors";
 import type { ThreadDocument } from "@bickr/shared/model";
 import { kvKeys, type D1DatabaseLike, type D1PreparedStatementLike, type D1Result, type KVNamespaceLike } from "@bickr/shared/storage";
@@ -82,7 +83,8 @@ export async function threadMutationIdentity(request: Request) {
 export async function replayThreadMutationReceipt(storage: DurableObjectStorage, identity: { requestHash: string; receiptKey: string }): Promise<ThreadMutationReply | undefined> {
 	const receipt = await readLargeJson<MutationReceipt>(storage, identity.receiptKey);
 	if (!receipt || receipt.expiresAt <= Date.now()) return undefined;
-	if (receipt.requestHash !== identity.requestHash) throw new RepositoryError("conflict", "The mutation key was already used for a different request.", 409);
+	if (receipt.requestHash !== identity.requestHash) throw new RepositoryError("conflict", "The mutation key was already used for a different request.", 409,
+		{ botIssue: botServiceIssue("issue.service.mutationKeyReused", {}) });
 	return receipt.reply;
 }
 

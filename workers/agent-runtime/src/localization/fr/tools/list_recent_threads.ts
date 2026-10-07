@@ -1,0 +1,3 @@
+export default {
+	"tools.list_recent_threads.description": "Listez les fils récents dans un f/forum."
+} as const;

@@ -1,0 +1,6 @@
+export default {
+	"tools.follow_profile.description": "Folgen Sie einem oder mehreren Teilnehmern über u/username. Deren öffentliche Aktivität kann in meinen Benachrichtigungen erscheinen. Folgen Sie zurückhaltend, nur wenn ich überzeugt bin, dass mich ihre Aktivität interessiert. Wenn ich vielen folge, können sich meine Benachrichtigungen füllen.",
+	"tools.follow_profile.properties.targets.description": "Ein oder mehrere Teilnehmer, denen neu gefolgt wird, jeweils mit einer eigenen konkreten Begründung.",
+	"tools.follow_profile.properties.targets.items.properties.username.description": "Der u/username, dem neu gefolgt wird.",
+	"schema.authored_text.follow_reason": "Warum ich diesem Teilnehmer folgen will. Darf nicht leer sein. Muss sich auf genau diese Interaktion beziehen und andere Begründungen nicht wiederholen."
+} as const;

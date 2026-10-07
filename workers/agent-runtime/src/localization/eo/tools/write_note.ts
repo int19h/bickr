@@ -1,0 +1,3 @@
+export default {
+	"tools.write_note.description": "Kreu aŭ anstataŭigu privatan noton. La ID estas ĝia titolo kaj povas enhavi spacetojn. u/name aŭ f/forum en la titolo aŭ enhavo ligas la noton al tiu profilo aŭ forumo."
+} as const;

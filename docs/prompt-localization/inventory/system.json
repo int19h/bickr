@@ -1,0 +1,223 @@
+{
+  "group": "system",
+  "units": [
+    {
+      "id": "system.nativeLanguage",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/system.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 17,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "BCP 47"
+      ],
+      "sourceTemplateHash": "f38267a968befde27625f97f6d1a00b6f7b8900b1b19cc2d991c3df37315fd6c"
+    },
+    {
+      "id": "system.identity",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/system.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 22,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "selfAuthor"
+      ],
+      "sourceTemplateHash": "3b28781bb5095e3fa753e6c87e0b27aa71ef963b89e62b1fac38207bcd251d5e"
+    },
+    {
+      "id": "system.actionDecisionWithLogOff",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/system.ts",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 31,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "log_off"
+      ],
+      "sourceTemplateHash": "6d6f37bac288f15dca4193c3d641b88e4fcfcc3b234472976a8be13cb788597c"
+    },
+    {
+      "id": "system.actionDecision",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/system.ts",
+        "line": 5
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 32,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "e57245af08c73d38e1bcf76dc490bac437ef0b756e035a3e3bde6f5d4ab64b73"
+    },
+    {
+      "id": "system.plan",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/system.ts",
+        "line": 6
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 33,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "PLAN",
+        "write_note"
+      ],
+      "sourceTemplateHash": "e93015bd72d43eff2162f78f9b6b3ff1da56588f8c22b9f2ad8eb78c918a3f34"
+    },
+    {
+      "id": "system.notes",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/system.ts",
+        "line": 7
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 33,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "delete_note",
+        "f/forum",
+        "list_notes",
+        "read_note",
+        "u/username",
+        "write_note"
+      ],
+      "sourceTemplateHash": "f586aa73105c1f83b80e387087e4da1cb559569d8b14a0bd2320f08aac77fdb1"
+    },
+    {
+      "id": "system.logOffInstruction",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/system.ts",
+        "line": 8
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 37,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "log_off"
+      ],
+      "sourceTemplateHash": "79982cc089c792ddb7665ddaa7956194e2e306b355ab8cab8508052dc5bab932"
+    },
+    {
+      "id": "system.setting",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/system.ts",
+        "line": 9
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 44,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "7ae0d81b66e3a84f3087dc199786639b9aa1c2b8bf1c08dabbe5dc8c8243be27"
+    },
+    {
+      "id": "system.main",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/system.ts",
+        "line": 10
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 34,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "\"user\"",
+        "$`E = mc^2`$",
+        "Bickr",
+        "GitHub Flavored Markdown",
+        "HTML",
+        "JSON",
+        "KiB",
+        "Markdown",
+        "Mermaid",
+        "SVG",
+        "TeX",
+        "\\$",
+        "\\$5",
+        "`$x$`",
+        "```math\nE = mc^2\n```",
+        "`math`",
+        "`replies`",
+        "actionDecision",
+        "displayName",
+        "f/alice",
+        "fill",
+        "foreignObject",
+        "logOffInstruction",
+        "mathKiB",
+        "mermaid",
+        "mermaidKiB",
+        "nativeLanguage",
+        "read_comment_by_id",
+        "read_thread_by_id",
+        "shortBio",
+        "stroke",
+        "svg",
+        "svgElements",
+        "svgKiB",
+        "u/alice",
+        "url(#gradient)",
+        "viewBox",
+        "…",
+        "‼️"
+      ],
+      "sourceTemplateHash": "9a9bea574cfc95138014f53ed8f74d658dfe921cbfe50cbf97395c09027475da",
+      "parameterNotes": {
+        "svgElements": {
+          "currentValue": 1500,
+          "pluralCategoryForInteger1500": "other in English; choose native grammar for this fixed count"
+        },
+        "svgKiB": {
+          "currentValue": 64
+        },
+        "mathKiB": {
+          "currentValue": 16
+        },
+        "mermaidKiB": {
+          "currentValue": 16
+        }
+      }
+    }
+  ]
+}

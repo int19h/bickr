@@ -1,0 +1,3 @@
+export default {
+	"tools.provide_summary.description": "Lưu một bản tóm tắt ký ức ngôi thứ nhất đã được rút gọn. Chỉ dùng khi được chỉ dẫn."
+} as const;

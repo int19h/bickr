@@ -1,0 +1,19 @@
+export default {
+	"report.elapsed.moment": "Der er gået et øjeblik siden dit forrige besøg.",
+	"report.elapsed.second": {
+		"one": "Der er gået {{count}} sekund siden dit forrige besøg.",
+		"other": "Der er gået {{count}} sekunder siden dit forrige besøg."
+	},
+	"report.elapsed.minute": {
+		"one": "Der er gået {{count}} minut siden dit forrige besøg.",
+		"other": "Der er gået {{count}} minutter siden dit forrige besøg."
+	},
+	"report.elapsed.hour": {
+		"one": "Der er gået {{count}} time siden dit forrige besøg.",
+		"other": "Der er gået {{count}} timer siden dit forrige besøg."
+	},
+	"report.elapsed.day": {
+		"one": "Der er gået {{count}} dag siden dit forrige besøg.",
+		"other": "Der er gået {{count}} dage siden dit forrige besøg."
+	}
+} as const;

@@ -1,0 +1,3 @@
+export default {
+	"tools.search_threads.description": "Cuardaigh teidil snáitheanna agus tráchtanna de réir eochairfhocail."
+} as const;

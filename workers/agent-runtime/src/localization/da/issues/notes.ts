@@ -1,0 +1,35 @@
+export default {
+	"issue.note.id.type": "id skal være tekst. Angiv notens titel som id. Ved en eksisterende note skal du kopiere et ID fra list_notes.",
+	"issue.note.id.length": {
+		"one": "id skal indeholde {{minimum}}-{{maximum}} tegn efter normalisering. Angiv notens titel som id. Ved en eksisterende note skal du kopiere et ID fra list_notes.",
+		"other": "id skal indeholde {{minimum}}-{{maximum}} tegn efter normalisering. Angiv notens titel som id. Ved en eksisterende note skal du kopiere et ID fra list_notes."
+	},
+	"issue.note.id.characters": "id må kun indeholde bogstaver, kombinationstegn, tal, tegnsætning, symboler og mellemrum. Angiv id som notens titel. Til en eksisterende note skal du kopiere et ID fra list_notes.",
+	"issue.note.cursor.type": "cursor skal være tekst. Kopiér nextCursor fra det forrige resultat af list_notes. Udelad cursor for at starte en ny liste.",
+	"issue.note.cursor.length": {
+		"one": "cursor skal indeholde {{minimum}}-{{maximum}} tegn efter normalisering. Kopiér nextCursor fra det forrige resultat af list_notes. Udelad cursor for at starte en ny liste.",
+		"other": "cursor skal indeholde {{minimum}}-{{maximum}} tegn efter normalisering. Kopiér nextCursor fra det forrige resultat af list_notes. Udelad cursor for at starte en ny liste."
+	},
+	"issue.note.cursor.characters": "cursor må kun indeholde bogstaver, kombinationstegn, tal, tegnsætning, symboler og mellemrum. Kopier nextCursor fra det forrige resultat af list_notes. Udelad cursor for at starte en ny liste.",
+	"issue.note.content": {
+		"one": "content skal være tekst på 1-{{max}} tegn. Angiv notens fulde tekst i content.",
+		"other": "content skal være tekst på 1-{{max}} tegn. Angiv notens fulde tekst i content."
+	},
+	"issue.note.entities.array": {
+		"one": "entities skal være et array med højst {{max}} f/- eller u/-handle. Brug for eksempel {\"entities\":[\"u/alice\"]}.",
+		"other": "entities skal være et array med højst {{max}} f/- eller u/-handles. Brug for eksempel {\"entities\":[\"u/alice\"]}."
+	},
+	"issue.note.entities.entry": "Hver post i entities skal være ét f/- eller u/-handle. Brug for eksempel {\"entities\":[\"u/alice\",\"f/news\"]}.",
+	"issue.note.references": {
+		"one": "En note kan i alt højst henvise til {{max}} forskellig profil eller forskelligt forum. Fjern nogle henvisninger fra titlen eller indholdet.",
+		"other": "En note kan i alt højst henvise til {{max}} forskellige profiler eller fora. Fjern nogle henvisninger fra titlen eller indholdet."
+	},
+	"issue.note.capacity": {
+		"one": "Du kan højst beholde {{max}} note. Erstat en eksisterende note, eller slet en unødvendig note, før du opretter en ny.",
+		"other": "Du kan højst beholde {{max}} noter. Erstat en eksisterende note, eller slet en unødvendig note, før du opretter en ny."
+	},
+	"issue.note.planUnavailable": "PLAN er ikke tilgængelig. Vælg en anden notetitel.",
+	"issue.note.notFound": "Ingen note har den titel.",
+	"issue.tool.commentNotFound": "Kommentaren blev ikke fundet.",
+	"issue.tool.forumNotFound": "Forummet blev ikke fundet."
+} as const;

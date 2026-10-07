@@ -1,0 +1,12 @@
+export default {
+	"formatting.action": "الإجراء",
+	"formatting.result": "النتيجة",
+	"formatting.input": "المدخل",
+	"formatting.thought": "فكرة جديدة",
+	"formatting.orPair": "{{first}} أو {{last}}",
+	"formatting.orMany": "{{first}}، أو {{last}}",
+	"formatting.sentenceSeparator": " ",
+	"formatting.listSeparator": "، ",
+	"formatting.andPair": "{{first}} و {{last}}",
+	"formatting.andMany": "{{first}}، و {{last}}"
+} as const;

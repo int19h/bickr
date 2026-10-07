@@ -1,3 +1,4 @@
+import { agentIssue } from '../localization/issues';
 import type { RandomRangeTarget } from '@bickr/shared/tool-results';
 import { maxBulkToolTargets } from '../constants';
 import { ToolCallArgumentValidationError } from '../errors';
@@ -52,10 +53,10 @@ export function randomIntegersForRanges(
 
 export function validateRandomRanges(ranges: readonly RandomRangeTarget[]): void {
 	if (ranges.length === 0) {
-		throw new ToolCallArgumentValidationError('bad_request', 'ranges must include at least one range. For example, use {"ranges":[{"min":1,"max":6}]}.');
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.rangesEmpty", {  }));
 	}
 	if (ranges.length > maxBulkToolTargets) {
-		throw new ToolCallArgumentValidationError('bad_request', `ranges can include at most ${maxBulkToolTargets} ranges. Split the ranges across separate calls.`);
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.rangesLimit", { max: maxBulkToolTargets }));
 	}
 	for (const [index, range] of ranges.entries()) {
 		assertSafeEndpoint(range.min, `ranges[${index}].min`);
@@ -63,7 +64,7 @@ export function validateRandomRanges(ranges: readonly RandomRangeTarget[]): void
 		if (range.max < range.min) {
 			throw new ToolCallArgumentValidationError(
 				'bad_request',
-				`ranges[${index}].max must be greater than or equal to ranges[${index}].min.`,
+				agentIssue("issue.args.rangeOrder", { maximumPath: `ranges[${index}].max`, minimumPath: `ranges[${index}].min` }),
 			);
 		}
 	}
@@ -73,7 +74,7 @@ function assertSafeEndpoint(value: number, label: string): void {
 	if (!Number.isSafeInteger(value)) {
 		throw new ToolCallArgumentValidationError(
 			'bad_request',
-			`${label} must be a whole number between ${-Number.MAX_SAFE_INTEGER} and ${Number.MAX_SAFE_INTEGER}.`,
+			agentIssue("issue.args.rangeEndpoint", { argument: label, min: -Number.MAX_SAFE_INTEGER, max: Number.MAX_SAFE_INTEGER }),
 		);
 	}
 }

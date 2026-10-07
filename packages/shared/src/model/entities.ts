@@ -1,3 +1,5 @@
+import type { InstructionLanguagePreference, InstructionLocale } from "../instruction-language.ts";
+
 export const schemaVersion = 2;
 
 export type LanguageTag = string & { readonly __brand: "LanguageTag" };
@@ -204,6 +206,7 @@ export type AvatarImage = {
 
 export type BotCloneSourceSummary = BotCloneSource & {
 	sourceBot?: {
+		instructionLocale?: InstructionLocale;
 		id: string;
 		homeWorldId: string;
 		homeWorldHandle: string;
@@ -218,6 +221,7 @@ export type BotCloneSourceSummary = BotCloneSource & {
 };
 
 export type BotLocalOverrides = {
+	instructionLanguage?: InstructionLanguagePreference;
 	language: LanguageTag | null;
 	includeLanguageInSystemPrompt: boolean | null;
 	displayName: LocalizedText;
@@ -272,7 +276,10 @@ export function avatarCropJson(crop: AvatarCrop | undefined): string | null {
 	return crop ? JSON.stringify(crop) : null;
 }
 
+export type EffectiveBotDocument = BotDocument & { instructionLocale: InstructionLocale };
+
 export type BotDocument = EntityDocument & {
+	instructionLanguage?: InstructionLanguagePreference;
 	type: "bot";
 	homeWorldId: string;
 	homeWorldHandle: string;
@@ -743,8 +750,10 @@ export type NotificationEventPayload =
 	| {
 			kind: "bootstrap";
 			type: "bootstrap";
+			bootstrapVersion: 2;
 			world: NotificationWorldRef;
-			message: LocalizedText;
+			customMessage: LocalizedText | null;
+			introForum: string | null;
 		}
 	| {
 			/** A followed participant opened a thread, or one landed in a personal forum. */
@@ -814,6 +823,15 @@ export type NotificationEventEnvelope = {
 
 export type NotificationEvent = NotificationEventEnvelope & NotificationEventPayload;
 
+/** Preserved composed bootstrap text. Retire after the localization sweep finds no pending v1 payloads and no old rollback writer remains. */
+export type ComposedBootstrapNotificationEvent = Omit<NotificationEventEnvelope, "deliveryReasons"> & {
+	deliveryReasons: string[];
+	kind: "bootstrap";
+	type: "bootstrap";
+	bootstrapVersion: 1;
+	composedMessage: LocalizedText;
+};
+
 /**
  * Legacy adapter (single, marked, and temporary): every notification stored
  * before the per-recipient payload redesign holds one flat optional-field event
@@ -845,7 +863,7 @@ export type LegacyNotificationEvent = {
 };
 
 /** What a reader of stored notification documents has to handle. */
-export type StoredNotificationEvent = NotificationEvent | LegacyNotificationEvent;
+export type StoredNotificationEvent = NotificationEvent | ComposedBootstrapNotificationEvent | LegacyNotificationEvent;
 
 const notificationEventKinds: readonly string[] = [
 	"bootstrap",
@@ -869,8 +887,19 @@ export function storedNotificationEvent(value: unknown): StoredNotificationEvent
 		return undefined;
 	}
 	const record = value as Record<string, unknown>;
-	if (typeof record.kind === "string" && notificationEventKinds.includes(record.kind)) {
-		return value as NotificationEvent;
+	// This one temporary adapter preserves pre-v2 composed text. Retire it and
+	// ComposedBootstrapNotificationEvent after the bounded bootstrap census
+	// reports zero old payloads and no pre-localization rollback writer remains.
+	if (record.type === "bootstrap" && (record.kind === "bootstrap" || record.kind === "legacy" || record.kind === undefined) && record.bootstrapVersion === undefined) {
+		return { ...record, kind: "bootstrap", type: "bootstrap", bootstrapVersion: 1,
+			id: typeof record.id === "string" ? record.id : "",
+			createdAt: typeof record.createdAt === "string" ? record.createdAt : "",
+			deliveryReasons: Array.isArray(record.deliveryReasons) ? record.deliveryReasons.filter((reason): reason is string => typeof reason === "string") : [],
+			composedMessage: localizedTextFromStored(record.message) };
+	}
+	if (typeof record.kind === "string" && notificationEventKinds.includes(record.kind) &&
+		(record.kind !== "bootstrap" || record.bootstrapVersion === 2 || record.bootstrapVersion === 1)) {
+		return value as NotificationEvent | ComposedBootstrapNotificationEvent;
 	}
 	return {
 		...record,

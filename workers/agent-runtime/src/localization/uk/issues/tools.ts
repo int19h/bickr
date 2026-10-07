@@ -1,0 +1,4 @@
+export default {
+	"issue.tool.unknown": "Невідомий інструмент: {{toolName}}. Виберіть інструмент зі списку доступних інструментів.",
+	"issue.tool.duplicateReply": "Саме цей коментар уже опубліковано: {{commentRef}} ({{urlPath}})."
+} as const;

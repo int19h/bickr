@@ -1,0 +1,3 @@
+export default {
+	"tools.search_threads.description": "키워드로 스레드 제목과 댓글을 검색합니다."
+} as const;

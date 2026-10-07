@@ -1,0 +1,3 @@
+export default {
+	"tools.read_note.description": "Læs en privat note ud fra dens titel (ID). Resultatet indeholder tilknyttede profiler og fora. Titler kan indeholde mellemrum."
+} as const;

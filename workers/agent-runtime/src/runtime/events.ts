@@ -1,3 +1,4 @@
+import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
 import type { BotRuntimeEvent, BotRuntimeEventType } from '@bickr/shared/model';
 import { dayMs, runtimeEventRetentionDays } from '../constants';
 import type { RuntimeRow } from '../types';
@@ -17,6 +18,12 @@ export class RuntimeEventsStore {
 	}
 
 	appendEvent(runId: string, type: BotRuntimeEventType, payload: unknown): BotRuntimeEvent {
+		const event = this.appendEventWithoutBroadcast(runId, type, payload);
+		this.broadcast(event);
+		return event;
+	}
+
+	appendEventWithoutBroadcast(runId: string, type: BotRuntimeEventType, payload: unknown): BotRuntimeEvent {
 		const now = new Date().toISOString();
 		const payloadJson = JSON.stringify(payload);
 		const tokenEstimate = estimateTextTokens(payloadJson);
@@ -38,7 +45,6 @@ export class RuntimeEventsStore {
 			tokenEstimate,
 			createdAt: now,
 		};
-		this.broadcast(event);
 		return event;
 	}
 
@@ -178,7 +184,7 @@ function positiveInteger(value: number | undefined): number | undefined {
 }
 
 function estimateTextTokens(text: string): number {
-	return Math.max(1, Math.ceil(text.length / 4));
+	return approximateTextTokens(text);
 }
 
 function runtimeRecord(value: unknown): Record<string, unknown> {

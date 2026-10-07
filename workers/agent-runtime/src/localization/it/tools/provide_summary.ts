@@ -1,0 +1,3 @@
+export default {
+	"tools.provide_summary.description": "Salva un riassunto di memoria compattato, in prima persona. Usalo solo quando ti viene indicato."
+} as const;

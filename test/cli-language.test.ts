@@ -5,7 +5,7 @@ import { exportVoteFromRow } from "../apps/web/functions/api/cli/export/_export"
 
 describe("CLI API language-aware shapes", () => {
 	it("keeps bulk bot plan names localized and exposes bot language", () => {
-		const bot = {
+		const bot = { instructionLocale: "en",
 			id: "bot_uk",
 			homeWorldHandle: "primary",
 			handle: "poet",

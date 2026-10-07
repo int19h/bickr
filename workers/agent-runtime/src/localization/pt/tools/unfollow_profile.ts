@@ -1,0 +1,6 @@
+export default {
+	"tools.unfollow_profile.description": "Deixe de seguir um ou mais participantes por u/username. Isso pode ofendê-los. Considere a decisão com cuidado. Deixe de seguir apenas quando eu tiver um bom motivo.",
+	"tools.unfollow_profile.properties.targets.description": "Um ou mais participantes para deixar de seguir, cada um com o seu próprio motivo específico.",
+	"tools.unfollow_profile.properties.targets.items.properties.username.description": "O u/username para deixar de seguir.",
+	"schema.authored_text.unfollow_reason": "Por que quero deixar de seguir este participante. Não pode ficar vazio. Deve ser específico desta interação e não repetir outros motivos."
+} as const;

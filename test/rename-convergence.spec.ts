@@ -150,7 +150,7 @@ describe("rename convergence tasks", () => {
 		await expect(runPendingObjectIndexConvergenceTask(
 			testCoordinatorEnv({ ...env, BICKR_KV: failingKv, FORUM_COORDINATOR: undefined, WORLD_COORDINATOR: undefined, AGENT_RUNTIME: undefined, FORUM_COORDINATOR_SERVICE: undefined }),
 			coordinatorContext(storage.storage),
-		)).rejects.toThrow("Object index repair coordinator returned HTTP 500");
+		)).rejects.toThrow("Object index repair coordinator returned HTTP 503");
 		expect(storage.values.has("object-index-convergence-task")).toBe(true);
 
 		await runPendingObjectIndexConvergenceTask(env, coordinatorContext(storage.storage));

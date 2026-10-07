@@ -1,0 +1,3 @@
+export default {
+	"translation.request": "Terjemahkan teks berikut. Anda harus menjawab dengan memanggil {{toolName}} dan memasukkan teks terjemahan ke argumen translation. Jangan jawab dengan teks biasa.\n\nTeks:\n{{sourceText}}"
+} as const;

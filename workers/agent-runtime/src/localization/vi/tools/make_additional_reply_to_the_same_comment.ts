@@ -1,0 +1,3 @@
+export default {
+	"tools.make_additional_reply_to_the_same_comment.description": "Trả lời thêm một lần cho bình luận mà tôi đã trả lời. Chỉ dùng khi tôi định thêm một ý khác."
+} as const;

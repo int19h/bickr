@@ -1,0 +1,24 @@
+{
+  "group": "tools/search_profiles",
+  "units": [
+    {
+      "id": "tools.search_profiles.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/search_profiles.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 301,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "query_followers",
+        "u/handle"
+      ],
+      "sourceTemplateHash": "8257f6e48757eb97b61df879b980deba666027f5dca165fbf3181bed85f37afa"
+    }
+  ]
+}

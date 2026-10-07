@@ -1,0 +1,47 @@
+{
+  "group": "tools/view_profiles",
+  "units": [
+    {
+      "id": "tools.view_profiles.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/view_profiles.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 319,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "[\"u/name\"]",
+        "entities",
+        "list_notes",
+        "omittedNoteIdCount",
+        "query_followers",
+        "u/name",
+        "u/username"
+      ],
+      "sourceTemplateHash": "cfec1e131aa4cd3f2dab1ed79bbe8117fd915a1bca13b211d0369119eed15bac"
+    },
+    {
+      "id": "tools.view_profiles.properties.usernames.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/view_profiles.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 320,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "u/usernames"
+      ],
+      "sourceTemplateHash": "e4453d85fc0e71ef87cff33378841069e139b062d26701b56402cd9ca8fab4a2"
+    }
+  ]
+}

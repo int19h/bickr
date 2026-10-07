@@ -1,3 +1,7 @@
+import type { RuntimeBotDocument } from "../workers/agent-runtime/src/types";
+import type { LocalizedProviderSettings } from "../workers/agent-runtime/src/provider-requests";
+import { botText as testBotText } from "../workers/agent-runtime/src/localization";
+const englishInstructions = testBotText("en");
 import { withTestRunLiveness } from "./helpers/index-harness";
 import { testToolExecutor } from "./helpers/index-harness";
 import {
@@ -201,7 +205,7 @@ describe("Tick limits and recovery", () => {
 			]),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -224,8 +228,8 @@ describe("Tick limits and recovery", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -238,7 +242,7 @@ describe("Tick limits and recovery", () => {
 					...fakeBotDocument(),
 					tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 1, maxSuccessfulToolCallsPerIteration: 8 },
 				},
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-failed-call-limit",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -285,7 +289,7 @@ describe("Tick limits and recovery", () => {
 				callProvider,
 				ensureProviderPromptWithinBudget: async () => ({
 					allowedPromptTokens: 13_500,
-					providerTools: toolDefinitionsForProviderRound(),
+					providerTools: toolDefinitionsForProviderRound(englishInstructions),
 					promptTokens: 100,
 					requestMessages: [{ role: "assistant", content: "I am ready." }],
 				}),
@@ -309,8 +313,8 @@ describe("Tick limits and recovery", () => {
 			}));
 			const runProviderLoop = (BotRuntime.prototype as unknown as {
 				runProviderLoop: (
-					bot: BotDocument,
-					settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+					bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+					settings: LocalizedProviderSettings,
 					runId: string,
 					messages: Array<Record<string, unknown>>,
 					runContext: { mode: "normal"; signal: AbortSignal },
@@ -319,8 +323,8 @@ describe("Tick limits and recovery", () => {
 
 			await expect(
 				runProviderLoop(
-					{ ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 2 } },
-					{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					{  ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 2 } },
+					{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 					"run-premature-logoff",
 					[],
 					{ mode: "normal", signal: new AbortController().signal },
@@ -372,7 +376,7 @@ describe("Tick limits and recovery", () => {
 				callProvider,
 				ensureProviderPromptWithinBudget: async () => ({
 					allowedPromptTokens: 13_500,
-					providerTools: toolDefinitionsForProviderRound(),
+					providerTools: toolDefinitionsForProviderRound(englishInstructions),
 					promptTokens: 100,
 					requestMessages: [{ role: "assistant", content: "I am ready." }],
 				}),
@@ -392,8 +396,8 @@ describe("Tick limits and recovery", () => {
 			}));
 			const runProviderLoop = (BotRuntime.prototype as unknown as {
 				runProviderLoop: (
-					bot: BotDocument,
-					settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+					bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+					settings: LocalizedProviderSettings,
 					runId: string,
 					messages: Array<Record<string, unknown>>,
 					runContext: { mode: "normal"; signal: AbortSignal },
@@ -411,7 +415,7 @@ describe("Tick limits and recovery", () => {
 							maxGeneratedTokensPerIteration: 1_000,
 						},
 					},
-					{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 					"run-tick-token-limit",
 					[],
 					{ mode: "normal", signal: new AbortController().signal },
@@ -451,7 +455,7 @@ describe("Tick limits and recovery", () => {
 				callProvider,
 				ensureProviderPromptWithinBudget: async () => ({
 					allowedPromptTokens: 13_500,
-					providerTools: toolDefinitionsForProviderRound(),
+					providerTools: toolDefinitionsForProviderRound(englishInstructions),
 					promptTokens: 100,
 					requestMessages: [{ role: "assistant", content: "I am ready." }],
 				}),
@@ -472,8 +476,8 @@ describe("Tick limits and recovery", () => {
 			}));
 			const runProviderLoop = (BotRuntime.prototype as unknown as {
 				runProviderLoop: (
-					bot: BotDocument,
-					settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+					bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+					settings: LocalizedProviderSettings,
 					runId: string,
 					messages: Array<Record<string, unknown>>,
 					runContext: { mode: "normal"; signal: AbortSignal },
@@ -491,7 +495,7 @@ describe("Tick limits and recovery", () => {
 							maxGeneratedTokensPerIteration: 50,
 						},
 					},
-					{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 					"run-iteration-token-limit",
 					[],
 					{ mode: "normal", signal: new AbortController().signal },
@@ -537,7 +541,7 @@ describe("Tick limits and recovery", () => {
 				callProvider,
 				ensureProviderPromptWithinBudget: async () => ({
 					allowedPromptTokens: 13_500,
-					providerTools: toolDefinitionsForProviderRound(),
+					providerTools: toolDefinitionsForProviderRound(englishInstructions),
 					promptTokens: 100,
 					requestMessages: [{ role: "assistant", content: "I am ready." }],
 				}),
@@ -557,8 +561,8 @@ describe("Tick limits and recovery", () => {
 			}));
 			const runProviderLoop = (BotRuntime.prototype as unknown as {
 				runProviderLoop: (
-					bot: BotDocument,
-					settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+					bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+					settings: LocalizedProviderSettings,
 					runId: string,
 					messages: Array<Record<string, unknown>>,
 					runContext: { mode: "normal"; signal: AbortSignal },
@@ -576,7 +580,7 @@ describe("Tick limits and recovery", () => {
 							maxGeneratedTokensPerIteration: 50,
 						},
 					},
-					{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 					"run-token-limit-real-logoff",
 					[],
 					{ mode: "normal", signal: new AbortController().signal },
@@ -591,15 +595,16 @@ describe("Tick limits and recovery", () => {
 		});
 
 	it("bounds malformed-call corrections while keeping a canonical example", () => {
-		const correction = malformedToolCallSelfCorrection([
+		const correction = malformedToolCallSelfCorrection(englishInstructions, [
 			{ id: "call-1", name: "read_thread", reason: "invalid_arguments_json", argumentsPreview: "{" },
 			{ id: "call-2", name: "reply_to_comment", reason: "arguments_not_json_object", argumentsPreview: "[]" },
 			{ id: "call-3", name: "vote", reason: "invalid_arguments_json", argumentsPreview: "{" },
 			{ id: "call-4", name: "create_thread", reason: "invalid_arguments_json", argumentsPreview: "{" },
 		]);
 
-		expect(correction).toContain("4 Bickr controls (read_thread, reply_to_comment, 2 more)");
+		expect(correction).toContain("4 Bickr controls incorrectly (read_thread, reply_to_comment)");
 		expect(correction).toContain('For read_thread, I must use arguments shaped like {"threadRef":"t/abc"}.');
+		expect(correction).toContain("2 more control names are not shown in that list.");
 		expect(correction).not.toContain("vote");
 		expect(correction).not.toContain("create_thread");
 		expect(correction.length).toBeLessThan(500);
@@ -648,7 +653,7 @@ describe("Tick limits and recovery", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [
 					{ role: "assistant", content: "I am ready." },
@@ -676,8 +681,8 @@ describe("Tick limits and recovery", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -687,7 +692,7 @@ describe("Tick limits and recovery", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument({ allowEarlyLogOff: true }),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-malformed-retry",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -710,7 +715,7 @@ describe("Tick limits and recovery", () => {
 			}),
 		]);
 		const correction = appendedLoopMessages.find((message) => message.origin === "self_correction");
-		expect(correction?.message.content).toContain("I formatted 2 Bickr controls (read_thread, reply_to_comment) incorrectly.");
+		expect(correction?.message.content).toContain("I formatted 2 Bickr controls incorrectly (read_thread, reply_to_comment).");
 		expect(correction?.message.content).toContain('For read_thread, I must use arguments shaped like {"threadRef":"t/abc"}.');
 		expect(submissions[1]).toEqual(expect.arrayContaining([
 			expect.objectContaining({ role: "assistant", content: correction?.message.content }),
@@ -753,6 +758,9 @@ describe("Tick limits and recovery", () => {
 		};
 		let toolEventSeq = 0;
 		return new RuntimeTools({
+			markToolDispatched: () => {},
+			markToolReading: () => {},
+			recordMutationIdentity: () => {},
 			env: { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV },
 			listNotes: unreachable("notes"),
 			readNote: unreachable("notes"),
@@ -818,7 +826,7 @@ describe("Tick limits and recovery", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: providerHistoryFromCapturedLoopMessages(appendedLoopMessages),
 			}),
@@ -828,14 +836,14 @@ describe("Tick limits and recovery", () => {
 			// decision into the history it replays. A stub that recomputed the
 			// rule here would keep passing after a regression in the tool.
 			executeTool: testToolExecutor(async (
-				bot: BotDocument,
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 				runId: string,
 				name: string,
 				args: Record<string, unknown>,
 				runContext: { mode: "normal"; signal: AbortSignal },
 			) =>
 				name === "draw_random_integers" ?
-					drawRandomIntegersTools().executeTool(bot, runId, name, args, { setupMode: "new_iteration", ...runContext })
+					drawRandomIntegersTools().executeTool({ ...bot, instructionLocale: "en",  }, runId, name, args, { setupMode: "new_iteration", ...runContext })
 				:	{ name, result: { ok: true }, providerResult: { ok: true } }),
 			recordInferenceSubmission: () => {},
 			recordLoopMessageLog: () => {},
@@ -849,8 +857,8 @@ describe("Tick limits and recovery", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -860,7 +868,7 @@ describe("Tick limits and recovery", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument({ allowEarlyLogOff: true }),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-effective-args",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -929,7 +937,7 @@ describe("Tick limits and recovery", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [
 					{ role: "assistant", content: "I am ready." },
@@ -951,8 +959,8 @@ describe("Tick limits and recovery", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -962,7 +970,7 @@ describe("Tick limits and recovery", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument(),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-malformed-fails",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -1017,7 +1025,7 @@ describe("Tick limits and recovery", () => {
 			appendProviderMessages: async () => {},
 			callProvider,
 			ensureProviderPromptWithinBudget: async (
-				bot: BotDocument,
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 				settings: { toolCalls?: "require" | "railroad" | "at_will" },
 				_runId: string,
 				_signal: AbortSignal,
@@ -1028,7 +1036,7 @@ describe("Tick limits and recovery", () => {
 				promptTokens: 100,
 				requestMessages: (BotRuntime.prototype as unknown as {
 					activeProviderRequestMessages: (
-						bot: BotDocument,
+						bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 						tools: ProviderToolDefinition[],
 						toolCalls: "require" | "railroad" | "at_will",
 					) => Array<Record<string, unknown>>;
@@ -1051,8 +1059,8 @@ describe("Tick limits and recovery", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -1061,8 +1069,8 @@ describe("Tick limits and recovery", () => {
 
 		await expect(
 			runProviderLoop(
-				{ ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 3 } },
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "railroad" },
+				{  ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 3 } },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "railroad" },
 				"run-railroad-retry",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -1098,7 +1106,7 @@ describe("Tick limits and recovery", () => {
 			appendProviderMessages: async () => {},
 			callProvider,
 			ensureProviderPromptWithinBudget: async (
-				bot: BotDocument,
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 				settings: { toolCalls?: "require" | "railroad" | "at_will" },
 				_runId: string,
 				_signal: AbortSignal,
@@ -1109,7 +1117,7 @@ describe("Tick limits and recovery", () => {
 				promptTokens: 100,
 				requestMessages: (BotRuntime.prototype as unknown as {
 					activeProviderRequestMessages: (
-						bot: BotDocument,
+						bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 						tools: ProviderToolDefinition[],
 						toolCalls: "require" | "railroad" | "at_will",
 					) => Array<Record<string, unknown>>;
@@ -1131,8 +1139,8 @@ describe("Tick limits and recovery", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -1141,8 +1149,8 @@ describe("Tick limits and recovery", () => {
 
 		await expect(
 			runProviderLoop(
-				{ ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 1 } },
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{  ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 1 } },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-required-no-tool-retry",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -1175,7 +1183,7 @@ describe("Tick limits and recovery", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [{ role: "user", content: "Act." }],
 			}),
@@ -1190,8 +1198,8 @@ describe("Tick limits and recovery", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -1200,8 +1208,8 @@ describe("Tick limits and recovery", () => {
 
 		await expect(
 			runProviderLoop(
-				{ ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 10 } },
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "railroad" },
+				{  ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 10 } },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "railroad" },
 				"run-railroad-fails",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -1240,7 +1248,7 @@ describe("Tick limits and recovery", () => {
 				return providerResponseWithContent("No page control needed.");
 			},
 			ensureProviderPromptWithinBudget: async (
-				bot: BotDocument,
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 				settings: { toolCalls?: "require" | "railroad" | "at_will" },
 				_runId: string,
 				_signal: AbortSignal,
@@ -1251,7 +1259,7 @@ describe("Tick limits and recovery", () => {
 				promptTokens: 100,
 				requestMessages: (BotRuntime.prototype as unknown as {
 					activeProviderRequestMessages: (
-						bot: BotDocument,
+						bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 						tools: ProviderToolDefinition[],
 						toolCalls: "require" | "railroad" | "at_will",
 					) => Array<Record<string, unknown>>;
@@ -1268,8 +1276,8 @@ describe("Tick limits and recovery", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -1279,7 +1287,7 @@ describe("Tick limits and recovery", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument({ allowEarlyLogOff: false }),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-at-will-noop",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -1328,7 +1336,7 @@ describe("Tick limits and recovery", () => {
 				return callProvider(settings, messages, tools, runId, streamSeq, signal, botId);
 			},
 			ensureProviderPromptWithinBudget: async (
-				bot: BotDocument,
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 				settings: { toolCalls?: "require" | "railroad" | "at_will" },
 				_runId: string,
 				_signal: AbortSignal,
@@ -1339,7 +1347,7 @@ describe("Tick limits and recovery", () => {
 				promptTokens: 100,
 				requestMessages: (BotRuntime.prototype as unknown as {
 					activeProviderRequestMessages: (
-						bot: BotDocument,
+						bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 						tools: ProviderToolDefinition[],
 						toolCalls: "require" | "railroad" | "at_will",
 					) => Array<Record<string, unknown>>;
@@ -1361,8 +1369,8 @@ describe("Tick limits and recovery", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -1372,7 +1380,7 @@ describe("Tick limits and recovery", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument({ allowEarlyLogOff: false }),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-disallowed-logoff",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -1423,7 +1431,7 @@ describe("Tick limits and recovery", () => {
 				:	providerResponseWithToolCall("call-log-off", "log_off", { reason: "done after posting" });
 			},
 			ensureProviderPromptWithinBudget: async (
-				bot: BotDocument,
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 				settings: { toolCalls?: "require" | "railroad" | "at_will" },
 				_runId: string,
 				_signal: AbortSignal,
@@ -1434,7 +1442,7 @@ describe("Tick limits and recovery", () => {
 				promptTokens: 100,
 				requestMessages: (BotRuntime.prototype as unknown as {
 					activeProviderRequestMessages: (
-						bot: BotDocument,
+						bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 						tools: ProviderToolDefinition[],
 						toolCalls: "require" | "railroad" | "at_will",
 					) => Array<Record<string, unknown>>;
@@ -1456,8 +1464,8 @@ describe("Tick limits and recovery", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -1466,8 +1474,8 @@ describe("Tick limits and recovery", () => {
 
 		await expect(
 			runProviderLoop(
-				{ ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 2 } },
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{  ...fakeBotDocument(), tickSettings: { ...fakeBotDocument().tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 2 } },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-logoff-gate",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -1535,7 +1543,7 @@ describe("Tick limits and recovery", () => {
 			},
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [{ role: "system", content: "Prompt." }],
 			}),
@@ -1551,8 +1559,8 @@ describe("Tick limits and recovery", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -1562,7 +1570,7 @@ describe("Tick limits and recovery", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument({ allowEarlyLogOff: true }),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-logoff-through-compaction",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -1642,7 +1650,7 @@ describe("Tick limits and recovery", () => {
 			},
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [{ role: "system", content: "Prompt." }],
 			}),
@@ -1658,8 +1666,8 @@ describe("Tick limits and recovery", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -1669,7 +1677,7 @@ describe("Tick limits and recovery", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument({ allowEarlyLogOff: true }),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-after-logoff",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -1936,7 +1944,7 @@ describe("Tick limits and recovery", () => {
 			recordDroppedProviderToolCalls: async () => {},
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -1959,8 +1967,8 @@ describe("Tick limits and recovery", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -1970,7 +1978,7 @@ describe("Tick limits and recovery", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument({ allowEarlyLogOff: true }),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-multi-call-write",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -2012,7 +2020,7 @@ describe("Tick limits and recovery", () => {
 			callProvider: async () => providerResponseWithContent("Clean migrated history is ready."),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: (BotRuntime.prototype as unknown as { activeLoopMessagesForProvider: () => BotInferenceSubmissionMessage[] })
 					.activeLoopMessagesForProvider.bind(harness.runtime)(),
@@ -2033,8 +2041,8 @@ describe("Tick limits and recovery", () => {
 		});
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -2044,7 +2052,7 @@ describe("Tick limits and recovery", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument(),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-migrated-history",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -2270,7 +2278,7 @@ describe("Tick limits and recovery", () => {
 		const runtime = testRuntimeForToolExecution();
 		const executeTool = (BotRuntime.prototype as unknown as {
 			executeTool: (
-				bot: Awaited<ReturnType<typeof botById>>,
+				bot: (Awaited<ReturnType<typeof botById>>) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 				runId: string,
 				name: string,
 				args: Record<string, unknown>,
@@ -2281,7 +2289,7 @@ describe("Tick limits and recovery", () => {
 		const signal = new AbortController().signal;
 
 		const rejected = await executeTool(
-			bot,
+			{ ...bot, text: englishInstructions },
 			"run-repeat-blocked",
 			"reply_to_comment",
 			{ commentId: parent.id, body: requiredLt("Different follow-up.") },
@@ -2291,12 +2299,12 @@ describe("Tick limits and recovery", () => {
 		expect(rejected).toBeInstanceOf(Error);
 		expect((rejected as Error).message).toContain(`I already replied to comment ${parent.id}.`);
 		expect((rejected as Error).message).toContain("Earlier reply.");
-		expect(toolFailurePayload("reply_to_comment", {}, rejected).guidance).toContain("make_additional_reply_to_the_same_comment");
+		expect(toolFailurePayload(englishInstructions, "reply_to_comment", {}, rejected).guidance).toContain("make_additional_reply_to_the_same_comment");
 		let currentThread = await readThread(testEnv.BICKR_KV, thread.id);
 		expect(currentThread.comments.filter((comment) => comment.parentCommentId === parent.id && comment.authorBotId === replier.id)).toHaveLength(1);
 
 		const allowed = await executeTool(
-			bot,
+			{ ...bot, text: englishInstructions },
 			"run-repeat-allowed",
 			"make_additional_reply_to_the_same_comment",
 			{
@@ -2370,8 +2378,8 @@ describe("Tick limits and recovery", () => {
 		});
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: Awaited<ReturnType<typeof botById>>,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (Awaited<ReturnType<typeof botById>>) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -2380,11 +2388,11 @@ describe("Tick limits and recovery", () => {
 
 		await expect(
 			runProviderLoop(
-				{
+				{ text: englishInstructions,
 					...bot,
 					tickSettings: { ...bot.tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 5 },
 				},
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-repeat-rounds",
 				[{ role: "user", content: "Act." }],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -2443,8 +2451,8 @@ describe("Tick limits and recovery", () => {
 		});
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: Awaited<ReturnType<typeof botById>>,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (Awaited<ReturnType<typeof botById>>) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -2453,11 +2461,11 @@ describe("Tick limits and recovery", () => {
 
 		await expect(
 			runProviderLoop(
-				{
+				{ text: englishInstructions,
 					...bot,
 					tickSettings: { ...bot.tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 5 },
 				},
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-parallel-failure-order",
 				[{ role: "assistant", content: "I look around Bickr." }],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -2471,7 +2479,7 @@ describe("Tick limits and recovery", () => {
 		const acknowledgementIndex = secondRequest.findIndex((message) =>
 			message.role === "assistant" &&
 			typeof message.content === "string" &&
-			message.content.includes("The Bickr page shows an error after this action:")
+			message.content.includes("The Bickr page shows an error after this tool call:")
 		);
 		expect(toolMessageIndexes).toHaveLength(2);
 		expect(secondRequest[toolMessageIndexes[0]!]?.tool_call_id).toBe("call-read");
@@ -2530,8 +2538,8 @@ describe("Tick limits and recovery", () => {
 		});
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: Awaited<ReturnType<typeof botById>>,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (Awaited<ReturnType<typeof botById>>) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -2540,11 +2548,11 @@ describe("Tick limits and recovery", () => {
 
 		await expect(
 			runProviderLoop(
-				{
+				{ text: englishInstructions,
 					...bot,
 					tickSettings: { ...bot.tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 10 },
 				},
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-parallel-persistent-failure-order",
 				[{ role: "assistant", content: "I look around Bickr." }],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -2558,7 +2566,7 @@ describe("Tick limits and recovery", () => {
 		const acknowledgementIndex = secondRequest.findIndex((message) =>
 			message.role === "assistant" &&
 			typeof message.content === "string" &&
-			message.content.includes("The Bickr page shows an error after this action:")
+			message.content.includes("The Bickr page shows an error after this tool call:")
 		);
 		expect(toolMessageIndexes).toHaveLength(6);
 		expect(secondRequest[toolMessageIndexes[0]!]?.tool_call_id).toBe("call-reply-fail-1");

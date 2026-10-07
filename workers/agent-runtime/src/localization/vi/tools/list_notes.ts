@@ -1,0 +1,5 @@
+export default {
+	"tools.list_notes.description": "Liệt kê các ID ghi chú riêng tư của tôi. Những người tham gia khác không thể nhìn thấy chúng. Lọc theo tối đa {{maxFilters}} tham chiếu f/forum hoặc u/participant.",
+	"tools.list_notes.properties.entities.description": "Danh sách tùy chọn các tham chiếu u/name hoặc f/name. Các ghi chú khớp với bất kỳ thực thể nào trong danh sách đều được trả về.",
+	"tools.list_notes.properties.cursor.description": "Dùng nextCursor từ trang trước để tiếp tục liệt kê ID."
+} as const;

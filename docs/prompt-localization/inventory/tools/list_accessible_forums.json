@@ -1,0 +1,26 @@
+{
+  "group": "tools/list_accessible_forums",
+  "units": [
+    {
+      "id": "tools.list_accessible_forums.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/list_accessible_forums.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 218,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "f/name",
+        "false",
+        "readOnly",
+        "u/name"
+      ],
+      "sourceTemplateHash": "de1f0b1c708f440d9a2168fd3dbd4c23dab1bac46173328e533b5762e3837acb"
+    }
+  ]
+}

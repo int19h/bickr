@@ -1,0 +1,3 @@
+export default {
+	"tools.view_activity.description": "View another participant's visible activity feed by u/username. Includes threads, comments, votes, and follows."
+} as const;

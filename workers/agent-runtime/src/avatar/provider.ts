@@ -1,3 +1,5 @@
+import type { BotText } from '../localization';
+import type { InstructionText } from '@bickr/shared/instruction-template';
 import { loadOpenRouterImageCatalog } from "@bickr/shared/openrouter-image-models";
 import { worldAvatarSelectedMembersPromptUserContent, type WorldAvatarMemberSelection } from '@bickr/shared/avatar-prompts';
 import { avatarContentTypeFromBytes, avatarMaxBytes, validateAvatarDataUrl } from '@bickr/shared/avatar-storage';
@@ -31,7 +33,7 @@ import {
 	providerAvatarDescriptionToolName,
 	standardPrompt,
 } from '../prompt-and-tools';
-import { providerMessageTextContent, type ProviderSettings } from '../provider-requests';
+import { providerMessageTextContent, type ProviderSettings, type LocalizedProviderSettings } from '../provider-requests';
 import type { AvatarGenerationDisplayMessage, AvatarGenerationStreamSink, AvatarProvider } from './service';
 import type { ImageGenerationProviderSettings } from './target';
 
@@ -56,7 +58,9 @@ type ProviderRequestErrorLike = Error & { body: string; status: number };
 type ProviderStructuredOutputValidationError = Error & {
 	outputText?: string;
 	rawResponse?: string;
-	repairMessage: string;
+	repairMessage: InstructionText;
+	ownerRepairMessage: InstructionText;
+	text: BotText;
 	requiredToolName: string;
 	toolCalls: BotInferenceSubmissionToolCall[];
 };
@@ -121,14 +125,10 @@ const providerImageBodyReadTimeoutMs = 240_000;
 const providerResponseBodyMaxBytes = 2_000_000;
 const providerImageResponseBodyMaxBytes = Math.ceil((avatarMaxBytes * 4) / 3) + 2_000_000;
 const providerAvatarDescriptionMaxAttempts = 2;
-const avatarImageGenerationSystemPrompt =
-	'Create a public avatar for this Bickr participant. Follow the requested visual direction and use any current profile image provided. Make the subject clear in a square or cropped profile view. Do not put captions, watermarks, interface parts, or explanatory text in the image.';
-const worldAvatarImageGenerationSystemPrompt =
-	'Create a public avatar for this Bickr world. Follow the requested visual direction and use any current world image provided. Make the setting clear in a square or cropped profile view. Do not put captions, watermarks, interface parts, or explanatory text in the image.';
-const currentAvatarDescriptionSystemPrompt =
-	'Describe the supplied public profile image for a new Bickr participant avatar. Include concrete details about appearance, expression, pose, clothing, style, colors, light, background, framing, and layout. Return only the description.';
-const currentWorldAvatarDescriptionSystemPrompt =
-	'Describe the supplied public world image for a new Bickr world avatar. Include concrete details about scenery, buildings, objects, atmosphere, style, colors, light, background, framing, and layout. Return only the description.';
+function avatarImageGenerationSystemPrompt(text: BotText): InstructionText { return text.format("avatar.image.participant_system"); }
+function worldAvatarImageGenerationSystemPrompt(text: BotText): InstructionText { return text.format("avatar.image.world_system"); }
+function currentAvatarDescriptionSystemPrompt(text: BotText): InstructionText { return text.format("avatar.describe_current.participant_system"); }
+function currentWorldAvatarDescriptionSystemPrompt(text: BotText): InstructionText { return text.format("avatar.describe_current.world_system"); }
 
 export function providerAvatarRequestedToolCalls(
 	settings: Pick<ProviderSettings, "baseUrl" | "model" | "providerRouting" | "toolCallRequest">,
@@ -171,41 +171,40 @@ function unreachableAvatarValue(value: never): never {
 
 export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProvider {
 	async function fetchProviderWorldAvatarMembersDescription(
-		settings: ProviderSettings,
+		settings: LocalizedProviderSettings,
 		world: WorldDocument,
 		members: WorldAvatarMemberSelection,
 		options: ProviderAvatarDescriptionOptions = {},
 	): Promise<string> {
 		return fetchProviderWorldAvatarDescriptionFromUserContent(
 			settings,
-			worldAvatarSelectedMembersPromptUserContent(world, members),
+			worldAvatarSelectedMembersPromptUserContent(settings.text, world, members),
 			options,
 		);
 	}
 
 	async function fetchProviderWorldAvatarDescription(
-		settings: ProviderSettings,
+		settings: LocalizedProviderSettings,
 		world: WorldDocument,
 		options: ProviderAvatarDescriptionOptions = {},
 	): Promise<string> {
-		const sourceDescription = [localizedTextString(world.description).trim(), localizedTextString(world.prompt).trim()]
-			.filter(Boolean)
-			.join('\n\nAdditional setting detail:\n');
-		if (!sourceDescription) {
-			throw new InputError('Short description or prompt is required before filling from description.');
-		}
-		return fetchProviderWorldAvatarDescriptionFromUserContent(
-			settings,
-			`World name: ${localizedTextString(world.name)}\nShort description:\n${sourceDescription}`,
-			options,
-		);
+		const text = settings.text;
+		const description = localizedTextString(world.description).trim();
+		const detail = localizedTextString(world.prompt).trim();
+		if (!description && !detail) throw new InputError('Short description or prompt is required before filling from description.');
+		const worldName = localizedTextString(world.name);
+		const source = description && detail ? text.format('avatar.world_source.description_and_detail', { worldName, description, detail })
+			: description ? text.format('avatar.world_source.description', { worldName, description })
+			: text.format('avatar.world_source.detail', { worldName, detail });
+		return fetchProviderWorldAvatarDescriptionFromUserContent(settings, source, options);
 	}
 
 	async function fetchProviderWorldAvatarDescriptionFromUserContent(
-		settings: ProviderSettings,
+		settings: LocalizedProviderSettings,
 		userContent: string,
 		options: ProviderAvatarDescriptionOptions = {},
 	): Promise<string> {
+		const text = settings.text;
 		const endpoint = runtime.chatCompletionsUrl(settings.baseUrl);
 		const signal = options.signal ?? new AbortController().signal;
 		const headers: Record<string, string> = { 'content-type': 'application/json' };
@@ -217,7 +216,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 			{
 				role: 'system',
 				content:
-					'Write a visual prompt for a public Bickr world avatar. Use the setting and member profiles to describe one image of the world. Include concrete details about landmarks, scenery, atmosphere, light, colors, texture, layout, and camera view. Do not include captions, text overlays, interface parts, watermarks, or comments about the process. Return only the prompt.',
+					text.format("avatar.world_source.system"),
 			},
 			...(prefill ? [{ role: 'assistant' as const, content: prefill }] : []),
 			{
@@ -277,17 +276,17 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		}
 		const payloadRecord = runtimeRecord(payload);
 		const choices = Array.isArray(payloadRecord.choices) ? payloadRecord.choices : [];
-		const text = normalizeAvatarDescriptionText(providerMessageTextContent(runtimeRecord(runtimeRecord(choices[0]).message).content));
-		if (!text) {
+		const description = normalizeAvatarDescriptionText(providerMessageTextContent(runtimeRecord(runtimeRecord(choices[0]).message).content));
+		if (!description) {
 			throw runtime.requestError(502, settings.model, endpoint, 'Provider world avatar description response did not include text.', {
 				rawResponse,
 			});
 		}
-		return text;
+		return description;
 	}
 
 	async function fetchProviderWorldAvatarDescriptionFromStream(
-		settings: ProviderSettings,
+		settings: LocalizedProviderSettings,
 		endpoint: string,
 		response: Response,
 		signal: AbortSignal,
@@ -344,7 +343,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 	};
 
 	async function fetchProviderAvatarImage(
-		settings: ImageGenerationProviderSettings,
+		settings: ImageGenerationProviderSettings & { readonly text: BotText },
 		input: { prompt: string; currentAvatarUrl?: string },
 		options: { signal?: AbortSignal; stream?: AvatarGenerationStreamSink; target?: 'participant' | 'world' } = {},
 	): Promise<{ dataUrl: string; cost: number | null }> {
@@ -355,7 +354,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		if (settings.apiKey) {
 			headers.authorization = `Bearer ${settings.apiKey}`;
 		}
-		const requestMessages = avatarImageGenerationMessages(input, options.target);
+		const requestMessages = avatarImageGenerationMessages(settings.text, input, options.target);
 		await options.stream?.messages(requestMessages.displayMessages);
 		if (openRouterImageApi) {
 			const upstreamStream = Boolean(
@@ -476,7 +475,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 	}
 
 	function openRouterAvatarImageRequest(
-		settings: ImageGenerationProviderSettings,
+		settings: ImageGenerationProviderSettings & { readonly text: BotText },
 		requestMessages: ReturnType<typeof avatarImageGenerationMessages>,
 		input: { currentAvatarUrl?: string },
 		stream: boolean,
@@ -500,16 +499,16 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 			.join('\n\n');
 	}
 
-	function avatarImageGenerationMessages(input: { prompt: string; currentAvatarUrl?: string }, target: 'participant' | 'world' = 'participant'): {
+	function avatarImageGenerationMessages(text: BotText, input: { prompt: string; currentAvatarUrl?: string }, target: 'participant' | 'world' = 'participant'): {
 		displayMessages: AvatarGenerationDisplayMessage[];
 		providerMessages: ProviderImageMessage[];
 	} {
 		const prompt = input.prompt.trim();
-		const systemPrompt = target === 'world' ? worldAvatarImageGenerationSystemPrompt : avatarImageGenerationSystemPrompt;
+		const systemPrompt = target === 'world' ? worldAvatarImageGenerationSystemPrompt(text) : avatarImageGenerationSystemPrompt(text);
 		const userText = prompt || (target === 'world'
-			? 'Use the supplied current world image as visual input for a refreshed public world avatar.'
-			: 'Use the supplied current profile image as visual input for a refreshed public profile avatar.');
-		const displayUserMessage = [userText, ...(input.currentAvatarUrl ? ['[current avatar image included]'] : [])].join('\n\n');
+			? text.format("avatar.image.world_refresh")
+			: text.format("avatar.image.participant_refresh"));
+		const displayUserMessage = [userText, ...(input.currentAvatarUrl ? [text.format('avatar.image.currentIncluded')] : [])].join('\n\n');
 		const content: ProviderImageContentPart[] = [{ type: 'text', text: userText }];
 		if (input.currentAvatarUrl) {
 			content.push({ type: 'image_url', image_url: { url: input.currentAvatarUrl } });
@@ -526,18 +525,18 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		};
 	}
 
-	function currentAvatarDescriptionMessages(currentAvatarUrl: string, target: 'participant' | 'world' = 'participant'): {
+	function currentAvatarDescriptionMessages(text: BotText, currentAvatarUrl: string, target: 'participant' | 'world' = 'participant'): {
 		displayMessages: AvatarGenerationDisplayMessage[];
 		providerMessages: ProviderImageMessage[];
 	} {
-		const systemPrompt = target === 'world' ? currentWorldAvatarDescriptionSystemPrompt : currentAvatarDescriptionSystemPrompt;
+		const systemPrompt = target === 'world' ? currentWorldAvatarDescriptionSystemPrompt(text) : currentAvatarDescriptionSystemPrompt(text);
 		const userText = target === 'world'
-			? 'Provide a complete visual description of the supplied current world image for a refreshed public world avatar prompt.'
-			: 'Provide a complete visual description of the supplied current profile image for a refreshed public avatar prompt.';
+			? text.format("avatar.describe_current.world")
+			: text.format("avatar.describe_current.participant");
 		return {
 			displayMessages: [
 				{ role: 'system', content: systemPrompt },
-				{ role: 'user', content: `${userText}\n\n[current avatar image included]` },
+				{ role: 'user', content: `${userText}\n\n${text.format('avatar.image.currentIncluded')}` },
 			],
 			providerMessages: [
 				{ role: 'system', content: systemPrompt },
@@ -553,7 +552,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 	}
 
 	async function fetchProviderCurrentAvatarDescription(
-		settings: ImageGenerationProviderSettings,
+		settings: ImageGenerationProviderSettings & { readonly text: BotText },
 		currentAvatarUrl: string,
 		options: { signal?: AbortSignal; stream?: AvatarGenerationStreamSink; target?: 'participant' | 'world' } = {},
 	): Promise<string> {
@@ -572,7 +571,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		if (settings.apiKey) {
 			headers.authorization = `Bearer ${settings.apiKey}`;
 		}
-		const requestMessages = currentAvatarDescriptionMessages(currentAvatarUrl, options.target);
+		const requestMessages = currentAvatarDescriptionMessages(settings.text, currentAvatarUrl, options.target);
 		await options.stream?.messages(requestMessages.displayMessages);
 		const requestBody = {
 			model: settings.model,
@@ -628,7 +627,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 	}
 
 	async function fetchProviderCurrentAvatarDescriptionFromStream(
-		settings: ImageGenerationProviderSettings,
+		settings: ImageGenerationProviderSettings & { readonly text: BotText },
 		endpoint: string,
 		response: Response,
 		signal: AbortSignal,
@@ -669,7 +668,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 	}
 
 	async function fetchProviderAvatarImageFromStream(
-		settings: ImageGenerationProviderSettings,
+		settings: ImageGenerationProviderSettings & { readonly text: BotText },
 		endpoint: string,
 		response: Response,
 		signal: AbortSignal,
@@ -727,7 +726,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 	}
 
 	async function fetchOpenRouterAvatarImageFromStream(
-		settings: ImageGenerationProviderSettings,
+		settings: ImageGenerationProviderSettings & { readonly text: BotText },
 		endpoint: string,
 		response: Response,
 		signal: AbortSignal,
@@ -947,18 +946,18 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		return urls;
 	}
 
-	function providerAvatarDescriptionSpec(): ProviderSingleStringResponseSpec {
+	function providerAvatarDescriptionSpec(text: BotText): ProviderSingleStringResponseSpec {
 		return {
 			kind: 'avatar_description',
 			property: 'description',
-			label: 'profile image description',
+			text,
 			maxCharacters: 8_000,
 			toolName: providerAvatarDescriptionToolName,
 		};
 	}
 
-	function providerAvatarDescriptionResponseFormat(mode: ProviderCompactionMode): ProviderJsonSchemaResponseFormat | undefined {
-		return providerSingleStringResponseFormat('avatar_description', providerAvatarDescriptionSpec(), mode);
+	function providerAvatarDescriptionResponseFormat(text: BotText, mode: ProviderCompactionMode): ProviderJsonSchemaResponseFormat | undefined {
+		return providerSingleStringResponseFormat('avatar_description', providerAvatarDescriptionSpec(text), mode);
 	}
 
 	type ProviderAvatarDescriptionOptions = {
@@ -968,7 +967,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 	};
 
 	async function fetchProviderAvatarDescription(
-		settings: ProviderSettings,
+		settings: LocalizedProviderSettings,
 		bot: BotDocument,
 		options: ProviderAvatarDescriptionOptions = {},
 	): Promise<string> {
@@ -994,19 +993,20 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 	}
 
 	async function fetchProviderAvatarDescriptionWithMode(
-		settings: ProviderSettings,
+		settings: LocalizedProviderSettings,
 		bot: BotDocument,
 		mode: ProviderCompactionMode,
 		options: ProviderAvatarDescriptionOptions = {},
 	): Promise<string> {
+		const text = settings.text;
 		const endpoint = runtime.chatCompletionsUrl(settings.baseUrl);
 		const signal = options.signal ?? new AbortController().signal;
 		const headers: Record<string, string> = { 'content-type': 'application/json' };
 		if (settings.apiKey) {
 			headers.authorization = `Bearer ${settings.apiKey}`;
 		}
-		const tools = mode === 'structured_output' ? [] : providerAvatarDescriptionToolDefinitions();
-		const responseFormat = providerAvatarDescriptionResponseFormat(mode);
+		const tools = mode === 'structured_output' ? [] : providerAvatarDescriptionToolDefinitions(settings.text);
+		const responseFormat = providerAvatarDescriptionResponseFormat(settings.text, mode);
 		const reasoning = mode === 'structured_output'
 			? runtime.structuredOutputReasoningForSettings(settings)
 			: runtime.reasoningForSettings(settings);
@@ -1016,13 +1016,13 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		const toolChoice = providerAvatarToolChoice(mode, settings, toolCalls);
 		const finalInstruction =
 			mode === 'structured_output'
-				? 'I need to describe my profile image. I must return the required JSON object. Its description must be in character and in the first person. I will give many concrete visual details about appearance, style, scene, light, and layout. I will describe only what is visible.'
-				: `I need to describe my profile image. I must call ${providerAvatarDescriptionToolName}. I will write in character and in the first person. I will give many concrete visual details about appearance, style, scene, light, and layout. I will describe only what is visible.`;
+				? text.format("avatar.persona_description.structured")
+				: text.format("avatar.persona_description.tool", { toolName: providerAvatarDescriptionToolName });
 		const prefill = options.prefill?.trim();
 		const messages: ChatMessage[] = [
 			{
 				role: 'system',
-				content: mode === 'structured_output' ? standardPrompt(bot, '', { includeNotesTools: false, includePlan: false }) : appendToolRequirementInstruction(standardPrompt(bot, '', { includeNotesTools: false, includePlan: false }), tools),
+				content: mode === 'structured_output' ? standardPrompt(settings.text, bot, '', { includeNotesTools: false, includePlan: false }) : appendToolRequirementInstruction(settings.text, standardPrompt(settings.text, bot, '', { includeNotesTools: false, includePlan: false }), tools),
 			},
 			...(prefill ? [{ role: 'assistant' as const, content: prefill }] : []),
 			{
@@ -1086,7 +1086,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 				});
 			}
 			try {
-				const description = providerAvatarDescriptionFromResponseMessage(payload.choices?.[0]?.message, rawResponse, mode);
+				const description = providerAvatarDescriptionFromResponseMessage(settings.text, payload.choices?.[0]?.message, rawResponse, mode);
 				await options.stream?.assistantDelta(prefill ? `\n\n${description}` : description);
 				return description;
 			} catch (error) {
@@ -1106,7 +1106,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 				}
 			}
 		}
-			const repairMessage = lastValidationError?.repairMessage ?? 'Provider avatar description response did not call the required tool.';
+			const repairMessage = lastValidationError?.ownerRepairMessage ?? 'Provider avatar description response did not call the required tool.';
 			if (mode === 'structured_output') {
 				throw new ProviderAvatarDescriptionValidationError(
 					repairMessage,
@@ -1122,8 +1122,8 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 			);
 		}
 
-	function providerAvatarDescriptionFromResponseMessage(message: unknown, rawResponse: string, mode: ProviderCompactionMode): string {
-		return runtime.singleStringResponseFromMessage(message, providerAvatarDescriptionSpec(), rawResponse, mode).trim();
+	function providerAvatarDescriptionFromResponseMessage(text: BotText, message: unknown, rawResponse: string, mode: ProviderCompactionMode): string {
+		return runtime.singleStringResponseFromMessage(message, providerAvatarDescriptionSpec(text), rawResponse, mode).trim();
 	}
 
 	function normalizeAvatarDescriptionText(value: unknown): string | null {
@@ -1141,13 +1141,14 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 	}
 
 	function avatarDescriptionRepairMessages(error: ProviderStructuredOutputValidationError, mode: ProviderCompactionMode): ChatMessage[] {
+		const text = error.text;
 		if (mode === 'structured_output') {
 			return [
 				...(error.outputText ? [{ role: 'assistant' as const, content: error.outputText }] : []),
 				{
 					role: 'user',
 					content:
-						'Return a JSON object with exactly one field named description. Write it in character and in the first person. Describe only visible appearance, style, scene, light, and layout.',
+						text.format("avatar.persona_description.repair_structured"),
 				},
 			];
 		}
@@ -1156,7 +1157,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 				...(error.outputText ? [{ role: 'assistant' as const, content: error.outputText }] : []),
 				{
 					role: 'user',
-					content: `Call ${providerAvatarDescriptionToolName}. Write in character and in the first person. Describe only visible appearance, style, scene, light, and layout.`,
+					content: text.format("avatar.persona_description.repair_tool", { toolName: providerAvatarDescriptionToolName }),
 				},
 			];
 		}

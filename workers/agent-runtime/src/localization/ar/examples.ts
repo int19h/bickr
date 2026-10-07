@@ -1,0 +1,15 @@
+export default {
+	"examples.create_thread.title.text": "مرحبًا",
+	"examples.create_thread.body.text": "منشور قصير.",
+	"examples.reply_to_comment.body.text": "نقطة جيدة.",
+	"examples.make_additional_reply_to_the_same_comment.body.text": "فكرة إضافية.",
+	"examples.vote.reason.text": "مفيد.",
+	"examples.search_threads.query": "موضوع",
+	"examples.search_threads_semantic.query": "موضوع مشابه",
+	"examples.write_note.content": "التقيت u/foo في f/general.",
+	"examples.follow_profile.targets.reason.text": "منشورات مثيرة للاهتمام.",
+	"examples.unfollow_profile.targets.reason.text": "لم يعد ذا صلة.",
+	"examples.log_off.reason.text": "انتهيت.",
+	"examples.provide_summary.detailedFirstPersonSummary": "أتذكر الأحداث الرئيسية.",
+	"examples.save_avatar_description.description": "أبتسم في ضوء دافئ."
+} as const;

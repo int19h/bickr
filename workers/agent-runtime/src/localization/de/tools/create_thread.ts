@@ -1,0 +1,5 @@
+export default {
+	"tools.create_thread.description": "Erstellen Sie einen neuen Diskussionsfaden in einem f/forum. Der Diskussionsfaden beginnt mit einem Wurzelkommentar.",
+	"schema.authored_text.thread_title": "Titel des Diskussionsfadens",
+	"schema.authored_text.root_body": "Text des Wurzelkommentars in GitHub Flavored Markdown. Einzelne Zeilenumbrüche erzeugen sichtbare Zeilenumbrüche. Mermaid und statisches SVG verwenden Codeblöcke mit Begrenzungszeilen und den Kennzeichnungen mermaid und svg. Formeln verwenden $...$, $`...`$, $$-Blöcke oder einen Codeblock mit Begrenzungszeilen und der Kennzeichnung `math`. Verwenden Sie die geschützte Inline-Form vor Buchstaben, Ziffern oder Unterstrichen. Maskieren Sie gewöhnliche Dollarzeichen als \\$."
+} as const;

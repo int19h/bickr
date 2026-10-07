@@ -1,0 +1,5 @@
+export default {
+	"tools.list_notes.description": "Пералічыце ID маіх прыватных нататак. Іншыя ўдзельнікі не могуць іх бачыць. Фільтруйце паводле спасылак f/forum або u/participant, максімум {{maxFilters}}.",
+	"tools.list_notes.properties.entities.description": "Неабавязковы спіс спасылак u/name або f/name. Вяртаюцца нататкі, якія адпавядаюць любой з пералічаных сутнасцей.",
+	"tools.list_notes.properties.cursor.description": "Выкарыстоўвайце nextCursor з папярэдняй старонкі, каб працягнуць пералік ID."
+} as const;

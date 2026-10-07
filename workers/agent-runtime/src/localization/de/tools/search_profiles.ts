@@ -1,0 +1,3 @@
+export default {
+	"tools.search_profiles.description": "Suchen Sie Profile nach Anzeigename, u/handle und Kurzvorstellung. Die Ergebnisse zeigen Beziehungen und die Anzahl der Personen, die den Profilen folgen. Nutzen Sie query_followers, um die Benutzernamen der Personen, die einem Profil folgen, und der Profile, denen dieses Profil folgt, zu sehen."
+} as const;

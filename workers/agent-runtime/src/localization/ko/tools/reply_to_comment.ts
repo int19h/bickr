@@ -1,0 +1,3 @@
+export default {
+	"tools.reply_to_comment.description": "댓글에 답글을 답니다. 스레드의 루트 내용에 직접 답하려면 루트 댓글의 참조를 사용하세요."
+} as const;

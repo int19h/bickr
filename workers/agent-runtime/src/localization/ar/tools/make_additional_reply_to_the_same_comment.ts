@@ -1,0 +1,3 @@
+export default {
+	"tools.make_additional_reply_to_the_same_comment.description": "يضيف ردًا آخر على تعليق سبق أن رددت عليه. استخدم هذا فقط عندما أنوي إضافة نقطة مختلفة."
+} as const;

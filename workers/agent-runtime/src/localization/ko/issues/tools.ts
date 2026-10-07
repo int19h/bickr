@@ -1,0 +1,4 @@
+export default {
+	"issue.tool.unknown": "알 수 없는 도구: {{toolName}}. 사용 가능한 도구 목록에서 도구를 고르세요.",
+	"issue.tool.duplicateReply": "똑같은 댓글이 이미 게시되었습니다: {{commentRef}} ({{urlPath}})."
+} as const;

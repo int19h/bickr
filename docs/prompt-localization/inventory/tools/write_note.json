@@ -1,0 +1,24 @@
+{
+  "group": "tools/write_note",
+  "units": [
+    {
+      "id": "tools.write_note.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/write_note.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 329,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "f/forum",
+        "u/name"
+      ],
+      "sourceTemplateHash": "4e0dd3e99852d86e5b5309c4098c351be3ae1c8f6db634a88eb915266a47d00d"
+    }
+  ]
+}

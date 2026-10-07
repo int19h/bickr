@@ -1,3 +1,4 @@
+import { botText } from '../localization';
 import { compactionRowsForEstimatedBudget } from '../compaction/selection';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, LoopMessageGroupEntry, ToolCall } from '../types';
@@ -5,6 +6,7 @@ import { RuntimeMessageStore } from './message-store';
 import { createRuntimeTestStorage, type RuntimeTestStorage } from './sqlite-test-helper';
 import { BotRuntime } from './bot-runtime';
 import { sanitizeProviderMessagesForRequest } from '../provider/sanitize';
+import { unknownToolOutcomeMessage } from './tool-recovery';
 
 const reasoning = [{ type: 'reasoning.encrypted', data: 'opaque-signed-provider-block', format: 'anthropic-claude-v1', index: 0 }];
 const call = (id: string): ToolCall => ({ id, type: 'function', function: { name: 'view_profiles', arguments: '{}' } });
@@ -68,7 +70,7 @@ describe('provider response groups', () => {
 
 	it('rolls back assistant expansion, logs, and pending cleanup if result persistence fails', () => {
 		const first = store.appendProviderToolResult(...pair('first'), null);
-		storage.database.prepare("INSERT INTO runtime_state VALUES ('pending_tool_v2', ?)").run(JSON.stringify({ runId: 'run' }));
+		storage.database.prepare("INSERT INTO runtime_state VALUES ('pending_tool_v3', ?)").run(JSON.stringify({ runId: 'run' }));
 		const original = store.insertLoopMessage.bind(store);
 		vi.spyOn(store, 'insertLoopMessage').mockImplementation((input) => {
 			if (input.message.tool_call_id === 'second') throw new Error('fault during result insert');
@@ -77,7 +79,14 @@ describe('provider response groups', () => {
 		const before = store.loopMessageLogsForSeq(first.seq);
 		expect(() => store.appendProviderToolResult(...pair('second'), first.seq)).toThrow('fault during result insert');
 		expect(store.loopMessageLogsForSeq(first.seq)).toEqual(before);
-		expect(storage.database.prepare("SELECT value_json FROM runtime_state WHERE key = 'pending_tool_v2'").get()).toBeDefined();
+		expect(storage.database.prepare("SELECT value_json FROM runtime_state WHERE key = 'pending_tool_v3'").get()).toBeDefined();
+	});
+
+	it.each([null, 'existing'] as const)('clears the current journal with a successful result (group=%s)', (group) => {
+		const first = group ? store.appendProviderToolResult(...pair('first'), null) : null;
+		storage.database.prepare("INSERT INTO runtime_state VALUES ('pending_tool_v3', ?)").run(JSON.stringify({ runId: 'run' }));
+		store.appendProviderToolResult(...pair('second'), first?.seq ?? null);
+		expect(storage.database.prepare("SELECT value_json FROM runtime_state WHERE key = 'pending_tool_v3'").get()).toBeUndefined();
 	});
 
 	it.each([false, true])('recovers an interrupted tool with original reasoning exactly once (existing group=%s)', (existing) => {
@@ -86,7 +95,8 @@ describe('provider response groups', () => {
 			state: { storage, getWebSockets: () => [] }, appendEvent: vi.fn(),
 		});
 		const assistant: ChatMessage = { role: 'assistant', reasoning_details: reasoning, tool_calls: [call('first'), call('second')] };
-		runtime.setPendingTool('run', call('second'), {}, assistant, first?.seq ?? null);
+		runtime.setPendingTool(botText('en'), 'run', call('second'), {}, assistant, first?.seq ?? null);
+		runtime.markPendingToolDispatched('run', 'second');
 		runtime.settlePendingTool('run');
 		runtime.settlePendingTool('run');
 		const messages = store.loopMessagesAfter(0).map((row) => row.message);
@@ -95,7 +105,7 @@ describe('provider response groups', () => {
 		expect(messages.at(-1)?.tool_call_id).toBe('second');
 		expect(messages.at(-1)?.content).toContain('outcome_unknown');
 		expect(messages).toHaveLength(existing ? 3 : 2);
-		expect(storage.database.prepare("SELECT value_json FROM runtime_state WHERE key = 'pending_tool_v2'").get()).toBeUndefined();
+		expect(storage.database.prepare("SELECT value_json FROM runtime_state WHERE key = 'pending_tool_v3'").get()).toBeUndefined();
 	});
 
 	it('settles legacy pending calls once without inventing provider reasoning', () => {
@@ -107,5 +117,29 @@ describe('provider response groups', () => {
 		expect(messages).toHaveLength(2);
 		expect(messages[0]?.reasoning).toBeUndefined();
 		expect(messages[0]?.reasoning_details).toBeUndefined();
+	});
+
+	it.each(['prepared', 'reading', 'dispatched'] as const)('recovers a %s call in its original language after a new runtime instance', (stage) => {
+		const original = Object.assign(Object.create(BotRuntime.prototype), { state: { storage, getWebSockets: () => [] }, appendEvent: vi.fn() });
+		const text = botText('ja');
+		const assistant: ChatMessage = { role: 'assistant', content: 'Authored {{opaque}} reasoning.', reasoning_details: reasoning };
+		original.setPendingTool(text, 'run', call('native'), {}, assistant, null);
+		if (stage === 'dispatched') original.markPendingToolDispatched('run', 'native');
+		if (stage === 'reading') original.markPendingToolReading('run', 'native');
+		// Recovery gets its language from the stored request, without loading a
+		// participant configuration that can change while the object is asleep.
+		const restarted = Object.assign(Object.create(BotRuntime.prototype), { state: { storage, getWebSockets: () => [] }, appendEvent: vi.fn() });
+		restarted.settlePendingTool('run');
+		restarted.settlePendingTool('run');
+		const messages = store.loopMessagesAfter(0).map((row) => row.message);
+		expect(messages).toHaveLength(2);
+		expect(messages[0]?.content).toBe(assistant.content);
+		expect(messages[0]?.reasoning_details).toEqual(reasoning);
+		const outcome = JSON.parse(String(messages[1]?.content));
+		expect(outcome).toEqual(stage === 'prepared'
+			? { ok: false, code: 'not_dispatched', message: text.format('recovery.notDispatched') }
+			: stage === 'reading' ? { ok: false, code: 'interrupted', message: text.format('recovery.interrupted') }
+			: { kind: 'outcome_unknown', message: unknownToolOutcomeMessage(text, 'view_profiles') });
+		expect(storage.database.prepare("SELECT value_json FROM runtime_state WHERE key = 'pending_tool_v3'").get()).toBeUndefined();
 	});
 });

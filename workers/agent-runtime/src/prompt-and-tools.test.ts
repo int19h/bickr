@@ -1,3 +1,5 @@
+import { botText } from './localization';
+const text = botText('en');
 import { describe, expect, it } from "vitest";
 import { parseLanguageTag } from "@bickr/shared/validation";
 import type { BotDocument } from "@bickr/shared/model";
@@ -20,7 +22,7 @@ describe("Bickr function tools", () => {
 	it("emits one complete parseable top-level argument example for every function tool", () => {
 		const definitions = allFunctionToolDefinitions();
 		expect(definitions.map((definition) => definition.function.name).sort()).toEqual(
-			Object.keys(bickrFunctionToolArgumentExamples).sort(),
+			Object.keys(bickrFunctionToolArgumentExamples(text)).sort(),
 		);
 
 		for (const definition of definitions) {
@@ -29,7 +31,7 @@ describe("Bickr function tools", () => {
 			const serialized = definition.function.description.slice(separator + examplePrefix.length);
 			const example = JSON.parse(serialized) as unknown;
 			expect(example, definition.function.name).toEqual(
-				bickrFunctionToolArgumentExamples[definition.function.name],
+				bickrFunctionToolArgumentExamples(text)[definition.function.name],
 			);
 			expectSchemaValue(example, definition.function.parameters, definition.function.name);
 		}
@@ -37,10 +39,10 @@ describe("Bickr function tools", () => {
 
 	it("offers draw_random_integers in every normal round, whatever the posting limits", () => {
 		const rounds = [
-			toolDefinitionsForProviderRound(),
-			toolDefinitionsForProviderRound(4_000, { includeLogOffTool: false }),
-			toolDefinitionsForProviderRound(4_000, { includeMetaCompactionTool: false }),
-			toolDefinitionsForProviderRound(4_000, {
+			toolDefinitionsForProviderRound(text),
+			toolDefinitionsForProviderRound(text, 4_000, { includeLogOffTool: false }),
+			toolDefinitionsForProviderRound(text, 4_000, { includeMetaCompactionTool: false }),
+			toolDefinitionsForProviderRound(text, 4_000, {
 				postingLimits: { threadBodyCharacters: 111, commentBodyCharacters: 222 },
 			}),
 		];
@@ -52,15 +54,15 @@ describe("Bickr function tools", () => {
 
 	it("keeps draw_random_integers out of the single-purpose rounds", () => {
 		const singlePurpose = [
-			...providerTranslationToolDefinitions(),
-			...providerAvatarDescriptionToolDefinitions(),
+			...providerTranslationToolDefinitions(text),
+			...providerAvatarDescriptionToolDefinitions(text),
 		];
 
 		expect(singlePurpose.map((definition) => definition.function.name)).not.toContain("draw_random_integers");
 	});
 
 	it("declares both the single-range and array shapes it accepts", () => {
-		const definition = toolDefinitionsForProviderRound().find(
+		const definition = toolDefinitionsForProviderRound(text).find(
 			(candidate) => candidate.function.name === "draw_random_integers",
 		);
 		const ranges = definition?.function.parameters.properties.ranges;
@@ -96,7 +98,7 @@ describe("Bickr function tools", () => {
 	it("omits all note tools when the participant disables notes", () => {
 		const participant = promptParticipant();
 		const names = (enabled: boolean) => providerFunctionToolsForBot({
-			postingSettings: {}, tickSettings: participant.tickSettings,
+			text, postingSettings: {}, tickSettings: participant.tickSettings,
 			toolSettings: { bickrNotes: { enabled } },
 		}).map((definition) => 'function' in definition ? definition.function.name : '');
 		for (const name of ["list_notes", "read_note", "write_note", "delete_note"]) {
@@ -119,27 +121,27 @@ describe("Bickr function tools", () => {
 describe("standard system prompt", () => {
 	it("explains note tools and hides PLAN instructions when PLAN access is off", () => {
 		const bot = promptParticipant();
-		const allNotes = standardPrompt(bot, "", { includeNotesTools: true, includePlan: true });
+		const allNotes = standardPrompt(text, bot, "", { includeNotesTools: true, includePlan: true });
 		for (const name of ["list_notes", "read_note", "write_note", "delete_note"]) expect(allNotes).toContain(name);
 		expect(allNotes).toContain("note title or content contains u/username");
 		expect(allNotes).toContain('id "PLAN"');
-		const noPlan = standardPrompt(bot, "", { includeNotesTools: true, includePlan: false });
+		const noPlan = standardPrompt(text, bot, "", { includeNotesTools: true, includePlan: false });
 		expect(noPlan).toContain("write_note");
 		expect(noPlan).not.toContain("PLAN");
-		const noNotes = standardPrompt(bot, "", { includeNotesTools: false, includePlan: false });
+		const noNotes = standardPrompt(text, bot, "", { includeNotesTools: false, includePlan: false });
 		expect(noNotes).not.toContain("write_note");
 		expect(noNotes).not.toContain("PLAN");
 	});
 	it("requires valid JSON objects with quoted and escaped string literals", () => {
 		const participant = promptParticipant();
-		const prompt = standardPrompt(participant, "", { includeNotesTools: true, includePlan: true });
+		const prompt = standardPrompt(text, participant, "", { includeNotesTools: true, includePlan: true });
 
 		expect(prompt).toContain("Give every Bickr tool a valid JSON object.");
 		expect(prompt).toContain("Put quotes around every string, including prose. Escape special characters in strings.");
 	});
 
 	it("defines the composite self-author label without treating it as a handle argument", () => {
-		const prompt = standardPrompt(promptParticipant(), "", { includeNotesTools: true, includePlan: true });
+		const prompt = standardPrompt(text, promptParticipant(), "", { includeNotesTools: true, includePlan: true });
 		const identityContract = `Your Bickr handle is u/foo
 
 In Bickr tool results, the author label u/foo (${providerSelfAuthor}) marks content that you wrote. The label ${providerSelfAuthor} has the same meaning when no author handle is available. Never write the (${providerSelfAuthor}) marker in a thread, comment, reason, or other content. Never put that marker in a Bickr tool argument. If a tool asks for a participant handle or username, use only u/foo.`;
@@ -179,9 +181,9 @@ function promptParticipant(): BotDocument {
 
 function allFunctionToolDefinitions(): FunctionToolDefinition[] {
 	return [
-		...toolDefinitionsForProviderRound(),
-		...providerTranslationToolDefinitions(),
-		...providerAvatarDescriptionToolDefinitions(),
+		...toolDefinitionsForProviderRound(text),
+		...providerTranslationToolDefinitions(text),
+		...providerAvatarDescriptionToolDefinitions(text),
 	];
 }
 
@@ -266,8 +268,8 @@ function expectSchemaValue(value: unknown, schema: Record<string, unknown>, path
 
 describe("Markdown authoring instructions", () => {
 	it("describes body formatting and drawing fences", () => {
-		const prompt = standardPrompt(promptParticipant(), "", { includeNotesTools: false, includePlan: false });
-		for (const phrase of ["GitHub Flavored Markdown", "single newline", "three backticks followed by its label", "mermaid, svg, or math", "viewBox", "presentation attributes", "Titles are plain text", "For math", "$`E = mc^2`$", "\\$5", "Definitions do not carry"]) expect(prompt).toContain(phrase);
+		const prompt = standardPrompt(text, promptParticipant(), "", { includeNotesTools: false, includePlan: false });
+		for (const phrase of ["GitHub Flavored Markdown", "single newline", "three backticks followed by its label", "mermaid, svg, or `math`", "viewBox", "presentation attributes", "Titles are plain text", "For math", "$`E = mc^2`$", "\\$5", "Definitions do not carry"]) expect(prompt).toContain(phrase);
 		expect(prompt).toContain("```math\nE = mc^2\n```\n\n");
 	});
 });
@@ -275,7 +277,7 @@ describe("Markdown authoring instructions", () => {
 describe('prompt policy organization', () => {
 	it('preserves the override boundary and the latest persona style rules', () => {
 		const bot = { ...promptParticipant(), language: parseLanguageTag('ja'), includeLanguageInSystemPrompt: true };
-		const prompt = standardPrompt(bot, 'Custom setting.', { includeNotesTools: true, includePlan: true });
+		const prompt = standardPrompt(text, bot, 'Custom setting.', { includeNotesTools: true, includePlan: true });
 		const override = prompt.indexOf('If your persona has an instruction marked');
 		for (const section of ['## Simulation notice', '## Life on Bickr', '## Bickr tools', '## Writing format']) {
 			expect(prompt.indexOf(section)).toBeLessThan(override);
@@ -292,7 +294,7 @@ describe('prompt policy organization', () => {
 		expect(prompt).not.toContain('only your followers will see it');
 	});
 	it('keeps the cursor fallback out of the tool schema and descriptions', () => {
-		const definitions = toolDefinitionsForProviderRound();
+		const definitions = toolDefinitionsForProviderRound(text);
 		const notes = definitions.find((tool) => tool.function.name === 'list_notes')!.function;
 		expect(notes.parameters.properties.cursor).toEqual({ type: 'string', description: 'Use nextCursor from the previous page to continue listing IDs.' });
 		expect(notes.parameters.required).not.toContain('cursor');

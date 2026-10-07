@@ -1,3 +1,4 @@
+import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
 import { loopMessageContributesToProviderHistory } from '../provider/sanitize';
 import type {
 	BotInferenceSubmissionMessage,
@@ -103,13 +104,14 @@ export class RuntimeMessageStore {
 	// Each result atomically extends the original assistant response. Keeping its
 	// reasoning once preserves both thinking-mode requirements and opaque signatures;
 	// persisting only settled calls keeps interrupted histories protocol-complete.
-	appendProviderToolResult(assistant: LoopMessageGroupEntry, result: LoopMessageGroupEntry, assistantSeq: number | null): BotLoopMessage {
+	appendProviderToolResult(assistant: LoopMessageGroupEntry, result: LoopMessageGroupEntry, assistantSeq: number | null, commit?: () => void): BotLoopMessage {
 		const call = assistant.message.tool_calls?.[0];
 		if (assistant.origin !== 'provider_response' || assistant.message.role !== 'assistant' || result.message.role !== 'tool' || assistant.runId !== result.runId || !call || assistant.message.tool_calls?.length !== 1 || result.message.tool_call_id !== call.id) {
 			throw new Error('A provider group extension requires one matching tool request and result.');
 		}
 		const written = this.writeLoopMessageGroup(assistantSeq === null ? [assistant, result] : [result], {
 			clearPendingRunId: assistant.runId,
+			commit,
 			...(assistantSeq === null ? {} : { extend: { seq: assistantSeq, call, runId: assistant.runId } }),
 		});
 		return written[0]!;
@@ -145,7 +147,7 @@ export class RuntimeMessageStore {
 				inserted.push(loopMessage);
 			}
 			if (options.clearPendingRunId) {
-				this.storage.sql.exec(`DELETE FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2') AND json_extract(value_json, '$.runId') = ?`, options.clearPendingRunId);
+				this.storage.sql.exec(`DELETE FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2', 'pending_tool_v3') AND json_extract(value_json, '$.runId') = ?`, options.clearPendingRunId);
 			}
 			options.commit?.();
 			if (entries.some((entry) => isRuntimeDiagnosticLoopMessageOrigin(entry.origin))) {
@@ -1266,7 +1268,7 @@ function positiveInteger(value: number | undefined): number | undefined {
 }
 
 function estimateTextTokens(text: string): number {
-	return Math.max(1, Math.ceil(text.length / 4));
+	return approximateTextTokens(text);
 }
 
 function runtimeRecord(value: unknown): Record<string, unknown> {

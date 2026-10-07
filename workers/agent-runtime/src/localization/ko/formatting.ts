@@ -1,0 +1,12 @@
+export default {
+	"formatting.action": "행동",
+	"formatting.result": "결과",
+	"formatting.input": "입력",
+	"formatting.thought": "새 생각",
+	"formatting.orPair": "{{first}} 또는 {{last}}",
+	"formatting.orMany": "{{first}}, 또는 {{last}}",
+	"formatting.sentenceSeparator": " ",
+	"formatting.listSeparator": ", ",
+	"formatting.andPair": "{{first}} 및 {{last}}",
+	"formatting.andMany": "{{first}}, 및 {{last}}"
+} as const;

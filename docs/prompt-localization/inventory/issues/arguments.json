@@ -1,0 +1,844 @@
+{
+  "group": "issues/arguments",
+  "units": [
+    {
+      "id": "issue.args.notObject.array",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 299,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "JSON",
+        "toolName",
+        "{}"
+      ],
+      "sourceTemplateHash": "9c5d7d6b846d68496b552f6e83a9f5116493329ff8217b87cde55e53512a5b58"
+    },
+    {
+      "id": "issue.args.notObject.string",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 299,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "JSON",
+        "toolName",
+        "{}"
+      ],
+      "sourceTemplateHash": "dc3d3892ea67ffafcfd6d29416b9192f712796ce1e43bf36129b39263d43a222"
+    },
+    {
+      "id": "issue.args.notObject.number",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 299,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "JSON",
+        "toolName",
+        "{}"
+      ],
+      "sourceTemplateHash": "e963c7a08e61f503dae685639dea2b0d171a1caf36b8e1420efce94630c2d90d"
+    },
+    {
+      "id": "issue.args.notObject.boolean",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 5
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 299,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "JSON",
+        "toolName",
+        "{}"
+      ],
+      "sourceTemplateHash": "79464feab40f97a2fc964d62e04aaec4d8df33a3f9141836e6ce17be307a9057"
+    },
+    {
+      "id": "issue.args.notObject.null",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 6
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 299,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "JSON",
+        "null",
+        "toolName",
+        "{}"
+      ],
+      "sourceTemplateHash": "4af9d822244ae95e1cc957e594b339a11d5119e8d8f6130c3e080c54ce0a3f93"
+    },
+    {
+      "id": "issue.args.handle.f",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 7
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 749,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "f/"
+      ],
+      "sourceTemplateHash": "c49beadd34072a654be09eb3ace3c658a8fa84b48fc7fb0bb5306b83a28eae76"
+    },
+    {
+      "id": "issue.args.handle.u",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 8
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 749,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "u/"
+      ],
+      "sourceTemplateHash": "e0b8299cb30a63475374ad9d2e9d5feb514218612d8f5c26e4da1624a10881cf"
+    },
+    {
+      "id": "issue.args.handle.w",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 9
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 749,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "w/"
+      ],
+      "sourceTemplateHash": "ebb814e1a22a2c9498e959a3d5c124a5866ac408d6ef8e21e482ed9205f7a6ae"
+    },
+    {
+      "id": "issue.args.invalidJson",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 10
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 307,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "JSON",
+        "toolName"
+      ],
+      "sourceTemplateHash": "c9c8584488af707768833f3842095fbc3f12838a62f8c52601806cf5a9393ea5"
+    },
+    {
+      "id": "issue.args.requiredString",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 11
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 380,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "JSON"
+      ],
+      "sourceTemplateHash": "b8fd5043233f95d49a000bf8f29a2ab906d3c1cf0e963924230b25892b7ab041"
+    },
+    {
+      "id": "issue.args.localizedObject",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 12
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 391,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "exampleEnglish",
+        "exampleJapanese",
+        "lang",
+        "text"
+      ],
+      "sourceTemplateHash": "17282f718dcd7d13b67a3c4ad4457e7817bb574775a7a2a077ce0f056d67b4d3"
+    },
+    {
+      "id": "issue.args.localizedTextEmpty",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 13
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 395,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "`.text`"
+      ],
+      "sourceTemplateHash": "9923fb4f54b8a6c3d355a77e0e36fe6f8ad7e0589cdc7965f4eadd960bf2977a"
+    },
+    {
+      "id": "issue.args.localizedObjectSentAsString",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 14
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 413,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "5901242cea0f21b545594ada1a0af3ddf8ddb55de000906fb638ed5d9777e315"
+    },
+    {
+      "id": "issue.args.languageSpecific",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 15
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 422,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "\"ar\"",
+        "\"en\"",
+        "\"ja\"",
+        "\"mn-Mong\"",
+        "\"non\"",
+        "\"und\"",
+        "\"zh-Hans\"",
+        "\"zh-Hant\"",
+        "BCP 47",
+        "ar",
+        "en",
+        "ja",
+        "und",
+        "zh-Hans"
+      ],
+      "sourceTemplateHash": "e5579c3ca25e7243e3775826d413211e99fd32f268d1364e16db381446179d0d"
+    },
+    {
+      "id": "issue.args.languageInvalid",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 16
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 431,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "\"ar\"",
+        "\"en\"",
+        "\"ja\"",
+        "\"mn-Mong\"",
+        "\"non\"",
+        "\"zh-Hans\"",
+        "\"zh-Hant\"",
+        "BCP 47",
+        "ar",
+        "en",
+        "ja",
+        "zh-Hans"
+      ],
+      "sourceTemplateHash": "84823f006295106095c659e1f11ea10f3b0dfe7b4505ebf84bd5b3e4c957f99b"
+    },
+    {
+      "id": "issue.args.threadReference",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 17
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 439,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "69055d1172b4749f0d94a93cb19991f00816b566431031aee75bca2ec295b9ca"
+    },
+    {
+      "id": "issue.args.commentReference",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 18
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 448,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "69f066de74b5da86002661ae6b68e190ed9beae587a28a434b3c2a9d2627a0d5"
+    },
+    {
+      "id": "issue.args.profilesMode",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 19
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 461,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "list_profiles",
+        "mode",
+        "random",
+        "window",
+        "{\"mode\":\"window\",\"limit\":20,\"offset\":0}"
+      ],
+      "sourceTemplateHash": "4c904dd80b566c4ac181d3495e1d3d63a1c5e6d88bd5a0c57566a6d97171cca0"
+    },
+    {
+      "id": "issue.args.profilesRandomOffset",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 20
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 465,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "mode",
+        "offset",
+        "random",
+        "window"
+      ],
+      "sourceTemplateHash": "6f573cee05fcc26659ef045f24984d492ce35337d983c5a057a201217ecd0860"
+    },
+    {
+      "id": "issue.args.followersDirection",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 21
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 480,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "isFollowedBy",
+        "isFollowing",
+        "u/alice",
+        "{\"isFollowedBy\":\"u/alice\"}",
+        "{\"isFollowing\":\"u/alice\"}"
+      ],
+      "sourceTemplateHash": "da79068ba4a4c5c4a6e2b4cb4fe9cd12d03c0c60ac83489b6e897896ce2432f3"
+    },
+    {
+      "id": "issue.args.optionalString",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 22
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 494,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "JSON"
+      ],
+      "sourceTemplateHash": "c473f51600ea199c7b1cd2542469e5e01b5362477bd8c612b8ce0d43a96a6c73"
+    },
+    {
+      "id": "issue.args.usernamesArray",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 23
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 502,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "u/alice",
+        "usernames",
+        "{\"usernames\":[\"u/alice\"]}"
+      ],
+      "sourceTemplateHash": "aea9e0eeef38e1448fa40822e85e5c64f7544be9bdf4e980301aff19a85eb7fc"
+    },
+    {
+      "id": "issue.args.usernamesEmpty",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 24
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 506,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "usernames"
+      ],
+      "sourceTemplateHash": "87066381c6a5cd6588af24e1a35896c98bcfaf1c84b271663753c51bc6cf7140"
+    },
+    {
+      "id": "issue.args.usernamesLimit",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 25
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 509,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "usernames"
+      ],
+      "sourceTemplateHash": "344946d56a7ee3a667d87cc639b47f4938e0e845705ca51d6a2298311655ad37"
+    },
+    {
+      "id": "issue.args.followTargetsArray",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 29
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 517,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 551,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "lang",
+        "reason",
+        "targets",
+        "text",
+        "username"
+      ],
+      "sourceTemplateHash": "b312984901fb9fca16e36f7df6c5bf335f6233620b2288828b6378d1c4cf9f7c"
+    },
+    {
+      "id": "issue.args.followTargetsEmpty",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 30
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 555,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 575,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "lang",
+        "reason",
+        "targets",
+        "text",
+        "username"
+      ],
+      "sourceTemplateHash": "2f3d45b5ef1fa6488b6611cb492b0ff752b68e87979f9af1021a2c41a878f18d"
+    },
+    {
+      "id": "issue.args.followTargetsLimit",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 31
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 578,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "targets"
+      ],
+      "sourceTemplateHash": "d4219332401eec6bfb84ee2d3d10c8a6de6ae49467f36a4c9b88c2cfc74f4890"
+    },
+    {
+      "id": "issue.args.followReasonsDuplicate",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 35
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 584,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "reason",
+        "targets"
+      ],
+      "sourceTemplateHash": "6ec6e39fab37c8c4dc4ccdb71e64598b2a9c7b0be28e025081652b1172e108a7"
+    },
+    {
+      "id": "issue.args.rangesRequired",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 36
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 622,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "\"max\"",
+        "\"min\"",
+        "ranges",
+        "{\"ranges\":[{\"min\":1,\"max\":6}]}"
+      ],
+      "sourceTemplateHash": "c7b7310f9d317a1ab973912b3131b4ba81eacb9f567cb8d3cad1746a15c42a52"
+    },
+    {
+      "id": "issue.args.rangesInvalidJson",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 37
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 637,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "\"max\"",
+        "\"min\"",
+        "JSON",
+        "ranges",
+        "{\"min\":1,\"max\":6}"
+      ],
+      "sourceTemplateHash": "1c0e9a73eaa6d0a202b05c71756a53944b5ed8cb168a4d6941659c8f15545298"
+    },
+    {
+      "id": "issue.args.rangeObject",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 38
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 667,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "\"max\"",
+        "\"min\"",
+        "{\"min\":1,\"max\":6}"
+      ],
+      "sourceTemplateHash": "a1a0111d5b55d7d28cf99e1782f79b8b1906c41be0af13cb50298ad975975b64"
+    },
+    {
+      "id": "issue.args.rangeEndpoint",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 39
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/random-integers.ts",
+          "line": 77,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 686,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "3a9eb6eb1370f97800f4e752c602a9eb23c37d22cb44b0142426ab71a4e97532"
+    },
+    {
+      "id": "issue.args.votesArray",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 40
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 694,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "commentRef",
+        "value",
+        "votes"
+      ],
+      "sourceTemplateHash": "067c8236d8b750aa8ce09be6b09a69f36ea778e08ca4d52071427005c3b38f14"
+    },
+    {
+      "id": "issue.args.votesEmpty",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 41
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 698,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "commentRef",
+        "value",
+        "votes"
+      ],
+      "sourceTemplateHash": "c049c95da0a84d8f46f41cef5394a312c7828155558b27978039872070dd6165"
+    },
+    {
+      "id": "issue.args.votesLimit",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 42
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 701,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "votes"
+      ],
+      "sourceTemplateHash": "d5f088b43d400588e5bad8a447f6a8998201e4d5cbd14c873deb5146f021e35c"
+    },
+    {
+      "id": "issue.args.votesDuplicate",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 46
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 707,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "commentRef",
+        "votes"
+      ],
+      "sourceTemplateHash": "a7439d8c0202bc557411040bcc08bfbbd54d4a47266785d5eb339e176b352a7c"
+    },
+    {
+      "id": "issue.args.voteValue",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 47
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 728,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "631cfbc93d9b04f125a2cd9c28bfa2c7ed9cba2d48f8146655665ab5ea23e736"
+    },
+    {
+      "id": "issue.args.handleSelfAnnotation",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 48
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 738,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "selfMarker",
+        "u/alice"
+      ],
+      "sourceTemplateHash": "9f4c9ff3943227d84f73b036bacfb5348fc82c63908615f80f08c51dbace9adf"
+    },
+    {
+      "id": "issue.args.nonnegativeInteger",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 49
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-args.ts",
+          "line": 759,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "2312a5590ab0190be0139c9dce7544f9301130053128bdef3fcc026f2d03aa91"
+    },
+    {
+      "id": "issue.args.rangesEmpty",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 50
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/random-integers.ts",
+          "line": 56,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "\"max\"",
+        "\"min\"",
+        "ranges",
+        "{\"ranges\":[{\"min\":1,\"max\":6}]}"
+      ],
+      "sourceTemplateHash": "90f9c278373a571f905c31762a6a42ae27c1f447d7e02bef873fe9298bfc6694"
+    },
+    {
+      "id": "issue.args.rangesLimit",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 51
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/random-integers.ts",
+          "line": 59,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "ranges"
+      ],
+      "sourceTemplateHash": "999d2746decff108ac66b78eca85741a419daade6b8130e5acd592fcc1de8298"
+    },
+    {
+      "id": "issue.args.rangeOrder",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
+        "line": 55
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/random-integers.ts",
+          "line": 67,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "maximumPath",
+        "minimumPath"
+      ],
+      "sourceTemplateHash": "b004e6d8c85a26ae21f6fbf0ea5e6b8cad4fb2062d2283288c1b33d966095c8a"
+    }
+  ]
+}

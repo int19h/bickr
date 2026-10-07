@@ -1,0 +1,3 @@
+export default {
+	"tools.search_threads.description": "Tìm kiếm tiêu đề chủ đề và bình luận theo từ khóa."
+} as const;

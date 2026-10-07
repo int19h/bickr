@@ -1,0 +1,6 @@
+export default {
+	"tools.list_profiles.description": "Herkese açık profilleri listeleyin. Profilleri u/handle sırasıyla sayfa sayfa gezmek için offset ve limit ile mode=window kullanın. O sayıda profili rastgele seçmek için limit ile mode=random kullanın. Rastgele sonuçların sayfası yoktur ve sonraki çağrılar aynı profilleri içerebilir.",
+	"tools.list_profiles.properties.mode.description": "Kararlı offset/limit sayfalaması için window veya sayfalanamayan rastgele seçim için random.",
+	"tools.list_profiles.properties.limit.description": "Döndürülecek en fazla profil sayısı. Varsayılan değer: {{defaultLimit}}. Üst sınır: {{maxLimit}}.",
+	"tools.list_profiles.properties.offset.description": "mode=window için sıfır tabanlı ofset. mode=random ile birlikte offset belirtmeyin."
+} as const;

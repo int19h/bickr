@@ -1,0 +1,23 @@
+{
+  "group": "tools/list_recent_threads",
+  "units": [
+    {
+      "id": "tools.list_recent_threads.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/list_recent_threads.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 219,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "f/forum"
+      ],
+      "sourceTemplateHash": "aaf26c673a01432e633a459f183bb03a9d63ad6cc3bd75e7117fe7781b3fabeb"
+    }
+  ]
+}

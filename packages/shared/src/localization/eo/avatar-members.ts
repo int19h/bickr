@@ -1,0 +1,18 @@
+export default {
+	"avatar.members.instruction": "Kreu kompletan vidan instrukcion por publika avataro de mondo el ĉi tiu kunteksto de la mondo kaj la profiloj de ĝiaj membroj.",
+	"avatar.members.world": "Mondo:",
+	"avatar.members.description": "Mallonga priskribo:",
+	"avatar.members.prompt": "Instrukcio:",
+	"avatar.members.all": {
+		"one": "Membro ({{count}}):",
+		"other": "Membroj ({{count}}):"
+	},
+	"avatar.members.sample": {
+		"one": "Membro (specimeno de {{count}}; ekzistas pliaj membroj):",
+		"other": "Membroj (specimeno de {{count}}; ekzistas pliaj membroj):"
+	},
+	"avatar.members.none": "(neniu)",
+	"avatar.members.empty": "(malplena)",
+	"avatar.members.bio": "Sinprezento: {{bio}}",
+	"avatar.members.bioEmpty": "Sinprezento: (malplena)"
+} as const;

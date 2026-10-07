@@ -1,0 +1,21 @@
+{
+  "group": "tools/read_note",
+  "units": [
+    {
+      "id": "tools.read_note.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/read_note.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 328,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "1b6d319c57f1ef206ecd6aefbc4f7ef73c2014ef20322208b42194756116b21e"
+    }
+  ]
+}

@@ -1,3 +1,5 @@
+import type { InstructionText } from '@bickr/shared/instruction-template';
+import type { BotText } from "../localization";
 import {
 	effectiveCompactionModeForModel,
 	effectiveReasoningEffortForModel,
@@ -60,12 +62,12 @@ export type ProviderJsonSchemaResponseFormat = {
 
 export type ProviderSingleStringResponseSpec = {
 	kind: 'avatar_description' | 'compaction' | 'translation';
+	text: BotText;
 	property: string;
-	label: string;
 	maxCharacters: number;
 	minCharacters?: number;
-	schemaDescription?: string;
-	propertyDescription?: string;
+	schemaDescription?: InstructionText;
+	propertyDescription?: InstructionText;
 	reduction?: (summary: string) => {
 		compactedTokens: number;
 		reduces: boolean;
@@ -82,7 +84,8 @@ type CompactionProviderSettings = {
 };
 
 type StructuredOutputRepairError = {
-	repairMessage: string;
+	text: BotText;
+	repairMessage: InstructionText;
 	requiredToolName: string;
 	toolCalls: BotInferenceSubmissionToolCall[];
 	validationIssue?: 'non_reducing_compaction' | 'transcript_like_compaction';
@@ -93,7 +96,8 @@ const providerCompactionReasoningDisabledSelection = { kind: 'reasoning_disabled
 export const providerCompactionTemperature = 0.2;
 export const providerCompactionToolName = metaCompactionToolName;
 export const providerRequiredToolChoice = 'required' as const;
-const providerContinuationMessageContent = 'The Bickr app is ready for my next step.';
+const legacyProviderContinuationMessageContent = 'The Bickr app is ready for my next step.';
+function providerContinuationMessageContent(text: BotText): string { return text.format("compaction.continuation"); }
 
 export const defaultProviderCompactionSummaryLimits: ProviderCompactionSummaryLimits = {
 	minLength: 1,
@@ -142,49 +146,49 @@ export function providerCompactionMode(settings: CompactionProviderSettings): Pr
 	return effectiveCompactionModeForModel(settings.model, settingsUseOpenRouter(settings), settings.compactionMode, settings.providerRouting);
 }
 
-function providerCompactionOnlyTools(limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>): [ProviderToolDefinition] {
-	return [metaCompactionToolDefinition(limits.maxLength, limits.minLength)];
+function providerCompactionOnlyTools(text: BotText, limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>): [ProviderToolDefinition] {
+	return [metaCompactionToolDefinition(text, limits.maxLength, limits.minLength)];
 }
 
-function providerCompactionIsolatedRepairTools(
+function providerCompactionIsolatedRepairTools(text: BotText,
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
 	mode: ProviderCompactionMode,
 ): ProviderToolDefinition[] {
-	return mode === 'structured_output' ? [] : providerCompactionOnlyTools(limits);
+	return mode === 'structured_output' ? [] : providerCompactionOnlyTools(text, limits);
 }
 
-export function providerCompactionToolsForMode(
+export function providerCompactionToolsForMode(text: BotText,
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
 	providerTools: ProviderToolDefinition[] | undefined,
 	mode: ProviderCompactionMode,
 ): ProviderToolDefinition[] {
 	if (mode === 'tool_call') {
-		return providerCompactionOnlyTools(limits);
+		return providerCompactionOnlyTools(text, limits);
 	}
 	if (mode === 'tool_call_cache_friendly') {
-		const tools = providerTools ?? toolDefinitionsForProviderRound(limits.maxLength, { includeMetaCompactionTool: true });
-		return tools.some(isMetaCompactionToolDefinition) ? tools : [...tools, metaCompactionToolDefinition(limits.maxLength)];
+		const tools = providerTools ?? toolDefinitionsForProviderRound(text, limits.maxLength, { includeMetaCompactionTool: true });
+		return tools.some(isMetaCompactionToolDefinition) ? tools : [...tools, metaCompactionToolDefinition(text, limits.maxLength)];
 	}
 	// Structured-output compaction intentionally keeps the regular loop tool schema,
 	// minus the meta compaction tool, so these requests can reuse the provider's prompt cache.
-	return (providerTools ?? toolDefinitionsForProviderRound(limits.maxLength, { includeMetaCompactionTool: false })).filter(
+	return (providerTools ?? toolDefinitionsForProviderRound(text, limits.maxLength, { includeMetaCompactionTool: false })).filter(
 		(tool) => !isMetaCompactionToolDefinition(tool),
 	);
 }
 
-function providerCompactionPersonaInstruction(bot: Pick<BotDocument, 'displayName' | 'handle' | 'includeLanguageInSystemPrompt' | 'language' | 'prompt' | 'shortBio'>): string {
-	const nativeLanguageLine = nativeLanguageSystemPromptLine(bot);
+function providerCompactionPersonaInstruction(text: BotText, bot: Pick<BotDocument, 'displayName' | 'handle' | 'includeLanguageInSystemPrompt' | 'language' | 'prompt' | 'shortBio'>): string {
+	const nativeLanguageLine = nativeLanguageSystemPromptLine(bot, text);
 	return [
-		`Stay in character. Write all reasoning and memory in the first person as your persona.`,
-		providerParticipantIdentityPrompt(bot),
+		text.format("compaction.persona.instruction"),
+		providerParticipantIdentityPrompt(bot, text),
 		...(nativeLanguageLine ? [nativeLanguageLine] : []),
-		`Your display name is ${localizedTextString(bot.displayName)}`,
-		`Your short bio is:\n${localizedTextString(bot.shortBio)}`,
-		`Your persona is:\n${localizedTextString(bot.prompt)}`,
+		text.format("compaction.persona.display_name", { displayName: localizedTextString(bot.displayName) }),
+		text.format("compaction.persona.short_bio", { shortBio: localizedTextString(bot.shortBio) }),
+		text.format("compaction.persona.persona", { persona: localizedTextString(bot.prompt) }),
 	].join('\n\n');
 }
 
-export function providerCompactionSystemInstruction(
+export function providerCompactionSystemInstruction(text: BotText,
 	bot: BotDocument & { worldPrompt?: string },
 	tools: readonly ProviderToolDefinition[],
 	mode: ProviderCompactionMode,
@@ -192,20 +196,19 @@ export function providerCompactionSystemInstruction(
 	const setting = bot.worldPrompt?.trim();
 	return mode === 'tool_call'
 		? [
-				'You are an autonomous Bickr participant.',
-				`"user" messages describe your environment. They can report elapsed time, page results, notifications, and other events. Your earlier messages are your first-person narration and private memory.`,
-				providerCompactionPersonaInstruction(bot),
-				...(setting ? [`Setting:\n${setting}`] : []),
-				`You MUST use ${providerCompactionToolName}. Do not use any other Bickr control.`,
+				text.format("compaction.system.autonomous"),
+				text.format("compaction.system.roles"),
+				providerCompactionPersonaInstruction(text, bot),
+				...(setting ? [text.format("compaction.system.setting", { setting: setting })] : []),
+				text.format("compaction.system.required_tool", { toolName: providerCompactionToolName }),
 			].join('\n\n')
-		: appendToolRequirementInstruction(standardPrompt(bot, bot.worldPrompt ?? '', {
+		: appendToolRequirementInstruction(text, standardPrompt(text, bot, bot.worldPrompt ?? '', {
 			includeNotesTools: tools.some((tool) => 'function' in tool && tool.function.name === 'read_note'),
 			includePlan: planEnabled(bot.toolSettings),
 		}), tools);
 }
 
-const compactionImmediateSummaryInstruction =
-	"Do not spend time reasoning about this. Reply at once with a JSON summary.";
+
 
 /**
  * Only a selection that explicitly disables reasoning asks for the summary
@@ -223,60 +226,55 @@ function compactionRequestsImmediateSummary(reasoning: CompactionReasoningSelect
 	return reasoning.kind === 'reasoning_disabled';
 }
 
-function providerCompactionSummaryInstruction(
+function providerCompactionSummaryInstruction(text: BotText,
 	bot: Pick<BotDocument, 'handle'>,
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
 	mode: ProviderCompactionMode,
 	reasoning: CompactionReasoningSelection,
 ): string {
-	const lengthInstruction = providerCompactionLengthInstruction(limits);
+	const lengthInstruction = providerCompactionLengthInstruction(text, limits);
 	if (mode === 'structured_output') {
-		const responseTiming = compactionRequestsImmediateSummary(reasoning) ? ` ${compactionImmediateSummaryInstruction}` : '';
-		return `META: Shorten the earlier context.${responseTiming} Reply with a JSON object that matches the required schema. Do not use a Bickr tool. In the "${providerCompactionSummaryProperty}" field, write a detailed summary of only the recent events as u/${bot.handle} in the first person. Leave out system instructions and the persona prompt. This summary replaces those events as long-term memory. Write ordinary prose. Do not write a transcript or lines labeled Action:, Result:, Input:, or New thought:. ${lengthInstruction}`;
+		return text.format(compactionRequestsImmediateSummary(reasoning) ? 'compaction.summary.structured.immediate' : 'compaction.summary.structured', {
+			property: providerCompactionSummaryProperty, handle: bot.handle, lengthInstruction, transcriptLabels: text.transcriptLabelList,
+		});
 	}
-	return `META: Shorten the earlier context. Call ${providerCompactionToolName} next. Do not use another Bickr tool. In the "${providerCompactionSummaryProperty}" argument, write a detailed summary of only the recent events as u/${bot.handle} in the first person. Leave out system instructions and the persona prompt. This summary replaces those events as long-term memory. Write ordinary prose. Do not write a transcript or lines labeled Action:, Result:, Input:, or New thought:. ${lengthInstruction}`;
+	return text.format('compaction.summary.tool', { toolName: providerCompactionToolName, property: providerCompactionSummaryProperty, handle: bot.handle, lengthInstruction, transcriptLabels: text.transcriptLabelList });
 }
 
-function providerCompactionShortenInstruction(
+function providerCompactionShortenInstruction(text: BotText,
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
 	mode: ProviderCompactionMode,
 	reasoning: CompactionReasoningSelection,
 ): string {
-	const lengthInstruction = providerCompactionLengthInstruction(limits);
+	const lengthInstruction = providerCompactionLengthInstruction(text, limits);
 	if (mode === 'structured_output') {
-		const responseTiming = compactionRequestsImmediateSummary(reasoning) ? ` ${compactionImmediateSummaryInstruction}` : '';
-		return `META: The last memory summary was too long.${responseTiming} Reply with a JSON object that matches the required schema. Do not use a Bickr tool. Put a shorter first-person summary in the "${providerCompactionSummaryProperty}" field. Copying text from the input is strictly prohibited. Do not copy any sentence, phrase, paragraph, list item, or passage. Use new words for remembered facts. Remove repeated text. ${lengthInstruction}`;
+		return text.format(compactionRequestsImmediateSummary(reasoning) ? 'compaction.shorten.structured.immediate' : 'compaction.shorten.structured', {
+			property: providerCompactionSummaryProperty, lengthInstruction,
+		});
 	}
-	return `META: The last memory summary was too long. Call ${providerCompactionToolName} next. Do not use another Bickr tool. Put a shorter first-person summary in the "${providerCompactionSummaryProperty}" argument. Copying text from the input is strictly prohibited. Do not copy any sentence, phrase, paragraph, list item, or passage. Use new words for remembered facts. Remove repeated text. ${lengthInstruction}`;
+	return text.format('compaction.shorten.tool', { toolName: providerCompactionToolName, property: providerCompactionSummaryProperty, lengthInstruction });
 }
 
-function providerCompactionIsolatedRepairSystemInstruction(
+function providerCompactionIsolatedRepairSystemInstruction(text: BotText,
 	bot: Pick<BotDocument, 'displayName' | 'handle' | 'includeLanguageInSystemPrompt' | 'language' | 'prompt' | 'shortBio'>,
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
 	mode: ProviderCompactionMode,
 	reasoning: CompactionReasoningSelection,
 ): string {
-	const lengthInstruction = providerCompactionLengthInstruction(limits);
-	const responseInstruction =
-		mode === 'structured_output'
-			? `${compactionRequestsImmediateSummary(reasoning) ? `${compactionImmediateSummaryInstruction} ` : ''}Reply with a JSON object that matches the required schema. Do not use a Bickr tool. Put the replacement first-person memory summary in the "${providerCompactionSummaryProperty}" field.`
-			: `Call ${providerCompactionToolName} next. Do not use another Bickr tool. Put the replacement first-person memory summary in the "${providerCompactionSummaryProperty}" argument.`;
-	return [
-		`META: Repair the memory summary. The last summary did not shorten the context. ${responseInstruction} Summarize only the input summary. Leave out system instructions and the persona prompt. Your reply replaces those events as long-term memory. Copying text from the input is strictly prohibited. Do not copy any sentence, phrase, paragraph, list item, or passage. Use new words for remembered facts. Remove repeated text. ${lengthInstruction}`,
-		providerCompactionPersonaInstruction(bot),
-	].join('\n\n');
+	const lengthInstruction = providerCompactionLengthInstruction(text, limits);
+	const responseInstruction = mode === 'structured_output'
+		? text.format(compactionRequestsImmediateSummary(reasoning) ? 'compaction.repair.structured_response.immediate' : 'compaction.repair.structured_response', { property: providerCompactionSummaryProperty })
+		: text.format('compaction.repair.tool_response', { toolName: providerCompactionToolName, property: providerCompactionSummaryProperty });
+	return [text.format('compaction.repair.system', { responseInstruction, lengthInstruction }), providerCompactionPersonaInstruction(text, bot)].join('\n\n');
 }
 
-function providerCompactionLengthInstruction(limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>): string {
-	return (
-		"Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. " +
-		(limits.minLength >= limits.maxLength
-			? `Use exactly ${limits.maxLength} characters if possible.`
-			: `Use between ${limits.minLength} and ${limits.maxLength} characters.`)
-	);
+function providerCompactionLengthInstruction(text: BotText, limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>): string {
+	return limits.minLength >= limits.maxLength
+		? text.format('compaction.length.exact', { maxCharacters: limits.maxLength })
+		: text.format('compaction.length.range', { minCharacters: limits.minLength, maxCharacters: limits.maxLength });
 }
 
-function providerCompactionShortenMessages(
+function providerCompactionShortenMessages(text: BotText,
 	previousMessages: readonly ChatMessage[],
 	previousSummary: string,
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
@@ -287,11 +285,11 @@ function providerCompactionShortenMessages(
 	return [
 		...(systemMessage ? [systemMessage] : []),
 		{ role: 'assistant', content: previousSummary },
-		{ role: 'user', content: providerCompactionShortenInstruction(limits, mode, reasoning) },
+		{ role: 'user', content: providerCompactionShortenInstruction(text, limits, mode, reasoning) },
 	];
 }
 
-function providerCompactionIsolatedRepairMessages(
+function providerCompactionIsolatedRepairMessages(text: BotText,
 	bot: Pick<BotDocument, 'displayName' | 'handle' | 'includeLanguageInSystemPrompt' | 'language' | 'prompt' | 'shortBio'>,
 	previousSummary: string,
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
@@ -301,10 +299,10 @@ function providerCompactionIsolatedRepairMessages(
 	return [
 		{
 			role: 'system',
-			content: providerCompactionIsolatedRepairSystemInstruction(bot, limits, mode, reasoning),
+			content: providerCompactionIsolatedRepairSystemInstruction(text, bot, limits, mode, reasoning),
 		},
 		{ role: 'assistant', content: previousSummary },
-		{ role: 'user', content: 'Produce the replacement memory summary now.' },
+		{ role: 'user', content: text.format("compaction.repair.produce_summary") },
 	];
 }
 
@@ -316,47 +314,47 @@ export function isTranscriptLikeCompactionValidationError(error: StructuredOutpu
 	return error.validationIssue === 'transcript_like_compaction';
 }
 
-export function transcriptLikeCompactionSummaryLine(summary: string): string | undefined {
+export function transcriptLikeCompactionSummaryLine(text: BotText, summary: string): string | undefined {
 	return summary
 		.split(/\r?\n/)
 		.map((line) => line.trim())
 		.find((line) =>
-			/^(?:Action|Result|Input|New thought):\s*/i.test(line) ||
+			text.isTranscriptHeader(line) ||
 			/^(?:provider_request|provider_token_probe|provider_token_estimate|provider_retry|provider_tool_call_dropped|provider_tool_call_repaired|provider_history_repaired|tick_started|tick_completed|tick_failed|tick_stopped|tick_stop_requested)\b/.test(line),
 		);
 }
 
-export function providerCompactionMessages(
+export function providerCompactionMessages(text: BotText,
 	bot: BotDocument,
 	compactedMessages: ChatMessage[],
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'> = defaultProviderCompactionSummaryLimits,
-	providerTools: ProviderToolDefinition[] = toolDefinitionsForProviderRound(limits.maxLength),
+	providerTools: ProviderToolDefinition[] = toolDefinitionsForProviderRound(text, limits.maxLength),
 	mode: ProviderCompactionMode = 'structured_output',
 	reasoning: CompactionReasoningSelection = providerCompactionReasoningDisabledSelection,
 ): ChatMessage[] {
-	const tools = providerCompactionToolsForMode(limits, providerTools, mode);
+	const tools = providerCompactionToolsForMode(text, limits, providerTools, mode);
 	return [
 		{
 			role: 'system',
-			content: providerCompactionSystemInstruction(bot, tools, mode),
+			content: providerCompactionSystemInstruction(text, bot, tools, mode),
 		},
 		...compactedMessages,
 		{
 			role: 'user',
-			content: providerCompactionSummaryInstruction(bot, limits, mode, reasoning),
+			content: providerCompactionSummaryInstruction(text, bot, limits, mode, reasoning),
 		},
 		...(mode === 'tool_call'
 			? [
 					{
 						role: 'user' as const,
-						content: `Call ${providerCompactionToolName}. Put the summary in the "${providerCompactionSummaryProperty}" argument. ${providerCompactionLengthInstruction(limits)} Do not reply as plain text.`,
+						content: text.format("compaction.summary.call_now", { toolName: providerCompactionToolName, property: providerCompactionSummaryProperty, lengthInstruction: providerCompactionLengthInstruction(text, limits) }),
 					},
 				]
 			: []),
 	];
 }
 
-export function providerCompactionMessagesForAttempt(
+export function providerCompactionMessagesForAttempt(text: BotText,
 	bot: BotDocument | undefined,
 	initialMessages: ChatMessage[],
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
@@ -370,22 +368,22 @@ export function providerCompactionMessagesForAttempt(
 		case 'schema_repair':
 			return [...messageSet.messages];
 		case 'shorten_previous_summary':
-			return providerCompactionShortenMessages(initialMessages, messageSet.previousSummary, limits, mode, reasoning);
+			return providerCompactionShortenMessages(text, initialMessages, messageSet.previousSummary, limits, mode, reasoning);
 		case 'isolated_reduction_repair':
 			if (!bot) {
-				throw new Error('Compaction isolated reduction repair requires participant context.');
+				throw new Error("Compaction isolated reduction repair requires participant context.");
 			}
-			return providerCompactionIsolatedRepairMessages(bot, messageSet.previousSummary, limits, mode, reasoning);
+			return providerCompactionIsolatedRepairMessages(text, bot, messageSet.previousSummary, limits, mode, reasoning);
 	}
 }
 
-export function providerCompactionToolsForAttempt(
+export function providerCompactionToolsForAttempt(text: BotText,
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
 	baseTools: ProviderToolDefinition[],
 	mode: ProviderCompactionMode,
 	toolSet: CompactionAttemptToolSet,
 ): ProviderToolDefinition[] {
-	return toolSet === 'isolated_reduction_repair' ? providerCompactionIsolatedRepairTools(limits, mode) : baseTools;
+	return toolSet === 'isolated_reduction_repair' ? providerCompactionIsolatedRepairTools(text, limits, mode) : baseTools;
 }
 
 export function providerSingleStringResponseFormat(
@@ -420,7 +418,7 @@ export function providerSingleStringResponseFormat(
 	};
 }
 
-export function providerCompactionResponseFormat(
+export function providerCompactionResponseFormat(text: BotText,
 	maxCharacters: number,
 	mode: ProviderCompactionMode = 'structured_output',
 ): ProviderJsonSchemaResponseFormat | undefined {
@@ -429,14 +427,15 @@ export function providerCompactionResponseFormat(
 		{
 			property: providerCompactionSummaryProperty,
 			maxCharacters,
-			schemaDescription: providerCompactionSummarySchemaDescription,
-			propertyDescription: providerCompactionSummaryPropertyDescription,
+			schemaDescription: providerCompactionSummarySchemaDescription(text),
+			propertyDescription: providerCompactionSummaryPropertyDescription(text),
 		},
 		mode,
 	);
 }
 
 export function structuredOutputRepairMessages(error: StructuredOutputRepairError): ChatMessage[] {
+	const text = error.text;
 	const content = JSON.stringify({
 		ok: false,
 		code: 'schema_invalid',
@@ -447,8 +446,8 @@ export function structuredOutputRepairMessages(error: StructuredOutputRepairErro
 			{
 				role: 'assistant',
 				content: error.requiredToolName
-					? `Actually, I must use the ${error.requiredToolName} tool.`
-					: 'Actually, I must reply with the required structured output.',
+					? text.format("compaction.self_correction.tool", { toolName: error.requiredToolName })
+					: text.format("compaction.self_correction.structured"),
 			},
 		];
 	}
@@ -482,46 +481,46 @@ function providerControlInstructionTools(tools: readonly ProviderToolDefinition[
 	return tools.filter((definition) => !isMetaCompactionToolDefinition(definition));
 }
 
-function toolRequirementInstruction(tools: readonly ProviderToolDefinition[]): string {
+function toolRequirementInstruction(text: BotText, tools: readonly ProviderToolDefinition[]): string {
 	const controlTools = providerControlInstructionTools(tools);
-	const names = providerToolNames(controlTools).join(', ');
-	const prefix = names ? `You MUST use one of the following tools: ${names}.` : 'You MUST use an available Bickr control.';
+	const names = providerToolNames(controlTools).join(text.format('formatting.listSeparator'));
+	const prefix = names ? text.format("compaction.tools.require_one_of", { toolNames: names }) : text.format("compaction.tools.require_any");
 	const metaInstruction = tools.some(isMetaCompactionToolDefinition)
-		? ` Use ${providerCompactionToolName} only when directed.`
+		? text.format("compaction.tools.meta_only_when_directed", { toolName: providerCompactionToolName })
 		: '';
-	return `${prefix}${metaInstruction}`;
+	return metaInstruction ? `${prefix}${text.format("formatting.sentenceSeparator")}${metaInstruction}` : prefix;
 }
 
-export function toolRequirementSelfCorrection(tools: readonly ProviderToolDefinition[]): string {
-	const names = providerToolNames(providerControlInstructionTools(tools)).join(', ');
-	return names ? `Actually, I must use one of the following tools: ${names}.` : 'Actually, I must use an available Bickr control.';
+export function toolRequirementSelfCorrection(text: BotText, tools: readonly ProviderToolDefinition[]): string {
+	const names = providerToolNames(providerControlInstructionTools(tools)).join(text.format('formatting.listSeparator'));
+	return names ? text.format("compaction.tools.self_correction_one_of", { toolNames: names }) : text.format("compaction.tools.self_correction_any");
 }
 
-export function appendToolRequirementInstruction(content: string, tools: readonly ProviderToolDefinition[]): string {
-	return `${content}\n\n${toolRequirementInstruction(tools)}`;
+export function appendToolRequirementInstruction(text: BotText, content: string, tools: readonly ProviderToolDefinition[]): string {
+	return `${content}\n\n${toolRequirementInstruction(text, tools)}`;
 }
 
-export function providerMessagesWithPrefillCompatibility(
+export function providerMessagesWithPrefillCompatibility(text: BotText,
 	settings: { baseUrl?: string; model: string; supportsPrefill?: boolean },
 	messages: ChatMessage[],
 ): ChatMessage[] {
-	const prepared = providerMessagesWithInitialUserContext(messages);
+	const prepared = providerMessagesWithInitialUserContext(text, messages);
 	const last = prepared[prepared.length - 1];
-	return settings.supportsPrefill !== true && last?.role === 'assistant' ? [...prepared, providerContinuationMessage()] : prepared;
+	return settings.supportsPrefill !== true && last?.role === 'assistant' ? [...prepared, providerContinuationMessage(text)] : prepared;
 }
 
-function providerMessagesWithInitialUserContext(messages: ChatMessage[]): ChatMessage[] {
+function providerMessagesWithInitialUserContext(text: BotText, messages: ChatMessage[]): ChatMessage[] {
 	const insertionIndex = messages[0]?.role === 'system' ? 1 : -1;
-	if (insertionIndex < 0 || initialUserContextMessage(messages[insertionIndex])) {
+	if (insertionIndex < 0 || initialUserContextMessage(text, messages[insertionIndex])) {
 		return messages;
 	}
-	return [...messages.slice(0, insertionIndex), providerContinuationMessage(), ...messages.slice(insertionIndex)];
+	return [...messages.slice(0, insertionIndex), providerContinuationMessage(text), ...messages.slice(insertionIndex)];
 }
 
-function providerContinuationMessage(): ChatMessage {
-	return { role: 'user', content: providerContinuationMessageContent };
+function providerContinuationMessage(text: BotText): ChatMessage {
+	return { role: 'user', content: providerContinuationMessageContent(text) };
 }
 
-function initialUserContextMessage(message: ChatMessage | undefined): boolean {
-	return message?.role === 'user' && message.content === providerContinuationMessageContent;
+function initialUserContextMessage(text: BotText, message: ChatMessage | undefined): boolean {
+	return message?.role === 'user' && (message.content === legacyProviderContinuationMessageContent || text.isContinuation(message.content));
 }

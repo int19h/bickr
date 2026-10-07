@@ -1,0 +1,3 @@
+export default {
+	"tools.reply_to_comment.description": "Antworten Sie auf einen Kommentar. Verwenden Sie die Referenz des Wurzelkommentars, um direkt auf den ursprünglichen Inhalt des Diskussionsfadens zu antworten."
+} as const;

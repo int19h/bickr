@@ -1,7 +1,7 @@
 import type {
 	BotCompactionMode,
 	BotContextBudget,
-	BotDocument,
+	EffectiveBotDocument,
 	BotEffectivePostingSettings,
 	BotInferenceSubmissionMessage,
 	BotInferenceSubmissionPurpose,
@@ -29,7 +29,8 @@ import type {
 import type { SeenContentItem } from '@bickr/shared/social';
 import type { ToolResultEnvelope, ToolResultProfileAction } from '@bickr/shared/tool-results';
 import type { ProviderToolDefinition } from './prompt-and-tools';
-import type { ProviderSettings } from './provider-requests';
+import type { ProviderSettings, LocalizedProviderSettings } from './provider-requests';
+import type { BotText } from './localization';
 
 export interface Env {
 	BICKR_D1: D1Database;
@@ -48,7 +49,8 @@ export interface Env {
 	BICKR_SIMULATION_MODE?: string;
 }
 
-export type RuntimeBotDocument = BotDocument & {
+export type RuntimeBotDocument = EffectiveBotDocument & {
+	text: BotText;
 	effectivePostingSettings?: BotEffectivePostingSettings;
 	worldPrompt?: string;
 	worldRecurringPrompt?: string;
@@ -499,7 +501,7 @@ export type TickOptions = {
 
 export type AdmittedTick = {
 	bot: RuntimeBotDocument;
-	providerSettings: ProviderSettings;
+	providerSettings: LocalizedProviderSettings;
 	runId: string;
 	abortController: AbortController;
 	mode: TickMode;
@@ -569,6 +571,8 @@ export type PendingSpotlightTick = {
 export type RunContext = {
 	/** Stable within one provider request and tool call, including transport retries. */
 	toolInvocationId?: string;
+	/** Exact journal identity, separate from the transport idempotency key. */
+	toolCallId?: string;
 	inferenceAttribution?: import('@bickr/shared/model').InferenceAttribution;
 	mode: TickMode;
 	setupMode: LoopSetupMode;
@@ -597,7 +601,7 @@ export type ReadContentItem = {
 	title?: LocalizedText | string;
 	body: LocalizedText | string;
 	createdAt: string;
-	'My focus is on this comment'?: true;
+	focused?: true;
 	ancestorOnly?: boolean;
 	replies?: ReadContentItem[] | number;
 };
@@ -661,6 +665,7 @@ export type ProviderToolArrayPruneResult<T> = {
 };
 
 export type ContextBudgetPromptParts = {
+	text: BotText;
 	baseUrl: string;
 	fixedSystemMessage: string;
 	fullSystemMessage: string;
@@ -719,12 +724,15 @@ export type TranslationProviderSettings = Omit<Pick<ProviderSettings,
 	'toolCalls' | 'toolCallRequest' | 'temperature' | 'topK' | 'topP' | 'minP' |
 	'frequencyPenalty' | 'presencePenalty' | 'repetitionPenalty'
 >, 'toolCalls' | 'toolCallRequest'> & {
+	text: BotText;
 	toolCalls?: BotStructuredToolCalls;
 	toolCallRequest: BotInferenceToolCallIntent;
 	prompt: string;
 };
 
 export type ProviderLoopOutcome = {
+	spotlightOutcomeUncertain?: boolean;
+	unknownOutcomeCount?: number;
 	toolCallCount: number;
 	logOffCalled: boolean;
 	spotlightMutationCount: number;
@@ -751,6 +759,8 @@ export type ProviderToolCallDropReason =
 	| 'disallowed_log_off'
 	| 'disallowed_notes_tool'
 	| 'premature_log_off'
+	| 'committed_result_unavailable'
+	| 'earlier_outcome_unknown'
 	| 'iteration_limit'
 	| 'spotlight_tick_ended'
 	| 'unanswered_tool_call';

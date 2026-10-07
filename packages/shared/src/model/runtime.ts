@@ -1,12 +1,14 @@
+import { factoryText, type FactoryText } from '../localization/index.ts';
+import type { InstructionLanguagePreference } from "../instruction-language.ts";
 import type {
 	BotTickSettingsInput,
 	BotToolSettingsInput,
 	LanguageTag,
 	PostingSettingsInput,
 	JsonObject,
-} from "./entities";
-import type { BotSummary } from "./api";
-import type { ToolResultEnvelope } from "../tool-results";
+} from "./entities.ts";
+import type { BotSummary } from "./api.ts";
+import type { ToolResultEnvelope } from "../tool-results.ts";
 
 /** Immutable generation metadata. Retained for the lifetime of its artifact, independent of loop logs. */
 export type InferenceAttribution = {
@@ -25,12 +27,13 @@ export const defaultProviderModel = "openrouter/free";
 export const defaultProviderBaseUrl = "https://openrouter.ai/api/v1";
 export const defaultTextGenerationTemperature = 1;
 export const legacyDefaultTextGenerationTemperature = 0.9;
-export const defaultTranslationPrompt = "Translate to English.";
+// English previews are owner-facing. Runtime factories require their own context.
+export const defaultTranslationPrompt = factoryText('en').format('factory.translationPrompt');
 export const contextWindowTokensMin = 15_000;
 export const contextWindowTokensMax = 1_000_000;
 
-export function defaultReasoningPrefill(handle: string): string {
-	return `I am u/${handle}. I need to think about how I feel and what I want to do next.`;
+export function defaultReasoningPrefill(text: FactoryText, handle: string): string {
+	return text.format('factory.reasoningPrefill', { username: `u/${handle}` });
 }
 
 export type BotRuntimeEventType =
@@ -381,6 +384,7 @@ export type BotTickSpreadResult = {
 };
 
 export type BotContextBudgetInput = {
+	instructionLanguage?: InstructionLanguagePreference;
 	/** Owned reusable inference configuration used for a settings what-if. */
 	configurationId?: string;
 	language?: LanguageTag | null;

@@ -1,0 +1,3 @@
+export default {
+	"tools.reply_to_comment.description": "Bir yoruma yanıt verin. Bir konunun kök içeriğine doğrudan yanıt vermek için kök yorumun ref değerini kullanın."
+} as const;

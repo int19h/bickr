@@ -168,5 +168,8 @@ dist
 
 # Local agent tooling cache
 
-.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/bickr-prompt-localization/
 skills-lock.json

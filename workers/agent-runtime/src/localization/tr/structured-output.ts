@@ -1,0 +1,69 @@
+export default {
+	"structured_output.unexpected_tools.compaction": "META: Araç çağırmayın. Gerekli JSON şemasına uyan, birinci tekil şahısla yazılmış ayrıntılı bir özetle yanıt verin.",
+	"structured_output.unexpected_tools.other": "Bu yanıt için Bickr kontrolü kullanmayın. Yalnızca {{property}} içeren gerekli JSON nesnesiyle yanıt verin.",
+	"structured_output.empty.compaction": "Özet yanıtı boştu. {{property}} alanında boş olmayan metin içeren bir JSON nesnesi döndürün.",
+	"structured_output.empty.translation": "Çeviri yanıtı boştu. {{property}} alanında boş olmayan metin bulunan bir JSON nesnesi döndürün.",
+	"structured_output.empty.avatar_description": "Profil resmi açıklaması yanıtı boştu. {{property}} alanında boş olmayan metin içeren bir JSON nesnesi döndürün.",
+	"structured_output.invalid_json.compaction": "Özet yanıtı bir JSON nesnesi olmalıdır. Yalnızca {{property}} alanını metin değeriyle verin.",
+	"structured_output.invalid_json.translation": "Çeviri yanıtı bir JSON nesnesi olmalıdır. Yalnızca {{property}} alanını metin değeriyle verin.",
+	"structured_output.invalid_json.avatar_description": "Profil resmi açıklaması yanıtı bir JSON nesnesi olmalıdır. Yalnızca {{property}} alanını metin değeriyle verin.",
+	"structured_output.missing_tool": "Hiç {{toolName}} araç çağrısı döndürülmedi. {{property}} alanında boş olmayan metinle {{toolName}} aracını bir kez çağırın.",
+	"structured_output.wrong_tool": "Bu istek için yalnızca {{toolName}} aracını kullanın. Burada {{receivedTool}} aracını kullanmayın.",
+	"structured_output.tool_count": {
+		"one": "Bir {{toolName}} araç çağrısı bekleniyordu, ancak {{count}} araç çağrısı alındı. {{toolName}} aracını tam olarak bir kez çağırın.",
+		"other": "Bir {{toolName}} araç çağrısı bekleniyordu, ancak {{count}} araç çağrısı alındı. {{toolName}} aracını tam olarak bir kez çağırın."
+	},
+	"structured_output.tool_mismatch": "{{toolName}} aracı bekleniyordu, ancak {{receivedTool}} alındı. Bunun yerine {{toolName}} aracını çağırın.",
+	"structured_output.invalid_arguments_json": "{{toolName}} argümanları geçerli JSON değildi. {{property}} alanında metin içeren bir JSON nesnesi verin. Dizgelerdeki özel karakterler için kaçış kullanın.",
+	"structured_output.arguments_object": "{{toolName}} argümanları bir JSON nesnesi olmalıdır. {{property}} alanını ve metin değerini {} içine koyun.",
+	"structured_output.output_object": "Yapılandırılmış çıktı bir JSON nesnesi olmalıdır. {{property}} alanını ve metin değerini {} içine koyun.",
+	"structured_output.extra_arguments": {
+		"one": "{{count}} beklenmeyen argüman var: {{fields}}. O argümanı kaldırın. Yalnızca {{property}} verin.",
+		"other": "{{count}} beklenmeyen argüman var: {{fields}}. Gösterilen argümanların tümünü kaldırın. Yalnızca {{property}} verin."
+	},
+	"structured_output.extra_fields": {
+		"one": "{{count}} beklenmeyen alan var: {{fields}}. O alanı kaldırın. Yalnızca {{property}} verin.",
+		"other": "{{count}} beklenmeyen alan var: {{fields}}. Gösterilen alanların tümünü kaldırın. Yalnızca {{property}} verin."
+	},
+	"structured_output.nonempty.compaction": "Özet argümanı boş olmayan bir dizge olmalıdır. Metni {{property}} alanına koyun.",
+	"structured_output.nonempty.translation": "Çeviri argümanı boş olmayan bir dizge olmalıdır. Metni {{property}} alanına koyun.",
+	"structured_output.nonempty.avatar_description": "Profil resmi açıklaması argümanı boş olmayan bir dizge olmalıdır. Metni {{property}} alanına koyun.",
+	"structured_output.transcript": "{{property}} alanındaki özeti sıradan, birinci tekil şahısla yazılmış düzyazı olarak yazın. Şu döküm satırını kaldırın: {{line}}. {{labels}} etiketli satırlar yazmayın.",
+	"structured_output.minimum.compaction": {
+		"one": "{{property}} alanındaki özet en az {{minimum}} karakter olmalıdır. Metne ilgili ayrıntılar ekleyin.",
+		"other": "{{property}} alanındaki özet en az {{minimum}} karakter olmalıdır. Metne ilgili ayrıntılar ekleyin."
+	},
+	"structured_output.minimum.translation": {
+		"one": "{{property}} alanındaki çeviri en az {{minimum}} karakter olmalıdır. Metne ilgili ayrıntılar ekleyin.",
+		"other": "{{property}} alanındaki çeviri en az {{minimum}} karakter olmalıdır. Metne ilgili ayrıntılar ekleyin."
+	},
+	"structured_output.minimum.avatar_description": {
+		"one": "{{property}} alanındaki profil resmi açıklaması en az {{minimum}} karakter olmalıdır. Metne ilgili ayrıntılar ekleyin.",
+		"other": "{{property}} alanındaki profil resmi açıklaması en az {{minimum}} karakter olmalıdır. Metne ilgili ayrıntılar ekleyin."
+	},
+	"structured_output.maximum.compaction": {
+		"one": "{{property}} alanındaki özet en fazla {{maximum}} karakter olmalıdır. Metni kısaltın.",
+		"other": "{{property}} alanındaki özet en fazla {{maximum}} karakter olmalıdır. Metni kısaltın."
+	},
+	"structured_output.maximum.translation": {
+		"one": "{{property}} alanındaki çeviri en fazla {{maximum}} karakter olmalıdır. Metni kısaltın.",
+		"other": "{{property}} alanındaki çeviri en fazla {{maximum}} karakter olmalıdır. Metni kısaltın."
+	},
+	"structured_output.maximum.avatar_description": {
+		"one": "{{property}} alanındaki profil resmi açıklaması en fazla {{maximum}} karakter olmalıdır. Metni kısaltın.",
+		"other": "{{property}} alanındaki profil resmi açıklaması en fazla {{maximum}} karakter olmalıdır. Metni kısaltın."
+	},
+	"structured_output.wrong_tool.unnamed": "Bu istek için yalnızca {{toolName}} aracını kullanın. Adı olmayan bir araç çağrısı göndermeyin.",
+	"structured_output.tool_mismatch.unnamed": "{{toolName}} aracı bekleniyordu, ancak adsız araç çağrısı alındı. Bunun yerine {{toolName}} aracını çağırın.",
+	"structured_output.nonreducing.estimate": {
+		"one": "{{property}} alanındaki özet bağlamı küçültmedi. Tahmini uzunluğu {{replacementTokens}} tokendir.",
+		"other": "{{property}} alanındaki özet bağlamı küçültmedi. Tahmini uzunluğu {{replacementTokens}} tokendir."
+	},
+	"structured_output.nonreducing.before": {
+		"one": "Değiştirmeden önce bağlam {{compactedTokens}} token içeriyordu. Gerekli olguları koruyarak özeti kısaltın.",
+		"other": "Değiştirmeden önce bağlam {{compactedTokens}} token içeriyordu. Gerekli olguları koruyarak özeti kısaltın."
+	},
+	"structured_output.nonempty.compaction.field": "Özet alanı boş olmayan bir dizge olmalıdır. Metni {{property}} alanına koyun.",
+	"structured_output.nonempty.translation.field": "Çeviri alanı boş olmayan bir dizge olmalıdır. Metni {{property}} alanına koyun.",
+	"structured_output.nonempty.avatar_description.field": "Profil resmi açıklaması alanı boş olmayan bir dizge olmalıdır. Metni {{property}} alanına koyun."
+} as const;

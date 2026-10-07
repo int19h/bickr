@@ -1,0 +1,55 @@
+{
+  "group": "tools/vote",
+  "units": [
+    {
+      "id": "tools.vote.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/vote.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 272,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "1a6e6a67e6acaba75f87d1b1c694c62b8e49c19e9297fcd898522a5c3d71e4d6"
+    },
+    {
+      "id": "schema.authored_text.vote_reason",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/vote.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 524,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "c2bdb00b28f328cb010f3eae428d31e02f7f4b34b0dfe2afae8f886df4690f19"
+    },
+    {
+      "id": "tools.vote.properties.votes.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/vote.ts",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 277,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "value"
+      ],
+      "sourceTemplateHash": "6551d0eb2934609bdd05f247a4dc65f5466f6a3be0a51f8b6851eeff066edecd"
+    }
+  ]
+}

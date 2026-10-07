@@ -1,0 +1,3 @@
+export default {
+	"tools.list_recent_threads.description": "Liệt kê các chủ đề gần đây trong diễn đàn f/forum."
+} as const;

@@ -1,3 +1,5 @@
+import { botText } from '../localization';
+const text = botText('en');
 import { describe, expect, it, vi } from 'vitest';
 import { createProviderStructuredOutput } from './structured-output';
 import { providerTranslationToolName } from '../constants';
@@ -28,7 +30,7 @@ describe('Structured output', () => {
 			}).callProviderForCompaction.bind(runtime);
 
 			const response = await callProviderForCompaction(
-				{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+				{ text, baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
 				[{ role: "user", content: "Compact the retained activity." }],
 				"run-compaction-fenced-json",
 				new AbortController().signal,
@@ -65,7 +67,7 @@ describe('Structured output', () => {
 			}).callProviderForCompaction.bind(runtime);
 
 			const response = await callProviderForCompaction(
-				{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+				{ text, baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
 				[{ role: "user", content: "Compact the retained activity." }],
 				"run-compaction-valid-json-quotes",
 				new AbortController().signal,
@@ -102,7 +104,7 @@ describe('Structured output', () => {
 			}).callProviderForCompaction.bind(runtime);
 
 			const response = await callProviderForCompaction(
-				{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+				{ text, baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
 				[{ role: "user", content: "Compact the retained activity." }],
 				"run-compaction-loose-json-quotes",
 				new AbortController().signal,
@@ -149,7 +151,7 @@ describe('Structured output', () => {
 			}).callProviderForCompaction.bind(runtime);
 
 			const response = await callProviderForCompaction(
-				{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+				{ text, baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
 				[{ role: "user", content: "Compact the retained activity." }],
 				"run-compaction-loose-json-extra-field",
 				new AbortController().signal,
@@ -186,7 +188,7 @@ describe('Structured output', () => {
 			}).callProviderForCompaction.bind(runtime);
 
 			const response = await callProviderForCompaction(
-				{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+				{ text, baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
 				[{ role: "user", content: "Compact the retained activity." }],
 				"run-compaction-text-wrapped-json",
 				new AbortController().signal,
@@ -222,7 +224,7 @@ describe('Structured output', () => {
 			}).callProviderForCompaction.bind(runtime);
 
 			const response = await callProviderForCompaction(
-				{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+				{ text, baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
 				[{ role: "user", content: "Compact the retained activity." }],
 				"run-compaction-transcript-repair",
 				new AbortController().signal,
@@ -232,7 +234,7 @@ describe('Structured output', () => {
 			expect(response.content).toBe(validSummary);
 			expect(fetchMock).toHaveBeenCalledTimes(2);
 			const retryBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as { messages: Array<{ content?: string }> };
-			expect(retryBody.messages.map((message) => message.content).join("\n")).toContain("Do not use labeled Action:");
+			expect(retryBody.messages.map((message) => message.content).join("\n")).toContain("Do not write lines labeled Action:");
 		} finally {
 			vi.stubGlobal("fetch", originalFetch);
 		}
@@ -250,13 +252,13 @@ describe('single-text tool repairs', () => {
 	it.each([
 		['{', 'Escape special characters in strings'],
 		['[]', 'Put translation and its text value inside {}'],
-		['{"translation":"hello","extra":1}', 'Remove those fields. Give only translation'],
+		['{"translation":"hello","extra":1}', 'Remove that argument. Give only translation'],
 		['{"translation":""}', 'Put the text in translation'],
 	])('repairs invalid translation arguments %s', (args, repair) => {
 		const message = { tool_calls: [{ id: 'call', type: 'function', function: { name: providerTranslationToolName, arguments: args } }] };
-		expect(() => parser.providerTranslationFromToolMessage(message, '{}')).toThrow(repair);
+		expect(() => parser.providerTranslationFromToolMessage(text, message, '{}')).toThrow(repair);
 	});
 	it('names the required tool when there is no call', () => {
-		expect(() => parser.providerTranslationFromToolMessage({ content: 'hello' }, '{}')).toThrow(`Call ${providerTranslationToolName} once`);
+		expect(() => parser.providerTranslationFromToolMessage(text, { content: 'hello' }, '{}')).toThrow(`Call ${providerTranslationToolName} once`);
 	});
 });

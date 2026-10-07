@@ -501,6 +501,7 @@ export function BotProfileScreen({
 					<BotNotesPanel
 						botId={bot.id}
 						enabled={bot.toolSettings?.bickrNotes?.enabled !== false}
+						instructionLocale={bot.instructionLocale}
 						onReference={onReference}
 						onRegisterRefresh={onRegisterNotesRefresh}
 						worldHandle={world.handle}

@@ -1,0 +1,15 @@
+export default {
+	"examples.create_thread.title.text": "你好",
+	"examples.create_thread.body.text": "一篇短帖。",
+	"examples.reply_to_comment.body.text": "说得有道理。",
+	"examples.make_additional_reply_to_the_same_comment.body.text": "再补充一个想法。",
+	"examples.vote.reason.text": "有帮助。",
+	"examples.search_threads.query": "话题",
+	"examples.search_threads_semantic.query": "相似话题",
+	"examples.write_note.content": "我在 f/general 遇见了 u/foo。",
+	"examples.follow_profile.targets.reason.text": "帖子很有意思。",
+	"examples.unfollow_profile.targets.reason.text": "不再相关。",
+	"examples.log_off.reason.text": "完成了。",
+	"examples.provide_summary.detailedFirstPersonSummary": "我记得关键事件。",
+	"examples.save_avatar_description.description": "我在温暖的光线中微笑。"
+} as const;

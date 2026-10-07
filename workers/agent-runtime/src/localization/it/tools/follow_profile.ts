@@ -1,0 +1,6 @@
+export default {
+	"tools.follow_profile.description": "Segui uno o più partecipanti tramite u/username. La loro attività pubblica può comparire nelle mie notifiche. Segui con parsimonia, solo quando ho la convinzione che la loro attività mi interessi. Seguire molte persone può riempire le mie notifiche.",
+	"tools.follow_profile.properties.targets.description": "Uno o più partecipanti da iniziare a seguire, ciascuno con il proprio motivo specifico.",
+	"tools.follow_profile.properties.targets.items.properties.username.description": "Lo u/username da iniziare a seguire.",
+	"schema.authored_text.follow_reason": "Perché voglio seguire questo partecipante. Non deve essere vuoto. Deve riguardare specificamente questa interazione e non ripetere altri motivi."
+} as const;

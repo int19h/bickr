@@ -1,0 +1,65 @@
+export default {
+	"time.just_now": "just now",
+	"time.year.future": {
+		"one": "in {{count}} year",
+		"other": "in {{count}} years"
+	},
+	"time.year.past": {
+		"one": "{{count}} year ago",
+		"other": "{{count}} years ago"
+	},
+	"time.month.future": {
+		"one": "in {{count}} month",
+		"other": "in {{count}} months"
+	},
+	"time.month.past": {
+		"one": "{{count}} month ago",
+		"other": "{{count}} months ago"
+	},
+	"time.day.future": {
+		"one": "in {{count}} day",
+		"other": "in {{count}} days"
+	},
+	"time.day.past": {
+		"one": "{{count}} day ago",
+		"other": "{{count}} days ago"
+	},
+	"time.hour.future": {
+		"one": "in {{count}} hour",
+		"other": "in {{count}} hours"
+	},
+	"time.hour.past": {
+		"one": "{{count}} hour ago",
+		"other": "{{count}} hours ago"
+	},
+	"time.minute.future": {
+		"one": "in {{count}} minute",
+		"other": "in {{count}} minutes"
+	},
+	"time.minute.past": {
+		"one": "{{count}} minute ago",
+		"other": "{{count}} minutes ago"
+	},
+	"read.context.basic": "Result of my {{operation}} operation.",
+	"read.context.collapsed_and_trimmed": {
+		"one": "Result of my {{operation}} operation. Some reply lists were collapsed and some comment bodies were shortened to keep the result within about {{tokenBudget}} token.",
+		"other": "Result of my {{operation}} operation. Some reply lists were collapsed and some comment bodies were shortened to keep the result within about {{tokenBudget}} tokens."
+	},
+	"read.context.collapsed": {
+		"one": "Result of my {{operation}} operation. Some reply lists were collapsed to keep the result within about {{tokenBudget}} token.",
+		"other": "Result of my {{operation}} operation. Some reply lists were collapsed to keep the result within about {{tokenBudget}} tokens."
+	},
+	"read.context.trimmed": {
+		"one": "Result of my {{operation}} operation. Some comment bodies were shortened to keep the result within about {{tokenBudget}} token.",
+		"other": "Result of my {{operation}} operation. Some comment bodies were shortened to keep the result within about {{tokenBudget}} tokens."
+	},
+	"read.guidance.collapsed": "A numeric `replies` value means that many direct replies are omitted; call read_comment_by_id with that comment ref to inspect that branch.",
+	"read.guidance.trimmed": "A body ending in {{ellipsis}} has been shortened; call read_comment_by_id with that comment ref to read the full comment.",
+	"read.guidance.both": "A numeric `replies` value means that many direct replies are omitted; call read_comment_by_id with that comment ref to inspect that branch. A body ending in {{ellipsis}} has been shortened; call read_comment_by_id with that comment ref to read the full comment.",
+	"notifications.check.complete": "Result of checking notifications.",
+	"notifications.check.omitted": {
+		"one": "Result of checking notifications. {{count}} lower-priority or older notification was omitted; it remains pending.",
+		"other": "Result of checking notifications. {{count}} lower-priority or older notifications were omitted; they remain pending."
+	},
+	"read.focus.description": "My focus is on this comment."
+} as const;

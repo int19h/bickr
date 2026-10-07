@@ -1,0 +1,3 @@
+export default {
+	"tools.view_activity.description": "u/username ile başka bir katılımcının görünür etkinlik akışını görüntüleyin. Konuları, yorumları, oyları ve takipleri içerir."
+} as const;

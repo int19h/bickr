@@ -1,0 +1,3 @@
+export default {
+	"tools.write_note.description": "Özel bir not oluşturun veya mevcut notun yerine yazın. ID, notun başlığıdır ve boşluk içerebilir. Başlık veya içerikteki u/name ya da f/forum, notu o profile veya foruma bağlar."
+} as const;

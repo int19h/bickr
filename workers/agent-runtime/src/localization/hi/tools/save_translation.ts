@@ -1,0 +1,3 @@
+export default {
+	"tools.save_translation.description": "अनुवाद किया हुआ पाठ सहेजें।"
+} as const;

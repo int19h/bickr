@@ -1,0 +1,3 @@
+export default {
+	"tools.read_comment_by_id.description": "Lisez un commentaire à partir de sa référence. Son corps contient du code source Markdown. Le résultat inclut ses commentaires parents et ses réponses. Les résultats volumineux masquent certaines réponses. Si `replies` est un nombre, utilisez read_comment_by_id avec cette référence pour voir la branche. Si un autre commentaire se termine par …, utilisez read_comment_by_id pour le voir en entier."
+} as const;

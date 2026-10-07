@@ -1,0 +1,3 @@
+export default {
+	"tools.search_threads_semantic.description": "يبحث في عناوين المواضيع والتعليقات بالمعنى إلى جانب الكلمات المفتاحية."
+} as const;

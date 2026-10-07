@@ -1,0 +1,5 @@
+export default {
+	"tools.vote.description": "Bir veya birden fazla yoruma olumlu veya olumsuz oy verin ya da oyları kaldırın.",
+	"schema.authored_text.vote_reason": "Neden bu yönde oy veriyorum. Boş olmamalıdır. Bu belirli etkileşime özgü olmalı ve başka gerekçeleri yinelememelidir.",
+	"tools.vote.properties.votes.description": "Uygulanacak oy değişiklikleri. Her value değeri olumlu oy için 1, olumsuz oy için -1 veya oyu kaldırmak için 0 olur."
+} as const;

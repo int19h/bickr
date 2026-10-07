@@ -1,0 +1,6 @@
+export default {
+	"tools.follow_profile.description": "Bir veya daha fazla katılımcıyı u/username ile takip edin. Herkese açık etkinlikleri bildirimlerimde görünebilir. Az sayıda takip yapın ve yalnızca etkinliklerinin ilgimi çektiğinden emin olduğumda takip edin. Çok sayıda takip bildirimlerimi doldurabilir.",
+	"tools.follow_profile.properties.targets.description": "Takip etmeye başlanacak bir veya daha fazla katılımcı; her biri için kendine özgü bir gerekçe.",
+	"tools.follow_profile.properties.targets.items.properties.username.description": "Takip etmeye başlanacak u/username değeri.",
+	"schema.authored_text.follow_reason": "Bu katılımcıyı neden takip etmek istediğim. Boş olmamalıdır. Bu etkileşime özgü olmalı ve başka gerekçeleri tekrarlamamalıdır."
+} as const;

@@ -1,3 +1,5 @@
+import { factoryText } from './localization';
+const context = factoryText('en');
 import { describe, expect, it } from "vitest";
 import { selectWorldAvatarMembers, worldAvatarMembersPromptUserContent } from "./avatar-prompts";
 import { localizedText } from "./model";
@@ -5,6 +7,7 @@ import { localizedText } from "./model";
 describe("world avatar prompt formatting", () => {
 	it("formats world context and member bios for avatar prompt fill", () => {
 		const text = worldAvatarMembersPromptUserContent(
+			context,
 			{
 				handle: "harbor",
 				name: localizedText("Harbor", null),
@@ -31,7 +34,7 @@ describe("world avatar prompt formatting", () => {
 		const selected = selectWorldAvatarMembers(members);
 		expect(selected.kind).toBe("sample");
 		expect(selected.members).toHaveLength(100);
-		const text = worldAvatarMembersPromptUserContent({ handle: "world", name: localizedText("World", null), description: localizedText("", null) }, members);
+		const text = worldAvatarMembersPromptUserContent(context, { handle: "world", name: localizedText("World", null), description: localizedText("", null) }, members);
 		expect(text).toContain("sample of 100; more members exist");
 		expect(text).toContain("u/member-99 -");
 		expect(text).not.toContain("u/member-100 -");

@@ -1,3 +1,7 @@
+import type { RuntimeBotDocument } from "../workers/agent-runtime/src/types";
+import type { LocalizedProviderSettings } from "../workers/agent-runtime/src/provider-requests";
+import { botText as testBotText } from "../workers/agent-runtime/src/localization";
+const englishInstructions = testBotText("en");
 import { testAppendLoopMessageGroup } from './helpers/index-harness';
 import {
 	BotRuntime,
@@ -80,13 +84,13 @@ describe("Compaction", () => {
 					throwIfStopped: vi.fn(),
 				});
 				const callProviderForCompaction = (BotRuntime.prototype as unknown as {
-					callProviderForCompaction: (...args: unknown[]) => Promise<unknown>;
+					callProviderForCompaction: (settings: LocalizedProviderSettings, ...args: unknown[]) => Promise<unknown>;
 				}).callProviderForCompaction.bind(runtime);
 
 				let thrown: unknown;
 				try {
 					await callProviderForCompaction(
-						{ baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
+						{ text: englishInstructions, baseUrl: "https://provider.example/api/v1", model: "test-model", temperature: 0.2 },
 						[{ role: "user", content: "Compact the retained activity." }],
 						"run-compaction-repair-failed",
 						new AbortController().signal,
@@ -153,7 +157,7 @@ describe("Compaction", () => {
 			});
 			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
 				compactionRowsForEstimatedBudget: (
-					bot: BotDocument,
+					bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 					providerTools?: ProviderToolDefinition[],
 					mode?: "structured_output" | "tool_call" | "tool_call_cache_friendly",
 				) => Array<{ seq: number }>;
@@ -161,7 +165,7 @@ describe("Compaction", () => {
 
 			const selected = compactionRowsForEstimatedBudget(
 				fakeBotDocument({ contextWindowTokens: 8_000 }),
-				toolDefinitionsForProviderRound(),
+				toolDefinitionsForProviderRound(englishInstructions),
 				"tool_call_cache_friendly",
 			);
 
@@ -192,7 +196,7 @@ describe("Compaction", () => {
 			});
 			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
 				compactionRowsForEstimatedBudget: (
-					bot: BotDocument,
+					bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 					providerTools?: ProviderToolDefinition[],
 					mode?: "structured_output" | "tool_call" | "tool_call_cache_friendly",
 				) => Array<{ seq: number }>;
@@ -200,7 +204,7 @@ describe("Compaction", () => {
 
 			const selected = compactionRowsForEstimatedBudget(
 				fakeBotDocument({ contextWindowTokens: 8_000 }),
-				toolDefinitionsForProviderRound(),
+				toolDefinitionsForProviderRound(englishInstructions),
 				"tool_call_cache_friendly",
 			);
 
@@ -231,7 +235,7 @@ describe("Compaction", () => {
 			});
 			const compactionRowSelectionForEstimatedBudget = (BotRuntime.prototype as unknown as {
 				compactionRowSelectionForEstimatedBudget: (
-					bot: BotDocument,
+					bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 					providerTools?: ProviderToolDefinition[],
 					mode?: "structured_output" | "tool_call" | "tool_call_cache_friendly",
 				) => { rows: Array<{ seq: number }>; overBudgetFallback: boolean };
@@ -241,7 +245,7 @@ describe("Compaction", () => {
 				// Keep the first tiny group well below the prompt limit so this fixture
 				// exercises atomic-group fallback rather than the target-fraction cutoff.
 				fakeBotDocument({ contextWindowTokens: 15_000 }),
-				toolDefinitionsForProviderRound(),
+				toolDefinitionsForProviderRound(englishInstructions),
 				"tool_call_cache_friendly",
 			);
 
@@ -273,7 +277,7 @@ describe("Compaction", () => {
 			});
 			const compactionRowSelectionForEstimatedBudget = (BotRuntime.prototype as unknown as {
 				compactionRowSelectionForEstimatedBudget: (
-					bot: BotDocument,
+					bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 					providerTools?: ProviderToolDefinition[],
 					mode?: "structured_output" | "tool_call" | "tool_call_cache_friendly",
 				) => { rows: Array<{ seq: number }>; overBudgetFallback: boolean };
@@ -281,7 +285,7 @@ describe("Compaction", () => {
 
 			const selected = compactionRowSelectionForEstimatedBudget(
 				fakeBotDocument({ contextWindowTokens: 64_000 }),
-				toolDefinitionsForProviderRound(),
+				toolDefinitionsForProviderRound(englishInstructions),
 				"tool_call_cache_friendly",
 			);
 
@@ -299,7 +303,7 @@ describe("Compaction", () => {
 			});
 			const compactionRowSelectionForEstimatedBudget = (BotRuntime.prototype as unknown as {
 				compactionRowSelectionForEstimatedBudget: (
-					bot: BotDocument,
+					bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 					providerTools?: ProviderToolDefinition[],
 					mode?: "structured_output" | "tool_call" | "tool_call_cache_friendly",
 				) => { rows: Array<{ seq: number }>; overBudgetFallback: boolean };
@@ -307,7 +311,7 @@ describe("Compaction", () => {
 
 			const selected = compactionRowSelectionForEstimatedBudget(
 				fakeBotDocument({ contextWindowTokens: 20_000 }),
-				toolDefinitionsForProviderRound(),
+				toolDefinitionsForProviderRound(englishInstructions),
 				"tool_call_cache_friendly",
 			);
 
@@ -318,7 +322,7 @@ describe("Compaction", () => {
 		it("excludes a prefix group that would leave too little compaction output budget", () => {
 			const text = (char: string, length: number) => char.repeat(length);
 			const calibration = { tokensPerCharacter: 0.325, sampleCount: 50 };
-			const tools = toolDefinitionsForProviderRound();
+			const tools = toolDefinitionsForProviderRound(englishInstructions);
 			const prompt = "Long persona. ".repeat(900);
 			const compactionMaxCharacters = 20_000;
 			// The fixed compaction request overhead — persona, standard prompt, tools,
@@ -383,7 +387,7 @@ describe("Compaction", () => {
 			});
 			const compactionRowsForEstimatedBudget = (BotRuntime.prototype as unknown as {
 				compactionRowsForEstimatedBudget: (
-					bot: BotDocument,
+					bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 					providerTools?: ProviderToolDefinition[],
 					mode?: "structured_output" | "tool_call" | "tool_call_cache_friendly",
 				) => Array<{ seq: number; message_json: string }>;
@@ -413,7 +417,7 @@ describe("Compaction", () => {
 					{ role: "user", content: runtimeErrorLoopMessageContent("Inference request failed with status 400. Response: provider rejected the request.") },
 					"runtime_error",
 				),
-				loopMessageRowForMessage(3, { role: "assistant", content: defaultReasoningPrefill("budget-bot") }, "synthetic_context"),
+				loopMessageRowForMessage(3, { role: "assistant", content: defaultReasoningPrefill(englishInstructions, "budget-bot") }, "synthetic_context"),
 				loopMessageRowForMessage(4, { role: "assistant", content: "Provider-visible newer context." }),
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -429,7 +433,7 @@ describe("Compaction", () => {
 
 			expect(activeLoopMessagesForProvider().map((message) => message.content)).toEqual([
 				"Provider-visible old context.",
-				defaultReasoningPrefill("budget-bot"),
+				defaultReasoningPrefill(englishInstructions, "budget-bot"),
 				"Provider-visible newer context.",
 			]);
 			expect(compactionCandidateRows().map((row) => row.seq)).toEqual([1, 3, 4]);
@@ -629,8 +633,8 @@ describe("Compaction", () => {
 				});
 				const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
 					compactLoopMessageRows: (
-						bot: { tickSettings: { contextWindowTokens: number } },
-						settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
+						bot: RuntimeBotDocument,
+						settings: LocalizedProviderSettings,
 						runId: string,
 						signal: AbortSignal,
 						rows: unknown[],
@@ -641,8 +645,8 @@ describe("Compaction", () => {
 
 			await expect(
 				compactLoopMessageRows(
-					{ tickSettings: { contextWindowTokens: 100 } },
-					{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					fakeBotDocument({ contextWindowTokens: 100 }),
+					{ text: englishInstructions, apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 					"run-compaction-failure",
 					new AbortController().signal,
 					candidates,
@@ -716,8 +720,8 @@ describe("Compaction", () => {
 			});
 			const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
 				compactLoopMessageRows: (
-					bot: BotDocument,
-					settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
+					bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+					settings: LocalizedProviderSettings,
 					runId: string,
 					signal: AbortSignal,
 					rows: unknown[],
@@ -729,7 +733,7 @@ describe("Compaction", () => {
 			await expect(
 				compactLoopMessageRows(
 					fakeBotDocument({ contextWindowTokens: 100, compactionMaxCharacters: 4_000 }),
-					{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+					{ text: englishInstructions, apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 					"run-compaction-over-budget-fallback",
 					new AbortController().signal,
 					candidates,
@@ -1134,8 +1138,8 @@ describe("Compaction", () => {
 			});
 			const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
 				compactLoopMessageRows: (
-					bot: BotDocument,
-					settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
+					bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+					settings: LocalizedProviderSettings,
 					runId: string,
 					signal: AbortSignal,
 					rows: unknown[],
@@ -1152,7 +1156,7 @@ describe("Compaction", () => {
 					shortBio: "Summarizes release work.",
 					prompt: "Prefer concise changelog memory.",
 				}),
-				{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ text: englishInstructions, apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-compaction-success",
 				new AbortController().signal,
 				candidates,
@@ -1191,7 +1195,7 @@ describe("Compaction", () => {
 			};
 			await expect(compactLoopMessageRows(
 				fakeBotDocument({ id: "bot_release" }),
-				{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ text: englishInstructions, apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-compaction-stopped",
 				stopped.signal,
 				candidates,
@@ -1259,8 +1263,8 @@ describe("Compaction", () => {
 			});
 			const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
 				compactLoopMessageRows(
-					bot: BotDocument,
-					settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
+					bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+					settings: LocalizedProviderSettings,
 					runId: string,
 					signal: AbortSignal,
 					rows: unknown[],
@@ -1271,7 +1275,7 @@ describe("Compaction", () => {
 
 			await expect(compactLoopMessageRows(
 				fakeBotDocument({ id: "bot-rollback" }),
-				{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ text: englishInstructions, apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-rollback",
 				new AbortController().signal,
 				candidates,
@@ -1289,7 +1293,7 @@ describe("Compaction", () => {
 				{
 					...loopMessageRowForMessage(
 						2,
-						{ role: "assistant", content: defaultReasoningPrefill("budget-bot") },
+						{ role: "assistant", content: defaultReasoningPrefill(englishInstructions, "budget-bot") },
 						"synthetic_context",
 					),
 					origin: "synthetic_context" as BotLoopMessage["origin"],
@@ -1402,8 +1406,8 @@ describe("Compaction", () => {
 			});
 			const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
 				compactLoopMessageRows: (
-					bot: BotDocument,
-					settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
+					bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+					settings: LocalizedProviderSettings,
 					runId: string,
 					signal: AbortSignal,
 					rows: unknown[],
@@ -1414,7 +1418,7 @@ describe("Compaction", () => {
 
 			await compactLoopMessageRows(
 				fakeBotDocument(),
-				{ apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ text: englishInstructions, apiKey: "test-key", baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-ledger-compact",
 				new AbortController().signal,
 				[rows[0], rows[1], rows[4]],
@@ -1425,7 +1429,7 @@ describe("Compaction", () => {
 			const providerMessages = callProviderForCompaction.mock.calls[0]?.[1] as Array<{ content?: unknown }> | undefined;
 			const providerText = JSON.stringify(providerMessages);
 			expect(providerText).toContain("Provider-visible old context.");
-			expect(providerText).toContain(defaultReasoningPrefill("budget-bot"));
+			expect(providerText).toContain(defaultReasoningPrefill(englishInstructions, "budget-bot"));
 			expect(providerText).toContain("Provider-visible newer context.");
 			expect(providerText).not.toContain("Inference request failed with status 400");
 			expect(providerText).not.toContain("call-dropped-old");
@@ -1514,8 +1518,8 @@ describe("Compaction", () => {
 				});
 				const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
 					compactLoopMessageRows: (
-						bot: BotDocument,
-						settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
+						bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+						settings: LocalizedProviderSettings,
 						runId: string,
 						signal: AbortSignal,
 						rows: unknown[],
@@ -1526,7 +1530,7 @@ describe("Compaction", () => {
 
 				await compactLoopMessageRows(
 					fakeBotDocument(),
-					{ apiKey: "test-key", baseUrl: customProviderBaseUrl, model: "test-model", temperature: 0.2 },
+					{ text: englishInstructions, apiKey: "test-key", baseUrl: customProviderBaseUrl, model: "test-model", temperature: 0.2 },
 					"run-output-limit-shrink",
 					new AbortController().signal,
 					rows,
@@ -1645,8 +1649,8 @@ describe("Compaction", () => {
 				});
 				const compactLoopMessageRows = (BotRuntime.prototype as unknown as {
 					compactLoopMessageRows: (
-						bot: BotDocument,
-						settings: { apiKey: string; baseUrl: string; model: string; temperature: number },
+						bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+						settings: LocalizedProviderSettings,
 						runId: string,
 						signal: AbortSignal,
 						rows: unknown[],
@@ -1657,7 +1661,7 @@ describe("Compaction", () => {
 
 				await compactLoopMessageRows(
 					fakeBotDocument(),
-					{ apiKey: "test-key", baseUrl: customProviderBaseUrl, model: "test-model", temperature: 0.2 },
+					{ text: englishInstructions, apiKey: "test-key", baseUrl: customProviderBaseUrl, model: "test-model", temperature: 0.2 },
 					"run-output-limit-tiny-prefix",
 					new AbortController().signal,
 					rows,
@@ -1703,18 +1707,18 @@ describe("Compaction", () => {
 			});
 			const compactIfNeeded = (BotRuntime.prototype as unknown as {
 				compactIfNeeded: (
-					bot: BotDocument,
+					bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 					settings: Record<string, unknown>,
 					runId: string,
 					signal: AbortSignal,
 				) => Promise<void>;
 			}).compactIfNeeded.bind(runtime);
 
-			await compactIfNeeded(bot, {}, "run-threshold", new AbortController().signal);
+			await compactIfNeeded(bot, { text: englishInstructions }, "run-threshold", new AbortController().signal);
 			expect(compactLoopMessageRows).not.toHaveBeenCalled();
 
 			promptTokens = expectedLimits.nextCompactionTokens + 1;
-			await compactIfNeeded(bot, {}, "run-threshold", new AbortController().signal);
+			await compactIfNeeded(bot, { text: englishInstructions }, "run-threshold", new AbortController().signal);
 			expect(compactLoopMessageRows).toHaveBeenCalledWith(
 				expect.anything(),
 				expect.anything(),
@@ -1836,7 +1840,7 @@ describe("Compaction", () => {
 
 		it("builds translation requests with required tool output", () => {
 			const request = providerTranslationRequest(
-				{
+				{ text: englishInstructions,
 					baseUrl: customProviderBaseUrl,
 					model: "openai/gpt-4o-mini",
 					providerRouting: { max_price: { prompt: 0.2, completion: 0.4 } },
@@ -1853,7 +1857,7 @@ describe("Compaction", () => {
 				{ role: "system", content: "Translate to Pirate.\n\nYou MUST use one of the following tools: save_translation." },
 				{
 					role: "user",
-					content: "Translate the following text. You must respond by calling the save_translation tool with the translated text in the translation argument. Do not reply as plain text.\n\nText:\nHello world.",
+					content: "Translate the following text. You must respond by calling save_translation with the translated text in the translation argument. Do not reply as plain text.\n\nText:\nHello world.",
 				},
 			]);
 			expect(request.provider).toEqual({ max_price: { prompt: 0.2, completion: 0.4 } });
@@ -1875,7 +1879,7 @@ describe("Compaction", () => {
 			expect("response_format" in request).toBe(false);
 
 			const railroadRequest = providerTranslationRequest(
-				{
+				{ text: englishInstructions,
 					baseUrl: customProviderBaseUrl,
 					model: "openai/gpt-4o-mini",
 					prompt: "Translate to Pirate.",
@@ -1891,7 +1895,7 @@ describe("Compaction", () => {
 			expect(railroadRequest.messages[0]?.content).toContain("You MUST use one of the following tools: save_translation.");
 
 			const providerDefaultRequest = providerTranslationRequest(
-				{
+				{ text: englishInstructions,
 					baseUrl: customProviderBaseUrl,
 					model: "openai/gpt-4o-mini",
 					prompt: "Translate to Pirate.",
@@ -1908,7 +1912,7 @@ describe("Compaction", () => {
 			// request still resolves to required even when the role already narrowed
 			// the applied strategy to railroad.
 			const automaticRequestWithAppliedRailroad = providerTranslationRequest(
-				{
+				{ text: englishInstructions,
 					baseUrl: customProviderBaseUrl,
 					model: "openai/gpt-4o-mini",
 					providerRouting: { max_price: { prompt: 0.2, completion: 0.4 } },
@@ -1975,8 +1979,8 @@ describe("Compaction", () => {
 		});
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -1986,7 +1990,7 @@ describe("Compaction", () => {
 		await expect(
 				runProviderLoop(
 					bot,
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-budget",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -2071,8 +2075,8 @@ describe("Compaction", () => {
 		});
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -2082,7 +2086,7 @@ describe("Compaction", () => {
 		await expect(
 				runProviderLoop(
 					bot,
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-current-compact",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -2108,7 +2112,7 @@ describe("Compaction", () => {
 			{
 				...loopMessageRowForMessage(
 					1,
-					{ role: "assistant", content: defaultReasoningPrefill("budget-bot") },
+					{ role: "assistant", content: defaultReasoningPrefill(englishInstructions, "budget-bot") },
 					"synthetic_context",
 				),
 				run_id: "run-old-recurring-context",
@@ -2182,8 +2186,8 @@ describe("Compaction", () => {
 		});
 		const ensureProviderPromptWithinBudget = (BotRuntime.prototype as unknown as {
 			ensureProviderPromptWithinBudget: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				signal: AbortSignal,
 				providerTools: ProviderToolDefinition[],
@@ -2192,10 +2196,10 @@ describe("Compaction", () => {
 
 		const result = await ensureProviderPromptWithinBudget(
 			bot,
-			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 			currentRunId,
 			new AbortController().signal,
-			toolDefinitionsForProviderRound(),
+			toolDefinitionsForProviderRound(englishInstructions),
 		);
 
 		expect(result.promptTokens).toBe(10_000);
@@ -2225,8 +2229,8 @@ describe("Compaction", () => {
 		});
 		const ensureProviderPromptWithinBudget = (BotRuntime.prototype as unknown as {
 			ensureProviderPromptWithinBudget: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				signal: AbortSignal,
 				providerTools: ProviderToolDefinition[],
@@ -2235,10 +2239,10 @@ describe("Compaction", () => {
 
 		const result = await ensureProviderPromptWithinBudget(
 			staleBot,
-			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 			"run-fresh-budget",
 			new AbortController().signal,
-			toolDefinitionsForProviderRound(),
+			toolDefinitionsForProviderRound(englishInstructions),
 		);
 
 		expect(result).toMatchObject({ contextWindowTokens: 64_000, promptTokens: 15_000 });
@@ -2251,7 +2255,7 @@ describe("Compaction", () => {
 	it("leaves the completion reserve available at the compaction cutoff", async () => {
 		const bot = fakeBotDocument({ contextWindowTokens: 16_000 });
 		const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
-		const limits = providerCompactionSummaryLimitsForChat(bot, [], calibration, toolDefinitionsForProviderRound());
+		const limits = providerCompactionSummaryLimitsForChat(bot, [], calibration, toolDefinitionsForProviderRound(englishInstructions));
 		const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			activeLoopMessagesForProvider: () => [],
@@ -2270,8 +2274,8 @@ describe("Compaction", () => {
 		});
 		const ensureProviderPromptWithinBudget = (BotRuntime.prototype as unknown as {
 			ensureProviderPromptWithinBudget: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				signal: AbortSignal,
 				providerTools: ProviderToolDefinition[],
@@ -2280,10 +2284,10 @@ describe("Compaction", () => {
 
 		const result = await ensureProviderPromptWithinBudget(
 			bot,
-			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 			"run-cutoff-reserve",
 			new AbortController().signal,
-			toolDefinitionsForProviderRound(),
+			toolDefinitionsForProviderRound(englishInstructions),
 		);
 
 		expect(result).toMatchObject({
@@ -2327,8 +2331,8 @@ describe("Compaction", () => {
 		});
 		const ensureProviderPromptWithinBudget = (BotRuntime.prototype as unknown as {
 			ensureProviderPromptWithinBudget: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				signal: AbortSignal,
 				providerTools: ProviderToolDefinition[],
@@ -2338,10 +2342,10 @@ describe("Compaction", () => {
 		await expect(
 			ensureProviderPromptWithinBudget(
 				bot,
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-stuck-compaction",
 				new AbortController().signal,
-				toolDefinitionsForProviderRound(),
+				toolDefinitionsForProviderRound(englishInstructions),
 			),
 		).rejects.toThrow("after 3 attempts");
 
@@ -2382,8 +2386,8 @@ describe("Compaction", () => {
 		});
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -2393,7 +2397,7 @@ describe("Compaction", () => {
 		await expect(
 				runProviderLoop(
 					bot,
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-current-too-large",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },

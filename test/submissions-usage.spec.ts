@@ -1,3 +1,7 @@
+import type { RuntimeBotDocument } from "../workers/agent-runtime/src/types";
+import type { LocalizedProviderSettings } from "../workers/agent-runtime/src/provider-requests";
+import { botText as testBotText } from "../workers/agent-runtime/src/localization";
+const englishInstructions = testBotText("en");
 import {
 	BotRuntime,
 	cachedGlobalInferenceCostStats,
@@ -83,7 +87,7 @@ describe("Submissions and usage", () => {
 			latestLoopProviderUsage: () => null,
 		});
 		const tokenUsageStats = (BotRuntime.prototype as unknown as {
-			tokenUsageStats: (bot: BotDocument, now?: Date) => BotTokenUsageStats;
+			tokenUsageStats: (bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, now?: Date) => BotTokenUsageStats;
 		}).tokenUsageStats.bind(runtime);
 
 		const usage = tokenUsageStats(fakeBotDocument({ contextWindowTokens: 16_000 }), new Date("2026-05-01T01:00:00.000Z"));
@@ -616,7 +620,7 @@ describe("Submissions and usage", () => {
 
 	it("records billed usage from an interrupted provider stream", async () => {
 		const sql = capturingProviderUsageSql();
-		const providerTools = toolDefinitionsForProviderRound();
+		const providerTools = toolDefinitionsForProviderRound(englishInstructions);
 		const interruptedUsage = providerUsageForTest(23, 7);
 		let eventSeq = 0;
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -661,8 +665,8 @@ describe("Submissions and usage", () => {
 		});
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls: "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: BotInferenceSubmissionMessage[],
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -672,7 +676,7 @@ describe("Submissions and usage", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument({ allowEarlyLogOff: true }),
-				{ baseUrl: "https://api.provider.example/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://api.provider.example/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-interrupted-usage",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -717,7 +721,7 @@ describe("Submissions and usage", () => {
 			const latest = providerLoopUsageRowForTest(12, "2026-05-01T00:10:00.000Z", 6_500);
 			const bot = fakeBotDocument({ contextWindowTokens: 20_000 });
 			const calibration = { tokensPerCharacter: 0.25, sampleCount: 0 };
-			const expectedLimits = providerCompactionSummaryLimitsForChat(bot, [], calibration, toolDefinitionsForProviderRound());
+			const expectedLimits = providerCompactionSummaryLimitsForChat(bot, [], calibration, toolDefinitionsForProviderRound(englishInstructions));
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 				providerUsageRows: () => [],
 				tokenUsageChangeMarkers: () => [],
@@ -727,7 +731,7 @@ describe("Submissions and usage", () => {
 				firstLoopProviderUsageAfterSeq: vi.fn(() => baseline),
 			});
 			const tokenUsageStats = (BotRuntime.prototype as unknown as {
-				tokenUsageStats: (bot: BotDocument, now?: Date) => BotTokenUsageStats;
+				tokenUsageStats: (bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, now?: Date) => BotTokenUsageStats;
 			}).tokenUsageStats.bind(runtime);
 
 			const usage = tokenUsageStats(bot);
@@ -757,7 +761,7 @@ describe("Submissions and usage", () => {
 				firstLoopProviderUsageAfterSeq: vi.fn(),
 			});
 			const tokenUsageStats = (BotRuntime.prototype as unknown as {
-				tokenUsageStats: (bot: BotDocument, now?: Date) => BotTokenUsageStats;
+				tokenUsageStats: (bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, now?: Date) => BotTokenUsageStats;
 			}).tokenUsageStats.bind(runtime);
 
 			const usage = tokenUsageStats(fakeBotDocument({ contextWindowTokens: 16_000 }));
@@ -777,7 +781,7 @@ describe("Submissions and usage", () => {
 				firstLoopProviderUsageAfterSeq,
 			});
 			const tokenUsageStats = (BotRuntime.prototype as unknown as {
-				tokenUsageStats: (bot: BotDocument, now?: Date) => BotTokenUsageStats;
+				tokenUsageStats: (bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, now?: Date) => BotTokenUsageStats;
 			}).tokenUsageStats.bind(runtime);
 
 			const usage = tokenUsageStats(fakeBotDocument({ contextWindowTokens: 16_000 }));
@@ -883,7 +887,7 @@ describe("Submissions and usage", () => {
 					seq: number;
 					runId: string;
 					purpose: "loop" | "compaction";
-					settings: { baseUrl: string; model: string; supportsPrefill?: boolean; temperature: number };
+					settings: LocalizedProviderSettings;
 					messages: Array<{ role: "assistant" | "user"; content: string }>;
 					displayMessages?: Array<{ role: "user" | "assistant"; content: string }>;
 					createdAt: string;
@@ -920,7 +924,7 @@ describe("Submissions and usage", () => {
 					settings: {
 						baseUrl: "https://openrouter.ai/api/v1",
 						model: "test/model",
-						...(seq === 55 ? { supportsPrefill: false } : {}),
+						...(seq === 55 ? { text: englishInstructions, supportsPrefill: false } : { text: englishInstructions,}),
 						temperature: 0.7,
 					},
 					messages: seq === 55 ?
@@ -936,7 +940,7 @@ describe("Submissions and usage", () => {
 			expect(summaries.at(-1)).toMatchObject({ seq: 55, purpose: "compaction", messageCount: 2 });
 			expect(inferenceSubmissionForSeq(55).messages.map((message) => message.content)).toEqual([
 				"Trailing participant narration.",
-				"The Bickr app is ready for my next step.",
+				"The Bickr app is ready for your next step.",
 			]);
 			expect(inferenceSubmissionForSeq(55).displayMessages).toBeUndefined();
 			updateInferenceSubmissionDisplayMessages(55, [
@@ -974,13 +978,13 @@ describe("Submissions and usage", () => {
 					events.push(event);
 					return event;
 				},
-				botWithCurrentRuntimeBudget: async (bot: BotDocument) => bot,
+				botWithCurrentRuntimeBudget: async (bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>) => bot,
 				textTokenCalibration: () => ({ tokensPerCharacter: 0.25, sampleCount: 2 }),
 			});
 			const settings = promptEstimateSettings();
 			const bot = fakeBotDocument({ contextWindowTokens: 80_000 });
 			const activeProviderRequestMessages = (BotRuntime.prototype as unknown as {
-				activeProviderRequestMessages: (bot: BotDocument) => BotInferenceSubmissionMessage[];
+				activeProviderRequestMessages: (bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>) => BotInferenceSubmissionMessage[];
 			}).activeProviderRequestMessages.bind(runtime);
 			const recordInferenceSubmission = (BotRuntime.prototype as unknown as {
 				recordInferenceSubmission: (input: {
@@ -994,7 +998,7 @@ describe("Submissions and usage", () => {
 			}).recordInferenceSubmission.bind(runtime);
 			const ensureProviderPromptWithinBudget = (BotRuntime.prototype as unknown as {
 				ensureProviderPromptWithinBudget: (
-					bot: BotDocument,
+					bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 					settings: ReturnType<typeof promptEstimateSettings>,
 					runId: string,
 					signal: AbortSignal,
@@ -1204,6 +1208,7 @@ type ProviderPromptTokenEstimateForTest = {
 
 function promptEstimateSettings() {
 	return {
+		text: englishInstructions,
 		baseUrl: "https://openrouter.ai/api/v1",
 		model: "test/prompt-estimate",
 		supportsPrefill: true,

@@ -11,7 +11,7 @@ describe('forum mutation identity', () => {
 			} } },
 		});
 		const signal = new AbortController().signal;
-		const dispatch = (invocation: string, body: unknown) => runtime.forumService('/threads/create', 'bot', body, signal, undefined, invocation);
+		const dispatch = (invocation: string, body: unknown) => runtime.forumService('/threads/create', 'bot', body, signal, () => {}, undefined, invocation);
 		await dispatch('run:1:call', { title: 'First' });
 		await dispatch('run:1:call', { title: 'First' });
 		await dispatch('run:1:call', { title: 'Second' });

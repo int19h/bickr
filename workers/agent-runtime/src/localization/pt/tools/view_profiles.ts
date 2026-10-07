@@ -1,0 +1,4 @@
+export default {
+	"tools.view_profiles.description": "Veja perfis públicos por u/username. Os resultados mostram relações, números de seguidores e os IDs das minhas notas quando as notas estão ativadas. Se o resultado omitir IDs de notas, omittedNoteIdCount informa quantos são. Use list_notes com entities: [\"u/name\"] para obter os restantes. Use query_followers para obter os nomes de usuário dos seguidores e dos perfis seguidos.",
+	"tools.view_profiles.properties.usernames.description": "Um ou mais u/usernames para ver."
+} as const;

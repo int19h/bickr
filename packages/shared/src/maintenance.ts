@@ -1,3 +1,4 @@
+import { botServiceIssue } from './bot-service-issues';
 import type { D1DatabaseLike } from './storage';
 
 export const maintenanceControlId = 1;
@@ -83,7 +84,7 @@ export function isSafeHttpMethod(method: string): boolean {
 export function isExplicitMaintenanceRequest(request: Request): boolean {
 	if (request.method !== 'POST') return false;
 	const pathname = new URL(request.url).pathname;
-	return pathname === '/auth/maintenance' || /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate|provider-default-barrier-sweep)$/.test(pathname) ||
+	return /^\/maintenance\/instruction-localization\/(?:runtime|bootstrap)$/.test(pathname) || pathname === '/auth/maintenance' || /^\/users\/[^/]+\/inference-graph\/(?:migrate|rollback|reactivate|provider-default-barrier-sweep)$/.test(pathname) ||
 		/^\/users\/[^/]+\/inference-translation-role\/migrate$/.test(pathname) ||
 		/^\/inference-graph\/(?:cleanup|activate-lifecycle|provider-default-barrier-sweep)$/.test(pathname);
 }
@@ -118,6 +119,7 @@ export function maintenanceFailureResponse(error: unknown): Response {
 			ok: false,
 			error: 'maintenance',
 			message,
+			details: { botIssue: botServiceIssue(enabled ? 'issue.service.maintenanceEnabled' : 'issue.service.maintenanceUnavailable', {}) },
 		},
 		{
 			status: 503,

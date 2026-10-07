@@ -1,0 +1,270 @@
+{
+  "group": "formatting",
+  "units": [
+    {
+      "id": "formatting.action",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 43,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 73,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 95,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "5efcc1e437cbeada52653f133121f3ca259b84b74a51e15c277b4de93f11bd75"
+    },
+    {
+      "id": "formatting.result",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 43,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 73,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 95,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "37d8a40483ed487e2ca2163e9d62b2b8ecdc6287773b240a56da54aa5a851d18"
+    },
+    {
+      "id": "formatting.input",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 43,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 73,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 95,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "16f5bcbec82848093e6eb312e0ab6934e88293553af2fa791a324414cf46f7c2"
+    },
+    {
+      "id": "formatting.thought",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
+        "line": 5
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 43,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 73,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 95,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "67bcc959455eaefce8b32b77579b101e7a18ca0b96fae1046b9c390c725b83fb"
+    },
+    {
+      "id": "formatting.orPair",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
+        "line": 6
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 83,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "f423ff5db3d18323a0949ff66647f2049d9d7e4d4ec33b2073dbf609ea7072ce"
+    },
+    {
+      "id": "formatting.orMany",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
+        "line": 7
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 83,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "a83ba8aa3312b60df9aaa0bab0783e9cdb79139faff446cb2e9e0b29e730b290"
+    },
+    {
+      "id": "formatting.sentenceSeparator",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
+        "line": 8
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 491,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 54,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 55,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 847,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9419,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9423,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-results.ts",
+          "line": 1363,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 1189,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "52109349dabf69106e04ec2f493fb8b6ade94ea100227cccce6559ab8b96553f"
+    },
+    {
+      "id": "formatting.listSeparator",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
+        "line": 9
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 486,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 495,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 62,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 84,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/provider/structured-output.ts",
+          "line": 416,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 837,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 842,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "f240463dada079fc3d64b63fd6c50a01e772da977083807d79b1027d1a31253e"
+    },
+    {
+      "id": "formatting.andPair",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
+        "line": 10
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 61,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "490e36dc67f287eae4829aff91858391d5baa2eff016518734f0c8c58bd567d3"
+    },
+    {
+      "id": "formatting.andMany",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
+        "line": 11
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 61,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "7f2f0de52271f35702d340218bb20da37713d9fe911c4870a3c5ea09f9cc9018"
+    }
+  ]
+}

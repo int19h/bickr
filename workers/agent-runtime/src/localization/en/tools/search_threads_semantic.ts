@@ -1,0 +1,3 @@
+export default {
+	"tools.search_threads_semantic.description": "Search thread titles and comments by meaning as well as keyword."
+} as const;

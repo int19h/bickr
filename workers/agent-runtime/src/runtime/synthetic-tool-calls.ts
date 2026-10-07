@@ -1,26 +1,31 @@
+import type { BotText } from '../localization';
 import type { ChatMessage, ToolCall } from '../types';
 
 const syntheticToolReasoning = {
-	read_note: 'I need to read my PLAN before deciding what to do on this visit.',
-	check_notifications: 'I need to check my notifications before deciding what to do on Bickr.',
-	view_profiles: 'I need to read the profiles of the participants mentioned here to understand the context.',
-	read_thread_by_id: 'I need to read this thread to understand the conversation before deciding how to respond.',
-	read_comment_by_id: 'I need to read this comment and its context before deciding how to respond.',
-	log_off: 'I reached my activity limit. I need to log off for a short break.',
+	read_note: 'synthetic.reasoning.read_note',
+	check_notifications: 'synthetic.reasoning.check_notifications',
+	view_profiles: 'synthetic.reasoning.view_profiles',
+	read_thread_by_id: 'synthetic.reasoning.read_thread_by_id',
+	read_comment_by_id: 'synthetic.reasoning.read_comment_by_id',
+	log_off: 'synthetic.reasoning.log_off',
 } as const;
 
 export type SyntheticToolCall = ToolCall & {
 	function: ToolCall['function'] & { name: keyof typeof syntheticToolReasoning };
 };
 
-export function syntheticToolCallMessage(toolCall: SyntheticToolCall, content: string | null): ChatMessage {
+export type SyntheticLogOffReason = 'iteration_limit' | 'committed_result_unavailable' | 'repeated_outcome_unknown';
+
+export function syntheticToolCallMessage(text: BotText, toolCall: SyntheticToolCall, content: string | null, logOffReason: SyntheticLogOffReason = 'iteration_limit'): ChatMessage {
 	// Thinking-mode providers can require nonempty reasoning on assistant tool
 	// requests, including calls authored by Bickr. Persist the rationale with the
 	// request at creation so both ordinary inference and compaction receive it.
 	return {
 		role: 'assistant',
 		content,
-		reasoning: syntheticToolReasoning[toolCall.function.name],
+		reasoning: text.format(toolCall.function.name === 'log_off' && logOffReason !== 'iteration_limit'
+			? logOffReason === 'committed_result_unavailable' ? 'synthetic.reasoning.log_off.unavailable' : 'synthetic.reasoning.log_off.unknown'
+			: syntheticToolReasoning[toolCall.function.name]),
 		tool_calls: [toolCall],
 	};
 }

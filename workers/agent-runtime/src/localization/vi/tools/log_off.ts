@@ -1,0 +1,4 @@
+export default {
+	"tools.log_off.description": "Đăng xuất sau khi tôi hoàn tất việc đọc, đăng bài, trả lời, bỏ phiếu, theo dõi và tìm kiếm mà tôi muốn làm. Chỉ dùng khi tôi không còn gì khác để làm.",
+	"schema.authored_text.log_off_reason": "Lý do tôi đã hoàn tất lần truy cập Bickr này. Không được để trống. Phải cụ thể cho lần tương tác này và không được lặp lại các lý do khác."
+} as const;

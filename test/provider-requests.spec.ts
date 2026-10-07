@@ -1,3 +1,5 @@
+import { botText as testBotText } from "../workers/agent-runtime/src/localization";
+const englishInstructions = testBotText("en");
 import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
 import { completeToolBookkeeping } from '../workers/agent-runtime/src/runtime/tools';
 import type { ToolResult } from '../workers/agent-runtime/src/types';
@@ -112,6 +114,11 @@ function arrayItemsSchema(schema: ToolParameterSchema | undefined): TypedToolPar
 }
 
 // TODO(#12): move next to module on extraction.
+async function runtimeParticipant(id: string) {
+	const participant = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, id);
+	return { ...participant, text: testBotText(participant.instructionLocale) };
+}
+
 describe("Provider requests", () => {
 
 	it("declares provider tool schemas with typed required properties", () => {
@@ -269,7 +276,7 @@ describe("Provider requests", () => {
 
 		for (const name of ["read_thread", "read_thread_by_id", "read_comment_by_id"]) {
 			const readTool = toolDefinitions.find((definition) => definition.function.name === name);
-			expect(readTool?.function.description).toContain("If replies is a number");
+			expect(readTool?.function.description).toContain("If `replies` is a number");
 			expect(readTool?.function.description).toContain("read_comment_by_id with that");
 			expect(readTool?.function.description).toContain("ends with …");
 			expect(readTool?.function.description).toContain("see all of it");
@@ -280,7 +287,7 @@ describe("Provider requests", () => {
 		expect(reply?.function.parameters.properties.commentRef).toEqual({ type: "string" });
 		expectBotAuthoredTextSchema(
 			reply?.function.parameters.properties.body,
-			"Reply body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or math fences. Use protected inline math before letters, digits, or underscores. Escape literal dollar signs as \\$.",
+			"Reply body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or a fenced block labeled `math`. Use the protected inline form before letters, digits, or underscores. Escape literal dollar signs as \\$.",
 			defaultCommentBodyCharacters,
 		);
 		expect(additionalReply?.function.parameters.properties).toEqual(reply?.function.parameters.properties);
@@ -289,24 +296,24 @@ describe("Provider requests", () => {
 		expectBotAuthoredTextSchema(createThread?.function.parameters.properties.title, "Thread title");
 		expectBotAuthoredTextSchema(
 			createThread?.function.parameters.properties.body,
-			"Root comment body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or math fences. Use protected inline math before letters, digits, or underscores. Escape literal dollar signs as \\$.",
+			"Root comment body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or a fenced block labeled `math`. Use the protected inline form before letters, digits, or underscores. Escape literal dollar signs as \\$.",
 			defaultThreadBodyCharacters,
 		);
-		const customPostingTools = toolDefinitionsForProviderRound(1234, {
+		const customPostingTools = toolDefinitionsForProviderRound(englishInstructions, 1234, {
 			includeMetaCompactionTool: false,
 			postingLimits: { threadBodyCharacters: 123, commentBodyCharacters: 45 },
 		});
 		expectBotAuthoredTextSchema(
 			customPostingTools.find((definition) => definition.function.name === "create_thread")?.function.parameters.properties.body,
-			"Root comment body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or math fences. Use protected inline math before letters, digits, or underscores. Escape literal dollar signs as \\$.",
+			"Root comment body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or a fenced block labeled `math`. Use the protected inline form before letters, digits, or underscores. Escape literal dollar signs as \\$.",
 			123,
 		);
 		expectBotAuthoredTextSchema(
 			customPostingTools.find((definition) => definition.function.name === "reply_to_comment")?.function.parameters.properties.body,
-			"Reply body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or math fences. Use protected inline math before letters, digits, or underscores. Escape literal dollar signs as \\$.",
+			"Reply body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or a fenced block labeled `math`. Use the protected inline form before letters, digits, or underscores. Escape literal dollar signs as \\$.",
 			45,
 		);
-		const roundTools = toolDefinitionsForProviderRound(1234);
+		const roundTools = toolDefinitionsForProviderRound(englishInstructions, 1234);
 		expect(roundTools.slice(0, -1)).toEqual(toolDefinitions);
 		const metaTool = roundTools.at(-1);
 		expect(metaCompactionToolName).toBe("provide_summary");
@@ -318,9 +325,9 @@ describe("Provider requests", () => {
 			maxLength: 1234,
 		});
 		expect(metaTool?.function.parameters.additionalProperties).toBe(false);
-		expect(toolDefinitionsForProviderRound(1234, { includeMetaCompactionTool: false })).toEqual(toolDefinitions);
-		expect(toolDefinitionsForProviderRound(1234, { includeLogOffTool: false }).map((definition) => definition.function.name)).not.toContain("log_off");
-		expect(toolDefinitionsForProviderRound(1234, { compactionMinCharacters: 321 }).at(-1)?.function.parameters.properties[providerCompactionSummaryProperty]).toMatchObject({
+		expect(toolDefinitionsForProviderRound(englishInstructions, 1234, { includeMetaCompactionTool: false })).toEqual(toolDefinitions);
+		expect(toolDefinitionsForProviderRound(englishInstructions, 1234, { includeLogOffTool: false }).map((definition) => definition.function.name)).not.toContain("log_off");
+		expect(toolDefinitionsForProviderRound(englishInstructions, 1234, { compactionMinCharacters: 321 }).at(-1)?.function.parameters.properties[providerCompactionSummaryProperty]).toMatchObject({
 			minLength: 1,
 			maxLength: 1234,
 		});
@@ -346,14 +353,14 @@ describe("Provider requests", () => {
 		const runtime = testRuntimeForToolExecution() as BotRuntime & { events: BotRuntimeEvent[] };
 		const executeTool = (BotRuntime.prototype as unknown as {
 			executeTool: (
-				bot: Awaited<ReturnType<typeof botById>>,
+				bot: Awaited<ReturnType<typeof runtimeParticipant>>,
 				runId: string,
 				name: string,
 				args: Record<string, unknown>,
 				runContext: { mode: "normal"; signal: AbortSignal },
 			) => Promise<{ result: unknown; providerResult: unknown }>;
 		}).executeTool.bind(runtime);
-		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, reader.id);
+		const bot = await runtimeParticipant(reader.id);
 		const signal = new AbortController().signal;
 		const selfAuthor = `u/${reader.handle} (${providerSelfAuthor})`;
 
@@ -425,14 +432,14 @@ describe("Provider requests", () => {
 		const runtime = testRuntimeForToolExecution() as BotRuntime & { events: BotRuntimeEvent[] };
 		const executeTool = (BotRuntime.prototype as unknown as {
 			executeTool: (
-				bot: Awaited<ReturnType<typeof botById>>,
+				bot: Awaited<ReturnType<typeof runtimeParticipant>>,
 				runId: string,
 				name: string,
 				args: Record<string, unknown>,
 				runContext: { mode: "normal"; signal: AbortSignal },
 			) => Promise<ToolResult>;
 		}).executeTool.bind(runtime);
-		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, voter.id);
+		const bot = await runtimeParticipant(voter.id);
 		const signal = new AbortController().signal;
 
 		const cachedBudgetRuntime = Object.assign(testRuntimeForToolExecution(), {
@@ -516,7 +523,7 @@ describe("Provider requests", () => {
 			}) as BotRuntime & { events: BotRuntimeEvent[] };
 			const executeToolWithTinyProviderBudget = (BotRuntime.prototype as unknown as {
 				executeTool: (
-					bot: Awaited<ReturnType<typeof botById>>,
+					bot: Awaited<ReturnType<typeof runtimeParticipant>>,
 					runId: string,
 					name: string,
 					args: Record<string, unknown>,
@@ -579,7 +586,7 @@ describe("Provider requests", () => {
 				replies: [{
 					commentRef: formatCommentRef(comment.id),
 					ancestorOnly: true,
-					replies: [{ commentRef: formatCommentRef(childComment.id), "My focus is on this comment": true }],
+					replies: [{ commentRef: formatCommentRef(childComment.id), focused: true }],
 				}],
 			},
 		]);
@@ -597,7 +604,7 @@ describe("Provider requests", () => {
 				ancestorOnly: true,
 				replies: [{
 					commentRef: formatCommentRef(comment.id),
-					"My focus is on this comment": true,
+					focused: true,
 					replies: [{ commentRef: formatCommentRef(childComment.id), body: "Child comment body." }],
 				}],
 			},
@@ -608,7 +615,7 @@ describe("Provider requests", () => {
 		});
 		const executeToolWithTinyReadBudget = (BotRuntime.prototype as unknown as {
 			executeTool: (
-				bot: Awaited<ReturnType<typeof botById>>,
+				bot: Awaited<ReturnType<typeof runtimeParticipant>>,
 				runId: string,
 				name: string,
 				args: Record<string, unknown>,
@@ -628,7 +635,7 @@ describe("Provider requests", () => {
 			{ mode: "normal", signal },
 		);
 		const prunedProviderResult = prunedReadResult.providerResult as { context: string; content: Array<Record<string, unknown>> };
-		expect(prunedProviderResult.context).toContain("numeric replies value");
+		expect(prunedProviderResult.context).toContain("numeric `replies` value");
 		expect(prunedProviderResult.context).toContain("body ending in …");
 		expect(prunedProviderResult.content).toMatchObject([
 			{
@@ -663,7 +670,7 @@ describe("Provider requests", () => {
 				replies: [{
 					commentRef: formatCommentRef(targetReply.id),
 					body: "Focused target body stays visible.",
-					"My focus is on this comment": true,
+					focused: true,
 					replies: [{
 						commentRef: formatCommentRef(descendantReply.id),
 						body: "…",
@@ -794,7 +801,7 @@ describe("Provider requests", () => {
 			{ mode: "normal", signal },
 		).catch((error: unknown) => error);
 		expect(redundantFollow).toBeInstanceOf(Error);
-		expect((redundantFollow as Error).message).toContain(`I already follow u/${firstProfile.handle}`);
+		expect((redundantFollow as Error).message).toContain(`I already follow 1 profile: u/${firstProfile.handle}`);
 		expect((redundantFollow as Error).message).toContain("follow_profile");
 
 		const unfollowResult = await executeTool(
@@ -822,7 +829,7 @@ describe("Provider requests", () => {
 			{ mode: "normal", signal },
 		).catch((error: unknown) => error);
 		expect(redundantUnfollow).toBeInstanceOf(Error);
-		expect((redundantUnfollow as Error).message).toContain(`I do not follow u/${firstProfile.handle}`);
+		expect((redundantUnfollow as Error).message).toContain(`I do not follow 1 profile: u/${firstProfile.handle}`);
 		expect((redundantUnfollow as Error).message).toContain("unfollow_profile");
 	});
 
@@ -837,7 +844,7 @@ describe("Provider requests", () => {
 		const unrelatedProfile = await createBotForTest(cookie, "scope-other-profile");
 		const spotlightThread = await createThreadForTest(forum.id, spotlightAuthor.id, "Spotlight vote thread", "Spotlight root.");
 		const unrelatedThread = await createThreadForTest(forum.id, unrelatedAuthor.id, "Ordinary vote thread", "Ordinary root.");
-		const actorDocument = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, actor.id);
+		const actorDocument = await runtimeParticipant(actor.id);
 		const user = await testEnv.BICKR_D1.prepare(`SELECT user_id AS id FROM users_index LIMIT 1`).first<{ id: string }>();
 		if (!user) {
 			throw new Error("Test user was not created.");
@@ -864,7 +871,7 @@ describe("Provider requests", () => {
 		const runtime = testRuntimeForToolExecution();
 		const executeTool = (BotRuntime.prototype as unknown as {
 			executeTool: (
-				bot: Awaited<ReturnType<typeof botById>>,
+				bot: Awaited<ReturnType<typeof runtimeParticipant>>,
 				runId: string,
 				name: string,
 				args: Record<string, unknown>,
@@ -956,7 +963,7 @@ describe("Provider requests", () => {
 		const actor = await createBotForTest(cookie, "unrelated-post-actor");
 		const spotlightAuthor = await createBotForTest(cookie, "unrelated-post-spot-author");
 		const spotlightThread = await createThreadForTest(forum.id, spotlightAuthor.id, "Existing spotlight context", "Spotlight root.");
-		const actorDocument = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, actor.id);
+		const actorDocument = await runtimeParticipant(actor.id);
 		const user = await testEnv.BICKR_D1.prepare(`SELECT user_id AS id FROM users_index LIMIT 1`).first<{ id: string }>();
 		if (!user) {
 			throw new Error("Test user was not created.");
@@ -983,7 +990,7 @@ describe("Provider requests", () => {
 		const runtime = testRuntimeForToolExecution();
 		const executeTool = (BotRuntime.prototype as unknown as {
 			executeTool: (
-				bot: Awaited<ReturnType<typeof botById>>,
+				bot: Awaited<ReturnType<typeof runtimeParticipant>>,
 				runId: string,
 				name: string,
 				args: Record<string, unknown>,
@@ -1060,14 +1067,14 @@ describe("Provider requests", () => {
 		const runtime = testRuntimeForToolExecution();
 		const executeTool = (BotRuntime.prototype as unknown as {
 			executeTool: (
-				bot: Awaited<ReturnType<typeof botById>>,
+				bot: Awaited<ReturnType<typeof runtimeParticipant>>,
 				runId: string,
 				name: string,
 				args: Record<string, unknown>,
 				runContext: { mode: "normal"; signal: AbortSignal },
 			) => Promise<{ result: unknown; providerResult: unknown }>;
 		}).executeTool.bind(runtime);
-		const bot = await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, viewer.id);
+		const bot = await runtimeParticipant(viewer.id);
 		const signal = new AbortController().signal;
 
 		const profileResult = await executeTool(
@@ -1187,8 +1194,8 @@ describe("Provider requests", () => {
 				displayName: lt("Prompt Tester"),
 				shortBio: lt("Tests prompts."),
 				prompt: lt("Stay terse."),
-			} as Parameters<typeof standardPrompt>[0];
-		const prompt = standardPrompt(promptBot, "", { includeNotesTools: true, includePlan: true });
+			} as Parameters<typeof standardPrompt>[1];
+		const prompt = standardPrompt(englishInstructions, promptBot, "", { includeNotesTools: true, includePlan: true });
 		expect(prompt).toContain("Do not send duplicate replies");
 		expect(prompt).toContain("already replied to the same comment");
 		expect(prompt).toContain("Use log_off only after you finish the actions");
@@ -1202,10 +1209,10 @@ describe("Provider requests", () => {
 				displayName: lt("Prompt Tester"),
 				shortBio: lt("Tests prompts."),
 				prompt: lt("Stay terse."),
-			} as Parameters<typeof standardPrompt>[0];
-		const prompt = standardPrompt(promptBot, "The city is built on glass canals.", { includeNotesTools: true, includePlan: true });
+			} as Parameters<typeof standardPrompt>[1];
+		const prompt = standardPrompt(englishInstructions, promptBot, "The city is built on glass canals.", { includeNotesTools: true, includePlan: true });
 		expect(prompt).toContain("Stay terse.\n\nSetting:\nThe city is built on glass canals.");
-		expect(standardPrompt(promptBot, "  ", { includeNotesTools: true, includePlan: true })).not.toContain("Setting:");
+		expect(standardPrompt(englishInstructions, promptBot, "  ", { includeNotesTools: true, includePlan: true })).not.toContain("Setting:");
 	});
 
 	it("includes the native-language prompt line only when enabled with a language", () => {
@@ -1216,20 +1223,20 @@ describe("Provider requests", () => {
 			displayName: localizedText("Prompt Tester", "ja" as LanguageTag),
 			shortBio: localizedText("Tests prompts.", "ja" as LanguageTag),
 			prompt: localizedText("Stay terse.", "ja" as LanguageTag),
-		} as Parameters<typeof standardPrompt>[0];
+		} as Parameters<typeof standardPrompt>[1];
 		const nativeLanguageLine =
 			"Your native language is ja (BCP 47). Think and write all content in that language.";
-		expect(standardPrompt(promptBot, "", { includeNotesTools: true, includePlan: true })).toContain(nativeLanguageLine);
-		expect(standardPrompt({ ...promptBot, includeLanguageInSystemPrompt: false }, "", { includeNotesTools: true, includePlan: true })).not.toContain(nativeLanguageLine);
-		expect(standardPrompt({ ...promptBot, language: null }, "", { includeNotesTools: true, includePlan: true })).not.toContain(nativeLanguageLine);
+		expect(standardPrompt(englishInstructions, promptBot, "", { includeNotesTools: true, includePlan: true })).toContain(nativeLanguageLine);
+		expect(standardPrompt(englishInstructions, { ...promptBot, includeLanguageInSystemPrompt: false }, "", { includeNotesTools: true, includePlan: true })).not.toContain(nativeLanguageLine);
+		expect(standardPrompt(englishInstructions, { ...promptBot, language: null }, "", { includeNotesTools: true, includePlan: true })).not.toContain(nativeLanguageLine);
 
-		const compactionPrompt = providerCompactionSystemInstruction(promptBot, [], "tool_call");
+		const compactionPrompt = providerCompactionSystemInstruction(englishInstructions, promptBot, [], "tool_call");
 		expect(compactionPrompt).toContain(nativeLanguageLine);
 		expect(compactionPrompt).toContain(`the author label u/prompt-tester (${providerSelfAuthor}) marks content that you wrote`);
 		expect(compactionPrompt).toContain(`The label ${providerSelfAuthor} has the same meaning when no author handle is available.`);
 		expect(compactionPrompt).toContain(`Never put that marker in a Bickr tool argument.`);
 		expect(compactionPrompt).toContain(`use only u/prompt-tester.`);
-		expect(providerCompactionSystemInstruction({ ...promptBot, includeLanguageInSystemPrompt: false }, [], "tool_call"))
+		expect(providerCompactionSystemInstruction(englishInstructions, { ...promptBot, includeLanguageInSystemPrompt: false }, [], "tool_call"))
 			.not.toContain(nativeLanguageLine);
 	});
 
@@ -1416,7 +1423,7 @@ describe("Provider requests", () => {
 
 	it("builds provider chat requests with explicit tool-call and output controls", () => {
 		const request = providerChatCompletionRequest(
-			{
+			{ text: englishInstructions,
 				baseUrl: customProviderBaseUrl,
 				model: "test-model",
 				providerRouting: { max_price: { prompt: 0.25, completion: 0.75 } },
@@ -1441,10 +1448,10 @@ describe("Provider requests", () => {
 				role: "assistant",
 				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			},
-			{ role: "user", content: "The Bickr app is ready for my next step." },
+			{ role: "user", content: "The Bickr app is ready for your next step." },
 		]);
 		expect(providerChatCompletionRequest(
-			{
+			{ text: englishInstructions,
 				baseUrl: customProviderBaseUrl,
 				model: "test-model",
 				supportsPrefill: true,
@@ -1459,7 +1466,7 @@ describe("Provider requests", () => {
 		});
 		expect(
 			providerChatCompletionRequest(
-				{
+				{ text: englishInstructions,
 					baseUrl: customProviderBaseUrl,
 					model: "test-model",
 					supportsPrefill: false,
@@ -1475,11 +1482,11 @@ describe("Provider requests", () => {
 				role: "assistant",
 				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			},
-			{ role: "user", content: "The Bickr app is ready for my next step." },
+			{ role: "user", content: "The Bickr app is ready for your next step." },
 		]);
 		expect(
 			providerChatCompletionRequest(
-				{
+				{ text: englishInstructions,
 					baseUrl: customProviderBaseUrl,
 					model: "test-model",
 					temperature: 0.2,
@@ -1490,19 +1497,19 @@ describe("Provider requests", () => {
 			).messages,
 		).toEqual([
 			{ role: "system", content: "System prompt." },
-			{ role: "user", content: "The Bickr app is ready for my next step." },
+			{ role: "user", content: "The Bickr app is ready for your next step." },
 			{
 				role: "assistant",
 				content: "I'm u/release-sage. I need to think about how I feel and what I want to do next.",
 			},
-			{ role: "user", content: "The Bickr app is ready for my next step." },
+			{ role: "user", content: "The Bickr app is ready for your next step." },
 		]);
 		expect("frequency_penalty" in request).toBe(false);
 		expect("presence_penalty" in request).toBe(false);
 		expect("repetition_penalty" in request).toBe(false);
 
 		const providerDefaultRequest = providerChatCompletionRequest(
-			{
+			{ text: englishInstructions,
 				baseUrl: customProviderBaseUrl,
 				model: "test-model",
 				reasoningRequest: { kind: "provider_default" },
@@ -1515,7 +1522,7 @@ describe("Provider requests", () => {
 		expect("reasoning" in providerDefaultRequest).toBe(false);
 		expect("tool_choice" in providerDefaultRequest).toBe(false);
 		const providerDefaultCompaction = providerCompactionRequest(
-			{
+			{ text: englishInstructions,
 				baseUrl: customProviderBaseUrl,
 				model: "test-model",
 				toolCallRequest: { kind: "provider_default" },
@@ -1527,7 +1534,7 @@ describe("Provider requests", () => {
 		);
 		expect("tool_choice" in providerDefaultCompaction).toBe(false);
 		const providerDefaultStructuredCompaction = providerCompactionRequest(
-			{
+			{ text: englishInstructions,
 				baseUrl: customProviderBaseUrl,
 				model: "test-model",
 				toolCallRequest: { kind: "provider_default" },
@@ -1537,7 +1544,7 @@ describe("Provider requests", () => {
 		expect(providerDefaultStructuredCompaction.tool_choice).toBe("none");
 
 		const automaticRequest = providerChatCompletionRequest(
-			{
+			{ text: englishInstructions,
 				baseUrl: customProviderBaseUrl,
 				model: "test-model",
 				reasoningRequest: { kind: "bickr_automatic" },
@@ -1550,7 +1557,7 @@ describe("Provider requests", () => {
 		expect(automaticRequest.reasoning).toEqual({ effort: "minimal", exclude: false });
 		expect(automaticRequest.tool_choice).toBe("required");
 		const inheritedRequest = providerChatCompletionRequest(
-			{
+			{ text: englishInstructions,
 				baseUrl: customProviderBaseUrl,
 				model: "test-model",
 				reasoningRequest: { kind: "inherit" },
@@ -1564,7 +1571,7 @@ describe("Provider requests", () => {
 		expect(inheritedRequest.tool_choice).toBe("required");
 
 		const railroadRequest = providerChatCompletionRequest(
-			{
+			{ text: englishInstructions,
 				baseUrl: customProviderBaseUrl,
 				model: "test-model",
 				temperature: 0.2,
@@ -1575,7 +1582,7 @@ describe("Provider requests", () => {
 			"railroad",
 		);
 		const atWillRequest = providerChatCompletionRequest(
-			{
+			{ text: englishInstructions,
 				baseUrl: customProviderBaseUrl,
 				model: "test-model",
 				temperature: 0.2,
@@ -1589,7 +1596,7 @@ describe("Provider requests", () => {
 		expect("tool_choice" in atWillRequest).toBe(false);
 
 		const tunedRequest = providerChatCompletionRequest(
-			{
+			{ text: englishInstructions,
 				baseUrl: customProviderBaseUrl,
 				model: "test-model",
 				temperature: 0.2,
@@ -1608,7 +1615,7 @@ describe("Provider requests", () => {
 		});
 
 		const claudeCacheRequest = providerChatCompletionRequest(
-			{
+			{ text: englishInstructions,
 				baseUrl: "https://openrouter.ai/api/v1",
 				model: "~anthropic/claude-sonnet-latest",
 				promptCacheMode: "openrouter_anthropic_1h",
@@ -1624,7 +1631,7 @@ describe("Provider requests", () => {
 		expect(claudeCacheRequest.session_id).toBe("bot:cache-test");
 
 		const providerDefaultCacheRequest = providerChatCompletionRequest(
-			{
+			{ text: englishInstructions,
 				baseUrl: "https://openrouter.ai/api/v1",
 				model: "~anthropic/claude-sonnet-latest",
 				promptCacheMode: "openrouter_anthropic_1h",
@@ -1641,7 +1648,7 @@ describe("Provider requests", () => {
 		expect("session_id" in providerDefaultCacheRequest).toBe(false);
 
 		const explicitOffCacheRequest = providerChatCompletionRequest(
-			{
+			{ text: englishInstructions,
 				baseUrl: "https://openrouter.ai/api/v1",
 				model: "~anthropic/claude-sonnet-latest",
 				promptCacheMode: "openrouter_anthropic_1h",
@@ -1657,7 +1664,7 @@ describe("Provider requests", () => {
 		expect("cache_control" in explicitOffCacheRequest).toBe(false);
 
 		const nonClaudeCacheRequest = providerChatCompletionRequest(
-			{
+			{ text: englishInstructions,
 				baseUrl: "https://openrouter.ai/api/v1",
 				model: "openai/gpt-5-mini",
 				promptCacheMode: "openrouter_anthropic_5m",
@@ -1688,7 +1695,7 @@ describe("Provider requests", () => {
 			toolCalls: "railroad",
 		});
 		const reasoningOff = providerCompactionRequest(
-			ordinaryReasoningOn,
+			{ ...ordinaryReasoningOn, text: englishInstructions },
 			messages,
 			undefined,
 			undefined,
@@ -1696,7 +1703,7 @@ describe("Provider requests", () => {
 			{ effort: "none", exclude: false },
 		);
 		const reasoningOn = providerCompactionRequest(
-			ordinaryReasoningOn,
+			{ ...ordinaryReasoningOn, text: englishInstructions },
 			messages,
 			undefined,
 			undefined,
@@ -1706,7 +1713,7 @@ describe("Provider requests", () => {
 
 		expect(reasoningOff.tool_choice).toBe("required");
 		expect(reasoningOn.tool_choice).toBeUndefined();
-		expect(providerCompactionRequest({
+		expect(providerCompactionRequest({ text: englishInstructions,
 			baseUrl: customProviderBaseUrl,
 			model: "test-model",
 			toolCallRequest: { kind: "provider_default" },
@@ -1726,7 +1733,7 @@ describe("Provider requests", () => {
 			supportsPrefill: false,
 		});
 		expect(providerCompactionRequest(
-			shapeDivergentPrefill,
+			{ ...shapeDivergentPrefill, text: englishInstructions },
 			messages,
 			undefined,
 			undefined,
@@ -1734,7 +1741,7 @@ describe("Provider requests", () => {
 			{ effort: "none", exclude: false },
 		).messages.at(-1)?.role).toBe("assistant");
 		expect(providerCompactionRequest(
-			shapeDivergentPrefill,
+			{ ...shapeDivergentPrefill, text: englishInstructions },
 			messages,
 			undefined,
 			undefined,
@@ -1754,16 +1761,16 @@ describe("Provider requests", () => {
 			temperature: 0,
 		};
 		expect(providerTranslationRequest(
-			{ ...translationBase, reasoningEffort: "none" }, "Hello.",
+			{ text: englishInstructions, ...translationBase, reasoningEffort: "none" }, "Hello.",
 		).tool_choice).toBe("required");
 		expect(providerTranslationRequest(
-			{ ...translationBase, reasoningEffort: "minimal" }, "Hello.",
+			{ text: englishInstructions, ...translationBase, reasoningEffort: "minimal" }, "Hello.",
 		).tool_choice).toBeUndefined();
 	});
 
 	it("applies conservative request policy for unknown OpenRouter models", () => {
 		const request = providerChatCompletionRequest(
-			{
+			{ text: englishInstructions,
 				baseUrl: "https://openrouter.ai/api/v1",
 				model: "unknown/provider-model",
 				temperature: 0.2,
@@ -1777,7 +1784,7 @@ describe("Provider requests", () => {
 		expect(request.reasoning).toBeUndefined();
 		expect(request.messages.at(-1)).toEqual({
 			role: "user",
-			content: "The Bickr app is ready for my next step.",
+			content: "The Bickr app is ready for your next step.",
 		});
 	});
 
@@ -1785,7 +1792,7 @@ describe("Provider requests", () => {
 			const tools = [
 				toolDefinitions.find((definition) => definition.function.name === "read_thread")!,
 				toolDefinitions.find((definition) => definition.function.name === "vote")!,
-				toolDefinitionsForProviderRound().find((definition) => definition.function.name === metaCompactionToolName)!,
+				toolDefinitionsForProviderRound(englishInstructions).find((definition) => definition.function.name === metaCompactionToolName)!,
 				{ type: "openrouter:web_search" } as ProviderToolDefinition,
 			];
 			const runtime = Object.assign(Object.create(BotRuntime.prototype), {
@@ -1832,12 +1839,12 @@ describe("Provider requests", () => {
 			};
 
 			const chatRequest = providerChatCompletionRequest(
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				[reasoningOnlyMessage, toolCallMessage],
 				toolDefinitions,
 			);
 			const compactionRequest = providerCompactionRequest(
-				{ model: "test-model" },
+				{ text: englishInstructions, model: "test-model" },
 				[reasoningOnlyMessage],
 			);
 
@@ -1894,7 +1901,7 @@ describe("Provider requests", () => {
 				{ role: "tool", tool_call_id: "call_shallow", content: shallowContent },
 			];
 
-			const request = providerCompactionRequest({ model: "test-model" }, messages);
+			const request = providerCompactionRequest({ text: englishInstructions, model: "test-model" }, messages);
 
 			expect(request.messages[0]).toMatchObject({
 				role: "assistant",
@@ -1913,23 +1920,23 @@ describe("Provider requests", () => {
 		});
 
 	it("builds reasoning prefill defaults and preserves explicit trailing whitespace", () => {
-		expect(defaultReasoningPrefill("release-sage")).toBe(
+		expect(defaultReasoningPrefill(englishInstructions, "release-sage")).toBe(
 			"I am u/release-sage. I need to think about how I feel and what I want to do next.",
 		);
 		expect(
-			effectiveReasoningPrefill({
+			effectiveReasoningPrefill({ text: englishInstructions,
 				handle: "release-sage",
 				inferenceSettings: {},
 			}),
 		).toBe("I am u/release-sage. I need to think about how I feel and what I want to do next.");
 		expect(
-			effectiveReasoningPrefill({
+			effectiveReasoningPrefill({ text: englishInstructions,
 				handle: "release-sage",
 				inferenceSettings: { recurringPrompt: { lang: null, text: "I am Release Sage, and I  " } },
 			}),
 		).toBe("I am Release Sage, and I  ");
 		expect(
-			effectiveReasoningPrefill({
+			effectiveReasoningPrefill({ text: englishInstructions,
 				handle: "release-sage",
 				inferenceSettings: { recurringPromptEnabled: false },
 			}),
@@ -1956,7 +1963,7 @@ describe("Provider requests", () => {
 			providerRouting: { ignore: ["deepinfra"] },
 			temperature: 0.2,
 		};
-		const request = providerTokenProbeRequest(automaticSettings, probeMessages, toolDefinitions);
+		const request = providerTokenProbeRequest({ ...automaticSettings, text: englishInstructions }, probeMessages, toolDefinitions);
 
 			expect(request.stream).toBe(false);
 			expect(request.max_tokens).toBe(1);
@@ -1968,7 +1975,7 @@ describe("Provider requests", () => {
 		// tool_choice of its own.
 		expect(request.tool_choice).toBe("required");
 		expect(request.tool_choice).toBe(
-			providerChatCompletionRequest(automaticSettings, probeMessages, toolDefinitions).tool_choice,
+			providerChatCompletionRequest({ ...automaticSettings, text: englishInstructions }, probeMessages, toolDefinitions).tool_choice,
 		);
 
 		// Provider default is an omission intent: the owner asked for no tool_choice
@@ -1980,11 +1987,11 @@ describe("Provider requests", () => {
 			toolCallRequest: { kind: "provider_default" as const },
 			temperature: 0.2,
 		};
-		const providerDefaultProbe = providerTokenProbeRequest(providerDefaultSettings, probeMessages, toolDefinitions);
+		const providerDefaultProbe = providerTokenProbeRequest({ ...providerDefaultSettings, text: englishInstructions }, probeMessages, toolDefinitions);
 		expect("tool_choice" in providerDefaultProbe).toBe(false);
 		expect(providerDefaultProbe.tools).toBe(toolDefinitions);
 		expect(
-			"tool_choice" in providerChatCompletionRequest(providerDefaultSettings, probeMessages, toolDefinitions),
+			"tool_choice" in providerChatCompletionRequest({ ...providerDefaultSettings, text: englishInstructions }, probeMessages, toolDefinitions),
 		).toBe(false);
 
 		// Capability-driven omission: this provider rejects required tool calls while
@@ -1999,15 +2006,15 @@ describe("Provider requests", () => {
 			},
 		}, { inferenceSettings: {} }, {});
 		expect(capabilityDowngraded).toMatchObject({ toolCalls: "railroad" });
-		const capabilityProbe = providerTokenProbeRequest(capabilityDowngraded, probeMessages, toolDefinitions);
+		const capabilityProbe = providerTokenProbeRequest({ ...capabilityDowngraded, text: englishInstructions }, probeMessages, toolDefinitions);
 		expect("tool_choice" in capabilityProbe).toBe(false);
 		expect(capabilityProbe.tools).toBe(toolDefinitions);
 		expect(
-			"tool_choice" in providerChatCompletionRequest(capabilityDowngraded, probeMessages, toolDefinitions),
+			"tool_choice" in providerChatCompletionRequest({ ...capabilityDowngraded, text: englishInstructions }, probeMessages, toolDefinitions),
 		).toBe(false);
 
 		const tunedRequest = providerTokenProbeRequest(
-			{
+			{ text: englishInstructions,
 				baseUrl: customProviderBaseUrl,
 					model: "test-model",
 					temperature: 0.2,
@@ -2187,18 +2194,18 @@ describe("Provider requests", () => {
 
 		expect(
 			effectiveProviderSettingsForTranslation(
-				{ inferenceSettings: { toolCalls: "at_will", translation: { enabled: true } } },
+				{ language: null, inferenceSettings: { toolCalls: "at_will", translation: { enabled: true } } },
 				{},
 			)?.toolCalls,
 		).toBe("railroad");
 		expect(
 			effectiveProviderSettingsForTranslation(
-				{ inferenceSettings: { translation: { enabled: true, model: "translator/model", toolCalls: "railroad" } } },
+				{ language: null, inferenceSettings: { translation: { enabled: true, model: "translator/model", toolCalls: "railroad" } } },
 				{},
 			)?.toolCalls,
 		).toBe("railroad");
 		const automaticTranslation = effectiveProviderSettingsForTranslation(
-			{ inferenceSettings: { translation: { enabled: true, model: "openai/gpt-4o-mini" } } },
+			{ language: null, inferenceSettings: { translation: { enabled: true, model: "openai/gpt-4o-mini" } } },
 			{},
 		);
 		expect(automaticTranslation).toMatchObject({
@@ -3170,7 +3177,7 @@ describe("Provider requests", () => {
 			},
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -3233,7 +3240,7 @@ describe("Provider requests", () => {
 
 	it("compacts duplicate request-local tool call ids without repairing history", () => {
 		const request = providerChatCompletionRequest(
-			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 			[
 				{
 					role: "assistant",
@@ -3269,7 +3276,7 @@ describe("Provider requests", () => {
 
 	it("adds stable initial user context before prior activity for provider compatibility", () => {
 		const request = providerChatCompletionRequest(
-			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 			[
 				{ role: "system", content: "System prompt." },
 				{
@@ -3290,7 +3297,7 @@ describe("Provider requests", () => {
 
 		expect(request.messages[1]).toEqual({
 			role: "user",
-			content: "The Bickr app is ready for my next step.",
+			content: "The Bickr app is ready for your next step.",
 		});
 		expect(request.messages.at(-1)).toMatchObject({
 			role: "tool",
@@ -3301,7 +3308,7 @@ describe("Provider requests", () => {
 
 	it("rewrites provider request tool call ids to compact request-local ids", () => {
 		const request = providerChatCompletionRequest(
-			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 			[
 				{
 					role: "assistant",
@@ -3345,7 +3352,7 @@ describe("Provider requests", () => {
 
 	it("shortens long synthetic provider request ids that differ only near the end", () => {
 		const request = providerChatCompletionRequest(
-			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 			[
 				{
 					role: "assistant",
@@ -3392,12 +3399,12 @@ describe("Provider requests", () => {
 			{ role: "tool", tool_call_id: "synthetic_first_long_id_that_may_be_provider_normalized_0", content: "{\"ok\":true,\"first\":true}" },
 		];
 		const initialRequest = providerChatCompletionRequest(
-			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 			initialMessages,
 			[],
 		);
 		const extendedRequest = providerChatCompletionRequest(
-			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 			[
 				...initialMessages,
 				{
@@ -3418,7 +3425,7 @@ describe("Provider requests", () => {
 
 		expect(initialRequest.messages[1]).toEqual({
 			role: "user",
-			content: "The Bickr app is ready for my next step.",
+			content: "The Bickr app is ready for your next step.",
 		});
 		expect(extendedRequest.messages.slice(0, initialRequest.messages.length)).toEqual(initialRequest.messages);
 		expect(extendedRequest.messages.flatMap((message) => message.tool_calls?.map((toolCall) => toolCall.id) ?? [])).toEqual(["call_1", "call_2"]);
@@ -3438,7 +3445,7 @@ describe("Provider requests", () => {
 		expect(hasLoneSurrogate(truncated)).toBe(false);
 
 		const request = providerChatCompletionRequest(
-			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 			[
 				{ role: "assistant", content: `bad saved text ${high}` },
 				{
@@ -3464,7 +3471,7 @@ describe("Provider requests", () => {
 			vi.useFakeTimers();
 			vi.setSystemTime(new Date("2026-05-08T00:00:00.000Z"));
 			try {
-				const context = providerSerializationContext({ botId: "bot_reader" });
+				const context = providerSerializationContext(englishInstructions, { botId: "bot_reader" });
 				const searchResult = providerToolResultPayload(
 					"search_threads",
 					[
@@ -3547,7 +3554,7 @@ describe("Provider requests", () => {
 						activities: [{ type: "thread", threadId: "thr_preview", forumHandle: "random", bodyPreview: "p".repeat(240), createdAt: "2026-05-08T00:00:00.000Z" }],
 					},
 					{},
-					providerSerializationContext({ botId: "bot_reader" }),
+					providerSerializationContext(englishInstructions, { botId: "bot_reader" }),
 				) as { activities: Array<Record<string, unknown>> };
 				expect(unbudgetedActivityResult.activities[0]?.bodyPreview).toBe(`${"p".repeat(240)}…`);
 
@@ -3575,7 +3582,7 @@ describe("Provider requests", () => {
 						],
 					},
 					{},
-					providerSerializationContext({ botId: "bot_reader" }),
+					providerSerializationContext(englishInstructions, { botId: "bot_reader" }),
 					{ tokenBudget: 70 },
 				) as { activities: Array<Record<string, unknown>> };
 
@@ -3616,11 +3623,11 @@ describe("Provider requests", () => {
 				"check_notifications",
 				{ events: notifications },
 				{},
-				providerSerializationContext({ botId: "bot_reader" }),
+				providerSerializationContext(englishInstructions, { botId: "bot_reader" }),
 				{ tokenBudget: 90 },
 			) as { context?: string; events: Array<Record<string, unknown>> };
 
-			expect(notificationResult.context).toContain("1 lower-priority or older notification was omitted; they remain pending");
+			expect(notificationResult.context).toContain("1 lower-priority or older notification was omitted; it remains pending");
 			expect(JSON.stringify(notificationResult)).not.toContain("Trailing text that should be omitted");
 			expect(JSON.stringify(notificationResult)).not.toContain("…");
 			expect(notificationResult.events).toHaveLength(1);

@@ -1,0 +1,21 @@
+{
+  "group": "tools/provide_summary",
+  "units": [
+    {
+      "id": "tools.provide_summary.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/provide_summary.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 612,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "980f526191674fb8328f67abba6f79c9d9f977f15e285d82c2008e6ee0d50e71"
+    }
+  ]
+}

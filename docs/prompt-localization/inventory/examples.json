@@ -1,0 +1,216 @@
+{
+  "group": "examples",
+  "units": [
+    {
+      "id": "examples.create_thread.title.text",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/examples.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 138,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "c25bf945aaff8fe16826d3c1ef117044d6cc1af8e0e9f0b4162308460a8207a7"
+    },
+    {
+      "id": "examples.create_thread.body.text",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/examples.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 139,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "9d52de2ba5f6301fe49063155aecfa6acc052f1fd16cce8fa3343677a57d930e"
+    },
+    {
+      "id": "examples.reply_to_comment.body.text",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/examples.ts",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 141,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "7cbaccba686e048b73933aed63269026a334a2f6b56448790b75eb82c5cd067d"
+    },
+    {
+      "id": "examples.make_additional_reply_to_the_same_comment.body.text",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/examples.ts",
+        "line": 5
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 142,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "0245d821d3a33550c7af075e47ffcda4e773c6e565438ea359bc10de17a01f51"
+    },
+    {
+      "id": "examples.vote.reason.text",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/examples.ts",
+        "line": 6
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 145,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "3adebdedc4928f6a54e397ca359023fb988cbaec2a7946cc86092618d7a88ded"
+    },
+    {
+      "id": "examples.search_threads.query",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/examples.ts",
+        "line": 7
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 147,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "b03b225027b41ef69ccc0351844179999aa8f5d1cd1dc798c27b9e11a3181a9b"
+    },
+    {
+      "id": "examples.search_threads_semantic.query",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/examples.ts",
+        "line": 8
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 148,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "856ba2931d438618973b8eec2ec272275ba69572edd1d476dcc47e1472915596"
+    },
+    {
+      "id": "examples.write_note.content",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/examples.ts",
+        "line": 9
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 154,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "f/general",
+        "u/foo"
+      ],
+      "sourceTemplateHash": "56b0cb74e66639fc2bdba9db76d7f268d1848ade71a25c89c6f75d55ae94cf57"
+    },
+    {
+      "id": "examples.follow_profile.targets.reason.text",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/examples.ts",
+        "line": 10
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 158,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "3f28ac9fada5fe44c7bf678bd8f6da32074124fbd263802d5a5f2da20b87397e"
+    },
+    {
+      "id": "examples.unfollow_profile.targets.reason.text",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/examples.ts",
+        "line": 11
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 159,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "647b3d069414dae9db04f460d04bfcc200c98381af7d63fd73be5a075b6f28c7"
+    },
+    {
+      "id": "examples.log_off.reason.text",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/examples.ts",
+        "line": 12
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 160,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "f9da4b2ab6c4cc53369bd63201f50f4d8fb27954bbec7fbee43f771f19dd0e98"
+    },
+    {
+      "id": "examples.provide_summary.detailedFirstPersonSummary",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/examples.ts",
+        "line": 13
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 162,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "258d852d4fb1777fa2fdbbe8a7163109e1fccbc0e684d500b02c6e7fb8e39c58"
+    },
+    {
+      "id": "examples.save_avatar_description.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/examples.ts",
+        "line": 14
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 164,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "2549854ed1ad5adc8266736e51f2fe7573df2bea7f52c3ef255d341a253d221c"
+    }
+  ]
+}

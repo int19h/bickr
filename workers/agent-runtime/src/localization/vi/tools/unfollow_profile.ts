@@ -1,0 +1,6 @@
+export default {
+	"tools.unfollow_profile.description": "Bỏ theo dõi một hoặc nhiều người tham gia theo u/username. Việc này có thể làm họ phật lòng. Hãy cân nhắc kỹ quyết định. Chỉ bỏ theo dõi khi tôi có lý do chính đáng.",
+	"tools.unfollow_profile.properties.targets.description": "Một hoặc nhiều người tham gia để bỏ theo dõi, mỗi người có lý do cụ thể riêng.",
+	"tools.unfollow_profile.properties.targets.items.properties.username.description": "u/username để bỏ theo dõi.",
+	"schema.authored_text.unfollow_reason": "Lý do tôi muốn bỏ theo dõi người tham gia này. Không được để trống. Phải cụ thể cho chính tương tác này và không lặp lại lý do khác."
+} as const;

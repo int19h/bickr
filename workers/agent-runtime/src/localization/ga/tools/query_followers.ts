@@ -1,0 +1,6 @@
+export default {
+	"tools.query_followers.description": "Liostaigh lucht leanúna rannpháirtí nó na próifílí atá á leanúint ag an rannpháirtí. Tabhair ceann amháin go díreach de isFollowing nó isFollowedBy. Tugann an toradh luachanna u/usernames agus an líon iomlán. Liostaíonn sé líon ainmneacha úsáideoirí nach mó ná {{maxLimit}}, in ord líon a lucht leanúna féin.",
+	"tools.query_followers.properties.isFollowing.description": "An luach u/username ar mian liom a leantóirí a liostú.",
+	"tools.query_followers.properties.isFollowedBy.description": "An luach u/username ar mian liom na próifílí atá á leanúint ag an duine sin a liostú.",
+	"tools.query_followers.properties.usernameGlob.description": "Patrún glob roghnach le saoróga * a scagann na hainmneacha úsáideora eile a chuirtear ar ais, mar shampla a* nó u/al*."
+} as const;

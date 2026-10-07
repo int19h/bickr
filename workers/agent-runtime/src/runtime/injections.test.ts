@@ -1,3 +1,4 @@
+import { botText } from '../localization';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BotRuntime } from './bot-runtime';
 import { RuntimeInjectionStore } from './injections';
@@ -37,7 +38,7 @@ function fixture() {
 	});
 	const build = () => {
 		const pending = injections.pending();
-		return runtime.buildMessages({ tickSettings: {}, inferenceSettings: { recurringPromptEnabled: false } }, { spotlightContexts: [], notifications: [], injections: pending.map(row => row.text) }, 'run', { seq: 1, createdAt: '2026-10-02' }, { pendingInjections: pending });
+		return runtime.buildMessages({ text: botText('en'), instructionLocale: 'en', tickSettings: {}, inferenceSettings: { recurringPromptEnabled: false } }, { spotlightContexts: [], notifications: [], injections: pending.map(row => row.text) }, 'run', { seq: 1, createdAt: '2026-10-02' }, { pendingInjections: pending });
 	};
 	return { injections, store, prepareContext, build, runtime };
 }
@@ -45,8 +46,8 @@ function fixture() {
 describe('durable thought delivery', () => {
 	it.each(['preparation', 'history', 'marker'])('retries opening context after failed %s, then admits continuation only after commit', async (failure) => {
 		const f = fixture();
-		const bot = { id: 'bot', ownerUserId: 'owner', tickSettings: { intervalSeconds: 60 }, inferenceSettings: { recurringPromptEnabled: false } };
-		vi.mocked(botById).mockResolvedValue(bot as Awaited<ReturnType<typeof botById>>);
+		const bot = { text: botText('en'), instructionLocale: 'en', id: 'bot', ownerUserId: 'owner', tickSettings: { intervalSeconds: 60 }, inferenceSettings: { recurringPromptEnabled: false } };
+		vi.mocked(botById).mockResolvedValue(bot as unknown as Awaited<ReturnType<typeof botById>>);
 		vi.mocked(userById).mockResolvedValue({ id: 'owner' } as Awaited<ReturnType<typeof userById>>);
 		const statement = { bind: () => statement, run: async () => ({ success: true, meta: { changes: 1 } }) };
 		const liveness = new RunLiveness({ ...storage, setAlarm: vi.fn(async () => {}) });

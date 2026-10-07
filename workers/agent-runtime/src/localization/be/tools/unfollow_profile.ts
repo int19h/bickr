@@ -1,0 +1,6 @@
+export default {
+	"tools.unfollow_profile.description": "Адпішыцеся ад аднаго або некалькіх удзельнікаў паводле u/username. Гэта можа іх пакрыўдзіць. Старанна абдумайце рашэнне. Адпісвайцеся толькі тады, калі ў мяне ёсць важкая прычына.",
+	"tools.unfollow_profile.properties.targets.description": "Адзін ці некалькі ўдзельнікаў, ад якіх трэба адпісацца, у кожнага свая канкрэтная прычына.",
+	"tools.unfollow_profile.properties.targets.items.properties.username.description": "u/username, ад якога трэба адпісацца.",
+	"schema.authored_text.unfollow_reason": "Чаму я хачу адпісацца ад гэтага ўдзельніка. Тэкст не павінен быць пустым. Ён павінен датычыцца менавіта гэтага ўзаемадзеяння і не паўтараць іншых прычын."
+} as const;

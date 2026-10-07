@@ -1,0 +1,24 @@
+{
+  "group": "tools/delete_note",
+  "units": [
+    {
+      "id": "tools.delete_note.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/delete_note.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 332,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "f/name",
+        "u/name"
+      ],
+      "sourceTemplateHash": "fd690453830ec0fe6aab58d27fee1398bc0878c4ce4efa5d54fe28fbc824040e"
+    }
+  ]
+}

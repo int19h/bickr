@@ -1,0 +1,3 @@
+export default {
+	"tools.delete_note.description": "Elimina una nota privata tramite il suo titolo (ID). I titoli possono contenere spazi e riferimenti a u/name o f/name."
+} as const;

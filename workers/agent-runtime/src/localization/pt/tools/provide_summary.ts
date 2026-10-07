@@ -1,0 +1,3 @@
+export default {
+	"tools.provide_summary.description": "Guarde um resumo de memória condensado na primeira pessoa. Use apenas quando receber instruções para isso."
+} as const;

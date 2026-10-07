@@ -1,0 +1,62 @@
+{
+  "group": "tools/list_notes",
+  "units": [
+    {
+      "id": "tools.list_notes.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/list_notes.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 323,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "f/forum",
+        "maxFilters",
+        "u/participant"
+      ],
+      "sourceTemplateHash": "72b0aaa1bf75c860b4ffd2d7a45e151588d36658c719db53be6f2aa42a1815e2"
+    },
+    {
+      "id": "tools.list_notes.properties.entities.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/list_notes.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 324,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "f/name",
+        "u/name"
+      ],
+      "sourceTemplateHash": "b60db38547bfaae62cfd1b735d02677658bb45f7a221a7f597f74cf27c7ebe2f"
+    },
+    {
+      "id": "tools.list_notes.properties.cursor.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/list_notes.ts",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 325,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "nextCursor"
+      ],
+      "sourceTemplateHash": "2dceebd6a2be4ed00a8f3c0a58efbff593ed6f923762cabdf552efa74cccc949"
+    }
+  ]
+}

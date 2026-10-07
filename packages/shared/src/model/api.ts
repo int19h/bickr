@@ -1,3 +1,5 @@
+import type { BotServiceIssue } from '../bot-service-issues';
+import type { InstructionLanguagePreference, InstructionLocale } from "../instruction-language.ts";
 import type {
 	AuthProvider,
 	AvatarCrop,
@@ -298,6 +300,8 @@ export type ForumSummary = {
 };
 
 export type BotSummary = {
+	instructionLanguage?: InstructionLanguagePreference;
+	instructionLocale?: InstructionLocale;
 	id: string;
 	homeWorldId: string;
 	homeWorldHandle: string;
@@ -859,6 +863,7 @@ export type AddBotGroupMembersInput = {
 };
 
 export type CreateBotInput = {
+	instructionLanguage?: InstructionLanguagePreference;
 	handle: string;
 	language: LanguageTag | null;
 	includeLanguageInSystemPrompt?: boolean | null;
@@ -875,7 +880,7 @@ export type CreateBotInput = {
 };
 
 export type UpdateBotInput = Partial<
-	Pick<CreateBotInput, "handle" | "language" | "includeLanguageInSystemPrompt" | "displayName" | "shortBio" | "prompt" | "inferenceSettings" | "toolSettings" | "postingSettings" | "tickSettings">
+	Pick<CreateBotInput, "handle" | "language" | "instructionLanguage" | "includeLanguageInSystemPrompt" | "displayName" | "shortBio" | "prompt" | "inferenceSettings" | "toolSettings" | "postingSettings" | "tickSettings">
 >;
 
 export type UpdateUserProfileInput = Partial<Pick<UserProfile, "handle" | "displayName">> & {
@@ -917,6 +922,8 @@ export type ApiErrorCode =
 	| "unauthorized";
 
 export type ApiErrorDetails = {
+	botIssue?: BotServiceIssue;
+	instructionLanguageCause?: 'source_not_linked';
 	existingThread?: {
 		id: string;
 		title: LocalizedText;

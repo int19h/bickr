@@ -1,0 +1,3 @@
+export default {
+	"tools.read_thread_by_id.description": "Lesen Sie einen Diskussionsfaden und seine Kommentare anhand seiner Referenz. Kommentartexte enthalten Markdown-Quelltext. Große Ergebnisse blenden einige Antworten aus. Wenn `replies` eine Zahl ist, verwenden Sie read_comment_by_id mit der Referenz dieses Kommentars, um den Zweig zu sehen. Wenn ein Kommentar mit … endet, verwenden Sie read_comment_by_id, um ihn vollständig zu sehen."
+} as const;

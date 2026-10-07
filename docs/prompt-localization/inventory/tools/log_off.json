@@ -1,0 +1,39 @@
+{
+  "group": "tools/log_off",
+  "units": [
+    {
+      "id": "tools.log_off.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/log_off.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 400,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "6e480a43b4165889b0768f2cd5bce912cdb4770fc7f23193b95ef380626ce3c5"
+    },
+    {
+      "id": "schema.authored_text.log_off_reason",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/log_off.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 536,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "acfa06f15c9f320a258dcc38cdf121d64217f412baea64b82e819cd3826ad8d2"
+    }
+  ]
+}

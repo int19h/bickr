@@ -1,0 +1,1123 @@
+{
+  "group": "recovery",
+  "units": [
+    {
+      "id": "recovery.follow.already_following",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 1186,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 1190,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "89f240dea5046a511c453e827e62b211317988d7caf2d8bbc009c61121e87562"
+    },
+    {
+      "id": "recovery.follow.not_following",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 6
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 1186,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 1190,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "fcbcf085c42bf2f04464b92d4c94772dd28a6f5b21c8668c099d112e1e896c1e"
+    },
+    {
+      "id": "recovery.follow.self",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 10
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 1186,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 1190,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "71aa5055c95e9e642a3bb79259f58665d90ed0bc6e5377de39d594454bf6becb"
+    },
+    {
+      "id": "recovery.follow.missing",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 14
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 1186,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 1190,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "5976fca6664b59e3a7cdbabfcf7a856878079068460572f4e05a671e2396f71f"
+    },
+    {
+      "id": "recovery.follow.empty",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 18
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 1187,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "dcf03222e08f4e6fb0faf989c657d791dcc5f173e107612729c908ec647d1381"
+    },
+    {
+      "id": "recovery.follow.follow_profile",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 19
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 1186,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 1190,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "follow_profile"
+      ],
+      "sourceTemplateHash": "f3c5c963a4759adbdc0918be36d982f5c6f9d606a63f9e09f3a824ecd7f4077e"
+    },
+    {
+      "id": "recovery.follow.unfollow_profile",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 20
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 1186,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 1190,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "unfollow_profile"
+      ],
+      "sourceTemplateHash": "03e9c9be213a1634edf1d9d67d4bca4782f3fd9d08aa44de5d6d718512ce0e1a"
+    },
+    {
+      "id": "recovery.read_only.named",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 21
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9427,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "f/{{forum}}"
+      ],
+      "sourceTemplateHash": "530bf626561959a4fe3bb7554d5d2263b36b5838bdb3172e2a38f0b3d5742d42"
+    },
+    {
+      "id": "recovery.read_only.unnamed",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 22
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9427,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "9ac78841e249a5ed4a6c6e51e80e5ec6459946a5e4cc6faf35054f6742f54ef6"
+    },
+    {
+      "id": "recovery.duplicate_title.named",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 23
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9432,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "f/{{forum}}",
+        "threadRef"
+      ],
+      "sourceTemplateHash": "ca2dbd626f0f08be0a6e18717d0bbb78435532f47570028c03666a69e5b31110"
+    },
+    {
+      "id": "recovery.duplicate_title.unnamed",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 24
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9433,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "threadRef"
+      ],
+      "sourceTemplateHash": "e907194af9ad108955bea873750b47c69a7379fa3cee0cbf353755aa6a232d6c"
+    },
+    {
+      "id": "recovery.location",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 25
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9424,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "24e4acebf4ef1f8d7c3201a8d40208939ff8f51c5e55430ffa32fc89de88fb62"
+    },
+    {
+      "id": "recovery.already_replied.comment",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 26
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9440,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 10014,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "46fb4d283d82b7686314a8ab238719a0339b8d572d5212c816b53a009f8c21ab"
+    },
+    {
+      "id": "recovery.already_replied.thread",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 27
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9441,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 10015,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "3ba480d38703c4388ecb93cbe88250679939763ce063d94ddf74a988a467c298"
+    },
+    {
+      "id": "recovery.already_replied.there",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 28
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9441,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "e52d591b54831eed57d1990c3c12a35229a920c0968beadecab8243f59657e9f"
+    },
+    {
+      "id": "recovery.already_replied.reply",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 29
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9442,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "de76b5d3a1759d769e896716bbd9c59d00bad4bcd550f1eab543f6627ff535ed"
+    },
+    {
+      "id": "recovery.already_replied.next",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 30
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9443,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-recovery.ts",
+          "line": 14,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "make_additional_reply_to_the_same_comment",
+        "reply_to_comment"
+      ],
+      "sourceTemplateHash": "a5a370c1bc070396d16f16eaa6fe55e0db328d7a804538e1e604d251008e2400"
+    },
+    {
+      "id": "recovery.duplicate_comment.base",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 31
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9448,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "55000f6cf142c5959a98199a3dc6e094172b967d9530af5482c17f58d177f0de"
+    },
+    {
+      "id": "recovery.duplicate_comment.comment",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 32
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9449,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "b7ea8bdefa66cccd15f6c89eacd51704108735d9a2dd6273d6981d1c3b3e18c4"
+    },
+    {
+      "id": "recovery.duplicate_comment.thread",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 33
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9450,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "7107b1c76a252829ce9e5b58cfbacf874c1ebabaf7a82ce604a6655ac0b3b34b"
+    },
+    {
+      "id": "recovery.duplicate_comment.next",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 34
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9451,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "ac780eba6cf547ba7f62f3d466e476a2609ebdcae720fa954cc06050a9453132"
+    },
+    {
+      "id": "recovery.guidance.duplicateReply",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 35
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-recovery.ts",
+          "line": 12,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "commentRef",
+        "read_comment_by_id",
+        "{\"commentRef\":\"{{commentRef}}\"}"
+      ],
+      "sourceTemplateHash": "2f95aad1bcdccfcb87794c0cde6e1a1e7b06a143561b8b5f552fdfe281d43a3d"
+    },
+    {
+      "id": "recovery.guidance.noteMissing",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 36
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-recovery.ts",
+          "line": 23,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "id",
+        "list_notes",
+        "{}"
+      ],
+      "sourceTemplateHash": "c9c6cda665a007feecc34aa549b1e098d693f3564ecdc941e533d13a63f39e37"
+    },
+    {
+      "id": "recovery.guidance.forumMissing",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 37
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-recovery.ts",
+          "line": 26,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "forumHandle",
+        "list_accessible_forums",
+        "{}"
+      ],
+      "sourceTemplateHash": "d2a67cf3a468c57058fcd85d2073d487a4a3d216da0afe4cc741a180234cdd1c"
+    },
+    {
+      "id": "recovery.guidance.threadMissing",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 38
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-recovery.ts",
+          "line": 29,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "list_hot_threads",
+        "list_recent_threads",
+        "search_threads",
+        "threadRef"
+      ],
+      "sourceTemplateHash": "888704b7d8517ef0c554e4d2677f945d3defc7c4075bd85c4ca8cdcd1e5e17c7"
+    },
+    {
+      "id": "recovery.guidance.commentMissing",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 39
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-recovery.ts",
+          "line": 32,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "read_thread_by_id"
+      ],
+      "sourceTemplateHash": "42e35fa44087365d13c6b3a95b747b30823eec90610bc3949a885068c116fae7"
+    },
+    {
+      "id": "recovery.guidance.profileMissing",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 40
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-recovery.ts",
+          "line": 35,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "list_profiles",
+        "search_profiles"
+      ],
+      "sourceTemplateHash": "93576643031d2cdbba28538b9ae8210be6cfa3a28c53ab6cdafcbfa4b5b44b9a"
+    },
+    {
+      "id": "recovery.guidance.targetMissing",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 41
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-recovery.ts",
+          "line": 37,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "fefcbeb6947bb657bfee75cf3dd90a61ccc8f7165c31715fde121edefb9e51e9"
+    },
+    {
+      "id": "recovery.guidance.accessDenied",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 42
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-recovery.ts",
+          "line": 40,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "206f33f5c86522fa45476df85c7ed08b87e22c14f97af932228ab1b753825b83"
+    },
+    {
+      "id": "recovery.guidance.serviceFailure",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 43
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-recovery.ts",
+          "line": 43,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "ffe6a937dae264672c0068c0a38124fab295344a2262cc26d6dfad54c73b0657"
+    },
+    {
+      "id": "recovery.unknown.thread",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 44
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-recovery.ts",
+          "line": 56,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "list_recent_threads",
+        "read_thread_by_id"
+      ],
+      "sourceTemplateHash": "96955461f24a589338dd48ca0d205d2a4b2fcc2c7eec7d64165c842e725647fe"
+    },
+    {
+      "id": "recovery.unknown.comment",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 45
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-recovery.ts",
+          "line": 57,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "read_comment_by_id"
+      ],
+      "sourceTemplateHash": "6ba20c28816e7dbb65daa5a1d412ca62609d6ddba2058e3a242cf7ea88c2f430"
+    },
+    {
+      "id": "recovery.unknown.profile",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 46
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-recovery.ts",
+          "line": 58,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "view_profiles"
+      ],
+      "sourceTemplateHash": "c049ea51e33d75f7485cb3fc0177654d6b7fbbe710c78c3b92c33a76523ec6c9"
+    },
+    {
+      "id": "recovery.unknown.note",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 47
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-recovery.ts",
+          "line": 59,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "list_notes",
+        "read_note"
+      ],
+      "sourceTemplateHash": "13c88699de797691d1f711dce1b52b3214a17be75b6616711a2ee9f8b964aebe"
+    },
+    {
+      "id": "recovery.unknown.page",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 48
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-recovery.ts",
+          "line": 60,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "46e8fdd1a54b3886e061616f5daa2c89611ed7a704a42757223c44b56769f4be"
+    },
+    {
+      "id": "recovery.preparationFailure",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 49
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 10017,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "5b330f9c4d9ce7c37bd33150a9d573400989591e3bebffcce4df484c46499037"
+    },
+    {
+      "id": "recovery.notDispatched",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 50
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-dispatch.ts",
+          "line": 31,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "3174db881c3f137a002a0a6eecd6d7639ae9775ce5af64fbbf4217c74eca5583"
+    },
+    {
+      "id": "recovery.interrupted",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 51
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-dispatch.ts",
+          "line": 35,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "7d90de1dcd0492b8c29260367a87c94e3c49f037ad455f732132894bb4902bd6"
+    },
+    {
+      "id": "recovery.genericError",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 52
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9413,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 10017,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "3da34b66bdca41f8860591f551d29b9e31a9690ad1c30a80a067044e4df0a96e"
+    },
+    {
+      "id": "recovery.failureReport",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 53
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9417,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "toolName"
+      ],
+      "sourceTemplateHash": "2920bf87a279cba0a504f781eb9e9e5521139e5e8492f78598e9bdaa10b26d55"
+    },
+    {
+      "id": "recovery.hintReport",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 54
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9415,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "d03cb77b7e1ab03bf3af52ad8ee0b00b29b1e3fcde8aee6c87b0053e181fd313"
+    },
+    {
+      "id": "recovery.correction.already_replied",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 55
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9465,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "1406987e461776a0a73927e0e3c66a6bc8e920ee6e4ee9e21f52c985c5b58ae2"
+    },
+    {
+      "id": "recovery.correction.duplicate_comment",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 56
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9467,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "7561f1df9a0121558fbadab4cfb64320245d0696659cdc05f78695ceb14f0cfb"
+    },
+    {
+      "id": "recovery.correction.conflict",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 57
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9469,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "14fbbedf0648387d5c67649eb1d2935063887be56326e89a8788a1fc83b49f74"
+    },
+    {
+      "id": "recovery.correction.not_found",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 58
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9471,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "49e146a8364ec4491f6ea3cab4b484b2f8aff1a7bc593c4e71abef6d08e58179"
+    },
+    {
+      "id": "recovery.correction.bad_request",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 59
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9474,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "5d43c625b8cf3be2969cb5159dca48b4650362f0ba25f392a09850c153012ef8"
+    },
+    {
+      "id": "recovery.correction.invalid_arguments_json",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 60
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9476,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "JSON"
+      ],
+      "sourceTemplateHash": "17d2e21fc2527462ebcf96f6fb795abeb6b3f48403ee5772fc8ae5eecaf2527f"
+    },
+    {
+      "id": "recovery.correction.arguments_not_json_object",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 61
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9478,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "JSON"
+      ],
+      "sourceTemplateHash": "ce0fd4a0da5bfb9a85a9e2c58d383eac5d2992c042d01ab2c7d6119505c1f399"
+    },
+    {
+      "id": "recovery.correction.server_error",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 62
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9481,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "25a943e68babdb2d34c74748c3e677514c4b1ca0e4f3587220f7b33096bb312c"
+    },
+    {
+      "id": "recovery.correction.access",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 63
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9484,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "4c8e9931b900f57d5c6deb14bca37f8240470d7b7f56cb77b9d996bb4a21e7af"
+    },
+    {
+      "id": "recovery.correction.timeout",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 64
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9486,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "8b14613cc15c431a10043474594a9c534309f0168f93704dbec321fa8175ee02"
+    },
+    {
+      "id": "recovery.correction.unknown",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 65
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9488,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "be7c6d0251b524c74b083f629ec56fc7ec372d2a640740cf6abb49d4cdd6ce21"
+    },
+    {
+      "id": "recovery.metaCompactionUnavailable",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 66
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 3830,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "toolName"
+      ],
+      "sourceTemplateHash": "2b23f9226e00f8001fba4c43d51ea55809d148659b3b82d089c3dd8e50962e1a"
+    },
+    {
+      "id": "recovery.replyEarlierUnknown",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 67
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 778,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "read_comment_by_id"
+      ],
+      "sourceTemplateHash": "94b1d934095718067cfa7f28f08efe97e2bb493cbae9d85d599f41060d11293d"
+    },
+    {
+      "id": "recovery.replyEarlierCommitted",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 68
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 778,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "8381e600eaee0503faf1b97e9a549821c3525587add2d393b870ef4fc3ce6bcc"
+    },
+    {
+      "id": "recovery.batch.notAttempted",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 69
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/batch-outcomes.ts",
+          "line": 30,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "93807dd772f43dd619956f4437c65162c4bbce596ede249769be7fb24c3e5ad7"
+    },
+    {
+      "id": "recovery.batch.guidance",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 70
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/batch-outcomes.ts",
+          "line": 32,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "committed",
+        "not_attempted",
+        "recorded"
+      ],
+      "sourceTemplateHash": "bb4f22a7c7dc3f12c79299779dbac976669611f7860e9b68a799a9e4ec36a890"
+    },
+    {
+      "id": "recovery.batch.failed",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 71
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 3908,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "6f0b0317da59f1a6ea9f49758bb0aba6e624c281e4c76fee0af41b8455048d35"
+    },
+    {
+      "id": "recovery.unknown.siblingNotAttempted",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 72
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 3810,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "4b9cfe8a62039926621e6e0e905b09284733fdcffa47e9ee6a6ac5436e5a5b3f"
+    },
+    {
+      "id": "recovery.threadEarlierUnknown",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 73
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 754,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "8c8040ca26508ec42e0e770112bf1620037e27c9d11211c79912a9e9b1af8386"
+    },
+    {
+      "id": "recovery.threadEarlierCommitted",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/recovery.ts",
+        "line": 74
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 754,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "3ab0747e58a16dff5c7fbf8dea64c11f3779a89972067076867f75073a25a162"
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+export default {
+	"tools.reply_to_comment.description": "Reply to a comment. Use the root comment ref to reply directly to a thread's root content."
+} as const;

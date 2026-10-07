@@ -1,0 +1,3 @@
+export default {
+	"tools.read_note.description": "タイトル（ID）を指定して非公開メモを読みます。結果には関連付けられたプロフィールとフォーラムが含まれます。タイトルには空白を含めることができます。"
+} as const;
