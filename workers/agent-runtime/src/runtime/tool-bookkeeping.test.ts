@@ -38,6 +38,8 @@ function harness() {
 		vectorSearchBots: async () => [], readCommentTreeTokenBudget: async () => 10_000,
 		providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
 		markToolDispatched: () => {},
+		markToolReading: () => {},
+		recordMutationIdentity: () => {},
 		recentToolResultRows: () => [], setLastSuccessfulLogOffSeq: () => {},
 		listNotes: () => { throw new Error('Unexpected note list.'); },
 		readNote: () => { throw new Error('Unexpected note read.'); },

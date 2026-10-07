@@ -10,7 +10,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9198,
+          "line": 9241,
           "kind": "direct"
         }
       ],
@@ -26,7 +26,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9198,
+          "line": 9241,
           "kind": "direct"
         }
       ],
@@ -42,7 +42,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9200,
+          "line": 9243,
           "kind": "direct"
         }
       ],
@@ -58,7 +58,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9202,
+          "line": 9245,
           "kind": "direct"
         }
       ],
@@ -74,7 +74,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9203,
+          "line": 9246,
           "kind": "direct"
         }
       ],

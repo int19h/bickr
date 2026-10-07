@@ -759,6 +759,8 @@ describe("Tick limits and recovery", () => {
 		let toolEventSeq = 0;
 		return new RuntimeTools({
 			markToolDispatched: () => {},
+			markToolReading: () => {},
+			recordMutationIdentity: () => {},
 			env: { BICKR_D1: testEnv.BICKR_D1, BICKR_KV: testEnv.BICKR_KV },
 			listNotes: unreachable("notes"),
 			readNote: unreachable("notes"),

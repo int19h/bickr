@@ -161,17 +161,17 @@
         },
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 846,
+          "line": 847,
           "kind": "direct"
         },
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9372,
+          "line": 9419,
           "kind": "direct"
         },
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9376,
+          "line": 9423,
           "kind": "direct"
         },
         {
@@ -181,7 +181,7 @@
         },
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 1178,
+          "line": 1190,
           "kind": "direct"
         }
       ],
@@ -222,12 +222,12 @@
         },
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 836,
+          "line": 837,
           "kind": "direct"
         },
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 841,
+          "line": 842,
           "kind": "direct"
         }
       ],

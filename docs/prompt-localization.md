@@ -41,12 +41,16 @@ Cleared runtime objects skip those migrations and keep their cleared state.
 The PLAN migration changes only revision-zero content that exactly matches the historical default.
 All other old PLAN content becomes authored text.
 SQLite triggers classify writes from an old release as authored text in the same transaction.
+An old release cannot distinguish an explicit write from a factory reset with the new provenance field.
+Bickr preserves that written text through a roll-forward.
+If an owner wants the virtual factory body again, the owner resets PLAN with the new release.
 
 Enable maintenance before the fleet sweep.
 Call the internal route `POST /maintenance/instruction-localization/runtime` with the internal service secret and scheduler header.
 Start with the JSON body `{"cursor":""}`.
 Repeat the route with its returned `nextCursor` until `done` is true.
-Each page wakes at most 25 non-deleted participant runtimes.
+Each page wakes at most 25 active or pending participant runtimes that are not deleted.
+Pending rows can retain runtime data after an interrupted creation.
 The response reports schema versions, PLAN completion, history completion, and remaining old tool journals.
 Retry failed pages before you record the sweep as complete.
 The route creates no persistent cursor records.
@@ -103,3 +107,21 @@ The lead compares those drafts with Opus and Grok before it accepts a final cata
 The records under `docs/prompt-localization/reviews/` identify the source, drafts, final group hashes, and decisions.
 Irish remains a best effort translation.
 Its review record retains any unresolved language questions.
+
+## Tool recovery
+
+The pending journal stores the instruction language for the active request.
+It distinguishes prepared calls, active reads, and dispatched mutations.
+Preparation can read data, but it cannot change the website or a note.
+A request marks dispatch after its final abort test and before the service call.
+A note marks dispatch inside the transaction that writes the note.
+A follow marks dispatch after profile lookups and before the relationship write.
+Post-write notification failures retain a committed outcome.
+A successful mutation retains its receipt when a stop arrives during the request.
+
+Recovery commits the paired tool message, outcome event, and journal deletion together.
+Unstarted sibling calls keep an unsent outcome.
+Interrupted reads permit a later retry.
+Thread and reply guards match typed mutation identities only for unknown or committed outcomes.
+One adapter reads earlier outcome events through the argument codec.
+Remove that adapter after the retained event window and retirement of old event writers.

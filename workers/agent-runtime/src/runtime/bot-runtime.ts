@@ -1,5 +1,6 @@
 import { instructionLocalizationVersion, instructionLocalizationStateKey } from '@bickr/shared/instruction-localization-migration';
 import type { RuntimeLocalizationStatus } from './instruction-localization-sweep';
+import { interruptedToolSettlement, type MutationIdentity, type ToolDispatchStage } from './tool-dispatch';
 import { factoryPlanMigrationKey } from './notes';
 import { providerBatchOutcome } from './batch-outcomes';
 import { ToolBatchOutcomeError } from '../errors';
@@ -1820,12 +1821,12 @@ type LegacyPendingProviderTool = { runId: string; toolCall: ToolCall; args: Reco
 type PendingProviderTool = LegacyPendingProviderTool & (
 	| { kind: 'provider_group'; assistant: ChatMessage; assistantSeq: number | null }
 	| { kind: 'legacy_single_call' }
-) & { instructionLocale: InstructionLocale; stage: 'prepared' | 'dispatched' };
+) & { instructionLocale: InstructionLocale; stage: ToolDispatchStage; mutationIdentity?: MutationIdentity };
 
 function pendingToolFromStoredRow(row: { key: string; value_json: string }): PendingProviderTool {
 	const value = JSON.parse(row.value_json) as PendingProviderTool;
 	if (row.key === 'pending_tool_v3') {
-		if (!isInstructionLocale(value.instructionLocale) || (value.stage !== 'prepared' && value.stage !== 'dispatched')) {
+		if (!isInstructionLocale(value.instructionLocale) || (value.stage !== 'prepared' && value.stage !== 'reading' && value.stage !== 'dispatched')) {
 			throw new Error('Invalid pending tool journal language or stage.');
 		}
 		return value;
@@ -2007,6 +2008,9 @@ export class BotRuntime {
 		);
 	}
 
+	// Retire this migration and its English formatters after the schema-version-1 fleet census.
+	// Every runtime that is not cleared must report legacyHistoryDone.
+	// First retire all rollback releases that write the old history shape.
 	private migrateLegacyLoopMessages(): void {
 		if (this.runtimeStateBoolean('loop_messages_legacy_migrated')) return;
 		const existing = this.state.storage.sql.exec<{ count: number }>(`SELECT COUNT(*) AS count FROM loop_messages`).one().count;
@@ -2890,8 +2894,17 @@ export class BotRuntime {
 		this.setRuntimeState('pending_tool_v3', { kind: 'provider_group', instructionLocale: text.locale, stage: 'prepared', runId, toolCall, args, assistant, assistantSeq } satisfies PendingProviderTool);
 	}
 
-	private markPendingToolDispatched(runId: string): void {
-		this.state.storage.sql.exec("UPDATE runtime_state SET value_json = json_set(value_json, '$.stage', 'dispatched') WHERE key = 'pending_tool_v3' AND json_extract(value_json, '$.runId') = ?", runId);
+	private markPendingToolDispatched(runId: string, toolCallId: string): void {
+		this.state.storage.sql.exec("UPDATE runtime_state SET value_json = json_set(value_json, '$.stage', 'dispatched') WHERE key = 'pending_tool_v3' AND json_extract(value_json, '$.runId') = ? AND json_extract(value_json, '$.toolCall.id') = ?", runId, toolCallId);
+	}
+
+	private markPendingToolReading(runId: string, toolCallId: string): void {
+		this.state.storage.sql.exec("UPDATE runtime_state SET value_json = json_set(value_json, '$.stage', 'reading') WHERE key = 'pending_tool_v3' AND json_extract(value_json, '$.runId') = ? AND json_extract(value_json, '$.stage') = 'prepared' AND json_extract(value_json, '$.toolCall.id') = ?", runId, toolCallId);
+	}
+
+	private pendingMutationIdentity(runId: string, toolCallId: string): MutationIdentity | undefined {
+		const row = this.state.storage.sql.exec<{ value_json: string }>("SELECT value_json FROM runtime_state WHERE key = 'pending_tool_v3' AND json_extract(value_json, '$.runId') = ? AND json_extract(value_json, '$.toolCall.id') = ? LIMIT 1", runId, toolCallId).toArray()[0];
+		return row ? (JSON.parse(row.value_json) as PendingProviderTool).mutationIdentity : undefined;
 	}
 
 	private clearPendingTool(runId: string): void {
@@ -2905,9 +2918,8 @@ export class BotRuntime {
 		// Retire v1/v2 after the bounded fleet sweep and rollback window end.
 		const pending = pendingToolFromStoredRow(row);
 		const text = botText(pending.instructionLocale);
-		const outcome = pending.stage === 'prepared'
-			? { ok: false, code: 'not_dispatched', message: text.format('recovery.notDispatched') }
-			: { kind: 'outcome_unknown', message: unknownToolOutcomeMessage(text, pending.toolCall.function.name) };
+		const settlement = interruptedToolSettlement(text, pending.toolCall.function.name, pending.stage);
+		const outcome = settlement.result;
 		let assistant: ChatMessage;
 		let assistantSeq: number | null;
 		switch (pending.kind) {
@@ -2920,12 +2932,14 @@ export class BotRuntime {
 				assistantSeq = null;
 				break;
 		}
+		let event: BotRuntimeEvent | undefined;
 		this.runtimeMessageStore().appendProviderToolResult(
 			{ runId, message: { ...assistant, tool_calls: [pending.toolCall] }, origin: 'provider_response', status: 'interrupted' },
 			{ runId, message: { role: 'tool', tool_call_id: pending.toolCall.id, content: JSON.stringify(outcome) }, origin: 'tool_failure', status: 'interrupted' },
 			assistantSeq,
+			() => { event = this.runtimeEventsStore().appendEventWithoutBroadcast(runId, 'tool_result', { name: pending.toolCall.function.name, args: pending.args, mutationIdentity: pending.mutationIdentity, arguments: pending.toolCall.function.arguments, result: outcome, outcome: settlement.outcome }); },
 		);
-		this.appendEvent(runId, 'tool_result', { name: pending.toolCall.function.name, args: pending.args, arguments: pending.toolCall.function.arguments, result: outcome, outcome: pending.stage === 'prepared' ? 'not_dispatched' : 'unknown' });
+		if (event) this.broadcast(event);
 	}
 
 	private withRunExecution<T>(runId: string, operation: () => T): T {
@@ -3659,6 +3673,7 @@ export class BotRuntime {
 					toolStatus: BotLoopMessageStatus = 'complete',
 					toolOptions: { displayEventSeq?: number } = {},
 					recordedToolCall: ToolCall = toolCall,
+					commit?: () => void,
 				): void => {
 					if (!assistantMessage) {
 						return;
@@ -3684,6 +3699,7 @@ export class BotRuntime {
 							],
 						},
 						providerResponseGroup.current,
+						commit,
 					);
 
 				};
@@ -3708,8 +3724,8 @@ export class BotRuntime {
 						bot.text, runId,
 						response.toolCalls,
 						new Set(response.toolCalls.map((toolCall) => toolCall.id)),
-						(toolCall, toolMessage, content) => {
-							appendAssistantToolResultPair(toolCall, toolMessage, 'tool_failure', 'interrupted', {}, toolCall);
+						(toolCall, toolMessage, content, commit) => {
+							appendAssistantToolResultPair(toolCall, toolMessage, 'tool_failure', 'interrupted', {}, toolCall, commit);
 							return content;
 						},
 					);
@@ -3849,7 +3865,7 @@ export class BotRuntime {
 				try {
 					await this.renewProgressLease(bot.id, runId, runContext.signal);
 					this.setPendingTool(bot.text, runId, toolCall, args, assistantMessage!, providerResponseGroup.current?.seq ?? null);
-					result = await this.executeTool(bot, runId, toolCall.function.name, args, { ...runContext, inferenceAttribution: response.inferenceAttribution, toolInvocationId: `${runId}:${requestEvent.seq}:${toolCall.id}` }, (success) => {
+					result = await this.executeTool(bot, runId, toolCall.function.name, args, { ...runContext, inferenceAttribution: response.inferenceAttribution, toolInvocationId: `${runId}:${requestEvent.seq}:${toolCall.id}`, toolCallId: toolCall.id }, (success) => {
 						const recordedToolCall = success.effectiveArgs ? toolCallWithArguments(toolCall, JSON.stringify(providerToolArgs(success.name, success.effectiveArgs))) : toolCall;
 						appendAssistantToolResultPair(toolCall, { role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(success.providerResult) }, 'tool_result', 'complete', { displayEventSeq: success.displayEventSeq }, recordedToolCall);
 					});
@@ -3901,7 +3917,10 @@ export class BotRuntime {
 							if (unrelated) spotlightTickTerminated = true;
 							break;
 						}
-						if (error.cause instanceof TickStoppedError || isAbortError(error.cause)) throw error.cause;
+						if (error.cause instanceof TickStoppedError || isAbortError(error.cause)) {
+							this.appendInterruptedToolMessages(bot.text, runId, response.toolCalls, pendingToolCallIds, (remaining, message, _content, commit) => appendAssistantToolResultPair(remaining, message, 'tool_failure', 'interrupted', {}, remaining, commit));
+							throw error.cause;
+						}
 						if (unrelated) {
 							spotlightTickTerminated = true;
 							await this.dropPendingGeneratedProviderToolCalls(runId, requestEvent.seq, response.toolCalls, pendingToolCallIds, 'spotlight_tick_ended');
@@ -3921,7 +3940,7 @@ export class BotRuntime {
 						successfulToolCallsThisIteration += 1;
 						mutatingToolUsedThisIteration ||= mutableToolNames.has(canonicalName);
 						if (error.scope.related) spotlightMutationCount += 1;
-						this.appendEvent(runId, 'tool_result', { name: canonicalName, args, result: outcome, outcome: 'committed', ownerDiagnostic: { message: error.message } });
+						this.appendEvent(runId, 'tool_result', { name: canonicalName, args, mutationIdentity: this.pendingMutationIdentity(runId, toolCall.id), result: outcome, outcome: 'committed', ownerDiagnostic: { message: error.message } });
 						appendAssistantToolResultPair(toolCall, { role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(outcome) }, 'tool_result', 'complete');
 						if (runContext.spotlightId) {
 							await this.dropPendingGeneratedProviderToolCalls(runId, requestEvent.seq, response.toolCalls, pendingToolCallIds, 'committed_result_unavailable');
@@ -3939,7 +3958,7 @@ export class BotRuntime {
 						spotlightOutcomeUncertain ||= error.scope.related;
 						const outcome = { kind: 'outcome_unknown', message: unknownToolOutcomeMessage(bot.text, canonicalName) };
 						pendingToolCallIds.delete(toolCall.id);
-						this.appendEvent(runId, 'tool_result', { name: canonicalName, args, result: outcome, outcome: 'unknown' });
+						this.appendEvent(runId, 'tool_result', { name: canonicalName, args, mutationIdentity: this.pendingMutationIdentity(runId, toolCall.id), result: outcome, outcome: 'unknown' });
 						appendAssistantToolResultPair(toolCall, { role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(outcome) }, 'tool_failure', 'interrupted');
 						if (await recoverUnknownOutcome(error) === 'pause') {
 							await this.appendSyntheticLimitLogOff(bot, runId, runContext, 'repeated_outcome_unknown');
@@ -3948,8 +3967,8 @@ export class BotRuntime {
 						break;
 					}
 					if (error instanceof TickStoppedError || isAbortError(error)) {
-						this.appendInterruptedToolMessages(bot.text, runId, response.toolCalls, pendingToolCallIds, (interruptedToolCall, toolMessage, content) => {
-							appendAssistantToolResultPair(interruptedToolCall, toolMessage, 'tool_failure', 'interrupted', {}, interruptedToolCall);
+						this.appendInterruptedToolMessages(bot.text, runId, response.toolCalls, pendingToolCallIds, (interruptedToolCall, toolMessage, content, commit) => {
+							appendAssistantToolResultPair(interruptedToolCall, toolMessage, 'tool_failure', 'interrupted', {}, interruptedToolCall, commit);
 							return content;
 						});
 						throw error;
@@ -3979,8 +3998,8 @@ export class BotRuntime {
 					await this.renewProgressLease(bot.id, runId, runContext.signal);
 				} catch (error) {
 					if (error instanceof TickStoppedError || isAbortError(error)) {
-						this.appendInterruptedToolMessages(bot.text, runId, response.toolCalls, pendingToolCallIds, (interruptedToolCall, interruptedMessage, content) => {
-							appendAssistantToolResultPair(interruptedToolCall, interruptedMessage, 'tool_failure', 'interrupted', {}, interruptedToolCall);
+						this.appendInterruptedToolMessages(bot.text, runId, response.toolCalls, pendingToolCallIds, (interruptedToolCall, interruptedMessage, content, commit) => {
+							appendAssistantToolResultPair(interruptedToolCall, interruptedMessage, 'tool_failure', 'interrupted', {}, interruptedToolCall, commit);
 							return content;
 						});
 					}
@@ -4065,30 +4084,33 @@ export class BotRuntime {
 		runId: string,
 		toolCalls: ToolCall[],
 		pendingToolCallIds: Set<string>,
-		appendToolResultForToolCall?: (toolCall: ToolCall, toolMessage: ChatMessage, content: string) => void,
+		appendToolResultForToolCall?: (toolCall: ToolCall, toolMessage: ChatMessage, content: string, commit: () => void) => void,
 	): void {
+		// Capture the active call before the first paired result clears its journal.
+		const row = this.state.storage.sql.exec<{ key: string; value_json: string }>("SELECT key, value_json FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2', 'pending_tool_v3') AND json_extract(value_json, '$.runId') = ? ORDER BY key DESC LIMIT 1", runId).toArray()[0];
+		const pending = row ? pendingToolFromStoredRow(row) : undefined;
 		for (const toolCall of toolCalls) {
 			if (!pendingToolCallIds.has(toolCall.id)) {
 				continue;
 			}
 			pendingToolCallIds.delete(toolCall.id);
-			const content = JSON.stringify({
-				ok: false,
-				code: 'interrupted',
-				message: text.format('recovery.interrupted'),
-			});
+			const active = pending?.toolCall.id === toolCall.id ? pending : undefined;
+			const settlement = interruptedToolSettlement(active ? botText(active.instructionLocale) : text, toolCall.function.name, active?.stage ?? 'prepared');
+			const content = JSON.stringify(settlement.result);
+			let event: BotRuntimeEvent | undefined;
+			const commit = () => { event = this.runtimeEventsStore().appendEventWithoutBroadcast(runId, 'tool_result', { name: toolCall.function.name, ...(active ? { args: active.args, mutationIdentity: active.mutationIdentity } : {}), arguments: toolCall.function.arguments, result: settlement.result, outcome: settlement.outcome }); };
 			const toolMessage: ChatMessage = {
 				role: 'tool',
 				tool_call_id: toolCall.id,
 				content,
 			};
 			if (appendToolResultForToolCall) {
-				appendToolResultForToolCall(toolCall, toolMessage, content);
+				appendToolResultForToolCall(toolCall, toolMessage, content, commit);
+				if (event) this.broadcast(event);
 				continue;
 			}
-			const loopMessage = this.appendLoopMessage(runId, toolMessage, 'tool_failure', 'interrupted');
-			this.recordLoopMessageLog(loopMessage.seq, 'tool_call', JSON.stringify(toolCall));
-			this.recordLoopMessageLog(loopMessage.seq, 'tool_result', content);
+			this.runtimeMessageStore().appendLoopMessageGroup([{ runId, message: toolMessage, origin: 'tool_failure', status: 'interrupted', extraLogs: [{ kind: 'tool_call', text: JSON.stringify(toolCall) }, { kind: 'tool_result', text: content }] }], () => { commit(); this.clearPendingTool(runId); });
+			if (event) this.broadcast(event);
 		}
 	}
 
@@ -4685,9 +4707,9 @@ export class BotRuntime {
 		return this.runtimeMessageStore().appendLoopMessageGroup(entries, commit);
 	}
 
-	private appendProviderToolResult(assistant: LoopMessageGroupEntry, result: LoopMessageGroupEntry, group: BotLoopMessage | null): BotLoopMessage {
+	private appendProviderToolResult(assistant: LoopMessageGroupEntry, result: LoopMessageGroupEntry, group: BotLoopMessage | null, commit?: () => void): BotLoopMessage {
 		assertExecutionPublication();
-		return this.runtimeMessageStore().appendProviderToolResult(assistant, result, group?.seq ?? null);
+		return this.runtimeMessageStore().appendProviderToolResult(assistant, result, group?.seq ?? null, commit);
 	}
 
 	private recordTickFailure(
@@ -6038,16 +6060,28 @@ export class BotRuntime {
 		onResult?: (result: ToolResult) => void,
 	): Promise<ToolResult> {
 		const invocationId = runContext.toolInvocationId ?? `${runId}:${crypto.randomUUID()}`;
+		const toolCallId = runContext.toolCallId;
+		const beforeMutation = () => {
+			this.throwIfStopped(runId, runContext.signal);
+			if (toolCallId) this.markPendingToolDispatched(runId, toolCallId);
+		};
 		const tools = new RuntimeTools({
 			env: this.env,
 			appendEvent: this.appendEvent.bind(this),
 			replaceEventPayload: this.replaceEventPayload.bind(this),
 			throwIfStopped: this.throwIfStopped.bind(this),
-			forumService: (path, botId, body, signal) => this.forumService(path, botId, body, signal, runContext.inferenceAttribution, invocationId),
+			forumService: (path, botId, body, signal, onDispatch) => this.forumService(path, botId, body, signal, () => {
+				beforeMutation();
+				onDispatch?.();
+			}, runContext.inferenceAttribution, invocationId),
 			vectorSearchBots: (worldId, query, limit) => vectorSearchBots(this.env, worldId, query, limit),
 			readCommentTreeTokenBudget: this.readCommentTreeTokenBudget.bind(this),
 			providerContentInActiveContext: this.providerContentInActiveContext.bind(this),
-			markToolDispatched: () => this.markPendingToolDispatched(runId),
+			markToolDispatched: beforeMutation,
+			markToolReading: () => { if (toolCallId) this.markPendingToolReading(runId, toolCallId); },
+			recordMutationIdentity: (identity) => {
+				if (identity) this.state.storage.sql.exec("UPDATE runtime_state SET value_json = json_set(value_json, '$.mutationIdentity', json(?)) WHERE key = 'pending_tool_v3' AND json_extract(value_json, '$.runId') = ? AND json_extract(value_json, '$.toolCall.id') = ?", JSON.stringify(identity), runId, toolCallId ?? null);
+			},
 			recentToolResultRows: () =>
 				this.state.storage.sql
 					.exec<RuntimeRow>(
@@ -6066,25 +6100,26 @@ export class BotRuntime {
 			setLastSuccessfulLogOffSeq: (seq) => this.setLastSuccessfulLogOffSeq(seq, 'tool_result'),
 			listNotes: (cursor, limit, links, unknownFilters, includePlan) => this.notes.list(cursor, limit, links, unknownFilters, includePlan),
 			readNote: (id) => this.notes.read(bot.text, id),
-			writeNote: (id, content, links) => this.writeNote(id, content, links, runContext.inferenceAttribution),
-			deleteNote: (id) => this.deleteNote(bot.text, id),
+			writeNote: (id, content, links) => this.writeNote(id, content, links, runContext.inferenceAttribution, beforeMutation),
+			deleteNote: (id) => this.deleteNote(bot.text, id, beforeMutation),
 			viewProfiles: (profileBot, usernames, profileRunId, seenVia) => this.viewProfilesForUsernames(profileBot, usernames, profileRunId, seenVia, true, false),
 		});
 		return tools.executeTool(bot, runId, name, args, runContext, onResult);
 	}
 
-	private writeNote(id: string, content: string, links: Parameters<BotNotesStore['write']>[2], inferenceAttribution?: InferenceAttribution): ReturnType<BotNotesStore['write']> {
+	private writeNote(id: string, content: string, links: Parameters<BotNotesStore['write']>[2], inferenceAttribution?: InferenceAttribution, beforeMutation?: () => void): ReturnType<BotNotesStore['write']> {
 		this.requireWritableRuntimeStorage();
-		return this.notes.write(id, content, links, inferenceAttribution);
+		return this.notes.write(id, content, links, inferenceAttribution, beforeMutation);
 	}
 
-	private deleteNote(text: BotText, id: string): ReturnType<BotNotesStore['delete']> {
+	private deleteNote(text: BotText, id: string, beforeMutation?: () => void): ReturnType<BotNotesStore['delete']> {
 		this.requireWritableRuntimeStorage();
-		return this.notes.delete(text, id);
+		return this.notes.delete(text, id, beforeMutation);
 	}
 
-	private async forumService<T>(path: string, botId: string, body: unknown, signal: AbortSignal, inferenceAttribution?: InferenceAttribution, invocationId?: string): Promise<T> {
+	private async forumService<T>(path: string, botId: string, body: unknown, signal: AbortSignal, onDispatch: () => void, inferenceAttribution?: InferenceAttribution, invocationId?: string): Promise<T> {
 		if (signal.aborted) throw new TickStoppedError();
+		let dispatched = false;
 		try {
 		return await withAbortableTimeout(
 			signal,
@@ -6099,14 +6134,18 @@ export class BotRuntime {
 				const serializedBody = JSON.stringify(body);
 				if (invocationId) headers.set('x-bickr-idempotency-key', await sha256Hex(JSON.stringify([botId, invocationId, path, serializedBody])));
 				addInternalServiceAuthHeader(headers, this.env.INTERNAL_SERVICE_SECRET);
-				const response = await this.env.FORUM_COORDINATOR_SERVICE.fetch(
-					new Request(internalServiceUrl(path), {
+				const request = new Request(internalServiceUrl(path), {
 						method: 'POST',
 						signal: timeoutSignal,
 						headers,
 						body: serializedBody,
-					}),
-				);
+					});
+				// Idempotency hashing can yield. Neither an abort nor a setup error
+				// before this point means that a website mutation was sent.
+				timeoutSignal.throwIfAborted();
+				onDispatch();
+				dispatched = true;
+				const response = await this.env.FORUM_COORDINATOR_SERVICE.fetch(request);
 				const payload = runtimeRecord(
 					await readJsonResponse(
 						response,
@@ -6129,6 +6168,10 @@ export class BotRuntime {
 			},
 		);
 		} catch (error) {
+			if (!dispatched) {
+				if (error instanceof TickStoppedError || isAbortError(error) || signal.aborted) throw error;
+				throw new ToolPreparationError(error);
+			}
 			// Structured refusals are known outcomes; a lost response, timeout or
 			// server failure after dispatch cannot establish whether a write committed.
 			if (error instanceof ToolOutcomeUnknownError || error instanceof ToolCommittedOutcomeError || (error instanceof RepositoryError && (error.details?.botIssue || error.status < 500))) throw error;
@@ -9219,6 +9262,7 @@ function storedCompactionSummary(summary: string): string {
 	return summary.trim();
 }
 
+// Used only by migrateLegacyLoopMessages. Retire with its legacyHistoryDone census gate.
 function storedMemorySummary(summary: string): string {
  const memory = storedCompactionSummary(summary);
  return memory ? botText('en').format('compaction.legacy.memory', { memory }) : '';
@@ -9336,7 +9380,10 @@ function runtimeContextLine(row: RuntimeRow): string {
 	});
 }
 
-/** One-time adapter for pre-localization events. Unsupported diagnostic events never enter memory. */
+/** One-time adapter for pre-localization events. Unsupported diagnostic events never enter memory.
+ * Retire with migrateLegacyLoopMessages after the legacyHistoryDone fleet census
+ * and retirement of old history writers from the rollback window.
+ */
 export function formatRuntimeEventForContext(
  type: BotRuntimeEventType,
  payload: Record<string, unknown>,

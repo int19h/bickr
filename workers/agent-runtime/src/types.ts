@@ -571,6 +571,8 @@ export type PendingSpotlightTick = {
 export type RunContext = {
 	/** Stable within one provider request and tool call, including transport retries. */
 	toolInvocationId?: string;
+	/** Exact journal identity, separate from the transport idempotency key. */
+	toolCallId?: string;
 	inferenceAttribution?: import('@bickr/shared/model').InferenceAttribution;
 	mode: TickMode;
 	setupMode: LoopSetupMode;

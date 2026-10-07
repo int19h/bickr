@@ -1,3 +1,6 @@
+import { isCommittedBotServiceIssue } from '@bickr/shared/bot-service-issues';
+import { isAbortError } from '../provider/sse';
+import { TickStoppedError } from '../errors';
 import { botServiceIssue } from '@bickr/shared/bot-service-issues';
 import { AgentRepositoryError } from '../errors';
 import { agentIssue } from '../localization/issues';
@@ -53,6 +56,7 @@ import {
 import { ToolBatchOutcomeError, type ToolBatchOutcomeItem, ToolOutcomeUnknownError, ToolCommittedOutcomeError, SelfCorrectingToolCallError, ToolPreparationError, ToolCallArgumentValidationError } from '../errors';
 import { repairInvalidUnicodeText, unicodeSafeSlice } from '../provider/sanitize';
 import { randomIntegersForRanges } from './random-integers';
+import { mutationIdentity, storedMutationIdentity, toolExecutionEffect, type MutationIdentity } from './tool-dispatch';
 import { normalizeNoteId, normalizeNoteCursor, noteContent, noteFilterReferences, noteLinkViews, noteReferences, planNoteId, resolveNoteLinks, type BotNote, type NoteLink, type NoteListPage } from './notes';
 import type { ViewedProfileResult } from '@bickr/shared/tool-results';
 import type {
@@ -109,11 +113,13 @@ export type RuntimeToolsRuntime = {
 	appendEvent(runId: string, type: 'tool_call' | 'tool_result', payload: unknown): BotRuntimeEvent;
 	replaceEventPayload(event: BotRuntimeEvent, payload: unknown): BotRuntimeEvent;
 	throwIfStopped(runId: string, signal: AbortSignal): void;
-	forumService<T>(path: string, botId: string, body: unknown, signal: AbortSignal): Promise<T>;
+	forumService<T>(path: string, botId: string, body: unknown, signal: AbortSignal, onDispatch?: () => void): Promise<T>;
 	vectorSearchBots(worldId: string, query: string, limit: number): Promise<BotSearchResult[]>;
 	readCommentTreeTokenBudget(bot: RuntimeBotDocument): Promise<number>;
 	providerContentInActiveContext(): ProviderContextContentScope;
 	markToolDispatched(): void;
+	markToolReading(): void;
+	recordMutationIdentity(identity: MutationIdentity | undefined): void;
 	recentToolResultRows(): RuntimeRow[];
 	setLastSuccessfulLogOffSeq(seq: number, source: 'tool_result'): void;
 	listNotes(cursor: string | null, limit: number, links: readonly NoteLink[], unknownFilters: string[], includePlan: boolean): NoteListPage;
@@ -146,6 +152,7 @@ export class RuntimeTools {
 		const spotlightScope = runContext.spotlightId ? runContext.spotlightActionScope : undefined;
 		let spotlightMutation = false;
 		let spotlightTickTerminator = false;
+		this.runtime.recordMutationIdentity(mutationIdentity(canonicalName, normalizedArgs));
 		const toolCallEvent = this.runtime.appendEvent(runId, 'tool_call', {
 			name: canonicalName,
 			args: providerToolArgs(canonicalName, normalizedArgs),
@@ -160,7 +167,8 @@ export class RuntimeTools {
 		const providerResultTokenBudget = providerToolResultUsesTokenBudget(canonicalName)
 			? await boundedCleanup('Tool result budget', () => this.runtime.readCommentTreeTokenBudget(bot)).catch((cause) => { throw new ToolPreparationError(cause); })
 			: undefined;
-		this.runtime.markToolDispatched();
+		this.runtime.throwIfStopped(runId, runContext.signal);
+		if (toolExecutionEffect(canonicalName) === 'read') this.runtime.markToolReading();
 		try {
 		switch (canonicalName) {
 			case 'check_notifications':
@@ -216,6 +224,7 @@ export class RuntimeTools {
 				const body = localizedToolTextArg(normalizedArgs.body, 'body', bot.language);
 				normalizedArgs.title = title;
 				normalizedArgs.body = body;
+				this.runtime.recordMutationIdentity({ kind: 'thread', forumHandle: forum.handle, title: title.text.trim() });
 				this.assertNoUnresolvedThreadCreation(bot.text, forum.handle, title.text);
 				const serviceResult = await this.runtime.forumService<{ thread: ThreadDocument }>(
 					`/forums/${encodeURIComponent(forum.id)}/threads`,
@@ -449,7 +458,8 @@ export class RuntimeTools {
 			if (error instanceof ToolCommittedOutcomeError || error instanceof ToolOutcomeUnknownError) error.scope = { related: spotlightMutation, unrelated: spotlightTickTerminator };
 			throw error;
 		}
-		this.runtime.throwIfStopped(runId, runContext.signal);
+		// Keep a mutation receipt even when Stop arrives during its request.
+		if (toolExecutionEffect(canonicalName) !== 'mutation') this.runtime.throwIfStopped(runId, runContext.signal);
 		if (effectiveArgs) {
 			this.runtime.replaceEventPayload(toolCallEvent, { name: canonicalName, args: providerToolArgs(canonicalName, effectiveArgs) });
 		}
@@ -505,9 +515,8 @@ export class RuntimeTools {
 			const args = { commentId: vote.commentId, value: vote.value, reason };
 			try {
 				this.runtime.throwIfStopped(runId, signal);
-				dispatched = true;
 				const serviceResult = await this.runtime.forumService<{ thread: ThreadDocument }>('/votes', bot.id,
-					{ ...args, ...(related ? { spotlightId } : {}) }, signal);
+					{ ...args, ...(related ? { spotlightId } : {}) }, signal, () => { dispatched = true; });
 				const result = { ...vote, reason, thread: serviceResult.thread };
 				results.push(result);
 				completed.push({ kind: 'recorded', target, envelope: { kind: 'vote_set', votes: [result] }, scope });
@@ -569,8 +578,11 @@ export class RuntimeTools {
 			let dispatched = false;
 			try {
 				this.runtime.throwIfStopped(runId, signal);
-				dispatched = true;
-				const options = { reason: target.reason, inferenceAttribution, ...(related ? { spotlightId } : {}) };
+				const options = { reason: target.reason, inferenceAttribution, ...(related ? { spotlightId } : {}), beforeWrite: () => {
+					this.runtime.throwIfStopped(runId, signal);
+					this.runtime.markToolDispatched();
+					dispatched = true;
+				} };
 				const follow = shouldFollow
 					? await followBot(this.runtime.env.BICKR_KV, this.runtime.env.BICKR_D1, bot.id, profile.id, undefined, options)
 					: await unfollowBot(this.runtime.env.BICKR_KV, this.runtime.env.BICKR_D1, bot.id, profile.id, undefined, options);
@@ -737,10 +749,8 @@ export class RuntimeTools {
 		const unresolved = this.runtime.recentToolResultRows().find((row) => {
 			const payload = parsePayloadJson(row.payload_json);
 			if (canonicalToolName(stringValue(payload.name) ?? '') !== 'create_thread' || (payload.outcome !== 'unknown' && payload.outcome !== 'committed')) return false;
-			const args = payload.args && typeof payload.args === 'object' ? payload.args as Record<string, unknown> : {};
-			const previousForum = typeof args.forumHandle === 'string' ? normalizeHandleText(args.forumHandle).replace(/^f\//, '') : '';
-			const previousTitle = localizedArgumentText(args.title);
-			return previousForum === forumHandle && previousTitle === title.trim();
+			const identity = storedMutationIdentity(payload);
+			return identity?.kind === 'thread' && identity.forumHandle === forumHandle && identity.title === title.trim();
 		});
 		if (unresolved) throw new SelfCorrectingToolCallError(text.format(parsePayloadJson(unresolved.payload_json).outcome === 'committed' ? 'recovery.threadEarlierCommitted' : 'recovery.threadEarlierUnknown'));
 	}
@@ -748,10 +758,10 @@ export class RuntimeTools {
 	private async reconcileUnknownReply(text: BotText, botId: string, threadId: string, parentCommentId: string, body: string): Promise<void> {
 		const unresolved = this.runtime.recentToolResultRows().find((row) => {
 			const payload = parsePayloadJson(row.payload_json);
-			const args = runtimeRecord(payload.args);
-			return args.commentId === parentCommentId && (payload.outcome === 'unknown' || payload.outcome === 'committed')
+			const identity = storedMutationIdentity(payload);
+			return identity?.kind === 'reply' && identity.commentId === parentCommentId && (payload.outcome === 'unknown' || payload.outcome === 'committed')
 				&& ['reply_to_comment', 'make_additional_reply_to_the_same_comment'].includes(canonicalToolName(stringValue(payload.name) ?? ''))
-				&& localizedArgumentText(args.body) === body.trim();
+				&& identity.body === body.trim();
 		});
 		if (!unresolved) return;
 		// Lost acknowledgement is not evidence of a failed write. Check the
@@ -823,11 +833,13 @@ export class RuntimeTools {
 }
 
 function batchFailureItem(target: string, error: unknown, args: Record<string, unknown>, scope: { related: boolean; unrelated: boolean }, dispatched: boolean, serviceRefusal = false): ToolBatchOutcomeItem {
-	if (!dispatched) return { kind: 'not_attempted', target };
+	if (!dispatched && (error instanceof TickStoppedError || isAbortError(error))) return { kind: 'not_attempted', target };
 	if (error instanceof ToolCommittedOutcomeError) return { kind: 'committed', target, issue: error.issue, scope };
+	if (error instanceof RepositoryError && error.details?.botIssue && isCommittedBotServiceIssue(error.details.botIssue)) return { kind: 'committed', target, issue: error.details.botIssue, scope };
 	if ((error instanceof RepositoryError && (error.details?.botIssue || (serviceRefusal && error.status < 500))) || (error instanceof InputError && error.botIssue) || error instanceof ToolCallArgumentValidationError) {
 		return { kind: 'refused', target, error, args };
 	}
+	if (!dispatched) return { kind: 'refused', target, error: error instanceof ToolPreparationError ? error : new ToolPreparationError(error), args };
 	return { kind: 'unknown', target, scope, error: error instanceof ToolOutcomeUnknownError ? error.originalError : error };
 }
 

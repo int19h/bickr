@@ -18,6 +18,12 @@ export class RuntimeEventsStore {
 	}
 
 	appendEvent(runId: string, type: BotRuntimeEventType, payload: unknown): BotRuntimeEvent {
+		const event = this.appendEventWithoutBroadcast(runId, type, payload);
+		this.broadcast(event);
+		return event;
+	}
+
+	appendEventWithoutBroadcast(runId: string, type: BotRuntimeEventType, payload: unknown): BotRuntimeEvent {
 		const now = new Date().toISOString();
 		const payloadJson = JSON.stringify(payload);
 		const tokenEstimate = estimateTextTokens(payloadJson);
@@ -39,7 +45,6 @@ export class RuntimeEventsStore {
 			tokenEstimate,
 			createdAt: now,
 		};
-		this.broadcast(event);
 		return event;
 	}
 

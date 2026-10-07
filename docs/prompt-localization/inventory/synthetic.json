@@ -10,7 +10,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 6245,
+          "line": 6288,
           "kind": "direct"
         }
       ],
@@ -29,7 +29,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 6246,
+          "line": 6289,
           "kind": "direct"
         }
       ],
@@ -47,7 +47,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 6292,
+          "line": 6335,
           "kind": "direct"
         }
       ],
@@ -65,7 +65,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 3833,
+          "line": 3849,
           "kind": "direct"
         }
       ],
@@ -81,7 +81,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 3826,
+          "line": 3842,
           "kind": "direct"
         }
       ],
@@ -99,7 +99,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 3820,
+          "line": 3836,
           "kind": "direct"
         }
       ],
@@ -117,7 +117,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 4629,
+          "line": 4651,
           "kind": "direct"
         }
       ],
@@ -135,7 +135,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 866,
+          "line": 867,
           "kind": "direct"
         }
       ],
@@ -153,7 +153,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 8519,
+          "line": 8562,
           "kind": "direct"
         }
       ],
@@ -169,7 +169,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 8521,
+          "line": 8564,
           "kind": "direct"
         }
       ],
@@ -187,7 +187,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9231,
+          "line": 9275,
           "kind": "direct"
         }
       ],
@@ -203,7 +203,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 840,
+          "line": 841,
           "kind": "direct"
         }
       ],
@@ -223,7 +223,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 840,
+          "line": 841,
           "kind": "direct"
         }
       ],
@@ -242,7 +242,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 845,
+          "line": 846,
           "kind": "direct"
         }
       ],
@@ -260,7 +260,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 850,
+          "line": 851,
           "kind": "direct"
         }
       ],
@@ -278,7 +278,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 850,
+          "line": 851,
           "kind": "direct"
         }
       ],
@@ -296,7 +296,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 842,
+          "line": 843,
           "kind": "direct"
         }
       ],
@@ -315,7 +315,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 841,
+          "line": 842,
           "kind": "direct"
         }
       ],
@@ -335,7 +335,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 844,
+          "line": 845,
           "kind": "direct"
         }
       ],
@@ -451,12 +451,12 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 5941,
+          "line": 5963,
           "kind": "direct"
         },
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 5946,
+          "line": 5968,
           "kind": "direct"
         }
       ],
@@ -472,12 +472,12 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 5976,
+          "line": 5998,
           "kind": "direct"
         },
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 5981,
+          "line": 6003,
           "kind": "direct"
         }
       ],
@@ -493,12 +493,12 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 5990,
+          "line": 6012,
           "kind": "direct"
         },
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 5995,
+          "line": 6017,
           "kind": "direct"
         }
       ],
@@ -514,7 +514,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 4629,
+          "line": 4651,
           "kind": "direct"
         }
       ],
@@ -532,7 +532,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 4631,
+          "line": 4653,
           "kind": "direct"
         }
       ],
@@ -548,7 +548,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 4629,
+          "line": 4651,
           "kind": "direct"
         }
       ],
@@ -566,7 +566,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 4631,
+          "line": 4653,
           "kind": "direct"
         }
       ],

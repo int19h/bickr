@@ -9,7 +9,7 @@
     "toolControl": "uirlis for a tool; rialtán for a Bickr control.",
     "time": "Whole digit-based native patterns, with explicit counted-hour phrase uair an chloig.",
     "openThreads": "snáitheanna oscailte, not only unresolved threads.",
-    "need": "Explicit tá gá agam as a style choice for stated needs, not a blanket ban on caithfidh for practical necessity.",
+    "need": "Use is gá dom for first-person action needs. Caithfidh and ní mór also express practical need in context. Preserve obligation and prohibition without mechanical English modal mapping.",
     "maximum": "A requirement on the count being no greater than max preserves a can-include-at-most ceiling.",
     "identifiers": "A head noun receives native grammar. Protected identifiers never receive mutation."
   },

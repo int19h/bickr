@@ -2,7 +2,8 @@ import forumCoordinatorWorker from "../workers/forum-coordinator/src/index";
 import { commitThreadMutation, pruneThreadMutationReceipts, replayThreadMutationReceipt } from "../workers/forum-coordinator/src/thread-mutations";
 import { beforeEach, describe, expect, it } from "vitest";
 import { readThread } from "@bickr/shared/social";
-import { botServiceIssueManifest, isCommittedBotServiceIssue } from "@bickr/shared/bot-service-issues";
+import { botServiceIssue, botServiceIssueManifest, isCommittedBotServiceIssue } from "@bickr/shared/bot-service-issues";
+import { RepositoryError } from "@bickr/shared/repository";
 import { parseInstructionIssue } from "@bickr/shared/instruction-issues";
 import { type ForumDocument } from "@bickr/shared/model";
 import { clearKv, resetD1Schema } from "./helpers/d1-schema";
@@ -138,13 +139,17 @@ describe("durable thread mutations", () => {
 		expect((await readThread(testEnv.BICKR_KV, f.thread.id)).comments.map((comment) => comment.id)).toEqual([f.thread.rootCommentId]);
 	});
 
-	it("returns the original post receipt after projection commit but before pending-plan cleanup", async () => {
+	it.each(['generic', 'threadRootMissing', 'threadUnreadable'] as const)("returns the original post receipt after a %s error during committed-plan cleanup", async (failure) => {
 		const f = await fixture();
 		const transaction = f.durable.storage.transaction.bind(f.durable.storage);
 		let calls = 0;
 		f.durable.storage.transaction = async (closure) => {
 			calls += 1;
-			if (calls === 2) throw new Error("Injected cleanup failure");
+			if (calls === 2) {
+				if (failure === 'generic') throw new Error("Injected cleanup failure");
+				throw new RepositoryError('server_error', 'Injected cleanup failure', 500,
+					{ botIssue: botServiceIssue(`issue.service.${failure}`, {}) });
+			}
 			return transaction(closure);
 		};
 		await expectCommittedResultUnavailable(await handleForumCoordinatorRequest(f.post("same-post"), f.env, f.context()));

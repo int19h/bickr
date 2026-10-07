@@ -13,9 +13,10 @@ const text = botText('en');
 const reason = { lang: 'en', text: 'A reason' } as RequiredLocalizedText;
 
 describe('per-target batch outcomes', () => {
-	async function run(failure: unknown): Promise<ToolBatchOutcomeError> {
+	async function run(failure: unknown, dispatched = true): Promise<ToolBatchOutcomeError> {
 		let calls = 0;
-		const runtime = { throwIfStopped() {}, forumService: async () => {
+		const runtime = { throwIfStopped() {}, forumService: async (_path: string, _botId: string, _body: unknown, _signal: AbortSignal, onDispatch?: () => void) => {
+			if (dispatched || calls === 0) onDispatch?.();
 			calls += 1;
 			if (calls === 2) throw failure;
 			return { thread: { id: 'thr_test', comments: [] } as unknown as ThreadDocument };
@@ -48,6 +49,16 @@ describe('per-target batch outcomes', () => {
 	it('keeps the failed target unknown when a response is lost', async () => {
 		const error = await run(new ToolOutcomeUnknownError(new Error('Lost response')));
 		expect(error.items.map((item) => item.kind)).toEqual(['recorded', 'unknown', 'not_attempted']);
+	});
+
+	it('keeps a typed refusal during preparation instead of calling it unattempted', async () => {
+		const failure = new RepositoryError('not_found', 'Profile gone', 404, { botIssue: botServiceIssue('issue.service.participantMissing', {}) });
+		expect((await run(failure, false)).items.map((item) => item.kind)).toEqual(['recorded', 'refused', 'not_attempted']);
+	});
+
+	it('keeps a post-write follow error committed even when its diagnostic cause is a refusal', async () => {
+		const failure = new RepositoryError('server_error', 'Receipt failed', 503, { botIssue: botServiceIssue('issue.service.mutationReceiptUnavailable', {}) });
+		expect((await run(failure)).items.map((item) => item.kind)).toEqual(['recorded', 'committed', 'not_attempted']);
 	});
 
 	it('keeps diagnostics out of the model result and preserves the target-specific repair', () => {

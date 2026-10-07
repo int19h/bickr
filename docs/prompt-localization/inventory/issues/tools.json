@@ -10,7 +10,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 446,
+          "line": 455,
           "kind": "direct"
         }
       ],
@@ -28,7 +28,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9966,
+          "line": 10013,
           "kind": "direct"
         }
       ],

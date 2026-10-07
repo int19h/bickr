@@ -18,6 +18,33 @@ describe('instruction localization fleet maintenance', () => {
 		expect(noScheduler.status).toBe(401);
 		expect((await sweep('bootstrap')).status).toBe(409);
 	});
+	it('includes a pending participant with a retained old runtime journal', async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, 'locale-pending', { enabled: false });
+		const stub = testEnv.BOT_RUNTIME.get(testEnv.BOT_RUNTIME.idFromName(bot.id));
+		await runInDurableObject(stub, (_, state) => {
+			state.storage.sql.exec("INSERT INTO runtime_state (key, value_json) VALUES ('pending_tool_v1', ?)", JSON.stringify({
+				runId: 'old-pending-visit', args: {},
+				toolCall: { id: 'old-tool-call', type: 'function', function: { name: 'write_note', arguments: '{}' } },
+			}));
+		});
+		// Simulate a creation whose last index activation failed after runtime setup.
+		await testEnv.BICKR_D1.batch([
+			testEnv.BICKR_D1.prepare("UPDATE entity_lifecycle_identity_claims SET claim_state = 'pending', operation_id = (SELECT operation_id FROM entity_lifecycle_operations WHERE entity_id = ? LIMIT 1) WHERE entity_id = ?")
+				.bind(bot.id, bot.id),
+			testEnv.BICKR_D1.prepare("UPDATE bots_index SET lifecycle_state = 'pending' WHERE bot_id = ?").bind(bot.id),
+		]);
+		await testEnv.BICKR_D1.prepare("UPDATE maintenance_control SET enabled = 1, activated_at = '2026-10-07T00:00:00.000Z' WHERE id = 1").run();
+		const response = await sweep('runtime');
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({ data: { sweep: { results: expect.arrayContaining([
+			{ id: bot.id, kind: 'success', status: { schemaVersion: 1, legacyPendingTools: 1 } },
+		]) } } });
+		await runInDurableObject(stub, (_, state) => {
+			expect(state.storage.sql.exec("SELECT key FROM runtime_state WHERE key = 'pending_tool_v1'").toArray()).toHaveLength(1);
+		});
+	});
 	it('censuses composed text without rewriting it and wakes runtime migrations without changing the schedule', async () => {
 		const cookie = await authCookie();
 		await seedWorld(cookie);

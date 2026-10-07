@@ -173,8 +173,11 @@ describe('private bot notes', () => {
 	it('rejects factory provenance for ordinary notes and preserves rollback writes as authored', () => {
 		expect(() => storage.sql.exec("INSERT INTO notes (note_id, content, content_source, created_at, updated_at) VALUES (?, '', 'factory', ?, ?)",
 			'other', 'created', 'updated')).toThrow();
+		notes.migrateFactoryPlan();
 		notes.ensurePlan();
-		storage.sql.exec('UPDATE notes SET content = ? WHERE note_id = ?', defaultPlanContent, planNoteId);
+		// The old writer increments the revision and does not know content_source.
+		storage.sql.exec('UPDATE notes SET content = ?, revision = revision + 1 WHERE note_id = ?', defaultPlanContent, planNoteId);
+		notes.migrateFactoryPlan();
 		expect(storage.sql.exec('SELECT content, content_source FROM notes WHERE note_id = ?', planNoteId).one())
 			.toEqual({ content: defaultPlanContent, content_source: 'authored' });
 	});

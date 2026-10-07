@@ -96,7 +96,7 @@ describe('provider response groups', () => {
 		});
 		const assistant: ChatMessage = { role: 'assistant', reasoning_details: reasoning, tool_calls: [call('first'), call('second')] };
 		runtime.setPendingTool(botText('en'), 'run', call('second'), {}, assistant, first?.seq ?? null);
-		runtime.markPendingToolDispatched('run');
+		runtime.markPendingToolDispatched('run', 'second');
 		runtime.settlePendingTool('run');
 		runtime.settlePendingTool('run');
 		const messages = store.loopMessagesAfter(0).map((row) => row.message);
@@ -119,12 +119,13 @@ describe('provider response groups', () => {
 		expect(messages[0]?.reasoning_details).toBeUndefined();
 	});
 
-	it.each(['prepared', 'dispatched'] as const)('recovers a %s call in its original language after a new runtime instance', (stage) => {
+	it.each(['prepared', 'reading', 'dispatched'] as const)('recovers a %s call in its original language after a new runtime instance', (stage) => {
 		const original = Object.assign(Object.create(BotRuntime.prototype), { state: { storage, getWebSockets: () => [] }, appendEvent: vi.fn() });
 		const text = botText('ja');
 		const assistant: ChatMessage = { role: 'assistant', content: 'Authored {{opaque}} reasoning.', reasoning_details: reasoning };
 		original.setPendingTool(text, 'run', call('native'), {}, assistant, null);
-		if (stage === 'dispatched') original.markPendingToolDispatched('run');
+		if (stage === 'dispatched') original.markPendingToolDispatched('run', 'native');
+		if (stage === 'reading') original.markPendingToolReading('run', 'native');
 		// Recovery gets its language from the stored request, without loading a
 		// participant configuration that can change while the object is asleep.
 		const restarted = Object.assign(Object.create(BotRuntime.prototype), { state: { storage, getWebSockets: () => [] }, appendEvent: vi.fn() });
@@ -137,6 +138,7 @@ describe('provider response groups', () => {
 		const outcome = JSON.parse(String(messages[1]?.content));
 		expect(outcome).toEqual(stage === 'prepared'
 			? { ok: false, code: 'not_dispatched', message: text.format('recovery.notDispatched') }
+			: stage === 'reading' ? { ok: false, code: 'interrupted', message: text.format('recovery.interrupted') }
 			: { kind: 'outcome_unknown', message: unknownToolOutcomeMessage(text, 'view_profiles') });
 		expect(storage.database.prepare("SELECT value_json FROM runtime_state WHERE key = 'pending_tool_v3'").get()).toBeUndefined();
 	});

@@ -3239,7 +3239,7 @@ export async function followBot(
 	followerBotId: string,
 	followedBotId: string,
 	now = new Date().toISOString(),
-	options: { reason?: LocalizedText | string; spotlightId?: string; spotlightLabel?: string; inferenceAttribution?: InferenceAttribution } = {},
+	options: { reason?: LocalizedText | string; spotlightId?: string; spotlightLabel?: string; inferenceAttribution?: InferenceAttribution; beforeWrite?: () => void } = {},
 ): Promise<{ activityId?: string; following: boolean }> {
 	if (followerBotId === followedBotId) {
 		throw repositoryError("bad_request", "You cannot follow your own profile. Choose another participant.", 400, { followCause: "self_follow", botIssue: botServiceIssue("issue.service.followSelf", {}) });
@@ -3254,45 +3254,50 @@ export async function followBot(
 		.first<{ createdAt: string }>();
 	let activityId: string | undefined;
 	if (!existing) {
-		await db
+		const statement = db
 			.prepare(
 				`INSERT INTO follows (world_id, follower_bot_id, followed_bot_id, created_at, inference_attribution_json)
 				 VALUES (?, ?, ?, ?, ?)`,
 			)
-			.bind(follower.homeWorldId, followerBotId, followedBotId, now, options.inferenceAttribution ? JSON.stringify(options.inferenceAttribution) : null)
-			.run();
-		activityId = await insertBotActivityEvent(db, {
-			worldId: follower.homeWorldId,
-			botId: follower.id,
-			activityType: "follow",
-			targetType: "bot",
-			targetId: followed.id,
-			reason: options.reason,
-			inferenceAttribution: options.inferenceAttribution,
-			now,
-		});
-		// Follows are the followee's news only; who else follows the follower is
-		// not. That fan-out is gone, so the payload needs nothing but the actor.
-		const notificationRecipients = newNotificationRecipientDrafts();
-		addNotificationRecipient(notificationRecipients, {
-			botId: followedBotId,
-			notificationType: "follow",
-			deliveryReason: "profile_followed_you",
-			sourceObjectId: followerBotId,
-			message: `${localizedTextString(follower.displayName)} followed you.`,
-			payload: {
-				kind: "follow",
-				type: "profile_followed",
-				actor: notificationProfileRef(follower),
-			},
-		});
-		await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, now, follower.id);
-		await notifyHumanFollowCreated(db, follower, followed, now, {
-			activityId,
-			reason: options.reason,
-			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
-			...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
-		});
+			.bind(follower.homeWorldId, followerBotId, followedBotId, now, options.inferenceAttribution ? JSON.stringify(options.inferenceAttribution) : null);
+		options.beforeWrite?.();
+		await statement.run();
+		try {
+			activityId = await insertBotActivityEvent(db, {
+				worldId: follower.homeWorldId,
+				botId: follower.id,
+				activityType: "follow",
+				targetType: "bot",
+				targetId: followed.id,
+				reason: options.reason,
+				inferenceAttribution: options.inferenceAttribution,
+				now,
+			});
+			// Follows are the followee's news only; who else follows the follower is
+			// not. That fan-out is gone, so the payload needs nothing but the actor.
+			const notificationRecipients = newNotificationRecipientDrafts();
+			addNotificationRecipient(notificationRecipients, {
+				botId: followedBotId,
+				notificationType: "follow",
+				deliveryReason: "profile_followed_you",
+				sourceObjectId: followerBotId,
+				message: `${localizedTextString(follower.displayName)} followed you.`,
+				payload: {
+					kind: "follow",
+					type: "profile_followed",
+					actor: notificationProfileRef(follower),
+				},
+			});
+			await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, now, follower.id);
+			await notifyHumanFollowCreated(db, follower, followed, now, {
+				activityId,
+				reason: options.reason,
+				...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
+				...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
+			});
+		} catch (cause) {
+			throw committedFollowError(cause);
+		}
 	}
 	return {
 		following: true,
@@ -3306,7 +3311,7 @@ export async function unfollowBot(
 	followerBotId: string,
 	followedBotId: string,
 	now = new Date().toISOString(),
-	options: { reason?: LocalizedText | string; spotlightId?: string; spotlightLabel?: string; inferenceAttribution?: InferenceAttribution } = {},
+	options: { reason?: LocalizedText | string; spotlightId?: string; spotlightLabel?: string; inferenceAttribution?: InferenceAttribution; beforeWrite?: () => void } = {},
 ): Promise<{ activityId?: string; following: boolean }> {
 	const follower = await botById(kv, db, followerBotId);
 	const followed = await botById(kv, db, followedBotId);
@@ -3315,51 +3320,64 @@ export async function unfollowBot(
 		.prepare(`SELECT created_at AS createdAt FROM follows WHERE follower_bot_id = ? AND followed_bot_id = ?`)
 		.bind(followerBotId, followedBotId)
 		.first<{ createdAt: string }>();
-	await db
+	const statement = db
 		.prepare(`DELETE FROM follows WHERE follower_bot_id = ? AND followed_bot_id = ?`)
-		.bind(followerBotId, followedBotId)
-		.run();
+		.bind(followerBotId, followedBotId);
+	options.beforeWrite?.();
+	await statement.run();
 	let activityId: string | undefined;
 	if (existing) {
-		activityId = await insertBotActivityEvent(db, {
-			worldId: follower.homeWorldId,
-			botId: follower.id,
-			activityType: "unfollow",
-			targetType: "bot",
-			targetId: followed.id,
-			reason: options.reason,
-			inferenceAttribution: options.inferenceAttribution,
-			now,
-		});
-		// The mirror of the follow notification: the followee is told, and the
-		// follower's own followers are not. Losing a follower is news the
-		// participant can act on; a third party's unfollow was noise.
-		const notificationRecipients = newNotificationRecipientDrafts();
-		addNotificationRecipient(notificationRecipients, {
-			botId: followedBotId,
-			notificationType: "unfollow",
-			deliveryReason: "profile_unfollowed_you",
-			sourceObjectId: followerBotId,
-			message: `${localizedTextString(follower.displayName)} unfollowed you.`,
-			payload: {
-				kind: "unfollow",
-				type: "profile_unfollowed",
-				actor: notificationProfileRef(follower),
-			},
-		});
-		await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, now, follower.id);
-		await notifyHumanFollowRemoved(db, follower, followed, now, {
-			activityId,
-			reason: options.reason,
-			...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
-			...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
-		});
+		try {
+			activityId = await insertBotActivityEvent(db, {
+				worldId: follower.homeWorldId,
+				botId: follower.id,
+				activityType: "unfollow",
+				targetType: "bot",
+				targetId: followed.id,
+				reason: options.reason,
+				inferenceAttribution: options.inferenceAttribution,
+				now,
+			});
+			// The mirror of the follow notification: the followee is told, and the
+			// follower's own followers are not. Losing a follower is news the
+			// participant can act on; a third party's unfollow was noise.
+			const notificationRecipients = newNotificationRecipientDrafts();
+			addNotificationRecipient(notificationRecipients, {
+				botId: followedBotId,
+				notificationType: "unfollow",
+				deliveryReason: "profile_unfollowed_you",
+				sourceObjectId: followerBotId,
+				message: `${localizedTextString(follower.displayName)} unfollowed you.`,
+				payload: {
+					kind: "unfollow",
+					type: "profile_unfollowed",
+					actor: notificationProfileRef(follower),
+				},
+			});
+			await createMergedNotifications(kv, db, follower.homeWorldId, notificationRecipients, now, follower.id);
+			await notifyHumanFollowRemoved(db, follower, followed, now, {
+				activityId,
+				reason: options.reason,
+				...(options.spotlightId ? { spotlightId: options.spotlightId } : {}),
+				...(options.spotlightLabel ? { spotlightLabel: options.spotlightLabel } : {}),
+			});
+		} catch (cause) {
+			throw committedFollowError(cause);
+		}
 	}
 	return {
 		following: false,
 		...(activityId ? { activityId } : {}),
 	};
 }
+
+// The relationship write returned. Later notification failures cannot undo it.
+function committedFollowError(cause: unknown): RepositoryError {
+	const error = repositoryError("server_error", "The follow change committed, but Bickr could not complete its receipt.", 503, { botIssue: botServiceIssue("issue.service.mutationReceiptUnavailable", {}) });
+	error.cause = cause;
+	return error;
+}
+
 
 export async function followedBotIdSet(
 	db: D1DatabaseLike,

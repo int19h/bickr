@@ -77,12 +77,12 @@
         },
         {
           "file": "packages/shared/src/social.ts",
-          "line": 7559,
+          "line": 7577,
           "kind": "direct"
         },
         {
           "file": "packages/shared/src/social.ts",
-          "line": 7564,
+          "line": 7582,
           "kind": "direct"
         }
       ],
@@ -294,22 +294,22 @@
         },
         {
           "file": "packages/shared/src/social.ts",
-          "line": 3524,
+          "line": 3542,
           "kind": "direct"
         },
         {
           "file": "packages/shared/src/social.ts",
-          "line": 3708,
+          "line": 3726,
           "kind": "direct"
         },
         {
           "file": "packages/shared/src/social.ts",
-          "line": 3761,
+          "line": 3779,
           "kind": "direct"
         },
         {
           "file": "packages/shared/src/social.ts",
-          "line": 3792,
+          "line": 3810,
           "kind": "direct"
         }
       ],
@@ -330,7 +330,7 @@
         },
         {
           "file": "packages/shared/src/social.ts",
-          "line": 7692,
+          "line": 7710,
           "kind": "direct"
         }
       ],
@@ -425,12 +425,12 @@
         },
         {
           "file": "packages/shared/src/social.ts",
-          "line": 7703,
+          "line": 7721,
           "kind": "direct"
         },
         {
           "file": "packages/shared/src/social.ts",
-          "line": 7714,
+          "line": 7732,
           "kind": "direct"
         }
       ],
@@ -806,7 +806,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9249,
+          "line": 9293,
           "kind": "direct"
         },
         {
@@ -850,7 +850,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 9969,
+          "line": 10016,
           "kind": "direct"
         },
         {
@@ -871,7 +871,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 231,
+          "line": 240,
           "kind": "direct"
         },
         {
@@ -882,6 +882,11 @@
         {
           "file": "packages/shared/src/bot-service-issues.ts",
           "line": 150,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 3376,
           "kind": "direct"
         }
       ],
@@ -1013,7 +1018,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 992,
+          "line": 1004,
           "kind": "direct"
         },
         {

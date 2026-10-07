@@ -15,7 +15,9 @@ export type RuntimeLocalizationStatus = {
 
 /** The release script owns the cursor. This route creates no persistent sweep records. */
 export async function sweepRuntimeLocalization(env: Pick<Env, 'BICKR_D1' | 'BOT_RUNTIME' | 'INTERNAL_SERVICE_SECRET'>, cursor = '') {
-	const selected = await env.BICKR_D1.prepare(`SELECT bot_id AS id FROM bots_index WHERE bot_id > ? AND deleted_at IS NULL AND lifecycle_state = 'active' ORDER BY bot_id LIMIT ?`)
+	// A failed creation can leave an old runtime behind a pending index row.
+	// Include it before a fleet census permits removal of the old readers.
+	const selected = await env.BICKR_D1.prepare(`SELECT bot_id AS id FROM bots_index WHERE bot_id > ? AND deleted_at IS NULL AND lifecycle_state IN ('active', 'pending') ORDER BY bot_id LIMIT ?`)
 		.bind(cursor, instructionLocalizationSweepLimit).all<{ id: string }>();
 	const rows = selected.results ?? [];
 	const results = await Promise.all(rows.map(async ({ id }) => {

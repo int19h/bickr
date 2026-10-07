@@ -243,15 +243,15 @@ export class BotNotesStore {
 		return { ...metadata, source: 'authored', id: row.note_id, content: row.content };
 	}
 
-	write(id: string, content: string, links: readonly NoteLink[], inferenceAttribution?: InferenceAttribution): { kind: 'created' | 'replaced'; note: BotNote } {
-		return this.writeRecord(id, content, links, 'upsert', inferenceAttribution);
+	write(id: string, content: string, links: readonly NoteLink[], inferenceAttribution?: InferenceAttribution, beforeMutation?: () => void): { kind: 'created' | 'replaced'; note: BotNote } {
+		return this.writeRecord(id, content, links, 'upsert', inferenceAttribution, beforeMutation);
 	}
 
 	create(id: string, content: string, links: readonly NoteLink[]): BotNote {
 		return this.writeRecord(id, content, links, 'create_only').note;
 	}
 
-	private writeRecord(id: string, content: string, links: readonly NoteLink[], mode: 'upsert' | 'create_only', inferenceAttribution?: InferenceAttribution): { kind: 'created' | 'replaced'; note: BotNote } {
+	private writeRecord(id: string, content: string, links: readonly NoteLink[], mode: 'upsert' | 'create_only', inferenceAttribution?: InferenceAttribution, beforeMutation?: () => void): { kind: 'created' | 'replaced'; note: BotNote } {
 		id = normalizeNoteId(id);
 		content = noteContent(content);
 		if (links.length > maxNoteLinks) throw new AgentInputError(agentIssue('issue.note.references', { max: maxNoteLinks }));
@@ -263,6 +263,7 @@ export class BotNotesStore {
 				if (id !== planNoteId && count >= maxNotesPerBot) throw new AgentRepositoryError('conflict', agentIssue('issue.note.capacity', { max: maxNotesPerBot }), 409);
 			}
 			const now = new Date().toISOString();
+			beforeMutation?.();
 			this.storage.sql.exec(
 				"INSERT INTO notes (note_id, content, content_source, created_at, updated_at, revision, inference_attribution_json) VALUES (?, ?, 'authored', ?, ?, 0, ?) ON CONFLICT(note_id) DO UPDATE SET content = excluded.content, content_source = 'authored', updated_at = excluded.updated_at, revision = notes.revision + 1, inference_attribution_json = excluded.inference_attribution_json",
 				id, content, now, now, inferenceAttribution ? JSON.stringify(inferenceAttribution) : null,
@@ -297,10 +298,11 @@ export class BotNotesStore {
 		});
 	}
 
-	delete(text: FactoryText, id: string): { kind: 'deleted' | 'not_found' } | { kind: 'reset'; note: BotNote } {
+	delete(text: FactoryText, id: string, beforeMutation?: () => void): { kind: 'deleted' | 'not_found' } | { kind: 'reset'; note: BotNote } {
 		return this.storage.transactionSync(() => {
 			const exists = this.storedNote(id);
 			if (!exists) return { kind: 'not_found' };
+			beforeMutation?.();
 			this.storage.sql.exec('DELETE FROM note_links WHERE note_id = ?', id);
 			if (id === planNoteId) {
 				const now = new Date().toISOString();

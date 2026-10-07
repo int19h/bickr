@@ -380,6 +380,8 @@ function toolExecutionRecorder() {
 		readCommentTreeTokenBudget: unreachable("the comment-tree token budget"),
 		providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
 		markToolDispatched: () => {},
+		markToolReading: () => {},
+		recordMutationIdentity: () => {},
 		recentToolResultRows: () => [],
 		setLastSuccessfulLogOffSeq: unreachable("the log-off marker"),
 		listNotes: unreachable("notes"),

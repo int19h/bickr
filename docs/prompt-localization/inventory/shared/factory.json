@@ -15,7 +15,7 @@
         },
         {
           "file": "workers/agent-runtime/src/runtime/notes.ts",
-          "line": 309,
+          "line": 311,
           "kind": "direct"
         }
       ],
@@ -50,12 +50,12 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 1504,
+          "line": 1505,
           "kind": "direct"
         },
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 8695,
+          "line": 8738,
           "kind": "direct"
         },
         {
@@ -172,7 +172,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 5956,
+          "line": 5978,
           "kind": "direct"
         }
       ],
@@ -191,7 +191,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 6003,
+          "line": 6025,
           "kind": "direct"
         }
       ],

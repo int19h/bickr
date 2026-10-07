@@ -10,7 +10,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
-          "line": 1420,
+          "line": 1421,
           "kind": "direct"
         }
       ],
