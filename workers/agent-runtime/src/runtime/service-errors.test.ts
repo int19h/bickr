@@ -17,8 +17,8 @@ function request(response: Response | Error): Promise<unknown> {
 		if (response instanceof Error) throw response;
 		return response;
 	} } } });
-	return (runtime as unknown as { forumService(path: string, botId: string, body: unknown, signal: AbortSignal): Promise<unknown> })
-		.forumService('/votes', 'bot_test', {}, new AbortController().signal);
+	return (runtime as unknown as { forumService(path: string, botId: string, body: unknown, signal: AbortSignal, onDispatch: () => void): Promise<unknown> })
+		.forumService('/votes', 'bot_test', {}, new AbortController().signal, () => {});
 }
 function refused(status: number, issue?: unknown): Response {
 	return Response.json({ ok: false, error: 'server_error', message: 'Owner-only provider detail', ...(issue ? { details: { botIssue: issue } } : {}) }, { status });

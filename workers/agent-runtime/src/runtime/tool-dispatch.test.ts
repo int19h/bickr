@@ -132,7 +132,8 @@ describe('actual preparation and send boundaries', () => {
 		const pending = h.execute().catch((error) => error);
 		await vi.waitFor(() => expect(crypto.subtle.digest).toHaveBeenCalled()).catch(async () => { throw await pending; });
 		expect(h.journal().stage).toBe('prepared');
-		h.signal.abort(); await pending;
+		h.signal.abort(); const error = await pending;
+		if (name === 'vote') expect(error).toMatchObject({ items: [{ kind: 'not_attempted' }] });
 		expect(h.settle()).toMatchObject({ code: 'not_dispatched' });
 		gate.resolve(new Uint8Array(32).buffer); await Promise.resolve(); await Promise.resolve();
 		expect(h.fetch).not.toHaveBeenCalled();
@@ -164,13 +165,13 @@ describe('actual preparation and send boundaries', () => {
 		gate.resolve(new Response('{}'));
 	});
 
-	it('keeps a received mutation result when a durable Stop arrives before the final gate', async () => {
+	it('keeps a mutation receipt recorded before a later Stop', async () => {
 		const h = harness('create_thread', { forumHandle: 'f/forum', title: lt('Title'), body: lt('Body') });
-		let stopped = false;
-		h.capabilities.throwIfStopped = () => { if (stopped) throw new TickStoppedError(); };
-		h.fetch.mockImplementationOnce(async () => { stopped = true; return new Response(JSON.stringify({ ok: true, data: { thread } }), { headers: { 'content-type': 'application/json' } }); });
 		await expect(h.execute()).resolves.toMatchObject({ name: 'create_thread', envelope: { kind: 'thread_created', thread: { id: thread.id } } });
-		expect(h.store.loopMessagesAfter(0).at(-1)?.message.content).toContain('t/thr_thread');
+		const before = h.store.loopMessagesAfter(0);
+		h.signal.abort(); h.runtime.settlePendingTool('run');
+		expect(h.store.loopMessagesAfter(0)).toEqual(before);
+		expect(before.at(-1)?.message.content).toContain('t/thr_thread');
 		expect(storage.sql.exec("SELECT * FROM runtime_state WHERE key = 'pending_tool_v3'").toArray()).toEqual([]);
 	});
 });
@@ -208,9 +209,9 @@ it.each(['write', 'delete'] as const)('leaves a known note %s refusal before dis
 	expect(h.journal().stage).toBe('prepared');
 });
 
-it('blocks a model-shaped reply only after the request was sent', async () => {
+it.each(['Reply', ' Reply\n'])('blocks the model-shaped reply %j only after the request was sent', async (body) => {
 	const gate = deferred<Response>();
-	const args = { commentRef: 'c/cmt_root', body: lt('Reply') };
+	const args = { commentRef: 'c/cmt_root', body: lt(body) };
 	const h = harness('make_additional_reply_to_the_same_comment', args); h.fetch.mockReturnValueOnce(gate.promise);
 	const pending = h.execute().catch((error) => error);
 	await vi.waitFor(() => expect(h.fetch).toHaveBeenCalled());
@@ -273,4 +274,22 @@ it('keeps an internal follow lookup refusal typed before dispatch', async () => 
 	expect(error).toMatchObject({ items: [{ kind: 'refused', error: { details: { botIssue: { key: 'issue.service.participantMissing' } } } }] });
 	expect(h.journal().stage).toBe('prepared');
 	expect(h.statement.run).not.toHaveBeenCalled();
+});
+
+it('uses the real runtime wiring to persist the exact request identity before sending', async () => {
+	const args = { commentRef: 'c/cmt_root', body: lt(' Reply\n') };
+	const h = harness('make_additional_reply_to_the_same_comment', args);
+	const gate = deferred<Response>(); h.fetch.mockReturnValueOnce(gate.promise);
+	Object.assign(h.runtime, {
+		liveness: { progress: () => {} },
+		readCommentTreeTokenBudget: async () => 10_000,
+		providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
+	});
+	const pending = h.runtime.executeTool(bot, 'run', h.call.function.name, args, { mode: 'normal', setupMode: 'new_iteration', signal: h.signal.signal, toolCallId: h.call.id, toolInvocationId: 'run:request:call' }).catch((error: unknown) => error);
+	await vi.waitFor(() => expect(h.fetch).toHaveBeenCalled());
+	expect(h.journal()).toMatchObject({ stage: 'dispatched', instructionLocale: 'ja', toolCall: { id: 'call' }, mutationIdentity: { kind: 'reply', commentId: 'cmt_root', body: 'Reply' } });
+	h.signal.abort(); expect(await pending).toBeInstanceOf(ToolOutcomeUnknownError);
+	h.settle(); gate.resolve(new Response('{}'));
+	const event = storage.sql.exec<{ payload_json: string }>("SELECT payload_json FROM events WHERE type = 'tool_result' ORDER BY seq DESC LIMIT 1").one();
+	expect(JSON.parse(event.payload_json)).toMatchObject({ outcome: 'unknown', mutationIdentity: { kind: 'reply', commentId: 'cmt_root', body: 'Reply' } });
 });

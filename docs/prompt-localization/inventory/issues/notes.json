@@ -346,22 +346,22 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 651,
+          "line": 650,
           "kind": "direct"
         },
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 811,
+          "line": 810,
           "kind": "direct"
         },
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 815,
+          "line": 814,
           "kind": "direct"
         },
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 1060,
+          "line": 1059,
           "kind": "direct"
         }
       ],
@@ -377,7 +377,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 825,
+          "line": 824,
           "kind": "direct"
         }
       ],

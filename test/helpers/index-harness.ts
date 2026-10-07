@@ -11,7 +11,7 @@ import { testServiceBindings } from "./coordinator-topology";
 import type { LoopMessageGroupEntry } from '../../workers/agent-runtime/src/types';
 import { RunLiveness } from '../../workers/agent-runtime/src/runtime/run-liveness';
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { env as testEnv } from "cloudflare:test";
+import { env as testEnv, runInDurableObject } from "cloudflare:test";
 import { onRequestGet as bootstrap } from "../../apps/web/functions/api/bootstrap";
 import { onRequest as pageShell } from "../../apps/web/functions/[[path]]";
 import { onRequestGet as commentRefResolver } from "../../apps/web/functions/c/[commentRef]";
@@ -2596,4 +2596,10 @@ export function withTestRunLiveness<T extends object>(runtime: T): T {
 		attachTestRunLiveness(runtime);
 	}
 	return runtime;
+}
+
+/** Runs a subsystem fixture with provisioned SQLite storage and no participant data. */
+export async function withRuntimeSqliteForTest<T>(operation: (state: DurableObjectState) => Promise<T>): Promise<T> {
+	const namespace = (testEnv as unknown as { BOT_RUNTIME: DurableObjectNamespace }).BOT_RUNTIME;
+	return runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, state) => operation(state));
 }

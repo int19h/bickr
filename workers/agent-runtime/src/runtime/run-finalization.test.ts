@@ -83,7 +83,7 @@ it('classifies a timed-out website response as unknown, never a retryable refusa
 	vi.useFakeTimers();
 	const fetch = vi.fn(() => new Promise<Response>(() => {}));
 	const runtime = Object.assign(Object.create(BotRuntime.prototype), { env: { INTERNAL_SERVICE_SECRET: 'test', FORUM_COORDINATOR_SERVICE: { fetch } } });
-	const result = runtime.forumService('/comments/cmt_target/replies', 'bot', {}, new AbortController().signal).catch((error: unknown) => error);
+	const result = runtime.forumService('/comments/cmt_target/replies', 'bot', {}, new AbortController().signal, () => {}).catch((error: unknown) => error);
 	await vi.advanceTimersByTimeAsync(60_000);
 	expect(await result).toMatchObject({ kind: 'tool_outcome_unknown' });
 	expect(fetch).toHaveBeenCalledTimes(1);

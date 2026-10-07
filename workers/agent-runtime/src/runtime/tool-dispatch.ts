@@ -49,11 +49,11 @@ export function mutationIdentity(name: string, normalizedArgs: Record<string, un
 	const canonical = canonicalToolName(name);
 	if (canonical === 'reply_to_comment' || canonical === 'make_additional_reply_to_the_same_comment') {
 		const body = localizedArgumentText(normalizedArgs.body);
-		if (typeof normalizedArgs.commentId === 'string' && body !== undefined) return { kind: 'reply', commentId: normalizedArgs.commentId, body };
+		if (typeof normalizedArgs.commentId === 'string' && body !== undefined) return { kind: 'reply', commentId: normalizedArgs.commentId, body: body.trim() };
 	}
 	if (canonical === 'create_thread') {
 		const title = localizedArgumentText(normalizedArgs.title);
-		if (typeof normalizedArgs.forumHandle === 'string' && title !== undefined) return { kind: 'thread', forumHandle: normalizedArgs.forumHandle, title };
+		if (typeof normalizedArgs.forumHandle === 'string' && title !== undefined) return { kind: 'thread', forumHandle: normalizedArgs.forumHandle, title: title.trim() };
 	}
 	return undefined;
 }

@@ -117,7 +117,8 @@ A request marks dispatch after its final abort test and before the service call.
 A note marks dispatch inside the transaction that writes the note.
 A follow marks dispatch after profile lookups and before the relationship write.
 Post-write notification failures retain a committed outcome.
-A successful mutation retains its receipt when a stop arrives during the request.
+A stop during a sent request records an unknown outcome.
+A result recorded before the stop keeps its receipt.
 
 Recovery commits the paired tool message, outcome event, and journal deletion together.
 Unstarted sibling calls keep an unsent outcome.

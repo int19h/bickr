@@ -10,12 +10,12 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 1187,
+          "line": 1186,
           "kind": "typed_dynamic"
         },
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 1191,
+          "line": 1190,
           "kind": "typed_dynamic"
         }
       ],
@@ -31,12 +31,12 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 1187,
+          "line": 1186,
           "kind": "typed_dynamic"
         },
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 1191,
+          "line": 1190,
           "kind": "typed_dynamic"
         }
       ],
@@ -52,12 +52,12 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 1187,
+          "line": 1186,
           "kind": "typed_dynamic"
         },
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 1191,
+          "line": 1190,
           "kind": "typed_dynamic"
         }
       ],
@@ -73,12 +73,12 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 1187,
+          "line": 1186,
           "kind": "typed_dynamic"
         },
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 1191,
+          "line": 1190,
           "kind": "typed_dynamic"
         }
       ],
@@ -96,7 +96,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 1188,
+          "line": 1187,
           "kind": "direct"
         }
       ],
@@ -112,12 +112,12 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 1187,
+          "line": 1186,
           "kind": "typed_dynamic"
         },
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 1191,
+          "line": 1190,
           "kind": "typed_dynamic"
         }
       ],
@@ -135,12 +135,12 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 1187,
+          "line": 1186,
           "kind": "typed_dynamic"
         },
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 1191,
+          "line": 1190,
           "kind": "typed_dynamic"
         }
       ],
@@ -990,7 +990,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 779,
+          "line": 778,
           "kind": "direct"
         }
       ],
@@ -1008,7 +1008,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 779,
+          "line": 778,
           "kind": "direct"
         }
       ],
@@ -1096,7 +1096,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 755,
+          "line": 754,
           "kind": "direct"
         }
       ],
@@ -1112,7 +1112,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 755,
+          "line": 754,
           "kind": "direct"
         }
       ],

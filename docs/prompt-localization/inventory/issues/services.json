@@ -1018,7 +1018,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/runtime/tools.ts",
-          "line": 1004,
+          "line": 1003,
           "kind": "direct"
         },
         {

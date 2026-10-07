@@ -3,6 +3,7 @@ import type { LocalizedProviderSettings } from "../workers/agent-runtime/src/pro
 import { botText as testBotText } from "../workers/agent-runtime/src/localization";
 const englishInstructions = testBotText("en");
 import { withTestRunLiveness } from "./helpers/index-harness";
+import { withRuntimeSqliteForTest } from "./helpers/index-harness";
 import { attachTestRunLiveness } from "./helpers/index-harness";
 import { testToolExecutor } from "./helpers/index-harness";
 import {
@@ -347,65 +348,60 @@ describe("Tick flow", () => {
 	});
 
 	it("finishes the committed tool pair and interrupts remaining tools when Stop lands between tools", async () => {
-		const controller = new AbortController();
-		const groups: Array<Array<{ message: BotInferenceSubmissionMessage; origin: string; status?: string }>> = [];
-		const executed: string[] = [];
-		let eventSeq = 0;
-		const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
-			appendEvent: (runId: string, type: BotRuntimeEvent["type"], payload: unknown) =>
-				runtimeEvent(++eventSeq, runId, type, payload),
-			appendLoopMessageGroup: (items: Array<{ message: BotInferenceSubmissionMessage; origin: string; status?: string }>) => {
-				groups.push(items);
-				return [];
-			},
-			appendProviderMessages: async () => {},
-			callProvider: async () => providerResponseWithToolCalls([
-				{ id: "call-first", name: "read_thread", args: { threadId: "thr_first" } },
-				{ id: "call-second", name: "read_thread", args: { threadId: "thr_second" } },
-			]),
-			ensureProviderPromptWithinBudget: async () => ({
-				allowedPromptTokens: 13_500,
-				maxCompletionTokens: 5_000,
-				promptTokens: 100,
-				providerTools: toolDefinitionsForProviderRound(englishInstructions),
-				requestMessages: [{ role: "system", content: "Context" }],
-			}),
-			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => {
-				executed.push(name);
-				controller.abort();
-				return { name, result: { ok: true }, providerResult: { ok: true } };
-			}),
-			loopGeneratedTokenCountSinceLastLogOff: () => 0,
-			prematureLogOffCorrectedSinceLastLogOff: () => false,
-			providerLoopInitialSuccessfulToolCallCount: () => 0,
-			recordDroppedProviderToolCalls: async () => {},
-			recordInferenceSubmission: () => {},
-			recordProviderUsage: async () => {},
-			successfulMutatingToolCallSinceLastLogOff: () => false,
-			throwIfStopped: (_runId: string, signal: AbortSignal) => {
-				if (signal.aborted) throw new TickStoppedError();
-			},
-		}));
-		// Recovery reads the empty journal even when tool execution is mocked.
-		attachTestRunLiveness(runtime);
-		const runProviderLoop = (BotRuntime.prototype as unknown as {
-			runProviderLoop(bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, settings: LocalizedProviderSettings, runId: string, messages: BotInferenceSubmissionMessage[], context: { mode: "normal"; signal: AbortSignal }): Promise<unknown>;
-		}).runProviderLoop.bind(runtime);
+		await withRuntimeSqliteForTest(async (state) => {
+			const controller = new AbortController();
+			const executed: string[] = [];
+			const runtime = withTestRunLiveness(Object.assign(Object.create(BotRuntime.prototype), {
+				state,
+				appendProviderMessages: async () => {},
+				callProvider: async () => providerResponseWithToolCalls([
+					{ id: "call-first", name: "read_thread", args: { threadId: "thr_first" } },
+					{ id: "call-second", name: "read_thread", args: { threadId: "thr_second" } },
+				]),
+				ensureProviderPromptWithinBudget: async () => ({
+					allowedPromptTokens: 13_500,
+					maxCompletionTokens: 5_000,
+					promptTokens: 100,
+					providerTools: toolDefinitionsForProviderRound(englishInstructions),
+					requestMessages: [{ role: "system", content: "Context" }],
+				}),
+				executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => {
+					executed.push(name);
+					controller.abort();
+					return { name, result: { ok: true }, providerResult: { ok: true } };
+				}),
+				loopGeneratedTokenCountSinceLastLogOff: () => 0,
+				prematureLogOffCorrectedSinceLastLogOff: () => false,
+				providerLoopInitialSuccessfulToolCallCount: () => 0,
+				recordDroppedProviderToolCalls: async () => {},
+				recordInferenceSubmission: () => {},
+				recordProviderUsage: async () => {},
+				successfulMutatingToolCallSinceLastLogOff: () => false,
+				throwIfStopped: (_runId: string, signal: AbortSignal) => {
+					if (signal.aborted) throw new TickStoppedError();
+				},
+			}));
+			const runProviderLoop = (BotRuntime.prototype as unknown as {
+				runProviderLoop(bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, settings: LocalizedProviderSettings, runId: string, messages: BotInferenceSubmissionMessage[], context: { mode: "normal"; signal: AbortSignal }): Promise<unknown>;
+			}).runProviderLoop.bind(runtime);
 
-		await expect(runProviderLoop(
-			fakeBotDocument(),
-			{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
-			"run-between-tools",
-			[],
-			{ mode: "normal", signal: controller.signal },
-		)).rejects.toBeInstanceOf(TickStoppedError);
-		expect(executed).toEqual(["read_thread"]);
-		const toolRows = groups.flat().filter((item) => item.message.role === "tool");
-		expect(toolRows).toEqual([
-			expect.objectContaining({ origin: "tool_result", status: "complete", message: expect.objectContaining({ tool_call_id: "call-first" }) }),
-			expect.objectContaining({ origin: "tool_failure", status: "interrupted", message: expect.objectContaining({ tool_call_id: "call-second" }) }),
-		]);
-		expect(JSON.parse(String(toolRows[1]?.message.content))).toMatchObject({ code: "not_dispatched" });
+			await expect(runProviderLoop(
+				fakeBotDocument(),
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				"run-between-tools",
+				[],
+				{ mode: "normal", signal: controller.signal },
+			)).rejects.toBeInstanceOf(TickStoppedError);
+			expect(executed).toEqual(["read_thread"]);
+			const toolRows = state.storage.sql.exec<{ message_json: string; origin: string; status: string }>("SELECT message_json, origin, status FROM loop_messages WHERE role = 'tool' ORDER BY seq").toArray().map(({ message_json, ...metadata }) => ({ ...metadata, message: JSON.parse(message_json) }));
+			expect(toolRows).toEqual([
+				expect.objectContaining({ origin: "tool_result", status: "complete", message: expect.objectContaining({ tool_call_id: "call-first" }) }),
+				expect.objectContaining({ origin: "tool_failure", status: "interrupted", message: expect.objectContaining({ tool_call_id: "call-second" }) }),
+			]);
+			expect(JSON.parse(String(toolRows[1]?.message.content))).toMatchObject({ code: "not_dispatched" });
+			const event = state.storage.sql.exec<{ payload_json: string }>("SELECT payload_json FROM events WHERE type = 'tool_result' ORDER BY seq DESC LIMIT 1").one();
+			expect(JSON.parse(event.payload_json)).toMatchObject({ name: "read_thread", outcome: "not_dispatched" });
+		});
 	});
 
 	it("checks cancellation before threshold compaction reads or mutates its generation", async () => {

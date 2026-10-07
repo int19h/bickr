@@ -458,8 +458,7 @@ export class RuntimeTools {
 			if (error instanceof ToolCommittedOutcomeError || error instanceof ToolOutcomeUnknownError) error.scope = { related: spotlightMutation, unrelated: spotlightTickTerminator };
 			throw error;
 		}
-		// Keep a mutation receipt even when Stop arrives during its request.
-		if (toolExecutionEffect(canonicalName) !== 'mutation') this.runtime.throwIfStopped(runId, runContext.signal);
+		this.runtime.throwIfStopped(runId, runContext.signal);
 		if (effectiveArgs) {
 			this.runtime.replaceEventPayload(toolCallEvent, { name: canonicalName, args: providerToolArgs(canonicalName, effectiveArgs) });
 		}
