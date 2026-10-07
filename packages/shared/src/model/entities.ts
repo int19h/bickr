@@ -83,10 +83,17 @@ export type JsonObject = {
 	[key: string]: JsonValue;
 };
 
+export type BrowserSessionDetails = {
+	browser: "Chrome" | "Edge" | "Firefox" | "Opera" | "Safari" | "Samsung Internet" | null;
+	operatingSystem: "Windows" | "macOS" | "Linux" | "ChromeOS" | "Android" | "iOS" | null;
+};
+
 export type SessionDocument = EntityDocument & {
 	type: "session";
 	userId: string;
 	expiresAt: string;
+	browserDetails?: BrowserSessionDetails;
+	customName?: string;
 };
 
 export type WorldDocument = EntityDocument & {

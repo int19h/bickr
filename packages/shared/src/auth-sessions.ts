@@ -1,5 +1,5 @@
 import { randomToken, sha256Hex } from "./ids";
-import { schemaVersion, type SessionDocument, type UserDocument } from "./model";
+import { schemaVersion, type BrowserSessionDetails, type SessionDocument, type UserDocument } from "./model";
 import { kvKeys, readJson, type KVNamespaceLike, type D1DatabaseLike } from "./storage";
 import { RepositoryError } from "./repository-error";
 import { activeUser } from "./auth-principal";
@@ -37,6 +37,7 @@ export type CliTokenDocument = {
 	type: "cliToken";
 	userId: string;
 	label: string;
+	customName?: string;
 	createdAt: string;
 	expiresAt: string;
 	updatedAt: string;
@@ -46,13 +47,34 @@ const sessionTtlSeconds = 60 * 60 * 24 * 30;
 const cliAuthRequestTtlSeconds = 10 * 60;
 const cliTokenTtlSeconds = 60 * 60 * 24 * 90;
 
-export async function createSession(db: D1DatabaseLike, userId: string, now = new Date()): Promise<SessionCreateResult> {
+/** User-Agent names are descriptive hints, never authentication evidence.
+ * Match specific browsers before their Chrome/Safari compatibility tokens.
+ * Keep no raw header, version, address, or device fingerprint. */
+export function browserSessionDetails(userAgent: string | null): BrowserSessionDetails {
+	const agent = (userAgent ?? "").slice(0, 1024);
+	const browser = /(?:Edg|EdgA|EdgiOS)\//.test(agent) ? "Edge"
+		: /(?:OPR|OPiOS|Opera)[/ ]/.test(agent) ? "Opera"
+		: /SamsungBrowser\//.test(agent) ? "Samsung Internet"
+		: /(?:Firefox|FxiOS)\//.test(agent) ? "Firefox"
+		: /(?:Chrome|CriOS)\//.test(agent) ? "Chrome"
+		: /Version\/\S+.*Safari\//.test(agent) ? "Safari" : null;
+	const operatingSystem = /Android/.test(agent) ? "Android"
+		: /(?:iPhone|iPad|iPod)/.test(agent) ? "iOS"
+		: /CrOS/.test(agent) ? "ChromeOS"
+		: /Windows/.test(agent) ? "Windows"
+		: /Macintosh|Mac OS X/.test(agent) ? "macOS"
+		: /Linux/.test(agent) ? "Linux" : null;
+	return { browser, operatingSystem };
+}
+
+export async function createSession(db: D1DatabaseLike, userId: string, now = new Date(), browserDetails?: BrowserSessionDetails): Promise<SessionCreateResult> {
 	const cookieValue = `bckr_session_v2_${randomToken()}`;
 	const hash = await sha256Hex(cookieValue);
 	const createdAt = now.toISOString();
 	const session: SessionDocument = {
 		id: `sid_${hash.slice(0, 32)}`, type: "session", schemaVersion, revision: 1, userId,
 		createdAt, updatedAt: createdAt, expiresAt: new Date(now.getTime() + sessionTtlSeconds * 1000).toISOString(),
+		...(browserDetails ? { browserDetails } : {}),
 	};
 	const result = await db.prepare(`INSERT INTO auth_records(record_key, kind, user_id, expires_at, document)
 		SELECT ?, 'session', ?, ?, ? WHERE EXISTS

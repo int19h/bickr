@@ -41,6 +41,7 @@ export type McpGrantDocument = {
 	type: "mcpGrant";
 	schemaVersion: number;
 	clientId: string;
+	customName?: string;
 	userId: string;
 	resource: string;
 	scopes: McpScope[];

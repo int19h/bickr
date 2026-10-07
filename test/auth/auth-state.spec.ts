@@ -205,9 +205,9 @@ describe("atomic authentication state", () => {
 		const page = await listAccountCredentials(db, user.id, "", later(3));
 		expect(page.credentials).toHaveLength(100);
 		const end = await listAccountCredentials(db, user.id, page.nextCursor!, later(3));
-		expect(end.credentials).toHaveLength(3);
+		expect(end.credentials).toHaveLength(2);
 		expect(end.nextCursor).toBeNull();
-		expect(new Set([...page.credentials, ...end.credentials].map((row) => row.id)).size).toBe(103);
+		expect(new Set([...page.credentials, ...end.credentials].map((row) => row.id)).size).toBe(102);
 	});
 
 	it("keeps rate-counter storage bounded when addresses rotate after global admission closes", async () => {

@@ -340,7 +340,6 @@ export function ProfileScreen({
 				</div>
 
 				<aside className="edit-aside">
-					<AccountCredentials userId={user.id} onSessionRevoked={onSessionRevoked} />
 					<section className="section">
 						<div className="section-head">
 							<h2>Account</h2>
@@ -366,6 +365,7 @@ export function ProfileScreen({
 							<RuntimeRow label="Updated" value={profile ? <TimeAgoLabel value={profile.updatedAt} /> : "..."} />
 						</div>
 					</section>
+					<AccountCredentials userId={user.id} onSessionRevoked={onSessionRevoked} />
 				</aside>
 			</div>
 			<Confirm
