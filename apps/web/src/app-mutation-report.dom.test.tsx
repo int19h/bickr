@@ -167,7 +167,7 @@ it("clears the session after account-wide revocation without a second logout req
 			logoutRequests += 1;
 			return Promise.reject(new Error("The network failed after revocation."));
 		}
-		if (String(input) === "/api/me/auth/credentials" && init?.method === "DELETE") return Promise.resolve(Response.json({ ok: true, data: { revoked: true } }));
+		if (String(input) === "/api/me/auth/credentials" && init?.method === "DELETE") return Promise.resolve(Response.json({ ok: true, data: { revoked: true, sessionRevoked: true } }));
 		return Promise.resolve(respond(String(input), init));
 	});
 	act(() => { window.history.pushState({}, "", "/me/profile"); window.dispatchEvent(new PopStateEvent("popstate")); });
