@@ -386,6 +386,8 @@ describe("Tick flow", () => {
 				if (signal.aborted) throw new TickStoppedError();
 			},
 		}));
+		// Recovery reads the empty journal even when tool execution is mocked.
+		attachTestRunLiveness(runtime);
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop(bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, settings: LocalizedProviderSettings, runId: string, messages: BotInferenceSubmissionMessage[], context: { mode: "normal"; signal: AbortSignal }): Promise<unknown>;
 		}).runProviderLoop.bind(runtime);
@@ -403,6 +405,7 @@ describe("Tick flow", () => {
 			expect.objectContaining({ origin: "tool_result", status: "complete", message: expect.objectContaining({ tool_call_id: "call-first" }) }),
 			expect.objectContaining({ origin: "tool_failure", status: "interrupted", message: expect.objectContaining({ tool_call_id: "call-second" }) }),
 		]);
+		expect(JSON.parse(String(toolRows[1]?.message.content))).toMatchObject({ code: "not_dispatched" });
 	});
 
 	it("checks cancellation before threshold compaction reads or mutates its generation", async () => {
