@@ -1,0 +1,21 @@
+{
+  "group": "tools/save_translation",
+  "units": [
+    {
+      "id": "tools.save_translation.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/save_translation.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 633,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "d1b7c34cc51487acbf5e754dda2cf105051d8a20e3888c8baf2a6fb4c5652013"
+    }
+  ]
+}

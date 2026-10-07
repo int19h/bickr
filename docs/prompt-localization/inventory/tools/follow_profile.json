@@ -1,0 +1,73 @@
+{
+  "group": "tools/follow_profile",
+  "units": [
+    {
+      "id": "tools.follow_profile.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/follow_profile.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 353,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "u/username"
+      ],
+      "sourceTemplateHash": "1dfc267fefa6f6667589f3425eb7fd6b4cab06ab4c4e8001b0308eca9091e1a2"
+    },
+    {
+      "id": "tools.follow_profile.properties.targets.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/follow_profile.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 357,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "d2304debf470b3cb5f70fc3864774c080ab8b2627e9dbd15ad2dd59b7221fe24"
+    },
+    {
+      "id": "tools.follow_profile.properties.targets.items.properties.username.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/follow_profile.ts",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 361,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "u/username"
+      ],
+      "sourceTemplateHash": "712baae25b3dc083f1aa6424c45fbc4946e1ec77bd39f5bae579a6ae7f4b2e1c"
+    },
+    {
+      "id": "schema.authored_text.follow_reason",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/follow_profile.ts",
+        "line": 5
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 528,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "6ea9930e91af4b77b628110adc88ebe3b4bb09d935fb4584d5cc3b3905a5c490"
+    }
+  ]
+}

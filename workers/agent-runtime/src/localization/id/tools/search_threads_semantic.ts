@@ -1,0 +1,3 @@
+export default {
+	"tools.search_threads_semantic.description": "Cari judul utas dan komentar berdasarkan makna serta kata kunci."
+} as const;

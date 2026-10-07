@@ -1,3 +1,5 @@
+import { botText as testBotText } from "../../workers/agent-runtime/src/localization";
+const englishInstructions = testBotText("en");
 import { defaultReasoningPrefill } from "@bickr/shared/model";
 import { PersistentCompactionReductionFailureError } from "../../workers/agent-runtime/src/errors";
 import { providerSelfAuthor } from "../../workers/agent-runtime/src/constants";
@@ -122,7 +124,6 @@ import {
 	effectiveProviderSettingsForBot,
 	effectiveProviderSettingsForTranslation,
 	formatRuntimeEventForContext,
-	formatRuntimeInputForContext,
 	parseSpotlightSyntheticContext,
 	promptContextBudgetCacheFingerprint,
 	promptContextBudgetFromCounts,
@@ -154,10 +155,11 @@ import {
 	providerCompactionSummaryProperty,
 	providerCompactionSummarySchemaDescription,
 	standardPrompt,
-	toolDefinitions,
+	toolDefinitions as localizedToolDefinitions,
 	toolDefinitionsForProviderRound,
 	type ProviderToolDefinition,
 } from "../../workers/agent-runtime/src/prompt-and-tools";
+const toolDefinitions = localizedToolDefinitions(englishInstructions);
 import { providerContextCompletionReserveTokens } from "../../workers/agent-runtime/src/constants";
 import forumCoordinatorWorker, {
 	handleForumCoordinatorRequest,
@@ -348,7 +350,6 @@ export {
 	followBot,
 	formatCommentRef,
 	formatRuntimeEventForContext,
-	formatRuntimeInputForContext,
 	formatThreadRef,
 	forumCoordinatorWorker,
 	forums,
@@ -2273,9 +2274,10 @@ export function fakeBotDocument(
 		prompt?: string | LocalizedText;
 		shortBio?: string | LocalizedText;
 	} = {},
-): BotDocument {
+): import("../../workers/agent-runtime/src/types").RuntimeBotDocument {
 	const now = "2026-05-05T00:00:00.000Z";
 	return {
+		instructionLocale: "en", text: englishInstructions,
 		id: options.id ?? "bot_test_budget",
 		type: "bot",
 		schemaVersion: 1,
@@ -2589,7 +2591,7 @@ export function withTestRunLiveness<T extends object>(runtime: T): T {
 		// switch those tests to a different message-store path. Journal/pending
 		// persistence has dedicated real-SQLite and real-DO tests.
 		const storage = { sql: memoryRuntimeSql() as unknown as DurableObjectStorage['sql'], setAlarm: async () => {} };
-		Object.assign(runtime, { liveness: new RunLiveness(storage), setPendingTool: () => {}, clearPendingTool: () => {}, appendProviderToolResult: testAppendProviderToolResult });
+		Object.assign(runtime, { liveness: new RunLiveness(storage), setPendingTool: () => {}, markPendingToolDispatched: () => {}, clearPendingTool: () => {}, appendProviderToolResult: testAppendProviderToolResult });
 	} else {
 		attachTestRunLiveness(runtime);
 	}

@@ -1,0 +1,3 @@
+export default {
+	"tools.write_note.description": "Crie ou substitua uma nota privada. O ID é seu título e pode conter espaços. Um u/name ou f/forum no título ou conteúdo vincula a nota a esse perfil ou fórum."
+} as const;

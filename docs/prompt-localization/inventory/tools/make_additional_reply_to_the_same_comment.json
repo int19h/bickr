@@ -1,0 +1,21 @@
+{
+  "group": "tools/make_additional_reply_to_the_same_comment",
+  "units": [
+    {
+      "id": "tools.make_additional_reply_to_the_same_comment.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/make_additional_reply_to_the_same_comment.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 266,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "d7ba2b8ff7df1e1335a6cf58ed200e494caad6bf56bce5ce61a95d9dcffb362c"
+    }
+  ]
+}

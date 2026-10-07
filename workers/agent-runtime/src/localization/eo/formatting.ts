@@ -1,0 +1,12 @@
+export default {
+	"formatting.action": "Ago",
+	"formatting.result": "Rezulto",
+	"formatting.input": "Enigo",
+	"formatting.thought": "Nova penso",
+	"formatting.orPair": "{{first}} aŭ {{last}}",
+	"formatting.orMany": "{{first}} aŭ {{last}}",
+	"formatting.sentenceSeparator": " ",
+	"formatting.listSeparator": ", ",
+	"formatting.andPair": "{{first}} kaj {{last}}",
+	"formatting.andMany": "{{first}} kaj {{last}}"
+} as const;

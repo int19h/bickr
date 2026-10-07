@@ -1,0 +1,4 @@
+export default {
+	"issue.tool.unknown": "Nekonata ilo: {{toolName}}. Elektu ilon el la listo de disponeblaj iloj.",
+	"issue.tool.duplicateReply": "Ĝuste ĉi tiu komento jam estis afiŝita: {{commentRef}} ({{urlPath}})."
+} as const;

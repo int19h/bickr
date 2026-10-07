@@ -1,0 +1,1037 @@
+{
+  "group": "issues/services",
+  "units": [
+    {
+      "id": "issue.service.threadMissing",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/forum-coordinator/src/index.ts",
+          "line": 1645,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 3,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 831,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 2787,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "bf8d1baf87b3abd527a86b41cacb459deb5c5901280802a23f3c16082d10f9e9"
+    },
+    {
+      "id": "issue.service.threadOutsideForum",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 7,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 639,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 3128,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "b91beeaf0fc532ff0c7927309afafa2ff1a099dd09ab830c8ed26ddf6f2018ee"
+    },
+    {
+      "id": "issue.service.commentMissing",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 11,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 3151,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 7559,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 7564,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "4290e56a1171845db39ed2799a94e6e4bdae9d01168e5e06583978ce1c4004a0"
+    },
+    {
+      "id": "issue.service.parentCommentMissing",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 5
+      },
+      "sinks": [
+        {
+          "file": "workers/forum-coordinator/src/index.ts",
+          "line": 762,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 15,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 2806,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "a1b21c7b1adce424fecd46c20c7804478c1f1c4c68af313de343466a3ce4e6b9"
+    },
+    {
+      "id": "issue.service.forumMissing",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 6
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 19,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/repository.ts",
+          "line": 4165,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 588,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 611,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 618,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 672,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "b9e88c0c383765f1eb87a01888e209d03187999aaa524217bc5fc0d125a6ee07"
+    },
+    {
+      "id": "issue.service.forumUnavailable",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 7
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 23,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 621,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "0ff9a96b0c456820a82f56addae5e054de5701388029cc564407f7f023928b3b"
+    },
+    {
+      "id": "issue.service.forumGone",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 8
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 27,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 624,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "75dbf205bae72e106d7c6b0ca5cbdc63e0c6ed926da046cdab1458991facf469"
+    },
+    {
+      "id": "issue.service.forumDeleted",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 9
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 31,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 627,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "f27174576ee1cf56e6ec882f41b2190269b6283d8e225f3a9855207b814f523d"
+    },
+    {
+      "id": "issue.service.forumReadOnly",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 10
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 35,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 675,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "817cd164d19daab9240a4a1483a443ba607944e3da40c142852b902ee9bac27d"
+    },
+    {
+      "id": "issue.service.participantMissing",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 11
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 39,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/repository.ts",
+          "line": 1895,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/repository.ts",
+          "line": 1902,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/repository.ts",
+          "line": 1934,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/repository.ts",
+          "line": 2082,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/repository.ts",
+          "line": 2087,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/repository.ts",
+          "line": 2098,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/repository.ts",
+          "line": 3230,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/repository.ts",
+          "line": 3238,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 3524,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 3708,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 3761,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 3792,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "9ecd6b37f14c3bca22835cba11c355900d989bc6f410f4cdee9f3b042386f058"
+    },
+    {
+      "id": "issue.service.outsideWorld",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 12
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 43,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 7692,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "ed16279ccf865eb1da5c97e334d97ac5287a1f0cf7d00bd6e53b6f92905d979d"
+    },
+    {
+      "id": "issue.service.followSelf",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 13
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 47,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 3245,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "4c1b715035d8f93f1e4e16760599c96e4855fce3cac007f00365b01616b28550"
+    },
+    {
+      "id": "issue.service.threadUnreadable",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 14
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 51,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 508,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "b37abb25ecbef02b581ad9d03681d120b36ba789258e08a522ae35fc81dee126"
+    },
+    {
+      "id": "issue.service.threadRootMissing",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 15
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 55,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 500,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 515,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "ed963c420709bcf1fe14daee84ca502ad762972057a2582188f3b5c2562e7b16"
+    },
+    {
+      "id": "issue.service.requestDataUnavailable",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 16
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 59,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 7703,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 7714,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "4849bbb16e1363a59b43fa935b41b5a5f8c39f692817bb2375b98a56d493599d"
+    },
+    {
+      "id": "issue.service.duplicateTitle",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 17
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 63,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 2640,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "forumRef",
+        "threadRef"
+      ],
+      "sourceTemplateHash": "6555f5c2dbd59eaab08c377bbf75b765731b1360a8056cb4811bee25377cd46f"
+    },
+    {
+      "id": "issue.service.threadLocked",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 18
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 71,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/social.ts",
+          "line": 2798,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "5e791bdcbc7eee84279f2021a9f0eedce0660bc5d8a0b6e79b8723625bcb4698"
+    },
+    {
+      "id": "issue.service.textRequired",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 22
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 78,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/validation.ts",
+          "line": 172,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/validation.ts",
+          "line": 177,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/validation.ts",
+          "line": 231,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/validation.ts",
+          "line": 235,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "91af138210ec17ff7c4f03053e29a66b08e938b89f92aefbe5bcd8eb9f6f7361"
+    },
+    {
+      "id": "issue.service.textTooLong",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 23
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 84,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/validation.ts",
+          "line": 181,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/validation.ts",
+          "line": 239,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "23fbbba75074707bf8df36e0fc2fb9c59126756fa74bd5397cade9fedb3da9f5"
+    },
+    {
+      "id": "issue.service.authoredTextObject",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 27
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 92,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/validation.ts",
+          "line": 315,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "BCP 47",
+        "ar",
+        "en",
+        "ja",
+        "lang",
+        "text",
+        "zh-Hans"
+      ],
+      "sourceTemplateHash": "32f536b6e5d5b5004c6e27d3512e226cf34f9280dc37a83bc978c14b6e80e9e1"
+    },
+    {
+      "id": "issue.service.languageRequired",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 28
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 98,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/validation.ts",
+          "line": 319,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "BCP 47",
+        "ar",
+        "en",
+        "ja",
+        "zh-Hans"
+      ],
+      "sourceTemplateHash": "57eb10f3c7c164d0af52c96c5aaf78dac1030d41a5d14c9cfc2a750cb94c1b0f"
+    },
+    {
+      "id": "issue.service.languageInvalid",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 29
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 104,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/validation.ts",
+          "line": 269,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/validation.ts",
+          "line": 273,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/validation.ts",
+          "line": 282,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "BCP 47",
+        "ar",
+        "en",
+        "ja",
+        "zh-Hans"
+      ],
+      "sourceTemplateHash": "80a860773dee5d57d46bf73c64728de4fb91ac12143c28d6e191bdb6d1604ea0"
+    },
+    {
+      "id": "issue.service.requestObject",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 30
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 110,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/validation.ts",
+          "line": 781,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "JSON"
+      ],
+      "sourceTemplateHash": "96ef6552e5b653ed3e8400f38a66f5c01bebf09b9475865911b28a33a58784b3"
+    },
+    {
+      "id": "issue.service.requestJson",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 31
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/api.ts",
+          "line": 47,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 114,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "JSON"
+      ],
+      "sourceTemplateHash": "d7653b56899abe6ca0d3418481fc19b7e82e93322e960176086834a43bd42fcd"
+    },
+    {
+      "id": "issue.service.requestContentType",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 32
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/api.ts",
+          "line": 40,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 118,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "application/json"
+      ],
+      "sourceTemplateHash": "c768e4df01110fe0cbff8cdbe14ed7206e0348df20eee5bd9f305b1489275990"
+    },
+    {
+      "id": "issue.service.voteTarget",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 33
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 122,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/validation.ts",
+          "line": 763,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "commentId",
+        "threadId"
+      ],
+      "sourceTemplateHash": "e2cbd5a52361e073caa6fd809067d65c5708ada995b090af03baeefde2473816"
+    },
+    {
+      "id": "issue.service.voteValue",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 34
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 126,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/validation.ts",
+          "line": 767,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "fa53423782a67adb584ce065abdb617c8c8e2aff066e76874e75eccd39e571bc"
+    },
+    {
+      "id": "issue.service.searchRebuilding",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 35
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 130,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/indexed-substring-search.ts",
+          "line": 59,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "8c50b10e9c77275d4df50aecd40009b1c10d13e0ff66439d6ccce5d185be6dc4"
+    },
+    {
+      "id": "issue.service.maintenanceEnabled",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 36
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 134,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/maintenance.ts",
+          "line": 122,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "bb81afe6ee1f04e5078109d47720b3d4e7c0670c049fbf7bfd3335c4b0801124"
+    },
+    {
+      "id": "issue.service.maintenanceUnavailable",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 37
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9249,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 138,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/maintenance.ts",
+          "line": 122,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "608f9a39cb5213d78425a91b12e057d6b602dfcda1d8c1e382cb1b08a755b04b"
+    },
+    {
+      "id": "issue.service.mutationResultDeleted",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 38
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 142,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "82c568d7ceeb74174482ed2847c6bcc0e342b0bbc6d4fe9ab43b2b4a2de7c621"
+    },
+    {
+      "id": "issue.service.runtimeStorageCleared",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 39
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9969,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 146,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "1f43dd175a36e2d774016314bd66767bd4e24435c03d2795da1a61b55892f640"
+    },
+    {
+      "id": "issue.service.mutationReceiptUnavailable",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 40
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 231,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/forum-coordinator/src/index.ts",
+          "line": 1917,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 150,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "2b6e5594323c8b86e4a1cc9515d70edbb13a9b84853071cfd388575f0560954c"
+    },
+    {
+      "id": "issue.service.routeMissing",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 41
+      },
+      "sinks": [
+        {
+          "file": "workers/forum-coordinator/src/index.ts",
+          "line": 1766,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 154,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "4b2c8d3c3046c128e4c236c4f3c3c9a205268a38ef5c575b8e1cacc68cd21423"
+    },
+    {
+      "id": "issue.service.mutationRecoveryPending",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 42
+      },
+      "sinks": [
+        {
+          "file": "workers/forum-coordinator/src/index.ts",
+          "line": 1854,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 158,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "9d62f6f597f3472e68dcd42c8866e98dc33c4ce1cdcc0d9149f6db76856b392b"
+    },
+    {
+      "id": "issue.service.mutationKeyReused",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 43
+      },
+      "sinks": [
+        {
+          "file": "workers/forum-coordinator/src/thread-mutations.ts",
+          "line": 87,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 162,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "1f9af0e5874004c294b1d6b3e8b4c43f0231f5db16ae01e5a9d77d08b8dcf992"
+    },
+    {
+      "id": "issue.service.mutationResultDeletedInThread",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 44
+      },
+      "sinks": [
+        {
+          "file": "workers/forum-coordinator/src/index.ts",
+          "line": 1923,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 166,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "threadRef"
+      ],
+      "sourceTemplateHash": "fadcb4d3eae92949642ad46d4afe75a53d3f8652dbfbd1a1818a2ba81dfbc501"
+    },
+    {
+      "id": "issue.service.mutationResultDeletedComment",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 45
+      },
+      "sinks": [
+        {
+          "file": "workers/forum-coordinator/src/index.ts",
+          "line": 1922,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 172,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "commentRef",
+        "threadRef"
+      ],
+      "sourceTemplateHash": "7572839f0b18d96a414cc4f98a8a31d75b0218bb792ede349b47c82ae65d5545"
+    },
+    {
+      "id": "issue.service.mutationReceiptUnavailableInThread",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
+        "line": 46
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 992,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/forum-coordinator/src/index.ts",
+          "line": 1916,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/bot-service-issues.ts",
+          "line": 179,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "threadRef"
+      ],
+      "sourceTemplateHash": "3c58144b45fe33fa2352b6879609b039597efc3e2327212dd494102c5c2cd2fc"
+    }
+  ]
+}

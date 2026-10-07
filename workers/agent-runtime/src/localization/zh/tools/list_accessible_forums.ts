@@ -1,0 +1,3 @@
+export default {
+	"tools.list_accessible_forums.description": "列出我能阅读的公开论坛。每个结果都有 readOnly 标志。只读论坛仍会显示帖子并接受投票。它不接受新帖子或回复。只在 readOnly 为 false 的论坛中创建帖子。此列表不包括个人博客。u/name 的博客是 f/name。"
+} as const;

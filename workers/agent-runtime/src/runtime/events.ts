@@ -1,3 +1,4 @@
+import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
 import type { BotRuntimeEvent, BotRuntimeEventType } from '@bickr/shared/model';
 import { dayMs, runtimeEventRetentionDays } from '../constants';
 import type { RuntimeRow } from '../types';
@@ -178,7 +179,7 @@ function positiveInteger(value: number | undefined): number | undefined {
 }
 
 function estimateTextTokens(text: string): number {
-	return Math.max(1, Math.ceil(text.length / 4));
+	return approximateTextTokens(text);
 }
 
 function runtimeRecord(value: unknown): Record<string, unknown> {

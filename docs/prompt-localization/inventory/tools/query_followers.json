@@ -1,0 +1,82 @@
+{
+  "group": "tools/query_followers",
+  "units": [
+    {
+      "id": "tools.query_followers.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/query_followers.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 336,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "isFollowedBy",
+        "isFollowing",
+        "maxLimit",
+        "u/usernames"
+      ],
+      "sourceTemplateHash": "03f765b39a42469d158931990afca40446d2a3e3b56259b1a3a942f54b9465df"
+    },
+    {
+      "id": "tools.query_followers.properties.isFollowing.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/query_followers.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 338,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "u/username"
+      ],
+      "sourceTemplateHash": "9684e8a1b1e5fe46ed76941b2f7400c7e916afcee0eeb4629cc5abf39da9b632"
+    },
+    {
+      "id": "tools.query_followers.properties.isFollowedBy.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/query_followers.ts",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 339,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "u/username"
+      ],
+      "sourceTemplateHash": "c63ac6f3e310d0063c37f0523b2fd74471082709b6a5d82be3526a9b626bb0c6"
+    },
+    {
+      "id": "tools.query_followers.properties.usernameGlob.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/query_followers.ts",
+        "line": 5
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 340,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "*",
+        "a*",
+        "u/al*"
+      ],
+      "sourceTemplateHash": "ee1b0bdb30911ff2f03a8689b48b8c3bc3b2f62da6d6bb2adfa95e47e4b6e562"
+    }
+  ]
+}

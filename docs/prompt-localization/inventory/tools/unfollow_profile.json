@@ -1,0 +1,73 @@
+{
+  "group": "tools/unfollow_profile",
+  "units": [
+    {
+      "id": "tools.unfollow_profile.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/unfollow_profile.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 373,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "u/username"
+      ],
+      "sourceTemplateHash": "63fa556532a709257cc653ee67b0a0cbc2b5f6543e8a9a07219c9ce1407b88a8"
+    },
+    {
+      "id": "tools.unfollow_profile.properties.targets.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/unfollow_profile.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 377,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "7163a9cb05914e2b86b9c33a1b55c9ab09c29cd5d2cf2fac73617aaf43f8d75e"
+    },
+    {
+      "id": "tools.unfollow_profile.properties.targets.items.properties.username.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/unfollow_profile.ts",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 381,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "u/username"
+      ],
+      "sourceTemplateHash": "9a693e61d6d178c5f58c296aa2bc105e2b2df4c256845d6af31356791591bb86"
+    },
+    {
+      "id": "schema.authored_text.unfollow_reason",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/unfollow_profile.ts",
+        "line": 5
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 532,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "f23e152f129984d02c112c80287886383374fb118ea8f64b060834d6c0fa7d10"
+    }
+  ]
+}

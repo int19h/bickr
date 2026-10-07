@@ -1,3 +1,5 @@
+import type { BotText } from '../localization';
+import { withProviderText, type LocalizedProviderSettings } from '../provider-requests';
 import { worldAvatarMembers } from "@bickr/shared/avatar-members";
 import type { WorldAvatarMemberSelection } from "@bickr/shared/avatar-prompts";
 import {
@@ -83,32 +85,32 @@ export type ProviderAvatarImageStreamChunk = {
 
 export type AvatarProvider = {
 	generateImage(
-		settings: ImageGenerationProviderSettings,
+		settings: ImageGenerationProviderSettings & { readonly text: BotText },
 		input: { prompt: string; currentAvatarUrl?: string },
 		options?: { signal?: AbortSignal; stream?: AvatarGenerationStreamSink; target?: 'participant' | 'world' },
 	): Promise<{ dataUrl: string; cost: number | null }>;
 	describeCurrentAvatar(
-		settings: ImageGenerationProviderSettings,
+		settings: ImageGenerationProviderSettings & { readonly text: BotText },
 		currentAvatarUrl: string,
 		options?: { signal?: AbortSignal; stream?: AvatarGenerationStreamSink; target?: 'participant' | 'world' },
 	): Promise<string>;
 	describeParticipant(
-		settings: ProviderSettings,
+		settings: LocalizedProviderSettings,
 		bot: BotDocument,
 		options?: { prefill?: string; signal?: AbortSignal; stream?: AvatarGenerationStreamSink },
 	): Promise<string>;
 	describeWorld(
-		settings: ProviderSettings,
+		settings: LocalizedProviderSettings,
 		world: WorldDocument,
 		options?: { prefill?: string; signal?: AbortSignal; stream?: AvatarGenerationStreamSink },
 	): Promise<string>;
 	describeWorldMembers(
-		settings: ProviderSettings,
+		settings: LocalizedProviderSettings,
 		world: WorldDocument,
 		members: WorldAvatarMemberSelection,
 		options?: { prefill?: string; signal?: AbortSignal; stream?: AvatarGenerationStreamSink },
 	): Promise<string>;
-	invalidGeneratedImage(settings: ImageGenerationProviderSettings, error: InputError): Error;
+	invalidGeneratedImage(settings: ImageGenerationProviderSettings & { readonly text: BotText }, error: InputError): Error;
 	streamChunk(chunk: unknown): ProviderAvatarImageStreamChunk;
 };
 
@@ -242,7 +244,7 @@ export async function generateAvatar(
 		throw new InputError('Choose an image generation model before generating an avatar.');
 	}
 	const generatedImage = await provider.generateImage(
-		settings,
+		{ ...settings, text: target.text },
 		{
 			prompt: input.prompt,
 			currentAvatarUrl: input.includeCurrentAvatar ? target.avatar?.url : undefined,
@@ -254,7 +256,7 @@ export async function generateAvatar(
 		validated = validateAvatarDataUrl(generatedImage.dataUrl);
 	} catch (error) {
 		if (error instanceof InputError) {
-			throw provider.invalidGeneratedImage(settings, error);
+			throw provider.invalidGeneratedImage({ ...settings, text: target.text }, error);
 		}
 		throw error;
 	}
@@ -305,7 +307,7 @@ export async function prefillAvatarPrompt(
 		if (!settings) {
 			throw new InputError('Choose an image generation model before filling from the current avatar.');
 		}
-		return provider.describeCurrentAvatar(settings, target.avatar.url, {
+		return provider.describeCurrentAvatar({ ...settings, text: target.text }, target.avatar.url, {
 			...options,
 			target: target.capabilities.providerImageTarget,
 		});
@@ -484,7 +486,7 @@ async function prefillTextAvatarPrompt(
 	switch (target.kind) {
 		case 'bot':
 			return provider.describeParticipant(
-				target.canonicalProviderSettings ?? runtime.effectiveProviderSettingsForBot(target.bot, target.owner, env),
+				withProviderText(target.canonicalProviderSettings ?? runtime.effectiveProviderSettingsForBot(target.bot, target.owner, env), target.text),
 				target.bot,
 				{
 				prefill: input.prefill,
@@ -512,9 +514,9 @@ async function prefillTextAvatarPrompt(
 				: runtime.effectiveProviderSettingsForWorldPrompt(target.owner, env, promptSettingsOverride);
 			if (input.mode === 'members') {
 				const members = await worldAvatarMembers(env.BICKR_D1, target.world.id);
-				return provider.describeWorldMembers(settings, target.world, members, { prefill: input.prefill, ...options });
+				return provider.describeWorldMembers(withProviderText(settings, target.text), target.world, members, { prefill: input.prefill, ...options });
 			}
-			return provider.describeWorld(settings, target.world, { prefill: input.prefill, ...options });
+			return provider.describeWorld(withProviderText(settings, target.text), target.world, { prefill: input.prefill, ...options });
 		}
 	}
 }

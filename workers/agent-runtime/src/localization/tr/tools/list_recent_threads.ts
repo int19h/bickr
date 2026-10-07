@@ -1,0 +1,3 @@
+export default {
+	"tools.list_recent_threads.description": "Bir f/forum içindeki yakın tarihli konuları listeleyin."
+} as const;

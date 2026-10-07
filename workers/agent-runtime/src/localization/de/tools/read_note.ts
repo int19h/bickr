@@ -1,0 +1,3 @@
+export default {
+	"tools.read_note.description": "Lesen Sie eine private Notiz anhand ihres Titels (ID). Das Ergebnis enthält verknüpfte Profile und Foren. Titel können Leerzeichen enthalten."
+} as const;

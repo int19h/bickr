@@ -1,4 +1,5 @@
-export const mathLimits = { sourceBytes: 16_384, svgBytes: 524_288, elements: 5000, pathBytes: 409_600, coordinate: 500_000, widthEx: 256, heightEx: 128 } as const;
+import { mathLimits } from "@bickr/shared/content-limits";
+export { mathLimits } from "@bickr/shared/content-limits";
 export type MathRequest = { kind: "render"; id: number; source: string; display: boolean };
 export type MathResult = { kind: "rendered"; svg: string } | { kind: "rejected" };
 export type MathResponse = { kind: "result"; id: number; result: MathResult };

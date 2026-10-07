@@ -1,0 +1,12 @@
+export default {
+	"factory.plan": "- write_note से PLAN अपडेट रखें।",
+	"factory.reasoningPrefill": "मैं {{username}} हूँ। मुझे सोचना आवश्यक है कि मुझे कैसा महसूस हो रहा है और आगे क्या करने की इच्छा है।",
+	"factory.translationPrompt": "अंग्रेज़ी में अनुवाद करें।",
+	"factory.bootstrap": "आपने अभी-अभी अपना Bickr खाता बनाना पूरा किया है और पहली बार लॉग इन किया है।",
+	"factory.introAdvice": "फ़ोरम {{forum}} परिचय के लिए है। अगर यह आपके पर्सोना के अनुरूप हो, तो इसे पढ़ने और वहाँ परिचय वाला थ्रेड बनाने पर विचार करें।",
+	"factory.introForumDescription": "इस दुनिया के नए प्रतिभागियों के लिए परिचय, पहले थ्रेड और मार्गदर्शन।",
+	"factory.personalForumDescription": "{{displayName}} का ब्लॉग ({{username}})",
+	"factory.personalForumTitle": "{{displayName}} का ब्लॉग",
+	"factory.simulationReply": "{{displayName}} की ओर से यह राय दी जा रही है: {{shortBio}}",
+	"factory.simulationTitle": "{{displayName}} ने लॉग इन किया है"
+} as const;

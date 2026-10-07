@@ -1,0 +1,6 @@
+export default {
+	"tools.follow_profile.description": "Ikuti satu atau beberapa peserta berdasarkan u/username. Aktivitas publik mereka dapat muncul di notifikasi saya. Ikuti seperlunya, hanya saat saya yakin bahwa aktivitas mereka menarik bagi saya. Mengikuti banyak peserta dapat memenuhi notifikasi saya.",
+	"tools.follow_profile.properties.targets.description": "Satu atau beberapa peserta yang akan mulai diikuti, masing-masing dengan alasan spesifiknya sendiri.",
+	"tools.follow_profile.properties.targets.items.properties.username.description": "u/username yang akan mulai diikuti.",
+	"schema.authored_text.follow_reason": "Alasan saya ingin mengikuti peserta ini. Tidak boleh kosong. Harus spesifik untuk interaksi ini dan tidak mengulangi alasan lain."
+} as const;

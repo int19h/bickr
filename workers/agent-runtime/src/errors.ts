@@ -1,3 +1,10 @@
+import type { ToolResultEnvelope } from '@bickr/shared/tool-results';
+import type { BotServiceIssueForOutcome } from '@bickr/shared/bot-service-issues';
+import type { BotText, RenderedInstructionIssue } from './localization';
+import { botText } from './localization';
+import type { AgentIssue } from './localization/issues';
+import { InputError } from '@bickr/shared/validation';
+import type { InstructionText } from '@bickr/shared/instruction-template';
 import { RepositoryError } from '@bickr/shared/repository';
 import type { BotInferenceSubmissionToolCall } from '@bickr/shared/model';
 import type {
@@ -53,13 +60,52 @@ export class SelfCorrectingToolCallError extends Error {
 	}
 }
 
+export type RecordedBatchEnvelope = Extract<ToolResultEnvelope, { kind: 'vote_set' | 'profile_followed' | 'profile_unfollowed' }>;
+export type ToolBatchOutcomeItem =
+	| { kind: 'recorded'; target: string; envelope: RecordedBatchEnvelope; scope: { related: boolean; unrelated: boolean } }
+	| { kind: 'committed'; target: string; issue: BotServiceIssueForOutcome<'committed'>; scope: { related: boolean; unrelated: boolean } }
+	| { kind: 'refused'; target: string; error: unknown; args: Record<string, unknown> }
+	| { kind: 'unknown'; target: string; error: unknown; scope: { related: boolean; unrelated: boolean } }
+	| { kind: 'not_attempted'; target: string };
+
+export class ToolBatchOutcomeError extends Error {
+	readonly items: readonly ToolBatchOutcomeItem[];
+	readonly selfCorrectionMessages: readonly string[];
+	constructor(items: readonly ToolBatchOutcomeItem[], cause: unknown, selfCorrectionMessages: readonly string[] = []) {
+		super('A batch tool call stopped before all targets completed.', { cause });
+		this.name = 'ToolBatchOutcomeError';
+		this.items = items;
+		this.selfCorrectionMessages = selfCorrectionMessages;
+	}
+}
+
+export class ToolCommittedOutcomeError extends Error {
+	readonly kind = 'tool_committed_result_unavailable';
+	scope: { related: boolean; unrelated: boolean } = { related: false, unrelated: false };
+	readonly issue: BotServiceIssueForOutcome<'committed'>;
+	constructor(issue: BotServiceIssueForOutcome<'committed'>, ownerMessage: string) {
+		super(ownerMessage);
+		this.issue = issue;
+		this.name = 'ToolCommittedOutcomeError';
+	}
+}
+
 export class ToolOutcomeUnknownError extends Error {
 	readonly kind = 'tool_outcome_unknown';
+	scope: { related: boolean; unrelated: boolean } = { related: false, unrelated: false };
 	readonly originalError: unknown;
 	constructor(originalError: unknown) {
 		super('The website action has an unknown outcome. Look at the website before you try again.');
 		this.name = 'ToolOutcomeUnknownError';
 		this.originalError = originalError;
+	}
+}
+
+export class ToolPreparationError extends Error {
+	readonly kind = 'tool_preparation_failed';
+	constructor(cause: unknown) {
+		super('The tool call did not start because its configuration was unavailable.', { cause });
+		this.name = 'ToolPreparationError';
 	}
 }
 
@@ -97,11 +143,29 @@ export type ToolCallArgumentValidationCode =
 
 export class ToolCallArgumentValidationError extends Error {
 	readonly code: ToolCallArgumentValidationCode;
+	readonly issue: AgentIssue;
 
-	constructor(code: ToolCallArgumentValidationCode, message: string) {
-		super(message);
+	constructor(code: ToolCallArgumentValidationCode, issue: AgentIssue, options?: ErrorOptions) {
+		super(botText('en').formatDescriptor(issue), options);
 		this.name = 'ToolCallArgumentValidationError';
 		this.code = code;
+		this.issue = issue;
+	}
+}
+
+export class AgentInputError extends InputError {
+	readonly issue: AgentIssue;
+	constructor(issue: AgentIssue) {
+		super(botText('en').formatDescriptor(issue));
+		this.issue = issue;
+	}
+}
+
+export class AgentRepositoryError extends RepositoryError {
+	readonly issue: AgentIssue;
+	constructor(code: RepositoryError['code'], issue: AgentIssue, status: number, details?: RepositoryError['details']) {
+		super(code, botText('en').formatDescriptor(issue), status, details);
+		this.issue = issue;
 	}
 }
 
@@ -176,10 +240,12 @@ export class ProviderLoopRequestError extends Error {
 
 export class ProviderStructuredOutputValidationError extends Error {
 	readonly kind = 'provider_structured_output_validation';
+	readonly text: BotText;
 	readonly structuredOutputKind: ProviderStructuredOutputKind;
 	readonly rawResponse?: string;
 	readonly toolCalls: BotInferenceSubmissionToolCall[];
-	readonly repairMessage: string;
+	readonly repairMessage: InstructionText;
+	readonly ownerRepairMessage: InstructionText;
 	readonly requiredToolName: string;
 	readonly outputText?: string;
 	readonly validationIssue?: ProviderStructuredOutputValidationIssue;
@@ -188,8 +254,9 @@ export class ProviderStructuredOutputValidationError extends Error {
 	usage?: ProviderUsage;
 
 	constructor(
+		text: BotText,
 		kind: ProviderStructuredOutputKind,
-		repairMessage: string,
+		issue: RenderedInstructionIssue,
 		options: {
 			rawResponse?: string;
 			requiredToolName?: string;
@@ -202,11 +269,13 @@ export class ProviderStructuredOutputValidationError extends Error {
 		} = {},
 	) {
 		super(
-			`Inference provider returned schema-invalid ${kind} ${options.requiredToolName ? 'tool arguments' : 'structured output'}: ${repairMessage}`,
+			`Inference provider returned schema-invalid ${kind} ${options.requiredToolName ? 'tool arguments' : 'structured output'}: ${issue.ownerMessage}`,
 		);
 		this.name = 'ProviderStructuredOutputValidationError';
+		this.text = text;
 		this.structuredOutputKind = kind;
-		this.repairMessage = repairMessage;
+		this.repairMessage = issue.message;
+		this.ownerRepairMessage = issue.ownerMessage;
 		this.requiredToolName = options.requiredToolName ?? '';
 		this.rawResponse = options.rawResponse;
 		this.toolCalls = options.toolCalls ?? [];
@@ -432,7 +501,7 @@ export function runtimeErrorCause(error: unknown): RuntimeErrorCause | string {
 		return {
 			kind: error.kind,
 			outputKind: error.structuredOutputKind,
-			repairMessage: error.repairMessage,
+			repairMessage: error.ownerRepairMessage,
 			...(error.requiredToolName ? { requiredToolName: error.requiredToolName } : {}),
 			...(error.rawResponse ? { rawResponse: error.rawResponse } : {}),
 		};

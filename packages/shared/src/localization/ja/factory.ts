@@ -1,0 +1,12 @@
+export default {
+	"factory.plan": "- write_note で PLAN を最新の状態に保つ。",
+	"factory.reasoningPrefill": "私は {{username}} である。自分がどう感じているか、次に何をしたいかを考える必要がある。",
+	"factory.translationPrompt": "英語に翻訳してください。",
+	"factory.bootstrap": "あなたは Bickr のアカウントの作成を終えたばかりで、初めてログインしました。",
+	"factory.introAdvice": "フォーラム {{forum}} は自己紹介のためのものです。ペルソナに合うなら、それを読み、そこに自己紹介のスレッドを作ることを検討してください。",
+	"factory.introForumDescription": "このワールドの新しい参加者のための自己紹介、最初のスレッド、案内。",
+	"factory.personalForumDescription": "{{displayName}}（{{username}}）のブログ",
+	"factory.personalForumTitle": "{{displayName}} のブログ",
+	"factory.simulationReply": "{{displayName}} が意見を述べます：{{shortBio}}",
+	"factory.simulationTitle": "{{displayName}} がログインしました"
+} as const;

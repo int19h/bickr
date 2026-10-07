@@ -1,8 +1,16 @@
+import { factoryText, type FactoryText } from '@bickr/shared/localization';
+import { InstructionTemplates } from '@bickr/shared/instruction-template';
+import { instructionLocales } from '@bickr/shared/instruction-language';
+import { sharedMessageDefinitions } from '@bickr/shared/localization';
+import englishFactoryCatalog from '@bickr/shared/localization/en';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { extractCanonicalEntityReferences } from '@bickr/shared/mentions';
-import { BotNotesStore, defaultPlanContent, maxNotesPerBot, normalizeNoteCursor, normalizeNoteId, noteContent, noteFilterReferences, noteReferences, planNoteId } from './notes';
+import { BotNotesStore, factoryPlanMigrationKey, factoryPlanTriggers, maxNotesPerBot, normalizeNoteCursor, normalizeNoteId, noteContent, noteFilterReferences, noteReferences, planNoteId } from './notes';
 import { runtimeSchema } from './bot-runtime';
 import { createRuntimeTestStorage, type RuntimeTestStorage } from './sqlite-test-helper';
+
+const text = factoryText('en');
+const defaultPlanContent = text.format('factory.plan');
 
 describe('private bot notes', () => {
 	let storage: RuntimeTestStorage;
@@ -11,6 +19,7 @@ describe('private bot notes', () => {
 	beforeEach(() => {
 		storage = createRuntimeTestStorage();
 		storage.database.exec(runtimeSchema);
+		storage.database.exec(factoryPlanTriggers);
 		notes = new BotNotesStore(storage);
 	});
 
@@ -27,15 +36,15 @@ describe('private bot notes', () => {
 	it('attributes the current note content and clears attribution after manual replacement, edit, and PLAN reset', () => {
 		const attribution = { model: 'vendor/model', parameters: { temperature: 0.4 }, source: { botId: 'bot-a', worldHandle: 'primary', botHandle: 'alice', runId: 'run-a', requestSeq: 7 } };
 		notes.write('draft', 'Generated', [], attribution);
-		expect(notes.read('draft')?.inferenceAttribution).toEqual(attribution);
+		expect(notes.read(text, 'draft')?.inferenceAttribution).toEqual(attribution);
 		notes.write('draft', 'Manual', []);
-		expect(notes.read('draft')).not.toHaveProperty('inferenceAttribution');
+		expect(notes.read(text, 'draft')).not.toHaveProperty('inferenceAttribution');
 		notes.write('draft', 'Generated again', [], attribution);
 		notes.edit('draft', 'draft', 'Edited manually', [], 2);
-		expect(notes.read('draft')).not.toHaveProperty('inferenceAttribution');
+		expect(notes.read(text, 'draft')).not.toHaveProperty('inferenceAttribution');
 		notes.write(planNoteId, 'Generated PLAN', [], attribution);
-		expect(notes.delete(planNoteId)).toMatchObject({ kind: 'reset' });
-		expect(notes.read(planNoteId)).not.toHaveProperty('inferenceAttribution');
+		expect(notes.delete(text, planNoteId)).toMatchObject({ kind: 'reset' });
+		expect(notes.read(text, planNoteId)).not.toHaveProperty('inferenceAttribution');
 	});
 
 	it('keeps replacement and deletion consistent with entity links', () => {
@@ -46,13 +55,13 @@ describe('private bot notes', () => {
 		expect(notes.list(null, 50, [forum]).ids).toEqual(['meeting']);
 
 		expect(notes.write('meeting', 'A new subject', []).kind).toBe('replaced');
-		expect(notes.read('meeting')?.links).toEqual([]);
+		expect(notes.read(text, 'meeting')?.links).toEqual([]);
 		expect(notes.idsForEntity('participant', alice.entityId)).toEqual({ ids: [], total: 0 });
 		expect(notes.list(null, 50, [forum]).ids).toEqual([]);
 
-		expect(notes.delete('meeting')).toEqual({ kind: 'deleted' });
-		expect(notes.delete('meeting')).toEqual({ kind: 'not_found' });
-		expect(notes.read('meeting')).toBeNull();
+		expect(notes.delete(text, 'meeting')).toEqual({ kind: 'deleted' });
+		expect(notes.delete(text, 'meeting')).toEqual({ kind: 'not_found' });
+		expect(notes.read(text, 'meeting')).toBeNull();
 		expect(notes.allIds()).toEqual([]);
 	});
 
@@ -98,13 +107,76 @@ describe('private bot notes', () => {
 	it('keeps PLAN uppercase, preserves edits, and resets it on delete', () => {
 		notes.ensurePlan();
 		expect(normalizeNoteId('plan')).toBe(planNoteId);
-		expect(notes.read(planNoteId)?.content).toBe(defaultPlanContent);
+		expect(notes.read(text, planNoteId)?.content).toBe(defaultPlanContent);
 		const changed = notes.write('Plan', '- Write a poem.', []);
 		notes.ensurePlan();
-		expect(notes.read(planNoteId)?.content).toBe('- Write a poem.');
-		const reset = notes.delete(planNoteId);
+		expect(notes.read(text, planNoteId)?.content).toBe('- Write a poem.');
+		const reset = notes.delete(text, planNoteId);
 		expect(reset.kind).toBe('reset');
-		expect(notes.read(planNoteId)).toMatchObject({ content: defaultPlanContent, revision: changed.note.revision + 1 });
+		expect(notes.read(text, planNoteId)).toMatchObject({ content: defaultPlanContent, revision: changed.note.revision + 1 });
+	});
+
+	it('renders factory PLAN through the current context without changing storage or revisions', () => {
+		// This synthetic catalog tests the language boundary without claiming a reviewed translation.
+		const alternate: FactoryText = new InstructionTemplates('en', sharedMessageDefinitions, {
+			...englishFactoryCatalog, 'factory.plan': 'Alternate factory view: PLAN write_note.',
+		});
+		notes.ensurePlan();
+		const original = notes.read(text, planNoteId)!;
+		expect(notes.read(alternate, planNoteId)).toEqual({ ...original, content: alternate.format('factory.plan') });
+		expect(storage.sql.exec('SELECT content, content_source, revision FROM notes WHERE note_id = ?', planNoteId).one())
+			.toEqual({ content: '', content_source: 'factory', revision: 0 });
+		// Even a write equal to the visible factory body becomes authored content.
+		notes.write(planNoteId, original.content, []);
+		expect(notes.read(alternate, planNoteId)?.content).toBe(original.content);
+		const authoredRevision = notes.read(text, planNoteId)!.revision;
+		notes.delete(alternate, planNoteId);
+		expect(notes.read(text, planNoteId)).toMatchObject({ content: original.content, revision: authoredRevision + 1 });
+		expect(notes.read(alternate, planNoteId)?.content).toBe(alternate.format('factory.plan'));
+	});
+
+	it.each(instructionLocales)('keeps authored PLAN unchanged when its factory view switches to %s', (locale) => {
+		const target = factoryText(locale);
+		notes.ensurePlan();
+		const initial = notes.read(text, planNoteId)!;
+		expect(notes.read(target, planNoteId)).toEqual({ ...initial, content: target.format('factory.plan') });
+		expect(storage.sql.exec('SELECT content, content_source, revision FROM notes WHERE note_id = ?', planNoteId).one())
+			.toEqual({ content: '', content_source: 'factory', revision: 0 });
+		const authored = notes.write(planNoteId, target.format('factory.plan'), []).note;
+		expect(notes.read(text, planNoteId)).toMatchObject({ id: planNoteId, content: authored.content, revision: authored.revision });
+		expect(notes.read(target, planNoteId)).toMatchObject({ content: authored.content, revision: authored.revision });
+		notes.delete(target, planNoteId);
+		expect(notes.read(text, planNoteId)).toMatchObject({ content: initial.content, revision: authored.revision + 1 });
+		expect(notes.read(target, planNoteId)).toMatchObject({ content: target.format('factory.plan'), revision: authored.revision + 1 });
+	});
+
+	it('migrates only the untouched old default once and preserves timestamps', () => {
+		storage.sql.exec('INSERT INTO notes (note_id, content, created_at, updated_at, revision) VALUES (?, ?, ?, ?, ?)',
+			planNoteId, defaultPlanContent, 'created', 'updated', 0);
+		notes.migrateFactoryPlan();
+		expect(storage.sql.exec('SELECT content, content_source, created_at, updated_at, revision FROM notes WHERE note_id = ?', planNoteId).one())
+			.toEqual({ content: '', content_source: 'factory', created_at: 'created', updated_at: 'updated', revision: 0 });
+		expect(storage.sql.exec('SELECT value_json FROM runtime_state WHERE key = ?', factoryPlanMigrationKey).one().value_json).toBe('1');
+		notes.write(planNoteId, defaultPlanContent, []);
+		notes.migrateFactoryPlan();
+		expect(storage.sql.exec('SELECT content_source FROM notes WHERE note_id = ?', planNoteId).one().content_source).toBe('authored');
+	});
+
+	it('preserves an edited or reset old PLAN even when its bytes match the default', () => {
+		storage.sql.exec('INSERT INTO notes (note_id, content, created_at, updated_at, revision) VALUES (?, ?, ?, ?, ?)',
+			planNoteId, defaultPlanContent, 'created', 'updated', 3);
+		notes.migrateFactoryPlan();
+		expect(storage.sql.exec('SELECT content, content_source, revision FROM notes WHERE note_id = ?', planNoteId).one())
+			.toEqual({ content: defaultPlanContent, content_source: 'authored', revision: 3 });
+	});
+
+	it('rejects factory provenance for ordinary notes and preserves rollback writes as authored', () => {
+		expect(() => storage.sql.exec("INSERT INTO notes (note_id, content, content_source, created_at, updated_at) VALUES (?, '', 'factory', ?, ?)",
+			'other', 'created', 'updated')).toThrow();
+		notes.ensurePlan();
+		storage.sql.exec('UPDATE notes SET content = ? WHERE note_id = ?', defaultPlanContent, planNoteId);
+		expect(storage.sql.exec('SELECT content, content_source FROM notes WHERE note_id = ?', planNoteId).one())
+			.toEqual({ content: defaultPlanContent, content_source: 'authored' });
 	});
 
 	it('moves an older lowercase plan note and its links without changing content', () => {
@@ -112,7 +184,7 @@ describe('private bot notes', () => {
 		storage.sql.exec('INSERT INTO note_links (note_id, entity_kind, entity_id, handle) VALUES (?, ?, ?, ?)', 'plan', 'participant', 'bot-alice', 'alice');
 		notes.migrateLegacyPlan();
 		notes.ensurePlan();
-		expect(notes.read(planNoteId)).toMatchObject({ content: '- Visit u/alice.', links: [{ entityId: 'bot-alice' }] });
+		expect(notes.read(text, planNoteId)).toMatchObject({ content: '- Visit u/alice.', links: [{ entityId: 'bot-alice' }] });
 		expect(notes.allIds()).toEqual([planNoteId]);
 	});
 
@@ -121,8 +193,8 @@ describe('private bot notes', () => {
 		storage.sql.exec('INSERT INTO notes (note_id, content, created_at, updated_at) VALUES (?, ?, ?, ?)', 'plan', '- Visit u/alice.', 'old', 'old');
 		storage.sql.exec('INSERT INTO note_links (note_id, entity_kind, entity_id, handle) VALUES (?, ?, ?, ?)', 'plan', 'participant', 'bot-alice', 'alice');
 		notes.migrateLegacyPlan();
-		expect(notes.read(planNoteId)?.content).toBe(defaultPlanContent);
-		expect(notes.read('legacy-plan')).toMatchObject({ content: '- Visit u/alice.', links: [{ entityId: 'bot-alice' }] });
+		expect(notes.read(text, planNoteId)?.content).toBe(defaultPlanContent);
+		expect(notes.read(text, 'legacy-plan')).toMatchObject({ content: '- Visit u/alice.', links: [{ entityId: 'bot-alice' }] });
 		expect(notes.allIds()).toEqual([planNoteId, 'legacy-plan']);
 		notes.migrateLegacyPlan();
 		expect(notes.allIds()).toEqual([planNoteId, 'legacy-plan']);
@@ -140,10 +212,10 @@ describe('private bot notes', () => {
 
 	it('rejects a stale owner edit after a participant write', () => {
 		notes.write('draft', 'first', []);
-		const revision = notes.read('draft')!.revision;
+		const revision = notes.read(text, 'draft')!.revision;
 		notes.write('draft', 'participant edit', []);
 		expect(() => notes.edit('draft', 'draft', 'owner edit', [], revision)).toThrow('changed');
-		expect(notes.read('draft')?.content).toBe('participant edit');
+		expect(notes.read(text, 'draft')?.content).toBe('participant edit');
 	});
 
 	it('accepts note IDs longer than profile handles and validates note content', () => {

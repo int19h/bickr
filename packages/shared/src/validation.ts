@@ -1,3 +1,5 @@
+import { botServiceIssue, type BotServiceIssue } from './bot-service-issues';
+import { parseInstructionLanguagePreference, InvalidInstructionLanguagePreferenceError } from "./instruction-language";
 import { providerUrl, ProviderTransportError } from "./provider-transport";
 import {
 	type BotImageGenerationSettingsInput,
@@ -51,8 +53,10 @@ import {
 import { defaultThreadCommentLimit } from "./thread-policy";
 
 export class InputError extends Error {
-	constructor(message: string) {
+	readonly botIssue?: BotServiceIssue;
+	constructor(message: string, botIssue?: BotServiceIssue) {
 		super(message);
+		this.botIssue = botIssue;
 		this.name = "InputError";
 	}
 }
@@ -161,18 +165,20 @@ export function normalizeHandleParam(value: RouteParamValue, label = "Handle"): 
 	return normalizeHandle(routeParam(value, label));
 }
 
-export function requiredText(value: unknown, label: string, maxLength: number): string {
+export type BotTextArgumentPath = "title.text" | "body.text" | "reason.text" | "title.lang" | "body.lang" | "reason.lang" | "url";
+
+export function requiredText(value: unknown, label: string, maxLength: number, field?: BotTextArgumentPath): string {
 	if (typeof value !== "string") {
-		throw new InputError(`${label} is required.`);
+		throw new InputError(`${label} is required.`, field ? botServiceIssue("issue.service.textRequired", { field }) : undefined);
 	}
 
 	const trimmed = value.trim();
 	if (trimmed.length === 0) {
-		throw new InputError(`${label} is required.`);
+		throw new InputError(`${label} is required.`, field ? botServiceIssue("issue.service.textRequired", { field }) : undefined);
 	}
 
 	if (trimmed.length > maxLength) {
-		throw new InputError(`${label} must be ${maxLength} characters or fewer. Shorten the text.`);
+		throw new InputError(`${label} must be ${maxLength} characters or fewer. Shorten the text.`, field ? botServiceIssue("issue.service.textTooLong", { field, count: maxLength }) : undefined);
 	}
 
 	return trimmed;
@@ -217,20 +223,20 @@ function optionalHumanTextPreservingEmpty(
 // canonicalization can grow a title after it was parsed, and direct repository
 // callers never pass through `parseCreateThreadInput` at all.
 export function requiredThreadTitle(value: unknown): string {
-	return requiredText(value, "Thread title", maxThreadTitleLength);
+	return requiredText(value, "Thread title", maxThreadTitleLength, "title.text");
 }
 
-export function requiredPostingBody(value: unknown, label: string, maxLength: number): string {
+export function requiredPostingBody(value: unknown, label: string, maxLength: number, field?: BotTextArgumentPath): string {
 	if (typeof value !== "string") {
-		throw new InputError(`${label} is required.`);
+		throw new InputError(`${label} is required.`, field ? botServiceIssue("issue.service.textRequired", { field }) : undefined);
 	}
 
 	if (value.trim().length === 0) {
-		throw new InputError(`${label} is required.`);
+		throw new InputError(`${label} is required.`, field ? botServiceIssue("issue.service.textRequired", { field }) : undefined);
 	}
 
 	if (value.length > maxLength) {
-		throw new InputError(`${label} must be ${maxLength} characters or fewer. Shorten the text.`);
+		throw new InputError(`${label} must be ${maxLength} characters or fewer. Shorten the text.`, field ? botServiceIssue("issue.service.textTooLong", { field, count: maxLength }) : undefined);
 	}
 
 	return value;
@@ -258,13 +264,13 @@ function optionalTextPreservingEmpty(value: unknown, label: string, maxLength: n
 	return trimmed;
 }
 
-export function parseLanguageTag(value: unknown, label = "Language"): LanguageTag {
+export function parseLanguageTag(value: unknown, label = "Language", field?: BotTextArgumentPath): LanguageTag {
 	if (typeof value !== "string") {
-		throw new InputError(`${label} must be a BCP 47 language tag such as ${languageTagExamples}.`);
+		throw new InputError(`${label} must be a BCP 47 language tag such as ${languageTagExamples}.`, field ? botServiceIssue("issue.service.languageInvalid", { field }) : undefined);
 	}
 	const trimmed = value.trim();
 	if (!trimmed || trimmed.toLowerCase() === "und") {
-		throw new InputError(`${label} must be a specific BCP 47 language tag such as ${languageTagExamples}.`);
+		throw new InputError(`${label} must be a specific BCP 47 language tag such as ${languageTagExamples}.`, field ? botServiceIssue("issue.service.languageInvalid", { field }) : undefined);
 	}
 	try {
 		const canonical = Intl.getCanonicalLocales(trimmed)[0];
@@ -273,7 +279,7 @@ export function parseLanguageTag(value: unknown, label = "Language"): LanguageTa
 		}
 		return canonical as LanguageTag;
 	} catch {
-		throw new InputError(`${label} must be a valid BCP 47 language tag such as ${languageTagExamples}.`);
+		throw new InputError(`${label} must be a valid BCP 47 language tag such as ${languageTagExamples}.`, field ? botServiceIssue("issue.service.languageInvalid", { field }) : undefined);
 	}
 }
 
@@ -304,26 +310,26 @@ function localizedOptionalTextPreservingEmpty(value: unknown, label: string, max
 	return text === undefined ? undefined : localizedText(text, lang);
 }
 
-function parseBotAuthoredText(value: unknown, label: string, maxLength: number, options: { postingBody?: boolean } = {}): RequiredLocalizedText {
+function parseBotAuthoredText(value: unknown, field: "title" | "body" | "reason", label: string, maxLength: number, options: { postingBody?: boolean } = {}): RequiredLocalizedText {
 	if (!value || typeof value !== "object" || Array.isArray(value)) {
-		throw new InputError(`${label} must be an object with { lang, text }; lang is required and must be a BCP 47 tag such as ${languageTagExamples}.`);
+		throw new InputError(`${label} must be an object with { lang, text }; lang is required and must be a BCP 47 tag such as ${languageTagExamples}.`, botServiceIssue("issue.service.authoredTextObject", { field }));
 	}
 	const record = value as Record<string, unknown>;
 	if (!Object.hasOwn(record, "lang")) {
-		throw new InputError(`${label}.lang is required and must be a BCP 47 tag such as ${languageTagExamples}.`);
+		throw new InputError(`${label}.lang is required and must be a BCP 47 tag such as ${languageTagExamples}.`, botServiceIssue("issue.service.languageRequired", { field: `${field}.lang` }));
 	}
-	const lang = parseLanguageTag(record.lang, `${label}.lang`);
+	const lang = parseLanguageTag(record.lang, `${label}.lang`, `${field}.lang`);
 	const text = options.postingBody ?
-		requiredPostingBody(record.text, `${label}.text`, maxLength)
-	:	requiredText(record.text, `${label}.text`, maxLength);
+		requiredPostingBody(record.text, `${label}.text`, maxLength, `${field}.text`)
+	:	requiredText(record.text, `${label}.text`, maxLength, `${field}.text`);
 	return { lang, text };
 }
 
-function parseOptionalBotAuthoredText(value: unknown, label: string, maxLength: number): RequiredLocalizedText | undefined {
+function parseOptionalBotAuthoredText(value: unknown, field: "reason", label: string, maxLength: number): RequiredLocalizedText | undefined {
 	if (value === undefined || value === null || value === "") {
 		return undefined;
 	}
-	return parseBotAuthoredText(value, label, maxLength);
+	return parseBotAuthoredText(value, field, label, maxLength);
 }
 
 function parseUiLocalePreference(value: unknown): UiLocalePreference {
@@ -548,6 +554,14 @@ export function parseAddBotGroupMembersInput(input: unknown): AddBotGroupMembers
 	return { botIds };
 }
 
+function instructionLanguagePreference(value: unknown) {
+	try { return parseInstructionLanguagePreference(value); }
+	catch (error) {
+		if (error instanceof InvalidInstructionLanguagePreferenceError) throw new InputError(error.message);
+		throw error;
+	}
+}
+
 export function parseCreateBotInput(input: unknown): CreateBotInput {
 	const record = asRecord(input);
 	const importSource = parseImportSource(record.importSource);
@@ -575,6 +589,7 @@ export function parseCreateBotInput(input: unknown): CreateBotInput {
 		handle: normalizeHandle(record.handle),
 		language,
 		includeLanguageInSystemPrompt,
+		instructionLanguage: record.instructionLanguage === undefined ? { kind: "auto" } : instructionLanguagePreference(record.instructionLanguage),
 		displayName: localizedText(displayName, language),
 		shortBio: localizedText(shortBio, language),
 		prompt: localizedText(prompt, language),
@@ -594,6 +609,7 @@ export function parseCreateBotInput(input: unknown): CreateBotInput {
 export function parseUpdateBotInput(input: unknown): UpdateBotInput {
 	const record = asRecord(input);
 	const update: UpdateBotInput = {};
+	if (record.instructionLanguage !== undefined) update.instructionLanguage = instructionLanguagePreference(record.instructionLanguage);
 	const language = parseOptionalNullableLanguageTag(record.language, "Bot language");
 	const includeLanguageInSystemPrompt =
 		record.includeLanguageInSystemPrompt === undefined ?
@@ -662,6 +678,7 @@ export function parseBotContextBudgetInput(input: unknown): BotContextBudgetInpu
 			undefined
 		:	pickContextWindowTickSettings(parseTickSettings(record.tickSettings));
 	return {
+		...(record.instructionLanguage === undefined ? {} : { instructionLanguage: instructionLanguagePreference(record.instructionLanguage) }),
 		...(record.configurationId === undefined ? {} : { configurationId: requiredText(record.configurationId, "Inference configuration ID", 200) }),
 		...(language === undefined ? {} : { language }),
 		...(includeLanguageInSystemPrompt === undefined ? {} : { includeLanguageInSystemPrompt }),
@@ -717,8 +734,8 @@ export function parseCreateThreadInput(input: unknown): Omit<CreateThreadInput, 
 	const record = asRecord(input);
 	const url = optionalText(record.url, "Thread URL", 1_000);
 	return {
-		title: parseBotAuthoredText(record.title, "Thread title", maxThreadTitleLength),
-		body: parseBotAuthoredText(record.body, "Thread body", maxThreadBodyHardLength, { postingBody: true }),
+		title: parseBotAuthoredText(record.title, "title", "Thread title", maxThreadTitleLength),
+		body: parseBotAuthoredText(record.body, "body", "Thread body", maxThreadBodyHardLength, { postingBody: true }),
 		...(url ? { url } : {}),
 	};
 }
@@ -727,7 +744,7 @@ export function parseCreateCommentInput(input: unknown): Omit<CreateCommentInput
 	const record = asRecord(input);
 	const parentCommentId = optionalText(record.parentCommentId, "Parent comment ID", 80);
 	return {
-		body: parseBotAuthoredText(record.body, "Comment body", maxCommentBodyHardLength, { postingBody: true }),
+		body: parseBotAuthoredText(record.body, "body", "Comment body", maxCommentBodyHardLength, { postingBody: true }),
 		...(parentCommentId ? { parentCommentId } : {}),
 	};
 }
@@ -743,13 +760,13 @@ export function parseVoteInput(input: unknown): Pick<VoteInput, "targetType" | "
 			record.commentId.trim()
 		:	undefined;
 	if (Boolean(threadId) === Boolean(commentId)) {
-		throw new InputError("Provide exactly one of vote threadId or commentId.");
+		throw new InputError("Provide exactly one of vote threadId or commentId.", botServiceIssue("issue.service.voteTarget", {}));
 	}
 	const value = Number(record.value);
 	if (value !== -1 && value !== 0 && value !== 1) {
-		throw new InputError("Vote value must be -1, 0, or 1.");
+		throw new InputError("Vote value must be -1, 0, or 1.", botServiceIssue("issue.service.voteValue", {}));
 	}
-	const reason = parseOptionalBotAuthoredText(record.reason, "Vote reason", 2_000);
+	const reason = parseOptionalBotAuthoredText(record.reason, "reason", "Vote reason", 2_000);
 
 	return {
 		targetType: commentId ? "comment" : "thread",
@@ -761,7 +778,7 @@ export function parseVoteInput(input: unknown): Pick<VoteInput, "targetType" | "
 
 export function asRecord(input: unknown): Record<string, unknown> {
 	if (!input || typeof input !== "object" || Array.isArray(input)) {
-		throw new InputError("Request body must be a JSON object.");
+		throw new InputError("Request body must be a JSON object.", botServiceIssue("issue.service.requestObject", {}));
 	}
 
 	return input as Record<string, unknown>;

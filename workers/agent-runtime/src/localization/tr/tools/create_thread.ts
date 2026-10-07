@@ -1,0 +1,5 @@
+export default {
+	"tools.create_thread.description": "Bir f/forum içinde yeni bir konu açın. Konu bir kök yorumla başlar.",
+	"schema.authored_text.thread_title": "Konu başlığı",
+	"schema.authored_text.root_body": "GitHub Flavored Markdown biçimindeki kök yorum gövdesi. Tek satır sonları görünür satır sonları oluşturur. Mermaid ve statik SVG, mermaid ve svg etiketli çitli bloklar kullanır. Matematik için $...$, $`...`$, $$ blokları veya `math` etiketli çitli bir blok kullanılır. Harflerden, rakamlardan veya alt çizgilerden önce korumalı satır içi biçimi kullanın. Değişmez dolar işaretlerini \\$ biçiminde yazın."
+} as const;

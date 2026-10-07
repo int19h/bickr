@@ -1,0 +1,21 @@
+{
+  "group": "tools/save_avatar_description",
+  "units": [
+    {
+      "id": "tools.save_avatar_description.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/save_avatar_description.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 648,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "55ca270ec8ba80bdc2b42ca078da3b9d9b01f9de27fef6c48612666157ed52e8"
+    }
+  ]
+}

@@ -4,8 +4,9 @@ import type { InferenceAttribution } from "@bickr/shared/model";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api";
 import { planNoteId } from "@bickr/shared/note-settings";
-import { RichText, type OpenReference } from "../../components/content";
+import { TranslatableText, type OpenReference } from "../../components/content";
 import { Confirm, FilterBox, Modal } from "../../ui";
+import type { InstructionLocale } from '@bickr/shared/instruction-language';
 
 type NoteLink = { kind: "participant" | "forum"; entityId: string; handle: string; deleted: boolean };
 type Note = { inferenceAttribution?: InferenceAttribution; id: string; content: string; createdAt: string; updatedAt: string; revision: number; links: NoteLink[] };
@@ -16,9 +17,10 @@ export function BotNotesPanel(props: Parameters<typeof BotNotesPanelContent>[0])
 	return <BotNotesPanelContent key={props.botId} {...props} />;
 }
 
-function BotNotesPanelContent({ botId, enabled, onReference, onRegisterRefresh, worldHandle }: {
+function BotNotesPanelContent({ botId, enabled, instructionLocale, onReference, onRegisterRefresh, worldHandle }: {
 	botId: string;
 	enabled: boolean;
+	instructionLocale: InstructionLocale | undefined;
 	onReference: OpenReference;
 	onRegisterRefresh?: (botId: string, refresh: (() => Promise<void>) | null) => void;
 	worldHandle: string;
@@ -71,6 +73,8 @@ function BotNotesPanelContent({ botId, enabled, onReference, onRegisterRefresh, 
 		return result.ok ? result.data.ids : null;
 	}, [basePath]);
 
+	// A factory PLAN keeps its revision but changes its rendered body with the
+	// resolved language. Refetch its view when that language changes.
 	const loadNote = useCallback(async (id: string): Promise<void> => {
 		const request = ++noteRequest.current;
 		setNote((current) => current?.id === id ? current : null);
@@ -81,7 +85,7 @@ function BotNotesPanelContent({ botId, enabled, onReference, onRegisterRefresh, 
 		if (result.ok) setNote(result.data.note);
 		else setNoteError(result.message);
 		setNoteLoading(false);
-	}, [basePath]);
+	}, [basePath, instructionLocale]);
 
 	useEffect(() => {
 		void loadNotes();
@@ -131,6 +135,7 @@ function BotNotesPanelContent({ botId, enabled, onReference, onRegisterRefresh, 
 	};
 	const saveEditor = async () => {
 		if (!editor || saving) return;
+		if (editor.original && editor.title === editor.original.id && editor.content === editor.original.content) return;
 		const current = mutations.begin();
 		setSaving(true);
 		setEditorError("");
@@ -182,7 +187,7 @@ function BotNotesPanelContent({ botId, enabled, onReference, onRegisterRefresh, 
 								{note && note.id === selectedId && (
 									<>
 										<div className="bot-notes-detail-head">
-											<h3>{note.id}</h3>
+											<TranslatableText as="h3" text={note.id} worldHandle={worldHandle} />
 											<div className="bot-notes-actions">
 												<button
 													className="btn"
@@ -196,7 +201,7 @@ function BotNotesPanelContent({ botId, enabled, onReference, onRegisterRefresh, 
 												</button>
 											</div>
 										</div>
-										<div className="bot-notes-content"><RichText onReference={onReference} text={note.content} worldHandle={worldHandle} /></div>
+										<div className="bot-notes-content"><TranslatableText as="div" rich onReference={onReference} text={note.content} worldHandle={worldHandle} /></div>
 										{note.links.length > 0 && <p className="muted">Linked to {note.links.map((link) => `${link.kind === "forum" ? "f" : "u"}/${link.handle}${link.deleted ? " (deleted)" : ""}`).join(", ")}</p>}
 										<p className="muted">Updated {new Date(note.updatedAt).toLocaleString()}<InferenceBadge attribution={note.inferenceAttribution} /></p>
 									</>
@@ -213,7 +218,7 @@ function BotNotesPanelContent({ botId, enabled, onReference, onRegisterRefresh, 
 						<button className="btn ghost" disabled={saving} onClick={() => setEditor(null)} type="button">Cancel</button>
 						<button
 							className="btn primary"
-							disabled={saving || !editor?.title.trim() || !editor?.content}
+							disabled={saving || !editor?.title.trim() || !editor?.content || !!(editor.original && editor.title === editor.original.id && editor.content === editor.original.content)}
 							onClick={() => void saveEditor()}
 							type="button"
 						>

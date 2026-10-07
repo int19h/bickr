@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { localizedText, type BotSummary, type LanguageTag } from "@bickr/shared/model";
 import { parseUpdateBotInput } from "@bickr/shared/validation";
 import { BotEdit } from "./edit";
-import { botEditDraftFromBot, parseBotEditDraft, updateBotInputFromEditDraft } from "./bot-drafts";
+import { botEditDraftFromBot, botPromptBudgetRequestKey, parseBotEditDraft, updateBotInputFromEditDraft } from "./bot-drafts";
 
 const en = "en" as LanguageTag;
 const now = "2026-08-05T00:00:00.000Z";
@@ -142,4 +142,14 @@ describe("bot edit save payload", () => {
 		const input = updateBotInputFromEditDraft(draft, parseBotEditDraft(draft), false);
 		expect(input.inferenceSettings).toEqual({ recurringPromptEnabled: true, recurringPrompt: null });
 	});
+});
+
+
+it("invalidates the displayed budget when the resolved source instruction language changes", () => {
+	const draft = { ...botEditDraftFromBot(bot()), instructionLanguage: { kind: "source" as const } };
+	const key = (locale: "ja" | "fr") => botPromptBudgetRequestKey("bot_scout", "scout", {
+		...draft, includeLanguageInSystemPrompt: false, worldPrompt: "", resolvedInstructionLocale: locale,
+	}, "same-inference");
+	expect(key("ja")).not.toBe(key("fr"));
+	expect(key("ja")).toBe(key("ja"));
 });

@@ -1,0 +1,3 @@
+export default {
+	"tools.provide_summary.description": "圧縮した一人称の記憶の要約を保存します。指示されたときだけ使ってください。"
+} as const;

@@ -21,7 +21,7 @@ import {
 } from "@bickr/shared/mcp-auth";
 import { requireMaintenanceDisabled } from "@bickr/shared/maintenance";
 import {
-	type BotDocument,
+	type EffectiveBotDocument,
 	type BotGroupSummary,
 	type BotInferenceSettings,
 	type BotSummary,
@@ -1322,7 +1322,7 @@ async function annotateMcpPayload(envelope: McpPayloadEnvelope, ctx: ToolContext
 			const record = payloadRecord(envelope.payload);
 			const primary = payloadBots(envelope.payload, envelope.kind);
 			const rawAffected = envelope.kind === "bot" && Array.isArray(record.affectedBots)
-				? record.affectedBots as Array<BotDocument | BotSummary>
+				? record.affectedBots as Array<EffectiveBotDocument | BotSummary>
 				: [];
 			const affectedLimit = envelope.kind === "bot" ? Math.max(0, maximumMcpPresentationEntities - primary.length) : 0;
 			const affected = rawAffected.slice(0, affectedLimit);
@@ -1440,9 +1440,9 @@ function payloadRecord(payload: unknown): Record<string, unknown> {
 	return record.ok === true ? recordValue(record.data, "MCP result data") : record;
 }
 
-function payloadBots(payload: unknown, kind: "bot" | "bots"): Array<BotDocument | BotSummary> {
+function payloadBots(payload: unknown, kind: "bot" | "bots"): Array<EffectiveBotDocument | BotSummary> {
 	const record = payloadRecord(payload);
-	return kind === "bot" ? [record.bot as BotDocument | BotSummary] : record.bots as Array<BotDocument | BotSummary>;
+	return kind === "bot" ? [record.bot as EffectiveBotDocument | BotSummary] : record.bots as Array<EffectiveBotDocument | BotSummary>;
 }
 
 function payloadWorlds(payload: unknown, kind: "world" | "worlds"): WorldSummary[] {
@@ -1507,7 +1507,7 @@ function promptOnlyParticipantInferenceSettings(settings: BotInferenceSettings |
 }
 
 function presentMcpBot(
-	candidate: BotDocument | BotSummary,
+	candidate: EffectiveBotDocument | BotSummary,
 	viewerUserId: string,
 	annotations: CanonicalInferenceAnnotationSet,
 	worldPostingSettings?: PostingSettings,
@@ -1672,7 +1672,7 @@ function cloneFieldHasSpecifiedValue(value: unknown): boolean {
 	return true;
 }
 
-function sourceBotLabel(bot: Pick<BotDocument | BotSummary, "cloneSource">): string {
+function sourceBotLabel(bot: Pick<EffectiveBotDocument | BotSummary, "cloneSource">): string {
 	const source = bot.cloneSource?.sourceBot;
 	return source ? `source bot @${source.handle} (${source.id})` : "the linked source bot";
 }

@@ -1,3 +1,6 @@
+import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
+import { botText } from '../localization';
+const text = botText('en');
 import { describe, expect, it } from "vitest";
 import type { LanguageTag, NotificationEvent, RequiredLocalizedText } from "@bickr/shared/model";
 import type { ToolResultEnvelope } from "@bickr/shared/tool-results";
@@ -15,9 +18,26 @@ const enLang = "en" as LanguageTag;
 const en = (text: string): RequiredLocalizedText => ({ lang: enLang, text });
 
 const selfBotId = "bot_self";
-const readingParticipant = () => providerSerializationContext({ botId: selfBotId });
+const readingParticipant = () => providerSerializationContext(text, { botId: selfBotId });
 
 describe("provider-facing text preservation", () => {
+	it('omits missing authored names and titles without changing literal placeholder words', () => {
+		for (const name of ['list_recent_threads', 'list_hot_threads', 'search_threads', 'search_threads_semantic']) {
+			const result = providerToolResultPayload(name, [
+				{ id: 'thr_missing', threadId: 'thr_missing' },
+				{ id: 'thr_authored', threadId: 'thr_authored', title: en('untitled') },
+			], {}, readingParticipant()) as Array<Record<string, unknown>>;
+			expect(result[0]).not.toHaveProperty('title');
+			expect(result[1]?.title).toBe('untitled');
+		}
+		const profiles = providerToolResultPayload('search_profiles', [
+			{ handle: 'missing-name' },
+			{ handle: 'authored-name', displayName: en('unknown') },
+		], {}, readingParticipant()) as Array<Record<string, unknown>>;
+		expect(profiles[0]).not.toHaveProperty('displayName');
+		expect(profiles[1]?.displayName).toBe('unknown');
+	});
+
 	it("includes every associated note ID in a profile read", () => {
 		const noteIds = Array.from({ length: 25 }, (_, index) => `note-${index}`);
 		const profile = {
@@ -303,7 +323,9 @@ describe("delivered notification payloads", () => {
 			type: "bootstrap",
 			deliveryReasons: ["bootstrap"],
 			world: { id: "wld_alpha", handle: "w/alpha" },
-			message: en("Welcome to w/alpha."),
+			bootstrapVersion: 2,
+			customMessage: en("Welcome to w/alpha."),
+			introForum: null,
 		};
 
 		expect(deliver(event)).toEqual({
@@ -604,7 +626,7 @@ describe("delivered notification payloads", () => {
 		// The omitted notifications are still pending: only what was included is
 		// deleted by the caller.
 		expect(payload.context).toBe(
-			"Result of checking notifications. 1 lower-priority or older notification was omitted; they remain pending.",
+			"Result of checking notifications. 1 lower-priority or older notification was omitted; it remains pending.",
 		);
 	});
 
@@ -780,12 +802,12 @@ describe("self-authored forum content", () => {
 		expect(reply).toMatchObject({ commentRef: "c/cmt_reply", author: "u/other_h" });
 		const nested = (reply.replies as Array<Record<string, unknown>>)[0];
 		// The focus marker keeps its own meaning; it is not an authorship signal.
-		expect(nested).toMatchObject({ commentRef: "c/cmt_mine", author: "u/sabine_h (MYSELF)", "My focus is on this comment": true });
+		expect(nested).toMatchObject({ commentRef: "c/cmt_mine", author: "u/sabine_h (MYSELF)", focused: true });
 		expect(JSON.stringify(result)).not.toContain(selfBotId);
 	});
 
 	it("budgets self-heavy read trees with the exact composite author label emitted to the provider", () => {
-		const content: Parameters<typeof pruneReadContentTreeForProviderBudget>[0] = [
+		const content: Parameters<typeof pruneReadContentTreeForProviderBudget>[1] = [
 			{
 				type: "comment",
 				id: "cmt_root",
@@ -820,16 +842,16 @@ describe("self-authored forum content", () => {
 				],
 			},
 		];
-		const unpruned = pruneReadContentTreeForProviderBudget(content, Number.MAX_SAFE_INTEGER, { botId: selfBotId });
+		const unpruned = pruneReadContentTreeForProviderBudget(text, content, Number.MAX_SAFE_INTEGER, { botId: selfBotId });
 		const tokenBudget = unpruned.tokenEstimate - 5;
-		const pruned = pruneReadContentTreeForProviderBudget(content, tokenBudget, { botId: selfBotId });
+		const pruned = pruneReadContentTreeForProviderBudget(text, content, tokenBudget, { botId: selfBotId });
 		const emitted = providerToolResultPayload(
 			"read_thread_by_id",
 			{ thread: { threadId: "thr_budget", title: "Budget" }, content: pruned.content },
 			{},
 			readingParticipant(),
 		) as { content: Array<Record<string, unknown>> };
-		const emittedTokenEstimate = Math.max(1, Math.ceil(JSON.stringify(emitted.content).length / 4));
+		const emittedTokenEstimate = approximateTextTokens(JSON.stringify(emitted.content));
 
 		expect(pruned.trimmedBodyCount).toBe(1);
 		expect(pruned.tokenEstimate).toBe(emittedTokenEstimate);
@@ -924,7 +946,7 @@ describe("drawn random integers", () => {
 
 describe("providerSafeJsonValue", () => {
 	it("keeps promptToken-style provider fields while dropping real credential key shapes", () => {
-		expect(providerSafeJsonValue({
+		expect(providerSafeJsonValue(text, {
 			promptToken: "visible",
 			prompt_tokens: 12,
 			token: "hidden",

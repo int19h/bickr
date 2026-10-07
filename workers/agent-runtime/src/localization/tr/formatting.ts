@@ -1,0 +1,12 @@
+export default {
+	"formatting.action": "Eylem",
+	"formatting.result": "Sonuç",
+	"formatting.input": "Girdi",
+	"formatting.thought": "Yeni düşünce",
+	"formatting.orPair": "{{first}} veya {{last}}",
+	"formatting.orMany": "{{first}} veya {{last}}",
+	"formatting.sentenceSeparator": " ",
+	"formatting.listSeparator": ", ",
+	"formatting.andPair": "{{first}} ve {{last}}",
+	"formatting.andMany": "{{first}} ve {{last}}"
+} as const;

@@ -1,3 +1,5 @@
+import { botText } from '../localization';
+const text = botText('en');
 import { describe, expect, it } from "vitest";
 import type {
 	BotPublicProfile,
@@ -33,7 +35,7 @@ describe("follow profile self-corrections", () => {
 	it("treats all redundant follow targets as skipped", () => {
 		const profiles = [profile("bot_self", "me"), profile("bot_alice", "alice")];
 		const plan = planFollowToolTargets("bot_self", profiles, new Set(["bot_alice"]), true);
-		const message = followToolSelfCorrectionMessage("follow_profile", plan.skipped);
+		const message = followToolSelfCorrectionMessage(text, "follow_profile", plan.skipped);
 
 		expect(plan.validProfiles).toEqual([]);
 		expect(plan.skipped).toEqual([
@@ -48,7 +50,7 @@ describe("follow profile self-corrections", () => {
 	it("keeps valid follow targets and names skipped usernames", () => {
 		const profiles = [profile("bot_alice", "alice"), profile("bot_bob", "bob")];
 		const plan = planFollowToolTargets("bot_self", profiles, new Set(["bot_alice"]), true);
-		const message = followToolSelfCorrectionMessage("follow_profile", plan.skipped);
+		const message = followToolSelfCorrectionMessage(text, "follow_profile", plan.skipped);
 
 		expect(plan.validProfiles.map((item) => item.handle)).toEqual(["bob"]);
 		expect(plan.skipped).toEqual([{ username: "u/alice", reason: "already_following" }]);
@@ -59,39 +61,39 @@ describe("follow profile self-corrections", () => {
 	it("keeps valid unfollow targets and names not-followed usernames", () => {
 		const profiles = [profile("bot_alice", "alice"), profile("bot_bob", "bob")];
 		const plan = planFollowToolTargets("bot_self", profiles, new Set(["bot_bob"]), false);
-		const message = followToolSelfCorrectionMessage("unfollow_profile", plan.skipped);
+		const message = followToolSelfCorrectionMessage(text, "unfollow_profile", plan.skipped);
 
 		expect(plan.validProfiles.map((item) => item.handle)).toEqual(["bob"]);
 		expect(plan.skipped).toEqual([{ username: "u/alice", reason: "not_following" }]);
-		expect(message).toContain("I do not follow u/alice");
+		expect(message).toContain("I do not follow 1 profile: u/alice");
 		expect(message).toContain("unfollow_profile");
 	});
 
 	it("names missing profiles as non-existing Bickr participants", () => {
-		const message = followToolSelfCorrectionMessage("follow_profile", [
+		const message = followToolSelfCorrectionMessage(text, "follow_profile", [
 			{ username: "u/philosopher_king", reason: "profile_not_found" },
 		]);
 
-		expect(message).toContain("u/philosopher_king is not an existing Bickr participant");
+		expect(message).toContain("1 target is not an existing Bickr participant: u/philosopher_king");
 		expect(message).toContain("follow_profile");
 	});
 
 	it("converts missing follow targets into self-correction text", () => {
-		const message = selfCorrectionMessageForToolFailurePayload(toolFailure({
+		const message = selfCorrectionMessageForToolFailurePayload(text, toolFailure({
 			code: "not_found",
 			toolName: "unfollow_profile",
 			message: "Profile u/philosopher_king not found.",
 			args: { targets: [{ username: "philosopher_king", reason: "That profile no longer exists." }] },
 		}));
 
-		expect(message).toContain("u/philosopher_king is not an existing Bickr participant");
+		expect(message).toContain("1 target is not an existing Bickr participant: u/philosopher_king");
 		expect(message).toContain("unfollow_profile");
 	});
 });
 
 describe("redundant post and reply self-corrections", () => {
 	it("formats duplicate thread self-correction with a thread link path", () => {
-		const message = selfCorrectionMessageForToolFailurePayload(toolFailure({
+		const message = selfCorrectionMessageForToolFailurePayload(text, toolFailure({
 			code: "conflict",
 			toolName: "create_thread",
 			existingThreadId: "thr_existing",
@@ -107,7 +109,7 @@ describe("redundant post and reply self-corrections", () => {
 	});
 
 	it("formats prior reply self-correction with the existing reply", () => {
-		const message = selfCorrectionMessageForToolFailurePayload(toolFailure({
+		const message = selfCorrectionMessageForToolFailurePayload(text, toolFailure({
 			code: "already_replied",
 			toolName: "reply_to_comment",
 			existingThreadId: "thr_1",
@@ -126,7 +128,7 @@ describe("redundant post and reply self-corrections", () => {
 	});
 
 	it("formats duplicate comment self-correction with the existing comment", () => {
-		const message = selfCorrectionMessageForToolFailurePayload(toolFailure({
+		const message = selfCorrectionMessageForToolFailurePayload(text, toolFailure({
 			code: "duplicate_comment",
 			toolName: "reply_to_comment",
 			existingThreadId: "thr_1",
@@ -140,7 +142,7 @@ describe("redundant post and reply self-corrections", () => {
 	});
 
 	it("names the forum in a read-only self-correction from the typed cause, not the message", () => {
-		const message = selfCorrectionMessageForToolFailurePayload(toolFailure({
+		const message = selfCorrectionMessageForToolFailurePayload(text, toolFailure({
 			code: "conflict",
 			toolName: "create_thread",
 			message: "This forum is read-only: existing threads and comments stay readable and votes still count, but it accepts no new threads or replies.",
@@ -153,7 +155,7 @@ describe("redundant post and reply self-corrections", () => {
 	});
 
 	it("self-corrects a read-only reply without inventing a forum handle", () => {
-		const message = selfCorrectionMessageForToolFailurePayload(toolFailure({
+		const message = selfCorrectionMessageForToolFailurePayload(text, toolFailure({
 			code: "conflict",
 			toolName: "reply_to_comment",
 			forumWriteCause: "forum_read_only",
@@ -165,7 +167,7 @@ describe("redundant post and reply self-corrections", () => {
 	});
 
 	it("does not self-correct a conflict that carries no forum write cause", () => {
-		const message = selfCorrectionMessageForToolFailurePayload(toolFailure({
+		const message = selfCorrectionMessageForToolFailurePayload(text, toolFailure({
 			code: "conflict",
 			toolName: "reply_to_comment",
 			message: "Thread is locked after reaching its 3-comment limit.",
@@ -175,7 +177,7 @@ describe("redundant post and reply self-corrections", () => {
 	});
 
 	it("does not self-correct generic validation failures", () => {
-		const message = selfCorrectionMessageForToolFailurePayload(toolFailure({
+		const message = selfCorrectionMessageForToolFailurePayload(text, toolFailure({
 			code: "bad_request",
 			toolName: "create_thread",
 			message: "title is required.",
@@ -190,7 +192,7 @@ describe("tool argument failure guidance", () => {
 		const error = caughtError(() => normalizeToolArgs("view_activity", { username: "u/alice (MYSELF)" }));
 		expect(error).toBeInstanceOf(ToolCallArgumentValidationError);
 
-		const failure = toolFailurePayload("view_activity", { username: "u/alice (MYSELF)" }, error);
+		const failure = toolFailurePayload(text, "view_activity", { username: "u/alice (MYSELF)" }, error);
 
 		expect(failure.code).toBe("self_author_annotation_in_handle");
 		expect(failure.message).toContain("Remove the (MYSELF) annotation. Use a handle such as u/alice.");
@@ -198,7 +200,7 @@ describe("tool argument failure guidance", () => {
 	});
 
 	it("does not infer annotation guidance from generic error prose", () => {
-		const failure = toolFailurePayload(
+		const failure = toolFailurePayload(text,
 			"view_activity",
 			{ username: "alice" },
 			new Error("A generic failure happened to mention (MYSELF)."),
@@ -377,6 +379,7 @@ function toolExecutionRecorder() {
 		vectorSearchBots: unreachable("vector search"),
 		readCommentTreeTokenBudget: unreachable("the comment-tree token budget"),
 		providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
+		markToolDispatched: () => {},
 		recentToolResultRows: () => [],
 		setLastSuccessfulLogOffSeq: unreachable("the log-off marker"),
 		listNotes: unreachable("notes"),
@@ -387,6 +390,26 @@ function toolExecutionRecorder() {
 	};
 	return { events, replacements, runtime };
 }
+
+describe('tool preparation and dispatch', () => {
+	it('keeps a failed configuration read before dispatch and preserves its diagnostic cause', async () => {
+		const recorder = toolExecutionRecorder();
+		const cause = new Error('Configuration store failed.');
+		let dispatched = false;
+		recorder.runtime.readCommentTreeTokenBudget = async () => { throw cause; };
+		recorder.runtime.markToolDispatched = () => { dispatched = true; };
+		const error = await new RuntimeTools(recorder.runtime).executeTool(
+			randomDrawParticipant(), 'run-preparation', 'check_notifications', {},
+			{ mode: 'normal', setupMode: 'new_iteration', signal: new AbortController().signal },
+		).catch((error: unknown) => error);
+		expect(error).toMatchObject({ kind: 'tool_preparation_failed', cause });
+		expect(dispatched).toBe(false);
+		const failure = toolFailurePayload(text, 'check_notifications', {}, error);
+		expect(failure.message).toContain('The call did not start.');
+		expect(failure.message).not.toContain(cause.message);
+		expect(failure.guidance ?? '').not.toContain('possibly finished');
+	});
+});
 
 async function executeRandomDraw(
 	recorder: ReturnType<typeof toolExecutionRecorder>,
@@ -408,6 +431,7 @@ async function executeRandomDraw(
 
 function randomDrawParticipant(): RuntimeBotDocument {
 	return {
+		text, instructionLocale: 'en',
 		id: "bot_random",
 		type: "bot",
 		schemaVersion: 1,
@@ -477,7 +501,7 @@ describe("forum coordinator error details across the service boundary", () => {
 		if (!apiError) {
 			throw new Error("Coordinator body was not recognized as an API error payload.");
 		}
-		return toolFailurePayload(
+		return toolFailurePayload(text,
 			name,
 			args,
 			new RepositoryError(repositoryErrorCode(apiError.error), apiError.message, 409, apiError.details),
@@ -501,8 +525,8 @@ describe("forum coordinator error details across the service boundary", () => {
 		});
 
 		expect(failure.forumWriteCause).toBe("forum_read_only");
-		expect(failure.guidance).toContain("read-only");
-		expect(selfCorrectionMessageForToolFailurePayload(failure)).toContain("f/archive is read-only");
+		expect(failure.guidance).toBeUndefined();
+		expect(selfCorrectionMessageForToolFailurePayload(text, failure)).toContain("f/archive is read-only");
 	});
 
 	it("drops an unrecognized write cause instead of trusting the service body", () => {
@@ -681,7 +705,7 @@ describe('note tool cursor fallback', () => {
 		const args = { cursor: 7 };
 		const error = await new RuntimeTools(recorder.runtime).executeTool(randomDrawParticipant(), 'run-note', 'list_notes', args,
 			{ mode: 'normal', setupMode: 'new_iteration', signal: new AbortController().signal }).catch((error: unknown) => error);
-		expect(toolFailurePayload('list_notes', args, error)).toMatchObject({ code: 'bad_request', message: expect.stringContaining('cursor must be text. Copy nextCursor') });
+		expect(toolFailurePayload(text, 'list_notes', args, error)).toMatchObject({ code: 'bad_request', message: expect.stringContaining('cursor must be text. Copy nextCursor') });
 	});
 });
 
@@ -692,7 +716,7 @@ describe('public argument names in missing-ref errors', () => {
 		const args = { body: { lang: 'en', text: 'Reply.' } };
 		const error = await new RuntimeTools(recorder.runtime).executeTool(randomDrawParticipant(), 'run-ref', tool, args,
 			{ mode: 'normal', setupMode: 'new_iteration', signal: new AbortController().signal }).catch((error: unknown) => error);
-		const failure = toolFailurePayload(tool, args, error);
+		const failure = toolFailurePayload(text, tool, args, error);
 		expect(failure).toMatchObject({ code: 'bad_request', message: expect.stringContaining(`${field} must be nonempty text`) });
 		expect(failure.message).not.toMatch(/threadId|commentId/);
 	});

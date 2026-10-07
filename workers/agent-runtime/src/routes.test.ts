@@ -38,6 +38,7 @@ const routeCases = [
 	{ method: 'PATCH', path: '/users/user-1/inference-configurations/config-1', handlerId: 'update-inference-configuration' },
 	{ method: 'DELETE', path: '/users/user-1/inference-configurations/config-1', handlerId: 'delete-inference-configuration' },
 	{ method: 'GET', path: '/users/user-1/inference-translation/annotation', handlerId: 'get-inference-translation-annotation' },
+	{ method: 'POST', path: '/maintenance/instruction-localization/runtime', handlerId: 'instruction-localization-sweep' },
 	{ method: 'GET', path: '/inference-graph/provider-default-barrier-sweep/status', handlerId: 'inference-provider-default-barrier-sweep-fleet-status' },
 	{ method: 'POST', path: '/inference-graph/provider-default-barrier-sweep', handlerId: 'run-inference-provider-default-barrier-sweep-fleet' },
 	{ method: 'GET', path: '/inference-graph/fleet-status', handlerId: 'inference-graph-fleet-status' },

@@ -1,3 +1,5 @@
+import { botText } from '../localization';
+const text = botText('en');
 import { SelfCorrectingToolCallError } from '../errors';
 import { RepositoryError } from '@bickr/shared/repository';
 import { toolDefinitionsForProviderRound } from '../prompt-and-tools';
@@ -8,7 +10,7 @@ import { RunLiveness, cleanupTimeoutMs, transitionTimeoutMs } from './run-livene
 import type { AdmittedTick, RuntimeBotDocument } from '../types';
 
 afterEach(() => vi.useRealTimers());
-const bot = { id: 'bot', type: 'bot', schemaVersion: 1, revision: 1, createdAt: '2026-01-01', updatedAt: '2026-01-01', homeWorldId: 'world', homeWorldHandle: 'world', ownerUserId: 'owner', handle: 'participant', language: null, includeLanguageInSystemPrompt: false, displayName: { lang: null, text: 'Participant' }, shortBio: { lang: null, text: '' }, prompt: { lang: null, text: '' }, inferenceSettings: {}, toolSettings: {}, tickSettings: { enabled: true, intervalSeconds: 60, allowEarlyLogOff: true, compactionThreshold: 0.75 } } satisfies RuntimeBotDocument;
+const bot = { text, instructionLocale: 'en', id: 'bot', type: 'bot', schemaVersion: 1, revision: 1, createdAt: '2026-01-01', updatedAt: '2026-01-01', homeWorldId: 'world', homeWorldHandle: 'world', ownerUserId: 'owner', handle: 'participant', language: null, includeLanguageInSystemPrompt: false, displayName: { lang: null, text: 'Participant' }, shortBio: { lang: null, text: '' }, prompt: { lang: null, text: '' }, inferenceSettings: {}, toolSettings: {}, tickSettings: { enabled: true, intervalSeconds: 60, allowEarlyLogOff: true, compactionThreshold: 0.75 } } satisfies RuntimeBotDocument;
 
 async function harness() {
 	const storage = { ...createRuntimeTestStorage(), setAlarm: vi.fn(async () => {}), deleteAlarm: vi.fn(async () => {}) };
@@ -111,7 +113,7 @@ it.each([
 		prematureLogOffCorrectedSinceLastLogOff: () => false,
 		loopGeneratedTokenCountSinceLastLogOff: () => 0,
 		appendProviderMessages: async () => {}, recordInferenceSubmission: () => {},
-		ensureProviderPromptWithinBudget: async () => ({ allowedPromptTokens: 13_500, providerTools: toolDefinitionsForProviderRound(), promptTokens: 100, requestMessages: [] }),
+		ensureProviderPromptWithinBudget: async () => ({ allowedPromptTokens: 13_500, providerTools: toolDefinitionsForProviderRound(text), promptTokens: 100, requestMessages: [] }),
 		callProvider: async () => {
 			if (responses++ > 0) throw new Error('later provider failure');
 			return { content: '', reasoning: '', reasoningDetails: [], toolCalls: [{ id: 'refused-call', type: 'function', function: { name: 'reply_to_comment', arguments: JSON.stringify({ commentId: 'cmt_parent', body: { lang: 'en', text: 'hello' } }) } }] };

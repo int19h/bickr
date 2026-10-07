@@ -1,0 +1,25 @@
+{
+  "group": "translation",
+  "units": [
+    {
+      "id": "translation.request",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/translation.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 1420,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "sourceText",
+        "toolName",
+        "translation"
+      ],
+      "sourceTemplateHash": "e74dd0f270698ac820138660034626ed997c50d4900db1ca08bc809b78eee0c7"
+    }
+  ]
+}

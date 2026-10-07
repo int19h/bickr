@@ -1,3 +1,4 @@
+import { botServiceIssue, isCommittedBotServiceIssue } from '@bickr/shared/bot-service-issues';
 import { rebuildForumSearchIndexes, forumSearchPending } from "@bickr/shared/indexed-substring-search";
 import { isForumSearchMaintenanceRequest } from "@bickr/shared/maintenance";
 import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
@@ -758,7 +759,7 @@ async function createCommentReply(
 		.bind(parentCommentId)
 		.first<{ threadId: string }>();
 	if (!row) {
-		throw new RepositoryError("not_found", "Parent comment not found.", 404);
+		throw new RepositoryError("not_found", "Parent comment not found.", 404, { botIssue: botServiceIssue("issue.service.parentCommentMissing", {}) });
 	}
 	const latestThread = await threadBeforeMutation(env, coordinator, row.threadId);
 	const overlay = await mutationAvatarOverlay(env, latestThread, actor.botId);
@@ -1641,7 +1642,7 @@ async function readFreshThread(
 ): Promise<ThreadDocument | null> {
 	const thread = await readFreshThreadDocument(context, threadId);
 	if (thread?.deletedAt) {
-		throw new RepositoryError("not_found", "Thread not found.", 404);
+		throw new RepositoryError("not_found", "Thread not found.", 404, { botIssue: botServiceIssue("issue.service.threadMissing", {}) });
 	}
 	return thread;
 }
@@ -1761,6 +1762,8 @@ function forumCoordinatorNotFoundResponse(): Response {
 		{
 			ok: false,
 			error: "not_found",
+			message: "That forum coordinator route does not exist.",
+			details: { botIssue: botServiceIssue("issue.service.routeMissing", {}) },
 			runtime: "forum-coordinator-worker",
 		},
 		{ status: 404 },
@@ -1772,7 +1775,7 @@ function errorResponse(error: unknown): Response {
 		return fail(error.code, error.message, error.status, error.details);
 	}
 	if (error instanceof InputError) {
-		return fail("bad_request", error.message, 400);
+		return fail("bad_request", error.message, 400, error.botIssue ? { botIssue: error.botIssue } : undefined);
 	}
 	if (isD1UniqueConstraintError(error)) {
 		return fail("conflict", "That handle is already in use.", 409);
@@ -1841,10 +1844,16 @@ function isThreadMutationRequest(request: Request, url: URL): boolean {
 
 async function executeDurableThreadMutation(request: Request, env: ForumCoordinatorEnv, coordinator: CoordinatorContext): Promise<Response> {
 	const storage = coordinator.storage!;
-	await replayCoordinatorThreadMutation(env, coordinator);
-	await pruneThreadMutationReceipts(storage);
 	const identity = await threadMutationIdentity(request);
 	const receipt = await replayThreadMutationReceipt(storage, identity);
+	try {
+		await replayCoordinatorThreadMutation(env, coordinator);
+	} catch (error) {
+		console.error('Earlier thread mutation recovery unavailable', error);
+		throw new RepositoryError("server_error", "An earlier thread mutation still requires recovery.", 503,
+			{ botIssue: receipt ? unavailableMutationIssue(receipt) : botServiceIssue("issue.service.mutationRecoveryPending", {}) });
+	}
+	await pruneThreadMutationReceipts(storage);
 	if (receipt) return renderThreadMutationReply(receipt, env, coordinator);
 	const staged = stageThreadMutation(env.BICKR_KV, env.BICKR_D1);
 	const stagedContext: CoordinatorContext = { ...coordinator, receiptReply: undefined, stagingMutation: true, cache: { entry: coordinator.cache?.entry ?? null } };
@@ -1860,13 +1869,20 @@ async function executeDurableThreadMutation(request: Request, env: ForumCoordina
 		...(creation && thread && env.FORUM_COORDINATOR ? { handoffThreadId: thread.id } : {}),
 	};
 	await commitThreadMutation(storage, env.BICKR_D1, coordinator.objectId, plan);
-	if (coordinator.cache && !creation) coordinator.cache.entry = stagedContext.cache?.entry ?? null;
-	await replayCoordinatorThreadMutation(env, coordinator);
-	await scheduleCoordinatorAlarmForPendingTasks(coordinator);
-	return restoreResponse(plan.response);
+	try {
+		if (coordinator.cache && !creation) coordinator.cache.entry = stagedContext.cache?.entry ?? null;
+		await replayCoordinatorThreadMutation(env, coordinator);
+		await scheduleCoordinatorAlarmForPendingTasks(coordinator);
+		return restoreResponse(plan.response);
+	} catch (error) {
+		console.error('Committed thread mutation result unavailable', error);
+		throw new RepositoryError("server_error", "The mutation committed, but its result is unavailable.", 503,
+			{ botIssue: unavailableMutationIssue(plan.reply) });
+	}
 }
 
 async function renderThreadMutationReply(reply: ThreadMutationReply, env: ForumCoordinatorEnv, coordinator: CoordinatorContext): Promise<Response> {
+	try {
 	if (reply.kind === "response") return restoreResponse(reply.response);
 	let thread = coordinator.storage ? await readCanonicalThread(coordinator.storage) : undefined;
 	if (thread?.id !== reply.threadId) {
@@ -1876,15 +1892,35 @@ async function renderThreadMutationReply(reply: ThreadMutationReply, env: ForumC
 		const headers = new Headers();
 		addInternalServiceAuthHeader(headers, env.INTERNAL_SERVICE_SECRET);
 		const response = await env.FORUM_COORDINATOR.get(env.FORUM_COORDINATOR.idFromName(reply.threadId)).fetch(new Request(internalServiceUrl(`/threads/${encodeURIComponent(reply.threadId)}`), { headers }));
-		if (response.status === 404) throw new RepositoryError("not_found", "The mutation succeeded, but its result was deleted.", 410);
+		if (response.status === 404) throw new RepositoryError("not_found", "The mutation succeeded, but its result was deleted.", 410, { botIssue: deletedMutationIssue(reply) });
 		if (!response.ok) throw new Error(`Thread receipt lookup returned HTTP ${response.status}.`);
 		const payload = await response.json() as { data: { thread: ThreadDocument } };
 		thread = payload.data.thread;
 	}
 	if (reply.kind === "repair") return ok({ repair: { kind: "repaired", document: thread } });
 	const comment = reply.commentId ? thread.comments.find((item) => item.id === reply.commentId) : undefined;
-	if ((!reply.allowDeleted && thread.deletedAt) || (reply.commentId && !comment)) throw new RepositoryError("not_found", "The mutation succeeded, but its result was deleted.", 410);
+	if ((!reply.allowDeleted && thread.deletedAt) || (reply.commentId && !comment)) throw new RepositoryError("not_found", "The mutation succeeded, but its result was deleted.", 410, { botIssue: deletedMutationIssue(reply) });
 	return okThread({ ...coordinator, objectId: reply.coordinator }, await mutationAvatarOverlay(env, thread), { thread, ...(comment ? { comment } : {}) }, { status: reply.status });
+	} catch (error) {
+		if (error instanceof RepositoryError && error.details?.botIssue && isCommittedBotServiceIssue(error.details.botIssue)) throw error;
+		console.error('Committed thread receipt result unavailable', error);
+		throw new RepositoryError("server_error", "The mutation committed, but its result is unavailable.", 503,
+			{ botIssue: unavailableMutationIssue(reply) });
+	}
+}
+
+// The durable receipt supplies these identities even if the current document
+// is gone. A raw response has no trusted identity to include in the message.
+function unavailableMutationIssue(reply: ThreadMutationReply | undefined) {
+	return reply && reply.kind !== "response"
+		? botServiceIssue("issue.service.mutationReceiptUnavailableInThread", { threadRef: `t/${reply.threadId}` })
+		: botServiceIssue("issue.service.mutationReceiptUnavailable", {});
+}
+
+function deletedMutationIssue(reply: CompactThreadMutationReply) {
+	return reply.kind === "thread" && reply.commentId
+		? botServiceIssue("issue.service.mutationResultDeletedComment", { threadRef: `t/${reply.threadId}`, commentRef: `c/${reply.commentId}` })
+		: botServiceIssue("issue.service.mutationResultDeletedInThread", { threadRef: `t/${reply.threadId}` });
 }
 
 async function replayCoordinatorThreadMutation(env: ForumCoordinatorEnv, coordinator: CoordinatorContext): Promise<void> {

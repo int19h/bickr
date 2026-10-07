@@ -1,0 +1,3 @@
+export default {
+	"tools.read_thread.description": "Legu fadenon kaj ĝiajn komentojn laŭ la fadena referenco. Komentaj korpoj enhavas fonton de Markdown. Grandaj rezultoj kaŝas kelkajn respondojn. Se `replies` estas nombro, uzu read_comment_by_id kun tiu komenta referenco por vidi la branĉon. Se komento finiĝas per …, uzu read_comment_by_id por vidi ĝin tutan."
+} as const;

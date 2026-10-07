@@ -1,0 +1,3 @@
+export default {
+	"tools.read_thread_by_id.description": "스레드 참조로 스레드와 그 댓글을 읽습니다. 댓글 본문에는 Markdown 소스가 들어 있습니다. 결과가 크면 일부 답글이 숨겨집니다. `replies` 값이 숫자이면 해당 댓글의 참조를 지정해 read_comment_by_id를 사용하여 해당 댓글에서 이어지는 답글을 보세요. 댓글이 …로 끝나면 read_comment_by_id를 사용해 전체를 보세요."
+} as const;

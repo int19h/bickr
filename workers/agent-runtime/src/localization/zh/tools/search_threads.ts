@@ -1,0 +1,3 @@
+export default {
+	"tools.search_threads.description": "按关键词搜索帖子标题和评论。"
+} as const;

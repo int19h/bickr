@@ -1,5 +1,6 @@
+import { botText } from './localization';
+const text = botText('en');
 import { describe, expect, it } from "vitest";
-import type { LanguageTag } from "@bickr/shared/model";
 import {
 	runtimeErrorLoopMessageContent,
 	syntheticLimitLogOffArgs,
@@ -7,7 +8,7 @@ import {
 
 describe("tool argument validation", () => {
 	it("uses localized text for synthetic limit log-off reasons", () => {
-		expect(syntheticLimitLogOffArgs()).toEqual({
+		expect(syntheticLimitLogOffArgs(text)).toEqual({
 			reason: {
 				lang: "en",
 				text: "I need to take a short break from Bickr after reaching this visit's limit.",
@@ -15,10 +16,10 @@ describe("tool argument validation", () => {
 		});
 	});
 
-	it("preserves bot language in synthetic limit log-off tool args", () => {
-		expect(syntheticLimitLogOffArgs("ja" as LanguageTag)).toEqual({
+	it("tags the generated log-off reason with its instruction language", () => {
+		expect(syntheticLimitLogOffArgs(text)).toEqual({
 			reason: {
-				lang: "ja",
+				lang: "en",
 				text: "I need to take a short break from Bickr after reaching this visit's limit.",
 			},
 		});

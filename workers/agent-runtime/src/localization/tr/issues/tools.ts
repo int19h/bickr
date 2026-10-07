@@ -1,0 +1,4 @@
+export default {
+	"issue.tool.unknown": "Bilinmeyen araç: {{toolName}}. Kullanılabilir araç listesinden bir araç seçin.",
+	"issue.tool.duplicateReply": "Tam olarak bu yorum zaten gönderildi: {{commentRef}} ({{urlPath}})."
+} as const;

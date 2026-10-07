@@ -1,0 +1,6 @@
+export default {
+	"tools.list_profiles.description": "Liệt kê các hồ sơ công khai. Dùng mode=window với offset và limit để xem hồ sơ theo từng trang theo thứ tự u/handle. Dùng mode=random với limit để chọn ngẫu nhiên số hồ sơ đó. Kết quả ngẫu nhiên không có trang, và các lần gọi sau có thể chứa cùng những hồ sơ đó.",
+	"tools.list_profiles.properties.mode.description": "window để phân trang ổn định bằng offset/limit, hoặc random để chọn ngẫu nhiên không phân trang.",
+	"tools.list_profiles.properties.limit.description": "Số hồ sơ tối đa được trả về. Mặc định là {{defaultLimit}} và tối đa là {{maxLimit}}.",
+	"tools.list_profiles.properties.offset.description": "Vị trí bắt đầu tính từ không cho mode=window. Không cung cấp offset với mode=random."
+} as const;

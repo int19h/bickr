@@ -1,0 +1,107 @@
+export default {
+	"time.just_now": "díreach anois",
+	"time.year.future": {
+		"one": "i gceann {{count}} bliana",
+		"two": "i gceann {{count}} bhliain",
+		"few": "i gceann {{count}} bliana",
+		"many": "i gceann {{count}} mbliana",
+		"other": "i gceann {{count}} bliain"
+	},
+	"time.year.past": {
+		"one": "{{count}} bhliain ó shin",
+		"two": "{{count}} bhliain ó shin",
+		"few": "{{count}} bliana ó shin",
+		"many": "{{count}} mbliana ó shin",
+		"other": "{{count}} bliain ó shin"
+	},
+	"time.month.future": {
+		"one": "i gceann {{count}} mhí",
+		"two": "i gceann {{count}} mhí",
+		"few": "i gceann {{count}} mhí",
+		"many": "i gceann {{count}} mí",
+		"other": "i gceann {{count}} mí"
+	},
+	"time.month.past": {
+		"one": "{{count}} mhí ó shin",
+		"two": "{{count}} mhí ó shin",
+		"few": "{{count}} mhí ó shin",
+		"many": "{{count}} mí ó shin",
+		"other": "{{count}} mí ó shin"
+	},
+	"time.day.future": {
+		"one": "i gceann {{count}} lá",
+		"two": "i gceann {{count}} lá",
+		"few": "i gceann {{count}} lá",
+		"many": "i gceann {{count}} lá",
+		"other": "i gceann {{count}} lá"
+	},
+	"time.day.past": {
+		"one": "{{count}} lá ó shin",
+		"two": "{{count}} lá ó shin",
+		"few": "{{count}} lá ó shin",
+		"many": "{{count}} lá ó shin",
+		"other": "{{count}} lá ó shin"
+	},
+	"time.hour.future": {
+		"one": "i gceann {{count}} uair an chloig",
+		"two": "i gceann {{count}} uair an chloig",
+		"few": "i gceann {{count}} uair an chloig",
+		"many": "i gceann {{count}} n-uair an chloig",
+		"other": "i gceann {{count}} uair an chloig"
+	},
+	"time.hour.past": {
+		"one": "{{count}} uair an chloig ó shin",
+		"two": "{{count}} uair an chloig ó shin",
+		"few": "{{count}} uair an chloig ó shin",
+		"many": "{{count}} n-uair an chloig ó shin",
+		"other": "{{count}} uair an chloig ó shin"
+	},
+	"time.minute.future": {
+		"one": "i gceann {{count}} nóiméad",
+		"two": "i gceann {{count}} nóiméad",
+		"few": "i gceann {{count}} nóiméad",
+		"many": "i gceann {{count}} nóiméad",
+		"other": "i gceann {{count}} nóiméad"
+	},
+	"time.minute.past": {
+		"one": "{{count}} nóiméad ó shin",
+		"two": "{{count}} nóiméad ó shin",
+		"few": "{{count}} nóiméad ó shin",
+		"many": "{{count}} nóiméad ó shin",
+		"other": "{{count}} nóiméad ó shin"
+	},
+	"read.context.basic": "Toradh m'oibríochta {{operation}}.",
+	"read.context.collapsed_and_trimmed": {
+		"one": "Toradh m'oibríochta {{operation}}. Cuireadh roinnt liostaí freagraí i bhfoirm fhillte agus giorraíodh roinnt corp tráchtanna chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs.",
+		"two": "Toradh m'oibríochta {{operation}}. Cuireadh roinnt liostaí freagraí i bhfoirm fhillte agus giorraíodh roinnt corp tráchtanna chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs.",
+		"few": "Toradh m'oibríochta {{operation}}. Cuireadh roinnt liostaí freagraí i bhfoirm fhillte agus giorraíodh roinnt corp tráchtanna chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs.",
+		"many": "Toradh m'oibríochta {{operation}}. Cuireadh roinnt liostaí freagraí i bhfoirm fhillte agus giorraíodh roinnt corp tráchtanna chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs.",
+		"other": "Toradh m'oibríochta {{operation}}. Cuireadh roinnt liostaí freagraí i bhfoirm fhillte agus giorraíodh roinnt corp tráchtanna chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs."
+	},
+	"read.context.collapsed": {
+		"one": "Toradh m'oibríochta {{operation}}. Cuireadh roinnt liostaí freagraí i bhfoirm fhillte chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs.",
+		"two": "Toradh m'oibríochta {{operation}}. Cuireadh roinnt liostaí freagraí i bhfoirm fhillte chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs.",
+		"few": "Toradh m'oibríochta {{operation}}. Cuireadh roinnt liostaí freagraí i bhfoirm fhillte chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs.",
+		"many": "Toradh m'oibríochta {{operation}}. Cuireadh roinnt liostaí freagraí i bhfoirm fhillte chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs.",
+		"other": "Toradh m'oibríochta {{operation}}. Cuireadh roinnt liostaí freagraí i bhfoirm fhillte chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs."
+	},
+	"read.context.trimmed": {
+		"one": "Toradh m'oibríochta {{operation}}. Giorraíodh roinnt corp tráchtanna chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs.",
+		"two": "Toradh m'oibríochta {{operation}}. Giorraíodh roinnt corp tráchtanna chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs.",
+		"few": "Toradh m'oibríochta {{operation}}. Giorraíodh roinnt corp tráchtanna chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs.",
+		"many": "Toradh m'oibríochta {{operation}}. Giorraíodh roinnt corp tráchtanna chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs.",
+		"other": "Toradh m'oibríochta {{operation}}. Giorraíodh roinnt corp tráchtanna chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs."
+	},
+	"read.guidance.collapsed": "Ciallaíonn luach uimhriúil `replies` go bhfuil an méid sin freagraí díreacha fágtha ar lár; glaoigh ar read_comment_by_id le tagairt an tráchta sin chun an chraobh sin a scrúdú.",
+	"read.guidance.trimmed": "Giorraíodh corp a chríochnaíonn le {{ellipsis}}; glaoigh ar read_comment_by_id le tagairt an tráchta sin chun an trácht iomlán a léamh.",
+	"read.guidance.both": "Ciallaíonn luach uimhriúil `replies` go bhfuil an méid sin freagraí díreacha fágtha ar lár; glaoigh ar read_comment_by_id le tagairt an tráchta sin chun an chraobh sin a scrúdú. Giorraíodh corp a chríochnaíonn le {{ellipsis}}; glaoigh ar read_comment_by_id le tagairt an tráchta sin chun an trácht iomlán a léamh.",
+	"notifications.check.complete": "Toradh na seiceála fógraí.",
+	"notifications.check.omitted": {
+		"one": "Toradh na seiceála fógraí. Is é {{count}} líon na bhfógraí níos sine nó le tosaíocht níos ísle a fágadh ar lár; tá gach ceann díobh fós ar feitheamh.",
+		"two": "Toradh na seiceála fógraí. Is é {{count}} líon na bhfógraí níos sine nó le tosaíocht níos ísle a fágadh ar lár; tá gach ceann díobh fós ar feitheamh.",
+		"few": "Toradh na seiceála fógraí. Is é {{count}} líon na bhfógraí níos sine nó le tosaíocht níos ísle a fágadh ar lár; tá gach ceann díobh fós ar feitheamh.",
+		"many": "Toradh na seiceála fógraí. Is é {{count}} líon na bhfógraí níos sine nó le tosaíocht níos ísle a fágadh ar lár; tá gach ceann díobh fós ar feitheamh.",
+		"other": "Toradh na seiceála fógraí. Is é {{count}} líon na bhfógraí níos sine nó le tosaíocht níos ísle a fágadh ar lár; tá gach ceann díobh fós ar feitheamh."
+	},
+	"read.focus.description": "Tá m'aird ar an trácht seo."
+} as const;

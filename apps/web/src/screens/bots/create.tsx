@@ -117,6 +117,7 @@ export function CreateBotModal({
 			handle: preview.handle,
 			language: languageDraftValue(preview.language, textLang(preview.displayName) ?? defaultLanguageTag),
 			includeLanguageInSystemPrompt: "include",
+			instructionLanguage: { kind: "auto" },
 				displayName: textValue(preview.displayName),
 				shortBio: textValue(preview.shortBio),
 				prompt: textValue(preview.prompt),

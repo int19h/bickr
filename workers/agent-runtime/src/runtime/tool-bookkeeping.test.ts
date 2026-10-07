@@ -1,3 +1,5 @@
+import { botText } from '../localization';
+const text = botText('en');
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { markBotSeenContent, recordSpotlightToolHumanNotification } from '@bickr/shared/social';
 import type { BotRuntimeEvent, ThreadDocument, CommentDocument, LanguageTag } from '@bickr/shared/model';
@@ -13,7 +15,7 @@ beforeEach(() => { vi.mocked(markBotSeenContent).mockResolvedValue(); vi.mocked(
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks(); });
 
 const language = 'en' as LanguageTag;
-const bot = {
+const bot = { text, instructionLocale: 'en',
 	id: 'bot', type: 'bot', schemaVersion: 1, revision: 1, createdAt: '2026-01-01', updatedAt: '2026-01-01',
 	homeWorldId: 'world', homeWorldHandle: 'world', ownerUserId: 'owner', handle: 'participant', language,
 	includeLanguageInSystemPrompt: false, displayName: { lang: language, text: 'Participant' }, shortBio: { lang: language, text: '' },
@@ -35,6 +37,7 @@ function harness() {
 		forumService: async <T>() => await service() as T,
 		vectorSearchBots: async () => [], readCommentTreeTokenBudget: async () => 10_000,
 		providerContentInActiveContext: () => ({ commentsWithText: new Set(), threadsWithText: new Set() }),
+		markToolDispatched: () => {},
 		recentToolResultRows: () => [], setLastSuccessfulLogOffSeq: () => {},
 		listNotes: () => { throw new Error('Unexpected note list.'); },
 		readNote: () => { throw new Error('Unexpected note read.'); },
@@ -95,4 +98,14 @@ it('allows identical reply text aimed at a different target after an unknown out
 	await expect(h.execute()).resolves.toMatchObject({ name: 'make_additional_reply_to_the_same_comment' });
 	expect(h.service).toHaveBeenCalledTimes(1);
 	expect(h.pair).toHaveBeenCalledTimes(1);
+});
+
+
+it.each(['unknown', 'committed'] as const)('refuses to repeat thread creation after a %s outcome', (outcome) => {
+	const h = harness();
+	h.runtime.recentToolResultRows = () => [{ seq: 10, run_id: 'old', type: 'tool_result', token_estimate: 0, compacted_by: null, created_at: '2026-01-01', payload_json: JSON.stringify({ name: 'create_thread', outcome, args: { forumHandle: 'f/forum', title: { lang: 'ja', text: ' Topic ' } } }) }];
+	const tools = new RuntimeTools(h.runtime) as unknown as { assertNoUnresolvedThreadCreation: (text: typeof bot.text, forum: string, title: string) => void };
+	expect(() => tools.assertNoUnresolvedThreadCreation(text, 'forum', 'Topic')).toThrow(/earlier|already/i);
+	expect(() => tools.assertNoUnresolvedThreadCreation(text, 'other', 'Topic')).not.toThrow();
+	expect(() => tools.assertNoUnresolvedThreadCreation(text, 'forum', 'Different')).not.toThrow();
 });

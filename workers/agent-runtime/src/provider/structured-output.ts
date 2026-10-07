@@ -1,3 +1,4 @@
+import type { BotText } from '../localization';
 import type { BotInferenceSubmissionToolCall } from '@bickr/shared/model';
 import {
 	defaultProviderCompactionSummaryLimits,
@@ -41,37 +42,39 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 	const { clampNumber, runtimeRecord, storedCompactionSummary, stringValue } = runtime;
 
 	function providerCompactionSummarySpec(
+		text: BotText,
 		limits: Pick<ProviderCompactionSummaryLimits, 'maxLength'> &
 			Partial<Pick<ProviderCompactionSummaryLimits, 'compactedCharacterCount' | 'tokensPerCharacter'>>,
 	): ProviderSingleStringResponseSpec {
 		return {
 			kind: 'compaction',
+			text,
 			property: providerCompactionSummaryProperty,
-			label: providerCompactionSummaryProperty,
 			maxCharacters: limits.maxLength,
-			schemaDescription: providerCompactionSummarySchemaDescription,
-			propertyDescription: providerCompactionSummaryPropertyDescription,
+			schemaDescription: providerCompactionSummarySchemaDescription(text),
+			propertyDescription: providerCompactionSummaryPropertyDescription(text),
 			reduction: providerCompactionReductionCheck(limits),
 			toolName: providerCompactionToolName,
 		};
 	}
 
 	function providerCompactionSummaryFromResponseMessage(
+		text: BotText,
 		message: unknown,
 		rawResponse: string,
 		limits: ProviderCompactionValidationLimits = defaultProviderCompactionSummaryLimits,
 		mode: ProviderCompactionMode = 'structured_output',
 	): string {
-		return providerSingleStringResponseFromMessage(message, providerCompactionSummarySpec(limits), rawResponse, mode);
+		return providerSingleStringResponseFromMessage(message, providerCompactionSummarySpec(text, limits), rawResponse, mode);
 	}
 
-	function providerTranslationFromToolMessage(message: unknown, rawResponse: string): string {
+	function providerTranslationFromToolMessage(text: BotText, message: unknown, rawResponse: string): string {
 		return providerSingleStringResponseFromMessage(
 			message,
 			{
 				kind: 'translation',
+				text,
 				property: 'translation',
-				label: 'translation',
 				maxCharacters: providerTranslationMaxCompletionTokens * 8,
 				toolName: providerTranslationToolName,
 			},
@@ -87,7 +90,8 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		mode: ProviderCompactionMode,
 	): string {
 		if (mode === 'structured_output') {
-			return providerStructuredOutputFromMessageContent(message, spec, rawResponse);
+			// The same response spec can also support tool fallback. This response uses fields.
+			return providerStructuredOutputFromMessageContent(message, { ...spec, toolName: undefined }, rawResponse);
 		}
 		if (!spec.toolName) {
 			throw new Error(`Provider single-string response ${spec.kind} requires a tool name for tool-call mode.`);
@@ -107,9 +111,9 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		if (toolCalls.length > 0) {
 			const repairMessage =
 				spec.kind === 'compaction'
-					? "META: Do not call tools. Reply with a detailed first-person summary that follows the required JSON schema."
-					: `Do not use a Bickr control for this response. Reply with the required JSON object containing only ${spec.property}.`;
-			throw new ProviderStructuredOutputValidationError(spec.kind, repairMessage, {
+					? spec.text.issue("structured_output.unexpected_tools.compaction")
+					: spec.text.issue("structured_output.unexpected_tools.other", { property: spec.property });
+			throw new ProviderStructuredOutputValidationError(spec.text, spec.kind, repairMessage, {
 				rawResponse,
 				outputText: providerMessageTextContent(message.content),
 				toolCalls,
@@ -117,7 +121,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		}
 		const content = providerMessageTextContent(message.content);
 		if (!content) {
-			throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} response was empty. Return a JSON object with nonempty text in ${spec.property}.`, { rawResponse });
+			throw new ProviderStructuredOutputValidationError(spec.text, spec.kind, spec.text.issue(`structured_output.empty.${spec.kind}`, { property: spec.property }), { rawResponse });
 		}
 		const parsed = parseProviderStructuredMessageContent(content, spec, rawResponse);
 		return providerStructuredOutputPropertyFromRecord(parsed, spec, rawResponse, []);
@@ -125,7 +129,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 
 	function parseProviderStructuredMessageContent(
 		content: string,
-		spec: Pick<ProviderSingleStringResponseSpec, 'kind' | 'label' | 'property'>,
+		spec: Pick<ProviderSingleStringResponseSpec, 'kind' | 'text' | 'property'>,
 		rawResponse: string,
 	): unknown {
 		const repairCandidates = new Set<string>();
@@ -150,7 +154,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 				}
 			}
 		}
-		throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} response must be a JSON object. Give only ${spec.property} with its text value.`, {
+		throw new ProviderStructuredOutputValidationError(spec.text, spec.kind, spec.text.issue(`structured_output.invalid_json.${spec.kind}`, { property: spec.property }), {
 			rawResponse,
 			...(spec.kind === 'compaction' ? {} : { outputText: content }),
 		});
@@ -336,13 +340,13 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 			: [];
 		const errorOptions = { rawResponse, requiredToolName: spec.toolName, toolCalls };
 		if (toolCalls.length === 0) {
-			throw new ProviderStructuredOutputValidationError(spec.kind, `No ${spec.toolName} tool call was returned. Call ${spec.toolName} once with nonempty text in ${spec.property}.`, errorOptions);
+			throw new ProviderStructuredOutputValidationError(spec.text, spec.kind, spec.text.issue("structured_output.missing_tool", { toolName: spec.toolName, property: spec.property }), errorOptions);
 		}
 		const wrongToolCall = toolCalls.find((toolCall) => toolCall.function.name !== spec.toolName);
 		if (wrongToolCall) {
 			throw new ProviderStructuredOutputValidationError(
-				spec.kind,
-				`Use only ${spec.toolName} for this request. Do not use ${wrongToolCall.function.name || 'unknown'} here.`,
+				spec.text, spec.kind,
+				wrongToolCall.function.name ? spec.text.issue("structured_output.wrong_tool", { toolName: spec.toolName, receivedTool: wrongToolCall.function.name }) : spec.text.issue("structured_output.wrong_tool.unnamed", { toolName: spec.toolName }),
 				{
 					rawResponse,
 					requiredToolName: spec.toolName,
@@ -352,8 +356,8 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		}
 		if (toolCalls.length !== 1) {
 			throw new ProviderStructuredOutputValidationError(
-				spec.kind,
-				`Expected one ${spec.toolName} tool call, but received ${toolCalls.length}. Call ${spec.toolName} exactly once.`,
+				spec.text, spec.kind,
+				spec.text.issue("structured_output.tool_count", { toolName: spec.toolName, count: toolCalls.length }),
 				{
 					rawResponse,
 					requiredToolName: spec.toolName,
@@ -364,8 +368,8 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		const [toolCall] = toolCalls;
 		if (toolCall.function.name !== spec.toolName) {
 			throw new ProviderStructuredOutputValidationError(
-				spec.kind,
-				`Expected tool ${spec.toolName}, but received ${toolCall.function.name || 'unknown'}. Call ${spec.toolName} instead.`,
+				spec.text, spec.kind,
+				toolCall.function.name ? spec.text.issue("structured_output.tool_mismatch", { toolName: spec.toolName, receivedTool: toolCall.function.name }) : spec.text.issue("structured_output.tool_mismatch.unnamed", { toolName: spec.toolName }),
 				{
 					rawResponse,
 					requiredToolName: spec.toolName,
@@ -377,7 +381,7 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		try {
 			parsed = JSON.parse(toolCall.function.arguments);
 		} catch {
-			throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.toolName} arguments were not valid JSON. Give a JSON object with text in ${spec.property}. Escape special characters in strings.`, {
+			throw new ProviderStructuredOutputValidationError(spec.text, spec.kind, spec.text.issue("structured_output.invalid_arguments_json", { toolName: spec.toolName, property: spec.property }), {
 				rawResponse,
 				requiredToolName: spec.toolName,
 				toolCalls,
@@ -394,8 +398,8 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 	): string {
 		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
 			throw new ProviderStructuredOutputValidationError(
-				spec.kind,
-				spec.toolName ? `The ${spec.toolName} arguments must be a JSON object. Put ${spec.property} and its text value inside {}.` : `The structured output must be a JSON object. Put ${spec.property} and its text value inside {}.`,
+				spec.text, spec.kind,
+				spec.toolName ? spec.text.issue("structured_output.arguments_object", { toolName: spec.toolName, property: spec.property }) : spec.text.issue("structured_output.output_object", { property: spec.property }),
 				{
 					rawResponse,
 					requiredToolName: spec.toolName,
@@ -408,8 +412,8 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		const extraKeys = keys.filter((key) => key !== spec.property);
 		if (extraKeys.length > 0) {
 			throw new ProviderStructuredOutputValidationError(
-				spec.kind,
-				`Unexpected ${spec.toolName ? 'argument' : 'field'}: ${extraKeys.join(', ')}. Remove those fields. Give only ${spec.property}.`,
+				spec.text, spec.kind,
+				spec.toolName ? spec.text.issue("structured_output.extra_arguments", { fields: extraKeys.join(spec.text.format('formatting.listSeparator')), property: spec.property, count: extraKeys.length }) : spec.text.issue("structured_output.extra_fields", { fields: extraKeys.join(spec.text.format('formatting.listSeparator')), property: spec.property, count: extraKeys.length }),
 				{
 					rawResponse,
 					requiredToolName: spec.toolName,
@@ -419,18 +423,18 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		}
 		const value = record[spec.property];
 		if (typeof value !== 'string' || value.trim().length === 0) {
-			throw new ProviderStructuredOutputValidationError(spec.kind, `The ${spec.label} argument must be a nonempty string. Put the text in ${spec.property}.`, {
+			throw new ProviderStructuredOutputValidationError(spec.text, spec.kind, spec.text.issue(`structured_output.nonempty.${spec.kind}${spec.toolName ? '' : '.field'}`, { property: spec.property }), {
 				rawResponse,
 				requiredToolName: spec.toolName,
 				toolCalls,
 			});
 		}
 		if (spec.kind === 'compaction') {
-			const transcriptLine = transcriptLikeCompactionSummaryLine(value);
+			const transcriptLine = transcriptLikeCompactionSummaryLine(spec.text, value);
 			if (transcriptLine) {
 				throw new ProviderStructuredOutputValidationError(
-					spec.kind,
-					`Write ${spec.label} as ordinary first-person prose. Remove the transcript line ${JSON.stringify(transcriptLine)}. Do not use labeled Action:, Result:, Input:, or New thought: lines.`,
+					spec.text, spec.kind,
+					spec.text.issue("structured_output.transcript", { property: spec.property, line: JSON.stringify(transcriptLine), labels: spec.text.transcriptLabelList }),
 					{
 						rawResponse,
 						requiredToolName: spec.toolName,
@@ -444,8 +448,8 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		const minCharacters = Math.max(0, Math.floor(spec.minCharacters ?? 0));
 		if (value.length < minCharacters) {
 			throw new ProviderStructuredOutputValidationError(
-				spec.kind,
-				`The ${spec.label} argument must be at least ${minCharacters} characters. Add relevant detail to the text.`,
+				spec.text, spec.kind,
+				spec.text.issue(`structured_output.minimum.${spec.kind}`, { minimum: minCharacters, property: spec.property }),
 				{
 					rawResponse,
 					requiredToolName: spec.toolName,
@@ -456,8 +460,8 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		const reduction = spec.reduction?.(value);
 		if (reduction && !reduction.reduces) {
 			throw new ProviderStructuredOutputValidationError(
-				spec.kind,
-				`The ${spec.label} argument did not reduce the context. Its estimated length is ${reduction.replacementTokens} tokens, versus ${reduction.compactedTokens} tokens before replacement. Shorten the summary while retaining the required facts.`,
+				spec.text, spec.kind,
+				spec.text.joinIssues(spec.text.issue("structured_output.nonreducing.estimate", { replacementTokens: reduction.replacementTokens, property: spec.property }), spec.text.issue("structured_output.nonreducing.before", { compactedTokens: reduction.compactedTokens })),
 				{
 					rawResponse,
 					requiredToolName: spec.toolName,
@@ -469,8 +473,8 @@ export function createProviderStructuredOutput(runtime: ProviderStructuredOutput
 		}
 		if (value.length > spec.maxCharacters && !reduction) {
 			throw new ProviderStructuredOutputValidationError(
-				spec.kind,
-				`The ${spec.label} argument must be at most ${spec.maxCharacters} characters. Shorten the text.`,
+				spec.text, spec.kind,
+				spec.text.issue(`structured_output.maximum.${spec.kind}`, { maximum: spec.maxCharacters, property: spec.property }),
 				{
 					rawResponse,
 					requiredToolName: spec.toolName,

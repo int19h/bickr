@@ -1,0 +1,3 @@
+export default {
+	"tools.delete_note.description": "Özel bir notu başlığıyla (ID) silin. Başlıklar boşluk ve u/name ya da f/name referansları içerebilir."
+} as const;

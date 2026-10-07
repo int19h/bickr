@@ -1,0 +1,20 @@
+export default {
+	"avatar.members.instruction": "Crea un prompt visivo completo per un avatar pubblico del mondo a partire da questo contesto del mondo e dai profili dei suoi membri.",
+	"avatar.members.world": "Mondo:",
+	"avatar.members.description": "Breve descrizione:",
+	"avatar.members.prompt": "Prompt:",
+	"avatar.members.all": {
+		"one": "Membro ({{count}}):",
+		"many": "Membri ({{count}}):",
+		"other": "Membri ({{count}}):"
+	},
+	"avatar.members.sample": {
+		"one": "Membro (campione di {{count}}; esistono altri membri):",
+		"many": "Membri (campione di {{count}}; esistono altri membri):",
+		"other": "Membri (campione di {{count}}; esistono altri membri):"
+	},
+	"avatar.members.none": "(nessuno)",
+	"avatar.members.empty": "(vuoto)",
+	"avatar.members.bio": "Biografia: {{bio}}",
+	"avatar.members.bioEmpty": "Biografia: (vuota)"
+} as const;

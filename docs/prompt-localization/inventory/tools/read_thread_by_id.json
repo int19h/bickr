@@ -1,0 +1,26 @@
+{
+  "group": "tools/read_thread_by_id",
+  "units": [
+    {
+      "id": "tools.read_thread_by_id.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/read_thread_by_id.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 234,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Markdown",
+        "`replies`",
+        "read_comment_by_id",
+        "…"
+      ],
+      "sourceTemplateHash": "9250565da61a2088e8ccb0c5470de99d6480519836f520f6fd78a36d6db7f538"
+    }
+  ]
+}

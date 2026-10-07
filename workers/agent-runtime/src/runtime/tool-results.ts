@@ -1,3 +1,5 @@
+import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
+import type { BotText } from '../localization';
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseThreadRef } from '@bickr/shared/ids';
 import { legacyToolResultEnvelope } from '@bickr/shared/legacy-tool-result-adapter';
 import type { ToolResultEnvelope, ToolResultProfileAction, ToolResultVote, ViewedProfileResult } from '@bickr/shared/tool-results';
@@ -37,6 +39,7 @@ export function providerToolResultPayload(
 	options: ProviderToolResultPayloadOptions = {},
 	envelope?: ToolResultEnvelope,
 ): unknown {
+	const text = context.text;
 	const canonical = canonicalToolName(name);
 	const semanticResult = envelope ?? legacyToolResultEnvelope(canonical, result, args);
 	if (canonical === 'check_notifications') {
@@ -57,7 +60,7 @@ export function providerToolResultPayload(
 	}
 	if (canonical === 'search_threads' || canonical === 'search_threads_semantic') {
 		if (!Array.isArray(result)) {
-			return providerSafeJsonValue(result);
+			return providerSafeJsonValue(text, result);
 		}
 		const posts = result.map((item) => providerSearchPost(runtimeRecord(item), context));
 		return pruneProviderArrayForBudget(posts, options.tokenBudget).items;
@@ -90,13 +93,13 @@ export function providerToolResultPayload(
 		return providerFollowerQueryResult(runtimeRecord(result));
 	}
 	if (canonical === 'view_activity') {
-		return providerActivityFeedResult(runtimeRecord(result), options.tokenBudget);
+		return providerActivityFeedResult(text, runtimeRecord(result), options.tokenBudget);
 	}
 	if (canonical === 'follow_profile' || canonical === 'unfollow_profile') {
 		if (semanticResult.kind === 'profile_followed' || semanticResult.kind === 'profile_unfollowed') {
 			return semanticResult.profiles.map(providerFollowResult);
 		}
-		return providerSafeJsonValue(result);
+		return providerSafeJsonValue(text, result);
 	}
 	if (canonical === 'vote' && semanticResult.kind === 'vote_set') {
 		return semanticResult.votes.map(providerVoteResult);
@@ -105,21 +108,21 @@ export function providerToolResultPayload(
 		return providerReadResult(runtimeRecord(result), context);
 	}
 	if (canonical === 'create_thread') {
-		return semanticResult.kind === 'thread_created' ? providerCreateThreadResult(semanticResult) : providerSafeJsonValue(result);
+		return semanticResult.kind === 'thread_created' ? providerCreateThreadResult(semanticResult) : providerSafeJsonValue(text, result);
 	}
 	if (canonical === 'reply_to_comment' || canonical === 'make_additional_reply_to_the_same_comment') {
-		return semanticResult.kind === 'comment_created' ? providerReplyCommentResult(semanticResult) : providerSafeJsonValue(result);
+		return semanticResult.kind === 'comment_created' ? providerReplyCommentResult(semanticResult) : providerSafeJsonValue(text, result);
 	}
 	if (canonical === 'draw_random_integers') {
 		// The bare array is the whole result: one number per range, in range order.
 		// The participant still has its own call arguments in context, so position
 		// is enough to tie each number back to the range that produced it.
-		return semanticResult.kind === 'random_integers_drawn' ? semanticResult.numbers : providerSafeJsonValue(result);
+		return semanticResult.kind === 'random_integers_drawn' ? semanticResult.numbers : providerSafeJsonValue(text, result);
 	}
 	if (canonical === 'log_off') {
-		return providerSafeJsonValue(result);
+		return providerSafeJsonValue(text, result);
 	}
-	return providerSafeJsonValue(result);
+	return providerSafeJsonValue(text, result);
 }
 
 function providerJsonTokenEstimate(value: unknown): number {
@@ -255,15 +258,17 @@ export { providerSelfAuthor };
  * the boundary so no serialization path can silently lose it halfway down a content tree.
  */
 export type ProviderSerializationContext = {
+	readonly text: BotText;
 	readonly self: ProviderSelfParticipant;
 	readonly content: ProviderContextContentScope;
 };
 
 export function providerSerializationContext(
+	text: BotText,
 	self: ProviderSelfParticipant,
 	content: ProviderContextContentScope = emptyProviderContextContentScope(),
 ): ProviderSerializationContext {
-	return { self, content };
+	return { text, self, content };
 }
 
 export function emptyProviderContextContentScope(): ProviderContextContentScope {
@@ -293,23 +298,25 @@ export function providerCheckNotificationsResultWithInclusions(
 	initialContext: ProviderSerializationContext,
 	tokenBudget?: number,
 ): ProviderNotificationPayloadResult {
-	const context = providerSerializationContext(initialContext.self, cloneProviderContextContentScope(initialContext.content));
+	const text = initialContext.text;
+	const context = providerSerializationContext(text, initialContext.self, cloneProviderContextContentScope(initialContext.content));
 	const storedEvents = events
 		.map(storedNotificationEvent)
 		.filter((event): event is StoredNotificationEvent => Boolean(event));
 	const providerEvents = coalescedCommentNoticeGroups(mergedProviderNotificationEventGroups(storedEvents)).map((group) => ({
 		notificationIds: group.notificationIds,
-		payload: runtimeRecord(providerSafeJsonValue(providerNotificationEvent(group.event, group.deliveryReasons, context))),
+		payload: runtimeRecord(providerSafeJsonValue(text, providerNotificationEvent(group.event, group.deliveryReasons, context))),
 	}));
 	if (tokenBudget === undefined) {
 		return {
-			payload: providerNotificationResultPayload(providerEvents.map((event) => event.payload)),
+			payload: providerNotificationResultPayload(text, providerEvents.map((event) => event.payload)),
 			includedEventIds: providerEvents.flatMap((event) => event.notificationIds),
 		};
 	}
-	const pruned = pruneProviderNotificationEventsForBudget(providerEvents, tokenBudget);
+	const pruned = pruneProviderNotificationEventsForBudget(text, providerEvents, tokenBudget);
 	return {
 		payload: providerNotificationResultPayload(
+			text,
 			pruned.events.map((event) => event.payload),
 			pruned,
 		),
@@ -318,23 +325,20 @@ export function providerCheckNotificationsResultWithInclusions(
 }
 
 function providerNotificationResultPayload(
+	text: BotText,
 	events: Record<string, unknown>[],
 	pruned?: Pick<ProviderNotificationPruneResult, 'omittedNotificationCount'>,
 ): Record<string, unknown> {
 	return removeUndefinedProperties({
-		...(pruned && pruned.omittedNotificationCount > 0 ? { context: providerNotificationResultContext(pruned) } : {}),
+		...(pruned && pruned.omittedNotificationCount > 0 ? { context: providerNotificationResultContext(text, pruned) } : {}),
 		events,
 	});
 }
 
-function providerNotificationResultContext(pruned: Pick<ProviderNotificationPruneResult, 'omittedNotificationCount'>): string {
-	const parts: string[] = [];
-	if (pruned.omittedNotificationCount > 0) {
-		parts.push(
-			`${pruned.omittedNotificationCount} lower-priority or older notification${pruned.omittedNotificationCount === 1 ? ' was' : 's were'} omitted; they remain pending`,
-		);
-	}
-	return `Result of checking notifications. ${parts.join('. ')}.`;
+function providerNotificationResultContext(text: BotText, pruned: Pick<ProviderNotificationPruneResult, 'omittedNotificationCount'>): string {
+	return pruned.omittedNotificationCount > 0
+		? text.format('notifications.check.omitted', { count: pruned.omittedNotificationCount })
+		: text.format('notifications.check.complete');
 }
 
 /**
@@ -351,6 +355,7 @@ function providerNotificationResultContext(pruned: Pick<ProviderNotificationPrun
  * them stays pending when its group is dropped.
  */
 function pruneProviderNotificationEventsForBudget(
+	text: BotText,
 	events: Array<{ notificationIds: string[]; payload: Record<string, unknown> }>,
 	tokenBudget: number,
 ): ProviderNotificationPruneResult {
@@ -361,7 +366,7 @@ function pruneProviderNotificationEventsForBudget(
 	}));
 	let omittedNotificationCount = 0;
 	let tokenEstimate = providerNotificationTokenEstimate(
-		prunedEvents.map((event) => event.payload),
+		text,		prunedEvents.map((event) => event.payload),
 		{ omittedNotificationCount },
 	);
 	while (prunedEvents.length > 0 && tokenEstimate > budget) {
@@ -370,7 +375,7 @@ function pruneProviderNotificationEventsForBudget(
 		// one notification the recipient did not get.
 		omittedNotificationCount += Math.max(1, dropped?.notificationIds.length ?? 1);
 		tokenEstimate = providerNotificationTokenEstimate(
-			prunedEvents.map((event) => event.payload),
+		text,			prunedEvents.map((event) => event.payload),
 			{ omittedNotificationCount },
 		);
 	}
@@ -382,10 +387,11 @@ function pruneProviderNotificationEventsForBudget(
 }
 
 function providerNotificationTokenEstimate(
+	text: BotText,
 	events: Record<string, unknown>[],
 	pruned: Pick<ProviderNotificationPruneResult, 'omittedNotificationCount'>,
 ): number {
-	return estimateTextTokens(JSON.stringify(providerNotificationResultPayload(events, pruned)));
+	return estimateTextTokens(JSON.stringify(providerNotificationResultPayload(text, events, pruned)));
 }
 
 /**
@@ -541,9 +547,13 @@ function providerNotificationEvent(
 	};
 	switch (event.kind) {
 		case 'bootstrap':
+			if (event.bootstrapVersion === 1) return { ...header, message: event.composedMessage.text };
 			// The bootstrap message is Bickr's own words to the participant, not
 			// somebody's forum content, which is why it alone is rendered.
-			return removeUndefinedProperties({ ...header, message: stringValue(event.message) });
+			return removeUndefinedProperties({ ...header, message: [
+				event.customMessage?.text ?? context.text.format('factory.bootstrap'),
+				...(event.introForum ? [context.text.format('factory.introAdvice', { forum: event.introForum })] : []),
+			].join('\n\n') });
 		case 'thread_post':
 			return removeUndefinedProperties({
 				...header,
@@ -998,32 +1008,25 @@ function removeUndefinedProperties(record: Record<string, unknown>): Record<stri
 	return output;
 }
 
-const providerRelativeTimeUnits: Array<{ name: string; ms: number }> = [
+const providerRelativeTimeUnits = [
 	{ name: 'year', ms: 365 * 24 * 60 * 60 * 1000 },
 	{ name: 'month', ms: 30 * 24 * 60 * 60 * 1000 },
 	{ name: 'day', ms: 24 * 60 * 60 * 1000 },
 	{ name: 'hour', ms: 60 * 60 * 1000 },
 	{ name: 'minute', ms: 60 * 1000 },
-];
+] as const;
 
-function providerRelativeTime(value: unknown, nowMs = Date.now()): string | undefined {
-	const text = stringValue(value);
-	if (!text) {
-		return undefined;
-	}
-	const timeMs = Date.parse(text);
-	if (!Number.isFinite(timeMs)) {
-		return text;
-	}
+function providerRelativeTime(text: BotText, value: unknown, nowMs = Date.now()): string | undefined {
+	const timestamp = stringValue(value);
+	if (!timestamp) return undefined;
+	const timeMs = Date.parse(timestamp);
+	if (!Number.isFinite(timeMs)) return timestamp;
 	const diffMs = nowMs - timeMs;
 	const absMs = Math.abs(diffMs);
-	if (absMs < 60 * 1000) {
-		return 'just now';
-	}
+	if (absMs < 60 * 1000) return text.format('time.just_now');
 	const unit = providerRelativeTimeUnits.find((candidate) => absMs >= candidate.ms) ?? providerRelativeTimeUnits.at(-1)!;
 	const count = Math.max(1, Math.floor(absMs / unit.ms));
-	const label = `${count} ${unit.name}${count === 1 ? '' : 's'}`;
-	return diffMs < 0 ? `in ${label}` : `${label} ago`;
+	return text.format(`time.${unit.name}.${diffMs < 0 ? 'future' : 'past'}`, { count });
 }
 
 function providerUsername(value: unknown): string | undefined {
@@ -1137,22 +1140,24 @@ function providerThreadSummary(
 	context: ProviderSerializationContext,
 	options: { includeForum?: boolean } = {},
 ): Record<string, unknown> {
+	const text = context.text;
 	const lock = runtimeRecord(record.lock);
 	return removeUndefinedProperties({
 		threadRef: providerThreadRef(stringValue(record.threadRef) ?? stringValue(record.threadId) ?? stringValue(record.id)),
 		rootCommentRef: providerCommentRef(record.rootCommentId),
 		...(options.includeForum ? { forum: providerForumNameFromRecord(record) ?? 'f/unknown' } : {}),
-		title: stringValue(record.title) ?? 'untitled',
+		title: stringValue(record.title),
 		author: providerAuthorRef(record, context.self),
 		commentCount: numberValue(record.commentCount),
 		locked: lock.kind === 'comment_limit' ? true : undefined,
 		commentLimit: lock.kind === 'comment_limit' ? numberValue(lock.limit) : undefined,
 		voteScore: numberValue(record.voteScore),
-		lastActivity: providerRelativeTime(record.lastActivityAt),
+		lastActivity: providerRelativeTime(text, record.lastActivityAt),
 	});
 }
 
 function providerSearchPost(record: Record<string, unknown>, context: ProviderSerializationContext): Record<string, unknown> {
+	const text = context.text;
 	const commentId = stringValue(record.commentId) ?? stringValue(record.rootCommentId);
 	const threadId = stringValue(record.threadId);
 	const snippet = stringValue(record.snippet);
@@ -1163,22 +1168,23 @@ function providerSearchPost(record: Record<string, unknown>, context: ProviderSe
 		threadRef: providerThreadRef(threadId),
 		...(commentId ? { commentRef: providerCommentRef(commentId) } : {}),
 		forum: providerForumNameFromRecord(record) ?? 'f/unknown',
-		title: stringValue(record.title) ?? 'untitled',
+		title: stringValue(record.title),
 		...(snippet && !snippetAlreadyInContext ? { snippet } : {}),
 		author: providerAuthorRef(record, context.self),
-		when: providerRelativeTime(record.createdAt),
+		when: providerRelativeTime(text, record.createdAt),
 	});
 }
 
 function providerProfile(record: Record<string, unknown>): Record<string, unknown> {
-	return {
+	// Missing authored fields must not become invented English names.
+	return removeUndefinedProperties({
 		username: providerProfileUsername(record),
-		displayName: stringValue(record.displayName) ?? 'unknown',
+		displayName: stringValue(record.displayName),
 		shortBio: stringValue(record.shortBio) ?? '',
 		isFollowedByMe: record.isFollowedByMe === true,
 		isFollowingMe: record.isFollowingMe === true,
 		followers: numberValue(record.followers) ?? 0,
-	};
+	});
 }
 
 function providerProfileListResult(record: Record<string, unknown>, tokenBudget?: number): Record<string, unknown> {
@@ -1216,10 +1222,11 @@ export function providerReadResult(record: Record<string, unknown>, context: Pro
 	const content = Array.isArray(record.content) ? providerReadContentTree(record.content.map(runtimeRecord), context) : [];
 	const collapsedReplyCount = providerCollapsedReplyCount(content);
 	const trimmedBodyCount = providerTrimmedCommentBodyCount(content);
-	const baseContext = stringValue(record.context) ?? 'Result of my read operation.';
+	const baseContext = stringValue(record.context) ?? context.text.format('read.context.basic', { operation: 'read' });
+	const guidance = runtimeRecord(record.contextGuidance);
 	return {
 		operation: stringValue(record.operation) ?? 'read',
-		context: providerReadContextWithGuidance(baseContext, collapsedReplyCount, trimmedBodyCount),
+		context: providerReadContextWithGuidance(context.text, baseContext, guidance.collapsedReplies === true ? 0 : collapsedReplyCount, guidance.trimmedBodies === true ? 0 : trimmedBodyCount),
 		thread: providerThreadSummary(runtimeRecord(record.thread), context),
 		...(stringValue(record.targetCommentId) ? { targetCommentRef: providerCommentRef(record.targetCommentId) } : {}),
 		content,
@@ -1256,7 +1263,7 @@ function providerReadContent(record: Record<string, unknown>, context: ProviderS
 		author: providerAuthorRef(record, context.self),
 		...(stringValue(record.title) ? { title: stringValue(record.title) } : {}),
 		...(includeBody ? { body: body ?? '' } : {}),
-		...(record['My focus is on this comment'] === true || record.target === true ? { 'My focus is on this comment': true } : {}),
+		...(record.focused === true || legacyReadContentFocus(record) || record.target === true ? { focused: true, focusDescription: context.text.format('read.focus.description') } : {}),
 		...(record.ancestorOnly ? { ancestorOnly: true } : {}),
 	});
 	if (type !== 'comment') {
@@ -1339,31 +1346,21 @@ function providerTrimmedCommentBodyCount(content: Record<string, unknown>[]): nu
 	}, 0);
 }
 
-export function readResultContext(operation: string, pruned: ReadPruneResult, tokenBudget: number): string {
-	const changed = pruned.omittedReplyCount > 0 || pruned.trimmedBodyCount > 0;
-	const detail =
-		pruned.omittedReplyCount > 0 && pruned.trimmedBodyCount > 0
-			? 'Some reply lists were collapsed and some comment bodies were shortened'
-			: pruned.omittedReplyCount > 0
-				? 'Some reply lists were collapsed'
-				: pruned.trimmedBodyCount > 0
-					? 'Some comment bodies were shortened'
-					: '';
-	const baseContext = changed
-		? `Result of my ${operation} operation. ${detail} to keep the result within about ${tokenBudget} tokens.`
-		: `Result of my ${operation} operation.`;
-	return providerReadContextWithGuidance(baseContext, pruned.omittedReplyCount, pruned.trimmedBodyCount);
+export function readResultContext(text: BotText, operation: string, pruned: ReadPruneResult, tokenBudget: number): string {
+	const collapsed = pruned.omittedReplyCount > 0;
+	const trimmed = pruned.trimmedBodyCount > 0;
+	const baseContext = collapsed && trimmed ? text.format('read.context.collapsed_and_trimmed', { operation, tokenBudget })
+		: collapsed ? text.format('read.context.collapsed', { operation, tokenBudget })
+		: trimmed ? text.format('read.context.trimmed', { operation, tokenBudget })
+		: text.format('read.context.basic', { operation });
+	return providerReadContextWithGuidance(text, baseContext, pruned.omittedReplyCount, pruned.trimmedBodyCount);
 }
 
-function providerReadContextWithGuidance(baseContext: string, collapsedReplyCount: number, trimmedBodyCount: number): string {
-	let context = baseContext;
-	if (collapsedReplyCount > 0 && !context.includes('numeric replies value')) {
-		context = `${context} A numeric replies value means that many direct replies are omitted; call read_comment_by_id with that comment ref to inspect that branch.`;
-	}
-	if (trimmedBodyCount > 0 && !context.includes('body ending')) {
-		context = `${context} A body ending in ${readBodyTrimEllipsis} has been shortened; call read_comment_by_id with that comment ref to read the full comment.`;
-	}
-	return context;
+function providerReadContextWithGuidance(text: BotText, baseContext: string, collapsedReplyCount: number, trimmedBodyCount: number): string {
+	const guidance = collapsedReplyCount > 0 && trimmedBodyCount > 0 ? text.format('read.guidance.both', { ellipsis: readBodyTrimEllipsis })
+		: collapsedReplyCount > 0 ? text.format('read.guidance.collapsed')
+		: trimmedBodyCount > 0 ? text.format('read.guidance.trimmed', { ellipsis: readBodyTrimEllipsis }) : null;
+	return guidance ? [baseContext, guidance].join(text.format('formatting.sentenceSeparator')) : baseContext;
 }
 
 function pushProviderReply(parent: Record<string, unknown>, reply: Record<string, unknown>): void {
@@ -1416,9 +1413,9 @@ function providerVoteTargetReference(thread: ThreadDocument, vote: ToolResultVot
 			});
 }
 
-function providerActivityFeedResult(record: Record<string, unknown>, tokenBudget?: number): Record<string, unknown> {
+function providerActivityFeedResult(text: BotText, record: Record<string, unknown>, tokenBudget?: number): Record<string, unknown> {
 	const profile = providerProfileUsername(runtimeRecord(record.bot));
-	const activities = Array.isArray(record.activities) ? record.activities.map((item) => providerActivity(runtimeRecord(item))) : [];
+	const activities = Array.isArray(record.activities) ? record.activities.map((item) => providerActivity(text, runtimeRecord(item))) : [];
 	const payloadForActivities = (items: Record<string, unknown>[]) =>
 		removeUndefinedProperties({
 			profile,
@@ -1432,7 +1429,7 @@ function providerActivityFeedResult(record: Record<string, unknown>, tokenBudget
 	return payloadForActivities(pruned.items);
 }
 
-function providerActivity(record: Record<string, unknown>): Record<string, unknown> {
+function providerActivity(text: BotText, record: Record<string, unknown>): Record<string, unknown> {
 	const type = stringValue(record.type);
 	if (type === 'thread') {
 		return removeUndefinedProperties({
@@ -1443,7 +1440,7 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 			bodyPreview: providerBodyPreview(record.bodyPreview),
 			voteScore: numberValue(record.voteScore),
 			commentCount: numberValue(record.commentCount),
-			when: providerRelativeTime(record.createdAt),
+			when: providerRelativeTime(text, record.createdAt),
 		});
 	}
 	if (type === 'comment') {
@@ -1453,7 +1450,7 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 			forum: providerForumNameFromRecord(record),
 			bodyPreview: providerBodyPreview(record.bodyPreview),
 			replyTo: providerActivityCommentContext(runtimeRecord(record.parentComment), { includeCommentId: false }),
-			when: providerRelativeTime(record.createdAt),
+			when: providerRelativeTime(text, record.createdAt),
 		});
 	}
 	if (type === 'vote') {
@@ -1467,7 +1464,7 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 			title: localizedArgumentText(record.title),
 			...(reason ? { reason } : {}),
 			targetComment: providerActivityCommentContext(runtimeRecord(record.targetComment)),
-			when: providerRelativeTime(record.updatedAt ?? record.createdAt),
+			when: providerRelativeTime(text, record.updatedAt ?? record.createdAt),
 		});
 	}
 	if (type === 'follow' || type === 'unfollow') {
@@ -1476,12 +1473,12 @@ function providerActivity(record: Record<string, unknown>): Record<string, unkno
 			type,
 			profile: providerProfileUsername(runtimeRecord(record.bot)),
 			...(reason ? { reason } : {}),
-			when: providerRelativeTime(record.createdAt),
+			when: providerRelativeTime(text, record.createdAt),
 		});
 	}
 	return removeUndefinedProperties({
 		type,
-		when: providerRelativeTime(record.createdAt ?? record.updatedAt),
+		when: providerRelativeTime(text, record.createdAt ?? record.updatedAt),
 	});
 }
 
@@ -1596,9 +1593,9 @@ function applyProviderBodyPreviewCutoff(
 	}
 }
 
-export function providerSafeJsonValue(value: unknown): unknown {
+export function providerSafeJsonValue(text: BotText, value: unknown): unknown {
 	if (Array.isArray(value)) {
-		return value.map(providerSafeJsonValue);
+		return value.map((item) => providerSafeJsonValue(text, item));
 	}
 	if (!value || typeof value !== 'object') {
 		return value;
@@ -1610,9 +1607,9 @@ export function providerSafeJsonValue(value: unknown): unknown {
 			continue;
 		}
 		if (providerTimestampKey(safeKey)) {
-			output[safeKey] = providerRelativeTime(item) ?? providerSafeJsonValue(item);
+			output[safeKey] = providerRelativeTime(text, item) ?? providerSafeJsonValue(text, item);
 		} else {
-			output[safeKey] = providerSafeJsonValue(item);
+			output[safeKey] = providerSafeJsonValue(text, item);
 		}
 	}
 	return output;
@@ -1685,6 +1682,7 @@ export function readContentItemTree(content: ReadContentItem[]): ReadContentItem
 }
 
 export function pruneReadContentTreeForProviderBudget(
+	text: BotText,
 	content: ReadContentItem[],
 	tokenBudget: number,
 	self: ProviderSelfParticipant,
@@ -1692,7 +1690,7 @@ export function pruneReadContentTreeForProviderBudget(
 	const pruned = cloneReadContentTree(content);
 	const protectedParentIds = protectedReadReplyParentIds(pruned);
 	const protectedBodyIds = protectedReadBodyIds(pruned);
-	let tokenEstimate = providerReadContentTreeTokenEstimate(pruned, self);
+	let tokenEstimate = providerReadContentTreeTokenEstimate(text, pruned, self);
 	for (;;) {
 		if (tokenEstimate <= tokenBudget) {
 			break;
@@ -1702,7 +1700,7 @@ export function pruneReadContentTreeForProviderBudget(
 			break;
 		}
 		pruneReadRepliesAtDepth(pruned, protectedParentIds, prunedDepth);
-		const nextEstimate = providerReadContentTreeTokenEstimate(pruned, self);
+		const nextEstimate = providerReadContentTreeTokenEstimate(text, pruned, self);
 		if (nextEstimate >= tokenEstimate) {
 			tokenEstimate = nextEstimate;
 			break;
@@ -1711,7 +1709,7 @@ export function pruneReadContentTreeForProviderBudget(
 	}
 	let trimmedBodyCount = 0;
 	if (tokenEstimate > tokenBudget) {
-		const trimmed = trimReadContentBodiesForProviderBudget(pruned, protectedBodyIds, tokenBudget, self);
+		const trimmed = trimReadContentBodiesForProviderBudget(text, pruned, protectedBodyIds, tokenBudget, self);
 		tokenEstimate = trimmed.tokenEstimate;
 		trimmedBodyCount = trimmed.trimmedBodyCount;
 	}
@@ -1739,7 +1737,7 @@ function protectedReadReplyParentIds(content: ReadContentItem[]): Set<string> {
 	const protectedIds = new Set<string>();
 	const visit = (items: ReadContentItem[], protectTopLevel: boolean): void => {
 		for (const item of items) {
-			if (protectTopLevel || item.ancestorOnly || item['My focus is on this comment']) {
+			if (protectTopLevel || item.ancestorOnly || item.focused) {
 				protectedIds.add(item.id);
 			}
 			if (Array.isArray(item.replies)) {
@@ -1755,7 +1753,7 @@ function protectedReadBodyIds(content: ReadContentItem[]): Set<string> {
 	const protectedIds = new Set<string>();
 	const visit = (items: ReadContentItem[], protectTopLevel: boolean): void => {
 		for (const item of items) {
-			if (protectTopLevel || item['My focus is on this comment']) {
+			if (protectTopLevel || item.focused) {
 				protectedIds.add(item.id);
 			}
 			if (Array.isArray(item.replies)) {
@@ -1770,6 +1768,7 @@ function protectedReadBodyIds(content: ReadContentItem[]): Set<string> {
 const readBodyTrimEllipsis = '…';
 
 function trimReadContentBodiesForProviderBudget(
+	text: BotText,
 	content: ReadContentItem[],
 	protectedBodyIds: ReadonlySet<string>,
 	tokenBudget: number,
@@ -1777,7 +1776,7 @@ function trimReadContentBodiesForProviderBudget(
 ): { tokenEstimate: number; trimmedBodyCount: number } {
 	const candidates = readBodyTrimCandidates(content, protectedBodyIds);
 	if (candidates.length === 0) {
-		return { tokenEstimate: providerReadContentTreeTokenEstimate(content, self), trimmedBodyCount: 0 };
+		return { tokenEstimate: providerReadContentTreeTokenEstimate(text, content, self), trimmedBodyCount: 0 };
 	}
 	const maxLength = Math.max(...candidates.map((candidate) => candidate.codePoints.length));
 	let low = 0;
@@ -1786,7 +1785,7 @@ function trimReadContentBodiesForProviderBudget(
 	while (low <= high) {
 		const cutoff = Math.floor((low + high) / 2);
 		applyReadBodyCutoff(candidates, cutoff);
-		const tokenEstimate = providerReadContentTreeTokenEstimate(content, self);
+		const tokenEstimate = providerReadContentTreeTokenEstimate(text, content, self);
 		if (tokenEstimate <= tokenBudget) {
 			bestCutoff = cutoff;
 			low = cutoff + 1;
@@ -1796,7 +1795,7 @@ function trimReadContentBodiesForProviderBudget(
 	}
 	const cutoff = bestCutoff ?? 0;
 	const trimmedBodyCount = applyReadBodyCutoff(candidates, cutoff);
-	return { tokenEstimate: providerReadContentTreeTokenEstimate(content, self), trimmedBodyCount };
+	return { tokenEstimate: providerReadContentTreeTokenEstimate(text, content, self), trimmedBodyCount };
 }
 
 function readBodyTrimCandidates(
@@ -1891,10 +1890,10 @@ function collapsedReadReplyCount(content: ReadContentItem[]): number {
 // The budget estimate renders through the same serializer as emission — including the longer
 // `u/<handle> (MYSELF)` label and its standalone fallback. Self-heavy trees may therefore prune at a
 // slightly earlier threshold, but the emitted tree still fits the budget computed for it.
-function providerReadContentTreeTokenEstimate(content: ReadContentItem[], self: ProviderSelfParticipant): number {
+function providerReadContentTreeTokenEstimate(text: BotText, content: ReadContentItem[], self: ProviderSelfParticipant): number {
 	const providerContent = providerReadContentTree(
 		content.map((item) => item as unknown as Record<string, unknown>),
-		providerSerializationContext(self),
+		providerSerializationContext(text, self),
 	);
 	return estimateTextTokens(JSON.stringify(providerContent));
 }
@@ -1912,7 +1911,7 @@ function pushReadContentReply(parent: ReadContentItem, reply: ReadContentItem): 
 }
 
 function estimateTextTokens(text: string): number {
-	return Math.max(1, Math.ceil(text.length / 4));
+	return approximateTextTokens(text);
 }
 
 function stringValue(value: unknown): string | undefined {
@@ -1937,4 +1936,9 @@ function stringArrayValue(value: unknown): string[] {
 
 function runtimeRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+/** Retire with the legacy loop-history conversion sweep. New writers use focused. */
+export function legacyReadContentFocus(record: Record<string, unknown>): boolean {
+	return record['My focus is on this comment'] === true;
 }

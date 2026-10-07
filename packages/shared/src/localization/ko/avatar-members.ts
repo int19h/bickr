@@ -1,0 +1,16 @@
+export default {
+	"avatar.members.instruction": "이 월드의 맥락과 구성원 프로필로부터 공개 월드 아바타의 완전한 시각적 프롬프트를 작성하세요.",
+	"avatar.members.world": "월드:",
+	"avatar.members.description": "짧은 설명:",
+	"avatar.members.prompt": "프롬프트:",
+	"avatar.members.all": {
+		"other": "구성원 ({{count}}명):"
+	},
+	"avatar.members.sample": {
+		"other": "구성원 ({{count}}명의 표본. 구성원이 더 있습니다):"
+	},
+	"avatar.members.none": "(없음)",
+	"avatar.members.empty": "(비어 있음)",
+	"avatar.members.bio": "자기소개: {{bio}}",
+	"avatar.members.bioEmpty": "자기소개: (비어 있음)"
+} as const;

@@ -1,3 +1,5 @@
+import { sweepBootstrapLocalization } from '@bickr/shared/instruction-localization-migration';
+import { sweepRuntimeLocalization } from './runtime/instruction-localization-sweep';
 import { avatarUploadBytes } from "./avatar/upload";
 import { handleAuthMaintenance } from './auth-maintenance';
 import { cleanupAuthRecords } from '@bickr/shared/auth-store';
@@ -116,14 +118,13 @@ import {
 	listOwnedWorlds,
 	listUserBots,
 	listUserAuthIdentities,
-	publicBotSummary,
+	deletedBotSummaryById,
 	rawBotById,
 	normalizeBotDefaults,
 	RepositoryError,
 	userById,
 	userProfile,
 	worldByHandle,
-	worldPostingSettingsByIds,
 	worldSummaryFromDocument,
 } from '@bickr/shared/repository';
 import {
@@ -1130,6 +1131,25 @@ export const agentRuntimeRouteTable = [
 		},
 	},
 	{
+		id: 'instruction-localization-sweep',
+		method: 'POST',
+		pattern: /^\/maintenance\/instruction-localization\/(runtime|bootstrap)$/,
+		dispatch: 'direct',
+		handler: async (context) => {
+			if (!isTrustedInternalServiceRequest(context.request, context.env.INTERNAL_SERVICE_SECRET)) throw new RepositoryError('unauthorized', 'Authentication is required.', 401);
+			requireSchedulerServiceRequest(context.request);
+			const maintenance = await readMaintenanceState(context.env.BICKR_D1);
+			if (!maintenance.enabled) throw new RepositoryError('conflict', 'Instruction localization sweep requires maintenance mode.', 409);
+			const body = requiredRecord(await readOptionalJsonBody(context.request));
+			if (body.cursor !== undefined && (typeof body.cursor !== 'string' || body.cursor.length > 256)) throw new InputError('Sweep cursor must be a string of at most 256 characters.');
+			const cursor = typeof body.cursor === 'string' ? body.cursor : '';
+			if (!context.env.BOT_RUNTIME) throw new RepositoryError('server_error', 'Runtime binding is unavailable.', 500);
+			return ok({ sweep: context.match[1] === 'runtime'
+				? await sweepRuntimeLocalization({ ...context.env, BOT_RUNTIME: context.env.BOT_RUNTIME }, cursor)
+				: await sweepBootstrapLocalization(context.env.BICKR_KV, context.env.BICKR_D1, cursor) });
+		},
+	},
+	{
 		id: 'inference-provider-default-barrier-sweep-fleet-status',
 		method: 'GET',
 		pattern: /^\/inference-graph\/provider-default-barrier-sweep\/status$/,
@@ -1998,15 +2018,8 @@ export const agentRuntimeRouteTable = [
 			const botId = decodeURIComponent(context.match[2] ?? '');
 			const operation = await reserveBotDelete(context, userId, botId);
 			await runBotDeleteOperation(context, operation);
-			const deleted = await readJson<BotDocument>(context.env.BICKR_KV, kvKeys.bot(botId));
-			if (!deleted?.deletedAt) {
-				throw new RepositoryError('server_error', 'Deleted participant document is missing.', 500);
-			}
-			const worldPostingSettings = (await worldPostingSettingsByIds(
-				context.env.BICKR_D1, [deleted.homeWorldId],
-			)).get(deleted.homeWorldId);
 			return ok({
-				bot: publicBotSummary(deleted, { includeToolSettings: true, nextDueAt: null, worldPostingSettings }),
+				bot: await deletedBotSummaryById(context.env.BICKR_KV, context.env.BICKR_D1, botId, userId),
 				coordinator: context.objectId,
 			});
 		},

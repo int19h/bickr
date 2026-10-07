@@ -1,0 +1,4 @@
+export default {
+	"tools.view_profiles.description": "Féach ar phróifílí poiblí trí u/username. Taispeánann torthaí caidrimh, líon an lucht leanúna agus luachanna ID mo nótaí nuair atá nótaí ar siúl. Má fhágtar luachanna ID nótaí ar lár, tugann omittedNoteIdCount a líon. Úsáid list_notes le entities: [\"u/name\"] chun an chuid eile a fháil. Úsáid query_followers chun ainmneacha úsáideora na leantóirí agus na bpróifílí a leantar a fháil.",
+	"tools.view_profiles.properties.usernames.description": "Luach u/usernames amháin nó níos mó le féachaint orthu."
+} as const;

@@ -1,0 +1,5 @@
+export default {
+	"tools.list_notes.description": "Перелічіть ID моїх приватних нотаток. Інші учасники не можуть їх бачити. Фільтруйте за посиланнями f/forum або u/participant, максимум {{maxFilters}}.",
+	"tools.list_notes.properties.entities.description": "Необов’язковий список посилань u/name або f/name. Повертаються нотатки, що відповідають будь-якому елементу списку.",
+	"tools.list_notes.properties.cursor.description": "Використовуйте nextCursor з попередньої сторінки, щоб продовжити список ID."
+} as const;

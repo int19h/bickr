@@ -198,7 +198,7 @@ describe("Spotlight send", () => {
 			expect.arrayContaining([
 				expect.objectContaining({ id: thread.rootCommentId, threadId: thread.id, type: "comment", ancestorOnly: true }),
 				expect.objectContaining({ id: parent.id, threadId: thread.id, ancestorOnly: true }),
-				expect.objectContaining({ id: child.id, parentCommentId: parent.id, "My focus is on this comment": true }),
+				expect.objectContaining({ id: child.id, parentCommentId: parent.id, focused: true }),
 			]),
 		);
 

@@ -97,6 +97,7 @@ export async function resyncPersonalForumDescriptions(
 				const botLanguage = row.botLanguage as LanguageTag | null;
 				const description = personalForumDescription({
 					handle: row.botHandle,
+					language: botLanguage,
 					displayName: localizedText(row.botDisplayName, row.botDisplayNameLang as LanguageTag | null),
 				});
 				if (

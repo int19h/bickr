@@ -2,6 +2,8 @@ import forumCoordinatorWorker from "../workers/forum-coordinator/src/index";
 import { commitThreadMutation, pruneThreadMutationReceipts, replayThreadMutationReceipt } from "../workers/forum-coordinator/src/thread-mutations";
 import { beforeEach, describe, expect, it } from "vitest";
 import { readThread } from "@bickr/shared/social";
+import { botServiceIssueManifest, isCommittedBotServiceIssue } from "@bickr/shared/bot-service-issues";
+import { parseInstructionIssue } from "@bickr/shared/instruction-issues";
 import { type ForumDocument } from "@bickr/shared/model";
 import { clearKv, resetD1Schema } from "./helpers/d1-schema";
 import { authCookie, createBotForTest, createCommentForTest, createForumForTest, createThreadForTest, ExclusiveOperationQueue, handleForumCoordinatorRequest, jsonRequest, kvKeys, memoryDurableStorage, requiredLt, seedWorld, testEnv } from "./helpers/index-harness";
@@ -25,6 +27,14 @@ async function fixture() {
 		return request;
 	};
 	return { forum, bot, thread, owner: forumDoc!.createdByUserId, durable, context, env, post };
+}
+
+async function expectCommittedResultUnavailable(response: Response): Promise<void> {
+	expect(response.status).toBe(503);
+	const body = await response.json() as { details: { botIssue: unknown } };
+	const issue = parseInstructionIssue(botServiceIssueManifest, body.details.botIssue);
+	expect(issue).not.toBeNull();
+	expect(issue && isCommittedBotServiceIssue(issue)).toBe(true);
 }
 
 describe("durable thread mutations", () => {
@@ -104,7 +114,7 @@ describe("durable thread mutations", () => {
 		const request = () => jsonRequest(`https://internal.bickr/forums/${f.forum.id}/threads`, "POST", { title: requiredLt("Created once"), body: requiredLt("Root body") }, undefined, { "x-bickr-bot-id": f.bot.id, "x-bickr-idempotency-key": "creation-retry" });
 		const creator = { ...f.context(), objectId: f.forum.id };
 		const env = { ...f.env, FORUM_COORDINATOR: namespace };
-		expect((await handleForumCoordinatorRequest(request(), env, creator)).status).toBe(500);
+		await expectCommittedResultUnavailable(await handleForumCoordinatorRequest(request(), env, creator));
 		expect((await handleForumCoordinatorRequest(request(), env, creator)).status).toBe(201);
 		expect(await testEnv.BICKR_D1.prepare(`SELECT count(*) AS count FROM threads_index WHERE forum_id = ? AND title = ?`).bind(f.forum.id, "Created once").first()).toEqual({ count: 1 });
 	});
@@ -123,7 +133,7 @@ describe("durable thread mutations", () => {
 			const request = new Request(`https://internal.bickr/forums/${f.forum.id}/threads/${f.thread.id}/comments/${id}`, { method: "DELETE", headers: { "x-bickr-user-id": f.owner } });
 			return request;
 		};
-		expect((await handleForumCoordinatorRequest(remove(first.id), { ...f.env, BICKR_D1: db }, f.context())).status).toBe(500);
+		await expectCommittedResultUnavailable(await handleForumCoordinatorRequest(remove(first.id), { ...f.env, BICKR_D1: db }, f.context()));
 		expect((await handleForumCoordinatorRequest(remove(second.id), f.env, f.context())).status).toBe(200);
 		expect((await readThread(testEnv.BICKR_KV, f.thread.id)).comments.map((comment) => comment.id)).toEqual([f.thread.rootCommentId]);
 	});
@@ -137,7 +147,7 @@ describe("durable thread mutations", () => {
 			if (calls === 2) throw new Error("Injected cleanup failure");
 			return transaction(closure);
 		};
-		expect((await handleForumCoordinatorRequest(f.post("same-post"), f.env, f.context())).status).toBe(500);
+		await expectCommittedResultUnavailable(await handleForumCoordinatorRequest(f.post("same-post"), f.env, f.context()));
 		const retried = await handleForumCoordinatorRequest(f.post("same-post"), f.env, f.context());
 		expect(retried.status).toBe(201);
 		expect((await readThread(testEnv.BICKR_KV, f.thread.id)).comments).toHaveLength(2);

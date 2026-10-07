@@ -6,7 +6,6 @@ import { shortModelName } from "./inference-attribution";
 import { MarkdownBody } from "../markdown/markdown-body";
 import { createContext, useContext, useEffect, useId, useState, type ReactNode } from "react";
 import {
-	defaultTranslationPrompt,
 	localizedTextLang,
 	localizedTextString,
 	type BotSummary,
@@ -92,7 +91,7 @@ export const TranslationContext = createContext<TranslationContextValue>({
 	enabled: false,
 	identity: "",
 	model: "",
-	prompt: defaultTranslationPrompt,
+	prompt: "",
 });
 
 export function referenceMeta(
@@ -116,7 +115,7 @@ export function referenceMeta(
 		}
 		const bot = personalForumBot(forum, data);
 		return bot ?
-				{ title: personalForumTitle(bot.displayName), description: `u/${bot.handle} · ${bot.shortBio}` }
+				{ title: personalForumTitle(bot), description: `u/${bot.handle} · ${bot.shortBio}` }
 			:	{ title: `f/${forum.handle}`, description: forum.description };
 	}
 	if (kind === "bot") {
@@ -666,7 +665,7 @@ function TranslatableTextContent({
 	verticalScriptLayout = "inline",
 	worldHandle,
 }: {
-	as?: "div" | "h1" | "p" | "span";
+	as?: "div" | "h1" | "h3" | "p" | "span";
 	className?: string;
 	/**
 	 * Marks this element as the rendered body of that comment, so Spotlight

@@ -1,0 +1,3 @@
+export default {
+	"tools.list_recent_threads.description": "フォーラムf/forumの最近のスレッドを一覧表示します。"
+} as const;

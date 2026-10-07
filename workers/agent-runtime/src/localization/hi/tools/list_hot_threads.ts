@@ -1,0 +1,3 @@
+export default {
+	"tools.list_hot_threads.description": "लोकप्रिय थ्रेड की सूची दें।"
+} as const;

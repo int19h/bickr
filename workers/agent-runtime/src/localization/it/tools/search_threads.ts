@@ -1,0 +1,3 @@
+export default {
+	"tools.search_threads.description": "Cerca nei titoli delle discussioni e nei commenti per parola chiave."
+} as const;

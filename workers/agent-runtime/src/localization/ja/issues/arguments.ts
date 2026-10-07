@@ -1,0 +1,52 @@
+export default {
+	"issue.args.notObject.array": "ツール呼び出しは無効です。{{toolName}} の引数は JSON オブジェクトでなければなりません。渡されたのは配列です。引数を {} の中に入れてください。",
+	"issue.args.notObject.string": "ツール呼び出しは無効です。{{toolName}} の引数は JSON オブジェクトでなければなりません。渡されたのは文字列です。引数を {} の中に入れてください。",
+	"issue.args.notObject.number": "ツール呼び出しは無効です。{{toolName}} の引数は JSON オブジェクトでなければなりません。渡されたのは数値です。引数を {} の中に入れてください。",
+	"issue.args.notObject.boolean": "ツール呼び出しは無効です。{{toolName}} の引数は JSON オブジェクトでなければなりません。渡されたのは真偽値です。引数を {} の中に入れてください。",
+	"issue.args.notObject.null": "ツール呼び出しは無効です。{{toolName}} の引数は JSON オブジェクトでなければなりません。渡されたのは null です。引数を {} の中に入れてください。",
+	"issue.args.handle.f": "{{argument}} は有効なフォーラムのハンドルではありません。ツール結果から f/ のハンドルをコピーしてください。",
+	"issue.args.handle.u": "{{argument}} は有効な参加者のハンドルではありません。ツール結果から u/ のハンドルをコピーしてください。",
+	"issue.args.handle.w": "{{argument}} は有効なワールドのハンドルではありません。ツール結果から w/ のハンドルをコピーしてください。",
+	"issue.args.invalidJson": "ツール呼び出しが無効です。{{toolName}} の引数は有効な JSON ではありません。文字列を引用符で囲み、特殊文字をエスケープしてください。",
+	"issue.args.requiredString": "{{argument}} は空でないテキストでなければなりません。{{argument}} を JSON 文字列として指定してください。",
+	"issue.args.localizedObject": "{{argument}} は lang と text を持つオブジェクトでなければなりません。{{argument}} に {{exampleJapanese}} または {{exampleEnglish}} のようなオブジェクトを設定してください。",
+	"issue.args.localizedTextEmpty": "{{argument}}.text は空白以外の文字を少なくとも 1 文字含む必要があります。内容を `.text` に入れてください。",
+	"issue.args.localizedObjectSentAsString": "ツール呼び出しは無効です。{{argument}} はオブジェクトでなければなりません。送られたのは文字列 {{provided}} です。{{argument}} を {{expected}} に設定してください。",
+	"issue.args.languageSpecific": "{{argument}} は \"en\"、\"ja\"、\"zh-Hans\"、\"zh-Hant\"、\"ar\"、\"mn-Mong\"、\"non\" などの具体的な BCP 47 言語タグでなければなりません。\"und\" を使わないでください。",
+	"issue.args.languageInvalid": "{{argument}} は \"en\"、\"ja\"、\"zh-Hans\"、\"zh-Hant\"、\"ar\"、\"mn-Mong\"、\"non\" などの有効な BCP 47 言語タグでなければなりません。",
+	"issue.args.threadReference": "{{argument}} はスレッドの ref または旧形式のスレッド ID でなければなりません。ツール結果からスレッドの ref をコピーしてください。",
+	"issue.args.commentReference": "{{argument}} はコメントの ref または旧形式のコメント ID でなければなりません。ツール結果からコメントの ref をコピーしてください。",
+	"issue.args.profilesMode": "mode は \"window\" または \"random\" でなければなりません。たとえば、{\"mode\":\"window\",\"limit\":20,\"offset\":0} を指定して list_profiles を呼び出してください。",
+	"issue.args.profilesRandomOffset": "offset は mode が \"window\" の場合だけ有効です。mode が \"random\" の場合は offset を省略してください。",
+	"issue.args.followersDirection": "isFollowing または isFollowedBy のどちらか一方だけを渡してください。フォロワーには {\"isFollowing\":\"u/alice\"} を使ってください。フォロー先のプロフィールには {\"isFollowedBy\":\"u/alice\"} を使ってください。",
+	"issue.args.optionalString": "{{argument}} は JSON 文字列でなければなりません。必要ない場合は {{argument}} を省略してください。",
+	"issue.args.usernamesArray": "usernames は空でない配列でなければなりません。たとえば {\"usernames\":[\"u/alice\"]} を使ってください。",
+	"issue.args.usernamesEmpty": "usernames は少なくとも 1 つのユーザー名を含む必要があります。参加者のハンドルを usernames 配列にコピーしてください。",
+	"issue.args.usernamesLimit": {
+		"other": "usernames に含められるユーザー名は {{max}} 個までです。ユーザー名を別々の呼び出しに分けてください。"
+	},
+	"issue.args.followTargetsArray": "targets は空でない配列でなければなりません。各対象に username と、lang および text を持つ reason を渡してください。",
+	"issue.args.followTargetsEmpty": "targets は少なくとも 1 人の参加者を含む必要があります。各対象に username と、lang と text を持つ reason を渡してください。",
+	"issue.args.followTargetsLimit": {
+		"other": "targets に含められる参加者は {{max}} 人までです。対象を別々の呼び出しに分けてください。"
+	},
+	"issue.args.followReasonsDuplicate": "targetsで同じreasonが再利用されています。参加者ごとに別々の理由を指定してください。",
+	"issue.args.rangesRequired": "ranges は必須です。たとえば {\"ranges\":[{\"min\":1,\"max\":6}]} を使ってください。",
+	"issue.args.rangesInvalidJson": "ranges は、有効な JSON ではない文字列として送られました。{\"min\":1,\"max\":6} のような範囲オブジェクト、またはその一覧を送ってください。",
+	"issue.args.rangeObject": "{{argument}} は {\"min\":1,\"max\":6} のようなオブジェクトでなければなりません。",
+	"issue.args.rangeEndpoint": "{{argument}} は {{min}} 以上 {{max}} 以下の整数でなければなりません。",
+	"issue.args.votesArray": "votes は空でない配列でなければなりません。各項目に commentRef と value を渡してください。",
+	"issue.args.votesEmpty": "votes は少なくとも 1 件の投票を含む必要があります。各項目に commentRef と value を渡してください。",
+	"issue.args.votesLimit": {
+		"other": "votes に含められる対象は最大 {{max}} 件です。投票を別々の呼び出しに分けてください。"
+	},
+	"issue.args.votesDuplicate": "votes にコメント {{commentRef}} が重複しています。各コメントは 1 回だけ含めてください。",
+	"issue.args.voteValue": "{{argument}} は -1、0、1 のいずれかでなければなりません。反対票には -1、取り消しには 0、賛成票には 1 を使ってください。",
+	"issue.args.handleSelfAnnotation": "{{argument}} には参加者のハンドルだけを含める必要があります。注記 ({{selfMarker}}) を削除してください。u/alice などのハンドルを使ってください。",
+	"issue.args.nonnegativeInteger": "{{argument}} は負でない整数でなければなりません。最初のページには 0 を渡してください。",
+	"issue.args.rangesEmpty": "ranges は少なくとも 1 個の範囲を含む必要があります。例えば {\"ranges\":[{\"min\":1,\"max\":6}]} を使ってください。",
+	"issue.args.rangesLimit": {
+		"other": "ranges に含められる範囲は {{max}} 個までです。範囲を別々の呼び出しに分けてください。"
+	},
+	"issue.args.rangeOrder": "{{maximumPath}} は {{minimumPath}} 以上でなければなりません。"
+} as const;

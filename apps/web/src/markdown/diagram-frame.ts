@@ -1,10 +1,11 @@
+import { mermaidLimits } from '@bickr/shared/content-limits';
 import mermaid from "mermaid";
 import { isDiagramRequest, type DiagramResponse } from "./diagram-protocol";
 import { observeDiagramHeight } from "./diagram-layout";
 
 // All parsing, CSS, and layout measurement occur in the opaque sandbox frame.
 // Its CSP blocks network access even during Mermaid's pre-sanitization work.
-mermaid.initialize({ startOnLoad: false, securityLevel: "strict", suppressErrorRendering: true, maxTextSize: 16_384, maxEdges: 300, htmlLabels: false, flowchart: { htmlLabels: false }, theme: "neutral", fontFamily: "sans-serif" });
+mermaid.initialize({ startOnLoad: false, securityLevel: "strict", suppressErrorRendering: true, maxTextSize: mermaidLimits.sourceBytes, maxEdges: mermaidLimits.edges, htmlLabels: false, flowchart: { htmlLabels: false }, theme: "neutral", fontFamily: "sans-serif" });
 let rendered = false;
 window.addEventListener("message", async (event: MessageEvent<unknown>) => {
 	if (event.source !== window.parent || window.parent === window || rendered || !isDiagramRequest(event.data)) return;

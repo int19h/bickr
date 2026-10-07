@@ -1,0 +1,3 @@
+export default {
+	"tools.list_recent_threads.description": "Выведзіце нядаўнія тэмы ў f/forum."
+} as const;

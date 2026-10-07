@@ -1,0 +1,58 @@
+export default {
+	"structured_output.unexpected_tools.compaction": "META: Jangan memanggil alat. Balas dengan ringkasan orang pertama yang terperinci dan mengikuti skema JSON yang diwajibkan.",
+	"structured_output.unexpected_tools.other": "Jangan gunakan kontrol Bickr untuk balasan ini. Balas dengan objek JSON yang diwajibkan dan hanya berisi {{property}}.",
+	"structured_output.empty.compaction": "Balasan ringkasan kosong. Kembalikan objek JSON dengan teks yang tidak kosong di {{property}}.",
+	"structured_output.empty.translation": "Balasan terjemahan kosong. Kembalikan objek JSON dengan teks yang tidak kosong di {{property}}.",
+	"structured_output.empty.avatar_description": "Balasan deskripsi gambar profil kosong. Kembalikan objek JSON dengan teks yang tidak kosong di {{property}}.",
+	"structured_output.invalid_json.compaction": "Balasan ringkasan harus berupa objek JSON. Berikan hanya {{property}} dengan nilai teksnya.",
+	"structured_output.invalid_json.translation": "Balasan terjemahan harus berupa objek JSON. Berikan hanya {{property}} dengan nilai teksnya.",
+	"structured_output.invalid_json.avatar_description": "Balasan deskripsi gambar profil harus berupa objek JSON. Berikan hanya {{property}} dengan nilai teksnya.",
+	"structured_output.missing_tool": "Tidak ada panggilan alat {{toolName}} yang dikembalikan. Panggil {{toolName}} sekali dengan teks yang tidak kosong di {{property}}.",
+	"structured_output.wrong_tool": "Gunakan hanya {{toolName}} untuk permintaan ini. Jangan gunakan {{receivedTool}} di sini.",
+	"structured_output.tool_count": {
+		"other": "Diharapkan satu panggilan alat {{toolName}}, tetapi yang diterima {{count}} panggilan alat. Panggil {{toolName}} tepat sekali."
+	},
+	"structured_output.tool_mismatch": "Alat yang diharapkan adalah {{toolName}}, tetapi yang diterima {{receivedTool}}. Panggil {{toolName}} sebagai gantinya.",
+	"structured_output.invalid_arguments_json": "Argumen {{toolName}} bukan JSON yang valid. Berikan objek JSON dengan teks dalam {{property}}. Gunakan karakter escape untuk karakter khusus dalam string.",
+	"structured_output.arguments_object": "Argumen {{toolName}} harus berupa objek JSON. Masukkan {{property}} dan nilai teksnya ke dalam {}.",
+	"structured_output.output_object": "Keluaran terstruktur harus berupa objek JSON. Masukkan {{property}} dan nilai teksnya ke dalam {}.",
+	"structured_output.extra_arguments": {
+		"other": "Ada {{count}} argumen yang tidak diharapkan: {{fields}}. Hapus argumen tersebut. Berikan hanya {{property}}."
+	},
+	"structured_output.extra_fields": {
+		"other": "Ada {{count}} kolom yang tidak diharapkan: {{fields}}. Hapus kolom itu. Berikan hanya {{property}}."
+	},
+	"structured_output.nonempty.compaction": "Argumen ringkasan harus berupa string yang tidak kosong. Masukkan teks ke {{property}}.",
+	"structured_output.nonempty.translation": "Argumen terjemahan harus berupa string yang tidak kosong. Tempatkan teks di {{property}}.",
+	"structured_output.nonempty.avatar_description": "Argumen deskripsi gambar profil harus berupa string yang tidak kosong. Masukkan teks ke {{property}}.",
+	"structured_output.transcript": "Tulis ringkasan di {{property}} sebagai prosa orang pertama biasa. Hapus baris transkrip {{line}}. Jangan menulis baris berlabel {{labels}}.",
+	"structured_output.minimum.compaction": {
+		"other": "Ringkasan dalam {{property}} harus berisi paling sedikit {{minimum}} karakter. Tambahkan rincian yang relevan ke teks."
+	},
+	"structured_output.minimum.translation": {
+		"other": "Terjemahan dalam {{property}} harus berisi paling sedikit {{minimum}} karakter. Tambahkan rincian yang relevan ke teks."
+	},
+	"structured_output.minimum.avatar_description": {
+		"other": "Deskripsi gambar profil dalam {{property}} harus berisi paling sedikit {{minimum}} karakter. Tambahkan rincian yang relevan ke teks."
+	},
+	"structured_output.maximum.compaction": {
+		"other": "Ringkasan dalam {{property}} harus berisi paling banyak {{maximum}} karakter. Persingkat teks."
+	},
+	"structured_output.maximum.translation": {
+		"other": "Terjemahan dalam {{property}} harus berisi paling banyak {{maximum}} karakter. Persingkat teks."
+	},
+	"structured_output.maximum.avatar_description": {
+		"other": "Deskripsi gambar profil dalam {{property}} harus berisi paling banyak {{maximum}} karakter. Persingkat teks."
+	},
+	"structured_output.wrong_tool.unnamed": "Gunakan hanya {{toolName}} untuk permintaan ini. Jangan mengirim panggilan alat tanpa nama.",
+	"structured_output.tool_mismatch.unnamed": "Alat yang diharapkan adalah {{toolName}}, tetapi yang diterima adalah panggilan alat tanpa nama. Panggil {{toolName}} sebagai gantinya.",
+	"structured_output.nonreducing.estimate": {
+		"other": "Ringkasan dalam {{property}} tidak mengurangi konteks. Perkiraan panjangnya adalah {{replacementTokens}} token."
+	},
+	"structured_output.nonreducing.before": {
+		"other": "Konteks berisi {{compactedTokens}} token sebelum penggantian. Persingkat ringkasan sambil mempertahankan fakta yang diwajibkan."
+	},
+	"structured_output.nonempty.compaction.field": "Kolom ringkasan harus berupa string yang tidak kosong. Masukkan teks ke {{property}}.",
+	"structured_output.nonempty.translation.field": "Kolom terjemahan harus berupa string yang tidak kosong. Masukkan teks ke {{property}}.",
+	"structured_output.nonempty.avatar_description.field": "Kolom deskripsi gambar profil harus berupa string yang tidak kosong. Masukkan teks ke {{property}}."
+} as const;

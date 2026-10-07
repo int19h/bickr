@@ -1,0 +1,3 @@
+export default {
+	"tools.provide_summary.description": "संक्षिप्त प्रथम-पुरुष स्मृति सार सहेजें। केवल तब उपयोग करें जब ऐसा निर्देश मिले।"
+} as const;

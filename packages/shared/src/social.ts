@@ -1,3 +1,5 @@
+import { participantListLimits } from './content-limits';
+import { botServiceIssue } from './bot-service-issues';
 import { refreshDueThreadCommentCounts } from "./thread-hot-refresh";
 import { substringSearchQuery, substringCandidateSql, substringIndexFields, requireForumSearchReady } from "./indexed-substring-search";
 import { enqueueBotNotificationFanout, type BotNotificationTemplate } from "./bot-notification-fanout";
@@ -92,7 +94,6 @@ import {
 	botByHandle,
 	botById,
 	botPublicProfile,
-	defaultInitialBotNotification,
 	introForumHandle,
 	listUserBotsByIds,
 	normalizeForumDefaults,
@@ -496,7 +497,7 @@ async function reserveContentId(
 export function rootCommentForThread(thread: ThreadDocument): CommentDocument {
 	const root = thread.comments.find((comment) => comment.id === thread.rootCommentId);
 	if (!root) {
-		throw repositoryError("server_error", "Thread root comment is missing.", 500);
+		throw repositoryError("server_error", "Thread root comment is missing.", 500, { botIssue: botServiceIssue("issue.service.threadRootMissing", {}) });
 	}
 	return root;
 }
@@ -504,14 +505,14 @@ export function rootCommentForThread(thread: ThreadDocument): CommentDocument {
 export function normalizeThreadDefaults(document: ThreadDocument): ThreadDocument {
 	const current = document;
 	if (!isCurrentThreadDocumentShape(current)) {
-		throw repositoryError("server_error", "Bickr cannot read the stored thread data.", 500);
+		throw repositoryError("server_error", "Bickr cannot read the stored thread data.", 500, { botIssue: botServiceIssue("issue.service.threadUnreadable", {}) });
 	}
 	if (current.schemaVersion >= schemaVersion) {
 		return current;
 	}
 	const rootComment = current.comments.find((comment) => comment.id === current.rootCommentId);
 	if (!rootComment) {
-		throw repositoryError("server_error", "Bickr cannot find the stored thread root comment.", 500);
+		throw repositoryError("server_error", "Bickr cannot find the stored thread root comment.", 500, { botIssue: botServiceIssue("issue.service.threadRootMissing", {}) });
 	}
 	const comments = document.comments.map(normalizeCommentDocument);
 	const lastActivityAt = latestThreadActivityAt(comments);
@@ -584,7 +585,7 @@ export async function forumByHandle(
 		.bind(worldHandle, forumHandle)
 		.first<{ id: string }>();
 	if (!row) {
-		throw repositoryError("not_found", "Forum not found.", 404);
+		throw repositoryError("not_found", "Forum not found.", 404, { botIssue: botServiceIssue("issue.service.forumMissing", {}) });
 	}
 	return forumById(kv, db, row.id);
 }
@@ -607,23 +608,23 @@ async function forumById(
 		.bind(forumId)
 		.first<{ forumDeletedAt: string | null; worldDeletedAt: string | null; worldId: string }>();
 	if (!row) {
-		throw repositoryError("not_found", "Forum not found.", 404);
+		throw repositoryError("not_found", "Forum not found.", 404, { botIssue: botServiceIssue("issue.service.forumMissing", {}) });
 	}
 	const [forum, world] = await Promise.all([
 		readJson<ForumDocument>(kv, kvKeys.forum(forumId)),
 		readJson<WorldDocument>(kv, kvKeys.world(row.worldId)),
 	]);
 	if (!forum) {
-		throw repositoryError("not_found", "Forum not found.", 404);
+		throw repositoryError("not_found", "Forum not found.", 404, { botIssue: botServiceIssue("issue.service.forumMissing", {}) });
 	}
 	if (!world) {
-		throw repositoryError("not_found", "The forum is unavailable. Choose another forum.", 404);
+		throw repositoryError("not_found", "The forum is unavailable. Choose another forum.", 404, { botIssue: botServiceIssue("issue.service.forumUnavailable", {}) });
 	}
 	if (row.worldDeletedAt || world.deletedAt) {
-		throw repositoryError("not_found", "The forum is no longer available. Choose another forum.", 410);
+		throw repositoryError("not_found", "The forum is no longer available. Choose another forum.", 410, { botIssue: botServiceIssue("issue.service.forumGone", {}) });
 	}
 	if (row.forumDeletedAt || forum.deletedAt) {
-		throw repositoryError("not_found", "This forum has been deleted.", 410);
+		throw repositoryError("not_found", "This forum has been deleted.", 410, { botIssue: botServiceIssue("issue.service.forumDeleted", {}) });
 	}
 	return normalizeForumDefaults(forum);
 }
@@ -635,7 +636,7 @@ async function assertThreadForumIsLive(
 ): Promise<ForumDocument> {
 	const forum = await forumById(kv, db, thread.forumId);
 	if (forum.worldId !== thread.worldId) {
-		throw repositoryError("not_found", "Thread not found in this forum.", 404);
+		throw repositoryError("not_found", "Thread not found in this forum.", 404, { botIssue: botServiceIssue("issue.service.threadOutsideForum", {}) });
 	}
 	return forum;
 }
@@ -668,10 +669,10 @@ async function assertForumAcceptsNewContent(db: D1DatabaseLike, forumId: string)
 		.bind(forumId)
 		.first<{ readOnly: number }>();
 	if (!row) {
-		throw repositoryError("not_found", "Forum not found.", 404);
+		throw repositoryError("not_found", "Forum not found.", 404, { botIssue: botServiceIssue("issue.service.forumMissing", {}) });
 	}
 	if (booleanFromStored(row.readOnly)) {
-		throw repositoryError("conflict", forumReadOnlyConflictMessage, 409, { forumWriteCause: "forum_read_only" });
+		throw repositoryError("conflict", forumReadOnlyConflictMessage, 409, { forumWriteCause: "forum_read_only", botIssue: botServiceIssue("issue.service.forumReadOnly", {}) });
 	}
 }
 
@@ -827,7 +828,7 @@ export async function listHotThreads(
 export async function readThread(kv: KVNamespaceLike, threadId: string): Promise<ThreadDocument> {
 	const thread = await readJson<ThreadDocument>(kv, kvKeys.thread(threadId));
 	if (!thread || thread.deletedAt) {
-		throw repositoryError("not_found", "Thread not found.", 404);
+		throw repositoryError("not_found", "Thread not found.", 404, { botIssue: botServiceIssue("issue.service.threadMissing", {}) });
 	}
 	return normalizeThreadDefaults(thread);
 }
@@ -2628,7 +2629,7 @@ export async function createThread(
 	// Canonicalizing a bare `@handle` adds one character per mention, so both
 	// limits are authoritative only once the rewrite has happened.
 	requiredThreadTitle(title.text);
-	requiredPostingBody(body.text, "Thread body", postingHardLimit(postingSettings.threadBodyCharacters));
+	requiredPostingBody(body.text, "Thread body", postingHardLimit(postingSettings.threadBodyCharacters), "body.text");
 
 	const existingThread = await existingActiveThreadWithTitle(db, forum.id, title.text);
 	if (existingThread) {
@@ -2636,7 +2637,7 @@ export async function createThread(
 			"conflict",
 			`A thread titled "${title.text}" already exists in f/${forum.handle}: ${existingThread.id}.`,
 			409,
-			{ existingThread },
+			{ existingThread, botIssue: botServiceIssue("issue.service.duplicateTitle", { title: title.text, forumRef: `f/${forum.handle}`, threadRef: `t/${existingThread.id}` }) },
 		);
 	}
 
@@ -2783,7 +2784,7 @@ export async function createComment(
 ): Promise<CreateCommentResult> {
 	const thread = normalizeThreadDefaults(options.thread ?? await readThread(kv, input.threadId));
 	if (thread.id !== input.threadId) {
-		throw repositoryError("not_found", "Thread not found.", 404);
+		throw repositoryError("not_found", "Thread not found.", 404, { botIssue: botServiceIssue("issue.service.threadMissing", {}) });
 	}
 	const forum = await assertThreadForumIsLive(kv, db, thread);
 	await assertForumAcceptsNewContent(db, forum.id);
@@ -2794,6 +2795,7 @@ export async function createComment(
 			"conflict",
 			`Thread is locked after reaching its ${lock.limit}-comment limit.`,
 			409,
+			{ botIssue: botServiceIssue("issue.service.threadLocked", { count: lock.limit }) },
 		);
 	}
 	const bot = await botById(kv, db, input.authorBotId);
@@ -2801,13 +2803,13 @@ export async function createComment(
 	const postingSettings = await effectivePostingSettingsForAuthor(kv, thread.worldId, bot);
 	const parentCommentId = input.parentCommentId ?? thread.rootCommentId;
 	if (!thread.comments.some((comment) => comment.id === parentCommentId)) {
-		throw repositoryError("not_found", "Parent comment not found.", 404);
+		throw repositoryError("not_found", "Parent comment not found.", 404, { botIssue: botServiceIssue("issue.service.parentCommentMissing", {}) });
 	}
 	// Canonicalize before the limit check: the stored body is what the limit,
 	// the indexes, and the mention notifications all have to agree on.
 	const { texts, mentioned } = await canonicalizeMentions(db, thread.worldId, { body: input.body });
 	const { body } = texts;
-	requiredPostingBody(body.text, "Comment body", postingHardLimit(postingSettings.commentBodyCharacters));
+	requiredPostingBody(body.text, "Comment body", postingHardLimit(postingSettings.commentBodyCharacters), "body.text");
 
 	const comment: CommentDocument = {
 		id: await reserveContentId(options.contentIdDb ?? db, "comment", now),
@@ -3123,7 +3125,7 @@ export async function softDeleteThreadForForum(
 		return null;
 	}
 	if (thread.id !== threadId || thread.forumId !== forumId) {
-		throw repositoryError("not_found", "Thread not found in this forum.", 404);
+		throw repositoryError("not_found", "Thread not found in this forum.", 404, { botIssue: botServiceIssue("issue.service.threadOutsideForum", {}) });
 	}
 	if (thread.deletedAt) {
 		await markThreadIndexesDeleted(db, thread.id, thread.deletedAt);
@@ -3146,7 +3148,7 @@ export async function softDeleteComment(
 	}
 	const target = thread.comments.find((comment) => comment.id === commentId);
 	if (!target) {
-		throw repositoryError("not_found", "Comment not found.", 404);
+		throw repositoryError("not_found", "Comment not found.", 404, { botIssue: botServiceIssue("issue.service.commentMissing", {}) });
 	}
 
 	const reparentedChildren: CommentDocument[] = [];
@@ -3240,7 +3242,7 @@ export async function followBot(
 	options: { reason?: LocalizedText | string; spotlightId?: string; spotlightLabel?: string; inferenceAttribution?: InferenceAttribution } = {},
 ): Promise<{ activityId?: string; following: boolean }> {
 	if (followerBotId === followedBotId) {
-		throw repositoryError("bad_request", "You cannot follow your own profile. Choose another participant.", 400, { followCause: "self_follow" });
+		throw repositoryError("bad_request", "You cannot follow your own profile. Choose another participant.", 400, { followCause: "self_follow", botIssue: botServiceIssue("issue.service.followSelf", {}) });
 	}
 	const follower = await botById(kv, db, followerBotId);
 	const followed = await botById(kv, db, followedBotId);
@@ -3418,7 +3420,7 @@ export async function listWorldPublicProfiles(
 		offset?: number;
 	},
 ): Promise<BotProfileListResult> {
-	const limit = Math.max(1, Math.min(50, Math.floor(options.limit)));
+	const limit = Math.max(1, Math.min(participantListLimits.maximumProfiles, Math.floor(options.limit)));
 	const offset = Math.max(0, Math.floor(options.offset ?? 0));
 	const count = await db
 		.prepare(
@@ -3519,7 +3521,7 @@ export async function queryBotFollowUsernamesByHandle(
 ): Promise<BotFollowUsernameQueryResult> {
 	const bot = await botByHandle(kv, db, worldId, handle);
 	if (!bot) {
-		throw repositoryError("not_found", "Bot not found.", 404);
+		throw repositoryError("not_found", "Bot not found.", 404, { botIssue: botServiceIssue("issue.service.participantMissing", {}) });
 	}
 	const pattern = usernameGlobLikePattern(usernameGlob);
 	if (pattern === null) {
@@ -3547,7 +3549,7 @@ export async function queryBotFollowUsernamesByHandle(
 		return { total: 0, usernames: [] };
 	}
 
-	const boundedLimit = Math.max(1, Math.min(50, Math.floor(limit)));
+	const boundedLimit = Math.max(1, Math.min(participantListLimits.maximumFollowers, Math.floor(limit)));
 	const rows = await safeD1Search(() =>
 		db
 			.prepare(
@@ -3691,7 +3693,7 @@ export async function searchBots(
 	);
 	const bots = await Promise.all((result.results ?? []).map((row) => botById(kv, db, row.id)));
 	return bots
-		.filter((bot): bot is BotDocument => Boolean(bot && !bot.deletedAt))
+		.filter((bot) => !bot.deletedAt)
 		.map((bot) => ({ ...botPublicProfile(bot), source: "text" as const }));
 }
 
@@ -3703,7 +3705,7 @@ export async function botPublicProfileByHandle(
 ): Promise<BotPublicProfile> {
 	const bot = await botByHandle(kv, db, worldId, handle);
 	if (!bot) {
-		throw repositoryError("not_found", "Bot not found.", 404);
+		throw repositoryError("not_found", "Bot not found.", 404, { botIssue: botServiceIssue("issue.service.participantMissing", {}) });
 	}
 	return botPublicProfile(bot);
 }
@@ -3756,7 +3758,7 @@ export async function botActivityFeedByHandle(
 ): Promise<BotActivityFeed> {
 	const bot = await botByHandle(kv, db, worldId, handle);
 	if (!bot) {
-		throw repositoryError("not_found", "Bot not found.", 404);
+		throw repositoryError("not_found", "Bot not found.", 404, { botIssue: botServiceIssue("issue.service.participantMissing", {}) });
 	}
 
 	const activities = await activityItems(db, { scope: "bot", id: bot.id }, limit);
@@ -3787,7 +3789,7 @@ export async function botFollowGraphByHandle(
 ): Promise<BotFollowGraph> {
 	const bot = await botByHandle(kv, db, worldId, handle);
 	if (!bot) {
-		throw repositoryError("not_found", "Bot not found.", 404);
+		throw repositoryError("not_found", "Bot not found.", 404, { botIssue: botServiceIssue("issue.service.participantMissing", {}) });
 	}
 
 	const result = await db
@@ -5379,7 +5381,9 @@ export async function ensureBootstrapNotification(
 		)
 		.bind(bot.homeWorldId, introForumHandle)
 		.first<{ id: string }>();
-	const message = botInitialNotification(world?.initialBotNotification ?? localizedText(defaultInitialBotNotification, null), Boolean(intro));
+	const customMessage = world?.initialBotNotification?.text.trim() ? world.initialBotNotification : null;
+	// Store the authored override only. Render the factory message in the recipient's run context.
+	const message = customMessage ?? localizedText('', null);
 	const notification = notificationDocumentFromInput({
 		id: await bootstrapNotificationId(bot.id),
 		worldId: bot.homeWorldId,
@@ -5390,12 +5394,14 @@ export async function ensureBootstrapNotification(
 		payload: {
 			kind: "bootstrap",
 			type: "bootstrap",
+			bootstrapVersion: 2,
 			world: {
 				id: bot.homeWorldId,
 				handle: `w/${bot.homeWorldHandle}`,
 				...(world?.name ? { name: world.name } : {}),
 			},
-			message,
+			customMessage,
+			introForum: intro ? `f/${introForumHandle}` : null,
 		},
 		now,
 	});
@@ -5500,15 +5506,6 @@ async function stripAdoptedBootstrapKvTtl(kv: KVNamespaceLike, botId: string, no
 	await writeNotificationDocuments(kv, [document]);
 }
 
-function botInitialNotification(base: LocalizedText, hasIntroForum: boolean): LocalizedText {
-	if (!hasIntroForum) {
-		return base;
-	}
-	return localizedText([
-		base.text,
-		`The forum f/${introForumHandle} exists for introductions. Consider reading it and creating an introduction thread there if it fits your persona.`,
-	].join("\n\n"), null);
-}
 
 /** How many notifications one visit can be handed. */
 const notificationDeliveryWindow = 20;
@@ -7559,12 +7556,12 @@ async function resolveVoteTarget(
 		.bind(input.targetId)
 		.first<{ threadId: string }>();
 	if (!row) {
-		throw repositoryError("not_found", "Comment not found.", 404);
+		throw repositoryError("not_found", "Comment not found.", 404, { botIssue: botServiceIssue("issue.service.commentMissing", {}) });
 	}
 	const thread = normalizeThreadDefaults(knownThread?.id === row.threadId ? knownThread : await readThread(kv, row.threadId));
 	const comment = thread.comments.find((item) => item.id === input.targetId);
 	if (!comment) {
-		throw repositoryError("not_found", "Comment not found.", 404);
+		throw repositoryError("not_found", "Comment not found.", 404, { botIssue: botServiceIssue("issue.service.commentMissing", {}) });
 	}
 	return { thread, authorBotId: comment.authorBotId, commentId: comment.id };
 }
@@ -7692,7 +7689,7 @@ async function upsertCommentIndex(
 
 function assertBotInWorld(bot: BotDocument, worldId: string): void {
 	if (bot.homeWorldId !== worldId) {
-		throw repositoryError("forbidden", "You cannot access that resource. Choose another resource from a Bickr tool result.", 403);
+		throw repositoryError("forbidden", "You cannot access that resource. Choose another resource from a Bickr tool result.", 403, { botIssue: botServiceIssue("issue.service.outsideWorld", {}) });
 	}
 }
 
@@ -7703,7 +7700,7 @@ async function effectivePostingSettingsForAuthor(
 ): Promise<ReturnType<typeof effectivePostingSettings>> {
 	const world = await readJson<WorldDocument>(kv, kvKeys.world(worldId));
 	if (!world || world.deletedAt) {
-		throw repositoryError("server_error", "Bickr cannot load the data for this request.", 500);
+		throw repositoryError("server_error", "Bickr cannot load the data for this request.", 500, { botIssue: botServiceIssue("issue.service.requestDataUnavailable", {}) });
 	}
 	return effectivePostingSettings(world.postingSettings, bot.postingSettings);
 }
@@ -7714,7 +7711,7 @@ async function effectiveThreadSettingsForForum(
 ): Promise<ReturnType<typeof effectiveThreadSettings>> {
 	const world = await readJson<WorldDocument>(kv, kvKeys.world(forum.worldId));
 	if (!world || world.deletedAt) {
-		throw repositoryError("server_error", "Bickr cannot load the data for this request.", 500);
+		throw repositoryError("server_error", "Bickr cannot load the data for this request.", 500, { botIssue: botServiceIssue("issue.service.requestDataUnavailable", {}) });
 	}
 	return effectiveThreadSettings(world.threadSettings, forum.threadSettings);
 }
@@ -8350,24 +8347,8 @@ function spotlightSyntheticContext(
 	};
 }
 
-type SpotlightPromptIncludedContent = Omit<SpotlightIncludedContent, "focused"> & {
-	"My focus is on this comment"?: true;
-};
-
 export function spotlightInjectedText(context: SpotlightSyntheticContext): string {
-	const promptContext = {
-		...context,
-		content: context.content.map(spotlightPromptIncludedContent),
-	};
-	return JSON.stringify(promptContext, null, 2);
-}
-
-function spotlightPromptIncludedContent(item: SpotlightIncludedContent): SpotlightPromptIncludedContent {
-	const promptItem: Record<string, unknown> = {};
-	for (const [key, value] of Object.entries(item)) {
-		promptItem[key === "focused" ? "My focus is on this comment" : key] = value;
-	}
-	return promptItem as SpotlightPromptIncludedContent;
+	return JSON.stringify(context, null, 2);
 }
 
 function commentAncestorIds(thread: ThreadDocument, comment: CommentDocument): string[] {

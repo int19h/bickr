@@ -1,0 +1,42 @@
+{
+  "group": "issues/tools",
+  "units": [
+    {
+      "id": "issue.tool.unknown",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/tools.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 446,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "toolName"
+      ],
+      "sourceTemplateHash": "93820a9a5d45b1fa812ae2cc47ff376085c2e011d4cf900451cfb0b1a4bb0e8e"
+    },
+    {
+      "id": "issue.tool.duplicateReply",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/tools.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9966,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "commentRef",
+        "urlPath"
+      ],
+      "sourceTemplateHash": "08aba82906c955d0108f8d8edf785fe6d55d3e942b89b7338ca3bc517ea4b51d"
+    }
+  ]
+}

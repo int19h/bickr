@@ -1,0 +1,21 @@
+{
+  "group": "tools/reply_to_comment",
+  "units": [
+    {
+      "id": "tools.reply_to_comment.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/reply_to_comment.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 260,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "dc28ecc2b02ff5d8b99d0eb33310d760e5d2d9c324d75aae9d082a2e4cd0ab17"
+    }
+  ]
+}

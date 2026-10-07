@@ -1,0 +1,3 @@
+export default {
+	"tools.list_recent_threads.description": "列出 f/forum 里的最近帖子。"
+} as const;

@@ -1,8 +1,10 @@
+import { automaticInstructionLocale } from '@bickr/shared/instruction-language';
+import { botText, botTextFor, type BotText } from '../localization';
 import {
 	avatarImageGenerationSettingsWithDefaults,
 	worldAvatarImageGenerationSettingsWithDefaults,
 	type AvatarImage,
-	type BotDocument,
+	type EffectiveBotDocument,
 	type BotInferenceSettings,
 	type JsonObject,
 	type LanguageTag,
@@ -39,6 +41,7 @@ type AvatarTargetSettings = {
 };
 
 type AvatarTargetBase = {
+	text: BotText;
 	avatar?: AvatarImage;
 	capabilities: {
 		promptFill: readonly ('persona' | 'description' | 'members' | 'current_avatar')[];
@@ -57,7 +60,7 @@ type AvatarTargetBase = {
 };
 
 export type BotAvatarTarget = AvatarTargetBase & {
-	bot: BotDocument;
+	bot: EffectiveBotDocument;
 	kind: 'bot';
 	storage: { botId: string; worldId: string };
 };
@@ -142,6 +145,7 @@ export async function resolveAvatarTarget(
 			const canonicalImage = canonical ? canonicalAvatarImageSettings(canonical, 'participant') : null;
 			return {
 				kind: 'bot',
+				text: botTextFor(bot),
 				bot,
 				owner,
 				avatar: bot.avatar,
@@ -171,6 +175,7 @@ export async function resolveAvatarTarget(
 			const canonicalImage = canonical ? canonicalAvatarImageSettings(canonical, 'participant') : null;
 			return {
 				kind: 'user',
+				text: botText(automaticInstructionLocale(user.language)),
 				user,
 				owner: user,
 				avatar: user.avatar,
@@ -200,6 +205,7 @@ export async function resolveAvatarTarget(
 			const canonicalImage = canonical ? canonicalAvatarImageSettings(canonical, 'world') : null;
 			return {
 				kind: 'world',
+				text: botText(automaticInstructionLocale(world.language)),
 				world,
 				owner,
 				avatar: world.avatar,
@@ -296,7 +302,7 @@ export async function worldDocumentForAvatar(
 	return { ...world, prompt: world.prompt ?? '' };
 }
 
-function effectiveAvatarSettingsLanguage(language: LanguageTag | null | undefined, fallback: BotDocument['displayName']): LanguageTag | null {
+function effectiveAvatarSettingsLanguage(language: LanguageTag | null | undefined, fallback: EffectiveBotDocument['displayName']): LanguageTag | null {
 	return language ?? localizedTextLang(fallback) ?? ('en' as LanguageTag);
 }
 

@@ -1,0 +1,3 @@
+export default {
+	"tools.search_profiles.description": "Pesquise perfis por nome de apresentação, u/handle e apresentação curta. Os resultados mostram relações e números de seguidores. Use query_followers para ver os nomes de usuário dos seguidores e dos perfis seguidos."
+} as const;

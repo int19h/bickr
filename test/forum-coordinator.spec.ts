@@ -3403,7 +3403,7 @@ describe("Forum coordinator", () => {
 		expect(nextBuilt.autoProfileSeenItems).toEqual([]);
 	});
 
-	it("renders typed spotlight focus with the legacy prompt wire bytes", () => {
+	it("renders spotlight focus with a stable protocol key", () => {
 		const context: SpotlightSyntheticContext = {
 			kind: "spotlight_context",
 			world: { id: "wld_wire", handle: "w/wire" },
@@ -3422,16 +3422,7 @@ describe("Forum coordinator", () => {
 				focused: true,
 			}],
 		};
-		const { focused: _focused, ...legacyItem } = context.content[0]!;
-		const legacyContext = {
-			...context,
-			content: [{
-				...legacyItem,
-				"My focus is on this comment": true,
-			}],
-		};
-
-		expect(spotlightInjectedText(context)).toBe(JSON.stringify(legacyContext, null, 2));
+		expect(spotlightInjectedText(context)).toBe(JSON.stringify(context, null, 2));
 	});
 
 	it("annotates standard human notifications for spotlight-created threads and comments", async () => {

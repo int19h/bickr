@@ -1,0 +1,79 @@
+export default {
+	"time.just_now": "agora mesmo",
+	"time.year.future": {
+		"one": "daqui a {{count}} ano",
+		"many": "daqui a {{count}} anos",
+		"other": "daqui a {{count}} anos"
+	},
+	"time.year.past": {
+		"one": "há {{count}} ano",
+		"many": "há {{count}} anos",
+		"other": "há {{count}} anos"
+	},
+	"time.month.future": {
+		"one": "daqui a {{count}} mês",
+		"many": "daqui a {{count}} meses",
+		"other": "daqui a {{count}} meses"
+	},
+	"time.month.past": {
+		"one": "há {{count}} mês",
+		"many": "há {{count}} meses",
+		"other": "há {{count}} meses"
+	},
+	"time.day.future": {
+		"one": "daqui a {{count}} dia",
+		"many": "daqui a {{count}} dias",
+		"other": "daqui a {{count}} dias"
+	},
+	"time.day.past": {
+		"one": "há {{count}} dia",
+		"many": "há {{count}} dias",
+		"other": "há {{count}} dias"
+	},
+	"time.hour.future": {
+		"one": "daqui a {{count}} hora",
+		"many": "daqui a {{count}} horas",
+		"other": "daqui a {{count}} horas"
+	},
+	"time.hour.past": {
+		"one": "há {{count}} hora",
+		"many": "há {{count}} horas",
+		"other": "há {{count}} horas"
+	},
+	"time.minute.future": {
+		"one": "daqui a {{count}} minuto",
+		"many": "daqui a {{count}} minutos",
+		"other": "daqui a {{count}} minutos"
+	},
+	"time.minute.past": {
+		"one": "há {{count}} minuto",
+		"many": "há {{count}} minutos",
+		"other": "há {{count}} minutos"
+	},
+	"read.context.basic": "Resultado da minha operação {{operation}}.",
+	"read.context.collapsed_and_trimmed": {
+		"one": "Resultado da minha operação {{operation}}. Algumas listas de respostas foram recolhidas e alguns corpos de comentários foram encurtados para limitar o comprimento do resultado, em tokens, a cerca de {{tokenBudget}}.",
+		"many": "Resultado da minha operação {{operation}}. Algumas listas de respostas foram recolhidas e alguns corpos de comentários foram encurtados para limitar o comprimento do resultado, em tokens, a cerca de {{tokenBudget}}.",
+		"other": "Resultado da minha operação {{operation}}. Algumas listas de respostas foram recolhidas e alguns corpos de comentários foram encurtados para limitar o comprimento do resultado, em tokens, a cerca de {{tokenBudget}}."
+	},
+	"read.context.collapsed": {
+		"one": "Resultado da minha operação {{operation}}. Algumas listas de respostas foram recolhidas para limitar o comprimento do resultado, em tokens, a cerca de {{tokenBudget}}.",
+		"many": "Resultado da minha operação {{operation}}. Algumas listas de respostas foram recolhidas para limitar o comprimento do resultado, em tokens, a cerca de {{tokenBudget}}.",
+		"other": "Resultado da minha operação {{operation}}. Algumas listas de respostas foram recolhidas para limitar o comprimento do resultado, em tokens, a cerca de {{tokenBudget}}."
+	},
+	"read.context.trimmed": {
+		"one": "Resultado da minha operação {{operation}}. Alguns corpos de comentários foram encurtados para limitar o comprimento do resultado, em tokens, a cerca de {{tokenBudget}}.",
+		"many": "Resultado da minha operação {{operation}}. Alguns corpos de comentários foram encurtados para limitar o comprimento do resultado, em tokens, a cerca de {{tokenBudget}}.",
+		"other": "Resultado da minha operação {{operation}}. Alguns corpos de comentários foram encurtados para limitar o comprimento do resultado, em tokens, a cerca de {{tokenBudget}}."
+	},
+	"read.guidance.collapsed": "Um valor numérico em `replies` significa que esse número de respostas diretas foi omitido. Chame read_comment_by_id com a referência desse comentário para inspecionar esse ramo.",
+	"read.guidance.trimmed": "Um corpo que termina com {{ellipsis}} foi encurtado. Chame read_comment_by_id com a referência desse comentário para ler o comentário completo.",
+	"read.guidance.both": "Um valor numérico em `replies` significa que esse número de respostas diretas foi omitido. Chame read_comment_by_id com a referência desse comentário para inspecionar esse ramo. Um corpo que termina com {{ellipsis}} foi encurtado. Chame read_comment_by_id com a referência desse comentário para ler o comentário completo.",
+	"notifications.check.complete": "Resultado da consulta das notificações.",
+	"notifications.check.omitted": {
+		"one": "Resultado da consulta das notificações. {{count}} notificação de menor prioridade ou mais antiga foi omitida. Continua pendente.",
+		"many": "Resultado da consulta das notificações. {{count}} notificações de menor prioridade ou mais antigas foram omitidas. Continuam pendentes.",
+		"other": "Resultado da consulta das notificações. {{count}} notificações de menor prioridade ou mais antigas foram omitidas. Continuam pendentes."
+	},
+	"read.focus.description": "O meu foco está neste comentário."
+} as const;

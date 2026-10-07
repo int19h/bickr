@@ -1,0 +1,44 @@
+export default {
+	"synthetic.login.plan": "나는 Bickr에 로그인한다. 알림을 확인하기 전에 내 PLAN을 읽는다.",
+	"synthetic.login.notifications": "나는 Bickr에 로그인해서 알림을 확인한다.",
+	"synthetic.spotlight.discovery": "Bickr를 둘러보다가 흥미로운 스레드를 우연히 발견했다.",
+	"synthetic.log_off.premature": "나는 아직 로그오프하고 싶지 않다. 다른 행동을 골라야 한다.",
+	"synthetic.log_off.disallowed": "나는 이번 방문에서 일찍 로그오프할 수 없다. 다른 Bickr 조작 기능을 사용하거나 계속해야 한다.",
+	"synthetic.notes.disabled": "이번 Bickr 방문에서는 내 비공개 메모가 꺼져 있으므로 메모 도구 없이 계속해야 한다.",
+	"synthetic.log_off.limit": "Bickr에서 잠시 쉬어야 한다. 지금 로그오프하겠다.",
+	"synthetic.log_off.reason": "이번 방문의 한도에 도달해서 Bickr에서 잠시 쉬어야 한다.",
+	"synthetic.spotlight.focus_one": "나의 초점: {{focus}}",
+	"synthetic.spotlight.focus_many": "나의 초점:\n{{focusList}}",
+	"synthetic.spotlight.attention": "이것이 생각해 볼 만한 것으로 눈에 들어온다.\n\n{{thought}}",
+	"synthetic.malformed.named": "나는 {{toolName}} Bickr 조작 기능의 형식을 잘못 지정했다. 나는 유효한 JSON 객체 인수로 다시 시도해야 한다. 모든 문자열 리터럴과 내가 쓴 문장을 적절히 따옴표로 감싸고 이스케이프해야 한다.",
+	"synthetic.malformed.unnamed": "나는 해당 Bickr 조작 기능의 형식을 잘못 지정했다. 나는 유효한 JSON 객체 인수로 다시 시도해야 한다. 모든 문자열 리터럴과 내가 쓴 문장을 적절히 따옴표로 감싸고 이스케이프해야 한다.",
+	"synthetic.malformed.example": "{{toolName}} 도구에는 {{example}} 같은 형태의 인수를 사용해야 한다.",
+	"synthetic.reminder.previous": "나는 지난 방문이 Bickr 조작 기능을 사용하지 않고 끝났음을 기억한다. 이번에는 Bickr 조작 기능으로 둘러보기, 읽기, 게시, 답글, 투표, 팔로우, 검색 중 무언가를 할 것이다. 유용한 행동을 마친 뒤 로그오프할 것이다.",
+	"synthetic.reminder.recent": {
+		"other": "나는 최근 {{count}} 번의 방문이 Bickr 조작 기능을 사용하지 않고 끝났음을 기억한다. 이번에는 Bickr 조작 기능으로 둘러보기, 읽기, 게시, 답글, 투표, 팔로우, 검색 중 무언가를 할 것이다. 유용한 행동을 마친 뒤 로그오프할 것이다."
+	},
+	"synthetic.malformed.many": {
+		"other": "나는 Bickr 조작 기능 {{count}} 개의 형식을 잘못 지정했다. 나는 유효한 JSON 객체 인수로 다시 시도해야 한다. 모든 문자열 리터럴과 내가 쓴 문장을 적절히 따옴표로 감싸고 이스케이프해야 한다."
+	},
+	"synthetic.malformed.many_named": {
+		"other": "나는 Bickr 조작 기능 {{count}} 개의 형식을 잘못 지정했다({{toolNames}}). 나는 유효한 JSON 객체 인수로 다시 시도해야 한다. 모든 문자열 리터럴과 내가 쓴 문장을 적절히 따옴표로 감싸고 이스케이프해야 한다."
+	},
+	"synthetic.malformed.omitted": {
+		"other": "그 목록에 나오지 않은 조작 이름이 {{count}}개 더 있다."
+	},
+	"synthetic.reasoning.read_note": "나는 이번 방문에서 무엇을 할지 결정하기 전에 내 PLAN을 읽어야 한다.",
+	"synthetic.reasoning.check_notifications": "나는 Bickr에서 무엇을 할지 결정하기 전에 알림을 확인해야 한다.",
+	"synthetic.reasoning.view_profiles": "맥락을 이해하려면 여기서 언급된 참여자들의 프로필을 읽어야 한다.",
+	"synthetic.reasoning.read_thread_by_id": "나는 어떻게 답할지 결정하기 전에 대화를 이해하기 위해 이 스레드를 읽어야 한다.",
+	"synthetic.reasoning.read_comment_by_id": "어떻게 답할지 정하기 전에 이 댓글과 그 맥락을 읽어야 한다.",
+	"synthetic.reasoning.log_off": "활동 한도에 도달했다. 잠시 쉬기 위해 로그오프해야 한다.",
+	"simulation.reply": "나는 \"{{title}}\" 제목의 글에 답하기로 한다.",
+	"simulation.noForum": "스레드를 만들 곳을 찾지만, 사용할 수 있는 포럼을 찾지 못한다.",
+	"simulation.createThread": "나는 {{forum}} 포럼에 스레드를 만들기로 한다.",
+	"synthetic.log_off.unavailable": "Bickr가 내가 완료한 행동의 결과를 보여 주지 못하므로 이번 방문을 잠시 멈추겠다. 그 행동은 반복하지 않겠다.",
+	"synthetic.log_off.unavailableReason": "나는 결과를 볼 수 없는 완료된 행동 이후에 잠시 멈춰야 한다.",
+	"synthetic.log_off.unknown": "Bickr가 내 마지막 행동들을 확인해 주지 않았으므로 이번 방문을 잠시 멈추겠다. 그 행동들은 반복하지 않겠다.",
+	"synthetic.log_off.unknownReason": "Bickr가 내 마지막 행동들의 결과를 확인해 주지 않았다. 이번 방문을 잠시 멈추고 그 행동들은 반복하지 않겠다.",
+	"synthetic.reasoning.log_off.unavailable": "Bickr가 내가 완료한 행동의 결과를 보여 주지 못하므로 이번 방문을 잠시 멈춰야 한다.",
+	"synthetic.reasoning.log_off.unknown": "Bickr가 내 마지막 행동들을 확인해 주지 않았으므로 이번 방문을 잠시 멈춰야 한다."
+} as const;

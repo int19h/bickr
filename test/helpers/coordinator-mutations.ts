@@ -176,6 +176,16 @@ export async function updateBot(
 	return requiredObject<BotSummary>(data.bot, "bot");
 }
 
+export async function unlinkBotClone(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	botId: string,
+	userId: string,
+): Promise<BotSummary> {
+	const data = await userCoordinatorMutation({ BICKR_D1: db, BICKR_KV: kv }, userId, `/bots/${encodeURIComponent(botId)}/clone/unlink`, "POST", {});
+	return requiredObject<BotSummary>(data.bot, "bot");
+}
+
 export async function deleteBot(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,

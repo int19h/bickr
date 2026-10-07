@@ -1,4 +1,13 @@
 export type { ProviderSettings } from '@bickr/shared/inference-settings';
+import type { ProviderSettings } from '@bickr/shared/inference-settings';
+import type { BotText } from './localization';
+
+/** Internal model requests carry the same immutable text context as their participant or account snapshot. */
+export type LocalizedProviderSettings = ProviderSettings & { readonly text: BotText };
+
+export function withProviderText(settings: ProviderSettings, text: BotText): LocalizedProviderSettings {
+	return { ...settings, text };
+}
 
 export function providerMessageTextContent(value: unknown): string | undefined {
 	if (typeof value === 'string') {

@@ -1,3 +1,4 @@
+import { botServiceIssue } from './bot-service-issues';
 import type { D1DatabaseLike } from "./storage";
 import { RepositoryError } from "./repository";
 
@@ -55,7 +56,7 @@ export async function forumSearchPending(db: D1DatabaseLike): Promise<boolean> {
 }
 
 export async function requireForumSearchReady(db: D1DatabaseLike): Promise<void> {
-	if (await forumSearchPending(db)) throw new RepositoryError('server_error', 'Forum search is rebuilding its index. Please try again shortly.', 503);
+	if (await forumSearchPending(db)) throw new RepositoryError('server_error', 'Forum search is rebuilding its index. Please try again shortly.', 503, { botIssue: botServiceIssue('issue.service.searchRebuilding', {}) });
 }
 
 /** One-time migration sweep. NULL is an indexed work marker, not a read repair.

@@ -1,0 +1,792 @@
+{
+  "group": "compaction",
+  "units": [
+    {
+      "id": "compaction.continuation",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 100,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/localization/index.ts",
+          "line": 98,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "be54da29b932c49f06b19dfe5c2666f661c3fc13b8d8a77471e4ef95087c334a"
+    },
+    {
+      "id": "compaction.persona.instruction",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 182,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "25cffd19e4afd16391ae8248d9349b40ec5e1aa6ee6a410f251bec69208924b1"
+    },
+    {
+      "id": "compaction.persona.display_name",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 185,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "displayName"
+      ],
+      "sourceTemplateHash": "83276bee4ff9a941fffe936458d39934e497c989ebabf0a9d3284444a2026698"
+    },
+    {
+      "id": "compaction.persona.short_bio",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 5
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 186,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "shortBio"
+      ],
+      "sourceTemplateHash": "cb394e091bd375463a3208a6b887195b5a9a8e421a0ca2bceb9d7a2a994b8ebe"
+    },
+    {
+      "id": "compaction.persona.persona",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 6
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 187,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "1f49c47c5d6be0f6687e39f76944d86eb0e52e63380c77df502996e2956e6949"
+    },
+    {
+      "id": "compaction.system.autonomous",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 7
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 199,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "fb8af33ee2adc3bfdd344885aea618241d48b5706b494f83c671c95aba59f051"
+    },
+    {
+      "id": "compaction.system.roles",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 8
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 200,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "\"user\""
+      ],
+      "sourceTemplateHash": "318d9d7978a1adb8332bef1d0ad4e45893ccfb5846716b54fefdaed2f5e1c8cd"
+    },
+    {
+      "id": "compaction.system.setting",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 9
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 202,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "2a141ba59061aa5684ef1b7036689d9bd747face9ee8dd2fe4e5b11178387a8e"
+    },
+    {
+      "id": "compaction.system.required_tool",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 10
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 203,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "toolName"
+      ],
+      "sourceTemplateHash": "1fc51df8fb1a8081b22232ed367a2eeca534d058b27c7fb76f3b45b49d79b2c1"
+    },
+    {
+      "id": "compaction.summary.structured",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 11
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 237,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "JSON",
+        "META:",
+        "lengthInstruction",
+        "transcriptLabels",
+        "u/{{handle}}"
+      ],
+      "sourceTemplateHash": "9d1a1d28bba205c166ad7c67bc0eed7455675d5d72b6345fca0c6facc9ba5921"
+    },
+    {
+      "id": "compaction.summary.tool",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 12
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 241,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "META:",
+        "lengthInstruction",
+        "toolName",
+        "transcriptLabels",
+        "u/{{handle}}"
+      ],
+      "sourceTemplateHash": "b2f97551f019240f8556d91047655f726f635e99d973f0159fde21aecfd6444a"
+    },
+    {
+      "id": "compaction.shorten.structured",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 13
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 251,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "JSON",
+        "META:",
+        "lengthInstruction"
+      ],
+      "sourceTemplateHash": "b9eeb86e540de57451b77af92453bd789fa97def9cf33c1c73c7f44c4572a09e"
+    },
+    {
+      "id": "compaction.shorten.tool",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 14
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 255,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "META:",
+        "lengthInstruction",
+        "toolName"
+      ],
+      "sourceTemplateHash": "0ffafddc2dfdea638b840980d0bc0f5341f46579e55836c7cd1f7726fea53172"
+    },
+    {
+      "id": "compaction.repair.structured_response",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 15
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 266,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "JSON"
+      ],
+      "sourceTemplateHash": "80bb796f104c9acc42557bd31b7e21bace09ee18180222df529f92aa766dee7d"
+    },
+    {
+      "id": "compaction.repair.tool_response",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 16
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 267,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "toolName"
+      ],
+      "sourceTemplateHash": "c5d02e7570e0833f428842aa7f41d8e2307bdfb1a813716ed89f217d442e8893"
+    },
+    {
+      "id": "compaction.repair.system",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 17
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 268,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "META:",
+        "lengthInstruction",
+        "responseInstruction"
+      ],
+      "sourceTemplateHash": "98b583e38bb0c131a520ee2cc95b668494d00d7ed751084837eebdf4a7788bd9"
+    },
+    {
+      "id": "compaction.length.exact",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 18
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 273,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "maxCharacters"
+      ],
+      "sourceTemplateHash": "f8bbd37a94910d9be3b82ab1faa1cbf4a7b4720b81d801f984a3979638ac8814"
+    },
+    {
+      "id": "compaction.length.range",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 22
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 274,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "maxCharacters",
+        "minCharacters"
+      ],
+      "sourceTemplateHash": "ebd6d1524eb3969604b0ad120d9fa5d786d3c55a1dcc36df374fcda18fc4251b"
+    },
+    {
+      "id": "compaction.repair.produce_summary",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 26
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 305,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "4767c7080d55f5f260db832d0cb3e1f5fc490c519d03cce0c5d36dda0a88afb0"
+    },
+    {
+      "id": "compaction.summary.call_now",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 27
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 350,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "lengthInstruction",
+        "toolName"
+      ],
+      "sourceTemplateHash": "4c922fb8416166c8029217cb83d1137460aea5a40651fa6d47535f4c0687ca78"
+    },
+    {
+      "id": "compaction.self_correction.tool",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 28
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 449,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "toolName"
+      ],
+      "sourceTemplateHash": "e72902eb4268fb083d83aae20d0ff8032c767a751402fa527acc0e687ec126ea"
+    },
+    {
+      "id": "compaction.self_correction.structured",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 29
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 450,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "03485d93f23f6cad3b513395e4ec49afb9bd726fa6b03c957addbc7b236b4174"
+    },
+    {
+      "id": "compaction.tools.require_one_of",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 30
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 487,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "toolNames"
+      ],
+      "sourceTemplateHash": "fd797834a90ca023d2b464b0ae3b4a4f6866d239fa3a7750bdddd73728be2a45"
+    },
+    {
+      "id": "compaction.tools.require_any",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 31
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 487,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "65977a61100a5c69a509e7d9409e1977167e4a7306d7a5d3645f92482c34ad06"
+    },
+    {
+      "id": "compaction.tools.meta_only_when_directed",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 32
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 489,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "toolName"
+      ],
+      "sourceTemplateHash": "7f4b2ed48b8e798c201d93995952523ffc4601ef11d1256e8e718227ef18763c"
+    },
+    {
+      "id": "compaction.tools.self_correction_one_of",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 33
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 496,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "toolNames"
+      ],
+      "sourceTemplateHash": "c005079b3a2d179e062043b41b35de3aed23c66a18f52ea8b27029d9ea76f6e7"
+    },
+    {
+      "id": "compaction.tools.self_correction_any",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 34
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 496,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "1ac921c630e7513db97152d6c25ed52b74e1c9307f78dc60581fee5f824d1503"
+    },
+    {
+      "id": "compaction.summary.structured.immediate",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 35
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 237,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "JSON",
+        "META:",
+        "lengthInstruction",
+        "transcriptLabels",
+        "u/{{handle}}"
+      ],
+      "sourceTemplateHash": "186e7f4194fe15702df0b1a0247acf374783a10dff304ce58383870d0f0eef17"
+    },
+    {
+      "id": "compaction.shorten.structured.immediate",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 36
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 251,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "JSON",
+        "META:",
+        "lengthInstruction"
+      ],
+      "sourceTemplateHash": "8482e08a6b0acab71a8eee5e437aa910a3fa1a4a83edf15bcaa975dd96167bdd"
+    },
+    {
+      "id": "compaction.repair.structured_response.immediate",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 37
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/compaction/engine.ts",
+          "line": 266,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "JSON"
+      ],
+      "sourceTemplateHash": "203172092844ac911f116a7ba94c827cfd732defaceeee4fd56ab424fd9b9121"
+    },
+    {
+      "id": "compaction.history.app",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 38
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 10081,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "a7d08d578e715734603e76b76c506358af442ece0b4d72604b570d83f6ad40e0"
+    },
+    {
+      "id": "compaction.history.action",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 39
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9352,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 10087,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "toolName"
+      ],
+      "sourceTemplateHash": "cc0ae1160b1db637be3a34121533549ebf5c7a64b04472cb2727c04aaf80c453"
+    },
+    {
+      "id": "compaction.history.thought",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 40
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9355,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 10093,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "275dfe94146a33e2fac36683b067a97e0378dd4d4fe685ffd40d703e7ea97ca0"
+    },
+    {
+      "id": "compaction.history.written",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 41
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9356,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 10094,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "b37654bc98ab456b9ca249632447b8c6f1b2c2877b97bc9802261f8ec247ced4"
+    },
+    {
+      "id": "compaction.history.toolResult",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 42
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 10101,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "callId"
+      ],
+      "sourceTemplateHash": "cb5eb7b22819d109d77ce3cd6fd44e572918592b5eab88475888af509d14d416"
+    },
+    {
+      "id": "compaction.history.toolResultUnnamed",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 43
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 10101,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "a203bdbf1e28288d711b1982dfb20419de96c8f53696e39dcc02527e00fb691b"
+    },
+    {
+      "id": "compaction.history.other",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 44
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 10103,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "549d888494ed8e97ccfc2802d9c8e3d72edc27faad0855d1acc1f9b387e8599a"
+    },
+    {
+      "id": "compaction.legacy.preface",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 45
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 2034,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "67829a26045a5f701a181d0ef6af763c1d62c782c0d7eb0c0b42ed5155359d71"
+    },
+    {
+      "id": "compaction.legacy.memory",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 46
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9224,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "bf2bcc7a574736aada9357e30fad2c11837d055ce57278964fd2201b77d22fbc"
+    },
+    {
+      "id": "compaction.legacy.input",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 47
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9358,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "61a37a87d81ab4fe733300821bdfa2b2d5682618d005a1d9344954f7d2553eea"
+    },
+    {
+      "id": "compaction.legacy.result",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 48
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9354,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "toolName"
+      ],
+      "sourceTemplateHash": "60140956dfbafa14ee55028f4490147190d645e47adcf2362adc7d710e39b2d0"
+    },
+    {
+      "id": "compaction.legacy.thought",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
+        "line": 49
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9357,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "82207e4f76e27fd716b2ec1ddd571399d1d9ea67b99e0aba2b52c7c2f6b88916"
+    }
+  ]
+}

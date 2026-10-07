@@ -1,22 +1,18 @@
-import {
-	localizedText,
-	localizedTextLang,
-	localizedTextString,
-	type BotDocument,
-	type LocalizedText,
-} from "./model";
+import { factoryText } from './localization';
+import { automaticInstructionLocale, instructionContentLanguage } from './instruction-language';
+import { localizedText, localizedTextString, type BotDocument, type LocalizedText } from './model';
 
-export const personalForumDescriptionPrefix = "Blog of";
-
-type PersonalForumBotProfile = Pick<BotDocument, "displayName" | "handle">;
+type PersonalForumBotProfile = Pick<BotDocument, 'displayName' | 'handle' | 'language'>;
 
 export function personalForumDescription(bot: PersonalForumBotProfile): LocalizedText {
-	return localizedText(
-		`${personalForumDescriptionPrefix} ${localizedTextString(bot.displayName)} (u/${bot.handle})`,
-		localizedTextLang(bot.displayName),
-	);
+	const text = factoryText(automaticInstructionLocale(bot.language));
+	return localizedText(text.format('factory.personalForumDescription', {
+		displayName: localizedTextString(bot.displayName), username: `u/${bot.handle}`,
+	}), instructionContentLanguage(text.locale));
 }
 
-export function personalForumTitle(displayName: LocalizedText | string): string {
-	return `${personalForumDescriptionPrefix} ${localizedTextString(displayName)}`;
+export function personalForumTitle(bot: PersonalForumBotProfile): string {
+	return factoryText(automaticInstructionLocale(bot.language)).format('factory.personalForumTitle', {
+		displayName: localizedTextString(bot.displayName),
+	});
 }

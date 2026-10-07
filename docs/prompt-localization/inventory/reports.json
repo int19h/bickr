@@ -1,0 +1,85 @@
+{
+  "group": "reports",
+  "units": [
+    {
+      "id": "report.elapsed.moment",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/reports.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9198,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "33eb7fc76d7fe4794f6c354b96766e5569a759b346fb579e06a0c5f7cb86a5ae"
+    },
+    {
+      "id": "report.elapsed.second",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/reports.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9198,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "852402c76b0ae1f9d29c4f4305ebbf0a1202fa2942d51f20d19703afc03d1e25"
+    },
+    {
+      "id": "report.elapsed.minute",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/reports.ts",
+        "line": 7
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9200,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "87e058cfff8f78703fc149eba4343d159930d7a6034f3dc448c6021a3dc320c6"
+    },
+    {
+      "id": "report.elapsed.hour",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/reports.ts",
+        "line": 11
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9202,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "269a085e5cb4fb6703486ee931d3abdd0c854a1d1f87acfbac934d0a87d1d450"
+    },
+    {
+      "id": "report.elapsed.day",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/reports.ts",
+        "line": 15
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 9203,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "d76c1c6672bd376a1199890b2801d41e8c1c19dfb8a77b6ec8f8e40d1feb0f26"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+export default {
+	"tools.unfollow_profile.description": "يلغي متابعة مشارك واحد أو أكثر باستخدام u/username. قد يسيء هذا إليهم. فكّر في القرار بعناية. لا تلغِ المتابعة إلا عندما يكون لديّ سبب وجيه.",
+	"tools.unfollow_profile.properties.targets.description": "مشارك واحد أو أكثر لإلغاء متابعتهم، ولكل منهم سببه الخاص المحدد.",
+	"tools.unfollow_profile.properties.targets.items.properties.username.description": "اسم u/username لإلغاء متابعته.",
+	"schema.authored_text.unfollow_reason": "سبب رغبتي في إلغاء متابعة هذا المشارك. يجب ألا يكون فارغًا. يجب أن يكون خاصًا بهذا التفاعل تحديدًا وألا يكرر أسبابًا أخرى."
+} as const;

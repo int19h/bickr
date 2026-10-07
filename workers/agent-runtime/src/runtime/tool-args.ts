@@ -1,3 +1,5 @@
+import { participantListLimits } from '@bickr/shared/content-limits';
+import { agentIssue, type AgentIssue } from '../localization/issues';
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseThreadRef } from '@bickr/shared/ids';
 import {
 	localizedTextString,
@@ -196,7 +198,7 @@ export function normalizeToolArgs(name: string, args: ToolArgs, language?: Langu
 		}
 	}
 	if (canonical === 'view_activity' && 'limit' in normalized) {
-		normalized.limit = numberArg(normalized.limit, 10, 20);
+		normalized.limit = numberArg(normalized.limit, participantListLimits.defaultActivity, participantListLimits.maximumActivity);
 	}
 	if (canonical === 'list_profiles') {
 		const query = listProfilesToolArgs(normalized);
@@ -294,7 +296,7 @@ export function parseToolArgsWithDiagnostics(toolCall: ToolCall): ParsedToolArgs
 		}
 		throw new ToolCallArgumentValidationError(
 			'arguments_not_json_object',
-			`The tool call is invalid. The arguments for ${canonicalToolName(toolCall.function.name || 'unknown_tool')} must be a JSON object. You supplied ${jsonValueKind(parsed)}. Put the arguments inside {}.`,
+			agentIssue(`issue.args.notObject.${jsonArgumentKind(parsed)}`, { toolName: canonicalToolName(toolCall.function.name || 'unknown_tool') }),
 		);
 	} catch (error) {
 		if (error instanceof ToolCallArgumentValidationError) {
@@ -302,7 +304,8 @@ export function parseToolArgsWithDiagnostics(toolCall: ToolCall): ParsedToolArgs
 		}
 		throw new ToolCallArgumentValidationError(
 			'invalid_arguments_json',
-			`The tool call is invalid. The arguments for ${canonicalToolName(toolCall.function.name || 'unknown_tool')} are not valid JSON. Put quotes around strings and escape special characters. JSON parser error: ${errorMessage(error)}`,
+			agentIssue("issue.args.invalidJson", { toolName: canonicalToolName(toolCall.function.name || 'unknown_tool') }),
+			{ cause: error },
 		);
 	}
 }
@@ -359,19 +362,14 @@ export function malformedToolCallFailureArgs(toolCall: ToolCall): ToolArgs {
 	return { rawArguments: toolCall.function.arguments };
 }
 
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
+function jsonArgumentKind(value: unknown): 'array' | 'null' | 'string' | 'number' | 'boolean' {
+ if (Array.isArray(value)) return 'array';
+ if (value === null) return 'null';
+ const kind = typeof value;
+ if (kind === 'string' || kind === 'number' || kind === 'boolean') return kind;
+ throw new Error('Unexpected non-object JSON argument type.');
 }
 
-function jsonValueKind(value: unknown): string {
-	if (value === null) {
-		return 'null';
-	}
-	if (Array.isArray(value)) {
-		return 'an array';
-	}
-	return `a ${typeof value}`;
-}
 
 function toolUsesForumHandle(name: string): boolean {
 	return name === 'list_recent_threads' || name === 'create_thread';
@@ -379,7 +377,7 @@ function toolUsesForumHandle(name: string): boolean {
 
 export function stringArg(value: unknown, label: string): string {
 	if (typeof value !== 'string' || !value.trim()) {
-		throw new ToolCallArgumentValidationError('bad_request', `${label} must be nonempty text. Give ${label} as a JSON string.`);
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.requiredString", { argument: label }));
 	}
 	return value.trim();
 }
@@ -390,11 +388,11 @@ export function localizedToolTextArg(value: unknown, label: string, language?: L
 	}
 	const record = runtimeRecord(value);
 	if (!Object.hasOwn(record, 'lang') || !Object.hasOwn(record, 'text')) {
-		throw new ToolCallArgumentValidationError('bad_request', `${label} must be an object with lang and text. Set ${label} to an object such as ${localizedToolTextValueExample('ja', '将軍家')} or ${localizedToolTextValueExample('en', 'my text')}.`);
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.localizedObject", { argument: label, exampleJapanese: localizedToolTextValueExample('ja', '将軍家'), exampleEnglish: localizedToolTextValueExample('en', 'my text') }));
 	}
 	const lang = languageTagArg(record.lang, `${label}.lang`);
 	if (typeof record.text !== 'string' || !record.text.trim()) {
-		throw new ToolCallArgumentValidationError('bad_request', `${label}.text must be nonempty text. Put the content in the text field.`);
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.localizedTextEmpty", { argument: label }));
 	}
 	return { lang, text: record.text };
 }
@@ -408,11 +406,11 @@ export function localizedArgumentText(value: unknown): string | undefined {
 	return text?.trim() ? text : undefined;
 }
 
-function localizedToolTextStringError(text: string, label: string, language?: LanguageTag | null): string {
+function localizedToolTextStringError(text: string, label: string, language?: LanguageTag | null): AgentIssue {
 	const lang = language ?? ('en' as LanguageTag);
 	const provided = JSON.stringify(text);
 	const expected = localizedToolTextValueExample(lang, text);
-	return `The tool call is invalid. ${label} must be an object. You sent the string ${provided}. Set ${label} to ${expected}.`;
+	return agentIssue("issue.args.localizedObjectSentAsString", { argument: label, provided: provided, expected: expected });
 }
 
 function localizedToolTextValueExample(lang: string, text: string): string {
@@ -421,7 +419,7 @@ function localizedToolTextValueExample(lang: string, text: string): string {
 
 function languageTagArg(value: unknown, label: string): LanguageTag {
 	if (typeof value !== 'string' || !value.trim() || value.trim().toLowerCase() === 'und') {
-		throw new ToolCallArgumentValidationError('bad_request', `${label} must be a specific BCP 47 language tag such as "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong", or "non". Do not use "und".`);
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.languageSpecific", { argument: label }));
 	}
 	try {
 		const canonical = Intl.getCanonicalLocales(value.trim())[0];
@@ -430,7 +428,7 @@ function languageTagArg(value: unknown, label: string): LanguageTag {
 		}
 		return canonical as LanguageTag;
 	} catch {
-		throw new ToolCallArgumentValidationError('bad_request', `${label} must be a valid BCP 47 language tag such as "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong", or "non".`);
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.languageInvalid", { argument: label }));
 	}
 }
 
@@ -438,7 +436,7 @@ function threadRefArg(value: unknown, label: string): string {
 	const text = stringArg(value, label);
 	const threadId = parseThreadRef(text);
 	if (!threadId) {
-		throw new ToolCallArgumentValidationError('bad_request', `${label} must be a thread ref or a legacy thread ID. Copy a thread ref from a tool result.`);
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.threadReference", { argument: label }));
 	}
 	return threadId;
 }
@@ -447,7 +445,7 @@ function commentRefArg(value: unknown, label: string): string {
 	const text = stringArg(value, label);
 	const commentId = parseCommentRef(text);
 	if (!commentId) {
-		throw new ToolCallArgumentValidationError('bad_request', `${label} must be a comment ref or a legacy comment ID. Copy a comment ref from a tool result.`);
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.commentReference", { argument: label }));
 	}
 	return commentId;
 }
@@ -458,13 +456,13 @@ export function usernameArg(value: unknown): string {
 
 export function listProfilesToolArgs(args: ToolArgs): ListProfilesToolArgs {
 	const mode = stringValue(args.mode);
-	const limit = numberArg(args.limit, 20);
+	const limit = numberArg(args.limit, participantListLimits.defaultProfiles, participantListLimits.maximumProfiles);
 	if (mode !== 'window' && mode !== 'random') {
-		throw new ToolCallArgumentValidationError('bad_request', 'mode must be "window" or "random". For example, call list_profiles with {"mode":"window","limit":20,"offset":0}.');
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.profilesMode", {  }));
 	}
 	if (mode === 'random') {
 		if (args.offset !== null && args.offset !== undefined && args.offset !== '') {
-			throw new ToolCallArgumentValidationError('bad_request', 'offset is only valid when mode is "window". For mode "random", omit offset.');
+			throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.profilesRandomOffset", {  }));
 		}
 		return { mode, limit };
 	}
@@ -479,7 +477,7 @@ export function queryFollowersToolArgs(args: ToolArgs): QueryFollowersToolArgs {
 	const hasIsFollowing = stringValue(args.isFollowing) !== undefined;
 	const hasIsFollowedBy = stringValue(args.isFollowedBy) !== undefined;
 	if (hasIsFollowing === hasIsFollowedBy) {
-		throw new ToolCallArgumentValidationError('bad_request', 'Give exactly one of isFollowing or isFollowedBy. For followers, use {"isFollowing":"u/alice"}. For followed profiles, use {"isFollowedBy":"u/alice"}.');
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.followersDirection", {  }));
 	}
 	const username = usernameArg(hasIsFollowing ? args.isFollowing : args.isFollowedBy);
 	const usernameGlob = optionalStringArg(args.usernameGlob, 'usernameGlob');
@@ -493,7 +491,7 @@ function optionalStringArg(value: unknown, label: string): string | undefined {
 		return undefined;
 	}
 	if (typeof value !== 'string') {
-		throw new ToolCallArgumentValidationError('bad_request', `${label} must be a JSON string. Omit ${label} if you do not need it.`);
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.optionalString", { argument: label }));
 	}
 	const text = value.trim();
 	return text ? text : undefined;
@@ -501,14 +499,14 @@ function optionalStringArg(value: unknown, label: string): string | undefined {
 
 export function usernamesArg(value: unknown): string[] {
 	if (!Array.isArray(value)) {
-		throw new ToolCallArgumentValidationError('bad_request', 'usernames must be a nonempty array. For example, use {"usernames":["u/alice"]}.');
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.usernamesArray", {  }));
 	}
 	const usernames = uniqueStrings(value.map((item, index) => typedHandleArg(item, 'u', `usernames[${index}]`)));
 	if (usernames.length === 0) {
-		throw new ToolCallArgumentValidationError('bad_request', 'usernames must include at least one username. Copy a participant handle into the usernames array.');
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.usernamesEmpty", {  }));
 	}
 	if (usernames.length > maxBulkToolTargets) {
-		throw new ToolCallArgumentValidationError('bad_request', `usernames can include at most ${maxBulkToolTargets} usernames. Split the usernames across separate calls.`);
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.usernamesLimit", { max: maxBulkToolTargets }));
 	}
 	return usernames;
 }
@@ -516,7 +514,7 @@ export function usernamesArg(value: unknown): string[] {
 function followToolTargetsFromLegacyArgs(args: ToolArgs, language?: LanguageTag | null): FollowToolTarget[] {
 	const rawUsernames = 'usernames' in args ? args.usernames : 'username' in args ? [args.username] : undefined;
 	if (rawUsernames === undefined) {
-		throw new ToolCallArgumentValidationError('bad_request', 'targets must be a nonempty array. Give each target a username and a reason with lang and text.');
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.followTargetsArray", {  }));
 	}
 	const reason = localizedToolTextArg(args.reason, 'reason', language);
 	return usernamesArg(rawUsernames).map((username) => ({ username, reason }));
@@ -550,11 +548,11 @@ export function followToolTargetsForProviderDedupe(args: ToolArgs): {
 
 function followToolTargetArrayArg(value: unknown, language?: LanguageTag | null): FollowToolTarget[] {
 	if (!Array.isArray(value)) {
-		throw new ToolCallArgumentValidationError('bad_request', 'targets must be a nonempty array. Give each target a username and a reason with lang and text.');
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.followTargetsArray", {  }));
 	}
 	const targets = value.map((item, index) => followToolTargetArg(item, index, language));
 	if (targets.length === 0) {
-		throw new ToolCallArgumentValidationError('bad_request', 'targets must include at least one participant. Give each target a username and a reason with lang and text.');
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.followTargetsEmpty", {  }));
 	}
 	return targets;
 }
@@ -574,16 +572,16 @@ function dedupeFollowToolTargets(targets: readonly FollowToolTarget[]): FollowTo
 
 function validateFollowToolTargets(targets: readonly FollowToolTarget[]): void {
 	if (targets.length === 0) {
-		throw new ToolCallArgumentValidationError('bad_request', 'targets must include at least one participant. Give each target a username and a reason with lang and text.');
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.followTargetsEmpty", {  }));
 	}
 	if (targets.length > maxBulkToolTargets) {
-		throw new ToolCallArgumentValidationError('bad_request', `targets can include at most ${maxBulkToolTargets} participants. Split the targets across separate calls.`);
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.followTargetsLimit", { max: maxBulkToolTargets }));
 	}
 	const seenReasons = new Set<string>();
 	for (const target of targets) {
 		const reasonKey = localizedTextString(target.reason).toLocaleLowerCase();
 		if (seenReasons.has(reasonKey)) {
-			throw new ToolCallArgumentValidationError('bad_request', 'targets contains duplicate reasons. Give each participant a distinct reason.');
+			throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.followReasonsDuplicate", {  }));
 		}
 		seenReasons.add(reasonKey);
 	}
@@ -621,7 +619,7 @@ function followToolTargetArg(value: unknown, index: number, language?: LanguageT
  */
 export function randomRangesArg(value: unknown): RandomRangeTarget[] {
 	if (value === null || value === undefined) {
-		throw new ToolCallArgumentValidationError('bad_request', 'ranges is required. For example, use {"ranges":[{"min":1,"max":6}]}.');
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.rangesRequired", {  }));
 	}
 	const decoded = typeof value === 'string' ? decodedRandomRangesArg(value) : value;
 	const items = Array.isArray(decoded) ? decoded : [decoded];
@@ -636,7 +634,7 @@ function decodedRandomRangesArg(value: string): unknown {
 	} catch {
 		throw new ToolCallArgumentValidationError(
 			'bad_request',
-			'ranges was sent as a string that is not valid JSON. Send a range object like {"min":1,"max":6} or a list of them.',
+			agentIssue("issue.args.rangesInvalidJson", {  }),
 		);
 	}
 }
@@ -666,7 +664,7 @@ function randomRangeArg(value: unknown, label: string): RandomRangeTarget {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) {
 		throw new ToolCallArgumentValidationError(
 			'bad_request',
-			`${label} must be an object like {"min":1,"max":6}.`,
+			agentIssue("issue.args.rangeObject", { argument: label }),
 		);
 	}
 	const record = value as ToolArgs;
@@ -685,7 +683,7 @@ function randomRangeEndpointArg(value: unknown, label: string): number {
 	if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
 		throw new ToolCallArgumentValidationError(
 			'bad_request',
-			`${label} must be a whole number between ${-Number.MAX_SAFE_INTEGER} and ${Number.MAX_SAFE_INTEGER}.`,
+			agentIssue("issue.args.rangeEndpoint", { argument: label, min: -Number.MAX_SAFE_INTEGER, max: Number.MAX_SAFE_INTEGER }),
 		);
 	}
 	return value;
@@ -693,20 +691,20 @@ function randomRangeEndpointArg(value: unknown, label: string): number {
 
 export function voteTargetsArg(value: unknown): VoteToolTarget[] {
 	if (!Array.isArray(value)) {
-		throw new ToolCallArgumentValidationError('bad_request', 'votes must be a nonempty array. Give each entry a commentRef and a value.');
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.votesArray", {  }));
 	}
 	const votes = value.map(voteTargetArg);
 	if (votes.length === 0) {
-		throw new ToolCallArgumentValidationError('bad_request', 'votes must include at least one vote. Give each entry a commentRef and a value.');
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.votesEmpty", {  }));
 	}
 	if (votes.length > maxBulkToolTargets) {
-		throw new ToolCallArgumentValidationError('bad_request', `votes can include at most ${maxBulkToolTargets} targets. Split the votes across separate calls.`);
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.votesLimit", { max: maxBulkToolTargets }));
 	}
 	const seen = new Set<string>();
 	for (const vote of votes) {
 		const key = vote.commentId;
 		if (seen.has(key)) {
-			throw new ToolCallArgumentValidationError('bad_request', `votes contains duplicate comment ${key}. Include each comment only once.`);
+			throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.votesDuplicate", { commentRef: formatCommentRef(key) }));
 		}
 		seen.add(key);
 	}
@@ -727,7 +725,7 @@ function voteTargetArg(value: unknown, index: number): VoteToolTarget {
 function voteValueArg(value: unknown, label: string): -1 | 0 | 1 {
 	const vote = Number(value);
 	if (vote !== -1 && vote !== 0 && vote !== 1) {
-		throw new ToolCallArgumentValidationError('bad_request', `${label} must be -1, 0, or 1. Use -1 to downvote, 0 to clear, or 1 to upvote.`);
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.voteValue", { argument: label }));
 	}
 	return vote;
 }
@@ -737,7 +735,7 @@ function typedHandleArg(value: unknown, prefix: 'f' | 'u' | 'w', label: string):
 	if (prefix === 'u' && text.toUpperCase().endsWith(`(${providerSelfAuthor})`)) {
 		throw new ToolCallArgumentValidationError(
 			'self_author_annotation_in_handle',
-			`${label} must contain only a participant handle. Remove the (${providerSelfAuthor}) annotation. Use a handle such as u/alice.`,
+			agentIssue("issue.args.handleSelfAnnotation", { argument: label, selfMarker: providerSelfAuthor }),
 		);
 	}
 	const marker = `${prefix}/`;
@@ -748,7 +746,7 @@ function typedHandleArg(value: unknown, prefix: 'f' | 'u' | 'w', label: string):
 		return normalizeHandle(text);
 	} catch (error) {
 		if (!(error instanceof InputError)) throw error;
-		throw new ToolCallArgumentValidationError('bad_request', `${label} is not a valid handle. Copy a ${marker} handle from a tool result.`);
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue(`issue.args.handle.${prefix}`, { argument: label }));
 	}
 }
 
@@ -758,7 +756,7 @@ function nonNegativeIntegerArg(value: unknown, label: string, fallback: number):
 	}
 	const parsed = Number(value);
 	if (!Number.isInteger(parsed) || parsed < 0) {
-		throw new ToolCallArgumentValidationError('bad_request', `${label} must be a nonnegative integer. Give 0 for the first page.`);
+		throw new ToolCallArgumentValidationError('bad_request', agentIssue("issue.args.nonnegativeInteger", { argument: label }));
 	}
 	return parsed;
 }

@@ -1,3 +1,7 @@
+import { participantListLimits } from '@bickr/shared/content-limits';
+import { agentIssue } from '../localization/issues';
+import { AgentInputError, AgentRepositoryError } from '../errors';
+import type { FactoryText } from '@bickr/shared/localization';
 import type { InferenceAttribution } from '@bickr/shared/model';
 import { extractCanonicalEntityReferences, type CanonicalEntityReference } from '@bickr/shared/mentions';
 import { RepositoryError } from '@bickr/shared/repository';
@@ -5,13 +9,29 @@ import { d1SafeBoundParameters, type D1DatabaseLike } from '@bickr/shared/storag
 import { InputError, normalizeHandleText } from '@bickr/shared/validation';
 import { planNoteId } from '@bickr/shared/note-settings';
 
+export const minNoteTitleLength = 1;
+export const maxNoteTitleLength = 64;
 export const maxNotesPerBot = 500;
 export const maxNoteContentLength = 4_000;
 export const maxNoteLinks = 50;
 export const maxNoteListPage = 50;
-export const maxNoteFilters = 10;
+export const maxNoteFilters = participantListLimits.maximumNoteFilters;
 export { planNoteId };
-export const defaultPlanContent = '- Keep PLAN current with write_note.';
+// Historical bytes identify untouched revision-zero defaults in the one-time migration.
+const legacyDefaultPlanContent = '- Keep PLAN current with write_note.';
+export const factoryPlanMigrationKey = 'notes_factory_plan_v1';
+
+// Old releases update PLAN content without its provenance column. These triggers
+// treat that write as authored text in the same transaction. Factory rows remain
+// empty after each statement, including writes from a rollback release.
+export const factoryPlanTriggers = `
+CREATE TRIGGER IF NOT EXISTS notes_factory_content_insert
+AFTER INSERT ON notes WHEN NEW.content_source = 'factory' AND NEW.content <> ''
+BEGIN UPDATE notes SET content_source = 'authored' WHERE note_id = NEW.note_id; END;
+CREATE TRIGGER IF NOT EXISTS notes_factory_content_update
+AFTER UPDATE OF content, content_source ON notes WHEN NEW.content_source = 'factory' AND NEW.content <> ''
+BEGIN UPDATE notes SET content_source = 'authored' WHERE note_id = NEW.note_id; END;
+`;
 
 // ZWJ is excluded with other format controls. This also rejects ZWJ emoji titles.
 const allowedNoteIdCharacter = /^[\p{L}\p{M}\p{N}\p{P}\p{S} ]+$/u;
@@ -20,6 +40,8 @@ export type NoteEntityKind = 'participant' | 'forum';
 export type NoteLink = { kind: NoteEntityKind; entityId: string; handle: string };
 export type NoteLinkView = NoteLink & { deleted: boolean };
 export type BotNote = { inferenceAttribution?: InferenceAttribution; id: string; content: string; createdAt: string; updatedAt: string; revision: number; links: NoteLink[] };
+type StoredNote = (BotNote & { source: 'authored' }) |
+	(Omit<BotNote, 'id' | 'content'> & { source: 'factory'; id: typeof planNoteId; content: '' });
 export type BotNoteView = Omit<BotNote, 'links'> & { links: NoteLinkView[] };
 export type NoteListPage = { ids: string[]; nextCursor: string | null; total: number; unknownFilters: string[] };
 
@@ -35,16 +57,13 @@ export function normalizeNoteCursor(value: unknown): string | null {
 }
 
 function normalizeNoteTitle(value: unknown, field: 'id' | 'cursor'): string {
-	const repair = field === 'cursor'
-		? 'Copy nextCursor from the previous list_notes result. To start a new list, omit cursor.'
-		: 'Give id as the note title. For an existing note, copy an ID from list_notes.';
-	if (typeof value !== 'string') throw new InputError(`${field} must be text. ${repair}`);
+	if (typeof value !== 'string') throw new AgentInputError(agentIssue(`issue.note.${field}.type`, {}));
 	const id = value.normalize('NFKC').toLowerCase().replace(/\p{Zs}+/gu, ' ').trim();
-	if ([...id].length < 1 || [...id].length > 64) {
-		throw new InputError(`${field} must contain 1-64 characters after normalization. ${repair}`);
+	if ([...id].length < minNoteTitleLength || [...id].length > maxNoteTitleLength) {
+		throw new AgentInputError(agentIssue(`issue.note.${field}.length`, { minimum: minNoteTitleLength, maximum: maxNoteTitleLength }));
 	}
 	if (!allowedNoteIdCharacter.test(id)) {
-		throw new InputError(`${field} can contain letters, marks, numbers, punctuation, symbols, and spaces only. ${repair}`);
+		throw new AgentInputError(agentIssue(`issue.note.${field}.characters`, {}));
 	}
 	return id === 'plan' ? planNoteId : id;
 }
@@ -54,10 +73,10 @@ export function noteReferences(id: string, content: string): CanonicalEntityRefe
 }
 
 export function noteContent(value: unknown): string {
-	if (typeof value !== 'string') throw new InputError(`content must be text with 1-${maxNoteContentLength} characters. Give the full note text in content.`);
+	if (typeof value !== 'string') throw new AgentInputError(agentIssue('issue.note.content', { max: maxNoteContentLength }));
 	const length = [...value].length;
 	if (length < 1 || length > maxNoteContentLength) {
-		throw new InputError(`content must be text with 1-${maxNoteContentLength} characters. Give the full note text in content.`);
+		throw new AgentInputError(agentIssue('issue.note.content', { max: maxNoteContentLength }));
 	}
 	return value;
 }
@@ -65,13 +84,13 @@ export function noteContent(value: unknown): string {
 export function noteFilterReferences(value: unknown): CanonicalEntityReference[] {
 	if (value === undefined) return [];
 	if (!Array.isArray(value) || value.length > maxNoteFilters || value.some((entry) => typeof entry !== 'string')) {
-		throw new InputError(`entities must be an array of at most ${maxNoteFilters} f/ or u/ handles. For example, use {"entities":["u/alice"]}.`);
+		throw new AgentInputError(agentIssue('issue.note.entities.array', { max: maxNoteFilters }));
 	}
 	const references = value.flatMap((entry) => {
 		const found = extractCanonicalEntityReferences(entry);
 		return found.length === 1 && normalizeHandleText(entry) === `${found[0]!.kind === 'forum' ? 'f' : 'u'}/${found[0]!.handle}` ? found : [];
 	});
-	if (references.length !== value.length) throw new InputError('Each entities entry must be one f/ or u/ handle. For example, use {"entities":["u/alice","f/news"]}.');
+	if (references.length !== value.length) throw new AgentInputError(agentIssue('issue.note.entities.entry', {}));
 	return references;
 }
 
@@ -81,7 +100,7 @@ export async function resolveNoteLinks(
 	references: readonly CanonicalEntityReference[],
 ): Promise<{ links: NoteLink[]; unknown: string[] }> {
 	const unique = new Map(references.map((reference) => [`${reference.kind}:${reference.handle}`, reference]));
-	if (unique.size > maxNoteLinks) throw new InputError(`A note can refer to at most ${maxNoteLinks} distinct profiles and forums. Remove some references from the title or content.`);
+	if (unique.size > maxNoteLinks) throw new AgentInputError(agentIssue('issue.note.references', { max: maxNoteLinks }));
 	const links: NoteLink[] = [];
 	const found = new Set<string>();
 	for (const kind of ['participant', 'forum'] as const) {
@@ -135,9 +154,25 @@ export class BotNotesStore {
 	ensurePlan(): void {
 		const now = new Date().toISOString();
 		this.storage.sql.exec(
-			'INSERT INTO notes (note_id, content, created_at, updated_at, revision) VALUES (?, ?, ?, ?, 0) ON CONFLICT(note_id) DO NOTHING',
-			planNoteId, defaultPlanContent, now, now,
+			"INSERT INTO notes (note_id, content, content_source, created_at, updated_at, revision) VALUES (?, '', 'factory', ?, ?, 0) ON CONFLICT(note_id) DO NOTHING",
+			planNoteId, now, now,
 		);
+	}
+
+	/** Run once at startup, after the lowercase PLAN migration and before ensurePlan.
+	 * Retire after the fleet sweep stamps this version and rollback no longer
+	 * includes releases that store an English factory body. The stamp is one row.
+	 */
+	migrateFactoryPlan(): void {
+		this.storage.transactionSync(() => {
+			const done = this.storage.sql.exec<{ key: string }>('SELECT key FROM runtime_state WHERE key = ? LIMIT 1', factoryPlanMigrationKey).toArray()[0];
+			if (done) return;
+			this.storage.sql.exec(
+				"UPDATE notes SET content = '', content_source = 'factory' WHERE note_id = ? AND revision = 0 AND content = ? AND content_source = 'authored'",
+				planNoteId, legacyDefaultPlanContent,
+			);
+			this.storage.sql.exec('INSERT INTO runtime_state (key, value_json) VALUES (?, ?)', factoryPlanMigrationKey, '1');
+		});
 	}
 
 	/** Base 9df9001 can write lowercase plan on rollback. Remove this check after that base is no longer a rollback target. */
@@ -184,15 +219,28 @@ export class BotNotesStore {
 		return { ids, nextCursor: rows.length > size ? ids.at(-1) ?? null : null, total, unknownFilters };
 	}
 
-	read(id: string): BotNote | null {
-		const row = this.storage.sql.exec<{ note_id: string; content: string; created_at: string; updated_at: string; revision: number; inference_attribution_json: string | null }>(
-			'SELECT note_id, content, created_at, updated_at, revision, inference_attribution_json FROM notes WHERE note_id = ? LIMIT 1', id,
+	read(text: FactoryText, id: string): BotNote | null {
+		const stored = this.storedNote(id);
+		if (!stored) return null;
+		const { source, ...note } = stored;
+		return { ...note, content: source === 'factory' ? text.format('factory.plan') : note.content };
+	}
+
+	private storedNote(id: string): StoredNote | null {
+		const row = this.storage.sql.exec<{ note_id: string; content: string; created_at: string; updated_at: string; revision: number; inference_attribution_json: string | null; content_source: 'authored' | 'factory' }>(
+			'SELECT note_id, content, created_at, updated_at, revision, inference_attribution_json, content_source FROM notes WHERE note_id = ? LIMIT 1', id,
 		).toArray()[0];
 		if (!row) return null;
 		const links = this.storage.sql.exec<{ entity_kind: NoteEntityKind; entity_id: string; handle: string }>(
 			'SELECT entity_kind, entity_id, handle FROM note_links WHERE note_id = ? ORDER BY entity_kind, handle LIMIT ?', id, maxNoteLinks,
 		).toArray().map((link) => ({ kind: link.entity_kind, entityId: link.entity_id, handle: link.handle }));
-		return { id: row.note_id, content: row.content, createdAt: row.created_at, updatedAt: row.updated_at, revision: row.revision, links, ...(row.inference_attribution_json ? { inferenceAttribution: JSON.parse(row.inference_attribution_json) as InferenceAttribution } : {}) };
+		const metadata = { createdAt: row.created_at, updatedAt: row.updated_at, revision: row.revision, links,
+			...(row.inference_attribution_json ? { inferenceAttribution: JSON.parse(row.inference_attribution_json) as InferenceAttribution } : {}) };
+		if (row.content_source === 'factory') {
+			if (row.note_id !== planNoteId || row.content !== '') throw new Error('Invalid stored factory note.');
+			return { ...metadata, source: 'factory', id: planNoteId, content: '' };
+		}
+		return { ...metadata, source: 'authored', id: row.note_id, content: row.content };
 	}
 
 	write(id: string, content: string, links: readonly NoteLink[], inferenceAttribution?: InferenceAttribution): { kind: 'created' | 'replaced'; note: BotNote } {
@@ -206,17 +254,17 @@ export class BotNotesStore {
 	private writeRecord(id: string, content: string, links: readonly NoteLink[], mode: 'upsert' | 'create_only', inferenceAttribution?: InferenceAttribution): { kind: 'created' | 'replaced'; note: BotNote } {
 		id = normalizeNoteId(id);
 		content = noteContent(content);
-		if (links.length > maxNoteLinks) throw new InputError(`A note can refer to at most ${maxNoteLinks} distinct profiles and forums. Remove some references from the title or content.`);
+		if (links.length > maxNoteLinks) throw new AgentInputError(agentIssue('issue.note.references', { max: maxNoteLinks }));
 		return this.storage.transactionSync(() => {
 			const existing = this.storage.sql.exec<{ created_at: string; revision: number }>('SELECT created_at, revision FROM notes WHERE note_id = ? LIMIT 1', id).toArray()[0];
 			if (existing && mode === 'create_only') throw new RepositoryError('conflict', 'A note with this title already exists.', 409, { noteCause: 'title_conflict' });
 			if (!existing) {
 				const count = this.storage.sql.exec<{ count: number }>('SELECT COUNT(*) AS count FROM notes WHERE note_id <> ?', planNoteId).one().count;
-				if (id !== planNoteId && count >= maxNotesPerBot) throw new RepositoryError('conflict', `You can keep at most ${maxNotesPerBot} notes. Replace an existing note, or delete an unneeded note before creating another.`, 409);
+				if (id !== planNoteId && count >= maxNotesPerBot) throw new AgentRepositoryError('conflict', agentIssue('issue.note.capacity', { max: maxNotesPerBot }), 409);
 			}
 			const now = new Date().toISOString();
 			this.storage.sql.exec(
-				'INSERT INTO notes (note_id, content, created_at, updated_at, revision, inference_attribution_json) VALUES (?, ?, ?, ?, 0, ?) ON CONFLICT(note_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at, revision = notes.revision + 1, inference_attribution_json = excluded.inference_attribution_json',
+				"INSERT INTO notes (note_id, content, content_source, created_at, updated_at, revision, inference_attribution_json) VALUES (?, ?, 'authored', ?, ?, 0, ?) ON CONFLICT(note_id) DO UPDATE SET content = excluded.content, content_source = 'authored', updated_at = excluded.updated_at, revision = notes.revision + 1, inference_attribution_json = excluded.inference_attribution_json",
 				id, content, now, now, inferenceAttribution ? JSON.stringify(inferenceAttribution) : null,
 			);
 			this.storage.sql.exec('DELETE FROM note_links WHERE note_id = ?', id);
@@ -232,16 +280,16 @@ export class BotNotesStore {
 		nextId = normalizeNoteId(nextId);
 		content = noteContent(content);
 		if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new InputError('Note revision must be a nonnegative integer.');
-		if (links.length > maxNoteLinks) throw new InputError(`A note can refer to at most ${maxNoteLinks} distinct profiles and forums. Remove some references from the title or content.`);
+		if (links.length > maxNoteLinks) throw new AgentInputError(agentIssue('issue.note.references', { max: maxNoteLinks }));
 		return this.storage.transactionSync(() => {
-			const existing = this.read(id);
+			const existing = this.storedNote(id);
 			if (!existing) throw new RepositoryError('not_found', 'Note not found.', 404);
 			if (existing.revision !== expectedRevision) throw new RepositoryError('conflict', 'This note changed. Reload it before saving.', 409, { noteCause: 'stale_revision' });
 			if ((id === planNoteId) !== (nextId === planNoteId)) throw new RepositoryError('conflict', 'The PLAN title is reserved.', 409, { noteCause: 'reserved_title' });
-			if (nextId !== id && this.read(nextId)) throw new RepositoryError('conflict', 'A note with this title already exists.', 409, { noteCause: 'title_conflict' });
+			if (nextId !== id && this.storedNote(nextId)) throw new RepositoryError('conflict', 'A note with this title already exists.', 409, { noteCause: 'title_conflict' });
 			const now = new Date().toISOString();
 			this.storage.sql.exec('DELETE FROM note_links WHERE note_id = ?', id);
-			this.storage.sql.exec('UPDATE notes SET note_id = ?, content = ?, updated_at = ?, revision = revision + 1, inference_attribution_json = NULL WHERE note_id = ?', nextId, content, now, id);
+			this.storage.sql.exec("UPDATE notes SET note_id = ?, content = ?, content_source = 'authored', updated_at = ?, revision = revision + 1, inference_attribution_json = NULL WHERE note_id = ?", nextId, content, now, id);
 			for (const link of links) this.storage.sql.exec(
 				'INSERT INTO note_links (note_id, entity_kind, entity_id, handle) VALUES (?, ?, ?, ?)', nextId, link.kind, link.entityId, link.handle,
 			);
@@ -249,16 +297,16 @@ export class BotNotesStore {
 		});
 	}
 
-	delete(id: string): { kind: 'deleted' | 'not_found' } | { kind: 'reset'; note: BotNote } {
+	delete(text: FactoryText, id: string): { kind: 'deleted' | 'not_found' } | { kind: 'reset'; note: BotNote } {
 		return this.storage.transactionSync(() => {
-			const exists = this.read(id);
+			const exists = this.storedNote(id);
 			if (!exists) return { kind: 'not_found' };
 			this.storage.sql.exec('DELETE FROM note_links WHERE note_id = ?', id);
 			if (id === planNoteId) {
 				const now = new Date().toISOString();
-				this.storage.sql.exec('UPDATE notes SET content = ?, updated_at = ?, revision = revision + 1, inference_attribution_json = NULL WHERE note_id = ?', defaultPlanContent, now, id);
-				const { inferenceAttribution: _attribution, ...manualNote } = exists;
-				return { kind: 'reset', note: { ...manualNote, content: defaultPlanContent, updatedAt: now, revision: exists.revision + 1, links: [] } };
+				this.storage.sql.exec("UPDATE notes SET content = '', content_source = 'factory', updated_at = ?, revision = revision + 1, inference_attribution_json = NULL WHERE note_id = ?", now, id);
+				const { inferenceAttribution: _attribution, source: _source, ...manualNote } = exists;
+				return { kind: 'reset', note: { ...manualNote, content: text.format('factory.plan'), updatedAt: now, revision: exists.revision + 1, links: [] } };
 			}
 			this.storage.sql.exec('DELETE FROM notes WHERE note_id = ?', id);
 			return { kind: 'deleted' };

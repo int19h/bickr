@@ -1,0 +1,21 @@
+{
+  "group": "tools/search_threads_semantic",
+  "units": [
+    {
+      "id": "tools.search_threads_semantic.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/search_threads_semantic.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 294,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "0819fd315cb38533f05d5c38721a9c7c559aa292be80ec4b061b9615f933d62f"
+    }
+  ]
+}

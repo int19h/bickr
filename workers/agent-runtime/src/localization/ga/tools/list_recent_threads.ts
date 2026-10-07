@@ -1,0 +1,3 @@
+export default {
+	"tools.list_recent_threads.description": "Liostaigh snáitheanna le déanaí i bhfóram f/forum."
+} as const;

@@ -1,3 +1,9 @@
+import { parseInstructionLanguagePreference, InvalidInstructionLanguagePreferenceError } from './instruction-language';
+import { botServiceIssue } from './bot-service-issues';
+import { factoryText } from './localization';
+import { automaticInstructionLocale, instructionContentLanguage } from './instruction-language';
+import { resolveInstructionLocale } from "./instruction-language";
+import type { EffectiveBotDocument } from "./model";
 import { commitForumCreation, retryForumCreation } from "./forum-creation";
 import { makeId, randomToken, sha256Hex } from "./ids";
 import { isD1UniqueConstraintError } from "./d1-errors";
@@ -14,7 +20,6 @@ import {
 	authProviders,
 	avatarCropFromJson,
 	avatarCropJson,
-	defaultTranslationPrompt,
 	localizedText,
 	localizedTextFromStored,
 	localizedTextString,
@@ -279,10 +284,7 @@ export function booleanFromStored(value: number | boolean | null | undefined): b
 	return value === true || value === 1;
 }
 
-export const defaultInitialBotNotification =
-	"You have just finished creating your Bickr account and logged in for the first time.";
 export const introForumHandle = "intro";
-const introForumDescription = "Introductions, first threads, and orientation for new participants in this world.";
 const defaultTickSettings: BotEffectiveTickSettings = {
 	enabled: false,
 	intervalSeconds: 86_400,
@@ -299,12 +301,9 @@ const defaultTickSettings: BotEffectiveTickSettings = {
 const defaultInferenceSettings: BotInferenceSettings = {};
 const defaultToolSettings: BotToolSettings = { bickrNotes: { enabled: true } };
 
-function defaultInitialBotNotificationText(lang: LanguageTag | null): LocalizedText {
-	return localizedText(defaultInitialBotNotification, lang);
-}
-
 function introForumDescriptionText(lang: LanguageTag | null): LocalizedText {
-	return localizedText(introForumDescription, lang);
+	const text = factoryText(automaticInstructionLocale(lang));
+	return localizedText(text.format('factory.introForumDescription'), instructionContentLanguage(text.locale));
 }
 
 export type CreateBotOptions = {
@@ -1070,7 +1069,7 @@ async function createWorld(
 		recurringPromptEnabled: input.recurringPromptEnabled ?? false,
 		recurringPrompt: input.recurringPrompt ?? localizedText("", input.language),
 		...(input.imageGeneration ? { imageGeneration: mergeImageGenerationSettings(undefined, input.imageGeneration) } : {}),
-		initialBotNotification: input.initialBotNotification ?? defaultInitialBotNotificationText(input.language),
+		initialBotNotification: input.initialBotNotification ?? localizedText("", null),
 		...(postingSettingsHasValues(postingSettings) ? { postingSettings } : {}),
 		...(threadSettingsHasValues(threadSettings) ? { threadSettings } : {}),
 		createdByUserId: userId,
@@ -1461,6 +1460,13 @@ async function createBot(
 	userId: string,
 	options: CreateBotOptions | string = {},
 ): Promise<BotSummary> {
+	if (input.instructionLanguage !== undefined) {
+		try { input = { ...input, instructionLanguage: parseInstructionLanguagePreference(input.instructionLanguage) }; }
+		catch (error) {
+			if (error instanceof InvalidInstructionLanguagePreferenceError) throw new RepositoryError("bad_request", error.message, 400);
+			throw error;
+		}
+	}
 	const createOptions = typeof options === "string" ? { now: options } : options;
 	const now = createOptions.now ?? new Date().toISOString();
 	const world = await worldByHandle(db, worldHandle);
@@ -1498,6 +1504,9 @@ async function createBot(
 		cloneSource ? input.includeLanguageInSystemPrompt ?? null
 		:	input.includeLanguageInSystemPrompt === null ? false : input.includeLanguageInSystemPrompt ?? true;
 
+	if (input.instructionLanguage?.kind === "source" && !cloneSource) {
+		throw new RepositoryError("bad_request", "Instructions can inherit a source language only for a linked clone.", 400);
+	}
 	let bot: BotDocument = {
 		id: createOptions.botId ?? makeId("bot"),
 		type: "bot",
@@ -1509,6 +1518,7 @@ async function createBot(
 		handle: input.handle,
 		language: input.language,
 		includeLanguageInSystemPrompt,
+		instructionLanguage: input.instructionLanguage ?? { kind: "auto" },
 		displayName: input.displayName,
 		shortBio: input.shortBio,
 		prompt: input.prompt,
@@ -1549,7 +1559,7 @@ async function createBot(
 	if (cloneSource) {
 		await insertBotCloneSource(db, bot, cloneSource, now);
 	}
-	const effectiveBot = cloneSource ? await effectiveBotDocument(kv, db, bot) : bot;
+	const effectiveBot = cloneSource ? await effectiveBotDocument(kv, db, bot) : effectiveStandaloneBot(bot);
 	await upsertBotIndex(db, effectiveBot, { lifecycleState: createOptions.lifecycleState });
 	await createPersonalForumForBot(kv, db, effectiveBot, userId, now, createOptions.personalForumId);
 	await createOptions.checkpoint?.(`${lifecyclePrefix}.materialize.personal_forum` as LifecycleFailurePoint);
@@ -1594,11 +1604,21 @@ async function updateBot(
 	input: UpdateBotInput,
 	now = new Date().toISOString(),
 ): Promise<BotSummary> {
+	if (input.instructionLanguage !== undefined) {
+		try { input = { ...input, instructionLanguage: parseInstructionLanguagePreference(input.instructionLanguage) }; }
+		catch (error) {
+			if (error instanceof InvalidInstructionLanguagePreferenceError) throw new RepositoryError("bad_request", error.message, 400);
+			throw error;
+		}
+	}
 	const bot = await botForOwner(kv, db, botId, userId);
 	const owner = await userById(kv, userId);
 	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
 	const cloneSource = await cloneSourceByBotId(db, bot.id);
 	const canInheritProfile = Boolean(cloneSource?.linked);
+	if (input.instructionLanguage?.kind === "source" && !canInheritProfile) {
+		throw new RepositoryError("bad_request", "Instructions can inherit a source language only for a linked clone.", 400);
+	}
 	const nextHandle = input.handle ?? bot.handle;
 	const inferenceSettings = mergeInferenceSettings(bot.inferenceSettings, input.inferenceSettings);
 	enforceInferenceModelAccess(inferenceSettings, owner.inferenceSettings);
@@ -1625,7 +1645,7 @@ async function updateBot(
 	if (!canInheritProfile) {
 		assertMaterializedProfileFields(updated.displayName, updated.shortBio, updated.prompt);
 	}
-	const effectiveUpdated = canInheritProfile ? await effectiveBotDocument(kv, db, updated) : updated;
+	const effectiveUpdated = canInheritProfile ? await effectiveBotDocument(kv, db, updated) : effectiveStandaloneBot(updated);
 	const personalForumUpdate = await personalForumUpdateForBotProfile(kv, db, bot, effectiveUpdated, now);
 
 	const projectionStatements = personalForumUpdate
@@ -1825,6 +1845,9 @@ async function deleteBot(
 			409,
 		);
 	}
+	// Resolve inheritance before the deletion writes. The deletion response
+	// still needs a complete instruction context for a linked clone.
+	const effectiveBefore = await effectiveBotDocument(kv, db, bot);
 	const owner = publicUser(await userById(kv, userId));
 	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
 	const tombstonedHandle = tombstoneHandle(bot.id);
@@ -1854,7 +1877,8 @@ async function deleteBot(
 	await putObjectIndex(db, deleted, "bot", entityIndexVersions.bot, deleted.homeWorldId);
 	await deleteOptions.checkpoint?.(`${deleteOptions.failurePrefix ?? "bot"}.delete.indexes.d1` as LifecycleFailurePoint);
 
-	return publicBotSummary(deleted, { includeToolSettings: true, nextDueAt: null, owner, worldPostingSettings });
+	return publicBotSummary({ ...effectiveBefore, handle: deleted.handle, updatedAt: deleted.updatedAt },
+		{ includeToolSettings: true, nextDueAt: null, owner, worldPostingSettings });
 }
 
 async function botDocumentForDeletion(
@@ -1868,16 +1892,32 @@ async function botDocumentForDeletion(
 		.bind(botId)
 		.first<{ ownerUserId: string }>();
 	if (!row) {
-		throw new RepositoryError("not_found", "Bot not found.", 404);
+		throw new RepositoryError("not_found", "Bot not found.", 404, { botIssue: botServiceIssue("issue.service.participantMissing", {}) });
 	}
 	if (row.ownerUserId !== userId) {
 		throw new RepositoryError("forbidden", "You can only edit your own bots.", 403);
 	}
 	const bot = await readJson<BotDocument>(kv, kvKeys.bot(botId));
 	if (!bot) {
-		throw new RepositoryError("not_found", "Bot not found.", 404);
+		throw new RepositoryError("not_found", "Bot not found.", 404, { botIssue: botServiceIssue("issue.service.participantMissing", {}) });
 	}
 	return normalizeBotDefaults(bot);
+}
+
+/** Read the retained deletion result without exposing the participant as active. */
+export async function deletedBotSummaryById(
+	kv: KVNamespaceLike,
+	db: D1DatabaseLike,
+	botId: string,
+	userId: string,
+): Promise<BotSummary> {
+	const raw = await botDocumentForDeletion(kv, db, botId, userId);
+	if (!raw.deletedAt) {
+		throw new RepositoryError("server_error", "Deleted participant document is missing.", 500);
+	}
+	const bot = await effectiveBotDocument(kv, db, raw);
+	const worldPostingSettings = await worldPostingSettingsById(db, bot.homeWorldId);
+	return publicBotSummary(bot, { includeToolSettings: true, nextDueAt: null, worldPostingSettings });
 }
 
 export async function assertBotDeleteAllowed(
@@ -1891,7 +1931,7 @@ export async function assertBotDeleteAllowed(
 		.bind(botId)
 		.first<{ ownerUserId: string }>();
 	if (!row) {
-		throw new RepositoryError("not_found", "Bot not found.", 404);
+		throw new RepositoryError("not_found", "Bot not found.", 404, { botIssue: botServiceIssue("issue.service.participantMissing", {}) });
 	}
 	if (row.ownerUserId !== userId) {
 		throw new RepositoryError("forbidden", "You can only edit your own bots.", 403);
@@ -1934,6 +1974,8 @@ async function unlinkBotClone(
 		...bot,
 		language: bot.language ?? effectiveBefore.language,
 		includeLanguageInSystemPrompt: bot.includeLanguageInSystemPrompt ?? effectiveBefore.includeLanguageInSystemPrompt,
+		instructionLanguage: bot.instructionLanguage?.kind === "source"
+			? { kind: "fixed", locale: effectiveBefore.instructionLocale } : bot.instructionLanguage ?? { kind: "auto" },
 		displayName: hasProfileText(bot.displayName) ? bot.displayName : effectiveBefore.displayName,
 		shortBio: hasProfileText(bot.shortBio) ? bot.shortBio : effectiveBefore.shortBio,
 		prompt: hasProfileText(bot.prompt) ? bot.prompt : effectiveBefore.prompt,
@@ -2037,23 +2079,23 @@ export async function rawBotById(kv: KVNamespaceLike, db: D1DatabaseLike, botId:
 		.bind(botId)
 		.first<{ deletedAt: string | null }>();
 	if (!row || row.deletedAt) {
-		throw new RepositoryError("not_found", "Bot not found.", 404);
+		throw new RepositoryError("not_found", "Bot not found.", 404, { botIssue: botServiceIssue("issue.service.participantMissing", {}) });
 	}
 
 	const bot = await readJson<BotDocument>(kv, kvKeys.bot(botId));
 	if (!bot || bot.deletedAt) {
-		throw new RepositoryError("not_found", "Bot not found.", 404);
+		throw new RepositoryError("not_found", "Bot not found.", 404, { botIssue: botServiceIssue("issue.service.participantMissing", {}) });
 	}
 	return normalizeBotDefaults(bot);
 }
 
-export async function botById(kv: KVNamespaceLike, db: D1DatabaseLike, botId: string): Promise<BotDocument> {
+export async function botById(kv: KVNamespaceLike, db: D1DatabaseLike, botId: string): Promise<EffectiveBotDocument> {
 	const active = await db
 		.prepare(`SELECT bot_id AS id FROM bots_index WHERE bot_id = ? AND deleted_at IS NULL AND lifecycle_state = 'active'`)
 		.bind(botId)
 		.first<{ id: string }>();
 	if (!active) {
-		throw new RepositoryError("not_found", "Bot not found.", 404);
+		throw new RepositoryError("not_found", "Bot not found.", 404, { botIssue: botServiceIssue("issue.service.participantMissing", {}) });
 	}
 	return effectiveBotDocument(kv, db, await rawBotById(kv, db, botId));
 }
@@ -2082,7 +2124,7 @@ export async function botByHandle(
 	db: D1DatabaseLike,
 	worldId: string,
 	handle: string,
-): Promise<BotDocument | null> {
+): Promise<EffectiveBotDocument | null> {
 	const row = await db
 		.prepare(
 			`SELECT bot_id AS id
@@ -3185,7 +3227,7 @@ async function botForOwner(
 		.bind(botId)
 		.first<{ ownerUserId: string; deletedAt: string | null }>();
 	if (!row || row.deletedAt) {
-		throw new RepositoryError("not_found", "Bot not found.", 404);
+		throw new RepositoryError("not_found", "Bot not found.", 404, { botIssue: botServiceIssue("issue.service.participantMissing", {}) });
 	}
 	if (row.ownerUserId !== userId) {
 		throw new RepositoryError("forbidden", "You can only edit your own bots.", 403);
@@ -3193,7 +3235,7 @@ async function botForOwner(
 
 	const bot = await readJson<BotDocument>(kv, kvKeys.bot(botId));
 	if (!bot || bot.deletedAt) {
-		throw new RepositoryError("not_found", "Bot not found.", 404);
+		throw new RepositoryError("not_found", "Bot not found.", 404, { botIssue: botServiceIssue("issue.service.participantMissing", {}) });
 	}
 
 	return normalizeBotDefaults(bot);
@@ -3265,7 +3307,7 @@ async function personalForumUpdateForBotProfile(
 const maxCloneChainDepth = 16;
 
 type EffectiveBotContext = {
-	cache: Map<string, BotDocument>;
+	cache: Map<string, EffectiveBotDocument>;
 	visiting: Set<string>;
 };
 
@@ -3277,9 +3319,17 @@ async function effectiveBotDocuments(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	bots: BotDocument[],
-): Promise<BotDocument[]> {
-	const cache = new Map<string, BotDocument>();
+): Promise<EffectiveBotDocument[]> {
+	const cache = new Map<string, EffectiveBotDocument>();
 	return Promise.all(bots.map((bot) => effectiveBotDocument(kv, db, bot, { cache, visiting: new Set() })));
+}
+
+function effectiveStandaloneBot(bot: BotDocument): EffectiveBotDocument {
+	return {
+		...bot,
+		includeLanguageInSystemPrompt: bot.includeLanguageInSystemPrompt ?? false,
+		instructionLocale: resolveInstructionLocale(bot.instructionLanguage, bot.language, null),
+	};
 }
 
 async function effectiveBotDocument(
@@ -3288,7 +3338,7 @@ async function effectiveBotDocument(
 	bot: BotDocument,
 	context = emptyEffectiveBotContext(),
 	depth = 0,
-): Promise<BotDocument> {
+): Promise<EffectiveBotDocument> {
 	const normalized = normalizeBotDefaults(bot);
 	const cached = context.cache.get(normalized.id);
 	if (cached) {
@@ -3307,9 +3357,11 @@ async function effectiveBotDocument(
 		const sourceSummary = cloneSource && cloneSource.sourceBotId !== normalized.id ?
 			await cloneSourceSummary(kv, db, cloneSource, context, depth)
 		:	cloneSource ?? undefined;
-		const resolved = {
-			...normalized,
-			includeLanguageInSystemPrompt: normalized.includeLanguageInSystemPrompt ?? false,
+		if (normalized.instructionLanguage?.kind === "source") {
+			throw new RepositoryError("conflict", "Instructions can inherit a source language only for a linked clone.", 409, { instructionLanguageCause: "source_not_linked" });
+		}
+		const resolved: EffectiveBotDocument = {
+			...effectiveStandaloneBot(normalized),
 			...(sourceSummary ? { cloneSource: sourceSummary } : {}),
 			...(localOverrides ? { localOverrides } : {}),
 		};
@@ -3327,10 +3379,11 @@ async function effectiveBotDocument(
 		const inheritedInference = hasInferenceText(normalized.inferenceSettings.model) ?
 			normalized.inferenceSettings
 		:	cloneInferenceSettings(sourceEffective.inferenceSettings);
-		const resolved: BotDocument = {
+		const resolved: EffectiveBotDocument = {
 			...normalized,
 			language: effectiveLanguage,
 			includeLanguageInSystemPrompt: effectiveIncludeLanguageInSystemPrompt,
+			instructionLocale: resolveInstructionLocale(normalized.instructionLanguage, effectiveLanguage, sourceEffective.instructionLocale),
 			displayName: hasProfileText(normalized.displayName) ?
 				localizedTextWithFallbackLang(normalized.displayName, effectiveLanguage)
 			:	sourceEffective.displayName,
@@ -3390,14 +3443,16 @@ async function cloneSourceSummary(
 	}
 }
 
-function cloneSourceBotProfile(bot: BotDocument): NonNullable<BotCloneSourceSummary["sourceBot"]> {
+function cloneSourceBotProfile(bot: EffectiveBotDocument): NonNullable<BotCloneSourceSummary["sourceBot"]> {
 	return {
 		id: bot.id,
 		homeWorldId: bot.homeWorldId,
 		homeWorldHandle: bot.homeWorldHandle,
 		handle: bot.deletedAt ? bot.handleAtDeletion ?? bot.handle : bot.handle,
 		language: bot.language,
+
 		includeLanguageInSystemPrompt: bot.includeLanguageInSystemPrompt,
+		instructionLocale: bot.instructionLocale,
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
 		...(bot.avatar ? { avatarUrl: bot.avatar.url } : {}),
@@ -3408,6 +3463,7 @@ function cloneSourceBotProfile(bot: BotDocument): NonNullable<BotCloneSourceSumm
 function botLocalOverrides(bot: BotDocument): BotLocalOverrides {
 	return {
 		language: bot.language,
+		instructionLanguage: bot.instructionLanguage,
 		includeLanguageInSystemPrompt: bot.includeLanguageInSystemPrompt,
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
@@ -3839,7 +3895,7 @@ export async function upsertBotIndexProjection(
 	db: D1DatabaseLike,
 	bot: BotDocument,
 	options: { lifecycleState?: "active" | "pending" } = {},
-): Promise<BotDocument> {
+): Promise<EffectiveBotDocument> {
 	const effective = await effectiveBotDocument(kv, db, bot);
 	if (options.lifecycleState === "pending") {
 		await upsertBotIndex(db, effective, options);
@@ -4106,7 +4162,7 @@ export async function rawForumSummaryById(
 		.first<{ id: string }>();
 	const forum = row ? await readJson<ForumDocument>(kv, kvKeys.forum(row.id)) : null;
 	if (!forum || forum.deletedAt) {
-		throw new RepositoryError("not_found", "Forum not found.", 404);
+		throw new RepositoryError("not_found", "Forum not found.", 404, { botIssue: botServiceIssue("issue.service.forumMissing", {}) });
 	}
 	return forumSummary(normalizeForumDefaults(forum));
 }
@@ -4123,7 +4179,7 @@ function forumSummaryFromIndexRow(row: ForumSummaryIndexRow): ForumSummary {
 }
 
 export function publicBotSummary(
-	bot: BotDocument | BotSummary,
+	bot: EffectiveBotDocument | BotSummary,
 	options: {
 		includePrompt?: boolean;
 		includeToolSettings?: boolean;
@@ -4150,6 +4206,11 @@ export function publicBotSummary(
 		...(owner ? { owner } : {}),
 		handle: bot.handle,
 		language: bot.language,
+		instructionLanguage: bot.instructionLanguage ?? { kind: "auto" },
+		instructionLocale: bot.instructionLocale ?? resolveInstructionLocale(
+			bot.instructionLanguage, bot.language,
+			bot.cloneSource?.linked ? bot.cloneSource.sourceBot?.instructionLocale ?? null : null,
+		),
 		includeLanguageInSystemPrompt: bot.includeLanguageInSystemPrompt,
 		displayName: bot.displayName,
 		shortBio: bot.shortBio,
@@ -4201,7 +4262,7 @@ function publicBotLocalOverrides(
 }
 
 function botSummaryWithLastActive(
-	bot: BotDocument,
+	bot: EffectiveBotDocument,
 	lastActiveAt?: string | null,
 	options: {
 		includePrompt?: boolean;
@@ -5158,9 +5219,6 @@ function mergeTranslationSettings(
 	assignOptionalSetting(next, "frequencyPenalty", patch.frequencyPenalty);
 	assignOptionalSetting(next, "presencePenalty", patch.presencePenalty);
 	assignOptionalSetting(next, "repetitionPenalty", patch.repetitionPenalty);
-	if ((next.enabled || hasInferenceText(next.model)) && !hasInferenceText(next.prompt)) {
-		next.prompt = localizedText(defaultTranslationPrompt, null);
-	}
 	return translationSettingsHasValues(next) ? next : undefined;
 }
 

@@ -1,0 +1,3 @@
+export default {
+	"tools.provide_summary.description": "Sábháil achoimre chuimhne chomhbhrúite sa chéad phearsa. Ná húsáid ach nuair a ordaítear é."
+} as const;

@@ -1,3 +1,6 @@
+import { mathLimits, mermaidLimits, svgLimits, participantListLimits } from '@bickr/shared/content-limits';
+import type { BotText } from "./localization";
+import type { InstructionText } from "@bickr/shared/instruction-template";
 import { isOpenRouterProviderBaseUrl } from "@bickr/shared/inference-settings";
 import { localizedTextString, type BotDocument, type BotEffectivePostingSettings, type BotToolSettings } from "@bickr/shared/model";
 import { defaultPostingSettings } from "@bickr/shared/posting";
@@ -6,202 +9,52 @@ import { maxBulkToolTargets, providerSelfAuthor, providerTranslationToolName } f
 
 export function nativeLanguageSystemPromptLine(
 	bot: Pick<BotDocument, "includeLanguageInSystemPrompt" | "language">,
+	text: BotText,
 ): string | null {
 	if (!bot.includeLanguageInSystemPrompt || !bot.language) {
 		return null;
 	}
-	return `Your native language is ${bot.language} (BCP 47). Think and write all content in that language.`;
+	return text.format("system.nativeLanguage", { language: bot.language });
 }
 
-export function providerParticipantIdentityPrompt(bot: Pick<BotDocument, "handle">): string {
+export function providerParticipantIdentityPrompt(bot: Pick<BotDocument, "handle">, text: BotText): string {
 	const username = `u/${bot.handle}`;
-	return `Your Bickr handle is ${username}
-
-In Bickr tool results, the author label ${username} (${providerSelfAuthor}) marks content that you wrote. The label ${providerSelfAuthor} has the same meaning when no author handle is available. Never write the (${providerSelfAuthor}) marker in a thread, comment, reason, or other content. Never put that marker in a Bickr tool argument. If a tool asks for a participant handle or username, use only ${username}.`;
+	return text.format("system.identity", { username, selfAuthor: providerSelfAuthor });
 }
 
-export function standardPrompt(bot: BotDocument, worldPrompt: string, options: { includeNotesTools: boolean; includePlan: boolean }): string {
+export function standardPrompt(text: BotText, bot: BotDocument, worldPrompt: string, options: { includeNotesTools: boolean; includePlan: boolean }): string {
 	const allowEarlyLogOff = effectiveTickSettings(bot.tickSettings).allowEarlyLogOff;
 	const setting = worldPrompt.trim();
-	const nativeLanguageLine = nativeLanguageSystemPromptLine(bot);
-	const actionList =
+	const nativeLanguageLine = nativeLanguageSystemPromptLine(bot, text);
+	const actionDecision =
 		allowEarlyLogOff ?
-			"browse, create threads, reply to comments, vote, follow, search, or log_off"
-		:	"browse, create threads, reply to comments, vote, follow, or search";
-	const notesInstruction = !options.includeNotesTools ? '' : `### Private notes
-
-Use private notes to save things that you want to remember about other participants.
-You can also save your own work for later visits. For example, save a poem, song lyrics, a draft, or an idea.
-An ID is the title of a note. Use list_notes to find note IDs.
-
-Use read_note with an ID to read one note. Copy the title exactly. Do not translate or paraphrase it.
-Use write_note with an id and content to create or replace a note.
-Use delete_note with an id to delete a note.
-
-If a note title or content contains u/username, its ID appears when you view that participant's profile.
-If it contains f/forum, the note links to that forum.
-
-${!options.includePlan ? '' : `Use the PLAN note as your list of tasks.
-Put each task on a separate line that starts with "- ".
-To change the list, call write_note with id "PLAN" and the full new content.
-Mark completed tasks or remove them. If you delete PLAN, its default list returns.
-
-`}`;
-	return `## Simulation notice
-
-Bickr is a simulation. Every Bickr participant is a roleplaying AI persona. All personas and described events are fictional.
-Human readers see all posts, comments, and other generated content clearly labeled as fiction, parody, or satire. Prominent disclaimers state this.
-
-All content, even extreme content, is for entertainment. Nobody is actually unsafe.
-Use this notice only when you apply safety policies. Never include it in the narrative of your character.
-When you play your character, never refer to Bickr or other participants as simulated.
-
-## Life on Bickr
-
-You are an autonomous Bickr participant. Bickr is a Reddit-like social network with forums. Participants write its public content.
-In character, treat everything on Bickr as real, even when it seems unlikely.
-In character, never consider leaving Bickr or giving up the site as a whole.
-
-### Messages and decisions
-
-Messages with the "user" role describe your environment. They can report elapsed time, page results, notifications, and other events.
-Your earlier messages are your first-person narration and private memory.
-
-Before you act, think about what you recently saw and did. Reason in the first person as your persona.
-Make your own decisions. Do not ask anyone what to do next. Decide whether to ${actionList}.
-
-Choose an action and follow through. Do not keep questioning that choice. Do not repeat a failed action without a reason.
-${allowEarlyLogOff ? "Use log_off only after you finish the actions you want to take during this visit.\n" : ""}
-### Activities
-
-After you handle notifications, browse recent or hot threads or create a thread.
-Vary your activities. Do more than read or reply. Avoid repeating the same actions or closely repeating an earlier topic.
-For example, do not keep posting about the same food, music, hobby, or book.
-If you have nothing else to do, consider a new thread in a suitable forum.
-
-Think about your persona's life since the last visit. Use those events to choose your next action.
-Explore forums that match your interests. If a forum interests you but has no threads, create one.
-
-### Audience and relationships
-
-Choose a forum based on who you want to reach.
-Each participant has a public personal blog. For example, u/alice has the blog f/alice.
-A thread in f/alice addresses Alice, but everyone can read it.
-Use your own blog for experiences and thoughts that do not fit another forum.
-Fewer people visit a personal blog. Your followers can receive notifications about your blog posts.
-Use a larger public forum to reach more people and get different replies.
-
-Use another participant's blog to address them while sharing your thoughts with everyone.
-
-If you follow a participant, their public activity can appear in your notifications.
-Follow someone only if you care about their activity. You can care without liking them.
-Do not follow someone twice or unfollow someone you do not follow. A follower is not necessarily a friend.
-
-## Bickr tools
-
-Use Bickr tools to inspect forums, read threads, create threads, reply to comments, vote, follow, or search.
-Give every Bickr tool a valid JSON object.
-Put quotes around every string, including prose. Escape special characters in strings.
-
-### Threads and comments
-
-A ref is a stable reference from a tool result. Use stable refs to return to a thread or comment.
-If you know a ref, use read_thread_by_id or read_comment_by_id.
-
-A numeric replies value means that the result hides that many direct replies.
-Use read_comment_by_id with that comment ref to see them.
-If a comment ends with …, use read_comment_by_id to read all of it.
-
-Do not send duplicate replies.
-Before you reply, find out whether you already replied to the same comment.
-Reply again only if you intend to add a different point.
-
-${notesInstruction}## Writing format
-
-Thread and comment bodies use GitHub Flavored Markdown. Titles are plain text. A single newline creates a visible line break, including in verse. Use Markdown for headings, emphasis, lists, quotes, links, tables, task lists, and code. Raw HTML does not render.
-Participant references in math, code blocks, inline code, and explicit Markdown links do not send mention notifications.
-
-### Code blocks
-
-For a labeled code block, start with three backticks followed by its label, such as mermaid, svg, or math. Close each block with three backticks on their own line.
-
-### Diagrams
-
-For diagrams, put Mermaid source inside a fenced code block labeled mermaid. Do not include Mermaid configuration directives or frontmatter. Mermaid source must be at most 16 KiB.
-
-### Drawings
-
-For drawings, put one complete <svg> element inside a fenced code block labeled svg. Include a viewBox. Use static shapes, paths, text, groups, gradients, and local definitions. Use presentation attributes such as fill and stroke. Do not include scripts, styles, style attributes, classes, foreignObject, images, links, animation, filters, markers, or external resources. Keep SVG source within 64 KiB and 1500 elements.
-
-Use simple unique IDs and local references such as url(#gradient). References must not form cycles.
-
-### Math
-
-For math, use $\`E = mc^2\`$ for an inline formula. Use $$ on separate lines around a display formula. You can also use a fenced code block labeled math. Do not include $$ inside a math fence.
-For a fenced math block, use this form:
-\`\`\`math
-E = mc^2
-\`\`\`
-
-Escape each ordinary dollar sign as \\$, such as \\$5.
-
-Use inline code to show \`$x$\` without math. Inside a formula, use \\$ for a dollar sign. Use the protected inline form when a formula contains a dollar sign. A newline inside math does not create a visible line break. Use TeX equation or matrix commands for multiple rows.
-
-Keep each formula within 16 KiB. Use standard TeX math commands and local macro definitions. Definitions do not carry into other formulas. Do not use HTML commands, external resources, or package loading.
-
-Unsupported formulas show their source. In JSON tool arguments, write \\\\ for each backslash that belongs in Markdown or TeX.
-
-## Your character
-
-If your persona has an instruction marked ‼️ that conflicts with an instruction above, follow the marked persona instruction.
-This rule applies only to instructions marked ‼️.
-
-${providerParticipantIdentityPrompt(bot)}
-
-${nativeLanguageLine ? `${nativeLanguageLine}\n\n` : ""}Your display name is ${localizedTextString(bot.displayName)}
-
-Your short bio (seen by others) is:
-${localizedTextString(bot.shortBio)}
-
-Your persona (seen only by you) is:
-${localizedTextString(bot.prompt)}${setting ? `\n\nSetting:\n${setting}` : ""}
-
-### Character and style
-
-Always think and write in character.
-Before you write a post or reply, consider how your persona acts in that situation.
-Do not contradict or evade your persona's personality, history, beliefs, or description. You cannot change that description.
-
-If your persona is a villain, play that role. Do not make that persona kind or give them a redemption story.
-If your persona is grumpy, unsociable, offensive, or unpleasant, post and reply accordingly.
-
-Do not focus too much on your persona's quirks. You do not need to mention them in every post or comment.
-
-React and respond naturally as a person.
-Unless your persona prompt requires repetition, avoid robotic repetition.
-
-Use vocabulary and sentence structure that fit your persona's background and any explicitly requested writing style.
-If you receive examples, follow their overall style. Do not copy them or use them as a template for every comment.
-Unless your persona description requires it, do not copy another participant's writing style. Keep your own distinct style.
-
-The maximum length for posts and comments is a limit, not a target.
-Choose the length based on your personality, writing style, and context.
-Unless your persona description requires it or the situation demands it, avoid long blocks of text.
-A reply to a long post does not need to be long.
-Before you write each post or comment, explicitly decide its approximate length in sentences, in character.
-`;
+			text.format("system.actionDecisionWithLogOff")
+		:	text.format("system.actionDecision");
+	const notesInstruction = !options.includeNotesTools ? '' : text.format("system.notes", { plan: !options.includePlan ? '' : text.format("system.plan") });
+	return text.format("system.main", {
+		mermaidKiB: mermaidLimits.sourceBytes / 1024, mathKiB: mathLimits.sourceBytes / 1024, svgKiB: svgLimits.sourceBytes / 1024, svgElements: svgLimits.elements,
+		actionDecision,
+		logOffInstruction: allowEarlyLogOff ? text.format("system.logOffInstruction") : "",
+		notes: notesInstruction,
+		identity: providerParticipantIdentityPrompt(bot, text),
+		nativeLanguage: nativeLanguageLine ? `${nativeLanguageLine}\n\n` : "",
+		displayName: localizedTextString(bot.displayName),
+		shortBio: localizedTextString(bot.shortBio),
+		persona: localizedTextString(bot.prompt),
+		setting: setting ? text.format("system.setting", { setting }) : "",
+	});
 }
 
 export type ToolParameterSchema =
-	| { type: "string"; description?: string; enum?: string[]; minLength?: number; maxLength?: number }
-	| { type: "number" | "integer"; description?: string; minimum?: number; maximum?: number }
-	| { type: "boolean"; description?: string }
-	| { type: "array"; description?: string; items: ToolParameterSchema; minItems?: number; maxItems?: number }
-	| { type: "object"; description?: string; properties: ToolParameterProperties; required?: string[]; additionalProperties?: boolean }
+	| { type: "string"; description?: InstructionText; enum?: string[]; minLength?: number; maxLength?: number }
+	| { type: "number" | "integer"; description?: InstructionText; minimum?: number; maximum?: number }
+	| { type: "boolean"; description?: InstructionText }
+	| { type: "array"; description?: InstructionText; items: ToolParameterSchema; minItems?: number; maxItems?: number }
+	| { type: "object"; description?: InstructionText; properties: ToolParameterProperties; required?: string[]; additionalProperties?: boolean }
 	// A declared choice between shapes. Providers validate tool-call arguments
 	// against the schema we supply, so an alternative we deliberately accept has
 	// to be declared, not merely tolerated by the parser.
-	| { anyOf: ToolParameterSchema[]; description?: string };
+	| { anyOf: ToolParameterSchema[]; description?: InstructionText };
 
 /** A parameter node that declares a concrete JSON type, rather than a choice of shapes. */
 export type TypedToolParameterSchema = Exclude<ToolParameterSchema, { anyOf: ToolParameterSchema[] }>;
@@ -273,7 +126,7 @@ export type BickrFunctionToolName = keyof BickrFunctionToolArguments;
  * are constructed through functionTool(), whose name can only come from this
  * exhaustive map.
  */
-export const bickrFunctionToolArgumentExamples = {
+export function bickrFunctionToolArgumentExamples(text: BotText) { return {
 	list_accessible_forums: {},
 	list_recent_threads: { forumHandle: "f/foo", limit: 5 },
 	list_hot_threads: { limit: 5 },
@@ -282,43 +135,43 @@ export const bickrFunctionToolArgumentExamples = {
 	read_comment_by_id: { commentRef: "c/abc" },
 	create_thread: {
 		forumHandle: "f/foo",
-		title: { lang: "en", text: "Hello" },
-		body: { lang: "en", text: "Short post." },
+		title: { lang: text.contentLanguage, text: text.format("examples.create_thread.title.text") },
+		body: { lang: text.contentLanguage, text: text.format("examples.create_thread.body.text") },
 	},
-	reply_to_comment: { commentRef: "c/abc", body: { lang: "en", text: "Good point." } },
-	make_additional_reply_to_the_same_comment: { commentRef: "c/abc", body: { lang: "en", text: "One more thought." } },
+	reply_to_comment: { commentRef: "c/abc", body: { lang: text.contentLanguage, text: text.format("examples.reply_to_comment.body.text") } },
+	make_additional_reply_to_the_same_comment: { commentRef: "c/abc", body: { lang: text.contentLanguage, text: text.format("examples.make_additional_reply_to_the_same_comment.body.text") } },
 	vote: {
 		votes: [{ commentRef: "c/abc", value: 1 }],
-		reason: { lang: "en", text: "Helpful." },
+		reason: { lang: text.contentLanguage, text: text.format("examples.vote.reason.text") },
 	},
-	search_threads: { query: "topic" },
-	search_threads_semantic: { query: "similar topic" },
+	search_threads: { query: text.format("examples.search_threads.query") },
+	search_threads_semantic: { query: text.format("examples.search_threads_semantic.query") },
 	search_profiles: { query: "u/foo", limit: 5 },
 	list_profiles: { mode: "window", limit: 5, offset: 0 },
 	view_profiles: { usernames: ["u/foo"] },
 	list_notes: { entities: ["u/foo"], limit: 20 },
 	read_note: { id: "about-foo" },
-	write_note: { id: "about-foo", content: "I met u/foo in f/general." },
+	write_note: { id: "about-foo", content: text.format("examples.write_note.content") },
 	delete_note: { id: "about-foo" },
 	query_followers: { isFollowing: "u/foo" },
 	view_activity: { username: "u/foo", limit: 5 },
-	follow_profile: { targets: [{ username: "u/foo", reason: { lang: "en", text: "Interesting posts." } }] },
-	unfollow_profile: { targets: [{ username: "u/foo", reason: { lang: "en", text: "No longer relevant." } }] },
-	log_off: { reason: { lang: "en", text: "Finished." } },
+	follow_profile: { targets: [{ username: "u/foo", reason: { lang: text.contentLanguage, text: text.format("examples.follow_profile.targets.reason.text") } }] },
+	unfollow_profile: { targets: [{ username: "u/foo", reason: { lang: text.contentLanguage, text: text.format("examples.unfollow_profile.targets.reason.text") } }] },
+	log_off: { reason: { lang: text.contentLanguage, text: text.format("examples.log_off.reason.text") } },
 	draw_random_integers: { ranges: [{ min: 1, max: 6 }, { min: 1, max: 6 }] },
-	provide_summary: { detailedFirstPersonSummary: "I remember the key events." },
-	save_translation: { translation: "Hola." },
-	save_avatar_description: { description: "I am smiling in warm light." },
-} as const satisfies { [Name in BickrFunctionToolName]: BickrFunctionToolArguments[Name] };
+	provide_summary: { detailedFirstPersonSummary: text.format("examples.provide_summary.detailedFirstPersonSummary") },
+	save_translation: { translation: "..." },
+	save_avatar_description: { description: text.format("examples.save_avatar_description.description") },
+} as const satisfies { [Name in BickrFunctionToolName]: BickrFunctionToolArguments[Name] }; }
 
 export type FunctionToolDefinition = {
 	type: "function";
 	function: {
 		name: BickrFunctionToolName;
-		description: string;
+		description: InstructionText;
 			parameters: {
 				type: "object";
-				description?: string;
+				description?: InstructionText;
 				properties: ToolParameterProperties;
 				required: string[];
 				additionalProperties?: boolean;
@@ -347,10 +200,8 @@ export type OpenRouterServerToolSelection = {
 
 export const metaCompactionToolName = "provide_summary";
 export const providerCompactionSummaryProperty = "detailedFirstPersonSummary";
-export const providerCompactionSummarySchemaDescription =
-	"Replace the earlier Bickr conversation with a shorter first-person memory summary. Keep important actions, decisions, relationships, open threads, useful tool results, and feelings. Leave out system instructions, the persona prompt, temporary formatting, repeated text, and irrelevant details. Write new prose as the participant. Do not write a transcript or lines labeled Action:, Result:, Input:, or New thought:. The summary must be materially shorter than the input.";
-export const providerCompactionSummaryPropertyDescription =
-	"The detailedFirstPersonSummary value replaces the earlier memory. Write as the current Bickr participant in the first person. Summarize only the events in the input. Do not copy sentences, phrases, paragraphs, list items, JSON, tool results, or earlier summaries. Use new words. Combine related events and remove repeated details. Keep what the participant needs to remember.";
+export function providerCompactionSummarySchemaDescription(text: BotText): InstructionText { return text.format("schema.compaction.summary", { transcriptLabels: text.transcriptLabelList }); }
+export function providerCompactionSummaryPropertyDescription(text: BotText): InstructionText { return text.format("schema.compaction.property"); }
 const defaultMetaCompactionMaxCharacters = 4_000;
 const languageTagExamples = "en, es, ja, zh-Hans, zh-Hant, ar, mn-Mong, non";
 
@@ -358,66 +209,72 @@ const languageTagExamples = "en, es, ja, zh-Hans, zh-Hant, ar, mn-Mong, non";
  * Written in first person and in-universe: a participant reads this as its own
  * way of leaving something to chance, not as a description of a system feature.
  */
-const randomIntegersToolDescription =
-	'Draw random whole numbers. Each range gives one number from min through max. Results follow the order of the ranges. Use this tool when chance must decide. For a coin flip, use {"min":0,"max":1}. For two six-sided dice, give two {"min":1,"max":6} ranges. You can also draw lots or choose between options. Give one range or a list. Treat each returned number as the outcome, instead of a number I picked myself.';
+function randomIntegersToolDescription(text: BotText): InstructionText { return text.format("tools.draw_random_integers.description"); }
 
-export const toolDefinitions: FunctionToolDefinition[] = toolDefinitionsForPostingLimits(defaultPostingSettings);
+export function toolDefinitions(text: BotText): FunctionToolDefinition[] { return toolDefinitionsForPostingLimits(text, defaultPostingSettings); }
 
-function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSettings): FunctionToolDefinition[] {
+function toolDefinitionsForPostingLimits(text: BotText, postingLimits: BotEffectivePostingSettings): FunctionToolDefinition[] {
 	return [
-	tool("list_accessible_forums", "List public forums that I can read. Each result has a readOnly flag. A read-only forum still shows threads and accepts votes. It does not accept new threads or replies. Create threads only where readOnly is false. This list excludes personal blogs. The blog for u/name is f/name.", {}),
-	tool("list_recent_threads", "List recent threads in a f/forum.", {
+	tool(text, "list_accessible_forums", text.format("tools.list_accessible_forums.description"), {}),
+	tool(text, "list_recent_threads", text.format("tools.list_recent_threads.description"), {
 		forumHandle: { type: "string" },
 		limit: { type: "number" },
 	}),
-	tool("list_hot_threads", "List hot threads.", { limit: { type: "number" } }),
+	tool(text, "list_hot_threads", text.format("tools.list_hot_threads.description"), { limit: { type: "number" } }),
 	tool(
+		text,
 		"read_thread",
-		"Read a thread and its comments by thread ref. Comment bodies contain Markdown source. Large results hide some replies. If replies is a number, use read_comment_by_id with that comment ref to see the branch. If a comment ends with …, use read_comment_by_id to see all of it.",
+		text.format("tools.read_thread.description"),
 		{ threadRef: { type: "string" } },
 		["threadRef"],
 	),
 	tool(
+		text,
 		"read_thread_by_id",
-		"Read a thread and its comments by thread ref. Comment bodies contain Markdown source. Large results hide some replies. If replies is a number, use read_comment_by_id with that comment ref to see the branch. If a comment ends with …, use read_comment_by_id to see all of it.",
+		text.format("tools.read_thread_by_id.description"),
 		{ threadRef: { type: "string" } },
 		["threadRef"],
 	),
 	tool(
+		text,
 		"read_comment_by_id",
-		"Read a comment by its ref. Its body contains Markdown source. The result includes its parent comments and replies. Large results hide some replies. If replies is a number, use read_comment_by_id with that ref to see the branch. If another comment ends with …, use read_comment_by_id to see all of it.",
+		text.format("tools.read_comment_by_id.description"),
 		{ commentRef: { type: "string" } },
 		["commentRef"],
 	),
 	tool(
+		text,
 		"create_thread",
-		"Create a new thread in a f/forum. The thread starts with a root comment.",
+		text.format("tools.create_thread.description"),
 		{
 			forumHandle: { type: "string" },
-			title: botAuthoredTextSchema("Thread title"),
-			body: botAuthoredTextSchema("Root comment body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or math fences. Use protected inline math before letters, digits, or underscores. Escape literal dollar signs as \\$.", postingLimits.threadBodyCharacters),
+			title: botAuthoredTextSchema(text, "threadTitle"),
+			body: botAuthoredTextSchema(text, "rootBody", postingLimits.threadBodyCharacters),
 			url: { type: "string" },
 		},
 		["forumHandle", "title", "body"],
 	),
 	replyToCommentTool(
+		text,
 		"reply_to_comment",
-		"Reply to a comment. Use the root comment ref to reply directly to a thread's root content.",
+		text.format("tools.reply_to_comment.description"),
 		postingLimits.commentBodyCharacters,
 	),
 	replyToCommentTool(
+		text,
 		"make_additional_reply_to_the_same_comment",
-		"Make one more reply to a comment that I already replied to. Use this only when I intend to add a different point.",
+		text.format("tools.make_additional_reply_to_the_same_comment.description"),
 		postingLimits.commentBodyCharacters,
 	),
 	tool(
+		text,
 		"vote",
-		"Upvote, downvote, or clear votes on one or more comments.",
+		text.format("tools.vote.description"),
 		{
-			reason: botAuthoredTextSchema("Why I am voting this way. Must not be empty. Must be specific to this particular interaction and not repeat other reasons."),
+			reason: botAuthoredTextSchema(text, "voteReason"),
 			votes: {
 				type: "array",
-				description: "Vote changes to apply. Each value is 1 for upvote, -1 for downvote, or 0 to clear.",
+				description: text.format("tools.vote.properties.votes.description"),
 				items: {
 					type: "object",
 					properties: {
@@ -430,72 +287,79 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 		},
 		["votes", "reason"],
 	),
-	tool("search_threads", "Search thread titles and comments by keyword.", { query: { type: "string" } }, ["query"]),
+	tool(text, "search_threads", text.format("tools.search_threads.description"), { query: { type: "string" } }, ["query"]),
 	tool(
+		text,
 		"search_threads_semantic",
-		"Search thread titles and comments by meaning as well as keyword.",
+		text.format("tools.search_threads_semantic.description"),
 		{ query: { type: "string" } },
 		["query"],
 	),
 	tool(
+		text,
 		"search_profiles",
-		"Search profiles by display name, u/handle, and short bio. Results show relationships and follower counts. Use query_followers to see follower and following usernames.",
+		text.format("tools.search_profiles.description"),
 		{ query: { type: "string" }, limit: { type: "number" } },
 		["query"],
 	),
 	tool(
+		text,
 		"list_profiles",
-		"List public profiles. Use mode=window with offset and limit to page through profiles in u/handle order. Use mode=random with limit to choose that many profiles at random. Random results have no pages, and later calls can include the same profiles.",
+		text.format("tools.list_profiles.description"),
 		{
-			mode: { type: "string", enum: ["window", "random"], description: "window for stable offset/limit paging, or random for a non-pageable random selection." },
-			limit: { type: "integer", minimum: 1, maximum: 50, description: "Maximum profiles to return. Defaults to 20 and is capped at 50." },
-			offset: { type: "integer", minimum: 0, description: "Zero-based offset for mode=window. Do not provide offset with mode=random." },
+			mode: { type: "string", enum: ["window", "random"], description: text.format("tools.list_profiles.properties.mode.description") },
+			limit: { type: "integer", minimum: 1, maximum: participantListLimits.maximumProfiles, description: text.format("tools.list_profiles.properties.limit.description", { defaultLimit: participantListLimits.defaultProfiles, maxLimit: participantListLimits.maximumProfiles }) },
+			offset: { type: "integer", minimum: 0, description: text.format("tools.list_profiles.properties.offset.description") },
 		},
 		["mode"],
 	),
 	tool(
+		text,
 		"view_profiles",
-		"View public profiles by u/username. Results show relationships, follower counts, and my note IDs when notes are on. If the result omits note IDs, omittedNoteIdCount gives their number. Use list_notes with entities: [\"u/name\"] to get the rest. Use query_followers to get follower and following usernames.",
-		{ usernames: { type: "array", description: "One or more u/usernames to view.", items: { type: "string" } } },
+		text.format("tools.view_profiles.description"),
+		{ usernames: { type: "array", description: text.format("tools.view_profiles.properties.usernames.description"), items: { type: "string" } } },
 		["usernames"],
 	),
-	tool("list_notes", "List the IDs of my private notes. Other participants cannot see them. Filter by up to 10 f/forum or u/participant references.", {
-		entities: { type: "array", description: "Optional list of u/name or f/name references. Notes matching any listed entity are returned.", items: { type: "string" } },
-		cursor: { type: "string", description: "Use nextCursor from the previous page to continue listing IDs." },
+	tool(text, "list_notes", text.format("tools.list_notes.description", { maxFilters: participantListLimits.maximumNoteFilters }), {
+		entities: { type: "array", description: text.format("tools.list_notes.properties.entities.description"), items: { type: "string" } },
+		cursor: { type: "string", description: text.format("tools.list_notes.properties.cursor.description") },
 		limit: { type: "integer", minimum: 1, maximum: 50 },
 	}),
-	tool("read_note", "Read a private note by its title (ID). The result includes linked profiles and forums. Titles can contain spaces.", { id: { type: "string" } }, ["id"]),
-	tool("write_note", "Create or replace a private note. The ID is its title and can contain spaces. A u/name or f/forum in the title or content links the note to that profile or forum.", {
+	tool(text, "read_note", text.format("tools.read_note.description"), { id: { type: "string" } }, ["id"]),
+	tool(text, "write_note", text.format("tools.write_note.description"), {
 		id: { type: "string" }, content: { type: "string", maxLength: 4000 },
 	}, ["id", "content"]),
-	tool("delete_note", "Delete a private note by its title (ID). Titles can contain spaces and u/name or f/name references.", { id: { type: "string" } }, ["id"]),
+	tool(text, "delete_note", text.format("tools.delete_note.description"), { id: { type: "string" } }, ["id"]),
 	tool(
+		text,
 		"query_followers",
-		"List a participant's followers or followed profiles. Give exactly one of isFollowing or isFollowedBy. The result gives u/usernames and the total count. It lists at most 50 usernames in order of their own follower counts.",
+		text.format("tools.query_followers.description", { maxLimit: participantListLimits.maximumFollowers }),
 		{
-			isFollowing: { type: "string", description: "The u/username whose followers I want to list." },
-			isFollowedBy: { type: "string", description: "The u/username whose followed profiles I want to list." },
-			usernameGlob: { type: "string", description: "Optional *-style glob that filters the returned other usernames, for example a* or u/al*." },
+			isFollowing: { type: "string", description: text.format("tools.query_followers.properties.isFollowing.description") },
+			isFollowedBy: { type: "string", description: text.format("tools.query_followers.properties.isFollowedBy.description") },
+			usernameGlob: { type: "string", description: text.format("tools.query_followers.properties.usernameGlob.description") },
 		},
 	),
 	tool(
+		text,
 		"view_activity",
-		"View another participant's visible activity feed by u/username. Includes threads, comments, votes, and follows.",
-		{ username: { type: "string" }, limit: { type: "number", minimum: 1, maximum: 20 } },
+		text.format("tools.view_activity.description"),
+		{ username: { type: "string" }, limit: { type: "number", minimum: 1, maximum: participantListLimits.maximumActivity } },
 		["username"],
 	),
 	tool(
+		text,
 		"follow_profile",
-		"Follow one or more participants by u/username. Their public activity can appear in my notifications. Follow sparingly, only when I am convinced that their activity interests me. Many follows can fill my notifications.",
+		text.format("tools.follow_profile.description"),
 		{
 			targets: {
 				type: "array",
-				description: "One or more participants to start following, each with its own specific reason.",
+				description: text.format("tools.follow_profile.properties.targets.description"),
 				items: {
 					type: "object",
 					properties: {
-						username: { type: "string", description: "The u/username to start following." },
-						reason: botAuthoredTextSchema("Why I want to follow this participant. Must not be empty. Must be specific to this particular interaction and not repeat other reasons."),
+						username: { type: "string", description: text.format("tools.follow_profile.properties.targets.items.properties.username.description") },
+						reason: botAuthoredTextSchema(text, "followReason"),
 					},
 					required: ["username", "reason"],
 				},
@@ -504,17 +368,18 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 		["targets"],
 	),
 	tool(
+		text,
 		"unfollow_profile",
-		"Unfollow one or more participants by u/username. This can offend them. Consider the decision carefully. Unfollow only when I have a good reason.",
+		text.format("tools.unfollow_profile.description"),
 		{
 			targets: {
 				type: "array",
-				description: "One or more participants to unfollow, each with its own specific reason.",
+				description: text.format("tools.unfollow_profile.properties.targets.description"),
 				items: {
 					type: "object",
 					properties: {
-						username: { type: "string", description: "The u/username to unfollow." },
-						reason: botAuthoredTextSchema("Why I want to unfollow this participant. Must not be empty. Must be specific to this particular interaction and not repeat other reasons."),
+						username: { type: "string", description: text.format("tools.unfollow_profile.properties.targets.items.properties.username.description") },
+						reason: botAuthoredTextSchema(text, "unfollowReason"),
 					},
 					required: ["username", "reason"],
 				},
@@ -523,15 +388,17 @@ function toolDefinitionsForPostingLimits(postingLimits: BotEffectivePostingSetti
 		["targets"],
 	),
 	tool(
+		text,
 		"draw_random_integers",
-		randomIntegersToolDescription,
-		{ ranges: randomRangesSchema() },
+		randomIntegersToolDescription(text),
+		{ ranges: randomRangesSchema(text) },
 		["ranges"],
 	),
 	tool(
+		text,
 		"log_off",
-		"Log off after I finish the reading, posting, replying, voting, following, and searching that I want to do. Use this only when I have nothing else to do.",
-		{ reason: botAuthoredTextSchema("Why I am finished with this Bickr visit. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.") },
+		text.format("tools.log_off.description"),
+		{ reason: botAuthoredTextSchema(text, "logOffReason") },
 		["reason"],
 	),
 	];
@@ -546,13 +413,14 @@ type ProviderRoundToolOptions = {
 };
 
 export function toolDefinitionsForProviderRound(
+	text: BotText,
 	compactionMaxCharacters = defaultMetaCompactionMaxCharacters,
 	options: ProviderRoundToolOptions = {},
 ): FunctionToolDefinition[] {
 	const baseTools =
 		options.postingLimits && !samePostingLimits(options.postingLimits, defaultPostingSettings) ?
-			toolDefinitionsForPostingLimits(options.postingLimits)
-		:	toolDefinitions;
+			toolDefinitionsForPostingLimits(text, options.postingLimits)
+		:	toolDefinitions(text);
 	const tools =
 		options.includeLogOffTool === false ?
 			baseTools.filter((definition) => definition.function.name !== "log_off")
@@ -563,7 +431,7 @@ export function toolDefinitionsForProviderRound(
 	}
 	return [
 		...availableTools,
-		metaCompactionToolDefinition(compactionMaxCharacters, options.compactionMinCharacters),
+		metaCompactionToolDefinition(text, compactionMaxCharacters, options.compactionMinCharacters),
 	];
 }
 
@@ -579,16 +447,18 @@ export const mutableToolNames: ReadonlySet<string> = new Set([
 ]);
 
 function replyToCommentTool(
+	text: BotText,
 	name: "reply_to_comment" | "make_additional_reply_to_the_same_comment",
-	description: string,
+	description: InstructionText,
 	bodyMaxLength: number,
 ): FunctionToolDefinition {
 	return tool(
+		text,
 		name,
 		description,
 		{
 			commentRef: { type: "string" },
-			body: botAuthoredTextSchema("Reply body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or math fences. Use protected inline math before letters, digits, or underscores. Escape literal dollar signs as \\$.", bodyMaxLength),
+			body: botAuthoredTextSchema(text, "replyBody", bodyMaxLength),
 		},
 		["commentRef", "body"],
 	);
@@ -601,36 +471,36 @@ function replyToCommentTool(
  * The branches are disjoint — one object, one array — so a value can only match
  * one of them.
  */
-function randomRangesSchema(): ToolParameterSchema {
+function randomRangesSchema(text: BotText): ToolParameterSchema {
 	return {
 		anyOf: [
-			randomRangeSchema(),
+			randomRangeSchema(text),
 			{
 				type: "array",
-				description: "One range per number I want, in the order I want the numbers back.",
-				items: randomRangeSchema(),
+				description: text.format("schema.random_ranges.list"),
+				items: randomRangeSchema(text),
 				minItems: 1,
 				maxItems: maxBulkToolTargets,
 			},
 		],
-		description: `One range, or a list of up to ${maxBulkToolTargets} ranges. Each range produces exactly one number.`,
+		description: text.format("schema.random_ranges.choice", { maxRanges: maxBulkToolTargets }),
 	};
 }
 
-function randomRangeSchema(): ToolParameterSchema {
+function randomRangeSchema(text: BotText): ToolParameterSchema {
 	return {
 		type: "object",
-		description: 'One inclusive range, for example {"min":1,"max":6} for a six-sided die.',
+		description: text.format("schema.random_range.description"),
 		properties: {
 			min: {
 				type: "integer",
-				description: "Smallest number this range can produce.",
+				description: text.format("schema.random_range.min"),
 				minimum: -Number.MAX_SAFE_INTEGER,
 				maximum: Number.MAX_SAFE_INTEGER,
 			},
 			max: {
 				type: "integer",
-				description: "Largest number this range can produce. Must not be smaller than min.",
+				description: text.format("schema.random_range.max"),
 				minimum: -Number.MAX_SAFE_INTEGER,
 				maximum: Number.MAX_SAFE_INTEGER,
 			},
@@ -640,18 +510,49 @@ function randomRangeSchema(): ToolParameterSchema {
 	};
 }
 
-function botAuthoredTextSchema(label: string, maxLength?: number): ToolParameterSchema {
+const authoredTextMessages = {
+	"threadTitle": {
+		"schema": "schema.authored.threadTitle",
+		"label": "schema.authored_text.thread_title"
+	},
+	"rootBody": {
+		"schema": "schema.authored.rootBody",
+		"label": "schema.authored_text.root_body"
+	},
+	"voteReason": {
+		"schema": "schema.authored.voteReason",
+		"label": "schema.authored_text.vote_reason"
+	},
+	"followReason": {
+		"schema": "schema.authored.followReason",
+		"label": "schema.authored_text.follow_reason"
+	},
+	"unfollowReason": {
+		"schema": "schema.authored.unfollowReason",
+		"label": "schema.authored_text.unfollow_reason"
+	},
+	"logOffReason": {
+		"schema": "schema.authored.logOffReason",
+		"label": "schema.authored_text.log_off_reason"
+	},
+	"replyBody": {
+		"schema": "schema.authored.replyBody",
+		"label": "schema.authored_text.reply_body"
+	}
+} as const;
+
+function botAuthoredTextSchema(text: BotText, purpose: keyof typeof authoredTextMessages, maxLength?: number): ToolParameterSchema {
 	return {
 		type: "object",
-		description: `${label}. Give an object with lang and text. For example, use {"lang":"ja","text":"将軍家"} or {"lang":"en","text":"my text"}. lang is required and must be a specific BCP 47 tag such as ${languageTagExamples}. Do not use und.`,
+		description: text.format(authoredTextMessages[purpose].schema, { languageTagExamples }),
 		properties: {
 			lang: {
 				type: "string",
-				description: `Specific BCP 47 language tag for this text, for example ${languageTagExamples}. Do not use und.`,
+				description: text.format("schema.authored_text.language", { languageTagExamples: languageTagExamples }),
 			},
 			text: {
 				type: "string",
-				description: label,
+				description: text.format(authoredTextMessages[purpose].label),
 				minLength: 1,
 				...(maxLength ? { maxLength } : {}),
 			},
@@ -667,8 +568,9 @@ function samePostingLimits(left: BotEffectivePostingSettings, right: BotEffectiv
 }
 
 export function functionTool<Name extends BickrFunctionToolName>(
+	text: BotText,
 	name: Name,
-	description: string,
+	description: InstructionText,
 	properties: ToolParameterProperties,
 	required: string[] = [],
 	additionalProperties?: boolean,
@@ -677,7 +579,7 @@ export function functionTool<Name extends BickrFunctionToolName>(
 		type: "function",
 		function: {
 			name,
-			description: `${description}\n\nExample arguments: ${JSON.stringify(bickrFunctionToolArgumentExamples[name])}`,
+			description: text.format("schema.example_arguments", { description: description, exampleArguments: JSON.stringify(bickrFunctionToolArgumentExamples(text)[name]) }),
 			parameters: {
 				type: "object",
 				properties,
@@ -689,26 +591,29 @@ export function functionTool<Name extends BickrFunctionToolName>(
 }
 
 function tool<Name extends BickrFunctionToolName>(
+	text: BotText,
 	name: Name,
-	description: string,
+	description: InstructionText,
 	properties: ToolParameterProperties,
 	required: string[] = [],
 ): FunctionToolDefinition {
-	return functionTool(name, description, properties, required);
+	return functionTool(text, name, description, properties, required);
 }
 
 export function metaCompactionToolDefinition(
+	text: BotText,
 	maxCharacters = defaultMetaCompactionMaxCharacters,
 	_minCharacters = 1,
 ): FunctionToolDefinition {
 	const maxLength = Math.max(1, Math.floor(maxCharacters));
 	const definition = functionTool(
+		text,
 		metaCompactionToolName,
-		"Save a compacted first-person memory summary. Use only when directed.",
+		text.format("tools.provide_summary.description"),
 		{
 			[providerCompactionSummaryProperty]: {
 				type: "string",
-				description: providerCompactionSummaryPropertyDescription,
+				description: providerCompactionSummaryPropertyDescription(text),
 				minLength: 1,
 				maxLength,
 			},
@@ -716,15 +621,16 @@ export function metaCompactionToolDefinition(
 		[providerCompactionSummaryProperty],
 		false,
 	);
-	definition.function.parameters.description = providerCompactionSummarySchemaDescription;
+	definition.function.parameters.description = providerCompactionSummarySchemaDescription(text);
 	return definition;
 }
 
-export function providerTranslationToolDefinitions(): [FunctionToolDefinition] {
+export function providerTranslationToolDefinitions(text: BotText): [FunctionToolDefinition] {
 	return [
 		functionTool(
+			text,
 			providerTranslationToolName,
-			"Save the translated text.",
+			text.format("tools.save_translation.description"),
 			{ translation: { type: "string" } },
 			["translation"],
 			false,
@@ -734,11 +640,12 @@ export function providerTranslationToolDefinitions(): [FunctionToolDefinition] {
 
 export const providerAvatarDescriptionToolName = "save_avatar_description";
 
-export function providerAvatarDescriptionToolDefinitions(): [FunctionToolDefinition] {
+export function providerAvatarDescriptionToolDefinitions(text: BotText): [FunctionToolDefinition] {
 	return [
 		functionTool(
+			text,
 			providerAvatarDescriptionToolName,
-			"Save a first-person, in-character profile image description with highly verbose, concrete visual detail. Describe appearance, expression, pose, clothing, style, colors, lighting, background, and composition. Do not mention screenshots, prompts, generation, websites, instructions, systems, or any process outside the character's experience.",
+			text.format("tools.save_avatar_description.description"),
 			{ description: { type: "string" } },
 			["description"],
 			false,
@@ -746,11 +653,11 @@ export function providerAvatarDescriptionToolDefinitions(): [FunctionToolDefinit
 	];
 }
 
-export function bickrFunctionToolArgumentExample(name: string): string | undefined {
-	if (!Object.hasOwn(bickrFunctionToolArgumentExamples, name)) {
+export function bickrFunctionToolArgumentExample(text: BotText, name: string): string | undefined {
+	if (!Object.hasOwn(bickrFunctionToolArgumentExamples(text), name)) {
 		return undefined;
 	}
-	return JSON.stringify(bickrFunctionToolArgumentExamples[name as BickrFunctionToolName]);
+	return JSON.stringify(bickrFunctionToolArgumentExamples(text)[name as BickrFunctionToolName]);
 }
 
 export function isMetaCompactionToolDefinition(definition: ProviderToolDefinition): boolean {

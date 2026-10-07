@@ -1,7 +1,9 @@
+import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
+import { factoryText } from '@bickr/shared/localization';
+import { automaticInstructionLocale } from '@bickr/shared/instruction-language';
 import { selectWorldAvatarMembers, worldAvatarMembersPromptUserContent } from "@bickr/shared/avatar-prompts";
 import {
 	defaultProviderModel,
-	defaultTranslationPrompt,
 	localizedTextString,
 } from "@bickr/shared/model";
 import type {
@@ -47,7 +49,7 @@ export function translationContextValue(profile: UserProfile | null): {
 			? `${annotation.migrationPending ? `migration:${annotation.sourceConfigurationId}` : annotation.configurationId}:${annotation.effectiveRevisionFingerprint}`
 			: defaultProviderModel,
 		model: annotation?.enabled ? annotation.effectiveModel : defaultProviderModel,
-		prompt: localizedTextString(translation?.prompt).trim() || defaultTranslationPrompt,
+		prompt: localizedTextString(translation?.prompt).trim() || factoryText(automaticInstructionLocale(profile?.language)).format("factory.translationPrompt"),
 	};
 }
 
@@ -72,9 +74,9 @@ export function worldAvatarMembersPromptSizeTitle(world: WorldSummary, members: 
 		return "Member bios are still loading; prompt size will appear here once they are available.";
 	}
 	const selection = selectWorldAvatarMembers(members);
-	const source = worldAvatarMembersPromptUserContent(world, members);
+	const source = worldAvatarMembersPromptUserContent(factoryText(automaticInstructionLocale(world.language)), world, members);
 	const characters = Array.from(source).length;
-	const approximateTokens = Math.ceil(characters / 4);
+	const approximateTokens = approximateTextTokens(source);
 	return `Will send ${formatExactTokenCount(characters)} characters, about ${formatExactTokenCount(approximateTokens)} tokens, from ${selection.members.length} member bio${selection.members.length === 1 ? "" : "s"}.${selection.kind === "sample" ? " Uses a sample of the world members." : ""}`;
 }
 

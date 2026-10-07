@@ -1,0 +1,26 @@
+{
+  "group": "tools/read_comment_by_id",
+  "units": [
+    {
+      "id": "tools.read_comment_by_id.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/read_comment_by_id.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 241,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Markdown",
+        "`replies`",
+        "read_comment_by_id",
+        "…"
+      ],
+      "sourceTemplateHash": "69cfe462b5a64271a58d13e4e8c878b173b47194127ec555c6f4f692af715659"
+    }
+  ]
+}

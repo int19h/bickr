@@ -1,5 +1,5 @@
+import type { InstructionLanguagePreference, InstructionLocale } from "@bickr/shared/instruction-language";
 import {
-	defaultReasoningPrefill,
 	localizedText,
 	type BotInferenceSettings,
 	type BotSummary,
@@ -24,6 +24,7 @@ export type IncludeLanguageInSystemPromptDraft = "include" | "exclude" | "inheri
 export const providerRoutingPlaceholder = "{\n\n}";
 
 export type BotDraft = {
+	instructionLanguage: InstructionLanguagePreference;
 	handle: string;
 	language: string;
 	includeLanguageInSystemPrompt: IncludeLanguageInSystemPromptDraft;
@@ -36,6 +37,7 @@ export type BotDraft = {
 };
 
 export type BotEditDraft = {
+	instructionLanguage: InstructionLanguagePreference;
 	language: string;
 	includeLanguageInSystemPrompt: IncludeLanguageInSystemPromptDraft;
 	displayName: string;
@@ -71,6 +73,7 @@ export type BotEditParsedDraft = {
 };
 
 const emptyBotDraft: BotDraft = {
+	instructionLanguage: { kind: "auto" },
 	handle: "",
 	language: "en",
 	includeLanguageInSystemPrompt: "include",
@@ -149,7 +152,7 @@ export function isOpenRouterBaseUrlForTools(draftBaseUrl: string, inheritedBaseU
  */
 export function botPromptBudgetRequestKey(
 	botId: string,
-	botHandle: string,
+	_botHandle: string,
 	draft: {
 		allowEarlyLogOff: boolean;
 		compactionMaxCharacters: string;
@@ -158,6 +161,8 @@ export function botPromptBudgetRequestKey(
 		displayName: string;
 		language: string;
 		includeLanguageInSystemPrompt: boolean;
+		instructionLanguage?: InstructionLanguagePreference;
+		resolvedInstructionLocale: InstructionLocale;
 		recurringPromptEnabled: boolean;
 		recurringPrompt: string;
 		prompt: string;
@@ -174,6 +179,8 @@ export function botPromptBudgetRequestKey(
 		displayName: draft.displayName,
 		language: draft.language,
 		includeLanguageInSystemPrompt: draft.includeLanguageInSystemPrompt,
+		instructionLanguage: draft.instructionLanguage ?? { kind: "auto" },
+		resolvedInstructionLocale: draft.resolvedInstructionLocale,
 		inferenceFingerprint,
 		prompt: draft.prompt,
 		worldPrompt: draft.worldPrompt,
@@ -184,7 +191,7 @@ export function botPromptBudgetRequestKey(
 		commentBodyCharacters: draft.commentBodyCharacters.trim(),
 		recurringPrompt:
 			draft.recurringPromptEnabled ?
-				draft.recurringPrompt.trim() ? draft.recurringPrompt : defaultReasoningPrefill(botHandle)
+				draft.recurringPrompt
 			:	null,
 		recurringPromptEnabled: draft.recurringPromptEnabled,
 		shortBio: draft.shortBio,
@@ -225,6 +232,7 @@ export function botEditDraftFromBot(bot: BotSummary): BotEditDraft {
 	const linkedClone = Boolean(bot.cloneSource?.linked);
 	const inferenceSettings = botEditableInferenceSettings(bot);
 	return {
+		instructionLanguage: bot.instructionLanguage ?? { kind: "auto" },
 		language:
 			profileOverrides ?
 				profileOverrides.language ?? ""
@@ -275,6 +283,7 @@ export function updateBotInputFromEditDraft(
 ): UpdateBotInput {
 	const language = languageInputValue(draft.language) ?? (linkedClone ? null : defaultLanguageTag);
 	return {
+		instructionLanguage: draft.instructionLanguage,
 		language,
 		includeLanguageInSystemPrompt: includeLanguageInSystemPromptInputFromDraft(
 			draft.includeLanguageInSystemPrompt,
@@ -312,6 +321,7 @@ export function updateBotInputFromEditDraft(
 export function createBotInputFromDraft(draft: BotDraft): CreateBotInput {
 	const language = languageInputValue(draft.language) ?? (draft.cloneSourceBotId ? null : defaultLanguageTag);
 	return {
+		instructionLanguage: draft.instructionLanguage,
 		handle: draft.handle,
 		language,
 		includeLanguageInSystemPrompt: includeLanguageInSystemPromptInputFromDraft(
@@ -382,6 +392,7 @@ export function isValidCloneBotDraft(draft: BotDraft): boolean {
 
 export function botDraftFromExistingBot(bot: BotSummary): BotDraft {
 	return {
+		instructionLanguage: { kind: "auto" },
 		handle: bot.handle,
 		language: "",
 		includeLanguageInSystemPrompt: "inherit",

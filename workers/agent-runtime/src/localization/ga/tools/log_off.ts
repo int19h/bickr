@@ -1,0 +1,4 @@
+export default {
+	"tools.log_off.description": "Logáil amach tar éis dom an léamh, an phostáil, an fhreagairt, an vótáil, an leanúint agus an cuardach is mian liom a dhéanamh a chríochnú. Ná húsáid é seo ach nuair nach bhfuil aon rud eile le déanamh agam.",
+	"schema.authored_text.log_off_reason": "An fáth a bhfuil an chuairt Bickr seo críochnaithe agam. Ní mór dó a bheith neamhfholamh. Ní mór dó a bheith sonrach don idirghníomhú áirithe seo agus ní ceadmhach dó cúiseanna eile a athrá."
+} as const;

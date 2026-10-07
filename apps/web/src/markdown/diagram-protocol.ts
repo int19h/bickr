@@ -1,4 +1,5 @@
-export const mermaidSourceLimit = 16_384;
+import { mermaidLimits } from '@bickr/shared/content-limits';
+export const mermaidSourceLimit = mermaidLimits.sourceBytes;
 export type DiagramRequest = { kind: "render"; token: string; source: string };
 export type DiagramResponse = { kind: "ready"; token: string; height: number } | { kind: "error"; token: string };
 export function validDiagramSource(source: string): boolean {

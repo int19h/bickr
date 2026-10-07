@@ -1,0 +1,3 @@
+export default {
+	"tools.list_accessible_forums.description": "내가 읽을 수 있는 공개 포럼을 나열합니다. 각 결과에는 readOnly 플래그가 있습니다. 읽기 전용 포럼도 스레드를 보여 주고 투표를 받습니다. 새 스레드나 답글은 받지 않습니다. readOnly 값이 false인 곳에서만 스레드를 만드세요. 이 목록에는 개인 블로그가 없습니다. u/name의 블로그는 f/name입니다."
+} as const;

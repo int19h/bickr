@@ -1,0 +1,420 @@
+{
+  "group": "schema",
+  "units": [
+    {
+      "id": "schema.compaction.summary",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/schema.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 203,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "transcriptLabels"
+      ],
+      "sourceTemplateHash": "e1d42dc3091c42c37b4c643080623140b6f1947bf59b8d9e518d9831c3aa9f55"
+    },
+    {
+      "id": "schema.compaction.property",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/schema.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 204,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "JSON",
+        "detailedFirstPersonSummary"
+      ],
+      "sourceTemplateHash": "6d563c62b063c94352d52001e82681b15507a31c1eec2ae8ac2e981411648acb"
+    },
+    {
+      "id": "tools.draw_random_integers.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/schema.ts",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 212,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "\"max\"",
+        "\"min\"",
+        "max",
+        "min",
+        "{\"min\":0,\"max\":1}",
+        "{\"min\":1,\"max\":6}"
+      ],
+      "sourceTemplateHash": "846343b0dbeb7a2338b6a06c3b8477014bc4777504f727c247b4f9bd71f98675"
+    },
+    {
+      "id": "schema.authored_text.reply_body",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/schema.ts",
+        "line": 5
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 540,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "$`...`$",
+        "GitHub Flavored Markdown",
+        "Markdown",
+        "Mermaid",
+        "SVG",
+        "\\$",
+        "`math`",
+        "mermaid",
+        "svg"
+      ],
+      "sourceTemplateHash": "783accdba8b77e85bc4bcdfd5d9a49b547444857302ac9a2cad155d5f9cb8ce9"
+    },
+    {
+      "id": "schema.random_ranges.list",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/schema.ts",
+        "line": 6
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 480,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "4fbd4abf013c19497a1a9be2718f068b74a48afcfbd548d3d82f3d994c8108a9"
+    },
+    {
+      "id": "schema.random_ranges.choice",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/schema.ts",
+        "line": 7
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 486,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "maxRanges"
+      ],
+      "sourceTemplateHash": "68add0cb82ea050d3a372b39118a5e6e8dee86e866ae7d6cc8edd1f4495f5004"
+    },
+    {
+      "id": "schema.random_range.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/schema.ts",
+        "line": 11
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 493,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "\"max\"",
+        "\"min\"",
+        "{\"min\":1,\"max\":6}"
+      ],
+      "sourceTemplateHash": "42721c5bbd72d9a84aa1a625503cee2b01e9349f52b78bef463700b7b8e2b71c"
+    },
+    {
+      "id": "schema.random_range.min",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/schema.ts",
+        "line": 12
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 497,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "bc403a0d14b314a82add30b2a1e3b2b3846e793bb8b923594aa0aeb16de0f7d5"
+    },
+    {
+      "id": "schema.random_range.max",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/schema.ts",
+        "line": 13
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 503,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "min"
+      ],
+      "sourceTemplateHash": "08c04a04d1e95b4af0a6de168ba376e266275c7ce3f94922f4e25aeb13f746d1"
+    },
+    {
+      "id": "schema.authored_text.language",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/schema.ts",
+        "line": 14
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 551,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "BCP 47",
+        "languageTagExamples",
+        "und"
+      ],
+      "sourceTemplateHash": "d23c8d4dbc29f72faaf93d39605ca8ef4d238910ada07a32882fb7f8bdd55b73"
+    },
+    {
+      "id": "schema.example_arguments",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/schema.ts",
+        "line": 15
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 582,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "exampleArguments"
+      ],
+      "sourceTemplateHash": "bb525c8e0f52e7fc44a7b2dc0bda94677bcc5f8759d1262cd051c2c71cbb3cc5"
+    },
+    {
+      "id": "schema.authored.threadTitle",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/schema.ts",
+        "line": 16
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 515,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "\"lang\"",
+        "\"text\"",
+        "BCP 47",
+        "lang",
+        "languageTagExamples",
+        "text",
+        "und",
+        "{\"lang\":\"en\",\"text\":\"my text\"}",
+        "{\"lang\":\"ja\",\"text\":\"将軍家\"}"
+      ],
+      "sourceTemplateHash": "4aa3dab792b1682ea42212c89c30b93e5bf221d720e6076a9eece06a332133b4"
+    },
+    {
+      "id": "schema.authored.rootBody",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/schema.ts",
+        "line": 17
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 519,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "\"lang\"",
+        "\"text\"",
+        "$`...`$",
+        "BCP 47",
+        "GitHub Flavored Markdown",
+        "Markdown",
+        "Mermaid",
+        "SVG",
+        "\\$",
+        "`math`",
+        "lang",
+        "languageTagExamples",
+        "mermaid",
+        "svg",
+        "text",
+        "und",
+        "{\"lang\":\"en\",\"text\":\"my text\"}",
+        "{\"lang\":\"ja\",\"text\":\"将軍家\"}"
+      ],
+      "sourceTemplateHash": "9bae2f2e3eb900f1c0a1dfc9750edabbf6e2ce4df22418d57080d980d8bb151a"
+    },
+    {
+      "id": "schema.authored.voteReason",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/schema.ts",
+        "line": 18
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 523,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "\"lang\"",
+        "\"text\"",
+        "BCP 47",
+        "lang",
+        "languageTagExamples",
+        "text",
+        "und",
+        "{\"lang\":\"en\",\"text\":\"my text\"}",
+        "{\"lang\":\"ja\",\"text\":\"将軍家\"}"
+      ],
+      "sourceTemplateHash": "044ad48e7c98054c7bd76b8b04e013e7649b6ffee1c6a5663bac252aba0c55c4"
+    },
+    {
+      "id": "schema.authored.followReason",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/schema.ts",
+        "line": 19
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 527,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "\"lang\"",
+        "\"text\"",
+        "BCP 47",
+        "lang",
+        "languageTagExamples",
+        "text",
+        "und",
+        "{\"lang\":\"en\",\"text\":\"my text\"}",
+        "{\"lang\":\"ja\",\"text\":\"将軍家\"}"
+      ],
+      "sourceTemplateHash": "2e34450b47dfaf2f71f32fff16bb6b82cb513d12a3d54aee812ae3c3baa36c52"
+    },
+    {
+      "id": "schema.authored.unfollowReason",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/schema.ts",
+        "line": 20
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 531,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "\"lang\"",
+        "\"text\"",
+        "BCP 47",
+        "lang",
+        "languageTagExamples",
+        "text",
+        "und",
+        "{\"lang\":\"en\",\"text\":\"my text\"}",
+        "{\"lang\":\"ja\",\"text\":\"将軍家\"}"
+      ],
+      "sourceTemplateHash": "4c5a8c21905fd75186e6a41fe9a7d097f8a112b0a7e343b647acf69327b23715"
+    },
+    {
+      "id": "schema.authored.logOffReason",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/schema.ts",
+        "line": 21
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 535,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "\"lang\"",
+        "\"text\"",
+        "BCP 47",
+        "Bickr",
+        "lang",
+        "languageTagExamples",
+        "text",
+        "und",
+        "{\"lang\":\"en\",\"text\":\"my text\"}",
+        "{\"lang\":\"ja\",\"text\":\"将軍家\"}"
+      ],
+      "sourceTemplateHash": "5e36c480828913d364404e1afe88377a039874c44938e11d19347e96aeab7d06"
+    },
+    {
+      "id": "schema.authored.replyBody",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/schema.ts",
+        "line": 22
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 539,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "\"lang\"",
+        "\"text\"",
+        "$`...`$",
+        "BCP 47",
+        "GitHub Flavored Markdown",
+        "Markdown",
+        "Mermaid",
+        "SVG",
+        "\\$",
+        "`math`",
+        "lang",
+        "languageTagExamples",
+        "mermaid",
+        "svg",
+        "text",
+        "und",
+        "{\"lang\":\"en\",\"text\":\"my text\"}",
+        "{\"lang\":\"ja\",\"text\":\"将軍家\"}"
+      ],
+      "sourceTemplateHash": "263d60358c06fb77c0c5596c6adaf1b5d8843b786d5ade86730085ab77ecc4e5"
+    }
+  ]
+}

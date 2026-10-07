@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { BotDocument } from '@bickr/shared/model';
+import type { EffectiveBotDocument } from '@bickr/shared/model';
 import { parseLanguageTag } from '@bickr/shared/validation';
 import { contextBudgetDraft } from './context-budget-draft';
-const current = { language: 'en', includeLanguageInSystemPrompt: true, prompt: { lang: 'en', text: 'Original' } } as BotDocument;
+const current = { instructionLocale: 'en', language: 'en', includeLanguageInSystemPrompt: true, prompt: { lang: 'en', text: 'Original' } } as EffectiveBotDocument;
 
 describe('context budget draft', () => {
 	it('uses the edited language both for language instructions and edited text', () => {

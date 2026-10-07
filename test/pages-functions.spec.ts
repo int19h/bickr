@@ -1,3 +1,5 @@
+import { botText as testBotText } from "../workers/agent-runtime/src/localization";
+const englishInstructions = testBotText("en");
 import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
 import { internalServiceTestEnv, internalServiceTestHeaders } from "./helpers/internal-service-auth";
 import {
@@ -23,7 +25,6 @@ import {
 	createThreadForTest,
 	createWorld,
 	createWorldForTest,
-	defaultTranslationPrompt,
 	deleteBot,
 	deleteBotGroupRoute,
 	deleteProfileRoute,
@@ -3047,7 +3048,9 @@ describe("Pages functions", () => {
 			await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, created.data.bot.id),
 		);
 		const bootstrapNotifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, created.data.bot.id);
-		expect(localizedTextString(bootstrapNotifications.find((notification) => notification.notificationType === "bootstrap")?.message)).toContain("f/intro");
+		const bootstrap = bootstrapNotifications.find((notification) => notification.notificationType === "bootstrap");
+		expect(bootstrap?.event).toMatchObject({ kind: 'bootstrap', bootstrapVersion: 2, customMessage: null, introForum: 'f/intro' });
+		expect(localizedTextString(bootstrap?.message)).toBe('');
 
 		await testEnv.BICKR_D1.prepare(
 			`UPDATE forums_index SET deleted_at = ?, updated_at = ? WHERE world_handle = ? AND handle = ?`,
@@ -3757,7 +3760,7 @@ describe("Pages functions", () => {
 			responseReserveTokens: providerContextCompletionReserveTokens,
 		});
 		const defaultLoopRequest = providerChatCompletionRequest(
-			{ baseUrl: "https://provider.example/v1", model: "provider/test-model", temperature: 0.2 },
+			{ text: englishInstructions, baseUrl: "https://provider.example/v1", model: "provider/test-model", temperature: 0.2 },
 			[{ role: "user", content: "hello" }],
 			[],
 		);
@@ -3817,7 +3820,7 @@ describe("Pages functions", () => {
 					"I remember the world's shared counting rule.\n\n" +
 					"I am u/count-sage. I need to think about how I feel and what I want to do next.",
 			},
-			{ role: "user", content: "The Bickr app is ready for my next step." },
+			{ role: "user", content: "The Bickr app is ready for your next step." },
 		]);
 
 		const changed = await promptContextBudget(created.data.bot.id, {
@@ -4070,7 +4073,6 @@ describe("Pages functions", () => {
 					translation: {
 						enabled: true,
 						model: "openai/gpt-4o-mini",
-						prompt: unspecifiedLt(defaultTranslationPrompt),
 						toolCalls: "railroad",
 					},
 					supportsPrefill: false,
@@ -4190,7 +4192,6 @@ describe("Pages functions", () => {
 			expect(noKeyModelPayload.data.profile.inferenceSettings.model).toBeUndefined();
 			expect(noKeyModelPayload.data.profile.inferenceSettings.translation).toMatchObject({
 				enabled: true,
-				prompt: unspecifiedLt(defaultTranslationPrompt),
 			});
 			expect((noKeyModelPayload.data.profile.inferenceSettings.translation as Record<string, unknown>).model).toBeUndefined();
 		expect(noKeyModelPayload.data.profile.inferenceSettings.openRouterApiKeySet).toBeUndefined();

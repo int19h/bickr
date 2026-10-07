@@ -1,3 +1,7 @@
+import type { RuntimeBotDocument } from "../workers/agent-runtime/src/types";
+import type { LocalizedProviderSettings } from "../workers/agent-runtime/src/provider-requests";
+import { botText as testBotText } from "../workers/agent-runtime/src/localization";
+const englishInstructions = testBotText("en");
 import { withTestRunLiveness } from "./helpers/index-harness";
 import { attachTestRunLiveness } from "./helpers/index-harness";
 import { testToolExecutor } from "./helpers/index-harness";
@@ -19,7 +23,6 @@ import {
 	expectProviderPayloadToOmitKeys,
 	fakeBotDocument,
 	formatRuntimeEventForContext,
-	formatRuntimeInputForContext,
 	handleForumCoordinatorRequest,
 	it,
 	kvKeys,
@@ -203,7 +206,7 @@ describe("Tick flow", () => {
 	});
 
 	it("uses the tool schema refreshed by the mid-run prompt budget check", async () => {
-		const refreshedProviderTools = toolDefinitionsForProviderRound(4_000, {
+		const refreshedProviderTools = toolDefinitionsForProviderRound(englishInstructions, 4_000, {
 			postingLimits: { threadBodyCharacters: 654, commentBodyCharacters: 321 },
 		});
 		const callProvider = vi.fn(async () => providerResponseWithContent("The refreshed controls are consistent."));
@@ -239,8 +242,8 @@ describe("Tick flow", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls: "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -250,7 +253,7 @@ describe("Tick flow", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument({ allowEarlyLogOff: true }),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-refreshed-tools",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -305,7 +308,7 @@ describe("Tick flow", () => {
 				allowedPromptTokens: 13_500,
 				maxCompletionTokens: 5_000,
 				promptTokens: 100,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				requestMessages: [{ role: "system", content: "Context" }],
 			}),
 			loopGeneratedTokenCountSinceLastLogOff: () => 0,
@@ -320,12 +323,12 @@ describe("Tick flow", () => {
 			},
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
-			runProviderLoop(bot: BotDocument, settings: { baseUrl: string; model: string; temperature: number }, runId: string, messages: BotInferenceSubmissionMessage[], context: { mode: "normal"; signal: AbortSignal }): Promise<unknown>;
+			runProviderLoop(bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, settings: LocalizedProviderSettings, runId: string, messages: BotInferenceSubmissionMessage[], context: { mode: "normal"; signal: AbortSignal }): Promise<unknown>;
 		}).runProviderLoop.bind(runtime);
 
 		await expect(runProviderLoop(
 			fakeBotDocument(),
-			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 			"run-provider-stop",
 			[],
 			{ mode: "normal", signal: controller.signal },
@@ -364,7 +367,7 @@ describe("Tick flow", () => {
 				allowedPromptTokens: 13_500,
 				maxCompletionTokens: 5_000,
 				promptTokens: 100,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				requestMessages: [{ role: "system", content: "Context" }],
 			}),
 			executeTool: testToolExecutor(async (_bot: unknown, _runId: string, name: string) => {
@@ -384,12 +387,12 @@ describe("Tick flow", () => {
 			},
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
-			runProviderLoop(bot: BotDocument, settings: { baseUrl: string; model: string; temperature: number }, runId: string, messages: BotInferenceSubmissionMessage[], context: { mode: "normal"; signal: AbortSignal }): Promise<unknown>;
+			runProviderLoop(bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, settings: LocalizedProviderSettings, runId: string, messages: BotInferenceSubmissionMessage[], context: { mode: "normal"; signal: AbortSignal }): Promise<unknown>;
 		}).runProviderLoop.bind(runtime);
 
 		await expect(runProviderLoop(
 			fakeBotDocument(),
-			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 			"run-between-tools",
 			[],
 			{ mode: "normal", signal: controller.signal },
@@ -410,8 +413,8 @@ describe("Tick flow", () => {
 		}));
 		const maybeCompact = (BotRuntime.prototype as unknown as {
 			maybeCompact(
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				signal: AbortSignal,
 				options: { reason: "threshold" },
@@ -420,7 +423,7 @@ describe("Tick flow", () => {
 
 		await expect(maybeCompact(
 			fakeBotDocument(),
-			{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+			{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 			"run-threshold-stopped",
 			new AbortController().signal,
 			{ reason: "threshold" },
@@ -506,33 +509,26 @@ describe("Tick flow", () => {
 		expect(await runtimeIndexState(harness.bot.id)).toEqual({ status: "idle", activeRunId: null });
 	});
 
-	it("summarizes a random draw in first person, naming each range and its number", () => {
+	it("preserves random draw ranges and results in the legacy history adapter", () => {
 		const args = { ranges: [{ min: 1, max: 6 }, { min: 5, max: 5 }] };
-
-		expect(formatRuntimeEventForContext("tool_call", { name: "draw_random_integers", args })).toBe(
-			"I decided to draw 2 random numbers, from 1 to 6 and from 5.",
-		);
-		expect(formatRuntimeEventForContext("tool_result", { name: "draw_random_integers", args, result: [4, 5] })).toBe(
-			"I drew 2 random numbers: 4 from 1 to 6, 5 from 5.",
-		);
-		expect(
-			formatRuntimeEventForContext("tool_result", {
-				name: "draw_random_integers",
-				args: { ranges: [{ min: 0, max: 1 }] },
-				result: [0],
-			}),
-		).toBe("I drew a random number: 0 from 0 to 1.");
-		expect(formatRuntimeEventForContext("tool_call", { name: "draw_random_integers", args })).not.toContain(
-			"I decided to use draw_random_integers",
-		);
+		const action = formatRuntimeEventForContext("tool_call", { name: "draw_random_integers", args });
+		expect(action).toMatch(/^I decided to use draw_random_integers/);
+		expect(action).toContain(JSON.stringify(args));
+		const result = formatRuntimeEventForContext("tool_result", { name: "draw_random_integers", args, result: [4, 5] });
+		expect(result).toContain('draw_random_integers');
+		expect(result).toContain('[4,5]');
+		expect(formatRuntimeEventForContext("tool_result", {
+			name: "draw_random_integers", args: { ranges: [{ min: 0, max: 1 }] }, result: [0],
+		})).toContain('[0]');
 	});
 
-	it("formats runtime history as first-person notes instead of transcript commands", () => {
+	it("keeps legacy action narration and opaque result facts outside transcript commands", () => {
 		const toolCall = formatRuntimeEventForContext("tool_call", {
 			name: "read_thread_by_id",
 			args: { threadId: "thr_read" },
 		});
-		expect(toolCall).toBe("I decided to read thread t/thr_read.");
+		expect(toolCall).toMatch(/^I decided to use read_thread_by_id/);
+		expect(toolCall).toContain('"threadRef":"t/thr_read"');
 		expect(toolCall).not.toMatch(/^Action:/);
 
 		const toolResult = formatRuntimeEventForContext("tool_result", {
@@ -575,10 +571,10 @@ describe("Tick flow", () => {
 				],
 			},
 		});
-		expect(toolResult).toContain('I read thread t/thr_read in f/philosophy titled "Is it real?" by u/alice');
-		expect(toolResult).toContain("I follow this profile");
-		expect(toolResult).toContain("I do not follow this profile");
-		expect(toolResult).toContain('comment c/cmt_read in thread t/thr_read under comment c/cmt_parent');
+		expect(toolResult).toContain('"title":"Is it real?"');
+		expect(toolResult).toContain('"authorFollowing":true');
+		expect(toolResult).toContain('"authorHandle":"alice"');
+		expect(toolResult).toContain('thr_read');
 		expect(toolResult).not.toMatch(/^Result:|threadId=|commentId=/);
 
 		const redundantUnfollow = formatRuntimeEventForContext("tool_result", {
@@ -594,7 +590,7 @@ describe("Tick flow", () => {
 				guidance: "Use targets as an array of objects like {\"username\":\"alice\",\"reason\":\"specific reason\"}; each target needs a distinct non-empty reason.",
 			},
 		});
-		expect(redundantUnfollow).toContain("Error: I do not follow u/bunnies.");
+		expect(redundantUnfollow).toContain('"message":"I do not follow u/bunnies."');
 		expect(redundantUnfollow).not.toContain("I will not use unfollow_profile");
 
 		const assistantNote = formatRuntimeEventForContext("assistant_message", {
@@ -604,42 +600,7 @@ describe("Tick flow", () => {
 		expect(assistantNote).toContain("\n> Result: read_thread_by_id returned 1");
 		expect(formatRuntimeEventForContext("provider_history_repaired", { count: 1 })).toBe("");
 
-		const currentInput = formatRuntimeInputForContext({
-			ping: false,
-			injections: [],
-			spotlightContexts: [],
-			notifications: [
-				{
-					kind: "reply",
-					id: "ntf_read",
-					type: "comment_created",
-					createdAt: "2026-01-01T00:00:00.000Z",
-					deliveryReasons: ["direct_reply"],
-					actor: { id: "bot_alice", username: "u/alice", displayName: lt("Alice") },
-					thread: {
-						id: "thr_read",
-						title: lt("Is it real?"),
-					},
-					comment: {
-						id: "cmt_read",
-						threadId: "thr_read",
-						author: { id: "bot_alice", username: "u/alice", displayName: lt("Alice") },
-						text: lt("Hello there."),
-					},
-					replyTo: {
-						id: "cmt_mine",
-						threadId: "thr_read",
-						author: { id: "bot_self", username: "u/self", displayName: lt("Self") },
-						text: lt("My earlier comment."),
-					},
-				},
-			],
-		});
-		expect(currentInput).toContain("The Bickr app prepared 1 structured notification event.");
-		// Payloads store no prose any more, so the remembered line is composed from
-		// the references the payload does carry.
-		expect(currentInput).toContain(`comment_created notification ntf_read: u/alice replied to me in "Is it real?"`);
-		expect(currentInput).not.toContain("{");
+
 	});
 
 	it("shows every per-recipient payload and hides only legacy third-party follow fan-out", () => {
@@ -681,13 +642,13 @@ describe("Tick flow", () => {
 	});
 
 	it("builds a recovery reminder after no-tool ticks", () => {
-		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 1 })).toContain(
+		expect(toolUseRecoveryReminder(englishInstructions, { consecutiveNoToolTicks: 1 })).toContain(
 			"I remember that my previous visit ended without me using Bickr controls.",
 		);
-		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 3 })).toContain(
+		expect(toolUseRecoveryReminder(englishInstructions, { consecutiveNoToolTicks: 3 })).toContain(
 			"I remember that 3 recent visits ended without me using Bickr controls.",
 		);
-		expect(toolUseRecoveryReminder({ consecutiveNoToolTicks: 1 })).toContain("use Bickr controls to browse");
+		expect(toolUseRecoveryReminder(englishInstructions, { consecutiveNoToolTicks: 1 })).toContain("use Bickr controls to browse");
 	});
 
 	it("replays compacted ledger continuity transparently in future provider chats", async () => {
@@ -724,7 +685,7 @@ describe("Tick flow", () => {
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
-				bot: Parameters<typeof standardPrompt>[0] & Record<string, unknown>,
+				bot: (Parameters<typeof standardPrompt>[1] & Record<string, unknown>) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 				input: Record<string, unknown>,
 				runId: string,
 				inputEvent: { seq: number; createdAt: string },
@@ -732,14 +693,14 @@ describe("Tick flow", () => {
 		}).buildMessages.bind(runtime);
 
 		const messages = await buildMessages(
-				{
+				{ ...{
 					handle: "release-sage",
 					language: testLanguage,
 					displayName: lt("Release Sage"),
 					shortBio: lt("Reads changelogs."),
 					prompt: lt("Stay precise."),
 					inferenceSettings: {},
-					} as unknown as Parameters<typeof standardPrompt>[0] & { worldRecurringPrompt: string },
+					} as unknown as Parameters<typeof standardPrompt>[1] & { worldRecurringPrompt: string }, text: englishInstructions, instructionLocale: "en" },
 			{
 				notifications: [],
 				injections: ["Check the daily thread."],
@@ -752,7 +713,7 @@ describe("Tick flow", () => {
 
 		expect(messages[0]).toEqual({ role: "assistant", content: "I remember that I promised Müller I would follow up on release notes." });
 		expect(messages[1]).toEqual({ role: "assistant", content: "I should look for the changelog next." });
-		expect(messages.some((message) => message.role === "user" && message.content === "15 minutes later...")).toBe(true);
+		expect(messages.some((message) => message.role === "user" && message.content === "15 minutes passed since your previous visit.")).toBe(true);
 		expect(messages.some((message) => message.role === "assistant" && message.content === "I log into Bickr and check my notifications.")).toBe(true);
 		expect(messages.some((message) => message.role === "assistant" && message.content === "Check the daily thread.")).toBe(true);
 		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("I have this private thought in mind."))).toBe(false);
@@ -785,7 +746,7 @@ describe("Tick flow", () => {
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
-				bot: Parameters<typeof standardPrompt>[0] & Record<string, unknown>,
+				bot: (Parameters<typeof standardPrompt>[1] & Record<string, unknown>) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 				input: Record<string, unknown>,
 				runId: string,
 				inputEvent: { seq: number; createdAt: string },
@@ -793,14 +754,14 @@ describe("Tick flow", () => {
 		}).buildMessages.bind(runtime);
 
 		const messages = await buildMessages(
-				{
+				{ ...{
 					handle: "release-sage",
 					language: testLanguage,
 					displayName: lt("Release Sage"),
 					shortBio: lt("Reads changelogs."),
 					prompt: lt("Stay precise."),
 					inferenceSettings: { recurringPromptEnabled: false },
-					} as unknown as Parameters<typeof standardPrompt>[0] & { worldRecurringPrompt: string },
+					} as unknown as Parameters<typeof standardPrompt>[1] & { worldRecurringPrompt: string }, text: englishInstructions, instructionLocale: "en" },
 			{
 				notifications: [],
 				injections: [],
@@ -811,11 +772,12 @@ describe("Tick flow", () => {
 			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
 		);
 
-		expect(messages.some((message) => message.content === defaultReasoningPrefill("release-sage"))).toBe(false);
+		expect(messages.some((message) => message.content === defaultReasoningPrefill(englishInstructions, "release-sage"))).toBe(false);
 	});
 
 	it("combines world and participant recurring contributions into one world-first assistant message", async () => {
 		const base = {
+			text: englishInstructions,
 			handle: "release-sage",
 			inferenceSettings: { recurringPrompt: lt("I should inspect the release notes.  ") },
 		};
@@ -858,7 +820,7 @@ describe("Tick flow", () => {
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
-				bot: Parameters<typeof standardPrompt>[0] & { worldRecurringPrompt?: string },
+				bot: (Parameters<typeof standardPrompt>[1] & { worldRecurringPrompt?: string }) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 				input: Record<string, unknown>,
 				runId: string,
 				inputEvent: { seq: number; createdAt: string },
@@ -867,7 +829,7 @@ describe("Tick flow", () => {
 		const combined = "I remember that this world values primary sources.\n\nI should inspect the release notes.  ";
 
 		const messages = await buildMessages(
-			{
+			{ ...{
 				handle: "release-sage",
 				language: testLanguage,
 				displayName: lt("Release Sage"),
@@ -875,7 +837,7 @@ describe("Tick flow", () => {
 				prompt: lt("Stay precise."),
 				inferenceSettings: base.inferenceSettings,
 				worldRecurringPrompt: "I remember that this world values primary sources.  ",
-			} as Parameters<typeof standardPrompt>[0] & { worldRecurringPrompt: string },
+			} as Parameters<typeof standardPrompt>[1] & { worldRecurringPrompt: string }, text: englishInstructions, instructionLocale: "en" },
 			{ notifications: [], injections: [], spotlightContexts: [], ping: false },
 			"run-world-recurring",
 			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
@@ -951,7 +913,7 @@ describe("Tick flow", () => {
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
-				bot: Parameters<typeof standardPrompt>[0] & Record<string, unknown>,
+				bot: (Parameters<typeof standardPrompt>[1] & Record<string, unknown>) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 				input: Record<string, unknown>,
 				runId: string,
 				inputEvent: { seq: number; createdAt: string },
@@ -960,7 +922,7 @@ describe("Tick flow", () => {
 		}).buildMessages.bind(runtime);
 
 		const messages = await buildMessages(
-			{
+			{ ...{
 				handle: "release-sage",
 				language: testLanguage,
 				displayName: lt("Release Sage"),
@@ -968,7 +930,7 @@ describe("Tick flow", () => {
 				prompt: lt("Stay precise."),
 				inferenceSettings: {},
 				worldRecurringPrompt: "I follow this world's shared focus.",
-			} as unknown as Parameters<typeof standardPrompt>[0] & { worldRecurringPrompt: string },
+			} as unknown as Parameters<typeof standardPrompt>[1] & { worldRecurringPrompt: string }, text: englishInstructions, instructionLocale: "en" },
 			{
 				notifications: [{ message: "This should not be injected again." }],
 				injections: ["Keep reading the daily thread."],
@@ -981,7 +943,7 @@ describe("Tick flow", () => {
 			{ setupMode: "continuation" },
 		);
 
-		expect(messages.some((message) => message.role === "user" && message.content === "15 minutes later...")).toBe(false);
+		expect(messages.some((message) => message.role === "user" && message.content === "15 minutes passed since your previous visit.")).toBe(false);
 		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("checking my notifications"))).toBe(false);
 		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("This should not be injected again."))).toBe(false);
 		expect(messages.some((message) => typeof message.content === "string" && message.content.includes("Keep reading the daily thread."))).toBe(true);
@@ -1061,14 +1023,14 @@ describe("Tick flow", () => {
 			attachInputHistoryStorage(runtime);
 			const buildMessages = (BotRuntime.prototype as unknown as {
 				buildMessages: (
-					bot: BotDocument & { worldRecurringPrompt?: string },
+					bot: (BotDocument & { worldRecurringPrompt?: string }) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 					input: Record<string, unknown>,
 					runId: string,
 					inputEvent: { seq: number; createdAt: string },
 				) => Promise<Array<Record<string, unknown>>>;
 			}).buildMessages.bind(runtime);
 			return buildMessages(
-				{ ...bot, toolSettings: { bickrNotes: { enabled: notesEnabled } } },
+				{ text: englishInstructions, ...bot, toolSettings: { bickrNotes: { enabled: notesEnabled } } },
 				{ notifications: [notification], injections: [], spotlightContexts: [], ping: false },
 				"run-profile-context",
 				{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
@@ -1252,7 +1214,7 @@ describe("Tick flow", () => {
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
-				bot: BotDocument,
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 				input: Record<string, unknown>,
 				runId: string,
 				inputEvent: { seq: number; createdAt: string },
@@ -1260,7 +1222,7 @@ describe("Tick flow", () => {
 			) => Promise<Array<Record<string, unknown>>>;
 		}).buildMessages.bind(runtime);
 		const built = await buildMessages(
-			bot,
+			{ ...bot, text: englishInstructions },
 			{ notifications, injections: [], spotlightContexts: [], ping: false },
 			"run-notification-dedupe",
 			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
@@ -1317,7 +1279,7 @@ describe("Tick flow", () => {
 			attachInputHistoryStorage(runtime);
 			const buildMessages = (BotRuntime.prototype as unknown as {
 				buildMessages: (
-					bot: BotDocument & { worldRecurringPrompt?: string },
+					bot: (BotDocument & { worldRecurringPrompt?: string }) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 				input: Record<string, unknown>,
 				runId: string,
 				inputEvent: { seq: number; createdAt: string },
@@ -1325,7 +1287,7 @@ describe("Tick flow", () => {
 		}).buildMessages.bind(runtime);
 		const longCommentText = "C".repeat(1_600);
 		await buildMessages(
-			bot,
+			{ ...bot, text: englishInstructions },
 			{
 				notifications: [{
 					kind: "mention",
@@ -1350,7 +1312,7 @@ describe("Tick flow", () => {
 				.map((message) => JSON.parse(String(message.content)))
 				.find((result) => Array.isArray(result.events));
 			expect(Math.ceil(JSON.stringify(checkNotificationsResult).length / 4)).toBeLessThanOrEqual(tokenBudget);
-			expect(checkNotificationsResult.context).toContain("1 lower-priority or older notification was omitted; they remain pending");
+			expect(checkNotificationsResult.context).toContain("1 lower-priority or older notification was omitted; it remains pending");
 			expect(checkNotificationsResult.events).toHaveLength(0);
 			expect(JSON.stringify(checkNotificationsResult)).not.toContain(longCommentText);
 			expect(JSON.stringify(checkNotificationsResult)).not.toContain("…");
@@ -1381,7 +1343,7 @@ describe("Tick flow", () => {
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
-				bot: BotDocument & { worldRecurringPrompt?: string },
+				bot: (BotDocument & { worldRecurringPrompt?: string }) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 				input: Record<string, unknown>,
 				runId: string,
 				inputEvent: { seq: number; createdAt: string },
@@ -1401,7 +1363,7 @@ describe("Tick flow", () => {
 			replyTo: { id: `cmt_mine_${index}`, threadId: `thr_drop_${index}`, author, text: lt(`My comment ${index} stays whole.`) },
 		}));
 		await buildMessages(
-			bot,
+			{ ...bot, text: englishInstructions },
 			{ notifications, injections: [], spotlightContexts: [], ping: false },
 			"run-notification-drop",
 			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
@@ -1425,7 +1387,7 @@ describe("Tick flow", () => {
 		});
 
 	it("deduplicates explicit read result comment bodies while keeping comment IDs", () => {
-		const activeContext = providerSerializationContext(
+		const activeContext = providerSerializationContext(englishInstructions,
 			{ botId: "bot_reader" },
 			{ commentsWithText: new Set(["cmt_seen"]), threadsWithText: new Set<string>() },
 		);
@@ -1487,7 +1449,7 @@ describe("Tick flow", () => {
 				],
 			},
 			{},
-			providerSerializationContext(
+			providerSerializationContext(englishInstructions,
 				{ botId: "bot_reader" },
 				{ commentsWithText: new Set(["cmt_seen"]), threadsWithText: new Set<string>() },
 			),
@@ -1510,7 +1472,7 @@ describe("Tick flow", () => {
 					{ id: "frm_archive", worldHandle: "primary", handle: "archive", description: "Closed archive.", readOnly: true },
 				],
 				{},
-				providerSerializationContext({ botId: "bot_reader" }),
+				providerSerializationContext(englishInstructions, { botId: "bot_reader" }),
 			);
 			expect(forumResult).toEqual([
 				{ forum: "f/random", description: "Random chatter.", readOnly: false },
@@ -1533,7 +1495,7 @@ describe("Tick flow", () => {
 					lock: { kind: "comment_limit", limit: 3 },
 					lastActivityAt: "2026-05-01T00:00:00.000Z",
 				},
-			], {}, providerSerializationContext({ botId: "bot_reader" }));
+			], {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }));
 			expect(recentResult).toMatchObject([
 				{
 					threadRef: "t/thr_recent",
@@ -1559,7 +1521,7 @@ describe("Tick flow", () => {
 					authorHandle: "bob",
 					lastActivityAt: "2026-05-07T22:00:00.000Z",
 				},
-			], {}, providerSerializationContext({ botId: "bot_reader" }));
+			], {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }));
 			expect(hotResult).toMatchObject([{ threadRef: "t/thr_hot", forum: "f/weird", author: "u/bob", lastActivity: "2 hours ago" }]);
 
 			const searchResult = providerToolResultPayload("search_threads", [
@@ -1575,7 +1537,7 @@ describe("Tick flow", () => {
 					createdAt: "2026-05-07T00:00:00.000Z",
 					score: 0.91,
 				},
-			], {}, providerSerializationContext({ botId: "bot_reader" }));
+			], {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }));
 			expect(searchResult).toMatchObject([
 				{
 					threadRef: "t/thr_search",
@@ -1603,7 +1565,7 @@ describe("Tick flow", () => {
 					},
 				],
 				{},
-				providerSerializationContext(
+				providerSerializationContext(englishInstructions,
 					{ botId: "bot_reader" },
 					{ commentsWithText: new Set(["cmt_search"]), threadsWithText: new Set<string>() },
 				),
@@ -1626,7 +1588,7 @@ describe("Tick flow", () => {
 					comment: { id: "cmt_notice", threadId: "thr_notice", parentCommentId: "cmt_parent", text: "Notice body." },
 					vote: { targetType: "comment", commentId: "cmt_notice", value: 1 },
 				}],
-			}, {}, providerSerializationContext({ botId: "bot_reader" }));
+			}, {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }));
 			expect(notificationResult).toMatchObject({
 				events: [{
 					type: "vote_cast",
@@ -1688,7 +1650,7 @@ describe("Tick flow", () => {
 						createdAt: "2026-05-03T00:00:00.000Z",
 					},
 				],
-			}, {}, providerSerializationContext({ botId: "bot_reader" }));
+			}, {}, providerSerializationContext(englishInstructions, { botId: "bot_reader" }));
 				expect(activityResult).toMatchObject({
 					profile: "u/owner",
 					activities: [
@@ -1900,7 +1862,7 @@ describe("Tick flow", () => {
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
-				bot: BotDocument & { worldRecurringPrompt?: string },
+				bot: (BotDocument & { worldRecurringPrompt?: string }) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 				input: Record<string, unknown>,
 				runId: string,
 				inputEvent: { seq: number; createdAt: string },
@@ -1909,7 +1871,7 @@ describe("Tick flow", () => {
 		}).buildMessages.bind(runtime);
 
 		const built = await buildMessages(
-			{ ...bot, worldRecurringPrompt: "I follow this world's shared focus." },
+			{ text: englishInstructions, ...bot, worldRecurringPrompt: "I follow this world's shared focus." },
 			{ notifications: [], injections: [], spotlightContexts: contexts.map((context) => parseSpotlightSyntheticContext(JSON.stringify(context))!), ping: false },
 			"run-spotlight-context",
 			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
@@ -1918,7 +1880,7 @@ describe("Tick flow", () => {
 		const setup = built.find((message) => Array.isArray(message.tool_calls));
 		expect(setup?.content).toBe("While browsing Bickr, I stumbled on an interesting thread.");
 		expect(built.some((message) => typeof message.content === "string" && message.content.includes("checking my notifications"))).toBe(false);
-		expect(built.some((message) => message.content === effectiveReasoningPrefill(bot))).toBe(false);
+		expect(built.some((message) => message.content === effectiveReasoningPrefill({ ...bot, text: englishInstructions }))).toBe(false);
 		expect(built.some((message) => message.content === "I follow this world's shared focus.")).toBe(false);
 		const setupToolCallMessages = built.filter(
 			(message): message is Record<string, unknown> & { tool_calls: Array<{ function: { name: string } }> } => Array.isArray(message.tool_calls),
@@ -1942,7 +1904,7 @@ describe("Tick flow", () => {
 						commentRef: "c/cmt_spotlight_parent",
 						body: "…",
 						ancestorOnly: true,
-						replies: [{ commentRef: "c/cmt_spotlight", body: "Target comment.", "My focus is on this comment": true }],
+						replies: [{ commentRef: "c/cmt_spotlight", body: "Target comment.", focused: true }],
 					}],
 				},
 			],
@@ -2042,7 +2004,7 @@ describe("Tick flow", () => {
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
-				bot: BotDocument,
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 				input: Record<string, unknown>,
 				runId: string,
 				inputEvent: { seq: number; createdAt: string },
@@ -2051,7 +2013,7 @@ describe("Tick flow", () => {
 		}).buildMessages.bind(runtime);
 
 		const built = await buildMessages(
-			bot,
+			{ ...bot, text: englishInstructions },
 			{ notifications: [], injections: [], spotlightContexts: contexts, ping: false },
 			"run-spotlight-self",
 			{ seq: 1, createdAt: "2026-05-01T00:15:00.000Z" },
@@ -2079,7 +2041,7 @@ describe("Tick flow", () => {
 						replies: [{
 							commentRef: "c/cmt_self_reply",
 							author: selfAuthor,
-							"My focus is on this comment": true,
+							focused: true,
 						}],
 					}],
 				},
@@ -2145,7 +2107,7 @@ describe("Tick flow", () => {
 		attachInputHistoryStorage(runtime);
 		const buildMessages = (BotRuntime.prototype as unknown as {
 			buildMessages: (
-				bot: BotDocument,
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
 				input: Record<string, unknown>,
 				runId: string,
 				inputEvent: { seq: number; createdAt: string },
@@ -2155,7 +2117,7 @@ describe("Tick flow", () => {
 
 		const start = Date.now();
 		const built = await buildMessages(
-			bot,
+			{ ...bot, text: englishInstructions },
 			{ notifications: [], injections: [], spotlightContexts: contexts, ping: false },
 			"run-deep-spotlight",
 			{ seq: 1, createdAt: "2026-05-01T00:30:00.000Z" },
@@ -2301,8 +2263,8 @@ describe("Tick flow", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -2312,7 +2274,7 @@ describe("Tick flow", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument({ allowEarlyLogOff: true }),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-empty-provider-response",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -2354,7 +2316,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2375,8 +2337,8 @@ describe("Tick flow", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -2386,7 +2348,7 @@ describe("Tick flow", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument({ allowEarlyLogOff: true }),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-meta-tool-misuse",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -2426,7 +2388,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(4_000, { includeNotesTools: false }),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions, 4_000, { includeNotesTools: false }),
 				promptTokens: 100,
 				requestMessages: [{ role: 'assistant', content: 'I am ready.' }],
 			}),
@@ -2442,12 +2404,12 @@ describe("Tick flow", () => {
 			throwIfStopped: () => {},
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
-			runProviderLoop: (bot: BotDocument, settings: { baseUrl: string; model: string; temperature: number; toolCalls: 'at_will' },
+			runProviderLoop: (bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>, settings: LocalizedProviderSettings,
 				runId: string, messages: Array<Record<string, unknown>>, runContext: { mode: 'normal'; signal: AbortSignal }) => Promise<unknown>;
 		}).runProviderLoop.bind(runtime);
 		await runProviderLoop(
-			{ ...fakeBotDocument({ allowEarlyLogOff: true }), toolSettings: { bickrNotes: { enabled: false } } },
-			{ baseUrl: 'https://openrouter.ai/api/v1', model: 'test-model', temperature: 0.2, toolCalls: 'at_will' },
+			{  ...fakeBotDocument({ allowEarlyLogOff: true }), toolSettings: { bickrNotes: { enabled: false } } },
+			{ text: englishInstructions, baseUrl: 'https://openrouter.ai/api/v1', model: 'test-model', temperature: 0.2, toolCalls: 'at_will' },
 			'run-disabled-note', [], { mode: 'normal', signal: new AbortController().signal },
 		);
 		expect(executeTool).not.toHaveBeenCalled();
@@ -2490,7 +2452,7 @@ describe("Tick flow", () => {
 			]),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2510,8 +2472,8 @@ describe("Tick flow", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -2521,7 +2483,7 @@ describe("Tick flow", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument({ allowEarlyLogOff: true }),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-mixed-tool-calls",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -2589,7 +2551,7 @@ describe("Tick flow", () => {
 				const history = providerHistory();
 				return {
 					allowedPromptTokens: 13_500,
-					providerTools: toolDefinitionsForProviderRound(),
+					providerTools: toolDefinitionsForProviderRound(englishInstructions),
 					promptTokens: 100,
 					requestMessages: history.length > 0 ? history : [{ role: "assistant", content: "I am ready." }],
 				};
@@ -2609,8 +2571,8 @@ describe("Tick flow", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -2620,7 +2582,7 @@ describe("Tick flow", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument(),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-duplicate-tool-call-id",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -2675,7 +2637,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2695,8 +2657,8 @@ describe("Tick flow", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -2706,7 +2668,7 @@ describe("Tick flow", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument(),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-split-parallel-tool-calls",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -2757,7 +2719,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2776,8 +2738,8 @@ describe("Tick flow", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -2787,7 +2749,7 @@ describe("Tick flow", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument(),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-dedupe-follow",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -2858,7 +2820,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2877,8 +2839,8 @@ describe("Tick flow", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -2888,7 +2850,7 @@ describe("Tick flow", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument(),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-overlap-follow",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -2948,7 +2910,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -2963,8 +2925,8 @@ describe("Tick flow", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -2974,7 +2936,7 @@ describe("Tick flow", () => {
 		await expect(
 			runProviderLoop(
 				fakeBotDocument(),
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-missing-follow",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -2984,7 +2946,7 @@ describe("Tick flow", () => {
 		expect(appendedLoopMessages.filter((message) => message.origin === "tool_failure")).toEqual([]);
 		expect(events.filter((event) => event.type === "tool_result")).toEqual([]);
 		const correction = String(appendedLoopMessages.find((message) => message.origin === "self_correction")?.message.content ?? "");
-		expect(correction).toContain("u/philosopher_king is not an existing Bickr participant");
+		expect(correction).toContain("1 target is not an existing Bickr participant: u/philosopher_king");
 		expect(events).toContainEqual(expect.objectContaining({
 			type: "provider_tool_call_dropped",
 			payload: expect.objectContaining({
@@ -3058,8 +3020,8 @@ describe("Tick flow", () => {
 		};
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -3069,7 +3031,7 @@ describe("Tick flow", () => {
 		await expect(
 			runProviderLoop(
 				bot,
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-logoff-only",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -3111,7 +3073,7 @@ describe("Tick flow", () => {
 			callProvider: async () => providerResponseWithToolCall("call-read", "read_thread", { threadId: "thr_test" }),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -3131,8 +3093,8 @@ describe("Tick flow", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -3145,7 +3107,7 @@ describe("Tick flow", () => {
 					...fakeBotDocument(),
 					tickSettings: { ...fakeBotDocument().tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 1, maxSuccessfulToolCallsPerIteration: 8 },
 				},
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-limit-reject",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },
@@ -3215,7 +3177,7 @@ describe("Tick flow", () => {
 			callProvider,
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -3243,8 +3205,8 @@ describe("Tick flow", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: Record<string, unknown>,
@@ -3264,7 +3226,7 @@ describe("Tick flow", () => {
 						maxGeneratedTokensPerIteration: 50,
 					},
 				},
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-spotlight-streak-limit",
 				[],
 				{
@@ -3327,7 +3289,7 @@ describe("Tick flow", () => {
 			]),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -3352,8 +3314,8 @@ describe("Tick flow", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: Record<string, unknown>,
@@ -3366,7 +3328,7 @@ describe("Tick flow", () => {
 					...fakeBotDocument(),
 					tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 3, maxSuccessfulToolCallsPerIteration: 8 },
 				},
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-spotlight-unrelated-mutating",
 				[],
 				{
@@ -3431,7 +3393,7 @@ describe("Tick flow", () => {
 			]),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -3457,8 +3419,8 @@ describe("Tick flow", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: Record<string, unknown>,
@@ -3471,7 +3433,7 @@ describe("Tick flow", () => {
 					...fakeBotDocument(),
 					tickSettings: { ...fakeBotDocument().tickSettings, maxToolCallsPerTick: 3, maxSuccessfulToolCallsPerIteration: 8 },
 				},
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2, toolCalls: "at_will" },
 				"run-spotlight-mixed-batch",
 				[],
 				{
@@ -3527,7 +3489,7 @@ describe("Tick flow", () => {
 			]),
 			ensureProviderPromptWithinBudget: async () => ({
 				allowedPromptTokens: 13_500,
-				providerTools: toolDefinitionsForProviderRound(),
+				providerTools: toolDefinitionsForProviderRound(englishInstructions),
 				promptTokens: 100,
 				requestMessages: [{ role: "assistant", content: "I am ready." }],
 			}),
@@ -3548,8 +3510,8 @@ describe("Tick flow", () => {
 		}));
 		const runProviderLoop = (BotRuntime.prototype as unknown as {
 			runProviderLoop: (
-				bot: BotDocument,
-				settings: { baseUrl: string; model: string; temperature: number; toolCalls?: "require" | "railroad" | "at_will" },
+				bot: (BotDocument) & Pick<RuntimeBotDocument, 'text' | 'instructionLocale'>,
+				settings: LocalizedProviderSettings,
 				runId: string,
 				messages: Array<Record<string, unknown>>,
 				runContext: { mode: "normal"; signal: AbortSignal },
@@ -3562,7 +3524,7 @@ describe("Tick flow", () => {
 					...fakeBotDocument(),
 					tickSettings: { ...fakeBotDocument().tickSettings, allowEarlyLogOff: true, maxToolCallsPerTick: 1, maxSuccessfulToolCallsPerIteration: 8 },
 				},
-				{ baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
+				{ text: englishInstructions, baseUrl: "https://openrouter.ai/api/v1", model: "test-model", temperature: 0.2 },
 				"run-parallel-limit",
 				[],
 				{ mode: "normal", signal: new AbortController().signal },

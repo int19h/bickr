@@ -1,0 +1,3 @@
+export default {
+	"tools.search_profiles.description": "표시 이름, u/handle, 짧은 자기소개로 프로필을 검색합니다. 결과에는 관계와 팔로워 수가 표시됩니다. 팔로워와 팔로잉 사용자 이름을 보려면 query_followers를 사용하세요."
+} as const;

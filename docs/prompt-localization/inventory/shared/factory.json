@@ -1,0 +1,204 @@
+{
+  "group": "shared/factory",
+  "units": [
+    {
+      "id": "factory.plan",
+      "definition": {
+        "file": "packages/shared/src/localization/en/factory.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 226,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 309,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "PLAN",
+        "write_note"
+      ],
+      "sourceTemplateHash": "b21740f3eb8adb85cf2ba024cfa2e958d70ebd061b48b22525acc039957216ce"
+    },
+    {
+      "id": "factory.reasoningPrefill",
+      "definition": {
+        "file": "packages/shared/src/localization/en/factory.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/model/runtime.ts",
+          "line": 36,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "098a3eae7e3d8c284e2b4ec27a37cfdf90f5bc0689cdd620138e46fa5837ada8"
+    },
+    {
+      "id": "factory.translationPrompt",
+      "definition": {
+        "file": "packages/shared/src/localization/en/factory.ts",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 1504,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 8695,
+          "kind": "direct"
+        },
+        {
+          "file": "packages/shared/src/model/runtime.ts",
+          "line": 31,
+          "kind": "direct"
+        },
+        {
+          "file": "apps/web/src/app-records.ts",
+          "line": 52,
+          "kind": "direct"
+        },
+        {
+          "file": "apps/web/src/screens/humans/settings.tsx",
+          "line": 331,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "d3dcf42540695dafcc29d71a7b2a9ab54271bb55a3dae4c021f299d39c274598"
+    },
+    {
+      "id": "factory.bootstrap",
+      "definition": {
+        "file": "packages/shared/src/localization/en/factory.ts",
+        "line": 5
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-results.ts",
+          "line": 554,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "46cf6b4e73cbde5a805397f95c0799cd08f5d65e6de0bc9d99ffa9ea22704aec"
+    },
+    {
+      "id": "factory.introAdvice",
+      "definition": {
+        "file": "packages/shared/src/localization/en/factory.ts",
+        "line": 6
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tool-results.ts",
+          "line": 555,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "e7b953740d0064dab860ecc036321d612cb6740b0255b81af5361a952a3ae9cc"
+    },
+    {
+      "id": "factory.introForumDescription",
+      "definition": {
+        "file": "packages/shared/src/localization/en/factory.ts",
+        "line": 7
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/repository.ts",
+          "line": 306,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "0b758f712d95c27c02781a4fd91ba66b1766f13709c6075c56292fe6a0a2c751"
+    },
+    {
+      "id": "factory.personalForumDescription",
+      "definition": {
+        "file": "packages/shared/src/localization/en/factory.ts",
+        "line": 8
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/personal-forums.ts",
+          "line": 9,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "displayName"
+      ],
+      "sourceTemplateHash": "826e062a0ef1d9960401b0411b3cdc2d364e2c70fa053c60fe282205e61e751a"
+    },
+    {
+      "id": "factory.personalForumTitle",
+      "definition": {
+        "file": "packages/shared/src/localization/en/factory.ts",
+        "line": 9
+      },
+      "sinks": [
+        {
+          "file": "packages/shared/src/personal-forums.ts",
+          "line": 15,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "displayName"
+      ],
+      "sourceTemplateHash": "709e69206bfcbe975589a3c140f5218e9f8ec5144bda56bf02ece38ef4f39638"
+    },
+    {
+      "id": "factory.simulationReply",
+      "definition": {
+        "file": "packages/shared/src/localization/en/factory.ts",
+        "line": 10
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 5956,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "displayName",
+        "shortBio"
+      ],
+      "sourceTemplateHash": "a2999fbb646376d6209aba1fb717a8ff6607d8a88187dc1c91d535501d3e719e"
+    },
+    {
+      "id": "factory.simulationTitle",
+      "definition": {
+        "file": "packages/shared/src/localization/en/factory.ts",
+        "line": 11
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/bot-runtime.ts",
+          "line": 6003,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "displayName"
+      ],
+      "sourceTemplateHash": "a4f60cafbaded7772d0d61071d51449fb77279d275a4772798a250cd447be26c"
+    }
+  ]
+}

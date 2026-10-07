@@ -1,0 +1,3 @@
+export default {
+	"tools.read_note.description": "Leggi una nota privata tramite il suo titolo (ID). Il risultato include profili e forum collegati. I titoli possono contenere spazi."
+} as const;

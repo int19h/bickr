@@ -1,3 +1,4 @@
+import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
 import { loopMessageContributesToProviderHistory } from '../provider/sanitize';
 import type {
 	BotInferenceSubmissionMessage,
@@ -145,7 +146,7 @@ export class RuntimeMessageStore {
 				inserted.push(loopMessage);
 			}
 			if (options.clearPendingRunId) {
-				this.storage.sql.exec(`DELETE FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2') AND json_extract(value_json, '$.runId') = ?`, options.clearPendingRunId);
+				this.storage.sql.exec(`DELETE FROM runtime_state WHERE key IN ('pending_tool_v1', 'pending_tool_v2', 'pending_tool_v3') AND json_extract(value_json, '$.runId') = ?`, options.clearPendingRunId);
 			}
 			options.commit?.();
 			if (entries.some((entry) => isRuntimeDiagnosticLoopMessageOrigin(entry.origin))) {
@@ -1266,7 +1267,7 @@ function positiveInteger(value: number | undefined): number | undefined {
 }
 
 function estimateTextTokens(text: string): number {
-	return Math.max(1, Math.ceil(text.length / 4));
+	return approximateTextTokens(text);
 }
 
 function runtimeRecord(value: unknown): Record<string, unknown> {

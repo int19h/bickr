@@ -4,6 +4,8 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./instruction-language": "./src/instruction-language.ts",
+		"./instruction-template": "./src/instruction-template.ts",
 		"./account-mutation-protocol": "./src/account-mutation-protocol.ts",
 		"./api": "./src/api.ts",
 		"./avatar-prompts": "./src/avatar-prompts.ts",
@@ -75,7 +77,15 @@
 		"./auth-sessions": "./src/auth-sessions.ts",
 		"./auth-migration": "./src/auth-migration.ts",
 		"./auth-credentials": "./src/auth-credentials.ts",
-		"./input-schema": "./src/input-schema.ts"
+		"./input-schema": "./src/input-schema.ts",
+		"./localization": "./src/localization/index.ts",
+		"./localization/en": "./src/localization/en/index.ts",
+		"./localization/*": "./src/localization/*/index.ts",
+		"./instruction-issues": "./src/instruction-issues.ts",
+		"./bot-service-issues": "./src/bot-service-issues.ts",
+		"./content-limits": "./src/content-limits.ts",
+		"./text-token-estimate": "./src/text-token-estimate.ts",
+		"./instruction-localization-migration": "./src/instruction-localization-migration.ts"
 	},
 	"dependencies": {
 		"mdast-util-math": "^3.0.0",

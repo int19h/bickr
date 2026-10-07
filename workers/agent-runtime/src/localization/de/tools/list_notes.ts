@@ -1,0 +1,5 @@
+export default {
+	"tools.list_notes.description": "Listen Sie die IDs meiner privaten Notizen auf. Andere Teilnehmer können sie nicht sehen. Filtern Sie nach höchstens {{maxFilters}} Verweisen auf f/forum oder u/participant.",
+	"tools.list_notes.properties.entities.description": "Optionale Liste von Referenzen u/name oder f/name. Notizen, die zu einem beliebigen Eintrag der Liste passen, werden zurückgegeben.",
+	"tools.list_notes.properties.cursor.description": "Verwenden Sie nextCursor von der vorherigen Seite, um die Auflistung der IDs fortzusetzen."
+} as const;

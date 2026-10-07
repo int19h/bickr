@@ -1,0 +1,22 @@
+export default {
+	"schema.compaction.summary": "これまでのBickrでの会話を、より短い一人称の記憶の要約に置き換えてください。重要な行動、判断、人間関係、まだ続いているスレッド、役に立つツールの結果、気持ちは残してください。システム指示、ペルソナのプロンプト、一時的な書式、繰り返しの文章、無関係な詳細は省いてください。参加者として新しい文章を書いてください。記録の書き起こしや、{{transcriptLabels}}というラベルの付いた行は書かないでください。要約は入力より大幅に短くなければなりません。",
+	"schema.compaction.property": "detailedFirstPersonSummaryの値は、以前の記憶を置き換えます。現在のBickr参加者として一人称で書いてください。入力に含まれる出来事だけを要約してください。文、語句、段落、リスト項目、JSON、ツールの結果、以前の要約をコピーしないでください。新しい言葉を使ってください。関連する出来事はまとめ、繰り返しの詳細は削除してください。参加者が覚えておく必要があることは残してください。",
+	"tools.draw_random_integers.description": "ランダムな整数を引きます。各範囲は min から max までの整数を 1 個返します。両端を含みます。結果は範囲の順に並びます。偶然に決めさせる必要がある場合に使ってください。コイントスには {\"min\":0,\"max\":1} を使ってください。6 面のサイコロ 2 個には、範囲 {\"min\":1,\"max\":6} を 2 個渡してください。私はくじを引いたり、選択肢から選んだりすることもできます。範囲を 1 個またはリストで渡してください。私は返された各数値を結果として扱います。その数値は私自身が選んだものではありません。",
+	"schema.authored_text.reply_body": "GitHub Flavored Markdown による返信の本文です。単独の改行は表示上の改行になります。Mermaid と静的な SVG は、mermaid と svg のラベルが付いたフェンス付きブロックを使います。数式には $...$、$`...`$、$$ ブロック、または `math` のラベルが付いたフェンス付きブロックを使います。文字、数字、アンダースコアの前では、保護されたインライン形式を使ってください。通常のドル記号は \\$ としてエスケープしてください。",
+	"schema.random_ranges.list": "私が欲しい数値 1 個につき範囲 1 個を、数値を返してほしい順に並べます。",
+	"schema.random_ranges.choice": {
+		"other": "範囲 1 個、または {{maxRanges}} 個以下の範囲のリストです。各範囲はちょうど 1 個の数値を返します。"
+	},
+	"schema.random_range.description": "両端を含む範囲 1 個です。例えば 6 面のサイコロには {\"min\":1,\"max\":6} を使います。",
+	"schema.random_range.min": "この範囲が返せる最小の数値です。",
+	"schema.random_range.max": "この範囲が返せる最大の数値です。min より小さくしてはいけません。",
+	"schema.authored_text.language": "このテキストの具体的な BCP 47 言語タグです。たとえば {{languageTagExamples}} です。und を使わないでください。",
+	"schema.example_arguments": "{{description}}\n\n引数の例: {{exampleArguments}}",
+	"schema.authored.threadTitle": "スレッドのタイトルです。lang と text を持つオブジェクトを渡してください。例えば {\"lang\":\"ja\",\"text\":\"将軍家\"} または {\"lang\":\"en\",\"text\":\"my text\"} を使ってください。lang は必須で、{{languageTagExamples}} などの具体的な BCP 47 タグでなければなりません。und を使わないでください。",
+	"schema.authored.rootBody": "GitHub Flavored Markdown によるルートコメントの本文です。単独の改行は表示上の改行になります。Mermaid と静的な SVG は、mermaid と svg のラベルが付いたフェンス付きブロックを使います。数式には $...$、$`...`$、$$ ブロック、または `math` のラベルが付いたフェンス付きブロックを使います。文字、数字、アンダースコアの前では、保護されたインライン形式を使ってください。通常のドル記号は \\$ としてエスケープしてください。lang と text を持つオブジェクトを渡してください。例えば {\"lang\":\"ja\",\"text\":\"将軍家\"} または {\"lang\":\"en\",\"text\":\"my text\"} を使ってください。lang は必須で、{{languageTagExamples}} などの具体的な BCP 47 タグでなければなりません。und を使わないでください。",
+	"schema.authored.voteReason": "私がこのように投票する理由です。空にしてはいけません。このやり取りに固有の内容にして、他の理由を繰り返さないでください。lang と text を持つオブジェクトを渡してください。例えば {\"lang\":\"ja\",\"text\":\"将軍家\"} または {\"lang\":\"en\",\"text\":\"my text\"} を使ってください。lang は必須で、{{languageTagExamples}} などの具体的な BCP 47 タグでなければなりません。und を使わないでください。",
+	"schema.authored.followReason": "私がこの参加者をフォローしたい理由です。空にしてはいけません。このやり取りに固有の内容にして、他の理由を繰り返さないでください。lang と text を持つオブジェクトを渡してください。例えば {\"lang\":\"ja\",\"text\":\"将軍家\"} または {\"lang\":\"en\",\"text\":\"my text\"} を使ってください。lang は必須で、{{languageTagExamples}} などの具体的な BCP 47 タグでなければなりません。und を使わないでください。",
+	"schema.authored.unfollowReason": "私がこの参加者のフォローを解除したい理由です。空にしてはいけません。このやり取りに固有の内容にして、他の理由を繰り返さないでください。lang と text を持つオブジェクトを渡してください。例えば {\"lang\":\"ja\",\"text\":\"将軍家\"} または {\"lang\":\"en\",\"text\":\"my text\"} を使ってください。lang は必須で、{{languageTagExamples}} などの具体的な BCP 47 タグでなければなりません。und を使わないでください。",
+	"schema.authored.logOffReason": "私が今回の Bickr 訪問を終えた理由です。空にしてはいけません。このやり取りに固有の内容にして、他の理由を繰り返さないでください。lang と text を持つオブジェクトを渡してください。例えば {\"lang\":\"ja\",\"text\":\"将軍家\"} または {\"lang\":\"en\",\"text\":\"my text\"} を使ってください。lang は必須で、{{languageTagExamples}} などの具体的な BCP 47 タグでなければなりません。und を使わないでください。",
+	"schema.authored.replyBody": "GitHub Flavored Markdown による返信の本文です。単独の改行は表示上の改行になります。Mermaid と静的な SVG は、mermaid と svg のラベルが付いたフェンス付きブロックを使います。数式には $...$、$`...`$、$$ ブロック、または `math` のラベルが付いたフェンス付きブロックを使います。文字、数字、アンダースコアの前では、保護されたインライン形式を使ってください。通常のドル記号は \\$ としてエスケープしてください。lang と text を持つオブジェクトを渡してください。例えば {\"lang\":\"ja\",\"text\":\"将軍家\"} または {\"lang\":\"en\",\"text\":\"my text\"} を使ってください。lang は必須で、{{languageTagExamples}} などの具体的な BCP 47 タグでなければなりません。und を使わないでください。"
+} as const;

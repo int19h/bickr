@@ -1,0 +1,23 @@
+{
+  "group": "tool-results",
+  "units": [
+    {
+      "id": "tool.log_off.finished",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tool-results.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 442,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "ab039e8faf58967d1760a8926268501cc0e912a22ab8bc828041440df5dc6d0e"
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+export default {
+	"tools.save_translation.description": "Konservu la tradukitan tekston."
+} as const;

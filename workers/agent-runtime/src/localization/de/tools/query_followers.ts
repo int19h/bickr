@@ -1,0 +1,6 @@
+export default {
+	"tools.query_followers.description": "Listen Sie die Personen auf, die einem Teilnehmer folgen, oder die Profile, denen dieser Teilnehmer folgt. Geben Sie genau eines von isFollowing oder isFollowedBy an. Das Ergebnis liefert u/usernames und die Gesamtzahl. Es listet höchstens {{maxLimit}} Benutzernamen, geordnet nach der Zahl der Personen, die ihnen selbst folgen.",
+	"tools.query_followers.properties.isFollowing.description": "Der u/username, für den ich die Personen auflisten will, die diesem Profil folgen.",
+	"tools.query_followers.properties.isFollowedBy.description": "Der u/username, für den ich die Profile auflisten will, denen dieses Profil folgt.",
+	"tools.query_followers.properties.usernameGlob.description": "Optionales Glob-Muster mit Platzhaltern *, das die zurückgegebenen anderen Benutzernamen filtert, zum Beispiel a* oder u/al*."
+} as const;

@@ -1,0 +1,388 @@
+{
+  "group": "issues/notes",
+  "units": [
+    {
+      "id": "issue.note.id.type",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/notes.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 60,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 63,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 66,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "id",
+        "list_notes"
+      ],
+      "sourceTemplateHash": "5098e0c45645efbce46b5eb733afd0aecb6d0191985c0dd3c889c3bfbd039c96"
+    },
+    {
+      "id": "issue.note.id.length",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/notes.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 60,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 63,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 66,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "id",
+        "list_notes"
+      ],
+      "sourceTemplateHash": "9b58c7a430fe4d34153dd93c659eec7b252355f2fd6a042e69cf55f39535c70f"
+    },
+    {
+      "id": "issue.note.id.characters",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/notes.ts",
+        "line": 7
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 60,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 63,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 66,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "id",
+        "list_notes"
+      ],
+      "sourceTemplateHash": "4d8723ec6981ba6d9f3c4a7304c2136798a6ee8eb478e85f9dc871d43302c94a"
+    },
+    {
+      "id": "issue.note.cursor.type",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/notes.ts",
+        "line": 8
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 60,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 63,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 66,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "cursor",
+        "list_notes",
+        "nextCursor"
+      ],
+      "sourceTemplateHash": "0536c40add68c67e2af413511b62cfa80577302bee4d48b2a4b1c5275b9599bc"
+    },
+    {
+      "id": "issue.note.cursor.length",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/notes.ts",
+        "line": 9
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 60,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 63,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 66,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "cursor",
+        "list_notes",
+        "nextCursor"
+      ],
+      "sourceTemplateHash": "b60e8086afbc3f20bce41183698e2762733c6048e7fb779c8ec9b4ced074a9e4"
+    },
+    {
+      "id": "issue.note.cursor.characters",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/notes.ts",
+        "line": 13
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 60,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 63,
+          "kind": "typed_dynamic"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 66,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "cursor",
+        "list_notes",
+        "nextCursor"
+      ],
+      "sourceTemplateHash": "07646c2d6c0ec256eb3bbea7d74678bbc94251c11bd6365ff9baff9dd2dbf7f5"
+    },
+    {
+      "id": "issue.note.content",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/notes.ts",
+        "line": 14
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 76,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 79,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "content"
+      ],
+      "sourceTemplateHash": "4b2c7e06d1997a244d31faec95fa629f12d0f22bde5d072c69de678ed1248965"
+    },
+    {
+      "id": "issue.note.entities.array",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/notes.ts",
+        "line": 18
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 87,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "entities",
+        "f/",
+        "u/",
+        "u/alice",
+        "{\"entities\":[\"u/alice\"]}"
+      ],
+      "sourceTemplateHash": "9fb9e32f4527c214eff7a3fe2e9640fc4ee4b11a80d95f10e9e1ed0bd507b280"
+    },
+    {
+      "id": "issue.note.entities.entry",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/notes.ts",
+        "line": 22
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 93,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "entities",
+        "f/",
+        "f/news",
+        "u/",
+        "u/alice",
+        "{\"entities\":[\"u/alice\",\"f/news\"]}"
+      ],
+      "sourceTemplateHash": "b3334c7f3aa333fada42762ead94403e0758412d53702eb42691230440f2a93e"
+    },
+    {
+      "id": "issue.note.references",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/notes.ts",
+        "line": 23
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 103,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 257,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 283,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "db6e9228c8287002eb4396de109ec58a1e5ac55068bbc59f5775bab88c61c533"
+    },
+    {
+      "id": "issue.note.capacity",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/notes.ts",
+        "line": 27
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/notes.ts",
+          "line": 263,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "f7df5b24ed5843c6ecc1795ae8ef90a425633993be5a026ca2edb77b8153c476"
+    },
+    {
+      "id": "issue.note.planUnavailable",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/notes.ts",
+        "line": 31
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 381,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 391,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 403,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "PLAN"
+      ],
+      "sourceTemplateHash": "1f732d2df3f754ae2750524b11bd21b2726d7beb5ce70a2c4fd7f51c0fd4a270"
+    },
+    {
+      "id": "issue.note.notFound",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/notes.ts",
+        "line": 32
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 383,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 406,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "636b22172cc33c9968d6e4aa8697fe438184e29e18403cf6de357d91e4ba977e"
+    },
+    {
+      "id": "issue.tool.commentNotFound",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/notes.ts",
+        "line": 33
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 639,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 801,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 805,
+          "kind": "direct"
+        },
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 1048,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "4290e56a1171845db39ed2799a94e6e4bdae9d01168e5e06583978ce1c4004a0"
+    },
+    {
+      "id": "issue.tool.forumNotFound",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/issues/notes.ts",
+        "line": 34
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/runtime/tools.ts",
+          "line": 815,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "b9e88c0c383765f1eb87a01888e209d03187999aaa524217bc5fc0d125a6ee07"
+    }
+  ]
+}

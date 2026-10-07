@@ -1,8 +1,10 @@
+import { approximateTextTokens, textTokenWeight } from '@bickr/shared/text-token-estimate';
+import { summaryTokenAllowance } from './summary-tokens';
 import { effectiveTickSettings } from '@bickr/shared/repository';
-import type { BotDocument, BotInferenceSubmissionMessage } from '@bickr/shared/model';
+import type { BotInferenceSubmissionMessage } from '@bickr/shared/model';
 import { providerContextCompletionReserveTokens } from '../constants';
 import { toolDefinitionsForProviderRound, type ProviderToolDefinition } from '../prompt-and-tools';
-import type { ProviderCompactionSummaryLimits } from '../types';
+import type { RuntimeBotDocument, ProviderCompactionSummaryLimits } from '../types';
 import {
 	providerCompactionMessages,
 	providerCompactionResponseFormat,
@@ -26,7 +28,7 @@ export const minCalibratedTokensPerCharacter = 1 / 12;
 export const maxCalibratedTokensPerCharacter = 1;
 
 export function providerCompactionSummaryLimitsForChat(
-	bot: BotDocument,
+	bot: RuntimeBotDocument,
 	compactedMessages: readonly ChatMessage[],
 	calibration: TextTokenCalibration,
 	providerTools?: ProviderToolDefinition[],
@@ -38,7 +40,8 @@ export function providerCompactionSummaryLimitsForChat(
 		1,
 		Math.floor(contextWindowTokensOverride === undefined ? tickSettings.contextWindowTokens : contextWindowTokensOverride),
 	);
-	const tokensPerCharacter = Math.max(minCalibratedTokensPerCharacter, calibration.tokensPerCharacter || fallbackTokensPerCharacter);
+	const tokensPerCharacter = Math.max(minCalibratedTokensPerCharacter,
+		summaryTokenAllowance(bot.language, bot.text.locale, calibration.tokensPerCharacter));
 	const configuredMaxCharacters = Math.max(1, Math.floor(tickSettings.compactionMaxCharacters));
 	const compactedCharacterCount = chatMessagesCharacterCount(compactedMessages);
 	const compactionSummaryPercent = Math.max(1, Math.min(50, Math.floor(tickSettings.compactionSummaryPercent)));
@@ -54,7 +57,7 @@ export function providerCompactionSummaryLimitsForChat(
 	for (let iteration = 0; iteration < 3; iteration += 1) {
 		maxLength = configuredMaxCharacters;
 		minLength = Math.min(maxLength, Math.max(1, Math.ceil((compactedCharacterCount * compactionSummaryPercent) / 100)));
-		const effectiveProviderTools = providerCompactionToolsForMode({ minLength, maxLength }, providerTools, mode);
+		const effectiveProviderTools = providerCompactionToolsForMode(bot.text, { minLength, maxLength }, providerTools, mode);
 		anticipatedSummaryTokens = Math.max(1, Math.ceil(minLength * tokensPerCharacter));
 		maxSummaryTokens = Math.max(1, Math.ceil(maxLength * tokensPerCharacter));
 		compactionRequestOverheadTokens = providerCompactionRequestOverheadTokens(
@@ -64,13 +67,13 @@ export function providerCompactionSummaryLimitsForChat(
 			effectiveProviderTools,
 			mode,
 		);
-		const messages = providerCompactionMessages(bot, [...compactedMessages], { minLength, maxLength }, effectiveProviderTools, mode);
+		const messages = providerCompactionMessages(bot.text, bot, [...compactedMessages], { minLength, maxLength }, effectiveProviderTools, mode);
 		maxCompletionTokens = providerCompactionMaxCompletionTokensForRequest(
 			contextWindowTokens,
 			messages,
 			effectiveProviderTools,
 			calibration,
-			providerCompactionResponseFormat(maxLength, mode),
+			providerCompactionResponseFormat(bot.text, maxLength, mode),
 		);
 		compactionInputTokens = Math.max(1, contextWindowTokens - anticipatedSummaryTokens - compactionRequestOverheadTokens);
 		nextCompactionTokens = providerPromptCompactionCutoffTokens(contextWindowTokens, anticipatedSummaryTokens);
@@ -104,15 +107,15 @@ function providerPromptCompactionCutoffTokens(contextWindowTokens: number, antic
 }
 
 function providerCompactionRequestOverheadTokens(
-	bot: BotDocument,
+	bot: RuntimeBotDocument,
 	limits: Pick<ProviderCompactionSummaryLimits, 'minLength' | 'maxLength'>,
 	calibration: TextTokenCalibration,
-	providerTools: ProviderToolDefinition[] = toolDefinitionsForProviderRound(limits.maxLength),
+	providerTools: ProviderToolDefinition[] = toolDefinitionsForProviderRound(bot.text, limits.maxLength),
 	mode: ProviderCompactionMode = 'structured_output',
 ): number {
-	const tools = providerCompactionToolsForMode(limits, providerTools, mode);
-	const overheadMessages = providerCompactionMessages(bot, [], limits, tools, mode);
-	const responseFormat = providerCompactionResponseFormat(limits.maxLength, mode);
+	const tools = providerCompactionToolsForMode(bot.text, limits, providerTools, mode);
+	const overheadMessages = providerCompactionMessages(bot.text, bot, [], limits, tools, mode);
+	const responseFormat = providerCompactionResponseFormat(bot.text, limits.maxLength, mode);
 	return (
 		estimateChatMessagesTokens(overheadMessages, calibration) +
 		estimateTextTokensWithCalibration(JSON.stringify(tools), calibration) +
@@ -143,7 +146,7 @@ export function providerCompactionRequiredCompletionTokens(limits: Pick<Provider
 }
 
 export function estimateTextTokensWithCalibration(text: string, calibration: TextTokenCalibration): number {
-	return Math.max(1, Math.ceil(text.length * calibration.tokensPerCharacter));
+	return approximateTextTokens(text, calibration.tokensPerCharacter);
 }
 
 export function estimateChatMessageTokens(message: ChatMessage, calibration: TextTokenCalibration): number {
@@ -151,11 +154,15 @@ export function estimateChatMessageTokens(message: ChatMessage, calibration: Tex
 }
 
 export function estimateChatMessagesTokens(messages: readonly ChatMessage[], calibration: TextTokenCalibration): number {
-	const characters = chatMessagesCharacterCount(messages);
-	if (characters <= 0) {
-		return 0;
-	}
-	return Math.max(1, Math.ceil(characters * calibration.tokensPerCharacter));
+	const weight = messages.reduce((total, message) => total + chatMessageTexts(message)
+		.reduce((sum, value) => sum + textTokenWeight(value, calibration.tokensPerCharacter), 0), 0);
+	return weight <= 0 ? 0 : Math.max(1, Math.ceil(weight));
+}
+
+function chatMessageTexts(message: ChatMessage): string[] {
+	return [message.role, message.content ?? '', message.tool_call_id ?? '', message.reasoning ?? '', message.reasoning_content ?? '',
+		...(message.reasoning_details ? [JSON.stringify(message.reasoning_details)] : []),
+		...(message.tool_calls ?? []).flatMap((call) => [call.id, call.function.name, call.function.arguments])];
 }
 
 export function chatMessagesCharacterCount(messages: readonly ChatMessage[]): number {

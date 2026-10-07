@@ -1,0 +1,3 @@
+export default {
+	"tools.reply_to_comment.description": "コメントに返信します。スレッドのルートの内容に直接返信するには、ルートコメントの ref を使ってください。"
+} as const;

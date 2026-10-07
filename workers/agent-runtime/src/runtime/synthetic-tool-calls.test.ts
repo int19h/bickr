@@ -1,5 +1,7 @@
+import { botText } from '../localization';
+const text = botText('en');
 import { describe, expect, it } from 'vitest';
-import { BotRuntime } from './bot-runtime';
+import { BotRuntime, parseSpotlightSyntheticContext } from './bot-runtime';
 import { sanitizeProviderMessagesForRequest } from '../provider/sanitize';
 import type { ChatMessage, LoopMessageGroupEntry } from '../types';
 import { syntheticToolCallMessage, type SyntheticToolCall } from './synthetic-tool-calls';
@@ -9,17 +11,38 @@ function call(name: SyntheticToolCall['function']['name']): SyntheticToolCall {
 }
 
 describe('authored synthetic tool reasoning', () => {
+	it.each([undefined, 'An authored title', 'untitled'])('preserves a root title when an old Spotlight snapshot lacks one: %s', async (title) => {
+		const context = parseSpotlightSyntheticContext(JSON.stringify({
+			kind: 'spotlight_context', world: { id: 'world', handle: 'world' },
+			forum: { id: 'forum', handle: 'general' }, targetType: 'threads',
+			threads: [{ id: 'thr_one', threadId: 'thr_one', rootCommentId: 'cmt_one' }],
+			content: [{ type: 'comment', id: 'cmt_one', threadId: 'thr_one', authorBotId: 'bot_me',
+				authorHandle: 'me', authorDisplayName: 'Me', title, body: 'Authored body.', createdAt: '2026-10-07T00:00:00.000Z' }],
+		}));
+		expect(context).not.toBeNull();
+		const results: ChatMessage[] = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			readCommentTreeTokenBudget: async () => 10_000,
+			appendToolCallChainLoopMessages: (_text: unknown, _runId: string, _origin: string, _narration: string, _calls: SyntheticToolCall[], messages: ChatMessage[]) => results.push(...messages),
+		});
+		await runtime.appendSpotlightSyntheticContext({ text, id: 'bot_me', handle: 'me' }, 'run-title', [context!],
+			new Set(), { includedContentIds: new Set() });
+		const result = JSON.parse(results[0]!.content as string);
+		if (title === undefined) expect(result.thread).not.toHaveProperty('title');
+		else expect(result.thread.title).toBe(title);
+	});
+
 	it('reads PLAN before notifications with unique IDs and the ordinary note payload', async () => {
 		const captured: { calls: SyntheticToolCall[]; results: ChatMessage[]; narration: string }[] = [];
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			env: { BICKR_D1: {} },
 			notes: { read: () => ({ id: 'PLAN', content: '- Write a poem.', links: [], revision: 1, createdAt: '', updatedAt: '' }) },
-			appendToolCallChainLoopMessages: (_runId: string, _origin: string, narration: string, calls: SyntheticToolCall[], results: ChatMessage[]) => {
+			appendToolCallChainLoopMessages: (_text: unknown, _runId: string, _origin: string, narration: string, calls: SyntheticToolCall[], results: ChatMessage[]) => {
 				captured.push({ calls, results, narration });
 			},
 		});
 		await runtime.appendNotificationSyntheticContext(
-			{ id: 'bot-me', handle: 'me', homeWorldId: 'world', toolSettings: { bickrNotes: { enabled: true, planEnabled: true } } },
+			{ text, id: 'bot-me', handle: 'me', homeWorldId: 'world', toolSettings: { bickrNotes: { enabled: true, planEnabled: true } } },
 			'run-plan', [], new Set(), { includedContentIds: new Set() },
 		);
 		const chain = captured[0]!;
@@ -38,12 +61,12 @@ describe('authored synthetic tool reasoning', () => {
 		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
 			env: { BICKR_D1: {} },
 			notes: { read: () => { reads++; return null; } },
-			appendToolCallChainLoopMessages: (_runId: string, _origin: string, narration: string, calls: SyntheticToolCall[]) => {
+			appendToolCallChainLoopMessages: (_text: unknown, _runId: string, _origin: string, narration: string, calls: SyntheticToolCall[]) => {
 				captured.push({ calls, narration });
 			},
 		});
 		await runtime.appendNotificationSyntheticContext(
-			{ id: 'bot-me', handle: 'me', homeWorldId: 'world', toolSettings: { bickrNotes: settings } },
+			{ text, id: 'bot-me', handle: 'me', homeWorldId: 'world', toolSettings: { bickrNotes: settings } },
 			'run-without-plan', [], new Set(), { includedContentIds: new Set() },
 		);
 		expect(reads).toBe(0);
@@ -53,7 +76,7 @@ describe('authored synthetic tool reasoning', () => {
 	it.each(['read_note', 'check_notifications', 'view_profiles', 'read_thread_by_id', 'read_comment_by_id', 'log_off'] as const)(
 		'preserves %s reasoning when preparing provider requests and rewriting IDs', (name) => {
 			const toolCall = call(name);
-			const original = syntheticToolCallMessage(toolCall, null);
+			const original = syntheticToolCallMessage(text, toolCall, null);
 			const result: ChatMessage = { role: 'tool', tool_call_id: toolCall.id, content: '{}' };
 			const [assistant, tool] = sanitizeProviderMessagesForRequest([original, result]);
 			expect(assistant?.reasoning).toEqual(expect.stringMatching(/\S/));
@@ -72,9 +95,26 @@ describe('authored synthetic tool reasoning', () => {
 			executeTool: async () => ({ providerResult: { loggedOff: true } }),
 			appendLoopMessageGroup: (group: LoopMessageGroupEntry[]) => entries.push(...group),
 		});
-		await runtime.appendSyntheticLimitLogOff({ language: 'en' }, 'run', {});
+		await runtime.appendSyntheticLimitLogOff({ text, language: 'en' }, 'run', {});
 		expect(entries[0]?.message.tool_calls?.[0]?.function.name).toBe('log_off');
 		expect(entries[0]?.message.reasoning).toEqual(expect.stringMatching(/\S/));
+	});
+
+
+	it.each([
+		{ reason: 'committed_result_unavailable' as const, phrase: 'cannot show the result of my completed action' },
+		{ reason: 'repeated_outcome_unknown' as const, phrase: 'did not confirm my last actions' },
+	])('keeps pause reasoning consistent with $reason', async ({ reason, phrase }) => {
+		const entries: LoopMessageGroupEntry[] = [];
+		const runtime = Object.assign(Object.create(BotRuntime.prototype), {
+			hasRuntimeStorage: () => false,
+			appendEvent: () => {},
+			executeTool: async () => ({ providerResult: { loggedOff: true } }),
+			appendLoopMessageGroup: (group: LoopMessageGroupEntry[]) => entries.push(...group),
+		});
+		await runtime.appendSyntheticLimitLogOff({ text, language: 'en' }, 'run', {}, reason);
+		expect(entries[0]?.message.reasoning).toContain(phrase);
+		expect(entries[0]?.message.reasoning).not.toContain('activity limit');
 	});
 
 	it('persists reasoning on every injected request, including later profile calls with no visible narration', () => {
@@ -83,7 +123,7 @@ describe('authored synthetic tool reasoning', () => {
 			appendLoopMessageGroup: (group: LoopMessageGroupEntry[]) => entries.push(...group),
 		});
 		const calls = [call('check_notifications'), call('view_profiles')];
-		runtime.appendToolCallChainLoopMessages('run', 'synthetic_context', 'Checking notifications.', calls,
+		runtime.appendToolCallChainLoopMessages(text, 'run', 'synthetic_context', 'Checking notifications.', calls,
 			calls.map((request) => ({ role: 'tool', tool_call_id: request.id, content: '{}' })));
 		const assistants = entries.filter((entry) => entry.message.role === 'assistant');
 		expect(assistants).toHaveLength(2);

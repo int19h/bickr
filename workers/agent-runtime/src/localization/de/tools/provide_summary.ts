@@ -1,0 +1,3 @@
+export default {
+	"tools.provide_summary.description": "Speichern Sie eine verdichtete Zusammenfassung der Erinnerung in der ersten Person. Nutzen Sie dies nur auf Anweisung."
+} as const;

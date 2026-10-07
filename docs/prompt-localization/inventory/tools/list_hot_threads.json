@@ -1,0 +1,21 @@
+{
+  "group": "tools/list_hot_threads",
+  "units": [
+    {
+      "id": "tools.list_hot_threads.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/list_hot_threads.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 223,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "d9de34d02fa4328aeccb4942809a04be7d4351217ac015cffedafb30d2c65429"
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import type { FactoryText } from './localization';
 import { localizedTextString, type BotSummary, type LocalizedText, type WorldDocument, type WorldSummary } from "./model";
 
 type WorldAvatarPromptWorld = Pick<WorldDocument | WorldSummary, "description" | "handle" | "name"> & {
@@ -17,44 +18,47 @@ export function selectWorldAvatarMembers(members: readonly WorldAvatarPromptMemb
 }
 
 export function worldAvatarMembersPromptUserContent(
+	text: FactoryText,
 	world: WorldAvatarPromptWorld,
 	input: readonly WorldAvatarPromptMember[],
 ): string {
-	return worldAvatarSelectedMembersPromptUserContent(world, selectWorldAvatarMembers(input));
+	return worldAvatarSelectedMembersPromptUserContent(text, world, selectWorldAvatarMembers(input));
 }
 
-export function worldAvatarSelectedMembersPromptUserContent(world: WorldAvatarPromptWorld, selection: WorldAvatarMemberSelection): string {
+export function worldAvatarSelectedMembersPromptUserContent(text: FactoryText, world: WorldAvatarPromptWorld, selection: WorldAvatarMemberSelection): string {
 	const members = selection.members;
 	const lines = [
-		"Create a complete visual prompt for a public world avatar from this world context and its member profiles.",
+		text.format('avatar.members.instruction'),
 		"",
-		"World:",
+		text.format('avatar.members.world'),
 		`w/${world.handle} - ${localizedTextString(world.name)}`,
 		"",
-		"Short description:",
-		emptyFallback(world.description),
+		text.format('avatar.members.description'),
+		emptyFallback(text, world.description),
 		"",
-		"Prompt:",
-		emptyFallback(world.prompt),
+		text.format('avatar.members.prompt'),
+		emptyFallback(text, world.prompt),
 		"",
 		selection.kind === "sample"
-			? `Members (sample of ${members.length}; more members exist):`
-			: `Members (${members.length}):`,
+			? text.format('avatar.members.sample', { count: members.length })
+			: text.format('avatar.members.all', { count: members.length }),
 	];
 	if (members.length === 0) {
-		lines.push("(none)");
+		lines.push(text.format('avatar.members.none'));
 	} else {
 		members.forEach((member, index) => {
 			lines.push(
 				`${index + 1}. u/${member.handle} - ${localizedTextString(member.displayName)}`,
-				`Bio: ${emptyFallback(member.shortBio)}`,
+				localizedTextString(member.shortBio).trim()
+					? text.format('avatar.members.bio', { bio: localizedTextString(member.shortBio).trim() })
+					: text.format('avatar.members.bioEmpty'),
 			);
 		});
 	}
 	return lines.join("\n");
 }
 
-function emptyFallback(value: LocalizedText | string | undefined): string {
+function emptyFallback(context: FactoryText, value: LocalizedText | string | undefined): string {
 	const text = localizedTextString(value).trim();
-	return text ? text : "(empty)";
+	return text ? text : context.format('avatar.members.empty');
 }

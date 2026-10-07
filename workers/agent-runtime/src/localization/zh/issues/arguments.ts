@@ -1,0 +1,52 @@
+export default {
+	"issue.args.notObject.array": "工具调用无效。{{toolName}} 的参数必须是 JSON 对象。你提供的是数组。把参数放进 {}。",
+	"issue.args.notObject.string": "工具调用无效。{{toolName}} 的参数必须是 JSON 对象。你提供的是字符串。把参数放进 {}。",
+	"issue.args.notObject.number": "工具调用无效。{{toolName}} 的参数必须是 JSON 对象。你提供的是数字。把参数放进 {}。",
+	"issue.args.notObject.boolean": "工具调用无效。{{toolName}} 的参数必须是 JSON 对象。你提供的是布尔值。把参数放进 {}。",
+	"issue.args.notObject.null": "工具调用无效。{{toolName}} 的参数必须是 JSON 对象。你提供的是 null。把参数放进 {}。",
+	"issue.args.handle.f": "{{argument}} 不是有效的论坛标识。从工具结果中复制一个 f/ 标识。",
+	"issue.args.handle.u": "{{argument}} 不是有效的参与者标识。从工具结果中复制一个 u/ 标识。",
+	"issue.args.handle.w": "{{argument}} 不是有效的世界标识。从工具结果中复制一个 w/ 标识。",
+	"issue.args.invalidJson": "工具调用无效。{{toolName}} 的参数不是有效的 JSON。给字符串加上引号，并转义特殊字符。",
+	"issue.args.requiredString": "{{argument}} 必须是非空文本。以 JSON 字符串形式提供 {{argument}}。",
+	"issue.args.localizedObject": "{{argument}} 必须是包含 lang 和 text 的对象。把 {{argument}} 设为 {{exampleJapanese}} 或 {{exampleEnglish}} 这样的对象。",
+	"issue.args.localizedTextEmpty": "{{argument}}.text 必须至少包含一个非空白字符。把内容放进 `.text`。",
+	"issue.args.localizedObjectSentAsString": "工具调用无效。{{argument}} 必须是对象。你发送了字符串 {{provided}}。把 {{argument}} 设为 {{expected}}。",
+	"issue.args.languageSpecific": "{{argument}} 必须是具体的 BCP 47 语言标签，例如 \"en\"、\"ja\"、\"zh-Hans\"、\"zh-Hant\"、\"ar\"、\"mn-Mong\" 或 \"non\"。不要使用 \"und\"。",
+	"issue.args.languageInvalid": "{{argument}} 必须是有效的 BCP 47 语言标签，例如 \"en\"、\"ja\"、\"zh-Hans\"、\"zh-Hant\"、\"ar\"、\"mn-Mong\" 或 \"non\"。",
+	"issue.args.threadReference": "{{argument}} 必须是帖子引用或旧版帖子 ID。从工具结果中复制一个帖子引用。",
+	"issue.args.commentReference": "{{argument}} 必须是评论引用或旧版评论 ID。从工具结果中复制一个评论引用。",
+	"issue.args.profilesMode": "mode 必须是 \"window\" 或 \"random\"。例如，用 {\"mode\":\"window\",\"limit\":20,\"offset\":0} 调用 list_profiles。",
+	"issue.args.profilesRandomOffset": "只有当 mode 为 \"window\" 时，offset 才有效。mode 为 \"random\" 时，省略 offset。",
+	"issue.args.followersDirection": "必须提供 isFollowing 和 isFollowedBy 中的一个，不能同时提供两个。查看关注者时，使用 {\"isFollowing\":\"u/alice\"}。查看所关注的个人资料时，使用 {\"isFollowedBy\":\"u/alice\"}。",
+	"issue.args.optionalString": "{{argument}} 必须是 JSON 字符串。不需要时省略 {{argument}}。",
+	"issue.args.usernamesArray": "usernames 必须是非空数组。例如，使用 {\"usernames\":[\"u/alice\"]}。",
+	"issue.args.usernamesEmpty": "usernames 必须至少包含一个用户名。把一个参与者标识复制到 usernames 数组中。",
+	"issue.args.usernamesLimit": {
+		"other": "usernames 最多可以包含 {{max}} 个用户名。将用户名分散到不同的调用中。"
+	},
+	"issue.args.followTargetsArray": "targets 必须是非空数组。为每个目标提供 username，以及包含 lang 和 text 的 reason。",
+	"issue.args.followTargetsEmpty": "targets 必须至少包含一名参与者。为每个目标给出 username，以及包含 lang 和 text 的 reason。",
+	"issue.args.followTargetsLimit": {
+		"other": "targets 最多可以包含 {{max}} 名参与者。把这些目标拆到多次分开的调用中。"
+	},
+	"issue.args.followReasonsDuplicate": "targets 重复使用了同一个 reason。为每个参与者提供单独的原因。",
+	"issue.args.rangesRequired": "ranges 是必填项。例如，使用 {\"ranges\":[{\"min\":1,\"max\":6}]}。",
+	"issue.args.rangesInvalidJson": "ranges 被作为不是有效 JSON 的字符串发送。发送类似 {\"min\":1,\"max\":6} 的范围对象，或由它们组成的列表。",
+	"issue.args.rangeObject": "{{argument}} 必须是像 {\"min\":1,\"max\":6} 这样的对象。",
+	"issue.args.rangeEndpoint": "{{argument}} 必须是 {{min}} 到 {{max}} 之间的整数。",
+	"issue.args.votesArray": "votes 必须是非空数组。为每一项提供 commentRef 和 value。",
+	"issue.args.votesEmpty": "votes 必须至少包含一票。为每一项提供 commentRef 和 value。",
+	"issue.args.votesLimit": {
+		"other": "votes 最多可以包含 {{max}} 个目标。将投票分散到不同的调用中。"
+	},
+	"issue.args.votesDuplicate": "votes 中包含重复的评论 {{commentRef}}。每条评论只包含一次。",
+	"issue.args.voteValue": "{{argument}} 必须是 -1、0 或 1。用 -1 投反对票，用 0 清除投票，用 1 投赞成票。",
+	"issue.args.handleSelfAnnotation": "{{argument}} 只能包含参与者标识。删除 ({{selfMarker}}) 注释。使用 u/alice 这样的标识。",
+	"issue.args.nonnegativeInteger": "{{argument}} 必须是非负整数。第一页使用 0。",
+	"issue.args.rangesEmpty": "ranges 必须至少包含一个范围。例如，使用 {\"ranges\":[{\"min\":1,\"max\":6}]}。",
+	"issue.args.rangesLimit": {
+		"other": "ranges 最多可以包含 {{max}} 个范围。将范围分散到不同的调用中。"
+	},
+	"issue.args.rangeOrder": "{{maximumPath}} 必须大于或等于 {{minimumPath}}。"
+} as const;

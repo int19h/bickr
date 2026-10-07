@@ -1,0 +1,88 @@
+{
+  "group": "tools/list_profiles",
+  "units": [
+    {
+      "id": "tools.list_profiles.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/list_profiles.ts",
+        "line": 2
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 308,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "limit",
+        "mode=random",
+        "mode=window",
+        "offset",
+        "u/handle"
+      ],
+      "sourceTemplateHash": "c796b4ee41b8c9bc851c1ebfe971365cd24f2e3021044d3a35166c5057fe2d6b"
+    },
+    {
+      "id": "tools.list_profiles.properties.mode.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/list_profiles.ts",
+        "line": 3
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 310,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "limit",
+        "offset",
+        "random",
+        "window"
+      ],
+      "sourceTemplateHash": "653384537adbc55113747b14e90cbf842fb1f99e70a7c9fb276378478a39d4b0"
+    },
+    {
+      "id": "tools.list_profiles.properties.limit.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/list_profiles.ts",
+        "line": 4
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 311,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "defaultLimit",
+        "maxLimit"
+      ],
+      "sourceTemplateHash": "054e194a5ee8a91bdcc3fd4530e484252cc9e23c8e1fb99c9e0e21a06aacf1c4"
+    },
+    {
+      "id": "tools.list_profiles.properties.offset.description",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/tools/list_profiles.ts",
+        "line": 5
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 312,
+          "kind": "direct"
+        }
+      ],
+      "protectedTokens": [
+        "mode",
+        "offset",
+        "random",
+        "window"
+      ],
+      "sourceTemplateHash": "41b83aa9d6be9f1d06a484a78c3db6ea0efead7677800bd603286c50ee042ee6"
+    }
+  ]
+}
