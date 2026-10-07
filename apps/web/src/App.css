@@ -3655,7 +3655,7 @@ fieldset {
 	line-height: 1.4;
 }
 
-/* Confirm renders in a portal, outside the card's wrapping rules. */
+/* The confirmation name sits outside the card's wrapping rules. */
 .credential-confirm-name {
 	overflow-wrap: anywhere;
 }
