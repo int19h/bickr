@@ -1,4 +1,4 @@
-import { BotRuntime, describe, expect, fakeBotDocument, it, providerResponseWithToolCalls, runtimeEvent, testToolExecutor, toolDefinitionsForProviderRound, withTestRunLiveness, withRuntimeSqliteForTest } from './helpers/index-harness';
+import { BotRuntime, describe, expect, fakeBotDocument, it, providerResponseWithToolCalls, testToolExecutor, toolDefinitionsForProviderRound, withTestRunLiveness, withRuntimeSqliteForTest } from './helpers/index-harness';
 import { ToolBatchOutcomeError, ToolOutcomeUnknownError, TickStoppedError } from '../workers/agent-runtime/src/errors';
 import { botText } from '../workers/agent-runtime/src/localization';
 import type { RuntimeBotDocument, ProviderLoopOutcome, ChatMessage, RunContext } from '../workers/agent-runtime/src/types';
