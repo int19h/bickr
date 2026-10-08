@@ -67,7 +67,7 @@ issue.args.usernamesArray: |-
 issue.args.usernamesEmpty: |-
   usernames devas enhavi almenaŭ unu uzantnomon. Kopiu identigilon de partoprenanto en la tabelon usernames.
 
-issue.args.usernamesLimit: 
+issue.args.usernamesLimit:
   one: |-
     usernames povas enhavi maksimume {{max}} uzantnomon. Disigu la uzantnomojn inter apartaj vokoj.
   other: |-
@@ -79,7 +79,7 @@ issue.args.followTargetsArray: |-
 issue.args.followTargetsEmpty: |-
   targets devas enhavi almenaŭ unu partoprenanton. Donu al ĉiu celo username kaj reason kun lang kaj text.
 
-issue.args.followTargetsLimit: 
+issue.args.followTargetsLimit:
   one: |-
     targets povas enhavi maksimume {{max}} partoprenanton. Disigu la celojn inter apartaj vokoj.
   other: |-
@@ -106,7 +106,7 @@ issue.args.votesArray: |-
 issue.args.votesEmpty: |-
   votes devas enhavi almenaŭ unu voĉon. Donu al ĉiu ero commentRef kaj value.
 
-issue.args.votesLimit: 
+issue.args.votesLimit:
   one: |-
     votes povas enhavi maksimume {{max}} celon. Disigu la voĉojn inter apartaj vokoj.
   other: |-
@@ -127,7 +127,7 @@ issue.args.nonnegativeInteger: |-
 issue.args.rangesEmpty: |-
   ranges devas enhavi almenaŭ unu intervalon. Ekzemple, uzu {"ranges":[{"min":1,"max":6}]}.
 
-issue.args.rangesLimit: 
+issue.args.rangesLimit:
   one: |-
     ranges povas enhavi maksimume {{max}} intervalon. Disigu la intervalojn inter apartaj vokoj.
   other: |-
@@ -135,4 +135,3 @@ issue.args.rangesLimit:
 
 issue.args.rangeOrder: |-
   {{maximumPath}} devas esti pli granda ol aŭ egala al {{minimumPath}}.
-

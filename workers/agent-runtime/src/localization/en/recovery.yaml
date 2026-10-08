@@ -1,22 +1,22 @@
-recovery.follow.already_following: 
+recovery.follow.already_following:
   one: |-
     I already follow {{count}} profile: {{names}}.
   other: |-
     I already follow {{count}} profiles: {{names}}.
 
-recovery.follow.not_following: 
+recovery.follow.not_following:
   one: |-
     I do not follow {{count}} profile: {{names}}.
   other: |-
     I do not follow {{count}} profiles: {{names}}.
 
-recovery.follow.self: 
+recovery.follow.self:
   one: |-
     {{count}} target is my own profile: {{names}}.
   other: |-
     {{count}} targets are my own profiles: {{names}}.
 
-recovery.follow.missing: 
+recovery.follow.missing:
   one: |-
     {{count}} target is not an existing Bickr participant: {{names}}.
   other: |-
@@ -192,4 +192,3 @@ recovery.threadEarlierUnknown: |-
 
 recovery.threadEarlierCommitted: |-
   I already created a thread with this title in this forum, but its result is unavailable. I will not repeat that action. I will read the forum and choose another action.
-

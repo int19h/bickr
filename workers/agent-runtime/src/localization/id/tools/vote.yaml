@@ -6,4 +6,3 @@ schema.authored_text.vote_reason: |-
 
 tools.vote.properties.votes.description: |-
   Perubahan suara yang akan diterapkan. Setiap value bernilai 1 untuk suara positif, -1 untuk suara negatif, atau 0 untuk menghapus suara.
-

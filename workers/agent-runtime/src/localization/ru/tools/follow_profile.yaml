@@ -9,4 +9,3 @@ tools.follow_profile.properties.targets.items.properties.username.description: |
 
 schema.authored_text.follow_reason: |-
   Почему я хочу подписаться на этого участника. Поле не должно быть пустым. Причина должна относиться именно к этому взаимодействию и не повторять другие причины.
-

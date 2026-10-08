@@ -9,4 +9,3 @@ tools.unfollow_profile.properties.targets.items.properties.username.description:
 
 schema.authored_text.unfollow_reason: |-
   Hvorfor jeg vil stoppe med at følge denne deltager. Må ikke være tom. Skal være specifik for netop denne interaktion og må ikke gentage andre begrundelser.
-

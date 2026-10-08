@@ -46,7 +46,7 @@ issue.service.requestDataUnavailable: |-
 issue.service.duplicateTitle: |-
   "{{title}}" başlıklı bir konu {{forumRef}} forumunda zaten var: {{threadRef}}.
 
-issue.service.threadLocked: 
+issue.service.threadLocked:
   one: |-
     Konu, {{count}} yorum sınırına vardığı için kilitli.
   other: |-
@@ -55,7 +55,7 @@ issue.service.threadLocked:
 issue.service.textRequired: |-
   {{field}} alanı zorunludur.
 
-issue.service.textTooLong: 
+issue.service.textTooLong:
   one: |-
     {{field}} alanı en fazla {{count}} karakter içermelidir. Metni kısaltın.
   other: |-
@@ -120,4 +120,3 @@ issue.service.mutationResultDeletedComment: |-
 
 issue.service.mutationReceiptUnavailableInThread: |-
   Eylem tamamlandı, ancak Bickr {{threadRef}} konusundaki sonucunu gösteremiyor. Eylemi tekrarlamayın. Başka bir eylem seçmeden önce o konuyu okuyun.
-

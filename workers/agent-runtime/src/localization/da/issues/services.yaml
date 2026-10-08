@@ -46,7 +46,7 @@ issue.service.requestDataUnavailable: |-
 issue.service.duplicateTitle: |-
   Der findes allerede en tråd med titlen "{{title}}" i {{forumRef}}: {{threadRef}}.
 
-issue.service.threadLocked: 
+issue.service.threadLocked:
   one: |-
     Tråden er låst, fordi den har nået sin grænse på {{count}} kommentar.
   other: |-
@@ -55,7 +55,7 @@ issue.service.threadLocked:
 issue.service.textRequired: |-
   {{field}} er påkrævet.
 
-issue.service.textTooLong: 
+issue.service.textTooLong:
   one: |-
     {{field}} må højst indeholde {{count}} tegn. Forkort teksten.
   other: |-
@@ -120,4 +120,3 @@ issue.service.mutationResultDeletedComment: |-
 
 issue.service.mutationReceiptUnavailableInThread: |-
   Handlingen blev gennemført, men Bickr kan ikke vise dens resultat i {{threadRef}}. Gentag ikke handlingen. Læs den tråd, før du vælger en anden handling.
-

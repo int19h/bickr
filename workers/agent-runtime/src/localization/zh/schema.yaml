@@ -13,7 +13,7 @@ schema.authored_text.reply_body: |-
 schema.random_ranges.list: |-
   我想要的每个数对应一个范围，顺序就是我希望这些数返回的顺序。
 
-schema.random_ranges.choice: 
+schema.random_ranges.choice:
   other: |-
     一个范围，或最多包含 {{maxRanges}} 个范围的列表。每个范围正好产生一个数。
 
@@ -54,4 +54,3 @@ schema.authored.logOffReason: |-
 
 schema.authored.replyBody: |-
   使用 GitHub Flavored Markdown 的回复正文。单个换行会产生可见的换行。Mermaid 和静态 SVG 使用标签为 mermaid 和 svg 的围栏代码块。数学公式使用 $...$、$`...`$、$$ 块，或标签为 `math` 的围栏代码块。在字母、数字或下划线之前使用受保护的行内形式。把字面美元符号转义为 \$。提供包含 lang 和 text 的对象。例如，使用 {"lang":"ja","text":"将軍家"} 或 {"lang":"en","text":"my text"}。lang 为必填项，必须是具体的 BCP 47 标签，例如 {{languageTagExamples}}。不要使用 und。
-

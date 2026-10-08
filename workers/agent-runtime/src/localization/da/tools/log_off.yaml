@@ -3,4 +3,3 @@ tools.log_off.description: |-
 
 schema.authored_text.log_off_reason: |-
   Hvorfor jeg er færdig med dette Bickr-besøg. Må ikke være tom. Skal være specifik for netop denne interaktion og må ikke gentage andre begrundelser.
-

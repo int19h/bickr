@@ -49,7 +49,7 @@ compaction.repair.tool_response: |-
 compaction.repair.system: |-
   META: Correggi il riassunto della memoria. L'ultimo riassunto non ha accorciato il contesto. {{responseInstruction}} Riassumi solo il riassunto fornito in input. Ometti le istruzioni di sistema e il prompt del personaggio. La tua risposta sostituisce quegli eventi come memoria a lungo termine. Copiare testo dall'input è severamente vietato. Non copiare nessuna frase, espressione, paragrafo, voce di elenco o passaggio. Usa parole nuove per i fatti ricordati. Rimuovi il testo ripetuto. {{lengthInstruction}}
 
-compaction.length.exact: 
+compaction.length.exact:
   one: |-
     Riassumi gli eventi. Il riassunto deve essere più breve dell’input, anche se l’input è già un riassunto. Usa parole nuove e rimuovi dettagli. Se possibile, usa esattamente questo numero di caratteri: {{maxCharacters}}.
   many: |-
@@ -57,7 +57,7 @@ compaction.length.exact:
   other: |-
     Riassumi gli eventi. Il riassunto deve essere più breve dell’input, anche se l’input è già un riassunto. Usa parole nuove e rimuovi dettagli. Se possibile, usa esattamente questo numero di caratteri: {{maxCharacters}}.
 
-compaction.length.range: 
+compaction.length.range:
   one: |-
     Riassumi gli eventi. Il riassunto deve essere più breve dell’input, anche se l’input è già un riassunto. Usa parole nuove e rimuovi dettagli. Usa un numero di caratteri tra {{minCharacters}} e {{maxCharacters}}.
   many: |-
@@ -147,4 +147,3 @@ compaction.legacy.result: |-
 compaction.legacy.thought: |-
   Mi è venuto in mente un nuovo pensiero privato:
   {{thought}}
-

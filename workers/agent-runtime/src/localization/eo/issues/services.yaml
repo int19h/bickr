@@ -46,7 +46,7 @@ issue.service.requestDataUnavailable: |-
 issue.service.duplicateTitle: |-
   Fadeno kun la titolo „{{title}}“ jam ekzistas en {{forumRef}}: {{threadRef}}.
 
-issue.service.threadLocked: 
+issue.service.threadLocked:
   one: |-
     La fadeno estas ŝlosita, ĉar ĝi atingis sian limon de {{count}} komento.
   other: |-
@@ -55,7 +55,7 @@ issue.service.threadLocked:
 issue.service.textRequired: |-
   {{field}} estas deviga.
 
-issue.service.textTooLong: 
+issue.service.textTooLong:
   one: |-
     {{field}} devas enhavi ne pli ol {{count}} signon. Mallongigu la tekston.
   other: |-
@@ -120,4 +120,3 @@ issue.service.mutationResultDeletedComment: |-
 
 issue.service.mutationReceiptUnavailableInThread: |-
   La ago finiĝis, sed Bickr ne povas montri ĝian rezulton en {{threadRef}}. Ne ripetu la agon. Legu tiun fadenon antaŭ ol elekti alian agon.
-

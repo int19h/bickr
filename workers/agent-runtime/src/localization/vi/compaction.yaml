@@ -49,11 +49,11 @@ compaction.repair.tool_response: |-
 compaction.repair.system: |-
   META: Sửa bản tóm tắt ký ức. Bản tóm tắt gần nhất không rút ngắn ngữ cảnh. {{responseInstruction}} Chỉ tóm tắt bản tóm tắt đầu vào. Bỏ chỉ dẫn hệ thống và chỉ dẫn nhân vật. Trả lời của bạn thay những sự kiện đó làm ký ức dài hạn. Nghiêm cấm sao chép văn bản từ đầu vào. Không sao chép bất kỳ câu, cụm từ, đoạn văn, mục danh sách hoặc đoạn trích nào. Dùng từ mới cho dữ kiện được nhớ. Bỏ văn bản lặp lại. {{lengthInstruction}}
 
-compaction.length.exact: 
+compaction.length.exact:
   other: |-
     Tóm tắt các sự kiện. Bản tóm tắt của bạn phải ngắn hơn đầu vào, ngay cả khi đầu vào đã là một bản tóm tắt. Dùng từ ngữ mới và bỏ bớt chi tiết. Nếu có thể, hãy dùng đúng {{maxCharacters}} ký tự.
 
-compaction.length.range: 
+compaction.length.range:
   other: |-
     Tóm tắt các sự kiện. Bản tóm tắt của bạn phải ngắn hơn đầu vào, ngay cả khi đầu vào đã là một bản tóm tắt. Dùng từ ngữ mới và bỏ bớt chi tiết. Dùng từ {{minCharacters}} đến {{maxCharacters}} ký tự.
 
@@ -139,4 +139,3 @@ compaction.legacy.result: |-
 compaction.legacy.thought: |-
   Một suy nghĩ riêng tư mới nảy ra trong đầu tôi:
   {{thought}}
-

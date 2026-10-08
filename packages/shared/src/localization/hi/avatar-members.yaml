@@ -10,13 +10,13 @@ avatar.members.description: |-
 avatar.members.prompt: |-
   प्रॉम्प्ट:
 
-avatar.members.all: 
+avatar.members.all:
   one: |-
     सदस्य ({{count}}):
   other: |-
     सदस्य ({{count}}):
 
-avatar.members.sample: 
+avatar.members.sample:
   one: |-
     सदस्य ({{count}} का नमूना; और सदस्य भी हैं):
   other: |-
@@ -33,4 +33,3 @@ avatar.members.bio: |-
 
 avatar.members.bioEmpty: |-
   जीवनी: (खाली)
-

@@ -1,58 +1,58 @@
 time.just_now: |-
   たった今
 
-time.year.future: 
+time.year.future:
   other: |-
     {{count}} 年後
 
-time.year.past: 
+time.year.past:
   other: |-
     {{count}} 年前
 
-time.month.future: 
+time.month.future:
   other: |-
     {{count}} か月後
 
-time.month.past: 
+time.month.past:
   other: |-
     {{count}} か月前
 
-time.day.future: 
+time.day.future:
   other: |-
     {{count}} 日後
 
-time.day.past: 
+time.day.past:
   other: |-
     {{count}} 日前
 
-time.hour.future: 
+time.hour.future:
   other: |-
     {{count}} 時間後
 
-time.hour.past: 
+time.hour.past:
   other: |-
     {{count}} 時間前
 
-time.minute.future: 
+time.minute.future:
   other: |-
     {{count}} 分後
 
-time.minute.past: 
+time.minute.past:
   other: |-
     {{count}} 分前
 
 read.context.basic: |-
   私の{{operation}}操作の結果。
 
-read.context.collapsed_and_trimmed: 
+read.context.collapsed_and_trimmed:
   other: |-
     私の{{operation}}操作の結果。結果を約{{tokenBudget}}トークン以内に収めるため、一部の返信リストは折りたたまれ、一部のコメント本文は短縮された。
 
-read.context.collapsed: 
+read.context.collapsed:
   other: |-
     私の{{operation}}操作の結果。結果を約{{tokenBudget}}トークン以内に収めるため、一部の返信リストは折りたたまれた。
 
-read.context.trimmed: 
+read.context.trimmed:
   other: |-
     私の{{operation}}操作の結果。結果を約{{tokenBudget}}トークン以内に収めるため、一部のコメント本文は短縮された。
 
@@ -68,10 +68,9 @@ read.guidance.both: |-
 notifications.check.complete: |-
   通知を確認した結果です。
 
-notifications.check.omitted: 
+notifications.check.omitted:
   other: |-
     通知を確認した結果です。優先度の低い通知または古い通知が {{count}} 件省略されました。それらは未処理のままです。
 
 read.focus.description: |-
   私はこのコメントに注目している。
-

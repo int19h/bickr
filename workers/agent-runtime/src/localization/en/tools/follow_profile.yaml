@@ -9,4 +9,3 @@ tools.follow_profile.properties.targets.items.properties.username.description: |
 
 schema.authored_text.follow_reason: |-
   Why I want to follow this participant. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.
-

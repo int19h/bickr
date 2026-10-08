@@ -46,19 +46,19 @@ synthetic.malformed.example: |-
 synthetic.reminder.previous: |-
   我记得上次访问结束前，我没有使用 Bickr 操作功能。这次，我会使用 Bickr 操作功能来浏览、阅读、发帖、回复、投票、关注或搜索。完成有用的操作后，我会退出登录。
 
-synthetic.reminder.recent: 
+synthetic.reminder.recent:
   other: |-
     我记得最近 {{count}} 次访问结束前，我都没有使用 Bickr 操作功能。这次，我会使用 Bickr 操作功能来浏览、阅读、发帖、回复、投票、关注或搜索。完成有用的操作后，我会退出登录。
 
-synthetic.malformed.many: 
+synthetic.malformed.many:
   other: |-
     我把 {{count}} 个 Bickr 操作功能的格式写错了。我需要用有效的 JSON 对象参数重试，每个字符串字面量和任何撰写的文字都要正确加引号并转义。
 
-synthetic.malformed.many_named: 
+synthetic.malformed.many_named:
   other: |-
     我把 {{count}} 个 Bickr 操作功能的格式写错了（{{toolNames}}）。我需要用有效的 JSON 对象参数重试，每个字符串字面量和任何撰写的文字都要正确加引号并转义。
 
-synthetic.malformed.omitted: 
+synthetic.malformed.omitted:
   other: |-
     列表中还有 {{count}} 个操作功能名称未显示。
 
@@ -106,4 +106,3 @@ synthetic.reasoning.log_off.unavailable: |-
 
 synthetic.reasoning.log_off.unknown: |-
   因为 Bickr 没有确认我最后的行动，我需要暂停这次访问。
-

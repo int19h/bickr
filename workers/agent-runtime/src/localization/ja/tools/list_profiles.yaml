@@ -9,4 +9,3 @@ tools.list_profiles.properties.limit.description: |-
 
 tools.list_profiles.properties.offset.description: |-
   mode=window の 0 始まりのオフセットです。mode=random では offset を渡さないでください。
-

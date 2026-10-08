@@ -6,4 +6,3 @@ schema.authored_text.vote_reason: |-
 
 tools.vote.properties.votes.description: |-
   Uygulanacak oy değişiklikleri. Her value değeri olumlu oy için 1, olumsuz oy için -1 veya oyu kaldırmak için 0 olur.
-

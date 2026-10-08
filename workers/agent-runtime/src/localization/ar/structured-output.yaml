@@ -28,7 +28,7 @@ structured_output.missing_tool: |-
 structured_output.wrong_tool: |-
   استخدم الأداة {{toolName}} فقط لهذا الطلب. لا تستخدم {{receivedTool}} هنا.
 
-structured_output.tool_count: 
+structured_output.tool_count:
   zero: |-
     كان المتوقع استدعاءً واحدًا للأداة {{toolName}}، لكن عدد استدعاءات الأدوات المستلمة هو {{count}}. استدعِ الأداة {{toolName}} مرة واحدة بالضبط.
   one: |-
@@ -54,7 +54,7 @@ structured_output.arguments_object: |-
 structured_output.output_object: |-
   يجب أن يكون المخرج المهيكل كائن JSON. ضع {{property}} وقيمته النصية داخل {}.
 
-structured_output.extra_arguments: 
+structured_output.extra_arguments:
   zero: |-
     توجد وسيطات غير متوقعة عددها {{count}}: {{fields}}. أزل تلك الوسيطات. أعطِ {{property}} فقط.
   one: |-
@@ -68,7 +68,7 @@ structured_output.extra_arguments:
   other: |-
     توجد وسيطات غير متوقعة عددها {{count}}: {{fields}}. أزل تلك الوسيطات. أعطِ {{property}} فقط.
 
-structured_output.extra_fields: 
+structured_output.extra_fields:
   zero: |-
     توجد حقول غير متوقعة عددها {{count}}: {{fields}}. أزل تلك الحقول. أعطِ {{property}} فقط.
   one: |-
@@ -94,7 +94,7 @@ structured_output.nonempty.avatar_description: |-
 structured_output.transcript: |-
   اكتب الملخص في {{property}} بنثر عادي بضمير المتكلم. أزل سطر سجل المحادثة {{line}}. لا تكتب أسطرًا موسومة {{labels}}.
 
-structured_output.minimum.compaction: 
+structured_output.minimum.compaction:
   zero: |-
     يجب ألا يقل عدد أحرف الملخص في {{property}} عن {{minimum}}. أضف تفاصيل ذات صلة إلى النص.
   one: |-
@@ -108,7 +108,7 @@ structured_output.minimum.compaction:
   other: |-
     يجب ألا يقل عدد أحرف الملخص في {{property}} عن {{minimum}}. أضف تفاصيل ذات صلة إلى النص.
 
-structured_output.minimum.translation: 
+structured_output.minimum.translation:
   zero: |-
     يجب ألا يقل عدد أحرف الترجمة في {{property}} عن {{minimum}}. أضف تفاصيل ذات صلة إلى النص.
   one: |-
@@ -122,7 +122,7 @@ structured_output.minimum.translation:
   other: |-
     يجب ألا يقل عدد أحرف الترجمة في {{property}} عن {{minimum}}. أضف تفاصيل ذات صلة إلى النص.
 
-structured_output.minimum.avatar_description: 
+structured_output.minimum.avatar_description:
   zero: |-
     يجب ألا يقل عدد أحرف وصف صورة الملف الشخصي في {{property}} عن {{minimum}}. أضف تفاصيل ذات صلة إلى النص.
   one: |-
@@ -136,7 +136,7 @@ structured_output.minimum.avatar_description:
   other: |-
     يجب ألا يقل عدد أحرف وصف صورة الملف الشخصي في {{property}} عن {{minimum}}. أضف تفاصيل ذات صلة إلى النص.
 
-structured_output.maximum.compaction: 
+structured_output.maximum.compaction:
   zero: |-
     يجب ألا يزيد عدد أحرف الملخص في {{property}} عن {{maximum}}. اختصر النص.
   one: |-
@@ -150,7 +150,7 @@ structured_output.maximum.compaction:
   other: |-
     يجب ألا يزيد عدد أحرف الملخص في {{property}} عن {{maximum}}. اختصر النص.
 
-structured_output.maximum.translation: 
+structured_output.maximum.translation:
   zero: |-
     يجب ألا يزيد عدد أحرف الترجمة في {{property}} عن {{maximum}}. اختصر النص.
   one: |-
@@ -164,7 +164,7 @@ structured_output.maximum.translation:
   other: |-
     يجب ألا يزيد عدد أحرف الترجمة في {{property}} عن {{maximum}}. اختصر النص.
 
-structured_output.maximum.avatar_description: 
+structured_output.maximum.avatar_description:
   zero: |-
     يجب ألا يزيد عدد أحرف وصف صورة الملف الشخصي في {{property}} عن {{maximum}}. اختصر النص.
   one: |-
@@ -184,7 +184,7 @@ structured_output.wrong_tool.unnamed: |-
 structured_output.tool_mismatch.unnamed: |-
   كانت الأداة المتوقعة {{toolName}}، لكن تم استلام استدعاء أداة بلا اسم. استدعِ الأداة {{toolName}} بدلًا من ذلك.
 
-structured_output.nonreducing.estimate: 
+structured_output.nonreducing.estimate:
   zero: |-
     لم يقلل الملخص في {{property}} السياق. عدد وحداته النصية التقديري هو {{replacementTokens}}.
   one: |-
@@ -198,7 +198,7 @@ structured_output.nonreducing.estimate:
   other: |-
     لم يقلل الملخص في {{property}} السياق. عدد وحداته النصية التقديري هو {{replacementTokens}}.
 
-structured_output.nonreducing.before: 
+structured_output.nonreducing.before:
   zero: |-
     كان عدد الوحدات النصية في السياق قبل الاستبدال {{compactedTokens}}. اختصر الملخص مع الاحتفاظ بالحقائق المطلوبة.
   one: |-
@@ -220,4 +220,3 @@ structured_output.nonempty.translation.field: |-
 
 structured_output.nonempty.avatar_description.field: |-
   يجب أن يكون حقل وصف صورة الملف الشخصي سلسلة نصية غير فارغة. ضع النص في {{property}}.
-

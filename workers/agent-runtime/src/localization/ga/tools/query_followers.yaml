@@ -9,4 +9,3 @@ tools.query_followers.properties.isFollowedBy.description: |-
 
 tools.query_followers.properties.usernameGlob.description: |-
   Patrún glob roghnach le saoróga * a scagann na hainmneacha úsáideora eile a chuirtear ar ais, mar shampla a* nó u/al*.
-

@@ -49,7 +49,7 @@ compaction.repair.tool_response: |-
 compaction.repair.system: |-
   META: Deisigh an achoimre chuimhne. Níor ghiorraigh an achoimre dheireanach an comhthéacs. {{responseInstruction}} Déan achoimre ar achoimre an ionchuir amháin. Fág amach treoracha córais agus leid na pearsan. Cuirtear do fhreagra in áit na n-imeachtaí sin mar chuimhne fhadtéarmach. Tá cosc iomlán ar théacs a chóipeáil ón ionchur. Ná cóipeáil abairt, frása, alt, mír liosta ná sliocht ar bith. Úsáid focail nua le haghaidh na bhfíricí a chuimhníonn tú. Bain téacs athráite. {{lengthInstruction}}
 
-compaction.length.exact: 
+compaction.length.exact:
   one: |-
     Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Más féidir, bíodh líon na gcarachtar díreach {{maxCharacters}}.
   two: |-
@@ -61,7 +61,7 @@ compaction.length.exact:
   other: |-
     Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Más féidir, bíodh líon na gcarachtar díreach {{maxCharacters}}.
 
-compaction.length.range: 
+compaction.length.range:
   one: |-
     Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Bíodh líon na gcarachtar idir {{minCharacters}} agus {{maxCharacters}}.
   two: |-
@@ -155,4 +155,3 @@ compaction.legacy.result: |-
 compaction.legacy.thought: |-
   Rith smaoineamh príobháideach nua liom:
   {{thought}}
-

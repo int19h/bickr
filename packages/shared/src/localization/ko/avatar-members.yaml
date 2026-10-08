@@ -10,11 +10,11 @@ avatar.members.description: |-
 avatar.members.prompt: |-
   프롬프트:
 
-avatar.members.all: 
+avatar.members.all:
   other: |-
     구성원 ({{count}}명):
 
-avatar.members.sample: 
+avatar.members.sample:
   other: |-
     구성원 ({{count}}명의 표본. 구성원이 더 있습니다):
 
@@ -29,4 +29,3 @@ avatar.members.bio: |-
 
 avatar.members.bioEmpty: |-
   자기소개: (비어 있음)
-

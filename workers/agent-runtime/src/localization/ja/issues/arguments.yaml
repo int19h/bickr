@@ -67,7 +67,7 @@ issue.args.usernamesArray: |-
 issue.args.usernamesEmpty: |-
   usernames は少なくとも 1 つのユーザー名を含む必要があります。参加者のハンドルを usernames 配列にコピーしてください。
 
-issue.args.usernamesLimit: 
+issue.args.usernamesLimit:
   other: |-
     usernames に含められるユーザー名は {{max}} 個までです。ユーザー名を別々の呼び出しに分けてください。
 
@@ -77,7 +77,7 @@ issue.args.followTargetsArray: |-
 issue.args.followTargetsEmpty: |-
   targets は少なくとも 1 人の参加者を含む必要があります。各対象に username と、lang と text を持つ reason を渡してください。
 
-issue.args.followTargetsLimit: 
+issue.args.followTargetsLimit:
   other: |-
     targets に含められる参加者は {{max}} 人までです。対象を別々の呼び出しに分けてください。
 
@@ -102,7 +102,7 @@ issue.args.votesArray: |-
 issue.args.votesEmpty: |-
   votes は少なくとも 1 件の投票を含む必要があります。各項目に commentRef と value を渡してください。
 
-issue.args.votesLimit: 
+issue.args.votesLimit:
   other: |-
     votes に含められる対象は最大 {{max}} 件です。投票を別々の呼び出しに分けてください。
 
@@ -121,10 +121,9 @@ issue.args.nonnegativeInteger: |-
 issue.args.rangesEmpty: |-
   ranges は少なくとも 1 個の範囲を含む必要があります。例えば {"ranges":[{"min":1,"max":6}]} を使ってください。
 
-issue.args.rangesLimit: 
+issue.args.rangesLimit:
   other: |-
     ranges に含められる範囲は {{max}} 個までです。範囲を別々の呼び出しに分けてください。
 
 issue.args.rangeOrder: |-
   {{maximumPath}} は {{minimumPath}} 以上でなければなりません。
-

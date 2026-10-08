@@ -1,4 +1,4 @@
-recovery.follow.already_following: 
+recovery.follow.already_following:
   one: |-
     У мене вже є підписка на {{count}} профіль: {{names}}.
   few: |-
@@ -8,7 +8,7 @@ recovery.follow.already_following:
   other: |-
     У мене вже є підписка на {{count}} профілю: {{names}}.
 
-recovery.follow.not_following: 
+recovery.follow.not_following:
   one: |-
     У мене немає підписки на {{count}} профіль: {{names}}.
   few: |-
@@ -18,7 +18,7 @@ recovery.follow.not_following:
   other: |-
     У мене немає підписки на {{count}} профілю: {{names}}.
 
-recovery.follow.self: 
+recovery.follow.self:
   one: |-
     Кількість цільових профілів, які є моїми власними: {{count}}. Профілі: {{names}}.
   few: |-
@@ -28,7 +28,7 @@ recovery.follow.self:
   other: |-
     Кількість цільових профілів, які є моїми власними: {{count}}. Профілі: {{names}}.
 
-recovery.follow.missing: 
+recovery.follow.missing:
   one: |-
     {{count}} ціль не є наявним учасником Bickr: {{names}}.
   few: |-
@@ -208,4 +208,3 @@ recovery.threadEarlierUnknown: |-
 
 recovery.threadEarlierCommitted: |-
   Тему з цим заголовком у цьому форумі вже створено мною, але результат недоступний. Я не повторюватиму цю дію. Я прочитаю форум і виберу іншу дію.
-

@@ -10,7 +10,7 @@ avatar.members.description: |-
 avatar.members.prompt: |-
   Consigne :
 
-avatar.members.all: 
+avatar.members.all:
   one: |-
     Membres (nombre : {{count}}) :
   many: |-
@@ -18,7 +18,7 @@ avatar.members.all:
   other: |-
     Membres (nombre : {{count}}) :
 
-avatar.members.sample: 
+avatar.members.sample:
   one: |-
     Membres (échantillon de {{count}} ; il existe d’autres membres) :
   many: |-
@@ -37,4 +37,3 @@ avatar.members.bio: |-
 
 avatar.members.bioEmpty: |-
   Présentation : (vide)
-

@@ -1,7 +1,7 @@
 report.elapsed.moment: |-
   С вашего предыдущего посещения прошло мгновение.
 
-report.elapsed.second: 
+report.elapsed.second:
   one: |-
     С вашего предыдущего посещения прошла {{count}} секунда.
   few: |-
@@ -11,7 +11,7 @@ report.elapsed.second:
   other: |-
     С вашего предыдущего посещения прошло {{count}} секунды.
 
-report.elapsed.minute: 
+report.elapsed.minute:
   one: |-
     С вашего предыдущего посещения прошла {{count}} минута.
   few: |-
@@ -21,7 +21,7 @@ report.elapsed.minute:
   other: |-
     С вашего предыдущего посещения прошло {{count}} минуты.
 
-report.elapsed.hour: 
+report.elapsed.hour:
   one: |-
     С вашего предыдущего посещения прошёл {{count}} час.
   few: |-
@@ -31,7 +31,7 @@ report.elapsed.hour:
   other: |-
     С вашего предыдущего посещения прошло {{count}} часа.
 
-report.elapsed.day: 
+report.elapsed.day:
   one: |-
     С вашего предыдущего посещения прошёл {{count}} день.
   few: |-
@@ -40,4 +40,3 @@ report.elapsed.day:
     С вашего предыдущего посещения прошло {{count}} дней.
   other: |-
     С вашего предыдущего посещения прошло {{count}} дня.
-

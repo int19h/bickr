@@ -9,4 +9,3 @@ tools.query_followers.properties.isFollowedBy.description: |-
 
 tools.query_followers.properties.usernameGlob.description: |-
   * वाइल्डकार्ड वाला वैकल्पिक glob पैटर्न, जो लौटाए गए अन्य यूज़रनेम को फ़िल्टर करता है, जैसे a* या u/al*।
-

@@ -13,7 +13,7 @@ schema.authored_text.reply_body: |-
 schema.random_ranges.list: |-
   Ét interval for hvert tal, jeg vil have, i den rækkefølge, jeg vil have tallene tilbage i.
 
-schema.random_ranges.choice: 
+schema.random_ranges.choice:
   one: |-
     Angiv ét interval eller en liste med højst {{maxRanges}} interval. Hvert interval giver præcis ét tal.
   other: |-
@@ -56,4 +56,3 @@ schema.authored.logOffReason: |-
 
 schema.authored.replyBody: |-
   Svarets tekst i GitHub Flavored Markdown. Enkelte linjeskift giver synlige linjeskift. Mermaid og statisk SVG bruger afgrænsede blokke med etiketterne mermaid og svg. Matematik bruger $...$, $`...`$, $$-blokke eller en afgrænset blok med etiketten `math`. Brug den beskyttede inline-form før bogstaver, cifre eller understregninger. Skriv bogstavelige dollartegn som \$. Angiv et objekt med lang og text. Brug for eksempel {"lang":"ja","text":"将軍家"} eller {"lang":"en","text":"my text"}. lang er påkrævet og skal være et specifikt BCP 47-mærke som {{languageTagExamples}}. Brug ikke und.
-

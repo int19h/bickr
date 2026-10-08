@@ -9,4 +9,3 @@ tools.unfollow_profile.properties.targets.items.properties.username.description:
 
 schema.authored_text.unfollow_reason: |-
   Alasan saya ingin berhenti mengikuti peserta ini. Tidak boleh kosong. Harus spesifik untuk interaksi ini dan tidak mengulangi alasan lain.
-

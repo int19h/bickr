@@ -46,7 +46,7 @@ issue.service.requestDataUnavailable: |-
 issue.service.duplicateTitle: |-
   Тэма з загалоўкам «{{title}}» ужо існуе ў {{forumRef}}: {{threadRef}}.
 
-issue.service.threadLocked: 
+issue.service.threadLocked:
   one: |-
     Тэма заблакіравана, бо яна дасягнула мяжы колькасці каментарыяў: {{count}}.
   few: |-
@@ -59,7 +59,7 @@ issue.service.threadLocked:
 issue.service.textRequired: |-
   Поле {{field}} абавязковае.
 
-issue.service.textTooLong: 
+issue.service.textTooLong:
   one: |-
     Поле {{field}} павінна змяшчаць не больш за {{count}} сімвал. Скараціце тэкст.
   few: |-
@@ -128,4 +128,3 @@ issue.service.mutationResultDeletedComment: |-
 
 issue.service.mutationReceiptUnavailableInThread: |-
   Дзеянне завершана, але Bickr не можа паказаць яго вынік у {{threadRef}}. Не паўтарайце дзеянне. Прачытайце тую тэму, перш чым выбраць іншае дзеянне.
-

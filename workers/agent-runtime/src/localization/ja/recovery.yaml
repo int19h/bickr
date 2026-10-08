@@ -1,16 +1,16 @@
-recovery.follow.already_following: 
+recovery.follow.already_following:
   other: |-
     私は {{count}} 件のプロフィールをすでにフォローしている：{{names}}。
 
-recovery.follow.not_following: 
+recovery.follow.not_following:
   other: |-
     私は {{count}} 件のプロフィールをフォローしていない：{{names}}。
 
-recovery.follow.self: 
+recovery.follow.self:
   other: |-
     {{count}} 件の対象は私自身のプロフィールである：{{names}}。
 
-recovery.follow.missing: 
+recovery.follow.missing:
   other: |-
     {{count}} 件の対象は、存在する Bickr の参加者ではない：{{names}}。
 
@@ -184,4 +184,3 @@ recovery.threadEarlierUnknown: |-
 
 recovery.threadEarlierCommitted: |-
   私はこのフォーラムでこのタイトルのスレッドをすでに作成したが、その結果は利用できない。その行動は繰り返さない。フォーラムを読み、別の行動を選ぶ。
-

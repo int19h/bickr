@@ -1,7 +1,7 @@
 issue.note.id.type: |-
   Параметр id павінен быць тэкстам. Укажыце ў id загаловак нататкі. Для існай нататкі скапіруйце ID з list_notes.
 
-issue.note.id.length: 
+issue.note.id.length:
   one: |-
     Пасля нармалізацыі колькасць сімвалаў id павінна быць {{minimum}}-{{maximum}}. Падайце id як загаловак нататкі. Для наяўнай нататкі скапіруйце ID з list_notes.
   few: |-
@@ -17,7 +17,7 @@ issue.note.id.characters: |-
 issue.note.cursor.type: |-
   Параметр cursor павінен быць тэкстам. Скапіруйце nextCursor з папярэдняга выніку list_notes. Каб пачаць новы спіс, не ўказвайце cursor.
 
-issue.note.cursor.length: 
+issue.note.cursor.length:
   one: |-
     Пасля нармалізацыі колькасць сімвалаў cursor павінна быць {{minimum}}-{{maximum}}. Скапіруйце nextCursor з папярэдняга выніку list_notes. Каб пачаць новы спіс, не падавайце cursor.
   few: |-
@@ -30,7 +30,7 @@ issue.note.cursor.length:
 issue.note.cursor.characters: |-
   cursor можа змяшчаць толькі літары, камбінавальныя знакі, лікі, пунктуацыю, сімвалы і прабелы. Скапіруйце nextCursor з папярэдняга выніку list_notes. Каб пачаць новы спіс, не падавайце cursor.
 
-issue.note.content: 
+issue.note.content:
   one: |-
     content павінен быць тэкстам з колькасцю сімвалаў 1-{{max}}. Падайце поўны тэкст нататкі ў content.
   few: |-
@@ -40,7 +40,7 @@ issue.note.content:
   other: |-
     content павінен быць тэкстам з колькасцю сімвалаў 1-{{max}}. Падайце поўны тэкст нататкі ў content.
 
-issue.note.entities.array: 
+issue.note.entities.array:
   one: |-
     entities павінен быць масівам ідэнтыфікатараў f/ або u/ з максімальнай колькасцю элементаў {{max}}. Напрыклад, выкарыстоўвайце {"entities":["u/alice"]}.
   few: |-
@@ -53,7 +53,7 @@ issue.note.entities.array:
 issue.note.entities.entry: |-
   Кожны элемент entities павінен быць адным ідэнтыфікатарам f/ або u/. Напрыклад, выкарыстоўвайце {"entities":["u/alice","f/news"]}.
 
-issue.note.references: 
+issue.note.references:
   one: |-
     Максімальная агульная колькасць розных профіляў або форумаў, на якія можа спасылацца нататка, — {{max}}. Прыбярыце частку спасылак з загалоўка або зместу.
   few: |-
@@ -63,7 +63,7 @@ issue.note.references:
   other: |-
     Максімальная агульная колькасць розных профіляў або форумаў, на якія можа спасылацца нататка, — {{max}}. Прыбярыце частку спасылак з загалоўка або зместу.
 
-issue.note.capacity: 
+issue.note.capacity:
   one: |-
     Максімальная колькасць нататак, якія вы можаце захоўваць, — {{max}}. Замяніце наяўную нататку або выдаліце непатрэбную перад стварэннем іншай.
   few: |-
@@ -84,4 +84,3 @@ issue.tool.commentNotFound: |-
 
 issue.tool.forumNotFound: |-
   Форум не знойдзены.
-

@@ -10,7 +10,7 @@ avatar.members.description: |-
 avatar.members.prompt: |-
   Промпт:
 
-avatar.members.all: 
+avatar.members.all:
   one: |-
     Удзельнік ({{count}}):
   few: |-
@@ -20,7 +20,7 @@ avatar.members.all:
   other: |-
     Удзельнікі ({{count}}):
 
-avatar.members.sample: 
+avatar.members.sample:
   one: |-
     Удзельнік (выбарка: {{count}}; ёсць і іншыя ўдзельнікі):
   few: |-
@@ -41,4 +41,3 @@ avatar.members.bio: |-
 
 avatar.members.bioEmpty: |-
   Біяграфія: (пустая)
-

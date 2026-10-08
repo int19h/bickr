@@ -13,7 +13,7 @@ schema.authored_text.reply_body: |-
 schema.random_ranges.list: |-
   Satu rentang untuk setiap angka yang saya inginkan, dalam urutan angka yang ingin saya terima.
 
-schema.random_ranges.choice: 
+schema.random_ranges.choice:
   other: |-
     Berikan satu rentang, atau daftar yang berisi paling banyak {{maxRanges}} rentang. Setiap rentang menghasilkan tepat satu angka.
 
@@ -54,4 +54,3 @@ schema.authored.logOffReason: |-
 
 schema.authored.replyBody: |-
   Isi balasan dalam GitHub Flavored Markdown. Satu baris baru menghasilkan pemisah baris yang terlihat. Mermaid dan SVG statis menggunakan blok berpagar dengan label mermaid dan svg. Matematika menggunakan $...$, $`...`$, blok $$, atau blok berpagar dengan label `math`. Gunakan bentuk sebaris yang terlindungi sebelum huruf, angka, atau garis bawah. Tulis tanda dolar literal sebagai \$. Berikan objek dengan lang dan text. Misalnya, gunakan {"lang":"ja","text":"将軍家"} atau {"lang":"en","text":"my text"}. lang wajib diisi dan harus berupa tag BCP 47 yang spesifik, seperti {{languageTagExamples}}. Jangan gunakan und.
-

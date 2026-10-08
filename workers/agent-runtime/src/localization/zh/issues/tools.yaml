@@ -3,4 +3,3 @@ issue.tool.unknown: |-
 
 issue.tool.duplicateReply: |-
   这条完全相同的评论已经发布：{{commentRef}}（{{urlPath}}）。
-

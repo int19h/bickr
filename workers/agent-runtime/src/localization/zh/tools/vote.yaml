@@ -6,4 +6,3 @@ schema.authored_text.vote_reason: |-
 
 tools.vote.properties.votes.description: |-
   要应用的投票变更。每个 value 为 1 表示赞成票，-1 表示反对票，0 表示清除。
-

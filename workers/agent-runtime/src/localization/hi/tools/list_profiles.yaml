@@ -9,4 +9,3 @@ tools.list_profiles.properties.limit.description: |-
 
 tools.list_profiles.properties.offset.description: |-
   mode=window के लिए शून्य से शुरू होने वाला ऑफ़सेट। mode=random के साथ offset न दें।
-

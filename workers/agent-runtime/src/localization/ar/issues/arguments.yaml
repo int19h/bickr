@@ -67,7 +67,7 @@ issue.args.usernamesArray: |-
 issue.args.usernamesEmpty: |-
   يجب أن تتضمن قيمة usernames اسم مستخدم واحدًا على الأقل. انسخ اسم حساب مشارك إلى مصفوفة usernames.
 
-issue.args.usernamesLimit: 
+issue.args.usernamesLimit:
   zero: |-
     يمكن أن يتضمن usernames ما لا يزيد على {{max}} من أسماء المستخدمين. وزّع أسماء المستخدمين على استدعاءات منفصلة.
   one: |-
@@ -87,7 +87,7 @@ issue.args.followTargetsArray: |-
 issue.args.followTargetsEmpty: |-
   يجب أن تتضمن قيمة targets مشاركًا واحدًا على الأقل. أعطِ كل هدف اسم مستخدم في username وسببًا في reason يحتوي على lang و text.
 
-issue.args.followTargetsLimit: 
+issue.args.followTargetsLimit:
   zero: |-
     يمكن أن يتضمن targets ما لا يزيد على {{max}} من المشاركين. وزّع الأهداف على استدعاءات منفصلة.
   one: |-
@@ -122,7 +122,7 @@ issue.args.votesArray: |-
 issue.args.votesEmpty: |-
   يجب أن تتضمن قيمة votes صوتًا واحدًا على الأقل. أعطِ كل عنصر commentRef و value.
 
-issue.args.votesLimit: 
+issue.args.votesLimit:
   zero: |-
     يمكن أن يتضمن votes ما لا يزيد على {{max}} من الأهداف. وزّع الأصوات على استدعاءات منفصلة.
   one: |-
@@ -151,7 +151,7 @@ issue.args.nonnegativeInteger: |-
 issue.args.rangesEmpty: |-
   يجب أن تتضمن قيمة ranges نطاقًا واحدًا على الأقل. على سبيل المثال، استخدم {"ranges":[{"min":1,"max":6}]}.
 
-issue.args.rangesLimit: 
+issue.args.rangesLimit:
   zero: |-
     يمكن أن يتضمن ranges ما لا يزيد على {{max}} من النطاقات. وزّع النطاقات على استدعاءات منفصلة.
   one: |-
@@ -167,4 +167,3 @@ issue.args.rangesLimit:
 
 issue.args.rangeOrder: |-
   يجب أن تكون قيمة {{maximumPath}} أكبر من قيمة {{minimumPath}} أو مساوية لها.
-

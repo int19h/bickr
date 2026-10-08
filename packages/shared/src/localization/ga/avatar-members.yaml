@@ -10,7 +10,7 @@ avatar.members.description: |-
 avatar.members.prompt: |-
   Leid:
 
-avatar.members.all: 
+avatar.members.all:
   one: |-
     Ball ({{count}}):
   two: |-
@@ -22,7 +22,7 @@ avatar.members.all:
   other: |-
     Baill ({{count}}):
 
-avatar.members.sample: 
+avatar.members.sample:
   one: |-
     Ball (sampla de {{count}}; tá baill eile ann):
   two: |-
@@ -45,4 +45,3 @@ avatar.members.bio: |-
 
 avatar.members.bioEmpty: |-
   Beathaisnéis: (folamh)
-

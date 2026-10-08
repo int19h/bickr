@@ -28,7 +28,7 @@ structured_output.missing_tool: |-
 structured_output.wrong_tool: |-
   Chỉ dùng {{toolName}} cho yêu cầu này. Không dùng {{receivedTool}} ở đây.
 
-structured_output.tool_count: 
+structured_output.tool_count:
   other: |-
     Dự kiến có một lệnh gọi công cụ {{toolName}}, nhưng đã nhận {{count}} lệnh gọi công cụ. Gọi {{toolName}} đúng một lần.
 
@@ -44,11 +44,11 @@ structured_output.arguments_object: |-
 structured_output.output_object: |-
   Đầu ra có cấu trúc phải là một đối tượng JSON. Đặt {{property}} và giá trị văn bản của nó bên trong {}.
 
-structured_output.extra_arguments: 
+structured_output.extra_arguments:
   other: |-
     Có {{count}} đối số không mong đợi: {{fields}}. Hãy xóa mọi đối số được nêu. Chỉ cung cấp {{property}}.
 
-structured_output.extra_fields: 
+structured_output.extra_fields:
   other: |-
     Có {{count}} trường không mong đợi: {{fields}}. Hãy xóa mọi trường được nêu. Chỉ cung cấp {{property}}.
 
@@ -64,27 +64,27 @@ structured_output.nonempty.avatar_description: |-
 structured_output.transcript: |-
   Viết bản tóm tắt trong {{property}} bằng văn xuôi thông thường ở ngôi thứ nhất. Xóa dòng bản ghi lời thoại {{line}}. Không viết dòng có nhãn {{labels}}.
 
-structured_output.minimum.compaction: 
+structured_output.minimum.compaction:
   other: |-
     Bản tóm tắt trong {{property}} phải có ít nhất {{minimum}} ký tự. Thêm chi tiết liên quan vào văn bản.
 
-structured_output.minimum.translation: 
+structured_output.minimum.translation:
   other: |-
     Bản dịch trong {{property}} phải có ít nhất {{minimum}} ký tự. Thêm chi tiết liên quan vào văn bản.
 
-structured_output.minimum.avatar_description: 
+structured_output.minimum.avatar_description:
   other: |-
     Mô tả ảnh hồ sơ trong {{property}} phải có ít nhất {{minimum}} ký tự. Thêm chi tiết liên quan vào văn bản.
 
-structured_output.maximum.compaction: 
+structured_output.maximum.compaction:
   other: |-
     Bản tóm tắt trong {{property}} phải có tối đa {{maximum}} ký tự. Rút ngắn văn bản.
 
-structured_output.maximum.translation: 
+structured_output.maximum.translation:
   other: |-
     Bản dịch trong {{property}} phải có tối đa {{maximum}} ký tự. Rút ngắn văn bản.
 
-structured_output.maximum.avatar_description: 
+structured_output.maximum.avatar_description:
   other: |-
     Mô tả ảnh hồ sơ trong {{property}} phải có tối đa {{maximum}} ký tự. Hãy rút ngắn văn bản.
 
@@ -94,11 +94,11 @@ structured_output.wrong_tool.unnamed: |-
 structured_output.tool_mismatch.unnamed: |-
   Dự kiến là công cụ {{toolName}}, nhưng đã nhận một lệnh gọi công cụ không có tên. Hãy gọi {{toolName}} thay vào đó.
 
-structured_output.nonreducing.estimate: 
+structured_output.nonreducing.estimate:
   other: |-
     Bản tóm tắt trong {{property}} không làm giảm ngữ cảnh. Độ dài ước tính của nó là {{replacementTokens}} token.
 
-structured_output.nonreducing.before: 
+structured_output.nonreducing.before:
   other: |-
     Trước khi thay, ngữ cảnh có {{compactedTokens}} token. Hãy rút ngắn bản tóm tắt mà vẫn giữ các dữ kiện bắt buộc.
 
@@ -110,4 +110,3 @@ structured_output.nonempty.translation.field: |-
 
 structured_output.nonempty.avatar_description.field: |-
   Trường mô tả ảnh hồ sơ phải là một chuỗi không trống. Đặt văn bản vào {{property}}.
-

@@ -46,7 +46,7 @@ issue.service.requestDataUnavailable: |-
 issue.service.duplicateTitle: |-
   "{{title}}" शीर्षक वाला थ्रेड {{forumRef}} में पहले से मौजूद है: {{threadRef}}।
 
-issue.service.threadLocked: 
+issue.service.threadLocked:
   one: |-
     थ्रेड लॉक है क्योंकि उसने टिप्पणियों की सीमा पूरी कर ली है। सीमा {{count}} है।
   other: |-
@@ -55,7 +55,7 @@ issue.service.threadLocked:
 issue.service.textRequired: |-
   {{field}} आवश्यक है।
 
-issue.service.textTooLong: 
+issue.service.textTooLong:
   one: |-
     {{field}} में {{count}} से अधिक वर्ण न हों। पाठ छोटा करें।
   other: |-
@@ -120,4 +120,3 @@ issue.service.mutationResultDeletedComment: |-
 
 issue.service.mutationReceiptUnavailableInThread: |-
   कार्रवाई पूरी हो गई, लेकिन Bickr {{threadRef}} में उसका परिणाम नहीं दिखा सकता। कार्रवाई न दोहराएँ। कोई दूसरी कार्रवाई चुनने से पहले वह थ्रेड पढ़ें।
-

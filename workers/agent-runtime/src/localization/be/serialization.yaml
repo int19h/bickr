@@ -1,7 +1,7 @@
 time.just_now: |-
   толькі што
 
-time.year.future: 
+time.year.future:
   one: |-
     праз {{count}} год
   few: |-
@@ -11,7 +11,7 @@ time.year.future:
   other: |-
     праз {{count}} года
 
-time.year.past: 
+time.year.past:
   one: |-
     {{count}} год таму
   few: |-
@@ -21,7 +21,7 @@ time.year.past:
   other: |-
     {{count}} года таму
 
-time.month.future: 
+time.month.future:
   one: |-
     праз {{count}} месяц
   few: |-
@@ -31,7 +31,7 @@ time.month.future:
   other: |-
     праз {{count}} месяца
 
-time.month.past: 
+time.month.past:
   one: |-
     {{count}} месяц таму
   few: |-
@@ -41,7 +41,7 @@ time.month.past:
   other: |-
     {{count}} месяца таму
 
-time.day.future: 
+time.day.future:
   one: |-
     праз {{count}} дзень
   few: |-
@@ -51,7 +51,7 @@ time.day.future:
   other: |-
     праз {{count}} дня
 
-time.day.past: 
+time.day.past:
   one: |-
     {{count}} дзень таму
   few: |-
@@ -61,7 +61,7 @@ time.day.past:
   other: |-
     {{count}} дня таму
 
-time.hour.future: 
+time.hour.future:
   one: |-
     праз {{count}} гадзіну
   few: |-
@@ -71,7 +71,7 @@ time.hour.future:
   other: |-
     праз {{count}} гадзіны
 
-time.hour.past: 
+time.hour.past:
   one: |-
     {{count}} гадзіну таму
   few: |-
@@ -81,7 +81,7 @@ time.hour.past:
   other: |-
     {{count}} гадзіны таму
 
-time.minute.future: 
+time.minute.future:
   one: |-
     праз {{count}} хвіліну
   few: |-
@@ -91,7 +91,7 @@ time.minute.future:
   other: |-
     праз {{count}} хвіліны
 
-time.minute.past: 
+time.minute.past:
   one: |-
     {{count}} хвіліну таму
   few: |-
@@ -104,7 +104,7 @@ time.minute.past:
 read.context.basic: |-
   Вынік маёй аперацыі {{operation}}.
 
-read.context.collapsed_and_trimmed: 
+read.context.collapsed_and_trimmed:
   one: |-
     Вынік маёй аперацыі {{operation}}. Некаторыя спісы адказаў згорнуты, а некаторыя тэксты каментарыяў скарочаны, каб вынік змясціўся прыблізна ў {{tokenBudget}} токен.
   few: |-
@@ -114,7 +114,7 @@ read.context.collapsed_and_trimmed:
   other: |-
     Вынік маёй аперацыі {{operation}}. Некаторыя спісы адказаў згорнуты, а некаторыя тэксты каментарыяў скарочаны, каб вынік змясціўся прыблізна ў {{tokenBudget}} токена.
 
-read.context.collapsed: 
+read.context.collapsed:
   one: |-
     Вынік маёй аперацыі {{operation}}. Некаторыя спісы адказаў згорнуты, каб вынік змясціўся прыблізна ў {{tokenBudget}} токен.
   few: |-
@@ -124,7 +124,7 @@ read.context.collapsed:
   other: |-
     Вынік маёй аперацыі {{operation}}. Некаторыя спісы адказаў згорнуты, каб вынік змясціўся прыблізна ў {{tokenBudget}} токена.
 
-read.context.trimmed: 
+read.context.trimmed:
   one: |-
     Вынік маёй аперацыі {{operation}}. Некаторыя тэксты каментарыяў скарочаны, каб вынік змясціўся прыблізна ў {{tokenBudget}} токен.
   few: |-
@@ -146,7 +146,7 @@ read.guidance.both: |-
 notifications.check.complete: |-
   Вынік праверкі апавяшчэнняў.
 
-notifications.check.omitted: 
+notifications.check.omitted:
   one: |-
     Вынік праверкі апавяшчэнняў. Прапушчана {{count}} апавяшчэнне з ніжэйшым прыярытэтам або старэйшае. Яно застаецца ў чаканні.
   few: |-
@@ -158,4 +158,3 @@ notifications.check.omitted:
 
 read.focus.description: |-
   Мая ўвага засяроджана на гэтым каментарыі.
-

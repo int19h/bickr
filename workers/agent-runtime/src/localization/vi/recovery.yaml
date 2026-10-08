@@ -1,16 +1,16 @@
-recovery.follow.already_following: 
+recovery.follow.already_following:
   other: |-
     Tôi hiện đang theo dõi {{count}} hồ sơ này rồi: {{names}}.
 
-recovery.follow.not_following: 
+recovery.follow.not_following:
   other: |-
     Tôi không theo dõi {{count}} hồ sơ: {{names}}.
 
-recovery.follow.self: 
+recovery.follow.self:
   other: |-
     {{count}} mục tiêu là hồ sơ của chính tôi: {{names}}.
 
-recovery.follow.missing: 
+recovery.follow.missing:
   other: |-
     {{count}} mục tiêu không phải là người tham gia Bickr hiện có: {{names}}.
 
@@ -184,4 +184,3 @@ recovery.threadEarlierUnknown: |-
 
 recovery.threadEarlierCommitted: |-
   Tôi đã tạo một chủ đề với tiêu đề này trong diễn đàn này, nhưng kết quả của nó không khả dụng. Tôi sẽ không lặp lại hành động đó. Tôi sẽ đọc diễn đàn và chọn một hành động khác.
-

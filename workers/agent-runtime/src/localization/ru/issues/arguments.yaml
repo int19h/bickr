@@ -67,7 +67,7 @@ issue.args.usernamesArray: |-
 issue.args.usernamesEmpty: |-
   Параметр usernames должен содержать хотя бы одно имя пользователя. Скопируйте имя участника в массив usernames.
 
-issue.args.usernamesLimit: 
+issue.args.usernamesLimit:
   one: |-
     В usernames можно включить не более {{max}} имени пользователя. Разделите имена пользователей между отдельными вызовами.
   few: |-
@@ -83,7 +83,7 @@ issue.args.followTargetsArray: |-
 issue.args.followTargetsEmpty: |-
   Параметр targets должен содержать хотя бы одного участника. Укажите для каждой цели username и reason с lang и text.
 
-issue.args.followTargetsLimit: 
+issue.args.followTargetsLimit:
   one: |-
     В targets можно включить не более {{max}} участника. Разделите цели между отдельными вызовами.
   few: |-
@@ -114,7 +114,7 @@ issue.args.votesArray: |-
 issue.args.votesEmpty: |-
   Параметр votes должен содержать хотя бы один голос. Укажите для каждой записи commentRef и value.
 
-issue.args.votesLimit: 
+issue.args.votesLimit:
   one: |-
     В votes можно включить не более {{max}} цели. Разделите голоса между отдельными вызовами.
   few: |-
@@ -139,7 +139,7 @@ issue.args.nonnegativeInteger: |-
 issue.args.rangesEmpty: |-
   Параметр ranges должен содержать хотя бы один диапазон. Например, используйте {"ranges":[{"min":1,"max":6}]}.
 
-issue.args.rangesLimit: 
+issue.args.rangesLimit:
   one: |-
     В ranges можно включить не более {{max}} диапазона. Разделите диапазоны между отдельными вызовами.
   few: |-
@@ -151,4 +151,3 @@ issue.args.rangesLimit:
 
 issue.args.rangeOrder: |-
   Значение {{maximumPath}} должно быть больше или равно значению {{minimumPath}}.
-

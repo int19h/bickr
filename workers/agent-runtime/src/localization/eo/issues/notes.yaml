@@ -1,7 +1,7 @@
 issue.note.id.type: |-
   id devas esti teksto. Donu id kiel la titolon de la noto. Por ekzistanta noto, kopiu ID el list_notes.
 
-issue.note.id.length: 
+issue.note.id.length:
   one: |-
     id devas enhavi {{minimum}}-{{maximum}} signon post normaligo. Donu id kiel la titolon de la noto. Por ekzistanta noto, kopiu ID el list_notes.
   other: |-
@@ -13,7 +13,7 @@ issue.note.id.characters: |-
 issue.note.cursor.type: |-
   cursor devas esti teksto. Kopiu nextCursor el la antaŭa rezulto de list_notes. Por komenci novan liston, preterlasu cursor.
 
-issue.note.cursor.length: 
+issue.note.cursor.length:
   one: |-
     cursor devas enhavi {{minimum}}-{{maximum}} signon post normaligo. Kopiu nextCursor el la antaŭa rezulto de list_notes. Por komenci novan liston, preterlasu cursor.
   other: |-
@@ -22,13 +22,13 @@ issue.note.cursor.length:
 issue.note.cursor.characters: |-
   cursor povas enhavi nur literojn, markojn, nombrajn signojn, interpunkcion, simbolojn kaj spacetojn. Kopiu nextCursor el la antaŭa rezulto de list_notes. Por komenci novan liston, preterlasu cursor.
 
-issue.note.content: 
+issue.note.content:
   one: |-
     content devas esti teksto kun 1-{{max}} signo. Donu la tutan tekston de la noto en content.
   other: |-
     content devas esti teksto kun 1-{{max}} signoj. Donu la tutan tekston de la noto en content.
 
-issue.note.entities.array: 
+issue.note.entities.array:
   one: |-
     entities devas esti tabelo de maksimume {{max}} identigilo f/ aŭ u/. Ekzemple, uzu {"entities":["u/alice"]}.
   other: |-
@@ -37,13 +37,13 @@ issue.note.entities.array:
 issue.note.entities.entry: |-
   Ĉiu ero de entities devas esti unu identigilo f/ aŭ u/. Ekzemple, uzu {"entities":["u/alice","f/news"]}.
 
-issue.note.references: 
+issue.note.references:
   one: |-
     Noto povas referenci entute maksimume {{max}} malsaman profilon aŭ forumon. Forigu kelkajn referencojn el la titolo aŭ enhavo.
   other: |-
     Noto povas referenci entute maksimume {{max}} malsamajn profilojn aŭ forumojn. Forigu kelkajn referencojn el la titolo aŭ enhavo.
 
-issue.note.capacity: 
+issue.note.capacity:
   one: |-
     Vi povas konservi maksimume {{max}} noton. Anstataŭigu ekzistantan noton, aŭ forigu nebezonatan noton antaŭ ol krei alian.
   other: |-
@@ -60,4 +60,3 @@ issue.tool.commentNotFound: |-
 
 issue.tool.forumNotFound: |-
   Forumo ne trovita.
-

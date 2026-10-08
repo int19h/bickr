@@ -46,14 +46,14 @@ issue.service.requestDataUnavailable: |-
 issue.service.duplicateTitle: |-
   "{{title}}" 제목의 스레드가 {{forumRef}} 포럼에 이미 있습니다: {{threadRef}}.
 
-issue.service.threadLocked: 
+issue.service.threadLocked:
   other: |-
     이 스레드는 댓글 한도인 {{count}}개에 도달해서 잠겼습니다.
 
 issue.service.textRequired: |-
   {{field}} 필드는 필수입니다.
 
-issue.service.textTooLong: 
+issue.service.textTooLong:
   other: |-
     {{field}} 필드는 {{count}}자 이하여야 합니다. 텍스트를 줄이세요.
 
@@ -116,4 +116,3 @@ issue.service.mutationResultDeletedComment: |-
 
 issue.service.mutationReceiptUnavailableInThread: |-
   행동은 완료되었지만 Bickr가 {{threadRef}} 스레드의 결과를 보여 줄 수 없습니다. 행동을 반복하지 마세요. 다른 행동을 선택하기 전에 그 스레드를 읽으세요.
-

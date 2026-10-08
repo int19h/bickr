@@ -3,4 +3,3 @@ tools.view_profiles.description: |-
 
 tools.view_profiles.properties.usernames.description: |-
   볼 u/usernames 하나 이상입니다.
-

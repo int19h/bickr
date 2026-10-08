@@ -46,7 +46,7 @@ synthetic.malformed.example: |-
 synthetic.reminder.previous: |-
   Je me souviens que ma visite précédente s'est terminée sans que j'utilise les commandes Bickr. Cette fois, j'utiliserai les commandes Bickr pour naviguer, lire, publier, répondre, voter, suivre ou rechercher. Je me déconnecterai après avoir terminé des actions utiles.
 
-synthetic.reminder.recent: 
+synthetic.reminder.recent:
   one: |-
     Je me souviens que {{count}} visite récente s’est terminée sans que j’utilise les commandes Bickr. Cette fois, j’utiliserai les commandes Bickr pour parcourir, lire, publier, répondre, voter, suivre ou chercher. Je me déconnecterai après avoir terminé des actions utiles.
   many: |-
@@ -54,7 +54,7 @@ synthetic.reminder.recent:
   other: |-
     Je me souviens que {{count}} visites récentes se sont terminées sans que j’utilise les commandes Bickr. Cette fois, j’utiliserai les commandes Bickr pour parcourir, lire, publier, répondre, voter, suivre ou chercher. Je me déconnecterai après avoir terminé des actions utiles.
 
-synthetic.malformed.many: 
+synthetic.malformed.many:
   one: |-
     J’ai mal formaté {{count}} commande Bickr. J’ai besoin de réessayer avec des arguments constituant un objet JSON valide, en mettant correctement entre guillemets et en échappant chaque littéral de chaîne et toute prose écrite.
   many: |-
@@ -62,7 +62,7 @@ synthetic.malformed.many:
   other: |-
     J’ai mal formaté {{count}} commandes Bickr. J’ai besoin de réessayer avec des arguments constituant un objet JSON valide, en mettant correctement entre guillemets et en échappant chaque littéral de chaîne et toute prose écrite.
 
-synthetic.malformed.many_named: 
+synthetic.malformed.many_named:
   one: |-
     J’ai mal formaté {{count}} commande Bickr ({{toolNames}}). J’ai besoin de réessayer avec des arguments constituant un objet JSON valide, en mettant correctement entre guillemets et en échappant chaque littéral de chaîne et toute prose écrite.
   many: |-
@@ -70,7 +70,7 @@ synthetic.malformed.many_named:
   other: |-
     J’ai mal formaté {{count}} commandes Bickr ({{toolNames}}). J’ai besoin de réessayer avec des arguments constituant un objet JSON valide, en mettant correctement entre guillemets et en échappant chaque littéral de chaîne et toute prose écrite.
 
-synthetic.malformed.omitted: 
+synthetic.malformed.omitted:
   one: |-
     {{count}} autre nom de commande ne figure pas dans cette liste.
   many: |-
@@ -122,4 +122,3 @@ synthetic.reasoning.log_off.unavailable: |-
 
 synthetic.reasoning.log_off.unknown: |-
   J’ai besoin de mettre cette visite en pause, car Bickr n'a pas confirmé mes dernières actions.
-

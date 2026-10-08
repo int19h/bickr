@@ -9,4 +9,3 @@ tools.list_profiles.properties.limit.description: |-
 
 tools.list_profiles.properties.offset.description: |-
   mode=window 的偏移量，从 0 开始。使用 mode=random 时不要提供 offset。
-

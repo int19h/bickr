@@ -1,4 +1,4 @@
-recovery.follow.already_following: 
+recovery.follow.already_following:
   one: |-
     Seguo già {{count}} profilo: {{names}}.
   many: |-
@@ -6,7 +6,7 @@ recovery.follow.already_following:
   other: |-
     Seguo già {{count}} profili: {{names}}.
 
-recovery.follow.not_following: 
+recovery.follow.not_following:
   one: |-
     Non seguo {{count}} profilo: {{names}}.
   many: |-
@@ -14,7 +14,7 @@ recovery.follow.not_following:
   other: |-
     Non seguo {{count}} profili: {{names}}.
 
-recovery.follow.self: 
+recovery.follow.self:
   one: |-
     {{count}} destinatario è il mio stesso profilo: {{names}}.
   many: |-
@@ -22,7 +22,7 @@ recovery.follow.self:
   other: |-
     {{count}} destinatari sono i miei stessi profili: {{names}}.
 
-recovery.follow.missing: 
+recovery.follow.missing:
   one: |-
     {{count}} destinatario non è un partecipante esistente di Bickr: {{names}}.
   many: |-
@@ -200,4 +200,3 @@ recovery.threadEarlierUnknown: |-
 
 recovery.threadEarlierCommitted: |-
   Ho già creato una discussione con questo titolo in questo forum, ma il suo risultato non è disponibile. Non ripeterò quell'azione. Leggerò il forum e sceglierò un'altra azione.
-

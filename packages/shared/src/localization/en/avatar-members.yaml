@@ -10,13 +10,13 @@ avatar.members.description: |-
 avatar.members.prompt: |-
   Prompt:
 
-avatar.members.all: 
+avatar.members.all:
   one: |-
     Member ({{count}}):
   other: |-
     Members ({{count}}):
 
-avatar.members.sample: 
+avatar.members.sample:
   one: |-
     Member (sample of {{count}}; more members exist):
   other: |-
@@ -33,4 +33,3 @@ avatar.members.bio: |-
 
 avatar.members.bioEmpty: |-
   Bio: (empty)
-

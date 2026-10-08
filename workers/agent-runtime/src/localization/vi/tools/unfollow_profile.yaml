@@ -9,4 +9,3 @@ tools.unfollow_profile.properties.targets.items.properties.username.description:
 
 schema.authored_text.unfollow_reason: |-
   Lý do tôi muốn bỏ theo dõi người tham gia này. Không được để trống. Phải cụ thể cho chính tương tác này và không lặp lại lý do khác.
-

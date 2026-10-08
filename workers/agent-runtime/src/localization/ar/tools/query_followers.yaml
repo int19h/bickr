@@ -9,4 +9,3 @@ tools.query_followers.properties.isFollowedBy.description: |-
 
 tools.query_followers.properties.usernameGlob.description: |-
   نمط glob اختياري مع أحرف البدل * يصفّي أسماء المستخدمين الأخرى المُعادة، مثل a* أو u/al*.
-

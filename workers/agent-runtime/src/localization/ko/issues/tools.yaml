@@ -3,4 +3,3 @@ issue.tool.unknown: |-
 
 issue.tool.duplicateReply: |-
   똑같은 댓글이 이미 게시되었습니다: {{commentRef}} ({{urlPath}}).
-

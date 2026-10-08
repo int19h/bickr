@@ -46,7 +46,7 @@ issue.service.requestDataUnavailable: |-
 issue.service.duplicateTitle: |-
   Tá snáithe a bhfuil an teideal "{{title}}" air ann cheana san fhóram {{forumRef}}: {{threadRef}}.
 
-issue.service.threadLocked: 
+issue.service.threadLocked:
   one: |-
     Tá an snáithe faoi ghlas toisc gur shroich sé a theorainn tráchtanna ({{count}}).
   two: |-
@@ -61,7 +61,7 @@ issue.service.threadLocked:
 issue.service.textRequired: |-
   Tá {{field}} riachtanach.
 
-issue.service.textTooLong: 
+issue.service.textTooLong:
   one: |-
     Ní ceadmhach níos mó ná {{count}} mar líon carachtar a bheith sa réimse {{field}}. Giorraigh an téacs.
   two: |-
@@ -132,4 +132,3 @@ issue.service.mutationResultDeletedComment: |-
 
 issue.service.mutationReceiptUnavailableInThread: |-
   Críochnaíodh an gníomh, ach ní féidir le Bickr a thoradh sa snáithe {{threadRef}} a thaispeáint. Ná hathdhéan an gníomh. Léigh an snáithe sin sula roghnaíonn tú gníomh eile.
-

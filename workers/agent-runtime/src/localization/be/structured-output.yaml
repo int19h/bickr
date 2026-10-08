@@ -28,7 +28,7 @@ structured_output.missing_tool: |-
 structured_output.wrong_tool: |-
   Для гэтага запыту выкарыстоўвайце толькі {{toolName}}. Не выкарыстоўвайце тут {{receivedTool}}.
 
-structured_output.tool_count: 
+structured_output.tool_count:
   one: |-
     Чакаўся адзін выклік інструмента {{toolName}}, але колькасць атрыманых выклікаў інструментаў — {{count}}. Выклічце {{toolName}} роўна адзін раз.
   few: |-
@@ -50,7 +50,7 @@ structured_output.arguments_object: |-
 structured_output.output_object: |-
   Структураваны адказ павінен быць аб’ектам JSON. Змясціце {{property}} і яго тэкставае значэнне ўнутр {}.
 
-structured_output.extra_arguments: 
+structured_output.extra_arguments:
   one: |-
     Колькасць нечаканых аргументаў — {{count}}: {{fields}}. Выдаліце гэтыя аргументы. Падайце толькі {{property}}.
   few: |-
@@ -60,7 +60,7 @@ structured_output.extra_arguments:
   other: |-
     Колькасць нечаканых аргументаў — {{count}}: {{fields}}. Выдаліце гэтыя аргументы. Падайце толькі {{property}}.
 
-structured_output.extra_fields: 
+structured_output.extra_fields:
   one: |-
     Колькасць нечаканых палёў — {{count}}: {{fields}}. Выдаліце гэтыя палі. Падайце толькі {{property}}.
   few: |-
@@ -82,7 +82,7 @@ structured_output.nonempty.avatar_description: |-
 structured_output.transcript: |-
   Напішыце зводку ў {{property}} звычайнай прозай ад першай асобы. Выдаліце радок стэнаграмы {{line}}. Не пішыце радкі з пазнакамі {{labels}}.
 
-structured_output.minimum.compaction: 
+structured_output.minimum.compaction:
   one: |-
     Зводка ў {{property}} павінна змяшчаць не менш за {{minimum}} сімвал. Дадайце ў тэкст дарэчныя дэталі.
   few: |-
@@ -92,7 +92,7 @@ structured_output.minimum.compaction:
   other: |-
     Зводка ў {{property}} павінна змяшчаць не менш за {{minimum}} сімвала. Дадайце ў тэкст дарэчныя дэталі.
 
-structured_output.minimum.translation: 
+structured_output.minimum.translation:
   one: |-
     Пераклад у {{property}} павінен змяшчаць не менш за {{minimum}} сімвал. Дадайце ў тэкст дарэчныя дэталі.
   few: |-
@@ -102,7 +102,7 @@ structured_output.minimum.translation:
   other: |-
     Пераклад у {{property}} павінен змяшчаць не менш за {{minimum}} сімвала. Дадайце ў тэкст дарэчныя дэталі.
 
-structured_output.minimum.avatar_description: 
+structured_output.minimum.avatar_description:
   one: |-
     Апісанне выявы профілю ў {{property}} павінна змяшчаць не менш за {{minimum}} сімвал. Дадайце ў тэкст дарэчныя дэталі.
   few: |-
@@ -112,7 +112,7 @@ structured_output.minimum.avatar_description:
   other: |-
     Апісанне выявы профілю ў {{property}} павінна змяшчаць не менш за {{minimum}} сімвала. Дадайце ў тэкст дарэчныя дэталі.
 
-structured_output.maximum.compaction: 
+structured_output.maximum.compaction:
   one: |-
     Зводка ў {{property}} павінна змяшчаць не больш за {{maximum}} сімвал. Скараціце тэкст.
   few: |-
@@ -122,7 +122,7 @@ structured_output.maximum.compaction:
   other: |-
     Зводка ў {{property}} павінна змяшчаць не больш за {{maximum}} сімвала. Скараціце тэкст.
 
-structured_output.maximum.translation: 
+structured_output.maximum.translation:
   one: |-
     Пераклад у {{property}} павінен змяшчаць не больш за {{maximum}} сімвал. Скараціце тэкст.
   few: |-
@@ -132,7 +132,7 @@ structured_output.maximum.translation:
   other: |-
     Пераклад у {{property}} павінен змяшчаць не больш за {{maximum}} сімвала. Скараціце тэкст.
 
-structured_output.maximum.avatar_description: 
+structured_output.maximum.avatar_description:
   one: |-
     Апісанне выявы профілю ў {{property}} павінна змяшчаць не больш за {{maximum}} сімвал. Скараціце тэкст.
   few: |-
@@ -148,7 +148,7 @@ structured_output.wrong_tool.unnamed: |-
 structured_output.tool_mismatch.unnamed: |-
   Чакаўся інструмент {{toolName}}, але атрыманы выклік інструмента без назвы. Замест гэтага выклічце {{toolName}}.
 
-structured_output.nonreducing.estimate: 
+structured_output.nonreducing.estimate:
   one: |-
     Зводка ў {{property}} не скараціла кантэкст. Яе прыблізная даўжыня — {{replacementTokens}} токен.
   few: |-
@@ -158,7 +158,7 @@ structured_output.nonreducing.estimate:
   other: |-
     Зводка ў {{property}} не скараціла кантэкст. Яе прыблізная даўжыня — {{replacementTokens}} токена.
 
-structured_output.nonreducing.before: 
+structured_output.nonreducing.before:
   one: |-
     Да замены кантэкст змяшчаў {{compactedTokens}} токен. Скараціце зводку і захавайце патрэбныя факты.
   few: |-
@@ -176,4 +176,3 @@ structured_output.nonempty.translation.field: |-
 
 structured_output.nonempty.avatar_description.field: |-
   Поле апісання выявы профілю павінна быць непустым радком. Змясціце тэкст у {{property}}.
-

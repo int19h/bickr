@@ -1,7 +1,7 @@
 time.just_now: |-
   díreach anois
 
-time.year.future: 
+time.year.future:
   one: |-
     i gceann {{count}} bliana
   two: |-
@@ -13,7 +13,7 @@ time.year.future:
   other: |-
     i gceann {{count}} bliain
 
-time.year.past: 
+time.year.past:
   one: |-
     {{count}} bhliain ó shin
   two: |-
@@ -25,7 +25,7 @@ time.year.past:
   other: |-
     {{count}} bliain ó shin
 
-time.month.future: 
+time.month.future:
   one: |-
     i gceann {{count}} mhí
   two: |-
@@ -37,7 +37,7 @@ time.month.future:
   other: |-
     i gceann {{count}} mí
 
-time.month.past: 
+time.month.past:
   one: |-
     {{count}} mhí ó shin
   two: |-
@@ -49,7 +49,7 @@ time.month.past:
   other: |-
     {{count}} mí ó shin
 
-time.day.future: 
+time.day.future:
   one: |-
     i gceann {{count}} lá
   two: |-
@@ -61,7 +61,7 @@ time.day.future:
   other: |-
     i gceann {{count}} lá
 
-time.day.past: 
+time.day.past:
   one: |-
     {{count}} lá ó shin
   two: |-
@@ -73,7 +73,7 @@ time.day.past:
   other: |-
     {{count}} lá ó shin
 
-time.hour.future: 
+time.hour.future:
   one: |-
     i gceann {{count}} uair an chloig
   two: |-
@@ -85,7 +85,7 @@ time.hour.future:
   other: |-
     i gceann {{count}} uair an chloig
 
-time.hour.past: 
+time.hour.past:
   one: |-
     {{count}} uair an chloig ó shin
   two: |-
@@ -97,7 +97,7 @@ time.hour.past:
   other: |-
     {{count}} uair an chloig ó shin
 
-time.minute.future: 
+time.minute.future:
   one: |-
     i gceann {{count}} nóiméad
   two: |-
@@ -109,7 +109,7 @@ time.minute.future:
   other: |-
     i gceann {{count}} nóiméad
 
-time.minute.past: 
+time.minute.past:
   one: |-
     {{count}} nóiméad ó shin
   two: |-
@@ -124,7 +124,7 @@ time.minute.past:
 read.context.basic: |-
   Toradh m'oibríochta {{operation}}.
 
-read.context.collapsed_and_trimmed: 
+read.context.collapsed_and_trimmed:
   one: |-
     Toradh m'oibríochta {{operation}}. Cuireadh roinnt liostaí freagraí i bhfoirm fhillte agus giorraíodh roinnt corp tráchtanna chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs.
   two: |-
@@ -136,7 +136,7 @@ read.context.collapsed_and_trimmed:
   other: |-
     Toradh m'oibríochta {{operation}}. Cuireadh roinnt liostaí freagraí i bhfoirm fhillte agus giorraíodh roinnt corp tráchtanna chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs.
 
-read.context.collapsed: 
+read.context.collapsed:
   one: |-
     Toradh m'oibríochta {{operation}}. Cuireadh roinnt liostaí freagraí i bhfoirm fhillte chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs.
   two: |-
@@ -148,7 +148,7 @@ read.context.collapsed:
   other: |-
     Toradh m'oibríochta {{operation}}. Cuireadh roinnt liostaí freagraí i bhfoirm fhillte chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs.
 
-read.context.trimmed: 
+read.context.trimmed:
   one: |-
     Toradh m'oibríochta {{operation}}. Giorraíodh roinnt corp tráchtanna chun an toradh a choinneáil faoi neasteorainn {{tokenBudget}} i dtócain téacs.
   two: |-
@@ -172,7 +172,7 @@ read.guidance.both: |-
 notifications.check.complete: |-
   Toradh na seiceála fógraí.
 
-notifications.check.omitted: 
+notifications.check.omitted:
   one: |-
     Toradh na seiceála fógraí. Is é {{count}} líon na bhfógraí níos sine nó le tosaíocht níos ísle a fágadh ar lár; tá gach ceann díobh fós ar feitheamh.
   two: |-
@@ -186,4 +186,3 @@ notifications.check.omitted:
 
 read.focus.description: |-
   Tá m'aird ar an trácht seo.
-

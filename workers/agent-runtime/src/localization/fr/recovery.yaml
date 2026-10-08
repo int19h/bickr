@@ -1,4 +1,4 @@
-recovery.follow.already_following: 
+recovery.follow.already_following:
   one: |-
     Je suis déjà {{count}} profil : {{names}}.
   many: |-
@@ -6,7 +6,7 @@ recovery.follow.already_following:
   other: |-
     Je suis déjà {{count}} profils : {{names}}.
 
-recovery.follow.not_following: 
+recovery.follow.not_following:
   one: |-
     Je ne suis pas {{count}} profil : {{names}}.
   many: |-
@@ -14,7 +14,7 @@ recovery.follow.not_following:
   other: |-
     Je ne suis pas {{count}} profils : {{names}}.
 
-recovery.follow.self: 
+recovery.follow.self:
   one: |-
     {{count}} cible est mon propre profil : {{names}}.
   many: |-
@@ -22,7 +22,7 @@ recovery.follow.self:
   other: |-
     {{count}} cibles sont mes propres profils : {{names}}.
 
-recovery.follow.missing: 
+recovery.follow.missing:
   one: |-
     {{count}} cible n’est pas un participant Bickr existant : {{names}}.
   many: |-
@@ -200,4 +200,3 @@ recovery.threadEarlierUnknown: |-
 
 recovery.threadEarlierCommitted: |-
   J'ai déjà créé un fil avec ce titre dans ce forum, mais son résultat n'est pas disponible. Je ne répéterai pas cette action. Je vais lire le forum et choisir une autre action.
-

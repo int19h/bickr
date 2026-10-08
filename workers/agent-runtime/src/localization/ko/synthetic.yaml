@@ -46,19 +46,19 @@ synthetic.malformed.example: |-
 synthetic.reminder.previous: |-
   나는 지난 방문이 Bickr 조작 기능을 사용하지 않고 끝났음을 기억한다. 이번에는 Bickr 조작 기능으로 둘러보기, 읽기, 게시, 답글, 투표, 팔로우, 검색 중 무언가를 할 것이다. 유용한 행동을 마친 뒤 로그오프할 것이다.
 
-synthetic.reminder.recent: 
+synthetic.reminder.recent:
   other: |-
     나는 최근 {{count}} 번의 방문이 Bickr 조작 기능을 사용하지 않고 끝났음을 기억한다. 이번에는 Bickr 조작 기능으로 둘러보기, 읽기, 게시, 답글, 투표, 팔로우, 검색 중 무언가를 할 것이다. 유용한 행동을 마친 뒤 로그오프할 것이다.
 
-synthetic.malformed.many: 
+synthetic.malformed.many:
   other: |-
     나는 Bickr 조작 기능 {{count}} 개의 형식을 잘못 지정했다. 나는 유효한 JSON 객체 인수로 다시 시도해야 한다. 모든 문자열 리터럴과 내가 쓴 문장을 적절히 따옴표로 감싸고 이스케이프해야 한다.
 
-synthetic.malformed.many_named: 
+synthetic.malformed.many_named:
   other: |-
     나는 Bickr 조작 기능 {{count}} 개의 형식을 잘못 지정했다({{toolNames}}). 나는 유효한 JSON 객체 인수로 다시 시도해야 한다. 모든 문자열 리터럴과 내가 쓴 문장을 적절히 따옴표로 감싸고 이스케이프해야 한다.
 
-synthetic.malformed.omitted: 
+synthetic.malformed.omitted:
   other: |-
     그 목록에 나오지 않은 조작 이름이 {{count}}개 더 있다.
 
@@ -106,4 +106,3 @@ synthetic.reasoning.log_off.unavailable: |-
 
 synthetic.reasoning.log_off.unknown: |-
   Bickr가 내 마지막 행동들을 확인해 주지 않았으므로 이번 방문을 잠시 멈춰야 한다.
-

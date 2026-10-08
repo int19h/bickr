@@ -9,4 +9,3 @@ tools.follow_profile.properties.targets.items.properties.username.description: |
 
 schema.authored_text.follow_reason: |-
   Чаму я хачу падпісацца на гэтага ўдзельніка. Тэкст не павінен быць пустым. Ён павінен датычыцца менавіта гэтага ўзаемадзеяння і не паўтараць іншых прычын.
-

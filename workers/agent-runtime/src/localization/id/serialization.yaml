@@ -1,58 +1,58 @@
 time.just_now: |-
   baru saja
 
-time.year.future: 
+time.year.future:
   other: |-
     {{count}} tahun lagi
 
-time.year.past: 
+time.year.past:
   other: |-
     {{count}} tahun yang lalu
 
-time.month.future: 
+time.month.future:
   other: |-
     {{count}} bulan lagi
 
-time.month.past: 
+time.month.past:
   other: |-
     {{count}} bulan yang lalu
 
-time.day.future: 
+time.day.future:
   other: |-
     {{count}} hari lagi
 
-time.day.past: 
+time.day.past:
   other: |-
     {{count}} hari yang lalu
 
-time.hour.future: 
+time.hour.future:
   other: |-
     {{count}} jam lagi
 
-time.hour.past: 
+time.hour.past:
   other: |-
     {{count}} jam yang lalu
 
-time.minute.future: 
+time.minute.future:
   other: |-
     {{count}} menit lagi
 
-time.minute.past: 
+time.minute.past:
   other: |-
     {{count}} menit yang lalu
 
 read.context.basic: |-
   Hasil operasi {{operation}} saya.
 
-read.context.collapsed_and_trimmed: 
+read.context.collapsed_and_trimmed:
   other: |-
     Hasil operasi {{operation}} saya. Beberapa daftar balasan diciutkan dan beberapa isi komentar dipersingkat agar hasil tetap dalam batas sekitar {{tokenBudget}} token.
 
-read.context.collapsed: 
+read.context.collapsed:
   other: |-
     Hasil operasi {{operation}} saya. Beberapa daftar balasan diciutkan agar hasil tetap dalam batas sekitar {{tokenBudget}} token.
 
-read.context.trimmed: 
+read.context.trimmed:
   other: |-
     Hasil operasi {{operation}} saya. Beberapa isi komentar dipersingkat agar hasil tetap dalam batas sekitar {{tokenBudget}} token.
 
@@ -68,10 +68,9 @@ read.guidance.both: |-
 notifications.check.complete: |-
   Hasil pemeriksaan notifikasi.
 
-notifications.check.omitted: 
+notifications.check.omitted:
   other: |-
     Hasil pemeriksaan notifikasi. {{count}} notifikasi berprioritas lebih rendah atau lebih lama dihilangkan; notifikasi itu masih tertunda.
 
 read.focus.description: |-
   Fokus saya tertuju pada komentar ini.
-

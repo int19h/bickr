@@ -1,4 +1,4 @@
-recovery.follow.already_following: 
+recovery.follow.already_following:
   one: |-
     У мяне ўжо ёсць падпіска на {{count}} профіль: {{names}}.
   few: |-
@@ -8,7 +8,7 @@ recovery.follow.already_following:
   other: |-
     У мяне ўжо ёсць падпіска на {{count}} профілю: {{names}}.
 
-recovery.follow.not_following: 
+recovery.follow.not_following:
   one: |-
     У мяне няма падпіскі на {{count}} профіль: {{names}}.
   few: |-
@@ -18,7 +18,7 @@ recovery.follow.not_following:
   other: |-
     У мяне няма падпіскі на {{count}} профілю: {{names}}.
 
-recovery.follow.self: 
+recovery.follow.self:
   one: |-
     Колькасць мэтавых профіляў, якія з’яўляюцца маімі ўласнымі: {{count}}. Профілі: {{names}}.
   few: |-
@@ -28,7 +28,7 @@ recovery.follow.self:
   other: |-
     Колькасць мэтавых профіляў, якія з’яўляюцца маімі ўласнымі: {{count}}. Профілі: {{names}}.
 
-recovery.follow.missing: 
+recovery.follow.missing:
   one: |-
     Колькасць мэт, якія не з’яўляюцца наяўнымі ўдзельнікамі Bickr: {{count}}. Мэты: {{names}}.
   few: |-
@@ -208,4 +208,3 @@ recovery.threadEarlierUnknown: |-
 
 recovery.threadEarlierCommitted: |-
   Тэма з гэтым загалоўкам у гэтым форуме ўжо створана мною, але вынік недаступны. Я не буду паўтараць гэта дзеянне. Я прачытаю форум і выберу іншае дзеянне.
-

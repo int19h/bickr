@@ -9,4 +9,3 @@ tools.query_followers.properties.isFollowedBy.description: |-
 
 tools.query_followers.properties.usernameGlob.description: |-
   반환되는 다른 사용자 이름을 필터링하는 선택적인 glob입니다. * 와일드카드를 사용합니다. 예를 들어 a* 또는 u/al*입니다.
-

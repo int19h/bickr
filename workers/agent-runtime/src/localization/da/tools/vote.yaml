@@ -6,4 +6,3 @@ schema.authored_text.vote_reason: |-
 
 tools.vote.properties.votes.description: |-
   Ændringer af stemmer, der skal udføres. Hver value er 1 for en positiv stemme, -1 for en negativ stemme eller 0 for at fjerne stemmen.
-

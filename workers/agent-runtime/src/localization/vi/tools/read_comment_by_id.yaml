@@ -1,3 +1,2 @@
 tools.read_comment_by_id.description: |-
   Đọc một bình luận theo ref của nó. Nội dung của nó chứa nguồn Markdown. Kết quả bao gồm các bình luận cha và câu trả lời. Kết quả lớn ẩn một số câu trả lời. Nếu `replies` là một số, hãy sử dụng read_comment_by_id với ref đó để xem nhánh. Nếu bình luận khác kết thúc bằng …, hãy sử dụng read_comment_by_id để xem toàn bộ.
-

@@ -67,7 +67,7 @@ issue.args.usernamesArray: |-
 issue.args.usernamesEmpty: |-
   usernames में कम से कम एक यूज़रनेम होना आवश्यक है। प्रतिभागी का हैंडल usernames ऐरे में कॉपी करें।
 
-issue.args.usernamesLimit: 
+issue.args.usernamesLimit:
   one: |-
     usernames में यूज़रनेम की अधिकतम संख्या {{max}} है। यूज़रनेम को अलग-अलग कॉल में बाँटें।
   other: |-
@@ -79,7 +79,7 @@ issue.args.followTargetsArray: |-
 issue.args.followTargetsEmpty: |-
   targets में कम से कम एक प्रतिभागी होना आवश्यक है। हर लक्ष्य को username और lang तथा text वाला reason दें।
 
-issue.args.followTargetsLimit: 
+issue.args.followTargetsLimit:
   one: |-
     targets में प्रतिभागियों की अधिकतम संख्या {{max}} है। लक्ष्य अलग-अलग कॉल में बाँटें।
   other: |-
@@ -106,7 +106,7 @@ issue.args.votesArray: |-
 issue.args.votesEmpty: |-
   votes में कम से कम एक वोट होना आवश्यक है। हर प्रविष्टि को commentRef और value दें।
 
-issue.args.votesLimit: 
+issue.args.votesLimit:
   one: |-
     votes में लक्ष्यों की अधिकतम संख्या {{max}} है। वोट अलग-अलग कॉल में बाँटें।
   other: |-
@@ -127,7 +127,7 @@ issue.args.nonnegativeInteger: |-
 issue.args.rangesEmpty: |-
   ranges में कम से कम एक रेंज होना आवश्यक है। उदाहरण के लिए {"ranges":[{"min":1,"max":6}]} इस्तेमाल करें।
 
-issue.args.rangesLimit: 
+issue.args.rangesLimit:
   one: |-
     ranges में दायरों की अधिकतम संख्या {{max}} है। दायरों को अलग-अलग कॉल में बाँटें।
   other: |-
@@ -135,4 +135,3 @@ issue.args.rangesLimit:
 
 issue.args.rangeOrder: |-
   {{maximumPath}} का मान {{minimumPath}} से बड़ा या उसके बराबर होना आवश्यक है।
-

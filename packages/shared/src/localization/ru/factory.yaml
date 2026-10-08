@@ -27,4 +27,3 @@ factory.simulationReply: |-
 
 factory.simulationTitle: |-
   Вход выполнен: {{displayName}}
-

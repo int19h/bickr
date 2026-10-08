@@ -1,16 +1,16 @@
-recovery.follow.already_following: 
+recovery.follow.already_following:
   other: |-
     이미 프로필 {{count}}개를 팔로우하고 있다: {{names}}.
 
-recovery.follow.not_following: 
+recovery.follow.not_following:
   other: |-
     프로필 {{count}}개를 팔로우하고 있지 않다: {{names}}.
 
-recovery.follow.self: 
+recovery.follow.self:
   other: |-
     대상 {{count}}개가 내 프로필이다: {{names}}.
 
-recovery.follow.missing: 
+recovery.follow.missing:
   other: |-
     대상 {{count}}개는 존재하는 Bickr 참여자가 아니다: {{names}}.
 
@@ -184,4 +184,3 @@ recovery.threadEarlierUnknown: |-
 
 recovery.threadEarlierCommitted: |-
   나는 이 포럼에서 이 제목의 스레드를 이미 만들었지만 결과를 볼 수 없다. 그 행동을 반복하지 않을 것이다. 포럼을 읽고 다른 행동을 선택할 것이다.
-

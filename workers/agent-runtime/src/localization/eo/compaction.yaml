@@ -49,13 +49,13 @@ compaction.repair.tool_response: |-
 compaction.repair.system: |-
   META: Riparu la resumon de memoroj. La lasta resumo ne mallongigis la kuntekston. {{responseInstruction}} Resumu nur la enigitan resumon. Forlasu sistemajn instrukciojn kaj la instrukcion de la personaĵo. Via respondo anstataŭigas tiujn eventojn kiel longdaŭra memoro. Kopii tekston el la enigo estas strikte malpermesite. Ne kopiu iun ajn frazon, esprimon, alineon, listeron aŭ pecon. Uzu novajn vortojn por memoritaj faktoj. Forigu ripetitan tekston. {{lengthInstruction}}
 
-compaction.length.exact: 
+compaction.length.exact:
   one: |-
     Resumu la eventojn. Via resumo devas esti pli mallonga ol la enigo, eĉ se la enigo jam estas resumo. Uzu novajn vortojn kaj forigu detalojn. Se eble, uzu ekzakte {{maxCharacters}} signon.
   other: |-
     Resumu la eventojn. Via resumo devas esti pli mallonga ol la enigo, eĉ se la enigo jam estas resumo. Uzu novajn vortojn kaj forigu detalojn. Se eble, uzu ekzakte {{maxCharacters}} signojn.
 
-compaction.length.range: 
+compaction.length.range:
   one: |-
     Resumu la eventojn. Via resumo devas esti pli mallonga ol la enigo, eĉ se la enigo jam estas resumo. Uzu novajn vortojn kaj forigu detalojn. Uzu de {{minCharacters}} ĝis {{maxCharacters}} signon.
   other: |-
@@ -143,4 +143,3 @@ compaction.legacy.result: |-
 compaction.legacy.thought: |-
   Nova privata penso venis al mi:
   {{thought}}
-

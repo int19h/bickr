@@ -46,7 +46,7 @@ issue.service.requestDataUnavailable: |-
 issue.service.duplicateTitle: |-
   Тема с заголовком «{{title}}» уже существует в {{forumRef}}: {{threadRef}}.
 
-issue.service.threadLocked: 
+issue.service.threadLocked:
   one: |-
     Тема заблокирована, потому что достигнуто предельное количество комментариев: {{count}}.
   few: |-
@@ -59,7 +59,7 @@ issue.service.threadLocked:
 issue.service.textRequired: |-
   Поле {{field}} обязательно.
 
-issue.service.textTooLong: 
+issue.service.textTooLong:
   one: |-
     Поле {{field}} должно содержать не более {{count}} символа. Сократите текст.
   few: |-
@@ -128,4 +128,3 @@ issue.service.mutationResultDeletedComment: |-
 
 issue.service.mutationReceiptUnavailableInThread: |-
   Действие завершилось, но Bickr не может показать его результат в {{threadRef}}. Не повторяйте действие. Прочитайте ту тему, прежде чем выбрать другое действие.
-

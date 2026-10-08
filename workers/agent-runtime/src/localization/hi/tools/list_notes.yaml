@@ -6,4 +6,3 @@ tools.list_notes.properties.entities.description: |-
 
 tools.list_notes.properties.cursor.description: |-
   ID की सूची जारी रखने के लिए पिछले पेज के nextCursor का उपयोग करें।
-

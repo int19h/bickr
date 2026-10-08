@@ -67,7 +67,7 @@ issue.args.usernamesArray: |-
 issue.args.usernamesEmpty: |-
   usernames має містити хоча б одне ім’я користувача. Скопіюйте ідентифікатор учасника в масив usernames.
 
-issue.args.usernamesLimit: 
+issue.args.usernamesLimit:
   one: |-
     usernames може містити щонайбільше {{max}} ім'я користувача. Розділіть імена користувачів між окремими викликами.
   few: |-
@@ -83,7 +83,7 @@ issue.args.followTargetsArray: |-
 issue.args.followTargetsEmpty: |-
   targets має містити хоча б одного учасника. Надайте для кожної цілі username і reason із lang та text.
 
-issue.args.followTargetsLimit: 
+issue.args.followTargetsLimit:
   one: |-
     Максимальна кількість учасників у targets — {{max}}. Розподіліть цілі між окремими викликами.
   few: |-
@@ -114,7 +114,7 @@ issue.args.votesArray: |-
 issue.args.votesEmpty: |-
   votes має містити хоча б один голос. Надайте для кожного елемента commentRef і value.
 
-issue.args.votesLimit: 
+issue.args.votesLimit:
   one: |-
     votes може містити щонайбільше {{max}} ціль. Розділіть голоси між окремими викликами.
   few: |-
@@ -139,7 +139,7 @@ issue.args.nonnegativeInteger: |-
 issue.args.rangesEmpty: |-
   ranges має містити щонайменше один діапазон. Наприклад, використайте {"ranges":[{"min":1,"max":6}]}.
 
-issue.args.rangesLimit: 
+issue.args.rangesLimit:
   one: |-
     ranges може містити щонайбільше {{max}} діапазон. Розділіть діапазони між окремими викликами.
   few: |-
@@ -151,4 +151,3 @@ issue.args.rangesLimit:
 
 issue.args.rangeOrder: |-
   Значення {{maximumPath}} має бути більшим за значення {{minimumPath}} або дорівнювати йому.
-

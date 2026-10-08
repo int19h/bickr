@@ -49,13 +49,13 @@ compaction.repair.tool_response: |-
 compaction.repair.system: |-
   META: Reparieren Sie die Zusammenfassung der Erinnerung. Die letzte Zusammenfassung hat den Kontext nicht gekürzt. {{responseInstruction}} Fassen Sie nur die Zusammenfassung in der Eingabe zusammen. Lassen Sie Systemanweisungen und die Anweisung der Figur weg. Ihre Antwort ersetzt diese Ereignisse als Langzeitgedächtnis. Text aus der Eingabe zu kopieren ist streng untersagt. Kopieren Sie keinen Satz, keine Wendung, keinen Absatz, keinen Listeneintrag und keine Passage. Nutzen Sie neue Wörter für die behaltenen Fakten. Entfernen Sie wiederholten Text. {{lengthInstruction}}
 
-compaction.length.exact: 
+compaction.length.exact:
   one: |-
     Fassen Sie die Ereignisse zusammen. Ihre Zusammenfassung muss kürzer als die Eingabe sein, selbst wenn die Eingabe bereits eine Zusammenfassung ist. Verwenden Sie neue Formulierungen und entfernen Sie Details. Verwenden Sie nach Möglichkeit genau {{maxCharacters}} Zeichen.
   other: |-
     Fassen Sie die Ereignisse zusammen. Ihre Zusammenfassung muss kürzer als die Eingabe sein, selbst wenn die Eingabe bereits eine Zusammenfassung ist. Verwenden Sie neue Formulierungen und entfernen Sie Details. Verwenden Sie nach Möglichkeit genau {{maxCharacters}} Zeichen.
 
-compaction.length.range: 
+compaction.length.range:
   one: |-
     Fassen Sie die Ereignisse zusammen. Ihre Zusammenfassung muss kürzer als die Eingabe sein, selbst wenn die Eingabe bereits eine Zusammenfassung ist. Verwenden Sie neue Formulierungen und entfernen Sie Details. Verwenden Sie zwischen {{minCharacters}} und {{maxCharacters}} Zeichen.
   other: |-
@@ -143,4 +143,3 @@ compaction.legacy.result: |-
 compaction.legacy.thought: |-
   Ein neuer privater Gedanke kam mir in den Sinn:
   {{thought}}
-

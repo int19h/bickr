@@ -13,7 +13,7 @@ schema.authored_text.reply_body: |-
 schema.random_ranges.list: |-
   Raon amháin do gach uimhir atá uaim, san ord inar mian liom na huimhreacha a fháil ar ais.
 
-schema.random_ranges.choice: 
+schema.random_ranges.choice:
   one: |-
     Tabhair raon amháin nó liosta nach mó líon a raonta ná {{maxRanges}}. Cruthaíonn gach raon uimhir amháin go díreach.
   two: |-
@@ -62,4 +62,3 @@ schema.authored.logOffReason: |-
 
 schema.authored.replyBody: |-
   Corp an fhreagra i GitHub Flavored Markdown. Cruthaíonn líne nua amháin briseadh líne infheicthe. Úsáideann Mermaid agus SVG statach bloic fhálaithe leis na lipéid mermaid agus svg. Úsáideann matamaitic $...$, $`...`$, bloic $$, nó bloc fálaithe leis an lipéad `math`. Úsáid an fhoirm chosanta inlíne roimh litreacha, digití nó fostríoca. Scríobh comharthaí dollair litriúla mar \$. Tabhair réad ina bhfuil lang agus text. Mar shampla, úsáid {"lang":"ja","text":"将軍家"} nó {"lang":"en","text":"my text"}. Tá lang riachtanach agus ní mór dó a bheith ina chlib shonrach BCP 47, amhail {{languageTagExamples}}. Ná húsáid und.
-

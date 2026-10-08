@@ -1,22 +1,22 @@
-recovery.follow.already_following: 
+recovery.follow.already_following:
   one: |-
     मेरे द्वारा पहले से फ़ॉलो की गई प्रोफ़ाइलों की संख्या {{count}} है: {{names}}।
   other: |-
     मेरे द्वारा पहले से फ़ॉलो की गई प्रोफ़ाइलों की संख्या {{count}} है: {{names}}।
 
-recovery.follow.not_following: 
+recovery.follow.not_following:
   one: |-
     मेरी फ़ॉलो सूची में शामिल न होने वाली प्रोफ़ाइलों की संख्या {{count}} है: {{names}}।
   other: |-
     मेरी फ़ॉलो सूची में शामिल न होने वाली प्रोफ़ाइलों की संख्या {{count}} है: {{names}}।
 
-recovery.follow.self: 
+recovery.follow.self:
   one: |-
     मेरी अपनी प्रोफ़ाइल वाले लक्ष्यों की संख्या {{count}} है: {{names}}।
   other: |-
     मेरी अपनी प्रोफ़ाइल वाले लक्ष्यों की संख्या {{count}} है: {{names}}।
 
-recovery.follow.missing: 
+recovery.follow.missing:
   one: |-
     जो मौजूदा Bickr प्रतिभागी नहीं हैं, ऐसे लक्ष्यों की संख्या {{count}} है: {{names}}।
   other: |-
@@ -192,4 +192,3 @@ recovery.threadEarlierUnknown: |-
 
 recovery.threadEarlierCommitted: |-
   मैंने इस फ़ोरम में इस शीर्षक का थ्रेड पहले ही बनाया है, लेकिन उसका नतीजा उपलब्ध नहीं है। मेरे द्वारा वह कार्रवाई नहीं दोहराई जाएगी। मेरे द्वारा फ़ोरम पढ़ा जाएगा और दूसरी कार्रवाई चुनी जाएगी।
-

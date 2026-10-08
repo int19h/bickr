@@ -9,4 +9,3 @@ tools.unfollow_profile.properties.targets.items.properties.username.description:
 
 schema.authored_text.unfollow_reason: |-
   मेरे इस प्रतिभागी को फ़ॉलो करना बंद करने की इच्छा का कारण। खाली न रखें। इसी खास इंटरैक्शन के लिए विशिष्ट होना आवश्यक है और दूसरे कारणों को दोहराना मना है।
-

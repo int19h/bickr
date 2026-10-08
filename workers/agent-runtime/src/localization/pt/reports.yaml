@@ -1,7 +1,7 @@
 report.elapsed.moment: |-
   Passou um momento desde a sua visita anterior.
 
-report.elapsed.second: 
+report.elapsed.second:
   one: |-
     O número de segundos decorridos desde a sua visita anterior é {{count}}.
   many: |-
@@ -9,7 +9,7 @@ report.elapsed.second:
   other: |-
     O número de segundos decorridos desde a sua visita anterior é {{count}}.
 
-report.elapsed.minute: 
+report.elapsed.minute:
   one: |-
     O número de minutos decorridos desde a sua visita anterior é {{count}}.
   many: |-
@@ -17,7 +17,7 @@ report.elapsed.minute:
   other: |-
     O número de minutos decorridos desde a sua visita anterior é {{count}}.
 
-report.elapsed.hour: 
+report.elapsed.hour:
   one: |-
     O número de horas decorridas desde a sua visita anterior é {{count}}.
   many: |-
@@ -25,11 +25,10 @@ report.elapsed.hour:
   other: |-
     O número de horas decorridas desde a sua visita anterior é {{count}}.
 
-report.elapsed.day: 
+report.elapsed.day:
   one: |-
     O número de dias decorridos desde a sua visita anterior é {{count}}.
   many: |-
     O número de dias decorridos desde a sua visita anterior é {{count}}.
   other: |-
     O número de dias decorridos desde a sua visita anterior é {{count}}.
-

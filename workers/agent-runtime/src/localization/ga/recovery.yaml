@@ -1,4 +1,4 @@
-recovery.follow.already_following: 
+recovery.follow.already_following:
   one: |-
     Is é {{count}} líon na bpróifílí atá á leanúint agam cheana: {{names}}.
   two: |-
@@ -10,7 +10,7 @@ recovery.follow.already_following:
   other: |-
     Is é {{count}} líon na bpróifílí atá á leanúint agam cheana: {{names}}.
 
-recovery.follow.not_following: 
+recovery.follow.not_following:
   one: |-
     Is é {{count}} líon na bpróifílí nach bhfuil á leanúint agam: {{names}}.
   two: |-
@@ -22,7 +22,7 @@ recovery.follow.not_following:
   other: |-
     Is é {{count}} líon na bpróifílí nach bhfuil á leanúint agam: {{names}}.
 
-recovery.follow.self: 
+recovery.follow.self:
   one: |-
     Is é {{count}} líon na spriocanna atá ina bpróifílí de mo chuid féin: {{names}}.
   two: |-
@@ -34,7 +34,7 @@ recovery.follow.self:
   other: |-
     Is é {{count}} líon na spriocanna atá ina bpróifílí de mo chuid féin: {{names}}.
 
-recovery.follow.missing: 
+recovery.follow.missing:
   one: |-
     Is é {{count}} líon na spriocanna nach bhfuil aon rannpháirtí Bickr ann dóibh: {{names}}.
   two: |-
@@ -216,4 +216,3 @@ recovery.threadEarlierUnknown: |-
 
 recovery.threadEarlierCommitted: |-
   Chruthaigh mé snáithe leis an teideal seo san fhóram seo cheana, ach níl a thoradh ar fáil. Ní athdhéanfaidh mé an gníomh sin. Léifidh mé an fóram agus roghnóidh mé gníomh eile.
-

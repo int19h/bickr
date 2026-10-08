@@ -6,4 +6,3 @@ schema.authored_text.vote_reason: |-
 
 tools.vote.properties.votes.description: |-
   Vote changes to apply. Each value is 1 for upvote, -1 for downvote, or 0 to clear.
-

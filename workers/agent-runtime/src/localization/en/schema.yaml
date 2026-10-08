@@ -13,7 +13,7 @@ schema.authored_text.reply_body: |-
 schema.random_ranges.list: |-
   One range per number I want, in the order I want the numbers back.
 
-schema.random_ranges.choice: 
+schema.random_ranges.choice:
   one: |-
     One range, or a list of up to {{maxRanges}} range. Each range produces exactly one number.
   other: |-
@@ -56,4 +56,3 @@ schema.authored.logOffReason: |-
 
 schema.authored.replyBody: |-
   Reply body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or a fenced block labeled `math`. Use the protected inline form before letters, digits, or underscores. Escape literal dollar signs as \$. Give an object with lang and text. For example, use {"lang":"ja","text":"将軍家"} or {"lang":"en","text":"my text"}. lang is required and must be a specific BCP 47 tag such as {{languageTagExamples}}. Do not use und.
-

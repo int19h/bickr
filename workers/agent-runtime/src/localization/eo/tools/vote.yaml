@@ -6,4 +6,3 @@ schema.authored_text.vote_reason: |-
 
 tools.vote.properties.votes.description: |-
   Aplikotaj ŝanĝoj de voĉdonoj. Ĉiu value estas 1 por voĉdono por, -1 por voĉdono kontraŭ aŭ 0 por nuligo.
-

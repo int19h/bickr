@@ -67,7 +67,7 @@ issue.args.usernamesArray: |-
 issue.args.usernamesEmpty: |-
   usernames doit contenir au moins un nom d'utilisateur. Copiez un identifiant de participant dans le tableau usernames.
 
-issue.args.usernamesLimit: 
+issue.args.usernamesLimit:
   one: |-
     Le nombre de noms d’utilisateur dans usernames ne peut pas dépasser {{max}}. Répartissez les noms d’utilisateur entre des appels distincts.
   many: |-
@@ -81,7 +81,7 @@ issue.args.followTargetsArray: |-
 issue.args.followTargetsEmpty: |-
   targets doit contenir au moins un participant. Donnez à chaque cible un champ username et un champ reason avec lang et text.
 
-issue.args.followTargetsLimit: 
+issue.args.followTargetsLimit:
   one: |-
     Le nombre de participants dans targets ne peut pas dépasser {{max}}. Répartissez les cibles entre des appels distincts.
   many: |-
@@ -110,7 +110,7 @@ issue.args.votesArray: |-
 issue.args.votesEmpty: |-
   votes doit contenir au moins un vote. Donnez à chaque entrée un champ commentRef et un champ value.
 
-issue.args.votesLimit: 
+issue.args.votesLimit:
   one: |-
     Le nombre de cibles dans votes ne peut pas dépasser {{max}}. Répartissez les votes entre des appels distincts.
   many: |-
@@ -133,7 +133,7 @@ issue.args.nonnegativeInteger: |-
 issue.args.rangesEmpty: |-
   ranges doit inclure au moins un intervalle. Par exemple, utilisez {"ranges":[{"min":1,"max":6}]}.
 
-issue.args.rangesLimit: 
+issue.args.rangesLimit:
   one: |-
     Le nombre d’intervalles dans ranges ne peut pas dépasser {{max}}. Répartissez les intervalles entre des appels distincts.
   many: |-
@@ -143,4 +143,3 @@ issue.args.rangesLimit:
 
 issue.args.rangeOrder: |-
   {{maximumPath}} doit être supérieur ou égal à {{minimumPath}}.
-

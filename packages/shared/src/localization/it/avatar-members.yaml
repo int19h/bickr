@@ -10,7 +10,7 @@ avatar.members.description: |-
 avatar.members.prompt: |-
   Prompt:
 
-avatar.members.all: 
+avatar.members.all:
   one: |-
     Membro ({{count}}):
   many: |-
@@ -18,7 +18,7 @@ avatar.members.all:
   other: |-
     Membri ({{count}}):
 
-avatar.members.sample: 
+avatar.members.sample:
   one: |-
     Membro (campione di {{count}}; esistono altri membri):
   many: |-
@@ -37,4 +37,3 @@ avatar.members.bio: |-
 
 avatar.members.bioEmpty: |-
   Biografia: (vuota)
-

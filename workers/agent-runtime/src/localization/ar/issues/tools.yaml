@@ -3,4 +3,3 @@ issue.tool.unknown: |-
 
 issue.tool.duplicateReply: |-
   سبق نشر هذا التعليق بعينه: {{commentRef}} ({{urlPath}}).
-

@@ -6,4 +6,3 @@ tools.list_notes.properties.entities.description: |-
 
 tools.list_notes.properties.cursor.description: |-
   Use nextCursor from the previous page to continue listing IDs.
-

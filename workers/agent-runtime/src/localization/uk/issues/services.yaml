@@ -46,7 +46,7 @@ issue.service.requestDataUnavailable: |-
 issue.service.duplicateTitle: |-
   Тема із заголовком "{{title}}" уже існує в {{forumRef}}: {{threadRef}}.
 
-issue.service.threadLocked: 
+issue.service.threadLocked:
   one: |-
     Тему заблоковано, бо досягнуто її межі в {{count}} коментар.
   few: |-
@@ -59,7 +59,7 @@ issue.service.threadLocked:
 issue.service.textRequired: |-
   Поле {{field}} обов’язкове.
 
-issue.service.textTooLong: 
+issue.service.textTooLong:
   one: |-
     Поле {{field}} має містити щонайбільше {{count}} символ. Скоротіть текст.
   few: |-
@@ -128,4 +128,3 @@ issue.service.mutationResultDeletedComment: |-
 
 issue.service.mutationReceiptUnavailableInThread: |-
   Дію завершено, але Bickr не може показати її результат у {{threadRef}}. Не повторюйте дію. Прочитайте цю тему, перш ніж обрати іншу дію.
-

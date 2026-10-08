@@ -28,7 +28,7 @@ structured_output.missing_tool: |-
 structured_output.wrong_tool: |-
   Verwenden Sie für diese Anfrage nur {{toolName}}. Verwenden Sie hier nicht {{receivedTool}}.
 
-structured_output.tool_count: 
+structured_output.tool_count:
   one: |-
     Erwartet wurde ein Aufruf des Werkzeugs {{toolName}}, empfangen wurde {{count}} Aufruf. Rufen Sie {{toolName}} genau einmal auf.
   other: |-
@@ -46,13 +46,13 @@ structured_output.arguments_object: |-
 structured_output.output_object: |-
   Die strukturierte Ausgabe muss ein JSON-Objekt sein. Setzen Sie {{property}} und seinen Textwert in {}.
 
-structured_output.extra_arguments: 
+structured_output.extra_arguments:
   one: |-
     Es gibt {{count}} unerwartetes Argument: {{fields}}. Entfernen Sie dieses Argument. Geben Sie nur {{property}} an.
   other: |-
     Es gibt {{count}} unerwartete Argumente: {{fields}}. Entfernen Sie diese Argumente. Geben Sie nur {{property}} an.
 
-structured_output.extra_fields: 
+structured_output.extra_fields:
   one: |-
     Es gibt {{count}} unerwartetes Feld: {{fields}}. Entfernen Sie dieses Feld. Geben Sie nur {{property}} an.
   other: |-
@@ -70,37 +70,37 @@ structured_output.nonempty.avatar_description: |-
 structured_output.transcript: |-
   Schreiben Sie die Zusammenfassung in {{property}} als gewöhnlichen Fließtext in der ersten Person. Entfernen Sie die Zeile des Gesprächsprotokolls {{line}}. Schreiben Sie keine Zeilen mit den Bezeichnungen {{labels}}.
 
-structured_output.minimum.compaction: 
+structured_output.minimum.compaction:
   one: |-
     Die Zusammenfassung in {{property}} muss mindestens {{minimum}} Zeichen lang sein. Ergänzen Sie den Text um relevante Details.
   other: |-
     Die Zusammenfassung in {{property}} muss mindestens {{minimum}} Zeichen lang sein. Ergänzen Sie den Text um relevante Details.
 
-structured_output.minimum.translation: 
+structured_output.minimum.translation:
   one: |-
     Die Übersetzung in {{property}} muss mindestens {{minimum}} Zeichen lang sein. Ergänzen Sie den Text um relevante Details.
   other: |-
     Die Übersetzung in {{property}} muss mindestens {{minimum}} Zeichen lang sein. Ergänzen Sie den Text um relevante Details.
 
-structured_output.minimum.avatar_description: 
+structured_output.minimum.avatar_description:
   one: |-
     Die Beschreibung des Profilbilds in {{property}} muss mindestens {{minimum}} Zeichen enthalten. Fügen Sie dem Text passende Einzelheiten hinzu.
   other: |-
     Die Beschreibung des Profilbilds in {{property}} muss mindestens {{minimum}} Zeichen enthalten. Fügen Sie dem Text passende Einzelheiten hinzu.
 
-structured_output.maximum.compaction: 
+structured_output.maximum.compaction:
   one: |-
     Die Zusammenfassung in {{property}} muss höchstens {{maximum}} Zeichen lang sein. Kürzen Sie den Text.
   other: |-
     Die Zusammenfassung in {{property}} muss höchstens {{maximum}} Zeichen lang sein. Kürzen Sie den Text.
 
-structured_output.maximum.translation: 
+structured_output.maximum.translation:
   one: |-
     Die Übersetzung in {{property}} muss höchstens {{maximum}} Zeichen lang sein. Kürzen Sie den Text.
   other: |-
     Die Übersetzung in {{property}} muss höchstens {{maximum}} Zeichen lang sein. Kürzen Sie den Text.
 
-structured_output.maximum.avatar_description: 
+structured_output.maximum.avatar_description:
   one: |-
     Die Beschreibung des Profilbilds in {{property}} muss höchstens {{maximum}} Zeichen enthalten. Kürzen Sie den Text.
   other: |-
@@ -112,13 +112,13 @@ structured_output.wrong_tool.unnamed: |-
 structured_output.tool_mismatch.unnamed: |-
   Erwartet wurde das Werkzeug {{toolName}}, empfangen wurde ein Werkzeugaufruf ohne Namen. Rufen Sie stattdessen {{toolName}} auf.
 
-structured_output.nonreducing.estimate: 
+structured_output.nonreducing.estimate:
   one: |-
     Die Zusammenfassung in {{property}} hat den Kontext nicht verkleinert. Ihre geschätzte Länge beträgt {{replacementTokens}} Token.
   other: |-
     Die Zusammenfassung in {{property}} hat den Kontext nicht verkleinert. Ihre geschätzte Länge beträgt {{replacementTokens}} Token.
 
-structured_output.nonreducing.before: 
+structured_output.nonreducing.before:
   one: |-
     Der Kontext hatte vor dem Ersetzen {{compactedTokens}} Token. Kürzen Sie die Zusammenfassung und behalten Sie dabei die erforderlichen Fakten.
   other: |-
@@ -132,4 +132,3 @@ structured_output.nonempty.translation.field: |-
 
 structured_output.nonempty.avatar_description.field: |-
   Das Feld der Beschreibung des Profilbilds muss eine nicht leere Zeichenkette sein. Setzen Sie den Text in {{property}}.
-

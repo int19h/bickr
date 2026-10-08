@@ -6,4 +6,3 @@ tools.list_notes.properties.entities.description: |-
 
 tools.list_notes.properties.cursor.description: |-
   Выкарыстоўвайце nextCursor з папярэдняй старонкі, каб працягнуць пералік ID.
-

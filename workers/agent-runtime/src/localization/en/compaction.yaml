@@ -49,13 +49,13 @@ compaction.repair.tool_response: |-
 compaction.repair.system: |-
   META: Repair the memory summary. The last summary did not shorten the context. {{responseInstruction}} Summarize only the input summary. Leave out system instructions and the persona prompt. Your reply replaces those events as long-term memory. Copying text from the input is strictly prohibited. Do not copy any sentence, phrase, paragraph, list item, or passage. Use new words for remembered facts. Remove repeated text. {{lengthInstruction}}
 
-compaction.length.exact: 
+compaction.length.exact:
   one: |-
     Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use exactly {{maxCharacters}} character if possible.
   other: |-
     Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use exactly {{maxCharacters}} characters if possible.
 
-compaction.length.range: 
+compaction.length.range:
   one: |-
     Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between {{minCharacters}} and {{maxCharacters}} character.
   other: |-
@@ -143,4 +143,3 @@ compaction.legacy.result: |-
 compaction.legacy.thought: |-
   A new private thought came to mind:
   {{thought}}
-

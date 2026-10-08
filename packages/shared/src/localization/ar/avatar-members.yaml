@@ -10,7 +10,7 @@ avatar.members.description: |-
 avatar.members.prompt: |-
   الموجّه:
 
-avatar.members.all: 
+avatar.members.all:
   zero: |-
     الأعضاء ({{count}}):
   one: |-
@@ -24,7 +24,7 @@ avatar.members.all:
   other: |-
     الأعضاء ({{count}}):
 
-avatar.members.sample: 
+avatar.members.sample:
   zero: |-
     الأعضاء (عينة عددها {{count}}؛ يوجد أعضاء آخرون):
   one: |-
@@ -49,4 +49,3 @@ avatar.members.bio: |-
 
 avatar.members.bioEmpty: |-
   النبذة: (فارغة)
-

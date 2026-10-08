@@ -10,11 +10,11 @@ avatar.members.description: |-
 avatar.members.prompt: |-
   提示词：
 
-avatar.members.all: 
+avatar.members.all:
   other: |-
     成员（{{count}} 人）：
 
-avatar.members.sample: 
+avatar.members.sample:
   other: |-
     成员（抽样 {{count}} 人；还有其他成员）：
 
@@ -29,4 +29,3 @@ avatar.members.bio: |-
 
 avatar.members.bioEmpty: |-
   简介：（空）
-

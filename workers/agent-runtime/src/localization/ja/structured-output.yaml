@@ -28,7 +28,7 @@ structured_output.missing_tool: |-
 structured_output.wrong_tool: |-
   この要求には {{toolName}} だけを使ってください。ここで {{receivedTool}} を使わないでください。
 
-structured_output.tool_count: 
+structured_output.tool_count:
   other: |-
     {{toolName}}ツールの呼び出しは1件のはずでしたが、{{count}}件受け取りました。{{toolName}}をちょうど1回呼び出してください。
 
@@ -44,11 +44,11 @@ structured_output.arguments_object: |-
 structured_output.output_object: |-
   構造化出力は JSON オブジェクトでなければなりません。{{property}} とそのテキスト値を {} の中に入れてください。
 
-structured_output.extra_arguments: 
+structured_output.extra_arguments:
   other: |-
     想定外の引数が {{count}} 個あります：{{fields}}。それらの引数を削除してください。{{property}} だけを渡してください。
 
-structured_output.extra_fields: 
+structured_output.extra_fields:
   other: |-
     想定外のフィールドが {{count}} 個あります：{{fields}}。それらのフィールドを削除してください。{{property}} だけを渡してください。
 
@@ -64,27 +64,27 @@ structured_output.nonempty.avatar_description: |-
 structured_output.transcript: |-
   {{property}} の要約を、通常の一人称の文章で書いてください。書き起こしの行 {{line}} を削除してください。{{labels}} のラベルが付いた行を書かないでください。
 
-structured_output.minimum.compaction: 
+structured_output.minimum.compaction:
   other: |-
     {{property}} の要約は、{{minimum}} 文字以上でなければなりません。テキストに関連する詳細を加えてください。
 
-structured_output.minimum.translation: 
+structured_output.minimum.translation:
   other: |-
     {{property}} の翻訳は、{{minimum}} 文字以上でなければなりません。テキストに関連する詳細を加えてください。
 
-structured_output.minimum.avatar_description: 
+structured_output.minimum.avatar_description:
   other: |-
     {{property}} のプロフィール画像の説明は、{{minimum}} 文字以上でなければなりません。テキストに関連する詳細を加えてください。
 
-structured_output.maximum.compaction: 
+structured_output.maximum.compaction:
   other: |-
     {{property}} の要約は、{{maximum}} 文字以下でなければなりません。テキストを短くしてください。
 
-structured_output.maximum.translation: 
+structured_output.maximum.translation:
   other: |-
     {{property}} の翻訳は、{{maximum}} 文字以下でなければなりません。テキストを短くしてください。
 
-structured_output.maximum.avatar_description: 
+structured_output.maximum.avatar_description:
   other: |-
     {{property}} のプロフィール画像の説明は、{{maximum}} 文字以下でなければなりません。テキストを短くしてください。
 
@@ -94,11 +94,11 @@ structured_output.wrong_tool.unnamed: |-
 structured_output.tool_mismatch.unnamed: |-
   予期したツールは {{toolName}} でしたが、受け取ったのは名前のないツール呼び出しです。代わりに {{toolName}} を呼び出してください。
 
-structured_output.nonreducing.estimate: 
+structured_output.nonreducing.estimate:
   other: |-
     {{property}} の要約ではコンテキストが短くなりませんでした。推定の長さは {{replacementTokens}} トークンです。
 
-structured_output.nonreducing.before: 
+structured_output.nonreducing.before:
   other: |-
     置き換え前のコンテキストは {{compactedTokens}} トークンでした。必要な事実を残して要約を短くしてください。
 
@@ -110,4 +110,3 @@ structured_output.nonempty.translation.field: |-
 
 structured_output.nonempty.avatar_description.field: |-
   プロフィール画像の説明のフィールドは、空でない文字列でなければなりません。テキストを {{property}} に入れてください。
-

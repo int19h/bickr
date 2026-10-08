@@ -28,7 +28,7 @@ structured_output.missing_tool: |-
 structured_output.wrong_tool: |-
   Usa solo {{toolName}} per questa richiesta. Non usare {{receivedTool}} qui.
 
-structured_output.tool_count: 
+structured_output.tool_count:
   one: |-
     Era prevista una chiamata allo strumento {{toolName}}, ma il numero di chiamate ricevute è {{count}}. Chiama {{toolName}} esattamente una volta.
   many: |-
@@ -48,7 +48,7 @@ structured_output.arguments_object: |-
 structured_output.output_object: |-
   L'output strutturato deve essere un oggetto JSON. Metti {{property}} e il suo valore testuale dentro {}.
 
-structured_output.extra_arguments: 
+structured_output.extra_arguments:
   one: |-
     C'è {{count}} argomento imprevisto: {{fields}}. Rimuovi quell'argomento. Fornisci solo {{property}}.
   many: |-
@@ -56,7 +56,7 @@ structured_output.extra_arguments:
   other: |-
     Ci sono {{count}} argomenti imprevisti: {{fields}}. Rimuovi quegli argomenti. Fornisci solo {{property}}.
 
-structured_output.extra_fields: 
+structured_output.extra_fields:
   one: |-
     C'è {{count}} campo imprevisto: {{fields}}. Rimuovi quel campo. Fornisci solo {{property}}.
   many: |-
@@ -76,7 +76,7 @@ structured_output.nonempty.avatar_description: |-
 structured_output.transcript: |-
   Scrivi il riassunto in {{property}} come normale prosa in prima persona. Rimuovi la riga di trascrizione {{line}}. Non scrivere righe con le etichette {{labels}}.
 
-structured_output.minimum.compaction: 
+structured_output.minimum.compaction:
   one: |-
     Il riassunto in {{property}} deve contenere almeno {{minimum}} carattere. Aggiungi al testo dettagli pertinenti.
   many: |-
@@ -84,7 +84,7 @@ structured_output.minimum.compaction:
   other: |-
     Il riassunto in {{property}} deve contenere almeno {{minimum}} caratteri. Aggiungi al testo dettagli pertinenti.
 
-structured_output.minimum.translation: 
+structured_output.minimum.translation:
   one: |-
     La traduzione in {{property}} deve contenere almeno {{minimum}} carattere. Aggiungi al testo dettagli pertinenti.
   many: |-
@@ -92,7 +92,7 @@ structured_output.minimum.translation:
   other: |-
     La traduzione in {{property}} deve contenere almeno {{minimum}} caratteri. Aggiungi al testo dettagli pertinenti.
 
-structured_output.minimum.avatar_description: 
+structured_output.minimum.avatar_description:
   one: |-
     La descrizione dell'immagine del profilo in {{property}} deve contenere almeno {{minimum}} carattere. Aggiungi al testo dettagli pertinenti.
   many: |-
@@ -100,7 +100,7 @@ structured_output.minimum.avatar_description:
   other: |-
     La descrizione dell'immagine del profilo in {{property}} deve contenere almeno {{minimum}} caratteri. Aggiungi al testo dettagli pertinenti.
 
-structured_output.maximum.compaction: 
+structured_output.maximum.compaction:
   one: |-
     Il riassunto in {{property}} deve contenere al massimo {{maximum}} carattere. Accorcia il testo.
   many: |-
@@ -108,7 +108,7 @@ structured_output.maximum.compaction:
   other: |-
     Il riassunto in {{property}} deve contenere al massimo {{maximum}} caratteri. Accorcia il testo.
 
-structured_output.maximum.translation: 
+structured_output.maximum.translation:
   one: |-
     La traduzione in {{property}} deve contenere al massimo {{maximum}} carattere. Accorcia il testo.
   many: |-
@@ -116,7 +116,7 @@ structured_output.maximum.translation:
   other: |-
     La traduzione in {{property}} deve contenere al massimo {{maximum}} caratteri. Accorcia il testo.
 
-structured_output.maximum.avatar_description: 
+structured_output.maximum.avatar_description:
   one: |-
     La descrizione dell'immagine del profilo in {{property}} deve contenere al massimo {{maximum}} carattere. Accorcia il testo.
   many: |-
@@ -130,7 +130,7 @@ structured_output.wrong_tool.unnamed: |-
 structured_output.tool_mismatch.unnamed: |-
   Era previsto lo strumento {{toolName}}, ma è arrivata una chiamata di strumento senza nome. Chiama invece {{toolName}}.
 
-structured_output.nonreducing.estimate: 
+structured_output.nonreducing.estimate:
   one: |-
     Il riassunto in {{property}} non ha ridotto il contesto. La sua lunghezza stimata in token è {{replacementTokens}}.
   many: |-
@@ -138,7 +138,7 @@ structured_output.nonreducing.estimate:
   other: |-
     Il riassunto in {{property}} non ha ridotto il contesto. La sua lunghezza stimata in token è {{replacementTokens}}.
 
-structured_output.nonreducing.before: 
+structured_output.nonreducing.before:
   one: |-
     Il numero di token del contesto prima della sostituzione era {{compactedTokens}}. Accorcia il riassunto mantenendo i fatti richiesti.
   many: |-
@@ -154,4 +154,3 @@ structured_output.nonempty.translation.field: |-
 
 structured_output.nonempty.avatar_description.field: |-
   Il campo della descrizione dell'immagine del profilo deve essere una stringa non vuota. Metti il testo in {{property}}.
-

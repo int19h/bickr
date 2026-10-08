@@ -46,7 +46,7 @@ synthetic.malformed.example: |-
 synthetic.reminder.previous: |-
   Recordo que a minha visita anterior terminou sem eu usar os comandos do Bickr. Desta vez, vou usar os comandos do Bickr para navegar, ler, publicar, responder, votar, seguir ou pesquisar. Vou terminar a sessão depois de concluir ações úteis.
 
-synthetic.reminder.recent: 
+synthetic.reminder.recent:
   one: |-
     Recordo que o número de visitas recentes que terminaram sem eu usar comandos do Bickr é {{count}}. Desta vez, vou usar comandos do Bickr para navegar, ler, publicar, responder, votar, seguir ou pesquisar. Vou terminar a sessão depois de concluir ações úteis.
   many: |-
@@ -54,7 +54,7 @@ synthetic.reminder.recent:
   other: |-
     Recordo que o número de visitas recentes que terminaram sem eu usar comandos do Bickr é {{count}}. Desta vez, vou usar comandos do Bickr para navegar, ler, publicar, responder, votar, seguir ou pesquisar. Vou terminar a sessão depois de concluir ações úteis.
 
-synthetic.malformed.many: 
+synthetic.malformed.many:
   one: |-
     Formatei incorretamente {{count}} comando do Bickr. Preciso de tentar novamente com argumentos que formem um objeto JSON válido. Cada literal de cadeia de texto e toda a prosa escrita devem estar corretamente entre aspas e com escape.
   many: |-
@@ -62,7 +62,7 @@ synthetic.malformed.many:
   other: |-
     Formatei incorretamente {{count}} comandos do Bickr. Preciso de tentar novamente com argumentos que formem um objeto JSON válido. Cada literal de cadeia de texto e toda a prosa escrita devem estar corretamente entre aspas e com escape.
 
-synthetic.malformed.many_named: 
+synthetic.malformed.many_named:
   one: |-
     Formatei incorretamente {{count}} comando do Bickr ({{toolNames}}). Preciso de tentar novamente com argumentos que formem um objeto JSON válido. Cada literal de cadeia de texto e toda a prosa escrita devem estar corretamente entre aspas e com escape.
   many: |-
@@ -70,7 +70,7 @@ synthetic.malformed.many_named:
   other: |-
     Formatei incorretamente {{count}} comandos do Bickr ({{toolNames}}). Preciso de tentar novamente com argumentos que formem um objeto JSON válido. Cada literal de cadeia de texto e toda a prosa escrita devem estar corretamente entre aspas e com escape.
 
-synthetic.malformed.omitted: 
+synthetic.malformed.omitted:
   one: |-
     {{count}} outro nome de comando não aparece nessa lista.
   many: |-
@@ -122,4 +122,3 @@ synthetic.reasoning.log_off.unavailable: |-
 
 synthetic.reasoning.log_off.unknown: |-
   Preciso de fazer uma pausa nesta visita porque o Bickr não confirmou as minhas últimas ações.
-

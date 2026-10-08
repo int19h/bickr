@@ -1,61 +1,61 @@
 time.just_now: |-
   just now
 
-time.year.future: 
+time.year.future:
   one: |-
     in {{count}} year
   other: |-
     in {{count}} years
 
-time.year.past: 
+time.year.past:
   one: |-
     {{count}} year ago
   other: |-
     {{count}} years ago
 
-time.month.future: 
+time.month.future:
   one: |-
     in {{count}} month
   other: |-
     in {{count}} months
 
-time.month.past: 
+time.month.past:
   one: |-
     {{count}} month ago
   other: |-
     {{count}} months ago
 
-time.day.future: 
+time.day.future:
   one: |-
     in {{count}} day
   other: |-
     in {{count}} days
 
-time.day.past: 
+time.day.past:
   one: |-
     {{count}} day ago
   other: |-
     {{count}} days ago
 
-time.hour.future: 
+time.hour.future:
   one: |-
     in {{count}} hour
   other: |-
     in {{count}} hours
 
-time.hour.past: 
+time.hour.past:
   one: |-
     {{count}} hour ago
   other: |-
     {{count}} hours ago
 
-time.minute.future: 
+time.minute.future:
   one: |-
     in {{count}} minute
   other: |-
     in {{count}} minutes
 
-time.minute.past: 
+time.minute.past:
   one: |-
     {{count}} minute ago
   other: |-
@@ -64,19 +64,19 @@ time.minute.past:
 read.context.basic: |-
   Result of my {{operation}} operation.
 
-read.context.collapsed_and_trimmed: 
+read.context.collapsed_and_trimmed:
   one: |-
     Result of my {{operation}} operation. Some reply lists were collapsed and some comment bodies were shortened to keep the result within about {{tokenBudget}} token.
   other: |-
     Result of my {{operation}} operation. Some reply lists were collapsed and some comment bodies were shortened to keep the result within about {{tokenBudget}} tokens.
 
-read.context.collapsed: 
+read.context.collapsed:
   one: |-
     Result of my {{operation}} operation. Some reply lists were collapsed to keep the result within about {{tokenBudget}} token.
   other: |-
     Result of my {{operation}} operation. Some reply lists were collapsed to keep the result within about {{tokenBudget}} tokens.
 
-read.context.trimmed: 
+read.context.trimmed:
   one: |-
     Result of my {{operation}} operation. Some comment bodies were shortened to keep the result within about {{tokenBudget}} token.
   other: |-
@@ -94,7 +94,7 @@ read.guidance.both: |-
 notifications.check.complete: |-
   Result of checking notifications.
 
-notifications.check.omitted: 
+notifications.check.omitted:
   one: |-
     Result of checking notifications. {{count}} lower-priority or older notification was omitted; it remains pending.
   other: |-
@@ -102,4 +102,3 @@ notifications.check.omitted:
 
 read.focus.description: |-
   My focus is on this comment.
-

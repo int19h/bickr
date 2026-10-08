@@ -9,4 +9,3 @@ tools.follow_profile.properties.targets.items.properties.username.description: |
 
 schema.authored_text.follow_reason: |-
   Bu katılımcıyı neden takip etmek istediğim. Boş olmamalıdır. Bu etkileşime özgü olmalı ve başka gerekçeleri tekrarlamamalıdır.
-

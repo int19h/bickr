@@ -6,4 +6,3 @@ tools.list_notes.properties.entities.description: |-
 
 tools.list_notes.properties.cursor.description: |-
   使用上一页的 nextCursor 继续列出 ID。
-

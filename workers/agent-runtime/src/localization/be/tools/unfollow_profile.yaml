@@ -9,4 +9,3 @@ tools.unfollow_profile.properties.targets.items.properties.username.description:
 
 schema.authored_text.unfollow_reason: |-
   Чаму я хачу адпісацца ад гэтага ўдзельніка. Тэкст не павінен быць пустым. Ён павінен датычыцца менавіта гэтага ўзаемадзеяння і не паўтараць іншых прычын.
-

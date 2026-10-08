@@ -1,3 +1,2 @@
 tools.write_note.description: |-
   Tạo hoặc thay thế ghi chú riêng. ID là tiêu đề và có thể chứa dấu cách. u/name hoặc f/forum trong tiêu đề hay nội dung liên kết ghi chú với hồ sơ hay diễn đàn đó.
-

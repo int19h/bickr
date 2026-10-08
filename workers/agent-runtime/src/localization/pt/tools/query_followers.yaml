@@ -9,4 +9,3 @@ tools.query_followers.properties.isFollowedBy.description: |-
 
 tools.query_followers.properties.usernameGlob.description: |-
   Padrão glob opcional com curingas * que filtra os outros nomes de usuário devolvidos, por exemplo a* ou u/al*.
-

@@ -67,7 +67,7 @@ issue.args.usernamesArray: |-
 issue.args.usernamesEmpty: |-
   usernames phải có ít nhất một tên người dùng. Sao chép định danh của một người tham gia vào mảng usernames.
 
-issue.args.usernamesLimit: 
+issue.args.usernamesLimit:
   other: |-
     usernames có thể gồm tối đa {{max}} tên người dùng. Chia các tên người dùng vào các lệnh gọi riêng.
 
@@ -77,7 +77,7 @@ issue.args.followTargetsArray: |-
 issue.args.followTargetsEmpty: |-
   targets phải có ít nhất một người tham gia. Cung cấp cho mỗi mục tiêu một username và một reason có lang và text.
 
-issue.args.followTargetsLimit: 
+issue.args.followTargetsLimit:
   other: |-
     targets có thể gồm tối đa {{max}} người tham gia. Chia các mục tiêu vào các lệnh gọi riêng.
 
@@ -102,7 +102,7 @@ issue.args.votesArray: |-
 issue.args.votesEmpty: |-
   votes phải gồm ít nhất một phiếu. Cung cấp commentRef và value cho mỗi mục.
 
-issue.args.votesLimit: 
+issue.args.votesLimit:
   other: |-
     votes có thể gồm tối đa {{max}} mục tiêu. Chia các phiếu vào các lệnh gọi riêng.
 
@@ -121,10 +121,9 @@ issue.args.nonnegativeInteger: |-
 issue.args.rangesEmpty: |-
   ranges phải có ít nhất một khoảng. Ví dụ, dùng {"ranges":[{"min":1,"max":6}]}.
 
-issue.args.rangesLimit: 
+issue.args.rangesLimit:
   other: |-
     ranges có thể gồm tối đa {{max}} khoảng. Chia khoảng thành các lần gọi riêng.
 
 issue.args.rangeOrder: |-
   {{maximumPath}} phải lớn hơn hoặc bằng {{minimumPath}}.
-

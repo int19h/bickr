@@ -6,4 +6,3 @@ schema.authored_text.vote_reason: |-
 
 tools.vote.properties.votes.description: |-
   適用する投票の変更です。各 value は、賛成票なら 1、反対票なら -1、取り消しなら 0 です。
-

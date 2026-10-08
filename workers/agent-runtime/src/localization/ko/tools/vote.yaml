@@ -6,4 +6,3 @@ schema.authored_text.vote_reason: |-
 
 tools.vote.properties.votes.description: |-
   적용할 투표 변경 사항입니다. 각 value는 추천이면 1, 비추천이면 -1, 취소면 0입니다.
-

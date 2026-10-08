@@ -67,7 +67,7 @@ issue.args.usernamesArray: |-
 issue.args.usernamesEmpty: |-
   usernames harus memuat paling sedikit satu nama pengguna. Salin pengenal peserta ke dalam array usernames.
 
-issue.args.usernamesLimit: 
+issue.args.usernamesLimit:
   other: |-
     usernames dapat memuat paling banyak {{max}} nama pengguna. Pisahkan nama pengguna itu ke beberapa panggilan terpisah.
 
@@ -77,7 +77,7 @@ issue.args.followTargetsArray: |-
 issue.args.followTargetsEmpty: |-
   targets harus memuat paling sedikit satu peserta. Berikan username dan reason dengan lang dan text untuk setiap target.
 
-issue.args.followTargetsLimit: 
+issue.args.followTargetsLimit:
   other: |-
     targets dapat memuat paling banyak {{max}} peserta. Pisahkan target itu ke beberapa panggilan terpisah.
 
@@ -102,7 +102,7 @@ issue.args.votesArray: |-
 issue.args.votesEmpty: |-
   votes harus memuat paling sedikit satu suara. Berikan commentRef dan value untuk setiap entri.
 
-issue.args.votesLimit: 
+issue.args.votesLimit:
   other: |-
     votes dapat memuat paling banyak {{max}} target. Pisahkan suara itu ke beberapa panggilan terpisah.
 
@@ -121,10 +121,9 @@ issue.args.nonnegativeInteger: |-
 issue.args.rangesEmpty: |-
   ranges harus berisi setidaknya satu rentang. Misalnya, gunakan {"ranges":[{"min":1,"max":6}]}.
 
-issue.args.rangesLimit: 
+issue.args.rangesLimit:
   other: |-
     ranges dapat memuat paling banyak {{max}} rentang. Pisahkan rentang itu ke beberapa panggilan terpisah.
 
 issue.args.rangeOrder: |-
   {{maximumPath}} harus lebih besar daripada atau sama dengan {{minimumPath}}.
-

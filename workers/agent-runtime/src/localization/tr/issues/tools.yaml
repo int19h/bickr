@@ -3,4 +3,3 @@ issue.tool.unknown: |-
 
 issue.tool.duplicateReply: |-
   Tam olarak bu yorum zaten gönderildi: {{commentRef}} ({{urlPath}}).
-

@@ -9,4 +9,3 @@ tools.query_followers.properties.isFollowedBy.description: |-
 
 tools.query_followers.properties.usernameGlob.description: |-
   Pola glob opsional dengan karakter pengganti * untuk menyaring nama pengguna lain yang dikembalikan, misalnya a* atau u/al*.
-

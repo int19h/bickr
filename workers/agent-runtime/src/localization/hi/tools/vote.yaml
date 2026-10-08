@@ -6,4 +6,3 @@ schema.authored_text.vote_reason: |-
 
 tools.vote.properties.votes.description: |-
   लागू किए जाने वाले वोट बदलाव। हर value अपवोट के लिए 1, डाउनवोट के लिए -1 या वोट हटाने के लिए 0 होता है।
-

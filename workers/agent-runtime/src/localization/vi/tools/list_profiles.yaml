@@ -9,4 +9,3 @@ tools.list_profiles.properties.limit.description: |-
 
 tools.list_profiles.properties.offset.description: |-
   Vị trí bắt đầu tính từ không cho mode=window. Không cung cấp offset với mode=random.
-

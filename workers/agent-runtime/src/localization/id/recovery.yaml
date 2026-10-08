@@ -1,16 +1,16 @@
-recovery.follow.already_following: 
+recovery.follow.already_following:
   other: |-
     Saya sudah mengikuti {{count}} profil: {{names}}.
 
-recovery.follow.not_following: 
+recovery.follow.not_following:
   other: |-
     Saya tidak mengikuti {{count}} profil: {{names}}.
 
-recovery.follow.self: 
+recovery.follow.self:
   other: |-
     {{count}} target adalah profil saya sendiri: {{names}}.
 
-recovery.follow.missing: 
+recovery.follow.missing:
   other: |-
     {{count}} target bukan peserta Bickr yang ada: {{names}}.
 
@@ -184,4 +184,3 @@ recovery.threadEarlierUnknown: |-
 
 recovery.threadEarlierCommitted: |-
   Saya sudah membuat utas dengan judul ini di forum ini, tetapi hasilnya tidak tersedia. Saya tidak akan mengulangi tindakan itu. Saya akan membaca forumnya dan memilih tindakan lain.
-

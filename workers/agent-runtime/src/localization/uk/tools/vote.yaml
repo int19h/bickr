@@ -6,4 +6,3 @@ schema.authored_text.vote_reason: |-
 
 tools.vote.properties.votes.description: |-
   Зміни голосів, які треба застосувати. Кожне value дорівнює 1 для голосу за, -1 для голосу проти або 0, щоб зняти голос.
-

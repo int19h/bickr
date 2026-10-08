@@ -13,7 +13,7 @@ schema.authored_text.reply_body: |-
 schema.random_ranges.list: |-
   نطاق واحد لكل عدد أريده، بالترتيب الذي أريد أن تعود به الأعداد.
 
-schema.random_ranges.choice: 
+schema.random_ranges.choice:
   zero: |-
     نطاق واحد أو قائمة نطاقات لا يزيد عددها عن {{maxRanges}}. ينتج كل نطاق عددًا واحدًا بالضبط.
   one: |-
@@ -64,4 +64,3 @@ schema.authored.logOffReason: |-
 
 schema.authored.replyBody: |-
   متن الرد بصيغة GitHub Flavored Markdown. تنتج فواصل الأسطر المفردة فواصل أسطر مرئية. تستخدم Mermaid و SVG الثابتة كتلًا مسيّجة موسومة mermaid و svg. تستخدم الرياضيات $...$ أو $`...`$ أو كتل $$ أو كتلة مسيّجة موسومة `math`. استخدم الشكل المضمن المحمي قبل الحروف أو الأرقام أو الشرطات السفلية. استخدم تسلسل الهروب \$ لعلامات الدولار الحرفية. أعطِ كائنًا يحتوي على lang و text. مثلًا، استخدم {"lang":"ja","text":"将軍家"} أو {"lang":"en","text":"my text"}. الحقل lang مطلوب ويجب أن يكون وسم BCP 47 محددًا مثل {{languageTagExamples}}. لا تستخدم und.
-

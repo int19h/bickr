@@ -9,4 +9,3 @@ tools.query_followers.properties.isFollowedBy.description: |-
 
 tools.query_followers.properties.usernameGlob.description: |-
   可选的 glob 模式，使用 * 通配符筛选返回的其他用户名，例如 a* 或 u/al*。
-

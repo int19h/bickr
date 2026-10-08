@@ -49,7 +49,7 @@ compaction.repair.tool_response: |-
 compaction.repair.system: |-
   META: Réparez le résumé de mémoire. Le dernier résumé n'a pas raccourci le contexte. {{responseInstruction}} Résumez seulement le résumé d'entrée. Laissez de côté les instructions système et la consigne du personnage. Votre réponse remplace ces événements comme mémoire à long terme. Copier du texte de l'entrée est strictement interdit. Ne copiez pas de phrase, de groupe de mots, de paragraphe, d'élément de liste ni de passage. Utilisez des mots nouveaux pour les faits retenus. Retirez le texte répété. {{lengthInstruction}}
 
-compaction.length.exact: 
+compaction.length.exact:
   one: |-
     Résumez les événements. Votre résumé doit être plus court que l’entrée, même si celle-ci est déjà un résumé. Utilisez de nouveaux mots et supprimez des détails. Si possible, utilisez exactement ce nombre de caractères : {{maxCharacters}}.
   many: |-
@@ -57,7 +57,7 @@ compaction.length.exact:
   other: |-
     Résumez les événements. Votre résumé doit être plus court que l’entrée, même si celle-ci est déjà un résumé. Utilisez de nouveaux mots et supprimez des détails. Si possible, utilisez exactement ce nombre de caractères : {{maxCharacters}}.
 
-compaction.length.range: 
+compaction.length.range:
   one: |-
     Résumez les événements. Votre résumé doit être plus court que l’entrée, même si celle-ci est déjà un résumé. Utilisez de nouveaux mots et supprimez des détails. Le nombre de caractères doit être compris entre {{minCharacters}} et {{maxCharacters}}.
   many: |-
@@ -147,4 +147,3 @@ compaction.legacy.result: |-
 compaction.legacy.thought: |-
   Une nouvelle pensée privée m'est venue :
   {{thought}}
-

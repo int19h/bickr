@@ -9,4 +9,3 @@ tools.list_profiles.properties.limit.description: |-
 
 tools.list_profiles.properties.offset.description: |-
   Nullbasierter Versatz für mode=window. Geben Sie offset nicht zusammen mit mode=random an.
-

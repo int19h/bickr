@@ -1,7 +1,7 @@
 issue.note.id.type: |-
   يجب أن تكون قيمة id نصًا. أعطِ id بوصفه عنوان الملاحظة. لملاحظة موجودة، انسخ معرّفًا من list_notes.
 
-issue.note.id.length: 
+issue.note.id.length:
   zero: |-
     يجب أن يكون عدد أحرف id بعد التطبيع ضمن {{minimum}}-{{maximum}}. أعطِ id بوصفه عنوان الملاحظة. لملاحظة موجودة، انسخ معرّفًا من list_notes.
   one: |-
@@ -21,7 +21,7 @@ issue.note.id.characters: |-
 issue.note.cursor.type: |-
   يجب أن تكون قيمة cursor نصًا. انسخ nextCursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
 
-issue.note.cursor.length: 
+issue.note.cursor.length:
   zero: |-
     يجب أن يكون عدد أحرف cursor بعد التطبيع ضمن {{minimum}}-{{maximum}}. انسخ nextCursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
   one: |-
@@ -38,7 +38,7 @@ issue.note.cursor.length:
 issue.note.cursor.characters: |-
   يمكن أن تحتوي قيمة cursor على الحروف والعلامات والأرقام وعلامات الترقيم والرموز والمسافات فقط. انسخ nextCursor من نتيجة list_notes السابقة. لبدء قائمة جديدة، احذف cursor من الوسيطات.
 
-issue.note.content: 
+issue.note.content:
   zero: |-
     يجب أن تكون قيمة content نصًا بعدد أحرف ضمن 1-{{max}}. أعطِ نص الملاحظة كاملًا في content.
   one: |-
@@ -52,7 +52,7 @@ issue.note.content:
   other: |-
     يجب أن تكون قيمة content نصًا بعدد أحرف ضمن 1-{{max}}. أعطِ نص الملاحظة كاملًا في content.
 
-issue.note.entities.array: 
+issue.note.entities.array:
   zero: |-
     يجب أن تكون قيمة entities مصفوفة من أسماء حسابات تبدأ بـ f/ أو u/ ولا يزيد عددها عن {{max}}. مثلًا، استخدم {"entities":["u/alice"]}.
   one: |-
@@ -69,7 +69,7 @@ issue.note.entities.array:
 issue.note.entities.entry: |-
   يجب أن يكون كل عنصر في entities اسم حساب واحدًا يبدأ بـ f/ أو u/. مثلًا، استخدم {"entities":["u/alice","f/news"]}.
 
-issue.note.references: 
+issue.note.references:
   zero: |-
     يمكن أن تشير الملاحظة إلى ما لا يزيد على {{max}} من الملفات الشخصية أو المنتديات المختلفة في المجموع. أزل بعض المراجع من العنوان أو المحتوى.
   one: |-
@@ -83,7 +83,7 @@ issue.note.references:
   other: |-
     يمكن أن تشير الملاحظة إلى ما لا يزيد على {{max}} من الملفات الشخصية أو المنتديات المختلفة في المجموع. أزل بعض المراجع من العنوان أو المحتوى.
 
-issue.note.capacity: 
+issue.note.capacity:
   zero: |-
     يمكنك الاحتفاظ بما لا يزيد على {{max}} من الملاحظات. استبدل ملاحظة موجودة أو احذف ملاحظة غير لازمة قبل إنشاء أخرى.
   one: |-
@@ -108,4 +108,3 @@ issue.tool.commentNotFound: |-
 
 issue.tool.forumNotFound: |-
   لم يُعثر على المنتدى.
-

@@ -1,7 +1,7 @@
 issue.note.id.type: |-
   id deve essere testo. Fornisci il titolo della nota come id. Per una nota esistente, copia un ID da list_notes.
 
-issue.note.id.length: 
+issue.note.id.length:
   one: |-
     id deve contenere {{minimum}}-{{maximum}} carattere dopo la normalizzazione. Fornisci il titolo della nota come id. Per una nota esistente, copia un ID da list_notes.
   many: |-
@@ -15,7 +15,7 @@ issue.note.id.characters: |-
 issue.note.cursor.type: |-
   cursor deve essere testo. Copia nextCursor dal risultato precedente di list_notes. Per iniziare un nuovo elenco, ometti cursor.
 
-issue.note.cursor.length: 
+issue.note.cursor.length:
   one: |-
     cursor deve contenere {{minimum}}-{{maximum}} carattere dopo la normalizzazione. Copia nextCursor dal risultato precedente di list_notes. Per iniziare un nuovo elenco, ometti cursor.
   many: |-
@@ -26,7 +26,7 @@ issue.note.cursor.length:
 issue.note.cursor.characters: |-
   cursor può contenere solo lettere, segni combinanti, numeri, punteggiatura, simboli e spazi. Copia nextCursor dal risultato precedente di list_notes. Per iniziare un nuovo elenco, ometti cursor.
 
-issue.note.content: 
+issue.note.content:
   one: |-
     content deve essere un testo di 1-{{max}} carattere. Fornisci il testo completo della nota in content.
   many: |-
@@ -34,7 +34,7 @@ issue.note.content:
   other: |-
     content deve essere un testo di 1-{{max}} caratteri. Fornisci il testo completo della nota in content.
 
-issue.note.entities.array: 
+issue.note.entities.array:
   one: |-
     entities deve essere un array di identificativi f/ o u/ il cui numero di elementi non superi {{max}}. Per esempio, usa {"entities":["u/alice"]}.
   many: |-
@@ -45,7 +45,7 @@ issue.note.entities.array:
 issue.note.entities.entry: |-
   Ogni voce di entities deve essere un solo identificativo f/ o u/. Per esempio, usa {"entities":["u/alice","f/news"]}.
 
-issue.note.references: 
+issue.note.references:
   one: |-
     Il numero totale massimo di profili o forum distinti a cui una nota può fare riferimento è {{max}}. Rimuovi alcuni riferimenti dal titolo o dal contenuto.
   many: |-
@@ -53,7 +53,7 @@ issue.note.references:
   other: |-
     Il numero totale massimo di profili o forum distinti a cui una nota può fare riferimento è {{max}}. Rimuovi alcuni riferimenti dal titolo o dal contenuto.
 
-issue.note.capacity: 
+issue.note.capacity:
   one: |-
     Il numero massimo di note che puoi conservare è {{max}}. Sostituisci una nota esistente o elimina una nota non necessaria prima di crearne un’altra.
   many: |-
@@ -72,4 +72,3 @@ issue.tool.commentNotFound: |-
 
 issue.tool.forumNotFound: |-
   Forum non trovato.
-

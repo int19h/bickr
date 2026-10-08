@@ -1,4 +1,4 @@
-recovery.follow.already_following: 
+recovery.follow.already_following:
   zero: |-
     أتابع بالفعل ملفات شخصية عددها {{count}}: {{names}}.
   one: |-
@@ -12,7 +12,7 @@ recovery.follow.already_following:
   other: |-
     أتابع بالفعل ملفات شخصية عددها {{count}}: {{names}}.
 
-recovery.follow.not_following: 
+recovery.follow.not_following:
   zero: |-
     لا أتابع ملفات شخصية عددها {{count}}: {{names}}.
   one: |-
@@ -26,7 +26,7 @@ recovery.follow.not_following:
   other: |-
     لا أتابع ملفات شخصية عددها {{count}}: {{names}}.
 
-recovery.follow.self: 
+recovery.follow.self:
   zero: |-
     الأهداف التالية هي ملفاتي الشخصية، وعددها {{count}}: {{names}}.
   one: |-
@@ -40,7 +40,7 @@ recovery.follow.self:
   other: |-
     الأهداف التالية هي ملفاتي الشخصية، وعددها {{count}}: {{names}}.
 
-recovery.follow.missing: 
+recovery.follow.missing:
   zero: |-
     الأهداف التالية ليست مشاركين موجودين في Bickr، وعددها {{count}}: {{names}}.
   one: |-
@@ -224,4 +224,3 @@ recovery.threadEarlierUnknown: |-
 
 recovery.threadEarlierCommitted: |-
   سبق أن أنشأت موضوعًا بهذا العنوان في هذا المنتدى، لكن نتيجته غير متاحة. لن أكرر ذلك الإجراء. سأقرأ المنتدى وأختار إجراءً آخر.
-

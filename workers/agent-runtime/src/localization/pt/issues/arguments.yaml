@@ -67,7 +67,7 @@ issue.args.usernamesArray: |-
 issue.args.usernamesEmpty: |-
   usernames deve incluir pelo menos um nome de usuário. Copie um identificador de participante para a matriz usernames.
 
-issue.args.usernamesLimit: 
+issue.args.usernamesLimit:
   one: |-
     O número de nomes de usuário em usernames não pode exceder {{max}}. Divida os nomes de usuário por chamadas separadas.
   many: |-
@@ -81,7 +81,7 @@ issue.args.followTargetsArray: |-
 issue.args.followTargetsEmpty: |-
   targets deve incluir pelo menos um participante. Dê a cada alvo um username e um reason com lang e text.
 
-issue.args.followTargetsLimit: 
+issue.args.followTargetsLimit:
   one: |-
     O número de participantes em targets não pode exceder {{max}}. Divida os alvos por chamadas separadas.
   many: |-
@@ -110,7 +110,7 @@ issue.args.votesArray: |-
 issue.args.votesEmpty: |-
   votes deve incluir pelo menos um voto. Dê a cada entrada um commentRef e um value.
 
-issue.args.votesLimit: 
+issue.args.votesLimit:
   one: |-
     O número de alvos em votes não pode exceder {{max}}. Divida os votos por chamadas separadas.
   many: |-
@@ -133,7 +133,7 @@ issue.args.nonnegativeInteger: |-
 issue.args.rangesEmpty: |-
   ranges deve incluir pelo menos um intervalo. Por exemplo, use {"ranges":[{"min":1,"max":6}]}.
 
-issue.args.rangesLimit: 
+issue.args.rangesLimit:
   one: |-
     O número de intervalos em ranges não pode exceder {{max}}. Divida os intervalos por chamadas separadas.
   many: |-
@@ -143,4 +143,3 @@ issue.args.rangesLimit:
 
 issue.args.rangeOrder: |-
   {{maximumPath}} deve ser maior ou igual a {{minimumPath}}.
-

@@ -28,7 +28,7 @@ structured_output.missing_tool: |-
 structured_output.wrong_tool: |-
   此请求只使用 {{toolName}}。不要在这里使用 {{receivedTool}}。
 
-structured_output.tool_count: 
+structured_output.tool_count:
   other: |-
     预期一次 {{toolName}} 工具调用，但收到了 {{count}} 次工具调用。正好调用一次 {{toolName}}。
 
@@ -44,11 +44,11 @@ structured_output.arguments_object: |-
 structured_output.output_object: |-
   结构化输出必须是 JSON 对象。把 {{property}} 及其文本值放进 {}。
 
-structured_output.extra_arguments: 
+structured_output.extra_arguments:
   other: |-
     有 {{count}} 个预期之外的参数：{{fields}}。删除这些参数。只提供 {{property}}。
 
-structured_output.extra_fields: 
+structured_output.extra_fields:
   other: |-
     有 {{count}} 个预期之外的字段：{{fields}}。删除这些字段。只提供 {{property}}。
 
@@ -64,27 +64,27 @@ structured_output.nonempty.avatar_description: |-
 structured_output.transcript: |-
   把 {{property}} 中的摘要写成普通的第一人称叙述。删除对话记录行 {{line}}。不要写带有 {{labels}} 标签的行。
 
-structured_output.minimum.compaction: 
+structured_output.minimum.compaction:
   other: |-
     {{property}} 中的摘要必须至少有 {{minimum}} 个字符。在文本中补充相关细节。
 
-structured_output.minimum.translation: 
+structured_output.minimum.translation:
   other: |-
     {{property}} 中的翻译必须至少有 {{minimum}} 个字符。在文本中补充相关细节。
 
-structured_output.minimum.avatar_description: 
+structured_output.minimum.avatar_description:
   other: |-
     {{property}} 中的头像图片描述必须至少有 {{minimum}} 个字符。为文本补充相关细节。
 
-structured_output.maximum.compaction: 
+structured_output.maximum.compaction:
   other: |-
     {{property}} 中的摘要不得超过 {{maximum}} 个字符。缩短文本。
 
-structured_output.maximum.translation: 
+structured_output.maximum.translation:
   other: |-
     {{property}} 中的翻译不得超过 {{maximum}} 个字符。缩短文本。
 
-structured_output.maximum.avatar_description: 
+structured_output.maximum.avatar_description:
   other: |-
     {{property}} 中的头像图片描述不得超过 {{maximum}} 个字符。缩短文本。
 
@@ -94,11 +94,11 @@ structured_output.wrong_tool.unnamed: |-
 structured_output.tool_mismatch.unnamed: |-
   预期的工具是 {{toolName}}，但收到的是没有名称的工具调用。改为调用 {{toolName}}。
 
-structured_output.nonreducing.estimate: 
+structured_output.nonreducing.estimate:
   other: |-
     {{property}} 中的摘要没有减少上下文。其估算长度为 {{replacementTokens}} 个词元。
 
-structured_output.nonreducing.before: 
+structured_output.nonreducing.before:
   other: |-
     替换前的上下文有 {{compactedTokens}} 个词元。缩短摘要，同时保留所需事实。
 
@@ -110,4 +110,3 @@ structured_output.nonempty.translation.field: |-
 
 structured_output.nonempty.avatar_description.field: |-
   头像图片描述字段必须是非空字符串。把文本放进 {{property}}。
-

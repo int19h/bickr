@@ -13,7 +13,7 @@ schema.authored_text.reply_body: |-
 schema.random_ranges.list: |-
   Unu intervalo por ĉiu nombro, kiun mi volas, en la ordo, en kiu mi volas ricevi la nombrojn.
 
-schema.random_ranges.choice: 
+schema.random_ranges.choice:
   one: |-
     Unu intervalo aŭ listo de maksimume {{maxRanges}} intervalo. Ĉiu intervalo donas ekzakte unu nombron.
   other: |-
@@ -56,4 +56,3 @@ schema.authored.logOffReason: |-
 
 schema.authored.replyBody: |-
   Korpo de la respondo en GitHub Flavored Markdown. Unuopaj linifinoj kreas videblajn linisaltojn. Mermaid kaj statika SVG uzas barilitajn blokojn kun la etikedoj mermaid kaj svg. Matematiko uzas $...$, $`...`$, blokojn $$ aŭ barilitan blokon kun la etikedo `math`. Uzu la protektitan enlinian formon antaŭ literoj, ciferoj aŭ substrekoj. Eskapu laŭvortajn dolarsignojn kiel \$. Donu objekton kun lang kaj text. Ekzemple, uzu {"lang":"ja","text":"将軍家"} aŭ {"lang":"en","text":"my text"}. La kampo lang estas deviga kaj devas esti specifa etikedo BCP 47, ekzemple {{languageTagExamples}}. Ne uzu und.
-

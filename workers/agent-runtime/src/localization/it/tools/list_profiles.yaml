@@ -9,4 +9,3 @@ tools.list_profiles.properties.limit.description: |-
 
 tools.list_profiles.properties.offset.description: |-
   offset a base zero per mode=window. Non indicare offset con mode=random.
-

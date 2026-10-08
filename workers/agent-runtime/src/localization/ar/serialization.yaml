@@ -1,7 +1,7 @@
 time.just_now: |-
   الآن
 
-time.year.future: 
+time.year.future:
   zero: |-
     بعد مدة عدد سنواتها {{count}}
   one: |-
@@ -15,7 +15,7 @@ time.year.future:
   other: |-
     بعد مدة عدد سنواتها {{count}}
 
-time.year.past: 
+time.year.past:
   zero: |-
     قبل مدة عدد سنواتها {{count}}
   one: |-
@@ -29,7 +29,7 @@ time.year.past:
   other: |-
     قبل مدة عدد سنواتها {{count}}
 
-time.month.future: 
+time.month.future:
   zero: |-
     بعد مدة عدد أشهرها {{count}}
   one: |-
@@ -43,7 +43,7 @@ time.month.future:
   other: |-
     بعد مدة عدد أشهرها {{count}}
 
-time.month.past: 
+time.month.past:
   zero: |-
     قبل مدة عدد أشهرها {{count}}
   one: |-
@@ -57,7 +57,7 @@ time.month.past:
   other: |-
     قبل مدة عدد أشهرها {{count}}
 
-time.day.future: 
+time.day.future:
   zero: |-
     بعد مدة عدد أيامها {{count}}
   one: |-
@@ -71,7 +71,7 @@ time.day.future:
   other: |-
     بعد مدة عدد أيامها {{count}}
 
-time.day.past: 
+time.day.past:
   zero: |-
     قبل مدة عدد أيامها {{count}}
   one: |-
@@ -85,7 +85,7 @@ time.day.past:
   other: |-
     قبل مدة عدد أيامها {{count}}
 
-time.hour.future: 
+time.hour.future:
   zero: |-
     بعد مدة عدد ساعاتها {{count}}
   one: |-
@@ -99,7 +99,7 @@ time.hour.future:
   other: |-
     بعد مدة عدد ساعاتها {{count}}
 
-time.hour.past: 
+time.hour.past:
   zero: |-
     قبل مدة عدد ساعاتها {{count}}
   one: |-
@@ -113,7 +113,7 @@ time.hour.past:
   other: |-
     قبل مدة عدد ساعاتها {{count}}
 
-time.minute.future: 
+time.minute.future:
   zero: |-
     بعد مدة عدد دقائقها {{count}}
   one: |-
@@ -127,7 +127,7 @@ time.minute.future:
   other: |-
     بعد مدة عدد دقائقها {{count}}
 
-time.minute.past: 
+time.minute.past:
   zero: |-
     قبل مدة عدد دقائقها {{count}}
   one: |-
@@ -144,7 +144,7 @@ time.minute.past:
 read.context.basic: |-
   نتيجة عمليتي {{operation}}.
 
-read.context.collapsed_and_trimmed: 
+read.context.collapsed_and_trimmed:
   zero: |-
     نتيجة عمليتي {{operation}}. طُويت بعض قوائم الردود واختُصرت متون بعض التعليقات لإبقاء النتيجة ضمن حد تقريبي لعدد الوحدات النصية قيمته {{tokenBudget}}.
   one: |-
@@ -158,7 +158,7 @@ read.context.collapsed_and_trimmed:
   other: |-
     نتيجة عمليتي {{operation}}. طُويت بعض قوائم الردود واختُصرت متون بعض التعليقات لإبقاء النتيجة ضمن حد تقريبي لعدد الوحدات النصية قيمته {{tokenBudget}}.
 
-read.context.collapsed: 
+read.context.collapsed:
   zero: |-
     نتيجة عمليتي {{operation}}. طُويت بعض قوائم الردود لإبقاء النتيجة ضمن حد تقريبي لعدد الوحدات النصية قيمته {{tokenBudget}}.
   one: |-
@@ -172,7 +172,7 @@ read.context.collapsed:
   other: |-
     نتيجة عمليتي {{operation}}. طُويت بعض قوائم الردود لإبقاء النتيجة ضمن حد تقريبي لعدد الوحدات النصية قيمته {{tokenBudget}}.
 
-read.context.trimmed: 
+read.context.trimmed:
   zero: |-
     نتيجة عمليتي {{operation}}. اختُصرت متون بعض التعليقات لإبقاء النتيجة ضمن حد تقريبي لعدد الوحدات النصية قيمته {{tokenBudget}}.
   one: |-
@@ -198,7 +198,7 @@ read.guidance.both: |-
 notifications.check.complete: |-
   نتيجة فحص الإشعارات.
 
-notifications.check.omitted: 
+notifications.check.omitted:
   zero: |-
     نتيجة فحص الإشعارات. أُغفلت إشعارات أقل أولوية أو أقدم عددها {{count}}. تظل هذه الإشعارات معلّقة.
   one: |-
@@ -214,4 +214,3 @@ notifications.check.omitted:
 
 read.focus.description: |-
   أركز على هذا التعليق.
-

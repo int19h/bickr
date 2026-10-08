@@ -46,7 +46,7 @@ issue.service.requestDataUnavailable: |-
 issue.service.duplicateTitle: |-
   Já existe um tópico com o título "{{title}}" em {{forumRef}}: {{threadRef}}.
 
-issue.service.threadLocked: 
+issue.service.threadLocked:
   one: |-
     O tópico está bloqueado porque atingiu o seu limite de comentários, que é {{count}}.
   many: |-
@@ -57,7 +57,7 @@ issue.service.threadLocked:
 issue.service.textRequired: |-
   {{field}} é obrigatório.
 
-issue.service.textTooLong: 
+issue.service.textTooLong:
   one: |-
     O número de caracteres em {{field}} deve ser no máximo {{count}}. Encurte o texto.
   many: |-
@@ -124,4 +124,3 @@ issue.service.mutationResultDeletedComment: |-
 
 issue.service.mutationReceiptUnavailableInThread: |-
   A ação foi concluída, mas o Bickr não consegue mostrar o resultado dela em {{threadRef}}. Não repita a ação. Leia esse tópico antes de escolher outra ação.
-

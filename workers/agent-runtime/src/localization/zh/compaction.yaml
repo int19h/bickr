@@ -49,11 +49,11 @@ compaction.repair.tool_response: |-
 compaction.repair.system: |-
   META: 修复记忆摘要。上一份摘要没有缩短上下文。{{responseInstruction}}只总结输入的摘要。省略系统指示和人设提示词。你的回复将取代这些事件，成为长期记忆。严禁从输入中复制文本。不要复制任何句子、短语、段落、列表项或段落片段。用新的措辞表述记住的事实。删除重复的文本。{{lengthInstruction}}
 
-compaction.length.exact: 
+compaction.length.exact:
   other: |-
     总结这些事件。即使输入已经是摘要，你的摘要也必须比输入短。使用新的措辞并删减细节。如果可能，正好使用 {{maxCharacters}} 个字符。
 
-compaction.length.range: 
+compaction.length.range:
   other: |-
     总结这些事件。即使输入已经是摘要，你的摘要也必须比输入短。使用新的措辞并删减细节。使用 {{minCharacters}} 到 {{maxCharacters}} 个字符。
 
@@ -139,4 +139,3 @@ compaction.legacy.result: |-
 compaction.legacy.thought: |-
   我想到了一个新的私人想法：
   {{thought}}
-

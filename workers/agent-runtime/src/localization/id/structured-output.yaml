@@ -28,7 +28,7 @@ structured_output.missing_tool: |-
 structured_output.wrong_tool: |-
   Gunakan hanya {{toolName}} untuk permintaan ini. Jangan gunakan {{receivedTool}} di sini.
 
-structured_output.tool_count: 
+structured_output.tool_count:
   other: |-
     Diharapkan satu panggilan alat {{toolName}}, tetapi yang diterima {{count}} panggilan alat. Panggil {{toolName}} tepat sekali.
 
@@ -44,11 +44,11 @@ structured_output.arguments_object: |-
 structured_output.output_object: |-
   Keluaran terstruktur harus berupa objek JSON. Masukkan {{property}} dan nilai teksnya ke dalam {}.
 
-structured_output.extra_arguments: 
+structured_output.extra_arguments:
   other: |-
     Ada {{count}} argumen yang tidak diharapkan: {{fields}}. Hapus argumen tersebut. Berikan hanya {{property}}.
 
-structured_output.extra_fields: 
+structured_output.extra_fields:
   other: |-
     Ada {{count}} kolom yang tidak diharapkan: {{fields}}. Hapus kolom itu. Berikan hanya {{property}}.
 
@@ -64,27 +64,27 @@ structured_output.nonempty.avatar_description: |-
 structured_output.transcript: |-
   Tulis ringkasan di {{property}} sebagai prosa orang pertama biasa. Hapus baris transkrip {{line}}. Jangan menulis baris berlabel {{labels}}.
 
-structured_output.minimum.compaction: 
+structured_output.minimum.compaction:
   other: |-
     Ringkasan dalam {{property}} harus berisi paling sedikit {{minimum}} karakter. Tambahkan rincian yang relevan ke teks.
 
-structured_output.minimum.translation: 
+structured_output.minimum.translation:
   other: |-
     Terjemahan dalam {{property}} harus berisi paling sedikit {{minimum}} karakter. Tambahkan rincian yang relevan ke teks.
 
-structured_output.minimum.avatar_description: 
+structured_output.minimum.avatar_description:
   other: |-
     Deskripsi gambar profil dalam {{property}} harus berisi paling sedikit {{minimum}} karakter. Tambahkan rincian yang relevan ke teks.
 
-structured_output.maximum.compaction: 
+structured_output.maximum.compaction:
   other: |-
     Ringkasan dalam {{property}} harus berisi paling banyak {{maximum}} karakter. Persingkat teks.
 
-structured_output.maximum.translation: 
+structured_output.maximum.translation:
   other: |-
     Terjemahan dalam {{property}} harus berisi paling banyak {{maximum}} karakter. Persingkat teks.
 
-structured_output.maximum.avatar_description: 
+structured_output.maximum.avatar_description:
   other: |-
     Deskripsi gambar profil dalam {{property}} harus berisi paling banyak {{maximum}} karakter. Persingkat teks.
 
@@ -94,11 +94,11 @@ structured_output.wrong_tool.unnamed: |-
 structured_output.tool_mismatch.unnamed: |-
   Alat yang diharapkan adalah {{toolName}}, tetapi yang diterima adalah panggilan alat tanpa nama. Panggil {{toolName}} sebagai gantinya.
 
-structured_output.nonreducing.estimate: 
+structured_output.nonreducing.estimate:
   other: |-
     Ringkasan dalam {{property}} tidak mengurangi konteks. Perkiraan panjangnya adalah {{replacementTokens}} token.
 
-structured_output.nonreducing.before: 
+structured_output.nonreducing.before:
   other: |-
     Konteks berisi {{compactedTokens}} token sebelum penggantian. Persingkat ringkasan sambil mempertahankan fakta yang diwajibkan.
 
@@ -110,4 +110,3 @@ structured_output.nonempty.translation.field: |-
 
 structured_output.nonempty.avatar_description.field: |-
   Kolom deskripsi gambar profil harus berupa string yang tidak kosong. Masukkan teks ke {{property}}.
-

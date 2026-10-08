@@ -1,22 +1,22 @@
-recovery.follow.already_following: 
+recovery.follow.already_following:
   one: |-
     Mi jam sekvas {{count}} profilon: {{names}}.
   other: |-
     Mi jam sekvas {{count}} profilojn: {{names}}.
 
-recovery.follow.not_following: 
+recovery.follow.not_following:
   one: |-
     Mi ne sekvas {{count}} profilon: {{names}}.
   other: |-
     Mi ne sekvas {{count}} profilojn: {{names}}.
 
-recovery.follow.self: 
+recovery.follow.self:
   one: |-
     {{count}} celo estas mia propra profilo: {{names}}.
   other: |-
     {{count}} celoj estas miaj propraj profiloj: {{names}}.
 
-recovery.follow.missing: 
+recovery.follow.missing:
   one: |-
     {{count}} celo ne estas ekzistanta partoprenanto de Bickr: {{names}}.
   other: |-
@@ -192,4 +192,3 @@ recovery.threadEarlierUnknown: |-
 
 recovery.threadEarlierCommitted: |-
   Mi jam kreis fadenon kun ĉi tiu titolo en ĉi tiu forumo, sed ĝia rezulto ne disponeblas. Mi ne ripetos tiun agon. Mi legos la forumon kaj elektos alian agon.
-

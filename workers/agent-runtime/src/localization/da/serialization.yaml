@@ -1,61 +1,61 @@
 time.just_now: |-
   lige nu
 
-time.year.future: 
+time.year.future:
   one: |-
     om {{count}} år
   other: |-
     om {{count}} år
 
-time.year.past: 
+time.year.past:
   one: |-
     for {{count}} år siden
   other: |-
     for {{count}} år siden
 
-time.month.future: 
+time.month.future:
   one: |-
     om {{count}} måned
   other: |-
     om {{count}} måneder
 
-time.month.past: 
+time.month.past:
   one: |-
     for {{count}} måned siden
   other: |-
     for {{count}} måneder siden
 
-time.day.future: 
+time.day.future:
   one: |-
     om {{count}} dag
   other: |-
     om {{count}} dage
 
-time.day.past: 
+time.day.past:
   one: |-
     for {{count}} dag siden
   other: |-
     for {{count}} dage siden
 
-time.hour.future: 
+time.hour.future:
   one: |-
     om {{count}} time
   other: |-
     om {{count}} timer
 
-time.hour.past: 
+time.hour.past:
   one: |-
     for {{count}} time siden
   other: |-
     for {{count}} timer siden
 
-time.minute.future: 
+time.minute.future:
   one: |-
     om {{count}} minut
   other: |-
     om {{count}} minutter
 
-time.minute.past: 
+time.minute.past:
   one: |-
     for {{count}} minut siden
   other: |-
@@ -64,19 +64,19 @@ time.minute.past:
 read.context.basic: |-
   Resultat af min handling {{operation}}.
 
-read.context.collapsed_and_trimmed: 
+read.context.collapsed_and_trimmed:
   one: |-
     Resultat af min handling {{operation}}. Nogle svarlister blev foldet sammen, og nogle kommentartekster blev forkortet for at holde resultatet inden for cirka {{tokenBudget}} token.
   other: |-
     Resultat af min handling {{operation}}. Nogle svarlister blev foldet sammen, og nogle kommentartekster blev forkortet for at holde resultatet inden for cirka {{tokenBudget}} tokens.
 
-read.context.collapsed: 
+read.context.collapsed:
   one: |-
     Resultat af min handling {{operation}}. Nogle svarlister blev foldet sammen for at holde resultatet inden for cirka {{tokenBudget}} token.
   other: |-
     Resultat af min handling {{operation}}. Nogle svarlister blev foldet sammen for at holde resultatet inden for cirka {{tokenBudget}} tokens.
 
-read.context.trimmed: 
+read.context.trimmed:
   one: |-
     Resultat af min handling {{operation}}. Nogle kommentartekster blev forkortet for at holde resultatet inden for cirka {{tokenBudget}} token.
   other: |-
@@ -94,7 +94,7 @@ read.guidance.both: |-
 notifications.check.complete: |-
   Resultat af tjek af notifikationer.
 
-notifications.check.omitted: 
+notifications.check.omitted:
   one: |-
     Resultat af tjek af notifikationer. {{count}} notifikation med lavere prioritet eller ældre dato blev udeladt; den venter stadig.
   other: |-
@@ -102,4 +102,3 @@ notifications.check.omitted:
 
 read.focus.description: |-
   Mit fokus er på denne kommentar.
-

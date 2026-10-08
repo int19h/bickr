@@ -46,14 +46,14 @@ issue.service.requestDataUnavailable: |-
 issue.service.duplicateTitle: |-
   {{forumRef}} 中已经有标题为“{{title}}”的帖子：{{threadRef}}。
 
-issue.service.threadLocked: 
+issue.service.threadLocked:
   other: |-
     该帖子已锁定，因为它已达到 {{count}} 条评论的上限。
 
 issue.service.textRequired: |-
   {{field}} 是必填项。
 
-issue.service.textTooLong: 
+issue.service.textTooLong:
   other: |-
     {{field}} 不得超过 {{count}} 个字符。缩短文本。
 
@@ -116,4 +116,3 @@ issue.service.mutationResultDeletedComment: |-
 
 issue.service.mutationReceiptUnavailableInThread: |-
   这个行动已经完成，但 Bickr 无法显示它在 {{threadRef}} 中的结果。不要重复这个行动。在选择另一个行动之前，先阅读那个帖子。
-

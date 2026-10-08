@@ -1,7 +1,7 @@
 time.just_now: |-
   щойно
 
-time.year.future: 
+time.year.future:
   one: |-
     через {{count}} рік
   few: |-
@@ -11,7 +11,7 @@ time.year.future:
   other: |-
     через {{count}} року
 
-time.year.past: 
+time.year.past:
   one: |-
     {{count}} рік тому
   few: |-
@@ -21,7 +21,7 @@ time.year.past:
   other: |-
     {{count}} року тому
 
-time.month.future: 
+time.month.future:
   one: |-
     через {{count}} місяць
   few: |-
@@ -31,7 +31,7 @@ time.month.future:
   other: |-
     через {{count}} місяця
 
-time.month.past: 
+time.month.past:
   one: |-
     {{count}} місяць тому
   few: |-
@@ -41,7 +41,7 @@ time.month.past:
   other: |-
     {{count}} місяця тому
 
-time.day.future: 
+time.day.future:
   one: |-
     через {{count}} день
   few: |-
@@ -51,7 +51,7 @@ time.day.future:
   other: |-
     через {{count}} дня
 
-time.day.past: 
+time.day.past:
   one: |-
     {{count}} день тому
   few: |-
@@ -61,7 +61,7 @@ time.day.past:
   other: |-
     {{count}} дня тому
 
-time.hour.future: 
+time.hour.future:
   one: |-
     через {{count}} годину
   few: |-
@@ -71,7 +71,7 @@ time.hour.future:
   other: |-
     через {{count}} години
 
-time.hour.past: 
+time.hour.past:
   one: |-
     {{count}} годину тому
   few: |-
@@ -81,7 +81,7 @@ time.hour.past:
   other: |-
     {{count}} години тому
 
-time.minute.future: 
+time.minute.future:
   one: |-
     через {{count}} хвилину
   few: |-
@@ -91,7 +91,7 @@ time.minute.future:
   other: |-
     через {{count}} хвилини
 
-time.minute.past: 
+time.minute.past:
   one: |-
     {{count}} хвилину тому
   few: |-
@@ -104,7 +104,7 @@ time.minute.past:
 read.context.basic: |-
   Результат моєї операції {{operation}}.
 
-read.context.collapsed_and_trimmed: 
+read.context.collapsed_and_trimmed:
   one: |-
     Результат моєї операції {{operation}}. Деякі списки відповідей згорнуто й деякі тексти коментарів скорочено, щоб утримати результат у межах приблизної кількості токенів {{tokenBudget}}.
   few: |-
@@ -114,7 +114,7 @@ read.context.collapsed_and_trimmed:
   other: |-
     Результат моєї операції {{operation}}. Деякі списки відповідей згорнуто й деякі тексти коментарів скорочено, щоб утримати результат у межах приблизної кількості токенів {{tokenBudget}}.
 
-read.context.collapsed: 
+read.context.collapsed:
   one: |-
     Результат моєї операції {{operation}}. Деякі списки відповідей згорнуто, щоб утримати результат у межах приблизної кількості токенів {{tokenBudget}}.
   few: |-
@@ -124,7 +124,7 @@ read.context.collapsed:
   other: |-
     Результат моєї операції {{operation}}. Деякі списки відповідей згорнуто, щоб утримати результат у межах приблизної кількості токенів {{tokenBudget}}.
 
-read.context.trimmed: 
+read.context.trimmed:
   one: |-
     Результат моєї операції {{operation}}. Деякі тексти коментарів скорочено, щоб утримати результат у межах приблизної кількості токенів {{tokenBudget}}.
   few: |-
@@ -146,7 +146,7 @@ read.guidance.both: |-
 notifications.check.complete: |-
   Результат перевірки сповіщень.
 
-notifications.check.omitted: 
+notifications.check.omitted:
   one: |-
     Результат перевірки сповіщень. Пропущено {{count}} сповіщення з нижчим пріоритетом або давніше. Воно залишається в очікуванні.
   few: |-
@@ -158,4 +158,3 @@ notifications.check.omitted:
 
 read.focus.description: |-
   Моя увага зосереджена на цьому коментарі.
-

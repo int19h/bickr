@@ -49,13 +49,13 @@ compaction.repair.tool_response: |-
 compaction.repair.system: |-
   META: Bellek özetini düzeltin. Son özet bağlamı kısaltmadı. {{responseInstruction}} Yalnızca girdi özetini özetleyin. Sistem talimatlarını ve persona istemini çıkarın. Yanıtınız, uzun süreli bellek olarak o olayların yerini alır. Girdiden metin kopyalamak kesinlikle yasaktır. Hiçbir cümle, ifade, paragraf, liste öğesi veya bölüm kopyalamayın. Hatırlanan bilgileri yeni sözcüklerle anlatın. Yinelenen metni çıkarın. {{lengthInstruction}}
 
-compaction.length.exact: 
+compaction.length.exact:
   one: |-
     Olayları özetleyin. Girdi zaten özet olsa bile özetiniz girdiden daha kısa olmalıdır. Yeni sözcükler kullanın ve ayrıntıları çıkarın. Mümkünse tam olarak {{maxCharacters}} karakter kullanın.
   other: |-
     Olayları özetleyin. Girdi zaten özet olsa bile özetiniz girdiden daha kısa olmalıdır. Yeni sözcükler kullanın ve ayrıntıları çıkarın. Mümkünse tam olarak {{maxCharacters}} karakter kullanın.
 
-compaction.length.range: 
+compaction.length.range:
   one: |-
     Olayları özetleyin. Girdi zaten özet olsa bile özetiniz girdiden daha kısa olmalıdır. Yeni sözcükler kullanın ve ayrıntıları çıkarın. {{minCharacters}} ile {{maxCharacters}} arasında karakter kullanın.
   other: |-
@@ -143,4 +143,3 @@ compaction.legacy.result: |-
 compaction.legacy.thought: |-
   Yeni bir özel düşünce aklıma geldi:
   {{thought}}
-

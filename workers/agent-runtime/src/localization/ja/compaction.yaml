@@ -49,11 +49,11 @@ compaction.repair.tool_response: |-
 compaction.repair.system: |-
   META: 記憶の要約を修正してください。前回の要約ではコンテキストが短くなりませんでした。{{responseInstruction}} 入力された要約だけを要約してください。システム指示とペルソナのプロンプトは省いてください。あなたの返答は、それらの出来事に代わる長期記憶になります。入力からテキストをコピーすることは固く禁じられています。文、語句、段落、リスト項目、一節をコピーしないでください。覚えている事実は新しい言葉で表してください。繰り返しの文章は削除してください。{{lengthInstruction}}
 
-compaction.length.exact: 
+compaction.length.exact:
   other: |-
     出来事を要約してください。入力がすでに要約であっても、要約は入力より短くなければなりません。新しい言葉を使い、詳細を除いてください。可能なら、ちょうど {{maxCharacters}} 文字にしてください。
 
-compaction.length.range: 
+compaction.length.range:
   other: |-
     出来事を要約してください。入力がすでに要約であっても、要約は入力より短くなければなりません。新しい言葉を使い、詳細を除いてください。{{minCharacters}} 文字以上、{{maxCharacters}} 文字以下にしてください。
 
@@ -139,4 +139,3 @@ compaction.legacy.result: |-
 compaction.legacy.thought: |-
   新しい内心の考えが浮かんだ：
   {{thought}}
-

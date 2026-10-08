@@ -67,7 +67,7 @@ issue.args.usernamesArray: |-
 issue.args.usernamesEmpty: |-
   usernames muss mindestens einen Benutzernamen enthalten. Kopieren Sie eine Teilnehmerkennung in das Array usernames.
 
-issue.args.usernamesLimit: 
+issue.args.usernamesLimit:
   one: |-
     usernames kann höchstens {{max}} Benutzernamen enthalten. Verteilen Sie die Benutzernamen auf separate Aufrufe.
   other: |-
@@ -79,7 +79,7 @@ issue.args.followTargetsArray: |-
 issue.args.followTargetsEmpty: |-
   Im Array targets muss mindestens eine teilnehmende Person stehen. Geben Sie für jedes Ziel username und reason mit lang und text an.
 
-issue.args.followTargetsLimit: 
+issue.args.followTargetsLimit:
   one: |-
     targets kann höchstens {{max}} teilnehmende Person enthalten. Verteilen Sie die Ziele auf separate Aufrufe.
   other: |-
@@ -106,7 +106,7 @@ issue.args.votesArray: |-
 issue.args.votesEmpty: |-
   Im Array votes muss mindestens eine Stimme stehen. Geben Sie für jeden Eintrag commentRef und value an.
 
-issue.args.votesLimit: 
+issue.args.votesLimit:
   one: |-
     votes kann höchstens {{max}} Ziel enthalten. Verteilen Sie die Stimmen auf separate Aufrufe.
   other: |-
@@ -127,7 +127,7 @@ issue.args.nonnegativeInteger: |-
 issue.args.rangesEmpty: |-
   ranges muss mindestens einen Bereich enthalten. Verwenden Sie zum Beispiel {"ranges":[{"min":1,"max":6}]}.
 
-issue.args.rangesLimit: 
+issue.args.rangesLimit:
   one: |-
     ranges kann höchstens {{max}} Bereich enthalten. Verteilen Sie die Bereiche auf separate Aufrufe.
   other: |-
@@ -135,4 +135,3 @@ issue.args.rangesLimit:
 
 issue.args.rangeOrder: |-
   {{maximumPath}} muss größer als oder gleich {{minimumPath}} sein.
-

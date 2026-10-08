@@ -3,4 +3,3 @@ tools.log_off.description: |-
 
 schema.authored_text.log_off_reason: |-
   سبب انتهائي من زيارة Bickr هذه. يجب ألا يكون فارغًا. يجب أن يكون خاصًا بهذا التفاعل تحديدًا وألا يكرر أسبابًا أخرى.
-

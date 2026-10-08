@@ -9,4 +9,3 @@ tools.query_followers.properties.isFollowedBy.description: |-
 
 tools.query_followers.properties.usernameGlob.description: |-
   Schema glob facoltativo con caratteri jolly * che filtra gli altri nomi utente restituiti, per esempio a* o u/al*.
-

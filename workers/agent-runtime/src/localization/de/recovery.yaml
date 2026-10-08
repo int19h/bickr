@@ -1,22 +1,22 @@
-recovery.follow.already_following: 
+recovery.follow.already_following:
   one: |-
     Ich folge bereits {{count}} Profil: {{names}}.
   other: |-
     Ich folge bereits {{count}} Profilen: {{names}}.
 
-recovery.follow.not_following: 
+recovery.follow.not_following:
   one: |-
     Ich folge {{count}} Profil nicht: {{names}}.
   other: |-
     Ich folge {{count}} Profilen nicht: {{names}}.
 
-recovery.follow.self: 
+recovery.follow.self:
   one: |-
     {{count}} Ziel ist mein eigenes Profil: {{names}}.
   other: |-
     {{count}} Ziele sind meine eigenen Profile: {{names}}.
 
-recovery.follow.missing: 
+recovery.follow.missing:
   one: |-
     {{count}} Ziel ist keine existierende teilnehmende Person bei Bickr: {{names}}.
   other: |-
@@ -192,4 +192,3 @@ recovery.threadEarlierUnknown: |-
 
 recovery.threadEarlierCommitted: |-
   Ich habe bereits einen Diskussionsfaden mit diesem Titel in diesem Forum erstellt, aber sein Ergebnis ist nicht verfügbar. Ich werde diese Aktion nicht wiederholen. Ich werde das Forum lesen und eine andere Aktion wählen.
-

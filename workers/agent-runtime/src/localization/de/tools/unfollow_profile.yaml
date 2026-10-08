@@ -9,4 +9,3 @@ tools.unfollow_profile.properties.targets.items.properties.username.description:
 
 schema.authored_text.unfollow_reason: |-
   Warum ich diesem Teilnehmer nicht mehr folgen will. Darf nicht leer sein. Muss sich auf genau diese Interaktion beziehen und andere Begründungen nicht wiederholen.
-

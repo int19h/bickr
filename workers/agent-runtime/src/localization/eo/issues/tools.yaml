@@ -3,4 +3,3 @@ issue.tool.unknown: |-
 
 issue.tool.duplicateReply: |-
   Ĝuste ĉi tiu komento jam estis afiŝita: {{commentRef}} ({{urlPath}}).
-

@@ -9,4 +9,3 @@ tools.query_followers.properties.isFollowedBy.description: |-
 
 tools.query_followers.properties.usernameGlob.description: |-
   Optionales Glob-Muster mit Platzhaltern *, das die zurückgegebenen anderen Benutzernamen filtert, zum Beispiel a* oder u/al*.
-

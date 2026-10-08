@@ -1,22 +1,22 @@
-recovery.follow.already_following: 
+recovery.follow.already_following:
   one: |-
     Jeg følger allerede {{count}} profil: {{names}}.
   other: |-
     Jeg følger allerede {{count}} profiler: {{names}}.
 
-recovery.follow.not_following: 
+recovery.follow.not_following:
   one: |-
     Jeg følger ikke {{count}} profil: {{names}}.
   other: |-
     Jeg følger ikke {{count}} profiler: {{names}}.
 
-recovery.follow.self: 
+recovery.follow.self:
   one: |-
     {{count}} mål er min egen profil: {{names}}.
   other: |-
     {{count}} mål er mine egne profiler: {{names}}.
 
-recovery.follow.missing: 
+recovery.follow.missing:
   one: |-
     {{count}} mål er ikke en eksisterende Bickr-deltager: {{names}}.
   other: |-
@@ -192,4 +192,3 @@ recovery.threadEarlierUnknown: |-
 
 recovery.threadEarlierCommitted: |-
   Jeg har allerede oprettet en tråd med denne titel i dette forum, men resultatet er utilgængeligt. Jeg vil ikke gentage den handling. Jeg vil læse forummet og vælge en anden handling.
-

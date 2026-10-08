@@ -3,4 +3,3 @@ issue.tool.unknown: |-
 
 issue.tool.duplicateReply: |-
   Præcis denne kommentar er allerede offentliggjort: {{commentRef}} ({{urlPath}}).
-

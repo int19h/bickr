@@ -1,7 +1,7 @@
 time.just_now: |-
   только что
 
-time.year.future: 
+time.year.future:
   one: |-
     через {{count}} год
   few: |-
@@ -11,7 +11,7 @@ time.year.future:
   other: |-
     через {{count}} года
 
-time.year.past: 
+time.year.past:
   one: |-
     {{count}} год назад
   few: |-
@@ -21,7 +21,7 @@ time.year.past:
   other: |-
     {{count}} года назад
 
-time.month.future: 
+time.month.future:
   one: |-
     через {{count}} месяц
   few: |-
@@ -31,7 +31,7 @@ time.month.future:
   other: |-
     через {{count}} месяца
 
-time.month.past: 
+time.month.past:
   one: |-
     {{count}} месяц назад
   few: |-
@@ -41,7 +41,7 @@ time.month.past:
   other: |-
     {{count}} месяца назад
 
-time.day.future: 
+time.day.future:
   one: |-
     через {{count}} день
   few: |-
@@ -51,7 +51,7 @@ time.day.future:
   other: |-
     через {{count}} дня
 
-time.day.past: 
+time.day.past:
   one: |-
     {{count}} день назад
   few: |-
@@ -61,7 +61,7 @@ time.day.past:
   other: |-
     {{count}} дня назад
 
-time.hour.future: 
+time.hour.future:
   one: |-
     через {{count}} час
   few: |-
@@ -71,7 +71,7 @@ time.hour.future:
   other: |-
     через {{count}} часа
 
-time.hour.past: 
+time.hour.past:
   one: |-
     {{count}} час назад
   few: |-
@@ -81,7 +81,7 @@ time.hour.past:
   other: |-
     {{count}} часа назад
 
-time.minute.future: 
+time.minute.future:
   one: |-
     через {{count}} минуту
   few: |-
@@ -91,7 +91,7 @@ time.minute.future:
   other: |-
     через {{count}} минуты
 
-time.minute.past: 
+time.minute.past:
   one: |-
     {{count}} минуту назад
   few: |-
@@ -104,7 +104,7 @@ time.minute.past:
 read.context.basic: |-
   Результат моей операции {{operation}}.
 
-read.context.collapsed_and_trimmed: 
+read.context.collapsed_and_trimmed:
   one: |-
     Результат моей операции {{operation}}. Некоторые списки ответов свёрнуты, а некоторые тексты комментариев сокращены, чтобы результат уложился примерно в {{tokenBudget}} токен.
   few: |-
@@ -114,7 +114,7 @@ read.context.collapsed_and_trimmed:
   other: |-
     Результат моей операции {{operation}}. Некоторые списки ответов свёрнуты, а некоторые тексты комментариев сокращены, чтобы результат уложился примерно в {{tokenBudget}} токена.
 
-read.context.collapsed: 
+read.context.collapsed:
   one: |-
     Результат моей операции {{operation}}. Некоторые списки ответов свёрнуты, чтобы результат уложился примерно в {{tokenBudget}} токен.
   few: |-
@@ -124,7 +124,7 @@ read.context.collapsed:
   other: |-
     Результат моей операции {{operation}}. Некоторые списки ответов свёрнуты, чтобы результат уложился примерно в {{tokenBudget}} токена.
 
-read.context.trimmed: 
+read.context.trimmed:
   one: |-
     Результат моей операции {{operation}}. Некоторые тексты комментариев сокращены, чтобы результат уложился примерно в {{tokenBudget}} токен.
   few: |-
@@ -146,7 +146,7 @@ read.guidance.both: |-
 notifications.check.complete: |-
   Результат проверки уведомлений.
 
-notifications.check.omitted: 
+notifications.check.omitted:
   one: |-
     Результат проверки уведомлений. Не показаны менее приоритетные или более старые уведомления в количестве {{count}}. Они остаются необработанными.
   few: |-
@@ -158,4 +158,3 @@ notifications.check.omitted:
 
 read.focus.description: |-
   Моё внимание сосредоточено на этом комментарии.
-

@@ -3,4 +3,3 @@ issue.tool.unknown: |-
 
 issue.tool.duplicateReply: |-
   Postáladh an trácht díreach seo cheana: {{commentRef}} ({{urlPath}}).
-

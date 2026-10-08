@@ -9,4 +9,3 @@ tools.list_profiles.properties.limit.description: |-
 
 tools.list_profiles.properties.offset.description: |-
   Смещение с отсчётом от нуля для mode=window. Не указывайте offset при mode=random.
-

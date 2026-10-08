@@ -28,7 +28,7 @@ structured_output.missing_tool: |-
 structured_output.wrong_tool: |-
   Для этого запроса используйте только {{toolName}}. Не используйте здесь {{receivedTool}}.
 
-structured_output.tool_count: 
+structured_output.tool_count:
   one: |-
     Ожидался один вызов инструмента {{toolName}}, но количество полученных вызовов инструментов: {{count}}. Вызовите {{toolName}} ровно один раз.
   few: |-
@@ -50,7 +50,7 @@ structured_output.arguments_object: |-
 structured_output.output_object: |-
   Структурированный ответ должен быть объектом JSON. Поместите {{property}} и его текстовое значение внутрь {}.
 
-structured_output.extra_arguments: 
+structured_output.extra_arguments:
   one: |-
     Обнаружены неожиданные аргументы в количестве {{count}}: {{fields}}. Удалите эти аргументы. Укажите только {{property}}.
   few: |-
@@ -60,7 +60,7 @@ structured_output.extra_arguments:
   other: |-
     Обнаружены неожиданные аргументы в количестве {{count}}: {{fields}}. Удалите эти аргументы. Укажите только {{property}}.
 
-structured_output.extra_fields: 
+structured_output.extra_fields:
   one: |-
     Обнаружены неожиданные поля в количестве {{count}}: {{fields}}. Удалите эти поля. Укажите только {{property}}.
   few: |-
@@ -82,7 +82,7 @@ structured_output.nonempty.avatar_description: |-
 structured_output.transcript: |-
   Напишите сводку в {{property}} обычной прозой от первого лица. Удалите строку стенограммы {{line}}. Не пишите строки с метками {{labels}}.
 
-structured_output.minimum.compaction: 
+structured_output.minimum.compaction:
   one: |-
     Количество символов в сводке в {{property}} должно быть не меньше {{minimum}}. Добавьте в текст уместные подробности.
   few: |-
@@ -92,7 +92,7 @@ structured_output.minimum.compaction:
   other: |-
     Количество символов в сводке в {{property}} должно быть не меньше {{minimum}}. Добавьте в текст уместные подробности.
 
-structured_output.minimum.translation: 
+structured_output.minimum.translation:
   one: |-
     Количество символов в переводе в {{property}} должно быть не меньше {{minimum}}. Добавьте в текст уместные подробности.
   few: |-
@@ -102,7 +102,7 @@ structured_output.minimum.translation:
   other: |-
     Количество символов в переводе в {{property}} должно быть не меньше {{minimum}}. Добавьте в текст уместные подробности.
 
-structured_output.minimum.avatar_description: 
+structured_output.minimum.avatar_description:
   one: |-
     Количество символов в описании изображения профиля в {{property}} должно быть не меньше {{minimum}}. Добавьте в текст уместные подробности.
   few: |-
@@ -112,7 +112,7 @@ structured_output.minimum.avatar_description:
   other: |-
     Количество символов в описании изображения профиля в {{property}} должно быть не меньше {{minimum}}. Добавьте в текст уместные подробности.
 
-structured_output.maximum.compaction: 
+structured_output.maximum.compaction:
   one: |-
     Количество символов в сводке в {{property}} должно быть не больше {{maximum}}. Сократите текст.
   few: |-
@@ -122,7 +122,7 @@ structured_output.maximum.compaction:
   other: |-
     Количество символов в сводке в {{property}} должно быть не больше {{maximum}}. Сократите текст.
 
-structured_output.maximum.translation: 
+structured_output.maximum.translation:
   one: |-
     Количество символов в переводе в {{property}} должно быть не больше {{maximum}}. Сократите текст.
   few: |-
@@ -132,7 +132,7 @@ structured_output.maximum.translation:
   other: |-
     Количество символов в переводе в {{property}} должно быть не больше {{maximum}}. Сократите текст.
 
-structured_output.maximum.avatar_description: 
+structured_output.maximum.avatar_description:
   one: |-
     Количество символов в описании изображения профиля в {{property}} должно быть не больше {{maximum}}. Сократите текст.
   few: |-
@@ -148,7 +148,7 @@ structured_output.wrong_tool.unnamed: |-
 structured_output.tool_mismatch.unnamed: |-
   Ожидался инструмент {{toolName}}, но получен вызов инструмента без имени. Вместо этого вызовите {{toolName}}.
 
-structured_output.nonreducing.estimate: 
+structured_output.nonreducing.estimate:
   one: |-
     Сводка в {{property}} не сократила контекст. Её приблизительная длина в токенах: {{replacementTokens}}.
   few: |-
@@ -158,7 +158,7 @@ structured_output.nonreducing.estimate:
   other: |-
     Сводка в {{property}} не сократила контекст. Её приблизительная длина в токенах: {{replacementTokens}}.
 
-structured_output.nonreducing.before: 
+structured_output.nonreducing.before:
   one: |-
     До замены длина контекста в токенах составляла {{compactedTokens}}. Сократите сводку, сохраняя требуемые факты.
   few: |-
@@ -176,4 +176,3 @@ structured_output.nonempty.translation.field: |-
 
 structured_output.nonempty.avatar_description.field: |-
   Поле описания изображения профиля должно быть непустой строкой. Поместите текст в {{property}}.
-

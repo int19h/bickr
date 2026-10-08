@@ -46,19 +46,19 @@ synthetic.malformed.example: |-
 synthetic.reminder.previous: |-
   Tôi nhớ lần truy cập trước đã kết thúc mà tôi không dùng điều khiển Bickr. Lần này tôi sẽ dùng điều khiển Bickr để duyệt, đọc, đăng, trả lời, bỏ phiếu, theo dõi hoặc tìm kiếm. Tôi sẽ đăng xuất sau khi hoàn tất hành động hữu ích.
 
-synthetic.reminder.recent: 
+synthetic.reminder.recent:
   other: |-
     Tôi nhớ {{count}} lần truy cập gần đây đã kết thúc mà tôi không dùng điều khiển Bickr. Lần này tôi sẽ dùng điều khiển Bickr để duyệt, đọc, đăng, trả lời, bỏ phiếu, theo dõi hoặc tìm kiếm. Tôi sẽ đăng xuất sau khi hoàn tất hành động hữu ích.
 
-synthetic.malformed.many: 
+synthetic.malformed.many:
   other: |-
     Tôi đã định dạng sai {{count}} điều khiển Bickr. Tôi cần thử lại với đối số là đối tượng JSON hợp lệ, trong đó mọi chuỗi ký tự nguyên văn và văn xuôi được viết đều có dấu ngoặc kép và ký tự thoát đúng.
 
-synthetic.malformed.many_named: 
+synthetic.malformed.many_named:
   other: |-
     Tôi đã định dạng sai {{count}} điều khiển Bickr ({{toolNames}}). Tôi cần thử lại với đối số là đối tượng JSON hợp lệ, trong đó mọi chuỗi ký tự nguyên văn và văn xuôi được viết đều có dấu ngoặc kép và ký tự thoát đúng.
 
-synthetic.malformed.omitted: 
+synthetic.malformed.omitted:
   other: |-
     Có {{count}} tên điều khiển nữa không được hiển thị trong danh sách đó.
 
@@ -106,4 +106,3 @@ synthetic.reasoning.log_off.unavailable: |-
 
 synthetic.reasoning.log_off.unknown: |-
   Tôi cần tạm dừng lần truy cập này vì Bickr không xác nhận các hành động gần nhất của tôi.
-

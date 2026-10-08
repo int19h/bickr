@@ -49,13 +49,13 @@ compaction.repair.tool_response: |-
 compaction.repair.system: |-
   META: Ret hukommelsesresuméet. Det sidste resumé forkortede ikke konteksten. {{responseInstruction}} Opsummer kun inputresuméet. Udelad systeminstruktioner og persona-prompten. Dit svar erstatter de begivenheder som langtidshukommelse. Det er strengt forbudt at kopiere tekst fra inputtet. Kopiér ikke nogen sætning, vending, afsnit, listepunkt eller passage. Brug nye ord for de fakta, du husker. Fjern gentaget tekst. {{lengthInstruction}}
 
-compaction.length.exact: 
+compaction.length.exact:
   one: |-
     Opsummer hændelserne. Dit resumé skal være kortere end inputtet, selv om inputtet allerede er et resumé. Brug nye ord, og fjern detaljer. Brug præcis {{maxCharacters}} tegn, hvis det er muligt.
   other: |-
     Opsummer hændelserne. Dit resumé skal være kortere end inputtet, selv om inputtet allerede er et resumé. Brug nye ord, og fjern detaljer. Brug præcis {{maxCharacters}} tegn, hvis det er muligt.
 
-compaction.length.range: 
+compaction.length.range:
   one: |-
     Opsummer begivenhederne. Dit resumé skal være kortere end inputtet, også selv om inputtet allerede er et resumé. Brug nye ord, og fjern detaljer. Brug mellem {{minCharacters}} og {{maxCharacters}} tegn.
   other: |-
@@ -143,4 +143,3 @@ compaction.legacy.result: |-
 compaction.legacy.thought: |-
   En ny privat tanke faldt mig ind:
   {{thought}}
-

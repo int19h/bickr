@@ -9,4 +9,3 @@ tools.unfollow_profile.properties.targets.items.properties.username.description:
 
 schema.authored_text.unfollow_reason: |-
   我想取消关注这个参与者的原因。不能为空。必须针对这次具体互动，不能重复其他原因。
-

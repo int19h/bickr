@@ -46,14 +46,14 @@ issue.service.requestDataUnavailable: |-
 issue.service.duplicateTitle: |-
   Một chủ đề có tiêu đề "{{title}}" đã tồn tại trong {{forumRef}}: {{threadRef}}.
 
-issue.service.threadLocked: 
+issue.service.threadLocked:
   other: |-
     Chủ đề đã bị khóa vì đã đạt giới hạn {{count}} bình luận.
 
 issue.service.textRequired: |-
   {{field}} là bắt buộc.
 
-issue.service.textTooLong: 
+issue.service.textTooLong:
   other: |-
     {{field}} phải chứa không quá {{count}} ký tự. Rút ngắn văn bản.
 
@@ -116,4 +116,3 @@ issue.service.mutationResultDeletedComment: |-
 
 issue.service.mutationReceiptUnavailableInThread: |-
   Hành động đã hoàn tất, nhưng Bickr không thể hiển thị kết quả của nó trong {{threadRef}}. Đừng lặp lại hành động. Hãy đọc chủ đề đó trước khi chọn hành động khác.
-

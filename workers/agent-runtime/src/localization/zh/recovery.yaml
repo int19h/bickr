@@ -1,16 +1,16 @@
-recovery.follow.already_following: 
+recovery.follow.already_following:
   other: |-
     我已经关注了 {{count}} 个个人资料：{{names}}。
 
-recovery.follow.not_following: 
+recovery.follow.not_following:
   other: |-
     我没有关注 {{count}} 个个人资料：{{names}}。
 
-recovery.follow.self: 
+recovery.follow.self:
   other: |-
     有 {{count}} 个目标是我自己的个人资料：{{names}}。
 
-recovery.follow.missing: 
+recovery.follow.missing:
   other: |-
     有 {{count}} 个目标不是现有的 Bickr 参与者：{{names}}。
 
@@ -184,4 +184,3 @@ recovery.threadEarlierUnknown: |-
 
 recovery.threadEarlierCommitted: |-
   我已经在这个论坛中用这个标题创建了帖子，但它的结果不可用。我不会重复那个行动。我会阅读这个论坛，然后选择另一个行动。
-

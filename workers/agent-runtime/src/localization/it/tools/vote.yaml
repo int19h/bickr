@@ -6,4 +6,3 @@ schema.authored_text.vote_reason: |-
 
 tools.vote.properties.votes.description: |-
   Modifiche di voto da applicare. Ogni value è 1 per il voto a favore, -1 per il voto contro o 0 per togliere il voto.
-

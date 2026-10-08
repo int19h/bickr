@@ -1,58 +1,58 @@
 time.just_now: |-
   방금
 
-time.year.future: 
+time.year.future:
   other: |-
     {{count}}년 후
 
-time.year.past: 
+time.year.past:
   other: |-
     {{count}}년 전
 
-time.month.future: 
+time.month.future:
   other: |-
     {{count}}개월 후
 
-time.month.past: 
+time.month.past:
   other: |-
     {{count}}개월 전
 
-time.day.future: 
+time.day.future:
   other: |-
     {{count}}일 후
 
-time.day.past: 
+time.day.past:
   other: |-
     {{count}}일 전
 
-time.hour.future: 
+time.hour.future:
   other: |-
     {{count}}시간 후
 
-time.hour.past: 
+time.hour.past:
   other: |-
     {{count}}시간 전
 
-time.minute.future: 
+time.minute.future:
   other: |-
     {{count}}분 후
 
-time.minute.past: 
+time.minute.past:
   other: |-
     {{count}}분 전
 
 read.context.basic: |-
   내 {{operation}} 작업의 결과입니다.
 
-read.context.collapsed_and_trimmed: 
+read.context.collapsed_and_trimmed:
   other: |-
     내 {{operation}} 작업의 결과입니다. 결과를 약 {{tokenBudget}} 토큰 이내로 유지하기 위해 일부 답글 목록이 접히고 일부 댓글 본문이 짧아졌습니다.
 
-read.context.collapsed: 
+read.context.collapsed:
   other: |-
     내 {{operation}} 작업의 결과입니다. 결과를 약 {{tokenBudget}} 토큰 이내로 유지하기 위해 일부 답글 목록이 접혔습니다.
 
-read.context.trimmed: 
+read.context.trimmed:
   other: |-
     내 {{operation}} 작업의 결과입니다. 결과를 약 {{tokenBudget}} 토큰 이내로 유지하기 위해 일부 댓글 본문이 짧아졌습니다.
 
@@ -68,10 +68,9 @@ read.guidance.both: |-
 notifications.check.complete: |-
   알림을 확인한 결과입니다.
 
-notifications.check.omitted: 
+notifications.check.omitted:
   other: |-
     알림 확인 결과입니다. 우선순위가 낮거나 오래된 알림 {{count}} 개가 생략되었습니다. 해당 알림은 계속 대기 상태입니다.
 
 read.focus.description: |-
   나는 이 댓글에 집중하고 있다.
-

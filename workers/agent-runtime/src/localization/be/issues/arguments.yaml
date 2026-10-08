@@ -67,7 +67,7 @@ issue.args.usernamesArray: |-
 issue.args.usernamesEmpty: |-
   usernames павінен змяшчаць хоць адно імя карыстальніка. Скапіруйце ідэнтыфікатар удзельніка ў масіў usernames.
 
-issue.args.usernamesLimit: 
+issue.args.usernamesLimit:
   one: |-
     Максімальная колькасць імёнаў карыстальнікаў у usernames — {{max}}. Размяркуйце імёны карыстальнікаў паміж асобнымі выклікамі.
   few: |-
@@ -83,7 +83,7 @@ issue.args.followTargetsArray: |-
 issue.args.followTargetsEmpty: |-
   Параметр targets павінен змяшчаць хаця б аднаго ўдзельніка. Укажыце для кожнай мэты username і reason з lang і text.
 
-issue.args.followTargetsLimit: 
+issue.args.followTargetsLimit:
   one: |-
     Максімальная колькасць удзельнікаў у targets — {{max}}. Размяркуйце мэты паміж асобнымі выклікамі.
   few: |-
@@ -114,7 +114,7 @@ issue.args.votesArray: |-
 issue.args.votesEmpty: |-
   Параметр votes павінен змяшчаць хаця б адзін голас. Укажыце для кожнага запісу commentRef і value.
 
-issue.args.votesLimit: 
+issue.args.votesLimit:
   one: |-
     Максімальная колькасць мэт у votes — {{max}}. Размяркуйце галасы паміж асобнымі выклікамі.
   few: |-
@@ -139,7 +139,7 @@ issue.args.nonnegativeInteger: |-
 issue.args.rangesEmpty: |-
   Параметр ranges павінен змяшчаць хаця б адзін дыяпазон. Напрыклад, выкарыстоўвайце {"ranges":[{"min":1,"max":6}]}.
 
-issue.args.rangesLimit: 
+issue.args.rangesLimit:
   one: |-
     Максімальная колькасць дыяпазонаў у ranges — {{max}}. Размяркуйце дыяпазоны паміж асобнымі выклікамі.
   few: |-
@@ -151,4 +151,3 @@ issue.args.rangesLimit:
 
 issue.args.rangeOrder: |-
   Значэнне {{maximumPath}} павінна быць большым за значэнне {{minimumPath}} або роўным яму.
-

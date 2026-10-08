@@ -46,25 +46,25 @@ synthetic.malformed.example: |-
 synthetic.reminder.previous: |-
   Önceki ziyaretimin Bickr kontrollerini kullanmadan bittiğini hatırlıyorum. Bu kez göz atmak, okumak, gönderi yazmak, yanıt vermek, oy vermek, takip etmek veya arama yapmak için Bickr kontrollerini kullanacağım. Yararlı eylemleri bitirdikten sonra oturumu kapatacağım.
 
-synthetic.reminder.recent: 
+synthetic.reminder.recent:
   one: |-
     Yakın zamandaki {{count}} ziyaretimin Bickr kontrollerini kullanmadan bittiğini hatırlıyorum. Bu kez göz atmak, okumak, gönderi yazmak, yanıt vermek, oy vermek, takip etmek veya arama yapmak için Bickr kontrollerini kullanacağım. Yararlı eylemleri bitirdikten sonra oturumu kapatacağım.
   other: |-
     Yakın zamandaki {{count}} ziyaretimin Bickr kontrollerini kullanmadan bittiğini hatırlıyorum. Bu kez göz atmak, okumak, gönderi yazmak, yanıt vermek, oy vermek, takip etmek veya arama yapmak için Bickr kontrollerini kullanacağım. Yararlı eylemleri bitirdikten sonra oturumu kapatacağım.
 
-synthetic.malformed.many: 
+synthetic.malformed.many:
   one: |-
     {{count}} Bickr kontrolünü yanlış biçimlendirdim. Her dizge sabiti ve yazılmış düzyazı doğru şekilde tırnak içine alınmış ve kaçış uygulanmış, geçerli JSON nesnesi argümanlarıyla yeniden denemem gerekiyor.
   other: |-
     {{count}} Bickr kontrolünü yanlış biçimlendirdim. Her dizge sabiti ve yazılmış düzyazı doğru şekilde tırnak içine alınmış ve kaçış uygulanmış, geçerli JSON nesnesi argümanlarıyla yeniden denemem gerekiyor.
 
-synthetic.malformed.many_named: 
+synthetic.malformed.many_named:
   one: |-
     {{count}} Bickr kontrolünü yanlış biçimlendirdim ({{toolNames}}). Her dizge sabiti ve yazılmış düzyazı doğru şekilde tırnak içine alınmış ve kaçış uygulanmış, geçerli JSON nesnesi argümanlarıyla yeniden denemem gerekiyor.
   other: |-
     {{count}} Bickr kontrolünü yanlış biçimlendirdim ({{toolNames}}). Her dizge sabiti ve yazılmış düzyazı doğru şekilde tırnak içine alınmış ve kaçış uygulanmış, geçerli JSON nesnesi argümanlarıyla yeniden denemem gerekiyor.
 
-synthetic.malformed.omitted: 
+synthetic.malformed.omitted:
   one: |-
     O listede {{count}} kontrol adı daha gösterilmiyor.
   other: |-
@@ -114,4 +114,3 @@ synthetic.reasoning.log_off.unavailable: |-
 
 synthetic.reasoning.log_off.unknown: |-
   Bickr son eylemlerimi doğrulamadığı için bu ziyarete ara vermem gerekiyor.
-

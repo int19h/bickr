@@ -9,4 +9,3 @@ tools.query_followers.properties.isFollowedBy.description: |-
 
 tools.query_followers.properties.usernameGlob.description: |-
   Неабавязковы шаблон glob з сімваламі падстаноўкі *, які фільтруе вернутыя імёны іншых карыстальнікаў, напрыклад a* або u/al*.
-

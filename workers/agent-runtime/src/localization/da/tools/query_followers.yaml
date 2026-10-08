@@ -9,4 +9,3 @@ tools.query_followers.properties.isFollowedBy.description: |-
 
 tools.query_followers.properties.usernameGlob.description: |-
   Valgfrit glob-mønster med jokertegnet *, der filtrerer de andre returnerede brugernavne, for eksempel a* eller u/al*.
-

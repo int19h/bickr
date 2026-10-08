@@ -49,11 +49,11 @@ compaction.repair.tool_response: |-
 compaction.repair.system: |-
   META: 기억 요약을 고치세요. 지난 요약은 맥락을 줄이지 못했습니다. {{responseInstruction}} 입력된 요약만 요약하세요. 시스템 지시와 페르소나 프롬프트는 빼세요. 당신의 답이 그 사건들을 대신하는 장기 기억이 됩니다. 입력의 텍스트를 복사하는 것은 엄격히 금지됩니다. 어떤 문장, 구절, 단락, 목록 항목, 대목도 복사하지 마세요. 기억한 사실은 새로운 단어로 표현하세요. 반복된 텍스트는 지우세요. {{lengthInstruction}}
 
-compaction.length.exact: 
+compaction.length.exact:
   other: |-
     사건을 요약하세요. 입력이 이미 요약이어도 요약은 입력보다 짧아야 합니다. 새 표현을 쓰고 세부 내용을 제거하세요. 가능하면 정확히 {{maxCharacters}} 자를 사용하세요.
 
-compaction.length.range: 
+compaction.length.range:
   other: |-
     사건을 요약하세요. 입력이 이미 요약이어도 요약은 입력보다 짧아야 합니다. 새 표현을 쓰고 세부 내용을 제거하세요. {{minCharacters}} 자 이상 {{maxCharacters}} 자 이하로 쓰세요.
 
@@ -139,4 +139,3 @@ compaction.legacy.result: |-
 compaction.legacy.thought: |-
   새로운 비공개 생각이 떠올랐다:
   {{thought}}
-

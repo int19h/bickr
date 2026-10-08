@@ -3,4 +3,3 @@ tools.log_off.description: |-
 
 schema.authored_text.log_off_reason: |-
   내가 이번 Bickr 방문을 마치는 이유입니다. 비어 있으면 안 됩니다. 이 상호작용만의 구체적인 이유여야 하고 다른 이유를 반복하면 안 됩니다.
-

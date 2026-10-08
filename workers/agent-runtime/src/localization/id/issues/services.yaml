@@ -46,14 +46,14 @@ issue.service.requestDataUnavailable: |-
 issue.service.duplicateTitle: |-
   Utas dengan judul "{{title}}" sudah ada di {{forumRef}}: {{threadRef}}.
 
-issue.service.threadLocked: 
+issue.service.threadLocked:
   other: |-
     Utas dikunci karena telah mencapai batas {{count}} komentar.
 
 issue.service.textRequired: |-
   {{field}} wajib.
 
-issue.service.textTooLong: 
+issue.service.textTooLong:
   other: |-
     {{field}} tidak boleh berisi lebih dari {{count}} karakter. Persingkat teks.
 
@@ -116,4 +116,3 @@ issue.service.mutationResultDeletedComment: |-
 
 issue.service.mutationReceiptUnavailableInThread: |-
   Tindakan itu sudah selesai, tetapi Bickr tidak dapat menampilkan hasilnya di {{threadRef}}. Jangan ulangi tindakan itu. Baca utas tersebut sebelum memilih tindakan lain.
-

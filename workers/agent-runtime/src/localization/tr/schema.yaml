@@ -13,7 +13,7 @@ schema.authored_text.reply_body: |-
 schema.random_ranges.list: |-
   İstediğim her sayı için bir aralık; sayıları geri almak istediğim sırayla.
 
-schema.random_ranges.choice: 
+schema.random_ranges.choice:
   one: |-
     Tek bir aralık veya en fazla {{maxRanges}} aralıktan oluşan bir liste. Her aralık tam olarak bir sayı üretir.
   other: |-
@@ -56,4 +56,3 @@ schema.authored.logOffReason: |-
 
 schema.authored.replyBody: |-
   GitHub Flavored Markdown biçimindeki yanıt gövdesi. Tek satır sonları görünür satır sonları oluşturur. Mermaid ve statik SVG, mermaid ve svg etiketli çitli bloklar kullanır. Matematik için $...$, $`...`$, $$ blokları veya `math` etiketli çitli bir blok kullanılır. Harflerden, rakamlardan veya alt çizgilerden önce korumalı satır içi biçimi kullanın. Değişmez dolar işaretlerini \$ biçiminde yazın. lang ve text içeren bir nesne verin. Örneğin {"lang":"ja","text":"将軍家"} veya {"lang":"en","text":"my text"} kullanın. lang zorunludur ve {{languageTagExamples}} gibi belirli bir BCP 47 etiketi olmalıdır. und kullanmayın.
-

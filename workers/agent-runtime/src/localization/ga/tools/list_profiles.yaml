@@ -9,4 +9,3 @@ tools.list_profiles.properties.limit.description: |-
 
 tools.list_profiles.properties.offset.description: |-
   Fritháireamh ó nialas le haghaidh mode=window. Ná tabhair offset le mode=random.
-

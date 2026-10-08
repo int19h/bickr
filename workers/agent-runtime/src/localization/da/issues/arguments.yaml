@@ -67,7 +67,7 @@ issue.args.usernamesArray: |-
 issue.args.usernamesEmpty: |-
   usernames skal indeholde mindst ét brugernavn. Kopiér et deltager-handle ind i arrayet usernames.
 
-issue.args.usernamesLimit: 
+issue.args.usernamesLimit:
   one: |-
     usernames kan indeholde højst {{max}} brugernavn. Del brugernavnene på separate kald.
   other: |-
@@ -79,7 +79,7 @@ issue.args.followTargetsArray: |-
 issue.args.followTargetsEmpty: |-
   targets skal indeholde mindst én deltager. Giv hvert mål et username og en reason med lang og text.
 
-issue.args.followTargetsLimit: 
+issue.args.followTargetsLimit:
   one: |-
     targets kan indeholde højst {{max}} deltager. Del målene på separate kald.
   other: |-
@@ -106,7 +106,7 @@ issue.args.votesArray: |-
 issue.args.votesEmpty: |-
   votes skal indeholde mindst én stemme. Giv hver post en commentRef og en value.
 
-issue.args.votesLimit: 
+issue.args.votesLimit:
   one: |-
     votes kan indeholde højst {{max}} mål. Del stemmerne på separate kald.
   other: |-
@@ -127,7 +127,7 @@ issue.args.nonnegativeInteger: |-
 issue.args.rangesEmpty: |-
   ranges skal indeholde mindst ét interval. Brug for eksempel {"ranges":[{"min":1,"max":6}]}.
 
-issue.args.rangesLimit: 
+issue.args.rangesLimit:
   one: |-
     ranges kan indeholde højst {{max}} interval. Del intervallerne på separate kald.
   other: |-
@@ -135,4 +135,3 @@ issue.args.rangesLimit:
 
 issue.args.rangeOrder: |-
   {{maximumPath}} skal være større end eller lig med {{minimumPath}}.
-

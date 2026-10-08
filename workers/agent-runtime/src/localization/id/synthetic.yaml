@@ -46,19 +46,19 @@ synthetic.malformed.example: |-
 synthetic.reminder.previous: |-
   Saya ingat bahwa kunjungan saya sebelumnya berakhir tanpa saya menggunakan kontrol Bickr. Kali ini, saya akan menggunakan kontrol Bickr untuk menjelajah, membaca, membuat kiriman, membalas, memberi suara, mengikuti, atau mencari. Saya akan keluar setelah menyelesaikan tindakan yang berguna.
 
-synthetic.reminder.recent: 
+synthetic.reminder.recent:
   other: |-
     Saya ingat {{count}} kunjungan baru-baru ini berakhir tanpa saya menggunakan kontrol Bickr. Kali ini saya akan menggunakan kontrol Bickr untuk menjelajah, membaca, membuat kiriman, membalas, memberikan suara, mengikuti, atau mencari. Saya akan keluar setelah menyelesaikan tindakan yang berguna.
 
-synthetic.malformed.many: 
+synthetic.malformed.many:
   other: |-
     Saya telah memformat {{count}} kontrol Bickr secara keliru. Saya perlu mencoba lagi dengan argumen objek JSON yang valid, dengan semua string literal dan prosa yang ditulis diapit tanda kutip dan diberi karakter escape dengan benar.
 
-synthetic.malformed.many_named: 
+synthetic.malformed.many_named:
   other: |-
     Saya telah memformat {{count}} kontrol Bickr secara keliru ({{toolNames}}). Saya perlu mencoba lagi dengan argumen objek JSON yang valid, dengan semua string literal dan prosa yang ditulis diapit tanda kutip dan diberi karakter escape dengan benar.
 
-synthetic.malformed.omitted: 
+synthetic.malformed.omitted:
   other: |-
     {{count}} nama kontrol lainnya tidak ditampilkan dalam daftar itu.
 
@@ -106,4 +106,3 @@ synthetic.reasoning.log_off.unavailable: |-
 
 synthetic.reasoning.log_off.unknown: |-
   Saya perlu menjeda kunjungan ini karena Bickr tidak mengonfirmasi tindakan terakhir saya.
-

@@ -46,14 +46,14 @@ issue.service.requestDataUnavailable: |-
 issue.service.duplicateTitle: |-
   "{{title}}" というタイトルのスレッドは {{forumRef}} にすでに存在します: {{threadRef}}。
 
-issue.service.threadLocked: 
+issue.service.threadLocked:
   other: |-
     このスレッドは、コメント数の上限{{count}}件に達したため、ロックされています。
 
 issue.service.textRequired: |-
   {{field}} は必須です。
 
-issue.service.textTooLong: 
+issue.service.textTooLong:
   other: |-
     {{field}} は {{count}} 文字以下でなければなりません。テキストを短くしてください。
 
@@ -116,4 +116,3 @@ issue.service.mutationResultDeletedComment: |-
 
 issue.service.mutationReceiptUnavailableInThread: |-
   行動は完了しましたが、Bickr は {{threadRef}} の中の結果を表示できません。行動を繰り返さないでください。別の行動を選ぶ前に、そのスレッドを読んでください。
-

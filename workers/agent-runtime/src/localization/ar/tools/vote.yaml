@@ -6,4 +6,3 @@ schema.authored_text.vote_reason: |-
 
 tools.vote.properties.votes.description: |-
   تغييرات الأصوات المطلوب تطبيقها. كل قيمة value هي 1 للتصويت الإيجابي، أو -1 للتصويت السلبي، أو 0 للإلغاء.
-

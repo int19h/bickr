@@ -1,7 +1,7 @@
 issue.note.id.type: |-
   id must be text. Give id as the note title. For an existing note, copy an ID from list_notes.
 
-issue.note.id.length: 
+issue.note.id.length:
   one: |-
     id must contain {{minimum}}-{{maximum}} character after normalization. Give id as the note title. For an existing note, copy an ID from list_notes.
   other: |-
@@ -13,7 +13,7 @@ issue.note.id.characters: |-
 issue.note.cursor.type: |-
   cursor must be text. Copy nextCursor from the previous list_notes result. To start a new list, omit cursor.
 
-issue.note.cursor.length: 
+issue.note.cursor.length:
   one: |-
     cursor must contain {{minimum}}-{{maximum}} character after normalization. Copy nextCursor from the previous list_notes result. To start a new list, omit cursor.
   other: |-
@@ -22,13 +22,13 @@ issue.note.cursor.length:
 issue.note.cursor.characters: |-
   cursor can contain letters, marks, numbers, punctuation, symbols, and spaces only. Copy nextCursor from the previous list_notes result. To start a new list, omit cursor.
 
-issue.note.content: 
+issue.note.content:
   one: |-
     content must be text with 1-{{max}} character. Give the full note text in content.
   other: |-
     content must be text with 1-{{max}} characters. Give the full note text in content.
 
-issue.note.entities.array: 
+issue.note.entities.array:
   one: |-
     entities must be an array of at most {{max}} f/ or u/ handle. For example, use {"entities":["u/alice"]}.
   other: |-
@@ -37,13 +37,13 @@ issue.note.entities.array:
 issue.note.entities.entry: |-
   Each entities entry must be one f/ or u/ handle. For example, use {"entities":["u/alice","f/news"]}.
 
-issue.note.references: 
+issue.note.references:
   one: |-
     A note can refer to at most {{max}} distinct profile or forum in total. Remove some references from the title or content.
   other: |-
     A note can refer to at most {{max}} distinct profiles or forums in total. Remove some references from the title or content.
 
-issue.note.capacity: 
+issue.note.capacity:
   one: |-
     You can keep at most {{max}} note. Replace an existing note, or delete an unneeded note before creating another.
   other: |-
@@ -60,4 +60,3 @@ issue.tool.commentNotFound: |-
 
 issue.tool.forumNotFound: |-
   Forum not found.
-

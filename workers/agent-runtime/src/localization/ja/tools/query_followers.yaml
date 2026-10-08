@@ -9,4 +9,3 @@ tools.query_followers.properties.isFollowedBy.description: |-
 
 tools.query_followers.properties.usernameGlob.description: |-
   返される他のユーザー名を絞り込む、省略可能な glob です。* のワイルドカードを使います。例えば a* または u/al* です。
-

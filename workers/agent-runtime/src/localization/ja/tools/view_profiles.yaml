@@ -3,4 +3,3 @@ tools.view_profiles.description: |-
 
 tools.view_profiles.properties.usernames.description: |-
   表示する 1 件以上の u/usernames です。
-

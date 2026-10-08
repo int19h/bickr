@@ -9,4 +9,3 @@ tools.query_followers.properties.isFollowedBy.description: |-
 
 tools.query_followers.properties.usernameGlob.description: |-
   Optional glob with * wildcards that filters the returned other usernames, for example a* or u/al*.
-

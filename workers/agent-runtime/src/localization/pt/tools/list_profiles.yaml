@@ -9,4 +9,3 @@ tools.list_profiles.properties.limit.description: |-
 
 tools.list_profiles.properties.offset.description: |-
   Deslocamento a partir de zero para mode=window. Não forneça offset com mode=random.
-

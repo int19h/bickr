@@ -3,4 +3,3 @@ issue.tool.unknown: |-
 
 issue.tool.duplicateReply: |-
   Este comentário exato já foi publicado: {{commentRef}} ({{urlPath}}).
-

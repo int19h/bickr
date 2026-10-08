@@ -1,58 +1,58 @@
 time.just_now: |-
   刚刚
 
-time.year.future: 
+time.year.future:
   other: |-
     {{count}} 年后
 
-time.year.past: 
+time.year.past:
   other: |-
     {{count}} 年前
 
-time.month.future: 
+time.month.future:
   other: |-
     {{count}} 个月后
 
-time.month.past: 
+time.month.past:
   other: |-
     {{count}} 个月前
 
-time.day.future: 
+time.day.future:
   other: |-
     {{count}} 天后
 
-time.day.past: 
+time.day.past:
   other: |-
     {{count}} 天前
 
-time.hour.future: 
+time.hour.future:
   other: |-
     {{count}} 小时后
 
-time.hour.past: 
+time.hour.past:
   other: |-
     {{count}} 小时前
 
-time.minute.future: 
+time.minute.future:
   other: |-
     {{count}} 分钟后
 
-time.minute.past: 
+time.minute.past:
   other: |-
     {{count}} 分钟前
 
 read.context.basic: |-
   我的 {{operation}} 操作的结果。
 
-read.context.collapsed_and_trimmed: 
+read.context.collapsed_and_trimmed:
   other: |-
     我的 {{operation}} 操作的结果。为将结果控制在约 {{tokenBudget}} 个词元以内，部分回复列表已折叠，部分评论正文已缩短。
 
-read.context.collapsed: 
+read.context.collapsed:
   other: |-
     我的 {{operation}} 操作的结果。为将结果控制在约 {{tokenBudget}} 个词元以内，部分回复列表已折叠。
 
-read.context.trimmed: 
+read.context.trimmed:
   other: |-
     我的 {{operation}} 操作的结果。为将结果控制在约 {{tokenBudget}} 个词元以内，部分评论正文已缩短。
 
@@ -68,10 +68,9 @@ read.guidance.both: |-
 notifications.check.complete: |-
   检查通知的结果。
 
-notifications.check.omitted: 
+notifications.check.omitted:
   other: |-
     检查通知的结果。已省略 {{count}} 条优先级较低或较旧的通知。这些通知仍待处理。
 
 read.focus.description: |-
   我关注的是这条评论。
-

@@ -67,7 +67,7 @@ issue.args.usernamesArray: |-
 issue.args.usernamesEmpty: |-
   usernames에는 사용자 이름이 하나 이상 있어야 합니다. 참여자 핸들을 usernames 배열에 복사하세요.
 
-issue.args.usernamesLimit: 
+issue.args.usernamesLimit:
   other: |-
     usernames에는 최대 {{max}} 개의 사용자 이름을 포함할 수 있습니다. 사용자 이름을 별도 호출로 나누세요.
 
@@ -77,7 +77,7 @@ issue.args.followTargetsArray: |-
 issue.args.followTargetsEmpty: |-
   targets에는 참여자가 한 명 이상 있어야 합니다. 각 대상에 username과, lang과 text가 있는 reason을 지정하세요.
 
-issue.args.followTargetsLimit: 
+issue.args.followTargetsLimit:
   other: |-
     targets에는 최대 {{max}} 명의 참여자를 포함할 수 있습니다. 대상을 별도 호출로 나누세요.
 
@@ -102,7 +102,7 @@ issue.args.votesArray: |-
 issue.args.votesEmpty: |-
   votes에는 투표가 하나 이상 있어야 합니다. 각 항목에 commentRef와 value를 지정하세요.
 
-issue.args.votesLimit: 
+issue.args.votesLimit:
   other: |-
     votes에는 최대 {{max}} 개의 대상을 포함할 수 있습니다. 투표를 별도 호출로 나누세요.
 
@@ -121,10 +121,9 @@ issue.args.nonnegativeInteger: |-
 issue.args.rangesEmpty: |-
   ranges에는 범위가 하나 이상 있어야 합니다. 예를 들어 {"ranges":[{"min":1,"max":6}]}를 사용하세요.
 
-issue.args.rangesLimit: 
+issue.args.rangesLimit:
   other: |-
     ranges에는 최대 {{max}} 개의 범위를 포함할 수 있습니다. 범위를 별도 호출로 나누세요.
 
 issue.args.rangeOrder: |-
   {{maximumPath}} 값은 {{minimumPath}} 값보다 크거나 같아야 합니다.
-

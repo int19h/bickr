@@ -28,7 +28,7 @@ structured_output.missing_tool: |-
 structured_output.wrong_tool: |-
   Ná húsáid ach {{toolName}} don iarratas seo. Ná húsáid {{receivedTool}} anseo.
 
-structured_output.tool_count: 
+structured_output.tool_count:
   one: |-
     Bhíothas ag súil le glao amháin ar an uirlis {{toolName}}, ach ba é {{count}} líon na nglaonna uirlise a fuarthas. Glaoigh ar an uirlis {{toolName}} díreach uair amháin.
   two: |-
@@ -52,7 +52,7 @@ structured_output.arguments_object: |-
 structured_output.output_object: |-
   Ní mór gur réad JSON é an t-aschur struchtúrtha. Cuir {{property}} agus a luach téacs taobh istigh de {}.
 
-structured_output.extra_arguments: 
+structured_output.extra_arguments:
   one: |-
     Is é {{count}} líon na n-argóintí gan choinne: {{fields}}. Bain gach argóint atá luaite. Ná tabhair ach {{property}}.
   two: |-
@@ -64,7 +64,7 @@ structured_output.extra_arguments:
   other: |-
     Is é {{count}} líon na n-argóintí gan choinne: {{fields}}. Bain gach argóint atá luaite. Ná tabhair ach {{property}}.
 
-structured_output.extra_fields: 
+structured_output.extra_fields:
   one: |-
     Is é {{count}} líon na réimsí gan choinne: {{fields}}. Bain gach réimse atá luaite. Ná tabhair ach {{property}}.
   two: |-
@@ -88,7 +88,7 @@ structured_output.nonempty.avatar_description: |-
 structured_output.transcript: |-
   Scríobh an achoimre sa réimse {{property}} mar ghnáthphrós sa chéad phearsa. Bain an líne tras-scríbhinne seo: {{line}}. Ná scríobh línte a bhfuil na lipéid {{labels}} orthu.
 
-structured_output.minimum.compaction: 
+structured_output.minimum.compaction:
   one: |-
     Ní mór do líon na gcarachtar san achoimre sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
   two: |-
@@ -100,7 +100,7 @@ structured_output.minimum.compaction:
   other: |-
     Ní mór do líon na gcarachtar san achoimre sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
 
-structured_output.minimum.translation: 
+structured_output.minimum.translation:
   one: |-
     Ní mór do líon na gcarachtar san aistriúchán sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
   two: |-
@@ -112,7 +112,7 @@ structured_output.minimum.translation:
   other: |-
     Ní mór do líon na gcarachtar san aistriúchán sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
 
-structured_output.minimum.avatar_description: 
+structured_output.minimum.avatar_description:
   one: |-
     Ní mór do líon na gcarachtar sa chur síos ar an bpictiúr próifíle sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
   two: |-
@@ -124,7 +124,7 @@ structured_output.minimum.avatar_description:
   other: |-
     Ní mór do líon na gcarachtar sa chur síos ar an bpictiúr próifíle sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
 
-structured_output.maximum.compaction: 
+structured_output.maximum.compaction:
   one: |-
     Ní mór do líon na gcarachtar san achoimre sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
   two: |-
@@ -136,7 +136,7 @@ structured_output.maximum.compaction:
   other: |-
     Ní mór do líon na gcarachtar san achoimre sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
 
-structured_output.maximum.translation: 
+structured_output.maximum.translation:
   one: |-
     Ní mór do líon na gcarachtar san aistriúchán sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
   two: |-
@@ -148,7 +148,7 @@ structured_output.maximum.translation:
   other: |-
     Ní mór do líon na gcarachtar san aistriúchán sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
 
-structured_output.maximum.avatar_description: 
+structured_output.maximum.avatar_description:
   one: |-
     Ní mór do líon na gcarachtar sa chur síos ar an bpictiúr próifíle sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
   two: |-
@@ -166,7 +166,7 @@ structured_output.wrong_tool.unnamed: |-
 structured_output.tool_mismatch.unnamed: |-
   Bhíothas ag súil leis an uirlis {{toolName}}, ach fuarthas glao uirlise gan ainm. Glaoigh ar an uirlis {{toolName}} ina ionad.
 
-structured_output.nonreducing.estimate: 
+structured_output.nonreducing.estimate:
   one: |-
     Níor laghdaigh an achoimre sa réimse {{property}} an comhthéacs. Is é {{replacementTokens}} a fad measta i dtócain téacs.
   two: |-
@@ -178,7 +178,7 @@ structured_output.nonreducing.estimate:
   other: |-
     Níor laghdaigh an achoimre sa réimse {{property}} an comhthéacs. Is é {{replacementTokens}} a fad measta i dtócain téacs.
 
-structured_output.nonreducing.before: 
+structured_output.nonreducing.before:
   one: |-
     Roimh athsholáthar, ba é {{compactedTokens}} líon na dtócan téacs sa chomhthéacs. Giorraigh an achoimre agus na fíricí riachtanacha á gcoinneáil.
   two: |-
@@ -198,4 +198,3 @@ structured_output.nonempty.translation.field: |-
 
 structured_output.nonempty.avatar_description.field: |-
   Ní mór gur teaghrán nach bhfuil folamh é réimse an chur síos ar an bpictiúr próifíle. Cuir an téacs sa réimse {{property}}.
-

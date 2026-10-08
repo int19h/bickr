@@ -28,7 +28,7 @@ structured_output.missing_tool: |-
 structured_output.wrong_tool: |-
   Для цього запиту використовуйте лише {{toolName}}. Не використовуйте тут {{receivedTool}}.
 
-structured_output.tool_count: 
+structured_output.tool_count:
   one: |-
     Очікувався один виклик інструмента {{toolName}}, але отримано {{count}} виклик. Викличте {{toolName}} рівно один раз.
   few: |-
@@ -50,7 +50,7 @@ structured_output.arguments_object: |-
 structured_output.output_object: |-
   Структурована відповідь має бути об’єктом JSON. Помістіть {{property}} та його текстове значення всередину {}.
 
-structured_output.extra_arguments: 
+structured_output.extra_arguments:
   one: |-
     Кількість неочікуваних аргументів — {{count}}: {{fields}}. Вилучіть ці аргументи. Надайте лише {{property}}.
   few: |-
@@ -60,7 +60,7 @@ structured_output.extra_arguments:
   other: |-
     Кількість неочікуваних аргументів — {{count}}: {{fields}}. Вилучіть ці аргументи. Надайте лише {{property}}.
 
-structured_output.extra_fields: 
+structured_output.extra_fields:
   one: |-
     Кількість неочікуваних полів — {{count}}: {{fields}}. Вилучіть ці поля. Надайте лише {{property}}.
   few: |-
@@ -82,7 +82,7 @@ structured_output.nonempty.avatar_description: |-
 structured_output.transcript: |-
   Напишіть підсумок у {{property}} звичайною прозою від першої особи. Видаліть рядок стенограми {{line}}. Не пишіть рядки з мітками {{labels}}.
 
-structured_output.minimum.compaction: 
+structured_output.minimum.compaction:
   one: |-
     Підсумок у {{property}} має містити щонайменше {{minimum}} символ. Додайте до тексту доречні деталі.
   few: |-
@@ -92,7 +92,7 @@ structured_output.minimum.compaction:
   other: |-
     Підсумок у {{property}} має містити щонайменше {{minimum}} символу. Додайте до тексту доречні деталі.
 
-structured_output.minimum.translation: 
+structured_output.minimum.translation:
   one: |-
     Переклад у {{property}} має містити щонайменше {{minimum}} символ. Додайте до тексту доречні деталі.
   few: |-
@@ -102,7 +102,7 @@ structured_output.minimum.translation:
   other: |-
     Переклад у {{property}} має містити щонайменше {{minimum}} символу. Додайте до тексту доречні деталі.
 
-structured_output.minimum.avatar_description: 
+structured_output.minimum.avatar_description:
   one: |-
     Опис зображення профілю в {{property}} має містити щонайменше {{minimum}} символ. Додайте до тексту доречні деталі.
   few: |-
@@ -112,7 +112,7 @@ structured_output.minimum.avatar_description:
   other: |-
     Опис зображення профілю в {{property}} має містити щонайменше {{minimum}} символу. Додайте до тексту доречні деталі.
 
-structured_output.maximum.compaction: 
+structured_output.maximum.compaction:
   one: |-
     Підсумок у {{property}} має містити щонайбільше {{maximum}} символ. Скоротіть текст.
   few: |-
@@ -122,7 +122,7 @@ structured_output.maximum.compaction:
   other: |-
     Підсумок у {{property}} має містити щонайбільше {{maximum}} символу. Скоротіть текст.
 
-structured_output.maximum.translation: 
+structured_output.maximum.translation:
   one: |-
     Переклад у {{property}} має містити щонайбільше {{maximum}} символ. Скоротіть текст.
   few: |-
@@ -132,7 +132,7 @@ structured_output.maximum.translation:
   other: |-
     Переклад у {{property}} має містити щонайбільше {{maximum}} символу. Скоротіть текст.
 
-structured_output.maximum.avatar_description: 
+structured_output.maximum.avatar_description:
   one: |-
     Опис зображення профілю в {{property}} має містити щонайбільше {{maximum}} символ. Скоротіть текст.
   few: |-
@@ -148,7 +148,7 @@ structured_output.wrong_tool.unnamed: |-
 structured_output.tool_mismatch.unnamed: |-
   Очікувався інструмент {{toolName}}, але отримано виклик інструмента без назви. Натомість викличте {{toolName}}.
 
-structured_output.nonreducing.estimate: 
+structured_output.nonreducing.estimate:
   one: |-
     Підсумок у {{property}} не скоротив контекст. Його орієнтовна довжина — {{replacementTokens}} токен.
   few: |-
@@ -158,7 +158,7 @@ structured_output.nonreducing.estimate:
   other: |-
     Підсумок у {{property}} не скоротив контекст. Його орієнтовна довжина — {{replacementTokens}} токена.
 
-structured_output.nonreducing.before: 
+structured_output.nonreducing.before:
   one: |-
     До заміни контекст містив {{compactedTokens}} токен. Скоротіть підсумок зі збереженням обов’язкових фактів.
   few: |-
@@ -176,4 +176,3 @@ structured_output.nonempty.translation.field: |-
 
 structured_output.nonempty.avatar_description.field: |-
   Поле опису зображення профілю має бути непорожнім рядком. Помістіть текст у {{property}}.
-

@@ -3,4 +3,3 @@ tools.view_profiles.description: |-
 
 tools.view_profiles.properties.usernames.description: |-
   Uno o più u/usernames da visualizzare.
-

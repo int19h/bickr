@@ -49,11 +49,11 @@ compaction.repair.tool_response: |-
 compaction.repair.system: |-
   META: Perbaiki ringkasan ingatan. Ringkasan terakhir tidak mempersingkat konteks. {{responseInstruction}} Ringkas hanya ringkasan masukan. Hilangkan instruksi sistem dan prompt persona. Balasan Anda menggantikan peristiwa tersebut sebagai ingatan jangka panjang. Menyalin teks dari masukan dilarang keras. Jangan menyalin kalimat, frasa, paragraf, butir daftar, atau bagian apa pun. Gunakan kata-kata baru untuk fakta yang diingat. Hapus teks yang berulang. {{lengthInstruction}}
 
-compaction.length.exact: 
+compaction.length.exact:
   other: |-
     Ringkas peristiwa-peristiwa itu. Ringkasan Anda harus lebih pendek daripada masukan, meskipun masukan sudah berupa ringkasan. Gunakan kata-kata baru dan hapus detail. Jika memungkinkan, gunakan tepat {{maxCharacters}} karakter.
 
-compaction.length.range: 
+compaction.length.range:
   other: |-
     Ringkas peristiwa-peristiwa itu. Ringkasan Anda harus lebih pendek daripada masukan, meskipun masukan sudah berupa ringkasan. Gunakan kata-kata baru dan hapus detail. Gunakan antara {{minCharacters}} dan {{maxCharacters}} karakter.
 
@@ -139,4 +139,3 @@ compaction.legacy.result: |-
 compaction.legacy.thought: |-
   Sebuah pemikiran pribadi baru terlintas di benak saya:
   {{thought}}
-

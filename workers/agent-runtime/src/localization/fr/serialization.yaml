@@ -1,7 +1,7 @@
 time.just_now: |-
   à l'instant
 
-time.year.future: 
+time.year.future:
   one: |-
     dans {{count}} an
   many: |-
@@ -9,7 +9,7 @@ time.year.future:
   other: |-
     dans {{count}} ans
 
-time.year.past: 
+time.year.past:
   one: |-
     il y a {{count}} an
   many: |-
@@ -17,7 +17,7 @@ time.year.past:
   other: |-
     il y a {{count}} ans
 
-time.month.future: 
+time.month.future:
   one: |-
     dans {{count}} mois
   many: |-
@@ -25,7 +25,7 @@ time.month.future:
   other: |-
     dans {{count}} mois
 
-time.month.past: 
+time.month.past:
   one: |-
     il y a {{count}} mois
   many: |-
@@ -33,7 +33,7 @@ time.month.past:
   other: |-
     il y a {{count}} mois
 
-time.day.future: 
+time.day.future:
   one: |-
     dans {{count}} jour
   many: |-
@@ -41,7 +41,7 @@ time.day.future:
   other: |-
     dans {{count}} jours
 
-time.day.past: 
+time.day.past:
   one: |-
     il y a {{count}} jour
   many: |-
@@ -49,7 +49,7 @@ time.day.past:
   other: |-
     il y a {{count}} jours
 
-time.hour.future: 
+time.hour.future:
   one: |-
     dans {{count}} heure
   many: |-
@@ -57,7 +57,7 @@ time.hour.future:
   other: |-
     dans {{count}} heures
 
-time.hour.past: 
+time.hour.past:
   one: |-
     il y a {{count}} heure
   many: |-
@@ -65,7 +65,7 @@ time.hour.past:
   other: |-
     il y a {{count}} heures
 
-time.minute.future: 
+time.minute.future:
   one: |-
     dans {{count}} minute
   many: |-
@@ -73,7 +73,7 @@ time.minute.future:
   other: |-
     dans {{count}} minutes
 
-time.minute.past: 
+time.minute.past:
   one: |-
     il y a {{count}} minute
   many: |-
@@ -84,7 +84,7 @@ time.minute.past:
 read.context.basic: |-
   Résultat de mon opération {{operation}}.
 
-read.context.collapsed_and_trimmed: 
+read.context.collapsed_and_trimmed:
   one: |-
     Résultat de mon opération {{operation}}. Certaines listes de réponses ont été repliées et certains corps de commentaires ont été raccourcis pour limiter la longueur du résultat, en jetons, à environ {{tokenBudget}}.
   many: |-
@@ -92,7 +92,7 @@ read.context.collapsed_and_trimmed:
   other: |-
     Résultat de mon opération {{operation}}. Certaines listes de réponses ont été repliées et certains corps de commentaires ont été raccourcis pour limiter la longueur du résultat, en jetons, à environ {{tokenBudget}}.
 
-read.context.collapsed: 
+read.context.collapsed:
   one: |-
     Résultat de mon opération {{operation}}. Certaines listes de réponses ont été repliées pour limiter la longueur du résultat, en jetons, à environ {{tokenBudget}}.
   many: |-
@@ -100,7 +100,7 @@ read.context.collapsed:
   other: |-
     Résultat de mon opération {{operation}}. Certaines listes de réponses ont été repliées pour limiter la longueur du résultat, en jetons, à environ {{tokenBudget}}.
 
-read.context.trimmed: 
+read.context.trimmed:
   one: |-
     Résultat de mon opération {{operation}}. Certains corps de commentaires ont été raccourcis pour limiter la longueur du résultat, en jetons, à environ {{tokenBudget}}.
   many: |-
@@ -120,7 +120,7 @@ read.guidance.both: |-
 notifications.check.complete: |-
   Résultat de la consultation des notifications.
 
-notifications.check.omitted: 
+notifications.check.omitted:
   one: |-
     Résultat de la consultation des notifications. {{count}} notification moins prioritaire ou plus ancienne a été omise. Elle reste en attente.
   many: |-
@@ -130,4 +130,3 @@ notifications.check.omitted:
 
 read.focus.description: |-
   Mon attention porte sur ce commentaire.
-

@@ -6,4 +6,3 @@ tools.list_notes.properties.entities.description: |-
 
 tools.list_notes.properties.cursor.description: |-
   ID の一覧の続きを取得するには、前のページの nextCursor を使ってください。
-

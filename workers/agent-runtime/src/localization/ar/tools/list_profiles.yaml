@@ -9,4 +9,3 @@ tools.list_profiles.properties.limit.description: |-
 
 tools.list_profiles.properties.offset.description: |-
   إزاحة تبدأ من الصفر لـ mode=window. لا تقدّم offset مع mode=random.
-

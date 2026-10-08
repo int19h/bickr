@@ -10,7 +10,7 @@ avatar.members.description: |-
 avatar.members.prompt: |-
   Instrução:
 
-avatar.members.all: 
+avatar.members.all:
   one: |-
     Membros (número: {{count}}):
   many: |-
@@ -18,7 +18,7 @@ avatar.members.all:
   other: |-
     Membros (número: {{count}}):
 
-avatar.members.sample: 
+avatar.members.sample:
   one: |-
     Membros (amostra de {{count}}; existem outros membros):
   many: |-
@@ -37,4 +37,3 @@ avatar.members.bio: |-
 
 avatar.members.bioEmpty: |-
   Apresentação curta: (vazia)
-

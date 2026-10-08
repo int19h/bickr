@@ -1,7 +1,7 @@
 time.just_now: |-
   agora mesmo
 
-time.year.future: 
+time.year.future:
   one: |-
     daqui a {{count}} ano
   many: |-
@@ -9,7 +9,7 @@ time.year.future:
   other: |-
     daqui a {{count}} anos
 
-time.year.past: 
+time.year.past:
   one: |-
     há {{count}} ano
   many: |-
@@ -17,7 +17,7 @@ time.year.past:
   other: |-
     há {{count}} anos
 
-time.month.future: 
+time.month.future:
   one: |-
     daqui a {{count}} mês
   many: |-
@@ -25,7 +25,7 @@ time.month.future:
   other: |-
     daqui a {{count}} meses
 
-time.month.past: 
+time.month.past:
   one: |-
     há {{count}} mês
   many: |-
@@ -33,7 +33,7 @@ time.month.past:
   other: |-
     há {{count}} meses
 
-time.day.future: 
+time.day.future:
   one: |-
     daqui a {{count}} dia
   many: |-
@@ -41,7 +41,7 @@ time.day.future:
   other: |-
     daqui a {{count}} dias
 
-time.day.past: 
+time.day.past:
   one: |-
     há {{count}} dia
   many: |-
@@ -49,7 +49,7 @@ time.day.past:
   other: |-
     há {{count}} dias
 
-time.hour.future: 
+time.hour.future:
   one: |-
     daqui a {{count}} hora
   many: |-
@@ -57,7 +57,7 @@ time.hour.future:
   other: |-
     daqui a {{count}} horas
 
-time.hour.past: 
+time.hour.past:
   one: |-
     há {{count}} hora
   many: |-
@@ -65,7 +65,7 @@ time.hour.past:
   other: |-
     há {{count}} horas
 
-time.minute.future: 
+time.minute.future:
   one: |-
     daqui a {{count}} minuto
   many: |-
@@ -73,7 +73,7 @@ time.minute.future:
   other: |-
     daqui a {{count}} minutos
 
-time.minute.past: 
+time.minute.past:
   one: |-
     há {{count}} minuto
   many: |-
@@ -84,7 +84,7 @@ time.minute.past:
 read.context.basic: |-
   Resultado da minha operação {{operation}}.
 
-read.context.collapsed_and_trimmed: 
+read.context.collapsed_and_trimmed:
   one: |-
     Resultado da minha operação {{operation}}. Algumas listas de respostas foram recolhidas e alguns corpos de comentários foram encurtados para limitar o comprimento do resultado, em tokens, a cerca de {{tokenBudget}}.
   many: |-
@@ -92,7 +92,7 @@ read.context.collapsed_and_trimmed:
   other: |-
     Resultado da minha operação {{operation}}. Algumas listas de respostas foram recolhidas e alguns corpos de comentários foram encurtados para limitar o comprimento do resultado, em tokens, a cerca de {{tokenBudget}}.
 
-read.context.collapsed: 
+read.context.collapsed:
   one: |-
     Resultado da minha operação {{operation}}. Algumas listas de respostas foram recolhidas para limitar o comprimento do resultado, em tokens, a cerca de {{tokenBudget}}.
   many: |-
@@ -100,7 +100,7 @@ read.context.collapsed:
   other: |-
     Resultado da minha operação {{operation}}. Algumas listas de respostas foram recolhidas para limitar o comprimento do resultado, em tokens, a cerca de {{tokenBudget}}.
 
-read.context.trimmed: 
+read.context.trimmed:
   one: |-
     Resultado da minha operação {{operation}}. Alguns corpos de comentários foram encurtados para limitar o comprimento do resultado, em tokens, a cerca de {{tokenBudget}}.
   many: |-
@@ -120,7 +120,7 @@ read.guidance.both: |-
 notifications.check.complete: |-
   Resultado da consulta das notificações.
 
-notifications.check.omitted: 
+notifications.check.omitted:
   one: |-
     Resultado da consulta das notificações. {{count}} notificação de menor prioridade ou mais antiga foi omitida. Continua pendente.
   many: |-
@@ -130,4 +130,3 @@ notifications.check.omitted:
 
 read.focus.description: |-
   O meu foco está neste comentário.
-

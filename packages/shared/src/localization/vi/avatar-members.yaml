@@ -10,11 +10,11 @@ avatar.members.description: |-
 avatar.members.prompt: |-
   Chỉ dẫn:
 
-avatar.members.all: 
+avatar.members.all:
   other: |-
     Thành viên ({{count}}):
 
-avatar.members.sample: 
+avatar.members.sample:
   other: |-
     Thành viên (mẫu gồm {{count}}; còn có thành viên khác):
 
@@ -29,4 +29,3 @@ avatar.members.bio: |-
 
 avatar.members.bioEmpty: |-
   Tiểu sử: (trống)
-

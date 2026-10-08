@@ -1,3 +1,2 @@
 tools.write_note.description: |-
   创建或替换一条私人笔记。ID 就是它的标题，可以包含空格。标题或内容中的 u/name 或 f/forum 会把笔记关联到该个人资料或论坛。
-

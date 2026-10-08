@@ -3,4 +3,3 @@ issue.tool.unknown: |-
 
 issue.tool.duplicateReply: |-
   Komentar yang persis sama ini sudah diposting: {{commentRef}} ({{urlPath}}).
-

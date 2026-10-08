@@ -9,4 +9,3 @@ tools.list_profiles.properties.limit.description: |-
 
 tools.list_profiles.properties.offset.description: |-
   Décalage à partir de zéro pour mode=window. Ne fournissez pas offset avec mode=random.
-

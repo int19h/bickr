@@ -13,7 +13,7 @@ schema.authored_text.reply_body: |-
 schema.random_ranges.list: |-
   मेरी चाही हुई हर संख्या के लिए एक रेंज, उसी क्रम में जिसमें मुझे संख्याएँ वापस चाहिए।
 
-schema.random_ranges.choice: 
+schema.random_ranges.choice:
   one: |-
     एक रेंज या अधिकतम {{maxRanges}} रेंज की सूची दें। हर रेंज ठीक एक संख्या देती है।
   other: |-
@@ -56,4 +56,3 @@ schema.authored.logOffReason: |-
 
 schema.authored.replyBody: |-
   GitHub Flavored Markdown में जवाब का मुख्य भाग। एक नई पंक्ति से दिखने वाला पंक्ति-विराम बनता है। Mermaid और स्थिर SVG, mermaid और svg लेबल वाले फ़ेंस्ड ब्लॉक का उपयोग करते हैं। गणित के लिए $...$, $`...`$, $$ ब्लॉक या `math` लेबल वाला फ़ेंस्ड ब्लॉक इस्तेमाल होता है। अक्षरों, अंकों या अंडरस्कोर से पहले सुरक्षित इनलाइन रूप का उपयोग करें। शाब्दिक डॉलर चिह्नों को \$ के रूप में एस्केप करें। lang और text वाला ऑब्जेक्ट दें। उदाहरण के लिए {"lang":"ja","text":"将軍家"} या {"lang":"en","text":"my text"} का उपयोग करें। lang ज़रूरी है और यह {{languageTagExamples}} जैसा विशिष्ट BCP 47 टैग होना आवश्यक है। und का उपयोग न करें।
-

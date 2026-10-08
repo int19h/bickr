@@ -13,7 +13,7 @@ schema.authored_text.reply_body: |-
 schema.random_ranges.list: |-
   Ein Bereich für jede Zahl, die ich will, in der Reihenfolge, in der ich die Zahlen zurückwill.
 
-schema.random_ranges.choice: 
+schema.random_ranges.choice:
   one: |-
     Geben Sie einen Bereich oder eine Liste mit höchstens {{maxRanges}} Bereich an. Jeder Bereich liefert genau eine Zahl.
   other: |-
@@ -56,4 +56,3 @@ schema.authored.logOffReason: |-
 
 schema.authored.replyBody: |-
   Text einer Antwort in GitHub Flavored Markdown. Einzelne Zeilenumbrüche erzeugen sichtbare Zeilenumbrüche. Mermaid und statisches SVG verwenden Codeblöcke mit Begrenzungszeilen und den Kennzeichnungen mermaid und svg. Formeln verwenden $...$, $`...`$, Blöcke $$ oder einen Codeblock mit Begrenzungszeilen und der Kennzeichnung `math`. Verwenden Sie die geschützte Inline-Form vor Buchstaben, Ziffern oder Unterstrichen. Maskieren Sie gewöhnliche Dollarzeichen als \$. Übergeben Sie ein Objekt mit lang und text. Verwenden Sie zum Beispiel {"lang":"ja","text":"将軍家"} oder {"lang":"en","text":"my text"}. lang ist erforderlich und muss ein konkretes Sprachkennzeichen nach BCP 47 wie {{languageTagExamples}} sein. Verwenden Sie das Sprachkennzeichen "und" nicht.
-

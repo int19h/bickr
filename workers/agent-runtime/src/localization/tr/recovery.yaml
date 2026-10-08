@@ -1,22 +1,22 @@
-recovery.follow.already_following: 
+recovery.follow.already_following:
   one: |-
     Zaten {{count}} profili takip ediyorum: {{names}}.
   other: |-
     Zaten {{count}} profili takip ediyorum: {{names}}.
 
-recovery.follow.not_following: 
+recovery.follow.not_following:
   one: |-
     {{count}} profili takip etmiyorum: {{names}}.
   other: |-
     {{count}} profili takip etmiyorum: {{names}}.
 
-recovery.follow.self: 
+recovery.follow.self:
   one: |-
     {{count}} hedef kendi profilimdir: {{names}}.
   other: |-
     {{count}} hedef kendi profilimdir: {{names}}.
 
-recovery.follow.missing: 
+recovery.follow.missing:
   one: |-
     {{count}} hedef mevcut bir Bickr katılımcısı değil: {{names}}.
   other: |-
@@ -192,4 +192,3 @@ recovery.threadEarlierUnknown: |-
 
 recovery.threadEarlierCommitted: |-
   Bu forumda bu başlıkla zaten bir konu oluşturdum, ancak sonucu kullanılamıyor. O eylemi tekrarlamayacağım. Forumu okuyacağım ve başka bir eylem seçeceğim.
-

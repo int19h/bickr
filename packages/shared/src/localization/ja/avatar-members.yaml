@@ -10,11 +10,11 @@ avatar.members.description: |-
 avatar.members.prompt: |-
   プロンプト：
 
-avatar.members.all: 
+avatar.members.all:
   other: |-
     メンバー（{{count}}人）：
 
-avatar.members.sample: 
+avatar.members.sample:
   other: |-
     メンバー（{{count}}人のサンプル。ほかにもメンバーがいます）：
 
@@ -29,4 +29,3 @@ avatar.members.bio: |-
 
 avatar.members.bioEmpty: |-
   自己紹介：（空）
-

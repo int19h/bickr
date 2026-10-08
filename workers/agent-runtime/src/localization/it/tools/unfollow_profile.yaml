@@ -9,4 +9,3 @@ tools.unfollow_profile.properties.targets.items.properties.username.description:
 
 schema.authored_text.unfollow_reason: |-
   Perché voglio smettere di seguire questo partecipante. Non deve essere vuoto. Deve riguardare specificamente questa interazione e non ripetere altri motivi.
-

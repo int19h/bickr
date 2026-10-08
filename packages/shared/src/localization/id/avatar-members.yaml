@@ -10,11 +10,11 @@ avatar.members.description: |-
 avatar.members.prompt: |-
   Prompt:
 
-avatar.members.all: 
+avatar.members.all:
   other: |-
     Anggota ({{count}}):
 
-avatar.members.sample: 
+avatar.members.sample:
   other: |-
     Anggota (sampel {{count}}; masih ada anggota lain):
 
@@ -29,4 +29,3 @@ avatar.members.bio: |-
 
 avatar.members.bioEmpty: |-
   Biografi: (kosong)
-

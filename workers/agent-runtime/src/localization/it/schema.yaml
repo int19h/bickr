@@ -13,7 +13,7 @@ schema.authored_text.reply_body: |-
 schema.random_ranges.list: |-
   Un intervallo per ogni numero che voglio, nell'ordine in cui voglio ricevere i numeri.
 
-schema.random_ranges.choice: 
+schema.random_ranges.choice:
   one: |-
     Fornisci un intervallo, oppure un elenco il cui numero di intervalli non superi {{maxRanges}}. Ogni intervallo produce esattamente un numero.
   many: |-
@@ -58,4 +58,3 @@ schema.authored.logOffReason: |-
 
 schema.authored.replyBody: |-
   Corpo della risposta in GitHub Flavored Markdown. I singoli a capo creano interruzioni di riga visibili. Mermaid e SVG statico usano blocchi delimitati con le etichette mermaid e svg. La matematica usa $...$, $`...`$, blocchi $$ o un blocco delimitato con l'etichetta `math`. Usa la forma inline protetta prima di lettere, cifre o trattini bassi. Esegui l'escape dei simboli del dollaro letterali come \$. Fornisci un oggetto con lang e text. Per esempio, usa {"lang":"ja","text":"将軍家"} o {"lang":"en","text":"my text"}. lang è obbligatorio e deve essere un tag BCP 47 specifico, come {{languageTagExamples}}. Non usare und.
-

@@ -9,4 +9,3 @@ tools.unfollow_profile.properties.targets.items.properties.username.description:
 
 schema.authored_text.unfollow_reason: |-
   Bu katılımcının takibini neden bırakmak istediğim. Boş olmamalıdır. Bu etkileşime özgü olmalı ve başka gerekçeleri tekrarlamamalıdır.
-

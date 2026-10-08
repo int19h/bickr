@@ -28,7 +28,7 @@ structured_output.missing_tool: |-
 structured_output.wrong_tool: |-
   Uzu nur {{toolName}} por ĉi tiu peto. Ne uzu {{receivedTool}} ĉi tie.
 
-structured_output.tool_count: 
+structured_output.tool_count:
   one: |-
     Estis atendata unu ilvoko {{toolName}}, sed venis {{count}} ilvoko. Voku {{toolName}} precize unufoje.
   other: |-
@@ -46,13 +46,13 @@ structured_output.arguments_object: |-
 structured_output.output_object: |-
   La strukturita eligo devas esti JSON-objekto. Metu {{property}} kaj ĝian tekstan valoron ene de {}.
 
-structured_output.extra_arguments: 
+structured_output.extra_arguments:
   one: |-
     Estas {{count}} neatendita argumento: {{fields}}. Forigu tiun argumenton. Donu nur {{property}}.
   other: |-
     Estas {{count}} neatenditaj argumentoj: {{fields}}. Forigu tiujn argumentojn. Donu nur {{property}}.
 
-structured_output.extra_fields: 
+structured_output.extra_fields:
   one: |-
     Estas {{count}} neatendita kampo: {{fields}}. Forigu tiun kampon. Donu nur {{property}}.
   other: |-
@@ -70,37 +70,37 @@ structured_output.nonempty.avatar_description: |-
 structured_output.transcript: |-
   Skribu la resumon en {{property}} kiel ordinaran unuapersonan prozon. Forigu la transskriban linion {{line}}. Ne skribu liniojn etikeditajn {{labels}}.
 
-structured_output.minimum.compaction: 
+structured_output.minimum.compaction:
   one: |-
     La resumo en {{property}} devas havi almenaŭ {{minimum}} signon. Aldonu rilatajn detalojn al la teksto.
   other: |-
     La resumo en {{property}} devas havi almenaŭ {{minimum}} signojn. Aldonu rilatajn detalojn al la teksto.
 
-structured_output.minimum.translation: 
+structured_output.minimum.translation:
   one: |-
     La traduko en {{property}} devas havi almenaŭ {{minimum}} signon. Aldonu rilatajn detalojn al la teksto.
   other: |-
     La traduko en {{property}} devas havi almenaŭ {{minimum}} signojn. Aldonu rilatajn detalojn al la teksto.
 
-structured_output.minimum.avatar_description: 
+structured_output.minimum.avatar_description:
   one: |-
     La priskribo de la profila bildo en {{property}} devas havi almenaŭ {{minimum}} signon. Aldonu rilatajn detalojn al la teksto.
   other: |-
     La priskribo de la profila bildo en {{property}} devas havi almenaŭ {{minimum}} signojn. Aldonu rilatajn detalojn al la teksto.
 
-structured_output.maximum.compaction: 
+structured_output.maximum.compaction:
   one: |-
     La resumo en {{property}} devas havi maksimume {{maximum}} signon. Mallongigu la tekston.
   other: |-
     La resumo en {{property}} devas havi maksimume {{maximum}} signojn. Mallongigu la tekston.
 
-structured_output.maximum.translation: 
+structured_output.maximum.translation:
   one: |-
     La traduko en {{property}} devas havi maksimume {{maximum}} signon. Mallongigu la tekston.
   other: |-
     La traduko en {{property}} devas havi maksimume {{maximum}} signojn. Mallongigu la tekston.
 
-structured_output.maximum.avatar_description: 
+structured_output.maximum.avatar_description:
   one: |-
     La priskribo de la profila bildo en {{property}} devas havi maksimume {{maximum}} signon. Mallongigu la tekston.
   other: |-
@@ -112,13 +112,13 @@ structured_output.wrong_tool.unnamed: |-
 structured_output.tool_mismatch.unnamed: |-
   La ilo {{toolName}} estis atendata, sed ilvoko sen nomo estis ricevita. Voku {{toolName}} anstataŭe.
 
-structured_output.nonreducing.estimate: 
+structured_output.nonreducing.estimate:
   one: |-
     La resumo en {{property}} ne mallongigis la kuntekston. Ĝia taksita longo estas {{replacementTokens}} ĵetono.
   other: |-
     La resumo en {{property}} ne mallongigis la kuntekston. Ĝia taksita longo estas {{replacementTokens}} ĵetonoj.
 
-structured_output.nonreducing.before: 
+structured_output.nonreducing.before:
   one: |-
     La kunteksto havis {{compactedTokens}} ĵetonon antaŭ anstataŭigo. Mallongigu la resumon konservante la postulatajn faktojn.
   other: |-
@@ -132,4 +132,3 @@ structured_output.nonempty.translation.field: |-
 
 structured_output.nonempty.avatar_description.field: |-
   La kampo de la priskribo de la profila bildo devas esti nemalplena signoĉeno. Metu la tekston en {{property}}.
-

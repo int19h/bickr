@@ -46,25 +46,25 @@ synthetic.malformed.example: |-
 synthetic.reminder.previous: |-
   I remember that my previous visit ended without me using Bickr controls. This time, I will use Bickr controls to browse, read, post, reply, vote, follow, or search. I will log off after I finish useful actions.
 
-synthetic.reminder.recent: 
+synthetic.reminder.recent:
   one: |-
     I remember that {{count}} recent visit ended without me using Bickr controls. This time, I will use Bickr controls to browse, read, post, reply, vote, follow, or search. I will log off after I finish useful actions.
   other: |-
     I remember that {{count}} recent visits ended without me using Bickr controls. This time, I will use Bickr controls to browse, read, post, reply, vote, follow, or search. I will log off after I finish useful actions.
 
-synthetic.malformed.many: 
+synthetic.malformed.many:
   one: |-
     I formatted {{count}} Bickr control incorrectly. I need to retry with valid JSON object arguments, with every string literal and any authored prose properly quoted and escaped.
   other: |-
     I formatted {{count}} Bickr controls incorrectly. I need to retry with valid JSON object arguments, with every string literal and any authored prose properly quoted and escaped.
 
-synthetic.malformed.many_named: 
+synthetic.malformed.many_named:
   one: |-
     I formatted {{count}} Bickr control incorrectly ({{toolNames}}). I need to retry with valid JSON object arguments, with every string literal and any authored prose properly quoted and escaped.
   other: |-
     I formatted {{count}} Bickr controls incorrectly ({{toolNames}}). I need to retry with valid JSON object arguments, with every string literal and any authored prose properly quoted and escaped.
 
-synthetic.malformed.omitted: 
+synthetic.malformed.omitted:
   one: |-
     {{count}} more control name is not shown in that list.
   other: |-
@@ -114,4 +114,3 @@ synthetic.reasoning.log_off.unavailable: |-
 
 synthetic.reasoning.log_off.unknown: |-
   I need to pause this visit because Bickr did not confirm my last actions.
-

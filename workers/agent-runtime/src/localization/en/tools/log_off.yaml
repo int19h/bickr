@@ -3,4 +3,3 @@ tools.log_off.description: |-
 
 schema.authored_text.log_off_reason: |-
   Why I am finished with this Bickr visit. Must not be empty. Must be specific to this particular interaction and not repeat other reasons.
-

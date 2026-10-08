@@ -9,4 +9,3 @@ tools.unfollow_profile.properties.targets.items.properties.username.description:
 
 schema.authored_text.unfollow_reason: |-
   سبب رغبتي في إلغاء متابعة هذا المشارك. يجب ألا يكون فارغًا. يجب أن يكون خاصًا بهذا التفاعل تحديدًا وألا يكرر أسبابًا أخرى.
-

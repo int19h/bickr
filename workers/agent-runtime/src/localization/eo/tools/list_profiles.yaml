@@ -9,4 +9,3 @@ tools.list_profiles.properties.limit.description: |-
 
 tools.list_profiles.properties.offset.description: |-
   Deŝovo ekde nulo por mode=window. Ne donu offset kune kun mode=random.
-

@@ -28,7 +28,7 @@ structured_output.missing_tool: |-
 structured_output.wrong_tool: |-
   Use only {{toolName}} for this request. Do not use {{receivedTool}} here.
 
-structured_output.tool_count: 
+structured_output.tool_count:
   one: |-
     Expected one {{toolName}} tool call, but received {{count}} tool call. Call {{toolName}} exactly once.
   other: |-
@@ -46,13 +46,13 @@ structured_output.arguments_object: |-
 structured_output.output_object: |-
   The structured output must be a JSON object. Put {{property}} and its text value inside {}.
 
-structured_output.extra_arguments: 
+structured_output.extra_arguments:
   one: |-
     There is {{count}} unexpected argument: {{fields}}. Remove that argument. Give only {{property}}.
   other: |-
     There are {{count}} unexpected arguments: {{fields}}. Remove those arguments. Give only {{property}}.
 
-structured_output.extra_fields: 
+structured_output.extra_fields:
   one: |-
     There is {{count}} unexpected field: {{fields}}. Remove that field. Give only {{property}}.
   other: |-
@@ -70,37 +70,37 @@ structured_output.nonempty.avatar_description: |-
 structured_output.transcript: |-
   Write the summary in {{property}} as ordinary first-person prose. Remove the transcript line {{line}}. Do not write lines labeled {{labels}}.
 
-structured_output.minimum.compaction: 
+structured_output.minimum.compaction:
   one: |-
     The summary in {{property}} must be at least {{minimum}} character. Add relevant detail to the text.
   other: |-
     The summary in {{property}} must be at least {{minimum}} characters. Add relevant detail to the text.
 
-structured_output.minimum.translation: 
+structured_output.minimum.translation:
   one: |-
     The translation in {{property}} must be at least {{minimum}} character. Add relevant detail to the text.
   other: |-
     The translation in {{property}} must be at least {{minimum}} characters. Add relevant detail to the text.
 
-structured_output.minimum.avatar_description: 
+structured_output.minimum.avatar_description:
   one: |-
     The profile image description in {{property}} must be at least {{minimum}} character. Add relevant detail to the text.
   other: |-
     The profile image description in {{property}} must be at least {{minimum}} characters. Add relevant detail to the text.
 
-structured_output.maximum.compaction: 
+structured_output.maximum.compaction:
   one: |-
     The summary in {{property}} must be at most {{maximum}} character. Shorten the text.
   other: |-
     The summary in {{property}} must be at most {{maximum}} characters. Shorten the text.
 
-structured_output.maximum.translation: 
+structured_output.maximum.translation:
   one: |-
     The translation in {{property}} must be at most {{maximum}} character. Shorten the text.
   other: |-
     The translation in {{property}} must be at most {{maximum}} characters. Shorten the text.
 
-structured_output.maximum.avatar_description: 
+structured_output.maximum.avatar_description:
   one: |-
     The profile image description in {{property}} must be at most {{maximum}} character. Shorten the text.
   other: |-
@@ -112,13 +112,13 @@ structured_output.wrong_tool.unnamed: |-
 structured_output.tool_mismatch.unnamed: |-
   Expected tool {{toolName}}, but received a tool call without a name. Call {{toolName}} instead.
 
-structured_output.nonreducing.estimate: 
+structured_output.nonreducing.estimate:
   one: |-
     The summary in {{property}} did not reduce the context. Its estimated length is {{replacementTokens}} token.
   other: |-
     The summary in {{property}} did not reduce the context. Its estimated length is {{replacementTokens}} tokens.
 
-structured_output.nonreducing.before: 
+structured_output.nonreducing.before:
   one: |-
     The context had {{compactedTokens}} token before replacement. Shorten the summary while retaining the required facts.
   other: |-
@@ -132,4 +132,3 @@ structured_output.nonempty.translation.field: |-
 
 structured_output.nonempty.avatar_description.field: |-
   The profile image description field must be a nonempty string. Put the text in {{property}}.
-

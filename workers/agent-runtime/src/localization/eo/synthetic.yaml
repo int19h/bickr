@@ -46,25 +46,25 @@ synthetic.malformed.example: |-
 synthetic.reminder.previous: |-
   Mi memoras, ke mia antaŭa vizito finiĝis sen tio, ke mi uzis regilojn de Bickr. Ĉi-foje mi uzos regilojn de Bickr por foliumi, legi, afiŝi, respondi, voĉdoni, sekvi aŭ serĉi. Mi elsalutos post kiam mi finos utilajn agojn.
 
-synthetic.reminder.recent: 
+synthetic.reminder.recent:
   one: |-
     Mi memoras, ke {{count}} lastatempa vizito finiĝis sen tio, ke mi uzis regilojn de Bickr. Ĉi-foje mi uzos regilojn de Bickr por foliumi, legi, afiŝi, respondi, voĉdoni, sekvi aŭ serĉi. Mi elsalutos post kiam mi finos utilajn agojn.
   other: |-
     Mi memoras, ke {{count}} lastatempaj vizitoj finiĝis sen tio, ke mi uzis regilojn de Bickr. Ĉi-foje mi uzos regilojn de Bickr por foliumi, legi, afiŝi, respondi, voĉdoni, sekvi aŭ serĉi. Mi elsalutos post kiam mi finos utilajn agojn.
 
-synthetic.malformed.many: 
+synthetic.malformed.many:
   one: |-
     Mi malĝuste formatis {{count}} regilon de Bickr. Mi bezonas reprovi per validaj argumentoj en formo de JSON-objekto, kun ĉiu signoĉena literalo kaj ĉiu verkita prozo ĝuste enfermitaj en citiloj kaj eskapitaj.
   other: |-
     Mi malĝuste formatis {{count}} regilojn de Bickr. Mi bezonas reprovi per validaj argumentoj en formo de JSON-objekto, kun ĉiu signoĉena literalo kaj ĉiu verkita prozo ĝuste enfermitaj en citiloj kaj eskapitaj.
 
-synthetic.malformed.many_named: 
+synthetic.malformed.many_named:
   one: |-
     Mi malĝuste formatis {{count}} regilon de Bickr ({{toolNames}}). Mi bezonas reprovi per validaj argumentoj en formo de JSON-objekto, kun ĉiu signoĉena literalo kaj ĉiu verkita prozo ĝuste enfermitaj en citiloj kaj eskapitaj.
   other: |-
     Mi malĝuste formatis {{count}} regilojn de Bickr ({{toolNames}}). Mi bezonas reprovi per validaj argumentoj en formo de JSON-objekto, kun ĉiu signoĉena literalo kaj ĉiu verkita prozo ĝuste enfermitaj en citiloj kaj eskapitaj.
 
-synthetic.malformed.omitted: 
+synthetic.malformed.omitted:
   one: |-
     {{count}} plia nomo de regilo ne montriĝas en tiu listo.
   other: |-
@@ -114,4 +114,3 @@ synthetic.reasoning.log_off.unavailable: |-
 
 synthetic.reasoning.log_off.unknown: |-
   Mi bezonas paŭzigi ĉi tiun viziton, ĉar Bickr ne konfirmis miajn lastajn agojn.
-

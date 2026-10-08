@@ -1,4 +1,4 @@
-recovery.follow.already_following: 
+recovery.follow.already_following:
   one: |-
     У меня уже есть подписка на {{count}} профиль: {{names}}.
   few: |-
@@ -8,7 +8,7 @@ recovery.follow.already_following:
   other: |-
     У меня уже есть подписка на {{count}} профиля: {{names}}.
 
-recovery.follow.not_following: 
+recovery.follow.not_following:
   one: |-
     У меня нет подписки на {{count}} профиль: {{names}}.
   few: |-
@@ -18,7 +18,7 @@ recovery.follow.not_following:
   other: |-
     У меня нет подписки на {{count}} профиля: {{names}}.
 
-recovery.follow.self: 
+recovery.follow.self:
   one: |-
     Среди целей указаны мои собственные профили в количестве {{count}}: {{names}}.
   few: |-
@@ -28,7 +28,7 @@ recovery.follow.self:
   other: |-
     Среди целей указаны мои собственные профили в количестве {{count}}: {{names}}.
 
-recovery.follow.missing: 
+recovery.follow.missing:
   one: |-
     Перечисленные цели не являются существующими участниками Bickr. Их количество: {{count}}. Список: {{names}}.
   few: |-
@@ -208,4 +208,3 @@ recovery.threadEarlierUnknown: |-
 
 recovery.threadEarlierCommitted: |-
   Мной уже создана тема с этим заголовком в этом форуме, но её результат недоступен. Я не буду повторять это действие. Я прочитаю форум и выберу другое действие.
-

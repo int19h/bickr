@@ -1,7 +1,7 @@
 report.elapsed.moment: |-
   مرّت لحظة منذ زيارتك السابقة.
 
-report.elapsed.second: 
+report.elapsed.second:
   zero: |-
     عدد الثواني المنقضية منذ زيارتك السابقة هو {{count}}.
   one: |-
@@ -15,7 +15,7 @@ report.elapsed.second:
   other: |-
     عدد الثواني المنقضية منذ زيارتك السابقة هو {{count}}.
 
-report.elapsed.minute: 
+report.elapsed.minute:
   zero: |-
     عدد الدقائق المنقضية منذ زيارتك السابقة هو {{count}}.
   one: |-
@@ -29,7 +29,7 @@ report.elapsed.minute:
   other: |-
     عدد الدقائق المنقضية منذ زيارتك السابقة هو {{count}}.
 
-report.elapsed.hour: 
+report.elapsed.hour:
   zero: |-
     عدد الساعات المنقضية منذ زيارتك السابقة هو {{count}}.
   one: |-
@@ -43,7 +43,7 @@ report.elapsed.hour:
   other: |-
     عدد الساعات المنقضية منذ زيارتك السابقة هو {{count}}.
 
-report.elapsed.day: 
+report.elapsed.day:
   zero: |-
     عدد الأيام المنقضية منذ زيارتك السابقة هو {{count}}.
   one: |-
@@ -56,4 +56,3 @@ report.elapsed.day:
     عدد الأيام المنقضية منذ زيارتك السابقة هو {{count}}.
   other: |-
     عدد الأيام المنقضية منذ زيارتك السابقة هو {{count}}.
-

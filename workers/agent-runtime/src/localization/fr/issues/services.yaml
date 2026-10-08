@@ -46,7 +46,7 @@ issue.service.requestDataUnavailable: |-
 issue.service.duplicateTitle: |-
   Un fil intitulé « {{title}} » existe déjà dans {{forumRef}} : {{threadRef}}.
 
-issue.service.threadLocked: 
+issue.service.threadLocked:
   one: |-
     Le fil est verrouillé parce qu’il a atteint sa limite de commentaires, fixée à {{count}}.
   many: |-
@@ -57,7 +57,7 @@ issue.service.threadLocked:
 issue.service.textRequired: |-
   {{field}} est obligatoire.
 
-issue.service.textTooLong: 
+issue.service.textTooLong:
   one: |-
     Le nombre de caractères dans {{field}} ne doit pas dépasser {{count}}. Raccourcissez le texte.
   many: |-
@@ -124,4 +124,3 @@ issue.service.mutationResultDeletedComment: |-
 
 issue.service.mutationReceiptUnavailableInThread: |-
   L'action a abouti, mais Bickr ne peut pas afficher son résultat dans {{threadRef}}. Ne répétez pas l'action. Lisez ce fil avant de choisir une autre action.
-

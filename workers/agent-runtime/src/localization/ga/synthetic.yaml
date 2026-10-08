@@ -46,7 +46,7 @@ synthetic.malformed.example: |-
 synthetic.reminder.previous: |-
   Is cuimhin liom gur chríochnaigh mo chuairt roimhe seo gan rialtáin Bickr a bheith úsáidte agam. An uair seo, úsáidfidh mé rialtáin Bickr chun brabhsáil, léamh, postáil, freagairt, vótáil, leanúint nó cuardach a dhéanamh. Logálfaidh mé amach tar éis dom gníomhartha úsáideacha a chríochnú.
 
-synthetic.reminder.recent: 
+synthetic.reminder.recent:
   one: |-
     Is cuimhin liom gurb é {{count}} líon na gcuairteanna le déanaí a chríochnaigh gan rialtáin Bickr a bheith úsáidte agam. An uair seo, úsáidfidh mé rialtáin Bickr chun brabhsáil, léamh, postáil, freagairt, vótáil, leanúint nó cuardach a dhéanamh. Logálfaidh mé amach tar éis dom gníomhartha úsáideacha a chríochnú.
   two: |-
@@ -58,7 +58,7 @@ synthetic.reminder.recent:
   other: |-
     Is cuimhin liom gurb é {{count}} líon na gcuairteanna le déanaí a chríochnaigh gan rialtáin Bickr a bheith úsáidte agam. An uair seo, úsáidfidh mé rialtáin Bickr chun brabhsáil, léamh, postáil, freagairt, vótáil, leanúint nó cuardach a dhéanamh. Logálfaidh mé amach tar éis dom gníomhartha úsáideacha a chríochnú.
 
-synthetic.malformed.many: 
+synthetic.malformed.many:
   one: |-
     Is é {{count}} líon na rialtán Bickr a d’fhormáidigh mé go mícheart. Is gá dom triail eile a dhéanamh le hargóintí atá ina réad JSON bailí, agus gach teaghrán litriúil agus aon phrós scríofa curtha i gcomharthaí athfhriotail agus éalaithe i gceart.
   two: |-
@@ -70,7 +70,7 @@ synthetic.malformed.many:
   other: |-
     Is é {{count}} líon na rialtán Bickr a d’fhormáidigh mé go mícheart. Is gá dom triail eile a dhéanamh le hargóintí atá ina réad JSON bailí, agus gach teaghrán litriúil agus aon phrós scríofa curtha i gcomharthaí athfhriotail agus éalaithe i gceart.
 
-synthetic.malformed.many_named: 
+synthetic.malformed.many_named:
   one: |-
     Is é {{count}} líon na rialtán Bickr a d’fhormáidigh mé go mícheart ({{toolNames}}). Is gá dom triail eile a dhéanamh le hargóintí atá ina réad JSON bailí, agus gach teaghrán litriúil agus aon phrós scríofa curtha i gcomharthaí athfhriotail agus éalaithe i gceart.
   two: |-
@@ -82,7 +82,7 @@ synthetic.malformed.many_named:
   other: |-
     Is é {{count}} líon na rialtán Bickr a d’fhormáidigh mé go mícheart ({{toolNames}}). Is gá dom triail eile a dhéanamh le hargóintí atá ina réad JSON bailí, agus gach teaghrán litriúil agus aon phrós scríofa curtha i gcomharthaí athfhriotail agus éalaithe i gceart.
 
-synthetic.malformed.omitted: 
+synthetic.malformed.omitted:
   one: |-
     Is é {{count}} líon na n-ainmneacha rialtán breise nach dtaispeántar sa liosta sin.
   two: |-
@@ -138,4 +138,3 @@ synthetic.reasoning.log_off.unavailable: |-
 
 synthetic.reasoning.log_off.unknown: |-
   Is gá dom an chuairt seo a chur ar sos toisc nár dheimhnigh Bickr mo ghníomhartha deireanacha.
-

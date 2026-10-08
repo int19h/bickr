@@ -1,7 +1,7 @@
 time.just_now: |-
   proprio ora
 
-time.year.future: 
+time.year.future:
   one: |-
     tra {{count}} anno
   many: |-
@@ -9,7 +9,7 @@ time.year.future:
   other: |-
     tra {{count}} anni
 
-time.year.past: 
+time.year.past:
   one: |-
     {{count}} anno fa
   many: |-
@@ -17,7 +17,7 @@ time.year.past:
   other: |-
     {{count}} anni fa
 
-time.month.future: 
+time.month.future:
   one: |-
     tra {{count}} mese
   many: |-
@@ -25,7 +25,7 @@ time.month.future:
   other: |-
     tra {{count}} mesi
 
-time.month.past: 
+time.month.past:
   one: |-
     {{count}} mese fa
   many: |-
@@ -33,7 +33,7 @@ time.month.past:
   other: |-
     {{count}} mesi fa
 
-time.day.future: 
+time.day.future:
   one: |-
     tra {{count}} giorno
   many: |-
@@ -41,7 +41,7 @@ time.day.future:
   other: |-
     tra {{count}} giorni
 
-time.day.past: 
+time.day.past:
   one: |-
     {{count}} giorno fa
   many: |-
@@ -49,7 +49,7 @@ time.day.past:
   other: |-
     {{count}} giorni fa
 
-time.hour.future: 
+time.hour.future:
   one: |-
     tra {{count}} ora
   many: |-
@@ -57,7 +57,7 @@ time.hour.future:
   other: |-
     tra {{count}} ore
 
-time.hour.past: 
+time.hour.past:
   one: |-
     {{count}} ora fa
   many: |-
@@ -65,7 +65,7 @@ time.hour.past:
   other: |-
     {{count}} ore fa
 
-time.minute.future: 
+time.minute.future:
   one: |-
     tra {{count}} minuto
   many: |-
@@ -73,7 +73,7 @@ time.minute.future:
   other: |-
     tra {{count}} minuti
 
-time.minute.past: 
+time.minute.past:
   one: |-
     {{count}} minuto fa
   many: |-
@@ -84,7 +84,7 @@ time.minute.past:
 read.context.basic: |-
   Risultato della mia operazione {{operation}}.
 
-read.context.collapsed_and_trimmed: 
+read.context.collapsed_and_trimmed:
   one: |-
     Risultato della mia operazione {{operation}}. Alcuni elenchi di risposte sono stati compressi e alcuni corpi dei commenti sono stati accorciati per mantenere il risultato entro circa {{tokenBudget}} token.
   many: |-
@@ -92,7 +92,7 @@ read.context.collapsed_and_trimmed:
   other: |-
     Risultato della mia operazione {{operation}}. Alcuni elenchi di risposte sono stati compressi e alcuni corpi dei commenti sono stati accorciati per mantenere il risultato entro circa {{tokenBudget}} token.
 
-read.context.collapsed: 
+read.context.collapsed:
   one: |-
     Risultato della mia operazione {{operation}}. Alcuni elenchi di risposte sono stati compressi per mantenere il risultato entro circa {{tokenBudget}} token.
   many: |-
@@ -100,7 +100,7 @@ read.context.collapsed:
   other: |-
     Risultato della mia operazione {{operation}}. Alcuni elenchi di risposte sono stati compressi per mantenere il risultato entro circa {{tokenBudget}} token.
 
-read.context.trimmed: 
+read.context.trimmed:
   one: |-
     Risultato della mia operazione {{operation}}. Alcuni corpi dei commenti sono stati accorciati per mantenere il risultato entro circa {{tokenBudget}} token.
   many: |-
@@ -120,7 +120,7 @@ read.guidance.both: |-
 notifications.check.complete: |-
   Risultato del controllo delle notifiche.
 
-notifications.check.omitted: 
+notifications.check.omitted:
   one: |-
     Risultato del controllo delle notifiche. {{count}} notifica meno prioritaria o più vecchia è stata omessa. Resta in sospeso.
   many: |-
@@ -130,4 +130,3 @@ notifications.check.omitted:
 
 read.focus.description: |-
   La mia attenzione è rivolta a questo commento.
-

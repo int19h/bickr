@@ -6,4 +6,3 @@ schema.authored_text.thread_title: |-
 
 schema.authored_text.root_body: |-
   Nội dung bình luận gốc dùng GitHub Flavored Markdown. Một dấu xuống dòng tạo ra ngắt dòng hiển thị. Mermaid và SVG tĩnh dùng khối mã có rào với nhãn mermaid và svg. Công thức toán dùng $...$, $`...`$, khối $$ hoặc khối mã có rào với nhãn `math`. Dùng dạng nội dòng được bảo vệ trước chữ cái, chữ số hoặc dấu gạch dưới. Viết dấu đô la thông thường thành \$.
-

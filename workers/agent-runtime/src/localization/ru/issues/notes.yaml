@@ -1,7 +1,7 @@
 issue.note.id.type: |-
   Параметр id должен быть текстом. Укажите в id заголовок заметки. Для существующей заметки скопируйте ID из list_notes.
 
-issue.note.id.length: 
+issue.note.id.length:
   one: |-
     Количество символов в id после нормализации должно быть в пределах {{minimum}}-{{maximum}}. Укажите заголовок заметки в id. Для существующей заметки скопируйте ID из list_notes.
   few: |-
@@ -17,7 +17,7 @@ issue.note.id.characters: |-
 issue.note.cursor.type: |-
   Параметр cursor должен быть текстом. Скопируйте nextCursor из предыдущего результата list_notes. Чтобы начать новый список, не указывайте cursor.
 
-issue.note.cursor.length: 
+issue.note.cursor.length:
   one: |-
     Количество символов в cursor после нормализации должно быть в пределах {{minimum}}-{{maximum}}. Скопируйте nextCursor из предыдущего результата list_notes. Чтобы начать новый список, не передавайте cursor.
   few: |-
@@ -30,7 +30,7 @@ issue.note.cursor.length:
 issue.note.cursor.characters: |-
   cursor может содержать только буквы, комбинируемые знаки, числа, знаки пунктуации, символы и пробелы. Скопируйте nextCursor из предыдущего результата list_notes. Чтобы начать новый список, не передавайте cursor.
 
-issue.note.content: 
+issue.note.content:
   one: |-
     Параметр content должен быть текстом с количеством символов в пределах 1-{{max}}. Передайте полный текст заметки в content.
   few: |-
@@ -40,7 +40,7 @@ issue.note.content:
   other: |-
     Параметр content должен быть текстом с количеством символов в пределах 1-{{max}}. Передайте полный текст заметки в content.
 
-issue.note.entities.array: 
+issue.note.entities.array:
   one: |-
     Параметр entities должен быть массивом имён с префиксом f/ или u/, количество которых не превышает {{max}}. Например, используйте {"entities":["u/alice"]}.
   few: |-
@@ -53,7 +53,7 @@ issue.note.entities.array:
 issue.note.entities.entry: |-
   Каждый элемент entities должен быть одним именем с префиксом f/ или u/. Например, используйте {"entities":["u/alice","f/news"]}.
 
-issue.note.references: 
+issue.note.references:
   one: |-
     Заметка может ссылаться в общей сложности не более чем на {{max}} отдельный профиль или форум. Удалите часть ссылок из заголовка или содержимого.
   few: |-
@@ -63,7 +63,7 @@ issue.note.references:
   other: |-
     Заметка может ссылаться в общей сложности не более чем на {{max}} отдельного профиля или форума. Удалите часть ссылок из заголовка или содержимого.
 
-issue.note.capacity: 
+issue.note.capacity:
   one: |-
     Вы можете хранить не более {{max}} заметки. Замените существующую заметку или удалите ненужную заметку, прежде чем создать новую.
   few: |-
@@ -84,4 +84,3 @@ issue.tool.commentNotFound: |-
 
 issue.tool.forumNotFound: |-
   Форум не найден.
-

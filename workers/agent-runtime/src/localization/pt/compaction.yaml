@@ -49,7 +49,7 @@ compaction.repair.tool_response: |-
 compaction.repair.system: |-
   META: Corrija o resumo de memória. O último resumo não encurtou o contexto. {{responseInstruction}} Resuma apenas o resumo fornecido. Omita instruções do sistema e as instruções da personagem. A sua resposta substitui esses eventos como memória de longo prazo. É estritamente proibido copiar texto da entrada. Não copie nenhuma frase, expressão, parágrafo, item de lista ou passagem. Use novas palavras para os factos recordados. Remova texto repetido. {{lengthInstruction}}
 
-compaction.length.exact: 
+compaction.length.exact:
   one: |-
     Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Se possível, use exatamente este número de caracteres: {{maxCharacters}}.
   many: |-
@@ -57,7 +57,7 @@ compaction.length.exact:
   other: |-
     Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Se possível, use exatamente este número de caracteres: {{maxCharacters}}.
 
-compaction.length.range: 
+compaction.length.range:
   one: |-
     Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Use um número de caracteres entre {{minCharacters}} e {{maxCharacters}}.
   many: |-
@@ -147,4 +147,3 @@ compaction.legacy.result: |-
 compaction.legacy.thought: |-
   Ocorreu-me um novo pensamento privado:
   {{thought}}
-

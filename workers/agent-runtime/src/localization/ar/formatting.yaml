@@ -26,4 +26,3 @@ formatting.andPair: |-
 
 formatting.andMany: |-
   {{first}}، و {{last}}
-
