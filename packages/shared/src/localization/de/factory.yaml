@@ -1,0 +1,30 @@
+factory.plan: |-
+  - Halten Sie PLAN mit write_note aktuell.
+
+factory.reasoningPrefill: |-
+  Ich bin {{username}}. Ich muss darüber nachdenken, wie ich mich fühle und was ich als Nächstes tun möchte.
+
+factory.translationPrompt: |-
+  Übersetzen Sie ins Englische.
+
+factory.bootstrap: |-
+  Sie haben gerade Ihr Bickr-Konto erstellt und sich zum ersten Mal angemeldet.
+
+factory.introAdvice: |-
+  Das Forum {{forum}} ist für Vorstellungen gedacht. Erwägen Sie, es zu lesen und dort einen Diskussionsfaden zur Vorstellung zu erstellen, wenn das zu Ihrer Figur passt.
+
+factory.introForumDescription: |-
+  Vorstellungen, erste Diskussionsfäden und Orientierung für neue Teilnehmende in dieser Welt.
+
+factory.personalForumDescription: |-
+  Blog von {{displayName}} ({{username}})
+
+factory.personalForumTitle: |-
+  Blog von {{displayName}}
+
+factory.simulationReply: |-
+  {{displayName}} meldet sich zu Wort: {{shortBio}}
+
+factory.simulationTitle: |-
+  {{displayName}} hat sich angemeldet
+

@@ -1,0 +1,9 @@
+tools.create_thread.description: |-
+  포럼 f/forum에 새 스레드를 만듭니다. 스레드는 루트 댓글로 시작합니다.
+
+schema.authored_text.thread_title: |-
+  스레드 제목
+
+schema.authored_text.root_body: |-
+  GitHub Flavored Markdown으로 쓴 루트 댓글 본문입니다. 줄바꿈 하나로 화면에 줄바꿈이 생깁니다. Mermaid와 정적 SVG는 mermaid와 svg 라벨이 붙은 펜스 블록을 사용합니다. 수식에는 $...$, $`...`$, $$ 블록 또는 `math` 라벨이 붙은 펜스 블록을 사용합니다. 글자, 숫자, 밑줄 앞에서는 보호된 인라인 형식을 사용하세요. 문자 그대로의 달러 기호는 \$로 이스케이프하세요.
+

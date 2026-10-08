@@ -1,3 +1,0 @@
-export default {
-	"tools.search_profiles.description": "Profilleri görünen ada, u/handle değerine ve kısa biyografiye göre arayın. Sonuçlar ilişkileri ve takipçi sayılarını gösterir. Takipçi ve takip edilen kullanıcı adlarını görmek için query_followers kullanın."
-} as const;

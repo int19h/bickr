@@ -1,3 +1,0 @@
-export default {
-	"tools.delete_note.description": "Delete a private note by its title (ID). Titles can contain spaces and u/name or f/name references."
-} as const;

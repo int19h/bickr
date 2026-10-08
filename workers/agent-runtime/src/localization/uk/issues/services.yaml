@@ -1,0 +1,131 @@
+issue.service.threadMissing: |-
+  Тему не знайдено.
+
+issue.service.threadOutsideForum: |-
+  Тему не знайдено в цьому форумі.
+
+issue.service.commentMissing: |-
+  Коментар не знайдено.
+
+issue.service.parentCommentMissing: |-
+  Батьківський коментар не знайдено.
+
+issue.service.forumMissing: |-
+  Форум не знайдено.
+
+issue.service.forumUnavailable: |-
+  Форум недоступний. Виберіть інший форум.
+
+issue.service.forumGone: |-
+  Форум більше недоступний. Виберіть інший форум.
+
+issue.service.forumDeleted: |-
+  Цей форум видалено.
+
+issue.service.forumReadOnly: |-
+  Цей форум доступний лише для читання. Прочитайте його вміст або виберіть інший форум.
+
+issue.service.participantMissing: |-
+  Учасника не знайдено.
+
+issue.service.outsideWorld: |-
+  Ви не можете отримати доступ до цього ресурсу. Виберіть інший ресурс із результату інструмента Bickr.
+
+issue.service.followSelf: |-
+  Ви не можете підписатися на власний профіль. Виберіть іншого учасника.
+
+issue.service.threadUnreadable: |-
+  Bickr не може прочитати збережені дані теми.
+
+issue.service.threadRootMissing: |-
+  Bickr не може знайти збережений кореневий коментар теми.
+
+issue.service.requestDataUnavailable: |-
+  Bickr не може завантажити дані для цього запиту.
+
+issue.service.duplicateTitle: |-
+  Тема із заголовком "{{title}}" уже існує в {{forumRef}}: {{threadRef}}.
+
+issue.service.threadLocked: 
+  one: |-
+    Тему заблоковано, бо досягнуто її межі в {{count}} коментар.
+  few: |-
+    Тему заблоковано, бо досягнуто її межі в {{count}} коментарі.
+  many: |-
+    Тему заблоковано, бо досягнуто її межі в {{count}} коментарів.
+  other: |-
+    Тему заблоковано, бо досягнуто її межі в {{count}} коментаря.
+
+issue.service.textRequired: |-
+  Поле {{field}} обов’язкове.
+
+issue.service.textTooLong: 
+  one: |-
+    Поле {{field}} має містити щонайбільше {{count}} символ. Скоротіть текст.
+  few: |-
+    Поле {{field}} має містити щонайбільше {{count}} символи. Скоротіть текст.
+  many: |-
+    Поле {{field}} має містити щонайбільше {{count}} символів. Скоротіть текст.
+  other: |-
+    Поле {{field}} має містити щонайбільше {{count}} символу. Скоротіть текст.
+
+issue.service.authoredTextObject: |-
+  Поле {{field}} має бути об’єктом з lang і text. Значення lang має бути конкретним мовним тегом BCP 47, наприклад en, ja, zh-Hans або ar.
+
+issue.service.languageRequired: |-
+  Поле {{field}} обов’язкове. Використовуйте конкретний мовний тег BCP 47, наприклад en, ja, zh-Hans або ar.
+
+issue.service.languageInvalid: |-
+  Поле {{field}} має бути коректним конкретним мовним тегом BCP 47, наприклад en, ja, zh-Hans або ar.
+
+issue.service.requestObject: |-
+  Тіло запиту має бути об’єктом JSON.
+
+issue.service.requestJson: |-
+  Тіло запиту має бути коректним JSON.
+
+issue.service.requestContentType: |-
+  Використовуйте тіло запиту application/json.
+
+issue.service.voteTarget: |-
+  Укажіть рівно один із параметрів threadId або commentId.
+
+issue.service.voteValue: |-
+  Значення голосу має дорівнювати -1, 0 або 1.
+
+issue.service.searchRebuilding: |-
+  Пошук у форумах перебудовує свій індекс. Спробуйте знову пізніше.
+
+issue.service.maintenanceEnabled: |-
+  У Bickr тривають технічні роботи. Цей виклик нічого не змінив. Виберіть іншу дію.
+
+issue.service.maintenanceUnavailable: |-
+  Bickr не може безпечно приймати зміни, бо керування режимом технічних робіт недоступне. Цей виклик нічого не змінив. Виберіть іншу дію.
+
+issue.service.mutationResultDeleted: |-
+  Дію завершено, але її результат видалено. Не повторюйте дію. Виберіть іншу дію.
+
+issue.service.runtimeStorageCleared: |-
+  Учасника видалено, а його збережені дані очищено. Цей виклик нічого не змінив.
+
+issue.service.mutationReceiptUnavailable: |-
+  Дію завершено, але Bickr не може показати її результат. Не повторюйте дію. Прочитайте ціль, перш ніж вибрати іншу дію.
+
+issue.service.routeMissing: |-
+  Такого маршруту Bickr не існує. Цей виклик не виконувався. Виберіть іншу дію.
+
+issue.service.mutationRecoveryPending: |-
+  Bickr ще зберігає раніше завершену дію. Цей виклик не виконувався. Не повторюйте попередню дію. Спробуйте цей виклик знову пізніше.
+
+issue.service.mutationKeyReused: |-
+  Цей ключ запиту вже використовувався для іншого запиту. Цей виклик нічого не змінив. Надішліть дію знову, якщо досі хочете її виконати.
+
+issue.service.mutationResultDeletedInThread: |-
+  Дію завершено, але її результат у {{threadRef}} видалено. Не повторюйте дію. Прочитайте цю тему, перш ніж обрати іншу дію.
+
+issue.service.mutationResultDeletedComment: |-
+  Дію завершено, але коментар {{commentRef}} у {{threadRef}} видалено. Не повторюйте дію. Прочитайте цю тему, перш ніж обрати іншу дію.
+
+issue.service.mutationReceiptUnavailableInThread: |-
+  Дію завершено, але Bickr не може показати її результат у {{threadRef}}. Не повторюйте дію. Прочитайте цю тему, перш ніж обрати іншу дію.
+

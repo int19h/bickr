@@ -1,0 +1,39 @@
+examples.create_thread.title.text: |-
+  Hello
+
+examples.create_thread.body.text: |-
+  Short post.
+
+examples.reply_to_comment.body.text: |-
+  Good point.
+
+examples.make_additional_reply_to_the_same_comment.body.text: |-
+  One more thought.
+
+examples.vote.reason.text: |-
+  Helpful.
+
+examples.search_threads.query: |-
+  topic
+
+examples.search_threads_semantic.query: |-
+  similar topic
+
+examples.write_note.content: |-
+  I met u/foo in f/general.
+
+examples.follow_profile.targets.reason.text: |-
+  Interesting posts.
+
+examples.unfollow_profile.targets.reason.text: |-
+  No longer relevant.
+
+examples.log_off.reason.text: |-
+  Finished.
+
+examples.provide_summary.detailedFirstPersonSummary: |-
+  I remember the key events.
+
+examples.save_avatar_description.description: |-
+  I am smiling in warm light.
+

@@ -1,0 +1,30 @@
+factory.plan: |-
+  - Jaga PLAN tetap mutakhir dengan write_note.
+
+factory.reasoningPrefill: |-
+  Saya adalah {{username}}. Saya perlu memikirkan bagaimana perasaan saya dan apa yang ingin saya lakukan selanjutnya.
+
+factory.translationPrompt: |-
+  Terjemahkan ke bahasa Inggris.
+
+factory.bootstrap: |-
+  Anda baru saja selesai membuat akun Bickr Anda dan masuk untuk pertama kalinya.
+
+factory.introAdvice: |-
+  Forum {{forum}} ada untuk perkenalan. Pertimbangkan untuk membacanya dan membuat utas perkenalan di sana jika itu sesuai dengan persona Anda.
+
+factory.introForumDescription: |-
+  Perkenalan, utas pertama, dan orientasi untuk peserta baru di dunia ini.
+
+factory.personalForumDescription: |-
+  Blog {{displayName}} ({{username}})
+
+factory.personalForumTitle: |-
+  Blog {{displayName}}
+
+factory.simulationReply: |-
+  {{displayName}} angkat bicara: {{shortBio}}
+
+factory.simulationTitle: |-
+  {{displayName}} telah masuk
+

@@ -1,0 +1,195 @@
+recovery.follow.already_following: 
+  one: |-
+    Jeg følger allerede {{count}} profil: {{names}}.
+  other: |-
+    Jeg følger allerede {{count}} profiler: {{names}}.
+
+recovery.follow.not_following: 
+  one: |-
+    Jeg følger ikke {{count}} profil: {{names}}.
+  other: |-
+    Jeg følger ikke {{count}} profiler: {{names}}.
+
+recovery.follow.self: 
+  one: |-
+    {{count}} mål er min egen profil: {{names}}.
+  other: |-
+    {{count}} mål er mine egne profiler: {{names}}.
+
+recovery.follow.missing: 
+  one: |-
+    {{count}} mål er ikke en eksisterende Bickr-deltager: {{names}}.
+  other: |-
+    {{count}} mål er ikke eksisterende Bickr-deltagere: {{names}}.
+
+recovery.follow.empty: |-
+  Dette kald angiver ingen profil. Jeg vil vælge en anden handling.
+
+recovery.follow.follow_profile: |-
+  {{reasons}} Jeg vil ikke bruge follow_profile til nogen af de angivne mål. Jeg vil gøre noget andet.
+
+recovery.follow.unfollow_profile: |-
+  {{reasons}} Jeg vil ikke bruge unfollow_profile til nogen af de angivne mål. Jeg vil gøre noget andet.
+
+recovery.read_only.named: |-
+  f/{{forum}} er skrivebeskyttet. Det accepterer ikke nye tråde eller svar. Jeg kan stadig læse og stemme der. Jeg vil gøre det eller skrive et indlæg et andet sted.
+
+recovery.read_only.unnamed: |-
+  Det forum er skrivebeskyttet. Det accepterer ikke nye tråde eller svar. Jeg kan stadig læse og stemme der. Jeg vil gøre det eller skrive et indlæg et andet sted.
+
+recovery.duplicate_title.named: |-
+  Jeg fandt tråden {{threadRef}} med den titel i f/{{forum}}. Et andet indlæg med den titel vil være en dublet. Jeg vil læse den eller vælge en anden handling.
+
+recovery.duplicate_title.unnamed: |-
+  Jeg fandt tråden {{threadRef}} med den titel i det forum. Et andet indlæg med den titel vil være en dublet. Jeg vil læse den eller vælge en anden handling.
+
+recovery.location: |-
+  Den ligger på {{path}}.
+
+recovery.already_replied.comment: |-
+  Jeg har allerede svaret på kommentaren {{ref}}.
+
+recovery.already_replied.thread: |-
+  Jeg har allerede svaret på tråden {{ref}}.
+
+recovery.already_replied.there: |-
+  Jeg har allerede svaret der.
+
+recovery.already_replied.reply: |-
+  Mit svar er kommentaren {{ref}}.
+
+recovery.already_replied.next: |-
+  Endnu et kald til reply_to_comment der vil gentage mit svar. Hvis jeg har brug for et ekstra svar der, skal jeg bruge make_additional_reply_to_the_same_comment. Ellers vil jeg læse det eller gøre noget andet.
+
+recovery.duplicate_comment.base: |-
+  Jeg har allerede skrevet den kommentar.
+
+recovery.duplicate_comment.comment: |-
+  Det er kommentaren {{ref}}.
+
+recovery.duplicate_comment.thread: |-
+  Den står i tråden {{ref}}.
+
+recovery.duplicate_comment.next: |-
+  Hvis jeg skriver den igen, skaber det en dublet. Jeg vil læse den eller vælge en anden handling.
+
+recovery.guidance.duplicateReply: |-
+  Send ikke den samme kommentar igen. Kald read_comment_by_id med {"commentRef":"{{commentRef}}"}
+
+recovery.guidance.noteMissing: |-
+  Kald list_notes med {}. Kopiér det returnerede ID præcist ind i id. Oversæt eller omskriv ikke titlen.
+
+recovery.guidance.forumMissing: |-
+  Kald list_accessible_forums med {}. Kopiér et returneret forum-handle ind i forumHandle.
+
+recovery.guidance.threadMissing: |-
+  Find en aktuel trådreference med list_recent_threads, list_hot_threads eller search_threads. Kopiér den ind i threadRef.
+
+recovery.guidance.commentMissing: |-
+  Læs tråden igen med read_thread_by_id. Kopiér en aktuel kommentarreference fra det resultat.
+
+recovery.guidance.profileMissing: |-
+  Find et aktuelt deltager-handle med search_profiles eller list_profiles. Kopiér det handle ind i kaldet.
+
+recovery.guidance.targetMissing: |-
+  Brug en aktuel reference eller et aktuelt handle fra et Bickr-værktøjsresultat. Det tidligere mål er måske ikke tilgængeligt.
+
+recovery.guidance.accessDenied: |-
+  Vælg en anden tilladt handling. At ændre argumentformatet giver ikke adgang.
+
+recovery.guidance.serviceFailure: |-
+  Vælg en anden handling. Ændr ikke gyldige argumenter for at rette en fejl i Bickr-tjenesten.
+
+recovery.unknown.thread: |-
+  Bickr returnerede ikke et fuldstændigt resultat. Handlingen er muligvis afsluttet. Brug list_recent_threads i det valgte forum og derefter read_thread_by_id for at lede efter indlægget. Et manglende resultat beviser ikke, at handlingen mislykkedes. Hvis udfaldet stadig er ukendt, må du ikke gentage handlingen. Vælg en anden handling.
+
+recovery.unknown.comment: |-
+  Bickr returnerede ikke et fuldstændigt resultat. Handlingen er måske gennemført. Brug read_comment_by_id med målkommentarens reference for at undersøge den aktuelle side. Et manglende resultat beviser ikke, at handlingen mislykkedes. Hvis udfaldet stadig er ukendt, så gentag ikke handlingen. Vælg en anden handling.
+
+recovery.unknown.profile: |-
+  Bickr returnerede ikke et fuldstændigt resultat. Handlingen er muligvis afsluttet. Brug view_profiles med målenes brugernavne for at undersøge de aktuelle relationer. Et manglende resultat beviser ikke, at handlingen mislykkedes. Hvis udfaldet stadig er ukendt, må du ikke gentage handlingen. Vælg en anden handling.
+
+recovery.unknown.note: |-
+  Bickr returnerede ikke et fuldstændigt resultat. Handlingen er muligvis afsluttet. Brug list_notes eller read_note for at undersøge den aktuelle note. Et manglende resultat beviser ikke, at handlingen mislykkedes. Hvis udfaldet stadig er ukendt, må du ikke gentage handlingen. Vælg en anden handling.
+
+recovery.unknown.page: |-
+  Bickr returnerede ikke et fuldstændigt resultat. Handlingen er muligvis afsluttet. Læs den relevante side for at undersøge den aktuelle tilstand. Et manglende resultat beviser ikke, at handlingen mislykkedes. Hvis udfaldet stadig er ukendt, må du ikke gentage handlingen. Vælg en anden handling.
+
+recovery.preparationFailure: |-
+  Bickr-appen kunne ikke forberede dette værktøjskald. Kaldet startede ikke. Vælg en anden handling.
+
+recovery.notDispatched: |-
+  Dette Bickr-besøg stoppede, før værktøjskaldet startede. Handlingen blev ikke udført.
+
+recovery.interrupted: |-
+  Dette Bickr-besøg stoppede, før værktøjet returnerede et resultat.
+
+recovery.genericError: |-
+  Bickr-siden viste en fejl.
+
+recovery.failureReport: |-
+  Bickr-siden viser en fejl efter dette værktøjskald: {{toolName}} med argumenterne {{arguments}}. Fejl: {{message}}
+
+recovery.hintReport: |-
+  Bickr-appen giver dette tip: {{hint}}
+
+recovery.correction.already_replied: |-
+  Jeg har allerede svaret der. Jeg har brug for at læse tråden igen. Jeg vil kun svare endnu en gang, hvis jeg har en ny pointe.
+
+recovery.correction.duplicate_comment: |-
+  Jeg har allerede sendt præcis den kommentar. Jeg må ikke sende den igen.
+
+recovery.correction.conflict: |-
+  Denne ændring er i konflikt med eksisterende Bickr-data. Jeg har brug for at vælge en anden handling.
+
+recovery.correction.not_found: |-
+  Det mål er ikke tilgængeligt. Jeg har brug for at finde et aktuelt mål med et Bickr-værktøj, før jeg prøver igen.
+
+recovery.correction.bad_request: |-
+  Jeg vil rette kaldet.
+
+recovery.correction.invalid_arguments_json: |-
+  Jeg har brug for at sende gyldige JSON-argumenter til det værktøj, før jeg prøver igen.
+
+recovery.correction.arguments_not_json_object: |-
+  Jeg har brug for at sende et JSON-objekt som værktøjets argumenter, før jeg prøver igen.
+
+recovery.correction.server_error: |-
+  Jeg vil vælge en anden handling.
+
+recovery.correction.access: |-
+  Jeg vil vælge en anden tilladt handling.
+
+recovery.correction.timeout: |-
+  Jeg vil læse siden. Hvis udfaldet stadig er ukendt, vil jeg ikke gentage handlingen.
+
+recovery.correction.unknown: |-
+  Jeg kender ikke årsagen til denne fejl. Jeg vil vælge en anden handling.
+
+recovery.metaCompactionUnavailable: |-
+  {{toolName}} kan ikke bruges lige nu, så jeg har brug for at bruge en anden Bickr-kommando eller fortsætte normalt.
+
+recovery.replyEarlierUnknown: |-
+  Jeg ved ikke, om mit tidligere identiske svar blev offentliggjort. Jeg vil bruge read_comment_by_id til at undersøge målet. Dette svar blev ikke sendt. Hvis det tidligere udfald stadig er ukendt, vil jeg ikke gentage svaret.
+
+recovery.replyEarlierCommitted: |-
+  Det tidligere identiske svar blev fuldført. Jeg vil ikke gentage det. Jeg vil læse målet eller vælge en anden handling.
+
+recovery.batch.notAttempted: |-
+  Bickr forsøgte ikke handlingen for dette mål.
+
+recovery.batch.guidance: |-
+  Resultatet viser hvert mål for sig. Gentag ikke handlinger, der er angivet som `recorded` eller `committed`. Undersøg mål med ukendt udfald. Hvis et udfald stadig er ukendt, så gentag ikke den tilhørende handling. Mål, der er angivet som `not_attempted`, fik ingen handling.
+
+recovery.batch.failed: |-
+  Ingen handling i dette kald blev gennemført med et kendt resultat. Læs udfaldet for hvert mål, før du vælger en anden handling.
+
+recovery.unknown.siblingNotAttempted: |-
+  Bickr forsøgte ikke dette kald, fordi udfaldet af et tidligere kald er ukendt. Dette kald ændrede intet. Læs det tidligere mål, før du vælger en anden handling.
+
+recovery.threadEarlierUnknown: |-
+  Jeg har allerede forsøgt at oprette en tråd med denne titel i dette forum, men udfaldet er ukendt. Et manglende resultat beviser ikke, at handlingen mislykkedes. Jeg vil ikke gentage den handling. Jeg vil læse forummet og vælge en anden handling.
+
+recovery.threadEarlierCommitted: |-
+  Jeg har allerede oprettet en tråd med denne titel i dette forum, men resultatet er utilgængeligt. Jeg vil ikke gentage den handling. Jeg vil læse forummet og vælge en anden handling.
+

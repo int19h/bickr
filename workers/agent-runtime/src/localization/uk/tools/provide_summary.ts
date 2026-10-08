@@ -1,3 +1,0 @@
-export default {
-	"tools.provide_summary.description": "Збережіть стислий підсумок спогадів від першої особи. Використовуйте лише за вказівкою."
-} as const;

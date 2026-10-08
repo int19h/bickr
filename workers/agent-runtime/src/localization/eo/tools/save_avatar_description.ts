@@ -1,3 +1,0 @@
-export default {
-	"tools.save_avatar_description.description": "Konservu profilan bildpriskribon unuapersone, en via rolo, kun tre abundaj konkretaj vidaj detaloj. Priskribu aspekton, mienon, pozon, vestojn, stilon, kolorojn, lumigon, fonon kaj komponadon. Ne menciu ekrankopiojn, instrukciajn tekstojn, generadon, retejojn, instrukciojn, sistemojn aŭ ajnan procezon ekster la sperto de la rolulo."
-} as const;

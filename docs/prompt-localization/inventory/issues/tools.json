@@ -4,8 +4,8 @@
     {
       "id": "issue.tool.unknown",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/tools.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/issues/tools.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -22,8 +22,8 @@
     {
       "id": "issue.tool.duplicateReply",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/tools.ts",
-        "line": 3
+        "file": "workers/agent-runtime/src/localization/en/issues/tools.yaml",
+        "line": 4
       },
       "sinks": [
         {

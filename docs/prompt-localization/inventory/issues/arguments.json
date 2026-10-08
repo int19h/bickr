@@ -4,8 +4,8 @@
     {
       "id": "issue.args.notObject.array",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -24,8 +24,8 @@
     {
       "id": "issue.args.notObject.string",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 3
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 4
       },
       "sinks": [
         {
@@ -44,8 +44,8 @@
     {
       "id": "issue.args.notObject.number",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 4
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 7
       },
       "sinks": [
         {
@@ -64,8 +64,8 @@
     {
       "id": "issue.args.notObject.boolean",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 5
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 10
       },
       "sinks": [
         {
@@ -84,8 +84,8 @@
     {
       "id": "issue.args.notObject.null",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 6
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 13
       },
       "sinks": [
         {
@@ -105,8 +105,8 @@
     {
       "id": "issue.args.handle.f",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 7
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 16
       },
       "sinks": [
         {
@@ -123,8 +123,8 @@
     {
       "id": "issue.args.handle.u",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 8
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 19
       },
       "sinks": [
         {
@@ -141,8 +141,8 @@
     {
       "id": "issue.args.handle.w",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 9
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 22
       },
       "sinks": [
         {
@@ -159,8 +159,8 @@
     {
       "id": "issue.args.invalidJson",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 10
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 25
       },
       "sinks": [
         {
@@ -178,8 +178,8 @@
     {
       "id": "issue.args.requiredString",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 11
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 28
       },
       "sinks": [
         {
@@ -196,8 +196,8 @@
     {
       "id": "issue.args.localizedObject",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 12
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 31
       },
       "sinks": [
         {
@@ -217,8 +217,8 @@
     {
       "id": "issue.args.localizedTextEmpty",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 13
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 34
       },
       "sinks": [
         {
@@ -235,8 +235,8 @@
     {
       "id": "issue.args.localizedObjectSentAsString",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 14
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 37
       },
       "sinks": [
         {
@@ -251,8 +251,8 @@
     {
       "id": "issue.args.languageSpecific",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 15
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 40
       },
       "sinks": [
         {
@@ -282,8 +282,8 @@
     {
       "id": "issue.args.languageInvalid",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 16
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 43
       },
       "sinks": [
         {
@@ -311,8 +311,8 @@
     {
       "id": "issue.args.threadReference",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 17
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 46
       },
       "sinks": [
         {
@@ -327,8 +327,8 @@
     {
       "id": "issue.args.commentReference",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 18
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 49
       },
       "sinks": [
         {
@@ -343,8 +343,8 @@
     {
       "id": "issue.args.profilesMode",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 19
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 52
       },
       "sinks": [
         {
@@ -365,8 +365,8 @@
     {
       "id": "issue.args.profilesRandomOffset",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 20
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 55
       },
       "sinks": [
         {
@@ -386,8 +386,8 @@
     {
       "id": "issue.args.followersDirection",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 21
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 58
       },
       "sinks": [
         {
@@ -408,8 +408,8 @@
     {
       "id": "issue.args.optionalString",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 22
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 61
       },
       "sinks": [
         {
@@ -426,8 +426,8 @@
     {
       "id": "issue.args.usernamesArray",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 23
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 64
       },
       "sinks": [
         {
@@ -446,8 +446,8 @@
     {
       "id": "issue.args.usernamesEmpty",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 24
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 67
       },
       "sinks": [
         {
@@ -464,8 +464,8 @@
     {
       "id": "issue.args.usernamesLimit",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 25
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 70
       },
       "sinks": [
         {
@@ -482,8 +482,8 @@
     {
       "id": "issue.args.followTargetsArray",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 29
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 76
       },
       "sinks": [
         {
@@ -509,8 +509,8 @@
     {
       "id": "issue.args.followTargetsEmpty",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 30
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 79
       },
       "sinks": [
         {
@@ -536,8 +536,8 @@
     {
       "id": "issue.args.followTargetsLimit",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 31
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 82
       },
       "sinks": [
         {
@@ -554,8 +554,8 @@
     {
       "id": "issue.args.followReasonsDuplicate",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 35
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 88
       },
       "sinks": [
         {
@@ -573,8 +573,8 @@
     {
       "id": "issue.args.rangesRequired",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 36
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 91
       },
       "sinks": [
         {
@@ -594,8 +594,8 @@
     {
       "id": "issue.args.rangesInvalidJson",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 37
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 94
       },
       "sinks": [
         {
@@ -616,8 +616,8 @@
     {
       "id": "issue.args.rangeObject",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 38
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 97
       },
       "sinks": [
         {
@@ -636,8 +636,8 @@
     {
       "id": "issue.args.rangeEndpoint",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 39
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 100
       },
       "sinks": [
         {
@@ -657,8 +657,8 @@
     {
       "id": "issue.args.votesArray",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 40
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 103
       },
       "sinks": [
         {
@@ -677,8 +677,8 @@
     {
       "id": "issue.args.votesEmpty",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 41
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 106
       },
       "sinks": [
         {
@@ -697,8 +697,8 @@
     {
       "id": "issue.args.votesLimit",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 42
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 109
       },
       "sinks": [
         {
@@ -715,8 +715,8 @@
     {
       "id": "issue.args.votesDuplicate",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 46
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 115
       },
       "sinks": [
         {
@@ -734,8 +734,8 @@
     {
       "id": "issue.args.voteValue",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 47
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 118
       },
       "sinks": [
         {
@@ -750,8 +750,8 @@
     {
       "id": "issue.args.handleSelfAnnotation",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 48
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 121
       },
       "sinks": [
         {
@@ -769,8 +769,8 @@
     {
       "id": "issue.args.nonnegativeInteger",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 49
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 124
       },
       "sinks": [
         {
@@ -785,8 +785,8 @@
     {
       "id": "issue.args.rangesEmpty",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 50
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 127
       },
       "sinks": [
         {
@@ -806,8 +806,8 @@
     {
       "id": "issue.args.rangesLimit",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 51
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 130
       },
       "sinks": [
         {
@@ -824,8 +824,8 @@
     {
       "id": "issue.args.rangeOrder",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/arguments.ts",
-        "line": 55
+        "file": "workers/agent-runtime/src/localization/en/issues/arguments.yaml",
+        "line": 136
       },
       "sinks": [
         {

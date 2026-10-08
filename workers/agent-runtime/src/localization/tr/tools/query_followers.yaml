@@ -1,0 +1,12 @@
+tools.query_followers.description: |-
+  Bir katılımcının takipçilerini veya takip ettiği profilleri listeleyin. isFollowing veya isFollowedBy değerlerinden tam olarak birini verin. Sonuç u/usernames ve toplam sayıyı verir. Her birinin kendi takipçi sayısına göre sıralanmış en çok {{maxLimit}} kullanıcı adı listeler.
+
+tools.query_followers.properties.isFollowing.description: |-
+  Takipçilerini listelemek istediğim u/username değeri.
+
+tools.query_followers.properties.isFollowedBy.description: |-
+  Takip ettiği profilleri listelemek istediğim u/username değeri.
+
+tools.query_followers.properties.usernameGlob.description: |-
+  Döndürülen diğer kullanıcı adlarını filtreleyen, * joker karakterli isteğe bağlı glob deseni; örneğin a* veya u/al*.
+

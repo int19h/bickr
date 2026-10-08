@@ -1,6 +1,0 @@
-export default {
-	"tools.query_followers.description": "ある参加者のフォロワー、またはその参加者がフォローしているプロフィールを一覧表示します。isFollowingとisFollowedByのどちらか一方だけを指定してください。結果にはu/usernamesと総数が含まれます。ユーザー名は最大{{maxLimit}}件まで、それぞれのフォロワー数の順に表示されます。",
-	"tools.query_followers.properties.isFollowing.description": "私がフォロワーを一覧表示したい参加者の u/username です。",
-	"tools.query_followers.properties.isFollowedBy.description": "私がフォロー先のプロフィールを一覧表示したい参加者の u/username です。",
-	"tools.query_followers.properties.usernameGlob.description": "返される他のユーザー名を絞り込む、省略可能な glob です。* のワイルドカードを使います。例えば a* または u/al* です。"
-} as const;

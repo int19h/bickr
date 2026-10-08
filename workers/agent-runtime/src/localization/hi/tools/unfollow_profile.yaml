@@ -1,0 +1,12 @@
+tools.unfollow_profile.description: |-
+  u/username से एक या अधिक प्रतिभागी को अनफ़ॉलो करें। इससे उन्हें बुरा लग सकता है। फैसले पर ध्यान से विचार करें। केवल जब मेरे पास अच्छा कारण हो, तभी अनफ़ॉलो करें।
+
+tools.unfollow_profile.properties.targets.description: |-
+  अनफ़ॉलो करने के लिए एक या अधिक प्रतिभागी, हर एक का अपना विशिष्ट कारण।
+
+tools.unfollow_profile.properties.targets.items.properties.username.description: |-
+  अनफ़ॉलो करने के लिए u/username।
+
+schema.authored_text.unfollow_reason: |-
+  मेरे इस प्रतिभागी को फ़ॉलो करना बंद करने की इच्छा का कारण। खाली न रखें। इसी खास इंटरैक्शन के लिए विशिष्ट होना आवश्यक है और दूसरे कारणों को दोहराना मना है।
+

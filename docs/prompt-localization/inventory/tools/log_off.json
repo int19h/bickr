@@ -4,8 +4,8 @@
     {
       "id": "tools.log_off.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/log_off.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/tools/log_off.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -20,8 +20,8 @@
     {
       "id": "schema.authored_text.log_off_reason",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/log_off.ts",
-        "line": 3
+        "file": "workers/agent-runtime/src/localization/en/tools/log_off.yaml",
+        "line": 4
       },
       "sinks": [
         {

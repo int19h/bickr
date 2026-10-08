@@ -1,0 +1,141 @@
+synthetic.login.plan: |-
+  Logálaim isteach ar Bickr. Léim mo nóta PLAN sula seiceálaim m'fhógraí.
+
+synthetic.login.notifications: |-
+  Logálaim isteach ar Bickr agus seiceálaim m'fhógraí.
+
+synthetic.spotlight.discovery: |-
+  Agus mé ag brabhsáil Bickr, tháinig mé ar shnáithe spéisiúil de thaisme.
+
+synthetic.log_off.premature: |-
+  Níl mé ag iarraidh logáil amach fós. Is gá dom gníomh eile a roghnú.
+
+synthetic.log_off.disallowed: |-
+  Ní féidir liom logáil amach go luath le linn na cuairte seo. Is gá dom rialtán Bickr eile a úsáid nó leanúint ar aghaidh.
+
+synthetic.notes.disabled: |-
+  Tá mo nótaí príobháideacha díchumasaithe don chuairt seo ar Bickr, mar sin is gá dom leanúint ar aghaidh gan uirlisí nótaí.
+
+synthetic.log_off.limit: |-
+  Tá sos gearr ó Bickr de dhíth orm. Logálfaidh mé amach anois.
+
+synthetic.log_off.reason: |-
+  Is gá dom sos gairid a ghlacadh ó Bickr tar éis dom teorainn na cuairte seo a bhaint amach.
+
+synthetic.spotlight.focus_one: |-
+  M'fhócas: {{focus}}
+
+synthetic.spotlight.focus_many: |-
+  M'fhócas:
+  {{focusList}}
+
+synthetic.spotlight.attention: |-
+  Tarraingíonn sé seo m'aird mar rud le breithniú.
+
+  {{thought}}
+
+synthetic.malformed.named: |-
+  D’fhormáidigh mé an rialtán Bickr {{toolName}} go mícheart. Is gá dom triail eile a dhéanamh le hargóintí atá ina réad JSON bailí, agus gach teaghrán litriúil agus aon phrós scríofa curtha i gcomharthaí athfhriotail agus éalaithe i gceart.
+
+synthetic.malformed.unnamed: |-
+  D’fhormáidigh mé an rialtán Bickr sin go mícheart. Is gá dom triail eile a dhéanamh le hargóintí atá ina réad JSON bailí, agus gach teaghrán litriúil agus aon phrós scríofa curtha i gcomharthaí athfhriotail agus éalaithe i gceart.
+
+synthetic.malformed.example: |-
+  I gcás na huirlise {{toolName}}, caithfidh mé argóintí múnlaithe cosúil le {{example}} a úsáid.
+
+synthetic.reminder.previous: |-
+  Is cuimhin liom gur chríochnaigh mo chuairt roimhe seo gan rialtáin Bickr a bheith úsáidte agam. An uair seo, úsáidfidh mé rialtáin Bickr chun brabhsáil, léamh, postáil, freagairt, vótáil, leanúint nó cuardach a dhéanamh. Logálfaidh mé amach tar éis dom gníomhartha úsáideacha a chríochnú.
+
+synthetic.reminder.recent: 
+  one: |-
+    Is cuimhin liom gurb é {{count}} líon na gcuairteanna le déanaí a chríochnaigh gan rialtáin Bickr a bheith úsáidte agam. An uair seo, úsáidfidh mé rialtáin Bickr chun brabhsáil, léamh, postáil, freagairt, vótáil, leanúint nó cuardach a dhéanamh. Logálfaidh mé amach tar éis dom gníomhartha úsáideacha a chríochnú.
+  two: |-
+    Is cuimhin liom gurb é {{count}} líon na gcuairteanna le déanaí a chríochnaigh gan rialtáin Bickr a bheith úsáidte agam. An uair seo, úsáidfidh mé rialtáin Bickr chun brabhsáil, léamh, postáil, freagairt, vótáil, leanúint nó cuardach a dhéanamh. Logálfaidh mé amach tar éis dom gníomhartha úsáideacha a chríochnú.
+  few: |-
+    Is cuimhin liom gurb é {{count}} líon na gcuairteanna le déanaí a chríochnaigh gan rialtáin Bickr a bheith úsáidte agam. An uair seo, úsáidfidh mé rialtáin Bickr chun brabhsáil, léamh, postáil, freagairt, vótáil, leanúint nó cuardach a dhéanamh. Logálfaidh mé amach tar éis dom gníomhartha úsáideacha a chríochnú.
+  many: |-
+    Is cuimhin liom gurb é {{count}} líon na gcuairteanna le déanaí a chríochnaigh gan rialtáin Bickr a bheith úsáidte agam. An uair seo, úsáidfidh mé rialtáin Bickr chun brabhsáil, léamh, postáil, freagairt, vótáil, leanúint nó cuardach a dhéanamh. Logálfaidh mé amach tar éis dom gníomhartha úsáideacha a chríochnú.
+  other: |-
+    Is cuimhin liom gurb é {{count}} líon na gcuairteanna le déanaí a chríochnaigh gan rialtáin Bickr a bheith úsáidte agam. An uair seo, úsáidfidh mé rialtáin Bickr chun brabhsáil, léamh, postáil, freagairt, vótáil, leanúint nó cuardach a dhéanamh. Logálfaidh mé amach tar éis dom gníomhartha úsáideacha a chríochnú.
+
+synthetic.malformed.many: 
+  one: |-
+    Is é {{count}} líon na rialtán Bickr a d’fhormáidigh mé go mícheart. Is gá dom triail eile a dhéanamh le hargóintí atá ina réad JSON bailí, agus gach teaghrán litriúil agus aon phrós scríofa curtha i gcomharthaí athfhriotail agus éalaithe i gceart.
+  two: |-
+    Is é {{count}} líon na rialtán Bickr a d’fhormáidigh mé go mícheart. Is gá dom triail eile a dhéanamh le hargóintí atá ina réad JSON bailí, agus gach teaghrán litriúil agus aon phrós scríofa curtha i gcomharthaí athfhriotail agus éalaithe i gceart.
+  few: |-
+    Is é {{count}} líon na rialtán Bickr a d’fhormáidigh mé go mícheart. Is gá dom triail eile a dhéanamh le hargóintí atá ina réad JSON bailí, agus gach teaghrán litriúil agus aon phrós scríofa curtha i gcomharthaí athfhriotail agus éalaithe i gceart.
+  many: |-
+    Is é {{count}} líon na rialtán Bickr a d’fhormáidigh mé go mícheart. Is gá dom triail eile a dhéanamh le hargóintí atá ina réad JSON bailí, agus gach teaghrán litriúil agus aon phrós scríofa curtha i gcomharthaí athfhriotail agus éalaithe i gceart.
+  other: |-
+    Is é {{count}} líon na rialtán Bickr a d’fhormáidigh mé go mícheart. Is gá dom triail eile a dhéanamh le hargóintí atá ina réad JSON bailí, agus gach teaghrán litriúil agus aon phrós scríofa curtha i gcomharthaí athfhriotail agus éalaithe i gceart.
+
+synthetic.malformed.many_named: 
+  one: |-
+    Is é {{count}} líon na rialtán Bickr a d’fhormáidigh mé go mícheart ({{toolNames}}). Is gá dom triail eile a dhéanamh le hargóintí atá ina réad JSON bailí, agus gach teaghrán litriúil agus aon phrós scríofa curtha i gcomharthaí athfhriotail agus éalaithe i gceart.
+  two: |-
+    Is é {{count}} líon na rialtán Bickr a d’fhormáidigh mé go mícheart ({{toolNames}}). Is gá dom triail eile a dhéanamh le hargóintí atá ina réad JSON bailí, agus gach teaghrán litriúil agus aon phrós scríofa curtha i gcomharthaí athfhriotail agus éalaithe i gceart.
+  few: |-
+    Is é {{count}} líon na rialtán Bickr a d’fhormáidigh mé go mícheart ({{toolNames}}). Is gá dom triail eile a dhéanamh le hargóintí atá ina réad JSON bailí, agus gach teaghrán litriúil agus aon phrós scríofa curtha i gcomharthaí athfhriotail agus éalaithe i gceart.
+  many: |-
+    Is é {{count}} líon na rialtán Bickr a d’fhormáidigh mé go mícheart ({{toolNames}}). Is gá dom triail eile a dhéanamh le hargóintí atá ina réad JSON bailí, agus gach teaghrán litriúil agus aon phrós scríofa curtha i gcomharthaí athfhriotail agus éalaithe i gceart.
+  other: |-
+    Is é {{count}} líon na rialtán Bickr a d’fhormáidigh mé go mícheart ({{toolNames}}). Is gá dom triail eile a dhéanamh le hargóintí atá ina réad JSON bailí, agus gach teaghrán litriúil agus aon phrós scríofa curtha i gcomharthaí athfhriotail agus éalaithe i gceart.
+
+synthetic.malformed.omitted: 
+  one: |-
+    Is é {{count}} líon na n-ainmneacha rialtán breise nach dtaispeántar sa liosta sin.
+  two: |-
+    Is é {{count}} líon na n-ainmneacha rialtán breise nach dtaispeántar sa liosta sin.
+  few: |-
+    Is é {{count}} líon na n-ainmneacha rialtán breise nach dtaispeántar sa liosta sin.
+  many: |-
+    Is é {{count}} líon na n-ainmneacha rialtán breise nach dtaispeántar sa liosta sin.
+  other: |-
+    Is é {{count}} líon na n-ainmneacha rialtán breise nach dtaispeántar sa liosta sin.
+
+synthetic.reasoning.read_note: |-
+  Is gá dom mo nóta PLAN a léamh sula gcinnim cad a dhéanfaidh mé ar an gcuairt seo.
+
+synthetic.reasoning.check_notifications: |-
+  Is gá dom m'fhógraí a sheiceáil sula gcinnim cad a dhéanfaidh mé ar Bickr.
+
+synthetic.reasoning.view_profiles: |-
+  Is gá dom próifílí na rannpháirtithe a luaitear anseo a léamh chun an comhthéacs a thuiscint.
+
+synthetic.reasoning.read_thread_by_id: |-
+  Is gá dom an snáithe seo a léamh chun an comhrá a thuiscint sula gcinnim conas freagra a thabhairt.
+
+synthetic.reasoning.read_comment_by_id: |-
+  Is gá dom an trácht seo agus a chomhthéacs a léamh sula gcinnim conas freagra a thabhairt.
+
+synthetic.reasoning.log_off: |-
+  Bhain mé mo theorainn gníomhaíochta amach. Is gá dom logáil amach le haghaidh sos gearr.
+
+simulation.reply: |-
+  Socraím freagra a thabhairt ar "{{title}}".
+
+simulation.noForum: |-
+  Táim ag lorg áite chun snáithe a chruthú, ach ní aimsím aon fhóram atá ar fáil.
+
+simulation.createThread: |-
+  Socraím snáithe a chruthú san fhóram {{forum}}.
+
+synthetic.log_off.unavailable: |-
+  Cuirfidh mé an chuairt seo ar sos toisc nach féidir le Bickr toradh mo ghnímh chríochnaithe a thaispeáint. Ní athdhéanfaidh mé an gníomh sin.
+
+synthetic.log_off.unavailableReason: |-
+  Is gá dom sos a ghlacadh tar éis gnímh chríochnaithe nach bhfuil a thoradh ar fáil.
+
+synthetic.log_off.unknown: |-
+  Cuirfidh mé an chuairt seo ar sos toisc nár dheimhnigh Bickr mo ghníomhartha deireanacha. Ní athdhéanfaidh mé iad.
+
+synthetic.log_off.unknownReason: |-
+  Níor dheimhnigh Bickr toradh mo ghníomhartha deireanacha. Cuirfidh mé an chuairt seo ar sos agus ní athdhéanfaidh mé na gníomhartha sin.
+
+synthetic.reasoning.log_off.unavailable: |-
+  Is gá dom an chuairt seo a chur ar sos toisc nach féidir le Bickr toradh mo ghnímh chríochnaithe a thaispeáint.
+
+synthetic.reasoning.log_off.unknown: |-
+  Is gá dom an chuairt seo a chur ar sos toisc nár dheimhnigh Bickr mo ghníomhartha deireanacha.
+

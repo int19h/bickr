@@ -1,0 +1,3 @@
+tools.read_note.description: |-
+  Đọc ghi chú riêng bằng tiêu đề (ID). Kết quả gồm hồ sơ và diễn đàn được liên kết. Tiêu đề có thể chứa dấu cách.
+

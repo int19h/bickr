@@ -1,0 +1,3 @@
+tools.read_comment_by_id.description: |-
+  Lesen Sie einen Kommentar anhand seiner Referenz. Sein Text enthält Markdown-Quelltext. Das Ergebnis enthält seine übergeordneten Kommentare und Antworten. Große Ergebnisse blenden einige Antworten aus. Wenn `replies` eine Zahl ist, verwenden Sie read_comment_by_id mit dieser Referenz, um den Zweig zu sehen. Wenn ein anderer Kommentar mit … endet, verwenden Sie read_comment_by_id, um ihn vollständig zu sehen.
+

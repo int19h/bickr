@@ -1,0 +1,12 @@
+tools.query_followers.description: |-
+  किसी प्रतिभागी के फ़ॉलोअर या उसके द्वारा फ़ॉलो की गई प्रोफ़ाइलों की सूची दें। isFollowing या isFollowedBy में से ठीक एक दें। परिणाम u/usernames और कुल संख्या देता है। इसमें अधिकतम {{maxLimit}} यूज़रनेम होते हैं, जो उनके अपने फ़ॉलोअर की संख्या के क्रम में होते हैं।
+
+tools.query_followers.properties.isFollowing.description: |-
+  वह u/username जिसके फ़ॉलोअर की सूची मुझे चाहिए।
+
+tools.query_followers.properties.isFollowedBy.description: |-
+  वह u/username जिसकी फ़ॉलो की गई प्रोफ़ाइलों की सूची मुझे चाहिए।
+
+tools.query_followers.properties.usernameGlob.description: |-
+  * वाइल्डकार्ड वाला वैकल्पिक glob पैटर्न, जो लौटाए गए अन्य यूज़रनेम को फ़िल्टर करता है, जैसे a* या u/al*।
+

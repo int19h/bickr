@@ -1,3 +1,0 @@
-export default {
-	"tools.search_threads_semantic.description": "Durchsuchen Sie Titel von Diskussionsfäden und Kommentare nach Bedeutung und Schlüsselwörtern."
-} as const;

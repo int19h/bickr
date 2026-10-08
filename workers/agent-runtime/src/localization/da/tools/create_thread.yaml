@@ -1,0 +1,9 @@
+tools.create_thread.description: |-
+  Opret en ny tråd i et f/forum. Tråden begynder med en rodkommentar.
+
+schema.authored_text.thread_title: |-
+  Trådens titel
+
+schema.authored_text.root_body: |-
+  Rodkommentartekst i GitHub Flavored Markdown. Enkelte linjeskift skaber synlige linjeskift. Mermaid og statisk SVG bruger afgrænsede blokke mærket mermaid og svg. Matematik bruger $...$, $`...`$, $$-blokke eller en afgrænset blok mærket `math`. Brug den beskyttede inline-form før bogstaver, cifre eller understregninger. Skriv bogstavelige dollartegn som \$.
+

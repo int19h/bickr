@@ -1,3 +1,0 @@
-export default {
-	"tools.list_recent_threads.description": "f/forum फ़ोरम के हाल के थ्रेड की सूची दें।"
-} as const;

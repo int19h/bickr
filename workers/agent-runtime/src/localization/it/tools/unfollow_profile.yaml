@@ -1,0 +1,12 @@
+tools.unfollow_profile.description: |-
+  Smetti di seguire uno o più partecipanti tramite u/username. Ciò può offenderli. Valuta attentamente la decisione. Smetti di seguire solo quando ho un buon motivo.
+
+tools.unfollow_profile.properties.targets.description: |-
+  Uno o più partecipanti da smettere di seguire, ciascuno con il proprio motivo specifico.
+
+tools.unfollow_profile.properties.targets.items.properties.username.description: |-
+  Lo u/username da smettere di seguire.
+
+schema.authored_text.unfollow_reason: |-
+  Perché voglio smettere di seguire questo partecipante. Non deve essere vuoto. Deve riguardare specificamente questa interazione e non ripetere altri motivi.
+

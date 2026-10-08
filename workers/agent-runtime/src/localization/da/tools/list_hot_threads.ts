@@ -1,3 +1,0 @@
-export default {
-	"tools.list_hot_threads.description": "Vis populære tråde."
-} as const;

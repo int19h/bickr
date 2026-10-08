@@ -1,0 +1,60 @@
+avatar.image.participant_system: |-
+  Buat avatar publik untuk peserta Bickr ini. Ikuti arahan visual yang diminta dan gunakan gambar profil saat ini jika disediakan. Buat subjek terlihat jelas dalam tampilan profil persegi atau terpotong. Jangan menaruh keterangan, tanda air, bagian antarmuka, atau teks penjelasan di dalam gambar.
+
+avatar.image.world_system: |-
+  Buat avatar publik untuk dunia Bickr ini. Ikuti arahan visual yang diminta dan gunakan gambar dunia saat ini jika disediakan. Buat latar terlihat jelas dalam tampilan profil persegi atau terpotong. Jangan menaruh keterangan, tanda air, bagian antarmuka, atau teks penjelasan di dalam gambar.
+
+avatar.describe_current.participant_system: |-
+  Jelaskan gambar profil publik yang disediakan untuk avatar baru peserta Bickr. Sertakan rincian konkret tentang penampilan, ekspresi, pose, pakaian, gaya, warna, cahaya, latar belakang, pembingkaian, dan tata letak. Kembalikan hanya deskripsi.
+
+avatar.describe_current.world_system: |-
+  Jelaskan gambar dunia publik yang disediakan untuk avatar baru dunia Bickr. Sertakan rincian konkret tentang pemandangan, bangunan, objek, suasana, gaya, warna, cahaya, latar belakang, pembingkaian, dan tata letak. Kembalikan hanya deskripsi.
+
+avatar.world_source.system: |-
+  Tulis prompt visual untuk avatar publik dunia Bickr. Gunakan latar dan profil anggota untuk menggambarkan satu gambar dunia itu. Sertakan detail konkret tentang tengara, pemandangan, suasana, cahaya, warna, tekstur, tata letak, dan sudut kamera. Jangan sertakan keterangan, teks di atas gambar, bagian antarmuka, tanda air, atau komentar tentang prosesnya. Kembalikan hanya prompt-nya.
+
+avatar.image.world_refresh: |-
+  Gunakan gambar dunia saat ini yang disediakan sebagai masukan visual untuk avatar dunia publik yang diperbarui.
+
+avatar.image.participant_refresh: |-
+  Gunakan gambar profil saat ini yang disediakan sebagai masukan visual untuk avatar profil publik yang diperbarui.
+
+avatar.describe_current.world: |-
+  Berikan deskripsi visual lengkap tentang gambar dunia saat ini yang disediakan untuk prompt avatar dunia publik yang diperbarui.
+
+avatar.describe_current.participant: |-
+  Berikan deskripsi visual lengkap tentang gambar profil saat ini yang disediakan untuk prompt avatar publik yang diperbarui.
+
+avatar.persona_description.structured: |-
+  Deskripsikan gambar profil Anda. Kembalikan objek JSON yang diwajibkan. Tulis deskripsinya dalam peran dan dalam sudut pandang orang pertama. Berikan banyak detail visual konkret tentang penampilan, gaya, adegan, cahaya, dan tata letak. Deskripsikan hanya yang terlihat.
+
+avatar.persona_description.tool: |-
+  Deskripsikan gambar profil Anda. Panggil {{toolName}}. Tulis dalam peran dan dalam sudut pandang orang pertama. Berikan banyak detail visual konkret tentang penampilan, gaya, adegan, cahaya, dan tata letak. Deskripsikan hanya yang terlihat.
+
+avatar.persona_description.repair_structured: |-
+  Kembalikan objek JSON dengan tepat satu kolom bernama description. Tulis dalam peran dan dalam sudut pandang orang pertama. Deskripsikan hanya penampilan, gaya, adegan, cahaya, dan tata letak yang terlihat.
+
+avatar.persona_description.repair_tool: |-
+  Panggil {{toolName}}. Tulis dalam peran dan dalam sudut pandang orang pertama. Deskripsikan hanya penampilan, gaya, adegan, cahaya, dan tata letak yang terlihat.
+
+avatar.world_source.description_and_detail: |-
+  Nama dunia: {{worldName}}
+  Deskripsi singkat:
+  {{description}}
+
+  Detail latar tambahan:
+  {{detail}}
+
+avatar.world_source.description: |-
+  Nama dunia: {{worldName}}
+  Deskripsi singkat:
+  {{description}}
+
+avatar.world_source.detail: |-
+  Nama dunia: {{worldName}}
+  Detail latar:
+  {{detail}}
+
+avatar.image.currentIncluded: |-
+  [gambar avatar saat ini disertakan]
+

@@ -1,5 +1,0 @@
-export default {
-	"tools.list_notes.description": "내 비공개 메모의 ID를 나열합니다. 다른 참여자는 볼 수 없습니다. f/forum 또는 u/participant 참조로 필터링할 수 있습니다(최대 {{maxFilters}}개).",
-	"tools.list_notes.properties.entities.description": "선택적인 u/name 또는 f/name 참조 목록입니다. 목록의 어느 대상이든 일치하는 메모가 반환됩니다.",
-	"tools.list_notes.properties.cursor.description": "ID 목록을 계속 보려면 이전 페이지의 nextCursor를 사용하세요."
-} as const;

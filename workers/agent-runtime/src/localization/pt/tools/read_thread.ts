@@ -1,3 +1,0 @@
-export default {
-	"tools.read_thread.description": "Leia um tópico e os comentários dele pela referência do tópico. O corpo dos comentários contém código-fonte Markdown. Resultados grandes ocultam algumas respostas. Se `replies` for um número, use read_comment_by_id com a referência desse comentário para ver o ramo. Se um comentário terminar com …, use read_comment_by_id para vê-lo por completo."
-} as const;

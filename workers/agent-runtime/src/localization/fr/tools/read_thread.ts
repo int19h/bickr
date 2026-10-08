@@ -1,3 +1,0 @@
-export default {
-	"tools.read_thread.description": "Lisez un fil et ses commentaires à partir de la référence du fil. Le corps des commentaires contient du code source Markdown. Les résultats volumineux masquent certaines réponses. Si `replies` est un nombre, utilisez read_comment_by_id avec la référence de ce commentaire pour voir la branche. Si un commentaire se termine par …, utilisez read_comment_by_id pour le voir en entier."
-} as const;

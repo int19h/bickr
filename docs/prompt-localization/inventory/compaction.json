@@ -4,8 +4,8 @@
     {
       "id": "compaction.continuation",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -27,8 +27,8 @@
     {
       "id": "compaction.persona.instruction",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 3
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 4
       },
       "sinks": [
         {
@@ -43,8 +43,8 @@
     {
       "id": "compaction.persona.display_name",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 4
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 7
       },
       "sinks": [
         {
@@ -61,8 +61,8 @@
     {
       "id": "compaction.persona.short_bio",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 5
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 10
       },
       "sinks": [
         {
@@ -79,8 +79,8 @@
     {
       "id": "compaction.persona.persona",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 6
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 14
       },
       "sinks": [
         {
@@ -95,8 +95,8 @@
     {
       "id": "compaction.system.autonomous",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 7
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 18
       },
       "sinks": [
         {
@@ -113,8 +113,8 @@
     {
       "id": "compaction.system.roles",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 8
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 21
       },
       "sinks": [
         {
@@ -131,8 +131,8 @@
     {
       "id": "compaction.system.setting",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 9
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 24
       },
       "sinks": [
         {
@@ -147,8 +147,8 @@
     {
       "id": "compaction.system.required_tool",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 10
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 28
       },
       "sinks": [
         {
@@ -166,8 +166,8 @@
     {
       "id": "compaction.summary.structured",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 11
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 31
       },
       "sinks": [
         {
@@ -189,8 +189,8 @@
     {
       "id": "compaction.summary.tool",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 12
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 34
       },
       "sinks": [
         {
@@ -212,8 +212,8 @@
     {
       "id": "compaction.shorten.structured",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 13
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 37
       },
       "sinks": [
         {
@@ -233,8 +233,8 @@
     {
       "id": "compaction.shorten.tool",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 14
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 40
       },
       "sinks": [
         {
@@ -254,8 +254,8 @@
     {
       "id": "compaction.repair.structured_response",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 15
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 43
       },
       "sinks": [
         {
@@ -273,8 +273,8 @@
     {
       "id": "compaction.repair.tool_response",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 16
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 46
       },
       "sinks": [
         {
@@ -292,8 +292,8 @@
     {
       "id": "compaction.repair.system",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 17
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 49
       },
       "sinks": [
         {
@@ -312,8 +312,8 @@
     {
       "id": "compaction.length.exact",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 18
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 52
       },
       "sinks": [
         {
@@ -330,8 +330,8 @@
     {
       "id": "compaction.length.range",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 22
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 58
       },
       "sinks": [
         {
@@ -349,8 +349,8 @@
     {
       "id": "compaction.repair.produce_summary",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 26
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 64
       },
       "sinks": [
         {
@@ -365,8 +365,8 @@
     {
       "id": "compaction.summary.call_now",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 27
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 67
       },
       "sinks": [
         {
@@ -384,8 +384,8 @@
     {
       "id": "compaction.self_correction.tool",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 28
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 70
       },
       "sinks": [
         {
@@ -402,8 +402,8 @@
     {
       "id": "compaction.self_correction.structured",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 29
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 73
       },
       "sinks": [
         {
@@ -418,8 +418,8 @@
     {
       "id": "compaction.tools.require_one_of",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 30
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 76
       },
       "sinks": [
         {
@@ -436,8 +436,8 @@
     {
       "id": "compaction.tools.require_any",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 31
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 79
       },
       "sinks": [
         {
@@ -454,8 +454,8 @@
     {
       "id": "compaction.tools.meta_only_when_directed",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 32
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 82
       },
       "sinks": [
         {
@@ -472,8 +472,8 @@
     {
       "id": "compaction.tools.self_correction_one_of",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 33
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 85
       },
       "sinks": [
         {
@@ -490,8 +490,8 @@
     {
       "id": "compaction.tools.self_correction_any",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 34
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 88
       },
       "sinks": [
         {
@@ -508,8 +508,8 @@
     {
       "id": "compaction.summary.structured.immediate",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 35
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 91
       },
       "sinks": [
         {
@@ -531,8 +531,8 @@
     {
       "id": "compaction.shorten.structured.immediate",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 36
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 94
       },
       "sinks": [
         {
@@ -552,8 +552,8 @@
     {
       "id": "compaction.repair.structured_response.immediate",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 37
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 97
       },
       "sinks": [
         {
@@ -571,8 +571,8 @@
     {
       "id": "compaction.history.app",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 38
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 100
       },
       "sinks": [
         {
@@ -589,8 +589,8 @@
     {
       "id": "compaction.history.action",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 39
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 104
       },
       "sinks": [
         {
@@ -612,8 +612,8 @@
     {
       "id": "compaction.history.thought",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 40
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 107
       },
       "sinks": [
         {
@@ -633,8 +633,8 @@
     {
       "id": "compaction.history.written",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 41
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 111
       },
       "sinks": [
         {
@@ -654,8 +654,8 @@
     {
       "id": "compaction.history.toolResult",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 42
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 115
       },
       "sinks": [
         {
@@ -672,8 +672,8 @@
     {
       "id": "compaction.history.toolResultUnnamed",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 43
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 119
       },
       "sinks": [
         {
@@ -688,8 +688,8 @@
     {
       "id": "compaction.history.other",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 44
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 123
       },
       "sinks": [
         {
@@ -704,8 +704,8 @@
     {
       "id": "compaction.legacy.preface",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 45
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 127
       },
       "sinks": [
         {
@@ -722,8 +722,8 @@
     {
       "id": "compaction.legacy.memory",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 46
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 131
       },
       "sinks": [
         {
@@ -738,8 +738,8 @@
     {
       "id": "compaction.legacy.input",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 47
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 135
       },
       "sinks": [
         {
@@ -756,8 +756,8 @@
     {
       "id": "compaction.legacy.result",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 48
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 139
       },
       "sinks": [
         {
@@ -775,8 +775,8 @@
     {
       "id": "compaction.legacy.thought",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/compaction.ts",
-        "line": 49
+        "file": "workers/agent-runtime/src/localization/en/compaction.yaml",
+        "line": 143
       },
       "sinks": [
         {

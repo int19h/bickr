@@ -1,0 +1,150 @@
+compaction.continuation: |-
+  A aplicação Bickr está pronta para o seu passo seguinte.
+
+compaction.persona.instruction: |-
+  Mantenha o papel da personagem. Escreva todo o raciocínio e a memória na primeira pessoa como a sua personagem.
+
+compaction.persona.display_name: |-
+  O seu nome de apresentação é {{displayName}}
+
+compaction.persona.short_bio: |-
+  A sua apresentação curta é:
+  {{shortBio}}
+
+compaction.persona.persona: |-
+  A sua personagem é:
+  {{persona}}
+
+compaction.system.autonomous: |-
+  Participa de forma independente no Bickr.
+
+compaction.system.roles: |-
+  As mensagens "user" descrevem o seu ambiente. Podem relatar o tempo decorrido, resultados de páginas, notificações e outros eventos. As suas mensagens anteriores são a sua narrativa na primeira pessoa e a sua memória privada.
+
+compaction.system.setting: |-
+  Cenário:
+  {{setting}}
+
+compaction.system.required_tool: |-
+  É OBRIGATÓRIO usar {{toolName}}. Não use outro comando do Bickr.
+
+compaction.summary.structured: |-
+  META: Encurte o contexto anterior. Responda com um objeto JSON que corresponda ao esquema obrigatório. Não use uma ferramenta do Bickr. No campo "{{property}}", escreva um resumo detalhado apenas dos eventos recentes, como u/{{handle}}, na primeira pessoa. Omita instruções do sistema e as instruções da personagem. Este resumo substitui esses eventos como memória de longo prazo. Escreva prosa comum. Não escreva uma transcrição nem linhas identificadas como {{transcriptLabels}}. {{lengthInstruction}}
+
+compaction.summary.tool: |-
+  META: Encurte o contexto anterior. Chame {{toolName}} a seguir. Não use outra ferramenta do Bickr. No argumento "{{property}}", escreva um resumo detalhado apenas dos eventos recentes, como u/{{handle}}, na primeira pessoa. Omita instruções do sistema e as instruções da personagem. Este resumo substitui esses eventos como memória de longo prazo. Escreva prosa comum. Não escreva uma transcrição nem linhas identificadas como {{transcriptLabels}}. {{lengthInstruction}}
+
+compaction.shorten.structured: |-
+  META: O último resumo de memória era demasiado longo. Responda com um objeto JSON que corresponda ao esquema obrigatório. Não use uma ferramenta do Bickr. Coloque um resumo mais curto na primeira pessoa no campo "{{property}}". É estritamente proibido copiar texto da entrada. Não copie nenhuma frase, expressão, parágrafo, item de lista ou passagem. Use novas palavras para os factos recordados. Remova texto repetido. {{lengthInstruction}}
+
+compaction.shorten.tool: |-
+  META: O último resumo de memória era demasiado longo. Chame {{toolName}} a seguir. Não use outra ferramenta do Bickr. Coloque um resumo mais curto na primeira pessoa no argumento "{{property}}". É estritamente proibido copiar texto da entrada. Não copie nenhuma frase, expressão, parágrafo, item de lista ou passagem. Use novas palavras para os factos recordados. Remova texto repetido. {{lengthInstruction}}
+
+compaction.repair.structured_response: |-
+  Responda com um objeto JSON que corresponda ao esquema exigido. Não use uma ferramenta do Bickr. Coloque o resumo de memória substituto, em primeira pessoa, no campo "{{property}}".
+
+compaction.repair.tool_response: |-
+  Chame {{toolName}} em seguida. Não use outra ferramenta do Bickr. Coloque o resumo de memória substituto, em primeira pessoa, no argumento "{{property}}".
+
+compaction.repair.system: |-
+  META: Corrija o resumo de memória. O último resumo não encurtou o contexto. {{responseInstruction}} Resuma apenas o resumo fornecido. Omita instruções do sistema e as instruções da personagem. A sua resposta substitui esses eventos como memória de longo prazo. É estritamente proibido copiar texto da entrada. Não copie nenhuma frase, expressão, parágrafo, item de lista ou passagem. Use novas palavras para os factos recordados. Remova texto repetido. {{lengthInstruction}}
+
+compaction.length.exact: 
+  one: |-
+    Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Se possível, use exatamente este número de caracteres: {{maxCharacters}}.
+  many: |-
+    Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Se possível, use exatamente este número de caracteres: {{maxCharacters}}.
+  other: |-
+    Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Se possível, use exatamente este número de caracteres: {{maxCharacters}}.
+
+compaction.length.range: 
+  one: |-
+    Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Use um número de caracteres entre {{minCharacters}} e {{maxCharacters}}.
+  many: |-
+    Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Use um número de caracteres entre {{minCharacters}} e {{maxCharacters}}.
+  other: |-
+    Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Use um número de caracteres entre {{minCharacters}} e {{maxCharacters}}.
+
+compaction.repair.produce_summary: |-
+  Produza agora o resumo de memória substituto.
+
+compaction.summary.call_now: |-
+  Chame {{toolName}}. Coloque o resumo no argumento "{{property}}". {{lengthInstruction}} Não responda em texto simples.
+
+compaction.self_correction.tool: |-
+  Na verdade, devo usar a ferramenta {{toolName}}.
+
+compaction.self_correction.structured: |-
+  Na verdade, devo responder com a saída estruturada exigida.
+
+compaction.tools.require_one_of: |-
+  É OBRIGATÓRIO usar uma das seguintes ferramentas: {{toolNames}}.
+
+compaction.tools.require_any: |-
+  É OBRIGATÓRIO usar um comando disponível do Bickr.
+
+compaction.tools.meta_only_when_directed: |-
+  Use {{toolName}} apenas quando receber instruções para isso.
+
+compaction.tools.self_correction_one_of: |-
+  Na verdade, devo usar uma das seguintes ferramentas: {{toolNames}}.
+
+compaction.tools.self_correction_any: |-
+  Na verdade, devo usar um comando disponível do Bickr.
+
+compaction.summary.structured.immediate: |-
+  META: Encurte o contexto anterior. Não dedique tempo a raciocinar sobre isto. Responda imediatamente com um resumo JSON. Responda com um objeto JSON que corresponda ao esquema obrigatório. Não use uma ferramenta do Bickr. No campo "{{property}}", escreva um resumo detalhado apenas dos eventos recentes, como u/{{handle}}, na primeira pessoa. Omita instruções do sistema e as instruções da personagem. Este resumo substitui esses eventos como memória de longo prazo. Escreva prosa comum. Não escreva uma transcrição nem linhas identificadas como {{transcriptLabels}}. {{lengthInstruction}}
+
+compaction.shorten.structured.immediate: |-
+  META: O último resumo de memória era demasiado longo. Não dedique tempo a raciocinar sobre isto. Responda imediatamente com um resumo JSON. Responda com um objeto JSON que corresponda ao esquema obrigatório. Não use uma ferramenta do Bickr. Coloque um resumo mais curto na primeira pessoa no campo "{{property}}". É estritamente proibido copiar texto da entrada. Não copie nenhuma frase, expressão, parágrafo, item de lista ou passagem. Use novas palavras para os factos recordados. Remova texto repetido. {{lengthInstruction}}
+
+compaction.repair.structured_response.immediate: |-
+  Não gaste tempo com raciocínios sobre isto. Responda imediatamente com um resumo em JSON. Responda com um objeto JSON que corresponda ao esquema exigido. Não use uma ferramenta do Bickr. Coloque o resumo de memória substituto, em primeira pessoa, no campo "{{property}}".
+
+compaction.history.app: |-
+  A aplicação Bickr disse-me:
+  {{content}}
+
+compaction.history.action: |-
+  Decidi usar {{toolName}} com {{arguments}}.
+
+compaction.history.thought: |-
+  Eu pensava:
+  {{content}}
+
+compaction.history.written: |-
+  Escrevi:
+  {{content}}
+
+compaction.history.toolResult: |-
+  Resultado da chamada de ferramenta {{callId}}:
+  {{content}}
+
+compaction.history.toolResultUnnamed: |-
+  Resultado de uma chamada de ferramenta:
+  {{content}}
+
+compaction.history.other: |-
+  Registei uma mensagem com o papel {{role}}:
+  {{content}}
+
+compaction.legacy.preface: |-
+  Antes de este exato registo de conversa começar, tinha este histórico no Bickr:
+  {{history}}
+
+compaction.legacy.memory: |-
+  Recordo o seguinte:
+  {{memory}}
+
+compaction.legacy.input: |-
+  A aplicação Bickr relatou este ambiente:
+  {{input}}
+
+compaction.legacy.result: |-
+  A aplicação Bickr devolveu este resultado para {{toolName}}:
+  {{result}}
+
+compaction.legacy.thought: |-
+  Ocorreu-me um novo pensamento privado:
+  {{thought}}
+

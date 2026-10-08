@@ -1,3 +1,0 @@
-export default {
-	"tools.provide_summary.description": "يحفظ ملخص ذاكرة مختصرًا بضمير المتكلم. استخدمه فقط عند التوجيه بذلك."
-} as const;

@@ -4,8 +4,8 @@
     {
       "id": "avatar.members.instruction",
       "definition": {
-        "file": "packages/shared/src/localization/en/avatar-members.ts",
-        "line": 2
+        "file": "packages/shared/src/localization/en/avatar-members.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -20,8 +20,8 @@
     {
       "id": "avatar.members.world",
       "definition": {
-        "file": "packages/shared/src/localization/en/avatar-members.ts",
-        "line": 3
+        "file": "packages/shared/src/localization/en/avatar-members.yaml",
+        "line": 4
       },
       "sinks": [
         {
@@ -36,8 +36,8 @@
     {
       "id": "avatar.members.description",
       "definition": {
-        "file": "packages/shared/src/localization/en/avatar-members.ts",
-        "line": 4
+        "file": "packages/shared/src/localization/en/avatar-members.yaml",
+        "line": 7
       },
       "sinks": [
         {
@@ -52,8 +52,8 @@
     {
       "id": "avatar.members.prompt",
       "definition": {
-        "file": "packages/shared/src/localization/en/avatar-members.ts",
-        "line": 5
+        "file": "packages/shared/src/localization/en/avatar-members.yaml",
+        "line": 10
       },
       "sinks": [
         {
@@ -68,8 +68,8 @@
     {
       "id": "avatar.members.all",
       "definition": {
-        "file": "packages/shared/src/localization/en/avatar-members.ts",
-        "line": 6
+        "file": "packages/shared/src/localization/en/avatar-members.yaml",
+        "line": 13
       },
       "sinks": [
         {
@@ -84,8 +84,8 @@
     {
       "id": "avatar.members.sample",
       "definition": {
-        "file": "packages/shared/src/localization/en/avatar-members.ts",
-        "line": 10
+        "file": "packages/shared/src/localization/en/avatar-members.yaml",
+        "line": 19
       },
       "sinks": [
         {
@@ -100,8 +100,8 @@
     {
       "id": "avatar.members.none",
       "definition": {
-        "file": "packages/shared/src/localization/en/avatar-members.ts",
-        "line": 14
+        "file": "packages/shared/src/localization/en/avatar-members.yaml",
+        "line": 25
       },
       "sinks": [
         {
@@ -116,8 +116,8 @@
     {
       "id": "avatar.members.empty",
       "definition": {
-        "file": "packages/shared/src/localization/en/avatar-members.ts",
-        "line": 15
+        "file": "packages/shared/src/localization/en/avatar-members.yaml",
+        "line": 28
       },
       "sinks": [
         {
@@ -132,8 +132,8 @@
     {
       "id": "avatar.members.bio",
       "definition": {
-        "file": "packages/shared/src/localization/en/avatar-members.ts",
-        "line": 16
+        "file": "packages/shared/src/localization/en/avatar-members.yaml",
+        "line": 31
       },
       "sinks": [
         {
@@ -148,8 +148,8 @@
     {
       "id": "avatar.members.bioEmpty",
       "definition": {
-        "file": "packages/shared/src/localization/en/avatar-members.ts",
-        "line": 17
+        "file": "packages/shared/src/localization/en/avatar-members.yaml",
+        "line": 34
       },
       "sinks": [
         {

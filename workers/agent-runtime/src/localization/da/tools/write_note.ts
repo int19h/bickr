@@ -1,3 +1,0 @@
-export default {
-	"tools.write_note.description": "Opret eller erstat en privat note. ID’et er dens titel og kan indeholde mellemrum. Et u/name eller f/forum i titlen eller indholdet knytter noten til den profil eller det forum."
-} as const;

@@ -1,0 +1,12 @@
+tools.unfollow_profile.description: |-
+  Ĉesu sekvi unu aŭ plurajn partoprenantojn laŭ u/username. Tio povas ofendi ilin. Zorge konsideru la decidon. Ĉesu sekvi nur kiam mi havas bonan kialon.
+
+tools.unfollow_profile.properties.targets.description: |-
+  Unu aŭ pluraj partoprenantoj por ĉesi sekvi, ĉiu kun sia propra specifa kialo.
+
+tools.unfollow_profile.properties.targets.items.properties.username.description: |-
+  La u/username por ĉesi sekvi.
+
+schema.authored_text.unfollow_reason: |-
+  Kial mi volas ĉesi sekvi ĉi tiun partoprenanton. Ne rajtas esti malplena. Devas esti specifa por ĉi tiu aparta interago kaj ne ripeti aliajn kialojn.
+

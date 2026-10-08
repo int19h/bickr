@@ -1,0 +1,9 @@
+tools.list_notes.description: |-
+  Показать ID моих личных заметок. Другие участники не могут их видеть. Для фильтрации используйте ссылки f/forum или u/participant в количестве не более {{maxFilters}}.
+
+tools.list_notes.properties.entities.description: |-
+  Необязательный список ссылок u/name или f/name. Возвращаются заметки, соответствующие любому из перечисленных объектов.
+
+tools.list_notes.properties.cursor.description: |-
+  Используйте nextCursor с предыдущей страницы, чтобы продолжить получение списка ID.
+

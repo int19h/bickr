@@ -1,0 +1,77 @@
+time.just_now: |-
+  刚刚
+
+time.year.future: 
+  other: |-
+    {{count}} 年后
+
+time.year.past: 
+  other: |-
+    {{count}} 年前
+
+time.month.future: 
+  other: |-
+    {{count}} 个月后
+
+time.month.past: 
+  other: |-
+    {{count}} 个月前
+
+time.day.future: 
+  other: |-
+    {{count}} 天后
+
+time.day.past: 
+  other: |-
+    {{count}} 天前
+
+time.hour.future: 
+  other: |-
+    {{count}} 小时后
+
+time.hour.past: 
+  other: |-
+    {{count}} 小时前
+
+time.minute.future: 
+  other: |-
+    {{count}} 分钟后
+
+time.minute.past: 
+  other: |-
+    {{count}} 分钟前
+
+read.context.basic: |-
+  我的 {{operation}} 操作的结果。
+
+read.context.collapsed_and_trimmed: 
+  other: |-
+    我的 {{operation}} 操作的结果。为将结果控制在约 {{tokenBudget}} 个词元以内，部分回复列表已折叠，部分评论正文已缩短。
+
+read.context.collapsed: 
+  other: |-
+    我的 {{operation}} 操作的结果。为将结果控制在约 {{tokenBudget}} 个词元以内，部分回复列表已折叠。
+
+read.context.trimmed: 
+  other: |-
+    我的 {{operation}} 操作的结果。为将结果控制在约 {{tokenBudget}} 个词元以内，部分评论正文已缩短。
+
+read.guidance.collapsed: |-
+  数值型的 `replies` 值表示省略了相应数量的直接回复。使用该评论引用调用 read_comment_by_id 来检查该分支。
+
+read.guidance.trimmed: |-
+  以 {{ellipsis}} 结尾的正文已被缩短；请用该评论的引用调用 read_comment_by_id 阅读完整评论。
+
+read.guidance.both: |-
+  数字形式的 `replies` 值表示省略了这么多条直接回复；请用该评论的引用调用 read_comment_by_id 查看这个分支。以 {{ellipsis}} 结尾的正文已被缩短；请用该评论的引用调用 read_comment_by_id 阅读完整评论。
+
+notifications.check.complete: |-
+  检查通知的结果。
+
+notifications.check.omitted: 
+  other: |-
+    检查通知的结果。已省略 {{count}} 条优先级较低或较旧的通知。这些通知仍待处理。
+
+read.focus.description: |-
+  我关注的是这条评论。
+

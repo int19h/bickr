@@ -1,0 +1,179 @@
+structured_output.unexpected_tools.compaction: |-
+  META: Не викликайте інструменти. Відповідайте докладним підсумком від першої особи, що відповідає обов'язковій схемі JSON.
+
+structured_output.unexpected_tools.other: |-
+  Не використовуйте команду Bickr для цієї відповіді. Дайте відповідь обов’язковим об’єктом JSON, що містить лише {{property}}.
+
+structured_output.empty.compaction: |-
+  Відповідь із підсумком була порожньою. Поверніть об’єкт JSON з непорожнім текстом у {{property}}.
+
+structured_output.empty.translation: |-
+  Відповідь із перекладом була порожньою. Поверніть об’єкт JSON із непорожнім текстом у {{property}}.
+
+structured_output.empty.avatar_description: |-
+  Відповідь з описом зображення профілю була порожньою. Поверніть об’єкт JSON із непорожнім текстом у {{property}}.
+
+structured_output.invalid_json.compaction: |-
+  Відповідь із підсумком має бути об’єктом JSON. Укажіть лише {{property}} з його текстовим значенням.
+
+structured_output.invalid_json.translation: |-
+  Відповідь із перекладом має бути об’єктом JSON. Укажіть лише {{property}} з його текстовим значенням.
+
+structured_output.invalid_json.avatar_description: |-
+  Відповідь з описом зображення профілю має бути об’єктом JSON. Укажіть лише {{property}} з його текстовим значенням.
+
+structured_output.missing_tool: |-
+  Виклик інструмента {{toolName}} не повернуто. Викличте {{toolName}} один раз із непорожнім текстом у {{property}}.
+
+structured_output.wrong_tool: |-
+  Для цього запиту використовуйте лише {{toolName}}. Не використовуйте тут {{receivedTool}}.
+
+structured_output.tool_count: 
+  one: |-
+    Очікувався один виклик інструмента {{toolName}}, але отримано {{count}} виклик. Викличте {{toolName}} рівно один раз.
+  few: |-
+    Очікувався один виклик інструмента {{toolName}}, але отримано {{count}} виклики. Викличте {{toolName}} рівно один раз.
+  many: |-
+    Очікувався один виклик інструмента {{toolName}}, але отримано {{count}} викликів. Викличте {{toolName}} рівно один раз.
+  other: |-
+    Очікувався один виклик інструмента {{toolName}}, але отримано {{count}} виклику. Викличте {{toolName}} рівно один раз.
+
+structured_output.tool_mismatch: |-
+  Очікувався інструмент {{toolName}}, але отримано {{receivedTool}}. Натомість викличте {{toolName}}.
+
+structured_output.invalid_arguments_json: |-
+  Аргументи {{toolName}} не були коректним JSON. Передайте об’єкт JSON з текстом у {{property}}. Екрануйте спеціальні символи в рядках.
+
+structured_output.arguments_object: |-
+  Аргументи {{toolName}} мають бути об’єктом JSON. Помістіть {{property}} і його текстове значення всередину {}.
+
+structured_output.output_object: |-
+  Структурована відповідь має бути об’єктом JSON. Помістіть {{property}} та його текстове значення всередину {}.
+
+structured_output.extra_arguments: 
+  one: |-
+    Кількість неочікуваних аргументів — {{count}}: {{fields}}. Вилучіть ці аргументи. Надайте лише {{property}}.
+  few: |-
+    Кількість неочікуваних аргументів — {{count}}: {{fields}}. Вилучіть ці аргументи. Надайте лише {{property}}.
+  many: |-
+    Кількість неочікуваних аргументів — {{count}}: {{fields}}. Вилучіть ці аргументи. Надайте лише {{property}}.
+  other: |-
+    Кількість неочікуваних аргументів — {{count}}: {{fields}}. Вилучіть ці аргументи. Надайте лише {{property}}.
+
+structured_output.extra_fields: 
+  one: |-
+    Кількість неочікуваних полів — {{count}}: {{fields}}. Вилучіть ці поля. Надайте лише {{property}}.
+  few: |-
+    Кількість неочікуваних полів — {{count}}: {{fields}}. Вилучіть ці поля. Надайте лише {{property}}.
+  many: |-
+    Кількість неочікуваних полів — {{count}}: {{fields}}. Вилучіть ці поля. Надайте лише {{property}}.
+  other: |-
+    Кількість неочікуваних полів — {{count}}: {{fields}}. Вилучіть ці поля. Надайте лише {{property}}.
+
+structured_output.nonempty.compaction: |-
+  Аргумент підсумку має бути непорожнім рядком. Помістіть текст у {{property}}.
+
+structured_output.nonempty.translation: |-
+  Аргумент перекладу має бути непорожнім рядком. Помістіть текст у {{property}}.
+
+structured_output.nonempty.avatar_description: |-
+  Аргумент опису зображення профілю має бути непорожнім рядком. Помістіть текст у {{property}}.
+
+structured_output.transcript: |-
+  Напишіть підсумок у {{property}} звичайною прозою від першої особи. Видаліть рядок стенограми {{line}}. Не пишіть рядки з мітками {{labels}}.
+
+structured_output.minimum.compaction: 
+  one: |-
+    Підсумок у {{property}} має містити щонайменше {{minimum}} символ. Додайте до тексту доречні деталі.
+  few: |-
+    Підсумок у {{property}} має містити щонайменше {{minimum}} символи. Додайте до тексту доречні деталі.
+  many: |-
+    Підсумок у {{property}} має містити щонайменше {{minimum}} символів. Додайте до тексту доречні деталі.
+  other: |-
+    Підсумок у {{property}} має містити щонайменше {{minimum}} символу. Додайте до тексту доречні деталі.
+
+structured_output.minimum.translation: 
+  one: |-
+    Переклад у {{property}} має містити щонайменше {{minimum}} символ. Додайте до тексту доречні деталі.
+  few: |-
+    Переклад у {{property}} має містити щонайменше {{minimum}} символи. Додайте до тексту доречні деталі.
+  many: |-
+    Переклад у {{property}} має містити щонайменше {{minimum}} символів. Додайте до тексту доречні деталі.
+  other: |-
+    Переклад у {{property}} має містити щонайменше {{minimum}} символу. Додайте до тексту доречні деталі.
+
+structured_output.minimum.avatar_description: 
+  one: |-
+    Опис зображення профілю в {{property}} має містити щонайменше {{minimum}} символ. Додайте до тексту доречні деталі.
+  few: |-
+    Опис зображення профілю в {{property}} має містити щонайменше {{minimum}} символи. Додайте до тексту доречні деталі.
+  many: |-
+    Опис зображення профілю в {{property}} має містити щонайменше {{minimum}} символів. Додайте до тексту доречні деталі.
+  other: |-
+    Опис зображення профілю в {{property}} має містити щонайменше {{minimum}} символу. Додайте до тексту доречні деталі.
+
+structured_output.maximum.compaction: 
+  one: |-
+    Підсумок у {{property}} має містити щонайбільше {{maximum}} символ. Скоротіть текст.
+  few: |-
+    Підсумок у {{property}} має містити щонайбільше {{maximum}} символи. Скоротіть текст.
+  many: |-
+    Підсумок у {{property}} має містити щонайбільше {{maximum}} символів. Скоротіть текст.
+  other: |-
+    Підсумок у {{property}} має містити щонайбільше {{maximum}} символу. Скоротіть текст.
+
+structured_output.maximum.translation: 
+  one: |-
+    Переклад у {{property}} має містити щонайбільше {{maximum}} символ. Скоротіть текст.
+  few: |-
+    Переклад у {{property}} має містити щонайбільше {{maximum}} символи. Скоротіть текст.
+  many: |-
+    Переклад у {{property}} має містити щонайбільше {{maximum}} символів. Скоротіть текст.
+  other: |-
+    Переклад у {{property}} має містити щонайбільше {{maximum}} символу. Скоротіть текст.
+
+structured_output.maximum.avatar_description: 
+  one: |-
+    Опис зображення профілю в {{property}} має містити щонайбільше {{maximum}} символ. Скоротіть текст.
+  few: |-
+    Опис зображення профілю в {{property}} має містити щонайбільше {{maximum}} символи. Скоротіть текст.
+  many: |-
+    Опис зображення профілю в {{property}} має містити щонайбільше {{maximum}} символів. Скоротіть текст.
+  other: |-
+    Опис зображення профілю в {{property}} має містити щонайбільше {{maximum}} символу. Скоротіть текст.
+
+structured_output.wrong_tool.unnamed: |-
+  Для цього запиту використовуйте лише {{toolName}}. Не надсилайте виклик інструмента без назви.
+
+structured_output.tool_mismatch.unnamed: |-
+  Очікувався інструмент {{toolName}}, але отримано виклик інструмента без назви. Натомість викличте {{toolName}}.
+
+structured_output.nonreducing.estimate: 
+  one: |-
+    Підсумок у {{property}} не скоротив контекст. Його орієнтовна довжина — {{replacementTokens}} токен.
+  few: |-
+    Підсумок у {{property}} не скоротив контекст. Його орієнтовна довжина — {{replacementTokens}} токени.
+  many: |-
+    Підсумок у {{property}} не скоротив контекст. Його орієнтовна довжина — {{replacementTokens}} токенів.
+  other: |-
+    Підсумок у {{property}} не скоротив контекст. Його орієнтовна довжина — {{replacementTokens}} токена.
+
+structured_output.nonreducing.before: 
+  one: |-
+    До заміни контекст містив {{compactedTokens}} токен. Скоротіть підсумок зі збереженням обов’язкових фактів.
+  few: |-
+    До заміни контекст містив {{compactedTokens}} токени. Скоротіть підсумок зі збереженням обов’язкових фактів.
+  many: |-
+    До заміни контекст містив {{compactedTokens}} токенів. Скоротіть підсумок зі збереженням обов’язкових фактів.
+  other: |-
+    До заміни контекст містив {{compactedTokens}} токена. Скоротіть підсумок зі збереженням обов’язкових фактів.
+
+structured_output.nonempty.compaction.field: |-
+  Поле підсумку має бути непорожнім рядком. Помістіть текст у {{property}}.
+
+structured_output.nonempty.translation.field: |-
+  Поле перекладу має бути непорожнім рядком. Помістіть текст у {{property}}.
+
+structured_output.nonempty.avatar_description.field: |-
+  Поле опису зображення профілю має бути непорожнім рядком. Помістіть текст у {{property}}.
+

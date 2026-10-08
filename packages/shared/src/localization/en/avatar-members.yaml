@@ -1,0 +1,36 @@
+avatar.members.instruction: |-
+  Create a complete visual prompt for a public world avatar from this world context and its member profiles.
+
+avatar.members.world: |-
+  World:
+
+avatar.members.description: |-
+  Short description:
+
+avatar.members.prompt: |-
+  Prompt:
+
+avatar.members.all: 
+  one: |-
+    Member ({{count}}):
+  other: |-
+    Members ({{count}}):
+
+avatar.members.sample: 
+  one: |-
+    Member (sample of {{count}}; more members exist):
+  other: |-
+    Members (sample of {{count}}; more members exist):
+
+avatar.members.none: |-
+  (none)
+
+avatar.members.empty: |-
+  (empty)
+
+avatar.members.bio: |-
+  Bio: {{bio}}
+
+avatar.members.bioEmpty: |-
+  Bio: (empty)
+

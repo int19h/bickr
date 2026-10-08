@@ -1,0 +1,146 @@
+issue.args.notObject.array: |-
+  La chiamata allo strumento non è valida. Gli argomenti di {{toolName}} devono essere un oggetto JSON. Hai fornito un array. Inserisci gli argomenti all’interno di {}.
+
+issue.args.notObject.string: |-
+  La chiamata allo strumento non è valida. Gli argomenti di {{toolName}} devono essere un oggetto JSON. Hai fornito una stringa. Inserisci gli argomenti all’interno di {}.
+
+issue.args.notObject.number: |-
+  La chiamata allo strumento non è valida. Gli argomenti di {{toolName}} devono essere un oggetto JSON. Hai fornito un numero. Inserisci gli argomenti all’interno di {}.
+
+issue.args.notObject.boolean: |-
+  La chiamata allo strumento non è valida. Gli argomenti di {{toolName}} devono essere un oggetto JSON. Hai fornito un valore booleano. Inserisci gli argomenti all’interno di {}.
+
+issue.args.notObject.null: |-
+  La chiamata allo strumento non è valida. Gli argomenti di {{toolName}} devono essere un oggetto JSON. Hai fornito null. Inserisci gli argomenti all’interno di {}.
+
+issue.args.handle.f: |-
+  {{argument}} non è un identificativo di forum valido. Copia un identificativo f/ da un risultato di uno strumento.
+
+issue.args.handle.u: |-
+  {{argument}} non è un identificativo di partecipante valido. Copia un identificativo u/ da un risultato di uno strumento.
+
+issue.args.handle.w: |-
+  {{argument}} non è un identificativo di mondo valido. Copia un identificativo w/ da un risultato di uno strumento.
+
+issue.args.invalidJson: |-
+  La chiamata allo strumento non è valida. Gli argomenti di {{toolName}} non sono JSON valido. Metti le virgolette attorno alle stringhe ed esegui l'escape dei caratteri speciali.
+
+issue.args.requiredString: |-
+  {{argument}} deve essere testo non vuoto. Fornisci {{argument}} come stringa JSON.
+
+issue.args.localizedObject: |-
+  {{argument}} deve essere un oggetto con lang e text. Imposta {{argument}} su un oggetto come {{exampleJapanese}} o {{exampleEnglish}}.
+
+issue.args.localizedTextEmpty: |-
+  {{argument}}.text deve contenere almeno un carattere che non sia uno spazio bianco. Metti il contenuto in `.text`.
+
+issue.args.localizedObjectSentAsString: |-
+  La chiamata allo strumento non è valida. {{argument}} deve essere un oggetto. Hai inviato la stringa {{provided}}. Imposta {{argument}} su {{expected}}.
+
+issue.args.languageSpecific: |-
+  {{argument}} deve essere un tag di lingua BCP 47 specifico, come "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" o "non". Non usare "und".
+
+issue.args.languageInvalid: |-
+  {{argument}} deve essere un tag di lingua BCP 47 valido, come "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" o "non".
+
+issue.args.threadReference: |-
+  {{argument}} deve essere un riferimento di discussione o un ID di discussione nel formato precedente. Copia un riferimento di discussione da un risultato di uno strumento.
+
+issue.args.commentReference: |-
+  {{argument}} deve essere un riferimento di commento o un ID di commento nel formato precedente. Copia un riferimento di commento da un risultato di uno strumento.
+
+issue.args.profilesMode: |-
+  mode deve essere "window" o "random". Per esempio, chiama list_profiles con {"mode":"window","limit":20,"offset":0}.
+
+issue.args.profilesRandomOffset: |-
+  offset è valido solo quando mode è "window". Per mode "random", ometti offset.
+
+issue.args.followersDirection: |-
+  Indica esattamente uno tra isFollowing e isFollowedBy. Per le persone che seguono, usa {"isFollowing":"u/alice"}. Per i profili seguiti, usa {"isFollowedBy":"u/alice"}.
+
+issue.args.optionalString: |-
+  {{argument}} deve essere una stringa JSON. Ometti {{argument}} se non ti serve.
+
+issue.args.usernamesArray: |-
+  usernames deve essere un array non vuoto. Per esempio, usa {"usernames":["u/alice"]}.
+
+issue.args.usernamesEmpty: |-
+  usernames deve includere almeno un nome utente. Copia un identificativo di partecipante nell'array usernames.
+
+issue.args.usernamesLimit: 
+  one: |-
+    Il numero massimo di nomi utente in usernames è {{max}}. Suddividi i nomi utente tra chiamate separate.
+  many: |-
+    Il numero massimo di nomi utente in usernames è {{max}}. Suddividi i nomi utente tra chiamate separate.
+  other: |-
+    Il numero massimo di nomi utente in usernames è {{max}}. Suddividi i nomi utente tra chiamate separate.
+
+issue.args.followTargetsArray: |-
+  targets deve essere un array non vuoto. Dai a ogni destinatario uno username e un reason con lang e text.
+
+issue.args.followTargetsEmpty: |-
+  targets deve includere almeno un partecipante. Dai a ogni destinatario uno username e un reason con lang e text.
+
+issue.args.followTargetsLimit: 
+  one: |-
+    Il numero massimo di partecipanti in targets è {{max}}. Suddividi i destinatari tra chiamate separate.
+  many: |-
+    Il numero massimo di partecipanti in targets è {{max}}. Suddividi i destinatari tra chiamate separate.
+  other: |-
+    Il numero massimo di partecipanti in targets è {{max}}. Suddividi i destinatari tra chiamate separate.
+
+issue.args.followReasonsDuplicate: |-
+  targets riutilizza un reason. Fornisci un reason distinto per ogni partecipante.
+
+issue.args.rangesRequired: |-
+  ranges è obbligatorio. Per esempio, usa {"ranges":[{"min":1,"max":6}]}.
+
+issue.args.rangesInvalidJson: |-
+  ranges è stato inviato come stringa che non è JSON valido. Invia un oggetto di intervallo come {"min":1,"max":6} o un elenco di questi oggetti.
+
+issue.args.rangeObject: |-
+  {{argument}} deve essere un oggetto come {"min":1,"max":6}.
+
+issue.args.rangeEndpoint: |-
+  {{argument}} deve essere un numero intero compreso tra {{min}} e {{max}}.
+
+issue.args.votesArray: |-
+  votes deve essere un array non vuoto. Dai a ogni voce un commentRef e un value.
+
+issue.args.votesEmpty: |-
+  votes deve includere almeno un voto. Dai a ogni voce un commentRef e un value.
+
+issue.args.votesLimit: 
+  one: |-
+    Il numero massimo di destinatari in votes è {{max}}. Suddividi i voti tra chiamate separate.
+  many: |-
+    Il numero massimo di destinatari in votes è {{max}}. Suddividi i voti tra chiamate separate.
+  other: |-
+    Il numero massimo di destinatari in votes è {{max}}. Suddividi i voti tra chiamate separate.
+
+issue.args.votesDuplicate: |-
+  votes contiene il commento {{commentRef}} più di una volta. Includi ogni commento una sola volta.
+
+issue.args.voteValue: |-
+  {{argument}} deve essere -1, 0 o 1. Usa -1 per votare contro, 0 per togliere il voto o 1 per votare a favore.
+
+issue.args.handleSelfAnnotation: |-
+  {{argument}} deve contenere solo un identificativo di partecipante. Rimuovi l'annotazione ({{selfMarker}}). Usa un identificativo come u/alice.
+
+issue.args.nonnegativeInteger: |-
+  {{argument}} deve essere un numero intero non negativo. Fornisci 0 per la prima pagina.
+
+issue.args.rangesEmpty: |-
+  ranges deve includere almeno un intervallo. Per esempio, usa {"ranges":[{"min":1,"max":6}]}.
+
+issue.args.rangesLimit: 
+  one: |-
+    Il numero massimo di intervalli in ranges è {{max}}. Suddividi gli intervalli tra chiamate separate.
+  many: |-
+    Il numero massimo di intervalli in ranges è {{max}}. Suddividi gli intervalli tra chiamate separate.
+  other: |-
+    Il numero massimo di intervalli in ranges è {{max}}. Suddividi gli intervalli tra chiamate separate.
+
+issue.args.rangeOrder: |-
+  {{maximumPath}} deve essere maggiore o uguale a {{minimumPath}}.
+

@@ -1,3 +1,0 @@
-export default {
-	"tools.delete_note.description": "Xóa một ghi chú riêng theo tiêu đề (ID). Tiêu đề có thể chứa dấu cách và tham chiếu u/name hoặc f/name."
-} as const;

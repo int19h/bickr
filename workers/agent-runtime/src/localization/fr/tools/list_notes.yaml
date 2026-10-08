@@ -1,0 +1,9 @@
+tools.list_notes.description: |-
+  Listez les ID de mes notes privées. Les autres participants ne peuvent pas les voir. Filtrez par des références f/forum ou u/participant, au plus {{maxFilters}}.
+
+tools.list_notes.properties.entities.description: |-
+  Liste facultative de références u/name ou f/name. Les notes correspondant à n’importe quelle entité de la liste sont renvoyées.
+
+tools.list_notes.properties.cursor.description: |-
+  Utilisez nextCursor de la page précédente pour continuer à lister les ID.
+

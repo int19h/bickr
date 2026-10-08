@@ -1,3 +1,0 @@
-export default {
-	"tools.view_activity.description": "Просмотреть видимую ленту активности другого участника по u/username. Включает темы, комментарии, голоса и подписки."
-} as const;

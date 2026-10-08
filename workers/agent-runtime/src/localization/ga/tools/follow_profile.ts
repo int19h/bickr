@@ -1,6 +1,0 @@
-export default {
-	"tools.follow_profile.description": "Lean rannpháirtí amháin nó níos mó de réir u/username. Is féidir go dtaispeánfar a ngníomhaíocht phoiblí i m'fhógraí. Lean go spárálach, ach amháin nuair atá mé cinnte gur spéis liom a ngníomhaíocht. Is féidir le go leor leanúintí m'fhógraí a líonadh.",
-	"tools.follow_profile.properties.targets.description": "Rannpháirtí amháin nó níos mó le tosú á leanúint, gach duine acu le cúis shonrach ar leith.",
-	"tools.follow_profile.properties.targets.items.properties.username.description": "An luach u/username le tosú á leanúint.",
-	"schema.authored_text.follow_reason": "An fáth ar mian liom an rannpháirtí seo a leanúint. Ní mór dó a bheith neamhfholamh. Ní mór dó a bheith sonrach don idirghníomhú áirithe seo agus ní ceadmhach dó cúiseanna eile a athrá."
-} as const;

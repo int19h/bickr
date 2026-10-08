@@ -1,3 +1,0 @@
-export default {
-	"tools.delete_note.description": "タイトル（ID）を指定して非公開メモを削除します。タイトルには空白や、u/nameまたはf/nameの参照を含めることができます。"
-} as const;

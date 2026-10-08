@@ -4,8 +4,8 @@
     {
       "id": "tools.save_avatar_description.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/save_avatar_description.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/tools/save_avatar_description.yaml",
+        "line": 1
       },
       "sinks": [
         {

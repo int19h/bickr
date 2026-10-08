@@ -1,0 +1,60 @@
+avatar.image.participant_system: |-
+  Créez un avatar public pour ce participant de Bickr. Suivez l'orientation visuelle demandée et utilisez l'image de profil actuelle fournie, s'il y en a une. Rendez le sujet clairement lisible dans une vue de profil carrée ou recadrée. Ne placez dans l'image ni légendes, ni filigranes, ni éléments d'interface, ni texte explicatif.
+
+avatar.image.world_system: |-
+  Créez un avatar public pour ce monde de Bickr. Suivez l'orientation visuelle demandée et utilisez l'image actuelle du monde fournie, s'il y en a une. Rendez le décor clairement lisible dans une vue de profil carrée ou recadrée. Ne placez dans l'image ni légendes, ni filigranes, ni éléments d'interface, ni texte explicatif.
+
+avatar.describe_current.participant_system: |-
+  Décrivez l’image de profil publique fournie pour un nouvel avatar de participant Bickr. Incluez des détails concrets sur l’apparence, l’expression, la pose, les vêtements, le style, les couleurs, la lumière, l’arrière-plan, le cadrage et la disposition. Renvoyez uniquement la description.
+
+avatar.describe_current.world_system: |-
+  Décrivez l’image publique du monde fournie pour un nouvel avatar de monde Bickr. Incluez des détails concrets sur le paysage, les bâtiments, les objets, l’atmosphère, le style, les couleurs, la lumière, l’arrière-plan, le cadrage et la disposition. Renvoyez uniquement la description.
+
+avatar.world_source.system: |-
+  Écrivez une consigne visuelle pour un avatar public de monde Bickr. Utilisez le décor et les profils des membres pour décrire une image du monde. Incluez des détails concrets sur les points de repère, le paysage, l’atmosphère, la lumière, les couleurs, la texture, la disposition et le point de vue de la caméra. N’incluez pas de légendes, de texte superposé, d’éléments d’interface, de filigranes ou de commentaires sur le processus. Renvoyez uniquement la consigne.
+
+avatar.image.world_refresh: |-
+  Utilisez l’image actuelle du monde fournie comme entrée visuelle pour un avatar public renouvelé du monde.
+
+avatar.image.participant_refresh: |-
+  Utilisez l’image de profil actuelle fournie comme entrée visuelle pour un avatar public renouvelé du profil.
+
+avatar.describe_current.world: |-
+  Fournissez une description visuelle complète de l’image actuelle du monde fournie pour la consigne d’un avatar public renouvelé du monde.
+
+avatar.describe_current.participant: |-
+  Fournissez une description visuelle complète de l’image de profil actuelle fournie pour une consigne d’avatar public renouvelé.
+
+avatar.persona_description.structured: |-
+  Décrivez votre image de profil. Renvoyez l’objet JSON requis. Écrivez sa description dans votre rôle et à la première personne. Donnez de nombreux détails visuels concrets sur l’apparence, le style, la scène, la lumière et la disposition. Décrivez uniquement ce qui est visible.
+
+avatar.persona_description.tool: |-
+  Décrivez votre image de profil. Appelez {{toolName}}. Écrivez dans votre rôle et à la première personne. Donnez de nombreux détails visuels concrets sur l’apparence, le style, la scène, la lumière et la disposition. Décrivez uniquement ce qui est visible.
+
+avatar.persona_description.repair_structured: |-
+  Renvoyez un objet JSON avec exactement un champ nommé description. Écrivez-le dans votre rôle et à la première personne. Décrivez uniquement l’apparence, le style, la scène, la lumière et la disposition visibles.
+
+avatar.persona_description.repair_tool: |-
+  Appelez {{toolName}}. Écrivez dans votre rôle et à la première personne. Décrivez uniquement l’apparence, le style, la scène, la lumière et la disposition visibles.
+
+avatar.world_source.description_and_detail: |-
+  Nom du monde : {{worldName}}
+  Courte description :
+  {{description}}
+
+  Détails supplémentaires sur le cadre :
+  {{detail}}
+
+avatar.world_source.description: |-
+  Nom du monde : {{worldName}}
+  Courte description :
+  {{description}}
+
+avatar.world_source.detail: |-
+  Nom du monde : {{worldName}}
+  Détails sur le cadre :
+  {{detail}}
+
+avatar.image.currentIncluded: |-
+  [image d'avatar actuelle incluse]
+

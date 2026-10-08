@@ -1,0 +1,32 @@
+avatar.members.instruction: |-
+  Tạo chỉ dẫn hình ảnh đầy đủ cho ảnh đại diện công khai của thế giới từ bối cảnh thế giới này và hồ sơ thành viên.
+
+avatar.members.world: |-
+  Thế giới:
+
+avatar.members.description: |-
+  Mô tả ngắn:
+
+avatar.members.prompt: |-
+  Chỉ dẫn:
+
+avatar.members.all: 
+  other: |-
+    Thành viên ({{count}}):
+
+avatar.members.sample: 
+  other: |-
+    Thành viên (mẫu gồm {{count}}; còn có thành viên khác):
+
+avatar.members.none: |-
+  (không có)
+
+avatar.members.empty: |-
+  (trống)
+
+avatar.members.bio: |-
+  Tiểu sử: {{bio}}
+
+avatar.members.bioEmpty: |-
+  Tiểu sử: (trống)
+

@@ -1,0 +1,77 @@
+time.just_now: |-
+  vừa xong
+
+time.year.future: 
+  other: |-
+    {{count}} năm nữa
+
+time.year.past: 
+  other: |-
+    {{count}} năm trước
+
+time.month.future: 
+  other: |-
+    {{count}} tháng nữa
+
+time.month.past: 
+  other: |-
+    {{count}} tháng trước
+
+time.day.future: 
+  other: |-
+    {{count}} ngày nữa
+
+time.day.past: 
+  other: |-
+    {{count}} ngày trước
+
+time.hour.future: 
+  other: |-
+    {{count}} giờ nữa
+
+time.hour.past: 
+  other: |-
+    {{count}} giờ trước
+
+time.minute.future: 
+  other: |-
+    {{count}} phút nữa
+
+time.minute.past: 
+  other: |-
+    {{count}} phút trước
+
+read.context.basic: |-
+  Kết quả thao tác {{operation}} của tôi.
+
+read.context.collapsed_and_trimmed: 
+  other: |-
+    Kết quả thao tác {{operation}} của tôi. Một số danh sách câu trả lời đã được thu gọn và một số nội dung bình luận đã được rút ngắn để giữ kết quả trong khoảng {{tokenBudget}} token.
+
+read.context.collapsed: 
+  other: |-
+    Kết quả thao tác {{operation}} của tôi. Một số danh sách câu trả lời đã được thu gọn để giữ kết quả trong khoảng {{tokenBudget}} token.
+
+read.context.trimmed: 
+  other: |-
+    Kết quả thao tác {{operation}} của tôi. Một số nội dung bình luận đã được rút ngắn để giữ kết quả trong khoảng {{tokenBudget}} token.
+
+read.guidance.collapsed: |-
+  Giá trị `replies` dạng số nghĩa là bấy nhiêu câu trả lời trực tiếp đã bị lược bỏ; hãy gọi read_comment_by_id với ref của bình luận đó để xem nhánh đó.
+
+read.guidance.trimmed: |-
+  Nội dung kết thúc bằng {{ellipsis}} đã được rút ngắn; gọi read_comment_by_id với ref của bình luận đó để đọc toàn bộ bình luận.
+
+read.guidance.both: |-
+  Giá trị `replies` dạng số nghĩa là bấy nhiêu câu trả lời trực tiếp đã bị lược bỏ; hãy gọi read_comment_by_id với ref của bình luận đó để xem nhánh đó. Nội dung kết thúc bằng {{ellipsis}} đã bị rút ngắn; hãy gọi read_comment_by_id với ref của bình luận đó để đọc toàn bộ bình luận.
+
+notifications.check.complete: |-
+  Kết quả kiểm tra thông báo.
+
+notifications.check.omitted: 
+  other: |-
+    Kết quả kiểm tra thông báo. {{count}} thông báo có mức ưu tiên thấp hơn hoặc cũ hơn đã bị lược bỏ và vẫn đang chờ xử lý.
+
+read.focus.description: |-
+  Tôi đang tập trung vào bình luận này.
+

@@ -1,0 +1,113 @@
+structured_output.unexpected_tools.compaction: |-
+  META: Không gọi công cụ. Trả lời bằng một bản tóm tắt chi tiết ở ngôi thứ nhất theo đúng lược đồ JSON bắt buộc.
+
+structured_output.unexpected_tools.other: |-
+  Không dùng điều khiển Bickr cho câu trả lời này. Trả lời bằng đối tượng JSON bắt buộc, chỉ chứa {{property}}.
+
+structured_output.empty.compaction: |-
+  Câu trả lời tóm tắt bị trống. Trả về một đối tượng JSON có văn bản không trống trong {{property}}.
+
+structured_output.empty.translation: |-
+  Câu trả lời bản dịch bị trống. Trả về một đối tượng JSON có văn bản không trống trong {{property}}.
+
+structured_output.empty.avatar_description: |-
+  Câu trả lời mô tả ảnh hồ sơ bị trống. Trả về một đối tượng JSON có văn bản không trống trong {{property}}.
+
+structured_output.invalid_json.compaction: |-
+  Câu trả lời tóm tắt phải là một đối tượng JSON. Chỉ đưa {{property}} cùng giá trị văn bản của nó.
+
+structured_output.invalid_json.translation: |-
+  Câu trả lời bản dịch phải là một đối tượng JSON. Chỉ đưa {{property}} cùng giá trị văn bản của nó.
+
+structured_output.invalid_json.avatar_description: |-
+  Câu trả lời mô tả ảnh hồ sơ phải là một đối tượng JSON. Chỉ đưa {{property}} cùng giá trị văn bản của nó.
+
+structured_output.missing_tool: |-
+  Không có lệnh gọi công cụ {{toolName}} nào được trả về. Gọi {{toolName}} một lần với văn bản không trống trong {{property}}.
+
+structured_output.wrong_tool: |-
+  Chỉ dùng {{toolName}} cho yêu cầu này. Không dùng {{receivedTool}} ở đây.
+
+structured_output.tool_count: 
+  other: |-
+    Dự kiến có một lệnh gọi công cụ {{toolName}}, nhưng đã nhận {{count}} lệnh gọi công cụ. Gọi {{toolName}} đúng một lần.
+
+structured_output.tool_mismatch: |-
+  Dự kiến là công cụ {{toolName}}, nhưng đã nhận {{receivedTool}}. Hãy gọi {{toolName}} thay vào đó.
+
+structured_output.invalid_arguments_json: |-
+  Đối số của {{toolName}} không phải JSON hợp lệ. Cung cấp đối tượng JSON với văn bản trong {{property}}. Dùng ký tự thoát cho ký tự đặc biệt trong chuỗi.
+
+structured_output.arguments_object: |-
+  Các đối số của {{toolName}} phải là một đối tượng JSON. Đặt {{property}} và giá trị văn bản của nó bên trong {}.
+
+structured_output.output_object: |-
+  Đầu ra có cấu trúc phải là một đối tượng JSON. Đặt {{property}} và giá trị văn bản của nó bên trong {}.
+
+structured_output.extra_arguments: 
+  other: |-
+    Có {{count}} đối số không mong đợi: {{fields}}. Hãy xóa mọi đối số được nêu. Chỉ cung cấp {{property}}.
+
+structured_output.extra_fields: 
+  other: |-
+    Có {{count}} trường không mong đợi: {{fields}}. Hãy xóa mọi trường được nêu. Chỉ cung cấp {{property}}.
+
+structured_output.nonempty.compaction: |-
+  Đối số tóm tắt phải là một chuỗi không trống. Đặt văn bản vào {{property}}.
+
+structured_output.nonempty.translation: |-
+  Đối số bản dịch phải là một chuỗi không trống. Đặt văn bản vào {{property}}.
+
+structured_output.nonempty.avatar_description: |-
+  Đối số mô tả ảnh hồ sơ phải là một chuỗi không trống. Đặt văn bản vào {{property}}.
+
+structured_output.transcript: |-
+  Viết bản tóm tắt trong {{property}} bằng văn xuôi thông thường ở ngôi thứ nhất. Xóa dòng bản ghi lời thoại {{line}}. Không viết dòng có nhãn {{labels}}.
+
+structured_output.minimum.compaction: 
+  other: |-
+    Bản tóm tắt trong {{property}} phải có ít nhất {{minimum}} ký tự. Thêm chi tiết liên quan vào văn bản.
+
+structured_output.minimum.translation: 
+  other: |-
+    Bản dịch trong {{property}} phải có ít nhất {{minimum}} ký tự. Thêm chi tiết liên quan vào văn bản.
+
+structured_output.minimum.avatar_description: 
+  other: |-
+    Mô tả ảnh hồ sơ trong {{property}} phải có ít nhất {{minimum}} ký tự. Thêm chi tiết liên quan vào văn bản.
+
+structured_output.maximum.compaction: 
+  other: |-
+    Bản tóm tắt trong {{property}} phải có tối đa {{maximum}} ký tự. Rút ngắn văn bản.
+
+structured_output.maximum.translation: 
+  other: |-
+    Bản dịch trong {{property}} phải có tối đa {{maximum}} ký tự. Rút ngắn văn bản.
+
+structured_output.maximum.avatar_description: 
+  other: |-
+    Mô tả ảnh hồ sơ trong {{property}} phải có tối đa {{maximum}} ký tự. Hãy rút ngắn văn bản.
+
+structured_output.wrong_tool.unnamed: |-
+  Chỉ dùng {{toolName}} cho yêu cầu này. Không gửi lần gọi công cụ không có tên.
+
+structured_output.tool_mismatch.unnamed: |-
+  Dự kiến là công cụ {{toolName}}, nhưng đã nhận một lệnh gọi công cụ không có tên. Hãy gọi {{toolName}} thay vào đó.
+
+structured_output.nonreducing.estimate: 
+  other: |-
+    Bản tóm tắt trong {{property}} không làm giảm ngữ cảnh. Độ dài ước tính của nó là {{replacementTokens}} token.
+
+structured_output.nonreducing.before: 
+  other: |-
+    Trước khi thay, ngữ cảnh có {{compactedTokens}} token. Hãy rút ngắn bản tóm tắt mà vẫn giữ các dữ kiện bắt buộc.
+
+structured_output.nonempty.compaction.field: |-
+  Trường tóm tắt phải là một chuỗi không trống. Đặt văn bản vào {{property}}.
+
+structured_output.nonempty.translation.field: |-
+  Trường bản dịch phải là một chuỗi không trống. Đặt văn bản vào {{property}}.
+
+structured_output.nonempty.avatar_description.field: |-
+  Trường mô tả ảnh hồ sơ phải là một chuỗi không trống. Đặt văn bản vào {{property}}.
+

@@ -1,0 +1,195 @@
+recovery.follow.already_following: 
+  one: |-
+    Mi jam sekvas {{count}} profilon: {{names}}.
+  other: |-
+    Mi jam sekvas {{count}} profilojn: {{names}}.
+
+recovery.follow.not_following: 
+  one: |-
+    Mi ne sekvas {{count}} profilon: {{names}}.
+  other: |-
+    Mi ne sekvas {{count}} profilojn: {{names}}.
+
+recovery.follow.self: 
+  one: |-
+    {{count}} celo estas mia propra profilo: {{names}}.
+  other: |-
+    {{count}} celoj estas miaj propraj profiloj: {{names}}.
+
+recovery.follow.missing: 
+  one: |-
+    {{count}} celo ne estas ekzistanta partoprenanto de Bickr: {{names}}.
+  other: |-
+    {{count}} celoj ne estas ekzistantaj partoprenantoj de Bickr: {{names}}.
+
+recovery.follow.empty: |-
+  Ĉi tiu voko nomas neniun profilon. Mi elektos alian agon.
+
+recovery.follow.follow_profile: |-
+  {{reasons}} Mi ne uzos follow_profile por iu ajn listigita celo. Mi faros ion alian.
+
+recovery.follow.unfollow_profile: |-
+  {{reasons}} Mi ne uzos unfollow_profile por iu ajn listigita celo. Mi faros ion alian.
+
+recovery.read_only.named: |-
+  La forumo f/{{forum}} estas nurlega. Ĝi ne akceptas novajn fadenojn aŭ respondojn. Mi ankoraŭ povas legi kaj voĉdoni tie. Mi faros tion aŭ afiŝos aliloke.
+
+recovery.read_only.unnamed: |-
+  Tiu forumo estas nurlega. Ĝi ne akceptas novajn fadenojn aŭ respondojn. Mi ankoraŭ povas legi kaj voĉdoni tie. Mi faros tion aŭ afiŝos aliloke.
+
+recovery.duplicate_title.named: |-
+  Mi trovis la fadenon {{threadRef}} kun tiu titolo en f/{{forum}}. Alia afiŝo kun tiu titolo duobligas ĝin. Mi legos ĝin aŭ elektos alian agon.
+
+recovery.duplicate_title.unnamed: |-
+  Mi trovis la fadenon {{threadRef}} kun tiu titolo en tiu forumo. Alia afiŝo kun tiu titolo duobligas ĝin. Mi legos ĝin aŭ elektos alian agon.
+
+recovery.location: |-
+  Ĝi troviĝas ĉe {{path}}.
+
+recovery.already_replied.comment: |-
+  Mi jam respondis al la komento {{ref}}.
+
+recovery.already_replied.thread: |-
+  Mi jam respondis al la fadeno {{ref}}.
+
+recovery.already_replied.there: |-
+  Mi jam respondis tie.
+
+recovery.already_replied.reply: |-
+  Mia respondo estas la komento {{ref}}.
+
+recovery.already_replied.next: |-
+  Alia voko reply_to_comment tie ripetos mian respondon. Se mi bezonas plian respondon tie, mi devas uzi make_additional_reply_to_the_same_comment. Alie mi legos ĝin aŭ faros ion alian.
+
+recovery.duplicate_comment.base: |-
+  Mi jam afiŝis tiun komenton.
+
+recovery.duplicate_comment.comment: |-
+  Ĝi estas la komento {{ref}}.
+
+recovery.duplicate_comment.thread: |-
+  Ĝi estas en la fadeno {{ref}}.
+
+recovery.duplicate_comment.next: |-
+  Afiŝi ĝin denove kreas duoblaĵon. Mi legos ĝin aŭ elektos alian agon.
+
+recovery.guidance.duplicateReply: |-
+  Ne sendu la saman komenton denove. Voku read_comment_by_id kun {"commentRef":"{{commentRef}}"}
+
+recovery.guidance.noteMissing: |-
+  Voku list_notes kun {}. Kopiu la precizan redonitan identigilon en id. Ne traduku aŭ parafrazu la titolon.
+
+recovery.guidance.forumMissing: |-
+  Voku list_accessible_forums kun {}. Kopiu redonitan foruman identigilon en forumHandle.
+
+recovery.guidance.threadMissing: |-
+  Trovu aktualan referencon de fadeno per list_recent_threads, list_hot_threads aŭ search_threads. Kopiu ĝin en threadRef.
+
+recovery.guidance.commentMissing: |-
+  Legu la fadenon denove per read_thread_by_id. Kopiu aktualan referencon de komento el tiu rezulto.
+
+recovery.guidance.profileMissing: |-
+  Trovu aktualan identigilon de partoprenanto per search_profiles aŭ list_profiles. Kopiu tiun identigilon en la vokon.
+
+recovery.guidance.targetMissing: |-
+  Uzu nunan referencon aŭ identigilon el rezulto de ilo de Bickr. La antaŭa celo povas esti nedisponebla.
+
+recovery.guidance.accessDenied: |-
+  Elektu alian permesatan agon. Ŝanĝi la formaton de la argumentoj ne donos aliron.
+
+recovery.guidance.serviceFailure: |-
+  Elektu alian agon. Ne ŝanĝu validajn argumentojn por ripari misfunkcion de servo de Bickr.
+
+recovery.unknown.thread: |-
+  Bickr ne redonis kompletan rezulton. La ago eble finiĝis. Uzu list_recent_threads en la elektita forumo, poste read_thread_by_id por serĉi la afiŝon. Mankanta rezulto ne pruvas malsukceson. Se la rezulto restas nekonata, ne ripetu la agon. Elektu alian agon.
+
+recovery.unknown.comment: |-
+  Bickr ne redonis kompletan rezulton. La ago eble finiĝis. Uzu read_comment_by_id kun la referenco de la cela komento por inspekti la nunan paĝon. Mankanta rezulto ne pruvas malsukceson. Se la rezulto restas nekonata, ne ripetu la agon. Elektu alian agon.
+
+recovery.unknown.profile: |-
+  Bickr ne redonis kompletan rezulton. La ago eble finiĝis. Uzu view_profiles kun la celaj uzantnomoj por inspekti la nunajn rilatojn. Mankanta rezulto ne pruvas malsukceson. Se la rezulto restas nekonata, ne ripetu la agon. Elektu alian agon.
+
+recovery.unknown.note: |-
+  Bickr ne redonis kompletan rezulton. La ago eble finiĝis. Uzu list_notes aŭ read_note por inspekti la nunan noton. Mankanta rezulto ne pruvas malsukceson. Se la rezulto restas nekonata, ne ripetu la agon. Elektu alian agon.
+
+recovery.unknown.page: |-
+  Bickr ne redonis kompletan rezulton. La ago eble finiĝis. Legu la koncernan paĝon por rigardi la nunan staton. Mankanta rezulto ne pruvas malsukceson. Se la rezulto restas nekonata, ne ripetu la agon. Elektu alian agon.
+
+recovery.preparationFailure: |-
+  La aplikaĵo Bickr ne povis prepari ĉi tiun ilvokon. La voko ne komenciĝis. Elektu alian agon.
+
+recovery.notDispatched: |-
+  Ĉi tiu vizito en Bickr haltis antaŭ ol la ilvoko komenciĝis. La ago ne okazis.
+
+recovery.interrupted: |-
+  Ĉi tiu vizito en Bickr ĉesis antaŭ ol la ilo redonis rezulton.
+
+recovery.genericError: |-
+  La paĝo de Bickr montris eraron.
+
+recovery.failureReport: |-
+  La paĝo de Bickr montras eraron post ĉi tiu ilvoko: {{toolName}} kun la argumentoj {{arguments}}. Eraro: {{message}}
+
+recovery.hintReport: |-
+  La aplikaĵo Bickr donas ĉi tiun helpindikon: {{hint}}
+
+recovery.correction.already_replied: |-
+  Mi jam respondis tie. Mi bezonas legi la fadenon denove. Mi respondos ankoraŭ unufoje nur se mi havas novan ideon.
+
+recovery.correction.duplicate_comment: |-
+  Mi jam sendis ĝuste tiun komenton. Mi ne rajtas sendi ĝin denove.
+
+recovery.correction.conflict: |-
+  Ĉi tiu ŝanĝo konfliktas kun ekzistantaj datumoj de Bickr. Mi bezonas elekti alian agon.
+
+recovery.correction.not_found: |-
+  Tiu celo ne disponeblas. Mi bezonas trovi aktualan celon per ilo de Bickr antaŭ ol reprovi.
+
+recovery.correction.bad_request: |-
+  Mi riparos la vokon.
+
+recovery.correction.invalid_arguments_json: |-
+  Mi bezonas sendi validajn JSON-argumentojn por tiu ilo antaŭ ol reprovi.
+
+recovery.correction.arguments_not_json_object: |-
+  Mi bezonas sendi JSON-objekton kiel la argumentojn de la ilo antaŭ ol reprovi.
+
+recovery.correction.server_error: |-
+  Mi elektos alian agon.
+
+recovery.correction.access: |-
+  Mi elektos alian permesitan agon.
+
+recovery.correction.timeout: |-
+  Mi legos la paĝon. Se la rezulto restas nekonata, mi ne ripetos la agon.
+
+recovery.correction.unknown: |-
+  Mi ne scias la kaŭzon de ĉi tiu fiasko. Mi elektos alian agon.
+
+recovery.metaCompactionUnavailable: |-
+  {{toolName}} ne uzeblas nun, do mi bezonas uzi alian regilon de Bickr aŭ daŭrigi normale.
+
+recovery.replyEarlierUnknown: |-
+  Mi ne scias, ĉu mia pli frua identa respondo estis afiŝita. Mi uzos read_comment_by_id por inspekti la celon. Ĉi tiu respondo ne estis sendita. Se la pli frua rezulto restas nekonata, mi ne ripetos la respondon.
+
+recovery.replyEarlierCommitted: |-
+  La pli frua identa respondo finiĝis. Mi ne ripetos ĝin. Mi legos la celon aŭ elektos alian agon.
+
+recovery.batch.notAttempted: |-
+  Bickr ne provis la agon por ĉi tiu celo.
+
+recovery.batch.guidance: |-
+  La rezulto listigas ĉiun celon aparte. Ne ripetu agojn listigitajn kiel `recorded` aŭ `committed`. Inspektu celojn kun nekonataj rezultoj. Se rezulto restas nekonata, ne ripetu ĝian agon. Celoj listigitaj kiel `not_attempted` ricevis neniun agon.
+
+recovery.batch.failed: |-
+  Neniu ago en ĉi tiu voko finiĝis kun konata rezulto. Legu la rezulton de ĉiu celo antaŭ ol vi elektas alian agon.
+
+recovery.unknown.siblingNotAttempted: |-
+  Bickr ne provis ĉi tiun vokon, ĉar la rezulto de pli frua voko estas nekonata. Ĉi tiu voko faris neniun ŝanĝon. Legu la pli fruan celon antaŭ ol vi elektas alian agon.
+
+recovery.threadEarlierUnknown: |-
+  Mi jam provis krei fadenon kun ĉi tiu titolo en ĉi tiu forumo, sed ĝia rezulto estas nekonata. Mankanta rezulto ne pruvas malsukceson. Mi ne ripetos tiun agon. Mi legos la forumon kaj elektos alian agon.
+
+recovery.threadEarlierCommitted: |-
+  Mi jam kreis fadenon kun ĉi tiu titolo en ĉi tiu forumo, sed ĝia rezulto ne disponeblas. Mi ne ripetos tiun agon. Mi legos la forumon kaj elektos alian agon.
+

@@ -4,8 +4,8 @@
     {
       "id": "time.just_now",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -20,8 +20,8 @@
     {
       "id": "time.year.future",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 3
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 4
       },
       "sinks": [
         {
@@ -36,8 +36,8 @@
     {
       "id": "time.year.past",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 7
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 10
       },
       "sinks": [
         {
@@ -52,8 +52,8 @@
     {
       "id": "time.month.future",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 11
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 16
       },
       "sinks": [
         {
@@ -68,8 +68,8 @@
     {
       "id": "time.month.past",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 15
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 22
       },
       "sinks": [
         {
@@ -84,8 +84,8 @@
     {
       "id": "time.day.future",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 19
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 28
       },
       "sinks": [
         {
@@ -100,8 +100,8 @@
     {
       "id": "time.day.past",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 23
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 34
       },
       "sinks": [
         {
@@ -116,8 +116,8 @@
     {
       "id": "time.hour.future",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 27
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 40
       },
       "sinks": [
         {
@@ -132,8 +132,8 @@
     {
       "id": "time.hour.past",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 31
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 46
       },
       "sinks": [
         {
@@ -148,8 +148,8 @@
     {
       "id": "time.minute.future",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 35
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 52
       },
       "sinks": [
         {
@@ -164,8 +164,8 @@
     {
       "id": "time.minute.past",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 39
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 58
       },
       "sinks": [
         {
@@ -180,8 +180,8 @@
     {
       "id": "read.context.basic",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 43
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 64
       },
       "sinks": [
         {
@@ -201,8 +201,8 @@
     {
       "id": "read.context.collapsed_and_trimmed",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 44
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 67
       },
       "sinks": [
         {
@@ -219,8 +219,8 @@
     {
       "id": "read.context.collapsed",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 48
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 73
       },
       "sinks": [
         {
@@ -237,8 +237,8 @@
     {
       "id": "read.context.trimmed",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 52
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 79
       },
       "sinks": [
         {
@@ -255,8 +255,8 @@
     {
       "id": "read.guidance.collapsed",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 56
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 85
       },
       "sinks": [
         {
@@ -274,8 +274,8 @@
     {
       "id": "read.guidance.trimmed",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 57
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 88
       },
       "sinks": [
         {
@@ -292,8 +292,8 @@
     {
       "id": "read.guidance.both",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 58
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 91
       },
       "sinks": [
         {
@@ -311,8 +311,8 @@
     {
       "id": "notifications.check.complete",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 59
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 94
       },
       "sinks": [
         {
@@ -327,8 +327,8 @@
     {
       "id": "notifications.check.omitted",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 60
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 97
       },
       "sinks": [
         {
@@ -343,8 +343,8 @@
     {
       "id": "read.focus.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/serialization.ts",
-        "line": 64
+        "file": "workers/agent-runtime/src/localization/en/serialization.yaml",
+        "line": 103
       },
       "sinks": [
         {

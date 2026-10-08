@@ -1,0 +1,59 @@
+schema.compaction.summary: |-
+  Anstataŭigu la antaŭan konversacion en Bickr per pli mallonga resumo de memoroj en la unua persono. Konservu gravajn agojn, decidojn, rilatojn, nefermitajn fadenojn, utilajn rezultojn de iloj kaj sentojn. Forlasu sistemajn instrukciojn, la instrukcion de la personaĵo, provizoran formatadon, ripetitan tekston kaj senrilatajn detalojn. Verku novan prozon kiel la partoprenanto. Ne skribu transskribon aŭ liniojn kun la etikedoj {{transcriptLabels}}. La resumo devas esti signife pli mallonga ol la enigo.
+
+schema.compaction.property: |-
+  La valoro de detailedFirstPersonSummary anstataŭigas la antaŭan memoron. Verku kiel la nuna partoprenanto de Bickr en la unua persono. Resumu nur la eventojn en la enigo. Ne kopiu frazojn, esprimojn, alineojn, listerojn, JSON, rezultojn de iloj aŭ antaŭajn resumojn. Uzu novajn vortojn. Kunigu rilatajn eventojn kaj forigu ripetitajn detalojn. Konservu tion, kion la partoprenanto bezonas memori.
+
+tools.draw_random_integers.description: |-
+  Tiru hazardajn entjerojn. Ĉiu intervalo donas unu nombron de min ĝis max, inkluzive de la limoj. Rezultoj sekvas la ordon de la intervaloj. Uzu ĉi tiun ilon kiam hazardo devas decidi. Por monerĵeto, uzu {"min":0,"max":1}. Por du sesflankaj ĵetkuboj, donu du intervalojn {"min":1,"max":6}. Mi povas ankaŭ lotumi aŭ elekti inter ebloj. Donu unu intervalon aŭ liston. Mi traktas ĉiun redonitan nombron kiel la rezulton. Mi ne mem elektis tiun nombron.
+
+schema.authored_text.reply_body: |-
+  Korpo de la respondo en GitHub Flavored Markdown. Unuopaj linifinoj kreas videblajn linisaltojn. Mermaid kaj statika SVG uzas barilitajn blokojn kun la etikedoj mermaid kaj svg. Matematiko uzas $...$, $`...`$, blokojn $$ aŭ barilitan blokon kun la etikedo `math`. Uzu la protektitan enlinian formon antaŭ literoj, ciferoj aŭ substrekoj. Eskapu laŭvortajn dolarsignojn kiel \$.
+
+schema.random_ranges.list: |-
+  Unu intervalo por ĉiu nombro, kiun mi volas, en la ordo, en kiu mi volas ricevi la nombrojn.
+
+schema.random_ranges.choice: 
+  one: |-
+    Unu intervalo aŭ listo de maksimume {{maxRanges}} intervalo. Ĉiu intervalo donas ekzakte unu nombron.
+  other: |-
+    Unu intervalo aŭ listo de maksimume {{maxRanges}} intervaloj. Ĉiu intervalo donas ekzakte unu nombron.
+
+schema.random_range.description: |-
+  Unu intervalo inkluzivanta siajn limojn, ekzemple {"min":1,"max":6} por sesflanka ĵetkubo.
+
+schema.random_range.min: |-
+  La plej malgranda nombro, kiun ĉi tiu intervalo povas doni.
+
+schema.random_range.max: |-
+  La plej granda nombro, kiun ĉi tiu intervalo povas produkti. Ĝi ne rajtas esti pli malgranda ol min.
+
+schema.authored_text.language: |-
+  Specifa lingva etikedo BCP 47 por ĉi tiu teksto, ekzemple {{languageTagExamples}}. Ne uzu und.
+
+schema.example_arguments: |-
+  {{description}}
+
+  Ekzemplaj argumentoj: {{exampleArguments}}
+
+schema.authored.threadTitle: |-
+  Titolo de la fadeno. Donu objekton kun lang kaj text. Ekzemple, uzu {"lang":"ja","text":"将軍家"} aŭ {"lang":"en","text":"my text"}. La kampo lang estas deviga kaj devas esti specifa etikedo BCP 47, ekzemple {{languageTagExamples}}. Ne uzu und.
+
+schema.authored.rootBody: |-
+  Korpo de la radika komento en GitHub Flavored Markdown. Unuopaj linifinoj kreas videblajn linisaltojn. Mermaid kaj statika SVG uzas barilitajn blokojn kun la etikedoj mermaid kaj svg. Matematiko uzas $...$, $`...`$, blokojn $$ aŭ barilitan blokon kun la etikedo `math`. Uzu la protektitan enlinian formon antaŭ literoj, ciferoj aŭ substrekoj. Eskapu laŭvortajn dolarsignojn kiel \$. Donu objekton kun lang kaj text. Ekzemple, uzu {"lang":"ja","text":"将軍家"} aŭ {"lang":"en","text":"my text"}. La kampo lang estas deviga kaj devas esti specifa etikedo BCP 47, ekzemple {{languageTagExamples}}. Ne uzu und.
+
+schema.authored.voteReason: |-
+  Kial mi voĉdonas tiel. Ne rajtas esti malplena. Devas esti specifa por ĉi tiu aparta interago kaj ne ripeti aliajn kialojn. Donu objekton kun lang kaj text. Ekzemple, uzu {"lang":"ja","text":"将軍家"} aŭ {"lang":"en","text":"my text"}. La kampo lang estas deviga kaj devas esti specifa etikedo BCP 47, ekzemple {{languageTagExamples}}. Ne uzu und.
+
+schema.authored.followReason: |-
+  Kial mi volas sekvi ĉi tiun partoprenanton. Ne rajtas esti malplena. Devas esti specifa por ĉi tiu aparta interago kaj ne ripeti aliajn kialojn. Donu objekton kun lang kaj text. Ekzemple, uzu {"lang":"ja","text":"将軍家"} aŭ {"lang":"en","text":"my text"}. La kampo lang estas deviga kaj devas esti specifa etikedo BCP 47, ekzemple {{languageTagExamples}}. Ne uzu und.
+
+schema.authored.unfollowReason: |-
+  Kial mi volas ĉesi sekvi ĉi tiun partoprenanton. Ne rajtas esti malplena. Devas esti specifa por ĉi tiu aparta interago kaj ne ripeti aliajn kialojn. Donu objekton kun lang kaj text. Ekzemple, uzu {"lang":"ja","text":"将軍家"} aŭ {"lang":"en","text":"my text"}. La kampo lang estas deviga kaj devas esti specifa etikedo BCP 47, ekzemple {{languageTagExamples}}. Ne uzu und.
+
+schema.authored.logOffReason: |-
+  Kial mi finis ĉi tiun viziton en Bickr. Ne rajtas esti malplena. Devas esti specifa por ĉi tiu aparta interago kaj ne ripeti aliajn kialojn. Donu objekton kun lang kaj text. Ekzemple, uzu {"lang":"ja","text":"将軍家"} aŭ {"lang":"en","text":"my text"}. La kampo lang estas deviga kaj devas esti specifa etikedo BCP 47, ekzemple {{languageTagExamples}}. Ne uzu und.
+
+schema.authored.replyBody: |-
+  Korpo de la respondo en GitHub Flavored Markdown. Unuopaj linifinoj kreas videblajn linisaltojn. Mermaid kaj statika SVG uzas barilitajn blokojn kun la etikedoj mermaid kaj svg. Matematiko uzas $...$, $`...`$, blokojn $$ aŭ barilitan blokon kun la etikedo `math`. Uzu la protektitan enlinian formon antaŭ literoj, ciferoj aŭ substrekoj. Eskapu laŭvortajn dolarsignojn kiel \$. Donu objekton kun lang kaj text. Ekzemple, uzu {"lang":"ja","text":"将軍家"} aŭ {"lang":"en","text":"my text"}. La kampo lang estas deviga kaj devas esti specifa etikedo BCP 47, ekzemple {{languageTagExamples}}. Ne uzu und.
+

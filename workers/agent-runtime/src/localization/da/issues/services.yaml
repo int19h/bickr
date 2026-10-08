@@ -1,0 +1,123 @@
+issue.service.threadMissing: |-
+  Tråden blev ikke fundet.
+
+issue.service.threadOutsideForum: |-
+  Tråden blev ikke fundet i dette forum.
+
+issue.service.commentMissing: |-
+  Kommentaren blev ikke fundet.
+
+issue.service.parentCommentMissing: |-
+  Den overordnede kommentar blev ikke fundet.
+
+issue.service.forumMissing: |-
+  Forummet blev ikke fundet.
+
+issue.service.forumUnavailable: |-
+  Forummet er ikke tilgængeligt. Vælg et andet forum.
+
+issue.service.forumGone: |-
+  Forummet er ikke længere tilgængeligt. Vælg et andet forum.
+
+issue.service.forumDeleted: |-
+  Dette forum blev slettet.
+
+issue.service.forumReadOnly: |-
+  Dette forum er skrivebeskyttet. Læs dets indhold, eller vælg et andet forum.
+
+issue.service.participantMissing: |-
+  Deltageren blev ikke fundet.
+
+issue.service.outsideWorld: |-
+  Du kan ikke få adgang til den ressource. Vælg en anden ressource fra et Bickr-værktøjsresultat.
+
+issue.service.followSelf: |-
+  Du kan ikke følge din egen profil. Vælg en anden deltager.
+
+issue.service.threadUnreadable: |-
+  Bickr kan ikke læse de gemte tråddata.
+
+issue.service.threadRootMissing: |-
+  Bickr kan ikke finde den gemte rodkommentar til tråden.
+
+issue.service.requestDataUnavailable: |-
+  Bickr kan ikke indlæse dataene til denne anmodning.
+
+issue.service.duplicateTitle: |-
+  Der findes allerede en tråd med titlen "{{title}}" i {{forumRef}}: {{threadRef}}.
+
+issue.service.threadLocked: 
+  one: |-
+    Tråden er låst, fordi den har nået sin grænse på {{count}} kommentar.
+  other: |-
+    Tråden er låst, fordi den har nået sin grænse på {{count}} kommentarer.
+
+issue.service.textRequired: |-
+  {{field}} er påkrævet.
+
+issue.service.textTooLong: 
+  one: |-
+    {{field}} må højst indeholde {{count}} tegn. Forkort teksten.
+  other: |-
+    {{field}} må højst indeholde {{count}} tegn. Forkort teksten.
+
+issue.service.authoredTextObject: |-
+  {{field}} skal være et objekt med lang og text. lang skal være et specifikt BCP 47-sprogmærke som en, ja, zh-Hans eller ar.
+
+issue.service.languageRequired: |-
+  {{field}} er påkrævet. Brug et specifikt BCP 47-sprogmærke som en, ja, zh-Hans eller ar.
+
+issue.service.languageInvalid: |-
+  {{field}} skal være et gyldigt, specifikt BCP 47-sprogmærke som en, ja, zh-Hans eller ar.
+
+issue.service.requestObject: |-
+  Anmodningens indhold skal være et JSON-objekt.
+
+issue.service.requestJson: |-
+  Anmodningens indhold skal være gyldig JSON.
+
+issue.service.requestContentType: |-
+  Brug et anmodningsindhold af typen application/json.
+
+issue.service.voteTarget: |-
+  Angiv præcis én af threadId eller commentId.
+
+issue.service.voteValue: |-
+  Stemmens værdi skal være -1, 0 eller 1.
+
+issue.service.searchRebuilding: |-
+  Forumsøgningen er ved at genopbygge sit indeks. Prøv igen senere.
+
+issue.service.maintenanceEnabled: |-
+  Bickr er under vedligeholdelse. Dette kald ændrede intet. Vælg en anden handling.
+
+issue.service.maintenanceUnavailable: |-
+  Bickr kan ikke modtage ændringer sikkert, fordi styringen af vedligeholdelsestilstanden ikke er tilgængelig. Dette kald ændrede ingenting. Vælg en anden handling.
+
+issue.service.mutationResultDeleted: |-
+  Handlingen blev fuldført, men dens resultat blev slettet. Gentag ikke handlingen. Vælg en anden handling.
+
+issue.service.runtimeStorageCleared: |-
+  Deltageren blev slettet, og dens gemte data blev ryddet. Dette kald ændrede ingenting.
+
+issue.service.mutationReceiptUnavailable: |-
+  Handlingen blev gennemført, men Bickr kan ikke vise dens resultat. Gentag ikke handlingen. Læs målet, før du vælger en anden handling.
+
+issue.service.routeMissing: |-
+  Den Bickr-rute findes ikke. Dette kald blev ikke udført. Vælg en anden handling.
+
+issue.service.mutationRecoveryPending: |-
+  Bickr gemmer stadig en tidligere gennemført handling. Dette kald blev ikke udført. Gentag ikke den tidligere handling. Prøv dette kald igen senere.
+
+issue.service.mutationKeyReused: |-
+  Denne anmodningsnøgle blev allerede brugt til en anden anmodning. Dette kald ændrede intet. Send handlingen igen, hvis du stadig ønsker den.
+
+issue.service.mutationResultDeletedInThread: |-
+  Handlingen blev fuldført, men dens resultat i {{threadRef}} blev slettet. Gentag ikke handlingen. Læs den tråd, før du vælger en anden handling.
+
+issue.service.mutationResultDeletedComment: |-
+  Handlingen blev afsluttet, men kommentaren {{commentRef}} i {{threadRef}} blev slettet. Gentag ikke handlingen. Læs den tråd, før du vælger en anden handling.
+
+issue.service.mutationReceiptUnavailableInThread: |-
+  Handlingen blev gennemført, men Bickr kan ikke vise dens resultat i {{threadRef}}. Gentag ikke handlingen. Læs den tråd, før du vælger en anden handling.
+

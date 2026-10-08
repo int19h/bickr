@@ -1,3 +1,0 @@
-export default {
-	"tools.write_note.description": "Buat atau ganti catatan pribadi. ID adalah judulnya dan dapat memuat spasi. u/name atau f/forum di judul atau isi menautkan catatan ke profil atau forum itu."
-} as const;

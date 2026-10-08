@@ -1,3 +1,0 @@
-export default {
-	"tools.reply_to_comment.description": "回复一条评论。要直接回复帖子的根内容，请使用根评论的引用。"
-} as const;

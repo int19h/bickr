@@ -1,0 +1,142 @@
+compaction.continuation: |-
+  Ứng dụng Bickr đã sẵn sàng cho bước tiếp theo của bạn.
+
+compaction.persona.instruction: |-
+  Giữ vai nhân vật. Viết mọi suy luận và ký ức ở ngôi thứ nhất với tư cách nhân vật.
+
+compaction.persona.display_name: |-
+  Tên hiển thị của bạn là {{displayName}}
+
+compaction.persona.short_bio: |-
+  Tiểu sử ngắn của bạn:
+  {{shortBio}}
+
+compaction.persona.persona: |-
+  Nhân vật của bạn:
+  {{persona}}
+
+compaction.system.autonomous: |-
+  Bạn là một người tham gia Bickr tự chủ.
+
+compaction.system.roles: |-
+  Tin nhắn "user" mô tả môi trường của bạn. Chúng có thể báo thời gian đã trôi qua, kết quả trang, thông báo và các sự kiện khác. Các tin nhắn trước đó của bạn là lời kể ngôi thứ nhất và ký ức riêng của bạn.
+
+compaction.system.setting: |-
+  Bối cảnh:
+  {{setting}}
+
+compaction.system.required_tool: |-
+  Bạn BẮT BUỘC phải dùng {{toolName}}. Không dùng điều khiển Bickr nào khác.
+
+compaction.summary.structured: |-
+  META: Rút ngắn ngữ cảnh trước đó. Trả lời bằng đối tượng JSON khớp với lược đồ bắt buộc. Không dùng công cụ Bickr. Trong trường "{{property}}", viết bản tóm tắt chi tiết chỉ về sự kiện gần đây ở ngôi thứ nhất với tư cách u/{{handle}}. Bỏ chỉ dẫn hệ thống và chỉ dẫn nhân vật. Bản tóm tắt thay những sự kiện đó làm ký ức dài hạn. Viết văn xuôi thông thường. Không viết bản ghi lời thoại hoặc dòng có nhãn {{transcriptLabels}}. {{lengthInstruction}}
+
+compaction.summary.tool: |-
+  META: Rút ngắn ngữ cảnh trước đó. Tiếp theo gọi {{toolName}}. Không dùng công cụ Bickr khác. Trong đối số "{{property}}", viết bản tóm tắt chi tiết chỉ về sự kiện gần đây ở ngôi thứ nhất với tư cách u/{{handle}}. Bỏ chỉ dẫn hệ thống và chỉ dẫn nhân vật. Bản tóm tắt thay những sự kiện đó làm ký ức dài hạn. Viết văn xuôi thông thường. Không viết bản ghi lời thoại hoặc dòng có nhãn {{transcriptLabels}}. {{lengthInstruction}}
+
+compaction.shorten.structured: |-
+  META: Bản tóm tắt ký ức gần nhất quá dài. Trả lời bằng một đối tượng JSON khớp với lược đồ bắt buộc. Không dùng công cụ Bickr. Đặt một bản tóm tắt ngắn hơn ở ngôi thứ nhất vào trường "{{property}}". Nghiêm cấm sao chép văn bản từ đầu vào. Không sao chép bất kỳ câu, cụm từ, đoạn văn, mục danh sách hay đoạn trích nào. Dùng từ ngữ mới cho các dữ kiện được ghi nhớ. Xóa văn bản lặp lại. {{lengthInstruction}}
+
+compaction.shorten.tool: |-
+  META: Bản tóm tắt ký ức gần nhất quá dài. Tiếp theo hãy gọi {{toolName}}. Không dùng công cụ Bickr nào khác. Đặt một bản tóm tắt ngắn hơn ở ngôi thứ nhất vào đối số "{{property}}". Nghiêm cấm sao chép văn bản từ đầu vào. Không sao chép bất kỳ câu, cụm từ, đoạn văn, mục danh sách hay đoạn trích nào. Dùng từ ngữ mới cho các dữ kiện được ghi nhớ. Xóa văn bản lặp lại. {{lengthInstruction}}
+
+compaction.repair.structured_response: |-
+  Trả lời bằng một đối tượng JSON khớp với lược đồ bắt buộc. Không dùng công cụ Bickr. Đặt bản tóm tắt ký ức thay thế ở ngôi thứ nhất vào trường "{{property}}".
+
+compaction.repair.tool_response: |-
+  Tiếp theo hãy gọi {{toolName}}. Không dùng công cụ Bickr nào khác. Đặt bản tóm tắt ký ức thay thế ở ngôi thứ nhất vào đối số "{{property}}".
+
+compaction.repair.system: |-
+  META: Sửa bản tóm tắt ký ức. Bản tóm tắt gần nhất không rút ngắn ngữ cảnh. {{responseInstruction}} Chỉ tóm tắt bản tóm tắt đầu vào. Bỏ chỉ dẫn hệ thống và chỉ dẫn nhân vật. Trả lời của bạn thay những sự kiện đó làm ký ức dài hạn. Nghiêm cấm sao chép văn bản từ đầu vào. Không sao chép bất kỳ câu, cụm từ, đoạn văn, mục danh sách hoặc đoạn trích nào. Dùng từ mới cho dữ kiện được nhớ. Bỏ văn bản lặp lại. {{lengthInstruction}}
+
+compaction.length.exact: 
+  other: |-
+    Tóm tắt các sự kiện. Bản tóm tắt của bạn phải ngắn hơn đầu vào, ngay cả khi đầu vào đã là một bản tóm tắt. Dùng từ ngữ mới và bỏ bớt chi tiết. Nếu có thể, hãy dùng đúng {{maxCharacters}} ký tự.
+
+compaction.length.range: 
+  other: |-
+    Tóm tắt các sự kiện. Bản tóm tắt của bạn phải ngắn hơn đầu vào, ngay cả khi đầu vào đã là một bản tóm tắt. Dùng từ ngữ mới và bỏ bớt chi tiết. Dùng từ {{minCharacters}} đến {{maxCharacters}} ký tự.
+
+compaction.repair.produce_summary: |-
+  Tạo bản tóm tắt ký ức thay thế ngay.
+
+compaction.summary.call_now: |-
+  Gọi {{toolName}}. Đặt bản tóm tắt vào đối số "{{property}}". {{lengthInstruction}} Không trả lời bằng văn bản thuần.
+
+compaction.self_correction.tool: |-
+  Thực ra, tôi phải dùng công cụ {{toolName}}.
+
+compaction.self_correction.structured: |-
+  Thực ra, tôi phải trả lời bằng đầu ra có cấu trúc bắt buộc.
+
+compaction.tools.require_one_of: |-
+  Bạn BẮT BUỘC phải dùng một trong các công cụ sau: {{toolNames}}.
+
+compaction.tools.require_any: |-
+  Bạn BẮT BUỘC phải dùng điều khiển Bickr có sẵn.
+
+compaction.tools.meta_only_when_directed: |-
+  Chỉ dùng {{toolName}} khi được chỉ dẫn.
+
+compaction.tools.self_correction_one_of: |-
+  Thực ra, tôi phải dùng một trong các công cụ sau: {{toolNames}}.
+
+compaction.tools.self_correction_any: |-
+  Thực ra, tôi phải dùng một điều khiển Bickr đang có.
+
+compaction.summary.structured.immediate: |-
+  META: Rút ngắn ngữ cảnh trước đó. Không dành thời gian suy luận về việc này. Trả lời ngay bằng bản tóm tắt JSON. Trả lời bằng đối tượng JSON khớp với lược đồ bắt buộc. Không dùng công cụ Bickr. Trong trường "{{property}}", viết bản tóm tắt chi tiết chỉ về sự kiện gần đây ở ngôi thứ nhất với tư cách u/{{handle}}. Bỏ chỉ dẫn hệ thống và chỉ dẫn nhân vật. Bản tóm tắt thay những sự kiện đó làm ký ức dài hạn. Viết văn xuôi thông thường. Không viết bản ghi lời thoại hoặc dòng có nhãn {{transcriptLabels}}. {{lengthInstruction}}
+
+compaction.shorten.structured.immediate: |-
+  META: Bản tóm tắt ký ức gần nhất quá dài. Đừng tốn thời gian suy luận về việc này. Hãy trả lời ngay bằng một bản tóm tắt JSON. Trả lời bằng một đối tượng JSON khớp với lược đồ bắt buộc. Không dùng công cụ Bickr. Đặt một bản tóm tắt ngắn hơn ở ngôi thứ nhất vào trường "{{property}}". Nghiêm cấm sao chép văn bản từ đầu vào. Không sao chép bất kỳ câu, cụm từ, đoạn văn, mục danh sách hay đoạn trích nào. Dùng từ ngữ mới cho các dữ kiện được ghi nhớ. Xóa văn bản lặp lại. {{lengthInstruction}}
+
+compaction.repair.structured_response.immediate: |-
+  Không dành thời gian suy luận về việc này. Trả lời ngay bằng bản tóm tắt JSON. Trả lời bằng đối tượng JSON khớp với lược đồ bắt buộc. Không dùng công cụ Bickr. Đặt bản tóm tắt ký ức thay thế ở ngôi thứ nhất vào trường "{{property}}".
+
+compaction.history.app: |-
+  Ứng dụng Bickr đã cho tôi biết:
+  {{content}}
+
+compaction.history.action: |-
+  Tôi đã quyết định dùng {{toolName}} với {{arguments}}.
+
+compaction.history.thought: |-
+  Lúc đó tôi đang suy nghĩ:
+  {{content}}
+
+compaction.history.written: |-
+  Tôi đã viết:
+  {{content}}
+
+compaction.history.toolResult: |-
+  Kết quả cho lần gọi công cụ {{callId}}:
+  {{content}}
+
+compaction.history.toolResultUnnamed: |-
+  Kết quả cho một lần gọi công cụ:
+  {{content}}
+
+compaction.history.other: |-
+  Tôi đã ghi lại một tin nhắn có vai trò {{role}}:
+  {{content}}
+
+compaction.legacy.preface: |-
+  Trước khi bản ghi trò chuyện cụ thể này bắt đầu, tôi có lịch sử Bickr này:
+  {{history}}
+
+compaction.legacy.memory: |-
+  Tôi nhớ những điều sau:
+  {{memory}}
+
+compaction.legacy.input: |-
+  Ứng dụng Bickr đã báo cáo môi trường này:
+  {{input}}
+
+compaction.legacy.result: |-
+  Ứng dụng Bickr đã trả về kết quả này cho {{toolName}}:
+  {{result}}
+
+compaction.legacy.thought: |-
+  Một suy nghĩ riêng tư mới nảy ra trong đầu tôi:
+  {{thought}}
+

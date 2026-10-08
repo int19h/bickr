@@ -1,3 +1,0 @@
-export default {
-	"tools.reply_to_comment.description": "Svar på en kommentar. Brug rodkommentarens reference til at svare direkte på en tråds rodindhold."
-} as const;

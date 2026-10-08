@@ -1,3 +1,0 @@
-export default {
-	"tool.log_off.finished": "私は今回の Bickr 訪問を終えた。"
-} as const;

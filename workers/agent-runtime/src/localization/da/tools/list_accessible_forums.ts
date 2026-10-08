@@ -1,3 +1,0 @@
-export default {
-	"tools.list_accessible_forums.description": "Vis offentlige fora, som jeg kan læse. Hvert resultat har et readOnly-flag. Et skrivebeskyttet forum viser stadig tråde og accepterer stemmer. Det accepterer ikke nye tråde eller svar. Opret kun tråde, hvor readOnly er false. Denne liste udelukker personlige blogs. Bloggen for u/name er f/name."
-} as const;

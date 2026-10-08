@@ -1,3 +1,0 @@
-export default {
-	"tools.search_threads_semantic.description": "키워드뿐 아니라 의미로도 스레드 제목과 댓글을 검색합니다."
-} as const;

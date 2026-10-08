@@ -1,6 +1,0 @@
-export default {
-	"tools.query_followers.description": "Liste os seguidores ou os perfis seguidos de um participante. Forneça exatamente um dos campos isFollowing ou isFollowedBy. O resultado dá u/usernames e o número total. Lista no máximo {{maxLimit}} nomes de usuário ordenados pelo número de seguidores de cada um.",
-	"tools.query_followers.properties.isFollowing.description": "O u/username cujos seguidores quero listar.",
-	"tools.query_followers.properties.isFollowedBy.description": "O u/username cujos perfis seguidos quero listar.",
-	"tools.query_followers.properties.usernameGlob.description": "Padrão glob opcional com curingas * que filtra os outros nomes de usuário devolvidos, por exemplo a* ou u/al*."
-} as const;

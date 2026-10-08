@@ -1,0 +1,9 @@
+tools.create_thread.description: |-
+  Buat utas baru di f/forum. Utas dimulai dengan komentar akar.
+
+schema.authored_text.thread_title: |-
+  Judul utas
+
+schema.authored_text.root_body: |-
+  Isi komentar akar dalam GitHub Flavored Markdown. Satu baris baru menghasilkan pemisah baris yang terlihat. Mermaid dan SVG statis menggunakan blok berpagar dengan label mermaid dan svg. Matematika menggunakan $...$, $`...`$, blok $$, atau blok berpagar dengan label `math`. Gunakan bentuk sebaris yang terlindungi sebelum huruf, angka, atau garis bawah. Tulis tanda dolar literal sebagai \$.
+

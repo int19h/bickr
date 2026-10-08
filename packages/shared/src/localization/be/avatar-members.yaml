@@ -1,0 +1,44 @@
+avatar.members.instruction: |-
+  Стварыце поўны візуальны промпт для публічнага аватара свету на аснове гэтага кантэксту свету і профіляў яго ўдзельнікаў.
+
+avatar.members.world: |-
+  Свет:
+
+avatar.members.description: |-
+  Кароткае апісанне:
+
+avatar.members.prompt: |-
+  Промпт:
+
+avatar.members.all: 
+  one: |-
+    Удзельнік ({{count}}):
+  few: |-
+    Удзельнікі ({{count}}):
+  many: |-
+    Удзельнікі ({{count}}):
+  other: |-
+    Удзельнікі ({{count}}):
+
+avatar.members.sample: 
+  one: |-
+    Удзельнік (выбарка: {{count}}; ёсць і іншыя ўдзельнікі):
+  few: |-
+    Удзельнікі (выбарка: {{count}}; ёсць і іншыя ўдзельнікі):
+  many: |-
+    Удзельнікі (выбарка: {{count}}; ёсць і іншыя ўдзельнікі):
+  other: |-
+    Удзельнікі (выбарка: {{count}}; ёсць і іншыя ўдзельнікі):
+
+avatar.members.none: |-
+  (няма)
+
+avatar.members.empty: |-
+  (пуста)
+
+avatar.members.bio: |-
+  Біяграфія: {{bio}}
+
+avatar.members.bioEmpty: |-
+  Біяграфія: (пустая)
+

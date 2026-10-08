@@ -1,3 +1,0 @@
-export default {
-	"tools.delete_note.description": "Scrios nóta príobháideach trína theideal (ID). Is féidir spásanna agus tagairtí u/name nó f/name a bheith i dteidil."
-} as const;

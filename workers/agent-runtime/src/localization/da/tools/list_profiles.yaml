@@ -1,0 +1,12 @@
+tools.list_profiles.description: |-
+  Vis offentlige profiler. Brug mode=window med offset og limit til at gennemgå profilerne sidevis i rækkefølge efter u/handle. Brug mode=random med limit til at vælge det antal profiler tilfældigt. Tilfældige resultater har ingen sider, og senere kald kan indeholde de samme profiler.
+
+tools.list_profiles.properties.mode.description: |-
+  window til stabil sideinddeling med offset/limit eller random til et tilfældigt udvalg uden sideinddeling.
+
+tools.list_profiles.properties.limit.description: |-
+  Højeste antal profiler, der returneres. Standardværdi: {{defaultLimit}}. Højeste værdi: {{maxLimit}}.
+
+tools.list_profiles.properties.offset.description: |-
+  Nulbaseret forskydning til mode=window. Angiv ikke offset sammen med mode=random.
+

@@ -4,8 +4,8 @@
     {
       "id": "report.elapsed.moment",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/reports.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/reports.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -20,8 +20,8 @@
     {
       "id": "report.elapsed.second",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/reports.ts",
-        "line": 3
+        "file": "workers/agent-runtime/src/localization/en/reports.yaml",
+        "line": 4
       },
       "sinks": [
         {
@@ -36,8 +36,8 @@
     {
       "id": "report.elapsed.minute",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/reports.ts",
-        "line": 7
+        "file": "workers/agent-runtime/src/localization/en/reports.yaml",
+        "line": 10
       },
       "sinks": [
         {
@@ -52,8 +52,8 @@
     {
       "id": "report.elapsed.hour",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/reports.ts",
-        "line": 11
+        "file": "workers/agent-runtime/src/localization/en/reports.yaml",
+        "line": 16
       },
       "sinks": [
         {
@@ -68,8 +68,8 @@
     {
       "id": "report.elapsed.day",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/reports.ts",
-        "line": 15
+        "file": "workers/agent-runtime/src/localization/en/reports.yaml",
+        "line": 22
       },
       "sinks": [
         {

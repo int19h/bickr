@@ -1,0 +1,60 @@
+avatar.image.participant_system: |-
+  Crea un avatar pubblico per questo partecipante di Bickr. Segui la direzione visiva richiesta e usa qualsiasi immagine del profilo attuale fornita. Rendi il soggetto ben riconoscibile in una vista del profilo quadrata o ritagliata. Non inserire nell'immagine didascalie, filigrane, elementi dell'interfaccia o testo esplicativo.
+
+avatar.image.world_system: |-
+  Crea un avatar pubblico per questo mondo di Bickr. Segui la direzione visiva richiesta e usa qualsiasi immagine attuale del mondo fornita. Rendi l'ambientazione ben riconoscibile in una vista del profilo quadrata o ritagliata. Non inserire nell'immagine didascalie, filigrane, elementi dell'interfaccia o testo esplicativo.
+
+avatar.describe_current.participant_system: |-
+  Descrivi l'immagine del profilo pubblica fornita per un nuovo avatar di un partecipante di Bickr. Includi dettagli concreti su aspetto, espressione, posa, abbigliamento, stile, colori, luce, sfondo, inquadratura e disposizione. Restituisci solo la descrizione.
+
+avatar.describe_current.world_system: |-
+  Descrivi l'immagine pubblica del mondo fornita per un nuovo avatar di un mondo di Bickr. Includi dettagli concreti su paesaggio, edifici, oggetti, atmosfera, stile, colori, luce, sfondo, inquadratura e disposizione. Restituisci solo la descrizione.
+
+avatar.world_source.system: |-
+  Scrivi un prompt visivo per un avatar pubblico di un mondo di Bickr. Usa l'ambientazione e i profili dei membri per descrivere un'unica immagine del mondo. Includi dettagli concreti su luoghi caratteristici, paesaggio, atmosfera, luce, colori, texture, disposizione e punto di vista della fotocamera. Non includere didascalie, testo sovrapposto, elementi dell'interfaccia, filigrane o commenti sul processo. Restituisci solo il prompt.
+
+avatar.image.world_refresh: |-
+  Usa l’immagine attuale del mondo fornita come input visivo per un avatar pubblico rinnovato del mondo.
+
+avatar.image.participant_refresh: |-
+  Usa l’immagine di profilo attuale fornita come input visivo per un avatar pubblico rinnovato di profilo.
+
+avatar.describe_current.world: |-
+  Fornisci una descrizione visiva completa dell’immagine attuale del mondo fornita per un prompt di un avatar pubblico rinnovato del mondo.
+
+avatar.describe_current.participant: |-
+  Fornisci una descrizione visiva completa dell’immagine di profilo attuale fornita per un prompt di avatar pubblico rinnovato.
+
+avatar.persona_description.structured: |-
+  Descrivi la tua immagine del profilo. Restituisci l'oggetto JSON richiesto. Scrivi la sua descrizione nel personaggio e in prima persona. Fornisci molti dettagli visivi concreti su aspetto, stile, scena, luce e disposizione. Descrivi solo ciò che è visibile.
+
+avatar.persona_description.tool: |-
+  Descrivi la tua immagine del profilo. Chiama {{toolName}}. Scrivi nel personaggio e in prima persona. Fornisci molti dettagli visivi concreti su aspetto, stile, scena, luce e disposizione. Descrivi solo ciò che è visibile.
+
+avatar.persona_description.repair_structured: |-
+  Restituisci un oggetto JSON con esattamente un campo chiamato description. Scrivilo nel personaggio e in prima persona. Descrivi solo aspetto, stile, scena, luce e disposizione visibili.
+
+avatar.persona_description.repair_tool: |-
+  Chiama {{toolName}}. Scrivi nel personaggio e in prima persona. Descrivi solo aspetto, stile, scena, luce e disposizione visibili.
+
+avatar.world_source.description_and_detail: |-
+  Nome del mondo: {{worldName}}
+  Breve descrizione:
+  {{description}}
+
+  Dettagli aggiuntivi sull'ambientazione:
+  {{detail}}
+
+avatar.world_source.description: |-
+  Nome del mondo: {{worldName}}
+  Breve descrizione:
+  {{description}}
+
+avatar.world_source.detail: |-
+  Nome del mondo: {{worldName}}
+  Dettagli sull'ambientazione:
+  {{detail}}
+
+avatar.image.currentIncluded: |-
+  [immagine attuale dell'avatar inclusa]
+

@@ -1,0 +1,157 @@
+structured_output.unexpected_tools.compaction: |-
+  META: Não chame ferramentas. Responda com um resumo detalhado em primeira pessoa que siga o esquema JSON exigido.
+
+structured_output.unexpected_tools.other: |-
+  Não use um comando do Bickr para esta resposta. Responda com o objeto JSON obrigatório que contém apenas {{property}}.
+
+structured_output.empty.compaction: |-
+  A resposta do resumo estava vazia. Devolva um objeto JSON com texto não vazio em {{property}}.
+
+structured_output.empty.translation: |-
+  A resposta da tradução estava vazia. Devolva um objeto JSON com texto não vazio em {{property}}.
+
+structured_output.empty.avatar_description: |-
+  A resposta da descrição da imagem de perfil estava vazia. Devolva um objeto JSON com texto não vazio em {{property}}.
+
+structured_output.invalid_json.compaction: |-
+  A resposta com o resumo deve ser um objeto JSON. Indique apenas {{property}} com o seu valor de texto.
+
+structured_output.invalid_json.translation: |-
+  A resposta com a tradução deve ser um objeto JSON. Indique apenas {{property}} com o seu valor de texto.
+
+structured_output.invalid_json.avatar_description: |-
+  A resposta com a descrição da imagem de perfil deve ser um objeto JSON. Indique apenas {{property}} com o seu valor de texto.
+
+structured_output.missing_tool: |-
+  Não foi devolvida nenhuma chamada da ferramenta {{toolName}}. Chame {{toolName}} uma vez com texto não vazio em {{property}}.
+
+structured_output.wrong_tool: |-
+  Use apenas {{toolName}} para este pedido. Não use {{receivedTool}} aqui.
+
+structured_output.tool_count: 
+  one: |-
+    Era esperada uma chamada à ferramenta {{toolName}}, mas o número de chamadas recebidas é {{count}}. Chame {{toolName}} exatamente uma vez.
+  many: |-
+    Era esperada uma chamada à ferramenta {{toolName}}, mas o número de chamadas recebidas é {{count}}. Chame {{toolName}} exatamente uma vez.
+  other: |-
+    Era esperada uma chamada à ferramenta {{toolName}}, mas o número de chamadas recebidas é {{count}}. Chame {{toolName}} exatamente uma vez.
+
+structured_output.tool_mismatch: |-
+  Era esperada a ferramenta {{toolName}}, mas foi recebida {{receivedTool}}. Chame {{toolName}} em vez disso.
+
+structured_output.invalid_arguments_json: |-
+  Os argumentos de {{toolName}} não eram JSON válido. Forneça um objeto JSON com texto em {{property}}. Escape caracteres especiais nas cadeias.
+
+structured_output.arguments_object: |-
+  Os argumentos de {{toolName}} devem ser um objeto JSON. Coloque {{property}} e o seu valor de texto dentro de {}.
+
+structured_output.output_object: |-
+  A saída estruturada deve ser um objeto JSON. Coloque {{property}} e o seu valor de texto dentro de {}.
+
+structured_output.extra_arguments: 
+  one: |-
+    O número de argumentos inesperados é {{count}}: {{fields}}. Retire esses argumentos. Dê só {{property}}.
+  many: |-
+    O número de argumentos inesperados é {{count}}: {{fields}}. Retire esses argumentos. Dê só {{property}}.
+  other: |-
+    O número de argumentos inesperados é {{count}}: {{fields}}. Retire esses argumentos. Dê só {{property}}.
+
+structured_output.extra_fields: 
+  one: |-
+    O número de campos inesperados é {{count}}: {{fields}}. Retire esses campos. Dê só {{property}}.
+  many: |-
+    O número de campos inesperados é {{count}}: {{fields}}. Retire esses campos. Dê só {{property}}.
+  other: |-
+    O número de campos inesperados é {{count}}: {{fields}}. Retire esses campos. Dê só {{property}}.
+
+structured_output.nonempty.compaction: |-
+  O argumento do resumo deve ser uma cadeia de texto não vazia. Coloque o texto em {{property}}.
+
+structured_output.nonempty.translation: |-
+  O argumento da tradução deve ser uma cadeia de texto não vazia. Coloque o texto em {{property}}.
+
+structured_output.nonempty.avatar_description: |-
+  O argumento da descrição da imagem de perfil deve ser uma cadeia de texto não vazia. Coloque o texto em {{property}}.
+
+structured_output.transcript: |-
+  Escreva o resumo em {{property}} como prosa comum em primeira pessoa. Remova a linha de transcrição {{line}}. Não escreva linhas com os rótulos {{labels}}.
+
+structured_output.minimum.compaction: 
+  one: |-
+    O número de caracteres do resumo em {{property}} deve ser pelo menos {{minimum}}. Acrescente detalhes relevantes ao texto.
+  many: |-
+    O número de caracteres do resumo em {{property}} deve ser pelo menos {{minimum}}. Acrescente detalhes relevantes ao texto.
+  other: |-
+    O número de caracteres do resumo em {{property}} deve ser pelo menos {{minimum}}. Acrescente detalhes relevantes ao texto.
+
+structured_output.minimum.translation: 
+  one: |-
+    O número de caracteres da tradução em {{property}} deve ser pelo menos {{minimum}}. Acrescente detalhes relevantes ao texto.
+  many: |-
+    O número de caracteres da tradução em {{property}} deve ser pelo menos {{minimum}}. Acrescente detalhes relevantes ao texto.
+  other: |-
+    O número de caracteres da tradução em {{property}} deve ser pelo menos {{minimum}}. Acrescente detalhes relevantes ao texto.
+
+structured_output.minimum.avatar_description: 
+  one: |-
+    O número de caracteres da descrição da imagem de perfil em {{property}} deve ser pelo menos {{minimum}}. Acrescente detalhes relevantes ao texto.
+  many: |-
+    O número de caracteres da descrição da imagem de perfil em {{property}} deve ser pelo menos {{minimum}}. Acrescente detalhes relevantes ao texto.
+  other: |-
+    O número de caracteres da descrição da imagem de perfil em {{property}} deve ser pelo menos {{minimum}}. Acrescente detalhes relevantes ao texto.
+
+structured_output.maximum.compaction: 
+  one: |-
+    O número de caracteres do resumo em {{property}} deve ser no máximo {{maximum}}. Encurte o texto.
+  many: |-
+    O número de caracteres do resumo em {{property}} deve ser no máximo {{maximum}}. Encurte o texto.
+  other: |-
+    O número de caracteres do resumo em {{property}} deve ser no máximo {{maximum}}. Encurte o texto.
+
+structured_output.maximum.translation: 
+  one: |-
+    O número de caracteres da tradução em {{property}} deve ser no máximo {{maximum}}. Encurte o texto.
+  many: |-
+    O número de caracteres da tradução em {{property}} deve ser no máximo {{maximum}}. Encurte o texto.
+  other: |-
+    O número de caracteres da tradução em {{property}} deve ser no máximo {{maximum}}. Encurte o texto.
+
+structured_output.maximum.avatar_description: 
+  one: |-
+    O número de caracteres da descrição da imagem de perfil em {{property}} deve ser no máximo {{maximum}}. Encurte o texto.
+  many: |-
+    O número de caracteres da descrição da imagem de perfil em {{property}} deve ser no máximo {{maximum}}. Encurte o texto.
+  other: |-
+    O número de caracteres da descrição da imagem de perfil em {{property}} deve ser no máximo {{maximum}}. Encurte o texto.
+
+structured_output.wrong_tool.unnamed: |-
+  Use apenas {{toolName}} para este pedido. Não envie uma chamada de ferramenta sem nome.
+
+structured_output.tool_mismatch.unnamed: |-
+  Era esperada a ferramenta {{toolName}}, mas foi recebida uma chamada de ferramenta sem nome. Chame {{toolName}} em vez disso.
+
+structured_output.nonreducing.estimate: 
+  one: |-
+    O resumo em {{property}} não reduziu o contexto. O seu comprimento estimado em tokens é {{replacementTokens}}.
+  many: |-
+    O resumo em {{property}} não reduziu o contexto. O seu comprimento estimado em tokens é {{replacementTokens}}.
+  other: |-
+    O resumo em {{property}} não reduziu o contexto. O seu comprimento estimado em tokens é {{replacementTokens}}.
+
+structured_output.nonreducing.before: 
+  one: |-
+    O número de tokens do contexto antes da substituição era {{compactedTokens}}. Encurte o resumo sem perder os factos obrigatórios.
+  many: |-
+    O número de tokens do contexto antes da substituição era {{compactedTokens}}. Encurte o resumo sem perder os factos obrigatórios.
+  other: |-
+    O número de tokens do contexto antes da substituição era {{compactedTokens}}. Encurte o resumo sem perder os factos obrigatórios.
+
+structured_output.nonempty.compaction.field: |-
+  O campo do resumo deve ser uma cadeia de texto não vazia. Coloque o texto em {{property}}.
+
+structured_output.nonempty.translation.field: |-
+  O campo da tradução deve ser uma cadeia de texto não vazia. Coloque o texto em {{property}}.
+
+structured_output.nonempty.avatar_description.field: |-
+  O campo da descrição da imagem de perfil deve ser uma cadeia de texto não vazia. Coloque o texto em {{property}}.
+

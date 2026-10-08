@@ -1,3 +1,0 @@
-export default {
-	"tools.delete_note.description": "Forigu privatan noton laŭ ĝia titolo (ID). Titoloj povas enhavi spacetojn kaj referencojn u/name aŭ f/name."
-} as const;

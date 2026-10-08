@@ -1,0 +1,113 @@
+structured_output.unexpected_tools.compaction: |-
+  META: 不要调用工具。用符合规定的 JSON 结构的详细第一人称摘要回复。
+
+structured_output.unexpected_tools.other: |-
+  此回复不要使用 Bickr 操作功能。回复所需的 JSON 对象，其中只包含 {{property}}。
+
+structured_output.empty.compaction: |-
+  摘要回复为空。返回 JSON 对象，在 {{property}} 中放入非空文本。
+
+structured_output.empty.translation: |-
+  翻译回复为空。返回 JSON 对象，在 {{property}} 中放入非空文本。
+
+structured_output.empty.avatar_description: |-
+  头像图片描述回复为空。返回一个在 {{property}} 中包含非空文本的 JSON 对象。
+
+structured_output.invalid_json.compaction: |-
+  摘要回复必须是 JSON 对象。只提供 {{property}} 及其文本值。
+
+structured_output.invalid_json.translation: |-
+  翻译回复必须是 JSON 对象。只提供 {{property}} 及其文本值。
+
+structured_output.invalid_json.avatar_description: |-
+  头像图片描述回复必须是 JSON 对象。只提供 {{property}} 及其文本值。
+
+structured_output.missing_tool: |-
+  没有返回 {{toolName}} 工具调用。调用一次 {{toolName}}，并在 {{property}} 中提供非空文本。
+
+structured_output.wrong_tool: |-
+  此请求只使用 {{toolName}}。不要在这里使用 {{receivedTool}}。
+
+structured_output.tool_count: 
+  other: |-
+    预期一次 {{toolName}} 工具调用，但收到了 {{count}} 次工具调用。正好调用一次 {{toolName}}。
+
+structured_output.tool_mismatch: |-
+  预期的工具是 {{toolName}}，但收到的是 {{receivedTool}}。改为调用 {{toolName}}。
+
+structured_output.invalid_arguments_json: |-
+  {{toolName}} 的参数不是有效的 JSON。提供 JSON 对象，在 {{property}} 中放入文本。对字符串中的特殊字符进行转义。
+
+structured_output.arguments_object: |-
+  {{toolName}} 的参数必须是 JSON 对象。把 {{property}} 及其文本值放进 {}。
+
+structured_output.output_object: |-
+  结构化输出必须是 JSON 对象。把 {{property}} 及其文本值放进 {}。
+
+structured_output.extra_arguments: 
+  other: |-
+    有 {{count}} 个预期之外的参数：{{fields}}。删除这些参数。只提供 {{property}}。
+
+structured_output.extra_fields: 
+  other: |-
+    有 {{count}} 个预期之外的字段：{{fields}}。删除这些字段。只提供 {{property}}。
+
+structured_output.nonempty.compaction: |-
+  摘要参数必须是非空字符串。把文本放进 {{property}}。
+
+structured_output.nonempty.translation: |-
+  翻译参数必须是非空字符串。把文本放进 {{property}}。
+
+structured_output.nonempty.avatar_description: |-
+  头像图片描述参数必须是非空字符串。把文本放进 {{property}}。
+
+structured_output.transcript: |-
+  把 {{property}} 中的摘要写成普通的第一人称叙述。删除对话记录行 {{line}}。不要写带有 {{labels}} 标签的行。
+
+structured_output.minimum.compaction: 
+  other: |-
+    {{property}} 中的摘要必须至少有 {{minimum}} 个字符。在文本中补充相关细节。
+
+structured_output.minimum.translation: 
+  other: |-
+    {{property}} 中的翻译必须至少有 {{minimum}} 个字符。在文本中补充相关细节。
+
+structured_output.minimum.avatar_description: 
+  other: |-
+    {{property}} 中的头像图片描述必须至少有 {{minimum}} 个字符。为文本补充相关细节。
+
+structured_output.maximum.compaction: 
+  other: |-
+    {{property}} 中的摘要不得超过 {{maximum}} 个字符。缩短文本。
+
+structured_output.maximum.translation: 
+  other: |-
+    {{property}} 中的翻译不得超过 {{maximum}} 个字符。缩短文本。
+
+structured_output.maximum.avatar_description: 
+  other: |-
+    {{property}} 中的头像图片描述不得超过 {{maximum}} 个字符。缩短文本。
+
+structured_output.wrong_tool.unnamed: |-
+  此请求只使用 {{toolName}}。不要发送没有名称的工具调用。
+
+structured_output.tool_mismatch.unnamed: |-
+  预期的工具是 {{toolName}}，但收到的是没有名称的工具调用。改为调用 {{toolName}}。
+
+structured_output.nonreducing.estimate: 
+  other: |-
+    {{property}} 中的摘要没有减少上下文。其估算长度为 {{replacementTokens}} 个词元。
+
+structured_output.nonreducing.before: 
+  other: |-
+    替换前的上下文有 {{compactedTokens}} 个词元。缩短摘要，同时保留所需事实。
+
+structured_output.nonempty.compaction.field: |-
+  摘要字段必须是非空字符串。把文本放进 {{property}}。
+
+structured_output.nonempty.translation.field: |-
+  翻译字段必须是非空字符串。把文本放进 {{property}}。
+
+structured_output.nonempty.avatar_description.field: |-
+  头像图片描述字段必须是非空字符串。把文本放进 {{property}}。
+

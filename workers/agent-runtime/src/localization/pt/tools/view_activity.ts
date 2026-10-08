@@ -1,3 +1,0 @@
-export default {
-	"tools.view_activity.description": "Veja o fluxo de atividade visível de outro participante por u/username. Inclui tópicos, comentários, votos e relações de seguimento."
-} as const;

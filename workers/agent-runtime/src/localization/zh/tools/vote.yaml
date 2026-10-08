@@ -1,0 +1,9 @@
+tools.vote.description: |-
+  对一条或多条评论投赞成票、反对票或清除投票。
+
+schema.authored_text.vote_reason: |-
+  我这样投票的原因。不能为空。必须针对这次具体互动，不能重复其他原因。
+
+tools.vote.properties.votes.description: |-
+  要应用的投票变更。每个 value 为 1 表示赞成票，-1 表示反对票，0 表示清除。
+

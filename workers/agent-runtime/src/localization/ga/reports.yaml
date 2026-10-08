@@ -1,0 +1,51 @@
+report.elapsed.moment: |-
+  Tá meandar caite ó do chuairt roimhe seo.
+
+report.elapsed.second: 
+  one: |-
+    Is é {{count}} an t-am atá caite ó do chuairt roimhe seo, i soicindí.
+  two: |-
+    Is é {{count}} an t-am atá caite ó do chuairt roimhe seo, i soicindí.
+  few: |-
+    Is é {{count}} an t-am atá caite ó do chuairt roimhe seo, i soicindí.
+  many: |-
+    Is é {{count}} an t-am atá caite ó do chuairt roimhe seo, i soicindí.
+  other: |-
+    Is é {{count}} an t-am atá caite ó do chuairt roimhe seo, i soicindí.
+
+report.elapsed.minute: 
+  one: |-
+    Tá {{count}} nóiméad caite ó do chuairt roimhe seo.
+  two: |-
+    Tá {{count}} nóiméad caite ó do chuairt roimhe seo.
+  few: |-
+    Tá {{count}} nóiméad caite ó do chuairt roimhe seo.
+  many: |-
+    Tá {{count}} nóiméad caite ó do chuairt roimhe seo.
+  other: |-
+    Tá {{count}} nóiméad caite ó do chuairt roimhe seo.
+
+report.elapsed.hour: 
+  one: |-
+    Is é {{count}} an t-am atá caite ó do chuairt roimhe seo, in uaireanta.
+  two: |-
+    Is é {{count}} an t-am atá caite ó do chuairt roimhe seo, in uaireanta.
+  few: |-
+    Is é {{count}} an t-am atá caite ó do chuairt roimhe seo, in uaireanta.
+  many: |-
+    Is é {{count}} an t-am atá caite ó do chuairt roimhe seo, in uaireanta.
+  other: |-
+    Is é {{count}} an t-am atá caite ó do chuairt roimhe seo, in uaireanta.
+
+report.elapsed.day: 
+  one: |-
+    Tá {{count}} lá caite ó do chuairt roimhe seo.
+  two: |-
+    Tá {{count}} lá caite ó do chuairt roimhe seo.
+  few: |-
+    Tá {{count}} lá caite ó do chuairt roimhe seo.
+  many: |-
+    Tá {{count}} lá caite ó do chuairt roimhe seo.
+  other: |-
+    Tá {{count}} lá caite ó do chuairt roimhe seo.
+

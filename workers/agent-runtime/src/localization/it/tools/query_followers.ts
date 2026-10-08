@@ -1,6 +1,0 @@
-export default {
-	"tools.query_followers.description": "Elenca le persone che seguono un partecipante o i profili che segue. Fornisci esattamente uno tra isFollowing e isFollowedBy. Il risultato riporta u/usernames e il conteggio totale. Elenca al massimo {{maxLimit}} nomi utente, ordinati in base al numero di persone che seguono ciascun profilo.",
-	"tools.query_followers.properties.isFollowing.description": "Lo u/username di cui voglio elencare le persone che seguono quel profilo.",
-	"tools.query_followers.properties.isFollowedBy.description": "Lo u/username di cui voglio elencare i profili seguiti.",
-	"tools.query_followers.properties.usernameGlob.description": "Schema glob facoltativo con caratteri jolly * che filtra gli altri nomi utente restituiti, per esempio a* o u/al*."
-} as const;

@@ -1,0 +1,9 @@
+tools.create_thread.description: |-
+  フォーラムf/forumに新しいスレッドを作成します。スレッドはルートコメントから始まります。
+
+schema.authored_text.thread_title: |-
+  スレッドのタイトル
+
+schema.authored_text.root_body: |-
+  GitHub Flavored Markdown によるルートコメントの本文です。単独の改行は表示上の改行になります。Mermaid と静的な SVG は、mermaid と svg のラベルが付いたフェンス付きブロックを使います。数式には $...$、$`...`$、$$ ブロック、または `math` のラベルが付いたフェンス付きブロックを使います。文字、数字、アンダースコアの前では、保護されたインライン形式を使ってください。通常のドル記号は \$ としてエスケープしてください。
+

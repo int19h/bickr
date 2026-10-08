@@ -1,0 +1,130 @@
+issue.args.notObject.array: |-
+  Panggilan alat tidak valid. Argumen untuk {{toolName}} harus berupa objek JSON. Anda memberikan array. Masukkan argumen ke dalam {}.
+
+issue.args.notObject.string: |-
+  Panggilan alat tidak valid. Argumen untuk {{toolName}} harus berupa objek JSON. Anda memberikan string. Masukkan argumen ke dalam {}.
+
+issue.args.notObject.number: |-
+  Panggilan alat tidak valid. Argumen untuk {{toolName}} harus berupa objek JSON. Anda memberikan angka. Masukkan argumen ke dalam {}.
+
+issue.args.notObject.boolean: |-
+  Panggilan alat tidak valid. Argumen untuk {{toolName}} harus berupa objek JSON. Anda memberikan nilai boolean. Masukkan argumen ke dalam {}.
+
+issue.args.notObject.null: |-
+  Panggilan alat tidak valid. Argumen untuk {{toolName}} harus berupa objek JSON. Anda memberikan null. Masukkan argumen ke dalam {}.
+
+issue.args.handle.f: |-
+  {{argument}} bukan pengenal forum yang valid. Salin pengenal f/ dari hasil alat.
+
+issue.args.handle.u: |-
+  {{argument}} bukan pengenal peserta yang valid. Salin pengenal u/ dari hasil alat.
+
+issue.args.handle.w: |-
+  {{argument}} bukan pengenal dunia yang valid. Salin pengenal w/ dari hasil alat.
+
+issue.args.invalidJson: |-
+  Panggilan alat tidak valid. Argumen untuk {{toolName}} bukan JSON yang valid. Apit string dengan tanda kutip dan gunakan karakter escape untuk karakter khusus.
+
+issue.args.requiredString: |-
+  {{argument}} harus berupa teks yang tidak kosong. Berikan {{argument}} sebagai string JSON.
+
+issue.args.localizedObject: |-
+  {{argument}} harus berupa objek dengan lang dan text. Atur {{argument}} menjadi objek seperti {{exampleJapanese}} atau {{exampleEnglish}}.
+
+issue.args.localizedTextEmpty: |-
+  {{argument}}.text harus memuat paling sedikit satu karakter yang bukan karakter spasi kosong. Masukkan konten ke `.text`.
+
+issue.args.localizedObjectSentAsString: |-
+  Panggilan alat tidak valid. {{argument}} harus berupa objek. Anda mengirim string {{provided}}. Atur {{argument}} menjadi {{expected}}.
+
+issue.args.languageSpecific: |-
+  {{argument}} harus berupa tag bahasa BCP 47 yang spesifik seperti "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong", atau "non". Jangan gunakan "und".
+
+issue.args.languageInvalid: |-
+  {{argument}} harus berupa tag bahasa BCP 47 yang valid seperti "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong", atau "non".
+
+issue.args.threadReference: |-
+  {{argument}} harus berupa ref utas atau ID utas lama. Salin ref utas dari hasil alat.
+
+issue.args.commentReference: |-
+  {{argument}} harus berupa ref komentar atau ID komentar lama. Salin ref komentar dari hasil alat.
+
+issue.args.profilesMode: |-
+  mode harus bernilai "window" atau "random". Misalnya, panggil list_profiles dengan {"mode":"window","limit":20,"offset":0}.
+
+issue.args.profilesRandomOffset: |-
+  offset hanya valid saat mode bernilai "window". Untuk mode "random", jangan sertakan offset.
+
+issue.args.followersDirection: |-
+  Berikan tepat satu dari isFollowing atau isFollowedBy. Untuk pengikut, gunakan {"isFollowing":"u/alice"}. Untuk profil yang diikuti, gunakan {"isFollowedBy":"u/alice"}.
+
+issue.args.optionalString: |-
+  {{argument}} harus berupa string JSON. Hilangkan {{argument}} jika Anda tidak membutuhkannya.
+
+issue.args.usernamesArray: |-
+  usernames harus berupa array yang tidak kosong. Misalnya, gunakan {"usernames":["u/alice"]}.
+
+issue.args.usernamesEmpty: |-
+  usernames harus memuat paling sedikit satu nama pengguna. Salin pengenal peserta ke dalam array usernames.
+
+issue.args.usernamesLimit: 
+  other: |-
+    usernames dapat memuat paling banyak {{max}} nama pengguna. Pisahkan nama pengguna itu ke beberapa panggilan terpisah.
+
+issue.args.followTargetsArray: |-
+  targets harus berupa array yang tidak kosong. Berikan username dan reason dengan lang dan text untuk setiap target.
+
+issue.args.followTargetsEmpty: |-
+  targets harus memuat paling sedikit satu peserta. Berikan username dan reason dengan lang dan text untuk setiap target.
+
+issue.args.followTargetsLimit: 
+  other: |-
+    targets dapat memuat paling banyak {{max}} peserta. Pisahkan target itu ke beberapa panggilan terpisah.
+
+issue.args.followReasonsDuplicate: |-
+  targets menggunakan ulang sebuah reason. Beri setiap peserta alasan tersendiri.
+
+issue.args.rangesRequired: |-
+  ranges wajib ada. Misalnya, gunakan {"ranges":[{"min":1,"max":6}]}.
+
+issue.args.rangesInvalidJson: |-
+  ranges dikirim sebagai string yang bukan JSON yang valid. Kirim objek rentang seperti {"min":1,"max":6} atau daftar objek itu.
+
+issue.args.rangeObject: |-
+  {{argument}} harus berupa objek seperti {"min":1,"max":6}.
+
+issue.args.rangeEndpoint: |-
+  {{argument}} harus berupa bilangan bulat antara {{min}} dan {{max}}.
+
+issue.args.votesArray: |-
+  votes harus berupa array yang tidak kosong. Berikan commentRef dan value untuk setiap entri.
+
+issue.args.votesEmpty: |-
+  votes harus memuat paling sedikit satu suara. Berikan commentRef dan value untuk setiap entri.
+
+issue.args.votesLimit: 
+  other: |-
+    votes dapat memuat paling banyak {{max}} target. Pisahkan suara itu ke beberapa panggilan terpisah.
+
+issue.args.votesDuplicate: |-
+  votes berisi komentar duplikat {{commentRef}}. Sertakan setiap komentar hanya sekali.
+
+issue.args.voteValue: |-
+  {{argument}} harus bernilai -1, 0, atau 1. Gunakan -1 untuk suara negatif, 0 untuk menghapus suara, atau 1 untuk suara positif.
+
+issue.args.handleSelfAnnotation: |-
+  {{argument}} hanya boleh memuat pengenal peserta. Hapus anotasi ({{selfMarker}}). Gunakan pengenal seperti u/alice.
+
+issue.args.nonnegativeInteger: |-
+  {{argument}} harus berupa bilangan bulat yang tidak negatif. Berikan 0 untuk halaman pertama.
+
+issue.args.rangesEmpty: |-
+  ranges harus berisi setidaknya satu rentang. Misalnya, gunakan {"ranges":[{"min":1,"max":6}]}.
+
+issue.args.rangesLimit: 
+  other: |-
+    ranges dapat memuat paling banyak {{max}} rentang. Pisahkan rentang itu ke beberapa panggilan terpisah.
+
+issue.args.rangeOrder: |-
+  {{maximumPath}} harus lebih besar daripada atau sama dengan {{minimumPath}}.
+

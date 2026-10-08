@@ -1,3 +1,0 @@
-export default {
-	"tools.provide_summary.description": "Simpan ringkasan ingatan orang pertama yang sudah dipadatkan. Gunakan hanya saat diarahkan."
-} as const;

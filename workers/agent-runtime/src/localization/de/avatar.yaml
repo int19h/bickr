@@ -1,0 +1,60 @@
+avatar.image.participant_system: |-
+  Erstellen Sie einen öffentlichen Avatar für diese teilnehmende Person bei Bickr. Folgen Sie der gewünschten visuellen Richtung und verwenden Sie das aktuelle Profilbild, falls eines bereitgestellt wurde. Machen Sie das Motiv in einer quadratischen oder zugeschnittenen Profilansicht klar erkennbar. Setzen Sie keine Bildunterschriften, Wasserzeichen, Oberflächenelemente oder erklärenden Text in das Bild.
+
+avatar.image.world_system: |-
+  Erstellen Sie einen öffentlichen Avatar für diese Bickr-Welt. Folgen Sie der gewünschten visuellen Richtung und verwenden Sie das aktuelle Bild der Welt, falls eines bereitgestellt wurde. Machen Sie den Schauplatz in einer quadratischen oder zugeschnittenen Profilansicht klar erkennbar. Setzen Sie keine Bildunterschriften, Wasserzeichen, Oberflächenelemente oder erklärenden Text in das Bild.
+
+avatar.describe_current.participant_system: |-
+  Beschreiben Sie das bereitgestellte öffentliche Profilbild für einen neuen Avatar einer teilnehmenden Person bei Bickr. Nehmen Sie konkrete Details zu Aussehen, Ausdruck, Pose, Kleidung, Stil, Farben, Licht, Hintergrund, Bildausschnitt und Anordnung auf. Geben Sie nur die Beschreibung zurück.
+
+avatar.describe_current.world_system: |-
+  Beschreiben Sie das bereitgestellte öffentliche Bild der Welt für einen neuen Weltavatar bei Bickr. Nehmen Sie konkrete Details zu Landschaft, Gebäuden, Gegenständen, Atmosphäre, Stil, Farben, Licht, Hintergrund, Bildausschnitt und Anordnung auf. Geben Sie nur die Beschreibung zurück.
+
+avatar.world_source.system: |-
+  Schreiben Sie eine visuelle Anweisung für einen öffentlichen Avatar einer Bickr-Welt. Nutzen Sie den Schauplatz und die Profile der Mitglieder, um ein Bild der Welt zu beschreiben. Nennen Sie konkrete Einzelheiten zu Wahrzeichen, Landschaft, Atmosphäre, Licht, Farben, Textur, Anordnung und Kamerablick. Fügen Sie keine Beschriftungen, Texteinblendungen, Teile der Oberfläche, Wasserzeichen oder Bemerkungen über den Vorgang ein. Geben Sie nur die Anweisung zurück.
+
+avatar.image.world_refresh: |-
+  Verwenden Sie das bereitgestellte aktuelle Bild der Welt als visuelle Eingabe für einen erneuerten öffentlichen Weltavatar.
+
+avatar.image.participant_refresh: |-
+  Verwenden Sie das bereitgestellte aktuelle Profilbild als visuelle Eingabe für einen erneuerten öffentlichen Profilavatar.
+
+avatar.describe_current.world: |-
+  Geben Sie eine vollständige visuelle Beschreibung des bereitgestellten aktuellen Bildes der Welt für eine Anweisung für einen erneuerten öffentlichen Weltavatar.
+
+avatar.describe_current.participant: |-
+  Geben Sie eine vollständige visuelle Beschreibung des bereitgestellten aktuellen Profilbilds für eine Anweisung für einen erneuerten öffentlichen Avatar.
+
+avatar.persona_description.structured: |-
+  Beschreiben Sie Ihr Profilbild. Geben Sie das erforderliche JSON-Objekt zurück. Schreiben Sie die Beschreibung in Ihrer Rolle und in der ersten Person. Geben Sie viele konkrete visuelle Details zu Aussehen, Stil, Szene, Licht und Anordnung an. Beschreiben Sie nur Sichtbares.
+
+avatar.persona_description.tool: |-
+  Beschreiben Sie Ihr Profilbild. Rufen Sie {{toolName}} auf. Schreiben Sie in Ihrer Rolle und in der ersten Person. Geben Sie viele konkrete visuelle Details zu Aussehen, Stil, Szene, Licht und Anordnung an. Beschreiben Sie nur Sichtbares.
+
+avatar.persona_description.repair_structured: |-
+  Geben Sie ein JSON-Objekt mit genau einem Feld namens description zurück. Schreiben Sie es in Ihrer Rolle und in der ersten Person. Beschreiben Sie nur sichtbares Aussehen, Stil, Szene, Licht und Anordnung.
+
+avatar.persona_description.repair_tool: |-
+  Rufen Sie {{toolName}} auf. Schreiben Sie in Ihrer Rolle und in der ersten Person. Beschreiben Sie nur sichtbares Aussehen, Stil, Szene, Licht und Anordnung.
+
+avatar.world_source.description_and_detail: |-
+  Weltname: {{worldName}}
+  Kurzbeschreibung:
+  {{description}}
+
+  Weitere Einzelheiten zum Schauplatz:
+  {{detail}}
+
+avatar.world_source.description: |-
+  Weltname: {{worldName}}
+  Kurzbeschreibung:
+  {{description}}
+
+avatar.world_source.detail: |-
+  Weltname: {{worldName}}
+  Einzelheiten zum Schauplatz:
+  {{detail}}
+
+avatar.image.currentIncluded: |-
+  [aktuelles Avatarbild beigefügt]
+

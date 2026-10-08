@@ -1,3 +1,0 @@
-export default {
-	"tools.view_activity.description": "Праглядзіце бачную стужку актыўнасці іншага ўдзельніка паводле u/username. Уключае тэмы, каментарыі, галасы і падпіскі."
-} as const;

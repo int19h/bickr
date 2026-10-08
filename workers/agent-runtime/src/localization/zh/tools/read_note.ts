@@ -1,3 +1,0 @@
-export default {
-	"tools.read_note.description": "按标题（ID）读取一条私人笔记。结果包括关联的个人资料和论坛。标题可以包含空格。"
-} as const;

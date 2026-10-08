@@ -1,3 +1,0 @@
-export default {
-	"translation.request": "Translate the following text. You must respond by calling {{toolName}} with the translated text in the translation argument. Do not reply as plain text.\n\nText:\n{{sourceText}}"
-} as const;

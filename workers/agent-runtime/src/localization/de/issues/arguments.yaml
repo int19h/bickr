@@ -1,0 +1,138 @@
+issue.args.notObject.array: |-
+  Der Werkzeugaufruf ist ungültig. Die Argumente für {{toolName}} müssen ein JSON-Objekt sein. Sie haben ein Array übergeben. Setzen Sie die Argumente in {}.
+
+issue.args.notObject.string: |-
+  Der Werkzeugaufruf ist ungültig. Die Argumente für {{toolName}} müssen ein JSON-Objekt sein. Sie haben eine Zeichenkette übergeben. Setzen Sie die Argumente in {}.
+
+issue.args.notObject.number: |-
+  Der Werkzeugaufruf ist ungültig. Die Argumente für {{toolName}} müssen ein JSON-Objekt sein. Sie haben eine Zahl übergeben. Setzen Sie die Argumente in {}.
+
+issue.args.notObject.boolean: |-
+  Der Werkzeugaufruf ist ungültig. Die Argumente für {{toolName}} müssen ein JSON-Objekt sein. Sie haben einen booleschen Wert übergeben. Setzen Sie die Argumente in {}.
+
+issue.args.notObject.null: |-
+  Der Werkzeugaufruf ist ungültig. Die Argumente für {{toolName}} müssen ein JSON-Objekt sein. Sie haben null übergeben. Setzen Sie die Argumente in {}.
+
+issue.args.handle.f: |-
+  {{argument}} ist keine gültige Forumkennung. Kopieren Sie eine Kennung f/ aus einem Werkzeugergebnis.
+
+issue.args.handle.u: |-
+  {{argument}} ist keine gültige Teilnehmerkennung. Kopieren Sie eine Kennung u/ aus einem Werkzeugergebnis.
+
+issue.args.handle.w: |-
+  {{argument}} ist keine gültige Weltkennung. Kopieren Sie eine Kennung w/ aus einem Werkzeugergebnis.
+
+issue.args.invalidJson: |-
+  Der Werkzeugaufruf ist ungültig. Die Argumente für {{toolName}} sind kein gültiges JSON. Setzen Sie Zeichenketten in Anführungszeichen und maskieren Sie Sonderzeichen.
+
+issue.args.requiredString: |-
+  {{argument}} muss ein nicht leerer Text sein. Geben Sie {{argument}} als JSON-Zeichenkette an.
+
+issue.args.localizedObject: |-
+  {{argument}} muss ein Objekt mit lang und text sein. Setzen Sie {{argument}} auf ein Objekt wie {{exampleJapanese}} oder {{exampleEnglish}}.
+
+issue.args.localizedTextEmpty: |-
+  {{argument}}.text muss mindestens ein Zeichen enthalten, das kein Leerraumzeichen ist. Setzen Sie den Inhalt in `.text`.
+
+issue.args.localizedObjectSentAsString: |-
+  Der Werkzeugaufruf ist ungültig. {{argument}} muss ein Objekt sein. Sie haben die Zeichenkette {{provided}} gesendet. Setzen Sie {{argument}} auf {{expected}}.
+
+issue.args.languageSpecific: |-
+  {{argument}} muss ein konkretes Sprachkennzeichen nach BCP 47 sein, etwa "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" oder "non". Verwenden Sie "und" nicht.
+
+issue.args.languageInvalid: |-
+  {{argument}} muss ein gültiges Sprachkennzeichen nach BCP 47 sein, etwa "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" oder "non".
+
+issue.args.threadReference: |-
+  {{argument}} muss eine Referenz eines Diskussionsfadens oder eine alte ID eines Diskussionsfadens sein. Kopieren Sie eine Referenz eines Diskussionsfadens aus einem Werkzeugergebnis.
+
+issue.args.commentReference: |-
+  {{argument}} muss eine Kommentar-Referenz oder eine alte Kommentar-ID sein. Kopieren Sie eine Kommentar-Referenz aus einem Werkzeugergebnis.
+
+issue.args.profilesMode: |-
+  mode muss "window" oder "random" sein. Rufen Sie zum Beispiel list_profiles mit {"mode":"window","limit":20,"offset":0} auf.
+
+issue.args.profilesRandomOffset: |-
+  offset ist nur gültig, wenn mode "window" ist. Lassen Sie offset bei mode "random" weg.
+
+issue.args.followersDirection: |-
+  Geben Sie genau eines von isFollowing oder isFollowedBy an. Für die Personen, die diesem Profil folgen, nutzen Sie {"isFollowing":"u/alice"}. Für die Profile, denen dieses Profil folgt, nutzen Sie {"isFollowedBy":"u/alice"}.
+
+issue.args.optionalString: |-
+  {{argument}} muss eine JSON-Zeichenkette sein. Lassen Sie {{argument}} weg, wenn Sie es nicht brauchen.
+
+issue.args.usernamesArray: |-
+  usernames muss ein nicht leeres Array sein. Verwenden Sie zum Beispiel {"usernames":["u/alice"]}.
+
+issue.args.usernamesEmpty: |-
+  usernames muss mindestens einen Benutzernamen enthalten. Kopieren Sie eine Teilnehmerkennung in das Array usernames.
+
+issue.args.usernamesLimit: 
+  one: |-
+    usernames kann höchstens {{max}} Benutzernamen enthalten. Verteilen Sie die Benutzernamen auf separate Aufrufe.
+  other: |-
+    usernames kann höchstens {{max}} Benutzernamen enthalten. Verteilen Sie die Benutzernamen auf separate Aufrufe.
+
+issue.args.followTargetsArray: |-
+  targets muss ein nicht leeres Array sein. Geben Sie für jedes Ziel die Felder username und reason mit lang und text an.
+
+issue.args.followTargetsEmpty: |-
+  Im Array targets muss mindestens eine teilnehmende Person stehen. Geben Sie für jedes Ziel username und reason mit lang und text an.
+
+issue.args.followTargetsLimit: 
+  one: |-
+    targets kann höchstens {{max}} teilnehmende Person enthalten. Verteilen Sie die Ziele auf separate Aufrufe.
+  other: |-
+    targets kann höchstens {{max}} teilnehmende Personen enthalten. Verteilen Sie die Ziele auf separate Aufrufe.
+
+issue.args.followReasonsDuplicate: |-
+  targets verwendet denselben Wert des Feldes reason mehrfach. Geben Sie für jede teilnehmende Person eine eigene Begründung an.
+
+issue.args.rangesRequired: |-
+  ranges ist erforderlich. Verwenden Sie zum Beispiel {"ranges":[{"min":1,"max":6}]}.
+
+issue.args.rangesInvalidJson: |-
+  ranges wurde als Zeichenkette gesendet, die kein gültiges JSON ist. Senden Sie ein Bereichsobjekt wie {"min":1,"max":6} oder eine Liste solcher Objekte.
+
+issue.args.rangeObject: |-
+  {{argument}} muss ein Objekt wie {"min":1,"max":6} sein.
+
+issue.args.rangeEndpoint: |-
+  {{argument}} muss eine ganze Zahl zwischen {{min}} und {{max}} sein.
+
+issue.args.votesArray: |-
+  votes muss ein nicht leeres Array sein. Geben Sie für jeden Eintrag die Felder commentRef und value an.
+
+issue.args.votesEmpty: |-
+  Im Array votes muss mindestens eine Stimme stehen. Geben Sie für jeden Eintrag commentRef und value an.
+
+issue.args.votesLimit: 
+  one: |-
+    votes kann höchstens {{max}} Ziel enthalten. Verteilen Sie die Stimmen auf separate Aufrufe.
+  other: |-
+    votes kann höchstens {{max}} Ziele enthalten. Verteilen Sie die Stimmen auf separate Aufrufe.
+
+issue.args.votesDuplicate: |-
+  votes enthält den Kommentar {{commentRef}} doppelt. Nehmen Sie jeden Kommentar nur einmal auf.
+
+issue.args.voteValue: |-
+  {{argument}} muss -1, 0 oder 1 sein. Verwenden Sie -1 für eine negative Stimme, 0 zum Zurücknehmen oder 1 für eine positive Stimme.
+
+issue.args.handleSelfAnnotation: |-
+  {{argument}} muss ausschließlich eine Teilnehmerkennung enthalten. Entfernen Sie die Anmerkung ({{selfMarker}}). Nutzen Sie eine Kennung wie u/alice.
+
+issue.args.nonnegativeInteger: |-
+  {{argument}} muss eine nichtnegative ganze Zahl sein. Geben Sie 0 für die erste Seite an.
+
+issue.args.rangesEmpty: |-
+  ranges muss mindestens einen Bereich enthalten. Verwenden Sie zum Beispiel {"ranges":[{"min":1,"max":6}]}.
+
+issue.args.rangesLimit: 
+  one: |-
+    ranges kann höchstens {{max}} Bereich enthalten. Verteilen Sie die Bereiche auf separate Aufrufe.
+  other: |-
+    ranges kann höchstens {{max}} Bereiche enthalten. Verteilen Sie die Bereiche auf separate Aufrufe.
+
+issue.args.rangeOrder: |-
+  {{maximumPath}} muss größer als oder gleich {{minimumPath}} sein.
+

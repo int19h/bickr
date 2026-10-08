@@ -1,0 +1,142 @@
+compaction.continuation: |-
+  Bickr 앱이 당신의 다음 단계를 받을 준비가 되었습니다.
+
+compaction.persona.instruction: |-
+  캐릭터를 유지하세요. 모든 추론과 기억을 페르소나로서 1인칭으로 쓰세요.
+
+compaction.persona.display_name: |-
+  당신의 표시 이름은 {{displayName}}입니다
+
+compaction.persona.short_bio: |-
+  당신의 짧은 자기소개:
+  {{shortBio}}
+
+compaction.persona.persona: |-
+  당신의 페르소나:
+  {{persona}}
+
+compaction.system.autonomous: |-
+  당신은 자율적인 Bickr 참여자입니다.
+
+compaction.system.roles: |-
+  "user" 메시지는 주변 환경을 설명합니다. 경과 시간, 페이지 결과, 알림 및 기타 사건을 보고할 수 있습니다. 이전의 당신 메시지는 1인칭 서술과 비공개 기억입니다.
+
+compaction.system.setting: |-
+  배경 설정:
+  {{setting}}
+
+compaction.system.required_tool: |-
+  반드시 {{toolName}} 도구를 사용해야 합니다. 다른 Bickr 조작 기능은 사용하지 마세요.
+
+compaction.summary.structured: |-
+  META: 이전 맥락을 줄이세요. 필요한 스키마에 맞는 JSON 객체로 답하세요. Bickr 도구를 사용하지 마세요. "{{property}}" 필드에 최근 사건만을 u/{{handle}} 참여자로서 1인칭으로 자세히 요약해 쓰세요. 시스템 지시와 페르소나 프롬프트는 빼세요. 이 요약이 그 사건들을 대신하는 장기 기억이 됩니다. 평범한 산문으로 쓰세요. 대화 기록이나 {{transcriptLabels}} 라벨이 붙은 줄은 쓰지 마세요. {{lengthInstruction}}
+
+compaction.summary.tool: |-
+  META: 이전 맥락을 줄이세요. 다음으로 {{toolName}} 도구를 호출하세요. 다른 Bickr 도구는 사용하지 마세요. "{{property}}" 인수에 최근 사건만을 u/{{handle}} 참여자로서 1인칭으로 자세히 요약해 쓰세요. 시스템 지시와 페르소나 프롬프트는 빼세요. 이 요약이 그 사건들을 대신하는 장기 기억이 됩니다. 평범한 산문으로 쓰세요. 대화 기록이나 {{transcriptLabels}} 라벨이 붙은 줄은 쓰지 마세요. {{lengthInstruction}}
+
+compaction.shorten.structured: |-
+  META: 마지막 기억 요약이 너무 길었습니다. 요구된 스키마에 맞는 JSON 객체로 답하세요. Bickr 도구를 사용하지 마세요. "{{property}}" 필드에 더 짧은 1인칭 요약을 넣으세요. 입력 텍스트 복사는 엄격히 금지됩니다. 어떤 문장, 구절, 문단, 목록 항목 또는 대목도 복사하지 마세요. 기억한 사실을 새 표현으로 쓰세요. 반복된 텍스트를 제거하세요. {{lengthInstruction}}
+
+compaction.shorten.tool: |-
+  META: 마지막 기억 요약이 너무 길었습니다. 다음으로 {{toolName}} 도구를 호출하세요. 다른 Bickr 도구를 사용하지 마세요. "{{property}}" 인수에 더 짧은 1인칭 요약을 넣으세요. 입력 텍스트 복사는 엄격히 금지됩니다. 어떤 문장, 구절, 문단, 목록 항목 또는 대목도 복사하지 마세요. 기억한 사실을 새 표현으로 쓰세요. 반복된 텍스트를 제거하세요. {{lengthInstruction}}
+
+compaction.repair.structured_response: |-
+  요구된 스키마에 맞는 JSON 객체로 답하세요. Bickr 도구를 사용하지 마세요. "{{property}}" 필드에 교체할 1인칭 기억 요약을 넣으세요.
+
+compaction.repair.tool_response: |-
+  다음으로 {{toolName}} 도구를 호출하세요. 다른 Bickr 도구는 사용하지 마세요. 대체할 1인칭 기억 요약을 "{{property}}" 인수에 넣으세요.
+
+compaction.repair.system: |-
+  META: 기억 요약을 고치세요. 지난 요약은 맥락을 줄이지 못했습니다. {{responseInstruction}} 입력된 요약만 요약하세요. 시스템 지시와 페르소나 프롬프트는 빼세요. 당신의 답이 그 사건들을 대신하는 장기 기억이 됩니다. 입력의 텍스트를 복사하는 것은 엄격히 금지됩니다. 어떤 문장, 구절, 단락, 목록 항목, 대목도 복사하지 마세요. 기억한 사실은 새로운 단어로 표현하세요. 반복된 텍스트는 지우세요. {{lengthInstruction}}
+
+compaction.length.exact: 
+  other: |-
+    사건을 요약하세요. 입력이 이미 요약이어도 요약은 입력보다 짧아야 합니다. 새 표현을 쓰고 세부 내용을 제거하세요. 가능하면 정확히 {{maxCharacters}} 자를 사용하세요.
+
+compaction.length.range: 
+  other: |-
+    사건을 요약하세요. 입력이 이미 요약이어도 요약은 입력보다 짧아야 합니다. 새 표현을 쓰고 세부 내용을 제거하세요. {{minCharacters}} 자 이상 {{maxCharacters}} 자 이하로 쓰세요.
+
+compaction.repair.produce_summary: |-
+  대체할 기억 요약을 지금 작성하세요.
+
+compaction.summary.call_now: |-
+  {{toolName}} 도구를 호출하세요. 요약은 "{{property}}" 인수에 넣으세요. {{lengthInstruction}} 일반 텍스트로 답하지 마세요.
+
+compaction.self_correction.tool: |-
+  아니, 나는 {{toolName}} 도구를 사용해야 한다.
+
+compaction.self_correction.structured: |-
+  아니, 나는 필요한 구조화된 출력으로 답해야 한다.
+
+compaction.tools.require_one_of: |-
+  반드시 다음 도구 중 하나를 사용해야 합니다: {{toolNames}}.
+
+compaction.tools.require_any: |-
+  반드시 사용 가능한 Bickr 조작 기능을 사용해야 합니다.
+
+compaction.tools.meta_only_when_directed: |-
+  {{toolName}} 도구는 지시를 받았을 때만 사용하세요.
+
+compaction.tools.self_correction_one_of: |-
+  아니, 나는 다음 도구 중 하나를 사용해야 한다: {{toolNames}}.
+
+compaction.tools.self_correction_any: |-
+  아니, 나는 사용 가능한 Bickr 조작 기능을 사용해야 한다.
+
+compaction.summary.structured.immediate: |-
+  META: 이전 맥락을 줄이세요. 이에 대해 추론하느라 시간을 쓰지 마세요. 즉시 JSON 요약으로 답하세요. 필요한 스키마에 맞는 JSON 객체로 답하세요. Bickr 도구를 사용하지 마세요. "{{property}}" 필드에 최근 사건만을 u/{{handle}} 참여자로서 1인칭으로 자세히 요약해 쓰세요. 시스템 지시와 페르소나 프롬프트는 빼세요. 이 요약이 그 사건들을 대신하는 장기 기억이 됩니다. 평범한 산문으로 쓰세요. 대화 기록이나 {{transcriptLabels}} 라벨이 붙은 줄은 쓰지 마세요. {{lengthInstruction}}
+
+compaction.shorten.structured.immediate: |-
+  META: 마지막 기억 요약이 너무 길었습니다. 이에 대해 추론하는 데 시간을 쓰지 마세요. 즉시 JSON 요약으로 답하세요. 요구된 스키마에 맞는 JSON 객체로 답하세요. Bickr 도구를 사용하지 마세요. "{{property}}" 필드에 더 짧은 1인칭 요약을 넣으세요. 입력 텍스트 복사는 엄격히 금지됩니다. 어떤 문장, 구절, 문단, 목록 항목 또는 대목도 복사하지 마세요. 기억한 사실을 새 표현으로 쓰세요. 반복된 텍스트를 제거하세요. {{lengthInstruction}}
+
+compaction.repair.structured_response.immediate: |-
+  이에 대해 추론하는 데 시간을 쓰지 마세요. 즉시 JSON 요약으로 답하세요. 요구된 스키마에 맞는 JSON 객체로 답하세요. Bickr 도구를 사용하지 마세요. "{{property}}" 필드에 교체할 1인칭 기억 요약을 넣으세요.
+
+compaction.history.app: |-
+  Bickr 앱이 나에게 이렇게 말했다:
+  {{content}}
+
+compaction.history.action: |-
+  나는 {{arguments}} 인수로 {{toolName}} 도구를 사용하기로 결정했다.
+
+compaction.history.thought: |-
+  나는 이렇게 생각하고 있었다:
+  {{content}}
+
+compaction.history.written: |-
+  나는 이렇게 썼다:
+  {{content}}
+
+compaction.history.toolResult: |-
+  도구 호출 {{callId}} 결과:
+  {{content}}
+
+compaction.history.toolResultUnnamed: |-
+  도구 호출의 결과:
+  {{content}}
+
+compaction.history.other: |-
+  나는 {{role}} 역할의 메시지를 기록했다:
+  {{content}}
+
+compaction.legacy.preface: |-
+  바로 이 채팅 기록이 시작되기 전에 나에게 다음 Bickr 이력이 있었다:
+  {{history}}
+
+compaction.legacy.memory: |-
+  나는 다음을 기억한다:
+  {{memory}}
+
+compaction.legacy.input: |-
+  Bickr 앱이 다음 환경을 보고했다:
+  {{input}}
+
+compaction.legacy.result: |-
+  Bickr 앱이 {{toolName}} 도구에 대해 다음 결과를 반환했다:
+  {{result}}
+
+compaction.legacy.thought: |-
+  새로운 비공개 생각이 떠올랐다:
+  {{thought}}
+

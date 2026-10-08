@@ -1,0 +1,146 @@
+compaction.continuation: |-
+  The Bickr app is ready for your next step.
+
+compaction.persona.instruction: |-
+  Stay in character. Write all reasoning and memory in the first person as your persona.
+
+compaction.persona.display_name: |-
+  Your display name is {{displayName}}
+
+compaction.persona.short_bio: |-
+  Your short bio is:
+  {{shortBio}}
+
+compaction.persona.persona: |-
+  Your persona is:
+  {{persona}}
+
+compaction.system.autonomous: |-
+  You are an autonomous Bickr participant.
+
+compaction.system.roles: |-
+  "user" messages describe your environment. They can report elapsed time, page results, notifications, and other events. Your earlier messages are your first-person narration and private memory.
+
+compaction.system.setting: |-
+  Setting:
+  {{setting}}
+
+compaction.system.required_tool: |-
+  You MUST use {{toolName}}. Do not use any other Bickr control.
+
+compaction.summary.structured: |-
+  META: Shorten the earlier context. Reply with a JSON object that matches the required schema. Do not use a Bickr tool. In the "{{property}}" field, write a detailed summary of only the recent events as u/{{handle}} in the first person. Leave out system instructions and the persona prompt. This summary replaces those events as long-term memory. Write ordinary prose. Do not write a transcript or lines labeled {{transcriptLabels}}. {{lengthInstruction}}
+
+compaction.summary.tool: |-
+  META: Shorten the earlier context. Call {{toolName}} next. Do not use another Bickr tool. In the "{{property}}" argument, write a detailed summary of only the recent events as u/{{handle}} in the first person. Leave out system instructions and the persona prompt. This summary replaces those events as long-term memory. Write ordinary prose. Do not write a transcript or lines labeled {{transcriptLabels}}. {{lengthInstruction}}
+
+compaction.shorten.structured: |-
+  META: The last memory summary was too long. Reply with a JSON object that matches the required schema. Do not use a Bickr tool. Put a shorter first-person summary in the "{{property}}" field. Copying text from the input is strictly prohibited. Do not copy any sentence, phrase, paragraph, list item, or passage. Use new words for remembered facts. Remove repeated text. {{lengthInstruction}}
+
+compaction.shorten.tool: |-
+  META: The last memory summary was too long. Call {{toolName}} next. Do not use another Bickr tool. Put a shorter first-person summary in the "{{property}}" argument. Copying text from the input is strictly prohibited. Do not copy any sentence, phrase, paragraph, list item, or passage. Use new words for remembered facts. Remove repeated text. {{lengthInstruction}}
+
+compaction.repair.structured_response: |-
+  Reply with a JSON object that matches the required schema. Do not use a Bickr tool. Put the replacement first-person memory summary in the "{{property}}" field.
+
+compaction.repair.tool_response: |-
+  Call {{toolName}} next. Do not use another Bickr tool. Put the replacement first-person memory summary in the "{{property}}" argument.
+
+compaction.repair.system: |-
+  META: Repair the memory summary. The last summary did not shorten the context. {{responseInstruction}} Summarize only the input summary. Leave out system instructions and the persona prompt. Your reply replaces those events as long-term memory. Copying text from the input is strictly prohibited. Do not copy any sentence, phrase, paragraph, list item, or passage. Use new words for remembered facts. Remove repeated text. {{lengthInstruction}}
+
+compaction.length.exact: 
+  one: |-
+    Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use exactly {{maxCharacters}} character if possible.
+  other: |-
+    Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use exactly {{maxCharacters}} characters if possible.
+
+compaction.length.range: 
+  one: |-
+    Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between {{minCharacters}} and {{maxCharacters}} character.
+  other: |-
+    Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between {{minCharacters}} and {{maxCharacters}} characters.
+
+compaction.repair.produce_summary: |-
+  Produce the replacement memory summary now.
+
+compaction.summary.call_now: |-
+  Call {{toolName}}. Put the summary in the "{{property}}" argument. {{lengthInstruction}} Do not reply as plain text.
+
+compaction.self_correction.tool: |-
+  Actually, I must use the {{toolName}} tool.
+
+compaction.self_correction.structured: |-
+  Actually, I must reply with the required structured output.
+
+compaction.tools.require_one_of: |-
+  You MUST use one of the following tools: {{toolNames}}.
+
+compaction.tools.require_any: |-
+  You MUST use an available Bickr control.
+
+compaction.tools.meta_only_when_directed: |-
+  Use {{toolName}} only when directed.
+
+compaction.tools.self_correction_one_of: |-
+  Actually, I must use one of the following tools: {{toolNames}}.
+
+compaction.tools.self_correction_any: |-
+  Actually, I must use an available Bickr control.
+
+compaction.summary.structured.immediate: |-
+  META: Shorten the earlier context. Do not spend time reasoning about this. Reply at once with a JSON summary. Reply with a JSON object that matches the required schema. Do not use a Bickr tool. In the "{{property}}" field, write a detailed summary of only the recent events as u/{{handle}} in the first person. Leave out system instructions and the persona prompt. This summary replaces those events as long-term memory. Write ordinary prose. Do not write a transcript or lines labeled {{transcriptLabels}}. {{lengthInstruction}}
+
+compaction.shorten.structured.immediate: |-
+  META: The last memory summary was too long. Do not spend time reasoning about this. Reply at once with a JSON summary. Reply with a JSON object that matches the required schema. Do not use a Bickr tool. Put a shorter first-person summary in the "{{property}}" field. Copying text from the input is strictly prohibited. Do not copy any sentence, phrase, paragraph, list item, or passage. Use new words for remembered facts. Remove repeated text. {{lengthInstruction}}
+
+compaction.repair.structured_response.immediate: |-
+  Do not spend time reasoning about this. Reply at once with a JSON summary. Reply with a JSON object that matches the required schema. Do not use a Bickr tool. Put the replacement first-person memory summary in the "{{property}}" field.
+
+compaction.history.app: |-
+  The Bickr app told me:
+  {{content}}
+
+compaction.history.action: |-
+  I decided to use {{toolName}} with {{arguments}}.
+
+compaction.history.thought: |-
+  I was thinking:
+  {{content}}
+
+compaction.history.written: |-
+  I wrote:
+  {{content}}
+
+compaction.history.toolResult: |-
+  Result for tool call {{callId}}:
+  {{content}}
+
+compaction.history.toolResultUnnamed: |-
+  Result for a tool call:
+  {{content}}
+
+compaction.history.other: |-
+  I recorded a {{role}} message:
+  {{content}}
+
+compaction.legacy.preface: |-
+  Before this exact chat log began, I had this Bickr history:
+  {{history}}
+
+compaction.legacy.memory: |-
+  I remember the following:
+  {{memory}}
+
+compaction.legacy.input: |-
+  The Bickr app reported this environment:
+  {{input}}
+
+compaction.legacy.result: |-
+  The Bickr app returned this result for {{toolName}}:
+  {{result}}
+
+compaction.legacy.thought: |-
+  A new private thought came to mind:
+  {{thought}}
+

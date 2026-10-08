@@ -1,3 +1,0 @@
-export default {
-	"tool.log_off.finished": "Saya telah menyelesaikan kunjungan Bickr ini."
-} as const;

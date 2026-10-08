@@ -1,0 +1,201 @@
+structured_output.unexpected_tools.compaction: |-
+  META: Ná glaoigh ar uirlisí. Freagair le hachoimre mhionsonraithe sa chéad phearsa a leanann an scéimre JSON riachtanach.
+
+structured_output.unexpected_tools.other: |-
+  Ná húsáid rialtán Bickr don fhreagra seo. Freagair leis an réad JSON riachtanach nach bhfuil ann ach {{property}}.
+
+structured_output.empty.compaction: |-
+  Bhí freagra na hachoimre folamh. Cuir ar ais réad JSON a bhfuil téacs nach bhfuil folamh ann sa réimse {{property}}.
+
+structured_output.empty.translation: |-
+  Bhí freagra an aistriúcháin folamh. Cuir ar ais réad JSON a bhfuil téacs nach bhfuil folamh ann sa réimse {{property}}.
+
+structured_output.empty.avatar_description: |-
+  Bhí freagra an chur síos ar an bpictiúr próifíle folamh. Cuir ar ais réad JSON a bhfuil téacs nach bhfuil folamh ann sa réimse {{property}}.
+
+structured_output.invalid_json.compaction: |-
+  Ní mór gur réad JSON é freagra na hachoimre. Ná tabhair ach {{property}} agus a luach téacs.
+
+structured_output.invalid_json.translation: |-
+  Ní mór gur réad JSON é freagra an aistriúcháin. Ná tabhair ach {{property}} agus a luach téacs.
+
+structured_output.invalid_json.avatar_description: |-
+  Ní mór gur réad JSON é freagra an chur síos ar an bpictiúr próifíle. Ná tabhair ach {{property}} agus a luach téacs.
+
+structured_output.missing_tool: |-
+  Níor cuireadh glao ar an uirlis {{toolName}} ar ais. Glaoigh ar an uirlis {{toolName}} uair amháin le téacs nach bhfuil folamh sa réimse {{property}}.
+
+structured_output.wrong_tool: |-
+  Ná húsáid ach {{toolName}} don iarratas seo. Ná húsáid {{receivedTool}} anseo.
+
+structured_output.tool_count: 
+  one: |-
+    Bhíothas ag súil le glao amháin ar an uirlis {{toolName}}, ach ba é {{count}} líon na nglaonna uirlise a fuarthas. Glaoigh ar an uirlis {{toolName}} díreach uair amháin.
+  two: |-
+    Bhíothas ag súil le glao amháin ar an uirlis {{toolName}}, ach ba é {{count}} líon na nglaonna uirlise a fuarthas. Glaoigh ar an uirlis {{toolName}} díreach uair amháin.
+  few: |-
+    Bhíothas ag súil le glao amháin ar an uirlis {{toolName}}, ach ba é {{count}} líon na nglaonna uirlise a fuarthas. Glaoigh ar an uirlis {{toolName}} díreach uair amháin.
+  many: |-
+    Bhíothas ag súil le glao amháin ar an uirlis {{toolName}}, ach ba é {{count}} líon na nglaonna uirlise a fuarthas. Glaoigh ar an uirlis {{toolName}} díreach uair amháin.
+  other: |-
+    Bhíothas ag súil le glao amháin ar an uirlis {{toolName}}, ach ba é {{count}} líon na nglaonna uirlise a fuarthas. Glaoigh ar an uirlis {{toolName}} díreach uair amháin.
+
+structured_output.tool_mismatch: |-
+  Bhíothas ag súil leis an uirlis {{toolName}}, ach fuarthas {{receivedTool}}. Glaoigh ar an uirlis {{toolName}} ina ionad.
+
+structured_output.invalid_arguments_json: |-
+  Ní JSON bailí a bhí sna hargóintí don uirlis {{toolName}}. Tabhair réad JSON a bhfuil téacs ann sa réimse {{property}}. Éalaigh carachtair speisialta i dteaghráin.
+
+structured_output.arguments_object: |-
+  Ní mór gur réad JSON iad na hargóintí don uirlis {{toolName}}. Cuir {{property}} agus a luach téacs taobh istigh de {}.
+
+structured_output.output_object: |-
+  Ní mór gur réad JSON é an t-aschur struchtúrtha. Cuir {{property}} agus a luach téacs taobh istigh de {}.
+
+structured_output.extra_arguments: 
+  one: |-
+    Is é {{count}} líon na n-argóintí gan choinne: {{fields}}. Bain gach argóint atá luaite. Ná tabhair ach {{property}}.
+  two: |-
+    Is é {{count}} líon na n-argóintí gan choinne: {{fields}}. Bain gach argóint atá luaite. Ná tabhair ach {{property}}.
+  few: |-
+    Is é {{count}} líon na n-argóintí gan choinne: {{fields}}. Bain gach argóint atá luaite. Ná tabhair ach {{property}}.
+  many: |-
+    Is é {{count}} líon na n-argóintí gan choinne: {{fields}}. Bain gach argóint atá luaite. Ná tabhair ach {{property}}.
+  other: |-
+    Is é {{count}} líon na n-argóintí gan choinne: {{fields}}. Bain gach argóint atá luaite. Ná tabhair ach {{property}}.
+
+structured_output.extra_fields: 
+  one: |-
+    Is é {{count}} líon na réimsí gan choinne: {{fields}}. Bain gach réimse atá luaite. Ná tabhair ach {{property}}.
+  two: |-
+    Is é {{count}} líon na réimsí gan choinne: {{fields}}. Bain gach réimse atá luaite. Ná tabhair ach {{property}}.
+  few: |-
+    Is é {{count}} líon na réimsí gan choinne: {{fields}}. Bain gach réimse atá luaite. Ná tabhair ach {{property}}.
+  many: |-
+    Is é {{count}} líon na réimsí gan choinne: {{fields}}. Bain gach réimse atá luaite. Ná tabhair ach {{property}}.
+  other: |-
+    Is é {{count}} líon na réimsí gan choinne: {{fields}}. Bain gach réimse atá luaite. Ná tabhair ach {{property}}.
+
+structured_output.nonempty.compaction: |-
+  Ní mór gur teaghrán nach bhfuil folamh í argóint na hachoimre. Cuir an téacs sa réimse {{property}}.
+
+structured_output.nonempty.translation: |-
+  Ní mór gur teaghrán nach bhfuil folamh í argóint an aistriúcháin. Cuir an téacs sa réimse {{property}}.
+
+structured_output.nonempty.avatar_description: |-
+  Ní mór gur teaghrán nach bhfuil folamh í argóint an chur síos ar an bpictiúr próifíle. Cuir an téacs sa réimse {{property}}.
+
+structured_output.transcript: |-
+  Scríobh an achoimre sa réimse {{property}} mar ghnáthphrós sa chéad phearsa. Bain an líne tras-scríbhinne seo: {{line}}. Ná scríobh línte a bhfuil na lipéid {{labels}} orthu.
+
+structured_output.minimum.compaction: 
+  one: |-
+    Ní mór do líon na gcarachtar san achoimre sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
+  two: |-
+    Ní mór do líon na gcarachtar san achoimre sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
+  few: |-
+    Ní mór do líon na gcarachtar san achoimre sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
+  many: |-
+    Ní mór do líon na gcarachtar san achoimre sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
+  other: |-
+    Ní mór do líon na gcarachtar san achoimre sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
+
+structured_output.minimum.translation: 
+  one: |-
+    Ní mór do líon na gcarachtar san aistriúchán sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
+  two: |-
+    Ní mór do líon na gcarachtar san aistriúchán sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
+  few: |-
+    Ní mór do líon na gcarachtar san aistriúchán sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
+  many: |-
+    Ní mór do líon na gcarachtar san aistriúchán sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
+  other: |-
+    Ní mór do líon na gcarachtar san aistriúchán sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
+
+structured_output.minimum.avatar_description: 
+  one: |-
+    Ní mór do líon na gcarachtar sa chur síos ar an bpictiúr próifíle sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
+  two: |-
+    Ní mór do líon na gcarachtar sa chur síos ar an bpictiúr próifíle sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
+  few: |-
+    Ní mór do líon na gcarachtar sa chur síos ar an bpictiúr próifíle sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
+  many: |-
+    Ní mór do líon na gcarachtar sa chur síos ar an bpictiúr próifíle sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
+  other: |-
+    Ní mór do líon na gcarachtar sa chur síos ar an bpictiúr próifíle sa réimse {{property}} a bheith {{minimum}} ar a laghad. Cuir sonraí ábhartha leis an téacs.
+
+structured_output.maximum.compaction: 
+  one: |-
+    Ní mór do líon na gcarachtar san achoimre sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
+  two: |-
+    Ní mór do líon na gcarachtar san achoimre sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
+  few: |-
+    Ní mór do líon na gcarachtar san achoimre sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
+  many: |-
+    Ní mór do líon na gcarachtar san achoimre sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
+  other: |-
+    Ní mór do líon na gcarachtar san achoimre sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
+
+structured_output.maximum.translation: 
+  one: |-
+    Ní mór do líon na gcarachtar san aistriúchán sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
+  two: |-
+    Ní mór do líon na gcarachtar san aistriúchán sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
+  few: |-
+    Ní mór do líon na gcarachtar san aistriúchán sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
+  many: |-
+    Ní mór do líon na gcarachtar san aistriúchán sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
+  other: |-
+    Ní mór do líon na gcarachtar san aistriúchán sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
+
+structured_output.maximum.avatar_description: 
+  one: |-
+    Ní mór do líon na gcarachtar sa chur síos ar an bpictiúr próifíle sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
+  two: |-
+    Ní mór do líon na gcarachtar sa chur síos ar an bpictiúr próifíle sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
+  few: |-
+    Ní mór do líon na gcarachtar sa chur síos ar an bpictiúr próifíle sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
+  many: |-
+    Ní mór do líon na gcarachtar sa chur síos ar an bpictiúr próifíle sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
+  other: |-
+    Ní mór do líon na gcarachtar sa chur síos ar an bpictiúr próifíle sa réimse {{property}} a bheith {{maximum}} ar a mhéad. Giorraigh an téacs.
+
+structured_output.wrong_tool.unnamed: |-
+  Ná húsáid ach {{toolName}} don iarratas seo. Ná seol glao uirlise gan ainm.
+
+structured_output.tool_mismatch.unnamed: |-
+  Bhíothas ag súil leis an uirlis {{toolName}}, ach fuarthas glao uirlise gan ainm. Glaoigh ar an uirlis {{toolName}} ina ionad.
+
+structured_output.nonreducing.estimate: 
+  one: |-
+    Níor laghdaigh an achoimre sa réimse {{property}} an comhthéacs. Is é {{replacementTokens}} a fad measta i dtócain téacs.
+  two: |-
+    Níor laghdaigh an achoimre sa réimse {{property}} an comhthéacs. Is é {{replacementTokens}} a fad measta i dtócain téacs.
+  few: |-
+    Níor laghdaigh an achoimre sa réimse {{property}} an comhthéacs. Is é {{replacementTokens}} a fad measta i dtócain téacs.
+  many: |-
+    Níor laghdaigh an achoimre sa réimse {{property}} an comhthéacs. Is é {{replacementTokens}} a fad measta i dtócain téacs.
+  other: |-
+    Níor laghdaigh an achoimre sa réimse {{property}} an comhthéacs. Is é {{replacementTokens}} a fad measta i dtócain téacs.
+
+structured_output.nonreducing.before: 
+  one: |-
+    Roimh athsholáthar, ba é {{compactedTokens}} líon na dtócan téacs sa chomhthéacs. Giorraigh an achoimre agus na fíricí riachtanacha á gcoinneáil.
+  two: |-
+    Roimh athsholáthar, ba é {{compactedTokens}} líon na dtócan téacs sa chomhthéacs. Giorraigh an achoimre agus na fíricí riachtanacha á gcoinneáil.
+  few: |-
+    Roimh athsholáthar, ba é {{compactedTokens}} líon na dtócan téacs sa chomhthéacs. Giorraigh an achoimre agus na fíricí riachtanacha á gcoinneáil.
+  many: |-
+    Roimh athsholáthar, ba é {{compactedTokens}} líon na dtócan téacs sa chomhthéacs. Giorraigh an achoimre agus na fíricí riachtanacha á gcoinneáil.
+  other: |-
+    Roimh athsholáthar, ba é {{compactedTokens}} líon na dtócan téacs sa chomhthéacs. Giorraigh an achoimre agus na fíricí riachtanacha á gcoinneáil.
+
+structured_output.nonempty.compaction.field: |-
+  Ní mór gur teaghrán nach bhfuil folamh é réimse na hachoimre. Cuir an téacs sa réimse {{property}}.
+
+structured_output.nonempty.translation.field: |-
+  Ní mór gur teaghrán nach bhfuil folamh é réimse an aistriúcháin. Cuir an téacs sa réimse {{property}}.
+
+structured_output.nonempty.avatar_description.field: |-
+  Ní mór gur teaghrán nach bhfuil folamh é réimse an chur síos ar an bpictiúr próifíle. Cuir an téacs sa réimse {{property}}.
+

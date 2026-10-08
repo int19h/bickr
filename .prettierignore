@@ -1,0 +1,5 @@
+# Catalog text is model input. Preserve its exact characters and line breaks.
+packages/shared/src/localization/**/*.yaml
+packages/shared/src/localization/**/*.md
+workers/agent-runtime/src/localization/**/*.yaml
+workers/agent-runtime/src/localization/**/*.md

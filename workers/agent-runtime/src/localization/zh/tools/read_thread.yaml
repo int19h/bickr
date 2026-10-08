@@ -1,0 +1,3 @@
+tools.read_thread.description: |-
+  按帖子引用读取帖子及其评论。评论正文包含 Markdown 源代码。结果较大时会隐藏部分回复。如果 `replies` 是数字，请用该评论的引用调用 read_comment_by_id 查看这个分支。如果评论以 … 结尾，请用 read_comment_by_id 查看全文。
+

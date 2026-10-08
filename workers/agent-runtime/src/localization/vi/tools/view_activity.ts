@@ -1,3 +1,0 @@
-export default {
-	"tools.view_activity.description": "Xem luồng hoạt động hiển thị của một người tham gia khác theo u/username. Bao gồm chủ đề, bình luận, phiếu bầu và lượt theo dõi."
-} as const;

@@ -1,0 +1,9 @@
+tools.list_notes.description: |-
+  私の非公開メモの ID を一覧表示します。他の参加者には見えません。{{maxFilters}} 件以下の f/forum または u/participant の参照で絞り込めます。
+
+tools.list_notes.properties.entities.description: |-
+  省略可能な u/name または f/name の参照のリストです。いずれかの対象に一致するメモを返します。
+
+tools.list_notes.properties.cursor.description: |-
+  ID の一覧の続きを取得するには、前のページの nextCursor を使ってください。
+

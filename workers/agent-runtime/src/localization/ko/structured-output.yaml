@@ -1,0 +1,113 @@
+structured_output.unexpected_tools.compaction: |-
+  META: 도구를 호출하지 마세요. 요구된 JSON 스키마를 따르는 상세한 1인칭 요약으로 답하세요.
+
+structured_output.unexpected_tools.other: |-
+  이 답변에 Bickr 조작 기능을 사용하지 마세요. {{property}} 필드만 포함하는 요구된 JSON 객체로 답하세요.
+
+structured_output.empty.compaction: |-
+  요약 답변이 비어 있었습니다. {{property}} 필드에 비어 있지 않은 텍스트를 넣은 JSON 객체를 반환하세요.
+
+structured_output.empty.translation: |-
+  번역 답변이 비어 있었습니다. {{property}} 필드에 비어 있지 않은 텍스트를 넣은 JSON 객체를 반환하세요.
+
+structured_output.empty.avatar_description: |-
+  프로필 이미지 설명 답변이 비어 있었습니다. {{property}} 필드에 비어 있지 않은 텍스트를 넣은 JSON 객체를 반환하세요.
+
+structured_output.invalid_json.compaction: |-
+  요약 응답은 JSON 객체여야 합니다. {{property}} 필드와 그 텍스트 값만 지정하세요.
+
+structured_output.invalid_json.translation: |-
+  번역 응답은 JSON 객체여야 합니다. {{property}} 필드와 그 텍스트 값만 지정하세요.
+
+structured_output.invalid_json.avatar_description: |-
+  프로필 이미지 설명 응답은 JSON 객체여야 합니다. {{property}} 필드와 그 텍스트 값만 지정하세요.
+
+structured_output.missing_tool: |-
+  {{toolName}} 도구 호출이 반환되지 않았습니다. {{property}} 필드에 비어 있지 않은 텍스트를 넣어 {{toolName}} 도구를 한 번 호출하세요.
+
+structured_output.wrong_tool: |-
+  이 요청에는 {{toolName}} 도구만 사용하세요. 여기서는 {{receivedTool}} 도구를 사용하지 마세요.
+
+structured_output.tool_count: 
+  other: |-
+    {{toolName}} 도구 호출 한 번을 예상했지만 도구 호출 {{count}} 개를 받았습니다. {{toolName}} 도구를 정확히 한 번 호출하세요.
+
+structured_output.tool_mismatch: |-
+  {{toolName}} 도구를 예상했지만 {{receivedTool}} 도구를 받았습니다. 대신 {{toolName}} 도구를 호출하세요.
+
+structured_output.invalid_arguments_json: |-
+  {{toolName}} 도구 인수가 유효한 JSON이 아니었습니다. {{property}} 필드에 텍스트가 있는 JSON 객체를 전달하세요. 문자열의 특수 문자를 이스케이프하세요.
+
+structured_output.arguments_object: |-
+  {{toolName}} 도구의 인수는 JSON 객체여야 합니다. {{property}} 필드와 그 텍스트 값을 {} 안에 넣으세요.
+
+structured_output.output_object: |-
+  구조화된 출력은 JSON 객체여야 합니다. {{property}} 필드와 그 텍스트 값을 {} 안에 넣으세요.
+
+structured_output.extra_arguments: 
+  other: |-
+    예상하지 않은 인수 {{count}} 개가 있습니다: {{fields}}. 해당 인수를 제거하세요. {{property}} 필드만 전달하세요.
+
+structured_output.extra_fields: 
+  other: |-
+    예상하지 않은 필드 {{count}} 개가 있습니다: {{fields}}. 해당 필드를 제거하세요. {{property}} 필드만 전달하세요.
+
+structured_output.nonempty.compaction: |-
+  요약 인수는 비어 있지 않은 문자열이어야 합니다. {{property}} 필드에 텍스트를 넣으세요.
+
+structured_output.nonempty.translation: |-
+  번역 인수는 비어 있지 않은 문자열이어야 합니다. {{property}} 필드에 텍스트를 넣으세요.
+
+structured_output.nonempty.avatar_description: |-
+  프로필 이미지 설명 인수는 비어 있지 않은 문자열이어야 합니다. {{property}} 필드에 텍스트를 넣으세요.
+
+structured_output.transcript: |-
+  {{property}}의 요약을 평범한 1인칭 산문으로 쓰세요. 다음 대화 기록 줄을 지우세요: {{line}}. {{labels}} 라벨이 붙은 줄은 쓰지 마세요.
+
+structured_output.minimum.compaction: 
+  other: |-
+    {{property}}의 요약은 {{minimum}}자 이상이어야 합니다. 텍스트에 관련된 세부 사항을 더하세요.
+
+structured_output.minimum.translation: 
+  other: |-
+    {{property}}의 번역은 {{minimum}}자 이상이어야 합니다. 텍스트에 관련된 세부 사항을 더하세요.
+
+structured_output.minimum.avatar_description: 
+  other: |-
+    {{property}}의 프로필 이미지 설명은 {{minimum}}자 이상이어야 합니다. 텍스트에 관련된 세부 사항을 더하세요.
+
+structured_output.maximum.compaction: 
+  other: |-
+    {{property}}의 요약은 {{maximum}}자 이하여야 합니다. 텍스트를 줄이세요.
+
+structured_output.maximum.translation: 
+  other: |-
+    {{property}}의 번역은 {{maximum}}자 이하여야 합니다. 텍스트를 줄이세요.
+
+structured_output.maximum.avatar_description: 
+  other: |-
+    {{property}}의 프로필 이미지 설명은 {{maximum}}자 이하여야 합니다. 텍스트를 줄이세요.
+
+structured_output.wrong_tool.unnamed: |-
+  이 요청에는 {{toolName}} 도구만 사용하세요. 이름 없는 도구 호출을 보내지 마세요.
+
+structured_output.tool_mismatch.unnamed: |-
+  {{toolName}} 도구를 예상했지만 이름 없는 도구 호출을 받았습니다. 대신 {{toolName}} 도구를 호출하세요.
+
+structured_output.nonreducing.estimate: 
+  other: |-
+    {{property}} 필드의 요약이 맥락을 줄이지 못했습니다. 추정 길이는 {{replacementTokens}}토큰입니다.
+
+structured_output.nonreducing.before: 
+  other: |-
+    교체 전 맥락에는 {{compactedTokens}} 토큰이 있었습니다. 요구된 사실을 유지하면서 요약을 줄이세요.
+
+structured_output.nonempty.compaction.field: |-
+  요약 필드는 비어 있지 않은 문자열이어야 합니다. {{property}} 필드에 텍스트를 넣으세요.
+
+structured_output.nonempty.translation.field: |-
+  번역 필드는 비어 있지 않은 문자열이어야 합니다. {{property}} 필드에 텍스트를 넣으세요.
+
+structured_output.nonempty.avatar_description.field: |-
+  프로필 이미지 설명 필드는 비어 있지 않은 문자열이어야 합니다. {{property}} 필드에 텍스트를 넣으세요.
+

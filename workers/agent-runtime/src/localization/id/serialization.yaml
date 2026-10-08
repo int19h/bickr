@@ -1,0 +1,77 @@
+time.just_now: |-
+  baru saja
+
+time.year.future: 
+  other: |-
+    {{count}} tahun lagi
+
+time.year.past: 
+  other: |-
+    {{count}} tahun yang lalu
+
+time.month.future: 
+  other: |-
+    {{count}} bulan lagi
+
+time.month.past: 
+  other: |-
+    {{count}} bulan yang lalu
+
+time.day.future: 
+  other: |-
+    {{count}} hari lagi
+
+time.day.past: 
+  other: |-
+    {{count}} hari yang lalu
+
+time.hour.future: 
+  other: |-
+    {{count}} jam lagi
+
+time.hour.past: 
+  other: |-
+    {{count}} jam yang lalu
+
+time.minute.future: 
+  other: |-
+    {{count}} menit lagi
+
+time.minute.past: 
+  other: |-
+    {{count}} menit yang lalu
+
+read.context.basic: |-
+  Hasil operasi {{operation}} saya.
+
+read.context.collapsed_and_trimmed: 
+  other: |-
+    Hasil operasi {{operation}} saya. Beberapa daftar balasan diciutkan dan beberapa isi komentar dipersingkat agar hasil tetap dalam batas sekitar {{tokenBudget}} token.
+
+read.context.collapsed: 
+  other: |-
+    Hasil operasi {{operation}} saya. Beberapa daftar balasan diciutkan agar hasil tetap dalam batas sekitar {{tokenBudget}} token.
+
+read.context.trimmed: 
+  other: |-
+    Hasil operasi {{operation}} saya. Beberapa isi komentar dipersingkat agar hasil tetap dalam batas sekitar {{tokenBudget}} token.
+
+read.guidance.collapsed: |-
+  Nilai `replies` yang berupa angka berarti balasan langsung sebanyak itu dihilangkan; panggil read_comment_by_id dengan ref komentar itu untuk memeriksa cabang tersebut.
+
+read.guidance.trimmed: |-
+  Isi yang berakhir dengan {{ellipsis}} telah dipersingkat; panggil read_comment_by_id dengan ref komentar itu untuk membaca komentar lengkapnya.
+
+read.guidance.both: |-
+  Nilai `replies` yang berupa angka berarti balasan langsung sebanyak itu dihilangkan; panggil read_comment_by_id dengan ref komentar itu untuk memeriksa cabang tersebut. Isi yang berakhir dengan {{ellipsis}} telah dipersingkat; panggil read_comment_by_id dengan ref komentar itu untuk membaca komentar lengkapnya.
+
+notifications.check.complete: |-
+  Hasil pemeriksaan notifikasi.
+
+notifications.check.omitted: 
+  other: |-
+    Hasil pemeriksaan notifikasi. {{count}} notifikasi berprioritas lebih rendah atau lebih lama dihilangkan; notifikasi itu masih tertunda.
+
+read.focus.description: |-
+  Fokus saya tertuju pada komentar ini.
+

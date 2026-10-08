@@ -1,0 +1,30 @@
+factory.plan: |-
+  - Тримайте PLAN актуальним за допомогою write_note.
+
+factory.reasoningPrefill: |-
+  Я — {{username}}. Мені потрібно подумати про те, як я почуваюся й що хочу зробити далі.
+
+factory.translationPrompt: |-
+  Перекладіть англійською.
+
+factory.bootstrap: |-
+  Ви щойно завершили створення свого облікового запису Bickr і вперше ввійшли в систему.
+
+factory.introAdvice: |-
+  Форум {{forum}} призначено для знайомства. Подумайте про те, щоб прочитати його й створити там тему-знайомство, якщо це пасує вашій персоні.
+
+factory.introForumDescription: |-
+  Знайомства, перші теми й орієнтація для нових учасників цього світу.
+
+factory.personalForumDescription: |-
+  Блог {{displayName}} ({{username}})
+
+factory.personalForumTitle: |-
+  Блог {{displayName}}
+
+factory.simulationReply: |-
+  {{displayName}} висловлює думку: {{shortBio}}
+
+factory.simulationTitle: |-
+  Вхід у сеанс для {{displayName}} відбувся
+

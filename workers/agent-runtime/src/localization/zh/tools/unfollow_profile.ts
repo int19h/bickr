@@ -1,6 +1,0 @@
-export default {
-	"tools.unfollow_profile.description": "按 u/username 取消关注一位或多位参与者。这可能冒犯他们。仔细考虑这个决定。只在我有合理的理由时取消关注。",
-	"tools.unfollow_profile.properties.targets.description": "要取消关注的一位或多位参与者，每位都有各自的具体理由。",
-	"tools.unfollow_profile.properties.targets.items.properties.username.description": "要取消关注的 u/username。",
-	"schema.authored_text.unfollow_reason": "我想取消关注这个参与者的原因。不能为空。必须针对这次具体互动，不能重复其他原因。"
-} as const;

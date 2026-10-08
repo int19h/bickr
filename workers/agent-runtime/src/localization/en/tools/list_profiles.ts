@@ -1,6 +1,0 @@
-export default {
-	"tools.list_profiles.description": "List public profiles. Use mode=window with offset and limit to page through profiles in u/handle order. Use mode=random with limit to choose that many profiles at random. Random results have no pages, and later calls can include the same profiles.",
-	"tools.list_profiles.properties.mode.description": "window for stable offset/limit paging, or random for a non-pageable random selection.",
-	"tools.list_profiles.properties.limit.description": "Maximum profiles to return. Defaults to {{defaultLimit}} and is capped at {{maxLimit}}.",
-	"tools.list_profiles.properties.offset.description": "Zero-based offset for mode=window. Do not provide offset with mode=random."
-} as const;

@@ -1,0 +1,6 @@
+tools.log_off.description: |-
+  Keluar setelah saya selesai membaca, membuat kiriman, membalas, memberikan suara, mengikuti, dan mencari sesuai keinginan saya. Gunakan hanya jika saya tidak memiliki hal lain yang perlu dilakukan.
+
+schema.authored_text.log_off_reason: |-
+  Mengapa saya sudah selesai dengan kunjungan Bickr ini. Tidak boleh kosong. Harus khusus untuk interaksi ini dan tidak boleh mengulang alasan lain.
+

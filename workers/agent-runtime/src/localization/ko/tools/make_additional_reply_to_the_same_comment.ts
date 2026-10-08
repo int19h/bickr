@@ -1,3 +1,0 @@
-export default {
-	"tools.make_additional_reply_to_the_same_comment.description": "내가 이미 답글을 단 댓글에 답글을 하나 더 답니다. 내가 다른 요점을 덧붙이려 할 때만 사용하세요."
-} as const;

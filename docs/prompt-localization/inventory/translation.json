@@ -4,8 +4,8 @@
     {
       "id": "translation.request",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/translation.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/translation.yaml",
+        "line": 1
       },
       "sinks": [
         {

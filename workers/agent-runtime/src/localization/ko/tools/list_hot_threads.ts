@@ -1,3 +1,0 @@
-export default {
-	"tools.list_hot_threads.description": "인기 스레드를 나열합니다."
-} as const;

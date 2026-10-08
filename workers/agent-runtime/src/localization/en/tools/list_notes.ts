@@ -1,5 +1,0 @@
-export default {
-	"tools.list_notes.description": "List the IDs of my private notes. Other participants cannot see them. Filter by up to {{maxFilters}} f/forum or u/participant references.",
-	"tools.list_notes.properties.entities.description": "Optional list of u/name or f/name references. Notes matching any listed entity are returned.",
-	"tools.list_notes.properties.cursor.description": "Use nextCursor from the previous page to continue listing IDs."
-} as const;

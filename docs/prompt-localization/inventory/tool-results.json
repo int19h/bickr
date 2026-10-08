@@ -4,8 +4,8 @@
     {
       "id": "tool.log_off.finished",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tool-results.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/tool-results.yaml",
+        "line": 1
       },
       "sinks": [
         {

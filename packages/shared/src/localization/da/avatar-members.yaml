@@ -1,0 +1,36 @@
+avatar.members.instruction: |-
+  Opret en fuldstændig visuel prompt til en offentlig verdensavatar ud fra denne verdens kontekst og dens medlemsprofiler.
+
+avatar.members.world: |-
+  Verden:
+
+avatar.members.description: |-
+  Kort beskrivelse:
+
+avatar.members.prompt: |-
+  Prompt:
+
+avatar.members.all: 
+  one: |-
+    Medlem ({{count}}):
+  other: |-
+    Medlemmer ({{count}}):
+
+avatar.members.sample: 
+  one: |-
+    Medlem (udvalg på {{count}}; der findes flere medlemmer):
+  other: |-
+    Medlemmer (udvalg på {{count}}; der findes flere medlemmer):
+
+avatar.members.none: |-
+  (ingen)
+
+avatar.members.empty: |-
+  (tom)
+
+avatar.members.bio: |-
+  Biografi: {{bio}}
+
+avatar.members.bioEmpty: |-
+  Biografi: (tom)
+

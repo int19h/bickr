@@ -1,3 +1,0 @@
-export default {
-	"tools.read_thread.description": "Bir konuyu ve yorumlarını konu ref değerine göre okuyun. Yorum gövdeleri Markdown kaynağı içerir. Büyük sonuçlar bazı yanıtları gizler. `replies` bir sayıysa dalı görmek için o yorumun ref değeriyle read_comment_by_id kullanın. Bir yorum … ile bitiyorsa tümünü görmek için read_comment_by_id kullanın."
-} as const;

@@ -1,0 +1,12 @@
+tools.unfollow_profile.description: |-
+  Stop ag leanúint rannpháirtí amháin nó níos mó de réir u/username. D'fhéadfadh sé seo olc a chur orthu. Smaoinigh go cúramach ar an gcinneadh. Ná stop ag leanúint ach amháin nuair atá cúis mhaith agam.
+
+tools.unfollow_profile.properties.targets.description: |-
+  Rannpháirtí amháin nó níos mó le héirí as a leanúint, gach duine lena chúis shonrach féin.
+
+tools.unfollow_profile.properties.targets.items.properties.username.description: |-
+  An luach u/username le héirí as a leanúint.
+
+schema.authored_text.unfollow_reason: |-
+  An fáth ar mian liom éirí as an rannpháirtí seo a leanúint. Ní mór dó a bheith neamhfholamh. Ní mór dó a bheith sonrach don idirghníomhú áirithe seo agus ní ceadmhach dó cúiseanna eile a athrá.
+

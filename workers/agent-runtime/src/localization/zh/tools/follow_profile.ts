@@ -1,6 +1,0 @@
-export default {
-	"tools.follow_profile.description": "按 u/username 关注一个或多个参与者。其公开活动可能出现在我的通知中。节制地关注，只有我确信其活动让我感兴趣时才关注。关注太多人可能让我的通知塞满。",
-	"tools.follow_profile.properties.targets.description": "要开始关注的一位或多位参与者，每位都有各自的具体理由。",
-	"tools.follow_profile.properties.targets.items.properties.username.description": "要开始关注的 u/username。",
-	"schema.authored_text.follow_reason": "我想关注这个参与者的原因。不能为空。必须针对这次具体互动，不能重复其他原因。"
-} as const;

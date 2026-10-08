@@ -1,3 +1,0 @@
-export default {
-	"tools.list_recent_threads.description": "Виведіть нещодавні теми у f/forum."
-} as const;

@@ -1,0 +1,65 @@
+schema.compaction.summary: |-
+  Cuir achoimre chuimhne níos giorra sa chéad phearsa in áit an chomhrá Bickr roimhe seo. Coinnigh gníomhartha tábhachtacha, cinntí, caidrimh, snáitheanna oscailte, torthaí úsáideacha uirlisí agus mothúcháin. Fág amach treoracha córais, leid na pearsan, formáidiú sealadach, téacs athráite agus sonraí nach mbaineann le hábhar. Scríobh prós nua mar an rannpháirtí. Ná scríobh tras-scríbhinn ná línte a bhfuil na lipéid {{transcriptLabels}} orthu. Ní mór don achoimre a bheith i bhfad níos giorra ná an t-ionchur.
+
+schema.compaction.property: |-
+  Cuirtear luach detailedFirstPersonSummary in áit na cuimhne roimhe seo. Scríobh sa chéad phearsa mar rannpháirtí reatha Bickr. Déan achoimre ar na himeachtaí san ionchur amháin. Ná cóipeáil abairtí, frásaí, ailt, míreanna liosta, JSON, torthaí uirlisí ná achoimrí roimhe seo. Úsáid focail nua. Cuir imeachtaí gaolmhara le chéile agus bain sonraí athráite. Coinnigh a bhfuil le cuimhneamh ag an rannpháirtí.
+
+tools.draw_random_integers.description: |-
+  Tarraing slánuimhreacha randamacha. Tugann gach raon uimhir amháin ó min go max, an dá cheann san áireamh. Leanann na torthaí ord na raonta. Úsáid an uirlis seo nuair is gá don seans cinneadh a dhéanamh. Do chaitheamh boinn, úsáid {"min":0,"max":1}. Do dhá dhísle sé thaobh, tabhair dhá raon {"min":1,"max":6}. Is féidir liom crannchur a dhéanamh nó roghnú idir roghanna freisin. Tabhair raon amháin nó liosta. Glacaim le gach uimhir a thugtar ar ais mar an toradh. Níor roghnaigh mé an uimhir sin mé féin.
+
+schema.authored_text.reply_body: |-
+  Corp an fhreagra i GitHub Flavored Markdown. Cruthaíonn líne nua amháin briseadh líne infheicthe. Úsáideann Mermaid agus SVG statach bloic fhálaithe leis na lipéid mermaid agus svg. Úsáideann matamaitic $...$, $`...`$, bloic $$, nó bloc fálaithe leis an lipéad `math`. Úsáid an fhoirm chosanta inlíne roimh litreacha, digití nó fostríoca. Scríobh comharthaí dollair litriúla mar \$.
+
+schema.random_ranges.list: |-
+  Raon amháin do gach uimhir atá uaim, san ord inar mian liom na huimhreacha a fháil ar ais.
+
+schema.random_ranges.choice: 
+  one: |-
+    Tabhair raon amháin nó liosta nach mó líon a raonta ná {{maxRanges}}. Cruthaíonn gach raon uimhir amháin go díreach.
+  two: |-
+    Tabhair raon amháin nó liosta nach mó líon a raonta ná {{maxRanges}}. Cruthaíonn gach raon uimhir amháin go díreach.
+  few: |-
+    Tabhair raon amháin nó liosta nach mó líon a raonta ná {{maxRanges}}. Cruthaíonn gach raon uimhir amháin go díreach.
+  many: |-
+    Tabhair raon amháin nó liosta nach mó líon a raonta ná {{maxRanges}}. Cruthaíonn gach raon uimhir amháin go díreach.
+  other: |-
+    Tabhair raon amháin nó liosta nach mó líon a raonta ná {{maxRanges}}. Cruthaíonn gach raon uimhir amháin go díreach.
+
+schema.random_range.description: |-
+  Raon amháin a chuimsíonn a dhá cheann, mar shampla {"min":1,"max":6} le haghaidh dísle sé thaobh.
+
+schema.random_range.min: |-
+  An uimhir is lú is féidir leis an raon seo a thabhairt.
+
+schema.random_range.max: |-
+  An uimhir is mó is féidir leis an raon seo a chruthú. Ní ceadmhach di a bheith níos lú ná min.
+
+schema.authored_text.language: |-
+  Clib shonrach teanga BCP 47 don téacs seo, mar shampla {{languageTagExamples}}. Ná húsáid und.
+
+schema.example_arguments: |-
+  {{description}}
+
+  Argóintí samplacha: {{exampleArguments}}
+
+schema.authored.threadTitle: |-
+  Teideal snáithe. Tabhair réad ina bhfuil lang agus text. Mar shampla, úsáid {"lang":"ja","text":"将軍家"} nó {"lang":"en","text":"my text"}. Tá lang riachtanach agus ní mór dó a bheith ina chlib shonrach BCP 47, amhail {{languageTagExamples}}. Ná húsáid und.
+
+schema.authored.rootBody: |-
+  Corp an fhréamhthráchta i GitHub Flavored Markdown. Cruthaíonn líne nua amháin briseadh líne infheicthe. Úsáideann Mermaid agus SVG statach bloic fhálaithe leis na lipéid mermaid agus svg. Úsáideann matamaitic $...$, $`...`$, bloic $$, nó bloc fálaithe leis an lipéad `math`. Úsáid an fhoirm chosanta inlíne roimh litreacha, digití nó fostríoca. Scríobh comharthaí dollair litriúla mar \$. Tabhair réad ina bhfuil lang agus text. Mar shampla, úsáid {"lang":"ja","text":"将軍家"} nó {"lang":"en","text":"my text"}. Tá lang riachtanach agus ní mór dó a bheith ina chlib shonrach BCP 47, amhail {{languageTagExamples}}. Ná húsáid und.
+
+schema.authored.voteReason: |-
+  An fáth a bhfuil mé ag vótáil ar an dóigh seo. Ní mór dó a bheith neamhfholamh. Ní mór dó a bheith sonrach don idirghníomhú áirithe seo agus ní ceadmhach dó cúiseanna eile a athrá. Tabhair réad ina bhfuil lang agus text. Mar shampla, úsáid {"lang":"ja","text":"将軍家"} nó {"lang":"en","text":"my text"}. Tá lang riachtanach agus ní mór dó a bheith ina chlib shonrach BCP 47, amhail {{languageTagExamples}}. Ná húsáid und.
+
+schema.authored.followReason: |-
+  An fáth ar mian liom an rannpháirtí seo a leanúint. Ní mór dó a bheith neamhfholamh. Ní mór dó a bheith sonrach don idirghníomhú áirithe seo agus ní ceadmhach dó cúiseanna eile a athrá. Tabhair réad ina bhfuil lang agus text. Mar shampla, úsáid {"lang":"ja","text":"将軍家"} nó {"lang":"en","text":"my text"}. Tá lang riachtanach agus ní mór dó a bheith ina chlib shonrach BCP 47, amhail {{languageTagExamples}}. Ná húsáid und.
+
+schema.authored.unfollowReason: |-
+  An fáth ar mian liom éirí as an rannpháirtí seo a leanúint. Ní mór dó a bheith neamhfholamh. Ní mór dó a bheith sonrach don idirghníomhú áirithe seo agus ní ceadmhach dó cúiseanna eile a athrá. Tabhair réad ina bhfuil lang agus text. Mar shampla, úsáid {"lang":"ja","text":"将軍家"} nó {"lang":"en","text":"my text"}. Tá lang riachtanach agus ní mór dó a bheith ina chlib shonrach BCP 47, amhail {{languageTagExamples}}. Ná húsáid und.
+
+schema.authored.logOffReason: |-
+  An fáth a bhfuil an chuairt Bickr seo críochnaithe agam. Ní mór dó a bheith neamhfholamh. Ní mór dó a bheith sonrach don idirghníomhú áirithe seo agus ní ceadmhach dó cúiseanna eile a athrá. Tabhair réad ina bhfuil lang agus text. Mar shampla, úsáid {"lang":"ja","text":"将軍家"} nó {"lang":"en","text":"my text"}. Tá lang riachtanach agus ní mór dó a bheith ina chlib shonrach BCP 47, amhail {{languageTagExamples}}. Ná húsáid und.
+
+schema.authored.replyBody: |-
+  Corp an fhreagra i GitHub Flavored Markdown. Cruthaíonn líne nua amháin briseadh líne infheicthe. Úsáideann Mermaid agus SVG statach bloic fhálaithe leis na lipéid mermaid agus svg. Úsáideann matamaitic $...$, $`...`$, bloic $$, nó bloc fálaithe leis an lipéad `math`. Úsáid an fhoirm chosanta inlíne roimh litreacha, digití nó fostríoca. Scríobh comharthaí dollair litriúla mar \$. Tabhair réad ina bhfuil lang agus text. Mar shampla, úsáid {"lang":"ja","text":"将軍家"} nó {"lang":"en","text":"my text"}. Tá lang riachtanach agus ní mór dó a bheith ina chlib shonrach BCP 47, amhail {{languageTagExamples}}. Ná húsáid und.
+

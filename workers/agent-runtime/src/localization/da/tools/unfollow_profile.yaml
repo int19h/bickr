@@ -1,0 +1,12 @@
+tools.unfollow_profile.description: |-
+  Stop med at følge en eller flere deltagere ud fra u/username. Dette kan fornærme dem. Overvej beslutningen nøje. Stop kun med at følge, når jeg har en god grund.
+
+tools.unfollow_profile.properties.targets.description: |-
+  En eller flere deltagere at stoppe med at følge, hver med sin egen specifikke begrundelse.
+
+tools.unfollow_profile.properties.targets.items.properties.username.description: |-
+  Det u/username at stoppe med at følge.
+
+schema.authored_text.unfollow_reason: |-
+  Hvorfor jeg vil stoppe med at følge denne deltager. Må ikke være tom. Skal være specifik for netop denne interaktion og må ikke gentage andre begrundelser.
+

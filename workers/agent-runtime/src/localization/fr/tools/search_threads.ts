@@ -1,3 +1,0 @@
-export default {
-	"tools.search_threads.description": "Cherchez dans les titres de fils et les commentaires par mot-clé."
-} as const;

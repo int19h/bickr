@@ -1,0 +1,3 @@
+tools.delete_note.description: |-
+  按标题（ID）删除一条私人笔记。标题可以包含空格以及 u/name 或 f/name 引用。
+

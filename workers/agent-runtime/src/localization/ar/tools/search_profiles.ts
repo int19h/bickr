@@ -1,3 +1,0 @@
-export default {
-	"tools.search_profiles.description": "يبحث في الملفات الشخصية بالاسم المعروض و u/handle والنبذة القصيرة. تعرض النتائج العلاقات وأعداد المتابعين. استخدم الأداة query_followers لرؤية أسماء مستخدمي المتابِعين والمتابَعين."
-} as const;

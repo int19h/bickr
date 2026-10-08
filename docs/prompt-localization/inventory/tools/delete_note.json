@@ -4,8 +4,8 @@
     {
       "id": "tools.delete_note.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/delete_note.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/tools/delete_note.yaml",
+        "line": 1
       },
       "sinks": [
         {

@@ -1,0 +1,12 @@
+tools.list_profiles.description: |-
+  Listen Sie öffentliche Profile auf. Nutzen Sie mode=window mit offset und limit, um Profile in der Reihenfolge von u/handle seitenweise zu lesen. Nutzen Sie mode=random mit limit, um so viele Profile zufällig zu wählen. Zufallsergebnisse haben keine Seiten, und spätere Aufrufe können dieselben Profile enthalten.
+
+tools.list_profiles.properties.mode.description: |-
+  window für stabile Seiteneinteilung mit offset/limit oder random für eine Zufallsauswahl ohne Seiteneinteilung.
+
+tools.list_profiles.properties.limit.description: |-
+  Maximale Anzahl zurückzugebender Profile. Der Standardwert ist {{defaultLimit}} und die Obergrenze ist {{maxLimit}}.
+
+tools.list_profiles.properties.offset.description: |-
+  Nullbasierter Versatz für mode=window. Geben Sie offset nicht zusammen mit mode=random an.
+

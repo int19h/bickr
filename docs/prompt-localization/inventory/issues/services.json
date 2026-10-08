@@ -4,8 +4,8 @@
     {
       "id": "issue.service.threadMissing",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -35,8 +35,8 @@
     {
       "id": "issue.service.threadOutsideForum",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 3
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 4
       },
       "sinks": [
         {
@@ -61,8 +61,8 @@
     {
       "id": "issue.service.commentMissing",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 4
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 7
       },
       "sinks": [
         {
@@ -92,8 +92,8 @@
     {
       "id": "issue.service.parentCommentMissing",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 5
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 10
       },
       "sinks": [
         {
@@ -118,8 +118,8 @@
     {
       "id": "issue.service.forumMissing",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 6
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 13
       },
       "sinks": [
         {
@@ -159,8 +159,8 @@
     {
       "id": "issue.service.forumUnavailable",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 7
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 16
       },
       "sinks": [
         {
@@ -180,8 +180,8 @@
     {
       "id": "issue.service.forumGone",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 8
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 19
       },
       "sinks": [
         {
@@ -201,8 +201,8 @@
     {
       "id": "issue.service.forumDeleted",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 9
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 22
       },
       "sinks": [
         {
@@ -222,8 +222,8 @@
     {
       "id": "issue.service.forumReadOnly",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 10
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 25
       },
       "sinks": [
         {
@@ -243,8 +243,8 @@
     {
       "id": "issue.service.participantMissing",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 11
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 28
       },
       "sinks": [
         {
@@ -319,8 +319,8 @@
     {
       "id": "issue.service.outsideWorld",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 12
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 31
       },
       "sinks": [
         {
@@ -342,8 +342,8 @@
     {
       "id": "issue.service.followSelf",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 13
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 34
       },
       "sinks": [
         {
@@ -363,8 +363,8 @@
     {
       "id": "issue.service.threadUnreadable",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 14
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 37
       },
       "sinks": [
         {
@@ -386,8 +386,8 @@
     {
       "id": "issue.service.threadRootMissing",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 15
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 40
       },
       "sinks": [
         {
@@ -414,8 +414,8 @@
     {
       "id": "issue.service.requestDataUnavailable",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 16
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 43
       },
       "sinks": [
         {
@@ -442,8 +442,8 @@
     {
       "id": "issue.service.duplicateTitle",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 17
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 46
       },
       "sinks": [
         {
@@ -466,8 +466,8 @@
     {
       "id": "issue.service.threadLocked",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 18
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 49
       },
       "sinks": [
         {
@@ -487,8 +487,8 @@
     {
       "id": "issue.service.textRequired",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 22
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 55
       },
       "sinks": [
         {
@@ -523,8 +523,8 @@
     {
       "id": "issue.service.textTooLong",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 23
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 58
       },
       "sinks": [
         {
@@ -549,8 +549,8 @@
     {
       "id": "issue.service.authoredTextObject",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 27
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 64
       },
       "sinks": [
         {
@@ -578,8 +578,8 @@
     {
       "id": "issue.service.languageRequired",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 28
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 67
       },
       "sinks": [
         {
@@ -605,8 +605,8 @@
     {
       "id": "issue.service.languageInvalid",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 29
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 70
       },
       "sinks": [
         {
@@ -642,8 +642,8 @@
     {
       "id": "issue.service.requestObject",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 30
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 73
       },
       "sinks": [
         {
@@ -665,8 +665,8 @@
     {
       "id": "issue.service.requestJson",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 31
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 76
       },
       "sinks": [
         {
@@ -688,8 +688,8 @@
     {
       "id": "issue.service.requestContentType",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 32
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 79
       },
       "sinks": [
         {
@@ -711,8 +711,8 @@
     {
       "id": "issue.service.voteTarget",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 33
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 82
       },
       "sinks": [
         {
@@ -735,8 +735,8 @@
     {
       "id": "issue.service.voteValue",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 34
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 85
       },
       "sinks": [
         {
@@ -756,8 +756,8 @@
     {
       "id": "issue.service.searchRebuilding",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 35
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 88
       },
       "sinks": [
         {
@@ -777,8 +777,8 @@
     {
       "id": "issue.service.maintenanceEnabled",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 36
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 91
       },
       "sinks": [
         {
@@ -800,8 +800,8 @@
     {
       "id": "issue.service.maintenanceUnavailable",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 37
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 94
       },
       "sinks": [
         {
@@ -828,8 +828,8 @@
     {
       "id": "issue.service.mutationResultDeleted",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 38
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 97
       },
       "sinks": [
         {
@@ -844,8 +844,8 @@
     {
       "id": "issue.service.runtimeStorageCleared",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 39
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 100
       },
       "sinks": [
         {
@@ -865,8 +865,8 @@
     {
       "id": "issue.service.mutationReceiptUnavailable",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 40
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 103
       },
       "sinks": [
         {
@@ -898,8 +898,8 @@
     {
       "id": "issue.service.routeMissing",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 41
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 106
       },
       "sinks": [
         {
@@ -921,8 +921,8 @@
     {
       "id": "issue.service.mutationRecoveryPending",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 42
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 109
       },
       "sinks": [
         {
@@ -944,8 +944,8 @@
     {
       "id": "issue.service.mutationKeyReused",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 43
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 112
       },
       "sinks": [
         {
@@ -965,8 +965,8 @@
     {
       "id": "issue.service.mutationResultDeletedInThread",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 44
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 115
       },
       "sinks": [
         {
@@ -988,8 +988,8 @@
     {
       "id": "issue.service.mutationResultDeletedComment",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 45
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 118
       },
       "sinks": [
         {
@@ -1012,8 +1012,8 @@
     {
       "id": "issue.service.mutationReceiptUnavailableInThread",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/issues/services.ts",
-        "line": 46
+        "file": "workers/agent-runtime/src/localization/en/issues/services.yaml",
+        "line": 121
       },
       "sinks": [
         {

@@ -1,3 +1,0 @@
-export default {
-	"tools.write_note.description": "Create or replace a private note. The ID is its title and can contain spaces. A u/name or f/forum in the title or content links the note to that profile or forum."
-} as const;

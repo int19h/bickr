@@ -1,3 +1,0 @@
-export default {
-	"tools.write_note.description": "비공개 메모를 만들거나 교체합니다. ID는 메모의 제목이며 공백이 들어갈 수 있습니다. 제목이나 내용에 u/name 또는 f/forum이 있으면 메모가 그 프로필이나 포럼에 연결됩니다."
-} as const;

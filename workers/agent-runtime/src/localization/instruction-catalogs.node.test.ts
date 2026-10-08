@@ -1,3 +1,4 @@
+import { readCatalogGroup } from '../../../../scripts/localization/catalog-source.ts';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -28,8 +29,8 @@ const units = inventory.groups.flatMap((group) => {
 	return data.units;
 });
 function catalogPart(file: string): Record<string, string | Record<string, string>> {
-	const module = readFileSync(`${root}/${file}`, 'utf8');
-	return JSON.parse(module.replace(/^export default /, '').replace(/ as const;\s*$/, ''));
+	const localeDirectory = file.match(/^(.*\/localization\/[a-z]{2})\//)![1]!;
+	return readCatalogGroup(`${root}/${file}`, `${root}/${localeDirectory}`, messageParameters).messages;
 }
 
 function invariantToolShape(value: unknown): unknown {
@@ -81,7 +82,7 @@ describe('reviewed instruction catalogs', () => {
 		expect(approval.reviewers.grok).toBeTruthy();
 		expect(Object.keys(approval.groups).sort()).toEqual(inventory.groups.map((group) => group.group).sort());
 		for (const group of inventory.groups) {
-			const first = units.find((unit) => unit.definition.file.endsWith(`/en/${group.group.replace(/^shared\//, '')}.ts`))!;
+			const first = units.find((unit) => unit.definition.file.endsWith(`/en/${group.group.replace(/^shared\//, '')}.yaml`))!;
 			const target = catalogPart(first.definition.file.replace('/en/', `/${locale}/`));
 			expect(createHash('sha256').update(JSON.stringify(target)).digest('hex'), group.group).toBe(approval.groups[group.group]!.finalTemplateHash);
 			expect(Object.keys(approval.groups[group.group]!.draftHashes).sort()).toEqual(['codex', 'gemini', 'grok', 'opus']);
@@ -122,7 +123,7 @@ describe('reviewed instruction catalogs', () => {
 			const source = catalogPart(unit.definition.file)[unit.id];
 			expect(createHash('sha256').update(JSON.stringify(source)).digest('hex'), unit.id).toBe(unit.sourceTemplateHash);
 			const line = readFileSync(`${root}/${unit.definition.file}`, 'utf8').split('\n')[unit.definition.line - 1];
-			expect(line, unit.id).toContain(JSON.stringify(unit.id));
+			expect(line, unit.id).toContain(`${unit.id}:`);
 		}
 	});
 
@@ -152,11 +153,19 @@ describe('reviewed instruction catalogs', () => {
 				const parameters = [...template.matchAll(/{{([^{}]+)}}/g)].map((match) => match[1]);
 				expect([...new Set(parameters)].sort(), unit.id).toEqual([...definition.parameters].sort());
 			}
-			if (definition.kind !== 'plural') continue;
+			if (definition.kind !== 'plural') {
+				const parameters = Object.fromEntries(definition.parameters.map((name) => [name, `opaque:{{${name}}}`]));
+				const result = context.formatDescriptor({ key: unit.id, parameters } as Parameters<typeof context.formatDescriptor>[0]);
+				expect(result, `${locale}:${unit.id}`).toBe((entry as string).replace(/{{([^{}]+)}}/g, (_match, name: string) => parameters[name]!));
+				continue;
+			}
 			for (const count of counts) {
 				const parameters = Object.fromEntries(definition.parameters.map((name) => [name, name === definition.count ? count : `opaque:{{${name}}}`]));
 				const result = context.formatDescriptor({ key: unit.id, parameters } as Parameters<typeof context.formatDescriptor>[0]);
 				expect(result, `${locale}:${unit.id}:${count}`).toContain(String(count));
+				const category = new Intl.PluralRules(instructionContentLanguage(locale)).select(count);
+				const template = (entry as Record<string, string>)[category]!;
+				expect(result, `${locale}:${unit.id}:${count}`).toBe(template.replace(/{{([^{}]+)}}/g, (_match, name: string) => String(parameters[name])));
 			}
 		}
 	});

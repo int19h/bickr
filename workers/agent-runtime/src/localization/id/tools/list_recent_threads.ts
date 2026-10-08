@@ -1,3 +1,0 @@
-export default {
-	"tools.list_recent_threads.description": "Cantumkan utas terbaru di suatu f/forum."
-} as const;

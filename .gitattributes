@@ -1,0 +1,4 @@
+packages/shared/src/localization/**/*.yaml text eol=lf
+packages/shared/src/localization/**/*.md text eol=lf
+workers/agent-runtime/src/localization/**/*.yaml text eol=lf
+workers/agent-runtime/src/localization/**/*.md text eol=lf

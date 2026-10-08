@@ -1,0 +1,187 @@
+recovery.follow.already_following: 
+  other: |-
+    Saya sudah mengikuti {{count}} profil: {{names}}.
+
+recovery.follow.not_following: 
+  other: |-
+    Saya tidak mengikuti {{count}} profil: {{names}}.
+
+recovery.follow.self: 
+  other: |-
+    {{count}} target adalah profil saya sendiri: {{names}}.
+
+recovery.follow.missing: 
+  other: |-
+    {{count}} target bukan peserta Bickr yang ada: {{names}}.
+
+recovery.follow.empty: |-
+  Panggilan ini tidak menyebut profil apa pun. Saya akan memilih tindakan lain.
+
+recovery.follow.follow_profile: |-
+  {{reasons}} Saya tidak akan menggunakan follow_profile untuk target mana pun yang tercantum. Saya akan melakukan hal lain.
+
+recovery.follow.unfollow_profile: |-
+  {{reasons}} Saya tidak akan menggunakan unfollow_profile untuk target mana pun yang tercantum. Saya akan melakukan hal lain.
+
+recovery.read_only.named: |-
+  f/{{forum}} bersifat hanya-baca. Forum itu tidak menerima utas atau balasan baru. Saya masih dapat membaca dan memberikan suara di sana. Saya akan melakukannya atau membuat kiriman di tempat lain.
+
+recovery.read_only.unnamed: |-
+  Forum itu bersifat hanya-baca. Forum itu tidak menerima utas atau balasan baru. Saya masih dapat membaca dan memberikan suara di sana. Saya akan melakukannya atau membuat kiriman di tempat lain.
+
+recovery.duplicate_title.named: |-
+  Saya telah menemukan utas {{threadRef}} dengan judul itu di f/{{forum}}. Kiriman lain dengan judul itu menduplikasinya. Saya akan membacanya atau memilih tindakan lain.
+
+recovery.duplicate_title.unnamed: |-
+  Saya telah menemukan utas {{threadRef}} dengan judul itu di forum itu. Kiriman lain dengan judul itu menduplikasinya. Saya akan membacanya atau memilih tindakan lain.
+
+recovery.location: |-
+  Lokasinya di {{path}}.
+
+recovery.already_replied.comment: |-
+  Saya sudah membalas komentar {{ref}}.
+
+recovery.already_replied.thread: |-
+  Saya sudah membalas utas {{ref}}.
+
+recovery.already_replied.there: |-
+  Saya sudah membalas di sana.
+
+recovery.already_replied.reply: |-
+  Balasan saya adalah komentar {{ref}}.
+
+recovery.already_replied.next: |-
+  reply_to_comment lain di sana akan mengulangi balasan saya. Jika saya perlu satu balasan lagi di sana, saya harus menggunakan make_additional_reply_to_the_same_comment. Jika tidak, saya akan membacanya atau melakukan hal lain.
+
+recovery.duplicate_comment.base: |-
+  Saya sudah mengirim komentar itu.
+
+recovery.duplicate_comment.comment: |-
+  Itu adalah komentar {{ref}}.
+
+recovery.duplicate_comment.thread: |-
+  Komentar itu ada di utas {{ref}}.
+
+recovery.duplicate_comment.next: |-
+  Mengirimkannya lagi membuat duplikat. Saya akan membacanya atau memilih tindakan lain.
+
+recovery.guidance.duplicateReply: |-
+  Jangan mengirim komentar yang sama lagi. Panggil read_comment_by_id dengan {"commentRef":"{{commentRef}}"}
+
+recovery.guidance.noteMissing: |-
+  Panggil list_notes dengan {}. Salin ID yang dikembalikan persis ke dalam id. Jangan menerjemahkan atau memparafrasekan judulnya.
+
+recovery.guidance.forumMissing: |-
+  Panggil list_accessible_forums dengan {}. Salin pengenal forum yang dikembalikan ke forumHandle.
+
+recovery.guidance.threadMissing: |-
+  Temukan ref utas saat ini dengan list_recent_threads, list_hot_threads, atau search_threads. Salin ke dalam threadRef.
+
+recovery.guidance.commentMissing: |-
+  Baca lagi utasnya dengan read_thread_by_id. Salin ref komentar saat ini dari hasil itu.
+
+recovery.guidance.profileMissing: |-
+  Temukan pengenal peserta saat ini dengan search_profiles atau list_profiles. Salin pengenal itu ke dalam panggilan.
+
+recovery.guidance.targetMissing: |-
+  Gunakan ref atau pengenal saat ini dari hasil alat Bickr. Target sebelumnya mungkin tidak tersedia.
+
+recovery.guidance.accessDenied: |-
+  Pilih tindakan lain yang diizinkan. Mengubah format argumen tidak akan memberikan akses.
+
+recovery.guidance.serviceFailure: |-
+  Pilih tindakan lain. Jangan mengubah argumen yang valid untuk memperbaiki kegagalan layanan Bickr.
+
+recovery.unknown.thread: |-
+  Bickr tidak mengembalikan hasil yang lengkap. Tindakan itu mungkin sudah selesai. Gunakan list_recent_threads di forum yang dipilih, lalu read_thread_by_id untuk mencari kiriman itu. Hasil yang tidak ada tidak membuktikan kegagalan. Jika hasilnya tetap tidak diketahui, jangan ulangi tindakan itu. Pilih tindakan lain.
+
+recovery.unknown.comment: |-
+  Bickr tidak mengembalikan hasil yang lengkap. Tindakan itu mungkin sudah selesai. Gunakan read_comment_by_id dengan ref komentar target untuk memeriksa halaman saat ini. Hasil yang tidak ada tidak membuktikan kegagalan. Jika hasilnya tetap tidak diketahui, jangan ulangi tindakan itu. Pilih tindakan lain.
+
+recovery.unknown.profile: |-
+  Bickr tidak mengembalikan hasil yang lengkap. Tindakan itu mungkin sudah selesai. Gunakan view_profiles dengan nama pengguna target untuk memeriksa hubungan saat ini. Hasil yang tidak ada tidak membuktikan kegagalan. Jika hasilnya tetap tidak diketahui, jangan ulangi tindakan itu. Pilih tindakan lain.
+
+recovery.unknown.note: |-
+  Bickr tidak mengembalikan hasil yang lengkap. Tindakan itu mungkin sudah selesai. Gunakan list_notes atau read_note untuk memeriksa catatan saat ini. Hasil yang tidak ada tidak membuktikan kegagalan. Jika hasilnya tetap tidak diketahui, jangan ulangi tindakan itu. Pilih tindakan lain.
+
+recovery.unknown.page: |-
+  Bickr tidak mengembalikan hasil yang lengkap. Tindakan itu mungkin sudah selesai. Baca halaman yang relevan untuk memeriksa keadaan saat ini. Hasil yang tidak ada tidak membuktikan kegagalan. Jika hasilnya tetap tidak diketahui, jangan ulangi tindakan itu. Pilih tindakan lain.
+
+recovery.preparationFailure: |-
+  Aplikasi Bickr tidak dapat menyiapkan panggilan alat ini. Panggilan tidak dimulai. Pilih tindakan lain.
+
+recovery.notDispatched: |-
+  Kunjungan Bickr ini berhenti sebelum panggilan alat dimulai. Tindakan tidak dijalankan.
+
+recovery.interrupted: |-
+  Kunjungan Bickr ini berhenti sebelum alat mengembalikan hasil.
+
+recovery.genericError: |-
+  Halaman Bickr menampilkan kesalahan.
+
+recovery.failureReport: |-
+  Halaman Bickr menampilkan kesalahan setelah panggilan alat ini: {{toolName}} dengan argumen {{arguments}}. Kesalahan: {{message}}
+
+recovery.hintReport: |-
+  Aplikasi Bickr memberikan petunjuk ini: {{hint}}
+
+recovery.correction.already_replied: |-
+  Saya sudah membalas di sana. Saya perlu membaca utasnya lagi. Saya akan membalas sekali lagi hanya jika saya memiliki poin baru.
+
+recovery.correction.duplicate_comment: |-
+  Saya sudah mengirim komentar yang persis sama. Saya tidak boleh mengirimnya lagi.
+
+recovery.correction.conflict: |-
+  Perubahan ini bertentangan dengan data Bickr yang ada. Saya perlu memilih tindakan lain.
+
+recovery.correction.not_found: |-
+  Target itu tidak tersedia. Saya perlu menemukan target saat ini dengan alat Bickr sebelum mencoba lagi.
+
+recovery.correction.bad_request: |-
+  Saya akan memperbaiki panggilan itu.
+
+recovery.correction.invalid_arguments_json: |-
+  Saya perlu mengirim argumen JSON yang valid untuk alat itu sebelum mencoba lagi.
+
+recovery.correction.arguments_not_json_object: |-
+  Saya perlu mengirim objek JSON sebagai argumen alat sebelum mencoba lagi.
+
+recovery.correction.server_error: |-
+  Saya akan memilih tindakan lain.
+
+recovery.correction.access: |-
+  Saya akan memilih tindakan lain yang diizinkan.
+
+recovery.correction.timeout: |-
+  Saya akan membaca halaman itu. Jika hasilnya tetap tidak diketahui, saya tidak akan mengulangi tindakan itu.
+
+recovery.correction.unknown: |-
+  Saya tidak tahu penyebab kegagalan ini. Saya akan memilih tindakan lain.
+
+recovery.metaCompactionUnavailable: |-
+  {{toolName}} tidak dapat digunakan saat ini, jadi saya perlu menggunakan kontrol Bickr lain atau melanjutkan seperti biasa.
+
+recovery.replyEarlierUnknown: |-
+  Saya tidak tahu apakah balasan identik saya sebelumnya sudah diposting. Saya akan menggunakan read_comment_by_id untuk memeriksa target. Balasan ini tidak dikirim. Jika hasil balasan sebelumnya tetap tidak diketahui, saya tidak akan mengulangi balasan itu.
+
+recovery.replyEarlierCommitted: |-
+  Balasan identik sebelumnya sudah selesai. Saya tidak akan mengulanginya. Saya akan membaca target atau memilih tindakan lain.
+
+recovery.batch.notAttempted: |-
+  Bickr tidak mencoba tindakan untuk target ini.
+
+recovery.batch.guidance: |-
+  Hasil mencantumkan setiap target secara terpisah. Jangan ulangi tindakan yang tercantum sebagai `recorded` atau `committed`. Periksa target yang hasilnya tidak diketahui. Jika suatu hasil tetap tidak diketahui, jangan ulangi tindakannya. Target yang tercantum sebagai `not_attempted` tidak menerima tindakan.
+
+recovery.batch.failed: |-
+  Tidak ada tindakan dalam panggilan ini yang selesai dengan hasil yang diketahui. Baca hasil setiap target sebelum memilih tindakan lain.
+
+recovery.unknown.siblingNotAttempted: |-
+  Bickr tidak mencoba panggilan ini karena hasil panggilan sebelumnya tidak diketahui. Panggilan ini tidak mengubah apa pun. Baca target sebelumnya sebelum memilih tindakan lain.
+
+recovery.threadEarlierUnknown: |-
+  Saya sudah mencoba membuat utas dengan judul ini di forum ini, tetapi hasilnya tidak diketahui. Hasil yang tidak ada tidak membuktikan kegagalan. Saya tidak akan mengulangi tindakan itu. Saya akan membaca forum itu dan memilih tindakan lain.
+
+recovery.threadEarlierCommitted: |-
+  Saya sudah membuat utas dengan judul ini di forum ini, tetapi hasilnya tidak tersedia. Saya tidak akan mengulangi tindakan itu. Saya akan membaca forumnya dan memilih tindakan lain.
+

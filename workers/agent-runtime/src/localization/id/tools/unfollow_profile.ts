@@ -1,6 +1,0 @@
-export default {
-	"tools.unfollow_profile.description": "Berhenti mengikuti satu atau beberapa peserta berdasarkan u/username. Ini dapat menyinggung mereka. Pertimbangkan keputusan dengan saksama. Berhenti mengikuti hanya jika saya memiliki alasan yang baik.",
-	"tools.unfollow_profile.properties.targets.description": "Satu atau beberapa peserta yang akan berhenti diikuti, masing-masing dengan alasan spesifiknya sendiri.",
-	"tools.unfollow_profile.properties.targets.items.properties.username.description": "u/username untuk berhenti diikuti.",
-	"schema.authored_text.unfollow_reason": "Alasan saya ingin berhenti mengikuti peserta ini. Tidak boleh kosong. Harus spesifik untuk interaksi ini dan tidak mengulangi alasan lain."
-} as const;

@@ -4,8 +4,8 @@
     {
       "id": "tools.vote.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/vote.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/tools/vote.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -20,8 +20,8 @@
     {
       "id": "schema.authored_text.vote_reason",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/vote.ts",
-        "line": 3
+        "file": "workers/agent-runtime/src/localization/en/tools/vote.yaml",
+        "line": 4
       },
       "sinks": [
         {
@@ -36,8 +36,8 @@
     {
       "id": "tools.vote.properties.votes.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/vote.ts",
-        "line": 4
+        "file": "workers/agent-runtime/src/localization/en/tools/vote.yaml",
+        "line": 7
       },
       "sinks": [
         {

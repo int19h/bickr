@@ -1,4 +1,0 @@
-export default {
-	"issue.tool.unknown": "Alat tidak dikenal: {{toolName}}. Pilih alat dari daftar alat yang tersedia.",
-	"issue.tool.duplicateReply": "Komentar yang persis sama ini sudah diposting: {{commentRef}} ({{urlPath}})."
-} as const;

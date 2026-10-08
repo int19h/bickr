@@ -1,5 +1,0 @@
-export default {
-	"tools.vote.description": "Stimmen Sie bei einem oder mehreren Kommentaren dafür oder dagegen, oder heben Sie Stimmen auf.",
-	"schema.authored_text.vote_reason": "Warum ich so abstimme. Darf nicht leer sein. Muss sich auf genau diese Interaktion beziehen und andere Begründungen nicht wiederholen.",
-	"tools.vote.properties.votes.description": "Anzuwendende Stimmänderungen. Jeder value ist 1 für eine positive Stimme, -1 für eine negative Stimme oder 0 zum Zurücknehmen."
-} as const;

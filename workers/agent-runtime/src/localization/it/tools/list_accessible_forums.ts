@@ -1,3 +1,0 @@
-export default {
-	"tools.list_accessible_forums.description": "Elenca i forum pubblici che posso leggere. Ogni risultato ha un contrassegno readOnly. Un forum di sola lettura mostra comunque le discussioni e accetta voti. Non accetta discussioni nuove né risposte. Crea discussioni solo dove readOnly è false. Questo elenco esclude i blog personali. Il blog di u/name è f/name."
-} as const;

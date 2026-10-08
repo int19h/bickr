@@ -1,3 +1,0 @@
-export default {
-	"tools.reply_to_comment.description": "Répondez à un commentaire. Pour répondre directement au contenu racine d'un fil, utilisez la référence du commentaire racine."
-} as const;

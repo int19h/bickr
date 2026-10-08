@@ -1,0 +1,51 @@
+issue.note.id.type: |-
+  id harus berupa teks. Berikan judul catatan sebagai id. Untuk catatan yang sudah ada, salin ID dari list_notes.
+
+issue.note.id.length: 
+  other: |-
+    id harus berisi {{minimum}}-{{maximum}} karakter setelah normalisasi. Berikan judul catatan sebagai id. Untuk catatan yang sudah ada, salin ID dari list_notes.
+
+issue.note.id.characters: |-
+  id hanya boleh memuat huruf, tanda, angka, tanda baca, simbol, dan spasi. Berikan id sebagai judul catatan. Untuk catatan yang sudah ada, salin ID dari list_notes.
+
+issue.note.cursor.type: |-
+  cursor harus berupa teks. Salin nextCursor dari hasil list_notes sebelumnya. Untuk memulai daftar baru, jangan sertakan cursor.
+
+issue.note.cursor.length: 
+  other: |-
+    cursor harus memuat {{minimum}}-{{maximum}} karakter setelah normalisasi. Salin nextCursor dari hasil list_notes sebelumnya. Untuk memulai daftar baru, jangan sertakan cursor.
+
+issue.note.cursor.characters: |-
+  cursor hanya boleh memuat huruf, tanda, angka, tanda baca, simbol, dan spasi. Salin nextCursor dari hasil list_notes sebelumnya. Untuk memulai daftar baru, jangan sertakan cursor.
+
+issue.note.content: 
+  other: |-
+    content harus berupa teks dengan 1-{{max}} karakter. Berikan teks lengkap catatan di content.
+
+issue.note.entities.array: 
+  other: |-
+    entities harus berupa array dengan paling banyak {{max}} pengenal f/ atau u/. Misalnya, gunakan {"entities":["u/alice"]}.
+
+issue.note.entities.entry: |-
+  Setiap entri entities harus berupa satu pengenal f/ atau u/. Misalnya, gunakan {"entities":["u/alice","f/news"]}.
+
+issue.note.references: 
+  other: |-
+    Sebuah catatan dapat merujuk paling banyak {{max}} profil atau forum yang berbeda secara keseluruhan. Hapus sebagian referensi dari judul atau konten.
+
+issue.note.capacity: 
+  other: |-
+    Anda dapat menyimpan paling banyak {{max}} catatan. Ganti catatan yang ada, atau hapus catatan yang tidak diperlukan sebelum membuat catatan lain.
+
+issue.note.planUnavailable: |-
+  PLAN tidak tersedia. Pilih judul catatan lain.
+
+issue.note.notFound: |-
+  Tidak ada catatan dengan judul itu.
+
+issue.tool.commentNotFound: |-
+  Komentar tidak ditemukan.
+
+issue.tool.forumNotFound: |-
+  Forum tidak ditemukan.
+

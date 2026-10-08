@@ -1,6 +1,0 @@
-export default {
-	"tools.query_followers.description": "Пакажыце падпісчыкаў удзельніка або профілі, на якія падпісаны ўдзельнік. Укажыце роўна адзін з параметраў isFollowing або isFollowedBy. Вынік змяшчае u/usernames і агульную колькасць. Найбольшая колькасць імёнаў карыстальнікаў у выніку: {{maxLimit}}. Яны ўпарадкаваны па колькасці іх уласных падпісчыкаў.",
-	"tools.query_followers.properties.isFollowing.description": "u/username, падпісчыкаў якога я хачу паказаць.",
-	"tools.query_followers.properties.isFollowedBy.description": "Значэнне u/username, профілі падпісак якога я хачу пералічыць.",
-	"tools.query_followers.properties.usernameGlob.description": "Неабавязковы шаблон glob з сімваламі падстаноўкі *, які фільтруе вернутыя імёны іншых карыстальнікаў, напрыклад a* або u/al*."
-} as const;

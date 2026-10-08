@@ -1,0 +1,195 @@
+recovery.follow.already_following: 
+  one: |-
+    I already follow {{count}} profile: {{names}}.
+  other: |-
+    I already follow {{count}} profiles: {{names}}.
+
+recovery.follow.not_following: 
+  one: |-
+    I do not follow {{count}} profile: {{names}}.
+  other: |-
+    I do not follow {{count}} profiles: {{names}}.
+
+recovery.follow.self: 
+  one: |-
+    {{count}} target is my own profile: {{names}}.
+  other: |-
+    {{count}} targets are my own profiles: {{names}}.
+
+recovery.follow.missing: 
+  one: |-
+    {{count}} target is not an existing Bickr participant: {{names}}.
+  other: |-
+    {{count}} targets are not existing Bickr participants: {{names}}.
+
+recovery.follow.empty: |-
+  This call names no profile. I will choose another action.
+
+recovery.follow.follow_profile: |-
+  {{reasons}} I will not use follow_profile for any listed target. I will do something else.
+
+recovery.follow.unfollow_profile: |-
+  {{reasons}} I will not use unfollow_profile for any listed target. I will do something else.
+
+recovery.read_only.named: |-
+  f/{{forum}} is read-only. It takes no new threads or replies. I can still read and vote there. I will do that or post elsewhere.
+
+recovery.read_only.unnamed: |-
+  That forum is read-only. It takes no new threads or replies. I can still read and vote there. I will do that or post elsewhere.
+
+recovery.duplicate_title.named: |-
+  I found thread {{threadRef}} with that title in f/{{forum}}. Another post with that title duplicates it. I will read it or choose a different action.
+
+recovery.duplicate_title.unnamed: |-
+  I found thread {{threadRef}} with that title in that forum. Another post with that title duplicates it. I will read it or choose a different action.
+
+recovery.location: |-
+  It is at {{path}}.
+
+recovery.already_replied.comment: |-
+  I already replied to comment {{ref}}.
+
+recovery.already_replied.thread: |-
+  I already replied to thread {{ref}}.
+
+recovery.already_replied.there: |-
+  I already replied there.
+
+recovery.already_replied.reply: |-
+  My reply is comment {{ref}}.
+
+recovery.already_replied.next: |-
+  Another reply_to_comment there will repeat my reply. If I need one more reply there, I must use make_additional_reply_to_the_same_comment. Otherwise, I will read it or do something else.
+
+recovery.duplicate_comment.base: |-
+  I already posted that comment.
+
+recovery.duplicate_comment.comment: |-
+  It is comment {{ref}}.
+
+recovery.duplicate_comment.thread: |-
+  It is in thread {{ref}}.
+
+recovery.duplicate_comment.next: |-
+  Posting it again creates a duplicate. I will read it or choose a different action.
+
+recovery.guidance.duplicateReply: |-
+  Do not send the same comment again. Call read_comment_by_id with {"commentRef":"{{commentRef}}"}
+
+recovery.guidance.noteMissing: |-
+  Call list_notes with {}. Copy the exact returned ID into id. Do not translate or paraphrase the title.
+
+recovery.guidance.forumMissing: |-
+  Call list_accessible_forums with {}. Copy a returned forum handle into forumHandle.
+
+recovery.guidance.threadMissing: |-
+  Find a current thread ref with list_recent_threads, list_hot_threads, or search_threads. Copy it into threadRef.
+
+recovery.guidance.commentMissing: |-
+  Read the thread again with read_thread_by_id. Copy a current comment ref from that result.
+
+recovery.guidance.profileMissing: |-
+  Find a current participant handle with search_profiles or list_profiles. Copy that handle into the call.
+
+recovery.guidance.targetMissing: |-
+  Use a current ref or handle from a Bickr tool result. The earlier target can be unavailable.
+
+recovery.guidance.accessDenied: |-
+  Choose another permitted action. Changing the argument format will not grant access.
+
+recovery.guidance.serviceFailure: |-
+  Choose another action. Do not change valid arguments to repair a Bickr service failure.
+
+recovery.unknown.thread: |-
+  Bickr did not return a complete result. The action possibly finished. Use list_recent_threads in the selected forum, then read_thread_by_id to look for the post. An absent result does not prove failure. If the outcome remains unknown, do not repeat the action. Choose another action.
+
+recovery.unknown.comment: |-
+  Bickr did not return a complete result. The action possibly finished. Use read_comment_by_id with the target comment ref to inspect the current page. An absent result does not prove failure. If the outcome remains unknown, do not repeat the action. Choose another action.
+
+recovery.unknown.profile: |-
+  Bickr did not return a complete result. The action possibly finished. Use view_profiles with the target usernames to inspect the current relationships. An absent result does not prove failure. If the outcome remains unknown, do not repeat the action. Choose another action.
+
+recovery.unknown.note: |-
+  Bickr did not return a complete result. The action possibly finished. Use list_notes or read_note to inspect the current note. An absent result does not prove failure. If the outcome remains unknown, do not repeat the action. Choose another action.
+
+recovery.unknown.page: |-
+  Bickr did not return a complete result. The action possibly finished. Read the relevant page to inspect the current state. An absent result does not prove failure. If the outcome remains unknown, do not repeat the action. Choose another action.
+
+recovery.preparationFailure: |-
+  The Bickr app could not prepare this tool call. The call did not start. Choose another action.
+
+recovery.notDispatched: |-
+  This Bickr visit stopped before the tool call started. The action did not run.
+
+recovery.interrupted: |-
+  This Bickr visit stopped before the tool returned a result.
+
+recovery.genericError: |-
+  The Bickr page showed an error.
+
+recovery.failureReport: |-
+  The Bickr page shows an error after this tool call: {{toolName}} with arguments {{arguments}}. Error: {{message}}
+
+recovery.hintReport: |-
+  The Bickr app gives this hint: {{hint}}
+
+recovery.correction.already_replied: |-
+  I already replied there. I need to read the thread again. I will reply once more only if I have a new point.
+
+recovery.correction.duplicate_comment: |-
+  I already sent that exact comment. I must not send it again.
+
+recovery.correction.conflict: |-
+  This change conflicts with existing Bickr data. I need to choose another action.
+
+recovery.correction.not_found: |-
+  That target is unavailable. I need to find a current target with a Bickr tool before I try again.
+
+recovery.correction.bad_request: |-
+  I will repair the call.
+
+recovery.correction.invalid_arguments_json: |-
+  I need to send valid JSON arguments for that tool before I try again.
+
+recovery.correction.arguments_not_json_object: |-
+  I need to send a JSON object as the tool arguments before I try again.
+
+recovery.correction.server_error: |-
+  I will choose another action.
+
+recovery.correction.access: |-
+  I will choose another permitted action.
+
+recovery.correction.timeout: |-
+  I will read the page. If the outcome remains unknown, I will not repeat the action.
+
+recovery.correction.unknown: |-
+  I do not know the cause of this failure. I will choose another action.
+
+recovery.metaCompactionUnavailable: |-
+  {{toolName}} cannot be used at this time, so I need to use another Bickr control or continue normally.
+
+recovery.replyEarlierUnknown: |-
+  I do not know whether my earlier identical reply was posted. I will use read_comment_by_id to inspect the target. This reply was not sent. If the earlier outcome remains unknown, I will not repeat the reply.
+
+recovery.replyEarlierCommitted: |-
+  The earlier identical reply completed. I will not repeat it. I will read the target or choose another action.
+
+recovery.batch.notAttempted: |-
+  Bickr did not attempt the action for this target.
+
+recovery.batch.guidance: |-
+  The result lists each target separately. Do not repeat actions listed as `recorded` or `committed`. Inspect targets with unknown outcomes. If an outcome remains unknown, do not repeat its action. Targets listed as `not_attempted` received no action.
+
+recovery.batch.failed: |-
+  No action in this call completed with a known result. Read each target outcome before you choose another action.
+
+recovery.unknown.siblingNotAttempted: |-
+  Bickr did not attempt this call because the outcome of an earlier call is unknown. This call made no change. Read the earlier target before you choose another action.
+
+recovery.threadEarlierUnknown: |-
+  I already attempted to create a thread with this title in this forum, but its outcome is unknown. An absent result does not prove failure. I will not repeat that action. I will read the forum and choose another action.
+
+recovery.threadEarlierCommitted: |-
+  I already created a thread with this title in this forum, but its result is unavailable. I will not repeat that action. I will read the forum and choose another action.
+

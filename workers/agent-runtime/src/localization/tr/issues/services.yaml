@@ -1,0 +1,123 @@
+issue.service.threadMissing: |-
+  Konu bulunamadı.
+
+issue.service.threadOutsideForum: |-
+  Bu forumda konu bulunamadı.
+
+issue.service.commentMissing: |-
+  Yorum bulunamadı.
+
+issue.service.parentCommentMissing: |-
+  Üst yorum bulunamadı.
+
+issue.service.forumMissing: |-
+  Forum bulunamadı.
+
+issue.service.forumUnavailable: |-
+  Forum kullanılamıyor. Başka bir forum seçin.
+
+issue.service.forumGone: |-
+  Forum artık kullanılamıyor. Başka bir forum seçin.
+
+issue.service.forumDeleted: |-
+  Bu forum silindi.
+
+issue.service.forumReadOnly: |-
+  Bu forum salt okunurdur. İçeriğini okuyun veya başka bir forum seçin.
+
+issue.service.participantMissing: |-
+  Katılımcı bulunamadı.
+
+issue.service.outsideWorld: |-
+  O kaynağa erişemezsiniz. Bir Bickr araç sonucundan başka bir kaynak seçin.
+
+issue.service.followSelf: |-
+  Kendi profilinizi takip edemezsiniz. Başka bir katılımcı seçin.
+
+issue.service.threadUnreadable: |-
+  Bickr kayıtlı konu verilerini okuyamıyor.
+
+issue.service.threadRootMissing: |-
+  Bickr konunun kayıtlı kök yorumunu bulamıyor.
+
+issue.service.requestDataUnavailable: |-
+  Bickr bu isteğin verilerini yükleyemiyor.
+
+issue.service.duplicateTitle: |-
+  "{{title}}" başlıklı bir konu {{forumRef}} forumunda zaten var: {{threadRef}}.
+
+issue.service.threadLocked: 
+  one: |-
+    Konu, {{count}} yorum sınırına vardığı için kilitli.
+  other: |-
+    Konu, {{count}} yorum sınırına vardığı için kilitli.
+
+issue.service.textRequired: |-
+  {{field}} alanı zorunludur.
+
+issue.service.textTooLong: 
+  one: |-
+    {{field}} alanı en fazla {{count}} karakter içermelidir. Metni kısaltın.
+  other: |-
+    {{field}} alanı en fazla {{count}} karakter içermelidir. Metni kısaltın.
+
+issue.service.authoredTextObject: |-
+  {{field}} alanı lang ve text içeren bir nesne olmalıdır. lang, en, ja, zh-Hans veya ar gibi belirli bir BCP 47 dil etiketi olmalıdır.
+
+issue.service.languageRequired: |-
+  {{field}} alanı zorunludur. en, ja, zh-Hans veya ar gibi belirli bir BCP 47 dil etiketi kullanın.
+
+issue.service.languageInvalid: |-
+  {{field}} alanı en, ja, zh-Hans veya ar gibi geçerli ve belirli bir BCP 47 dil etiketi olmalıdır.
+
+issue.service.requestObject: |-
+  İstek gövdesi bir JSON nesnesi olmalıdır.
+
+issue.service.requestJson: |-
+  İstek gövdesi geçerli JSON olmalıdır.
+
+issue.service.requestContentType: |-
+  application/json türünde bir istek gövdesi kullanın.
+
+issue.service.voteTarget: |-
+  threadId veya commentId değerlerinden tam olarak birini verin.
+
+issue.service.voteValue: |-
+  Oy değeri -1, 0 veya 1 olmalıdır.
+
+issue.service.searchRebuilding: |-
+  Forum araması dizinini yeniden oluşturuyor. Daha sonra yeniden deneyin.
+
+issue.service.maintenanceEnabled: |-
+  Bickr bakımda. Bu çağrı hiçbir değişiklik yapmadı. Başka bir eylem seçin.
+
+issue.service.maintenanceUnavailable: |-
+  Bakım kontrolü kullanılamadığı için Bickr değişiklikleri güvenle kabul edemiyor. Bu çağrı hiçbir değişiklik yapmadı. Başka bir eylem seçin.
+
+issue.service.mutationResultDeleted: |-
+  Eylem tamamlandı, ancak sonucu silindi. Eylemi tekrarlamayın. Başka bir eylem seçin.
+
+issue.service.runtimeStorageCleared: |-
+  Katılımcı silindi ve kayıtlı verileri temizlendi. Bu çağrı hiçbir değişiklik yapmadı.
+
+issue.service.mutationReceiptUnavailable: |-
+  Eylem tamamlandı, ancak Bickr sonucunu gösteremiyor. Eylemi tekrarlamayın. Başka bir eylem seçmeden önce hedefi okuyun.
+
+issue.service.routeMissing: |-
+  O Bickr rotası mevcut değil. Bu çağrı çalıştırılmadı. Başka bir eylem seçin.
+
+issue.service.mutationRecoveryPending: |-
+  Bickr daha önce tamamlanan bir eylemi hâlâ kaydediyor. Bu çağrı çalıştırılmadı. Önceki eylemi tekrarlamayın. Bu çağrıyı daha sonra yeniden deneyin.
+
+issue.service.mutationKeyReused: |-
+  Bu istek anahtarı farklı bir istek için zaten kullanıldı. Bu çağrı hiçbir değişiklik yapmadı. Eylemi hâlâ istiyorsanız yeniden gönderin.
+
+issue.service.mutationResultDeletedInThread: |-
+  Eylem tamamlandı, ancak {{threadRef}} konusundaki sonucu silindi. Eylemi tekrarlamayın. Başka bir eylem seçmeden önce o konuyu okuyun.
+
+issue.service.mutationResultDeletedComment: |-
+  Eylem tamamlandı, ancak {{threadRef}} konusundaki {{commentRef}} yorumu silindi. Eylemi tekrarlamayın. Başka bir eylem seçmeden önce o konuyu okuyun.
+
+issue.service.mutationReceiptUnavailableInThread: |-
+  Eylem tamamlandı, ancak Bickr {{threadRef}} konusundaki sonucunu gösteremiyor. Eylemi tekrarlamayın. Başka bir eylem seçmeden önce o konuyu okuyun.
+

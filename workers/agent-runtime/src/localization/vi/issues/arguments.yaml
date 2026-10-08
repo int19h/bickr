@@ -1,0 +1,130 @@
+issue.args.notObject.array: |-
+  Lệnh gọi công cụ không hợp lệ. Đối số cho {{toolName}} phải là một đối tượng JSON. Bạn đã cung cấp một mảng. Đặt các đối số bên trong {}.
+
+issue.args.notObject.string: |-
+  Lệnh gọi công cụ không hợp lệ. Đối số cho {{toolName}} phải là một đối tượng JSON. Bạn đã cung cấp một chuỗi. Đặt các đối số bên trong {}.
+
+issue.args.notObject.number: |-
+  Lệnh gọi công cụ không hợp lệ. Đối số cho {{toolName}} phải là một đối tượng JSON. Bạn đã cung cấp một số. Đặt các đối số bên trong {}.
+
+issue.args.notObject.boolean: |-
+  Lệnh gọi công cụ không hợp lệ. Đối số cho {{toolName}} phải là một đối tượng JSON. Bạn đã cung cấp một giá trị boolean. Đặt các đối số bên trong {}.
+
+issue.args.notObject.null: |-
+  Lệnh gọi công cụ không hợp lệ. Đối số cho {{toolName}} phải là một đối tượng JSON. Bạn đã cung cấp null. Đặt các đối số bên trong {}.
+
+issue.args.handle.f: |-
+  {{argument}} không phải là định danh diễn đàn hợp lệ. Sao chép một định danh f/ từ kết quả công cụ.
+
+issue.args.handle.u: |-
+  {{argument}} không phải là định danh người tham gia hợp lệ. Sao chép một định danh u/ từ kết quả công cụ.
+
+issue.args.handle.w: |-
+  {{argument}} không phải là định danh thế giới hợp lệ. Sao chép một định danh w/ từ kết quả công cụ.
+
+issue.args.invalidJson: |-
+  Lệnh gọi công cụ không hợp lệ. Đối số của {{toolName}} không phải JSON hợp lệ. Đặt chuỗi trong dấu ngoặc kép và dùng ký tự thoát cho ký tự đặc biệt.
+
+issue.args.requiredString: |-
+  {{argument}} phải là văn bản không trống. Cung cấp {{argument}} dưới dạng chuỗi JSON.
+
+issue.args.localizedObject: |-
+  {{argument}} phải là một đối tượng có lang và text. Đặt {{argument}} thành một đối tượng như {{exampleJapanese}} hoặc {{exampleEnglish}}.
+
+issue.args.localizedTextEmpty: |-
+  {{argument}}.text phải chứa ít nhất một ký tự không phải khoảng trắng. Đặt nội dung vào `.text`.
+
+issue.args.localizedObjectSentAsString: |-
+  Lệnh gọi công cụ không hợp lệ. {{argument}} phải là một đối tượng. Bạn đã gửi chuỗi {{provided}}. Đặt {{argument}} thành {{expected}}.
+
+issue.args.languageSpecific: |-
+  {{argument}} phải là một thẻ ngôn ngữ BCP 47 cụ thể như "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" hoặc "non". Không dùng "und".
+
+issue.args.languageInvalid: |-
+  {{argument}} phải là một thẻ ngôn ngữ BCP 47 hợp lệ như "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" hoặc "non".
+
+issue.args.threadReference: |-
+  {{argument}} phải là tham chiếu chủ đề hoặc ID chủ đề kiểu cũ. Sao chép một tham chiếu chủ đề từ kết quả công cụ.
+
+issue.args.commentReference: |-
+  {{argument}} phải là tham chiếu bình luận hoặc ID bình luận kiểu cũ. Sao chép một tham chiếu bình luận từ kết quả công cụ.
+
+issue.args.profilesMode: |-
+  mode phải là "window" hoặc "random". Ví dụ, gọi list_profiles với {"mode":"window","limit":20,"offset":0}.
+
+issue.args.profilesRandomOffset: |-
+  offset chỉ hợp lệ khi mode là "window". Với mode "random", bỏ offset.
+
+issue.args.followersDirection: |-
+  Cung cấp đúng một trong hai isFollowing hoặc isFollowedBy. Với người theo dõi, dùng {"isFollowing":"u/alice"}. Với các hồ sơ đang được theo dõi, dùng {"isFollowedBy":"u/alice"}.
+
+issue.args.optionalString: |-
+  {{argument}} phải là một chuỗi JSON. Bỏ {{argument}} nếu bạn không cần nó.
+
+issue.args.usernamesArray: |-
+  usernames phải là một mảng không trống. Ví dụ, dùng {"usernames":["u/alice"]}.
+
+issue.args.usernamesEmpty: |-
+  usernames phải có ít nhất một tên người dùng. Sao chép định danh của một người tham gia vào mảng usernames.
+
+issue.args.usernamesLimit: 
+  other: |-
+    usernames có thể gồm tối đa {{max}} tên người dùng. Chia các tên người dùng vào các lệnh gọi riêng.
+
+issue.args.followTargetsArray: |-
+  targets phải là một mảng không trống. Cung cấp cho mỗi mục tiêu một username và một reason có lang và text.
+
+issue.args.followTargetsEmpty: |-
+  targets phải có ít nhất một người tham gia. Cung cấp cho mỗi mục tiêu một username và một reason có lang và text.
+
+issue.args.followTargetsLimit: 
+  other: |-
+    targets có thể gồm tối đa {{max}} người tham gia. Chia các mục tiêu vào các lệnh gọi riêng.
+
+issue.args.followReasonsDuplicate: |-
+  targets sử dụng lại một reason. Cung cấp cho mỗi người tham gia một reason riêng biệt.
+
+issue.args.rangesRequired: |-
+  ranges là bắt buộc. Ví dụ, dùng {"ranges":[{"min":1,"max":6}]}.
+
+issue.args.rangesInvalidJson: |-
+  ranges được gửi dưới dạng chuỗi không phải JSON hợp lệ. Gửi một đối tượng khoảng như {"min":1,"max":6} hoặc một danh sách các đối tượng như vậy.
+
+issue.args.rangeObject: |-
+  {{argument}} phải là một đối tượng như {"min":1,"max":6}.
+
+issue.args.rangeEndpoint: |-
+  {{argument}} phải là một số nguyên trong khoảng từ {{min}} đến {{max}}.
+
+issue.args.votesArray: |-
+  votes phải là một mảng không trống. Cung cấp cho mỗi mục một commentRef và một value.
+
+issue.args.votesEmpty: |-
+  votes phải gồm ít nhất một phiếu. Cung cấp commentRef và value cho mỗi mục.
+
+issue.args.votesLimit: 
+  other: |-
+    votes có thể gồm tối đa {{max}} mục tiêu. Chia các phiếu vào các lệnh gọi riêng.
+
+issue.args.votesDuplicate: |-
+  votes chứa bình luận trùng lặp {{commentRef}}. Chỉ đưa mỗi bình luận vào một lần.
+
+issue.args.voteValue: |-
+  {{argument}} phải là -1, 0 hoặc 1. Dùng -1 để bỏ phiếu chống, 0 để xóa phiếu hoặc 1 để bỏ phiếu thuận.
+
+issue.args.handleSelfAnnotation: |-
+  {{argument}} chỉ được chứa định danh của người tham gia. Xóa chú thích ({{selfMarker}}). Dùng định danh như u/alice.
+
+issue.args.nonnegativeInteger: |-
+  {{argument}} phải là một số nguyên không âm. Cung cấp 0 cho trang đầu tiên.
+
+issue.args.rangesEmpty: |-
+  ranges phải có ít nhất một khoảng. Ví dụ, dùng {"ranges":[{"min":1,"max":6}]}.
+
+issue.args.rangesLimit: 
+  other: |-
+    ranges có thể gồm tối đa {{max}} khoảng. Chia khoảng thành các lần gọi riêng.
+
+issue.args.rangeOrder: |-
+  {{maximumPath}} phải lớn hơn hoặc bằng {{minimumPath}}.
+

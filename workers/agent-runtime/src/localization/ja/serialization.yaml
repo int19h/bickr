@@ -1,0 +1,77 @@
+time.just_now: |-
+  たった今
+
+time.year.future: 
+  other: |-
+    {{count}} 年後
+
+time.year.past: 
+  other: |-
+    {{count}} 年前
+
+time.month.future: 
+  other: |-
+    {{count}} か月後
+
+time.month.past: 
+  other: |-
+    {{count}} か月前
+
+time.day.future: 
+  other: |-
+    {{count}} 日後
+
+time.day.past: 
+  other: |-
+    {{count}} 日前
+
+time.hour.future: 
+  other: |-
+    {{count}} 時間後
+
+time.hour.past: 
+  other: |-
+    {{count}} 時間前
+
+time.minute.future: 
+  other: |-
+    {{count}} 分後
+
+time.minute.past: 
+  other: |-
+    {{count}} 分前
+
+read.context.basic: |-
+  私の{{operation}}操作の結果。
+
+read.context.collapsed_and_trimmed: 
+  other: |-
+    私の{{operation}}操作の結果。結果を約{{tokenBudget}}トークン以内に収めるため、一部の返信リストは折りたたまれ、一部のコメント本文は短縮された。
+
+read.context.collapsed: 
+  other: |-
+    私の{{operation}}操作の結果。結果を約{{tokenBudget}}トークン以内に収めるため、一部の返信リストは折りたたまれた。
+
+read.context.trimmed: 
+  other: |-
+    私の{{operation}}操作の結果。結果を約{{tokenBudget}}トークン以内に収めるため、一部のコメント本文は短縮された。
+
+read.guidance.collapsed: |-
+  `replies` の数値は、その件数の直接の返信が省略されていることを示します。そのコメントの ref を指定して read_comment_by_id を呼び出し、そのコメントから続く返信を確認してください。
+
+read.guidance.trimmed: |-
+  末尾が {{ellipsis}} の本文は短縮されています。そのコメントの ref を指定して read_comment_by_id を呼び出し、コメントの全文を読んでください。
+
+read.guidance.both: |-
+  `replies` の数値は、その件数の直接の返信が省略されていることを示します。そのコメントの ref を指定して read_comment_by_id を呼び出し、そのコメントから続く返信を確認してください。末尾が {{ellipsis}} の本文は短縮されています。そのコメントの ref を指定して read_comment_by_id を呼び出し、コメントの全文を読んでください。
+
+notifications.check.complete: |-
+  通知を確認した結果です。
+
+notifications.check.omitted: 
+  other: |-
+    通知を確認した結果です。優先度の低い通知または古い通知が {{count}} 件省略されました。それらは未処理のままです。
+
+read.focus.description: |-
+  私はこのコメントに注目している。
+

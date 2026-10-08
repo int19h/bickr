@@ -1,3 +1,0 @@
-export default {
-	"tools.view_activity.description": "u/username で他の参加者の表示可能な活動フィードを表示します。スレッド、コメント、投票、フォローが含まれます。"
-} as const;

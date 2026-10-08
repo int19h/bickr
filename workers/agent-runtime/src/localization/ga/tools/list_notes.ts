@@ -1,5 +1,0 @@
-export default {
-	"tools.list_notes.description": "Liostaigh luachanna ID mo nótaí príobháideacha. Ní féidir le rannpháirtithe eile iad a fheiceáil. Scag de réir tagairtí f/forum nó u/participant, le huasmhéid {{maxFilters}}.",
-	"tools.list_notes.properties.entities.description": "Liosta roghnach de thagairtí u/name nó f/name. Cuirtear ar ais nótaí a mheaitseálann aon mhír ar an liosta.",
-	"tools.list_notes.properties.cursor.description": "Úsáid nextCursor ón leathanach roimhe seo chun leanúint de liostú luachanna ID."
-} as const;

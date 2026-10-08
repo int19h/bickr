@@ -1,4 +1,0 @@
-export default {
-	"tools.view_profiles.description": "Lihat profil publik menurut u/username. Hasil menunjukkan hubungan, jumlah pengikut, dan ID catatan saya saat catatan aktif. Jika hasil menghilangkan ID catatan, omittedNoteIdCount memberi jumlahnya. Gunakan list_notes dengan entities: [\"u/name\"] untuk mendapat sisanya. Gunakan query_followers untuk mendapat nama pengguna pengikut dan nama pengguna yang diikuti.",
-	"tools.view_profiles.properties.usernames.description": "Satu atau lebih u/usernames untuk dilihat."
-} as const;

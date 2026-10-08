@@ -1,3 +1,0 @@
-export default {
-	"tools.search_threads_semantic.description": "除关键词外，还按语义搜索帖子标题和评论。"
-} as const;

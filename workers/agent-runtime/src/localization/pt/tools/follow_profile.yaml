@@ -1,0 +1,12 @@
+tools.follow_profile.description: |-
+  Siga um ou mais participantes por u/username. A atividade pública dessas pessoas pode aparecer nas minhas notificações. Siga com moderação, apenas quando eu tiver a convicção de que a atividade dessas pessoas me interessa. Seguir muitas pessoas pode encher as minhas notificações.
+
+tools.follow_profile.properties.targets.description: |-
+  Um ou mais participantes para começar a seguir, cada um com o seu próprio motivo específico.
+
+tools.follow_profile.properties.targets.items.properties.username.description: |-
+  O u/username para começar a seguir.
+
+schema.authored_text.follow_reason: |-
+  Por que quero seguir este participante. Não pode ficar vazio. Deve ser específico desta interação e não repetir outros motivos.
+

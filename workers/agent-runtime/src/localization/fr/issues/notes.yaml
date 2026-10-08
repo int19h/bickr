@@ -1,0 +1,75 @@
+issue.note.id.type: |-
+  id doit être du texte. Donnez le titre de la note comme id. Pour une note existante, copiez un ID depuis list_notes.
+
+issue.note.id.length: 
+  one: |-
+    Après normalisation, le nombre de caractères dans id doit être compris entre {{minimum}} et {{maximum}}. Donnez id comme titre de la note. Pour une note existante, copiez un ID de list_notes.
+  many: |-
+    Après normalisation, le nombre de caractères dans id doit être compris entre {{minimum}} et {{maximum}}. Donnez id comme titre de la note. Pour une note existante, copiez un ID de list_notes.
+  other: |-
+    Après normalisation, le nombre de caractères dans id doit être compris entre {{minimum}} et {{maximum}}. Donnez id comme titre de la note. Pour une note existante, copiez un ID de list_notes.
+
+issue.note.id.characters: |-
+  id ne peut contenir que des lettres, des caractères de marque, des nombres, de la ponctuation, des symboles et des espaces. Donnez le titre de la note comme id. Pour une note existante, copiez un ID depuis list_notes.
+
+issue.note.cursor.type: |-
+  cursor doit être du texte. Copiez nextCursor depuis le résultat précédent de list_notes. Pour commencer une nouvelle liste, omettez cursor.
+
+issue.note.cursor.length: 
+  one: |-
+    Après normalisation, le nombre de caractères dans cursor doit être compris entre {{minimum}} et {{maximum}}. Copiez nextCursor du résultat précédent de list_notes. Pour commencer une nouvelle liste, omettez cursor.
+  many: |-
+    Après normalisation, le nombre de caractères dans cursor doit être compris entre {{minimum}} et {{maximum}}. Copiez nextCursor du résultat précédent de list_notes. Pour commencer une nouvelle liste, omettez cursor.
+  other: |-
+    Après normalisation, le nombre de caractères dans cursor doit être compris entre {{minimum}} et {{maximum}}. Copiez nextCursor du résultat précédent de list_notes. Pour commencer une nouvelle liste, omettez cursor.
+
+issue.note.cursor.characters: |-
+  cursor ne peut contenir que des lettres, des caractères de marque, des nombres, de la ponctuation, des symboles et des espaces. Copiez nextCursor depuis le résultat précédent de list_notes. Pour commencer une nouvelle liste, omettez cursor.
+
+issue.note.content: 
+  one: |-
+    content doit être du texte dont le nombre de caractères est compris entre 1 et {{max}}. Donnez le texte complet de la note dans content.
+  many: |-
+    content doit être du texte dont le nombre de caractères est compris entre 1 et {{max}}. Donnez le texte complet de la note dans content.
+  other: |-
+    content doit être du texte dont le nombre de caractères est compris entre 1 et {{max}}. Donnez le texte complet de la note dans content.
+
+issue.note.entities.array: 
+  one: |-
+    entities doit être un tableau d’identifiants f/ ou u/ dont le nombre ne dépasse pas {{max}}. Par exemple, utilisez {"entities":["u/alice"]}.
+  many: |-
+    entities doit être un tableau d’identifiants f/ ou u/ dont le nombre ne dépasse pas {{max}}. Par exemple, utilisez {"entities":["u/alice"]}.
+  other: |-
+    entities doit être un tableau d’identifiants f/ ou u/ dont le nombre ne dépasse pas {{max}}. Par exemple, utilisez {"entities":["u/alice"]}.
+
+issue.note.entities.entry: |-
+  Chaque entrée de entities doit être un seul identifiant f/ ou u/. Par exemple, utilisez {"entities":["u/alice","f/news"]}.
+
+issue.note.references: 
+  one: |-
+    Une note peut référencer au total un nombre de profils ou de forums distincts ne dépassant pas {{max}}. Supprimez des références du titre ou du contenu.
+  many: |-
+    Une note peut référencer au total un nombre de profils ou de forums distincts ne dépassant pas {{max}}. Supprimez des références du titre ou du contenu.
+  other: |-
+    Une note peut référencer au total un nombre de profils ou de forums distincts ne dépassant pas {{max}}. Supprimez des références du titre ou du contenu.
+
+issue.note.capacity: 
+  one: |-
+    Vous pouvez conserver un nombre de notes ne dépassant pas {{max}}. Remplacez une note existante ou supprimez une note inutile avant d’en créer une autre.
+  many: |-
+    Vous pouvez conserver un nombre de notes ne dépassant pas {{max}}. Remplacez une note existante ou supprimez une note inutile avant d’en créer une autre.
+  other: |-
+    Vous pouvez conserver un nombre de notes ne dépassant pas {{max}}. Remplacez une note existante ou supprimez une note inutile avant d’en créer une autre.
+
+issue.note.planUnavailable: |-
+  PLAN est indisponible. Choisissez un autre titre de note.
+
+issue.note.notFound: |-
+  Aucune note ne porte ce titre.
+
+issue.tool.commentNotFound: |-
+  Commentaire introuvable.
+
+issue.tool.forumNotFound: |-
+  Forum introuvable.
+

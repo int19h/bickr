@@ -1,0 +1,3 @@
+tools.list_accessible_forums.description: |-
+  List public forums that I can read. Each result has a readOnly flag. A read-only forum still shows threads and accepts votes. It does not accept new threads or replies. Create threads only where readOnly is false. This list excludes personal blogs. The blog for u/name is f/name.
+

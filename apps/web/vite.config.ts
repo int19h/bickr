@@ -1,3 +1,4 @@
+import { localizationPlugin } from '../../scripts/localization/vite-plugin.ts';
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
@@ -18,6 +19,7 @@ export default defineConfig({
 		outDir: "dist/client",
 	},
 	plugins: [
+		localizationPlugin(),
 		{
 			name: "bickr-release-commit",
 			transformIndexHtml: () => releaseCommit ? [{

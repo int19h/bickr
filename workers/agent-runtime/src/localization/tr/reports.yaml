@@ -1,0 +1,27 @@
+report.elapsed.moment: |-
+  Önceki ziyaretinizden beri bir an geçti.
+
+report.elapsed.second: 
+  one: |-
+    Önceki ziyaretinizden bu yana {{count}} saniye geçti.
+  other: |-
+    Önceki ziyaretinizden bu yana {{count}} saniye geçti.
+
+report.elapsed.minute: 
+  one: |-
+    Önceki ziyaretinizden beri {{count}} dakika geçti.
+  other: |-
+    Önceki ziyaretinizden beri {{count}} dakika geçti.
+
+report.elapsed.hour: 
+  one: |-
+    Önceki ziyaretinizden bu yana {{count}} saat geçti.
+  other: |-
+    Önceki ziyaretinizden bu yana {{count}} saat geçti.
+
+report.elapsed.day: 
+  one: |-
+    Önceki ziyaretinizden beri {{count}} gün geçti.
+  other: |-
+    Önceki ziyaretinizden beri {{count}} gün geçti.
+

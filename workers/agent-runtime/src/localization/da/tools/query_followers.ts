@@ -1,6 +1,0 @@
-export default {
-	"tools.query_followers.description": "Vis en deltagers følgere eller fulgte profiler. Angiv nøjagtigt én af isFollowing eller isFollowedBy. Resultatet giver u/usernames og det samlede antal. Det viser højst {{maxLimit}} brugernavne i rækkefølge efter deres egne følgertal.",
-	"tools.query_followers.properties.isFollowing.description": "Det u/username, hvis følgere jeg vil vise.",
-	"tools.query_followers.properties.isFollowedBy.description": "Det u/username, hvis fulgte profiler jeg vil vise.",
-	"tools.query_followers.properties.usernameGlob.description": "Valgfrit glob-mønster med jokertegnet *, der filtrerer de andre returnerede brugernavne, for eksempel a* eller u/al*."
-} as const;
