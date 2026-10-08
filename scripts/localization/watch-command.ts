@@ -17,6 +17,7 @@ let notify: () => void = () => {};
 const watchers: FSWatcher[] = [];
 
 function requestStop(code: number): void {
+	if (stopped) return;
 	process.exitCode = code;
 	stopped = true;
 	notify();
@@ -32,11 +33,11 @@ function start(): Running {
 	return { child, finished };
 }
 function signal(child: ChildProcess, value: NodeJS.Signals): void {
-	if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
+	if (!child.pid) return;
 	try {
 		// This group contains only the command that this wrapper spawned.
 		if (isolatedGroup) process.kill(-child.pid, value);
-		else child.kill(value);
+		else if (child.exitCode === null && child.signalCode === null) child.kill(value);
 	} catch (error) {
 		if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) throw error;
 	}
@@ -45,16 +46,20 @@ async function stop(run: Running): Promise<void> {
 	signal(run.child, 'SIGTERM');
 	const timer = setTimeout(() => signal(run.child, 'SIGKILL'), 5000);
 	try { await run.finished; }
-	finally { clearTimeout(timer); }
+	finally {
+		clearTimeout(timer);
+		// A descendant can remain in the group after its leader exits.
+		if (isolatedGroup) signal(run.child, 'SIGKILL');
+	}
 }
 function sourceChange(): Promise<void> {
 	if (changed || stopped) return Promise.resolve();
 	return new Promise((complete) => { notify = complete; });
 }
-const interrupt = () => requestStop(130);
-const terminate = () => requestStop(143);
-process.once('SIGINT', interrupt);
-process.once('SIGTERM', terminate);
+const handlers = ([['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129], ['SIGQUIT', 131]] as const)
+	.filter(([value]) => isolatedGroup || value === 'SIGINT' || value === 'SIGTERM')
+	.map(([value, code]) => [value, () => requestStop(code)] as const);
+for (const [value, handler] of handlers) process.on(value, handler);
 let current: Running | undefined;
 try {
 	for (const directory of sourceDirectories) {
@@ -86,6 +91,5 @@ try {
 } finally {
 	for (const watcher of watchers) watcher.close();
 	if (current) await stop(current);
-	process.off('SIGINT', interrupt);
-	process.off('SIGTERM', terminate);
+	for (const [value, handler] of handlers) process.off(value, handler);
 }

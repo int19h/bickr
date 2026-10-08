@@ -5,7 +5,11 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { expect, it } from 'vitest';
 import { repository } from './paths.ts';
 
-it('restarts with edited catalog text and stops before serving invalid sources', async () => {
+const stops = [
+	['invalid sources', null, 1],
+	...(process.platform === 'win32' ? [] : [['terminal hangup', 'SIGHUP', 129], ['terminal quit', 'SIGQUIT', 131]]),
+];
+it.each(stops)('restarts with edited catalog text and stops on %s', async (_label, signal, code) => {
 	const temporaryRoot = join(repository, '.wrangler/localization-watch-tests');
 	mkdirSync(temporaryRoot, { recursive: true });
 	const root = mkdtempSync(join(temporaryRoot, 'fixture-'));
@@ -35,9 +39,10 @@ setInterval(() => {}, 1000);
 		writeFileSync(source, original.replace('Translate to English.', 'Translate to English. Watch restart test.'));
 		await expect.poll(() => ready('Translate to English. Watch restart test.'), { timeout: 15000 }).toBe(true);
 		expect(output).toMatch(/STOP\n[\s\S]*READY:\d+:Translate to English\. Watch restart test\./);
-		writeFileSync(source, original.replace('{{username}}', '{{invalidUsername}}'));
-		expect(await Promise.race([exited, delay(15000, 'timeout', { ref: false })])).toBe(1);
-		expect(output).toContain('Unknown instruction template parameter');
+		if (signal) wrapper.kill(signal);
+		else writeFileSync(source, original.replace('{{username}}', '{{invalidUsername}}'));
+		expect(await Promise.race([exited, delay(15000, 'timeout', { ref: false })])).toBe(code);
+		if (!signal) expect(output).toContain('Unknown instruction template parameter');
 		expect(output.match(/^STOP$/gm)).toHaveLength(2);
 	} finally {
 		if (wrapper.exitCode === null) wrapper.kill('SIGTERM');
