@@ -1752,7 +1752,8 @@ export const agentRuntimeRouteTable = [
 					updatedAt,
 				});
 			}
-			return ok({ bot, affectedBots, coordinator: context.objectId });
+			// With a revision guard, the owner queue proves the write advanced it exactly once.
+			return ok({ bot, affectedBots, ...(expectedRevision !== null ? { revision: Number(expectedRevision) + 1 } : {}), coordinator: context.objectId });
 		},
 	},
 	{

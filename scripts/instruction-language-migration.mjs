@@ -1,11 +1,17 @@
 import { createHash } from 'node:crypto';
+import { localizedTextFromStored } from '../packages/shared/src/model.ts';
 import { parseInstructionLanguagePreference } from '../packages/shared/src/instruction-language.ts';
 
 export const migrationKind = 'auto-instructions-to-english-v1';
 export const maximumBots = 10_000;
 const profileFields = ['id', 'ownerUserId', 'homeWorldId', 'handle', 'language', 'displayName', 'shortBio', 'prompt', 'cloneSourceBotId'];
 export function digest(value) { return createHash('sha256').update(JSON.stringify(value)).digest('hex'); }
-export function profileDigest(bot) { return digest(Object.fromEntries(profileFields.map(key => [key, bot[key] ?? null]))); }
+export function profileDigest(bot) {
+	const language = typeof bot.language === 'string' && bot.language.trim() ? bot.language : null;
+	const canonical = { ...bot, language };
+	for (const field of ['displayName', 'shortBio', 'prompt']) canonical[field] = localizedTextFromStored(bot[field], language);
+	return digest(Object.fromEntries(profileFields.map(key => [key, canonical[key] ?? null])));
+}
 export function preference(bot) {
 	return bot.instructionLanguage === undefined ? { kind: 'auto' } : parseInstructionLanguagePreference(bot.instructionLanguage);
 }
@@ -30,21 +36,36 @@ export function validatePlan(plan, target, commit) {
 	}
 }
 export function createJournal(plan) { return { kind: migrationKind, planDigest: digest(plan), applied: [] }; }
-export async function applyPlan(plan, journal, update, persist) {
+export async function applyPlan(plan, journal, update, persist, read) {
 	const candidates = plan.bots.filter(bot => bot.preference.kind === 'auto');
 	const candidatesById = new Map(candidates.map(bot => [bot.id, bot]));
 	if (journal.kind !== migrationKind || journal.planDigest !== digest(plan) || !Array.isArray(journal.applied) ||
 		new Set(journal.applied.map(bot => bot.id)).size !== journal.applied.length ||
+		(journal.pending !== undefined && !candidatesById.has(journal.pending)) ||
 		journal.applied.some(bot => bot.revision !== candidatesById.get(bot.id)?.revision + 1)) throw new Error('The journal does not match the plan.');
 	const completed = new Set(journal.applied.map(bot => bot.id));
 	for (const bot of candidates) {
 		if (completed.has(bot.id)) continue;
+		if (journal.pending === bot.id) {
+			if (!read) throw new Error('An uncertain migration needs a stored-record read.');
+			const stored = await read(bot.id);
+			if (stored?.revision === bot.revision + 1 && stored.instructionLanguage?.kind === 'fixed' && stored.instructionLanguage.locale === 'en' && profileDigest(stored) === bot.profileDigest) {
+				journal.applied.push({ id: bot.id, revision: stored.revision, reconciled: true });
+				delete journal.pending;
+				await persist(journal);
+				continue;
+			}
+			if (stored?.revision !== bot.revision || preference(stored).kind !== 'auto' || profileDigest(stored) !== bot.profileDigest) throw new Error(`Concurrent edit or uncertain result: ${bot.id}.`);
+		}
+		journal.pending = bot.id;
+		await persist(journal);
 		// Never replace this revision with a newly read revision after a conflict.
 		const result = await update(bot);
 		if (result.id !== bot.id || result.revision !== bot.revision + 1 || result.instructionLanguage?.kind !== 'fixed' || result.instructionLanguage.locale !== 'en') {
 			throw new Error(`Unexpected migration response for ${bot.id}.`);
 		}
 		journal.applied.push({ id: bot.id, revision: result.revision });
+		delete journal.pending;
 		await persist(journal);
 	}
 	return journal;

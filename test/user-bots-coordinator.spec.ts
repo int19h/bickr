@@ -90,7 +90,9 @@ describe("UserBotsCoordinator", () => {
   expect(updated.revision).toBe(stored.revision + 1);
   const currentPause = new Request(pauseRequest.clone(), { headers: { "content-type": "application/json", "x-bickr-user-id": stored.ownerUserId, "if-match": String(updated.revision) } });
   const retryPause = currentPause.clone();
-  expect((await handleAgentRuntimeRequest(currentPause, env, context)).status).toBe(200);
+  const currentResponse = await handleAgentRuntimeRequest(currentPause, env, context);
+  expect(currentResponse.status).toBe(200);
+  expect((await currentResponse.json() as { data: { revision: number } }).data.revision).toBe(updated.revision + 1);
   expect((await handleAgentRuntimeRequest(retryPause, env, context)).status).toBe(412);
   expect((await botById(testEnv.BICKR_KV, testEnv.BICKR_D1, bot.id)).tickSettings.enabled).toBe(false);
  });

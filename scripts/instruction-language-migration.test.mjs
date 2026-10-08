@@ -35,17 +35,26 @@ describe('one-time Auto instructions migration', () => {
 		const { plan, documents, calls, update } = fixture();
 		const journal = createJournal(plan);
 		documents.get('auto').revision++;
-		await expect(applyPlan(plan, journal, update, async () => {})).rejects.toThrow('HTTP 412');
+		await expect(applyPlan(plan, journal, update, async () => {}, async id => documents.get(id))).rejects.toThrow('HTTP 412');
 		expect(journal.applied).toEqual([{ id: 'omitted', revision: 4 }]);
-		await expect(applyPlan(plan, journal, update, async () => {})).rejects.toThrow('HTTP 412');
-		expect(calls).toEqual(['omitted', 'auto', 'auto']);
+		await expect(applyPlan(plan, journal, update, async () => {}, async id => documents.get(id))).rejects.toThrow('Concurrent edit');
+		expect(calls).toEqual(['omitted', 'auto']);
 	});
-	it('stops after an uncertain write without accepting a changed revision on retry', async () => {
-		const { plan, calls, update } = fixture();
+	it('reconciles an uncertain committed write without issuing another PATCH', async () => {
+		const { plan, documents, calls, update } = fixture();
 		const journal = createJournal(plan);
 		await expect(applyPlan(plan, journal, async bot => { await update(bot); throw new Error('Connection lost'); }, async () => {})).rejects.toThrow('Connection lost');
-		await expect(applyPlan(plan, journal, update, async () => {})).rejects.toThrow('HTTP 412');
-		expect(calls).toEqual(['omitted', 'omitted']);
+		await applyPlan(plan, journal, update, async () => {}, async id => documents.get(id));
+		expect(calls).toEqual(['omitted', 'auto']);
+		expect(journal.applied[0]).toEqual({ id: 'omitted', revision: 4, reconciled: true });
+	});
+	it('compares legacy and current profile shapes by their authored meaning', async () => {
+		const { plan, documents, update } = fixture();
+		documents.get('omitted').displayName = 'Legacy name';
+		plan.bots[0] = snapshotBot(documents.get('omitted'), { id: 'omitted', ownerUserId: 'owner' });
+		await applyPlan(plan, createJournal(plan), update, async () => {});
+		documents.get('omitted').displayName = { lang: 'ja', text: 'Legacy name' };
+		expect(verifySnapshot(plan, documents).migrated).toBe(2);
 	});
 	it('rejects an unexpected response before recording completion', async () => {
 		const { plan } = fixture();

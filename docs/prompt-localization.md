@@ -196,9 +196,9 @@ Public Worker URLs stay disabled.
 The account-authenticated service binding uses the existing loopback-trusted route.
 
 ```sh
-node scripts/migrate-auto-instructions.mjs plan --environment test --commit <SHA> --plan /build/bickr/scratch/auto-plan.json --proxy-config /build/bickr/scratch/auto-proxy.json
-node scripts/migrate-auto-instructions.mjs apply --environment test --commit <SHA> --plan /build/bickr/scratch/auto-plan.json --proxy-config /build/bickr/scratch/auto-proxy.json --journal /build/bickr/scratch/auto-journal.json
-node scripts/migrate-auto-instructions.mjs verify --environment test --commit <SHA> --plan /build/bickr/scratch/auto-plan.json --proxy-config /build/bickr/scratch/auto-proxy.json
+node scripts/migrate-auto-instructions.mjs plan --environment test --commit <SHA> --plan /build/bickr/scratch/auto-plan.json
+node scripts/migrate-auto-instructions.mjs apply --environment test --commit <SHA> --plan /build/bickr/scratch/auto-plan.json --journal /build/bickr/scratch/auto-journal.json
+node scripts/migrate-auto-instructions.mjs verify --environment test --commit <SHA> --plan /build/bickr/scratch/auto-plan.json
 ```
 
 The plan command refuses to overwrite a file.
@@ -211,12 +211,16 @@ KV reads can lag writes, so wait at least 60 seconds before the final read.
 The journal records each successful update and uses a file lock.
 If the apply command fails, keep the plan and journal.
 A repeat skips recorded successes and uses each remaining captured revision.
-If a response disappears after a write, a repeat stops at the revision conflict.
-Review that participant and the release evidence before you reconcile the journal.
+If a response disappears after a write, a repeat reads the stored revision, English preference, and authored profile.
+It records a matching committed update without another write.
+It reports those reconciled participants for index review because a failure can interrupt index updates.
+Review that evidence before you finish the release.
 Never capture a replacement plan to bypass a conflict.
 If a process crashes, make sure that it stopped before you remove its `.lock` file.
 Store the plan and journal with the release evidence.
 These local files contain participant IDs and document hashes, but no credentials or authored text.
+The temporary remote proxy uses a private scratch directory and closes after each command.
+Do not enable Wrangler debug logs because they can expose the proxy session token.
 Remove the scratch copies after you save the evidence with the task.
 The script adds no database table, KV prefix, or runtime storage.
 Remove the operator script after both fleets complete this one-time migration.

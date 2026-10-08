@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, renameSync, unlinkSync, openSync, closeSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, unlinkSync, openSync, closeSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { getPlatformProxy, unstable_readConfig } from 'wrangler';
@@ -7,11 +7,11 @@ import { applyPlan, createJournal, digest, maximumBots, migrationKind, snapshotB
 
 const { values, positionals } = parseArgs({ allowPositionals: true, options: {
 	environment: { type: 'string' }, commit: { type: 'string' }, plan: { type: 'string' }, journal: { type: 'string' },
-	'proxy-config': { type: 'string' }, 'bot-id': { type: 'string', multiple: true },
+	'bot-id': { type: 'string', multiple: true },
 } });
 const action = positionals[0];
-if (positionals.length !== 1 || !['plan', 'apply', 'verify'].includes(action) || !['test', 'production'].includes(values.environment) || !values.plan || !values['proxy-config']) {
-	throw new Error('Use plan, apply, or verify with --environment test|production --commit SHA --plan FILE --proxy-config FILE. Apply also requires --journal FILE.');
+if (positionals.length !== 1 || !['plan', 'apply', 'verify'].includes(action) || !['test', 'production'].includes(values.environment) || !values.plan) {
+	throw new Error('Use plan, apply, or verify with --environment test|production --commit SHA --plan FILE. Apply also requires --journal FILE.');
 }
 assertCommit(values.commit);
 if (action !== 'plan' && values['bot-id']) throw new Error('--bot-id is valid only when creating a plan.');
@@ -19,14 +19,16 @@ const config = unstable_readConfig({ config: join(repoRoot, 'workers/agent-runti
 const kv = config.kv_namespaces.find(binding => binding.binding === 'BICKR_KV');
 const db = config.d1_databases.find(binding => binding.binding === 'BICKR_D1');
 const target = { environment: values.environment, accountId, namespaceId: kv.id, databaseId: db.database_id, service: config.name };
+const proxyDirectory = mkdtempSync('/build/bickr/scratch/instruction-migration-');
+const proxyConfig = join(proxyDirectory, 'wrangler.json');
 // Remote bindings require the operator's Cloudflare account credentials. No public Worker URL is enabled.
-writeFileSync(values['proxy-config'], JSON.stringify({ name: 'bickr-instruction-migration', account_id: accountId, compatibility_date: config.compatibility_date,
+writeFileSync(proxyConfig, JSON.stringify({ name: 'bickr-instruction-migration', account_id: accountId, compatibility_date: config.compatibility_date,
 	kv_namespaces: [{ binding: 'KV', id: kv.id, remote: true }],
 	d1_databases: [{ binding: 'DB', database_name: db.database_name, database_id: db.database_id, remote: true }],
 	services: [{ binding: 'RUNTIME', service: config.name, remote: true }],
-}), { mode: 0o600 });
-const proxy = await getPlatformProxy({ configPath: resolve(values['proxy-config']), persist: false });
-try {
+}), { mode: 0o600, flag: 'wx' });
+let proxy;
+try { proxy = await getPlatformProxy({ configPath: proxyConfig, persist: false });
 	const planPath = resolve(values.plan);
 	if (action === 'plan') {
 		const bots = [];
@@ -74,9 +76,9 @@ try {
 					if (!response.ok) throw new Error(`Migration stopped for ${bot.id}: HTTP ${response.status}. Keep the original plan and revision.`);
 					const payload = await response.json();
 					if (payload.ok !== true) throw new Error(`Migration failed for ${bot.id}.`);
-					return payload.data.bot;
-				}, save);
-				console.log(JSON.stringify({ action, environment: values.environment, migrated: journal.applied.length, planDigest: digest(plan) }));
+					return { ...payload.data.bot, revision: payload.data.revision };
+				}, save, async id => (await readDocuments([id])).get(id));
+				console.log(JSON.stringify({ action, environment: values.environment, migrated: journal.applied.length, reconciled: journal.applied.filter(bot => bot.reconciled).map(bot => bot.id), planDigest: digest(plan) }));
 			} finally { closeSync(lock); unlinkSync(lockPath); }
 		} else {
 			const documents = new Map();
@@ -86,7 +88,7 @@ try {
 			console.log(JSON.stringify({ action, environment: values.environment, ...verifySnapshot(plan, documents), planDigest: digest(plan) }));
 		}
 	}
-} finally { await proxy.dispose(); }
+} finally { try { await proxy?.dispose(); } finally { rmSync(proxyDirectory, { recursive: true, force: true }); } }
 async function readDocuments(ids) {
 	if (!ids.length) return new Map();
 	const values = await proxy.env.KV.get(ids.map(id => `v1:bot:${id}`), { type: 'json', cacheTtl: 30 });
