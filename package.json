@@ -16,7 +16,7 @@
 		"deploy:test": "node scripts/release.mjs --environment test",
 		"bickr": "npm run localization:generate && node --experimental-strip-types packages/cli/src/index.ts",
 		"dev": "npm run dev:full -w @bickr/web",
-		"dev:web": "npm run preview -w @bickr/web",
+		"dev:web": "npm run preview -w @bickr/web --",
 		"dev:ui": "npm run dev -w @bickr/web",
 		"dev:agent": "npm run dev -w @bickr/agent-runtime",
 		"dev:forum": "npm run dev -w @bickr/forum-coordinator",
@@ -36,11 +36,13 @@
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.22.0",
 		"@types/node": "^25.6.0",
+		"@types/proper-lockfile": "^4.1.4",
 		"@types/react": "^19.2.14",
 		"@types/react-dom": "^19.2.3",
 		"@vitejs/plugin-react": "^6.0.1",
 		"happy-dom": "^20.11.2",
 		"jsdom": "^30.1.1",
+		"proper-lockfile": "^4.1.2",
 		"typescript": "~6.0.2",
 		"vite": "^8.0.10",
 		"vitest": "^4.1.5",
@@ -52,5 +54,8 @@
 			"sharp": "^0.35.4",
 			"undici": "^7.29.1"
 		}
+	},
+	"engines": {
+		"node": ">=22.18.0"
 	}
 }

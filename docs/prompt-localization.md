@@ -59,6 +59,10 @@ It preserves the separate shared catalog that browser code imports.
 
 Installation, builds, tests, the CLI command, and development servers generate the catalogs before using them.
 Vite, Vitest watch mode, and Wrangler watch the readable sources for changes.
+The Pages-only development command also watches catalog sources and stops on invalid text.
+A process lock serializes compiler runs, and each run compares source fingerprints before it returns.
+The lock uses a heartbeat and expires after two minutes if a process stops without cleanup.
+These build tools need Node 22.18 or later.
 Run `npm run localization:check` to make sure that generated modules match the current sources.
 If you invoke `tsc` directly, first run `npm run localization:generate`.
 The catalog tests compare generated messages with decoded sources and their translation approval fingerprints.

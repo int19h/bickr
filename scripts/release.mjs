@@ -80,6 +80,7 @@ async function release() {
 		}
 		assertCommit(plan.commit);
 		assertChecks(checks, plan.commit, buildManifest());
+		step("localization: verify generated sources", () => run("npm", ["run", "localization:check"], { stdio: "inherit" }));
 		step("Pages: deploy", () => wrangler(plan.pages, { cwd: join(repoRoot, "apps/web"), stdio: "inherit" }));
 		const outputs = readFileSync(outputPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
 		record.deployments = outputs.filter((entry) => entry.type === "deploy" || entry.type === "pages-deploy-detailed");

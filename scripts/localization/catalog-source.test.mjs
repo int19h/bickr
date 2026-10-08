@@ -48,6 +48,7 @@ describe('readable catalog sources', () => {
 	});
 
 	it.each([
+		['inherited message name', 'constructor:\n  other: |-\n    Ignored message\n'],
 		['duplicate message', 'a: |-\n  First\na: |-\n  Second\n'],
 		['duplicate count', 'a:\n  other: |-\n    First\n  other: |-\n    Second\n'],
 		['folded text', 'a: >-\n  First\n  Second\n'],
@@ -81,34 +82,36 @@ describe('readable catalog sources', () => {
 		}
 	});
 
-	it('publishes deterministic typed modules and leaves them intact after invalid source edits', () => {
+	it('publishes deterministic typed modules and leaves them intact after invalid source edits', async () => {
 		const root = fixture();
 		for (const directory of catalogRoots) cpSync(join(repository, directory), join(root, directory), { recursive: true });
-		expect(generateLocalization(root)).toBe(38);
+		expect(await generateLocalization(root)).toBe(38);
 		const output = join(root, 'workers/agent-runtime/src/.generated/localization/en.ts');
 		const before = readFileSync(output, 'utf8');
+		rmSync(output);
+		expect((await Promise.all([generateLocalization(root), generateLocalization(root)])).sort()).toEqual([0, 1]);
 		const modifiedAt = statSync(output).mtimeMs;
 		expect(before).toContain('satisfies MessageCatalog<typeof messageParameters>');
-		expect(generateLocalization(root)).toBe(0);
+		expect(await generateLocalization(root)).toBe(0);
 		expect(statSync(output).mtimeMs).toBe(modifiedAt);
-		expect(generateLocalization(root, { check: true })).toBe(0);
+		expect(await generateLocalization(root, { check: true })).toBe(0);
 		writeFileSync(output, before + '// stale edit\n');
-		expect(() => generateLocalization(root, { check: true })).toThrow('Generated catalogs are stale');
-		expect(generateLocalization(root)).toBe(1);
+		await expect(generateLocalization(root, { check: true })).rejects.toThrow('Generated catalogs are stale');
+		expect(await generateLocalization(root)).toBe(1);
 		const source = join(root, 'workers/agent-runtime/src/localization/en/system.yaml');
 		const original = readFileSync(source, 'utf8');
 		writeFileSync(source, original.replace('Your native language is', 'Your speaking language is'));
-		expect(generateLocalization(root)).toBe(1);
+		expect(await generateLocalization(root)).toBe(1);
 		expect(readFileSync(output, 'utf8')).toContain('Your speaking language is');
 		writeFileSync(source, original);
-		expect(generateLocalization(root)).toBe(1);
+		expect(await generateLocalization(root)).toBe(1);
 		writeFileSync(source, original.replace('{{language}}', '{{misspelledLanguage}}'));
-		expect(() => generateLocalization(root)).toThrow('Unknown instruction template parameter');
+		await expect(generateLocalization(root)).rejects.toThrow('Unknown instruction template parameter');
 		expect(readFileSync(output, 'utf8')).toBe(before);
 		writeFileSync(source, original);
 		const anotherGroup = join(root, 'workers/agent-runtime/src/localization/en/avatar.yaml');
 		writeFileSync(anotherGroup, readFileSync(anotherGroup, 'utf8') + '\nsystem.nativeLanguage: |-\n  {{language}}\n');
-		expect(() => generateLocalization(root)).toThrow('Duplicate catalog message');
+		await expect(generateLocalization(root)).rejects.toThrow('Duplicate catalog message');
 		expect(readFileSync(output, 'utf8')).toBe(before);
 	}, 20000);
 });

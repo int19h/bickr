@@ -65,6 +65,7 @@ export function readCatalogGroup(file: string, localeDirectory: string, definiti
 	const includes: string[] = [];
 	for (const pair of document.contents.items) {
 		const id = key(pair.key);
+		if (!Object.hasOwn(definitions, id)) throw new CatalogSourceError(file, `Unknown catalog message: ${id}.`);
 		const definition = definitions[id];
 		if (!definition) throw new CatalogSourceError(file, `Unknown catalog message: ${id}.`);
 		const value = pair.value;

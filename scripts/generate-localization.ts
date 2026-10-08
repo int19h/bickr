@@ -1,17 +1,18 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
+import lockfile from 'proper-lockfile';
 import { instructionLocales } from '../packages/shared/src/instruction-language.ts';
 import { InstructionTemplates, type MessageCatalog, type MessageDefinitions } from '../packages/shared/src/instruction-template.ts';
 import { sharedMessageDefinitions } from '../packages/shared/src/localization/messages.ts';
 import { messageParameters } from '../workers/agent-runtime/src/localization/messages.ts';
 import { CatalogSourceError, readCatalogGroup, type SourceMessage } from './localization/catalog-source.ts';
+import { catalogRoots, repository } from './localization/paths.ts';
 
-const repository = fileURLToPath(new URL('../', import.meta.url));
 const header = '// Generated from localization YAML and Markdown. Do not edit.\n';
-export const catalogRoots = ['packages/shared/src/localization', 'workers/agent-runtime/src/localization'] as const;
+export { catalogRoots } from './localization/paths.ts';
 
 export function sourceFiles(directory: string): string[] {
 	return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -122,6 +123,8 @@ function publish(outputs: readonly { file: string; content: string }[], check: b
 function inputFingerprint(root: string): string {
 	const hash = createHash('sha256');
 	for (const directory of catalogRoots) {
+		hash.update(JSON.stringify(readdirSync(join(root, directory), { withFileTypes: true })
+			.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort()));
 		for (const locale of instructionLocales) {
 			for (const file of sourceFiles(join(root, directory, locale))) {
 				hash.update(JSON.stringify(relative(root, file))).update('\0').update(readFileSync(file)).update('\0');
@@ -131,20 +134,30 @@ function inputFingerprint(root: string): string {
 	return hash.digest('hex');
 }
 
-/** Concurrent writers publish identical immutable modules. If an editor changes
- * a source during compilation, retry that snapshot before returning to a caller. */
-export function generateLocalization(root = repository, { check = false } = {}): number {
-	for (let attempt = 0; attempt < 3; attempt++) {
-		const fingerprint = inputFingerprint(root);
-		const outputs = compileLocalization(root);
-		if (fingerprint !== inputFingerprint(root)) continue;
-		const changed = publish(outputs, check);
-		if (fingerprint === inputFingerprint(root)) return changed;
+/** Serialize every compiler entry point. No older writer can publish after a
+ * newer caller returns. Retry editor changes while holding the same lock. */
+export async function generateLocalization(root = repository, { check = false } = {}): Promise<number> {
+	mkdirSync(join(root, '.wrangler'), { recursive: true });
+	const release = await lockfile.lock(root, {
+		lockfilePath: join(root, '.wrangler/localization-generation.lock'),
+		stale: 120000, update: 5000,
+		retries: { retries: 60, factor: 1, minTimeout: 250, maxTimeout: 250 },
+	});
+	try {
+		for (let attempt = 0; attempt < 3; attempt++) {
+			const fingerprint = inputFingerprint(root);
+			const outputs = compileLocalization(root);
+			if (fingerprint !== inputFingerprint(root)) continue;
+			const changed = publish(outputs, check);
+			if (fingerprint === inputFingerprint(root)) return changed;
+		}
+		throw new CatalogSourceError(root, 'Catalog sources changed repeatedly during compilation. Retry after the edits finish.');
+	} finally {
+		await release();
 	}
-	throw new CatalogSourceError(root, 'Catalog sources changed repeatedly during compilation. Retry after the edits finish.');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
 	const { values } = parseArgs({ options: { check: { type: 'boolean', default: false } } });
-	console.log(`Localization catalogs ready. Updated ${generateLocalization(repository, { check: values.check })} generated modules.`);
+	console.log(`Localization catalogs ready. Updated ${await generateLocalization(repository, { check: values.check })} generated modules.`);
 }

@@ -1,10 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
-
-const root = fileURLToPath(new URL('../../', import.meta.url));
-const directories = ['packages/shared/src/localization/', 'workers/agent-runtime/src/localization/']
-	.map((path) => fileURLToPath(new URL(path, new URL('../../', import.meta.url))));
+import { repository as root, sourceDirectories as directories } from './paths.ts';
 
 /** Compile before module resolution and when a readable source changes in dev/watch. */
 export function localizationPlugin(): Plugin {
