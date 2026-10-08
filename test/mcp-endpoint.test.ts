@@ -383,7 +383,7 @@ describe("MCP endpoint", () => {
 		const before = await storedBot(bot.id);
 		expect(await call("source")).toMatchObject({ result: { structuredContent: { results: [{ status: "failed", error: { error: "bad_request" } }] } } });
 		expect(await storedBot(bot.id)).toEqual(before);
-		const clone = await createBot(testEnv.BICKR_KV, testEnv.BICKR_D1, world.handle, { handle: "clone", cloneSourceBotId: bot.id, instructionLanguage: { kind: "fixed", locale: "en" }, tickSettings: { enabled: false } }, "usr_mcp");
+		const clone = await createBot(testEnv.BICKR_KV, testEnv.BICKR_D1, world.handle, { handle: "clone", language: null, displayName: localizedText("", null), shortBio: localizedText("", null), prompt: localizedText("", null), cloneSourceBotId: bot.id, instructionLanguage: { kind: "fixed", locale: "en" }, tickSettings: { enabled: false } }, "usr_mcp");
 		expect(await call("source", clone.id)).toMatchObject({ result: { structuredContent: { results: [{ status: "succeeded", result: { data: { bot: { instructionLanguage: { kind: "source" }, instructionLocale: "ja", cloneSource: { sourceBotId: bot.id, linked: true } } } } }] } } });
 		expect(await storedBot(clone.id)).toMatchObject({ instructionLanguage: { kind: "source" } });
 	});
