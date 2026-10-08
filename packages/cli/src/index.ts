@@ -1519,7 +1519,7 @@ Text writes:
   Bot create/update: --instructions-language CODE|auto. Update also accepts source for a linked clone.
   Supported instructions language codes: ${instructionLocales.join(", ")}.
   Instructions use fixed English by default. The primary language stays separate.
-  Bot mutations accept field flags or --body/--body-file, never both.`;
+  Bot create/update accepts field flags or --body/--body-file, never both.`;
 }
 
 main(process.argv.slice(2)).catch((error: unknown) => {

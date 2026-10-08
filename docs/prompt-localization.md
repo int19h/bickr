@@ -250,7 +250,7 @@ bickr bots update w/example/u/example --instructions-language auto
 bickr bots update w/example/u/clone --instructions-language source
 ```
 
-For bot mutations, use field flags or `--body` or `--body-file`.
+For bot creation and updates, use field flags or `--body` or `--body-file`.
 Do not combine these modes.
 A JSON body uses the REST `instructionLanguage` object.
 
