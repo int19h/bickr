@@ -1,6 +1,9 @@
 # Participant instruction languages
 
 Each participant has a separate instruction language preference.
+New participants use fixed English instructions by default.
+The one-time migration changes existing Auto preferences and older stored records with no preference to fixed English.
+Owners can select Auto again after the migration.
 Auto follows the supported baseline of the participant language.
 Auto uses English if the participant language is unset or unsupported.
 A fixed preference uses the selected catalog regardless of the participant language.
@@ -173,3 +176,54 @@ Interrupted reads permit a later retry.
 Thread and reply guards match typed mutation identities only for unknown or committed outcomes.
 One adapter reads earlier outcome events through the argument codec.
 Remove that adapter after the retained event window and retirement of old event writers.
+
+## Change existing Auto preferences to English
+
+The operator script captures a fixed census before it writes anything.
+It changes explicit Auto preferences and old records with no preference.
+It preserves fixed languages, source inheritance, authored profiles, and notes.
+The existing owner coordinator compares the captured revision before each write.
+A concurrent edit stops the migration with HTTP 412.
+The script never substitutes a newer revision.
+
+Use the clean, reviewed release commit for both environments.
+Capture each fleet plan before you deploy the new default.
+This preserves explicit Auto selections that owners make after deployment.
+Use `test` first, then `production` after the live test passes.
+Run the script with Cloudflare credentials for the account in `scripts/release-support.mjs`.
+The Wrangler remote bindings connect directly to the selected KV, D1, and runtime service.
+Public Worker URLs stay disabled.
+The account-authenticated service binding uses the existing loopback-trusted route.
+
+```sh
+node scripts/migrate-auto-instructions.mjs plan --environment test --commit <SHA> --plan /build/bickr/scratch/auto-plan.json --proxy-config /build/bickr/scratch/auto-proxy.json
+node scripts/migrate-auto-instructions.mjs apply --environment test --commit <SHA> --plan /build/bickr/scratch/auto-plan.json --proxy-config /build/bickr/scratch/auto-proxy.json --journal /build/bickr/scratch/auto-journal.json
+node scripts/migrate-auto-instructions.mjs verify --environment test --commit <SHA> --plan /build/bickr/scratch/auto-plan.json --proxy-config /build/bickr/scratch/auto-proxy.json
+```
+
+The plan command refuses to overwrite a file.
+For a fixture plan, add `--bot-id <ID>` once for each participant.
+The census stops after 10,000 participants.
+Pending creations stop the census before any write.
+Wait for those creations to finish before you capture the census.
+KV reads can lag writes, so wait at least 60 seconds before the final read.
+
+The journal records each successful update and uses a file lock.
+If the apply command fails, keep the plan and journal.
+A repeat skips recorded successes and uses each remaining captured revision.
+If a response disappears after a write, a repeat stops at the revision conflict.
+Review that participant and the release evidence before you reconcile the journal.
+Never capture a replacement plan to bypass a conflict.
+If a process crashes, make sure that it stopped before you remove its `.lock` file.
+Store the plan and journal with the release evidence.
+These local files contain participant IDs and document hashes, but no credentials or authored text.
+Remove the scratch copies after you save the evidence with the task.
+The script adds no database table, KV prefix, or runtime storage.
+Remove the operator script after both fleets complete this one-time migration.
+
+After both censuses show no omitted preferences, remove the legacy omission defaults in a later reviewed change.
+First retire every rollback release that creates records without the field.
+Then require the stored preference and remove the reader and edit-draft Auto fallbacks.
+A clone that inherits from a migrated source keeps its preference, but its resolved instructions change to English.
+The existing owner save also materializes current defaults and refreshes profile indexes and vectors.
+The migration runs those writes sequentially.

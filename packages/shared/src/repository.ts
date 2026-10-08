@@ -1,4 +1,4 @@
-import { parseInstructionLanguagePreference, InvalidInstructionLanguagePreferenceError } from './instruction-language';
+import { defaultNewBotInstructionLanguage, parseInstructionLanguagePreference, InvalidInstructionLanguagePreferenceError } from './instruction-language';
 import { botServiceIssue } from './bot-service-issues';
 import { factoryText } from './localization';
 import { automaticInstructionLocale, instructionContentLanguage } from './instruction-language';
@@ -1518,7 +1518,7 @@ async function createBot(
 		handle: input.handle,
 		language: input.language,
 		includeLanguageInSystemPrompt,
-		instructionLanguage: input.instructionLanguage ?? { kind: "auto" },
+		instructionLanguage: input.instructionLanguage ?? defaultNewBotInstructionLanguage(),
 		displayName: input.displayName,
 		shortBio: input.shortBio,
 		prompt: input.prompt,

@@ -1,4 +1,5 @@
 import type { BotSummary, ChirperImportPreview } from "@bickr/shared/model";
+import { defaultNewBotInstructionLanguage } from "@bickr/shared/instruction-language";
 import { maxBotPromptLength } from "@bickr/shared/validation";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api";
@@ -117,7 +118,7 @@ export function CreateBotModal({
 			handle: preview.handle,
 			language: languageDraftValue(preview.language, textLang(preview.displayName) ?? defaultLanguageTag),
 			includeLanguageInSystemPrompt: "include",
-			instructionLanguage: { kind: "auto" },
+			instructionLanguage: defaultNewBotInstructionLanguage(),
 				displayName: textValue(preview.displayName),
 				shortBio: textValue(preview.shortBio),
 				prompt: textValue(preview.prompt),

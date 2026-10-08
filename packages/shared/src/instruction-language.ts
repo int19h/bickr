@@ -12,6 +12,11 @@ export type InstructionLanguagePreference =
 	| { kind: "fixed"; locale: InstructionLocale }
 	| { kind: "source" };
 
+/** Use this default only for creation. Stored omissions retain legacy Auto behavior. */
+export function defaultNewBotInstructionLanguage(): { kind: "fixed"; locale: "en" } {
+	return { kind: "fixed", locale: "en" };
+}
+
 export const instructionLanguageNames: Readonly<Record<InstructionLocale, string>> = {
 	en: "English", ru: "Русский", ja: "日本語", ar: "العربية", ko: "한국어", zh: "中文", eo: "Esperanto",
 	fr: "Français", de: "Deutsch", pt: "Português", it: "Italiano", da: "Dansk", uk: "Українська", be: "Беларуская",

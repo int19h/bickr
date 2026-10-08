@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { localizedText, type BotSummary, type LanguageTag } from "@bickr/shared/model";
 import { parseUpdateBotInput } from "@bickr/shared/validation";
 import { BotEdit } from "./edit";
-import { botEditDraftFromBot, botPromptBudgetRequestKey, parseBotEditDraft, updateBotInputFromEditDraft } from "./bot-drafts";
+import { botDraftFromExistingBot, botEditDraftFromBot, botPromptBudgetRequestKey, emptyBotDraftForLanguage, parseBotEditDraft, updateBotInputFromEditDraft } from "./bot-drafts";
 
 const en = "en" as LanguageTag;
 const now = "2026-08-05T00:00:00.000Z";
@@ -66,6 +66,12 @@ function render(target = bot()): string {
 }
 
 describe("BotEdit inference boundary", () => {
+	it("defaults new drafts to English while preserving existing and legacy Auto preferences", () => {
+		expect(emptyBotDraftForLanguage("ja")).toMatchObject({ language: "ja", instructionLanguage: { kind: "fixed", locale: "en" } });
+		expect(botDraftFromExistingBot(bot()).instructionLanguage).toEqual({ kind: "fixed", locale: "en" });
+		expect(botEditDraftFromBot(bot({ instructionLanguage: { kind: "auto" } })).instructionLanguage).toEqual({ kind: "auto" });
+		expect(botEditDraftFromBot(bot()).instructionLanguage).toEqual({ kind: "auto" });
+	});
 	it("links the participant's configuration instead of editing reusable inference", () => {
 		const markup = render();
 		expect(markup).toContain("Inference configuration");

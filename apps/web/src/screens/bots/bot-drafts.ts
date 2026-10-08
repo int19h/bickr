@@ -1,4 +1,4 @@
-import type { InstructionLanguagePreference, InstructionLocale } from "@bickr/shared/instruction-language";
+import { defaultNewBotInstructionLanguage, type InstructionLanguagePreference, type InstructionLocale } from "@bickr/shared/instruction-language";
 import {
 	localizedText,
 	type BotInferenceSettings,
@@ -73,7 +73,7 @@ export type BotEditParsedDraft = {
 };
 
 const emptyBotDraft: BotDraft = {
-	instructionLanguage: { kind: "auto" },
+	instructionLanguage: defaultNewBotInstructionLanguage(),
 	handle: "",
 	language: "en",
 	includeLanguageInSystemPrompt: "include",
@@ -392,7 +392,7 @@ export function isValidCloneBotDraft(draft: BotDraft): boolean {
 
 export function botDraftFromExistingBot(bot: BotSummary): BotDraft {
 	return {
-		instructionLanguage: { kind: "auto" },
+		instructionLanguage: defaultNewBotInstructionLanguage(),
 		handle: bot.handle,
 		language: "",
 		includeLanguageInSystemPrompt: "inherit",

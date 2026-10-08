@@ -1,5 +1,5 @@
 import { botServiceIssue, type BotServiceIssue } from './bot-service-issues';
-import { parseInstructionLanguagePreference, InvalidInstructionLanguagePreferenceError } from "./instruction-language";
+import { defaultNewBotInstructionLanguage, parseInstructionLanguagePreference, InvalidInstructionLanguagePreferenceError } from "./instruction-language";
 import { providerUrl, ProviderTransportError } from "./provider-transport";
 import {
 	type BotImageGenerationSettingsInput,
@@ -589,7 +589,7 @@ export function parseCreateBotInput(input: unknown): CreateBotInput {
 		handle: normalizeHandle(record.handle),
 		language,
 		includeLanguageInSystemPrompt,
-		instructionLanguage: record.instructionLanguage === undefined ? { kind: "auto" } : instructionLanguagePreference(record.instructionLanguage),
+		instructionLanguage: record.instructionLanguage === undefined ? defaultNewBotInstructionLanguage() : instructionLanguagePreference(record.instructionLanguage),
 		displayName: localizedText(displayName, language),
 		shortBio: localizedText(shortBio, language),
 		prompt: localizedText(prompt, language),

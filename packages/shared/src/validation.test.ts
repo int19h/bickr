@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { parseCreateForumInput, parseUpdateBotInput, parseUpdateForumInput, parseVoteInput } from "./validation";
+import { parseCreateBotInput, parseCreateForumInput, parseUpdateBotInput, parseUpdateForumInput, parseVoteInput } from "./validation";
 import { mergeToolSettings } from "./repository";
+
+describe("instruction language defaults", () => {
+	const input = { handle: "participant", language: "ja", displayName: "Participant", shortBio: "Biography", prompt: "Authored instructions" };
+	it("defaults new participants to English without changing their speaking language", () => {
+		expect(parseCreateBotInput(input)).toMatchObject({ language: "ja", instructionLanguage: { kind: "fixed", locale: "en" } });
+		expect(parseCreateBotInput({ ...input, cloneSourceBotId: "bot_source" }).instructionLanguage).toEqual({ kind: "fixed", locale: "en" });
+	});
+	it("preserves explicit Auto and does not add a default to unrelated updates", () => {
+		expect(parseCreateBotInput({ ...input, instructionLanguage: { kind: "auto" } }).instructionLanguage).toEqual({ kind: "auto" });
+		expect(parseUpdateBotInput({ language: "ko" })).not.toHaveProperty("instructionLanguage");
+	});
+});
 
 describe("notes settings patch", () => {
 	it("accepts a PLAN-only patch and preserves the notes setting", () => {

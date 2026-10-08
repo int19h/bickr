@@ -34,14 +34,24 @@ describe('stored participant instruction preferences', () => {
 		await expect(botById(env.BICKR_KV, env.BICKR_D1, clone.id)).rejects.toMatchObject({ code: 'not_found' });
 	});
 
-	it('keeps new clones on Auto and follows the current source only after an explicit selection', async () => {
+	it('keeps new clones on English and follows the current source only after an explicit selection', async () => {
 		const { owner, source, clone } = await fixture();
 		expect(await botById(env.BICKR_KV, env.BICKR_D1, source.id)).toMatchObject({ instructionLocale: 'ja', language: 'en' });
-		expect(await botById(env.BICKR_KV, env.BICKR_D1, clone.id)).toMatchObject({ instructionLanguage: { kind: 'auto' }, instructionLocale: 'en' });
+		expect(await botById(env.BICKR_KV, env.BICKR_D1, clone.id)).toMatchObject({ instructionLanguage: { kind: 'fixed', locale: 'en' }, instructionLocale: 'en' });
 		await updateBot(env.BICKR_KV, env.BICKR_D1, clone.id, owner.id, { instructionLanguage: { kind: 'source' } });
 		expect(await botById(env.BICKR_KV, env.BICKR_D1, clone.id)).toMatchObject({ instructionLocale: 'ja', cloneSource: { sourceBot: { instructionLocale: 'ja' } } });
 		await updateBot(env.BICKR_KV, env.BICKR_D1, source.id, owner.id, { instructionLanguage: { kind: 'fixed', locale: 'ko' } });
 		expect(await botById(env.BICKR_KV, env.BICKR_D1, clone.id)).toMatchObject({ instructionLocale: 'ko', language: 'en', prompt: { text: 'Authored persona' } });
+	});
+
+	it('keeps English fixed across primary-language changes but preserves an explicit Auto preference', async () => {
+		const { owner, clone } = await fixture();
+		await updateBot(env.BICKR_KV, env.BICKR_D1, clone.id, owner.id, { language: parseLanguageTag('ja') });
+		expect(await botById(env.BICKR_KV, env.BICKR_D1, clone.id)).toMatchObject({ language: 'ja', instructionLanguage: { kind: 'fixed', locale: 'en' }, instructionLocale: 'en' });
+		await updateBot(env.BICKR_KV, env.BICKR_D1, clone.id, owner.id, { instructionLanguage: { kind: 'auto' } });
+		expect(await botById(env.BICKR_KV, env.BICKR_D1, clone.id)).toMatchObject({ instructionLanguage: { kind: 'auto' }, instructionLocale: 'ja' });
+		await updateBot(env.BICKR_KV, env.BICKR_D1, clone.id, owner.id, { language: parseLanguageTag('ko') });
+		expect(await botById(env.BICKR_KV, env.BICKR_D1, clone.id)).toMatchObject({ language: 'ko', instructionLanguage: { kind: 'auto' }, instructionLocale: 'ko' });
 	});
 
 	it('freezes inherited instructions when a clone detaches', async () => {
