@@ -11,6 +11,10 @@ it("offers source inheritance only for linked clones and keeps fixed languages s
 		await act(async () => root.render(<InstructionLanguageField value={{ kind: "auto" }} onChange={onChange} linkedClone={false} />));
 		expect(box.querySelector('option[value="source"]')).toBeNull();
 		const select = box.querySelector("select")!;
+		expect(select.labels?.[0]?.textContent).toBe("Instructions language");
+		expect(select.labels?.[0]?.control).toBe(select);
+		const helpId = select.getAttribute("aria-describedby")!;
+		expect(document.getElementById(helpId)?.textContent).toContain("Auto uses the primary language");
 		await act(async () => { select.value = "ja"; select.dispatchEvent(new Event("change", { bubbles: true })); });
 		expect(onChange).toHaveBeenLastCalledWith({ kind: "fixed", locale: "ja" });
 		await act(async () => root.render(<InstructionLanguageField value={{ kind: "source" }} onChange={onChange} linkedClone />));

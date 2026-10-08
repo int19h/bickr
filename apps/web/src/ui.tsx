@@ -126,6 +126,7 @@ export function Field({
 	className,
 	help,
 	hint,
+	htmlFor,
 	label,
 	labelAction,
 }: {
@@ -133,6 +134,7 @@ export function Field({
 	className?: string;
 	help?: ReactNode;
 	hint?: string;
+	htmlFor?: string;
 	label?: ReactNode;
 	labelAction?: ReactNode;
 }) {
@@ -140,14 +142,14 @@ export function Field({
 		<div className={className ? `field ${className}` : "field"}>
 			{label && labelAction ? (
 				<div className="field-label-row">
-					<label>
+					<label htmlFor={htmlFor}>
 						{label}
 						{hint && <span className="hint">{hint}</span>}
 					</label>
 					{labelAction}
 				</div>
 			) : label ? (
-				<label>
+				<label htmlFor={htmlFor}>
 					<span className="field-label-main">
 						{label}
 						{hint && <span className="hint">{hint}</span>}
