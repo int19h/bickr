@@ -138,10 +138,18 @@ function inputFingerprint(root: string): string {
  * newer caller returns. Retry editor changes while holding the same lock. */
 export async function generateLocalization(root = repository, { check = false } = {}): Promise<number> {
 	mkdirSync(join(root, '.wrangler'), { recursive: true });
+	const lockPath = join(root, '.wrangler/localization-generation.lock');
 	const release = await lockfile.lock(root, {
-		lockfilePath: join(root, '.wrangler/localization-generation.lock'),
+		lockfilePath: lockPath,
 		stale: 120000, update: 5000,
 		retries: { retries: 60, factor: 1, minTimeout: 250, maxTimeout: 250 },
+	}).catch((error: unknown) => {
+		if (error instanceof Error && 'code' in error && error.code === 'ELOCKED') {
+			throw new CatalogSourceError(lockPath,
+				'Another catalog compiler holds this lock. If a compiler stopped without cleanup, wait up to two minutes for the lock to expire.',
+				{ cause: error });
+		}
+		throw error;
 	});
 	try {
 		for (let attempt = 0; attempt < 3; attempt++) {
