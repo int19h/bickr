@@ -1,5 +1,4 @@
-import { approximateTextTokens, textTokenWeight } from '@bickr/shared/text-token-estimate';
-import { summaryTokenAllowance } from './summary-tokens';
+import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
 import { effectiveTickSettings } from '@bickr/shared/repository';
 import type { BotInferenceSubmissionMessage } from '@bickr/shared/model';
 import { providerContextCompletionReserveTokens } from '../constants';
@@ -40,8 +39,7 @@ export function providerCompactionSummaryLimitsForChat(
 		1,
 		Math.floor(contextWindowTokensOverride === undefined ? tickSettings.contextWindowTokens : contextWindowTokensOverride),
 	);
-	const tokensPerCharacter = Math.max(minCalibratedTokensPerCharacter,
-		summaryTokenAllowance(bot.language, bot.text.locale, calibration.tokensPerCharacter));
+	const tokensPerCharacter = Math.max(minCalibratedTokensPerCharacter, calibration.tokensPerCharacter || fallbackTokensPerCharacter);
 	const configuredMaxCharacters = Math.max(1, Math.floor(tickSettings.compactionMaxCharacters));
 	const compactedCharacterCount = chatMessagesCharacterCount(compactedMessages);
 	const compactionSummaryPercent = Math.max(1, Math.min(50, Math.floor(tickSettings.compactionSummaryPercent)));
@@ -154,15 +152,8 @@ export function estimateChatMessageTokens(message: ChatMessage, calibration: Tex
 }
 
 export function estimateChatMessagesTokens(messages: readonly ChatMessage[], calibration: TextTokenCalibration): number {
-	const weight = messages.reduce((total, message) => total + chatMessageTexts(message)
-		.reduce((sum, value) => sum + textTokenWeight(value, calibration.tokensPerCharacter), 0), 0);
-	return weight <= 0 ? 0 : Math.max(1, Math.ceil(weight));
-}
-
-function chatMessageTexts(message: ChatMessage): string[] {
-	return [message.role, message.content ?? '', message.tool_call_id ?? '', message.reasoning ?? '', message.reasoning_content ?? '',
-		...(message.reasoning_details ? [JSON.stringify(message.reasoning_details)] : []),
-		...(message.tool_calls ?? []).flatMap((call) => [call.id, call.function.name, call.function.arguments])];
+	const characters = chatMessagesCharacterCount(messages);
+	return characters <= 0 ? 0 : Math.max(1, Math.ceil(characters * calibration.tokensPerCharacter));
 }
 
 export function chatMessagesCharacterCount(messages: readonly ChatMessage[]): number {

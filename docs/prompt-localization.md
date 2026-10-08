@@ -132,11 +132,14 @@ Remove the legacy history formatter after the runtime sweep completes and no rol
 ## Context estimates
 
 Exact provider token counts take precedence over local estimates.
-The local estimator keeps the existing calibrated allowance for ASCII text.
-It reserves additional space for non-ASCII text so that an English sample cannot reduce that allowance.
-Future summaries use a conservative allowance based on the likely script.
-The estimate can reserve more space than a model needs.
-It does not guarantee an upper bound for every tokenizer.
+The local estimator uses the model ratio learned from reported provider usage for all text.
+Before Bickr receives those measurements, it estimates one token per four UTF-16 code units.
+Summary sizing uses the same learned ratio.
+A script-based minimum must not override provider measurements.
+After compaction replaces history, Bickr retains the samples and estimates the new request with the learned ratio.
+The estimate does not guarantee an upper bound for every tokenizer.
+Stored event and message estimates describe earlier records.
+Compaction recalculates active history from provider calibration, so old estimates do not need a data migration.
 The fixed prompt cache includes rendered catalog content and the catalog identity.
 A changed instruction language therefore changes the cache identity.
 

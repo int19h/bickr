@@ -1,26 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { approximateTextTokens, textTokenWeight } from './text-token-estimate';
+import { approximateTextTokens } from './text-token-estimate';
 
-describe('language-sensitive token estimates', () => {
-	it('keeps calibrated estimates for ASCII and raises the allowance for non-Latin content', () => {
-		const english = 'a'.repeat(100);
-		expect(textTokenWeight(english, 0.1)).toBeCloseTo(10);
-		expect(textTokenWeight('日'.repeat(100), 0.1)).toBe(150);
-		expect(textTokenWeight('あ'.repeat(100), 0.1)).toBe(150);
-		expect(textTokenWeight('ệ', 0.1)).toBe(1.5);
-		expect(textTokenWeight('я'.repeat(100), 0.1)).toBe(100);
-		expect(textTokenWeight('ع'.repeat(100), 0.1)).toBe(100);
+describe('provider-calibrated text estimates', () => {
+	it.each(['a', 'я', 'ع', '日', 'अ', 'ệ', '😀', 'a日я😀'])('lets measurements lower estimates for %s', (text) => {
+		const prompt = text.repeat(42_000);
+		expect(approximateTextTokens(prompt)).toBe(Math.ceil(prompt.length / 4));
+		expect(approximateTextTokens(prompt, 0.1)).toBe(Math.ceil(prompt.length / 10));
+		expect(approximateTextTokens(prompt, 2)).toBe(prompt.length * 2);
 	});
-	it('counts supplementary code points once while retaining a higher measured calibration', () => {
-		expect(textTokenWeight('😀', 0.25)).toBe(2);
-		expect(textTokenWeight('😀', 2)).toBe(4);
-		expect(textTokenWeight('日', 2)).toBe(2);
-	});
-	it('adds mixed-language content without changing authored text', () => {
-		const text = 'a日я😀';
-		expect(textTokenWeight(text)).toBe(4.75);
-		expect(approximateTextTokens(text)).toBe(5);
+	it('keeps the original empty-text minimum and fractional rounding', () => {
 		expect(approximateTextTokens('')).toBe(1);
-		expect(text).toBe('a日я😀');
+		expect(approximateTextTokens('я日ع', 0.5)).toBe(2);
 	});
 });
