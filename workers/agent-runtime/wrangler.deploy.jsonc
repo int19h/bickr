@@ -2,6 +2,10 @@
 	"$schema": "../../node_modules/wrangler/config-schema.json",
 	"name": "bickr-agent-runtime",
 	"main": "src/index.ts",
+	"build": {
+		"command": "node ../../scripts/generate-localization.ts",
+		"watch_dir": ["../../packages/shared/src/localization", "../../workers/agent-runtime/src/localization", "../../scripts/localization", "../../scripts/generate-localization.ts"],
+	},
 	"compatibility_date": "2026-04-25",
 	"compatibility_flags": ["enable_request_signal", "nodejs_als"],
 	"workers_dev": false,

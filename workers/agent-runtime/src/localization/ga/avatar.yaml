@@ -1,0 +1,59 @@
+avatar.image.participant_system: |-
+  Cruthaigh abhatár poiblí don rannpháirtí Bickr seo. Lean an treo amhairc a iarradh agus úsáid an pictiúr próifíle reatha má cuireadh ar fáil é. Déan príomhábhar na híomhá soiléir in amharc próifíle cearnach nó bearrtha. Ná cuir fotheidil, comharthaí uisce, codanna den chomhéadan ná téacs míniúcháin san íomhá.
+
+avatar.image.world_system: |-
+  Cruthaigh abhatár poiblí don domhan Bickr seo. Lean an treo amhairc a iarradh agus úsáid íomhá reatha an domhain má cuireadh ar fáil í. Déan suíomh an scéil soiléir in amharc próifíle cearnach nó bearrtha. Ná cuir fotheidil, comharthaí uisce, codanna den chomhéadan ná téacs míniúcháin san íomhá.
+
+avatar.describe_current.participant_system: |-
+  Déan cur síos ar an bpictiúr próifíle poiblí a cuireadh ar fáil le haghaidh abhatár nua do rannpháirtí Bickr. Cuir sonraí nithiúla san áireamh faoi chuma, ghnúis, staidiúir, éadaí, stíl, dathanna, solas, cúlra, frámú agus leagan amach. Ná cuir ar ais ach an cur síos.
+
+avatar.describe_current.world_system: |-
+  Déan cur síos ar íomhá phoiblí an domhain a cuireadh ar fáil le haghaidh abhatár nua do dhomhan Bickr. Cuir sonraí nithiúla san áireamh faoi radharcra, fhoirgnimh, rudaí, atmaisféar, stíl, dathanna, solas, cúlra, frámú agus leagan amach. Ná cuir ar ais ach an cur síos.
+
+avatar.world_source.system: |-
+  Scríobh leid amhairc le haghaidh abhatár poiblí de dhomhan Bickr. Úsáid suíomh an scéil agus próifílí na mball chun cur síos a dhéanamh ar íomhá amháin den domhan. Cuir sonraí nithiúla san áireamh faoi shainchomharthaí tíre, radharcra, atmaisféar, solas, dathanna, uigeacht, leagan amach agus uillinn an cheamara. Ná cuir fotheidil, téacs forleagtha, codanna den chomhéadan, comharthaí uisce ná tráchtanna ar an bpróiseas san áireamh. Ná cuir ar ais ach an leid.
+
+avatar.image.world_refresh: |-
+  Úsáid íomhá reatha an domhain a cuireadh ar fáil mar ionchur amhairc le haghaidh abhatár poiblí athnuaite don domhan.
+
+avatar.image.participant_refresh: |-
+  Úsáid an pictiúr próifíle reatha a cuireadh ar fáil mar ionchur amhairc le haghaidh abhatár próifíle poiblí athnuaite.
+
+avatar.describe_current.world: |-
+  Tabhair cur síos amhairc iomlán ar íomhá reatha an domhain a cuireadh ar fáil, le haghaidh leid d'abhatár poiblí athnuaite don domhan.
+
+avatar.describe_current.participant: |-
+  Tabhair cur síos amhairc iomlán ar an bpictiúr próifíle reatha a cuireadh ar fáil, le haghaidh leid d'abhatár poiblí athnuaite.
+
+avatar.persona_description.structured: |-
+  Déan cur síos ar do phictiúr próifíle. Cuir ar ais an réad JSON riachtanach. Scríobh an cur síos i do ról agus sa chéad phearsa. Tabhair go leor sonraí amhairc nithiúla faoi chuma, stíl, radharc, solas agus leagan amach. Ná déan cur síos ach ar a bhfuil le feiceáil.
+
+avatar.persona_description.tool: |-
+  Déan cur síos ar do phictiúr próifíle. Glaoigh ar an uirlis {{toolName}}. Scríobh i do ról agus sa chéad phearsa. Tabhair go leor sonraí amhairc nithiúla faoi chuma, stíl, radharc, solas agus leagan amach. Ná déan cur síos ach ar a bhfuil le feiceáil.
+
+avatar.persona_description.repair_structured: |-
+  Cuir ar ais réad JSON nach bhfuil ann ach réimse amháin darb ainm description. Scríobh é i do ról agus sa chéad phearsa. Ná déan cur síos ach ar chuma, stíl, radharc, solas agus leagan amach infheicthe.
+
+avatar.persona_description.repair_tool: |-
+  Glaoigh ar an uirlis {{toolName}}. Scríobh i do ról agus sa chéad phearsa. Ná déan cur síos ach ar chuma, stíl, radharc, solas agus leagan amach infheicthe.
+
+avatar.world_source.description_and_detail: |-
+  Ainm an domhain: {{worldName}}
+  Cur síos gearr:
+  {{description}}
+
+  Sonraí breise faoi shuíomh an scéil:
+  {{detail}}
+
+avatar.world_source.description: |-
+  Ainm an domhain: {{worldName}}
+  Cur síos gearr:
+  {{description}}
+
+avatar.world_source.detail: |-
+  Ainm an domhain: {{worldName}}
+  Sonraí faoi shuíomh an scéil:
+  {{detail}}
+
+avatar.image.currentIncluded: |-
+  [íomhá reatha an abhatáir ceangailte]

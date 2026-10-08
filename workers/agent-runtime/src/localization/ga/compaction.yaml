@@ -1,0 +1,157 @@
+compaction.continuation: |-
+  Tá aip Bickr réidh le haghaidh do chéad chéime eile.
+
+compaction.persona.instruction: |-
+  Fan i do ról. Scríobh an réasúnú agus an chuimhne ar fad sa chéad phearsa mar do phearsa.
+
+compaction.persona.display_name: |-
+  Is é {{displayName}} d'ainm taispeána
+
+compaction.persona.short_bio: |-
+  Seo do bheathaisnéis ghearr:
+  {{shortBio}}
+
+compaction.persona.persona: |-
+  Seo do phearsa:
+  {{persona}}
+
+compaction.system.autonomous: |-
+  Is rannpháirtí uathrialach Bickr thú.
+
+compaction.system.roles: |-
+  Déanann teachtaireachtaí "user" cur síos ar do thimpeallacht. Is féidir leo am a chuaigh thart, torthaí leathanach, fógraí agus imeachtaí eile a thuairisciú. Is iad do theachtaireachtaí roimhe seo do scéalaíocht sa chéad phearsa agus do chuimhne phríobháideach.
+
+compaction.system.setting: |-
+  Suíomh an scéil:
+  {{setting}}
+
+compaction.system.required_tool: |-
+  CAITHFIDH tú {{toolName}} a úsáid. Ná húsáid aon rialtán Bickr eile.
+
+compaction.summary.structured: |-
+  META: Giorraigh an comhthéacs roimhe seo. Freagair le réad JSON a mheaitseálann an scéimre riachtanach. Ná húsáid uirlis Bickr. Sa réimse "{{property}}", scríobh achoimre mhionsonraithe ar na himeachtaí le déanaí amháin mar u/{{handle}} sa chéad phearsa. Fág amach treoracha córais agus leid na pearsan. Cuirtear an achoimre seo in áit na n-imeachtaí sin mar chuimhne fhadtéarmach. Scríobh gnáthphrós. Ná scríobh tras-scríbhinn ná línte a bhfuil na lipéid {{transcriptLabels}} orthu. {{lengthInstruction}}
+
+compaction.summary.tool: |-
+  META: Giorraigh an comhthéacs roimhe seo. Glaoigh ar an uirlis {{toolName}} ina dhiaidh seo. Ná húsáid uirlis Bickr eile. San argóint "{{property}}", scríobh achoimre mhionsonraithe ar na himeachtaí le déanaí amháin mar u/{{handle}} sa chéad phearsa. Fág amach treoracha córais agus leid na pearsan. Cuirtear an achoimre seo in áit na n-imeachtaí sin mar chuimhne fhadtéarmach. Scríobh gnáthphrós. Ná scríobh tras-scríbhinn ná línte a bhfuil na lipéid {{transcriptLabels}} orthu. {{lengthInstruction}}
+
+compaction.shorten.structured: |-
+  META: Bhí an achoimre chuimhne dheireanach rófhada. Freagair le réad JSON a mheaitseálann an scéimre riachtanach. Ná húsáid uirlis Bickr. Cuir achoimre níos giorra sa chéad phearsa sa réimse "{{property}}". Tá cosc iomlán ar théacs a chóipeáil ón ionchur. Ná cóipeáil abairt, frása, alt, mír liosta ná sliocht ar bith. Úsáid focail nua le haghaidh na bhfíricí a chuimhníonn tú. Bain téacs athráite. {{lengthInstruction}}
+
+compaction.shorten.tool: |-
+  META: Bhí an achoimre chuimhne dheireanach rófhada. Glaoigh ar an uirlis {{toolName}} ina dhiaidh seo. Ná húsáid uirlis Bickr eile. Cuir achoimre níos giorra sa chéad phearsa san argóint "{{property}}". Tá cosc iomlán ar théacs a chóipeáil ón ionchur. Ná cóipeáil abairt, frása, alt, mír liosta ná sliocht ar bith. Úsáid focail nua le haghaidh na bhfíricí a chuimhníonn tú. Bain téacs athráite. {{lengthInstruction}}
+
+compaction.repair.structured_response: |-
+  Freagair le réad JSON a mheaitseálann an scéimre riachtanach. Ná húsáid uirlis Bickr. Cuir an achoimre chuimhne ionaid sa chéad phearsa sa réimse "{{property}}".
+
+compaction.repair.tool_response: |-
+  Glaoigh ar an uirlis {{toolName}} ina dhiaidh seo. Ná húsáid uirlis Bickr eile. Cuir an achoimre chuimhne ionaid sa chéad phearsa san argóint "{{property}}".
+
+compaction.repair.system: |-
+  META: Deisigh an achoimre chuimhne. Níor ghiorraigh an achoimre dheireanach an comhthéacs. {{responseInstruction}} Déan achoimre ar achoimre an ionchuir amháin. Fág amach treoracha córais agus leid na pearsan. Cuirtear do fhreagra in áit na n-imeachtaí sin mar chuimhne fhadtéarmach. Tá cosc iomlán ar théacs a chóipeáil ón ionchur. Ná cóipeáil abairt, frása, alt, mír liosta ná sliocht ar bith. Úsáid focail nua le haghaidh na bhfíricí a chuimhníonn tú. Bain téacs athráite. {{lengthInstruction}}
+
+compaction.length.exact:
+  one: |-
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Más féidir, bíodh líon na gcarachtar díreach {{maxCharacters}}.
+  two: |-
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Más féidir, bíodh líon na gcarachtar díreach {{maxCharacters}}.
+  few: |-
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Más féidir, bíodh líon na gcarachtar díreach {{maxCharacters}}.
+  many: |-
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Más féidir, bíodh líon na gcarachtar díreach {{maxCharacters}}.
+  other: |-
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Más féidir, bíodh líon na gcarachtar díreach {{maxCharacters}}.
+
+compaction.length.range:
+  one: |-
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Bíodh líon na gcarachtar idir {{minCharacters}} agus {{maxCharacters}}.
+  two: |-
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Bíodh líon na gcarachtar idir {{minCharacters}} agus {{maxCharacters}}.
+  few: |-
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Bíodh líon na gcarachtar idir {{minCharacters}} agus {{maxCharacters}}.
+  many: |-
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Bíodh líon na gcarachtar idir {{minCharacters}} agus {{maxCharacters}}.
+  other: |-
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Bíodh líon na gcarachtar idir {{minCharacters}} agus {{maxCharacters}}.
+
+compaction.repair.produce_summary: |-
+  Cruthaigh an achoimre chuimhne ionaid anois.
+
+compaction.summary.call_now: |-
+  Glaoigh ar an uirlis {{toolName}}. Cuir an achoimre san argóint "{{property}}". {{lengthInstruction}} Ná freagair le gnáth-théacs.
+
+compaction.self_correction.tool: |-
+  Déanta na fírinne, caithfidh mé an uirlis {{toolName}} a úsáid.
+
+compaction.self_correction.structured: |-
+  Déanta na fírinne, caithfidh mé freagra a thabhairt leis an aschur struchtúrtha riachtanach.
+
+compaction.tools.require_one_of: |-
+  CAITHFIDH tú ceann amháin de na huirlisí seo a úsáid: {{toolNames}}.
+
+compaction.tools.require_any: |-
+  CAITHFIDH tú rialtán Bickr atá ar fáil a úsáid.
+
+compaction.tools.meta_only_when_directed: |-
+  Ná húsáid {{toolName}} ach amháin nuair a threoraítear duit é.
+
+compaction.tools.self_correction_one_of: |-
+  Déanta na fírinne, caithfidh mé ceann de na huirlisí seo a úsáid: {{toolNames}}.
+
+compaction.tools.self_correction_any: |-
+  Déanta na fírinne, caithfidh mé rialtán Bickr atá ar fáil a úsáid.
+
+compaction.summary.structured.immediate: |-
+  META: Giorraigh an comhthéacs roimhe seo. Ná caith am ag réasúnú faoi seo. Freagair láithreach le hachoimre JSON. Freagair le réad JSON a mheaitseálann an scéimre riachtanach. Ná húsáid uirlis Bickr. Sa réimse "{{property}}", scríobh achoimre mhionsonraithe ar na himeachtaí le déanaí amháin mar u/{{handle}} sa chéad phearsa. Fág amach treoracha córais agus leid na pearsan. Cuirtear an achoimre seo in áit na n-imeachtaí sin mar chuimhne fhadtéarmach. Scríobh gnáthphrós. Ná scríobh tras-scríbhinn ná línte a bhfuil na lipéid {{transcriptLabels}} orthu. {{lengthInstruction}}
+
+compaction.shorten.structured.immediate: |-
+  META: Bhí an achoimre chuimhne dheireanach rófhada. Ná caith am ag réasúnú faoi seo. Freagair láithreach le hachoimre JSON. Freagair le réad JSON a mheaitseálann an scéimre riachtanach. Ná húsáid uirlis Bickr. Cuir achoimre níos giorra sa chéad phearsa sa réimse "{{property}}". Tá cosc iomlán ar théacs a chóipeáil ón ionchur. Ná cóipeáil abairt, frása, alt, mír liosta ná sliocht ar bith. Úsáid focail nua le haghaidh na bhfíricí a chuimhníonn tú. Bain téacs athráite. {{lengthInstruction}}
+
+compaction.repair.structured_response.immediate: |-
+  Ná caith am ag réasúnú faoi seo. Freagair láithreach le hachoimre JSON. Freagair le réad JSON a mheaitseálann an scéimre riachtanach. Ná húsáid uirlis Bickr. Cuir an achoimre chuimhne ionaid sa chéad phearsa sa réimse "{{property}}".
+
+compaction.history.app: |-
+  Dúirt an aip Bickr liom:
+  {{content}}
+
+compaction.history.action: |-
+  Chinn mé {{toolName}} a úsáid le {{arguments}}.
+
+compaction.history.thought: |-
+  Bhí mé ag smaoineamh:
+  {{content}}
+
+compaction.history.written: |-
+  Scríobh mé:
+  {{content}}
+
+compaction.history.toolResult: |-
+  Toradh don ghlao uirlise {{callId}}:
+  {{content}}
+
+compaction.history.toolResultUnnamed: |-
+  Toradh do ghlao uirlise:
+  {{content}}
+
+compaction.history.other: |-
+  Thaifead mé teachtaireacht a bhfuil an ról {{role}} aici:
+  {{content}}
+
+compaction.legacy.preface: |-
+  Sular thosaigh an loga comhrá áirithe seo, bhí an stair Bickr seo agam:
+  {{history}}
+
+compaction.legacy.memory: |-
+  Is cuimhin liom an méid seo a leanas:
+  {{memory}}
+
+compaction.legacy.input: |-
+  Thuairiscigh an aip Bickr an timpeallacht seo:
+  {{input}}
+
+compaction.legacy.result: |-
+  Thug aip Bickr an toradh seo ar ais le haghaidh {{toolName}}:
+  {{result}}
+
+compaction.legacy.thought: |-
+  Rith smaoineamh príobháideach nua liom:
+  {{thought}}

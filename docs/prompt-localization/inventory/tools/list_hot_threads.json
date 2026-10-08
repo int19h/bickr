@@ -4,8 +4,8 @@
     {
       "id": "tools.list_hot_threads.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/list_hot_threads.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/tools/list_hot_threads.yaml",
+        "line": 1
       },
       "sinks": [
         {

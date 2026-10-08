@@ -1,0 +1,31 @@
+avatar.members.instruction: |-
+  このワールドのコンテキストとそのメンバーのプロフィールから、公開ワールドアバターの完全な視覚的プロンプトを作成してください。
+
+avatar.members.world: |-
+  ワールド：
+
+avatar.members.description: |-
+  短い説明：
+
+avatar.members.prompt: |-
+  プロンプト：
+
+avatar.members.all:
+  other: |-
+    メンバー（{{count}}人）：
+
+avatar.members.sample:
+  other: |-
+    メンバー（{{count}}人のサンプル。ほかにもメンバーがいます）：
+
+avatar.members.none: |-
+  （なし）
+
+avatar.members.empty: |-
+  （空）
+
+avatar.members.bio: |-
+  自己紹介：{{bio}}
+
+avatar.members.bioEmpty: |-
+  自己紹介：（空）

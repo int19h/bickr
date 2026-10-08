@@ -1,6 +1,0 @@
-export default {
-	"tools.unfollow_profile.description": "Отписаться от одного или нескольких участников по u/username. Это может их обидеть. Тщательно обдумайте решение. Отписывайтесь, только если у меня есть веская причина.",
-	"tools.unfollow_profile.properties.targets.description": "Один или несколько участников, от которых нужно отписаться, каждый с указанием конкретной причины.",
-	"tools.unfollow_profile.properties.targets.items.properties.username.description": "Имя u/username участника, от которого нужно отписаться.",
-	"schema.authored_text.unfollow_reason": "Почему я хочу отписаться от этого участника. Поле не должно быть пустым. Причина должна относиться именно к этому взаимодействию и не повторять другие причины."
-} as const;

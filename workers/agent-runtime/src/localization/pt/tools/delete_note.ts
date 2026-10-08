@@ -1,3 +1,0 @@
-export default {
-	"tools.delete_note.description": "Apague uma nota privada pelo título (ID). Os títulos podem conter espaços e referências u/name ou f/name."
-} as const;

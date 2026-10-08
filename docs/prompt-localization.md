@@ -26,6 +26,53 @@ It parses catalog templates once and inserts authored values without parsing the
 A required language context follows each internal model request and serialization path.
 Missing catalog entries cause an error instead of an English fallback.
 
+## Editing catalog sources
+
+Edit the YAML and Markdown files in each language directory.
+Use editor soft wrapping, which shows long lines without adding newlines to the file.
+Keep each prose paragraph on one source line.
+Keep deliberate instruction lines, lists, code fences, and blank lines unchanged.
+Do not hard-wrap text to a column width.
+Catalog files stay outside automatic Prettier formatting.
+
+Use YAML literal blocks with `|-` for ordinary messages and plural variants.
+Keep quotes, backticks, backslashes, and `{{name}}` parameters literal inside those blocks.
+Use `|` only when the message needs one final newline.
+Use `|+` only when the message needs its existing final blank lines.
+Every blank line before the next key belongs to a `|+` value.
+Quote whitespace-only text and values with spaces at their edges, such as `", "`.
+Keep message keys in their existing order because the review fingerprints include that order.
+
+The long system prompt lives in `system/main.md` for each language.
+Its entry in `system.yaml` names that file with a `file` field.
+The loader reads the exact file text without rendering Markdown or trimming whitespace.
+Keep exactly one final newline in a Markdown prompt file.
+Do not add metadata, comments, or review notes to prompt text.
+Put review notes in the separate review records.
+
+Run `npm run localization:generate` after editing sources outside a development server.
+The compiler creates ignored TypeScript modules under each package's `src/.generated/localization/` directory.
+Do not edit those generated modules.
+The compiler checks every language before it writes any module.
+It rejects missing messages, wrong parameters, incomplete plural variants, duplicate keys, unsafe file references, and unsupported YAML forms.
+It preserves the separate shared catalog that browser code imports.
+
+Installation, builds, tests, the CLI command, and development servers generate the catalogs before using them.
+Vite, Vitest watch mode, and Wrangler watch the readable sources for changes.
+Both Pages development commands restart their servers after a catalog source change.
+This restart reloads the generated shared text in Pages Functions.
+The commands stop on invalid text.
+A process lock serializes compiler runs, and each run compares source fingerprints before it returns.
+The lock uses a heartbeat and expires after two minutes if a process stops without cleanup.
+These build tools need Node 22.18 or later.
+Run `npm run localization:check` to make sure that generated modules match the current sources.
+If you invoke `tsc` directly, first run `npm run localization:generate`.
+The catalog tests compare generated messages with decoded sources and their translation approval fingerprints.
+
+This source conversion preserves all decoded text and existing translation approval hashes.
+Inventory definition locations now point to YAML keys.
+The system prompt inventory also names its Markdown file.
+
 PLAN keeps its stable identifier.
 An untouched factory PLAN stores an empty body with explicit factory provenance.
 Bickr renders its body in the current instruction language.

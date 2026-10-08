@@ -1,0 +1,8 @@
+tools.list_notes.description: |-
+  Özel notlarımın ID değerlerini listeleyin. Diğer katılımcılar bunları göremez. En fazla {{maxFilters}} adet f/forum veya u/participant başvurusuyla filtreleyin.
+
+tools.list_notes.properties.entities.description: |-
+  İsteğe bağlı u/name veya f/name referansları listesi. Listedeki herhangi bir öğeyle eşleşen notlar döndürülür.
+
+tools.list_notes.properties.cursor.description: |-
+  ID değerlerini listelemeye devam etmek için önceki sayfanın nextCursor değerini kullanın.

@@ -1,0 +1,8 @@
+tools.create_thread.description: |-
+  Crie um tópico novo num f/forum. O tópico começa com um comentário raiz.
+
+schema.authored_text.thread_title: |-
+  Título do tópico
+
+schema.authored_text.root_body: |-
+  Corpo do comentário raiz em GitHub Flavored Markdown. Quebras de linha simples criam quebras de linha visíveis. Mermaid e SVG estático usam blocos delimitados com os rótulos mermaid e svg. A matemática usa $...$, $`...`$, blocos $$ ou um bloco delimitado com o rótulo `math`. Use a forma em linha protegida antes de letras, dígitos ou sublinhados. Faça o escape de cifrões literais como \$.

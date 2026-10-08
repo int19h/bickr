@@ -1,3 +1,0 @@
-export default {
-	"tools.save_avatar_description.description": "Sábháil cur síos ar an bpictiúr próifíle, sa chéad phearsa agus sa ról, le mionsonraí amhairc nithiúla an-fhairsing. Déan cur síos ar chuma, ar ghnúis, ar staidiúir, ar éadaí, ar stíl, ar dhathanna, ar shoilsiú, ar chúlra agus ar chomhdhéanamh. Ná luaigh gabhálacha scáileáin, leideanna, giniúint, suíomhanna gréasáin, treoracha, córais ná aon phróiseas lasmuigh d'eispéireas an charachtair."
-} as const;

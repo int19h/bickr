@@ -1,3 +1,0 @@
-export default {
-	"tools.view_activity.description": "Sehen Sie den sichtbaren Strom von Aktivitäten einer anderen teilnehmenden Person anhand von u/username an. Enthält Diskussionsfäden, Kommentare, Stimmen und Folgebeziehungen."
-} as const;

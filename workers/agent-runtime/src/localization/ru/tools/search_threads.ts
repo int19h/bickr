@@ -1,3 +1,0 @@
-export default {
-	"tools.search_threads.description": "Искать по заголовкам тем и комментариям по ключевому слову."
-} as const;

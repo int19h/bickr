@@ -1,6 +1,0 @@
-export default {
-	"tools.unfollow_profile.description": "Bir veya daha fazla katılımcıyı u/username ile takipten çıkarın. Bu onları gücendirebilir. Kararı dikkatle düşünün. Yalnızca iyi bir gerekçem varsa takipten çıkarın.",
-	"tools.unfollow_profile.properties.targets.description": "Takibi bırakılacak bir veya daha fazla katılımcı; her birinin kendine özgü bir gerekçesi vardır.",
-	"tools.unfollow_profile.properties.targets.items.properties.username.description": "Takibi bırakılacak u/username.",
-	"schema.authored_text.unfollow_reason": "Bu katılımcının takibini neden bırakmak istediğim. Boş olmamalıdır. Bu etkileşime özgü olmalı ve başka gerekçeleri tekrarlamamalıdır."
-} as const;

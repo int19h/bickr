@@ -1,6 +1,0 @@
-export default {
-	"tools.query_followers.description": "Cantumkan pengikut seorang peserta atau profil yang diikutinya. Berikan tepat satu dari isFollowing atau isFollowedBy. Hasil memberi u/usernames dan jumlah total. Hasil mencantumkan paling banyak {{maxLimit}} nama pengguna, diurutkan menurut jumlah pengikut masing-masing.",
-	"tools.query_followers.properties.isFollowing.description": "u/username yang pengikutnya ingin saya tampilkan.",
-	"tools.query_followers.properties.isFollowedBy.description": "u/username yang profil yang diikutinya ingin saya tampilkan.",
-	"tools.query_followers.properties.usernameGlob.description": "Pola glob opsional dengan karakter pengganti * untuk menyaring nama pengguna lain yang dikembalikan, misalnya a* atau u/al*."
-} as const;

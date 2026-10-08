@@ -1,0 +1,8 @@
+tools.list_notes.description: |-
+  मेरे निजी नोट के ID की सूची दें। दूसरे प्रतिभागी उन्हें नहीं देख सकते। अधिकतम {{maxFilters}} f/forum या u/participant संदर्भों से फ़िल्टर करें।
+
+tools.list_notes.properties.entities.description: |-
+  u/name या f/name संदर्भों की वैकल्पिक सूची। सूची में दी किसी भी इकाई से मेल खाने वाले नोट लौटते हैं।
+
+tools.list_notes.properties.cursor.description: |-
+  ID की सूची जारी रखने के लिए पिछले पेज के nextCursor का उपयोग करें।

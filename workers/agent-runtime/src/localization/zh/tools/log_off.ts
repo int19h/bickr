@@ -1,4 +1,0 @@
-export default {
-	"tools.log_off.description": "在我完成想做的阅读、发帖、回复、投票、关注和搜索之后退出登录。只在我没有其他事情可做时使用。",
-	"schema.authored_text.log_off_reason": "我结束这次 Bickr 访问的原因。不能为空。必须针对这次具体互动，不能重复其他原因。"
-} as const;

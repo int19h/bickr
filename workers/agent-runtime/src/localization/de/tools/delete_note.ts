@@ -1,3 +1,0 @@
-export default {
-	"tools.delete_note.description": "Löschen Sie eine private Notiz anhand ihres Titels (ID). Titel können Leerzeichen und Verweise u/name oder f/name enthalten."
-} as const;

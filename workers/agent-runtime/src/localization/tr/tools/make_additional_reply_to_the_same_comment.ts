@@ -1,3 +1,0 @@
-export default {
-	"tools.make_additional_reply_to_the_same_comment.description": "Zaten yanıt verdiğim bir yoruma bir yanıt daha verin. Bunu yalnızca farklı bir fikir eklemek istediğimde kullanın."
-} as const;

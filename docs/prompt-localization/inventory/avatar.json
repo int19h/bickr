@@ -4,8 +4,8 @@
     {
       "id": "avatar.image.participant_system",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/avatar.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -22,8 +22,8 @@
     {
       "id": "avatar.image.world_system",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
-        "line": 3
+        "file": "workers/agent-runtime/src/localization/en/avatar.yaml",
+        "line": 4
       },
       "sinks": [
         {
@@ -40,8 +40,8 @@
     {
       "id": "avatar.describe_current.participant_system",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
-        "line": 4
+        "file": "workers/agent-runtime/src/localization/en/avatar.yaml",
+        "line": 7
       },
       "sinks": [
         {
@@ -58,8 +58,8 @@
     {
       "id": "avatar.describe_current.world_system",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
-        "line": 5
+        "file": "workers/agent-runtime/src/localization/en/avatar.yaml",
+        "line": 10
       },
       "sinks": [
         {
@@ -76,8 +76,8 @@
     {
       "id": "avatar.world_source.system",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
-        "line": 6
+        "file": "workers/agent-runtime/src/localization/en/avatar.yaml",
+        "line": 13
       },
       "sinks": [
         {
@@ -94,8 +94,8 @@
     {
       "id": "avatar.image.world_refresh",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
-        "line": 7
+        "file": "workers/agent-runtime/src/localization/en/avatar.yaml",
+        "line": 16
       },
       "sinks": [
         {
@@ -110,8 +110,8 @@
     {
       "id": "avatar.image.participant_refresh",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
-        "line": 8
+        "file": "workers/agent-runtime/src/localization/en/avatar.yaml",
+        "line": 19
       },
       "sinks": [
         {
@@ -126,8 +126,8 @@
     {
       "id": "avatar.describe_current.world",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
-        "line": 9
+        "file": "workers/agent-runtime/src/localization/en/avatar.yaml",
+        "line": 22
       },
       "sinks": [
         {
@@ -142,8 +142,8 @@
     {
       "id": "avatar.describe_current.participant",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
-        "line": 10
+        "file": "workers/agent-runtime/src/localization/en/avatar.yaml",
+        "line": 25
       },
       "sinks": [
         {
@@ -158,8 +158,8 @@
     {
       "id": "avatar.persona_description.structured",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
-        "line": 11
+        "file": "workers/agent-runtime/src/localization/en/avatar.yaml",
+        "line": 28
       },
       "sinks": [
         {
@@ -176,8 +176,8 @@
     {
       "id": "avatar.persona_description.tool",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
-        "line": 12
+        "file": "workers/agent-runtime/src/localization/en/avatar.yaml",
+        "line": 31
       },
       "sinks": [
         {
@@ -194,8 +194,8 @@
     {
       "id": "avatar.persona_description.repair_structured",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
-        "line": 13
+        "file": "workers/agent-runtime/src/localization/en/avatar.yaml",
+        "line": 34
       },
       "sinks": [
         {
@@ -213,8 +213,8 @@
     {
       "id": "avatar.persona_description.repair_tool",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
-        "line": 14
+        "file": "workers/agent-runtime/src/localization/en/avatar.yaml",
+        "line": 37
       },
       "sinks": [
         {
@@ -231,8 +231,8 @@
     {
       "id": "avatar.world_source.description_and_detail",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
-        "line": 15
+        "file": "workers/agent-runtime/src/localization/en/avatar.yaml",
+        "line": 40
       },
       "sinks": [
         {
@@ -249,8 +249,8 @@
     {
       "id": "avatar.world_source.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
-        "line": 16
+        "file": "workers/agent-runtime/src/localization/en/avatar.yaml",
+        "line": 48
       },
       "sinks": [
         {
@@ -267,8 +267,8 @@
     {
       "id": "avatar.world_source.detail",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
-        "line": 17
+        "file": "workers/agent-runtime/src/localization/en/avatar.yaml",
+        "line": 53
       },
       "sinks": [
         {
@@ -285,8 +285,8 @@
     {
       "id": "avatar.image.currentIncluded",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/avatar.ts",
-        "line": 18
+        "file": "workers/agent-runtime/src/localization/en/avatar.yaml",
+        "line": 58
       },
       "sinks": [
         {

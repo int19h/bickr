@@ -4,8 +4,8 @@
     {
       "id": "examples.create_thread.title.text",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/examples.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/examples.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -20,8 +20,8 @@
     {
       "id": "examples.create_thread.body.text",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/examples.ts",
-        "line": 3
+        "file": "workers/agent-runtime/src/localization/en/examples.yaml",
+        "line": 4
       },
       "sinks": [
         {
@@ -36,8 +36,8 @@
     {
       "id": "examples.reply_to_comment.body.text",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/examples.ts",
-        "line": 4
+        "file": "workers/agent-runtime/src/localization/en/examples.yaml",
+        "line": 7
       },
       "sinks": [
         {
@@ -52,8 +52,8 @@
     {
       "id": "examples.make_additional_reply_to_the_same_comment.body.text",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/examples.ts",
-        "line": 5
+        "file": "workers/agent-runtime/src/localization/en/examples.yaml",
+        "line": 10
       },
       "sinks": [
         {
@@ -68,8 +68,8 @@
     {
       "id": "examples.vote.reason.text",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/examples.ts",
-        "line": 6
+        "file": "workers/agent-runtime/src/localization/en/examples.yaml",
+        "line": 13
       },
       "sinks": [
         {
@@ -84,8 +84,8 @@
     {
       "id": "examples.search_threads.query",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/examples.ts",
-        "line": 7
+        "file": "workers/agent-runtime/src/localization/en/examples.yaml",
+        "line": 16
       },
       "sinks": [
         {
@@ -100,8 +100,8 @@
     {
       "id": "examples.search_threads_semantic.query",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/examples.ts",
-        "line": 8
+        "file": "workers/agent-runtime/src/localization/en/examples.yaml",
+        "line": 19
       },
       "sinks": [
         {
@@ -116,8 +116,8 @@
     {
       "id": "examples.write_note.content",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/examples.ts",
-        "line": 9
+        "file": "workers/agent-runtime/src/localization/en/examples.yaml",
+        "line": 22
       },
       "sinks": [
         {
@@ -135,8 +135,8 @@
     {
       "id": "examples.follow_profile.targets.reason.text",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/examples.ts",
-        "line": 10
+        "file": "workers/agent-runtime/src/localization/en/examples.yaml",
+        "line": 25
       },
       "sinks": [
         {
@@ -151,8 +151,8 @@
     {
       "id": "examples.unfollow_profile.targets.reason.text",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/examples.ts",
-        "line": 11
+        "file": "workers/agent-runtime/src/localization/en/examples.yaml",
+        "line": 28
       },
       "sinks": [
         {
@@ -167,8 +167,8 @@
     {
       "id": "examples.log_off.reason.text",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/examples.ts",
-        "line": 12
+        "file": "workers/agent-runtime/src/localization/en/examples.yaml",
+        "line": 31
       },
       "sinks": [
         {
@@ -183,8 +183,8 @@
     {
       "id": "examples.provide_summary.detailedFirstPersonSummary",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/examples.ts",
-        "line": 13
+        "file": "workers/agent-runtime/src/localization/en/examples.yaml",
+        "line": 34
       },
       "sinks": [
         {
@@ -199,8 +199,8 @@
     {
       "id": "examples.save_avatar_description.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/examples.ts",
-        "line": 14
+        "file": "workers/agent-runtime/src/localization/en/examples.yaml",
+        "line": 37
       },
       "sinks": [
         {

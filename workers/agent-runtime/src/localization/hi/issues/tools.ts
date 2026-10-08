@@ -1,4 +1,0 @@
-export default {
-	"issue.tool.unknown": "अज्ञात टूल: {{toolName}}। उपलब्ध टूल की सूची से कोई टूल चुनें।",
-	"issue.tool.duplicateReply": "ठीक यही टिप्पणी पहले ही पोस्ट की जा चुकी है: {{commentRef}} ({{urlPath}})।"
-} as const;

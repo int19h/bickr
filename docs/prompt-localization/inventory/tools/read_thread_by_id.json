@@ -4,8 +4,8 @@
     {
       "id": "tools.read_thread_by_id.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/read_thread_by_id.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/tools/read_thread_by_id.yaml",
+        "line": 1
       },
       "sinks": [
         {

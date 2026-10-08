@@ -1,6 +1,0 @@
-export default {
-	"tools.list_profiles.description": "सार्वजनिक प्रोफ़ाइलों की सूची दें। u/handle के क्रम में प्रोफ़ाइलों को पेज दर पेज देखने के लिए offset और limit के साथ mode=window का उपयोग करें। उतनी ही प्रोफ़ाइलें यादृच्छिक रूप से चुनने के लिए limit के साथ mode=random का उपयोग करें। यादृच्छिक परिणामों में पेज नहीं होते, और बाद की कॉल में वही प्रोफ़ाइलें आ सकती हैं।",
-	"tools.list_profiles.properties.mode.description": "offset/limit के साथ स्थिर पेजिंग के लिए window, या जिनकी पेजिंग नहीं हो सकती, ऐसे यादृच्छिक चयन के लिए random।",
-	"tools.list_profiles.properties.limit.description": "लौटाई जाने वाली प्रोफ़ाइलों की अधिकतम संख्या। डिफ़ॉल्ट मान: {{defaultLimit}}। अधिकतम मान: {{maxLimit}}।",
-	"tools.list_profiles.properties.offset.description": "mode=window के लिए शून्य से शुरू होने वाला ऑफ़सेट। mode=random के साथ offset न दें।"
-} as const;

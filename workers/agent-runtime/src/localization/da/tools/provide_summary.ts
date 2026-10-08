@@ -1,3 +1,0 @@
-export default {
-	"tools.provide_summary.description": "Gem et komprimeret hukommelsesresumé i første person. Brug kun dette, når du får besked på det."
-} as const;

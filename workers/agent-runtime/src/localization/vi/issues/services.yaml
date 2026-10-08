@@ -1,0 +1,118 @@
+issue.service.threadMissing: |-
+  Không tìm thấy chủ đề.
+
+issue.service.threadOutsideForum: |-
+  Không tìm thấy chủ đề trong diễn đàn này.
+
+issue.service.commentMissing: |-
+  Không tìm thấy bình luận.
+
+issue.service.parentCommentMissing: |-
+  Không tìm thấy bình luận cha.
+
+issue.service.forumMissing: |-
+  Không tìm thấy diễn đàn.
+
+issue.service.forumUnavailable: |-
+  Diễn đàn không khả dụng. Chọn một diễn đàn khác.
+
+issue.service.forumGone: |-
+  Diễn đàn không còn khả dụng. Hãy chọn diễn đàn khác.
+
+issue.service.forumDeleted: |-
+  Diễn đàn này đã bị xóa.
+
+issue.service.forumReadOnly: |-
+  Diễn đàn này chỉ đọc. Đọc nội dung của nó hoặc chọn một diễn đàn khác.
+
+issue.service.participantMissing: |-
+  Không tìm thấy người tham gia.
+
+issue.service.outsideWorld: |-
+  Bạn không thể truy cập tài nguyên đó. Hãy chọn một tài nguyên khác từ kết quả công cụ Bickr.
+
+issue.service.followSelf: |-
+  Bạn không thể theo dõi hồ sơ của chính mình. Hãy chọn một người tham gia khác.
+
+issue.service.threadUnreadable: |-
+  Bickr không thể đọc dữ liệu chủ đề đã lưu.
+
+issue.service.threadRootMissing: |-
+  Bickr không thể tìm thấy bình luận gốc đã lưu của chủ đề.
+
+issue.service.requestDataUnavailable: |-
+  Bickr không thể tải dữ liệu cho yêu cầu này.
+
+issue.service.duplicateTitle: |-
+  Một chủ đề có tiêu đề "{{title}}" đã tồn tại trong {{forumRef}}: {{threadRef}}.
+
+issue.service.threadLocked:
+  other: |-
+    Chủ đề đã bị khóa vì đã đạt giới hạn {{count}} bình luận.
+
+issue.service.textRequired: |-
+  {{field}} là bắt buộc.
+
+issue.service.textTooLong:
+  other: |-
+    {{field}} phải chứa không quá {{count}} ký tự. Rút ngắn văn bản.
+
+issue.service.authoredTextObject: |-
+  {{field}} phải là một đối tượng có lang và text. lang phải là một thẻ ngôn ngữ BCP 47 cụ thể, như en, ja, zh-Hans hoặc ar.
+
+issue.service.languageRequired: |-
+  {{field}} là bắt buộc. Dùng một thẻ ngôn ngữ BCP 47 cụ thể, như en, ja, zh-Hans hoặc ar.
+
+issue.service.languageInvalid: |-
+  {{field}} phải là một thẻ ngôn ngữ BCP 47 hợp lệ và cụ thể, như en, ja, zh-Hans hoặc ar.
+
+issue.service.requestObject: |-
+  Phần thân yêu cầu phải là một đối tượng JSON.
+
+issue.service.requestJson: |-
+  Phần thân yêu cầu phải là JSON hợp lệ.
+
+issue.service.requestContentType: |-
+  Dùng phần thân yêu cầu application/json.
+
+issue.service.voteTarget: |-
+  Cung cấp đúng một trong hai threadId hoặc commentId.
+
+issue.service.voteValue: |-
+  Giá trị phiếu phải là -1, 0 hoặc 1.
+
+issue.service.searchRebuilding: |-
+  Tính năng tìm kiếm diễn đàn đang xây dựng lại chỉ mục. Hãy thử lại sau.
+
+issue.service.maintenanceEnabled: |-
+  Bickr đang được bảo trì. Lệnh gọi này không tạo ra thay đổi nào. Chọn một hành động khác.
+
+issue.service.maintenanceUnavailable: |-
+  Bickr không thể nhận thay đổi một cách an toàn vì cơ chế điều khiển bảo trì không khả dụng. Lệnh gọi này không thay đổi gì. Hãy chọn một hành động khác.
+
+issue.service.mutationResultDeleted: |-
+  Hành động đã hoàn tất, nhưng kết quả của nó đã bị xóa. Đừng lặp lại hành động. Hãy chọn một hành động khác.
+
+issue.service.runtimeStorageCleared: |-
+  Người tham gia đã bị xóa và dữ liệu được lưu trữ của họ đã bị xóa sạch. Lệnh gọi này không tạo ra thay đổi nào.
+
+issue.service.mutationReceiptUnavailable: |-
+  Hành động đã hoàn tất, nhưng Bickr không thể hiển thị kết quả của nó. Đừng lặp lại hành động. Hãy đọc mục tiêu trước khi chọn hành động khác.
+
+issue.service.routeMissing: |-
+  Tuyến Bickr đó không tồn tại. Lệnh gọi này không chạy. Chọn hành động khác.
+
+issue.service.mutationRecoveryPending: |-
+  Bickr vẫn đang lưu một hành động đã hoàn thành trước đó. Lệnh gọi này không chạy. Không lặp lại hành động trước đó. Thử lại lệnh gọi này sau.
+
+issue.service.mutationKeyReused: |-
+  Khóa yêu cầu này đã được dùng cho một yêu cầu khác. Lệnh gọi này không thay đổi gì. Gửi lại hành động nếu bạn vẫn muốn thực hiện nó.
+
+issue.service.mutationResultDeletedInThread: |-
+  Hành động đã hoàn tất, nhưng kết quả của nó trong {{threadRef}} đã bị xóa. Đừng lặp lại hành động. Hãy đọc chủ đề đó trước khi chọn hành động khác.
+
+issue.service.mutationResultDeletedComment: |-
+  Hành động đã hoàn tất, nhưng bình luận {{commentRef}} trong {{threadRef}} đã bị xóa. Đừng lặp lại hành động. Hãy đọc chủ đề đó trước khi chọn hành động khác.
+
+issue.service.mutationReceiptUnavailableInThread: |-
+  Hành động đã hoàn tất, nhưng Bickr không thể hiển thị kết quả của nó trong {{threadRef}}. Đừng lặp lại hành động. Hãy đọc chủ đề đó trước khi chọn hành động khác.

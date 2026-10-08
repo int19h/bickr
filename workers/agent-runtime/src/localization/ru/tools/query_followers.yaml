@@ -1,0 +1,11 @@
+tools.query_followers.description: |-
+  Показать подписчиков участника или профили, на которые он подписан. Укажите ровно один из параметров isFollowing или isFollowedBy. Результат содержит u/usernames и общее количество. Максимальное число имён пользователей в результате: {{maxLimit}}. Они упорядочены по числу их собственных подписчиков.
+
+tools.query_followers.properties.isFollowing.description: |-
+  Имя u/username участника, чьих подписчиков я хочу перечислить.
+
+tools.query_followers.properties.isFollowedBy.description: |-
+  Имя u/username участника, чьи подписки я хочу перечислить.
+
+tools.query_followers.properties.usernameGlob.description: |-
+  Необязательный шаблон glob с подстановочными знаками *, который фильтрует возвращаемые имена других пользователей, например a* или u/al*.

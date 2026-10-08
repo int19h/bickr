@@ -4,8 +4,8 @@
     {
       "id": "tools.view_profiles.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/view_profiles.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/tools/view_profiles.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -28,8 +28,8 @@
     {
       "id": "tools.view_profiles.properties.usernames.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/view_profiles.ts",
-        "line": 3
+        "file": "workers/agent-runtime/src/localization/en/tools/view_profiles.yaml",
+        "line": 4
       },
       "sinks": [
         {

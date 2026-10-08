@@ -1,0 +1,2 @@
+tools.write_note.description: |-
+  Créez ou remplacez une note privée. L'ID est son titre et peut contenir des espaces. Un u/name ou un f/forum dans le titre ou le contenu lie la note à ce profil ou à ce forum.

@@ -1,4 +1,0 @@
-export default {
-	"tools.view_profiles.description": "Visualizza profili pubblici tramite u/username. I risultati mostrano le relazioni, il numero di persone che seguono il profilo e gli ID delle mie note quando le note sono attive. Se il risultato omette ID di note, omittedNoteIdCount ne indica il numero. Usa list_notes con entities: [\"u/name\"] per ottenere i restanti. Usa query_followers per ottenere i nomi utente di chi segue il profilo e dei profili seguiti.",
-	"tools.view_profiles.properties.usernames.description": "Uno o più u/usernames da visualizzare."
-} as const;

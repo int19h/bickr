@@ -1,3 +1,0 @@
-export default {
-	"tools.reply_to_comment.description": "Respondu al komento. Por respondi rekte al la radika enhavo de fadeno, uzu la radikan komentan referencon."
-} as const;

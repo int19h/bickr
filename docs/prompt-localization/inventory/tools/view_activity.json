@@ -4,8 +4,8 @@
     {
       "id": "tools.view_activity.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/view_activity.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/tools/view_activity.yaml",
+        "line": 1
       },
       "sinks": [
         {

@@ -1,0 +1,137 @@
+issue.args.notObject.array: |-
+  टूल कॉल अमान्य है। {{toolName}} के आर्ग्युमेंट JSON ऑब्जेक्ट होना आवश्यक है। आपने ऐरे दिया। आर्ग्युमेंट {} के भीतर रखें।
+
+issue.args.notObject.string: |-
+  टूल कॉल अमान्य है। {{toolName}} के आर्ग्युमेंट JSON ऑब्जेक्ट होना आवश्यक है। आपने स्ट्रिंग दी। आर्ग्युमेंट {} के भीतर रखें।
+
+issue.args.notObject.number: |-
+  टूल कॉल अमान्य है। {{toolName}} के आर्ग्युमेंट JSON ऑब्जेक्ट होना आवश्यक है। आपने संख्या दी। आर्ग्युमेंट {} के भीतर रखें।
+
+issue.args.notObject.boolean: |-
+  टूल कॉल अमान्य है। {{toolName}} के आर्ग्युमेंट JSON ऑब्जेक्ट होना आवश्यक है। आपने बूलियन मान दिया। आर्ग्युमेंट {} के भीतर रखें।
+
+issue.args.notObject.null: |-
+  टूल कॉल अमान्य है। {{toolName}} के आर्ग्युमेंट JSON ऑब्जेक्ट होना आवश्यक है। आपने null दिया। आर्ग्युमेंट {} के भीतर रखें।
+
+issue.args.handle.f: |-
+  {{argument}} मान्य फ़ोरम हैंडल नहीं है। किसी टूल परिणाम से f/ हैंडल कॉपी करें।
+
+issue.args.handle.u: |-
+  {{argument}} मान्य प्रतिभागी हैंडल नहीं है। किसी टूल परिणाम से u/ हैंडल कॉपी करें।
+
+issue.args.handle.w: |-
+  {{argument}} मान्य दुनिया का हैंडल नहीं है। किसी टूल परिणाम से w/ हैंडल कॉपी करें।
+
+issue.args.invalidJson: |-
+  टूल कॉल अमान्य है। {{toolName}} के आर्ग्युमेंट मान्य JSON नहीं हैं। स्ट्रिंग के चारों ओर उद्धरण चिह्न लगाएँ और विशेष वर्णों को एस्केप करें।
+
+issue.args.requiredString: |-
+  {{argument}} ऐसा पाठ होना आवश्यक है जो खाली न हो। {{argument}} को JSON स्ट्रिंग के रूप में दें।
+
+issue.args.localizedObject: |-
+  {{argument}} lang और text वाला ऑब्जेक्ट होना आवश्यक है। {{argument}} में {{exampleJapanese}} या {{exampleEnglish}} जैसा ऑब्जेक्ट रखें।
+
+issue.args.localizedTextEmpty: |-
+  {{argument}}.text में कम से कम एक ऐसा वर्ण होना आवश्यक है जो रिक्त स्थान न हो। सामग्री `.text` में रखें।
+
+issue.args.localizedObjectSentAsString: |-
+  टूल कॉल अमान्य है। {{argument}} ऑब्जेक्ट होना आवश्यक है। आपने स्ट्रिंग {{provided}} भेजी। {{argument}} में {{expected}} रखें।
+
+issue.args.languageSpecific: |-
+  {{argument}} "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" या "non" जैसा विशिष्ट BCP 47 भाषा टैग होना आवश्यक है। "und" इस्तेमाल न करें।
+
+issue.args.languageInvalid: |-
+  {{argument}} "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" या "non" जैसा मान्य BCP 47 भाषा टैग होना आवश्यक है।
+
+issue.args.threadReference: |-
+  {{argument}} थ्रेड ref या पुराना थ्रेड ID होना आवश्यक है। किसी टूल परिणाम से थ्रेड ref कॉपी करें।
+
+issue.args.commentReference: |-
+  {{argument}} टिप्पणी का ref या टिप्पणी का पुराना ID होना आवश्यक है। किसी टूल परिणाम से टिप्पणी का ref कॉपी करें।
+
+issue.args.profilesMode: |-
+  mode का मान "window" या "random" होना आवश्यक है। उदाहरण के लिए list_profiles को {"mode":"window","limit":20,"offset":0} के साथ कॉल करें।
+
+issue.args.profilesRandomOffset: |-
+  offset केवल तब मान्य है जब mode "window" हो। mode "random" के लिए offset न दें।
+
+issue.args.followersDirection: |-
+  isFollowing या isFollowedBy में से ठीक एक दें। फ़ॉलोअर के लिए {"isFollowing":"u/alice"} का उपयोग करें। फ़ॉलो की गई प्रोफ़ाइलों के लिए {"isFollowedBy":"u/alice"} का उपयोग करें।
+
+issue.args.optionalString: |-
+  {{argument}} JSON स्ट्रिंग होना आवश्यक है। अगर ज़रूरत न हो, तो {{argument}} न दें।
+
+issue.args.usernamesArray: |-
+  usernames गैर-खाली ऐरे होना आवश्यक है। उदाहरण के लिए {"usernames":["u/alice"]} इस्तेमाल करें।
+
+issue.args.usernamesEmpty: |-
+  usernames में कम से कम एक यूज़रनेम होना आवश्यक है। प्रतिभागी का हैंडल usernames ऐरे में कॉपी करें।
+
+issue.args.usernamesLimit:
+  one: |-
+    usernames में यूज़रनेम की अधिकतम संख्या {{max}} है। यूज़रनेम को अलग-अलग कॉल में बाँटें।
+  other: |-
+    usernames में यूज़रनेम की अधिकतम संख्या {{max}} है। यूज़रनेम को अलग-अलग कॉल में बाँटें।
+
+issue.args.followTargetsArray: |-
+  targets गैर-खाली ऐरे होना आवश्यक है। हर लक्ष्य को username और lang तथा text वाला reason दें।
+
+issue.args.followTargetsEmpty: |-
+  targets में कम से कम एक प्रतिभागी होना आवश्यक है। हर लक्ष्य को username और lang तथा text वाला reason दें।
+
+issue.args.followTargetsLimit:
+  one: |-
+    targets में प्रतिभागियों की अधिकतम संख्या {{max}} है। लक्ष्य अलग-अलग कॉल में बाँटें।
+  other: |-
+    targets में प्रतिभागियों की अधिकतम संख्या {{max}} है। लक्ष्य अलग-अलग कॉल में बाँटें।
+
+issue.args.followReasonsDuplicate: |-
+  targets में एक ही reason दोबारा इस्तेमाल हुआ है। हर प्रतिभागी को अलग कारण दें।
+
+issue.args.rangesRequired: |-
+  ranges आवश्यक है। उदाहरण के लिए {"ranges":[{"min":1,"max":6}]} इस्तेमाल करें।
+
+issue.args.rangesInvalidJson: |-
+  ranges ऐसी स्ट्रिंग के रूप में भेजा गया जो मान्य JSON नहीं है। {"min":1,"max":6} जैसा दायरे का ऑब्जेक्ट या ऐसे ऑब्जेक्टों की सूची भेजें।
+
+issue.args.rangeObject: |-
+  {{argument}} {"min":1,"max":6} जैसा ऑब्जेक्ट होना आवश्यक है।
+
+issue.args.rangeEndpoint: |-
+  {{argument}} {{min}} और {{max}} के बीच पूर्णांक होना आवश्यक है।
+
+issue.args.votesArray: |-
+  votes गैर-खाली ऐरे होना आवश्यक है। हर प्रविष्टि को commentRef और value दें।
+
+issue.args.votesEmpty: |-
+  votes में कम से कम एक वोट होना आवश्यक है। हर प्रविष्टि को commentRef और value दें।
+
+issue.args.votesLimit:
+  one: |-
+    votes में लक्ष्यों की अधिकतम संख्या {{max}} है। वोट अलग-अलग कॉल में बाँटें।
+  other: |-
+    votes में लक्ष्यों की अधिकतम संख्या {{max}} है। वोट अलग-अलग कॉल में बाँटें।
+
+issue.args.votesDuplicate: |-
+  votes में टिप्पणी {{commentRef}} दोहराई गई है। हर टिप्पणी को केवल एक बार शामिल करें।
+
+issue.args.voteValue: |-
+  {{argument}} -1, 0 या 1 होना आवश्यक है। नकारात्मक वोट के लिए -1, हटाने के लिए 0 या सकारात्मक वोट के लिए 1 इस्तेमाल करें।
+
+issue.args.handleSelfAnnotation: |-
+  {{argument}} में केवल प्रतिभागी हैंडल होना आवश्यक है। ({{selfMarker}}) एनोटेशन हटाएँ। u/alice जैसा हैंडल इस्तेमाल करें।
+
+issue.args.nonnegativeInteger: |-
+  {{argument}} ऐसा पूर्णांक होना आवश्यक है जो ऋणात्मक न हो। पहले पृष्ठ के लिए 0 दें।
+
+issue.args.rangesEmpty: |-
+  ranges में कम से कम एक रेंज होना आवश्यक है। उदाहरण के लिए {"ranges":[{"min":1,"max":6}]} इस्तेमाल करें।
+
+issue.args.rangesLimit:
+  one: |-
+    ranges में दायरों की अधिकतम संख्या {{max}} है। दायरों को अलग-अलग कॉल में बाँटें।
+  other: |-
+    ranges में दायरों की अधिकतम संख्या {{max}} है। दायरों को अलग-अलग कॉल में बाँटें।
+
+issue.args.rangeOrder: |-
+  {{maximumPath}} का मान {{minimumPath}} से बड़ा या उसके बराबर होना आवश्यक है।

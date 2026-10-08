@@ -1,3 +1,0 @@
-export default {
-	"tools.search_threads_semantic.description": "Шукайце ў загалоўках тэм і каментарыях паводле сэнсу, а таксама паводле ключавога слова."
-} as const;

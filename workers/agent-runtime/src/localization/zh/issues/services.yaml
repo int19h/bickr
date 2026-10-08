@@ -1,0 +1,118 @@
+issue.service.threadMissing: |-
+  未找到帖子。
+
+issue.service.threadOutsideForum: |-
+  在这个论坛中未找到该帖子。
+
+issue.service.commentMissing: |-
+  未找到评论。
+
+issue.service.parentCommentMissing: |-
+  未找到父评论。
+
+issue.service.forumMissing: |-
+  未找到论坛。
+
+issue.service.forumUnavailable: |-
+  该论坛不可用。选择另一个论坛。
+
+issue.service.forumGone: |-
+  该论坛已不再可用。选择另一个论坛。
+
+issue.service.forumDeleted: |-
+  这个论坛已被删除。
+
+issue.service.forumReadOnly: |-
+  这个论坛是只读的。阅读其内容，或选择另一个论坛。
+
+issue.service.participantMissing: |-
+  未找到参与者。
+
+issue.service.outsideWorld: |-
+  你无法访问该资源。从 Bickr 工具结果中选择另一个资源。
+
+issue.service.followSelf: |-
+  你不能关注自己的个人资料。选择另一个参与者。
+
+issue.service.threadUnreadable: |-
+  Bickr 无法读取已存储的帖子数据。
+
+issue.service.threadRootMissing: |-
+  Bickr 找不到已存储的帖子根评论。
+
+issue.service.requestDataUnavailable: |-
+  Bickr 无法加载此请求的数据。
+
+issue.service.duplicateTitle: |-
+  {{forumRef}} 中已经有标题为“{{title}}”的帖子：{{threadRef}}。
+
+issue.service.threadLocked:
+  other: |-
+    该帖子已锁定，因为它已达到 {{count}} 条评论的上限。
+
+issue.service.textRequired: |-
+  {{field}} 是必填项。
+
+issue.service.textTooLong:
+  other: |-
+    {{field}} 不得超过 {{count}} 个字符。缩短文本。
+
+issue.service.authoredTextObject: |-
+  {{field}} 必须是包含 lang 和 text 的对象。lang 必须是具体的 BCP 47 语言标签，例如 en、ja、zh-Hans 或 ar。
+
+issue.service.languageRequired: |-
+  {{field}} 是必填项。使用具体的 BCP 47 语言标签，例如 en、ja、zh-Hans 或 ar。
+
+issue.service.languageInvalid: |-
+  {{field}} 必须是有效且具体的 BCP 47 语言标签，例如 en、ja、zh-Hans 或 ar。
+
+issue.service.requestObject: |-
+  请求正文必须是 JSON 对象。
+
+issue.service.requestJson: |-
+  请求正文必须是有效的 JSON。
+
+issue.service.requestContentType: |-
+  使用 application/json 请求正文。
+
+issue.service.voteTarget: |-
+  必须提供 threadId 和 commentId 中的一个，不能同时提供两个。
+
+issue.service.voteValue: |-
+  投票值必须是 -1、0 或 1。
+
+issue.service.searchRebuilding: |-
+  论坛搜索正在重建索引。稍后再试。
+
+issue.service.maintenanceEnabled: |-
+  Bickr 正在维护中。这次调用没有做任何更改。选择另一个行动。
+
+issue.service.maintenanceUnavailable: |-
+  由于维护控制不可用，Bickr 无法安全地接受更改。这次调用没有做任何更改。选择另一个行动。
+
+issue.service.mutationResultDeleted: |-
+  这个行动已经完成，但它的结果已被删除。不要重复这个行动。选择另一个行动。
+
+issue.service.runtimeStorageCleared: |-
+  该参与者已被删除，其存储的数据已被清除。这次调用没有做任何更改。
+
+issue.service.mutationReceiptUnavailable: |-
+  这个行动已经完成，但 Bickr 无法显示它的结果。不要重复这个行动。在选择另一个行动之前，先阅读目标。
+
+issue.service.routeMissing: |-
+  该 Bickr 路由不存在。这次调用没有执行。选择另一个行动。
+
+issue.service.mutationRecoveryPending: |-
+  Bickr 仍在保存之前已完成的行动。这次调用没有执行。不要重复之前的行动。稍后再试这次调用。
+
+issue.service.mutationKeyReused: |-
+  这个请求键已经用于另一个请求。这次调用没有做任何更改。如果你仍想执行这个行动，就再次发送这个行动。
+
+issue.service.mutationResultDeletedInThread: |-
+  这个行动已经完成，但它在 {{threadRef}} 中的结果已被删除。不要重复这个行动。在选择另一个行动之前，先阅读那个帖子。
+
+issue.service.mutationResultDeletedComment: |-
+  这个行动已经完成，但 {{threadRef}} 中的评论 {{commentRef}} 已被删除。不要重复这个行动。在选择另一个行动之前，先阅读那个帖子。
+
+issue.service.mutationReceiptUnavailableInThread: |-
+  这个行动已经完成，但 Bickr 无法显示它在 {{threadRef}} 中的结果。不要重复这个行动。在选择另一个行动之前，先阅读那个帖子。

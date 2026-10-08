@@ -1,0 +1,11 @@
+tools.query_followers.description: |-
+  Listigu la sekvantojn de partoprenanto, aŭ la profilojn, kiujn tiu sekvas. Donu precize unu el isFollowing aŭ isFollowedBy. La rezulto donas u/usernames kaj la tutan nombron. Ĝi listigas maksimume {{maxLimit}} uzantnomojn, laŭ la nombro de ties propraj sekvantoj.
+
+tools.query_followers.properties.isFollowing.description: |-
+  La u/username, kies sekvantojn mi volas listigi.
+
+tools.query_followers.properties.isFollowedBy.description: |-
+  La u/username, kies sekvatajn profilojn mi volas listigi.
+
+tools.query_followers.properties.usernameGlob.description: |-
+  Nedeviga ŝablono glob kun ĵokeroj * por filtri la redonatajn aliajn uzantnomojn, ekzemple a* aŭ u/al*.

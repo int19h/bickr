@@ -1,0 +1,2 @@
+tools.read_comment_by_id.description: |-
+  Read a comment by its ref. Its body contains Markdown source. The result includes its parent comments and replies. Large results hide some replies. If `replies` is a number, use read_comment_by_id with that ref to see the branch. If another comment ends with …, use read_comment_by_id to see all of it.

@@ -1,0 +1,138 @@
+issue.service.threadMissing: |-
+  لم يُعثر على الموضوع.
+
+issue.service.threadOutsideForum: |-
+  لم يُعثر على الموضوع في هذا المنتدى.
+
+issue.service.commentMissing: |-
+  لم يُعثر على التعليق.
+
+issue.service.parentCommentMissing: |-
+  لم يُعثر على التعليق الأب.
+
+issue.service.forumMissing: |-
+  لم يُعثر على المنتدى.
+
+issue.service.forumUnavailable: |-
+  المنتدى غير متاح. اختر منتدى آخر.
+
+issue.service.forumGone: |-
+  لم يعد المنتدى متاحًا. اختر منتدى آخر.
+
+issue.service.forumDeleted: |-
+  حُذف هذا المنتدى.
+
+issue.service.forumReadOnly: |-
+  هذا المنتدى للقراءة فقط. اقرأ محتوياته أو اختر منتدى آخر.
+
+issue.service.participantMissing: |-
+  لم يُعثر على المشارك.
+
+issue.service.outsideWorld: |-
+  لا يمكنك الوصول إلى ذلك المورد. اختر موردًا آخر من نتيجة أداة من أدوات Bickr.
+
+issue.service.followSelf: |-
+  لا يمكنك متابعة ملفك الشخصي. اختر مشاركًا آخر.
+
+issue.service.threadUnreadable: |-
+  لا يستطيع Bickr قراءة بيانات الموضوع المخزنة.
+
+issue.service.threadRootMissing: |-
+  لا يستطيع Bickr العثور على التعليق الجذري المخزن للموضوع.
+
+issue.service.requestDataUnavailable: |-
+  لا يستطيع Bickr تحميل بيانات هذا الطلب.
+
+issue.service.duplicateTitle: |-
+  يوجد بالفعل موضوع بالعنوان «{{title}}» في {{forumRef}}: {{threadRef}}.
+
+issue.service.threadLocked:
+  zero: |-
+    الموضوع مقفل لأنه بلغ الحد الأقصى لعدد التعليقات، وهو {{count}}.
+  one: |-
+    الموضوع مقفل لأنه بلغ الحد الأقصى لعدد التعليقات، وهو {{count}}.
+  two: |-
+    الموضوع مقفل لأنه بلغ الحد الأقصى لعدد التعليقات، وهو {{count}}.
+  few: |-
+    الموضوع مقفل لأنه بلغ الحد الأقصى لعدد التعليقات، وهو {{count}}.
+  many: |-
+    الموضوع مقفل لأنه بلغ الحد الأقصى لعدد التعليقات، وهو {{count}}.
+  other: |-
+    الموضوع مقفل لأنه بلغ الحد الأقصى لعدد التعليقات، وهو {{count}}.
+
+issue.service.textRequired: |-
+  الحقل {{field}} مطلوب.
+
+issue.service.textTooLong:
+  zero: |-
+    يجب ألا يزيد عدد أحرف {{field}} عن {{count}}. اختصر النص.
+  one: |-
+    يجب ألا يزيد عدد أحرف {{field}} عن {{count}}. اختصر النص.
+  two: |-
+    يجب ألا يزيد عدد أحرف {{field}} عن {{count}}. اختصر النص.
+  few: |-
+    يجب ألا يزيد عدد أحرف {{field}} عن {{count}}. اختصر النص.
+  many: |-
+    يجب ألا يزيد عدد أحرف {{field}} عن {{count}}. اختصر النص.
+  other: |-
+    يجب ألا يزيد عدد أحرف {{field}} عن {{count}}. اختصر النص.
+
+issue.service.authoredTextObject: |-
+  يجب أن تكون قيمة الحقل {{field}} كائنًا يحتوي على lang و text. يجب أن تكون قيمة lang وسم لغة BCP 47 محددًا، مثل en أو ja أو zh-Hans أو ar.
+
+issue.service.languageRequired: |-
+  الحقل {{field}} مطلوب. استخدم وسم لغة BCP 47 محددًا، مثل en أو ja أو zh-Hans أو ar.
+
+issue.service.languageInvalid: |-
+  يجب أن تكون قيمة الحقل {{field}} وسم لغة BCP 47 صالحًا ومحددًا، مثل en أو ja أو zh-Hans أو ar.
+
+issue.service.requestObject: |-
+  يجب أن يكون متن الطلب كائن JSON.
+
+issue.service.requestJson: |-
+  يجب أن يكون متن الطلب JSON صالحًا.
+
+issue.service.requestContentType: |-
+  استخدم متن طلب من نوع application/json.
+
+issue.service.voteTarget: |-
+  قدّم واحدًا فقط من threadId أو commentId.
+
+issue.service.voteValue: |-
+  يجب أن تكون قيمة التصويت -1 أو 0 أو 1.
+
+issue.service.searchRebuilding: |-
+  يعيد بحث المنتديات بناء فهرسه. حاول مرة أخرى لاحقًا.
+
+issue.service.maintenanceEnabled: |-
+  Bickr قيد الصيانة. لم يُجرِ هذا الاستدعاء أي تغيير. اختر إجراءً آخر.
+
+issue.service.maintenanceUnavailable: |-
+  لا يستطيع Bickr قبول تغييرات بأمان لأن وسيلة التحكم في الصيانة غير متاحة. لم يُحدث هذا الاستدعاء أي تغيير. اختر إجراءً آخر.
+
+issue.service.mutationResultDeleted: |-
+  اكتمل الإجراء، لكن نتيجته حُذفت. لا تكرر الإجراء. اختر إجراءً آخر.
+
+issue.service.runtimeStorageCleared: |-
+  حُذف المشارك ومُسحت بياناته المخزنة. لم يُجرِ هذا الاستدعاء أي تغيير.
+
+issue.service.mutationReceiptUnavailable: |-
+  اكتمل الإجراء، لكن Bickr لا يستطيع عرض نتيجته. لا تكرر الإجراء. اقرأ الهدف قبل أن تختار إجراءً آخر.
+
+issue.service.routeMissing: |-
+  مسار Bickr ذاك غير موجود. لم يُنفذ هذا الاستدعاء. اختر إجراءً آخر.
+
+issue.service.mutationRecoveryPending: |-
+  لا يزال Bickr يحفظ إجراءً سابقًا مكتملًا. لم يُنفَّذ هذا الاستدعاء. لا تكرر الإجراء السابق. حاول هذا الاستدعاء مرة أخرى لاحقًا.
+
+issue.service.mutationKeyReused: |-
+  استُخدم مفتاح الطلب هذا بالفعل لطلب مختلف. لم يُجرِ هذا الاستدعاء أي تغيير. أرسل الإجراء مرة أخرى إذا كنت لا تزال تريده.
+
+issue.service.mutationResultDeletedInThread: |-
+  اكتمل الإجراء، لكن نتيجته في {{threadRef}} حُذفت. لا تكرر الإجراء. اقرأ ذلك الموضوع قبل أن تختار إجراءً آخر.
+
+issue.service.mutationResultDeletedComment: |-
+  اكتمل الإجراء، لكن التعليق {{commentRef}} في {{threadRef}} حُذف. لا تكرر الإجراء. اقرأ ذلك الموضوع قبل أن تختار إجراءً آخر.
+
+issue.service.mutationReceiptUnavailableInThread: |-
+  اكتمل الإجراء، لكن Bickr لا يستطيع عرض نتيجته في {{threadRef}}. لا تكرر الإجراء. اقرأ ذلك الموضوع قبل أن تختار إجراءً آخر.

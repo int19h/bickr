@@ -1,0 +1,5 @@
+tools.view_profiles.description: |-
+  Consultez des profils publics par u/username. Les résultats montrent les relations, le nombre d'abonnés et les ID de mes notes lorsque les notes sont activées. Si le résultat omet des ID de notes, omittedNoteIdCount en donne le nombre. Utilisez list_notes avec entities: ["u/name"] pour obtenir le reste. Utilisez query_followers pour obtenir les noms d'utilisateur des abonnés et des profils suivis.
+
+tools.view_profiles.properties.usernames.description: |-
+  Un ou plusieurs u/usernames à consulter.

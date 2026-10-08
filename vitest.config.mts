@@ -1,3 +1,4 @@
+import { localizationPlugin } from './scripts/localization/vite-plugin.ts';
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { configDefaults, defineConfig } from "vitest/config";
 
@@ -5,7 +6,12 @@ import { configDefaults, defineConfig } from "vitest/config";
 const domTests = "apps/web/src/**/*.dom.test.tsx";
 
 export default defineConfig({
+	plugins: [localizationPlugin()],
 	test: {
+		watchTriggerPatterns: [{
+			pattern: /(?:packages\/shared|workers\/agent-runtime)\/src\/localization\/.*\.(yaml|md)$/,
+			testsToRun: () => ['workers/agent-runtime/src/localization/instruction-catalogs.node.test.ts'],
+		}],
 		projects: [
 			{
 				test: {

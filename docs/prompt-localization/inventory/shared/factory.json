@@ -4,8 +4,8 @@
     {
       "id": "factory.plan",
       "definition": {
-        "file": "packages/shared/src/localization/en/factory.ts",
-        "line": 2
+        "file": "packages/shared/src/localization/en/factory.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -28,8 +28,8 @@
     {
       "id": "factory.reasoningPrefill",
       "definition": {
-        "file": "packages/shared/src/localization/en/factory.ts",
-        "line": 3
+        "file": "packages/shared/src/localization/en/factory.yaml",
+        "line": 4
       },
       "sinks": [
         {
@@ -44,8 +44,8 @@
     {
       "id": "factory.translationPrompt",
       "definition": {
-        "file": "packages/shared/src/localization/en/factory.ts",
-        "line": 4
+        "file": "packages/shared/src/localization/en/factory.yaml",
+        "line": 7
       },
       "sinks": [
         {
@@ -80,8 +80,8 @@
     {
       "id": "factory.bootstrap",
       "definition": {
-        "file": "packages/shared/src/localization/en/factory.ts",
-        "line": 5
+        "file": "packages/shared/src/localization/en/factory.yaml",
+        "line": 10
       },
       "sinks": [
         {
@@ -98,8 +98,8 @@
     {
       "id": "factory.introAdvice",
       "definition": {
-        "file": "packages/shared/src/localization/en/factory.ts",
-        "line": 6
+        "file": "packages/shared/src/localization/en/factory.yaml",
+        "line": 13
       },
       "sinks": [
         {
@@ -114,8 +114,8 @@
     {
       "id": "factory.introForumDescription",
       "definition": {
-        "file": "packages/shared/src/localization/en/factory.ts",
-        "line": 7
+        "file": "packages/shared/src/localization/en/factory.yaml",
+        "line": 16
       },
       "sinks": [
         {
@@ -130,8 +130,8 @@
     {
       "id": "factory.personalForumDescription",
       "definition": {
-        "file": "packages/shared/src/localization/en/factory.ts",
-        "line": 8
+        "file": "packages/shared/src/localization/en/factory.yaml",
+        "line": 19
       },
       "sinks": [
         {
@@ -148,8 +148,8 @@
     {
       "id": "factory.personalForumTitle",
       "definition": {
-        "file": "packages/shared/src/localization/en/factory.ts",
-        "line": 9
+        "file": "packages/shared/src/localization/en/factory.yaml",
+        "line": 22
       },
       "sinks": [
         {
@@ -166,8 +166,8 @@
     {
       "id": "factory.simulationReply",
       "definition": {
-        "file": "packages/shared/src/localization/en/factory.ts",
-        "line": 10
+        "file": "packages/shared/src/localization/en/factory.yaml",
+        "line": 25
       },
       "sinks": [
         {
@@ -185,8 +185,8 @@
     {
       "id": "factory.simulationTitle",
       "definition": {
-        "file": "packages/shared/src/localization/en/factory.ts",
-        "line": 11
+        "file": "packages/shared/src/localization/en/factory.yaml",
+        "line": 28
       },
       "sinks": [
         {

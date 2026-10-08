@@ -4,8 +4,8 @@
     {
       "id": "schema.compaction.summary",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/schema.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/schema.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -23,8 +23,8 @@
     {
       "id": "schema.compaction.property",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/schema.ts",
-        "line": 3
+        "file": "workers/agent-runtime/src/localization/en/schema.yaml",
+        "line": 4
       },
       "sinks": [
         {
@@ -43,8 +43,8 @@
     {
       "id": "tools.draw_random_integers.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/schema.ts",
-        "line": 4
+        "file": "workers/agent-runtime/src/localization/en/schema.yaml",
+        "line": 7
       },
       "sinks": [
         {
@@ -66,8 +66,8 @@
     {
       "id": "schema.authored_text.reply_body",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/schema.ts",
-        "line": 5
+        "file": "workers/agent-runtime/src/localization/en/schema.yaml",
+        "line": 10
       },
       "sinks": [
         {
@@ -92,8 +92,8 @@
     {
       "id": "schema.random_ranges.list",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/schema.ts",
-        "line": 6
+        "file": "workers/agent-runtime/src/localization/en/schema.yaml",
+        "line": 13
       },
       "sinks": [
         {
@@ -108,8 +108,8 @@
     {
       "id": "schema.random_ranges.choice",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/schema.ts",
-        "line": 7
+        "file": "workers/agent-runtime/src/localization/en/schema.yaml",
+        "line": 16
       },
       "sinks": [
         {
@@ -126,8 +126,8 @@
     {
       "id": "schema.random_range.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/schema.ts",
-        "line": 11
+        "file": "workers/agent-runtime/src/localization/en/schema.yaml",
+        "line": 22
       },
       "sinks": [
         {
@@ -146,8 +146,8 @@
     {
       "id": "schema.random_range.min",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/schema.ts",
-        "line": 12
+        "file": "workers/agent-runtime/src/localization/en/schema.yaml",
+        "line": 25
       },
       "sinks": [
         {
@@ -162,8 +162,8 @@
     {
       "id": "schema.random_range.max",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/schema.ts",
-        "line": 13
+        "file": "workers/agent-runtime/src/localization/en/schema.yaml",
+        "line": 28
       },
       "sinks": [
         {
@@ -180,8 +180,8 @@
     {
       "id": "schema.authored_text.language",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/schema.ts",
-        "line": 14
+        "file": "workers/agent-runtime/src/localization/en/schema.yaml",
+        "line": 31
       },
       "sinks": [
         {
@@ -200,8 +200,8 @@
     {
       "id": "schema.example_arguments",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/schema.ts",
-        "line": 15
+        "file": "workers/agent-runtime/src/localization/en/schema.yaml",
+        "line": 34
       },
       "sinks": [
         {
@@ -218,8 +218,8 @@
     {
       "id": "schema.authored.threadTitle",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/schema.ts",
-        "line": 16
+        "file": "workers/agent-runtime/src/localization/en/schema.yaml",
+        "line": 39
       },
       "sinks": [
         {
@@ -244,8 +244,8 @@
     {
       "id": "schema.authored.rootBody",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/schema.ts",
-        "line": 17
+        "file": "workers/agent-runtime/src/localization/en/schema.yaml",
+        "line": 42
       },
       "sinks": [
         {
@@ -279,8 +279,8 @@
     {
       "id": "schema.authored.voteReason",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/schema.ts",
-        "line": 18
+        "file": "workers/agent-runtime/src/localization/en/schema.yaml",
+        "line": 45
       },
       "sinks": [
         {
@@ -305,8 +305,8 @@
     {
       "id": "schema.authored.followReason",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/schema.ts",
-        "line": 19
+        "file": "workers/agent-runtime/src/localization/en/schema.yaml",
+        "line": 48
       },
       "sinks": [
         {
@@ -331,8 +331,8 @@
     {
       "id": "schema.authored.unfollowReason",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/schema.ts",
-        "line": 20
+        "file": "workers/agent-runtime/src/localization/en/schema.yaml",
+        "line": 51
       },
       "sinks": [
         {
@@ -357,8 +357,8 @@
     {
       "id": "schema.authored.logOffReason",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/schema.ts",
-        "line": 21
+        "file": "workers/agent-runtime/src/localization/en/schema.yaml",
+        "line": 54
       },
       "sinks": [
         {
@@ -384,8 +384,8 @@
     {
       "id": "schema.authored.replyBody",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/schema.ts",
-        "line": 22
+        "file": "workers/agent-runtime/src/localization/en/schema.yaml",
+        "line": 57
       },
       "sinks": [
         {

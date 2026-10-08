@@ -1,0 +1,134 @@
+structured_output.unexpected_tools.compaction: |-
+  META: Kald ikke værktøjer. Svar med et detaljeret resumé i første person, der følger det påkrævede JSON-skema.
+
+structured_output.unexpected_tools.other: |-
+  Brug ikke en Bickr-kommando til dette svar. Svar med det påkrævede JSON-objekt, som kun indeholder {{property}}.
+
+structured_output.empty.compaction: |-
+  Svaret med resuméet var tomt. Returnér et JSON-objekt med tekst, der ikke er tom, i {{property}}.
+
+structured_output.empty.translation: |-
+  Svaret med oversættelsen var tomt. Returnér et JSON-objekt med tekst, der ikke er tom, i {{property}}.
+
+structured_output.empty.avatar_description: |-
+  Svaret med beskrivelsen af profilbilledet var tomt. Returnér et JSON-objekt med tekst, der ikke er tom, i {{property}}.
+
+structured_output.invalid_json.compaction: |-
+  Svaret med resuméet skal være et JSON-objekt. Angiv kun {{property}} med dets tekstværdi.
+
+structured_output.invalid_json.translation: |-
+  Svaret med oversættelsen skal være et JSON-objekt. Angiv kun {{property}} med dets tekstværdi.
+
+structured_output.invalid_json.avatar_description: |-
+  Svaret med beskrivelsen af profilbilledet skal være et JSON-objekt. Angiv kun {{property}} med dets tekstværdi.
+
+structured_output.missing_tool: |-
+  Der blev ikke returneret noget kald af værktøjet {{toolName}}. Kald {{toolName}} én gang med tekst, der ikke er tom, i {{property}}.
+
+structured_output.wrong_tool: |-
+  Brug kun {{toolName}} til denne anmodning. Brug ikke {{receivedTool}} her.
+
+structured_output.tool_count:
+  one: |-
+    Der var ventet ét kald af værktøjet {{toolName}}, men der kom {{count}} værktøjskald. Kald {{toolName}} præcis én gang.
+  other: |-
+    Der var ventet ét kald af værktøjet {{toolName}}, men der kom {{count}} værktøjskald. Kald {{toolName}} præcis én gang.
+
+structured_output.tool_mismatch: |-
+  Det forventede værktøj var {{toolName}}, men {{receivedTool}} kom. Kald {{toolName}} i stedet.
+
+structured_output.invalid_arguments_json: |-
+  Argumenterne til {{toolName}} var ikke gyldig JSON. Angiv et JSON-objekt med tekst i {{property}}. Brug escape-sekvenser til specialtegn i strenge.
+
+structured_output.arguments_object: |-
+  Argumenterne til {{toolName}} skal være et JSON-objekt. Sæt {{property}} og dets tekstværdi inden i {}.
+
+structured_output.output_object: |-
+  Det strukturerede output skal være et JSON-objekt. Sæt {{property}} og dets tekstværdi inden i {}.
+
+structured_output.extra_arguments:
+  one: |-
+    Der er {{count}} uventet argument: {{fields}}. Fjern det argument. Angiv kun {{property}}.
+  other: |-
+    Der er {{count}} uventede argumenter: {{fields}}. Fjern de argumenter. Angiv kun {{property}}.
+
+structured_output.extra_fields:
+  one: |-
+    Der er {{count}} uventet felt: {{fields}}. Fjern det felt. Angiv kun {{property}}.
+  other: |-
+    Der er {{count}} uventede felter: {{fields}}. Fjern de felter. Angiv kun {{property}}.
+
+structured_output.nonempty.compaction: |-
+  Argumentet med resuméet skal være en streng, der ikke er tom. Sæt teksten i {{property}}.
+
+structured_output.nonempty.translation: |-
+  Argumentet med oversættelsen skal være en streng, der ikke er tom. Sæt teksten i {{property}}.
+
+structured_output.nonempty.avatar_description: |-
+  Argumentet med beskrivelsen af profilbilledet skal være en streng, der ikke er tom. Sæt teksten i {{property}}.
+
+structured_output.transcript: |-
+  Skriv resuméet i {{property}} som almindelig prosa i første person. Fjern udskriftslinjen {{line}}. Skriv ikke linjer mærket {{labels}}.
+
+structured_output.minimum.compaction:
+  one: |-
+    Resuméet i {{property}} skal indeholde mindst {{minimum}} tegn. Tilføj relevante detaljer til teksten.
+  other: |-
+    Resuméet i {{property}} skal indeholde mindst {{minimum}} tegn. Tilføj relevante detaljer til teksten.
+
+structured_output.minimum.translation:
+  one: |-
+    Oversættelsen i {{property}} skal indeholde mindst {{minimum}} tegn. Tilføj relevante detaljer til teksten.
+  other: |-
+    Oversættelsen i {{property}} skal indeholde mindst {{minimum}} tegn. Tilføj relevante detaljer til teksten.
+
+structured_output.minimum.avatar_description:
+  one: |-
+    Beskrivelsen af profilbilledet i {{property}} skal indeholde mindst {{minimum}} tegn. Tilføj relevante detaljer til teksten.
+  other: |-
+    Beskrivelsen af profilbilledet i {{property}} skal indeholde mindst {{minimum}} tegn. Tilføj relevante detaljer til teksten.
+
+structured_output.maximum.compaction:
+  one: |-
+    Resuméet i {{property}} må højst indeholde {{maximum}} tegn. Forkort teksten.
+  other: |-
+    Resuméet i {{property}} må højst indeholde {{maximum}} tegn. Forkort teksten.
+
+structured_output.maximum.translation:
+  one: |-
+    Oversættelsen i {{property}} må højst indeholde {{maximum}} tegn. Forkort teksten.
+  other: |-
+    Oversættelsen i {{property}} må højst indeholde {{maximum}} tegn. Forkort teksten.
+
+structured_output.maximum.avatar_description:
+  one: |-
+    Beskrivelsen af profilbilledet i {{property}} må højst indeholde {{maximum}} tegn. Forkort teksten.
+  other: |-
+    Beskrivelsen af profilbilledet i {{property}} må højst indeholde {{maximum}} tegn. Forkort teksten.
+
+structured_output.wrong_tool.unnamed: |-
+  Brug kun {{toolName}} til denne anmodning. Send ikke et værktøjskald uden navn.
+
+structured_output.tool_mismatch.unnamed: |-
+  Det forventede værktøj var {{toolName}}, men der kom et værktøjskald uden navn. Kald {{toolName}} i stedet.
+
+structured_output.nonreducing.estimate:
+  one: |-
+    Resuméet i {{property}} reducerede ikke konteksten. Dets anslåede længde er {{replacementTokens}} token.
+  other: |-
+    Resuméet i {{property}} reducerede ikke konteksten. Dets anslåede længde er {{replacementTokens}} tokens.
+
+structured_output.nonreducing.before:
+  one: |-
+    Konteksten havde {{compactedTokens}} token før erstatningen. Forkort resuméet, mens du bevarer de påkrævede fakta.
+  other: |-
+    Konteksten havde {{compactedTokens}} tokens før erstatningen. Forkort resuméet, mens du bevarer de påkrævede fakta.
+
+structured_output.nonempty.compaction.field: |-
+  Feltet med resuméet skal være en streng, der ikke er tom. Sæt teksten i {{property}}.
+
+structured_output.nonempty.translation.field: |-
+  Feltet med oversættelsen skal være en streng, der ikke er tom. Sæt teksten i {{property}}.
+
+structured_output.nonempty.avatar_description.field: |-
+  Feltet med beskrivelsen af profilbilledet skal være en streng, der ikke er tom. Sæt teksten i {{property}}.

@@ -4,8 +4,8 @@
     {
       "id": "tools.list_profiles.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/list_profiles.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/tools/list_profiles.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -26,8 +26,8 @@
     {
       "id": "tools.list_profiles.properties.mode.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/list_profiles.ts",
-        "line": 3
+        "file": "workers/agent-runtime/src/localization/en/tools/list_profiles.yaml",
+        "line": 4
       },
       "sinks": [
         {
@@ -47,8 +47,8 @@
     {
       "id": "tools.list_profiles.properties.limit.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/list_profiles.ts",
-        "line": 4
+        "file": "workers/agent-runtime/src/localization/en/tools/list_profiles.yaml",
+        "line": 7
       },
       "sinks": [
         {
@@ -66,8 +66,8 @@
     {
       "id": "tools.list_profiles.properties.offset.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/list_profiles.ts",
-        "line": 5
+        "file": "workers/agent-runtime/src/localization/en/tools/list_profiles.yaml",
+        "line": 10
       },
       "sinks": [
         {

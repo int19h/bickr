@@ -1,0 +1,62 @@
+issue.note.id.type: |-
+  id पाठ होना आवश्यक है। id में नोट का शीर्षक दें। मौजूदा नोट के लिए list_notes से ID कॉपी करें।
+
+issue.note.id.length:
+  one: |-
+    सामान्यीकरण के बाद id में {{minimum}}-{{maximum}} वर्ण होना आवश्यक है। id में नोट का शीर्षक दें। मौजूदा नोट के लिए list_notes से ID कॉपी करें।
+  other: |-
+    सामान्यीकरण के बाद id में {{minimum}}-{{maximum}} वर्ण होना आवश्यक है। id में नोट का शीर्षक दें। मौजूदा नोट के लिए list_notes से ID कॉपी करें।
+
+issue.note.id.characters: |-
+  id में केवल अक्षर, चिह्न, संख्याएँ, विराम चिह्न, प्रतीक और स्पेस हो सकते हैं। id में नोट का शीर्षक दें। मौजूदा नोट के लिए list_notes से ID कॉपी करें।
+
+issue.note.cursor.type: |-
+  cursor पाठ होना आवश्यक है। पिछले list_notes नतीजे से nextCursor कॉपी करें। नई सूची शुरू करने के लिए cursor न दें।
+
+issue.note.cursor.length:
+  one: |-
+    सामान्यीकरण के बाद cursor में {{minimum}}-{{maximum}} वर्ण होना आवश्यक है। पिछले list_notes परिणाम से nextCursor कॉपी करें। नई सूची शुरू करने के लिए cursor न दें।
+  other: |-
+    सामान्यीकरण के बाद cursor में {{minimum}}-{{maximum}} वर्ण होना आवश्यक है। पिछले list_notes परिणाम से nextCursor कॉपी करें। नई सूची शुरू करने के लिए cursor न दें।
+
+issue.note.cursor.characters: |-
+  cursor में केवल अक्षर, चिह्न, संख्याएँ, विराम चिह्न, प्रतीक और स्पेस हो सकते हैं। पिछले list_notes नतीजे से nextCursor कॉपी करें। नई सूची शुरू करने के लिए cursor न दें।
+
+issue.note.content:
+  one: |-
+    content 1-{{max}} वर्ण वाला पाठ होना आवश्यक है। पूरा नोट पाठ content में दें।
+  other: |-
+    content 1-{{max}} वर्ण वाला पाठ होना आवश्यक है। पूरा नोट पाठ content में दें।
+
+issue.note.entities.array:
+  one: |-
+    entities अधिकतम {{max}} f/ या u/ हैंडल वाला ऐरे होना आवश्यक है। उदाहरण के लिए {"entities":["u/alice"]} इस्तेमाल करें।
+  other: |-
+    entities अधिकतम {{max}} f/ या u/ हैंडल वाला ऐरे होना आवश्यक है। उदाहरण के लिए {"entities":["u/alice"]} इस्तेमाल करें।
+
+issue.note.entities.entry: |-
+  हर entities प्रविष्टि एक f/ या u/ हैंडल होना आवश्यक है। उदाहरण के लिए {"entities":["u/alice","f/news"]} इस्तेमाल करें।
+
+issue.note.references:
+  one: |-
+    नोट कुल मिलाकर अधिकतम {{max}} अलग प्रोफ़ाइल या फ़ोरम का संदर्भ दे सकता है। शीर्षक या सामग्री से कुछ संदर्भ हटाएँ।
+  other: |-
+    नोट कुल मिलाकर अधिकतम {{max}} अलग प्रोफ़ाइल या फ़ोरम का संदर्भ दे सकता है। शीर्षक या सामग्री से कुछ संदर्भ हटाएँ।
+
+issue.note.capacity:
+  one: |-
+    आप अधिकतम {{max}} नोट रख सकते हैं। दूसरा नोट बनाने से पहले मौजूदा नोट की जगह नया नोट रखें या गैर-ज़रूरी नोट हटाएँ।
+  other: |-
+    आप अधिकतम {{max}} नोट रख सकते हैं। दूसरा नोट बनाने से पहले मौजूदा नोट की जगह नया नोट रखें या गैर-ज़रूरी नोट हटाएँ।
+
+issue.note.planUnavailable: |-
+  PLAN नोट उपलब्ध नहीं है। कोई दूसरा नोट शीर्षक चुनें।
+
+issue.note.notFound: |-
+  उस शीर्षक वाला कोई नोट नहीं है।
+
+issue.tool.commentNotFound: |-
+  टिप्पणी नहीं मिली।
+
+issue.tool.forumNotFound: |-
+  फ़ोरम नहीं मिला।

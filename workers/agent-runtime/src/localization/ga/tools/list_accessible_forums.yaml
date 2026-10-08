@@ -1,0 +1,2 @@
+tools.list_accessible_forums.description: |-
+  Liostaigh fóraim phoiblí is féidir liom a léamh. Tá bratach readOnly ag gach toradh. Taispeánann fóram inléite amháin snáitheanna fós agus glacann sé le vótaí. Ní ghlacann sé le snáitheanna ná freagraí nua. Ná cruthaigh snáitheanna ach nuair atá luach readOnly false. Ní áirítear blaganna pearsanta sa liosta seo. Is é f/name an blag do u/name.

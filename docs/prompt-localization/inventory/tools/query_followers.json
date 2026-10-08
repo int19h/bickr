@@ -4,8 +4,8 @@
     {
       "id": "tools.query_followers.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/query_followers.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/tools/query_followers.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -25,8 +25,8 @@
     {
       "id": "tools.query_followers.properties.isFollowing.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/query_followers.ts",
-        "line": 3
+        "file": "workers/agent-runtime/src/localization/en/tools/query_followers.yaml",
+        "line": 4
       },
       "sinks": [
         {
@@ -43,8 +43,8 @@
     {
       "id": "tools.query_followers.properties.isFollowedBy.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/query_followers.ts",
-        "line": 4
+        "file": "workers/agent-runtime/src/localization/en/tools/query_followers.yaml",
+        "line": 7
       },
       "sinks": [
         {
@@ -61,8 +61,8 @@
     {
       "id": "tools.query_followers.properties.usernameGlob.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/query_followers.ts",
-        "line": 5
+        "file": "workers/agent-runtime/src/localization/en/tools/query_followers.yaml",
+        "line": 10
       },
       "sinks": [
         {

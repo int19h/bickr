@@ -1,0 +1,132 @@
+time.just_now: |-
+  proprio ora
+
+time.year.future:
+  one: |-
+    tra {{count}} anno
+  many: |-
+    tra {{count}} anni
+  other: |-
+    tra {{count}} anni
+
+time.year.past:
+  one: |-
+    {{count}} anno fa
+  many: |-
+    {{count}} anni fa
+  other: |-
+    {{count}} anni fa
+
+time.month.future:
+  one: |-
+    tra {{count}} mese
+  many: |-
+    tra {{count}} mesi
+  other: |-
+    tra {{count}} mesi
+
+time.month.past:
+  one: |-
+    {{count}} mese fa
+  many: |-
+    {{count}} mesi fa
+  other: |-
+    {{count}} mesi fa
+
+time.day.future:
+  one: |-
+    tra {{count}} giorno
+  many: |-
+    tra {{count}} giorni
+  other: |-
+    tra {{count}} giorni
+
+time.day.past:
+  one: |-
+    {{count}} giorno fa
+  many: |-
+    {{count}} giorni fa
+  other: |-
+    {{count}} giorni fa
+
+time.hour.future:
+  one: |-
+    tra {{count}} ora
+  many: |-
+    tra {{count}} ore
+  other: |-
+    tra {{count}} ore
+
+time.hour.past:
+  one: |-
+    {{count}} ora fa
+  many: |-
+    {{count}} ore fa
+  other: |-
+    {{count}} ore fa
+
+time.minute.future:
+  one: |-
+    tra {{count}} minuto
+  many: |-
+    tra {{count}} minuti
+  other: |-
+    tra {{count}} minuti
+
+time.minute.past:
+  one: |-
+    {{count}} minuto fa
+  many: |-
+    {{count}} minuti fa
+  other: |-
+    {{count}} minuti fa
+
+read.context.basic: |-
+  Risultato della mia operazione {{operation}}.
+
+read.context.collapsed_and_trimmed:
+  one: |-
+    Risultato della mia operazione {{operation}}. Alcuni elenchi di risposte sono stati compressi e alcuni corpi dei commenti sono stati accorciati per mantenere il risultato entro circa {{tokenBudget}} token.
+  many: |-
+    Risultato della mia operazione {{operation}}. Alcuni elenchi di risposte sono stati compressi e alcuni corpi dei commenti sono stati accorciati per mantenere il risultato entro circa {{tokenBudget}} token.
+  other: |-
+    Risultato della mia operazione {{operation}}. Alcuni elenchi di risposte sono stati compressi e alcuni corpi dei commenti sono stati accorciati per mantenere il risultato entro circa {{tokenBudget}} token.
+
+read.context.collapsed:
+  one: |-
+    Risultato della mia operazione {{operation}}. Alcuni elenchi di risposte sono stati compressi per mantenere il risultato entro circa {{tokenBudget}} token.
+  many: |-
+    Risultato della mia operazione {{operation}}. Alcuni elenchi di risposte sono stati compressi per mantenere il risultato entro circa {{tokenBudget}} token.
+  other: |-
+    Risultato della mia operazione {{operation}}. Alcuni elenchi di risposte sono stati compressi per mantenere il risultato entro circa {{tokenBudget}} token.
+
+read.context.trimmed:
+  one: |-
+    Risultato della mia operazione {{operation}}. Alcuni corpi dei commenti sono stati accorciati per mantenere il risultato entro circa {{tokenBudget}} token.
+  many: |-
+    Risultato della mia operazione {{operation}}. Alcuni corpi dei commenti sono stati accorciati per mantenere il risultato entro circa {{tokenBudget}} token.
+  other: |-
+    Risultato della mia operazione {{operation}}. Alcuni corpi dei commenti sono stati accorciati per mantenere il risultato entro circa {{tokenBudget}} token.
+
+read.guidance.collapsed: |-
+  Un valore numerico di `replies` significa che quel numero di risposte dirette è stato omesso. Chiama read_comment_by_id con il riferimento di quel commento per esaminare quel ramo.
+
+read.guidance.trimmed: |-
+  Un corpo che termina con {{ellipsis}} è stato accorciato. Chiama read_comment_by_id con il riferimento di quel commento per leggere il commento completo.
+
+read.guidance.both: |-
+  Un valore numerico di `replies` significa che quel numero di risposte dirette è stato omesso. Chiama read_comment_by_id con il riferimento di quel commento per esaminare quel ramo. Un corpo che termina con {{ellipsis}} è stato accorciato. Chiama read_comment_by_id con il riferimento di quel commento per leggere il commento completo.
+
+notifications.check.complete: |-
+  Risultato del controllo delle notifiche.
+
+notifications.check.omitted:
+  one: |-
+    Risultato del controllo delle notifiche. {{count}} notifica meno prioritaria o più vecchia è stata omessa. Resta in sospeso.
+  many: |-
+    Risultato del controllo delle notifiche. {{count}} notifiche meno prioritarie o più vecchie sono state omesse. Restano in sospeso.
+  other: |-
+    Risultato del controllo delle notifiche. {{count}} notifiche meno prioritarie o più vecchie sono state omesse. Restano in sospeso.
+
+read.focus.description: |-
+  La mia attenzione è rivolta a questo commento.

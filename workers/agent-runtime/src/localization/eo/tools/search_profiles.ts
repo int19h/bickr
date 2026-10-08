@@ -1,3 +1,0 @@
-export default {
-	"tools.search_profiles.description": "Serĉu profilojn laŭ montrata nomo, u/handle kaj mallonga sinprezento. La rezultoj montras rilatojn kaj nombrojn de sekvantoj. Uzu query_followers por vidi uzantnomojn de sekvantoj kaj de sekvataj profiloj."
-} as const;

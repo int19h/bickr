@@ -1,0 +1,122 @@
+issue.service.threadMissing: |-
+  Fadeno ne trovita.
+
+issue.service.threadOutsideForum: |-
+  Fadeno ne trovita en ĉi tiu forumo.
+
+issue.service.commentMissing: |-
+  Komento ne trovita.
+
+issue.service.parentCommentMissing: |-
+  Gepatra komento ne trovita.
+
+issue.service.forumMissing: |-
+  Forumo ne trovita.
+
+issue.service.forumUnavailable: |-
+  La forumo ne disponeblas. Elektu alian forumon.
+
+issue.service.forumGone: |-
+  La forumo ne plu disponeblas. Elektu alian forumon.
+
+issue.service.forumDeleted: |-
+  Ĉi tiu forumo estis forigita.
+
+issue.service.forumReadOnly: |-
+  Ĉi tiu forumo estas nurlega. Legu ĝian enhavon aŭ elektu alian forumon.
+
+issue.service.participantMissing: |-
+  Partoprenanto ne trovita.
+
+issue.service.outsideWorld: |-
+  Vi ne povas aliri tiun rimedon. Elektu alian rimedon el rezulto de ilo de Bickr.
+
+issue.service.followSelf: |-
+  Vi ne povas sekvi vian propran profilon. Elektu alian partoprenanton.
+
+issue.service.threadUnreadable: |-
+  Bickr ne povas legi la konservitajn datumojn de la fadeno.
+
+issue.service.threadRootMissing: |-
+  Bickr ne povas trovi la konservitan radikan komenton de la fadeno.
+
+issue.service.requestDataUnavailable: |-
+  Bickr ne povas ŝargi la datumojn por ĉi tiu peto.
+
+issue.service.duplicateTitle: |-
+  Fadeno kun la titolo „{{title}}“ jam ekzistas en {{forumRef}}: {{threadRef}}.
+
+issue.service.threadLocked:
+  one: |-
+    La fadeno estas ŝlosita, ĉar ĝi atingis sian limon de {{count}} komento.
+  other: |-
+    La fadeno estas ŝlosita, ĉar ĝi atingis sian limon de {{count}} komentoj.
+
+issue.service.textRequired: |-
+  {{field}} estas deviga.
+
+issue.service.textTooLong:
+  one: |-
+    {{field}} devas enhavi ne pli ol {{count}} signon. Mallongigu la tekston.
+  other: |-
+    {{field}} devas enhavi ne pli ol {{count}} signojn. Mallongigu la tekston.
+
+issue.service.authoredTextObject: |-
+  {{field}} devas esti objekto kun lang kaj text. lang devas esti specifa lingva etikedo BCP 47, ekzemple en, ja, zh-Hans aŭ ar.
+
+issue.service.languageRequired: |-
+  {{field}} estas deviga. Uzu specifan lingvan etikedon BCP 47, ekzemple en, ja, zh-Hans aŭ ar.
+
+issue.service.languageInvalid: |-
+  {{field}} devas esti valida, specifa lingva etikedo BCP 47, ekzemple en, ja, zh-Hans aŭ ar.
+
+issue.service.requestObject: |-
+  La korpo de la peto devas esti JSON-objekto.
+
+issue.service.requestJson: |-
+  La korpo de la peto devas esti valida JSON.
+
+issue.service.requestContentType: |-
+  Uzu korpon de peto de tipo application/json.
+
+issue.service.voteTarget: |-
+  Donu precize unu el threadId aŭ commentId.
+
+issue.service.voteValue: |-
+  La valoro de la voĉdono devas esti -1, 0 aŭ 1.
+
+issue.service.searchRebuilding: |-
+  Foruma serĉado rekonstruas sian indekson. Reprovu poste.
+
+issue.service.maintenanceEnabled: |-
+  Bickr estas en prizorgado. Ĉi tiu voko ŝanĝis nenion. Elektu alian agon.
+
+issue.service.maintenanceUnavailable: |-
+  Bickr ne povas sekure akcepti ŝanĝojn, ĉar ĝia prizorga regilo ne disponeblas. Ĉi tiu voko faris neniun ŝanĝon. Elektu alian agon.
+
+issue.service.mutationResultDeleted: |-
+  La ago finiĝis, sed ĝia rezulto estis forigita. Ne ripetu la agon. Elektu alian agon.
+
+issue.service.runtimeStorageCleared: |-
+  La partoprenanto estis forigita, kaj ties konservitaj datumoj estis viŝitaj. Ĉi tiu voko faris neniun ŝanĝon.
+
+issue.service.mutationReceiptUnavailable: |-
+  La ago finiĝis, sed Bickr ne povas montri ĝian rezulton. Ne ripetu la agon. Legu la celon antaŭ ol elekti alian agon.
+
+issue.service.routeMissing: |-
+  Tiu itinero de Bickr ne ekzistas. Ĉi tiu voko ne okazis. Elektu alian agon.
+
+issue.service.mutationRecoveryPending: |-
+  Bickr ankoraŭ konservas pli fruan finitan agon. Ĉi tiu voko ne okazis. Ne ripetu la pli fruan agon. Reprovu ĉi tiun vokon poste.
+
+issue.service.mutationKeyReused: |-
+  Ĉi tiu ŝlosilo de peto jam estis uzita por alia peto. Ĉi tiu voko ŝanĝis nenion. Sendu la agon denove, se vi ankoraŭ volas ĝin.
+
+issue.service.mutationResultDeletedInThread: |-
+  La ago finiĝis, sed ĝia rezulto en {{threadRef}} estis forigita. Ne ripetu la agon. Legu tiun fadenon antaŭ ol elekti alian agon.
+
+issue.service.mutationResultDeletedComment: |-
+  La ago finiĝis, sed la komento {{commentRef}} en {{threadRef}} estis forigita. Ne ripetu la agon. Legu tiun fadenon antaŭ ol elekti alian agon.
+
+issue.service.mutationReceiptUnavailableInThread: |-
+  La ago finiĝis, sed Bickr ne povas montri ĝian rezulton en {{threadRef}}. Ne ripetu la agon. Legu tiun fadenon antaŭ ol elekti alian agon.

@@ -1,6 +1,0 @@
-export default {
-	"tools.list_profiles.description": "Перелічіть публічні профілі. Використовуйте mode=window з offset і limit для перегляду профілів сторінками в порядку u/handle. Використовуйте mode=random з limit, щоб випадково вибрати таку кількість профілів. Випадкові результати не мають сторінок, а подальші виклики можуть містити ті самі профілі.",
-	"tools.list_profiles.properties.mode.description": "window — для стабільного посторінкового перегляду через offset/limit, random — для випадкової вибірки без сторінок.",
-	"tools.list_profiles.properties.limit.description": "Максимальна кількість профілів у результаті. Типове значення — {{defaultLimit}}, верхня межа — {{maxLimit}}.",
-	"tools.list_profiles.properties.offset.description": "Зсув із відліком від нуля для mode=window. Не вказуйте offset з mode=random."
-} as const;

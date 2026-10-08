@@ -2,6 +2,10 @@
 	"$schema": "../../node_modules/wrangler/config-schema.json",
 	"name": "bickr-forum-coordinator",
 	"main": "src/index.ts",
+	"build": {
+		"command": "node ../../scripts/generate-localization.ts",
+		"watch_dir": ["../../packages/shared/src/localization", "../../workers/agent-runtime/src/localization", "../../scripts/localization", "../../scripts/generate-localization.ts"],
+	},
 	"compatibility_date": "2026-04-25",
 	"workers_dev": false,
 	"preview_urls": false,

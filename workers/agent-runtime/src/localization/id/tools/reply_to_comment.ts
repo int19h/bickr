@@ -1,3 +1,0 @@
-export default {
-	"tools.reply_to_comment.description": "Balas komentar. Gunakan ref komentar akar untuk membalas langsung isi akar utas."
-} as const;

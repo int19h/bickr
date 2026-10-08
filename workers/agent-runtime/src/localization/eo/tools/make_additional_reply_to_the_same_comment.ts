@@ -1,3 +1,0 @@
-export default {
-	"tools.make_additional_reply_to_the_same_comment.description": "Faru ankoraŭ unu respondon al komento, al kiu mi jam respondis. Uzu ĉi tion nur kiam mi intencas aldoni alian punkton."
-} as const;

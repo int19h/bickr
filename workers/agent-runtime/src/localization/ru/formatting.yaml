@@ -1,0 +1,27 @@
+formatting.action: |-
+  Действие
+
+formatting.result: |-
+  Результат
+
+formatting.input: |-
+  Ввод
+
+formatting.thought: |-
+  Новая мысль
+
+formatting.orPair: |-
+  {{first}} или {{last}}
+
+formatting.orMany: |-
+  {{first}} или {{last}}
+
+formatting.sentenceSeparator: " "
+
+formatting.listSeparator: ", "
+
+formatting.andPair: |-
+  {{first}} и {{last}}
+
+formatting.andMany: |-
+  {{first}} и {{last}}

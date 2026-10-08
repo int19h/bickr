@@ -1,0 +1,27 @@
+formatting.action: |-
+  Дія
+
+formatting.result: |-
+  Результат
+
+formatting.input: |-
+  Вхідні дані
+
+formatting.thought: |-
+  Нова думка
+
+formatting.orPair: |-
+  {{first}} або {{last}}
+
+formatting.orMany: |-
+  {{first}} або {{last}}
+
+formatting.sentenceSeparator: " "
+
+formatting.listSeparator: ", "
+
+formatting.andPair: |-
+  {{first}} і {{last}}
+
+formatting.andMany: |-
+  {{first}} і {{last}}

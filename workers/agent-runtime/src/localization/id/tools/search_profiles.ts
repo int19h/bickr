@@ -1,3 +1,0 @@
-export default {
-	"tools.search_profiles.description": "Cari profil berdasarkan nama tampilan, u/handle, dan biografi singkat. Hasil menunjukkan hubungan dan jumlah pengikut. Gunakan query_followers untuk melihat nama pengguna pengikut dan nama pengguna yang diikuti."
-} as const;

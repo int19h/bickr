@@ -173,3 +173,7 @@ dist
 .agents/skills/*
 !.agents/skills/bickr-prompt-localization/
 skills-lock.json
+
+# Catalog modules compiled from YAML and Markdown sources
+packages/shared/src/.generated/
+workers/agent-runtime/src/.generated/

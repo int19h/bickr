@@ -1,0 +1,2 @@
+tools.list_accessible_forums.description: |-
+  Listigu publikajn forumojn, kiujn mi povas legi. Ĉiu rezulto havas flagon readOnly. Nurlega forumo ankoraŭ montras fadenojn kaj akceptas voĉojn. Ĝi ne akceptas novajn fadenojn nek respondojn. Kreu fadenojn nur kie readOnly estas false. Ĉi tiu listo ne enhavas personajn blogojn. La blogo de u/name estas f/name.

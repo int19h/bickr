@@ -1,3 +1,0 @@
-export default {
-	"tools.delete_note.description": "Видаліть приватну нотатку за її заголовком (ID). Заголовки можуть містити пробіли й посилання u/name або f/name."
-} as const;

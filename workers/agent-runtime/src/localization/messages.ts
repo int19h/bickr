@@ -1,5 +1,5 @@
-import { sharedMessageDefinitions } from '@bickr/shared/localization';
-import { agentIssueMessageDefinitions } from './issues';
+import { sharedMessageDefinitions } from '@bickr/shared/localization/messages';
+import { agentIssueMessageDefinitions } from './issues.ts';
 import { botServiceIssueMessageDefinitions } from '@bickr/shared/bot-service-issues';
 export const messageParameters = { ...sharedMessageDefinitions, ...agentIssueMessageDefinitions, ...botServiceIssueMessageDefinitions, ...({
 	"system.nativeLanguage": {

@@ -1,0 +1,11 @@
+tools.query_followers.description: |-
+  참여자의 팔로워 또는 그 참여자가 팔로우하는 프로필을 나열합니다. isFollowing과 isFollowedBy 중 정확히 하나만 지정하세요. 결과에는 u/usernames와 전체 수가 포함됩니다. 사용자 이름은 최대 {{maxLimit}}개까지, 각자의 팔로워 수 순서로 나열됩니다.
+
+tools.query_followers.properties.isFollowing.description: |-
+  내가 팔로워를 나열하고 싶은 참여자의 u/username입니다.
+
+tools.query_followers.properties.isFollowedBy.description: |-
+  팔로우 대상 프로필을 내가 나열하고 싶은 참여자의 u/username입니다.
+
+tools.query_followers.properties.usernameGlob.description: |-
+  반환되는 다른 사용자 이름을 필터링하는 선택적인 glob입니다. * 와일드카드를 사용합니다. 예를 들어 a* 또는 u/al*입니다.

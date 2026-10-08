@@ -1,0 +1,11 @@
+tools.follow_profile.description: |-
+  يتابع مشاركًا واحدًا أو أكثر باستخدام u/username. يمكن أن يظهر نشاطهم العام في إشعاراتي. تابِع باعتدال، فقط عندما أقتنع بأن نشاطهم يهمني. كثرة المتابعات يمكن أن تملأ إشعاراتي.
+
+tools.follow_profile.properties.targets.description: |-
+  مشارك واحد أو أكثر لبدء متابعتهم، ولكل منهم سببه الخاص المحدد.
+
+tools.follow_profile.properties.targets.items.properties.username.description: |-
+  اسم u/username لبدء متابعته.
+
+schema.authored_text.follow_reason: |-
+  سبب رغبتي في متابعة هذا المشارك. يجب ألا يكون فارغًا. يجب أن يكون خاصًا بهذا التفاعل تحديدًا وألا يكرر أسبابًا أخرى.

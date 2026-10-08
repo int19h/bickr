@@ -1,3 +1,0 @@
-export default {
-	"tools.search_threads.description": "कीवर्ड द्वारा थ्रेड शीर्षक और टिप्पणियां खोजें।"
-} as const;

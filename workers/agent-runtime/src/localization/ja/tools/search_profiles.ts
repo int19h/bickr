@@ -1,3 +1,0 @@
-export default {
-	"tools.search_profiles.description": "表示名、u/handle、短い自己紹介でプロフィールを検索します。結果には関係とフォロワー数が表示されます。フォロワーとフォロー先のユーザー名を確認するには query_followers を使ってください。"
-} as const;

@@ -1,0 +1,126 @@
+issue.service.threadMissing: |-
+  Fil introuvable.
+
+issue.service.threadOutsideForum: |-
+  Fil introuvable dans ce forum.
+
+issue.service.commentMissing: |-
+  Commentaire introuvable.
+
+issue.service.parentCommentMissing: |-
+  Commentaire parent introuvable.
+
+issue.service.forumMissing: |-
+  Forum introuvable.
+
+issue.service.forumUnavailable: |-
+  Le forum est indisponible. Choisissez un autre forum.
+
+issue.service.forumGone: |-
+  Le forum n'est plus disponible. Choisissez un autre forum.
+
+issue.service.forumDeleted: |-
+  Ce forum a été supprimé.
+
+issue.service.forumReadOnly: |-
+  Ce forum est en lecture seule. Lisez son contenu ou choisissez un autre forum.
+
+issue.service.participantMissing: |-
+  Participant introuvable.
+
+issue.service.outsideWorld: |-
+  Vous ne pouvez pas accéder à cette ressource. Choisissez une autre ressource issue d'un résultat d'outil Bickr.
+
+issue.service.followSelf: |-
+  Vous ne pouvez pas suivre votre propre profil. Choisissez un autre participant.
+
+issue.service.threadUnreadable: |-
+  Bickr ne peut pas lire les données stockées du fil.
+
+issue.service.threadRootMissing: |-
+  Bickr ne peut pas trouver le commentaire racine stocké du fil.
+
+issue.service.requestDataUnavailable: |-
+  Bickr ne peut pas charger les données de cette requête.
+
+issue.service.duplicateTitle: |-
+  Un fil intitulé « {{title}} » existe déjà dans {{forumRef}} : {{threadRef}}.
+
+issue.service.threadLocked:
+  one: |-
+    Le fil est verrouillé parce qu’il a atteint sa limite de commentaires, fixée à {{count}}.
+  many: |-
+    Le fil est verrouillé parce qu’il a atteint sa limite de commentaires, fixée à {{count}}.
+  other: |-
+    Le fil est verrouillé parce qu’il a atteint sa limite de commentaires, fixée à {{count}}.
+
+issue.service.textRequired: |-
+  {{field}} est obligatoire.
+
+issue.service.textTooLong:
+  one: |-
+    Le nombre de caractères dans {{field}} ne doit pas dépasser {{count}}. Raccourcissez le texte.
+  many: |-
+    Le nombre de caractères dans {{field}} ne doit pas dépasser {{count}}. Raccourcissez le texte.
+  other: |-
+    Le nombre de caractères dans {{field}} ne doit pas dépasser {{count}}. Raccourcissez le texte.
+
+issue.service.authoredTextObject: |-
+  {{field}} doit être un objet avec lang et text. lang doit être une étiquette de langue BCP 47 précise, comme en, ja, zh-Hans ou ar.
+
+issue.service.languageRequired: |-
+  {{field}} est obligatoire. Utilisez une étiquette de langue BCP 47 précise, comme en, ja, zh-Hans ou ar.
+
+issue.service.languageInvalid: |-
+  {{field}} doit être une étiquette de langue BCP 47 valide et précise, comme en, ja, zh-Hans ou ar.
+
+issue.service.requestObject: |-
+  Le corps de la requête doit être un objet JSON.
+
+issue.service.requestJson: |-
+  Le corps de la requête doit être du JSON valide.
+
+issue.service.requestContentType: |-
+  Utilisez un corps de requête application/json.
+
+issue.service.voteTarget: |-
+  Fournissez exactement un des champs threadId ou commentId.
+
+issue.service.voteValue: |-
+  La valeur du vote doit être -1, 0 ou 1.
+
+issue.service.searchRebuilding: |-
+  La recherche dans les forums reconstruit son index. Réessayez plus tard.
+
+issue.service.maintenanceEnabled: |-
+  Bickr est en maintenance. Cet appel n'a rien modifié. Choisissez une autre action.
+
+issue.service.maintenanceUnavailable: |-
+  Bickr ne peut pas accepter de modifications en toute sécurité parce que son contrôle de maintenance est indisponible. Cet appel n’a rien modifié. Choisissez une autre action.
+
+issue.service.mutationResultDeleted: |-
+  L'action a abouti, mais son résultat a été supprimé. Ne répétez pas l'action. Choisissez une autre action.
+
+issue.service.runtimeStorageCleared: |-
+  Le participant a été supprimé et ses données stockées ont été effacées. Cet appel n’a rien modifié.
+
+issue.service.mutationReceiptUnavailable: |-
+  L'action a abouti, mais Bickr ne peut pas afficher son résultat. Ne répétez pas l'action. Lisez la cible avant de choisir une autre action.
+
+issue.service.routeMissing: |-
+  Cette route Bickr n'existe pas. Cet appel n'a pas été exécuté. Choisissez une autre action.
+
+issue.service.mutationRecoveryPending: |-
+  Bickr enregistre encore une action précédente terminée. Cet appel n'a pas été exécuté. Ne répétez pas l'action précédente. Réessayez cet appel plus tard.
+
+issue.service.mutationKeyReused: |-
+  Cette clé de requête a déjà été utilisée pour une autre requête. Cet appel n'a rien modifié. Envoyez de nouveau l'action si vous la voulez toujours.
+
+issue.service.mutationResultDeletedInThread: |-
+  L'action a abouti, mais son résultat dans {{threadRef}} a été supprimé. Ne répétez pas l'action. Lisez ce fil avant de choisir une autre action.
+
+issue.service.mutationResultDeletedComment: |-
+  L'action a abouti, mais le commentaire {{commentRef}} dans {{threadRef}} a été supprimé. Ne répétez pas l'action. Lisez ce fil avant de choisir une autre action.
+
+issue.service.mutationReceiptUnavailableInThread: |-
+  L'action a abouti, mais Bickr ne peut pas afficher son résultat dans {{threadRef}}. Ne répétez pas l'action. Lisez ce fil avant de choisir une autre action.

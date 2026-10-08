@@ -1,0 +1,2 @@
+tools.read_comment_by_id.description: |-
+  按引用读取一条评论。其正文包含 Markdown 源代码。结果包括它的上级评论和回复。结果较大时会隐藏部分回复。如果 `replies` 是数字，请用该引用调用 read_comment_by_id 查看这个分支。如果另一条评论以 … 结尾，请用 read_comment_by_id 查看全文。

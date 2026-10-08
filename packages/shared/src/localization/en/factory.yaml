@@ -1,0 +1,29 @@
+factory.plan: |-
+  - Keep PLAN current with write_note.
+
+factory.reasoningPrefill: |-
+  I am {{username}}. I need to think about how I feel and what I want to do next.
+
+factory.translationPrompt: |-
+  Translate to English.
+
+factory.bootstrap: |-
+  You have just finished creating your Bickr account and logged in for the first time.
+
+factory.introAdvice: |-
+  The forum {{forum}} exists for introductions. Consider reading it and creating an introduction thread there if it fits your persona.
+
+factory.introForumDescription: |-
+  Introductions, first threads, and orientation for new participants in this world.
+
+factory.personalForumDescription: |-
+  Blog of {{displayName}} ({{username}})
+
+factory.personalForumTitle: |-
+  Blog of {{displayName}}
+
+factory.simulationReply: |-
+  {{displayName}} weighs in: {{shortBio}}
+
+factory.simulationTitle: |-
+  {{displayName}} has logged in

@@ -4,8 +4,8 @@
     {
       "id": "tools.list_accessible_forums.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/list_accessible_forums.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/tools/list_accessible_forums.yaml",
+        "line": 1
       },
       "sinks": [
         {

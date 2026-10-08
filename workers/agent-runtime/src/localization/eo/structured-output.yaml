@@ -1,0 +1,134 @@
+structured_output.unexpected_tools.compaction: |-
+  META: Ne voku ilojn. Respondu per detala unuapersona resumo, kiu sekvas la postulatan JSON-skemon.
+
+structured_output.unexpected_tools.other: |-
+  Ne uzu regilon de Bickr por ĉi tiu respondo. Respondu per la postulata JSON-objekto, kiu enhavas nur {{property}}.
+
+structured_output.empty.compaction: |-
+  La resuma respondo estis malplena. Redonu JSON-objekton kun nemalplena teksto en {{property}}.
+
+structured_output.empty.translation: |-
+  La traduka respondo estis malplena. Redonu JSON-objekton kun nemalplena teksto en {{property}}.
+
+structured_output.empty.avatar_description: |-
+  La respondo kun priskribo de la profila bildo estis malplena. Redonu JSON-objekton kun nemalplena teksto en {{property}}.
+
+structured_output.invalid_json.compaction: |-
+  La resuma respondo devas esti JSON-objekto. Donu nur {{property}} kun ĝia teksta valoro.
+
+structured_output.invalid_json.translation: |-
+  La traduka respondo devas esti JSON-objekto. Donu nur {{property}} kun ĝia teksta valoro.
+
+structured_output.invalid_json.avatar_description: |-
+  La respondo kun priskribo de la profila bildo devas esti JSON-objekto. Donu nur {{property}} kun ĝia teksta valoro.
+
+structured_output.missing_tool: |-
+  Neniu ilvoko {{toolName}} estis redonita. Voku {{toolName}} unufoje kun nemalplena teksto en {{property}}.
+
+structured_output.wrong_tool: |-
+  Uzu nur {{toolName}} por ĉi tiu peto. Ne uzu {{receivedTool}} ĉi tie.
+
+structured_output.tool_count:
+  one: |-
+    Estis atendata unu ilvoko {{toolName}}, sed venis {{count}} ilvoko. Voku {{toolName}} precize unufoje.
+  other: |-
+    Estis atendata unu ilvoko {{toolName}}, sed venis {{count}} ilvokoj. Voku {{toolName}} precize unufoje.
+
+structured_output.tool_mismatch: |-
+  La ilo {{toolName}} estis atendata, sed {{receivedTool}} estis ricevita. Voku {{toolName}} anstataŭe.
+
+structured_output.invalid_arguments_json: |-
+  La argumentoj de {{toolName}} ne estis valida JSON. Donu JSON-objekton kun teksto en {{property}}. Eskapigu specialajn signojn en signoĉenoj.
+
+structured_output.arguments_object: |-
+  La argumentoj de {{toolName}} devas esti JSON-objekto. Metu {{property}} kaj ĝian tekstan valoron ene de {}.
+
+structured_output.output_object: |-
+  La strukturita eligo devas esti JSON-objekto. Metu {{property}} kaj ĝian tekstan valoron ene de {}.
+
+structured_output.extra_arguments:
+  one: |-
+    Estas {{count}} neatendita argumento: {{fields}}. Forigu tiun argumenton. Donu nur {{property}}.
+  other: |-
+    Estas {{count}} neatenditaj argumentoj: {{fields}}. Forigu tiujn argumentojn. Donu nur {{property}}.
+
+structured_output.extra_fields:
+  one: |-
+    Estas {{count}} neatendita kampo: {{fields}}. Forigu tiun kampon. Donu nur {{property}}.
+  other: |-
+    Estas {{count}} neatenditaj kampoj: {{fields}}. Forigu tiujn kampojn. Donu nur {{property}}.
+
+structured_output.nonempty.compaction: |-
+  La resuma argumento devas esti nemalplena signoĉeno. Metu la tekston en {{property}}.
+
+structured_output.nonempty.translation: |-
+  La traduka argumento devas esti nemalplena signoĉeno. Metu la tekston en {{property}}.
+
+structured_output.nonempty.avatar_description: |-
+  La argumento de la priskribo de la profila bildo devas esti nemalplena signoĉeno. Metu la tekston en {{property}}.
+
+structured_output.transcript: |-
+  Skribu la resumon en {{property}} kiel ordinaran unuapersonan prozon. Forigu la transskriban linion {{line}}. Ne skribu liniojn etikeditajn {{labels}}.
+
+structured_output.minimum.compaction:
+  one: |-
+    La resumo en {{property}} devas havi almenaŭ {{minimum}} signon. Aldonu rilatajn detalojn al la teksto.
+  other: |-
+    La resumo en {{property}} devas havi almenaŭ {{minimum}} signojn. Aldonu rilatajn detalojn al la teksto.
+
+structured_output.minimum.translation:
+  one: |-
+    La traduko en {{property}} devas havi almenaŭ {{minimum}} signon. Aldonu rilatajn detalojn al la teksto.
+  other: |-
+    La traduko en {{property}} devas havi almenaŭ {{minimum}} signojn. Aldonu rilatajn detalojn al la teksto.
+
+structured_output.minimum.avatar_description:
+  one: |-
+    La priskribo de la profila bildo en {{property}} devas havi almenaŭ {{minimum}} signon. Aldonu rilatajn detalojn al la teksto.
+  other: |-
+    La priskribo de la profila bildo en {{property}} devas havi almenaŭ {{minimum}} signojn. Aldonu rilatajn detalojn al la teksto.
+
+structured_output.maximum.compaction:
+  one: |-
+    La resumo en {{property}} devas havi maksimume {{maximum}} signon. Mallongigu la tekston.
+  other: |-
+    La resumo en {{property}} devas havi maksimume {{maximum}} signojn. Mallongigu la tekston.
+
+structured_output.maximum.translation:
+  one: |-
+    La traduko en {{property}} devas havi maksimume {{maximum}} signon. Mallongigu la tekston.
+  other: |-
+    La traduko en {{property}} devas havi maksimume {{maximum}} signojn. Mallongigu la tekston.
+
+structured_output.maximum.avatar_description:
+  one: |-
+    La priskribo de la profila bildo en {{property}} devas havi maksimume {{maximum}} signon. Mallongigu la tekston.
+  other: |-
+    La priskribo de la profila bildo en {{property}} devas havi maksimume {{maximum}} signojn. Mallongigu la tekston.
+
+structured_output.wrong_tool.unnamed: |-
+  Uzu nur {{toolName}} por ĉi tiu peto. Ne sendu ilvokon sen nomo.
+
+structured_output.tool_mismatch.unnamed: |-
+  La ilo {{toolName}} estis atendata, sed ilvoko sen nomo estis ricevita. Voku {{toolName}} anstataŭe.
+
+structured_output.nonreducing.estimate:
+  one: |-
+    La resumo en {{property}} ne mallongigis la kuntekston. Ĝia taksita longo estas {{replacementTokens}} ĵetono.
+  other: |-
+    La resumo en {{property}} ne mallongigis la kuntekston. Ĝia taksita longo estas {{replacementTokens}} ĵetonoj.
+
+structured_output.nonreducing.before:
+  one: |-
+    La kunteksto havis {{compactedTokens}} ĵetonon antaŭ anstataŭigo. Mallongigu la resumon konservante la postulatajn faktojn.
+  other: |-
+    La kunteksto havis {{compactedTokens}} ĵetonojn antaŭ anstataŭigo. Mallongigu la resumon konservante la postulatajn faktojn.
+
+structured_output.nonempty.compaction.field: |-
+  La resuma kampo devas esti nemalplena signoĉeno. Metu la tekston en {{property}}.
+
+structured_output.nonempty.translation.field: |-
+  La traduka kampo devas esti nemalplena signoĉeno. Metu la tekston en {{property}}.
+
+structured_output.nonempty.avatar_description.field: |-
+  La kampo de la priskribo de la profila bildo devas esti nemalplena signoĉeno. Metu la tekston en {{property}}.

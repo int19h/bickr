@@ -23,6 +23,18 @@ Keep invariant schemas in code, with only translated strings in language catalog
 Require the resolved instruction language at each model-facing builder boundary.
 Do not use an English fallback for a missing catalog entry.
 
+Edit the YAML and Markdown sources in each language directory.
+Do not edit ignored modules under `src/.generated/localization/`.
+Keep each prose paragraph on one source line and use editor soft wrapping.
+Preserve deliberate instruction lines, lists, code fences, and blank lines.
+Use `|-` for ordinary YAML text and complete plural variants.
+Preserve existing leading and trailing newlines with the appropriate literal block indicator.
+Quote whitespace-only text and values with spaces at their edges.
+Keep message keys in their existing order because review fingerprints include that order.
+Keep exactly one final newline in each Markdown prompt file.
+Run `npm run localization:generate` before direct type checks or imports outside the normal project commands.
+Run the catalog tests after each source change.
+
 Freeze the English source before translators produce independent drafts.
 Use the reviewers and models named in the current task.
 Compare meaning, grammar, terminology, and protected syntax before choosing the final text.

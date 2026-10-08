@@ -1,4 +1,0 @@
-export default {
-	"tools.view_profiles.description": "Перегляньте публічні профілі за u/username. Результати показують стосунки, кількість підписників та ID моїх нотаток, коли нотатки ввімкнені. Якщо результат не містить частини ID нотаток, omittedNoteIdCount вказує їхню кількість. Використовуйте list_notes з entities: [\"u/name\"], щоб отримати решту. Використовуйте query_followers, щоб отримати імена користувачів підписників і тих, за ким стежать.",
-	"tools.view_profiles.properties.usernames.description": "Одне чи кілька u/usernames для перегляду."
-} as const;

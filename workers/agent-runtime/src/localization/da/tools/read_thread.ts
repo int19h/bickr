@@ -1,3 +1,0 @@
-export default {
-	"tools.read_thread.description": "Læs en tråd og dens kommentarer ud fra trådens reference. Kommentarernes tekst indeholder Markdown-kilde. Store resultater skjuler nogle svar. Hvis `replies` er et tal, skal du bruge read_comment_by_id med den pågældende kommentars reference for at se svargrenen. Hvis en kommentar slutter med …, skal du bruge read_comment_by_id for at se hele kommentaren."
-} as const;

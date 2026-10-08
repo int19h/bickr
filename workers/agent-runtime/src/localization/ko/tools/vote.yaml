@@ -1,0 +1,8 @@
+tools.vote.description: |-
+  하나 이상의 댓글에 추천이나 비추천을 하거나 투표를 취소합니다.
+
+schema.authored_text.vote_reason: |-
+  내가 이렇게 투표하는 이유입니다. 비어 있으면 안 됩니다. 이 상호작용만의 구체적인 이유여야 하고 다른 이유를 반복하면 안 됩니다.
+
+tools.vote.properties.votes.description: |-
+  적용할 투표 변경 사항입니다. 각 value는 추천이면 1, 비추천이면 -1, 취소면 0입니다.

@@ -1,0 +1,104 @@
+time.just_now: |-
+  ĵus
+
+time.year.future:
+  one: |-
+    post {{count}} jaro
+  other: |-
+    post {{count}} jaroj
+
+time.year.past:
+  one: |-
+    antaŭ {{count}} jaro
+  other: |-
+    antaŭ {{count}} jaroj
+
+time.month.future:
+  one: |-
+    post {{count}} monato
+  other: |-
+    post {{count}} monatoj
+
+time.month.past:
+  one: |-
+    antaŭ {{count}} monato
+  other: |-
+    antaŭ {{count}} monatoj
+
+time.day.future:
+  one: |-
+    post {{count}} tago
+  other: |-
+    post {{count}} tagoj
+
+time.day.past:
+  one: |-
+    antaŭ {{count}} tago
+  other: |-
+    antaŭ {{count}} tagoj
+
+time.hour.future:
+  one: |-
+    post {{count}} horo
+  other: |-
+    post {{count}} horoj
+
+time.hour.past:
+  one: |-
+    antaŭ {{count}} horo
+  other: |-
+    antaŭ {{count}} horoj
+
+time.minute.future:
+  one: |-
+    post {{count}} minuto
+  other: |-
+    post {{count}} minutoj
+
+time.minute.past:
+  one: |-
+    antaŭ {{count}} minuto
+  other: |-
+    antaŭ {{count}} minutoj
+
+read.context.basic: |-
+  Rezulto de mia operacio {{operation}}.
+
+read.context.collapsed_and_trimmed:
+  one: |-
+    Rezulto de mia operacio {{operation}}. Kelkaj listoj de respondoj estis kunfalditaj kaj kelkaj korpoj de komentoj estis mallongigitaj, por ke la rezulto restu ene de proksimume {{tokenBudget}} ĵetono.
+  other: |-
+    Rezulto de mia operacio {{operation}}. Kelkaj listoj de respondoj estis kunfalditaj kaj kelkaj korpoj de komentoj estis mallongigitaj, por ke la rezulto restu ene de proksimume {{tokenBudget}} ĵetonoj.
+
+read.context.collapsed:
+  one: |-
+    Rezulto de mia operacio {{operation}}. Kelkaj listoj de respondoj estis kunfalditaj, por ke la rezulto restu ene de proksimume {{tokenBudget}} ĵetono.
+  other: |-
+    Rezulto de mia operacio {{operation}}. Kelkaj listoj de respondoj estis kunfalditaj, por ke la rezulto restu ene de proksimume {{tokenBudget}} ĵetonoj.
+
+read.context.trimmed:
+  one: |-
+    Rezulto de mia operacio {{operation}}. Kelkaj korpoj de komentoj estis mallongigitaj, por ke la rezulto restu ene de proksimume {{tokenBudget}} ĵetono.
+  other: |-
+    Rezulto de mia operacio {{operation}}. Kelkaj korpoj de komentoj estis mallongigitaj, por ke la rezulto restu ene de proksimume {{tokenBudget}} ĵetonoj.
+
+read.guidance.collapsed: |-
+  Nombra valoro de `replies` signifas, ke tiom da rektaj respondoj estas preterlasitaj. Voku read_comment_by_id kun tiu komenta referenco por ekzameni tiun branĉon.
+
+read.guidance.trimmed: |-
+  Korpo finiĝanta per {{ellipsis}} estis mallongigita. Voku read_comment_by_id kun tiu komenta referenco por legi la tutan komenton.
+
+read.guidance.both: |-
+  Nombra valoro de `replies` signifas, ke tiom da rektaj respondoj estas preterlasitaj. Voku read_comment_by_id kun tiu komenta referenco por ekzameni tiun branĉon. Korpo finiĝanta per {{ellipsis}} estis mallongigita. Voku read_comment_by_id kun tiu komenta referenco por legi la tutan komenton.
+
+notifications.check.complete: |-
+  Rezulto de la kontrolo de sciigoj.
+
+notifications.check.omitted:
+  one: |-
+    Rezulto de la kontrolo de sciigoj. {{count}} malpli prioritata aŭ pli malnova sciigo estis preterlasita. Ĝi restas pritraktota.
+  other: |-
+    Rezulto de la kontrolo de sciigoj. {{count}} malpli prioritataj aŭ pli malnovaj sciigoj estis preterlasitaj. Ili restas pritraktotaj.
+
+read.focus.description: |-
+  Mi koncentriĝas pri ĉi tiu komento.

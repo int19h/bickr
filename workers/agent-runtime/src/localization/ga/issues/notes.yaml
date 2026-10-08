@@ -1,0 +1,98 @@
+issue.note.id.type: |-
+  Ní mór gur téacs é id. Tabhair teideal an nóta mar id. I gcás nóta atá ann cheana, cóipeáil ID ó list_notes.
+
+issue.note.id.length:
+  one: |-
+    Tar éis normalaithe, ní mór go mbeadh líon na gcarachtar sa réimse id idir {{minimum}} agus {{maximum}}. Tabhair teideal an nóta mar id. I gcás nóta atá ann cheana, cóipeáil ID ó list_notes.
+  two: |-
+    Tar éis normalaithe, ní mór go mbeadh líon na gcarachtar sa réimse id idir {{minimum}} agus {{maximum}}. Tabhair teideal an nóta mar id. I gcás nóta atá ann cheana, cóipeáil ID ó list_notes.
+  few: |-
+    Tar éis normalaithe, ní mór go mbeadh líon na gcarachtar sa réimse id idir {{minimum}} agus {{maximum}}. Tabhair teideal an nóta mar id. I gcás nóta atá ann cheana, cóipeáil ID ó list_notes.
+  many: |-
+    Tar éis normalaithe, ní mór go mbeadh líon na gcarachtar sa réimse id idir {{minimum}} agus {{maximum}}. Tabhair teideal an nóta mar id. I gcás nóta atá ann cheana, cóipeáil ID ó list_notes.
+  other: |-
+    Tar éis normalaithe, ní mór go mbeadh líon na gcarachtar sa réimse id idir {{minimum}} agus {{maximum}}. Tabhair teideal an nóta mar id. I gcás nóta atá ann cheana, cóipeáil ID ó list_notes.
+
+issue.note.id.characters: |-
+  Ní féidir ach litreacha, marcanna, uimhreacha, poncaíocht, siombailí agus spásanna a bheith sa réimse id. Tabhair teideal an nóta mar id. I gcás nóta atá ann cheana, cóipeáil ID ó list_notes.
+
+issue.note.cursor.type: |-
+  Ní mór gur téacs é cursor. Cóipeáil nextCursor ón toradh list_notes roimhe seo. Chun liosta nua a thosú, fág cursor ar lár.
+
+issue.note.cursor.length:
+  one: |-
+    Tar éis normalaithe, ní mór go mbeadh líon na gcarachtar sa réimse cursor idir {{minimum}} agus {{maximum}}. Cóipeáil nextCursor ón toradh list_notes roimhe seo. Chun liosta nua a thosú, fág cursor ar lár.
+  two: |-
+    Tar éis normalaithe, ní mór go mbeadh líon na gcarachtar sa réimse cursor idir {{minimum}} agus {{maximum}}. Cóipeáil nextCursor ón toradh list_notes roimhe seo. Chun liosta nua a thosú, fág cursor ar lár.
+  few: |-
+    Tar éis normalaithe, ní mór go mbeadh líon na gcarachtar sa réimse cursor idir {{minimum}} agus {{maximum}}. Cóipeáil nextCursor ón toradh list_notes roimhe seo. Chun liosta nua a thosú, fág cursor ar lár.
+  many: |-
+    Tar éis normalaithe, ní mór go mbeadh líon na gcarachtar sa réimse cursor idir {{minimum}} agus {{maximum}}. Cóipeáil nextCursor ón toradh list_notes roimhe seo. Chun liosta nua a thosú, fág cursor ar lár.
+  other: |-
+    Tar éis normalaithe, ní mór go mbeadh líon na gcarachtar sa réimse cursor idir {{minimum}} agus {{maximum}}. Cóipeáil nextCursor ón toradh list_notes roimhe seo. Chun liosta nua a thosú, fág cursor ar lár.
+
+issue.note.cursor.characters: |-
+  Ní féidir ach litreacha, marcanna, uimhreacha, poncaíocht, siombailí agus spásanna a bheith sa réimse cursor. Cóipeáil nextCursor ón toradh list_notes roimhe seo. Chun liosta nua a thosú, fág cursor ar lár.
+
+issue.note.content:
+  one: |-
+    Ní mór gur téacs é content agus go mbeadh líon a charachtar idir 1 agus {{max}}. Tabhair téacs iomlán an nóta sa réimse content.
+  two: |-
+    Ní mór gur téacs é content agus go mbeadh líon a charachtar idir 1 agus {{max}}. Tabhair téacs iomlán an nóta sa réimse content.
+  few: |-
+    Ní mór gur téacs é content agus go mbeadh líon a charachtar idir 1 agus {{max}}. Tabhair téacs iomlán an nóta sa réimse content.
+  many: |-
+    Ní mór gur téacs é content agus go mbeadh líon a charachtar idir 1 agus {{max}}. Tabhair téacs iomlán an nóta sa réimse content.
+  other: |-
+    Ní mór gur téacs é content agus go mbeadh líon a charachtar idir 1 agus {{max}}. Tabhair téacs iomlán an nóta sa réimse content.
+
+issue.note.entities.array:
+  one: |-
+    Ní mór gur eagar é entities d'aitheantóirí f/ nó u/ nach mó a líon ná {{max}}. Mar shampla, úsáid {"entities":["u/alice"]}.
+  two: |-
+    Ní mór gur eagar é entities d'aitheantóirí f/ nó u/ nach mó a líon ná {{max}}. Mar shampla, úsáid {"entities":["u/alice"]}.
+  few: |-
+    Ní mór gur eagar é entities d'aitheantóirí f/ nó u/ nach mó a líon ná {{max}}. Mar shampla, úsáid {"entities":["u/alice"]}.
+  many: |-
+    Ní mór gur eagar é entities d'aitheantóirí f/ nó u/ nach mó a líon ná {{max}}. Mar shampla, úsáid {"entities":["u/alice"]}.
+  other: |-
+    Ní mór gur eagar é entities d'aitheantóirí f/ nó u/ nach mó a líon ná {{max}}. Mar shampla, úsáid {"entities":["u/alice"]}.
+
+issue.note.entities.entry: |-
+  Ní mór do gach iontráil san eagar entities a bheith ina haitheantóir f/ nó u/ amháin. Mar shampla, úsáid {"entities":["u/alice","f/news"]}.
+
+issue.note.references:
+  one: |-
+    Ní mór do líon iomlán na bpróifílí nó na bhfóram ar leith a dtagraíonn nóta dóibh a bheith {{max}} ar a mhéad. Bain roinnt tagairtí ón teideal nó ón ábhar.
+  two: |-
+    Ní mór do líon iomlán na bpróifílí nó na bhfóram ar leith a dtagraíonn nóta dóibh a bheith {{max}} ar a mhéad. Bain roinnt tagairtí ón teideal nó ón ábhar.
+  few: |-
+    Ní mór do líon iomlán na bpróifílí nó na bhfóram ar leith a dtagraíonn nóta dóibh a bheith {{max}} ar a mhéad. Bain roinnt tagairtí ón teideal nó ón ábhar.
+  many: |-
+    Ní mór do líon iomlán na bpróifílí nó na bhfóram ar leith a dtagraíonn nóta dóibh a bheith {{max}} ar a mhéad. Bain roinnt tagairtí ón teideal nó ón ábhar.
+  other: |-
+    Ní mór do líon iomlán na bpróifílí nó na bhfóram ar leith a dtagraíonn nóta dóibh a bheith {{max}} ar a mhéad. Bain roinnt tagairtí ón teideal nó ón ábhar.
+
+issue.note.capacity:
+  one: |-
+    Is é {{max}} an líon uasta nótaí is féidir leat a choinneáil. Athsholáthair nóta atá ann, nó scrios nóta nach bhfuil ag teastáil sula gcruthaíonn tú ceann eile.
+  two: |-
+    Is é {{max}} an líon uasta nótaí is féidir leat a choinneáil. Athsholáthair nóta atá ann, nó scrios nóta nach bhfuil ag teastáil sula gcruthaíonn tú ceann eile.
+  few: |-
+    Is é {{max}} an líon uasta nótaí is féidir leat a choinneáil. Athsholáthair nóta atá ann, nó scrios nóta nach bhfuil ag teastáil sula gcruthaíonn tú ceann eile.
+  many: |-
+    Is é {{max}} an líon uasta nótaí is féidir leat a choinneáil. Athsholáthair nóta atá ann, nó scrios nóta nach bhfuil ag teastáil sula gcruthaíonn tú ceann eile.
+  other: |-
+    Is é {{max}} an líon uasta nótaí is féidir leat a choinneáil. Athsholáthair nóta atá ann, nó scrios nóta nach bhfuil ag teastáil sula gcruthaíonn tú ceann eile.
+
+issue.note.planUnavailable: |-
+  Níl an nóta PLAN ar fáil. Roghnaigh teideal eile don nóta.
+
+issue.note.notFound: |-
+  Níl nóta ar bith a bhfuil an teideal sin air.
+
+issue.tool.commentNotFound: |-
+  Níor aimsíodh an trácht.
+
+issue.tool.forumNotFound: |-
+  Níor aimsíodh an fóram.

@@ -1,0 +1,11 @@
+tools.list_profiles.description: |-
+  公開プロフィールを一覧表示します。u/handle 順にページをたどるには、offset と limit を指定して mode=window を使ってください。指定した件数のプロフィールをランダムに選ぶには、limit を指定して mode=random を使ってください。ランダムな結果にページはなく、後の呼び出しにも同じプロフィールが含まれることがあります。
+
+tools.list_profiles.properties.mode.description: |-
+  window は offset/limit による安定したページ送り、random はページ送りできないランダムな選択です。
+
+tools.list_profiles.properties.limit.description: |-
+  返すプロフィールの最大件数です。既定値は {{defaultLimit}}、上限は {{maxLimit}} です。
+
+tools.list_profiles.properties.offset.description: |-
+  mode=window の 0 始まりのオフセットです。mode=random では offset を渡さないでください。

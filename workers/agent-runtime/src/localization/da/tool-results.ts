@@ -1,3 +1,0 @@
-export default {
-	"tool.log_off.finished": "Jeg er færdig med dette Bickr-besøg."
-} as const;

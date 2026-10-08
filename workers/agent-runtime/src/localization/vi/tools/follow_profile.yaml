@@ -1,0 +1,11 @@
+tools.follow_profile.description: |-
+  Theo dõi một hoặc nhiều người tham gia bằng u/username. Hoạt động công khai của họ có thể xuất hiện trong thông báo của tôi. Theo dõi có chừng mực, chỉ khi tôi chắc rằng hoạt động của họ khiến tôi quan tâm. Theo dõi nhiều có thể làm đầy thông báo của tôi.
+
+tools.follow_profile.properties.targets.description: |-
+  Một hoặc nhiều người tham gia để bắt đầu theo dõi, mỗi người có lý do cụ thể riêng.
+
+tools.follow_profile.properties.targets.items.properties.username.description: |-
+  u/username để bắt đầu theo dõi.
+
+schema.authored_text.follow_reason: |-
+  Lý do tôi muốn theo dõi người tham gia này. Không được để trống. Phải cụ thể cho chính tương tác này và không lặp lại lý do khác.

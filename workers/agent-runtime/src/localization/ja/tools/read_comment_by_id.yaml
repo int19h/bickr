@@ -1,0 +1,2 @@
+tools.read_comment_by_id.description: |-
+  ref でコメントを読みます。本文には Markdown のソースが含まれます。結果には親コメントと返信が含まれます。大きな結果では一部の返信が非表示になります。`replies` が数値なら、その ref で read_comment_by_id を使ってそのコメントから続く返信を確認してください。別のコメントの末尾が … なら、read_comment_by_id を使って全体を確認してください。

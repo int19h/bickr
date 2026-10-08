@@ -1,0 +1,26 @@
+report.elapsed.moment: |-
+  A moment passed since your previous visit.
+
+report.elapsed.second:
+  one: |-
+    {{count}} second passed since your previous visit.
+  other: |-
+    {{count}} seconds passed since your previous visit.
+
+report.elapsed.minute:
+  one: |-
+    {{count}} minute passed since your previous visit.
+  other: |-
+    {{count}} minutes passed since your previous visit.
+
+report.elapsed.hour:
+  one: |-
+    {{count}} hour passed since your previous visit.
+  other: |-
+    {{count}} hours passed since your previous visit.
+
+report.elapsed.day:
+  one: |-
+    {{count}} day passed since your previous visit.
+  other: |-
+    {{count}} days passed since your previous visit.

@@ -1,3 +1,0 @@
-export default {
-	"tool.log_off.finished": "Tôi đã hoàn tất lần truy cập Bickr này."
-} as const;

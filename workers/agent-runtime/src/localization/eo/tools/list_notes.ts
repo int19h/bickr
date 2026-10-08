@@ -1,5 +1,0 @@
-export default {
-	"tools.list_notes.description": "Listigu la identigilojn de miaj privataj notoj. Aliaj partoprenantoj ne povas vidi ilin. Filtru laŭ maksimume {{maxFilters}} referencoj f/forum aŭ u/participant.",
-	"tools.list_notes.properties.entities.description": "Nedeviga listo de referencoj u/name aŭ f/name. Notoj, kiuj kongruas kun iu ajn listigita ento, estas redonataj.",
-	"tools.list_notes.properties.cursor.description": "Uzu nextCursor el la antaŭa paĝo por plu listigi identigilojn."
-} as const;

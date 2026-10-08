@@ -4,8 +4,8 @@
     {
       "id": "structured_output.unexpected_tools.compaction",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -23,8 +23,8 @@
     {
       "id": "structured_output.unexpected_tools.other",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 3
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 4
       },
       "sinks": [
         {
@@ -42,8 +42,8 @@
     {
       "id": "structured_output.empty.compaction",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 4
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 7
       },
       "sinks": [
         {
@@ -135,8 +135,8 @@
     {
       "id": "structured_output.empty.translation",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 5
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 10
       },
       "sinks": [
         {
@@ -228,8 +228,8 @@
     {
       "id": "structured_output.empty.avatar_description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 6
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 13
       },
       "sinks": [
         {
@@ -321,8 +321,8 @@
     {
       "id": "structured_output.invalid_json.compaction",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 7
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 16
       },
       "sinks": [
         {
@@ -414,8 +414,8 @@
     {
       "id": "structured_output.invalid_json.translation",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 8
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 19
       },
       "sinks": [
         {
@@ -507,8 +507,8 @@
     {
       "id": "structured_output.invalid_json.avatar_description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 9
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 22
       },
       "sinks": [
         {
@@ -600,8 +600,8 @@
     {
       "id": "structured_output.missing_tool",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 10
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 25
       },
       "sinks": [
         {
@@ -618,8 +618,8 @@
     {
       "id": "structured_output.wrong_tool",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 11
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 28
       },
       "sinks": [
         {
@@ -637,8 +637,8 @@
     {
       "id": "structured_output.tool_count",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 12
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 31
       },
       "sinks": [
         {
@@ -655,8 +655,8 @@
     {
       "id": "structured_output.tool_mismatch",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 16
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 37
       },
       "sinks": [
         {
@@ -674,8 +674,8 @@
     {
       "id": "structured_output.invalid_arguments_json",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 17
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 40
       },
       "sinks": [
         {
@@ -693,8 +693,8 @@
     {
       "id": "structured_output.arguments_object",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 18
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 43
       },
       "sinks": [
         {
@@ -713,8 +713,8 @@
     {
       "id": "structured_output.output_object",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 19
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 46
       },
       "sinks": [
         {
@@ -732,8 +732,8 @@
     {
       "id": "structured_output.extra_arguments",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 20
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 49
       },
       "sinks": [
         {
@@ -748,8 +748,8 @@
     {
       "id": "structured_output.extra_fields",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 24
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 55
       },
       "sinks": [
         {
@@ -764,8 +764,8 @@
     {
       "id": "structured_output.nonempty.compaction",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 28
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 61
       },
       "sinks": [
         {
@@ -855,8 +855,8 @@
     {
       "id": "structured_output.nonempty.translation",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 29
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 64
       },
       "sinks": [
         {
@@ -946,8 +946,8 @@
     {
       "id": "structured_output.nonempty.avatar_description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 30
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 67
       },
       "sinks": [
         {
@@ -1037,8 +1037,8 @@
     {
       "id": "structured_output.transcript",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 31
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 70
       },
       "sinks": [
         {
@@ -1053,8 +1053,8 @@
     {
       "id": "structured_output.minimum.compaction",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 32
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 73
       },
       "sinks": [
         {
@@ -1144,8 +1144,8 @@
     {
       "id": "structured_output.minimum.translation",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 36
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 79
       },
       "sinks": [
         {
@@ -1235,8 +1235,8 @@
     {
       "id": "structured_output.minimum.avatar_description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 40
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 85
       },
       "sinks": [
         {
@@ -1326,8 +1326,8 @@
     {
       "id": "structured_output.maximum.compaction",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 44
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 91
       },
       "sinks": [
         {
@@ -1417,8 +1417,8 @@
     {
       "id": "structured_output.maximum.translation",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 48
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 97
       },
       "sinks": [
         {
@@ -1508,8 +1508,8 @@
     {
       "id": "structured_output.maximum.avatar_description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 52
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 103
       },
       "sinks": [
         {
@@ -1599,8 +1599,8 @@
     {
       "id": "structured_output.wrong_tool.unnamed",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 56
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 109
       },
       "sinks": [
         {
@@ -1617,8 +1617,8 @@
     {
       "id": "structured_output.tool_mismatch.unnamed",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 57
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 112
       },
       "sinks": [
         {
@@ -1635,8 +1635,8 @@
     {
       "id": "structured_output.nonreducing.estimate",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 58
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 115
       },
       "sinks": [
         {
@@ -1653,8 +1653,8 @@
     {
       "id": "structured_output.nonreducing.before",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 62
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 121
       },
       "sinks": [
         {
@@ -1671,8 +1671,8 @@
     {
       "id": "structured_output.nonempty.compaction.field",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 66
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 127
       },
       "sinks": [
         {
@@ -1762,8 +1762,8 @@
     {
       "id": "structured_output.nonempty.translation.field",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 67
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 130
       },
       "sinks": [
         {
@@ -1853,8 +1853,8 @@
     {
       "id": "structured_output.nonempty.avatar_description.field",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/structured-output.ts",
-        "line": 68
+        "file": "workers/agent-runtime/src/localization/en/structured-output.yaml",
+        "line": 133
       },
       "sinks": [
         {

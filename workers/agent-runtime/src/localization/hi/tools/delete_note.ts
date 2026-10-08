@@ -1,3 +1,0 @@
-export default {
-	"tools.delete_note.description": "निजी नोट को उसके शीर्षक (ID) से हटाएँ। शीर्षक में स्पेस और u/name या f/name संदर्भ हो सकते हैं।"
-} as const;

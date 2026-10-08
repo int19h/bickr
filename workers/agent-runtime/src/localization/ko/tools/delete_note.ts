@@ -1,3 +1,0 @@
-export default {
-	"tools.delete_note.description": "제목(ID)으로 비공개 메모를 삭제합니다. 제목에는 공백과 u/name 또는 f/name 참조가 들어갈 수 있습니다."
-} as const;

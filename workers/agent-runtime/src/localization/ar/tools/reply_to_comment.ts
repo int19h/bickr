@@ -1,3 +1,0 @@
-export default {
-	"tools.reply_to_comment.description": "يرد على تعليق. استخدم مرجع التعليق الجذري للرد مباشرة على المحتوى الجذري للموضوع."
-} as const;

@@ -1,6 +1,7 @@
 {
 	"files": [],
 	"references": [
+		{ "path": "./scripts/localization/tsconfig.json" },
 		{ "path": "./packages/shared/tsconfig.json" },
 		{ "path": "./packages/cli/tsconfig.json" },
 		{ "path": "./apps/web/tsconfig.app.json" },

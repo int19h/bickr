@@ -4,8 +4,8 @@
     {
       "id": "tools.make_additional_reply_to_the_same_comment.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/make_additional_reply_to_the_same_comment.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/tools/make_additional_reply_to_the_same_comment.yaml",
+        "line": 1
       },
       "sinks": [
         {

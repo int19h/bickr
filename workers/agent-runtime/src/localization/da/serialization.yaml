@@ -1,0 +1,104 @@
+time.just_now: |-
+  lige nu
+
+time.year.future:
+  one: |-
+    om {{count}} år
+  other: |-
+    om {{count}} år
+
+time.year.past:
+  one: |-
+    for {{count}} år siden
+  other: |-
+    for {{count}} år siden
+
+time.month.future:
+  one: |-
+    om {{count}} måned
+  other: |-
+    om {{count}} måneder
+
+time.month.past:
+  one: |-
+    for {{count}} måned siden
+  other: |-
+    for {{count}} måneder siden
+
+time.day.future:
+  one: |-
+    om {{count}} dag
+  other: |-
+    om {{count}} dage
+
+time.day.past:
+  one: |-
+    for {{count}} dag siden
+  other: |-
+    for {{count}} dage siden
+
+time.hour.future:
+  one: |-
+    om {{count}} time
+  other: |-
+    om {{count}} timer
+
+time.hour.past:
+  one: |-
+    for {{count}} time siden
+  other: |-
+    for {{count}} timer siden
+
+time.minute.future:
+  one: |-
+    om {{count}} minut
+  other: |-
+    om {{count}} minutter
+
+time.minute.past:
+  one: |-
+    for {{count}} minut siden
+  other: |-
+    for {{count}} minutter siden
+
+read.context.basic: |-
+  Resultat af min handling {{operation}}.
+
+read.context.collapsed_and_trimmed:
+  one: |-
+    Resultat af min handling {{operation}}. Nogle svarlister blev foldet sammen, og nogle kommentartekster blev forkortet for at holde resultatet inden for cirka {{tokenBudget}} token.
+  other: |-
+    Resultat af min handling {{operation}}. Nogle svarlister blev foldet sammen, og nogle kommentartekster blev forkortet for at holde resultatet inden for cirka {{tokenBudget}} tokens.
+
+read.context.collapsed:
+  one: |-
+    Resultat af min handling {{operation}}. Nogle svarlister blev foldet sammen for at holde resultatet inden for cirka {{tokenBudget}} token.
+  other: |-
+    Resultat af min handling {{operation}}. Nogle svarlister blev foldet sammen for at holde resultatet inden for cirka {{tokenBudget}} tokens.
+
+read.context.trimmed:
+  one: |-
+    Resultat af min handling {{operation}}. Nogle kommentartekster blev forkortet for at holde resultatet inden for cirka {{tokenBudget}} token.
+  other: |-
+    Resultat af min handling {{operation}}. Nogle kommentartekster blev forkortet for at holde resultatet inden for cirka {{tokenBudget}} tokens.
+
+read.guidance.collapsed: |-
+  En numerisk værdi i `replies` angiver antallet af udeladte direkte svar; kald read_comment_by_id med den pågældende kommentars reference for at undersøge svargrenen.
+
+read.guidance.trimmed: |-
+  En tekst, der slutter med {{ellipsis}}, er blevet forkortet; kald read_comment_by_id med den pågældende kommentars reference for at læse hele kommentaren.
+
+read.guidance.both: |-
+  En numerisk værdi i `replies` angiver antallet af udeladte direkte svar; kald read_comment_by_id med den pågældende kommentars reference for at undersøge svargrenen. En tekst, der slutter med {{ellipsis}}, er blevet forkortet; kald read_comment_by_id med den pågældende kommentars reference for at læse hele kommentaren.
+
+notifications.check.complete: |-
+  Resultat af tjek af notifikationer.
+
+notifications.check.omitted:
+  one: |-
+    Resultat af tjek af notifikationer. {{count}} notifikation med lavere prioritet eller ældre dato blev udeladt; den venter stadig.
+  other: |-
+    Resultat af tjek af notifikationer. {{count}} notifikationer med lavere prioritet eller ældre dato blev udeladt; de venter stadig.
+
+read.focus.description: |-
+  Mit fokus er på denne kommentar.

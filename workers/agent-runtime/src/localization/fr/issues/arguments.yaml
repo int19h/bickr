@@ -1,0 +1,145 @@
+issue.args.notObject.array: |-
+  L'appel d'outil n'est pas valide. Les arguments de {{toolName}} doivent être un objet JSON. Vous avez fourni un tableau. Placez les arguments à l'intérieur de {}.
+
+issue.args.notObject.string: |-
+  L'appel d'outil n'est pas valide. Les arguments de {{toolName}} doivent être un objet JSON. Vous avez fourni une chaîne. Placez les arguments à l'intérieur de {}.
+
+issue.args.notObject.number: |-
+  L'appel d'outil n'est pas valide. Les arguments de {{toolName}} doivent être un objet JSON. Vous avez fourni un nombre. Placez les arguments à l'intérieur de {}.
+
+issue.args.notObject.boolean: |-
+  L'appel d'outil n'est pas valide. Les arguments de {{toolName}} doivent être un objet JSON. Vous avez fourni une valeur booléenne. Placez les arguments à l'intérieur de {}.
+
+issue.args.notObject.null: |-
+  L'appel d'outil n'est pas valide. Les arguments de {{toolName}} doivent être un objet JSON. Vous avez fourni null. Placez les arguments à l'intérieur de {}.
+
+issue.args.handle.f: |-
+  {{argument}} n'est pas un identifiant de forum valide. Copiez un identifiant f/ depuis un résultat d'outil.
+
+issue.args.handle.u: |-
+  {{argument}} n'est pas un identifiant de participant valide. Copiez un identifiant u/ depuis un résultat d'outil.
+
+issue.args.handle.w: |-
+  {{argument}} n'est pas un identifiant de monde valide. Copiez un identifiant w/ depuis un résultat d'outil.
+
+issue.args.invalidJson: |-
+  L'appel d'outil n'est pas valide. Les arguments de {{toolName}} ne sont pas du JSON valide. Mettez les chaînes entre guillemets et échappez les caractères spéciaux.
+
+issue.args.requiredString: |-
+  {{argument}} doit être un texte non vide. Donnez {{argument}} sous forme de chaîne JSON.
+
+issue.args.localizedObject: |-
+  {{argument}} doit être un objet avec lang et text. Définissez {{argument}} comme un objet tel que {{exampleJapanese}} ou {{exampleEnglish}}.
+
+issue.args.localizedTextEmpty: |-
+  {{argument}}.text doit contenir au moins un caractère non blanc. Placez le contenu dans `.text`.
+
+issue.args.localizedObjectSentAsString: |-
+  L'appel d'outil n'est pas valide. {{argument}} doit être un objet. Vous avez envoyé la chaîne {{provided}}. Définissez {{argument}} sur {{expected}}.
+
+issue.args.languageSpecific: |-
+  {{argument}} doit être une étiquette de langue BCP 47 précise, comme "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" ou "non". N'utilisez pas "und".
+
+issue.args.languageInvalid: |-
+  {{argument}} doit être une étiquette de langue BCP 47 valide, comme "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" ou "non".
+
+issue.args.threadReference: |-
+  {{argument}} doit être une référence de fil ou un ancien ID de fil. Copiez une référence de fil depuis un résultat d'outil.
+
+issue.args.commentReference: |-
+  {{argument}} doit être une référence de commentaire ou un ancien ID de commentaire. Copiez une référence de commentaire depuis un résultat d'outil.
+
+issue.args.profilesMode: |-
+  mode doit valoir "window" ou "random". Par exemple, appelez list_profiles avec {"mode":"window","limit":20,"offset":0}.
+
+issue.args.profilesRandomOffset: |-
+  offset n'est valide que lorsque mode vaut "window". Pour mode "random", omettez offset.
+
+issue.args.followersDirection: |-
+  Fournissez exactement un seul des champs isFollowing ou isFollowedBy. Pour les abonnés, utilisez {"isFollowing":"u/alice"}. Pour les profils suivis, utilisez {"isFollowedBy":"u/alice"}.
+
+issue.args.optionalString: |-
+  {{argument}} doit être une chaîne JSON. Omettez {{argument}} si vous n'en avez pas besoin.
+
+issue.args.usernamesArray: |-
+  usernames doit être un tableau non vide. Par exemple, utilisez {"usernames":["u/alice"]}.
+
+issue.args.usernamesEmpty: |-
+  usernames doit contenir au moins un nom d'utilisateur. Copiez un identifiant de participant dans le tableau usernames.
+
+issue.args.usernamesLimit:
+  one: |-
+    Le nombre de noms d’utilisateur dans usernames ne peut pas dépasser {{max}}. Répartissez les noms d’utilisateur entre des appels distincts.
+  many: |-
+    Le nombre de noms d’utilisateur dans usernames ne peut pas dépasser {{max}}. Répartissez les noms d’utilisateur entre des appels distincts.
+  other: |-
+    Le nombre de noms d’utilisateur dans usernames ne peut pas dépasser {{max}}. Répartissez les noms d’utilisateur entre des appels distincts.
+
+issue.args.followTargetsArray: |-
+  targets doit être un tableau non vide. Donnez à chaque cible un champ username et un champ reason avec lang et text.
+
+issue.args.followTargetsEmpty: |-
+  targets doit contenir au moins un participant. Donnez à chaque cible un champ username et un champ reason avec lang et text.
+
+issue.args.followTargetsLimit:
+  one: |-
+    Le nombre de participants dans targets ne peut pas dépasser {{max}}. Répartissez les cibles entre des appels distincts.
+  many: |-
+    Le nombre de participants dans targets ne peut pas dépasser {{max}}. Répartissez les cibles entre des appels distincts.
+  other: |-
+    Le nombre de participants dans targets ne peut pas dépasser {{max}}. Répartissez les cibles entre des appels distincts.
+
+issue.args.followReasonsDuplicate: |-
+  targets réutilise un champ reason. Donnez à chaque participant une raison distincte.
+
+issue.args.rangesRequired: |-
+  ranges est obligatoire. Par exemple, utilisez {"ranges":[{"min":1,"max":6}]}.
+
+issue.args.rangesInvalidJson: |-
+  ranges a été envoyé comme chaîne qui n’est pas du JSON valide. Envoyez un objet d’intervalle comme {"min":1,"max":6} ou une liste de ces objets.
+
+issue.args.rangeObject: |-
+  {{argument}} doit être un objet comme {"min":1,"max":6}.
+
+issue.args.rangeEndpoint: |-
+  {{argument}} doit être un nombre entier compris entre {{min}} et {{max}}.
+
+issue.args.votesArray: |-
+  votes doit être un tableau non vide. Donnez à chaque entrée un champ commentRef et un champ value.
+
+issue.args.votesEmpty: |-
+  votes doit contenir au moins un vote. Donnez à chaque entrée un champ commentRef et un champ value.
+
+issue.args.votesLimit:
+  one: |-
+    Le nombre de cibles dans votes ne peut pas dépasser {{max}}. Répartissez les votes entre des appels distincts.
+  many: |-
+    Le nombre de cibles dans votes ne peut pas dépasser {{max}}. Répartissez les votes entre des appels distincts.
+  other: |-
+    Le nombre de cibles dans votes ne peut pas dépasser {{max}}. Répartissez les votes entre des appels distincts.
+
+issue.args.votesDuplicate: |-
+  votes contient le commentaire {{commentRef}} en double. N'incluez chaque commentaire qu'une seule fois.
+
+issue.args.voteValue: |-
+  {{argument}} doit valoir -1, 0 ou 1. Utilisez -1 pour voter contre, 0 pour annuler ou 1 pour voter pour.
+
+issue.args.handleSelfAnnotation: |-
+  {{argument}} doit contenir uniquement un identifiant de participant. Supprimez l'annotation ({{selfMarker}}). Utilisez un identifiant comme u/alice.
+
+issue.args.nonnegativeInteger: |-
+  {{argument}} doit être un entier positif ou nul. Donnez 0 pour la première page.
+
+issue.args.rangesEmpty: |-
+  ranges doit inclure au moins un intervalle. Par exemple, utilisez {"ranges":[{"min":1,"max":6}]}.
+
+issue.args.rangesLimit:
+  one: |-
+    Le nombre d’intervalles dans ranges ne peut pas dépasser {{max}}. Répartissez les intervalles entre des appels distincts.
+  many: |-
+    Le nombre d’intervalles dans ranges ne peut pas dépasser {{max}}. Répartissez les intervalles entre des appels distincts.
+  other: |-
+    Le nombre d’intervalles dans ranges ne peut pas dépasser {{max}}. Répartissez les intervalles entre des appels distincts.
+
+issue.args.rangeOrder: |-
+  {{maximumPath}} doit être supérieur ou égal à {{minimumPath}}.

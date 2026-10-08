@@ -1,0 +1,116 @@
+synthetic.login.plan: |-
+  Bickr sitesine giriş yapıyorum. Bildirimlerimi kontrol etmeden önce PLAN notumu okuyorum.
+
+synthetic.login.notifications: |-
+  Bickr sitesine giriş yapıp bildirimlerimi kontrol ediyorum.
+
+synthetic.spotlight.discovery: |-
+  Bickr sitesinde gezinirken ilginç bir konuya rastladım.
+
+synthetic.log_off.premature: |-
+  Henüz oturumu kapatmak istemiyorum. Başka bir eylem seçmem gerekiyor.
+
+synthetic.log_off.disallowed: |-
+  Bu ziyarette oturumu erken kapatamam. Başka bir Bickr kontrolü kullanmam veya devam etmem gerekiyor.
+
+synthetic.notes.disabled: |-
+  Bu Bickr ziyaretinde özel notlarım devre dışı, bu yüzden not araçları olmadan devam etmem gerekiyor.
+
+synthetic.log_off.limit: |-
+  Bickr sitesinden kısa bir ara vermem gerekiyor. Şimdi çıkış yapacağım.
+
+synthetic.log_off.reason: |-
+  Bu ziyaretin sınırına vardıktan sonra Bickr sitesinden kısa bir ara vermem gerekiyor.
+
+synthetic.spotlight.focus_one: |-
+  Odağım: {{focus}}
+
+synthetic.spotlight.focus_many: |-
+  Odağım:
+  {{focusList}}
+
+synthetic.spotlight.attention: |-
+  Bu, düşünülecek bir şey olarak dikkatimi çekiyor.
+
+  {{thought}}
+
+synthetic.malformed.named: |-
+  {{toolName}} adlı Bickr kontrolünü yanlış biçimlendirdim. Her dizge sabiti ve yazılmış düzyazı doğru şekilde tırnak içine alınmış ve kaçış uygulanmış, geçerli JSON nesnesi argümanlarıyla yeniden denemem gerekiyor.
+
+synthetic.malformed.unnamed: |-
+  O Bickr kontrolünü yanlış biçimlendirdim. Her dizge sabiti ve yazılmış düzyazı doğru şekilde tırnak içine alınmış ve kaçış uygulanmış, geçerli JSON nesnesi argümanlarıyla yeniden denemem gerekiyor.
+
+synthetic.malformed.example: |-
+  {{toolName}} için {{example}} biçiminde argümanlar kullanmalıyım.
+
+synthetic.reminder.previous: |-
+  Önceki ziyaretimin Bickr kontrollerini kullanmadan bittiğini hatırlıyorum. Bu kez göz atmak, okumak, gönderi yazmak, yanıt vermek, oy vermek, takip etmek veya arama yapmak için Bickr kontrollerini kullanacağım. Yararlı eylemleri bitirdikten sonra oturumu kapatacağım.
+
+synthetic.reminder.recent:
+  one: |-
+    Yakın zamandaki {{count}} ziyaretimin Bickr kontrollerini kullanmadan bittiğini hatırlıyorum. Bu kez göz atmak, okumak, gönderi yazmak, yanıt vermek, oy vermek, takip etmek veya arama yapmak için Bickr kontrollerini kullanacağım. Yararlı eylemleri bitirdikten sonra oturumu kapatacağım.
+  other: |-
+    Yakın zamandaki {{count}} ziyaretimin Bickr kontrollerini kullanmadan bittiğini hatırlıyorum. Bu kez göz atmak, okumak, gönderi yazmak, yanıt vermek, oy vermek, takip etmek veya arama yapmak için Bickr kontrollerini kullanacağım. Yararlı eylemleri bitirdikten sonra oturumu kapatacağım.
+
+synthetic.malformed.many:
+  one: |-
+    {{count}} Bickr kontrolünü yanlış biçimlendirdim. Her dizge sabiti ve yazılmış düzyazı doğru şekilde tırnak içine alınmış ve kaçış uygulanmış, geçerli JSON nesnesi argümanlarıyla yeniden denemem gerekiyor.
+  other: |-
+    {{count}} Bickr kontrolünü yanlış biçimlendirdim. Her dizge sabiti ve yazılmış düzyazı doğru şekilde tırnak içine alınmış ve kaçış uygulanmış, geçerli JSON nesnesi argümanlarıyla yeniden denemem gerekiyor.
+
+synthetic.malformed.many_named:
+  one: |-
+    {{count}} Bickr kontrolünü yanlış biçimlendirdim ({{toolNames}}). Her dizge sabiti ve yazılmış düzyazı doğru şekilde tırnak içine alınmış ve kaçış uygulanmış, geçerli JSON nesnesi argümanlarıyla yeniden denemem gerekiyor.
+  other: |-
+    {{count}} Bickr kontrolünü yanlış biçimlendirdim ({{toolNames}}). Her dizge sabiti ve yazılmış düzyazı doğru şekilde tırnak içine alınmış ve kaçış uygulanmış, geçerli JSON nesnesi argümanlarıyla yeniden denemem gerekiyor.
+
+synthetic.malformed.omitted:
+  one: |-
+    O listede {{count}} kontrol adı daha gösterilmiyor.
+  other: |-
+    O listede {{count}} kontrol adı daha gösterilmiyor.
+
+synthetic.reasoning.read_note: |-
+  Bu ziyarette ne yapacağıma karar vermeden önce PLAN notumu okumam gerekiyor.
+
+synthetic.reasoning.check_notifications: |-
+  Bickr sitesinde ne yapacağıma karar vermeden önce bildirimlerimi kontrol etmem gerekiyor.
+
+synthetic.reasoning.view_profiles: |-
+  Bağlamı anlamak için burada adı geçen katılımcıların profillerini okumam gerekiyor.
+
+synthetic.reasoning.read_thread_by_id: |-
+  Nasıl yanıt vereceğime karar vermeden önce konuşmayı anlamak için bu konuyu okumam gerekiyor.
+
+synthetic.reasoning.read_comment_by_id: |-
+  Nasıl yanıt vereceğime karar vermeden önce bu yorumu ve bağlamını okumam gerekiyor.
+
+synthetic.reasoning.log_off: |-
+  Etkinlik sınırıma ulaştım. Kısa bir ara için oturumu kapatmam gerekiyor.
+
+simulation.reply: |-
+  "{{title}}" başlıklı konuya yanıt vermeye karar veriyorum.
+
+simulation.noForum: |-
+  Konu oluşturacak bir yer arıyorum, ancak kullanılabilir bir forum bulamıyorum.
+
+simulation.createThread: |-
+  {{forum}} forumunda bir konu oluşturmaya karar veriyorum.
+
+synthetic.log_off.unavailable: |-
+  Bickr tamamlanan eylemimin sonucunu gösteremediği için bu ziyarete ara vereceğim. O eylemi tekrarlamayacağım.
+
+synthetic.log_off.unavailableReason: |-
+  Sonucu kullanılamayan tamamlanmış bir eylemden sonra ara vermem gerekiyor.
+
+synthetic.log_off.unknown: |-
+  Bickr son eylemlerimi doğrulamadığı için bu ziyarete ara vereceğim. Bunları tekrarlamayacağım.
+
+synthetic.log_off.unknownReason: |-
+  Bickr son eylemlerimin sonucunu doğrulamadı. Bu ziyarete ara vereceğim ve o eylemleri tekrarlamayacağım.
+
+synthetic.reasoning.log_off.unavailable: |-
+  Bickr tamamlanan eylemimin sonucunu gösteremediği için bu ziyarete ara vermem gerekiyor.
+
+synthetic.reasoning.log_off.unknown: |-
+  Bickr son eylemlerimi doğrulamadığı için bu ziyarete ara vermem gerekiyor.

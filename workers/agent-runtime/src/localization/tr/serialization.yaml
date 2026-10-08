@@ -1,0 +1,104 @@
+time.just_now: |-
+  az önce
+
+time.year.future:
+  one: |-
+    {{count}} yıl sonra
+  other: |-
+    {{count}} yıl sonra
+
+time.year.past:
+  one: |-
+    {{count}} yıl önce
+  other: |-
+    {{count}} yıl önce
+
+time.month.future:
+  one: |-
+    {{count}} ay sonra
+  other: |-
+    {{count}} ay sonra
+
+time.month.past:
+  one: |-
+    {{count}} ay önce
+  other: |-
+    {{count}} ay önce
+
+time.day.future:
+  one: |-
+    {{count}} gün sonra
+  other: |-
+    {{count}} gün sonra
+
+time.day.past:
+  one: |-
+    {{count}} gün önce
+  other: |-
+    {{count}} gün önce
+
+time.hour.future:
+  one: |-
+    {{count}} saat sonra
+  other: |-
+    {{count}} saat sonra
+
+time.hour.past:
+  one: |-
+    {{count}} saat önce
+  other: |-
+    {{count}} saat önce
+
+time.minute.future:
+  one: |-
+    {{count}} dakika sonra
+  other: |-
+    {{count}} dakika sonra
+
+time.minute.past:
+  one: |-
+    {{count}} dakika önce
+  other: |-
+    {{count}} dakika önce
+
+read.context.basic: |-
+  {{operation}} işlemimin sonucu.
+
+read.context.collapsed_and_trimmed:
+  one: |-
+    {{operation}} işlemimin sonucu. Sonucu yaklaşık {{tokenBudget}} token içinde tutmak için bazı yanıt listeleri daraltıldı ve bazı yorum gövdeleri kısaltıldı.
+  other: |-
+    {{operation}} işlemimin sonucu. Sonucu yaklaşık {{tokenBudget}} token içinde tutmak için bazı yanıt listeleri daraltıldı ve bazı yorum gövdeleri kısaltıldı.
+
+read.context.collapsed:
+  one: |-
+    {{operation}} işlemimin sonucu. Sonucu yaklaşık {{tokenBudget}} token içinde tutmak için bazı yanıt listeleri daraltıldı.
+  other: |-
+    {{operation}} işlemimin sonucu. Sonucu yaklaşık {{tokenBudget}} token içinde tutmak için bazı yanıt listeleri daraltıldı.
+
+read.context.trimmed:
+  one: |-
+    {{operation}} işlemimin sonucu. Sonucu yaklaşık {{tokenBudget}} token içinde tutmak için bazı yorum gövdeleri kısaltıldı.
+  other: |-
+    {{operation}} işlemimin sonucu. Sonucu yaklaşık {{tokenBudget}} token içinde tutmak için bazı yorum gövdeleri kısaltıldı.
+
+read.guidance.collapsed: |-
+  Sayısal bir `replies` değeri, o kadar doğrudan yanıtın atlandığı anlamına gelir; o dalı incelemek için o yorumun ref değeriyle read_comment_by_id çağırın.
+
+read.guidance.trimmed: |-
+  {{ellipsis}} ile biten bir gövde kısaltılmıştır; tam yorumu okumak için o yorumun ref değeriyle read_comment_by_id aracını çağırın.
+
+read.guidance.both: |-
+  Sayısal bir `replies` değeri, o kadar doğrudan yanıtın atlandığı anlamına gelir; o dalı incelemek için o yorumun ref değeriyle read_comment_by_id çağırın. {{ellipsis}} ile biten bir gövde kısaltılmıştır; yorumun tümünü okumak için o yorumun ref değeriyle read_comment_by_id çağırın.
+
+notifications.check.complete: |-
+  Bildirimleri kontrol etmenin sonucu.
+
+notifications.check.omitted:
+  one: |-
+    Bildirim denetiminin sonucu. Daha düşük öncelikli veya daha eski {{count}} bildirim atlandı; bu bildirim beklemede kalıyor.
+  other: |-
+    Bildirim denetiminin sonucu. Daha düşük öncelikli veya daha eski {{count}} bildirim atlandı; atlanan bildirimlerin tümü beklemede kalıyor.
+
+read.focus.description: |-
+  Odağım bu yorumda.

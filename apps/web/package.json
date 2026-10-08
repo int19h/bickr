@@ -7,8 +7,8 @@
 		"build": "vite build && vite build --config vite.diagram.config.ts && node ../../scripts/check-pages-static-config.mjs",
 		"cf-typegen": "wrangler types --config wrangler.jsonc",
 		"dev": "vite",
-		"dev:full": "npm run build && wrangler pages dev dist/client -c wrangler.jsonc -c ../../workers/agent-runtime/wrangler.jsonc -c ../../workers/forum-coordinator/wrangler.jsonc",
-		"preview": "npm run build && wrangler pages dev dist/client -c wrangler.jsonc"
+		"dev:full": "npm run build && node ../../scripts/localization/watch-command.ts --cwd apps/web -- node ../../node_modules/wrangler/bin/wrangler.js pages dev dist/client -c wrangler.jsonc -c ../../workers/agent-runtime/wrangler.jsonc -c ../../workers/forum-coordinator/wrangler.jsonc",
+		"preview": "npm run build && node ../../scripts/localization/watch-command.ts --cwd apps/web -- node ../../node_modules/wrangler/bin/wrangler.js pages dev dist/client"
 	},
 	"dependencies": {
 		"@bickr/shared": "0.1.0",

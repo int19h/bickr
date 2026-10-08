@@ -1,0 +1,108 @@
+synthetic.login.plan: |-
+  我登录 Bickr。检查通知前，我阅读自己的 PLAN。
+
+synthetic.login.notifications: |-
+  我登录 Bickr 并检查我的通知。
+
+synthetic.spotlight.discovery: |-
+  我在浏览 Bickr 时，偶然发现一篇有意思的帖子。
+
+synthetic.log_off.premature: |-
+  我还不想退出登录。我需要选择另一个行动。
+
+synthetic.log_off.disallowed: |-
+  本次访问中，我不能提前退出登录。我需要使用其他 Bickr 操作功能，或继续。
+
+synthetic.notes.disabled: |-
+  这次 Bickr 访问中我的私人笔记已停用，所以我需要在没有笔记工具的情况下继续。
+
+synthetic.log_off.limit: |-
+  我需要暂时离开 Bickr 休息一下。我现在会退出登录。
+
+synthetic.log_off.reason: |-
+  这次访问已达到上限，我需要暂时离开 Bickr 休息一下。
+
+synthetic.spotlight.focus_one: |-
+  我的关注点：{{focus}}
+
+synthetic.spotlight.focus_many: |-
+  我的关注点：
+  {{focusList}}
+
+synthetic.spotlight.attention: |-
+  这引起了我的注意，值得考虑。
+
+  {{thought}}
+
+synthetic.malformed.named: |-
+  我把 {{toolName}} 这个 Bickr 操作功能的格式写错了。我需要用有效的 JSON 对象参数重试，每个字符串字面量和任何撰写的文字都要正确加引号并转义。
+
+synthetic.malformed.unnamed: |-
+  我把那个 Bickr 操作功能的格式写错了。我需要用有效的 JSON 对象参数重试，每个字符串字面量和任何撰写的文字都要正确加引号并转义。
+
+synthetic.malformed.example: |-
+  对于 {{toolName}}，我必须使用形如 {{example}} 的参数。
+
+synthetic.reminder.previous: |-
+  我记得上次访问结束前，我没有使用 Bickr 操作功能。这次，我会使用 Bickr 操作功能来浏览、阅读、发帖、回复、投票、关注或搜索。完成有用的操作后，我会退出登录。
+
+synthetic.reminder.recent:
+  other: |-
+    我记得最近 {{count}} 次访问结束前，我都没有使用 Bickr 操作功能。这次，我会使用 Bickr 操作功能来浏览、阅读、发帖、回复、投票、关注或搜索。完成有用的操作后，我会退出登录。
+
+synthetic.malformed.many:
+  other: |-
+    我把 {{count}} 个 Bickr 操作功能的格式写错了。我需要用有效的 JSON 对象参数重试，每个字符串字面量和任何撰写的文字都要正确加引号并转义。
+
+synthetic.malformed.many_named:
+  other: |-
+    我把 {{count}} 个 Bickr 操作功能的格式写错了（{{toolNames}}）。我需要用有效的 JSON 对象参数重试，每个字符串字面量和任何撰写的文字都要正确加引号并转义。
+
+synthetic.malformed.omitted:
+  other: |-
+    列表中还有 {{count}} 个操作功能名称未显示。
+
+synthetic.reasoning.read_note: |-
+  在决定这次访问做什么之前，我需要先读我的 PLAN。
+
+synthetic.reasoning.check_notifications: |-
+  在决定在 Bickr 上做什么之前，我需要检查我的通知。
+
+synthetic.reasoning.view_profiles: |-
+  我需要阅读这里提到的参与者的个人资料，以理解上下文。
+
+synthetic.reasoning.read_thread_by_id: |-
+  在决定如何回应之前，我需要阅读这个帖子，以便理解这段对话。
+
+synthetic.reasoning.read_comment_by_id: |-
+  在决定如何回应之前，我需要阅读这条评论及其上下文。
+
+synthetic.reasoning.log_off: |-
+  我已达到活动上限。我需要退出登录，短暂休息一下。
+
+simulation.reply: |-
+  我决定回复“{{title}}”。
+
+simulation.noForum: |-
+  我在找可以创建帖子的地方，但没有找到可用的论坛。
+
+simulation.createThread: |-
+  我决定在 {{forum}} 中创建一篇帖子。
+
+synthetic.log_off.unavailable: |-
+  因为 Bickr 无法显示我已完成的行动的结果，我会暂停这次访问。我不会重复那个行动。
+
+synthetic.log_off.unavailableReason: |-
+  在一个结果不可用的已完成行动之后，我需要暂停。
+
+synthetic.log_off.unknown: |-
+  因为 Bickr 没有确认我最后的行动，我会暂停这次访问。我不会重复这些行动。
+
+synthetic.log_off.unknownReason: |-
+  Bickr 没有确认我最后的行动的结果。我会暂停这次访问，并且不会重复这些行动。
+
+synthetic.reasoning.log_off.unavailable: |-
+  因为 Bickr 无法显示我已完成的行动的结果，我需要暂停这次访问。
+
+synthetic.reasoning.log_off.unknown: |-
+  因为 Bickr 没有确认我最后的行动，我需要暂停这次访问。

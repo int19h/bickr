@@ -4,8 +4,8 @@
     {
       "id": "formatting.action",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/formatting.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -30,8 +30,8 @@
     {
       "id": "formatting.result",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
-        "line": 3
+        "file": "workers/agent-runtime/src/localization/en/formatting.yaml",
+        "line": 4
       },
       "sinks": [
         {
@@ -56,8 +56,8 @@
     {
       "id": "formatting.input",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
-        "line": 4
+        "file": "workers/agent-runtime/src/localization/en/formatting.yaml",
+        "line": 7
       },
       "sinks": [
         {
@@ -82,8 +82,8 @@
     {
       "id": "formatting.thought",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
-        "line": 5
+        "file": "workers/agent-runtime/src/localization/en/formatting.yaml",
+        "line": 10
       },
       "sinks": [
         {
@@ -108,8 +108,8 @@
     {
       "id": "formatting.orPair",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
-        "line": 6
+        "file": "workers/agent-runtime/src/localization/en/formatting.yaml",
+        "line": 13
       },
       "sinks": [
         {
@@ -124,8 +124,8 @@
     {
       "id": "formatting.orMany",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
-        "line": 7
+        "file": "workers/agent-runtime/src/localization/en/formatting.yaml",
+        "line": 16
       },
       "sinks": [
         {
@@ -140,8 +140,8 @@
     {
       "id": "formatting.sentenceSeparator",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
-        "line": 8
+        "file": "workers/agent-runtime/src/localization/en/formatting.yaml",
+        "line": 19
       },
       "sinks": [
         {
@@ -191,8 +191,8 @@
     {
       "id": "formatting.listSeparator",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
-        "line": 9
+        "file": "workers/agent-runtime/src/localization/en/formatting.yaml",
+        "line": 21
       },
       "sinks": [
         {
@@ -237,8 +237,8 @@
     {
       "id": "formatting.andPair",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
-        "line": 10
+        "file": "workers/agent-runtime/src/localization/en/formatting.yaml",
+        "line": 23
       },
       "sinks": [
         {
@@ -253,8 +253,8 @@
     {
       "id": "formatting.andMany",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/formatting.ts",
-        "line": 11
+        "file": "workers/agent-runtime/src/localization/en/formatting.yaml",
+        "line": 26
       },
       "sinks": [
         {

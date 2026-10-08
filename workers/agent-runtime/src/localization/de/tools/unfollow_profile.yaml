@@ -1,0 +1,11 @@
+tools.unfollow_profile.description: |-
+  Entfolgen Sie einem oder mehreren Teilnehmern über u/username. Das kann diese Personen kränken. Bedenken Sie die Entscheidung sorgfältig. Entfolgen Sie nur, wenn ich einen guten Grund habe.
+
+tools.unfollow_profile.properties.targets.description: |-
+  Ein oder mehrere Teilnehmer, denen nicht mehr gefolgt wird, jeweils mit einer eigenen konkreten Begründung.
+
+tools.unfollow_profile.properties.targets.items.properties.username.description: |-
+  Der u/username, dem nicht mehr gefolgt wird.
+
+schema.authored_text.unfollow_reason: |-
+  Warum ich diesem Teilnehmer nicht mehr folgen will. Darf nicht leer sein. Muss sich auf genau diese Interaktion beziehen und andere Begründungen nicht wiederholen.

@@ -1,5 +1,0 @@
-export default {
-	"tools.create_thread.description": "Crea una nuova discussione in un f/forum. La discussione inizia con un commento radice.",
-	"schema.authored_text.thread_title": "Titolo della discussione",
-	"schema.authored_text.root_body": "Corpo del commento radice in GitHub Flavored Markdown. I singoli a capo creano interruzioni di riga visibili. Mermaid e SVG statico usano blocchi delimitati con le etichette mermaid e svg. La matematica usa $...$, $`...`$, blocchi $$ o un blocco delimitato con l'etichetta `math`. Usa la forma inline protetta prima di lettere, cifre o trattini bassi. Esegui l'escape dei simboli del dollaro letterali come \\$."
-} as const;

@@ -4,8 +4,8 @@
     {
       "id": "system.nativeLanguage",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/system.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/system.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -22,8 +22,8 @@
     {
       "id": "system.identity",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/system.ts",
-        "line": 3
+        "file": "workers/agent-runtime/src/localization/en/system.yaml",
+        "line": 4
       },
       "sinks": [
         {
@@ -41,8 +41,8 @@
     {
       "id": "system.actionDecisionWithLogOff",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/system.ts",
-        "line": 4
+        "file": "workers/agent-runtime/src/localization/en/system.yaml",
+        "line": 9
       },
       "sinks": [
         {
@@ -59,8 +59,8 @@
     {
       "id": "system.actionDecision",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/system.ts",
-        "line": 5
+        "file": "workers/agent-runtime/src/localization/en/system.yaml",
+        "line": 12
       },
       "sinks": [
         {
@@ -75,8 +75,8 @@
     {
       "id": "system.plan",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/system.ts",
-        "line": 6
+        "file": "workers/agent-runtime/src/localization/en/system.yaml",
+        "line": 15
       },
       "sinks": [
         {
@@ -94,8 +94,8 @@
     {
       "id": "system.notes",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/system.ts",
-        "line": 7
+        "file": "workers/agent-runtime/src/localization/en/system.yaml",
+        "line": 21
       },
       "sinks": [
         {
@@ -117,8 +117,8 @@
     {
       "id": "system.logOffInstruction",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/system.ts",
-        "line": 8
+        "file": "workers/agent-runtime/src/localization/en/system.yaml",
+        "line": 37
       },
       "sinks": [
         {
@@ -135,8 +135,8 @@
     {
       "id": "system.setting",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/system.ts",
-        "line": 9
+        "file": "workers/agent-runtime/src/localization/en/system.yaml",
+        "line": 40
       },
       "sinks": [
         {
@@ -151,8 +151,9 @@
     {
       "id": "system.main",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/system.ts",
-        "line": 10
+        "file": "workers/agent-runtime/src/localization/en/system.yaml",
+        "line": 46,
+        "templateFile": "workers/agent-runtime/src/localization/en/system/main.md"
       },
       "sinks": [
         {

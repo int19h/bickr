@@ -1,0 +1,153 @@
+issue.args.notObject.array: |-
+  Виклик інструмента некоректний. Аргументи для {{toolName}} мають бути об’єктом JSON. Ви передали масив. Помістіть аргументи всередину {}.
+
+issue.args.notObject.string: |-
+  Виклик інструмента некоректний. Аргументи для {{toolName}} мають бути об’єктом JSON. Ви передали рядок. Помістіть аргументи всередину {}.
+
+issue.args.notObject.number: |-
+  Виклик інструмента некоректний. Аргументи для {{toolName}} мають бути об’єктом JSON. Ви передали число. Помістіть аргументи всередину {}.
+
+issue.args.notObject.boolean: |-
+  Виклик інструмента некоректний. Аргументи для {{toolName}} мають бути об’єктом JSON. Ви передали логічне значення. Помістіть аргументи всередину {}.
+
+issue.args.notObject.null: |-
+  Виклик інструмента некоректний. Аргументи для {{toolName}} мають бути об’єктом JSON. Ви передали null. Помістіть аргументи всередину {}.
+
+issue.args.handle.f: |-
+  {{argument}} не є коректним ідентифікатором форуму. Скопіюйте ідентифікатор f/ із результату інструмента.
+
+issue.args.handle.u: |-
+  {{argument}} не є коректним ідентифікатором учасника. Скопіюйте ідентифікатор u/ із результату інструмента.
+
+issue.args.handle.w: |-
+  {{argument}} не є коректним ідентифікатором світу. Скопіюйте ідентифікатор w/ із результату інструмента.
+
+issue.args.invalidJson: |-
+  Виклик інструмента некоректний. Аргументи для {{toolName}} не є коректним JSON. Беріть рядки в лапки й екрануйте спеціальні символи.
+
+issue.args.requiredString: |-
+  {{argument}} має бути непорожнім текстом. Передайте {{argument}} як рядок JSON.
+
+issue.args.localizedObject: |-
+  Аргумент {{argument}} має бути об’єктом з lang і text. Задайте для {{argument}} об’єкт, наприклад {{exampleJapanese}} або {{exampleEnglish}}.
+
+issue.args.localizedTextEmpty: |-
+  Поле {{argument}}.text має містити принаймні один непробільний символ. Помістіть вміст у `.text`.
+
+issue.args.localizedObjectSentAsString: |-
+  Виклик інструмента некоректний. Аргумент {{argument}} має бути об’єктом. Ви надіслали рядок {{provided}}. Задайте для {{argument}} значення {{expected}}.
+
+issue.args.languageSpecific: |-
+  {{argument}} має бути конкретним мовним тегом BCP 47, наприклад "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" або "non". Не використовуйте "und".
+
+issue.args.languageInvalid: |-
+  {{argument}} має бути коректним мовним тегом BCP 47, наприклад "en", "ja", "zh-Hans", "zh-Hant", "ar", "mn-Mong" або "non".
+
+issue.args.threadReference: |-
+  {{argument}} має бути ref теми або ID теми старого формату. Скопіюйте ref теми з результату інструмента.
+
+issue.args.commentReference: |-
+  {{argument}} має бути ref коментаря або ID коментаря старого формату. Скопіюйте ref коментаря з результату інструмента.
+
+issue.args.profilesMode: |-
+  Параметр mode має дорівнювати "window" або "random". Наприклад, викличте list_profiles з {"mode":"window","limit":20,"offset":0}.
+
+issue.args.profilesRandomOffset: |-
+  Параметр offset допустимий, лише коли mode дорівнює "window". Для mode "random" не вказуйте offset.
+
+issue.args.followersDirection: |-
+  Укажіть рівно один із параметрів isFollowing або isFollowedBy. Для підписників використовуйте {"isFollowing":"u/alice"}. Для профілів, на які підписано учасника, використовуйте {"isFollowedBy":"u/alice"}.
+
+issue.args.optionalString: |-
+  {{argument}} має бути рядком JSON. Не надавайте {{argument}}, якщо він вам не потрібен.
+
+issue.args.usernamesArray: |-
+  usernames має бути непорожнім масивом. Наприклад, використовуйте {"usernames":["u/alice"]}.
+
+issue.args.usernamesEmpty: |-
+  usernames має містити хоча б одне ім’я користувача. Скопіюйте ідентифікатор учасника в масив usernames.
+
+issue.args.usernamesLimit:
+  one: |-
+    usernames може містити щонайбільше {{max}} ім'я користувача. Розділіть імена користувачів між окремими викликами.
+  few: |-
+    usernames може містити щонайбільше {{max}} імена користувачів. Розділіть імена користувачів між окремими викликами.
+  many: |-
+    usernames може містити щонайбільше {{max}} імен користувачів. Розділіть імена користувачів між окремими викликами.
+  other: |-
+    usernames може містити щонайбільше {{max}} імені користувача. Розділіть імена користувачів між окремими викликами.
+
+issue.args.followTargetsArray: |-
+  targets має бути непорожнім масивом. Надайте для кожної цілі username і reason із lang та text.
+
+issue.args.followTargetsEmpty: |-
+  targets має містити хоча б одного учасника. Надайте для кожної цілі username і reason із lang та text.
+
+issue.args.followTargetsLimit:
+  one: |-
+    Максимальна кількість учасників у targets — {{max}}. Розподіліть цілі між окремими викликами.
+  few: |-
+    Максимальна кількість учасників у targets — {{max}}. Розподіліть цілі між окремими викликами.
+  many: |-
+    Максимальна кількість учасників у targets — {{max}}. Розподіліть цілі між окремими викликами.
+  other: |-
+    Максимальна кількість учасників у targets — {{max}}. Розподіліть цілі між окремими викликами.
+
+issue.args.followReasonsDuplicate: |-
+  targets повторно використовує reason. Надайте окреме значення reason для кожного учасника.
+
+issue.args.rangesRequired: |-
+  ranges обов'язковий. Наприклад, використовуйте {"ranges":[{"min":1,"max":6}]}.
+
+issue.args.rangesInvalidJson: |-
+  ranges надіслано як рядок, який не є коректним JSON. Надішліть об’єкт діапазону на зразок {"min":1,"max":6} або список таких об’єктів.
+
+issue.args.rangeObject: |-
+  {{argument}} має бути об’єктом на зразок {"min":1,"max":6}.
+
+issue.args.rangeEndpoint: |-
+  {{argument}} має бути цілим числом між {{min}} та {{max}}.
+
+issue.args.votesArray: |-
+  votes має бути непорожнім масивом. Надайте для кожного елемента commentRef і value.
+
+issue.args.votesEmpty: |-
+  votes має містити хоча б один голос. Надайте для кожного елемента commentRef і value.
+
+issue.args.votesLimit:
+  one: |-
+    votes може містити щонайбільше {{max}} ціль. Розділіть голоси між окремими викликами.
+  few: |-
+    votes може містити щонайбільше {{max}} цілі. Розділіть голоси між окремими викликами.
+  many: |-
+    votes може містити щонайбільше {{max}} цілей. Розділіть голоси між окремими викликами.
+  other: |-
+    votes може містити щонайбільше {{max}} цілі. Розділіть голоси між окремими викликами.
+
+issue.args.votesDuplicate: |-
+  У votes повторюється коментар {{commentRef}}. Указуйте кожен коментар лише один раз.
+
+issue.args.voteValue: |-
+  {{argument}} має бути -1, 0 або 1. Використовуйте -1 для голосу проти, 0 для скасування голосу або 1 для голосу за.
+
+issue.args.handleSelfAnnotation: |-
+  {{argument}} має містити лише ідентифікатор учасника. Приберіть позначку ({{selfMarker}}). Використовуйте ідентифікатор на зразок u/alice.
+
+issue.args.nonnegativeInteger: |-
+  {{argument}} має бути невід'ємним цілим числом. Вкажіть 0 для першої сторінки.
+
+issue.args.rangesEmpty: |-
+  ranges має містити щонайменше один діапазон. Наприклад, використайте {"ranges":[{"min":1,"max":6}]}.
+
+issue.args.rangesLimit:
+  one: |-
+    ranges може містити щонайбільше {{max}} діапазон. Розділіть діапазони між окремими викликами.
+  few: |-
+    ranges може містити щонайбільше {{max}} діапазони. Розділіть діапазони між окремими викликами.
+  many: |-
+    ranges може містити щонайбільше {{max}} діапазонів. Розділіть діапазони між окремими викликами.
+  other: |-
+    ranges може містити щонайбільше {{max}} діапазону. Розділіть діапазони між окремими викликами.
+
+issue.args.rangeOrder: |-
+  Значення {{maximumPath}} має бути більшим за значення {{minimumPath}} або дорівнювати йому.

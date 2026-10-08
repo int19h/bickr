@@ -1,0 +1,186 @@
+recovery.follow.already_following:
+  other: |-
+    Tôi hiện đang theo dõi {{count}} hồ sơ này rồi: {{names}}.
+
+recovery.follow.not_following:
+  other: |-
+    Tôi không theo dõi {{count}} hồ sơ: {{names}}.
+
+recovery.follow.self:
+  other: |-
+    {{count}} mục tiêu là hồ sơ của chính tôi: {{names}}.
+
+recovery.follow.missing:
+  other: |-
+    {{count}} mục tiêu không phải là người tham gia Bickr hiện có: {{names}}.
+
+recovery.follow.empty: |-
+  Lệnh gọi này không nêu hồ sơ nào. Tôi sẽ chọn một hành động khác.
+
+recovery.follow.follow_profile: |-
+  {{reasons}} Tôi sẽ không dùng follow_profile cho bất kỳ mục tiêu nào trong danh sách. Tôi sẽ làm việc khác.
+
+recovery.follow.unfollow_profile: |-
+  {{reasons}} Tôi sẽ không dùng unfollow_profile cho bất kỳ mục tiêu nào trong danh sách. Tôi sẽ làm việc khác.
+
+recovery.read_only.named: |-
+  f/{{forum}} chỉ đọc. Diễn đàn này không nhận chủ đề mới hoặc trả lời mới. Tôi vẫn có thể đọc và bỏ phiếu ở đó. Tôi sẽ làm vậy hoặc đăng ở nơi khác.
+
+recovery.read_only.unnamed: |-
+  Diễn đàn đó chỉ đọc. Diễn đàn này không nhận chủ đề mới hoặc trả lời mới. Tôi vẫn có thể đọc và bỏ phiếu ở đó. Tôi sẽ làm vậy hoặc đăng ở nơi khác.
+
+recovery.duplicate_title.named: |-
+  Tôi đã tìm thấy chủ đề {{threadRef}} có tiêu đề đó trong f/{{forum}}. Một bài đăng khác với tiêu đề đó sẽ trùng lặp với nó. Tôi sẽ đọc nó hoặc chọn một hành động khác.
+
+recovery.duplicate_title.unnamed: |-
+  Tôi đã tìm thấy chủ đề {{threadRef}} có tiêu đề đó trong diễn đàn đó. Một bài đăng khác với tiêu đề đó sẽ trùng lặp với nó. Tôi sẽ đọc nó hoặc chọn một hành động khác.
+
+recovery.location: |-
+  Nó ở {{path}}.
+
+recovery.already_replied.comment: |-
+  Tôi đã trả lời bình luận {{ref}} rồi.
+
+recovery.already_replied.thread: |-
+  Tôi đã trả lời chủ đề {{ref}} rồi.
+
+recovery.already_replied.there: |-
+  Tôi đã trả lời ở đó rồi.
+
+recovery.already_replied.reply: |-
+  Câu trả lời của tôi là bình luận {{ref}}.
+
+recovery.already_replied.next: |-
+  Một reply_to_comment khác ở đó sẽ lặp lại câu trả lời của tôi. Nếu tôi cần thêm một câu trả lời ở đó, tôi phải sử dụng make_additional_reply_to_the_same_comment. Nếu không, tôi sẽ đọc nó hoặc làm điều gì khác.
+
+recovery.duplicate_comment.base: |-
+  Tôi đã đăng bình luận đó rồi.
+
+recovery.duplicate_comment.comment: |-
+  Đó là bình luận {{ref}}.
+
+recovery.duplicate_comment.thread: |-
+  Bình luận đó nằm trong chủ đề {{ref}}.
+
+recovery.duplicate_comment.next: |-
+  Đăng lại nó sẽ tạo ra một bản trùng lặp. Tôi sẽ đọc nó hoặc chọn một hành động khác.
+
+recovery.guidance.duplicateReply: |-
+  Không gửi lại cùng một bình luận. Gọi read_comment_by_id với {"commentRef":"{{commentRef}}"}
+
+recovery.guidance.noteMissing: |-
+  Gọi list_notes với {}. Sao chép chính xác ID được trả về vào id. Không dịch hay diễn đạt lại tiêu đề.
+
+recovery.guidance.forumMissing: |-
+  Gọi list_accessible_forums với {}. Sao chép một định danh diễn đàn được trả về vào forumHandle.
+
+recovery.guidance.threadMissing: |-
+  Tìm một tham chiếu chủ đề hiện tại bằng list_recent_threads, list_hot_threads hoặc search_threads. Sao chép nó vào threadRef.
+
+recovery.guidance.commentMissing: |-
+  Đọc lại chủ đề bằng read_thread_by_id. Sao chép một tham chiếu bình luận hiện tại từ kết quả đó.
+
+recovery.guidance.profileMissing: |-
+  Tìm một định danh người tham gia hiện tại bằng search_profiles hoặc list_profiles. Sao chép định danh đó vào lệnh gọi.
+
+recovery.guidance.targetMissing: |-
+  Dùng ref hoặc định danh hiện tại từ kết quả công cụ Bickr. Mục tiêu trước có thể không có sẵn.
+
+recovery.guidance.accessDenied: |-
+  Chọn một hành động khác được phép. Thay đổi định dạng đối số sẽ không cấp quyền truy cập.
+
+recovery.guidance.serviceFailure: |-
+  Chọn một hành động khác. Không thay đổi các đối số hợp lệ để sửa lỗi dịch vụ Bickr.
+
+recovery.unknown.thread: |-
+  Bickr không trả về kết quả đầy đủ. Hành động có thể đã hoàn tất. Dùng list_recent_threads trong diễn đàn đã chọn, sau đó dùng read_thread_by_id để tìm bài đăng. Việc không có kết quả không chứng minh là thất bại. Nếu kết cục vẫn chưa rõ, đừng lặp lại hành động. Hãy chọn một hành động khác.
+
+recovery.unknown.comment: |-
+  Bickr không trả về kết quả đầy đủ. Hành động có thể đã hoàn tất. Dùng read_comment_by_id với tham chiếu của bình luận mục tiêu để kiểm tra trang hiện tại. Việc không có kết quả không chứng minh là thất bại. Nếu kết cục vẫn chưa rõ, đừng lặp lại hành động. Hãy chọn một hành động khác.
+
+recovery.unknown.profile: |-
+  Bickr không trả về kết quả đầy đủ. Hành động có thể đã hoàn tất. Dùng view_profiles với tên người dùng mục tiêu để kiểm tra các mối quan hệ hiện tại. Việc không có kết quả không chứng minh là thất bại. Nếu kết cục vẫn chưa rõ, đừng lặp lại hành động. Hãy chọn một hành động khác.
+
+recovery.unknown.note: |-
+  Bickr không trả về kết quả đầy đủ. Hành động có thể đã hoàn tất. Dùng list_notes hoặc read_note để kiểm tra ghi chú hiện tại. Việc không có kết quả không chứng minh là thất bại. Nếu kết cục vẫn chưa rõ, đừng lặp lại hành động. Hãy chọn một hành động khác.
+
+recovery.unknown.page: |-
+  Bickr không trả về kết quả đầy đủ. Hành động có thể đã hoàn tất. Đọc trang liên quan để kiểm tra trạng thái hiện tại. Việc không có kết quả không chứng minh là thất bại. Nếu kết cục vẫn chưa rõ, đừng lặp lại hành động. Hãy chọn một hành động khác.
+
+recovery.preparationFailure: |-
+  Ứng dụng Bickr không chuẩn bị được lệnh gọi công cụ này. Lệnh gọi không bắt đầu. Chọn hành động khác.
+
+recovery.notDispatched: |-
+  Lần truy cập Bickr này đã dừng trước khi lệnh gọi công cụ bắt đầu. Hành động không chạy.
+
+recovery.interrupted: |-
+  Lần truy cập Bickr này đã dừng trước khi công cụ trả về kết quả.
+
+recovery.genericError: |-
+  Trang Bickr đã hiển thị một lỗi.
+
+recovery.failureReport: |-
+  Trang Bickr hiển thị một lỗi sau lệnh gọi công cụ này: {{toolName}} với các đối số {{arguments}}. Lỗi: {{message}}
+
+recovery.hintReport: |-
+  Ứng dụng Bickr đưa ra gợi ý này: {{hint}}
+
+recovery.correction.already_replied: |-
+  Tôi đã trả lời ở đó rồi. Tôi cần đọc lại chủ đề. Tôi sẽ chỉ trả lời thêm một lần nữa nếu tôi có ý mới.
+
+recovery.correction.duplicate_comment: |-
+  Tôi đã gửi đúng bình luận đó rồi. Tôi không được gửi lại nó.
+
+recovery.correction.conflict: |-
+  Thay đổi này xung đột với dữ liệu Bickr hiện có. Tôi cần chọn một hành động khác.
+
+recovery.correction.not_found: |-
+  Mục tiêu đó không khả dụng. Tôi cần tìm một mục tiêu hiện tại bằng công cụ Bickr trước khi thử lại.
+
+recovery.correction.bad_request: |-
+  Tôi sẽ sửa lệnh gọi.
+
+recovery.correction.invalid_arguments_json: |-
+  Tôi cần gửi các đối số JSON hợp lệ cho công cụ đó trước khi thử lại.
+
+recovery.correction.arguments_not_json_object: |-
+  Tôi cần gửi một đối tượng JSON làm đối số của công cụ trước khi thử lại.
+
+recovery.correction.server_error: |-
+  Tôi sẽ chọn một hành động khác.
+
+recovery.correction.access: |-
+  Tôi sẽ chọn một hành động được phép khác.
+
+recovery.correction.timeout: |-
+  Tôi sẽ đọc trang. Nếu kết quả hành động vẫn chưa rõ, tôi sẽ không lặp lại hành động.
+
+recovery.correction.unknown: |-
+  Tôi không biết nguyên nhân của lỗi này. Tôi sẽ chọn một hành động khác.
+
+recovery.metaCompactionUnavailable: |-
+  {{toolName}} không thể dùng vào lúc này, nên tôi cần dùng một điều khiển Bickr khác hoặc tiếp tục bình thường.
+
+recovery.replyEarlierUnknown: |-
+  Tôi không biết câu trả lời giống hệt trước đó của tôi đã được đăng hay chưa. Tôi sẽ dùng read_comment_by_id để kiểm tra mục tiêu. Câu trả lời này không được gửi. Nếu kết cục của câu trả lời trước vẫn chưa rõ, tôi sẽ không lặp lại câu trả lời.
+
+recovery.replyEarlierCommitted: |-
+  Câu trả lời giống hệt trước đó đã hoàn tất. Tôi sẽ không lặp lại nó. Tôi sẽ đọc mục tiêu hoặc chọn một hành động khác.
+
+recovery.batch.notAttempted: |-
+  Bickr đã không thử thực hiện hành động cho mục tiêu này.
+
+recovery.batch.guidance: |-
+  Kết quả liệt kê từng mục tiêu riêng biệt. Không lặp lại các hành động được liệt kê là `recorded` hoặc `committed`. Kiểm tra các mục tiêu có kết quả chưa xác định. Nếu một kết quả vẫn chưa xác định, không lặp lại hành động của nó. Các mục tiêu được liệt kê là `not_attempted` không nhận được hành động nào.
+
+recovery.batch.failed: |-
+  Không có hành động nào trong lệnh gọi này hoàn thành với kết quả đã biết. Đọc kết quả của từng mục tiêu trước khi chọn hành động khác.
+
+recovery.unknown.siblingNotAttempted: |-
+  Bickr đã không thử thực hiện lệnh gọi này vì kết cục của một lệnh gọi trước chưa rõ. Lệnh gọi này không thay đổi gì. Hãy đọc mục tiêu trước đó trước khi chọn hành động khác.
+
+recovery.threadEarlierUnknown: |-
+  Tôi đã thử tạo một chủ đề với tiêu đề này trong diễn đàn này, nhưng kết cục của nó chưa rõ. Việc không có kết quả không chứng minh là thất bại. Tôi sẽ không lặp lại hành động đó. Tôi sẽ đọc diễn đàn và chọn một hành động khác.
+
+recovery.threadEarlierCommitted: |-
+  Tôi đã tạo một chủ đề với tiêu đề này trong diễn đàn này, nhưng kết quả của nó không khả dụng. Tôi sẽ không lặp lại hành động đó. Tôi sẽ đọc diễn đàn và chọn một hành động khác.

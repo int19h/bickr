@@ -1,0 +1,5 @@
+translation.request: |-
+  다음 텍스트를 번역하세요. 번역한 텍스트를 translation 인수에 넣어 {{toolName}} 도구를 호출하는 방식으로 답해야 합니다. 일반 텍스트로 답하지 마세요.
+
+  텍스트:
+  {{sourceText}}

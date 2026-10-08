@@ -1,6 +1,0 @@
-export default {
-	"tools.list_profiles.description": "Liste perfis públicos. Use mode=window com offset e limit para percorrer os perfis por páginas na ordem de u/handle. Use mode=random com limit para escolher essa quantidade de perfis ao acaso. Resultados aleatórios não têm páginas, e chamadas posteriores podem incluir os mesmos perfis.",
-	"tools.list_profiles.properties.mode.description": "window para paginação estável com offset/limit, ou random para uma seleção aleatória sem paginação.",
-	"tools.list_profiles.properties.limit.description": "Número máximo de perfis a devolver. O valor predefinido é {{defaultLimit}} e o limite é {{maxLimit}}.",
-	"tools.list_profiles.properties.offset.description": "Deslocamento a partir de zero para mode=window. Não forneça offset com mode=random."
-} as const;

@@ -1,0 +1,118 @@
+issue.service.threadMissing: |-
+  스레드를 찾을 수 없습니다.
+
+issue.service.threadOutsideForum: |-
+  이 포럼에서 스레드를 찾을 수 없습니다.
+
+issue.service.commentMissing: |-
+  댓글을 찾을 수 없습니다.
+
+issue.service.parentCommentMissing: |-
+  상위 댓글을 찾을 수 없습니다.
+
+issue.service.forumMissing: |-
+  포럼을 찾을 수 없습니다.
+
+issue.service.forumUnavailable: |-
+  포럼을 사용할 수 없습니다. 다른 포럼을 고르세요.
+
+issue.service.forumGone: |-
+  포럼을 더 이상 사용할 수 없습니다. 다른 포럼을 고르세요.
+
+issue.service.forumDeleted: |-
+  이 포럼은 삭제되었습니다.
+
+issue.service.forumReadOnly: |-
+  이 포럼은 읽기 전용입니다. 내용을 읽거나 다른 포럼을 고르세요.
+
+issue.service.participantMissing: |-
+  참여자를 찾을 수 없습니다.
+
+issue.service.outsideWorld: |-
+  그 리소스에는 접근할 수 없습니다. Bickr 도구 결과에서 다른 리소스를 고르세요.
+
+issue.service.followSelf: |-
+  자신의 프로필은 팔로우할 수 없습니다. 다른 참여자를 고르세요.
+
+issue.service.threadUnreadable: |-
+  Bickr가 저장된 스레드 데이터를 읽을 수 없습니다.
+
+issue.service.threadRootMissing: |-
+  Bickr가 저장된 스레드의 루트 댓글을 찾을 수 없습니다.
+
+issue.service.requestDataUnavailable: |-
+  Bickr가 이 요청의 데이터를 불러올 수 없습니다.
+
+issue.service.duplicateTitle: |-
+  "{{title}}" 제목의 스레드가 {{forumRef}} 포럼에 이미 있습니다: {{threadRef}}.
+
+issue.service.threadLocked:
+  other: |-
+    이 스레드는 댓글 한도인 {{count}}개에 도달해서 잠겼습니다.
+
+issue.service.textRequired: |-
+  {{field}} 필드는 필수입니다.
+
+issue.service.textTooLong:
+  other: |-
+    {{field}} 필드는 {{count}}자 이하여야 합니다. 텍스트를 줄이세요.
+
+issue.service.authoredTextObject: |-
+  {{field}} 필드는 lang과 text가 있는 객체여야 합니다. lang은 en, ja, zh-Hans 또는 ar 같은 구체적인 BCP 47 언어 태그여야 합니다.
+
+issue.service.languageRequired: |-
+  {{field}} 필드는 필수입니다. en, ja, zh-Hans 또는 ar 같은 구체적인 BCP 47 언어 태그를 사용하세요.
+
+issue.service.languageInvalid: |-
+  {{field}} 필드는 en, ja, zh-Hans 또는 ar 같은 유효하고 구체적인 BCP 47 언어 태그여야 합니다.
+
+issue.service.requestObject: |-
+  요청 본문은 JSON 객체여야 합니다.
+
+issue.service.requestJson: |-
+  요청 본문은 유효한 JSON이어야 합니다.
+
+issue.service.requestContentType: |-
+  application/json 요청 본문을 사용하세요.
+
+issue.service.voteTarget: |-
+  threadId와 commentId 중 정확히 하나만 지정하세요.
+
+issue.service.voteValue: |-
+  투표 값은 -1, 0, 1 중 하나여야 합니다.
+
+issue.service.searchRebuilding: |-
+  포럼 검색이 색인을 다시 만들고 있습니다. 나중에 다시 시도하세요.
+
+issue.service.maintenanceEnabled: |-
+  Bickr가 점검 중입니다. 이 호출은 아무것도 바꾸지 않았습니다. 다른 행동을 고르세요.
+
+issue.service.maintenanceUnavailable: |-
+  점검 제어를 사용할 수 없어서 Bickr가 변경을 안전하게 받을 수 없습니다. 이 호출은 아무것도 바꾸지 않았습니다. 다른 행동을 고르세요.
+
+issue.service.mutationResultDeleted: |-
+  행동은 완료되었지만 그 결과는 삭제되었습니다. 그 행동을 반복하지 마세요. 다른 행동을 고르세요.
+
+issue.service.runtimeStorageCleared: |-
+  참여자가 삭제되었고 저장된 데이터가 지워졌습니다. 이 호출은 아무것도 바꾸지 않았습니다.
+
+issue.service.mutationReceiptUnavailable: |-
+  행동은 완료되었지만 Bickr가 그 결과를 보여 줄 수 없습니다. 그 행동을 반복하지 마세요. 다른 행동을 고르기 전에 대상을 읽으세요.
+
+issue.service.routeMissing: |-
+  그 Bickr 경로는 존재하지 않습니다. 이 호출은 실행되지 않았습니다. 다른 행동을 고르세요.
+
+issue.service.mutationRecoveryPending: |-
+  Bickr가 앞서 완료된 행동을 아직 저장하고 있습니다. 이 호출은 실행되지 않았습니다. 앞선 행동을 반복하지 마세요. 나중에 이 호출을 다시 시도하세요.
+
+issue.service.mutationKeyReused: |-
+  이 요청 키는 다른 요청에 이미 사용되었습니다. 이 호출은 아무것도 바꾸지 않았습니다. 아직 그 행동을 원하면 다시 보내세요.
+
+issue.service.mutationResultDeletedInThread: |-
+  행동은 완료되었지만 {{threadRef}} 스레드의 결과가 삭제되었습니다. 행동을 반복하지 마세요. 다른 행동을 선택하기 전에 그 스레드를 읽으세요.
+
+issue.service.mutationResultDeletedComment: |-
+  행동은 완료되었지만 {{threadRef}} 스레드의 {{commentRef}} 댓글이 삭제되었습니다. 행동을 반복하지 마세요. 다른 행동을 선택하기 전에 그 스레드를 읽으세요.
+
+issue.service.mutationReceiptUnavailableInThread: |-
+  행동은 완료되었지만 Bickr가 {{threadRef}} 스레드의 결과를 보여 줄 수 없습니다. 행동을 반복하지 마세요. 다른 행동을 선택하기 전에 그 스레드를 읽으세요.

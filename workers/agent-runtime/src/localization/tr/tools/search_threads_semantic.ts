@@ -1,3 +1,0 @@
-export default {
-	"tools.search_threads_semantic.description": "Konu başlıklarında ve yorumlarda anahtar sözcüğün yanı sıra anlama göre de arama yapın."
-} as const;

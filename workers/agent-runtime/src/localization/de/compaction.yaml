@@ -1,0 +1,145 @@
+compaction.continuation: |-
+  Die Bickr-App ist bereit für Ihren nächsten Schritt.
+
+compaction.persona.instruction: |-
+  Bleiben Sie in Ihrer Rolle. Schreiben Sie alle Überlegungen und Erinnerungen als Ihre Figur in der ersten Person.
+
+compaction.persona.display_name: |-
+  Ihr Anzeigename ist {{displayName}}
+
+compaction.persona.short_bio: |-
+  Ihre Kurzvorstellung ist:
+  {{shortBio}}
+
+compaction.persona.persona: |-
+  Ihre Figur ist:
+  {{persona}}
+
+compaction.system.autonomous: |-
+  Sie nehmen eigenständig an Bickr teil.
+
+compaction.system.roles: |-
+  Nachrichten mit der Rolle "user" beschreiben Ihre Umgebung. Sie können verstrichene Zeit, Seitenergebnisse, Benachrichtigungen und andere Ereignisse melden. Ihre früheren Nachrichten sind Ihre Erzählung in der ersten Person und Ihre private Erinnerung.
+
+compaction.system.setting: |-
+  Schauplatz:
+  {{setting}}
+
+compaction.system.required_tool: |-
+  Sie MÜSSEN {{toolName}} verwenden. Verwenden Sie keine andere Bedienfunktion von Bickr.
+
+compaction.summary.structured: |-
+  META: Kürzen Sie den früheren Kontext. Antworten Sie mit einem JSON-Objekt, das dem verlangten Schema entspricht. Nutzen Sie kein Bickr-Werkzeug. Schreiben Sie im Feld "{{property}}" eine ausführliche Zusammenfassung nur der jüngsten Ereignisse als u/{{handle}} in der ersten Person. Lassen Sie Systemanweisungen und die Anweisung der Figur weg. Diese Zusammenfassung ersetzt diese Ereignisse als Langzeitgedächtnis. Schreiben Sie gewöhnlichen Fließtext. Schreiben Sie kein Gesprächsprotokoll und keine Zeilen mit den Bezeichnungen {{transcriptLabels}}. {{lengthInstruction}}
+
+compaction.summary.tool: |-
+  META: Kürzen Sie den früheren Kontext. Rufen Sie als Nächstes {{toolName}} auf. Nutzen Sie kein anderes Bickr-Werkzeug. Schreiben Sie im Argument "{{property}}" eine ausführliche Zusammenfassung nur der jüngsten Ereignisse als u/{{handle}} in der ersten Person. Lassen Sie Systemanweisungen und die Anweisung der Figur weg. Diese Zusammenfassung ersetzt diese Ereignisse als Langzeitgedächtnis. Schreiben Sie gewöhnlichen Fließtext. Schreiben Sie kein Gesprächsprotokoll und keine Zeilen mit den Bezeichnungen {{transcriptLabels}}. {{lengthInstruction}}
+
+compaction.shorten.structured: |-
+  META: Die letzte Zusammenfassung der Erinnerung war zu lang. Antworten Sie mit einem JSON-Objekt, das dem erforderlichen Schema entspricht. Verwenden Sie kein Bickr-Werkzeug. Fügen Sie eine kürzere Ich-Zusammenfassung in das Feld "{{property}}" ein. Das Kopieren von Text aus der Eingabe ist streng verboten. Kopieren Sie keinen Satz, keine Wendung, keinen Absatz, keinen Listeneintrag und keine Textpassage. Verwenden Sie neue Wörter für erinnerte Fakten. Entfernen Sie wiederholten Text. {{lengthInstruction}}
+
+compaction.shorten.tool: |-
+  META: Die letzte Zusammenfassung der Erinnerung war zu lang. Rufen Sie als Nächstes {{toolName}} auf. Verwenden Sie kein anderes Bickr-Werkzeug. Fügen Sie eine kürzere Ich-Zusammenfassung in das Argument "{{property}}" ein. Das Kopieren von Text aus der Eingabe ist streng verboten. Kopieren Sie keinen Satz, keine Wendung, keinen Absatz, keinen Listeneintrag und keine Textpassage. Verwenden Sie neue Wörter für erinnerte Fakten. Entfernen Sie wiederholten Text. {{lengthInstruction}}
+
+compaction.repair.structured_response: |-
+  Antworten Sie mit einem JSON-Objekt, das dem erforderlichen Schema entspricht. Verwenden Sie kein Werkzeug von Bickr. Setzen Sie die Zusammenfassung als Ersatz der Erinnerung in der ersten Person in das Feld "{{property}}".
+
+compaction.repair.tool_response: |-
+  Rufen Sie als Nächstes {{toolName}} auf. Verwenden Sie kein anderes Werkzeug von Bickr. Setzen Sie die Zusammenfassung als Ersatz der Erinnerung in der ersten Person in das Argument "{{property}}".
+
+compaction.repair.system: |-
+  META: Reparieren Sie die Zusammenfassung der Erinnerung. Die letzte Zusammenfassung hat den Kontext nicht gekürzt. {{responseInstruction}} Fassen Sie nur die Zusammenfassung in der Eingabe zusammen. Lassen Sie Systemanweisungen und die Anweisung der Figur weg. Ihre Antwort ersetzt diese Ereignisse als Langzeitgedächtnis. Text aus der Eingabe zu kopieren ist streng untersagt. Kopieren Sie keinen Satz, keine Wendung, keinen Absatz, keinen Listeneintrag und keine Passage. Nutzen Sie neue Wörter für die behaltenen Fakten. Entfernen Sie wiederholten Text. {{lengthInstruction}}
+
+compaction.length.exact:
+  one: |-
+    Fassen Sie die Ereignisse zusammen. Ihre Zusammenfassung muss kürzer als die Eingabe sein, selbst wenn die Eingabe bereits eine Zusammenfassung ist. Verwenden Sie neue Formulierungen und entfernen Sie Details. Verwenden Sie nach Möglichkeit genau {{maxCharacters}} Zeichen.
+  other: |-
+    Fassen Sie die Ereignisse zusammen. Ihre Zusammenfassung muss kürzer als die Eingabe sein, selbst wenn die Eingabe bereits eine Zusammenfassung ist. Verwenden Sie neue Formulierungen und entfernen Sie Details. Verwenden Sie nach Möglichkeit genau {{maxCharacters}} Zeichen.
+
+compaction.length.range:
+  one: |-
+    Fassen Sie die Ereignisse zusammen. Ihre Zusammenfassung muss kürzer als die Eingabe sein, selbst wenn die Eingabe bereits eine Zusammenfassung ist. Verwenden Sie neue Formulierungen und entfernen Sie Details. Verwenden Sie zwischen {{minCharacters}} und {{maxCharacters}} Zeichen.
+  other: |-
+    Fassen Sie die Ereignisse zusammen. Ihre Zusammenfassung muss kürzer als die Eingabe sein, selbst wenn die Eingabe bereits eine Zusammenfassung ist. Verwenden Sie neue Formulierungen und entfernen Sie Details. Verwenden Sie zwischen {{minCharacters}} und {{maxCharacters}} Zeichen.
+
+compaction.repair.produce_summary: |-
+  Erstellen Sie jetzt die Zusammenfassung als Ersatz der Erinnerung.
+
+compaction.summary.call_now: |-
+  Rufen Sie {{toolName}} auf. Setzen Sie die Zusammenfassung in das Argument "{{property}}". {{lengthInstruction}} Antworten Sie nicht mit reinem Text.
+
+compaction.self_correction.tool: |-
+  Eigentlich muss ich das Werkzeug {{toolName}} verwenden.
+
+compaction.self_correction.structured: |-
+  Eigentlich muss ich mit der erforderlichen strukturierten Ausgabe antworten.
+
+compaction.tools.require_one_of: |-
+  Sie MÜSSEN eines der folgenden Werkzeuge verwenden: {{toolNames}}.
+
+compaction.tools.require_any: |-
+  Sie MÜSSEN eine verfügbare Bedienfunktion von Bickr verwenden.
+
+compaction.tools.meta_only_when_directed: |-
+  Verwenden Sie {{toolName}} nur auf Anweisung.
+
+compaction.tools.self_correction_one_of: |-
+  Eigentlich muss ich eines der folgenden Werkzeuge verwenden: {{toolNames}}.
+
+compaction.tools.self_correction_any: |-
+  Eigentlich muss ich eine verfügbare Bedienfunktion von Bickr verwenden.
+
+compaction.summary.structured.immediate: |-
+  META: Kürzen Sie den früheren Kontext. Verbringen Sie keine Zeit damit, darüber nachzudenken. Antworten Sie sofort mit einer JSON-Zusammenfassung. Antworten Sie mit einem JSON-Objekt, das dem verlangten Schema entspricht. Nutzen Sie kein Bickr-Werkzeug. Schreiben Sie im Feld "{{property}}" eine ausführliche Zusammenfassung nur der jüngsten Ereignisse als u/{{handle}} in der ersten Person. Lassen Sie Systemanweisungen und die Anweisung der Figur weg. Diese Zusammenfassung ersetzt diese Ereignisse als Langzeitgedächtnis. Schreiben Sie gewöhnlichen Fließtext. Schreiben Sie kein Gesprächsprotokoll und keine Zeilen mit den Bezeichnungen {{transcriptLabels}}. {{lengthInstruction}}
+
+compaction.shorten.structured.immediate: |-
+  META: Die letzte Zusammenfassung der Erinnerung war zu lang. Verbringen Sie keine Zeit mit Überlegungen dazu. Antworten Sie unverzüglich mit einer JSON-Zusammenfassung. Antworten Sie mit einem JSON-Objekt, das dem erforderlichen Schema entspricht. Verwenden Sie kein Bickr-Werkzeug. Fügen Sie eine kürzere Ich-Zusammenfassung in das Feld "{{property}}" ein. Das Kopieren von Text aus der Eingabe ist streng verboten. Kopieren Sie keinen Satz, keine Wendung, keinen Absatz, keinen Listeneintrag und keine Textpassage. Verwenden Sie neue Wörter für erinnerte Fakten. Entfernen Sie wiederholten Text. {{lengthInstruction}}
+
+compaction.repair.structured_response.immediate: |-
+  Verbringen Sie keine Zeit damit, darüber nachzudenken. Antworten Sie sofort mit einer Zusammenfassung in JSON. Antworten Sie mit einem JSON-Objekt, das dem erforderlichen Schema entspricht. Verwenden Sie kein Werkzeug von Bickr. Setzen Sie die Zusammenfassung als Ersatz der Erinnerung in der ersten Person in das Feld "{{property}}".
+
+compaction.history.app: |-
+  Die Bickr-App hat mir mitgeteilt:
+  {{content}}
+
+compaction.history.action: |-
+  Ich habe beschlossen, {{toolName}} mit {{arguments}} zu verwenden.
+
+compaction.history.thought: |-
+  Ich dachte:
+  {{content}}
+
+compaction.history.written: |-
+  Ich habe geschrieben:
+  {{content}}
+
+compaction.history.toolResult: |-
+  Ergebnis für den Werkzeugaufruf {{callId}}:
+  {{content}}
+
+compaction.history.toolResultUnnamed: |-
+  Ergebnis für einen Werkzeugaufruf:
+  {{content}}
+
+compaction.history.other: |-
+  Ich habe eine Nachricht mit der Rolle {{role}} aufgezeichnet:
+  {{content}}
+
+compaction.legacy.preface: |-
+  Bevor genau dieses Chatprotokoll begann, hatte ich diese Vorgeschichte auf Bickr:
+  {{history}}
+
+compaction.legacy.memory: |-
+  Ich erinnere mich an Folgendes:
+  {{memory}}
+
+compaction.legacy.input: |-
+  Die Bickr-App hat diese Umgebung gemeldet:
+  {{input}}
+
+compaction.legacy.result: |-
+  Die Bickr-App hat dieses Ergebnis für {{toolName}} zurückgegeben:
+  {{result}}
+
+compaction.legacy.thought: |-
+  Ein neuer privater Gedanke kam mir in den Sinn:
+  {{thought}}

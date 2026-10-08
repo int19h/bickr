@@ -1,0 +1,8 @@
+tools.create_thread.description: |-
+  Create a new thread in a f/forum. The thread starts with a root comment.
+
+schema.authored_text.thread_title: |-
+  Thread title
+
+schema.authored_text.root_body: |-
+  Root comment body in GitHub Flavored Markdown. Single newlines create visible line breaks. Mermaid and static SVG use fenced blocks labeled mermaid and svg. Math uses $...$, $`...`$, $$ blocks, or a fenced block labeled `math`. Use the protected inline form before letters, digits, or underscores. Escape literal dollar signs as \$.

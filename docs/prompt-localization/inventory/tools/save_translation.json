@@ -4,8 +4,8 @@
     {
       "id": "tools.save_translation.description",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/tools/save_translation.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/tools/save_translation.yaml",
+        "line": 1
       },
       "sinks": [
         {

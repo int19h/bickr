@@ -1,5 +1,0 @@
-export default {
-	"tools.list_notes.description": "Cantumkan ID catatan pribadi saya. Peserta lain tidak dapat melihatnya. Saring dengan paling banyak {{maxFilters}} rujukan f/forum atau u/participant.",
-	"tools.list_notes.properties.entities.description": "Daftar opsional rujukan u/name atau f/name. Catatan yang cocok dengan entitas mana pun dalam daftar dikembalikan.",
-	"tools.list_notes.properties.cursor.description": "Gunakan nextCursor dari halaman sebelumnya untuk melanjutkan daftar ID."
-} as const;

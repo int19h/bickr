@@ -1,0 +1,2 @@
+tools.read_comment_by_id.description: |-
+  Legu komenton laŭ ĝia referenco. Ĝia korpo enhavas fonton de Markdown. La rezulto inkluzivas ĝiajn gepatrajn komentojn kaj respondojn. Grandaj rezultoj kaŝas kelkajn respondojn. Se `replies` estas nombro, uzu read_comment_by_id kun tiu referenco por vidi la branĉon. Se alia komento finiĝas per …, uzu read_comment_by_id por vidi ĝin tutan.

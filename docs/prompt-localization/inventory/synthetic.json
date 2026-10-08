@@ -4,8 +4,8 @@
     {
       "id": "synthetic.login.plan",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 2
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 1
       },
       "sinks": [
         {
@@ -23,8 +23,8 @@
     {
       "id": "synthetic.login.notifications",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 3
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 4
       },
       "sinks": [
         {
@@ -41,8 +41,8 @@
     {
       "id": "synthetic.spotlight.discovery",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 4
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 7
       },
       "sinks": [
         {
@@ -59,8 +59,8 @@
     {
       "id": "synthetic.log_off.premature",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 5
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 10
       },
       "sinks": [
         {
@@ -75,8 +75,8 @@
     {
       "id": "synthetic.log_off.disallowed",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 6
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 13
       },
       "sinks": [
         {
@@ -93,8 +93,8 @@
     {
       "id": "synthetic.notes.disabled",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 7
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 16
       },
       "sinks": [
         {
@@ -111,8 +111,8 @@
     {
       "id": "synthetic.log_off.limit",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 8
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 19
       },
       "sinks": [
         {
@@ -129,8 +129,8 @@
     {
       "id": "synthetic.log_off.reason",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 9
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 22
       },
       "sinks": [
         {
@@ -147,8 +147,8 @@
     {
       "id": "synthetic.spotlight.focus_one",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 10
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 25
       },
       "sinks": [
         {
@@ -163,8 +163,8 @@
     {
       "id": "synthetic.spotlight.focus_many",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 11
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 28
       },
       "sinks": [
         {
@@ -181,8 +181,8 @@
     {
       "id": "synthetic.spotlight.attention",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 12
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 32
       },
       "sinks": [
         {
@@ -197,8 +197,8 @@
     {
       "id": "synthetic.malformed.named",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 13
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 37
       },
       "sinks": [
         {
@@ -217,8 +217,8 @@
     {
       "id": "synthetic.malformed.unnamed",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 14
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 40
       },
       "sinks": [
         {
@@ -236,8 +236,8 @@
     {
       "id": "synthetic.malformed.example",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 15
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 43
       },
       "sinks": [
         {
@@ -254,8 +254,8 @@
     {
       "id": "synthetic.reminder.previous",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 16
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 46
       },
       "sinks": [
         {
@@ -272,8 +272,8 @@
     {
       "id": "synthetic.reminder.recent",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 17
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 49
       },
       "sinks": [
         {
@@ -290,8 +290,8 @@
     {
       "id": "synthetic.malformed.many",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 21
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 55
       },
       "sinks": [
         {
@@ -309,8 +309,8 @@
     {
       "id": "synthetic.malformed.many_named",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 25
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 61
       },
       "sinks": [
         {
@@ -329,8 +329,8 @@
     {
       "id": "synthetic.malformed.omitted",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 29
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 67
       },
       "sinks": [
         {
@@ -345,8 +345,8 @@
     {
       "id": "synthetic.reasoning.read_note",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 33
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 73
       },
       "sinks": [
         {
@@ -363,8 +363,8 @@
     {
       "id": "synthetic.reasoning.check_notifications",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 34
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 76
       },
       "sinks": [
         {
@@ -381,8 +381,8 @@
     {
       "id": "synthetic.reasoning.view_profiles",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 35
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 79
       },
       "sinks": [
         {
@@ -397,8 +397,8 @@
     {
       "id": "synthetic.reasoning.read_thread_by_id",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 36
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 82
       },
       "sinks": [
         {
@@ -413,8 +413,8 @@
     {
       "id": "synthetic.reasoning.read_comment_by_id",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 37
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 85
       },
       "sinks": [
         {
@@ -429,8 +429,8 @@
     {
       "id": "synthetic.reasoning.log_off",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 38
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 88
       },
       "sinks": [
         {
@@ -445,8 +445,8 @@
     {
       "id": "simulation.reply",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 39
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 91
       },
       "sinks": [
         {
@@ -466,8 +466,8 @@
     {
       "id": "simulation.noForum",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 40
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 94
       },
       "sinks": [
         {
@@ -487,8 +487,8 @@
     {
       "id": "simulation.createThread",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 41
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 97
       },
       "sinks": [
         {
@@ -508,8 +508,8 @@
     {
       "id": "synthetic.log_off.unavailable",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 42
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 100
       },
       "sinks": [
         {
@@ -526,8 +526,8 @@
     {
       "id": "synthetic.log_off.unavailableReason",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 43
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 103
       },
       "sinks": [
         {
@@ -542,8 +542,8 @@
     {
       "id": "synthetic.log_off.unknown",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 44
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 106
       },
       "sinks": [
         {
@@ -560,8 +560,8 @@
     {
       "id": "synthetic.log_off.unknownReason",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 45
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 109
       },
       "sinks": [
         {
@@ -578,8 +578,8 @@
     {
       "id": "synthetic.reasoning.log_off.unavailable",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 46
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 112
       },
       "sinks": [
         {
@@ -596,8 +596,8 @@
     {
       "id": "synthetic.reasoning.log_off.unknown",
       "definition": {
-        "file": "workers/agent-runtime/src/localization/en/synthetic.ts",
-        "line": 47
+        "file": "workers/agent-runtime/src/localization/en/synthetic.yaml",
+        "line": 115
       },
       "sinks": [
         {

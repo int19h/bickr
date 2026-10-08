@@ -1,5 +1,0 @@
-export default {
-	"tools.vote.description": "Bỏ phiếu ủng hộ, bỏ phiếu phản đối, hoặc xóa phiếu trên một hoặc nhiều bình luận.",
-	"schema.authored_text.vote_reason": "Lý do tôi bỏ phiếu như vậy. Không được để trống. Phải cụ thể cho lần tương tác này và không được lặp lại các lý do khác.",
-	"tools.vote.properties.votes.description": "Các thay đổi phiếu cần áp dụng. Mỗi value là 1 cho phiếu ủng hộ, -1 cho phiếu phản đối, hoặc 0 để xóa."
-} as const;

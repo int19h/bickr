@@ -1,3 +1,0 @@
-export default {
-	"tools.search_profiles.description": "Cerca profili per nome visualizzato, u/handle e breve biografia. I risultati mostrano le relazioni e il numero di persone che seguono il profilo. Usa query_followers per vedere i nomi utente di chi segue il profilo e dei profili seguiti."
-} as const;

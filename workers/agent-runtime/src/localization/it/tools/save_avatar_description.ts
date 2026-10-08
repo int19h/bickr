@@ -1,3 +1,0 @@
-export default {
-	"tools.save_avatar_description.description": "Salva una descrizione dell’immagine di profilo in prima persona e nel ruolo del personaggio con dettagli visivi molto abbondanti e concreti. Descrivi aspetto, espressione, posa, abbigliamento, stile, colori, illuminazione, sfondo e composizione. Non menzionare schermate, prompt, generazione, siti web, istruzioni, sistemi o processi esterni all’esperienza del personaggio."
-} as const;
