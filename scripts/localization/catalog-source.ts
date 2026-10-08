@@ -51,6 +51,9 @@ export function readCatalogGroup(file: string, localeDirectory: string, definiti
 		// whitespace in the source, for example the separator ", ".
 		const quotedWhitespace = (!node.value.trim() || /^[ \t]|[ \t]$/.test(node.value))
 			&& (node.type === 'QUOTE_DOUBLE' || node.type === 'QUOTE_SINGLE');
+		if (node.type === 'BLOCK_LITERAL' && /^[ \t]|[ \t]$/.test(node.value)) {
+			throw new CatalogSourceError(file, 'Quote values with spaces at their edges.');
+		}
 		if (node.type !== 'BLOCK_LITERAL' && !quotedWhitespace) {
 			throw new CatalogSourceError(file, 'Use a literal block for message text. Quote whitespace-only text and edge spaces.');
 		}

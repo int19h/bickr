@@ -53,6 +53,7 @@ describe('readable catalog sources', () => {
 		['folded text', 'a: >-\n  First\n  Second\n'],
 		['plain text', 'a: hello\n'],
 		['quoted prose', 'a: "hello"\n'],
+		['invisible separator space', 'a: |-\n  ، \n'],
 		['tag', 'a: !!str |-\n  hello\n'],
 		['alias', 'a: &a |-\n  hello\nb: *a\n'],
 		['sequence', 'a: [hello]\n'],

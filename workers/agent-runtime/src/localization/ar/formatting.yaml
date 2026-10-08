@@ -18,8 +18,7 @@ formatting.orMany: |-
 
 formatting.sentenceSeparator: " "
 
-formatting.listSeparator: |-
-  ، 
+formatting.listSeparator: "، "
 
 formatting.andPair: |-
   {{first}} و {{last}}
