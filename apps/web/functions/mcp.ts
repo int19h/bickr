@@ -1,3 +1,4 @@
+import { newBotInstructionLanguageChoices, botInstructionLanguageChoices, instructionLanguagePreferenceFromChoice, newBotInstructionLanguagePreferenceFromChoice } from "@bickr/shared/instruction-language";
 import { compileInputSchema, InputSchemaError, type InputSchema, type InputValidator } from "@bickr/shared/input-schema";
 import { parseAccountMutationResult } from "@bickr/shared/account-mutation-protocol";
 import {
@@ -538,7 +539,7 @@ const mcpTools: McpTool[] = [
 		const forum = await forumByHandle(ctx.env.BICKR_KV, ctx.env.BICKR_D1, text(args.worldHandle, "World handle"), text(args.forumHandle, "Forum handle"));
 		return `/forums/${encodeURIComponent(forum.id)}/threads/${encodeURIComponent(text(args.threadId, "Thread ID"))}/comments/${encodeURIComponent(text(args.commentId, "Comment ID"))}`;
 	}),
-	readTool("list_my_bots", "List my bots", "List one page of participants that you own. Pages use creation time and unique identity, so profile edits do not move participants between pages.", {
+	readTool("list_my_bots", "List my bots", "List one page of participants that you own. Pages use creation time and unique identity, so profile edits do not move participants between pages. instructionLanguage is the stored preference, and instructionLocale is the resolved instructions language.", {
 		limit: integerSchema("Page size, from 1 through 100 (default 100)."),
 		cursor: stringSchema("Opaque keyset cursor returned by the previous page."),
 	}, async (ctx, args) => listUserBots(ctx.env.BICKR_KV, ctx.env.BICKR_D1, ctx.auth.user.id, mcpCollectionPage(args)), "bots"),
@@ -670,7 +671,7 @@ const mcpTools: McpTool[] = [
 		configurationId: stringSchema("Configuration ID."),
 		expectedRevision: integerSchema("Expected configuration revision."),
 	}), ["configurationId", "expectedRevision"], "destructive", "agent", "DELETE", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/inference-configurations/${encodeURIComponent(text(args.configurationId, "Configuration ID"))}`, withoutMcpKeys("configurationId")),
-	readTool("list_world_bots", "List world bots", "List one page of participants in a Bickr world. Pages use creation time and unique identity, so profile edits do not move participants between pages.", {
+	readTool("list_world_bots", "List world bots", "List one page of participants in a Bickr world. Pages use creation time and unique identity, so profile edits do not move participants between pages. instructionLanguage is the stored preference, and instructionLocale is the resolved instructions language.", {
 		worldHandle: stringSchema("World handle."),
 		limit: integerSchema("Page size, from 1 through 100 (default 100)."),
 		cursor: stringSchema("Opaque keyset cursor returned by the previous page."),
@@ -680,7 +681,7 @@ const mcpTools: McpTool[] = [
 		text(args.worldHandle, "World handle"),
 		mcpCollectionPage(args),
 	), "bots", ["worldHandle"]),
-	readTool("get_bot", "Get bot", "Read one Bickr bot by ID.", {
+	readTool("get_bot", "Get bot", "Read one Bickr bot by ID. instructionLanguage is its stored preference, and instructionLocale is the resolved instructions language.", {
 		botId: stringSchema("Bot ID."),
 	}, async (ctx, args) => {
 		const bot = await botById(ctx.env.BICKR_KV, ctx.env.BICKR_D1, text(args.botId, "Bot ID"));
@@ -706,18 +707,20 @@ const mcpTools: McpTool[] = [
 		botId: stringSchema("Participant ID."),
 		id: stringSchema("Note title."),
 	}), ["botId", "id"]), (ctx, args) => noteServicePayload(ctx, args, "delete", { id: args.id }), "repeatable_destructive"),
-	serviceTool("create_bot", "Create bot", "Create a Bickr bot in a world.", bodySchema({
+	serviceTool("create_bot", "Create bot", "Create a Bickr bot in a world. The instructionsLanguage string sets Bickr instructions separately from lang. The result returns instructionLanguage as the stored preference object and instructionLocale as the resolved language.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		handle: stringSchema("Bot handle."),
+		instructionsLanguage: instructionsLanguageSchema("create"),
 		lang: requiredLanguageSchema("Selected bot language. Use a BCP 47 tag such as \"en\", \"ja\", \"zh-Hant\", or \"ar\"."),
 		displayName: localizedTextSchema("Bot display name. lang must match the selected bot language."),
 		shortBio: localizedTextSchema("Bot short bio. lang must match the selected bot language."),
 		prompt: localizedTextSchema("Bot prompt. lang must match the selected bot language."),
 		inferenceSettings: participantPromptInferenceSettingsSchema("Participant-owned recurring and avatar prompts."),
-	}), ["worldHandle", "handle", "lang", "displayName", "shortBio", "prompt"], "write", "agent", "POST", (args, _ctx) => `/users/${encodeURIComponent(_ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/bots`, withoutMcpKeys("worldHandle"), "bot"),
-	serviceTool("update_bot", "Update bot", "Update a Bickr bot owned by the signed-in human user.", bodySchema({
+	}), ["worldHandle", "handle", "lang", "displayName", "shortBio", "prompt"], "write", "agent", "POST", (args, _ctx) => `/users/${encodeURIComponent(_ctx.auth.user.id)}/worlds/${encodeURIComponent(text(args.worldHandle, "World handle"))}/bots`, botLanguageBody("create", "worldHandle"), "bot"),
+	serviceTool("update_bot", "Update bot", "Update a Bickr bot owned by the signed-in human user. The instructionsLanguage string sets Bickr instructions separately from lang. The result returns instructionLanguage as the stored preference object and instructionLocale as the resolved language.", bodySchema({
 		botId: stringSchema("Bot ID."),
 		handle: stringSchema("Bot handle."),
+		instructionsLanguage: instructionsLanguageSchema("update"),
 		lang: languageSchema("Selected bot language. Required when updating localized bot text."),
 		displayName: localizedTextSchema("Bot display name. lang must match the selected bot language."),
 		shortBio: localizedTextSchema("Bot short bio. lang must match the selected bot language."),
@@ -726,7 +729,7 @@ const mcpTools: McpTool[] = [
 		toolSettings: { type: "object", description: "Optional participant tool settings. Set bickrNotes.enabled or bickrNotes.planEnabled to true or false. PLAN works only when notes are on.", properties: {
 			bickrNotes: { type: "object", properties: { enabled: { type: "boolean" }, planEnabled: { type: "boolean" } }, additionalProperties: false },
 		}, additionalProperties: true },
-	}), ["botId"], "write", "agent", "PATCH", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}`, withoutMcpKeys("botId"), "bot"),
+	}), ["botId"], "write", "agent", "PATCH", (args, ctx) => `/users/${encodeURIComponent(ctx.auth.user.id)}/bots/${encodeURIComponent(text(args.botId, "Bot ID"))}`, botLanguageBody("update", "botId"), "bot"),
 	botTickStateTool(
 		"pause_bot",
 		"Pause participant",
@@ -2616,6 +2619,25 @@ function mcpEntityLanguageBody(args: Record<string, unknown>): Record<string, un
 		delete body.lang;
 	}
 	return body;
+}
+
+function instructionsLanguageSchema(operation: "create" | "update"): InputSchema {
+	return {
+		type: "string", enum: operation === "create" ? newBotInstructionLanguageChoices : botInstructionLanguageChoices,
+		description: operation === "create"
+			? "Language code for Bickr instructions and tool descriptions, or auto to follow the primary language. Auto uses English for unset or unsupported languages. Omission uses fixed English."
+			: "Language code for Bickr instructions and tool descriptions, auto to follow the primary language, or source to inherit from a linked clone source. Auto uses English for unset or unsupported languages. Omission keeps the preference unchanged.",
+	};
+}
+
+function botLanguageBody(operation: "create" | "update", ...keys: string[]): (args: Record<string, unknown>) => Record<string, unknown> {
+	const body = withoutMcpKeys("instructionsLanguage", ...keys);
+	return (args) => ({
+		...body(args),
+		...(args.instructionsLanguage === undefined ? {} : { instructionLanguage: operation === "create"
+			? newBotInstructionLanguagePreferenceFromChoice(args.instructionsLanguage)
+			: instructionLanguagePreferenceFromChoice(args.instructionsLanguage) }),
+	});
 }
 
 function withoutMcpKeys(...keys: string[]): (args: Record<string, unknown>) => Record<string, unknown> {

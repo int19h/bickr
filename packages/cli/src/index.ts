@@ -19,6 +19,8 @@ import {
 	type UserProfile,
 	type WorldListSummary,
 } from "@bickr/shared/model";
+import { instructionLocales } from "@bickr/shared/instruction-language";
+import { assertBotBodyMode, instructionsLanguageFlag, instructionsLanguageLabel } from "./instruction-language.ts";
 import { flagBoolean, flagString, flagStrings, parseCommandOptions, parseGlobalArgs, CliUsageError, type GlobalOptions } from "./args.ts";
 import { BickrClient, ApiError, unwrap, type ApiEnvelope } from "./client.ts";
 import { deleteToken, runtimeConfig, saveToken } from "./config.ts";
@@ -353,12 +355,15 @@ async function botsCommand(ctx: CommandContext, args: string[]): Promise<void> {
 	}
 	if (subcommand === "create") {
 		const options = parseCommandOptions(rest);
+		assertBotBodyMode(options.flags);
+		const instructionLanguage = instructionsLanguageFlag(options.flags, "create");
 		const worldHandle = await worldHandleForRef(ctx.client, requiredPosition(options.positionals, 0, "world reference"));
 		const body = await bodyFromFlags(options.flags, () => {
 			const language = requiredLanguageFlag(options.flags, "Bot creation");
 			return compactRecord({
 				handle: requiredFlag(options.flags, "handle"),
 				language,
+				instructionLanguage,
 				displayName: localizedInput(requiredFlag(options.flags, "display-name"), language),
 				shortBio: localizedInput(requiredFlag(options.flags, "short-bio"), language),
 				prompt: localizedInput(requiredFlag(options.flags, "prompt"), language),
@@ -370,6 +375,8 @@ async function botsCommand(ctx: CommandContext, args: string[]): Promise<void> {
 	}
 	if (subcommand === "update") {
 		const options = parseCommandOptions(rest, commandBooleanFlags);
+		assertBotBodyMode(options.flags);
+		const instructionLanguage = instructionsLanguageFlag(options.flags, "update");
 		const botRef = requiredPosition(options.positionals, 0, "bot reference");
 		const botId = await botIdForRef(ctx.client, botRef);
 		const body = await bodyFromFlags(options.flags, async () => {
@@ -378,6 +385,7 @@ async function botsCommand(ctx: CommandContext, args: string[]): Promise<void> {
 			const currentLanguage = hasTextUpdate ? (await readBot(ctx, botRef)).language : null;
 			const textLanguage = languageForTextUpdate(explicitLanguage, currentLanguage, hasTextUpdate);
 			return compactRecord({
+				instructionLanguage,
 				handle: flagString(options.flags, "handle"),
 				language: explicitLanguage ?? (hasTextUpdate ? textLanguage : undefined),
 				displayName: optionalLocalizedInput(flagString(options.flags, "display-name"), textLanguage, "Bot name"),
@@ -1254,6 +1262,7 @@ function renderBots(bots: BotSummary[]): string {
 	return table(bots, [
 		{ key: "ref", header: "Ref", value: (bot) => botRefText(bot) },
 		{ key: "language", header: "Lang", value: (bot) => languageLabel(bot.language) },
+		{ key: "instructions", header: "Instructions", value: instructionsLanguageLabel },
 		{ key: "name", header: "Name", value: (bot) => bot.displayName },
 		{ key: "model", header: "Model", value: (bot) => bot.inferenceSettings.model },
 		{ key: "nextDue", header: "Next Due", value: (bot) => bot.nextDueAt },
@@ -1266,6 +1275,7 @@ function renderBot(bot: BotSummary): string {
 		["Ref", `w/${bot.homeWorldHandle}/u/${bot.handle}`],
 		["ID", bot.id],
 		["Language", bot.language],
+		["Instructions language", instructionsLanguageLabel(bot)],
 		["Name", bot.displayName],
 		["Short bio", bot.shortBio],
 		["Model", bot.inferenceSettings.model],
@@ -1505,7 +1515,11 @@ Participant notes:
   to read note content from standard input.
 
 Text writes:
-  Use --language LANG or --lang LANG with create commands and text updates.`;
+  Use --language LANG or --lang LANG with create commands and text updates.
+  Bot create/update: --instructions-language CODE|auto. Update also accepts source for a linked clone.
+  Supported instructions language codes: ${instructionLocales.join(", ")}.
+  Instructions use fixed English by default. The primary language stays separate.
+  Bot mutations accept field flags or --body/--body-file, never both.`;
 }
 
 main(process.argv.slice(2)).catch((error: unknown) => {

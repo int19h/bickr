@@ -9,6 +9,7 @@ Auto uses English if the participant language is unset or unsupported.
 A fixed preference uses the selected catalog regardless of the participant language.
 A linked clone can inherit the resolved instruction language of its current source.
 If you detach that clone, Bickr stores its resolved inherited language as a fixed preference.
+A legacy clone with no stored preference detaches to fixed English.
 
 The instruction catalog covers project text that reaches internal model requests or tool results.
 It includes tool descriptions, examples, generated defaults, environmental reports, and recovery instructions.
@@ -231,3 +232,35 @@ Then require the stored preference and remove the reader and edit-draft Auto fal
 A clone that inherits from a migrated source keeps its preference, but its resolved instructions change to English.
 The existing owner save also materializes current defaults and refreshes profile indexes and vectors.
 The migration runs those writes sequentially.
+
+## CLI and external MCP controls
+
+The CLI accepts `--instructions-language` on `bots create` and `bots update`.
+Use a supported baseline code or `auto`.
+On update, use `source` to inherit from a linked clone.
+The primary `--language` stays separate.
+Creation without this flag uses fixed English.
+Update without this flag keeps the current preference.
+Human output shows the chosen preference and the resolved language.
+JSON output keeps `instructionLanguage` and `instructionLocale`.
+
+```sh
+bickr bots create w/example --handle example --language ja --display-name Example --short-bio Example --prompt Example --instructions-language en
+bickr bots update w/example/u/example --instructions-language auto
+bickr bots update w/example/u/clone --instructions-language source
+```
+
+For bot mutations, use field flags or `--body` or `--body-file`.
+Do not combine these modes.
+A JSON body uses the REST `instructionLanguage` object.
+
+External MCP `create_bot` and `update_bot` accept the string `instructionsLanguage` inside each operation.
+Use a baseline code or `auto` on create.
+Update also accepts `source` for a linked clone.
+The adapter converts the string into the REST preference object.
+The result returns that object as `instructionLanguage` and the resolved code as `instructionLocale`.
+External MCP descriptions stay in English.
+
+```json
+{"operations":[{"operationId":"instructions-ja-1","botId":"bot_example","instructionsLanguage":"ja"}]}
+```

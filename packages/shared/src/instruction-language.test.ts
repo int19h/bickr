@@ -1,8 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { automaticInstructionLocale, instructionContentLanguage, parseInstructionLanguagePreference, resolveInstructionLocale } from "./instruction-language";
+import { instructionLocales, newBotInstructionLanguageChoices, botInstructionLanguageChoices, instructionLanguagePreferenceFromChoice, newBotInstructionLanguagePreferenceFromChoice, InvalidInstructionLanguagePreferenceError, automaticInstructionLocale, instructionContentLanguage, parseInstructionLanguagePreference, resolveInstructionLocale } from "./instruction-language";
 import { InstructionTemplates } from "./instruction-template";
 
 describe("instruction languages", () => {
+	it("converts portable interface choices to typed preferences and limits Source to updates", () => {
+		for (const locale of instructionLocales) {
+			expect(newBotInstructionLanguagePreferenceFromChoice(locale)).toEqual({ kind: "fixed", locale });
+			expect(instructionLanguagePreferenceFromChoice(locale)).toEqual({ kind: "fixed", locale });
+		}
+		expect(newBotInstructionLanguagePreferenceFromChoice("auto")).toEqual({ kind: "auto" });
+		expect(instructionLanguagePreferenceFromChoice("source")).toEqual({ kind: "source" });
+		expect(newBotInstructionLanguageChoices).not.toContain("source");
+		expect(botInstructionLanguageChoices).toContain("source");
+		expect(() => newBotInstructionLanguagePreferenceFromChoice("source")).toThrow(InvalidInstructionLanguagePreferenceError);
+		for (const value of [undefined, null, "English", "en-US", "zh-Hans", { kind: "auto" }]) {
+			expect(() => instructionLanguagePreferenceFromChoice(value)).toThrow(InvalidInstructionLanguagePreferenceError);
+		}
+	});
 	it("folds baseline variants without changing authored-content tags", () => {
 		for (const tag of ["en-GB", "en-x-anglish", "en-US"]) expect(automaticInstructionLocale(tag)).toBe("en");
 		for (const tag of ["zh-Hans", "zh-Hant-TW", "ZH-HK"]) expect(automaticInstructionLocale(tag)).toBe("zh");

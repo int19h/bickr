@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { env as testEnv } from "cloudflare:test";
 import { localizedText, type BotDocument, type LanguageTag, type LocalizedText, type UserDocument } from "../packages/shared/src/model";
+import { instructionLocales } from "../packages/shared/src/instruction-language";
+import { createWorld, createBot } from "./helpers/coordinator-mutations";
 import { inferenceConfigurationFields } from "../packages/shared/src/inference-configuration-owner";
 import { encodeOpaqueJsonCursor } from "../packages/shared/src/opaque-json-cursor";
 import {
@@ -325,6 +327,65 @@ describe("MCP endpoint", () => {
 				},
 			});
 		}
+	});
+
+	it("advertises portable instructions language choices without adding clone creation", () => {
+		const tools = new Map(mcpToolMetadataForTest().map(tool => [tool.name, tool]));
+		expect(schemaProperty(tools, "create_bot", "instructionsLanguage")).toMatchObject({ type: "string", enum: [...instructionLocales, "auto"] });
+		expect(schemaProperty(tools, "update_bot", "instructionsLanguage")).toMatchObject({ type: "string", enum: [...instructionLocales, "auto", "source"] });
+		expect(schemaRequired(tools, "create_bot")).not.toContain("instructionsLanguage");
+		expect(schemaProperties(toolArgumentSchema(tools.get("create_bot")!.inputSchema))).not.toHaveProperty("cloneSourceBotId");
+	});
+
+	it("maps MCP instructions choices once and rejects output objects before dispatch", async () => {
+		const kv = new MapKV();
+		const token = await issueAccessToken(kv, ["bickr.write"]);
+		const requests: Array<{ method: string; body: Record<string, unknown> }> = [];
+		const service = { fetch: async (request: Request) => {
+			if (new URL(request.url).pathname.endsWith("/inference-consumers/annotations")) return Response.json({ ok: true, data: { annotations: [], graphRevision: 1 } });
+			const body = await request.json() as Record<string, unknown>;
+			requests.push({ method: request.method, body });
+			return Response.json({ ok: true, data: { bot: testBot({ id: "bot_instructions", handle: "instructions", instructionLanguage: body.instructionLanguage as BotDocument["instructionLanguage"] }) } });
+		} };
+		const call = async (name: string, args: Record<string, unknown>) => jsonResponse(await callMcp(kv, token, {
+			jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { operations: [{ operationId: crypto.randomUUID(), ...args }] } },
+		}, { BICKR_D1: emptyD1(), AGENT_RUNTIME: service, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" }));
+		for (const args of [{ instructionsLanguage: "en-US" }, { instructionsLanguage: { kind: "auto" } }, { instructionLanguage: { kind: "auto" } }]) {
+			expect(await call("update_bot", { botId: "bot_instructions", ...args })).toMatchObject({ result: { isError: true, structuredContent: { error: "bad_request" } } });
+		}
+		expect(requests).toEqual([]);
+		for (const [choice, preference] of [["en", { kind: "fixed", locale: "en" }], ["auto", { kind: "auto" }], ["source", { kind: "source" }]] as const) {
+			await call("update_bot", { botId: "bot_instructions", instructionsLanguage: choice });
+			expect(requests.at(-1)).toEqual({ method: "PATCH", body: { instructionLanguage: preference } });
+		}
+		await call("update_bot", { botId: "bot_instructions", handle: "renamed" });
+		expect(requests.at(-1)?.body).toEqual({ handle: "renamed" });
+		const create = { worldHandle: "mcp-world", handle: "instructions", lang: "ja", displayName: { lang: "ja", text: "Name" }, shortBio: { lang: "ja", text: "Bio" }, prompt: { lang: "ja", text: "Prompt" } };
+		const before = requests.length;
+		expect(await call("create_bot", { ...create, instructionsLanguage: "source" })).toMatchObject({ result: { isError: true, structuredContent: { error: "bad_request" } } });
+		expect(requests).toHaveLength(before);
+		await call("create_bot", { ...create, instructionsLanguage: "ga" });
+		expect(requests.at(-1)).toMatchObject({ method: "POST", body: { language: "ja", instructionLanguage: { kind: "fixed", locale: "ga" } } });
+		expect(requests.at(-1)?.body).not.toHaveProperty("instructionsLanguage");
+	});
+
+	it("updates real MCP instruction preferences independently and limits Source to linked clones", async () => {
+		await clearKv(testEnv.BICKR_KV);
+		const token = await issueAccessToken(testEnv.BICKR_KV, ["bickr.write"]);
+		const world = await createWorld(testEnv.BICKR_KV, testEnv.BICKR_D1, { handle: "instructions", language: en, name: lt("Instructions"), description: lt("Fixture") }, "usr_mcp");
+		const bot = await createBot(testEnv.BICKR_KV, testEnv.BICKR_D1, world.handle, { handle: "one", language: "ja" as LanguageTag, displayName: localizedText("Name", "ja" as LanguageTag), shortBio: localizedText("Bio", "ja" as LanguageTag), prompt: localizedText("Prompt", "ja" as LanguageTag), tickSettings: { enabled: false } }, "usr_mcp");
+		const environment = { BICKR_D1: testEnv.BICKR_D1, AGENT_RUNTIME: ownedParticipantRuntimeService(), INTERNAL_SERVICE_SECRET: "test-internal-service-secret" };
+		const call = async (choice: string, botId = bot.id) => jsonResponse(await callMcp(testEnv.BICKR_KV, token, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "update_bot", arguments: { operations: [{ botId, instructionsLanguage: choice, operationId: crypto.randomUUID() }] } } }, environment));
+		for (const [choice, preference] of [["ga", { kind: "fixed", locale: "ga" }], ["auto", { kind: "auto" }]] as const) {
+			expect(await call(choice)).toMatchObject({ result: { structuredContent: { results: [{ status: "succeeded" }] } } });
+			expect(await storedBot(bot.id)).toMatchObject({ instructionLanguage: preference, language: "ja", prompt: { text: "Prompt", lang: "ja" }, tickSettings: { enabled: false } });
+		}
+		const before = await storedBot(bot.id);
+		expect(await call("source")).toMatchObject({ result: { structuredContent: { results: [{ status: "failed", error: { error: "bad_request" } }] } } });
+		expect(await storedBot(bot.id)).toEqual(before);
+		const clone = await createBot(testEnv.BICKR_KV, testEnv.BICKR_D1, world.handle, { handle: "clone", cloneSourceBotId: bot.id, instructionLanguage: { kind: "fixed", locale: "en" }, tickSettings: { enabled: false } }, "usr_mcp");
+		expect(await call("source", clone.id)).toMatchObject({ result: { structuredContent: { results: [{ status: "succeeded", result: { data: { bot: { instructionLanguage: { kind: "source" }, instructionLocale: "ja", cloneSource: { sourceBotId: bot.id, linked: true } } } } }] } } });
+		expect(await storedBot(clone.id)).toMatchObject({ instructionLanguage: { kind: "source" } });
 	});
 
 	it("advertises portable schemas and every mutating tool as one operations array", () => {

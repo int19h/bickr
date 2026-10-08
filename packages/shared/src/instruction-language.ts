@@ -12,7 +12,7 @@ export type InstructionLanguagePreference =
 	| { kind: "fixed"; locale: InstructionLocale }
 	| { kind: "source" };
 
-/** Use this default only for creation. Stored omissions retain legacy Auto behavior. */
+/** New creation and omitted legacy clone detach use English. Readers retain Auto for stored omissions. */
 export function defaultNewBotInstructionLanguage(): { kind: "fixed"; locale: "en" } {
 	return { kind: "fixed", locale: "en" };
 }
@@ -25,6 +25,25 @@ export const instructionLanguageNames: Readonly<Record<InstructionLocale, string
 
 export function isInstructionLocale(value: unknown): value is InstructionLocale {
 	return typeof value === "string" && (instructionLocales as readonly string[]).includes(value);
+}
+
+export type NewBotInstructionLanguageChoice = InstructionLocale | "auto";
+export type BotInstructionLanguageChoice = NewBotInstructionLanguageChoice | "source";
+export type NewBotInstructionLanguagePreference = Exclude<InstructionLanguagePreference, { kind: "source" }>;
+export const newBotInstructionLanguageChoices = [...instructionLocales, "auto"] as const satisfies readonly NewBotInstructionLanguageChoice[];
+export const botInstructionLanguageChoices = [...newBotInstructionLanguageChoices, "source"] as const satisfies readonly BotInstructionLanguageChoice[];
+
+/** Convert a selector value into the stored preference at the interface boundary. */
+export function instructionLanguagePreferenceFromChoice(value: unknown): InstructionLanguagePreference {
+	if (value === "auto" || value === "source") return { kind: value };
+	if (isInstructionLocale(value)) return { kind: "fixed", locale: value };
+	throw new InvalidInstructionLanguagePreferenceError("Use a supported instructions language code, auto, or source.");
+}
+
+export function newBotInstructionLanguagePreferenceFromChoice(value: unknown): NewBotInstructionLanguagePreference {
+	const preference = instructionLanguagePreferenceFromChoice(value);
+	if (preference.kind === "source") throw new InvalidInstructionLanguagePreferenceError("Source inheritance is available only when updating a linked clone.");
+	return preference;
 }
 
 /** Script, region, and style variants use their baseline catalog. An unset or unsupported language uses English. */
