@@ -1975,7 +1975,7 @@ async function unlinkBotClone(
 		language: bot.language ?? effectiveBefore.language,
 		includeLanguageInSystemPrompt: bot.includeLanguageInSystemPrompt ?? effectiveBefore.includeLanguageInSystemPrompt,
 		instructionLanguage: bot.instructionLanguage?.kind === "source"
-			? { kind: "fixed", locale: effectiveBefore.instructionLocale } : bot.instructionLanguage ?? { kind: "auto" },
+			? { kind: "fixed", locale: effectiveBefore.instructionLocale } : bot.instructionLanguage ?? defaultNewBotInstructionLanguage(),
 		displayName: hasProfileText(bot.displayName) ? bot.displayName : effectiveBefore.displayName,
 		shortBio: hasProfileText(bot.shortBio) ? bot.shortBio : effectiveBefore.shortBio,
 		prompt: hasProfileText(bot.prompt) ? bot.prompt : effectiveBefore.prompt,

@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { localizedText } from '@bickr/shared/model';
+import { kvKeys } from '@bickr/shared/storage';
 import { botById } from '@bickr/shared/repository';
 import { parseLanguageTag } from '@bickr/shared/validation';
 import { clearKv, resetD1Schema } from './helpers/d1-schema';
@@ -61,6 +62,17 @@ describe('stored participant instruction preferences', () => {
 		expect(await botById(env.BICKR_KV, env.BICKR_D1, clone.id)).toMatchObject({ instructionLanguage: { kind: 'fixed', locale: 'ja' }, instructionLocale: 'ja', cloneSource: { linked: false } });
 		await updateBot(env.BICKR_KV, env.BICKR_D1, source.id, owner.id, { instructionLanguage: { kind: 'fixed', locale: 'fr' } });
 		expect(await botById(env.BICKR_KV, env.BICKR_D1, clone.id)).toMatchObject({ instructionLocale: 'ja', prompt: { text: 'Authored persona' } });
+	});
+
+	it('uses English when detaching a legacy clone with an omitted instruction preference', async () => {
+		const { owner, clone } = await fixture();
+		await updateBot(env.BICKR_KV, env.BICKR_D1, clone.id, owner.id, { language: parseLanguageTag('ja') });
+		const stored = await env.BICKR_KV.get<Record<string, unknown>>(kvKeys.bot(clone.id), 'json');
+		delete stored!.instructionLanguage;
+		await env.BICKR_KV.put(kvKeys.bot(clone.id), JSON.stringify(stored));
+		expect(await unlinkBotClone(env.BICKR_KV, env.BICKR_D1, clone.id, owner.id)).toMatchObject({
+			instructionLanguage: { kind: 'fixed', locale: 'en' }, instructionLocale: 'en', language: 'ja',
+		});
 	});
 
 	it('rejects source inheritance on a standalone participant before writing data', async () => {
