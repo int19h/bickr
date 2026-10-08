@@ -60,7 +60,9 @@ export function releasePlan(environment, commit) {
 	const test = environment === "test";
 	const workers = ["forum-coordinator", "agent-runtime"].map((name) => ({
 		name: `bickr-${name}${test ? "-test" : ""}`,
-		config: [`--config`, `workers/${name}/wrangler${test ? "" : ".deploy"}.jsonc`, "--env", test ? "test" : ""],
+		// Wrangler runs custom builds from its working directory, not the config directory.
+		config: ["--cwd", join(repoRoot, "workers", name), "--config",
+			join(repoRoot, "workers", name, `wrangler${test ? "" : ".deploy"}.jsonc`), "--env", test ? "test" : ""],
 	}));
 	return {
 		environment, commit, accountId,

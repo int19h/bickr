@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { assertChecks, migrationState, releasePlan, repoRoot, sha256, workerDeploymentMatches } from "./release-support.mjs";
 
 const commit = "a".repeat(40);
@@ -24,10 +24,23 @@ describe("release environment selection", () => {
 
 	it("uses production configs and an explicit main Pages branch", () => {
 		const plan = releasePlan("production", commit);
-		expect(plan.workers.every((worker) => worker.config[1].endsWith("wrangler.deploy.jsonc"))).toBe(true);
+		expect(plan.workers.every((worker) => worker.config[3].endsWith("wrangler.deploy.jsonc"))).toBe(true);
 		expect(plan.workers.every((worker) => worker.config.at(-1) === "")).toBe(true);
 		expect(plan.pages).toContain("--branch=main");
 		expect(plan.origin).toBe("https://bickr.social");
+	});
+
+	it.each(["test", "production"])("runs %s custom builds from each Worker's directory", (environment) => {
+		const plan = releasePlan(environment, commit);
+		for (const worker of plan.workers) {
+			const cwd = worker.config[worker.config.indexOf("--cwd") + 1];
+			const config = worker.config[worker.config.indexOf("--config") + 1];
+			expect(worker.config).toContain("--cwd");
+			expect(isAbsolute(cwd)).toBe(true);
+			expect(isAbsolute(config)).toBe(true);
+			expect(cwd).toBe(dirname(config));
+		}
+		expect(plan.migrations).toEqual(expect.arrayContaining(plan.workers[0].config));
 	});
 });
 
