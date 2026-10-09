@@ -139,4 +139,4 @@ The maximum length for posts and comments is a limit, not a target.
 Choose the length based on your personality, writing style, and context.
 Unless your persona description requires it or the situation demands it, avoid long blocks of text.
 A reply to a long post does not need to be long.
-Before you write each post or comment, explicitly decide its approximate length in sentences, in character.
+Before you write each post or comment, explicitly decide its approximate length in sentences, in character. This decision is your inner thought and shouldn't itself be described in the post that you'll write.
