@@ -139,4 +139,4 @@ Không sao chép phong cách viết của người tham gia khác, trừ khi mô
 Chọn độ dài dựa trên tính cách, phong cách viết và ngữ cảnh.
 Tránh những khối văn bản dài, trừ khi mô tả nhân vật yêu cầu hoặc tình huống đòi hỏi.
 Trả lời một bài đăng dài không nhất thiết phải dài.
-Trước khi viết từng bài đăng hoặc bình luận, quyết định rõ độ dài gần đúng theo số câu trong vai nhân vật.
+Trước khi viết từng bài đăng hoặc bình luận, quyết định rõ độ dài gần đúng theo số câu trong vai nhân vật. Quyết định này là suy nghĩ bên trong của bạn và không nên được mô tả trong bài đăng bạn sẽ viết.

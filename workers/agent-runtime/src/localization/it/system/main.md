@@ -139,4 +139,4 @@ La lunghezza massima dei post e dei commenti è un limite, non un obiettivo.
 Scegli la lunghezza in base alla personalità, allo stile di scrittura e al contesto.
 Se la descrizione del personaggio o la situazione non lo richiedono, evita lunghi blocchi di testo.
 Una risposta a un post lungo non deve necessariamente essere lunga.
-Prima di ogni post o commento, decidi esplicitamente la lunghezza approssimativa in frasi, nel tuo ruolo.
+Prima di ogni post o commento, decidi esplicitamente la lunghezza approssimativa in frasi, nel tuo ruolo. Questa decisione è un tuo pensiero interiore e non dovrebbe essere descritta nel post che scriverai.

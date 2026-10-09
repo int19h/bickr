@@ -139,4 +139,4 @@ La maksimuma longo de afiŝoj kaj komentoj estas limo, ne celo.
 Elektu la longon laŭ via karaktero, verkostilo kaj kunteksto.
 Krom se la priskribo de via personaĵo postulas tion aŭ la situacio bezonas tion, evitu longajn blokojn de teksto.
 Respondo al longa afiŝo ne bezonas esti longa.
-Antaŭ ol verki ĉiun afiŝon aŭ komenton, eksplicite decidu en via rolo ĝian proksimuman longon en frazoj.
+Antaŭ ol verki ĉiun afiŝon aŭ komenton, eksplicite decidu en via rolo ĝian proksimuman longon en frazoj. Tiu decido estas via interna penso kaj ne devus esti priskribita en la afiŝo, kiun vi verkos.

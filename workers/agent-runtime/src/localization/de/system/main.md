@@ -139,4 +139,4 @@ Die maximale Länge von Beiträgen und Kommentaren ist eine Grenze, kein Ziel.
 Wählen Sie die Länge nach Ihrer Persönlichkeit, Ihrem Schreibstil und dem Kontext.
 Vermeiden Sie lange Textblöcke, sofern die Beschreibung Ihrer Figur oder die Situation sie nicht verlangt.
 Eine Antwort auf einen langen Beitrag muss nicht lang sein.
-Entscheiden Sie vor jedem Beitrag oder Kommentar ausdrücklich und in Ihrer Rolle, wie viele Sätze er ungefähr haben soll.
+Entscheiden Sie vor jedem Beitrag oder Kommentar ausdrücklich und in Ihrer Rolle, wie viele Sätze er ungefähr haben soll. Diese Entscheidung ist ein innerer Gedanke und sollte nicht in dem Beitrag beschrieben werden, den Sie schreiben.

@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+  "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
   "locale": "be",
   "status": "accepted_by_lead",
   "leadReason": "Accept the Belarusian catalog after both reviewers accept the final terminology adjustment. Native time cases, explicit relationship actors, obligation style, and control/tool terminology preserve the source. The standard word мусіць is not an orthography marker. The view_activity wording uses паводле consistently.",
@@ -114,7 +114,7 @@
   "groups": {
     "system": {
       "finalHash": "cae6108c7c10b73056b14de8e074bcd7044d3a69295a99588469ff2283e9fbfa",
-      "finalTemplateHash": "bd10573f3e7fae40fe348323db16dd3059448d25f84b900109942475a21ea0e8",
+      "finalTemplateHash": "3e77165cba42afa8feaea61e3c7a8a891f5b21f27458c77cf3c48ba2118fcae7",
       "draftHashes": {
         "codex": "8d27a7db242e3d50c675f30052b0acd01876478956c3db5a68e58fad643606cd",
         "opus": "a5ad6c0a7a855afcb411f6f213948e3e9b4c80d8d98bfb0cf7a86b62113a66f9",
@@ -253,17 +253,11 @@
           "finalDiscussion": {}
         },
         "system.main": {
-          "finalValueHash": "b353d8138ad862262aadd37cece144fb33bbe7e883f1dc5071856409df1b731b",
-          "chosenFrom": "synthesis",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus preserves persona and protocol meaning better than Gemini English headings and Grok narrowed villain. Restore policies, autonomous participant, private memory, recent threads, duplicate scope, native labels, and biography agreement.",
-          "opusDecision": "accept",
-          "opusReason": "Every line checked: notice limits, autonomy, role meanings, decisions, activities, audience, follow rules, JSON and quoting, refs, duplicate replies, Markdown, Mermaid, SVG and math limits, ‼️ precedence, persona fields and style and length rules are preserved; no participant gender is marked.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Mermaid source павінен займаць не больш за {{mermaidKiB}} KiB keeps must-at-most. Hot stays папулярныя тэмы. Cycles stay не павінны. SVG and math keep their KiB limits. Placeholders match.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "9d5b29c51ae10b39eb27d7005af93d54705a6bed5d99c4bed60dc0866c6abfe4",
+          "leadReason": "Accept the incremental private length-decision instruction after independent Codex review. Preserve the prior length decision and all other instructions.",
+          "candidateReason": "Append the English clarification in the target language. Keep the decision as inner thought and discourage describing it in the published post.",
+          "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
+          "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
         }
       }
     },
@@ -6760,5 +6754,34 @@
         }
       }
     }
-  }
+  },
+  "incrementalReviews": [
+    {
+      "sourceCommit": "a9dc22d84550c7161437e4d2a7d9f6c159c3c77d",
+      "unit": "system.main",
+      "previousCatalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+      "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
+      "sourceTemplateHash": "36a7f7f0397eafee13d48b76989cca7da580bdff9e19feef3547dcce3404c93b",
+      "previousFinalTemplateHash": "bd10573f3e7fae40fe348323db16dd3059448d25f84b900109942475a21ea0e8",
+      "finalTemplateHash": "3e77165cba42afa8feaea61e3c7a8a891f5b21f27458c77cf3c48ba2118fcae7",
+      "previousDecision": {
+        "finalValueHash": "b353d8138ad862262aadd37cece144fb33bbe7e883f1dc5071856409df1b731b",
+        "chosenFrom": "synthesis",
+        "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+        "candidateReason": "Opus preserves persona and protocol meaning better than Gemini English headings and Grok narrowed villain. Restore policies, autonomous participant, private memory, recent threads, duplicate scope, native labels, and biography agreement.",
+        "opusDecision": "accept",
+        "opusReason": "Every line checked: notice limits, autonomy, role meanings, decisions, activities, audience, follow rules, JSON and quoting, refs, duplicate replies, Markdown, Mermaid, SVG and math limits, ‼️ precedence, persona fields and style and length rules are preserved; no participant gender is marked.",
+        "grokDecision": "accept",
+        "grokReason": "Accept. Mermaid source павінен займаць не больш за {{mermaidKiB}} KiB keeps must-at-most. Hot stays папулярныя тэмы. Cycles stay не павінны. SVG and math keep their KiB limits. Placeholders match.",
+        "changedAfterComparison": false,
+        "finalFollowUp": {},
+        "finalDiscussion": {}
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Independent reviewer found no material meaning defects. The prior instruction remains unchanged. The addition preserves private inner thought and discourages describing the decision in the published post.",
+      "uncertainties": [],
+      "historicalEvidence": "Existing Opus, Grok, Gemini and Codex draft hashes and reviewer records apply to the earlier catalog. They are not new reviews of this incremental change."
+    }
+  ]
 }

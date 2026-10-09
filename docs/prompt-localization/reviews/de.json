@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+  "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
   "locale": "de",
   "status": "accepted_by_lead",
   "leadReason": "Accept the German catalog after both reviewers accept both exact follow-up units. The direct Mermaid imperative keeps the required maximum. The SVG clause names its fence and label plainly. The profile-result actor is explicit. Darf nicht leer sein preserves the required nonempty constraint.",
@@ -101,7 +101,7 @@
   "groups": {
     "system": {
       "finalHash": "d65403f2e2be49e8a3f002f4ab9f22f2608ca4e361f7713a0a4c3fc3c5a9c788",
-      "finalTemplateHash": "05717fa2afea7ff9503e15c0fe7eea11af99d86d4dbaeca4050642cc3870b5a5",
+      "finalTemplateHash": "c8a68c60f51125c0bd13f737cbcea4f0fb4fb2b697dfd9629a83a5c3def5a3fa",
       "draftHashes": {
         "codex": "6ddf5f7c87ce16b4ceee5b55893dc27132fae9ecf66e0f45599f6caebd845323",
         "opus": "aeb2aea629d1858bd97da135c9b37a53f7f2d9b9a0cf2319b7a9cc38089f598a",
@@ -229,45 +229,11 @@
           "finalDiscussion": {}
         },
         "system.main": {
-          "finalValueHash": "34f86daabca21ec268bcd7af1552bb9f1c8be949e195f27db82640254adf6e23",
-          "chosenFrom": "opus",
-          "leadReason": "Use Codeblock mit Begrenzungszeilen consistently for a fenced block. Preserve the full SVG element, all required attributes, prohibited features, and bounds. No protocol delimiter changes.",
-          "candidateReason": "All four full texts were compared. Codex preserves villain, protocol exclusions and all exceptions; Grok changes villain to antagonist, Gemini drops fencing precision and style identifier. Add native ref heads and consistent profile labels. Clarify native code-boundary wording and the exact und tag where present; keep protocol syntax unchanged. State the friendship relation to you and use native stop-following wording.",
-          "opusDecision": "optional_change",
-          "opusReason": "Every line checked: notice limits, autonomy, role meanings, decisions, activities, audience, follow rules, JSON and quoting, refs, duplicate replies, Markdown, Mermaid, SVG and math limits, ‼️ precedence, persona fields and style and length rules are preserved. One wording issue: the SVG paragraph says \"eingezäunten Codeblock\" (a calque) and \"<svg> Element\" without a hyphen, while the Mermaid and math paragraphs say \"Codeblock mit Begrenzungszeilen\". Align the term and hyphenate the compound.",
-          "grokDecision": "required_change",
-          "grokReason": "English says the Mermaid source must be at most {{mermaidKiB}} KiB. darf höchstens is a permission ceiling. muss höchstens is the same obligation already used for must-be-at-most character limits. The cycle ban stays müssen frei von Zyklen, and a long reply muss nicht lang sein keeps does not need.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Adopts my optional coordination fix (\"mit Begrenzungszeilen und der Kennzeichnung svg\"). The lead also rewrites the Mermaid limit as \"Begrenzen Sie den Mermaid-Quelltext auf höchstens {{mermaidKiB}} KiB.\" That is a binding imperative with the same maximum, and it matches the SVG and math sentences (\"Begrenzen Sie … auf\"). I agree with the lead that \"darf höchstens\" was not a weaker permission, so Grok's required change was unnecessary. The imperative removes the dispute without copying an English modal. No other line or token changed.",
-              "proposedValueHash": "34f86daabca21ec268bcd7af1552bb9f1c8be949e195f27db82640254adf6e23"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept Begrenzen Sie den Mermaid-Quelltext auf höchstens {{mermaidKiB}} KiB. English requires that maximum. The imperative states it directly, in the same pattern as the SVG bound, without copying must onto muss. It is not a permission to exceed the size. muss nicht lang sein still means a reply does not need to be long. The svg label is now coordinated with und, so the second mit no longer attaches to the fence. The element, viewBox, feature bans, and element limit stay.",
-              "proposedValueHash": "34f86daabca21ec268bcd7af1552bb9f1c8be949e195f27db82640254adf6e23"
-            }
-          },
-          "finalDiscussion": {
-            "opus": {
-              "decision": "optional_change",
-              "reason": "The fenced-block alignment is right. On Grok's proposal I agree with the lead's choice not to adopt it. \"darf höchstens N KiB groß sein\" is the normal German statement of a mandatory upper limit (exceeding it is not allowed), so it has the full force of \"must be at most\"; it is not a weaker permission. One optional point, caused by my own comparison-stage edit: the SVG sentence now reads \"in einem Codeblock mit Begrenzungszeilen mit der Kennzeichnung svg\", with \"mit\" twice. The Mermaid sentence has \"mit Begrenzungszeilen und der Kennzeichnung mermaid\", so use the same coordination.",
-              "proposedValueHash": "94f5db04c3884a0284ff5f116e9be5f00cfd065e2bbbb9863fbbc7a94763fb8d",
-              "replacementValueHash": "9d3214de1d1501f35c01428101f279ce9615ea950ab07c302252512c8bd6b918"
-            },
-            "grok": {
-              "decision": "required_change",
-              "reason": "The Codeblock mit Begrenzungszeilen wording is right, and the SVG element, attributes, and feature bans stay. English says the Mermaid source must be at most {{mermaidKiB}} KiB. darf höchstens is only a permission ceiling. muss höchstens states that obligation. Eine Antwort muss nicht lang sein correctly keeps does not need to be long and is not part of this change.",
-              "proposedValueHash": "94f5db04c3884a0284ff5f116e9be5f00cfd065e2bbbb9863fbbc7a94763fb8d",
-              "replacementValueHash": "6a1af3eb02db6067ad21fa31e7463aace71b9129d5e4c92bc68dd054a6aca05e"
-            }
-          },
-          "finalLeadResolution": {
-            "reason": "Coordinate the fence boundaries and svg label with und, avoiding repeated mit. State the Mermaid bound as a direct imperative with höchstens. This is idiomatic and keeps the mandatory maximum. Darf höchstens already forbids exceeding the same bound, so I reject its classification as weaker permission. The imperative states the same rule clearly without a literal modal substitution. Preserve all other source instructions and exact protocol tokens.",
-            "changedFromProposal": true
-          }
+          "finalValueHash": "16bc28276913eea95742d68d32d06010e18ed13f8d714fd9370f93b5695a3297",
+          "leadReason": "Accept the incremental private length-decision instruction after independent Codex review. Preserve the prior length decision and all other instructions.",
+          "candidateReason": "Append the English clarification in the target language. Keep the decision as inner thought and discourage describing it in the published post.",
+          "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
+          "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
         }
       }
     },
@@ -6680,5 +6646,62 @@
         }
       }
     }
-  }
+  },
+  "incrementalReviews": [
+    {
+      "sourceCommit": "a9dc22d84550c7161437e4d2a7d9f6c159c3c77d",
+      "unit": "system.main",
+      "previousCatalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+      "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
+      "sourceTemplateHash": "36a7f7f0397eafee13d48b76989cca7da580bdff9e19feef3547dcce3404c93b",
+      "previousFinalTemplateHash": "05717fa2afea7ff9503e15c0fe7eea11af99d86d4dbaeca4050642cc3870b5a5",
+      "finalTemplateHash": "c8a68c60f51125c0bd13f737cbcea4f0fb4fb2b697dfd9629a83a5c3def5a3fa",
+      "previousDecision": {
+        "finalValueHash": "34f86daabca21ec268bcd7af1552bb9f1c8be949e195f27db82640254adf6e23",
+        "chosenFrom": "opus",
+        "leadReason": "Use Codeblock mit Begrenzungszeilen consistently for a fenced block. Preserve the full SVG element, all required attributes, prohibited features, and bounds. No protocol delimiter changes.",
+        "candidateReason": "All four full texts were compared. Codex preserves villain, protocol exclusions and all exceptions; Grok changes villain to antagonist, Gemini drops fencing precision and style identifier. Add native ref heads and consistent profile labels. Clarify native code-boundary wording and the exact und tag where present; keep protocol syntax unchanged. State the friendship relation to you and use native stop-following wording.",
+        "opusDecision": "optional_change",
+        "opusReason": "Every line checked: notice limits, autonomy, role meanings, decisions, activities, audience, follow rules, JSON and quoting, refs, duplicate replies, Markdown, Mermaid, SVG and math limits, ‼️ precedence, persona fields and style and length rules are preserved. One wording issue: the SVG paragraph says \"eingezäunten Codeblock\" (a calque) and \"<svg> Element\" without a hyphen, while the Mermaid and math paragraphs say \"Codeblock mit Begrenzungszeilen\". Align the term and hyphenate the compound.",
+        "grokDecision": "required_change",
+        "grokReason": "English says the Mermaid source must be at most {{mermaidKiB}} KiB. darf höchstens is a permission ceiling. muss höchstens is the same obligation already used for must-be-at-most character limits. The cycle ban stays müssen frei von Zyklen, and a long reply muss nicht lang sein keeps does not need.",
+        "changedAfterComparison": true,
+        "finalFollowUp": {
+          "opus": {
+            "decision": "accept",
+            "reason": "Adopts my optional coordination fix (\"mit Begrenzungszeilen und der Kennzeichnung svg\"). The lead also rewrites the Mermaid limit as \"Begrenzen Sie den Mermaid-Quelltext auf höchstens {{mermaidKiB}} KiB.\" That is a binding imperative with the same maximum, and it matches the SVG and math sentences (\"Begrenzen Sie … auf\"). I agree with the lead that \"darf höchstens\" was not a weaker permission, so Grok's required change was unnecessary. The imperative removes the dispute without copying an English modal. No other line or token changed.",
+            "proposedValueHash": "34f86daabca21ec268bcd7af1552bb9f1c8be949e195f27db82640254adf6e23"
+          },
+          "grok": {
+            "decision": "accept",
+            "reason": "Accept Begrenzen Sie den Mermaid-Quelltext auf höchstens {{mermaidKiB}} KiB. English requires that maximum. The imperative states it directly, in the same pattern as the SVG bound, without copying must onto muss. It is not a permission to exceed the size. muss nicht lang sein still means a reply does not need to be long. The svg label is now coordinated with und, so the second mit no longer attaches to the fence. The element, viewBox, feature bans, and element limit stay.",
+            "proposedValueHash": "34f86daabca21ec268bcd7af1552bb9f1c8be949e195f27db82640254adf6e23"
+          }
+        },
+        "finalDiscussion": {
+          "opus": {
+            "decision": "optional_change",
+            "reason": "The fenced-block alignment is right. On Grok's proposal I agree with the lead's choice not to adopt it. \"darf höchstens N KiB groß sein\" is the normal German statement of a mandatory upper limit (exceeding it is not allowed), so it has the full force of \"must be at most\"; it is not a weaker permission. One optional point, caused by my own comparison-stage edit: the SVG sentence now reads \"in einem Codeblock mit Begrenzungszeilen mit der Kennzeichnung svg\", with \"mit\" twice. The Mermaid sentence has \"mit Begrenzungszeilen und der Kennzeichnung mermaid\", so use the same coordination.",
+            "proposedValueHash": "94f5db04c3884a0284ff5f116e9be5f00cfd065e2bbbb9863fbbc7a94763fb8d",
+            "replacementValueHash": "9d3214de1d1501f35c01428101f279ce9615ea950ab07c302252512c8bd6b918"
+          },
+          "grok": {
+            "decision": "required_change",
+            "reason": "The Codeblock mit Begrenzungszeilen wording is right, and the SVG element, attributes, and feature bans stay. English says the Mermaid source must be at most {{mermaidKiB}} KiB. darf höchstens is only a permission ceiling. muss höchstens states that obligation. Eine Antwort muss nicht lang sein correctly keeps does not need to be long and is not part of this change.",
+            "proposedValueHash": "94f5db04c3884a0284ff5f116e9be5f00cfd065e2bbbb9863fbbc7a94763fb8d",
+            "replacementValueHash": "6a1af3eb02db6067ad21fa31e7463aace71b9129d5e4c92bc68dd054a6aca05e"
+          }
+        },
+        "finalLeadResolution": {
+          "reason": "Coordinate the fence boundaries and svg label with und, avoiding repeated mit. State the Mermaid bound as a direct imperative with höchstens. This is idiomatic and keeps the mandatory maximum. Darf höchstens already forbids exceeding the same bound, so I reject its classification as weaker permission. The imperative states the same rule clearly without a literal modal substitution. Preserve all other source instructions and exact protocol tokens.",
+          "changedFromProposal": true
+        }
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Independent reviewer found no material meaning defects. The prior instruction remains unchanged. The addition preserves private inner thought and discourages describing the decision in the published post.",
+      "uncertainties": [],
+      "historicalEvidence": "Existing Opus, Grok, Gemini and Codex draft hashes and reviewer records apply to the earlier catalog. They are not new reviews of this incremental change."
+    }
+  ]
 }

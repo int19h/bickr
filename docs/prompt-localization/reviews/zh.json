@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+  "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
   "locale": "zh",
   "status": "accepted_by_lead",
   "leadReason": "The lead accepts the exact reconciled proposal. Both requested reviewers discussed every disputed unit and accepted every proposed value. Neither reviewer reported another finding or unresolved language question. Every other unit received the complete four-draft comparison and both initial reviews.",
@@ -58,7 +58,7 @@
   "groups": {
     "system": {
       "finalHash": "a5ec08be649250005239ef445da95f2607aff798062dd09855bc75b4f8380881",
-      "finalTemplateHash": "37f2be972c0708626cbcfaf6042260054828276ed535cf873e94aeca5114af0a",
+      "finalTemplateHash": "312edd1c98bd99db7be020c3b27c8bbaf60844aa4b5882f01dcee20b4aac59f4",
       "draftHashes": {
         "codex": "d34fb593f3dc766172ba5953c7e3e59b4782f547dfb338fd35560e96fde8fb1b",
         "opus": "e0987191c061e755cd70f4c32402714289f7a4ce90023b867d69c0e08726ab75",
@@ -178,16 +178,11 @@
           "finalDiscussion": {}
         },
         "system.main": {
-          "finalValueHash": "d72458443945c7a9656d70be89dbe0d6d4049bb931ad2b50cd3a91c132d7f0c2",
-          "chosenFrom": "synthesis",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus retains every formatting limit and the OR exception with natural persona and thread terms. Grok omits ownership of earlier messages and changes unpleasant to unhappy. Gemini changes close topic repetition to merely following a topic. Clarify Opus’s action modality, close repetition, focus, and persona prompt.",
-          "opusDecision": "accept",
-          "opusReason": "Checked every section: notice limits, autonomy, role meanings, decisions, activities, audience, follow rules, JSON and quoting, refs, duplicate replies, Markdown, Mermaid/SVG/math limits, ‼️ precedence, persona fields and style/length rules preserved in direct Simplified Chinese.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the prohibition stays; the only-condition stays. English: ## Simulation notice Bickr is a simulation. Every Bickr participant is a roleplaying AI persona. All personas and described events are fictional. Human readers ",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
+          "finalValueHash": "2ca23b194da8c0040108c2e776727920acd508e91bc7d6d6a0ff94af7cfa3c46",
+          "leadReason": "Accept the incremental private length-decision instruction after independent Codex review. Preserve the prior length decision and all other instructions.",
+          "candidateReason": "Append the English clarification in the target language. Keep the decision as inner thought and discourage describing it in the published post.",
+          "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
+          "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
         }
       }
     },
@@ -6030,5 +6025,33 @@
         }
       }
     }
-  }
+  },
+  "incrementalReviews": [
+    {
+      "sourceCommit": "a9dc22d84550c7161437e4d2a7d9f6c159c3c77d",
+      "unit": "system.main",
+      "previousCatalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+      "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
+      "sourceTemplateHash": "36a7f7f0397eafee13d48b76989cca7da580bdff9e19feef3547dcce3404c93b",
+      "previousFinalTemplateHash": "37f2be972c0708626cbcfaf6042260054828276ed535cf873e94aeca5114af0a",
+      "finalTemplateHash": "312edd1c98bd99db7be020c3b27c8bbaf60844aa4b5882f01dcee20b4aac59f4",
+      "previousDecision": {
+        "finalValueHash": "d72458443945c7a9656d70be89dbe0d6d4049bb931ad2b50cd3a91c132d7f0c2",
+        "chosenFrom": "synthesis",
+        "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+        "candidateReason": "Opus retains every formatting limit and the OR exception with natural persona and thread terms. Grok omits ownership of earlier messages and changes unpleasant to unhappy. Gemini changes close topic repetition to merely following a topic. Clarify Opus’s action modality, close repetition, focus, and persona prompt.",
+        "opusDecision": "accept",
+        "opusReason": "Checked every section: notice limits, autonomy, role meanings, decisions, activities, audience, follow rules, JSON and quoting, refs, duplicate replies, Markdown, Mermaid/SVG/math limits, ‼️ precedence, persona fields and style/length rules preserved in direct Simplified Chinese.",
+        "grokDecision": "accept",
+        "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the prohibition stays; the only-condition stays. English: ## Simulation notice Bickr is a simulation. Every Bickr participant is a roleplaying AI persona. All personas and described events are fictional. Human readers ",
+        "changedAfterComparison": false,
+        "finalDiscussion": {}
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Independent reviewer found no material meaning defects. The prior instruction remains unchanged. The addition preserves private inner thought and discourages describing the decision in the published post.",
+      "uncertainties": [],
+      "historicalEvidence": "Existing Opus, Grok, Gemini and Codex draft hashes and reviewer records apply to the earlier catalog. They are not new reviews of this incremental change."
+    }
+  ]
 }

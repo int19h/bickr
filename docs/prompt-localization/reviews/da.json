@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+  "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
   "locale": "da",
   "status": "accepted_by_lead",
   "leadReason": "Accept the exact Danish proposal. Both reviewers accept all sixteen disputed units and find no additional defect. Native om/for ... siden fragments preserve the time value and direction without the ambiguous i år construction. Reference terminology, identification by u/username, and member-list headers preserve the source and use ordinary Danish.",
@@ -60,7 +60,7 @@
   "groups": {
     "system": {
       "finalHash": "3b96809b862d34f9a7c26a98b4d7726e943bdbc825de8921690420b3cc647327",
-      "finalTemplateHash": "c06f417b6b4d22218591296a59433ba0a7888a0c4935ed9d8f03a0993c9156d5",
+      "finalTemplateHash": "fc21e83c41493dcc7d733db01ceeb1adf674dc18e4eeceb2c53349f78a208a00",
       "draftHashes": {
         "codex": "d50da3a51209dedf869f0608a4f84d2c4ee65367965534986214cc70050740c9",
         "opus": "d54917ef5f4889d446fa68573848b1a8c7b78d440044881ae047d92c65c01081",
@@ -177,17 +177,11 @@
           "finalDiscussion": {}
         },
         "system.main": {
-          "finalValueHash": "f2eea2f0ca65061826147318cb3befa9f9d0b74d45b6b0e3a636358b43402b2f",
-          "chosenFrom": "synthesis",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every full prompt compared. Opus preserves follower direction, villain role, all persona exceptions and native need-negation, unlike Grok wrong reason/conclusion and friendship direction or Gemini escape evaluation. Restore prominent notice, next action, RECENT threads and precise code delimiters from peers. Use native post and escape wording. Final wording uses correct plural agreement and consistent biography terminology.",
-          "opusDecision": "accept",
-          "opusReason": "Every line checked: notice limits, autonomy, role meanings, decisions, activities, audience, follow rules, JSON and quoting, refs, duplicate replies, Markdown, Mermaid, SVG and math limits, ‼️ precedence, persona fields and style and length rules are preserved; \"må du aldrig\" correctly renders the bans.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the prohibition stays må ikke, skal ikke, or an imperative with ikke; need-not stays behøver ikke or har brug for, not skal ikke; the only-condition stays kun. English: ## Simulation notice Bickr is a simulation. Every Bickr participant is a roleplaying AI persona. All personas and described events are fictional. Human readers ",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "a811f6c3945649325a6786e32fdb5fdc52f9ed904cbd136c9373d6cc2b7befe0",
+          "leadReason": "Accept the incremental private length-decision instruction after independent Codex review. Preserve the prior length decision and all other instructions.",
+          "candidateReason": "Append the English clarification in the target language. Keep the decision as inner thought and discourage describing it in the published post.",
+          "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
+          "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
         }
       }
     },
@@ -6573,5 +6567,34 @@
         }
       }
     }
-  }
+  },
+  "incrementalReviews": [
+    {
+      "sourceCommit": "a9dc22d84550c7161437e4d2a7d9f6c159c3c77d",
+      "unit": "system.main",
+      "previousCatalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+      "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
+      "sourceTemplateHash": "36a7f7f0397eafee13d48b76989cca7da580bdff9e19feef3547dcce3404c93b",
+      "previousFinalTemplateHash": "c06f417b6b4d22218591296a59433ba0a7888a0c4935ed9d8f03a0993c9156d5",
+      "finalTemplateHash": "fc21e83c41493dcc7d733db01ceeb1adf674dc18e4eeceb2c53349f78a208a00",
+      "previousDecision": {
+        "finalValueHash": "f2eea2f0ca65061826147318cb3befa9f9d0b74d45b6b0e3a636358b43402b2f",
+        "chosenFrom": "synthesis",
+        "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+        "candidateReason": "Every full prompt compared. Opus preserves follower direction, villain role, all persona exceptions and native need-negation, unlike Grok wrong reason/conclusion and friendship direction or Gemini escape evaluation. Restore prominent notice, next action, RECENT threads and precise code delimiters from peers. Use native post and escape wording. Final wording uses correct plural agreement and consistent biography terminology.",
+        "opusDecision": "accept",
+        "opusReason": "Every line checked: notice limits, autonomy, role meanings, decisions, activities, audience, follow rules, JSON and quoting, refs, duplicate replies, Markdown, Mermaid, SVG and math limits, ‼️ precedence, persona fields and style and length rules are preserved; \"må du aldrig\" correctly renders the bans.",
+        "grokDecision": "accept",
+        "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the prohibition stays må ikke, skal ikke, or an imperative with ikke; need-not stays behøver ikke or har brug for, not skal ikke; the only-condition stays kun. English: ## Simulation notice Bickr is a simulation. Every Bickr participant is a roleplaying AI persona. All personas and described events are fictional. Human readers ",
+        "changedAfterComparison": false,
+        "finalFollowUp": {},
+        "finalDiscussion": {}
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Independent reviewer found no material meaning defects. The prior instruction remains unchanged. The addition preserves private inner thought and discourages describing the decision in the published post.",
+      "uncertainties": [],
+      "historicalEvidence": "Existing Opus, Grok, Gemini and Codex draft hashes and reviewer records apply to the earlier catalog. They are not new reviews of this incremental change."
+    }
+  ]
 }

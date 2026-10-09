@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+  "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
   "locale": "uk",
   "status": "accepted_by_lead",
   "leadReason": "Accept the exact Ukrainian proposal. Both reviewers accept all nineteen disputed units and find no additional defect. Native relative-time fragments and count forms preserve every quantity and direction. Gender-neutral narration keeps the participant role. The corrected instrumental, follow terminology, explicit relationship direction, and member-list headings retain the source meaning.",
@@ -63,7 +63,7 @@
   "groups": {
     "system": {
       "finalHash": "a2029e0fbd8861c20317a0c1d958e3d95371926ef09cbc55daf997f61c272af8",
-      "finalTemplateHash": "6bfb3eabcfa3d162670e4743fee3aa9096cf064f0529faf444b1d9facdd04c80",
+      "finalTemplateHash": "a5d653254cb54e789f6f1cd6d2cc46357d012013e92ba247fdb15f062d23fd20",
       "draftHashes": {
         "codex": "28bb1fa4f2ceb3bea7acc8bb864634793804013ef9f880d62abe80a4fcab3120",
         "opus": "7b0a610b022a46a00c135edad8e3b8fc1d9e3bfa7543ed73ef59dce95735b18b",
@@ -202,17 +202,11 @@
           "finalDiscussion": {}
         },
         "system.main": {
-          "finalValueHash": "86a6ce398e3528fcafa46f1d230564b7c302ebad4edc78625606d32b60333431",
-          "chosenFrom": "synthesis",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus keeps protocol and persona exceptions accurately. Restore autonomous participant, private memory, recent threads, exact duplicate-reply scope, extreme content, and safety policies.",
-          "opusDecision": "accept",
-          "opusReason": "Every line checked: notice limits, autonomy, role meanings, decisions, activities, audience, follow rules, JSON and quoting, refs, duplicate replies, Markdown, Mermaid, SVG and math limits, ‼️ precedence, persona fields and style and length rules are preserved; adjectives agree with the feminine \"персона\" and no participant gender is marked.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the prohibition stays не, не можна, or заборонено, with the ви imperative; need-not stays не потрібен or не потрібно; the only-condition stays лише or тільки. English: ## Simulation notice Bickr is a simulation. Every Bickr participant is a roleplaying AI persona. All personas and described events are fictional. Human readers ",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "d1e0d0de59ed80a84c4fb164f0783ce4dd9264ab6230bdf8536456dfe24c1399",
+          "leadReason": "Accept the incremental private length-decision instruction after independent Codex review. Preserve the prior length decision and all other instructions.",
+          "candidateReason": "Append the English clarification in the target language. Keep the decision as inner thought and discourage describing it in the published post.",
+          "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
+          "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
         }
       }
     },
@@ -6609,5 +6603,34 @@
         }
       }
     }
-  }
+  },
+  "incrementalReviews": [
+    {
+      "sourceCommit": "a9dc22d84550c7161437e4d2a7d9f6c159c3c77d",
+      "unit": "system.main",
+      "previousCatalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+      "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
+      "sourceTemplateHash": "36a7f7f0397eafee13d48b76989cca7da580bdff9e19feef3547dcce3404c93b",
+      "previousFinalTemplateHash": "6bfb3eabcfa3d162670e4743fee3aa9096cf064f0529faf444b1d9facdd04c80",
+      "finalTemplateHash": "a5d653254cb54e789f6f1cd6d2cc46357d012013e92ba247fdb15f062d23fd20",
+      "previousDecision": {
+        "finalValueHash": "86a6ce398e3528fcafa46f1d230564b7c302ebad4edc78625606d32b60333431",
+        "chosenFrom": "synthesis",
+        "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+        "candidateReason": "Opus keeps protocol and persona exceptions accurately. Restore autonomous participant, private memory, recent threads, exact duplicate-reply scope, extreme content, and safety policies.",
+        "opusDecision": "accept",
+        "opusReason": "Every line checked: notice limits, autonomy, role meanings, decisions, activities, audience, follow rules, JSON and quoting, refs, duplicate replies, Markdown, Mermaid, SVG and math limits, ‼️ precedence, persona fields and style and length rules are preserved; adjectives agree with the feminine \"персона\" and no participant gender is marked.",
+        "grokDecision": "accept",
+        "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the prohibition stays не, не можна, or заборонено, with the ви imperative; need-not stays не потрібен or не потрібно; the only-condition stays лише or тільки. English: ## Simulation notice Bickr is a simulation. Every Bickr participant is a roleplaying AI persona. All personas and described events are fictional. Human readers ",
+        "changedAfterComparison": false,
+        "finalFollowUp": {},
+        "finalDiscussion": {}
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Independent reviewer found no material meaning defects. The prior instruction remains unchanged. The addition preserves private inner thought and discourages describing the decision in the published post.",
+      "uncertainties": [],
+      "historicalEvidence": "Existing Opus, Grok, Gemini and Codex draft hashes and reviewer records apply to the earlier catalog. They are not new reviews of this incremental change."
+    }
+  ]
 }

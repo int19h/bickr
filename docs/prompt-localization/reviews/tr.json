@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+  "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
   "locale": "tr",
   "status": "accepted_by_lead",
   "leadReason": "Accept the Turkish catalog after both reviewers accept the exact three terminology follow-ups. Relative time uses count plus a singular unit and sonra or önce. Parenthesized member headings preserve singular and plural labels. Tool arguments consistently use argüman, with suffixes on native head nouns. All conditions, roles, limits, and protected identifiers remain intact.",
@@ -132,7 +132,7 @@
   "groups": {
     "system": {
       "finalHash": "7e3b80c4b500b7dcfc83314c6c9db151ad5ff116d9daa7ddbd6ac2c528a2ca36",
-      "finalTemplateHash": "ac2b8b505f938963b04ffafc384981aa6f1410aa6063f1920ed82a72f2257465",
+      "finalTemplateHash": "83dd1402244819215e4c03dc5a25946766b9fc2fcc3bbdb2e0742c06f0c4529d",
       "draftHashes": {
         "codex": "6900444b8a3b365ade380ca7948a5e225e7b813791849b2df0dd3fc0f09fa45a",
         "opus": "589f7a5868dfb3461d88fd734ffc590954776d239796edb708a02512e9e2a323",
@@ -279,17 +279,11 @@
           "finalDiscussion": {}
         },
         "system.main": {
-          "finalValueHash": "0e6fed402b769099f7a6f4f214b6f3b90f162f3550beb6e2ad68f85e05d54a52",
-          "chosenFrom": "synthesis",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four were compared throughout. Correct autonomy and recent topics, standardize thread as konu and first-person singular. Opus changes prose and offensive; Grok makes stable permanent; Gemini reverses the length limit. Final native review corrects vowel harmony and just-seen timing.",
-          "opusDecision": "accept",
-          "opusReason": "Every line checked: notice limits, autonomy, role meanings, decisions, activities, audience, follow rules, JSON and quoting, refs, duplicate replies, Markdown, Mermaid, SVG and math limits, ‼️ precedence, persona fields and style and length rules are preserved; suffixes go on head nouns (Bickr ağından, u/alice katılımcısının, f/alice forumundaki).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Mermaid kaynak metni en fazla {{mermaidKiB}} KiB olmalıdır keeps must-at-most. Hot stays popüler konular. Cycles stay oluşturmamalıdır. SVG and math keep their within-limit instructions.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "db4b4dd9353567dd7c9b4e9ccb617e411ba3c70b195b125ee1edf1bc3970805d",
+          "leadReason": "Accept the incremental private length-decision instruction after independent Codex review. Preserve the prior length decision and all other instructions.",
+          "candidateReason": "Append the English clarification in the target language. Keep the decision as inner thought and discourage describing it in the published post.",
+          "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
+          "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
         }
       }
     },
@@ -6702,5 +6696,34 @@
         }
       }
     }
-  }
+  },
+  "incrementalReviews": [
+    {
+      "sourceCommit": "a9dc22d84550c7161437e4d2a7d9f6c159c3c77d",
+      "unit": "system.main",
+      "previousCatalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+      "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
+      "sourceTemplateHash": "36a7f7f0397eafee13d48b76989cca7da580bdff9e19feef3547dcce3404c93b",
+      "previousFinalTemplateHash": "ac2b8b505f938963b04ffafc384981aa6f1410aa6063f1920ed82a72f2257465",
+      "finalTemplateHash": "83dd1402244819215e4c03dc5a25946766b9fc2fcc3bbdb2e0742c06f0c4529d",
+      "previousDecision": {
+        "finalValueHash": "0e6fed402b769099f7a6f4f214b6f3b90f162f3550beb6e2ad68f85e05d54a52",
+        "chosenFrom": "synthesis",
+        "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+        "candidateReason": "All four were compared throughout. Correct autonomy and recent topics, standardize thread as konu and first-person singular. Opus changes prose and offensive; Grok makes stable permanent; Gemini reverses the length limit. Final native review corrects vowel harmony and just-seen timing.",
+        "opusDecision": "accept",
+        "opusReason": "Every line checked: notice limits, autonomy, role meanings, decisions, activities, audience, follow rules, JSON and quoting, refs, duplicate replies, Markdown, Mermaid, SVG and math limits, ‼️ precedence, persona fields and style and length rules are preserved; suffixes go on head nouns (Bickr ağından, u/alice katılımcısının, f/alice forumundaki).",
+        "grokDecision": "accept",
+        "grokReason": "Accept. Mermaid kaynak metni en fazla {{mermaidKiB}} KiB olmalıdır keeps must-at-most. Hot stays popüler konular. Cycles stay oluşturmamalıdır. SVG and math keep their within-limit instructions.",
+        "changedAfterComparison": false,
+        "finalFollowUp": {},
+        "finalDiscussion": {}
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Independent reviewer found no material meaning defects. The prior instruction remains unchanged. The addition preserves private inner thought and discourages describing the decision in the published post.",
+      "uncertainties": [],
+      "historicalEvidence": "Existing Opus, Grok, Gemini and Codex draft hashes and reviewer records apply to the earlier catalog. They are not new reviews of this incremental change."
+    }
+  ]
 }

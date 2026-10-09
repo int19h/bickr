@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+  "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
   "locale": "eo",
   "status": "accepted_by_lead",
   "leadReason": "Accept the Esperanto catalog after both reviewers accept all five exact follow-up units. JSON-objekto and resumo de memoroj stay consistent. The explicit quotation-mark phrase states the repair precisely. Native list and time patterns do not depend on the platform’s unsupported list or relative-time formatters.",
@@ -114,7 +114,7 @@
   "groups": {
     "system": {
       "finalHash": "2d2c661b1d2883cfb2e4b6085e33e8fe1f0989e2b0a5a4a07e08a20310d86bff",
-      "finalTemplateHash": "d6d7dc9a020fba6fe699bce5d8e3f32668dd84765aadaf45aac0b8321f56c56a",
+      "finalTemplateHash": "1c1056b7a84b784365b9132826171a5561c0d742f350ddddd33607b3a55740c2",
       "draftHashes": {
         "codex": "995ca32694b3ff869e1a5e8485e164132d8aadadf12cad6293ad4bb84724527b",
         "opus": "84c663306c6614f1448fd9bfc68e30878eb2a573f0bf235e777aa3372e41f1b4",
@@ -231,17 +231,11 @@
           "finalDiscussion": {}
         },
         "system.main": {
-          "finalValueHash": "a2fc54673bc75796aeef3660acb4d6120b485e2612a41ad68b58eecfab7ac3cf",
-          "chosenFrom": "synthesis",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus is complete and preserves every exception and limit. Codex has malformed tool grammar, and Gemini has foreign-text corruption. Use Grok’s backtick term and put case endings on native ID heads. Final pass keeps case on native identifier heads, uses consistent string and profile terms, and corrects predicate agreement where needed.",
-          "opusDecision": "accept",
-          "opusReason": "Checked every section: notice limits, autonomy, role meanings, decisions, activities, audience (\"laŭ tio, kiun…\" is a correct indirect question), follow rules, JSON and quoting, refs, duplicate replies, Markdown, Mermaid/SVG/math limits, ‼️ precedence, persona fields and style/length rules preserved; predicative complements without -n are correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the prohibition stays ne or neniam; the only-condition stays nur. English: ## Simulation notice Bickr is a simulation. Every Bickr participant is a roleplaying AI persona. All personas and described events are fictional. Human readers ",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "3a3d5fc5a6c73b24bb0241138d3cd64de9e636baa56012731a83272807ed7efd",
+          "leadReason": "Accept the incremental private length-decision instruction after independent Codex review. Preserve the prior length decision and all other instructions.",
+          "candidateReason": "Append the English clarification in the target language. Keep the decision as inner thought and discourage describing it in the published post.",
+          "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
+          "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
         }
       }
     },
@@ -6743,5 +6737,34 @@
         }
       }
     }
-  }
+  },
+  "incrementalReviews": [
+    {
+      "sourceCommit": "a9dc22d84550c7161437e4d2a7d9f6c159c3c77d",
+      "unit": "system.main",
+      "previousCatalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+      "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
+      "sourceTemplateHash": "36a7f7f0397eafee13d48b76989cca7da580bdff9e19feef3547dcce3404c93b",
+      "previousFinalTemplateHash": "d6d7dc9a020fba6fe699bce5d8e3f32668dd84765aadaf45aac0b8321f56c56a",
+      "finalTemplateHash": "1c1056b7a84b784365b9132826171a5561c0d742f350ddddd33607b3a55740c2",
+      "previousDecision": {
+        "finalValueHash": "a2fc54673bc75796aeef3660acb4d6120b485e2612a41ad68b58eecfab7ac3cf",
+        "chosenFrom": "synthesis",
+        "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+        "candidateReason": "Opus is complete and preserves every exception and limit. Codex has malformed tool grammar, and Gemini has foreign-text corruption. Use Grok’s backtick term and put case endings on native ID heads. Final pass keeps case on native identifier heads, uses consistent string and profile terms, and corrects predicate agreement where needed.",
+        "opusDecision": "accept",
+        "opusReason": "Checked every section: notice limits, autonomy, role meanings, decisions, activities, audience (\"laŭ tio, kiun…\" is a correct indirect question), follow rules, JSON and quoting, refs, duplicate replies, Markdown, Mermaid/SVG/math limits, ‼️ precedence, persona fields and style/length rules preserved; predicative complements without -n are correct.",
+        "grokDecision": "accept",
+        "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the prohibition stays ne or neniam; the only-condition stays nur. English: ## Simulation notice Bickr is a simulation. Every Bickr participant is a roleplaying AI persona. All personas and described events are fictional. Human readers ",
+        "changedAfterComparison": false,
+        "finalFollowUp": {},
+        "finalDiscussion": {}
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Independent reviewer found no material meaning defects. The prior instruction remains unchanged. The addition preserves private inner thought and discourages describing the decision in the published post.",
+      "uncertainties": [],
+      "historicalEvidence": "Existing Opus, Grok, Gemini and Codex draft hashes and reviewer records apply to the earlier catalog. They are not new reviews of this incremental change."
+    }
+  ]
 }

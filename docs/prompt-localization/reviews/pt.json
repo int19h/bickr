@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+  "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
   "locale": "pt",
   "status": "accepted_by_lead",
   "leadReason": "The lead accepts the exact Portuguese proposal. Both reviewers accept every disputed unit and report no additional finding. The catalog uses broad standard Portuguese, as the guideline and the requested baseline-language scope allow. The remaining regional vocabulary and grammatical-gender observations do not change meaning or assign a gender to the participant. The reviewed native time phrases and count forms preserve every bound and direction.",
@@ -84,7 +84,7 @@
   "groups": {
     "system": {
       "finalHash": "894b2fd73db335c2a051485551a1812cd8b175b71b6ebddb8dd7da695c98b3b8",
-      "finalTemplateHash": "bbbb45fec332c37468dae4add6f84018e797fced21dcad2e15b6460ba433422f",
+      "finalTemplateHash": "21939c3e1dd045590db14a5890fc2e072943d361cc1b5490771ea693a93f7e16",
       "draftHashes": {
         "codex": "66556c540d7bd084805870ef33cddaabbad03d55b1abd4a437cfe2fefb19fcbf",
         "opus": "5df4992adf1b2b9411c2d5aaa9c9563f4db3645a6bceed26aa108c5dc1fc81b1",
@@ -201,28 +201,11 @@
           "finalDiscussion": {}
         },
         "system.main": {
-          "finalValueHash": "8034a0cf769dae8a0c76bf3908a70c7bfeaa8d6ae0be5394a3843844044f51e5",
-          "chosenFrom": "synthesis",
-          "leadReason": "Move sem motivo next to repita, so the reason condition applies to repetition rather than the earlier failure. Use the explicit required Mermaid ceiling proposed by Grok. Não pode exceder already bans the same exceeded bound, so I reject its classification as a weaker permitted maximum. Preserve all other source conditions and protected syntax.",
-          "candidateReason": "All four full texts compared. Codex preserves villain, every technical identifier and exception. Grok reverses follower/friend direction and translates frontmatter/style; Gemini generalizes threads and style. Add explicit completion, native reference heads and broad blog/profile labels. Final Portuguese wording review removes redundant visual detail or action nouns and aligns reference, text-string, and display-name terminology without changing constraints.",
-          "opusDecision": "required_change",
-          "opusReason": "Every line checked against the source. One sentence changes the condition by attachment: \"Não repita uma ação que falhou sem ter um motivo\" most naturally reads as \"an action that failed without having a reason\". The source forbids repeating a failed action without a reason. Put \"sem motivo\" next to the verb. Agreement with the feminine \"personagem\" (vilã, rabugenta) is grammatical.",
-          "grokDecision": "required_change",
-          "grokReason": "English says the Mermaid source must be at most {{mermaidKiB}} KiB. não pode exceder is the same ceiling verb as the can-include limits. deve ter no máximo keeps the obligation, matching the character maximums. SVG and math stay Mantenha dentro, which is keep within. Cycle bans and need-not replies stay.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This adopts the original opus required fix: \"Não repita sem motivo uma ação que falhou\" attaches the reason to repeating. On Grok's Mermaid point I agree with the lead. \"não pode exceder\" already forbade exceeding the same bound, so it was not a weaker permission, but \"deve ter no máximo\" states the obligation directly and matches the character-limit units. Everything else is unchanged.",
-              "proposedValueHash": "8034a0cf769dae8a0c76bf3908a70c7bfeaa8d6ae0be5394a3843844044f51e5"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept sem motivo beside repita and deve ter no máximo for the Mermaid source. English forbids repeating a failed action without a reason, and it requires the Mermaid source to be at most {{mermaidKiB}} KiB. The earlier attachment could describe a failure that had no reason. The rest of the notice stays.",
-              "proposedValueHash": "8034a0cf769dae8a0c76bf3908a70c7bfeaa8d6ae0be5394a3843844044f51e5"
-            }
-          }
+          "finalValueHash": "370d95968ed580f4d15ffe3fdd1e172a46f3b8b9145cb4005f0b1bafa0a5a1e4",
+          "leadReason": "Accept the incremental private length-decision instruction after independent Codex review. Preserve the prior length decision and all other instructions.",
+          "candidateReason": "Append the English clarification in the target language. Keep the decision as inner thought and discourage describing it in the published post.",
+          "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
+          "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
         }
       }
     },
@@ -6718,5 +6701,45 @@
         }
       }
     }
-  }
+  },
+  "incrementalReviews": [
+    {
+      "sourceCommit": "a9dc22d84550c7161437e4d2a7d9f6c159c3c77d",
+      "unit": "system.main",
+      "previousCatalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+      "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
+      "sourceTemplateHash": "36a7f7f0397eafee13d48b76989cca7da580bdff9e19feef3547dcce3404c93b",
+      "previousFinalTemplateHash": "bbbb45fec332c37468dae4add6f84018e797fced21dcad2e15b6460ba433422f",
+      "finalTemplateHash": "21939c3e1dd045590db14a5890fc2e072943d361cc1b5490771ea693a93f7e16",
+      "previousDecision": {
+        "finalValueHash": "8034a0cf769dae8a0c76bf3908a70c7bfeaa8d6ae0be5394a3843844044f51e5",
+        "chosenFrom": "synthesis",
+        "leadReason": "Move sem motivo next to repita, so the reason condition applies to repetition rather than the earlier failure. Use the explicit required Mermaid ceiling proposed by Grok. Não pode exceder already bans the same exceeded bound, so I reject its classification as a weaker permitted maximum. Preserve all other source conditions and protected syntax.",
+        "candidateReason": "All four full texts compared. Codex preserves villain, every technical identifier and exception. Grok reverses follower/friend direction and translates frontmatter/style; Gemini generalizes threads and style. Add explicit completion, native reference heads and broad blog/profile labels. Final Portuguese wording review removes redundant visual detail or action nouns and aligns reference, text-string, and display-name terminology without changing constraints.",
+        "opusDecision": "required_change",
+        "opusReason": "Every line checked against the source. One sentence changes the condition by attachment: \"Não repita uma ação que falhou sem ter um motivo\" most naturally reads as \"an action that failed without having a reason\". The source forbids repeating a failed action without a reason. Put \"sem motivo\" next to the verb. Agreement with the feminine \"personagem\" (vilã, rabugenta) is grammatical.",
+        "grokDecision": "required_change",
+        "grokReason": "English says the Mermaid source must be at most {{mermaidKiB}} KiB. não pode exceder is the same ceiling verb as the can-include limits. deve ter no máximo keeps the obligation, matching the character maximums. SVG and math stay Mantenha dentro, which is keep within. Cycle bans and need-not replies stay.",
+        "changedAfterComparison": true,
+        "finalFollowUp": {},
+        "finalDiscussion": {
+          "opus": {
+            "decision": "accept",
+            "reason": "This adopts the original opus required fix: \"Não repita sem motivo uma ação que falhou\" attaches the reason to repeating. On Grok's Mermaid point I agree with the lead. \"não pode exceder\" already forbade exceeding the same bound, so it was not a weaker permission, but \"deve ter no máximo\" states the obligation directly and matches the character-limit units. Everything else is unchanged.",
+            "proposedValueHash": "8034a0cf769dae8a0c76bf3908a70c7bfeaa8d6ae0be5394a3843844044f51e5"
+          },
+          "grok": {
+            "decision": "accept",
+            "reason": "Accept sem motivo beside repita and deve ter no máximo for the Mermaid source. English forbids repeating a failed action without a reason, and it requires the Mermaid source to be at most {{mermaidKiB}} KiB. The earlier attachment could describe a failure that had no reason. The rest of the notice stays.",
+            "proposedValueHash": "8034a0cf769dae8a0c76bf3908a70c7bfeaa8d6ae0be5394a3843844044f51e5"
+          }
+        }
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Independent reviewer found no material meaning defects. The prior instruction remains unchanged. The addition preserves private inner thought and discourages describing the decision in the published post.",
+      "uncertainties": [],
+      "historicalEvidence": "Existing Opus, Grok, Gemini and Codex draft hashes and reviewer records apply to the earlier catalog. They are not new reviews of this incremental change."
+    }
+  ]
 }

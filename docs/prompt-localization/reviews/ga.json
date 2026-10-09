@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+  "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
   "locale": "ga",
   "status": "accepted_by_lead",
   "leadReason": "Accept best-effort Irish after both requested final discussions and both 28-unit follow-ups. Use standard is gá dom action needs, direct audience wording, explicit persona genitives, dictionary-backed disclaimer notices, singular detached member headers, native JSON adjective order and list punctuation. Keep the maximum ceiling and all conditions. Relative-time digit patterns follow resolved Unicode CLDR and protected identifiers remain opaque. The lead chooses the optional direct relative from Opus.",
@@ -168,7 +168,7 @@
   "groups": {
     "system": {
       "finalHash": "ac93aec6499b85f0e79f7c2d28b192d66fd9d0bec0d9e63a35cc64bb23bc7545",
-      "finalTemplateHash": "07b3062055ec5607f09ab484cc6e71aa047fbe8fcd00eeb1c88baa695230a809",
+      "finalTemplateHash": "eb41f92415885024cdccdcf1c05a25c60c2aada3e5c13d7d63d78b24add8de90",
       "draftHashes": {
         "codex": "725378aa73dbdeebb2570c44a999ac0295b09e1d6b3be689db0ba0916aeaa98e",
         "opus": "b9c7a9a1cf0a633b5dee16a391ee910ead008a84cc5a4c6dfccc4878edbd5822",
@@ -285,44 +285,11 @@
           "finalDiscussion": {}
         },
         "system.main": {
-          "finalValueHash": "baefc181f4b13f50875b08b4a3266c21fa8a628d6f874789817fcecf8154d4a3",
-          "chosenFrom": "opus",
-          "leadReason": "Use suim for concern or interest in another participant’s activity, with the explicit permission not to like the person. Cúram can express care, but its responsibility or anxiety senses can make the follow criterion less clear. This is a native wording choice rather than a claim that cúram cannot mean care. Preserve the only-if follow criterion and every other source condition, role, example, and limit.",
-          "candidateReason": "Opus preserves conditions and exceptions with better Irish clauses. Restore autonomous participant rather than independent participation, recent threads rather than new, and backticks rather than back heads. Grok mistranslates max length and leaves villain; Gemini weakens cycles to advice and changes unsociable to idle.",
-          "opusDecision": "optional_change",
-          "opusReason": "Every line was checked against the English: simulation notice and both never rules, roles, decisions, the no-reason repeat ban, activities, audience and blogs, follow rules, refs and replies, duplicate-reply rules, Markdown, Mermaid, SVG and math limits, the ‼️ override and length guidance all match. One wording risk: line 47 renders \"care about their activity\" as \"más cúram leat a ghníomhaíocht\" and \"cúram a bheith ort faoi\". Cúram leans toward responsibility or charge rather than interest, so the follow criterion can read as \"if their activity is your responsibility\". Codex, grok and gemini use suim (interest), which carries the English meaning clearly. This is marked optional because my Irish confidence on the idiom is limited.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Mermaid ní mór ... ar a mhéad keeps must-at-most. Hot stays móréilimh. Cycles stay ní cheadaítear ... timthriallta. SVG and math keep their within-limit instructions. The math fence and the two-backslash sentence stay exact. {{nativeLanguage}} joins the display-name sentence and {{persona}}{{setting}} stays glued. Bickr is not lenited.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {
-            "opus": {
-              "decision": "optional_change",
-              "reason": "I re-checked the whole prompt against the frozen source. The 139 unchanged lines are identical to the text both reviewers accepted, including the suim/dúil follow criterion already adopted. The four changed lines are faithful. (1) \"Deir fógraí séanta feiceálacha é sin\" is correct: focloir.ie gives \"disclaimer notice = fógra séanta\", and teanglann lists séanadh with genitive séanta and no plural. So the old bare plural \"séanta\" was unsupported, and \"fógraí séanta\" (plural notices with a genitive modifier, plural adjective feiceálacha) is the right plural. (2) \"sroich\" for reaching people is attested in focloir.ie reach sense 5 (\"affect, influence: sroich, téigh chomh fada le\") and avoids \"teacht ar\" (come upon or find). \"chun níos mó daoine a shroicheadh\" is correct, and the actor is explicit in \"leat\". (3) \"Ná téigh i gcoinne na pearsantachta, na staire, na gcreideamh ná na tuairisce a bhaineann le do phearsa. Ná seachain iad.\" has correct genitives after i gcoinne (pearsantachta, staire, gen. pl. eclipsed gcreideamh, tuairisce) and keeps both prohibitions (contradict, evade) and \"you cannot change that description\". One optional grammar point remains, which is not a meaning defect. In \"de réir na ndaoine ar mian leat a shroicheadh\" the antecedent \"daoine\" is the direct object of the verbal noun, so standard Irish uses the direct relative \"is mian leat a shroicheadh\". This catalog already does so in \"an cuardach is mian liom a dhéanamh\" (tools.log_off) and \"is mian leat a dhéanamh\" (system.logOffInstruction). \"ar mian\" would normally need a resumptive pronoun (\"ar mian leat iad a shroicheadh\"). My Irish confidence here is moderate; the lead decides.",
-              "proposedValueHash": "16ac44eb335f2e53bc2fceecf68d541f9916911d9fb8c34f21d2c2e1ae91fe5f",
-              "replacementValueHash": "baefc181f4b13f50875b08b4a3266c21fa8a628d6f874789817fcecf8154d4a3"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept the four changed lines. I compared the full proposed text with every frozen English clause. Line 4 uses fógraí séanta feiceálacha for prominent disclaimers. teanglann.ie lists séanadh as a masculine noun, nominative séanadh and genitive séanta, so séanta is the genitive modifier and feiceálacha agrees with plural fógraí. Lines 38 and 43 use shroicheadh. The Foras na Gaeilge reach entry gives sroich for getting to a place or person. The audience noun freastal and the tabloid-readership example are different senses, and teacht orthu was coming upon people. ar mian leat names the participant as the person who wants to reach them, and the second line still includes getting different replies. Line 124 puts the persona nouns in the genitive after i gcoinne: na pearsantachta, na staire, na gcreideamh, na tuairisce. na gcreideamh is genitive plural for beliefs. a bhaineann le do phearsa names the persona for the whole list. Ná seachain iad keeps evade, and Ní féidir leat keeps cannot change that description. No other line changed. The retained clauses include the simulation notice for safety policies only, never in the character narrative, and never calling Bickr or participants simulated; autonomous participant; treat Bickr as real in character; never consider leaving; the user role; first-person narration; own decisions; follow-through; no repeat of a failed action without a reason; {{actionDecision}}, {{logOffInstruction}}, and {{notes}}; activity variety and the earlier topic with the food, music, hobby, and book example; the f/alice and u/alice blog facts; follow only with suim, including care without liking; no double follow and no unfollow of someone not followed; a follower is not necessarily a friend; stable refs and read_thread_by_id and read_comment_by_id; hidden replies and the ellipsis; no duplicate replies; GitHub Flavored Markdown and raw HTML; mention notifications excluded in math, code, and links; the Mermaid at-most ceiling {{mermaidKiB}} KiB ar a mhéad; the SVG element list, foreignObject, and the within limits {{svgKiB}} and {{svgElements}}; Ní cheadaítear for reference cycles; math forms, escaped dollars, TeX, {{mathKiB}}, definitions that do not carry, and the JSON backslash; the ‼️ marked persona instruction only; {{identity}} {{nativeLanguage}}{{displayName}} {{shortBio}} {{persona}}{{setting}}; the villain, grumpy, quirk, and style clauses; Ní gá duit for need not mention quirks; Is teorainn é fad uasta, ní sprioc; and Ní gá go mbeadh for a reply that need not be long. í and di with pearsa agree with that feminine noun. Protected tokens and placeholder counts match the English source.",
-              "proposedValueHash": "16ac44eb335f2e53bc2fceecf68d541f9916911d9fb8c34f21d2c2e1ae91fe5f"
-            }
-          },
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This adopts my optional care-or-interest point. \"má tá suim agat ina ghníomhaíocht … gan dúil a bheith agat sa duine féin\" keeps the only-if follow criterion and the permission not to like the person; \"a\" (his) follows the grammatical gender of \"duine\", not the participant's. The other three lines the lead asked about are native-editorial questions, not semantic defects: \"séanta\" as the plural of séanadh, \"teacht ar dhaoine\" for reaching an audience, and the genitive after \"i gcoinne\". I list them as uncertainties.",
-              "proposedValueHash": "4e2c4cb77a886da4e8c22b4cba66ed31ac9ceb89b5cb46680898b4dab01fcdeb"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept suim for the follow criterion. English says follow someone only if you care about their activity, and that you can care without liking them. suim agat ina ghníomhaíocht keeps interest in that person’s activity, and gan dúil a bheith agat sa duine féin keeps the permission not to like the person. ina ghníomhaíocht lenites for masculine duine. The rest of the instruction, including teacht orthu, séanta feiceálacha, and dollair, stays for the questions in the summary.",
-              "proposedValueHash": "4e2c4cb77a886da4e8c22b4cba66ed31ac9ceb89b5cb46680898b4dab01fcdeb"
-            }
-          },
-          "finalLeadResolution": {
-            "reason": "Use sroich for reaching an audience rather than coming upon people, as the official reach entry supports. Use fógraí séanta for plural disclaimers, with séanta as the dictionary-supported genitive modifier. Put each persona noun into an explicit i gcoinne genitive phrase and keep both prohibitions and the immutable-description statement. Preserve all other source clauses, source force, participant terminology and protected examples. Use the direct relative is mian leat a shroicheadh, consistent with the same is mian verbal-noun clauses elsewhere. Opus supplies this exact optional replacement after the full four-draft comparison. The source audience, participant actor and every other clause remain unchanged. The lead chooses the direct construction.",
-            "changedFromProposal": true
-          }
+          "finalValueHash": "c957f779c61f999b60153f853cadb3fce6f6c22e07c329ad0414fbde606df704",
+          "leadReason": "Accept the incremental private length-decision instruction after independent Codex review. Preserve the prior length decision and all other instructions.",
+          "candidateReason": "Append the English clarification in the target language. Keep the decision as inner thought and discourage describing it in the published post.",
+          "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
+          "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
         }
       }
     },
@@ -7554,5 +7521,63 @@
         }
       }
     }
-  }
+  },
+  "incrementalReviews": [
+    {
+      "sourceCommit": "a9dc22d84550c7161437e4d2a7d9f6c159c3c77d",
+      "unit": "system.main",
+      "previousCatalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+      "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
+      "sourceTemplateHash": "36a7f7f0397eafee13d48b76989cca7da580bdff9e19feef3547dcce3404c93b",
+      "previousFinalTemplateHash": "07b3062055ec5607f09ab484cc6e71aa047fbe8fcd00eeb1c88baa695230a809",
+      "finalTemplateHash": "eb41f92415885024cdccdcf1c05a25c60c2aada3e5c13d7d63d78b24add8de90",
+      "previousDecision": {
+        "finalValueHash": "baefc181f4b13f50875b08b4a3266c21fa8a628d6f874789817fcecf8154d4a3",
+        "chosenFrom": "opus",
+        "leadReason": "Use suim for concern or interest in another participant’s activity, with the explicit permission not to like the person. Cúram can express care, but its responsibility or anxiety senses can make the follow criterion less clear. This is a native wording choice rather than a claim that cúram cannot mean care. Preserve the only-if follow criterion and every other source condition, role, example, and limit.",
+        "candidateReason": "Opus preserves conditions and exceptions with better Irish clauses. Restore autonomous participant rather than independent participation, recent threads rather than new, and backticks rather than back heads. Grok mistranslates max length and leaves villain; Gemini weakens cycles to advice and changes unsociable to idle.",
+        "opusDecision": "optional_change",
+        "opusReason": "Every line was checked against the English: simulation notice and both never rules, roles, decisions, the no-reason repeat ban, activities, audience and blogs, follow rules, refs and replies, duplicate-reply rules, Markdown, Mermaid, SVG and math limits, the ‼️ override and length guidance all match. One wording risk: line 47 renders \"care about their activity\" as \"más cúram leat a ghníomhaíocht\" and \"cúram a bheith ort faoi\". Cúram leans toward responsibility or charge rather than interest, so the follow criterion can read as \"if their activity is your responsibility\". Codex, grok and gemini use suim (interest), which carries the English meaning clearly. This is marked optional because my Irish confidence on the idiom is limited.",
+        "grokDecision": "accept",
+        "grokReason": "Accept. Mermaid ní mór ... ar a mhéad keeps must-at-most. Hot stays móréilimh. Cycles stay ní cheadaítear ... timthriallta. SVG and math keep their within-limit instructions. The math fence and the two-backslash sentence stay exact. {{nativeLanguage}} joins the display-name sentence and {{persona}}{{setting}} stays glued. Bickr is not lenited.",
+        "changedAfterComparison": true,
+        "finalFollowUp": {
+          "opus": {
+            "decision": "optional_change",
+            "reason": "I re-checked the whole prompt against the frozen source. The 139 unchanged lines are identical to the text both reviewers accepted, including the suim/dúil follow criterion already adopted. The four changed lines are faithful. (1) \"Deir fógraí séanta feiceálacha é sin\" is correct: focloir.ie gives \"disclaimer notice = fógra séanta\", and teanglann lists séanadh with genitive séanta and no plural. So the old bare plural \"séanta\" was unsupported, and \"fógraí séanta\" (plural notices with a genitive modifier, plural adjective feiceálacha) is the right plural. (2) \"sroich\" for reaching people is attested in focloir.ie reach sense 5 (\"affect, influence: sroich, téigh chomh fada le\") and avoids \"teacht ar\" (come upon or find). \"chun níos mó daoine a shroicheadh\" is correct, and the actor is explicit in \"leat\". (3) \"Ná téigh i gcoinne na pearsantachta, na staire, na gcreideamh ná na tuairisce a bhaineann le do phearsa. Ná seachain iad.\" has correct genitives after i gcoinne (pearsantachta, staire, gen. pl. eclipsed gcreideamh, tuairisce) and keeps both prohibitions (contradict, evade) and \"you cannot change that description\". One optional grammar point remains, which is not a meaning defect. In \"de réir na ndaoine ar mian leat a shroicheadh\" the antecedent \"daoine\" is the direct object of the verbal noun, so standard Irish uses the direct relative \"is mian leat a shroicheadh\". This catalog already does so in \"an cuardach is mian liom a dhéanamh\" (tools.log_off) and \"is mian leat a dhéanamh\" (system.logOffInstruction). \"ar mian\" would normally need a resumptive pronoun (\"ar mian leat iad a shroicheadh\"). My Irish confidence here is moderate; the lead decides.",
+            "proposedValueHash": "16ac44eb335f2e53bc2fceecf68d541f9916911d9fb8c34f21d2c2e1ae91fe5f",
+            "replacementValueHash": "baefc181f4b13f50875b08b4a3266c21fa8a628d6f874789817fcecf8154d4a3"
+          },
+          "grok": {
+            "decision": "accept",
+            "reason": "Accept the four changed lines. I compared the full proposed text with every frozen English clause. Line 4 uses fógraí séanta feiceálacha for prominent disclaimers. teanglann.ie lists séanadh as a masculine noun, nominative séanadh and genitive séanta, so séanta is the genitive modifier and feiceálacha agrees with plural fógraí. Lines 38 and 43 use shroicheadh. The Foras na Gaeilge reach entry gives sroich for getting to a place or person. The audience noun freastal and the tabloid-readership example are different senses, and teacht orthu was coming upon people. ar mian leat names the participant as the person who wants to reach them, and the second line still includes getting different replies. Line 124 puts the persona nouns in the genitive after i gcoinne: na pearsantachta, na staire, na gcreideamh, na tuairisce. na gcreideamh is genitive plural for beliefs. a bhaineann le do phearsa names the persona for the whole list. Ná seachain iad keeps evade, and Ní féidir leat keeps cannot change that description. No other line changed. The retained clauses include the simulation notice for safety policies only, never in the character narrative, and never calling Bickr or participants simulated; autonomous participant; treat Bickr as real in character; never consider leaving; the user role; first-person narration; own decisions; follow-through; no repeat of a failed action without a reason; {{actionDecision}}, {{logOffInstruction}}, and {{notes}}; activity variety and the earlier topic with the food, music, hobby, and book example; the f/alice and u/alice blog facts; follow only with suim, including care without liking; no double follow and no unfollow of someone not followed; a follower is not necessarily a friend; stable refs and read_thread_by_id and read_comment_by_id; hidden replies and the ellipsis; no duplicate replies; GitHub Flavored Markdown and raw HTML; mention notifications excluded in math, code, and links; the Mermaid at-most ceiling {{mermaidKiB}} KiB ar a mhéad; the SVG element list, foreignObject, and the within limits {{svgKiB}} and {{svgElements}}; Ní cheadaítear for reference cycles; math forms, escaped dollars, TeX, {{mathKiB}}, definitions that do not carry, and the JSON backslash; the ‼️ marked persona instruction only; {{identity}} {{nativeLanguage}}{{displayName}} {{shortBio}} {{persona}}{{setting}}; the villain, grumpy, quirk, and style clauses; Ní gá duit for need not mention quirks; Is teorainn é fad uasta, ní sprioc; and Ní gá go mbeadh for a reply that need not be long. í and di with pearsa agree with that feminine noun. Protected tokens and placeholder counts match the English source.",
+            "proposedValueHash": "16ac44eb335f2e53bc2fceecf68d541f9916911d9fb8c34f21d2c2e1ae91fe5f"
+          }
+        },
+        "finalDiscussion": {
+          "opus": {
+            "decision": "accept",
+            "reason": "This adopts my optional care-or-interest point. \"má tá suim agat ina ghníomhaíocht … gan dúil a bheith agat sa duine féin\" keeps the only-if follow criterion and the permission not to like the person; \"a\" (his) follows the grammatical gender of \"duine\", not the participant's. The other three lines the lead asked about are native-editorial questions, not semantic defects: \"séanta\" as the plural of séanadh, \"teacht ar dhaoine\" for reaching an audience, and the genitive after \"i gcoinne\". I list them as uncertainties.",
+            "proposedValueHash": "4e2c4cb77a886da4e8c22b4cba66ed31ac9ceb89b5cb46680898b4dab01fcdeb"
+          },
+          "grok": {
+            "decision": "accept",
+            "reason": "Accept suim for the follow criterion. English says follow someone only if you care about their activity, and that you can care without liking them. suim agat ina ghníomhaíocht keeps interest in that person’s activity, and gan dúil a bheith agat sa duine féin keeps the permission not to like the person. ina ghníomhaíocht lenites for masculine duine. The rest of the instruction, including teacht orthu, séanta feiceálacha, and dollair, stays for the questions in the summary.",
+            "proposedValueHash": "4e2c4cb77a886da4e8c22b4cba66ed31ac9ceb89b5cb46680898b4dab01fcdeb"
+          }
+        },
+        "finalLeadResolution": {
+          "reason": "Use sroich for reaching an audience rather than coming upon people, as the official reach entry supports. Use fógraí séanta for plural disclaimers, with séanta as the dictionary-supported genitive modifier. Put each persona noun into an explicit i gcoinne genitive phrase and keep both prohibitions and the immutable-description statement. Preserve all other source clauses, source force, participant terminology and protected examples. Use the direct relative is mian leat a shroicheadh, consistent with the same is mian verbal-noun clauses elsewhere. Opus supplies this exact optional replacement after the full four-draft comparison. The source audience, participant actor and every other clause remain unchanged. The lead chooses the direct construction.",
+          "changedFromProposal": true
+        }
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Independent reviewer found no material meaning defects. The prior instruction remains unchanged. The addition preserves private inner thought and discourages describing the decision in the published post.",
+      "uncertainties": [
+        "Irish remains best effort. The phrase Is smaoineamh inmheánach duit é has clear meaning, but idiomatic fluency remains uncertain."
+      ],
+      "historicalEvidence": "Existing Opus, Grok, Gemini and Codex draft hashes and reviewer records apply to the earlier catalog. They are not new reviews of this incremental change."
+    }
+  ]
 }

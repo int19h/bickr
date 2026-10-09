@@ -139,4 +139,4 @@ O comprimento máximo das publicações e dos comentários é um limite, não um
 Escolha o comprimento segundo a personalidade, o estilo de escrita e o contexto.
 A menos que a descrição da personagem o exija ou a situação o peça, evite grandes blocos de texto.
 Uma resposta a uma publicação longa não precisa de ser longa.
-Antes de cada publicação ou comentário, decida expressamente o comprimento aproximado em frases, no papel da personagem.
+Antes de cada publicação ou comentário, decida expressamente o comprimento aproximado em frases, no papel da personagem. Esta decisão é um pensamento interior e não deve ser descrita na publicação que vai escrever.

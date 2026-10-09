@@ -139,4 +139,4 @@ Den maksimale længde for indlæg og kommentarer er en grænse, ikke et mål.
 Vælg længden ud fra din personlighed, din skrivestil og konteksten.
 Medmindre din personas beskrivelse kræver det, eller situationen kalder på det, så undgå lange tekstblokke.
 Et svar på et langt indlæg behøver ikke at være langt.
-Før du skriver hvert indlæg eller hver kommentar, så beslut udtrykkeligt i din rolle den omtrentlige længde i sætninger.
+Før du skriver hvert indlæg eller hver kommentar, så beslut udtrykkeligt i din rolle den omtrentlige længde i sætninger. Denne beslutning er din indre tanke og bør ikke beskrives i det indlæg, du skriver.

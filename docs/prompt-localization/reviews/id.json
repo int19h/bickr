@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+  "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
   "locale": "id",
   "status": "accepted_by_lead",
   "leadReason": "Accept the exact Indonesian proposal. Both reviewers accept all thirteen disputed units and find no additional defect. Compact native time phrases preserve exact count, unit, and direction. The explicit Mermaid size clause preserves the maximum. Native member headers and the sampel term state the member subset precisely. Saya preserves participant narration and Anda names the addressee only where needed.",
@@ -62,7 +62,7 @@
   "groups": {
     "system": {
       "finalHash": "da99079bf4538e4b7e138a624a3089e462346be8a366eb59958867bfb93794ef",
-      "finalTemplateHash": "78997a9c07851ec19e88b77a4a4a28f88bdec7989b874e20d89606a27ec21dfa",
+      "finalTemplateHash": "1af1527931209f71c53fbb1785f7d4005426383a5c488481cdcf3f8a82a9ae4d",
       "draftHashes": {
         "codex": "5cbbb7ac65c13c662199478df93249d100a79de02bdd66af9aed83ca0cea5ad0",
         "opus": "48ab283abebf5b68d792462045a591e02f39c4d0b44750cc9b041e45b1925093",
@@ -179,28 +179,11 @@
           "finalDiscussion": {}
         },
         "system.main": {
-          "finalValueHash": "d95fb2a7667fc423e0d05639998aa777292818f8bd91db68d131069c5be2daa3",
-          "chosenFrom": "grok",
-          "leadReason": "State the Mermaid size rule explicitly with harus berukuran paling banyak. The original nominal maximum already gives a bound in an instructional context, so I reject the claim that it necessarily removes the rule. The new full clause makes the obligation plain and preserves the fence, label, configuration/frontmatter bans, and all other instructions.",
-          "candidateReason": "Opus best preserves autonomous, unsociable and villain meanings. Codex says independent, Grok says acting alone and misstates escapes, and Gemini changes voting to choosing. Correct duplicate-only scope, recent timing and private memory.",
-          "opusDecision": "accept",
-          "opusReason": "Every line checked: notice limits, autonomy, role meanings, decisions, activities, audience, follow rules, JSON and quoting, refs, duplicate replies, Markdown, Mermaid, SVG and math limits, ‼️ precedence, persona fields and style and length rules are preserved; Anda is used where the actor needs it.",
-          "grokDecision": "required_change",
-          "grokReason": "Mermaid source must be at most {{mermaidKiB}} KiB. The bare paling banyak phrase drops harus. harus berukuran paling banyak restores the obligation and the size verb. The fence, the mermaid label, and the ban on configuration directives and frontmatter stay. SVG and math still use Jaga ... dalam batas.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "I accepted the nominal \"paling banyak\" originally. I agree with the lead that it already bounded the size in this instruction context, so Grok's claim that it dropped the rule overstates the defect. \"Sumber Mermaid harus berukuran paling banyak N KiB\" states the obligation explicitly and matches the structured-output maximums (\"harus berisi paling banyak\"). The fence, label and configuration ban are unchanged.",
-              "proposedValueHash": "d95fb2a7667fc423e0d05639998aa777292818f8bd91db68d131069c5be2daa3"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept harus berukuran paling banyak for the Mermaid source. English says Mermaid source must be at most {{mermaidKiB}} KiB. The candidate’s bare paling banyak left the obligation unstated. The fence, the mermaid label, and the ban on configuration directives and frontmatter stay. SVG and math still say Jaga ... dalam batas, which matches Keep ... within. KiB stays. The rest of the instruction is unchanged.",
-              "proposedValueHash": "d95fb2a7667fc423e0d05639998aa777292818f8bd91db68d131069c5be2daa3"
-            }
-          }
+          "finalValueHash": "3b00381876e78049ad1115af2def15b5bbbcd5f5a1fe7c753bdb04c37c85d52d",
+          "leadReason": "Accept the incremental private length-decision instruction after independent Codex review. Preserve the prior length decision and all other instructions.",
+          "candidateReason": "Append the English clarification in the target language. Keep the decision as inner thought and discourage describing it in the published post.",
+          "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
+          "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
         }
       }
     },
@@ -6542,5 +6525,45 @@
         }
       }
     }
-  }
+  },
+  "incrementalReviews": [
+    {
+      "sourceCommit": "a9dc22d84550c7161437e4d2a7d9f6c159c3c77d",
+      "unit": "system.main",
+      "previousCatalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+      "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
+      "sourceTemplateHash": "36a7f7f0397eafee13d48b76989cca7da580bdff9e19feef3547dcce3404c93b",
+      "previousFinalTemplateHash": "78997a9c07851ec19e88b77a4a4a28f88bdec7989b874e20d89606a27ec21dfa",
+      "finalTemplateHash": "1af1527931209f71c53fbb1785f7d4005426383a5c488481cdcf3f8a82a9ae4d",
+      "previousDecision": {
+        "finalValueHash": "d95fb2a7667fc423e0d05639998aa777292818f8bd91db68d131069c5be2daa3",
+        "chosenFrom": "grok",
+        "leadReason": "State the Mermaid size rule explicitly with harus berukuran paling banyak. The original nominal maximum already gives a bound in an instructional context, so I reject the claim that it necessarily removes the rule. The new full clause makes the obligation plain and preserves the fence, label, configuration/frontmatter bans, and all other instructions.",
+        "candidateReason": "Opus best preserves autonomous, unsociable and villain meanings. Codex says independent, Grok says acting alone and misstates escapes, and Gemini changes voting to choosing. Correct duplicate-only scope, recent timing and private memory.",
+        "opusDecision": "accept",
+        "opusReason": "Every line checked: notice limits, autonomy, role meanings, decisions, activities, audience, follow rules, JSON and quoting, refs, duplicate replies, Markdown, Mermaid, SVG and math limits, ‼️ precedence, persona fields and style and length rules are preserved; Anda is used where the actor needs it.",
+        "grokDecision": "required_change",
+        "grokReason": "Mermaid source must be at most {{mermaidKiB}} KiB. The bare paling banyak phrase drops harus. harus berukuran paling banyak restores the obligation and the size verb. The fence, the mermaid label, and the ban on configuration directives and frontmatter stay. SVG and math still use Jaga ... dalam batas.",
+        "changedAfterComparison": true,
+        "finalFollowUp": {},
+        "finalDiscussion": {
+          "opus": {
+            "decision": "accept",
+            "reason": "I accepted the nominal \"paling banyak\" originally. I agree with the lead that it already bounded the size in this instruction context, so Grok's claim that it dropped the rule overstates the defect. \"Sumber Mermaid harus berukuran paling banyak N KiB\" states the obligation explicitly and matches the structured-output maximums (\"harus berisi paling banyak\"). The fence, label and configuration ban are unchanged.",
+            "proposedValueHash": "d95fb2a7667fc423e0d05639998aa777292818f8bd91db68d131069c5be2daa3"
+          },
+          "grok": {
+            "decision": "accept",
+            "reason": "Accept harus berukuran paling banyak for the Mermaid source. English says Mermaid source must be at most {{mermaidKiB}} KiB. The candidate’s bare paling banyak left the obligation unstated. The fence, the mermaid label, and the ban on configuration directives and frontmatter stay. SVG and math still say Jaga ... dalam batas, which matches Keep ... within. KiB stays. The rest of the instruction is unchanged.",
+            "proposedValueHash": "d95fb2a7667fc423e0d05639998aa777292818f8bd91db68d131069c5be2daa3"
+          }
+        }
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Independent reviewer found no material meaning defects. The prior instruction remains unchanged. The addition preserves private inner thought and discourages describing the decision in the published post.",
+      "uncertainties": [],
+      "historicalEvidence": "Existing Opus, Grok, Gemini and Codex draft hashes and reviewer records apply to the earlier catalog. They are not new reviews of this incremental change."
+    }
+  ]
 }

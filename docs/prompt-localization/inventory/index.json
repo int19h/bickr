@@ -1,7 +1,7 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
   "sourceUnitCount": 431,
-  "catalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+  "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
   "baseCommit": "cd3c3d2db56d1ab7281a11bfbfc37eafac2ea62a",
   "groups": [
     {
@@ -273,6 +273,15 @@
     {
       "surface": "Historical composed bootstrap payloads, old pending journals, legacy context formatter, historical factory PLAN fingerprint",
       "reason": "A temporary single adapter preserves historical text and identity. Retirement requires the documented version sweep and removal of old rollback writers."
+    }
+  ],
+  "incrementalUpdates": [
+    {
+      "sourceCommit": "a9dc22d84550c7161437e4d2a7d9f6c159c3c77d",
+      "unit": "system.main",
+      "previousCatalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+      "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
+      "review": "Independent Codex translation review of the private length-decision addition. Historical full-catalog drafts and reviews remain historical evidence."
     }
   ]
 }

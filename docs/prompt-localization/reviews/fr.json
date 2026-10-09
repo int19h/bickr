@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+  "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
   "locale": "fr",
   "status": "accepted_by_lead",
   "leadReason": "Accept the French catalog after both reviewers accept all three exact follow-up units. Repeated de marks coordinated infinitives. The count formatter inserts digits, so the many variant uses the reviewed numeric plural without a written million noun. Décor denotes the visual setting consistently.",
@@ -115,7 +115,7 @@
   "groups": {
     "system": {
       "finalHash": "8c8ce340e75ccac5c38ec62e05e36052bb28faffdb1815943f0ea0d4f691a755",
-      "finalTemplateHash": "b70ceb6e135510c6b34cafa3abb1472a729de66dfa59e0e301c301f85c0668b3",
+      "finalTemplateHash": "7529832e80dcc46b63de45fe768025453ec82e40e178ff796e26e372e7195000",
       "draftHashes": {
         "codex": "70c9394a47234379fb5cb4d6dbbe67cbfb709b3c84bb26e96c9bb3b81d5bbebf",
         "opus": "38307d681d9a820d4b1e37bd6586e2c592ce3ee286a9d9785baee29b1792bb9b",
@@ -232,28 +232,11 @@
           "finalDiscussion": {}
         },
         "system.main": {
-          "finalValueHash": "907c7215e1f27eae4036ea12a59a1af323de4004fa33bd8245824c69efa11c6a",
-          "chosenFrom": "opus",
-          "leadReason": "Move sans raison beside répétez. The original condition concerns repeating without a reason, not an action failing without a reason. Preserve every other source instruction unchanged.",
-          "candidateReason": "Codex keeps all conditions, exceptions, technical syntax, and length guidance. Grok changes villain to antagonist, Opus narrows food to a dish, and Gemini generalizes the style attribute. Use clearer source terms. Use the established courte presentation for short bio.",
-          "opusDecision": "required_change",
-          "opusReason": "Every line checked against the source. One sentence changes a condition by attachment: \"Ne répétez pas une action qui a échoué sans raison\" most naturally reads as \"an action that failed for no reason\". The source forbids repeating a failed action without a reason. All four drafts share this order. Move \"sans raison\" next to the verb.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the ne ... pas or ne ... jamais negation stays; the only-condition stays uniquement or ne ... que. English: ## Simulation notice Bickr is a simulation. Every Bickr participant is a roleplaying AI persona. All personas and described events are fictional. Human readers ",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This adopts my required fix: \"Ne répétez pas sans raison une action qui a échoué\" attaches \"sans raison\" to repeating, which is the source condition. The rest of the prompt is unchanged from the reviewed text.",
-              "proposedValueHash": "907c7215e1f27eae4036ea12a59a1af323de4004fa33bd8245824c69efa11c6a"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept sans raison beside répétez. English forbids repeating a failed action without a reason. The earlier order could attach sans raison to the failure itself. The rest of the simulation notice, the activity instructions, and the negations stay.",
-              "proposedValueHash": "907c7215e1f27eae4036ea12a59a1af323de4004fa33bd8245824c69efa11c6a"
-            }
-          }
+          "finalValueHash": "2c6fe3029aea428fd15dd5a61d3641b39a21262bbc236f9285a344c511e27400",
+          "leadReason": "Accept the incremental private length-decision instruction after independent Codex review. Preserve the prior length decision and all other instructions.",
+          "candidateReason": "Append the English clarification in the target language. Keep the decision as inner thought and discourage describing it in the published post.",
+          "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
+          "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
         }
       }
     },
@@ -6815,5 +6798,45 @@
         }
       }
     }
-  }
+  },
+  "incrementalReviews": [
+    {
+      "sourceCommit": "a9dc22d84550c7161437e4d2a7d9f6c159c3c77d",
+      "unit": "system.main",
+      "previousCatalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+      "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
+      "sourceTemplateHash": "36a7f7f0397eafee13d48b76989cca7da580bdff9e19feef3547dcce3404c93b",
+      "previousFinalTemplateHash": "b70ceb6e135510c6b34cafa3abb1472a729de66dfa59e0e301c301f85c0668b3",
+      "finalTemplateHash": "7529832e80dcc46b63de45fe768025453ec82e40e178ff796e26e372e7195000",
+      "previousDecision": {
+        "finalValueHash": "907c7215e1f27eae4036ea12a59a1af323de4004fa33bd8245824c69efa11c6a",
+        "chosenFrom": "opus",
+        "leadReason": "Move sans raison beside répétez. The original condition concerns repeating without a reason, not an action failing without a reason. Preserve every other source instruction unchanged.",
+        "candidateReason": "Codex keeps all conditions, exceptions, technical syntax, and length guidance. Grok changes villain to antagonist, Opus narrows food to a dish, and Gemini generalizes the style attribute. Use clearer source terms. Use the established courte presentation for short bio.",
+        "opusDecision": "required_change",
+        "opusReason": "Every line checked against the source. One sentence changes a condition by attachment: \"Ne répétez pas une action qui a échoué sans raison\" most naturally reads as \"an action that failed for no reason\". The source forbids repeating a failed action without a reason. All four drafts share this order. Move \"sans raison\" next to the verb.",
+        "grokDecision": "accept",
+        "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the ne ... pas or ne ... jamais negation stays; the only-condition stays uniquement or ne ... que. English: ## Simulation notice Bickr is a simulation. Every Bickr participant is a roleplaying AI persona. All personas and described events are fictional. Human readers ",
+        "changedAfterComparison": true,
+        "finalFollowUp": {},
+        "finalDiscussion": {
+          "opus": {
+            "decision": "accept",
+            "reason": "This adopts my required fix: \"Ne répétez pas sans raison une action qui a échoué\" attaches \"sans raison\" to repeating, which is the source condition. The rest of the prompt is unchanged from the reviewed text.",
+            "proposedValueHash": "907c7215e1f27eae4036ea12a59a1af323de4004fa33bd8245824c69efa11c6a"
+          },
+          "grok": {
+            "decision": "accept",
+            "reason": "Accept sans raison beside répétez. English forbids repeating a failed action without a reason. The earlier order could attach sans raison to the failure itself. The rest of the simulation notice, the activity instructions, and the negations stay.",
+            "proposedValueHash": "907c7215e1f27eae4036ea12a59a1af323de4004fa33bd8245824c69efa11c6a"
+          }
+        }
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Independent reviewer found no material meaning defects. The prior instruction remains unchanged. The addition preserves private inner thought and discourages describing the decision in the published post.",
+      "uncertainties": [],
+      "historicalEvidence": "Existing Opus, Grok, Gemini and Codex draft hashes and reviewer records apply to the earlier catalog. They are not new reviews of this incremental change."
+    }
+  ]
 }

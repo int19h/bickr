@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+  "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
   "locale": "it",
   "status": "accepted_by_lead",
   "leadReason": "Accept the Italian catalog after both reviewers accept all three exact follow-up units. Non può consistently expresses cannot. Numeric many forms do not insert an absent milione or milioni noun. The standard subjunctive and gender-neutral conviction clause preserve the speaker role. Destinatario stays the consistent action-target term.",
@@ -133,7 +133,7 @@
   "groups": {
     "system": {
       "finalHash": "f24cf768c775f07afa0ee2d5fcbd13c14a63877f0733e0d823b33482c461cfe2",
-      "finalTemplateHash": "3bd9bc9fde4443da24a17960ebaec3789ca1dcea79ee4c49031c6e3d0227b225",
+      "finalTemplateHash": "0d6c80a96bd8f12d7e7a530b984dbbc1d187c729924f96f398bff2e157938413",
       "draftHashes": {
         "codex": "5c48249f0320b60c3181038c0d1bef5004a4e94e967203d839ec700718c980d9",
         "opus": "cbe5f3df31381643c95906c56156d62d17c6fe79181abebb6ae34b80cee36a69",
@@ -250,17 +250,11 @@
           "finalDiscussion": {}
         },
         "system.main": {
-          "finalValueHash": "037c419fb227e9de777aec1da55d18df3b3593bae53ad17e5b5a299beed291f8",
-          "chosenFrom": "synthesis",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four full prompts compared. Codex preserves autonomous narration, follower direction, no need to mention quirks, all exceptions and exact syntax. Grok changes villain to antagonist and loses friend direction; Opus non devi can become a prohibition and background becomes past. Adopt Opus natural reference terminology. Preserve background as origins and experiences rather than narrowing it to geographic provenance or Opus past.",
-          "opusDecision": "accept",
-          "opusReason": "Every line checked: notice limits, autonomy, role meanings, decisions (\"senza motivo\" attaches to the verb), activities, audience, follow rules, JSON and quoting, refs, duplicate replies, Markdown, Mermaid, SVG and math limits, ‼️ precedence, persona fields and style and length rules are preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the non prohibition stays; a tu ban uses non plus the infinitive; need stays bisogno, serve, or non è necessario, and is not a schema deve; the only-condition stays solo or soltanto. English: ## Simulation notice Bickr is a simulation. Every Bickr participant is a roleplaying AI persona. All personas and described events are fictional. Human readers ",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "f1d23a221bcd14465533ff82ba70120a9a72f1d15705a5d68051c6d502956876",
+          "leadReason": "Accept the incremental private length-decision instruction after independent Codex review. Preserve the prior length decision and all other instructions.",
+          "candidateReason": "Append the English clarification in the target language. Keep the decision as inner thought and discourage describing it in the published post.",
+          "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
+          "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
         }
       }
     },
@@ -7067,5 +7061,34 @@
         }
       }
     }
-  }
+  },
+  "incrementalReviews": [
+    {
+      "sourceCommit": "a9dc22d84550c7161437e4d2a7d9f6c159c3c77d",
+      "unit": "system.main",
+      "previousCatalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+      "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
+      "sourceTemplateHash": "36a7f7f0397eafee13d48b76989cca7da580bdff9e19feef3547dcce3404c93b",
+      "previousFinalTemplateHash": "3bd9bc9fde4443da24a17960ebaec3789ca1dcea79ee4c49031c6e3d0227b225",
+      "finalTemplateHash": "0d6c80a96bd8f12d7e7a530b984dbbc1d187c729924f96f398bff2e157938413",
+      "previousDecision": {
+        "finalValueHash": "037c419fb227e9de777aec1da55d18df3b3593bae53ad17e5b5a299beed291f8",
+        "chosenFrom": "synthesis",
+        "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+        "candidateReason": "All four full prompts compared. Codex preserves autonomous narration, follower direction, no need to mention quirks, all exceptions and exact syntax. Grok changes villain to antagonist and loses friend direction; Opus non devi can become a prohibition and background becomes past. Adopt Opus natural reference terminology. Preserve background as origins and experiences rather than narrowing it to geographic provenance or Opus past.",
+        "opusDecision": "accept",
+        "opusReason": "Every line checked: notice limits, autonomy, role meanings, decisions (\"senza motivo\" attaches to the verb), activities, audience, follow rules, JSON and quoting, refs, duplicate replies, Markdown, Mermaid, SVG and math limits, ‼️ precedence, persona fields and style and length rules are preserved.",
+        "grokDecision": "accept",
+        "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the non prohibition stays; a tu ban uses non plus the infinitive; need stays bisogno, serve, or non è necessario, and is not a schema deve; the only-condition stays solo or soltanto. English: ## Simulation notice Bickr is a simulation. Every Bickr participant is a roleplaying AI persona. All personas and described events are fictional. Human readers ",
+        "changedAfterComparison": false,
+        "finalFollowUp": {},
+        "finalDiscussion": {}
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Independent reviewer found no material meaning defects. The prior instruction remains unchanged. The addition preserves private inner thought and discourages describing the decision in the published post.",
+      "uncertainties": [],
+      "historicalEvidence": "Existing Opus, Grok, Gemini and Codex draft hashes and reviewer records apply to the earlier catalog. They are not new reviews of this incremental change."
+    }
+  ]
 }

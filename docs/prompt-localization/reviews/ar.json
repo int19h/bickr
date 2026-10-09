@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+  "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
   "locale": "ar",
   "status": "accepted_by_lead",
   "leadReason": "Accept the Arabic catalog after both reviewers accept all twelve exact follow-up units. Compact count-neutral time phrases retain the interval direction, numeric value, and unit in all six native categories. The corrected tanwin and title quotes preserve meaning. Count-neutral wording deliberately avoids redundant numeric duals.",
@@ -124,7 +124,7 @@
   "groups": {
     "system": {
       "finalHash": "a6c23c62aafa39f275262b75b03d36c9bb42ee20e57ca852002865d92554b5d6",
-      "finalTemplateHash": "cd708db47cd278075c1efb348f80f00542aab9736cc0922ea2e29cc2eaa2c3f3",
+      "finalTemplateHash": "6c1ea8d9ed373c6d5f7b1f4591f5c6cd439bbb26ef1bb8691d1c35515235e76c",
       "draftHashes": {
         "codex": "d41768624d1dd84f6d6abe43fdc1d3df7bdb08d9ea6cc410bd41247237160037",
         "opus": "282b60ba2978b43e179e509e873af374a020ab57fdf17c35c47e321a30ecd0b1",
@@ -241,17 +241,11 @@
           "finalDiscussion": {}
         },
         "system.main": {
-          "finalValueHash": "f7cd55e34c7483e7761e0a2c256911971f36cb9f80e9c3bccfbc19172525ea56",
-          "chosenFrom": "synthesis",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four main values were compared in full. Opus preserves uncertainty, exception logic and escape direction. Clarify close topic repetition, persona prompt, native fences and personality wording. Add native head nouns for identifiers and keep structured-output terminology consistent.",
-          "opusDecision": "accept",
-          "opusReason": "Checked every section against the source: notice limits, autonomy, role meanings, decision rules, activities, audience, follow rules, JSON and quoting rules, refs, duplicate replies, Markdown, Mermaid/SVG/math limits (1500 عنصر is correct after a round hundred), ‼️ precedence, persona fields and style/length rules are all preserved. Generic masculine imperative follows the Arabic reference.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the prohibition stays; the only-condition stays. English: ## Simulation notice Bickr is a simulation. Every Bickr participant is a roleplaying AI persona. All personas and described events are fictional. Human readers ",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "c2121101ca7826f1fe7eca8661f2a4ae468626c5d06ed8f69843e6f727050a78",
+          "leadReason": "Accept the incremental private length-decision instruction after independent Codex review. Preserve the prior length decision and all other instructions.",
+          "candidateReason": "Append the English clarification in the target language. Keep the decision as inner thought and discourage describing it in the published post.",
+          "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
+          "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
         }
       }
     },
@@ -7103,5 +7097,34 @@
         }
       }
     }
-  }
+  },
+  "incrementalReviews": [
+    {
+      "sourceCommit": "a9dc22d84550c7161437e4d2a7d9f6c159c3c77d",
+      "unit": "system.main",
+      "previousCatalogSourceHash": "ae12f2f85fd3c762074707b875e212cfd4eeabcefc749023059b95228a258c28",
+      "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
+      "sourceTemplateHash": "36a7f7f0397eafee13d48b76989cca7da580bdff9e19feef3547dcce3404c93b",
+      "previousFinalTemplateHash": "cd708db47cd278075c1efb348f80f00542aab9736cc0922ea2e29cc2eaa2c3f3",
+      "finalTemplateHash": "6c1ea8d9ed373c6d5f7b1f4591f5c6cd439bbb26ef1bb8691d1c35515235e76c",
+      "previousDecision": {
+        "finalValueHash": "f7cd55e34c7483e7761e0a2c256911971f36cb9f80e9c3bccfbc19172525ea56",
+        "chosenFrom": "synthesis",
+        "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+        "candidateReason": "All four main values were compared in full. Opus preserves uncertainty, exception logic and escape direction. Clarify close topic repetition, persona prompt, native fences and personality wording. Add native head nouns for identifiers and keep structured-output terminology consistent.",
+        "opusDecision": "accept",
+        "opusReason": "Checked every section against the source: notice limits, autonomy, role meanings, decision rules, activities, audience, follow rules, JSON and quoting rules, refs, duplicate replies, Markdown, Mermaid/SVG/math limits (1500 عنصر is correct after a round hundred), ‼️ precedence, persona fields and style/length rules are all preserved. Generic masculine imperative follows the Arabic reference.",
+        "grokDecision": "accept",
+        "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the prohibition stays; the only-condition stays. English: ## Simulation notice Bickr is a simulation. Every Bickr participant is a roleplaying AI persona. All personas and described events are fictional. Human readers ",
+        "changedAfterComparison": false,
+        "finalFollowUp": {},
+        "finalDiscussion": {}
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Independent reviewer found no material meaning defects. The prior instruction remains unchanged. The addition preserves private inner thought and discourages describing the decision in the published post.",
+      "uncertainties": [],
+      "historicalEvidence": "Existing Opus, Grok, Gemini and Codex draft hashes and reviewer records apply to the earlier catalog. They are not new reviews of this incremental change."
+    }
+  ]
 }

@@ -139,4 +139,4 @@ La longueur maximale des messages et des commentaires est une limite, pas un obj
 Choisissez la longueur selon votre caractère, votre style d’écriture et le contexte.
 À moins que la description de votre personnage l’exige ou que la situation le demande, évitez les longs blocs de texte.
 Une réponse à un long message n’a pas besoin d’être longue.
-Avant d’écrire chaque message ou commentaire, décidez explicitement de sa longueur approximative en nombre de phrases, dans votre rôle.
+Avant d’écrire chaque message ou commentaire, décidez explicitement de sa longueur approximative en nombre de phrases, dans votre rôle. Cette décision est une pensée intérieure et ne devrait pas être décrite dans le message que vous allez écrire.
