@@ -12,14 +12,10 @@ const openRouterModelsUrl = "https://openrouter.ai/api/v1/images/models";
 const openRouterImagesUrl = "https://openrouter.ai/api/v1/images";
 
 const standardAspectRatios = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"];
-const maiAspectRatios = ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3"];
 const gemini31ExtendedAspectRatios = ["1:4", "4:1", "1:8", "8:1"];
 const grokAspectRatios = ["2:1", "1:2", "19.5:9", "9:19.5", "20:9", "9:20", "auto"];
 const standardImageSizes = ["1K", "2K", "4K"];
 const gemini31ImageSizes = ["0.5K", ...standardImageSizes];
-const openAiGptImage1Sizes = ["1024x1024", "1024x1536", "1536x1024"];
-const openAiGptImage2Sizes = [...openAiGptImage1Sizes, "2560x1440", "3840x2160"];
-const dimensionImageSizeCandidates = ["512x512", ...openAiGptImage2Sizes, "2048x2048"];
 
 const defaultTargetModels = new Set([
 	"google/gemini-3.1-flash-image",
@@ -46,8 +42,8 @@ const defaultTargetModels = new Set([
 async function main() {
 	const args = parseArgs(process.argv.slice(2));
 	const mode = stringOption(args, "mode", "targeted");
-	if (mode !== "metadata" && mode !== "targeted" && mode !== "full") {
-		throw new Error(`--mode must be "metadata", "targeted", or "full", got ${JSON.stringify(mode)}.`);
+	if (mode !== "metadata" && mode !== "new" && mode !== "targeted" && mode !== "full") {
+		throw new Error(`--mode must be "metadata", "new", "targeted", or "full", got ${JSON.stringify(mode)}.`);
 	}
 	const outputPath = path.resolve(stringOption(args, "output", defaultOutputPath));
 	const dryRun = booleanOption(args, "dry-run");
@@ -60,7 +56,7 @@ async function main() {
 	const limiter = new RequestLimiter(delayMs);
 	const existing = await readExistingEntries(outputPath);
 	const models = await fetchOpenRouterImageModels(apiKey);
-	const entries = new Map(models.map((model) => [model.id, existing.get(model.id) ?? candidateConfigForModel(model.id)]));
+	const entries = new Map(models.map((model) => [model.id, imageModelConfigFromMetadata(model, existing.get(model.id))]));
 	const targetModels = models.filter((model) => {
 		if (mode === "metadata") {
 			return false;
@@ -68,7 +64,7 @@ async function main() {
 		if (modelFilter.size > 0) {
 			return modelFilter.has(normalizedModelId(model.id));
 		}
-		return defaultTargetModels.has(normalizedModelId(model.id));
+		return mode === "new" ? !existing.has(model.id) : defaultTargetModels.has(normalizedModelId(model.id));
 	});
 
 	console.log(`OpenRouter returned ${models.length} image-output models.`);
@@ -86,8 +82,8 @@ async function main() {
 			: mode === "full" ? aspectRatios
 			: targetedAspectRatios(aspectRatios);
 		const sizesToProbe = explicitSizes.length > 0 ? explicitSizes
-			: mode === "full" ? unique([...imageSizes, ...dimensionImageSizeCandidates])
-			: targetedImageSizes(imageSizes);
+			: mode === "full" ? imageSizes
+			: imageSizes;
 		const supportedRatios = new Set(aspectRatios);
 		const supportedSizes = new Set(imageSizes);
 		for (const ratio of ratiosToProbe) {
@@ -110,7 +106,7 @@ async function main() {
 		}
 		entries.set(model.id, {
 			aspectRatios: sortByKnownOrder([...supportedRatios], [...standardAspectRatios, ...gemini31ExtendedAspectRatios, ...grokAspectRatios]),
-			imageSizes: sortByKnownOrder([...supportedSizes], [...gemini31ImageSizes, ...dimensionImageSizeCandidates]),
+			imageSizes: sortByKnownOrder([...supportedSizes], gemini31ImageSizes),
 		});
 		if (!dryRun) {
 			await writeGeneratedTable(outputPath, [...entries.entries()]);
@@ -205,7 +201,7 @@ async function fetchOpenRouterImageModels(apiKey) {
 			const architecture = recordValue(record.architecture);
 			const outputModalities = stringArray(architecture.output_modalities);
 			const inputModalities = stringArray(architecture.input_modalities);
-			return id && outputModalities.includes("image") ? { id, inputModalities, outputModalities } : null;
+			return id && outputModalities.includes("image") ? { id, inputModalities, outputModalities, supportedParameters: recordValue(record.supported_parameters) } : null;
 		})
 		.filter(Boolean)
 		.sort((left, right) => left.id.localeCompare(right.id));
@@ -228,66 +224,25 @@ async function readExistingEntries(filePath) {
 	}
 }
 
-function candidateConfigForModel(model) {
-	const id = normalizedModelId(model);
-	if (id === "microsoft/mai-image-2.5") {
-		return { aspectRatios: maiAspectRatios, imageSizes: [] };
-	}
-	if (id === "openai/gpt-image-1" || id === "openai/gpt-image-1-mini") {
-		return { aspectRatios: standardAspectRatios, imageSizes: openAiGptImage1Sizes };
-	}
-	if (id === "openai/gpt-image-2" || id === "openai/gpt-5.4-image-2") {
-		return { aspectRatios: standardAspectRatios, imageSizes: openAiGptImage2Sizes };
-	}
-	if (id === "google/gemini-3.1-flash-image" || id === "google/gemini-3.1-flash-image-preview") {
-		return { aspectRatios: [...standardAspectRatios, ...gemini31ExtendedAspectRatios], imageSizes: gemini31ImageSizes };
-	}
-	if (id.startsWith("google/gemini-")) {
-		return { aspectRatios: standardAspectRatios, imageSizes: standardImageSizes };
-	}
-	if (id.startsWith("x-ai/grok-imagine-image")) {
-		return { aspectRatios: [...standardAspectRatios, ...grokAspectRatios], imageSizes: ["1K", "2K"] };
-	}
-	if (id.startsWith("sourceful/riverflow-")) {
-		return { aspectRatios: standardAspectRatios, imageSizes: sourcefulImageSizes(id) };
-	}
-	if (id.startsWith("recraft/")) {
-		return { aspectRatios: standardAspectRatios, imageSizes: recraftImageSizes(id) };
-	}
-	if (id.startsWith("black-forest-labs/") || id.startsWith("bytedance-seed/") || id.startsWith("openai/")) {
-		return { aspectRatios: standardAspectRatios, imageSizes: [] };
-	}
-	return { aspectRatios: standardAspectRatios, imageSizes: standardImageSizes };
-}
-
-function sourcefulImageSizes(id) {
-	if (id.includes("-pro") || id.includes("-max")) {
-		return standardImageSizes;
-	}
-	return ["1K", "2K"];
-}
-
-function recraftImageSizes(id) {
-	if (id.includes("vector")) {
-		return [];
-	}
-	if (id.includes("-pro")) {
-		return ["2K"];
-	}
-	return ["1K"];
+export function imageModelConfigFromMetadata(model, existing) {
+	const parameters = model.supportedParameters;
+	const enumValues = (parameter) => parameter?.type === "enum" ? unique(stringArray(parameter.values)) : [];
+	const aspectRatios = enumValues(parameters.aspect_ratio);
+	const resolutions = enumValues(parameters.resolution);
+	const sizes = enumValues(parameters.size);
+	// OpenRouter publishes the union of provider parameter values. An absent
+	// parameter is unsupported, so model-name guesses cannot supply its values.
+	// Arbitrary pixel sizes have no finite catalog list. Preserve observed
+	// dimensions and use one square candidate for a new model's live probe.
+	const pixelSizes = parameters.size?.type === "boolean"
+		? (existing?.imageSizes.filter((size) => /^\d+x\d+$/.test(size)) ?? ["1024x1024"])
+		: [];
+	return { aspectRatios, imageSizes: unique([...resolutions, ...sizes, ...pixelSizes]) };
 }
 
 function targetedAspectRatios(values) {
 	const wanted = ["1:1", "16:9", "4:5", "21:9", "1:4", "8:1", "auto", "20:9"];
 	return wanted.filter((value) => values.includes(value));
-}
-
-function targetedImageSizes(values) {
-	return unique([
-		...values,
-		...(values.length === 0 ? ["1K"] : []),
-		"1024x1024",
-	]);
 }
 
 async function probeImageConfig(apiKey, limiter, timeoutMs, model, imageConfig) {
@@ -432,7 +387,6 @@ function stringArray(value) {
 	return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
 }
 
-main().catch((error) => {
-	console.error(error);
-	process.exitCode = 1;
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+	await main();
+}
