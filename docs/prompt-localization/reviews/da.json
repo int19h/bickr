@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
+  "catalogSourceHash": "eee84bcd8e0c3c4a5bd1f8a64b5580dadaebe0a352dc2893b624351118b48aa7",
   "locale": "da",
   "status": "accepted_by_lead",
   "leadReason": "Accept the exact Danish proposal. Both reviewers accept all sixteen disputed units and find no additional defect. Native om/for ... siden fragments preserve the time value and direction without the ambiguous i år construction. Reference terminology, identification by u/username, and member-list headers preserve the source and use ordinary Danish.",
@@ -60,7 +60,7 @@
   "groups": {
     "system": {
       "finalHash": "3b96809b862d34f9a7c26a98b4d7726e943bdbc825de8921690420b3cc647327",
-      "finalTemplateHash": "fc21e83c41493dcc7d733db01ceeb1adf674dc18e4eeceb2c53349f78a208a00",
+      "finalTemplateHash": "eb05748d9c075f413cd973c06ef663e7fe01b3bb2995d9459d4e5f252f551037",
       "draftHashes": {
         "codex": "d50da3a51209dedf869f0608a4f84d2c4ee65367965534986214cc70050740c9",
         "opus": "d54917ef5f4889d446fa68573848b1a8c7b78d440044881ae047d92c65c01081",
@@ -177,9 +177,9 @@
           "finalDiscussion": {}
         },
         "system.main": {
-          "finalValueHash": "a811f6c3945649325a6786e32fdb5fdc52f9ed904cbd136c9373d6cc2b7befe0",
-          "leadReason": "Accept the incremental private length-decision instruction after independent Codex review. Preserve the prior length decision and all other instructions.",
-          "candidateReason": "Append the English clarification in the target language. Keep the decision as inner thought and discourage describing it in the published post.",
+          "finalValueHash": "43d10d39ac8192eaac10251129acf7f35c15f48afb73590342abf3e5b9b3d4ed",
+          "leadReason": "Accept the comment scope and public length-announcement prohibition after independent Codex review. Preserve all other instructions.",
+          "candidateReason": "Extend the private-decision instruction to posts and comments. Prohibit public announcements of the intended post or comment length.",
           "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
           "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
         }
@@ -6593,6 +6593,27 @@
       "reviewer": "Codex translation_review subagent",
       "status": "accepted_by_lead",
       "summary": "Independent reviewer found no material meaning defects. The prior instruction remains unchanged. The addition preserves private inner thought and discourages describing the decision in the published post.",
+      "uncertainties": [],
+      "historicalEvidence": "Existing Opus, Grok, Gemini and Codex draft hashes and reviewer records apply to the earlier catalog. They are not new reviews of this incremental change."
+    },
+    {
+      "sourceCommit": "ea8629ad87be6125d955cf5dd8860e11a3c99811",
+      "unit": "system.main",
+      "previousCatalogSourceHash": "946e5342214b3599f700613ed642da96504950bd0708ec5fa94eca77d6c1aff1",
+      "catalogSourceHash": "eee84bcd8e0c3c4a5bd1f8a64b5580dadaebe0a352dc2893b624351118b48aa7",
+      "sourceTemplateHash": "7a4d65e90f1a18d4b94ad55321cbf5ec48e459e49ee73b5cb34081a680c4c37e",
+      "previousFinalTemplateHash": "fc21e83c41493dcc7d733db01ceeb1adf674dc18e4eeceb2c53349f78a208a00",
+      "finalTemplateHash": "eb05748d9c075f413cd973c06ef663e7fe01b3bb2995d9459d4e5f252f551037",
+      "previousDecision": {
+        "finalValueHash": "a811f6c3945649325a6786e32fdb5fdc52f9ed904cbd136c9373d6cc2b7befe0",
+        "leadReason": "Accept the incremental private length-decision instruction after independent Codex review. Preserve the prior length decision and all other instructions.",
+        "candidateReason": "Append the English clarification in the target language. Keep the decision as inner thought and discourage describing it in the published post.",
+        "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
+        "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "The independent reviewer found no material meaning defects. Private thought covers posts and comments. The added instruction prohibits public announcements of intended length.",
       "uncertainties": [],
       "historicalEvidence": "Existing Opus, Grok, Gemini and Codex draft hashes and reviewer records apply to the earlier catalog. They are not new reviews of this incremental change."
     }
