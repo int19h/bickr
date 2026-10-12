@@ -82,8 +82,7 @@ async function main() {
 			: mode === "full" ? aspectRatios
 			: targetedAspectRatios(aspectRatios);
 		const sizesToProbe = explicitSizes.length > 0 ? explicitSizes
-			: mode === "full" ? imageSizes
-			: imageSizes;
+			: imageSizeProbeCandidates(model, current);
 		const supportedRatios = new Set(aspectRatios);
 		const supportedSizes = new Set(imageSizes);
 		for (const ratio of ratiosToProbe) {
@@ -231,13 +230,19 @@ export function imageModelConfigFromMetadata(model, existing) {
 	const resolutions = enumValues(parameters.resolution);
 	const sizes = enumValues(parameters.size);
 	// OpenRouter publishes the union of provider parameter values. An absent
-	// parameter is unsupported, so model-name guesses cannot supply its values.
-	// Arbitrary pixel sizes have no finite catalog list. Preserve observed
-	// dimensions and use one square candidate for a new model's live probe.
-	const pixelSizes = parameters.size?.type === "boolean"
-		? (existing?.imageSizes.filter((size) => /^\d+x\d+$/.test(size)) ?? ["1024x1024"])
-		: [];
-	return { aspectRatios, imageSizes: unique([...resolutions, ...sizes, ...pixelSizes]) };
+	// aspect_ratio is unsupported, so model-name guesses cannot supply it.
+	// size is a shorthand that can map to resolution or aspect_ratio even
+	// when size itself is absent. Keep prior observations of that shorthand.
+	return { aspectRatios, imageSizes: unique([...resolutions, ...sizes, ...(existing?.imageSizes ?? [])]) };
+}
+
+export function imageSizeProbeCandidates(model, config) {
+	// Arbitrary dimensions have no finite discovery list. This square value is
+	// a probe candidate only. Publish it only after a successful request.
+	return unique([
+		...config.imageSizes,
+		...(model.supportedParameters.size?.type === "boolean" ? ["1024x1024"] : []),
+	]);
 }
 
 function targetedAspectRatios(values) {
