@@ -273,14 +273,21 @@ function knownCapabilities(
 }
 
 describe("compaction reasoning capability metadata", () => {
-	it("loads explicit effort/default metadata for exact models, aliases, and groups", () => {
+	it("loads explicit effort/default metadata for exact models and normalized IDs", () => {
 		expect(openRouterModelCapabilities("openai/gpt-5-mini").compactionReasoning).toEqual({
 			support: { kind: "known", efforts: ["high", "low", "medium", "minimal"] },
 			modelDefault: { kind: "explicit_effort", effort: "medium" },
 		});
-		expect(openRouterModelCapabilities("  ~OPENAI/GPT-LATEST ").compactionReasoning).toEqual({
+		expect(openRouterModelCapabilities("  OPENAI/GPT-6.1-SOL ").compactionReasoning).toEqual({
 			support: { kind: "partially_known", efforts: ["high", "low", "medium", "xhigh"] },
 			modelDefault: { kind: "explicit_effort", effort: "medium" },
+		});
+	});
+
+	it("keeps retired catalog aliases unknown instead of preserving stale observations", () => {
+		expect(openRouterModelCapabilities("  ~OPENAI/GPT-LATEST ").compactionReasoning).toEqual({
+			support: { kind: "unknown" },
+			modelDefault: { kind: "provider_default", relativeOrder: "unknown" },
 		});
 	});
 
@@ -324,7 +331,7 @@ describe("compaction reasoning policy", () => {
 		expect(policy).toMatchObject({
 			cacheControl: false,
 			compactionReasoningFloor: { kind: "explicit_effort", effort: "low" },
-			contextLength: 1_310_720,
+			contextLength: 1_048_576,
 			disabledReasoning: true,
 			prefill: { kind: "provider_matrix", version: 2 },
 			requiredToolCalls: { fallback: { supported: true } },
