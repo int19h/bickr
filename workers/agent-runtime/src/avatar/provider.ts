@@ -34,6 +34,7 @@ import {
 	standardPrompt,
 } from '../prompt-and-tools';
 import { providerMessageTextContent, type ProviderSettings, type LocalizedProviderSettings } from '../provider-requests';
+import { providerChatAffinity, providerImageAffinityHeaders, providerRequestSessionId } from '../provider-affinity';
 import type { AvatarGenerationDisplayMessage, AvatarGenerationStreamSink, AvatarProvider } from './service';
 import type { ImageGenerationProviderSettings } from './target';
 
@@ -179,7 +180,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		return fetchProviderWorldAvatarDescriptionFromUserContent(
 			settings,
 			worldAvatarSelectedMembersPromptUserContent(settings.text, world, members),
-			options,
+			{ ...options, sessionId: `world:${world.id}` },
 		);
 	}
 
@@ -196,7 +197,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		const source = description && detail ? text.format('avatar.world_source.description_and_detail', { worldName, description, detail })
 			: description ? text.format('avatar.world_source.description', { worldName, description })
 			: text.format('avatar.world_source.detail', { worldName, detail });
-		return fetchProviderWorldAvatarDescriptionFromUserContent(settings, source, options);
+		return fetchProviderWorldAvatarDescriptionFromUserContent(settings, source, { ...options, sessionId: `world:${world.id}` });
 	}
 
 	async function fetchProviderWorldAvatarDescriptionFromUserContent(
@@ -234,6 +235,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		);
 		const requestBody = {
 			model: settings.model,
+			...providerChatAffinity(settings, await providerRequestSessionId('world-avatar-description', messages, options.sessionId)),
 			messages: runtime.sanitizeMessages(messages),
 			...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 			stream: Boolean(options.stream),
@@ -355,6 +357,8 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 			headers.authorization = `Bearer ${settings.apiKey}`;
 		}
 		const requestMessages = avatarImageGenerationMessages(settings.text, input, options.target);
+		const sessionId = await providerRequestSessionId('avatar-image', requestMessages.providerMessages);
+		Object.assign(headers, providerImageAffinityHeaders(settings, sessionId));
 		await options.stream?.messages(requestMessages.displayMessages);
 		if (openRouterImageApi) {
 			const upstreamStream = Boolean(
@@ -416,6 +420,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		};
 		const requestBody = {
 			model: settings.model,
+			...providerChatAffinity(settings, sessionId),
 			messages: requestMessages.providerMessages,
 			modalities: await providerImageOutputModalities(settings, signal),
 			stream: Boolean(options.stream),
@@ -575,6 +580,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 		await options.stream?.messages(requestMessages.displayMessages);
 		const requestBody = {
 			model: settings.model,
+			...providerChatAffinity(settings, await providerRequestSessionId('current-avatar-description', requestMessages.providerMessages)),
 			messages: requestMessages.providerMessages,
 			modalities: ['text'],
 			stream: Boolean(options.stream),
@@ -961,6 +967,7 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 	}
 
 	type ProviderAvatarDescriptionOptions = {
+		sessionId?: string;
 		prefill?: string;
 		signal?: AbortSignal;
 		stream?: AvatarGenerationStreamSink;
@@ -1038,11 +1045,13 @@ export function createAvatarProvider(runtime: AvatarProviderRuntime): AvatarProv
 				return [{ role: message.role, content: message.content ?? '' }];
 			}),
 		);
+		const affinity = providerChatAffinity(settings, await providerRequestSessionId('avatar-description', messages, `bot:${bot.id}`));
 		let lastValidationError: ProviderStructuredOutputValidationError | undefined;
 		let fallbackDescription: string | null = null;
 		for (let attempt = 1; attempt <= providerAvatarDescriptionMaxAttempts; attempt += 1) {
 			const requestBody = {
 				model: settings.model,
+				...affinity,
 				messages: runtime.sanitizeMessages(messages),
 				...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 				stream: false,

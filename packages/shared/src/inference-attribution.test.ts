@@ -10,7 +10,7 @@ describe("inference attribution", () => {
 			reasoning: { effort: "high", exclude: false, secret: "hidden" },
 			provider: { order: ["DeepSeek"], allow_fallbacks: false, byok: { api_key: "hidden" }, max_price: { prompt: 1, api_key: "hidden" }, sort: { by: "price", secret: "hidden" } },
 			bickr: { contextWindowTokens: 64000, intervalSeconds: 60, maxGeneratedTokensPerTick: 5000 },
-			messages: [{ content: "hidden" }], tools: [{ secret: "hidden" }], apiKey: "hidden", baseUrl: "hidden", response_format: { schema: "hidden" }, session_id: "hidden",
+			messages: [{ content: "hidden" }], tools: [{ secret: "hidden" }], apiKey: "hidden", baseUrl: "hidden", response_format: { schema: "hidden" }, session_id: "hidden", prompt_cache_key: "hidden", prompt_cache_retention: "24h",
 		}, source);
 		expect(attribution.parameters).toEqual({ temperature: 0.7, top_p: 0.8, max_completion_tokens: 3000,
 			reasoning: { effort: "high", exclude: false }, provider: { order: ["DeepSeek"], allow_fallbacks: false, max_price: { prompt: 1 }, sort: { by: "price" } },

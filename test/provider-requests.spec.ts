@@ -1645,7 +1645,7 @@ describe("Provider requests", () => {
 			"bot:cache-test",
 		);
 		expect("cache_control" in providerDefaultCacheRequest).toBe(false);
-		expect("session_id" in providerDefaultCacheRequest).toBe(false);
+		expect(providerDefaultCacheRequest.session_id).toBe("bot:cache-test");
 
 		const explicitOffCacheRequest = providerChatCompletionRequest(
 			{ text: englishInstructions,
@@ -1662,6 +1662,7 @@ describe("Provider requests", () => {
 			"bot:cache-test",
 		);
 		expect("cache_control" in explicitOffCacheRequest).toBe(false);
+		expect(explicitOffCacheRequest.session_id).toBe("bot:cache-test");
 
 		const nonClaudeCacheRequest = providerChatCompletionRequest(
 			{ text: englishInstructions,
@@ -1677,7 +1678,7 @@ describe("Provider requests", () => {
 			"bot:cache-test",
 		);
 		expect("cache_control" in nonClaudeCacheRequest).toBe(false);
-		expect("session_id" in nonClaudeCacheRequest).toBe(false);
+		expect(nonClaudeCacheRequest.session_id).toBe("bot:cache-test");
 	});
 
 	it("resolves compaction tool and prefill intent against each actual reasoning shape", () => {

@@ -1,6 +1,64 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { BotDocument, WorldDocument } from '@bickr/shared/model';
+import { botText } from '../localization';
+import { createAvatarProvider, type AvatarProviderRuntime } from './provider';
 import { providerAvatarImageStreamChunk } from "../runtime/bot-runtime";
 import { providerAvatarRequestedToolCalls, providerAvatarToolChoice } from "./provider";
+
+describe('avatar request affinity', () => {
+	afterEach(() => vi.unstubAllGlobals());
+	const text = botText('en');
+	const entity = { schemaVersion: 1, revision: 1, createdAt: '2026-10-14', updatedAt: '2026-10-14' };
+	const bot: BotDocument = { ...entity, id: 'bot-avatar', type: 'bot', homeWorldId: 'world-avatar', homeWorldHandle: 'test', ownerUserId: 'user-avatar',
+		handle: 'avatar-test', language: 'en', includeLanguageInSystemPrompt: false, displayName: { lang: 'en', text: 'Avatar Test' },
+		shortBio: { lang: 'en', text: 'Test participant.' }, prompt: { lang: 'en', text: 'Test persona.' }, inferenceSettings: {}, toolSettings: {}, tickSettings: {} };
+	const world: WorldDocument = { ...entity, id: 'world-avatar', type: 'world', handle: 'test', language: 'en', name: { lang: 'en', text: 'Test' },
+		description: { lang: 'en', text: 'A test world.' }, prompt: { lang: 'en', text: '' }, recurringPromptEnabled: false,
+		recurringPrompt: { lang: 'en', text: '' }, initialBotNotification: { lang: 'en', text: '' }, createdByUserId: 'user-avatar', visibility: 'public' };
+
+	it('covers every avatar POST and uses a header for the image endpoint', async () => {
+		// Catalog discovery can fail without preventing the request under test.
+		vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('catalog unavailable')));
+		const captured: { endpoint: string; init: RequestInit }[] = [];
+		const runtime: AvatarProviderRuntime = {
+			chatCompletionsUrl: url => `${url}/chat/completions`, imagesUrl: url => `${url}/images`,
+			fetchWithHeaderTimeout: async (endpoint, init) => { captured.push({ endpoint, init }); throw new Error('captured request'); },
+			readProviderErrorBody: async () => '', requestErrorFromBody: () => new Error(), readJsonResponseText: async () => '',
+			responseBodyTimeoutError: () => new Error(), requestError: () => new Error(),
+			isResponseBodySizeLimitError: () => false, isRequestError: (error): error is never => false,
+			isStructuredOutputValidationError: (error): error is never => false, sanitizeMessages: messages => [...messages],
+			reasoningForSettings: () => undefined, structuredOutputReasoningForSettings: () => undefined,
+			readSse: async function* () {}, streamErrorFromChunk: () => null, usageFromValue: () => undefined,
+			metadataProviderName: () => null, singleStringResponseFromMessage: () => '', isStoppedError: () => false,
+		};
+		const provider = createAvatarProvider(runtime);
+		const settings = { text, baseUrl: 'https://openrouter.ai/api/v1', model: 'meta/muse-spark-1.3', temperature: 0.2 };
+		for (const operation of [
+			() => provider.describeParticipant(settings, bot),
+			() => provider.describeWorld(settings, world),
+			() => provider.describeWorldMembers(settings, world, { kind: 'all', members: [] }),
+			() => provider.describeCurrentAvatar(settings, 'https://example.com/avatar.png'),
+			() => provider.generateImage(settings, { prompt: 'Synthetic test image.' }),
+		]) {
+			await expect(operation()).rejects.toThrow('captured request');
+		}
+		expect(captured).toHaveLength(5);
+		for (const { endpoint, init } of captured) {
+			const body = JSON.parse(String(init.body));
+			if (endpoint.endsWith('/images')) {
+				expect(new Headers(init.headers).get('x-session-id')).toMatch(/^bickr:avatar-image:/);
+				expect(body).not.toHaveProperty('session_id');
+			} else {
+				expect(body.session_id).toBeTruthy();
+				expect(body.prompt_cache_key).toBe(body.session_id);
+				expect(body.prompt_cache_retention).toBe('24h');
+			}
+		}
+		expect(JSON.parse(String(captured[0]!.init.body)).session_id).toBe('bot:bot-avatar');
+		expect(JSON.parse(String(captured[1]!.init.body)).session_id).toBe('world:world-avatar');
+		expect(JSON.parse(String(captured[2]!.init.body)).session_id).toBe('world:world-avatar');
+	});
+});
 
 describe("provider avatar tool policy", () => {
 	it("covers every stored request strategy without losing provider omission intent", () => {

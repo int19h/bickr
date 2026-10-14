@@ -868,6 +868,12 @@ export function modelSupportsPromptCacheControl(model: string | undefined, openR
 	return openRouterModelCapabilities(model).cacheControl;
 }
 
+/** Meta cache hints are independent of Anthropic's cache_control capability. */
+export function modelUsesMetaPromptCache(model: string): boolean {
+	const normalized = normalizedOpenRouterModelId(model).replace(/^~/, "");
+	return normalized.startsWith("meta/") || normalized.startsWith("meta-llama/");
+}
+
 function normalizedOpenRouterModelId(model: string | undefined): string {
 	return model?.trim().toLowerCase() ?? "";
 }

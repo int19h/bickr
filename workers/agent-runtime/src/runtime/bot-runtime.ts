@@ -190,6 +190,7 @@ import {
 	type ProviderToolDefinition,
 } from '../prompt-and-tools';
 import { withProviderText, type ProviderSettings, type LocalizedProviderSettings } from '../provider-requests';
+import { providerChatAffinity, providerRequestSessionId, type ProviderChatAffinity } from '../provider-affinity';
 import {
 	consumeProviderResponse as consumeProviderSseResponse,
 	isAbortError,
@@ -487,7 +488,7 @@ export { followToolSelfCorrectionMessage, planFollowToolTargets };
 export type { ToolFailurePayload };
 export type { ProviderSettings } from '../provider-requests';
 
-type ProviderChatCompletionRequest = {
+type ProviderChatCompletionRequest = ProviderChatAffinity & {
 	model: string;
 	messages: ChatMessage[];
 	provider?: JsonObject;
@@ -500,7 +501,6 @@ type ProviderChatCompletionRequest = {
 	};
 	max_completion_tokens: number;
 	cache_control?: ProviderPromptCacheControl;
-	session_id?: string;
 	reasoning?: ProviderReasoningConfig;
 	temperature: number;
 	top_k?: number;
@@ -511,7 +511,7 @@ type ProviderChatCompletionRequest = {
 	repetition_penalty?: number;
 };
 
-type ProviderTokenProbeRequest = {
+type ProviderTokenProbeRequest = ProviderChatAffinity & {
 	model: string;
 	messages: ChatMessage[];
 	provider?: JsonObject;
@@ -530,7 +530,7 @@ type ProviderTokenProbeRequest = {
 	repetition_penalty?: number;
 };
 
-type ProviderCompactionRequest = {
+type ProviderCompactionRequest = ProviderChatAffinity & {
 	model: string;
 	messages: ChatMessage[];
 	provider?: JsonObject;
@@ -550,7 +550,7 @@ type ProviderTokenCalibrationRequestShape = {
 	response_format?: ProviderJsonSchemaResponseFormat;
 };
 
-type ProviderTranslationRequest = {
+type ProviderTranslationRequest = ProviderChatAffinity & {
 	model: string;
 	messages: ChatMessage[];
 	provider?: JsonObject;
@@ -962,7 +962,7 @@ function providerPromptCacheControl(
 	return mode === 'openrouter_anthropic_1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' };
 }
 
-function providerPromptCacheSessionId(botId: string): string {
+function providerBotSessionId(botId: string): string {
 	return `bot:${botId}`;
 }
 
@@ -1133,7 +1133,7 @@ export function providerChatCompletionRequest(
 	tools: ProviderToolDefinition[],
 	reasoningPrefill?: string,
 	toolCalls: BotInferenceToolCalls = providerToolCallsForSettings(settings),
-	promptCacheSessionId?: string,
+	sessionId?: string,
 	maxCompletionTokens = providerContextCompletionReserveTokens,
 ): ProviderChatCompletionRequest {
 	const requestMessages = providerMessagesWithPrefillCompatibility(settings.text,
@@ -1156,7 +1156,7 @@ export function providerChatCompletionRequest(
 		},
 		max_completion_tokens: Math.max(1, Math.floor(maxCompletionTokens)),
 		...(cacheControl ? { cache_control: cacheControl } : {}),
-		...(cacheControl && promptCacheSessionId ? { session_id: promptCacheSessionId } : {}),
+		...providerChatAffinity(settings, sessionId),
 		...(reasoning ? { reasoning } : {}),
 		temperature: settings.temperature,
 		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
@@ -1183,6 +1183,7 @@ export function providerCompactionRequest(
 	providerTools?: ProviderToolDefinition[],
 	mode: ProviderCompactionMode = 'structured_output',
 	reasoning?: ProviderReasoningConfig,
+	sessionId?: string,
 ): ProviderCompactionRequest {
 	const effectiveMode = effectiveCompactionModeForModel(settings.model, settingsUseOpenRouter(settings), mode, settings.providerRouting);
 	const reasoningShape: RequiredToolCallReasoningShape = !reasoning ? 'provider_default'
@@ -1217,6 +1218,7 @@ export function providerCompactionRequest(
 			: {};
 	return {
 		model: settings.model,
+		...providerChatAffinity(settings, sessionId),
 		messages: sanitizeProviderMessagesForRequest(providerMessagesWithPrefillCompatibility(settings.text,
 			{ baseUrl: settings.baseUrl, model: settings.model, supportsPrefill: prefillPolicy.applied },
 			messages,
@@ -1359,6 +1361,7 @@ export function providerTokenProbeRequest(
 	settings: LocalizedProviderSettings,
 	messages: ChatMessage[],
 	tools: ProviderToolDefinition[],
+	sessionId?: string,
 ): ProviderTokenProbeRequest {
 	const reasoning = providerReasoningForSettings(settings);
 	// The probe exists to count the prompt tokens of the ordinary loop's own
@@ -1373,6 +1376,7 @@ export function providerTokenProbeRequest(
 	const { toolChoice } = providerToolChoiceEmissionForSettings(settings);
 	return {
 		model: settings.model,
+		...providerChatAffinity(settings, sessionId),
 		messages: sanitizeProviderMessagesForRequest(providerMessagesWithPrefillCompatibility(settings.text, settings, messages)),
 		...(settings.providerRouting ? { provider: settings.providerRouting } : {}),
 		tools,
@@ -1399,7 +1403,7 @@ export function providerTokenProbeRequest(
  * request would put an applied strategy back through resolution as though the
  * owner had asked for it.
  */
-export function providerTranslationRequest(settings: TranslationProviderSettings, text: string): ProviderTranslationRequest {
+export function providerTranslationRequest(settings: TranslationProviderSettings, text: string, sessionId?: string): ProviderTranslationRequest {
 	const reasoning = providerReasoningForSettings(settings);
 	const reasoningShape = providerReasoningShapeForSettings(settings);
 	const toolCallPolicy = resolveToolCallPolicyForModel(
@@ -1414,6 +1418,7 @@ export function providerTranslationRequest(settings: TranslationProviderSettings
 	const tools = providerTranslationToolDefinitions(settings.text);
 	return {
 		model: settings.model,
+		...providerChatAffinity(settings, sessionId),
 		messages: [
 			{ role: 'system', content: appendToolRequirementInstruction(settings.text, settings.prompt, tools) },
 			{
@@ -3554,7 +3559,7 @@ export class BotRuntime {
 						toolCallsMode,
 						requestEvent.createdAt,
 						requestMaxCompletionTokens,
-						providerPromptCacheSessionId(bot.id),
+						providerBotSessionId(bot.id),
 						bot,
 						requestContextWindowTokens,
 					);
@@ -4125,10 +4130,11 @@ export class BotRuntime {
 		toolCalls: BotInferenceToolCalls = providerToolCallsForSettings(settings),
 		createdAt = new Date().toISOString(),
 		maxCompletionTokens = providerContextCompletionReserveTokens,
-		promptCacheSessionId?: string,
+		sessionId?: string,
 		bot?: BotDocument,
 		requestContextWindowTokens?: number,
 	): Promise<ProviderResponse> {
+		sessionId ??= await providerRequestSessionId('loop', messages, providerBotSessionId(botId));
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		let requestSettings = settings;
 		let lastBody = stringifyProviderRequest(
@@ -4138,7 +4144,7 @@ export class BotRuntime {
 				tools,
 				undefined,
 				toolCalls,
-				promptCacheSessionId,
+				sessionId,
 				maxCompletionTokens,
 			),
 		);
@@ -4166,7 +4172,7 @@ export class BotRuntime {
 				tools,
 				undefined,
 				toolCalls,
-				promptCacheSessionId,
+				sessionId,
 				maxCompletionTokens,
 			);
 			const body = stringifyProviderRequest(request);
@@ -4361,6 +4367,7 @@ export class BotRuntime {
 			content: string;
 		}
 	> {
+		const sessionId = await providerRequestSessionId('compaction', messages, bot ? providerBotSessionId(bot.id) : undefined);
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		const effectiveProviderTools = providerTools ?? providerCompactionToolsForMode(settings.text, limits, undefined, mode);
 		let requestSettings = settings;
@@ -4412,6 +4419,7 @@ export class BotRuntime {
 				requestProviderTools,
 				mode,
 				providerCompactionReasoningForSelection(attemptState.reasoning.selection),
+				sessionId,
 			);
 			const body = stringifyProviderRequest(request);
 			const inferenceAttribution = bot ? this.recordInferenceAttribution(request, bot, runId, requestSeq, requestContextWindowTokens) : undefined;
@@ -5427,6 +5435,8 @@ export class BotRuntime {
 						providerMessagesWithReasoningPrefill([{ role: 'system', content: fixedSystemMessage }], reasoningPrefill),
 					),
 					providerTools,
+					undefined,
+					providerBotSessionId(bot.id),
 				);
 				const personaUsage = await this.fetchPromptTokenProbeUsage(
 					settings,
@@ -5435,6 +5445,8 @@ export class BotRuntime {
 						providerMessagesWithReasoningPrefill([{ role: 'system', content: personaSystemMessage }], reasoningPrefill),
 					),
 					providerTools,
+					undefined,
+					providerBotSessionId(bot.id),
 				);
 				const fullUsage = await this.fetchPromptTokenProbeUsage(
 					settings,
@@ -5443,6 +5455,8 @@ export class BotRuntime {
 						providerMessagesWithReasoningPrefill([{ role: 'system', content: fullSystemMessage }], reasoningPrefill),
 					),
 					providerTools,
+					undefined,
+					providerBotSessionId(bot.id),
 				);
 				const next = {
 					fixedSystemTokens: fixedUsage.promptTokens,
@@ -5897,7 +5911,9 @@ export class BotRuntime {
 		messages: ChatMessage[],
 		tools: ProviderToolDefinition[],
 		signal: AbortSignal = new AbortController().signal,
+		explicitSessionId?: string,
 	): Promise<ProviderUsage> {
+		const sessionId = await providerRequestSessionId('token-probe', messages, explicitSessionId);
 		const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 		const headers: Record<string, string> = {
 			'content-type': 'application/json',
@@ -5910,7 +5926,7 @@ export class BotRuntime {
 			{
 				method: 'POST',
 				headers,
-				body: stringifyProviderRequest(providerTokenProbeRequest(settings, messages, tools)),
+				body: stringifyProviderRequest(providerTokenProbeRequest(settings, messages, tools, sessionId)),
 			},
 			signal,
 			providerRequestTimeoutMs,
@@ -8750,10 +8766,10 @@ export async function translateForUser(
 	if (!settings) {
 		throw new InputError('Enable inline translations in profile inference settings before translating text.');
 	}
-	return fetchProviderTranslation(settings, text);
+	return fetchProviderTranslation(settings, text, `user:${userId}:translation`);
 }
 
-async function fetchProviderTranslation(settings: TranslationProviderSettings, text: string): Promise<string> {
+async function fetchProviderTranslation(settings: TranslationProviderSettings, text: string, explicitSessionId: string): Promise<string> {
 	const endpoint = providerChatCompletionsUrl(settings.baseUrl);
 	const signal = new AbortController().signal;
 	const headers: Record<string, string> = {
@@ -8762,11 +8778,12 @@ async function fetchProviderTranslation(settings: TranslationProviderSettings, t
 	if (settings.apiKey) {
 		headers.authorization = `Bearer ${settings.apiKey}`;
 	}
-	let requestMessages = providerTranslationRequest(settings, text).messages;
+	const sessionId = await providerRequestSessionId('translation', providerTranslationRequest(settings, text).messages, explicitSessionId);
+	let requestMessages = providerTranslationRequest(settings, text, sessionId).messages;
 	let lastValidationError: ProviderStructuredOutputValidationError | null = null;
 	for (let schemaAttempt = 0; schemaAttempt <= providerStructuredOutputRepairAttempts; schemaAttempt += 1) {
 		const requestBody = {
-			...providerTranslationRequest(settings, text),
+			...providerTranslationRequest(settings, text, sessionId),
 			messages: sanitizeProviderMessagesForRequest(requestMessages),
 		};
 		const response = await providerFetchWithHeaderTimeout(
