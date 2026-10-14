@@ -881,7 +881,7 @@ export type StructuredCompactionToolsPolicy =
 // Meta's native Muse endpoint only supports automatic tool selection. Retaining
 // loop tools without tool_choice=none would let compaction choose ordinary tools.
 // Omit the tools entirely so structured compaction remains a summary operation.
-const museStructuredCompactionModels = new Set([
+const knownMuseSparkModels = new Set([
 	"meta/muse-spark-1.1", "meta/muse-spark-1.2", "meta/muse-spark-1.2-contributor",
 	"meta/muse-spark-1.3", "meta/muse-spark-1.3-contributor", "meta/muse-spark-1.3-20260902",
 ]);
@@ -892,9 +892,21 @@ export function structuredCompactionToolsPolicyForModel(
 	directMetaChat: boolean,
 ): StructuredCompactionToolsPolicy {
 	const normalized = normalizedOpenRouterModelId(model).replace(/^~/, "").split(":")[0]!;
-	return directMetaChat || (openRouter && museStructuredCompactionModels.has(normalized))
+	return directMetaChat || (openRouter && knownMuseSparkModels.has(normalized))
 		? { kind: "omit_tools_and_choice" }
 		: { kind: "retain_tools_and_disable" };
+}
+
+/** Meta's Responses boundary rejects a one-token allowance, even through OR chat. */
+export function tokenProbeCompletionTokensForModel(
+	model: string,
+	openRouter: boolean,
+	directMetaChat: boolean,
+): 1 | 16 {
+	const normalized = normalizedOpenRouterModelId(model).replace(/^~/, "").split(":")[0]!;
+	// Direct Meta uses a conservative valid allowance inferred from its native
+	// error through OpenRouter. Direct requests were not separately probed.
+	return directMetaChat || (openRouter && knownMuseSparkModels.has(normalized)) ? 16 : 1;
 }
 
 function normalizedOpenRouterModelId(model: string | undefined): string {

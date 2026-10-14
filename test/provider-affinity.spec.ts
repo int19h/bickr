@@ -4,6 +4,27 @@ import { providerTranslationToolDefinitions } from '../workers/agent-runtime/src
 import { providerChatCompletionRequest, providerCompactionRequest, providerTokenProbeRequest, providerTranslationRequest } from '../workers/agent-runtime/src/runtime/bot-runtime';
 
 describe('provider request affinity across text operations', () => {
+	it('respects the Muse probe minimum without changing other request budgets', () => {
+		const messages = [{ role: 'system' as const, content: 'Stable instructions.' }, { role: 'user' as const, content: 'Count prompt tokens.' }];
+		for (const model of ['meta/muse-spark-1.3', 'meta/muse-spark-1.3-contributor', '~meta/muse-spark-1.3', 'meta/muse-spark-1.3:free']) {
+			const settings = { text: botText('en'), baseUrl: 'https://openrouter.ai/api/v1', model, temperature: 0.2 };
+			const probe = providerTokenProbeRequest(settings, messages, [], 'bot:affinity');
+			expect(probe.max_tokens).toBe(16);
+			expect(probe.prompt_cache_key).toBe('bot:affinity');
+			expect(probe.prompt_cache_retention).toBe('24h');
+			const loop = providerChatCompletionRequest(settings, messages, [], undefined, 'railroad', 'bot:affinity', 1024);
+			expect(loop.max_completion_tokens).toBe(1024);
+			expect(probe.messages).toEqual(loop.messages);
+		}
+		for (const provider of [
+			{ baseUrl: 'https://openrouter.ai/api/v1', model: 'meta-llama/llama-3.3-70b-instruct', expected: 1 },
+			{ baseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4.1-mini', expected: 1 },
+			{ baseUrl: 'https://api.meta.ai/v1', model: 'muse-spark-1.3', expected: 16 },
+			{ baseUrl: 'https://custom.example/v1', model: 'meta/muse-spark-1.3', expected: 1 },
+		]) {
+			expect(providerTokenProbeRequest({ text: botText('en'), temperature: 0.2, ...provider }, messages, [], 'bot:affinity').max_tokens).toBe(provider.expected);
+		}
+	});
 	it('removes retained loop tools when Muse cannot disable their selection', () => {
 		const tools = providerTranslationToolDefinitions(botText('en'));
 		const messages = [{ role: 'user' as const, content: 'Summarize the history.' }];

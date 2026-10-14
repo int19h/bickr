@@ -114,6 +114,7 @@ import {
 	effectiveToolCallsForModel,
 	modelSupportsPromptCacheControl,
 	structuredCompactionToolsPolicyForModel,
+	tokenProbeCompletionTokensForModel,
 	resolveCompactionReasoningSelection,
 	resolvePrefillPolicyForModel,
 	resolveToolCallPolicyForModel,
@@ -521,7 +522,7 @@ type ProviderTokenProbeRequest = ProviderChatAffinity & {
 	tool_choice?: typeof providerRequiredToolChoice;
 	parallel_tool_calls: typeof providerParallelToolCalls;
 	stream: false;
-	max_tokens: 1;
+	max_tokens: 1 | 16;
 	reasoning?: ProviderReasoningConfig;
 	temperature: number;
 	top_k?: number;
@@ -1389,7 +1390,7 @@ export function providerTokenProbeRequest(
 		...(toolChoice ? { tool_choice: toolChoice } : {}),
 		parallel_tool_calls: providerParallelToolCalls,
 		stream: false,
-		max_tokens: 1,
+		max_tokens: tokenProbeCompletionTokensForModel(settings.model, settingsUseOpenRouter(settings), isMetaChatProviderBaseUrl(settings.baseUrl)),
 		...(reasoning ? { reasoning } : {}),
 		temperature: settings.temperature,
 		...(settings.topK !== undefined ? { top_k: settings.topK } : {}),
