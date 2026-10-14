@@ -2632,9 +2632,12 @@ describe("Avatar", () => {
 		const userId = await userIdForHandle("octocat");
 		const originalFetch = globalThis.fetch;
 		let providerSignal: AbortSignal | undefined;
+		let markProviderStarted: () => void = () => {};
+		const providerStarted = new Promise<void>(resolve => { markProviderStarted = resolve; });
 		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
 			async (_input, init) => {
 				providerSignal = init?.signal as AbortSignal | undefined;
+				markProviderStarted();
 				return new Response(neverStream(), {
 					headers: { "content-type": "application/json" },
 				});
@@ -2658,9 +2661,49 @@ describe("Avatar", () => {
 			const reader = response.body?.getReader();
 			expect(reader).toBeDefined();
 			await reader?.read();
+			// The first message can precede dispatch. Wait for an active request
+			// before testing propagation to its AbortSignal.
+			await providerStarted;
 			await reader?.cancel("test abort");
 			await pause(0);
 			expect(providerSignal?.aborted).toBe(true);
+		} finally {
+			vi.stubGlobal("fetch", originalFetch);
+		}
+	});
+
+
+	it("does not dispatch provider work when a prompt-fill stream is canceled before dispatch", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bot = await createBotForTest(cookie, "avatar-prefill-early-abort");
+		const userId = await userIdForHandle("octocat");
+		const originalFetch = globalThis.fetch;
+		const fetchMock = vi.fn<(_input: RequestInfo | URL, _init?: RequestInit) => Promise<Response>>(
+			async (_input, _init) => {
+				return new Response(neverStream(), {
+					headers: { "content-type": "application/json" },
+				});
+			},
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const response = await handleAgentRuntimeRequest(
+				serviceStreamJsonRequest(
+					`/users/${encodeURIComponent(userId)}/bots/${encodeURIComponent(bot.id)}/avatar/prompt`,
+					userId,
+					{ mode: "persona" },
+				),
+				{
+					BICKR_D1: testEnv.BICKR_D1,
+					BICKR_KV: testEnv.BICKR_KV,
+					OPENROUTER_API_KEY: "test-key",
+					OPENROUTER_MODEL: "openai/text-one",
+				},
+			);
+			await response.body?.cancel("early test abort");
+			await pause(0);
+			expect(fetchMock).not.toHaveBeenCalled();
 		} finally {
 			vi.stubGlobal("fetch", originalFetch);
 		}

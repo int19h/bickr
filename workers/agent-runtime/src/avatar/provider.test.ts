@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BotDocument, WorldDocument } from '@bickr/shared/model';
+import { parseLanguageTag } from '@bickr/shared/validation';
 import { botText } from '../localization';
 import { createAvatarProvider, type AvatarProviderRuntime } from './provider';
 import { providerAvatarImageStreamChunk } from "../runtime/bot-runtime";
@@ -8,13 +9,14 @@ import { providerAvatarRequestedToolCalls, providerAvatarToolChoice } from "./pr
 describe('avatar request affinity', () => {
 	afterEach(() => vi.unstubAllGlobals());
 	const text = botText('en');
+	const language = parseLanguageTag('en');
 	const entity = { schemaVersion: 1, revision: 1, createdAt: '2026-10-14', updatedAt: '2026-10-14' };
 	const bot: BotDocument = { ...entity, id: 'bot-avatar', type: 'bot', homeWorldId: 'world-avatar', homeWorldHandle: 'test', ownerUserId: 'user-avatar',
-		handle: 'avatar-test', language: 'en', includeLanguageInSystemPrompt: false, displayName: { lang: 'en', text: 'Avatar Test' },
-		shortBio: { lang: 'en', text: 'Test participant.' }, prompt: { lang: 'en', text: 'Test persona.' }, inferenceSettings: {}, toolSettings: {}, tickSettings: {} };
-	const world: WorldDocument = { ...entity, id: 'world-avatar', type: 'world', handle: 'test', language: 'en', name: { lang: 'en', text: 'Test' },
-		description: { lang: 'en', text: 'A test world.' }, prompt: { lang: 'en', text: '' }, recurringPromptEnabled: false,
-		recurringPrompt: { lang: 'en', text: '' }, initialBotNotification: { lang: 'en', text: '' }, createdByUserId: 'user-avatar', visibility: 'public' };
+		handle: 'avatar-test', language, includeLanguageInSystemPrompt: false, displayName: { lang: language, text: 'Avatar Test' },
+		shortBio: { lang: language, text: 'Test participant.' }, prompt: { lang: language, text: 'Test persona.' }, inferenceSettings: {}, toolSettings: {}, tickSettings: { enabled: false, intervalSeconds: 60, compactionThreshold: 80 } };
+	const world: WorldDocument = { ...entity, id: 'world-avatar', type: 'world', handle: 'test', language, name: { lang: language, text: 'Test' },
+		description: { lang: language, text: 'A test world.' }, prompt: { lang: language, text: '' }, recurringPromptEnabled: false,
+		recurringPrompt: { lang: language, text: '' }, initialBotNotification: { lang: language, text: '' }, createdByUserId: 'user-avatar', visibility: 'public' };
 
 	it('covers every avatar POST and uses a header for the image endpoint', async () => {
 		// Catalog discovery can fail without preventing the request under test.
@@ -25,8 +27,8 @@ describe('avatar request affinity', () => {
 			fetchWithHeaderTimeout: async (endpoint, init) => { captured.push({ endpoint, init }); throw new Error('captured request'); },
 			readProviderErrorBody: async () => '', requestErrorFromBody: () => new Error(), readJsonResponseText: async () => '',
 			responseBodyTimeoutError: () => new Error(), requestError: () => new Error(),
-			isResponseBodySizeLimitError: () => false, isRequestError: (error): error is never => false,
-			isStructuredOutputValidationError: (error): error is never => false, sanitizeMessages: messages => [...messages],
+			isResponseBodySizeLimitError: () => false, isRequestError: (_error): _error is never => false,
+			isStructuredOutputValidationError: (_error): _error is never => false, sanitizeMessages: messages => [...messages],
 			reasoningForSettings: () => undefined, structuredOutputReasoningForSettings: () => undefined,
 			readSse: async function* () {}, streamErrorFromChunk: () => null, usageFromValue: () => undefined,
 			metadataProviderName: () => null, singleStringResponseFromMessage: () => '', isStoppedError: () => false,
