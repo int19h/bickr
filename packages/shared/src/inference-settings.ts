@@ -416,6 +416,18 @@ function optionalSamplingFields(settings: Pick<BotInferenceSettings,
 	};
 }
 
+export function isMetaChatProviderBaseUrl(baseUrl: string | undefined): boolean {
+	if (!baseUrl) return false;
+	try {
+		const url = new URL(baseUrl);
+		return url.protocol === "https:" && url.hostname === "api.meta.ai" && !url.port &&
+			!url.username && !url.password && !url.search && !url.hash &&
+			["/v1", "/v1/chat/completions"].includes(url.pathname.replace(/\/+$/, ""));
+	} catch {
+		return false;
+	}
+}
+
 export function isOpenRouterProviderBaseUrl(baseUrl: string): boolean {
 	try {
 		const url = new URL(baseUrl);

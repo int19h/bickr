@@ -45,6 +45,7 @@ import { json } from '@bickr/shared/http';
 import { formatCommentRef, formatThreadRef, parseObjectRef } from '@bickr/shared/ids';
 import {
 	isOpenRouterProviderBaseUrl,
+	isMetaChatProviderBaseUrl,
 	providerEnvironmentSettingsFromBindings,
 	providerReasoningRequestFromLegacyEffort,
 	resolveBotProviderSettings,
@@ -112,6 +113,7 @@ import {
 	effectiveContextWindowForModel,
 	effectiveToolCallsForModel,
 	modelSupportsPromptCacheControl,
+	structuredCompactionToolsPolicyForModel,
 	resolveCompactionReasoningSelection,
 	resolvePrefillPolicyForModel,
 	resolveToolCallPolicyForModel,
@@ -1208,8 +1210,12 @@ export function providerCompactionRequest(
 		? providerNoToolChoice
 		: toolCallPolicy.emission === 'omit_tool_choice' ? undefined : providerToolChoiceForMode(toolCalls);
 	const responseFormat = providerCompactionResponseFormat(settings.text, limits.maxLength, effectiveMode);
+	const structuredToolPolicy = structuredCompactionToolsPolicyForModel(
+		settings.model, settingsUseOpenRouter(settings), isMetaChatProviderBaseUrl(settings.baseUrl),
+	);
 	const toolRequestFields =
-		effectiveProviderTools.length > 0
+		effectiveProviderTools.length > 0 &&
+		!(effectiveMode === 'structured_output' && structuredToolPolicy.kind === 'omit_tools_and_choice')
 			? {
 					tools: effectiveProviderTools,
 					...(toolChoice ? { tool_choice: toolChoice } : {}),

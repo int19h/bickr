@@ -874,6 +874,29 @@ export function modelUsesMetaPromptCache(model: string): boolean {
 	return normalized.startsWith("meta/") || normalized.startsWith("meta-llama/");
 }
 
+export type StructuredCompactionToolsPolicy =
+	| { kind: "retain_tools_and_disable" }
+	| { kind: "omit_tools_and_choice" };
+
+// Meta's native Muse endpoint only supports automatic tool selection. Retaining
+// loop tools without tool_choice=none would let compaction choose ordinary tools.
+// Omit the tools entirely so structured compaction remains a summary operation.
+const museStructuredCompactionModels = new Set([
+	"meta/muse-spark-1.1", "meta/muse-spark-1.2", "meta/muse-spark-1.2-contributor",
+	"meta/muse-spark-1.3", "meta/muse-spark-1.3-contributor", "meta/muse-spark-1.3-20260902",
+]);
+
+export function structuredCompactionToolsPolicyForModel(
+	model: string,
+	openRouter: boolean,
+	directMetaChat: boolean,
+): StructuredCompactionToolsPolicy {
+	const normalized = normalizedOpenRouterModelId(model).replace(/^~/, "").split(":")[0]!;
+	return directMetaChat || (openRouter && museStructuredCompactionModels.has(normalized))
+		? { kind: "omit_tools_and_choice" }
+		: { kind: "retain_tools_and_disable" };
+}
+
 function normalizedOpenRouterModelId(model: string | undefined): string {
 	return model?.trim().toLowerCase() ?? "";
 }

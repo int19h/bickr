@@ -1,8 +1,41 @@
 import { describe, expect, it } from 'vitest';
 import { botText } from '../workers/agent-runtime/src/localization';
+import { providerTranslationToolDefinitions } from '../workers/agent-runtime/src/prompt-and-tools';
 import { providerChatCompletionRequest, providerCompactionRequest, providerTokenProbeRequest, providerTranslationRequest } from '../workers/agent-runtime/src/runtime/bot-runtime';
 
 describe('provider request affinity across text operations', () => {
+	it('removes retained loop tools when Muse cannot disable their selection', () => {
+		const tools = providerTranslationToolDefinitions(botText('en'));
+		const messages = [{ role: 'user' as const, content: 'Summarize the history.' }];
+		for (const provider of [
+			{ baseUrl: 'https://openrouter.ai/api/v1', model: 'meta/muse-spark-1.3' },
+			{ baseUrl: 'https://api.meta.ai/v1', model: 'muse-spark-1.3-contributor' },
+			{ baseUrl: 'https://api.meta.ai/v1', model: 'muse-spark-1.3' },
+		]) {
+			const request = providerCompactionRequest({ text: botText('en'), ...provider }, messages, undefined, tools, 'structured_output', undefined, 'bot:affinity');
+			expect(request).not.toHaveProperty('tools');
+			expect(request).not.toHaveProperty('tool_choice');
+			expect(request).not.toHaveProperty('parallel_tool_calls');
+			expect(request.response_format?.type).toBe('json_schema');
+			expect(request.prompt_cache_key).toBe('bot:affinity');
+		}
+		const contributorFallback = providerCompactionRequest({ text: botText('en'), baseUrl: 'https://openrouter.ai/api/v1', model: 'meta/muse-spark-1.3-contributor' }, messages, undefined, tools, 'structured_output', undefined, 'bot:affinity');
+		if (!contributorFallback.response_format) {
+			expect(contributorFallback.tools).toEqual(tools);
+			expect(contributorFallback).not.toHaveProperty('tool_choice');
+		}
+		for (const provider of [
+			{ baseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4.1-mini' },
+			{ baseUrl: 'https://openrouter.ai/api/v1', model: 'meta-llama/llama-3.3-70b-instruct' },
+			{ baseUrl: 'https://custom.example/v1', model: 'meta/muse-spark-1.3' },
+		]) {
+			const request = providerCompactionRequest({ text: botText('en'), ...provider }, messages, undefined, tools, 'structured_output', undefined, 'bot:affinity');
+			if (request.response_format) {
+				expect(request.tools).toEqual(tools);
+				expect(request.tool_choice).toBe('none');
+			}
+		}
+	});
 	it.each(['meta/muse-spark-1.3', 'meta-llama/llama-3.3-70b-instruct', 'openai/gpt-5-mini'])('carries session identity through every builder for %s', model => {
 		const settings = { text: botText('en'), baseUrl: 'https://openrouter.ai/api/v1', model, temperature: 0.2 };
 		const messages = [{ role: 'system' as const, content: 'Stable instructions.' }, { role: 'user' as const, content: 'Hello.' }];
