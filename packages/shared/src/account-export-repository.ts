@@ -236,70 +236,112 @@ function tuplePosition(value: string, length: number): string[] {
 	throw new RepositoryError("bad_request", "Invalid export position.", 400);
 }
 
+type ExportRow = { position: string; record: object };
+type ParentKind = "bot" | "group";
+
+async function ownedParent(db: D1DatabaseLike, owner: string, kind: ParentKind, after: string, inclusive: boolean): Promise<string | null> {
+	const table = kind === "bot" ? "bots_index" : "bot_groups";
+	const id = kind === "bot" ? "bot_id" : "group_id";
+	const result = await db.prepare(`SELECT ${id} AS id FROM ${table} WHERE owner_user_id = ? AND deleted_at IS NULL
+		${kind === "bot" ? "AND lifecycle_state = 'active'" : ""} AND ${id} ${inclusive ? ">=" : ">"} ? ORDER BY ${id} LIMIT 1`)
+		.bind(owner, after).first<{ id: string }>();
+	return result?.id ?? null;
+}
+
+/** Fix the parent before seeking its children. A cross-table tuple cannot seek the child index. */
+async function childPage(
+	db: D1DatabaseLike, owner: string, kind: ParentKind, section: AccountExportSection, after: string, tupleLength: number,
+	load: (parent: string, childPosition: string[]) => Promise<ExportRow[]>,
+): Promise<AccountExportPage> {
+	const tuple = tuplePosition(after, tupleLength);
+	const parent = await ownedParent(db, owner, kind, tuple[0]!, true);
+	if (!parent) return page(owner, section, []);
+	const childPosition = parent === tuple[0] ? tuple.slice(1) : Array<string>(tupleLength - 1).fill("");
+	const rows = await load(parent, childPosition);
+	const result = page(owner, section, rows);
+	if (result.nextCursor) return result;
+	const nextParent = await ownedParent(db, owner, kind, parent, false);
+	return {
+		...result,
+		nextCursor: nextParent ? encodeOpaqueJsonCursor({
+			ownerUserId: owner, section, position: JSON.stringify([nextParent, ...Array<string>(tupleLength - 1).fill("")]),
+		}) : null,
+	};
+}
+
+const activeBotGuard = `EXISTS (SELECT 1 FROM bots_index b WHERE b.bot_id = ? AND b.owner_user_id = ?
+	AND b.deleted_at IS NULL AND b.lifecycle_state = 'active')`;
+
 async function contentPage(kv: KVNamespaceLike, db: D1DatabaseLike, owner: string, section: "threads" | "comments", after: string) {
-	const threadMode = section === "threads";
-	const [botAfter, itemAfter] = tuplePosition(after, 2);
-	const result = await db.prepare(threadMode
-		? `SELECT t.thread_id AS id, t.thread_id AS threadId, t.author_bot_id AS authorBotId FROM bots_index b
-			JOIN threads_index t ON t.author_bot_id = b.bot_id
-			WHERE b.owner_user_id = ? AND b.deleted_at IS NULL AND b.lifecycle_state = 'active' AND t.deleted_at IS NULL AND (b.bot_id, t.thread_id) > (?, ?)
-			ORDER BY b.bot_id, t.thread_id LIMIT ?`
-		: `SELECT c.comment_id AS id, c.thread_id AS threadId, c.author_bot_id AS authorBotId FROM bots_index b
-			JOIN comments_index c ON c.author_bot_id = b.bot_id JOIN threads_index t ON t.thread_id = c.thread_id
-			WHERE b.owner_user_id = ? AND b.deleted_at IS NULL AND b.lifecycle_state = 'active'
-			AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND (b.bot_id, c.comment_id) > (?, ?) ORDER BY b.bot_id, c.comment_id LIMIT ?`)
-		.bind(owner, botAfter, itemAfter, pageSize + 1).all<{ id: string; threadId: string; authorBotId: string }>();
-	const rows: { position: string; record: object }[] = [];
-	const authors = new Map<string, BotDocument>();
-	// Fetch one thread at a time; keep only the selected author's text, never other participants' replies.
-	for (const row of result.results ?? []) {
-		let author = authors.get(row.authorBotId);
-		if (!author) {
-			author = await requiredDocument<BotDocument>(kv, kvKeys.bot(row.authorBotId));
-			if (author.ownerUserId !== owner) throw missingRecord();
-			authors.set(row.authorBotId, author);
+	return childPage(db, owner, "bot", section, after, 2, async (authorBotId, [itemAfter]) => {
+		const result = await db.prepare(section === "threads"
+			? `SELECT thread_id AS id, thread_id AS threadId FROM threads_index
+				WHERE author_bot_id = ? AND thread_id > ? AND deleted_at IS NULL AND ${activeBotGuard}
+				ORDER BY thread_id LIMIT ?`
+			: `SELECT c.comment_id AS id, c.thread_id AS threadId FROM comments_index c
+				WHERE c.author_bot_id = ? AND c.comment_id > ? AND c.deleted_at IS NULL AND ${activeBotGuard}
+				AND EXISTS (SELECT 1 FROM threads_index t WHERE t.thread_id = c.thread_id AND t.deleted_at IS NULL)
+				ORDER BY c.comment_id LIMIT ?`)
+			.bind(authorBotId, itemAfter, authorBotId, owner, pageSize + 1).all<{ id: string; threadId: string }>();
+		const selected = result.results ?? [];
+		if (!selected.length) return [];
+		const author = await requiredDocument<BotDocument>(kv, kvKeys.bot(authorBotId));
+		if (author.ownerUserId !== owner) throw missingRecord();
+		const rows: ExportRow[] = [];
+		// Keep only the selected author's text. Other participants' replies never enter the export.
+		for (const row of selected) {
+			const thread = await requiredDocument<ThreadDocument>(kv, kvKeys.thread(row.threadId));
+			const position = JSON.stringify([authorBotId, row.id]);
+			if (section === "threads") {
+				const root = thread.comments.find((comment) => comment.id === thread.rootCommentId);
+				if (!root || root.authorBotId !== authorBotId || root.deletedAt) throw missingRecord();
+				rows.push({ position, record: {
+					...pick(thread, [...entityKeys, "worldId", "worldHandle", "forumId", "forumHandle", "title", "rootCommentId"]),
+					url: publicUrl(thread.url), authorBotId,
+				} });
+			} else {
+				const comment = thread.comments.find((item) => item.id === row.id);
+				if (!comment || comment.deletedAt || comment.authorBotId !== authorBotId) throw missingRecord();
+				rows.push({ position, record: pick(comment, ["id", "threadId", "worldId", "forumId", "authorBotId", "authorHandle", "authorDisplayName", "parentCommentId", "body", "createdAt", "updatedAt"]) });
+			}
 		}
-		const thread = await requiredDocument<ThreadDocument>(kv, kvKeys.thread(row.threadId));
-		const root = thread.comments.find((comment) => comment.id === thread.rootCommentId);
-		if (threadMode && (!root || root.authorBotId !== author.id || root.deletedAt)) throw missingRecord();
-		if (threadMode) rows.push({ position: JSON.stringify([row.authorBotId, row.id]), record: {
-			...pick(thread, [...entityKeys, "worldId", "worldHandle", "forumId", "forumHandle", "title", "rootCommentId"]),
-			url: publicUrl(thread.url), authorBotId: row.authorBotId,
-		} });
-		else {
-			const comment = thread.comments.find((item) => item.id === row.id);
-			if (!comment || comment.deletedAt || comment.authorBotId !== row.authorBotId) throw missingRecord();
-			rows.push({ position: JSON.stringify([row.authorBotId, row.id]), record: pick(comment, ["id", "threadId", "worldId", "forumId", "authorBotId", "authorHandle", "authorDisplayName", "parentCommentId", "body", "createdAt", "updatedAt"]) });
-		}
-	}
-	return page(owner, section, rows);
+		return rows;
+	});
 }
 
 async function relationalPage(db: D1DatabaseLike, owner: string, section: "groups" | "groupMembers" | "subscriptions" | "votes" | "follows", after: string) {
-	const tuple = section === "groups" || section === "subscriptions" ? [after] : tuplePosition(after, section === "votes" ? 3 : 2);
-	const sql = {
-		groups: `SELECT group_id AS position, group_id AS id, world_id AS worldId, custom_title AS customTitle, created_at AS createdAt, updated_at AS updatedAt
-			FROM bot_groups WHERE owner_user_id = ? AND deleted_at IS NULL AND group_id > ? ORDER BY group_id LIMIT ?`,
-		groupMembers: `SELECT m.group_id AS groupId, m.bot_id AS botId, m.added_at AS addedAt
-			FROM bot_groups g JOIN bot_group_members m ON m.group_id = g.group_id
-			JOIN bots_index b ON b.bot_id = m.bot_id AND b.owner_user_id = g.owner_user_id
-			WHERE g.owner_user_id = ? AND g.deleted_at IS NULL AND b.deleted_at IS NULL AND b.lifecycle_state = 'active'
-			AND (g.group_id, m.bot_id) > (?, ?) ORDER BY g.group_id, m.bot_id LIMIT ?`,
-		subscriptions: `SELECT subscription_id AS position, subscription_id AS id, world_id AS worldId, scope_type AS scopeType, scope_id AS scopeId,
-			active, auto_created AS autoCreated, created_at AS createdAt, updated_at AS updatedAt
-			FROM human_subscriptions WHERE user_id = ? AND subscription_id > ? ORDER BY subscription_id LIMIT ?`,
-		votes: `SELECT v.bot_id AS botId, v.world_id AS worldId,
-			v.target_type AS targetType, v.target_id AS targetId, v.value, v.created_at AS createdAt, v.updated_at AS updatedAt
-			FROM bots_index b JOIN votes v ON v.bot_id = b.bot_id WHERE b.owner_user_id = ? AND b.deleted_at IS NULL AND b.lifecycle_state = 'active'
-			AND (b.bot_id, v.target_type, v.target_id) > (?, ?, ?) ORDER BY b.bot_id, v.target_type, v.target_id LIMIT ?`,
-		follows: `SELECT f.follower_bot_id AS followerBotId,
-			f.followed_bot_id AS followedBotId, f.world_id AS worldId, f.created_at AS createdAt
-			FROM bots_index b JOIN follows f ON f.follower_bot_id = b.bot_id WHERE b.owner_user_id = ? AND b.deleted_at IS NULL AND b.lifecycle_state = 'active'
-			AND (b.bot_id, f.followed_bot_id) > (?, ?) ORDER BY b.bot_id, f.followed_bot_id LIMIT ?`,
-	}[section];
-	const result = await db.prepare(sql).bind(owner, ...tuple, pageSize + 1).all<{ position?: string } & Record<string, unknown>>();
-	return page(owner, section, (result.results ?? []).map(({ position: key, ...record }) => ({
-		position: key ?? JSON.stringify(section === "votes" ? [record.botId, record.targetType, record.targetId]
-			: section === "follows" ? [record.followerBotId, record.followedBotId] : [record.groupId, record.botId]), record,
-	})));
+	if (section === "groups" || section === "subscriptions") {
+		const sql = section === "groups"
+			? `SELECT group_id AS id, world_id AS worldId, custom_title AS customTitle, created_at AS createdAt, updated_at AS updatedAt
+				FROM bot_groups WHERE owner_user_id = ? AND deleted_at IS NULL AND group_id > ? ORDER BY group_id LIMIT ?`
+			: `SELECT subscription_id AS id, world_id AS worldId, scope_type AS scopeType, scope_id AS scopeId,
+				active, auto_created AS autoCreated, created_at AS createdAt, updated_at AS updatedAt
+				FROM human_subscriptions WHERE user_id = ? AND subscription_id > ? ORDER BY subscription_id LIMIT ?`;
+		const result = await db.prepare(sql).bind(owner, after, pageSize + 1).all<{ id: string } & Record<string, unknown>>();
+		return page(owner, section, (result.results ?? []).map((record) => ({ position: record.id, record })));
+	}
+	return childPage(db, owner, section === "groupMembers" ? "group" : "bot", section, after, section === "votes" ? 3 : 2, async (parent, child) => {
+		if (section === "votes") {
+			const result = await db.prepare(`SELECT bot_id AS botId, world_id AS worldId, target_type AS targetType,
+				target_id AS targetId, value, created_at AS createdAt, updated_at AS updatedAt FROM votes
+				WHERE bot_id = ? AND (target_type, target_id) > (?, ?) AND ${activeBotGuard}
+				ORDER BY target_type, target_id LIMIT ?`).bind(parent, child[0], child[1], parent, owner, pageSize + 1)
+				.all<{ targetType: string; targetId: string } & Record<string, unknown>>();
+			return (result.results ?? []).map((record) => ({ position: JSON.stringify([parent, record.targetType, record.targetId]), record }));
+		}
+		if (section === "follows") {
+			const result = await db.prepare(`SELECT follower_bot_id AS followerBotId, followed_bot_id AS followedBotId,
+				world_id AS worldId, created_at AS createdAt FROM follows WHERE follower_bot_id = ? AND followed_bot_id > ? AND ${activeBotGuard}
+				ORDER BY followed_bot_id LIMIT ?`).bind(parent, child[0], parent, owner, pageSize + 1)
+				.all<{ followedBotId: string } & Record<string, unknown>>();
+			return (result.results ?? []).map((record) => ({ position: JSON.stringify([parent, record.followedBotId]), record }));
+		}
+		const result = await db.prepare(`SELECT m.group_id AS groupId, m.bot_id AS botId, m.added_at AS addedAt
+			FROM bot_group_members m WHERE m.group_id = ? AND m.bot_id > ?
+			AND EXISTS (SELECT 1 FROM bot_groups g WHERE g.group_id = m.group_id AND g.owner_user_id = ? AND g.deleted_at IS NULL)
+			AND EXISTS (SELECT 1 FROM bots_index b WHERE b.bot_id = m.bot_id AND b.owner_user_id = ? AND b.deleted_at IS NULL AND b.lifecycle_state = 'active')
+			ORDER BY m.bot_id LIMIT ?`).bind(parent, child[0], owner, owner, pageSize + 1)
+			.all<{ botId: string } & Record<string, unknown>>();
+		return (result.results ?? []).map((record) => ({ position: JSON.stringify([parent, record.botId]), record }));
+	});
 }

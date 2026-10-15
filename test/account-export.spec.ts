@@ -1,7 +1,8 @@
+import { onRequest as inferenceRoute } from "../apps/web/functions/api/me/inference-configurations/[[path]]";
 import { onRequestGet as exportRoute } from "../apps/web/functions/api/me/export";
 import { onRequestGet as imageRoute } from "../apps/web/functions/api/me/export/image";
 import { accountExportPage, exportBotDefinition, exportInferenceSettings } from "@bickr/shared/account-export-repository";
-import { accountDefaultConfigurationId, inferenceConfigurationMutations, insertAccountDefaultConfigurationStatement } from "@bickr/shared/inference-configuration-repository";
+import { accountDefaultConfigurationId, insertAccountDefaultConfigurationStatement } from "@bickr/shared/inference-configuration-repository";
 import { userById } from "@bickr/shared/repository";
 import type { AccountExportPage, AccountExportSection } from "@bickr/shared/account-export";
 import type { BotDocument } from "@bickr/shared/model";
@@ -55,11 +56,15 @@ describe("account data export", () => {
 		expect(exportInferenceSettings(raw.inferenceSettings)).toMatchObject({ baseUrl: "https://provider.test/v1", providerRouting: { order: ["provider-a"], max_price: { prompt: 0.5 } } });
 		const root = await accountDefaultConfigurationId(owner);
 		await insertAccountDefaultConfigurationStatement(testEnv.BICKR_D1, { configurationId: root, ownerUserId: owner, now: new Date().toISOString() }).run();
-		const custom = await inferenceConfigurationMutations.createCustom(testEnv.BICKR_D1, owner, {
+		const now = new Date().toISOString();
+		await testEnv.BICKR_D1.prepare(`UPDATE inference_graph_users SET writer_version = 1, cutover_version = 1, verified_cutover_at = ?, updated_at = ? WHERE owner_user_id = ?`).bind(now, now, owner).run();
+		const createResponse = await inferenceRoute(contextFor<typeof inferenceRoute>(new Request("https://example.com/api/me/inference-configurations", { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({
 			name: "Export model", parentId: root,
 			overrides: { model: { kind: "value", value: "test/model" }, temperature: { kind: "value", value: 0.4 } },
 			credential: { mode: "value", secret: "secret-canonical-key" },
-		});
+		}) }), { path: [] }));
+		expect(createResponse.status, await createResponse.clone().text()).toBe(201);
+		const custom = ((await createResponse.json()) as { data: { configuration: { id: string } } }).data.configuration;
 		const configs = await payload(cookie, owner, "inferenceConfigurations");
 		expect(configs.records).toContainEqual(expect.objectContaining({ id: custom.id, parentId: root, credentialMode: "value", effectiveModel: "test/model" }));
 		expect(JSON.stringify(configs)).not.toContain("secret-canonical-key");
@@ -126,6 +131,50 @@ describe("account data export", () => {
 		await testEnv.BICKR_KV.put(kvKeys.bot(own.id), JSON.stringify({ ...raw, ownerUserId: other.id }));
 		expect((await read(cookie, owner, "comments")).status).toBe(409);
 	});
+
+	it("pages prolific authors and moves past empty authors without losing content or relationships", async () => {
+		const cookie = await authCookie();
+		await seedWorld(cookie);
+		const bots = [];
+		for (const handle of ["page-a", "page-b", "page-c"]) bots.push(await createBotForTest(cookie, handle));
+		bots.sort((a, b) => a.id.localeCompare(b.id));
+		const prolific = bots[1]!;
+		const last = bots[2]!;
+		const owner = await userIdForHandle("octocat");
+		const user = await userById(testEnv.BICKR_KV, owner);
+		const forum = await createForumForTest(cookie, "paged-content");
+		let firstThread = "";
+		for (let index = 0; index < 13; index++) {
+			const thread = await createThreadForTest(forum.id, prolific.id, `Post ${index}`, `Root ${index}`);
+			firstThread ||= thread.id;
+		}
+		for (let index = 0; index < 22; index++) await createCommentForTest(firstThread, prolific.id, `Reply ${index}`);
+		await createThreadForTest(forum.id, last.id, "Last author", "Last root");
+		const now = new Date().toISOString();
+		for (const [bot, size] of [[prolific, 23], [last, 1]] as const) {
+			for (let index = 0; index < size; index++) {
+				await testEnv.BICKR_D1.batch([
+					testEnv.BICKR_D1.prepare(`INSERT INTO votes(world_id, target_type, target_id, bot_id, value, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)`)
+						.bind(prolific.homeWorldId, index % 2 ? "thread" : "comment", `target-${String(index).padStart(3, "0")}`, bot.id, now, now),
+					testEnv.BICKR_D1.prepare(`INSERT INTO follows(world_id, follower_bot_id, followed_bot_id, created_at) VALUES (?, ?, ?, ?)`)
+						.bind(prolific.homeWorldId, bot.id, `follow-${String(index).padStart(3, "0")}`, now),
+				]);
+			}
+		}
+		for (const [section, count] of [["threads", 14], ["comments", 36], ["votes", 24], ["follows", 24]] as const) {
+			const records: object[] = [];
+			const cursors = new Set<string>();
+			let cursor: string | null = null;
+			do {
+				const result = await accountExportPage(testEnv.BICKR_KV, testEnv.BICKR_D1, user, section, cursor);
+				records.push(...result.records);
+				cursor = result.nextCursor;
+				if (cursor) { expect(cursors.has(cursor)).toBe(false); cursors.add(cursor); }
+			} while (cursor);
+			expect(records).toHaveLength(count);
+			expect(new Set(records.map((record) => JSON.stringify(record))).size).toBe(count);
+		}
+	}, 20_000);
 
 	it("serves only currently referenced owned images and keeps failures non-cacheable", async () => {
 		const cookie = await authCookie();
