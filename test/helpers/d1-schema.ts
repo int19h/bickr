@@ -1,3 +1,4 @@
+import migration0069 from "../../migrations/0069_account_export_indexes.sql?raw";
 import migration0066 from "../../migrations/0066_forum_creation_intents.sql?raw";
 import migration0065 from "../../migrations/0065_bot_notification_fanout.sql?raw";
 import migration0064 from "../../migrations/0064_human_notification_fanout.sql?raw";
@@ -134,6 +135,7 @@ const migrationSql = [
 	migration0064,
 	migration0065,
 	migration0066,
+	migration0069,
 ];
 
 type D1SchemaRow = {

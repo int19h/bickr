@@ -2273,6 +2273,10 @@ export class BotRuntime {
 	}
 
 	private async handleRuntimeReadRequest(request: Request, url: URL, botId: string): Promise<Response | null> {
+		if (request.method === 'GET' && url.pathname.endsWith('/notes/export')) {
+			await this.requireOwnerOrInternal(request, botId);
+			return ok(this.notes.exportPage(normalizeNoteCursor(url.searchParams.get('cursor'))));
+		}
 		if (request.method === 'GET' && url.pathname.endsWith('/notes')) {
 			await this.requireOwnerOrInternal(request, botId);
 			return ok({ ids: this.notes.allIds() });

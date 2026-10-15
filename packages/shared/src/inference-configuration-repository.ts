@@ -986,6 +986,18 @@ export function inferenceConfigurationPathFromSnapshot(
 	return pathFromSnapshot(selected, new Map(snapshot.map((node) => [node.id, node])));
 }
 
+/** Bounded, secret-free paths for account exports and other owner reads. */
+export async function loadOwnerInferenceConfigurationPaths(
+	db: D1DatabaseLike, ownerUserId: string, configurationIds: readonly string[],
+): Promise<ReadonlyMap<string, InferenceConfigurationPath>> {
+	const snapshot = await loadBoundedInferenceAncestors(db, ownerUserId, configurationIds);
+	return new Map(configurationIds.map((id) => {
+		const selected = snapshot.byId.get(id);
+		if (!selected) throw new InferenceGraphRepositoryError("corrupt_graph", "Export inference configuration is unavailable.");
+		return [id, pathFromSnapshot(selected, snapshot.byId)];
+	}));
+}
+
 type BoundedInferenceAncestors = {
 	byId: ReadonlyMap<string, InferenceConfigurationNode>;
 	displayNames: ReadonlyMap<string, string>;

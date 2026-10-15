@@ -86,7 +86,9 @@
 		"./bot-service-issues": "./src/bot-service-issues.ts",
 		"./content-limits": "./src/content-limits.ts",
 		"./text-token-estimate": "./src/text-token-estimate.ts",
-		"./instruction-localization-migration": "./src/instruction-localization-migration.ts"
+		"./instruction-localization-migration": "./src/instruction-localization-migration.ts",
+		"./account-export": "./src/account-export.ts",
+		"./account-export-repository": "./src/account-export-repository.ts"
 	},
 	"dependencies": {
 		"mdast-util-math": "^3.0.0",

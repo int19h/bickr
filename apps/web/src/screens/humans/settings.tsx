@@ -1,3 +1,4 @@
+import { AccountExport } from "./account-export";
 import { factoryText } from '@bickr/shared/localization';
 import { automaticInstructionLocale } from '@bickr/shared/instruction-language';
 import {
@@ -179,6 +180,7 @@ export function ProfileScreen({
 					</p>
 				</div>
 				<div className="actions">
+					<AccountExport key={user.id} userId={user.id} disabled={busy || loading} />
 					<button className="btn ghost" disabled={busy} onClick={onSignOut} type="button">
 						{t.profile.signOut}
 					</button>
