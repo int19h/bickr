@@ -3315,7 +3315,7 @@ function emptyEffectiveBotContext(): EffectiveBotContext {
 	return { cache: new Map(), visiting: new Set() };
 }
 
-async function effectiveBotDocuments(
+export async function effectiveBotDocuments(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
 	bots: BotDocument[],

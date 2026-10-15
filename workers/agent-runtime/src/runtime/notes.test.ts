@@ -25,6 +25,17 @@ describe('private bot notes', () => {
 
 	afterEach(() => storage.database.close());
 
+	it('exports stored private text and factory PLAN state in bounded pages without changing it', () => {
+		notes.ensurePlan();
+		notes.write('a', 'Exact 日本語\n"quoted"', [{ kind: 'participant', entityId: 'bot-a', handle: 'alice' }]);
+		const first = notes.exportPage(null, 1);
+		expect(first.records).toEqual([expect.objectContaining({ id: 'PLAN', content: '', contentSource: 'factory' })]);
+		const second = notes.exportPage(first.nextCursor, 1);
+		expect(second.records).toEqual([expect.objectContaining({ id: 'a', content: 'Exact 日本語\n"quoted"', contentSource: 'authored', links: [{ kind: 'participant', entityId: 'bot-a', handle: 'alice' }] })]);
+		expect(second.nextCursor).toBeNull();
+		expect(notes.read(text, 'a')?.revision).toBe(0);
+	});
+
 	it('starts at the same page for omitted, null, and empty cursors and preserves later pages', () => {
 		notes.write('新規話題の参考メモ', 'Japanese reference.', []);
 		notes.write('other', 'Other reference.', []);

@@ -8349,3 +8349,22 @@ button.inference-model-name:hover { text-decoration: underline; }
 	cursor: wait;
 	opacity: .6;
 }
+
+.account-export-modal fieldset {
+	display: grid;
+	gap: 8px;
+}
+
+.account-export-modal legend {
+	font-weight: 600;
+	margin-bottom: 8px;
+}
+
+.account-export-modal ul {
+	margin: 0;
+	padding-left: 20px;
+}
+
+.account-export-modal li + li {
+	margin-top: 6px;
+}

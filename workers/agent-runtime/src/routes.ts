@@ -1,3 +1,4 @@
+import { accountExportPage, parseAccountExportSection } from "@bickr/shared/account-export-repository";
 import { sweepBootstrapLocalization } from '@bickr/shared/instruction-localization-migration';
 import { sweepRuntimeLocalization } from './runtime/instruction-localization-sweep';
 import { avatarUploadBytes } from "./avatar/upload";
@@ -808,6 +809,22 @@ export const agentRuntimeRouteTable = [
 			if (context.coordinator.ownerUserId !== userId) throw new RepositoryError('forbidden', 'Reactivation was dispatched to the wrong coordinator.', 403);
 			await reactivateInferenceGraphCutover(context.env.BICKR_D1, userId);
 			return ok({ reactivated: true, coordinator: context.objectId });
+		},
+	},
+	{
+		id: 'account-export',
+		method: 'GET',
+		pattern: /^\/users\/([^/]+)\/export$/,
+		dispatch: 'direct',
+		handler: async (context) => {
+			const userId = requireUserMatch(context.request, decodeURIComponent(context.match[1] ?? ''));
+			const user = await userById(context.env.BICKR_KV, userId);
+			return ok(await accountExportPage(
+				context.env.BICKR_KV, context.env.BICKR_D1, user,
+				parseAccountExportSection(context.url.searchParams.get('section')),
+				context.url.searchParams.get('cursor'),
+				await bickrInferenceDefaultsFromEnvironment(context.env),
+			));
 		},
 	},
 	{

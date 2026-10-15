@@ -23,6 +23,7 @@ const routeCases = [
 	{ method: 'POST', path: '/users/user-1/inference-translation-role/migrate', handlerId: 'migrate-translation-role' },
 	{ method: 'POST', path: '/users/user-1/inference-graph/rollback', handlerId: 'rollback-inference-graph' },
 	{ method: 'POST', path: '/users/user-1/inference-graph/reactivate', handlerId: 'reactivate-inference-graph' },
+	{ method: 'GET', path: '/users/user-1/export', handlerId: 'account-export' },
 	{ method: 'GET', path: '/users/user-1/inference-configurations', handlerId: 'list-inference-configurations' },
 	{ method: 'POST', path: '/users/user-1/inference-configurations', handlerId: 'create-inference-configuration' },
 	{ method: 'GET', path: '/users/user-1/inference-configurations/config-1/parent-candidates', handlerId: 'inference-configuration-parent-candidates' },

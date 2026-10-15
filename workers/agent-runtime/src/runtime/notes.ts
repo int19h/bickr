@@ -196,6 +196,23 @@ export class BotNotesStore {
 		});
 	}
 
+	/** Export stored text and the factory marker without rendering or changing notes. */
+	exportPage(cursor: string | null, limit = maxNoteListPage): { records: object[]; nextCursor: string | null } {
+		const listed = this.list(cursor, limit);
+		return {
+			records: listed.ids.map((id) => {
+				const note = this.storedNote(id);
+				if (!note) throw new RepositoryError('conflict', 'Note changed during export. Please retry.', 409);
+				return {
+					id: note.id, content: note.content, contentSource: note.source,
+					createdAt: note.createdAt, updatedAt: note.updatedAt, revision: note.revision,
+					links: note.links.map((link) => ({ kind: link.kind, entityId: link.entityId, handle: link.handle })),
+				};
+			}),
+			nextCursor: listed.nextCursor,
+		};
+	}
+
 	allIds(): string[] {
 		return this.storage.sql.exec<{ note_id: string }>(
 			'SELECT note_id FROM notes ORDER BY note_id LIMIT ?', maxNotesPerBot + 1,
