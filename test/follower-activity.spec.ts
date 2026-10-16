@@ -172,7 +172,30 @@ describe('shared follower activity publication and delivery', () => {
 		const plan = (await db.prepare(`EXPLAIN QUERY PLAN ${followerActivityProbeSql}`).bind(follower.id,'',500).all<{ detail: string }>()).results?.map(r=>r.detail).join(' ') ?? '';
 		expect(plan).toContain('MATERIALIZE raw'); expect(plan).toContain('follower_activity_actor_sequence');
 		const eventsPlan = (await db.prepare(`EXPLAIN QUERY PLAN ${followerActivityEventsSql}`).bind(JSON.stringify([{ followedBotId: actor.id,cursor:0,head:100 }]),follower.id).all<{ detail: string }>()).results?.map(r=>r.detail).join(' ') ?? '';
+		expect(eventsPlan).toContain('MATERIALIZE bounded');
+		expect(eventsPlan).toContain('SEARCH e USING INTEGER PRIMARY KEY');
 		expect(eventsPlan).toContain('follower_activity_actor_sequence');
+		expect(eventsPlan).toContain('(follower_bot_id=? AND followed_bot_id=?)');
+		expect(eventsPlan).not.toContain('SEARCH e USING INDEX follower_activity_actor_sequence');
+	});
+
+	it('keeps event-query reads bounded with a large pending backlog and unrelated follows', async () => {
+		const { actor,follower } = await fixtures(); await follow(follower.id,actor.id);
+		await db.prepare(`INSERT INTO follower_activity_events(source_ref,actor_bot_id,world_id,created_at,direct_recipient_ids_json)
+			SELECT 't/bounded-' || value, ?, ?, ?, '[]' FROM json_each(?)`)
+			.bind(actor.id,actor.homeWorldId,new Date().toISOString(),JSON.stringify(Array.from({length:1000},(_,i)=>i))).run();
+		await db.prepare(`INSERT INTO follows(world_id,follower_bot_id,followed_bot_id,created_at)
+			SELECT ?, ?, 'quiet-' || value, ? FROM json_each(?)`)
+			.bind(actor.homeWorldId,follower.id,new Date().toISOString(),JSON.stringify(Array.from({length:100},(_,i)=>i))).run();
+		await db.prepare('ANALYZE').run();
+		const high = await followerActivityHighWater(db);
+		const result = await testEnv.BICKR_D1.prepare(followerActivityEventsSql)
+			.bind(JSON.stringify([{followedBotId:actor.id,cursor:0,head:high}]),follower.id).all();
+		expect(result.results).toHaveLength(6);
+		// This is read work, not output length: the old join plan returned six
+		// while reading the whole backlog and every unrelated follow first.
+		expect(result.meta.rows_read).toBeGreaterThan(0);
+		expect(result.meta.rows_read).toBeLessThan(200);
 	});
 
 	it('lists without consuming, dismisses only the captured range, and rejects mixed foreign or future IDs atomically', async () => {
