@@ -136,10 +136,11 @@ SELECT CASE substr(e.source_ref,1,2) WHEN 'c/' THEN 'comment' ELSE 'thread' END 
 	EXISTS(SELECT 1 FROM json_each(e.direct_recipient_ids_json) WHERE value = ?2) AS direct,
 	CASE WHEN a.deleted_at IS NULL AND a.lifecycle_state = 'active' AND ao.deleted_at IS NULL AND ao.lifecycle_state = 'active'
 	 AND r.deleted_at IS NULL AND r.lifecycle_state = 'active' AND ro.deleted_at IS NULL AND ro.lifecycle_state = 'active'
-	 AND w.world_id IS NOT NULL AND w.deleted_at IS NULL AND w.lifecycle_state = 'active'
-	 AND (t.thread_id IS NULL OR (sw.world_id IS NOT NULL AND sw.deleted_at IS NULL AND sw.lifecycle_state = 'active'))
+	 AND (w.world_id IS NULL OR w.deleted_at IS NOT NULL OR w.lifecycle_state = 'active')
+	 AND (t.thread_id IS NULL OR sw.world_id IS NULL OR sw.deleted_at IS NOT NULL OR sw.lifecycle_state = 'active')
 	 THEN 1 ELSE 0 END AS active,
-	CASE WHEN t.thread_id IS NOT NULL AND t.deleted_at IS NULL AND f.forum_id IS NOT NULL AND f.deleted_at IS NULL
+	CASE WHEN w.world_id IS NOT NULL AND w.deleted_at IS NULL AND sw.world_id IS NOT NULL AND sw.deleted_at IS NULL
+	 AND t.thread_id IS NOT NULL AND t.deleted_at IS NULL AND f.forum_id IS NOT NULL AND f.deleted_at IS NULL
 	 AND (substr(e.source_ref,1,2) = 't/' OR (c.comment_id IS NOT NULL AND c.deleted_at IS NULL)) THEN 1 ELSE 0 END AS available
 FROM ranges JOIN follower_activity_events e ON e.sequence IN (
 	SELECT sequence FROM follower_activity_events WHERE actor_bot_id = json_extract(ranges.value,'$.followedBotId')
@@ -229,7 +230,7 @@ export async function pruneFollowerActivity(kv: KVNamespaceLike, db: D1DatabaseL
 	const orphaned = page.filter(row => !row.available).map(row => row.sequence);
 	const deleted = orphaned.length ? await db.batch(chunks(orphaned, 99).map(ids =>
 		db.prepare(`DELETE FROM follower_activity_events WHERE sequence IN (${ids.map(() => "?").join(",")})`).bind(...ids))) : [];
-	if (page.length < 500) await kv.delete(orphanCursorKey);
-	else await writeJson(kv, orphanCursorKey, page.at(-1)!.sequence, { expirationTtl: activityLifetimeMs / 1000 });
+	if (page.length < 500 && cursor !== null) await kv.delete(orphanCursorKey);
+	else if (page.length === 500) await writeJson(kv, orphanCursorKey, page.at(-1)!.sequence, { expirationTtl: activityLifetimeMs / 1000 });
 	return { expired: expired.meta?.changes ?? 0, orphaned: deleted.reduce((count, result) => count + (result.meta?.changes ?? 0), 0) };
 }

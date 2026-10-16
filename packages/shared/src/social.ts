@@ -5673,9 +5673,11 @@ export async function preparePendingNotificationDelivery(
 	const candidates: NotificationDeliveryCandidate[] = [
 		...stored.map(document => ({ kind: "stored" as const, document })), ...followers.notices,
 	];
-	const rank = (candidate: NotificationDeliveryCandidate): number => candidate.document.notificationType === "followed_activity"
-		? candidate.kind === "follower_activity" ? 5 : 7
-		: notificationTypePriority(candidate.document.notificationType);
+	// Keep the delivery table's direct ordering and unknown-type fallback.
+	// The odd rank places shared digests immediately before legacy activity.
+	const rank = (candidate: NotificationDeliveryCandidate): number => candidate.kind === "follower_activity"
+		? notificationDeliveryPriorities.followed_activity * 2 - 1
+		: (notificationDeliveryPriorities[candidate.document.notificationType] ?? unknownNotificationTypeDeliveryPriority) * 2;
 	candidates.sort((a, b) => rank(a) - rank(b) || b.document.createdAt.localeCompare(a.document.createdAt) || b.document.id.localeCompare(a.document.id));
 	return { candidates: candidates.slice(0, notificationDeliveryWindow), followers };
 }

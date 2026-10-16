@@ -1,5 +1,5 @@
 import { enqueueBotNotificationFanout, runBotNotificationFanout } from '@bickr/shared/bot-notification-fanout';
-import { kvKeys, type D1DatabaseLike } from '@bickr/shared/storage';
+import { kvKeys, writeJson, type D1DatabaseLike } from '@bickr/shared/storage';
 import type { NotificationDocument } from '@bickr/shared/model';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { clearKv, resetD1Schema } from './helpers/d1-schema';
@@ -134,6 +134,23 @@ describe('shared follower activity publication and delivery', () => {
 		expect(await count('follower_activity_events')).toBe(0);
 	});
 
+	it.each(['missing-event-world', 'missing-source-world', 'deleted-world', 'inactive-world'])(
+		'suppresses permanent world loss but defers temporary inactivity: %s', async state => {
+			const { forum, actor, follower } = await fixtures(); await follow(follower.id, actor.id);
+			const thread = await createThreadForTest(forum.id, actor.id, 'World lifecycle', 'body');
+			if (state === 'missing-event-world') await db.prepare("UPDATE follower_activity_events SET world_id='missing-world'").run();
+			else if (state === 'missing-source-world') await db.prepare("UPDATE threads_index SET world_id='missing-world' WHERE thread_id=?").bind(thread.id).run();
+			else if (state === 'deleted-world') await db.prepare('UPDATE worlds_index SET deleted_at=? WHERE world_id=?').bind(new Date().toISOString(),actor.homeWorldId).run();
+			else await db.prepare("UPDATE worlds_index SET lifecycle_state='deleting' WHERE world_id=?").bind(actor.homeWorldId).run();
+			const result = await selectFollowerActivity(db,follower.id);
+			expect(result.notices).toHaveLength(0);
+			expect(result.silentReceipts).toHaveLength(state === 'inactive-world' ? 0 : 1);
+			if (result.silentReceipts.length) {
+				await acknowledgeFollowerActivity(db,result.silentReceipts);
+				expect(await position(follower.id,actor.id)).toBeGreaterThan(0);
+			}
+		});
+
 	it('publishes stream and direct work transactionally and deduplicates source identity', async () => {
 		const { actor } = await fixtures();
 		const input = { actorBotId: actor.id, worldId: actor.homeWorldId, source: { type: 'thread' as const, id: 'rollback' }, createdAt: new Date().toISOString(), directRecipientIds: [] };
@@ -192,6 +209,25 @@ describe('shared follower activity publication and delivery', () => {
 		const result = await markOwnedBotNotificationsRead(kv,db,{ownerUserId:owner,botId:follower.id,notificationIds:[first.notifications[0]!.id,second.notifications[0]!.id]});
 		expect(result).toMatchObject({kind:'marked',result:{markedReadCount:2,notPendingCount:0}});
 		expect((await preparePendingNotificationDelivery(kv,db,follower.id,'')).candidates).toHaveLength(0);
+	});
+
+	it('keeps direct delivery priority and ranks digests before legacy and unknown stored types', async () => {
+		const { forum,actor,follower } = await fixtures(); await follow(follower.id,actor.id);
+		await createThreadForTest(forum.id,actor.id,'Current shared activity','body');
+		const types = ['follow','vote','followed_activity',...Array.from({length:22},()=> 'future_kind')];
+		for (const [index,type] of types.entries()) {
+			const id = `rank-${index}`;
+			const createdAt = new Date(Date.now() + index * 1000).toISOString();
+			await db.prepare("INSERT INTO notifications(notification_id,world_id,bot_id,type,status,message,created_at) VALUES(?,?,?,?,'pending','Notice',?)")
+				.bind(id,actor.homeWorldId,follower.id,type,createdAt).run();
+			await writeJson(kv,kvKeys.notification(follower.id,id),{id,type:'notification',schemaVersion:2,revision:1,
+				botId:follower.id,worldId:actor.homeWorldId,notificationType:type,status:'pending',message:{text:'Notice',lang:null},createdAt,updatedAt:createdAt});
+		}
+		const result = await preparePendingNotificationDelivery(kv,db,follower.id,'');
+		expect(result.candidates).toHaveLength(20);
+		expect(result.candidates.slice(0,4).map(item=>item.document.notificationType)).toEqual(['follow','vote','followed_activity','followed_activity']);
+		expect(result.candidates[2]!.kind).toBe('follower_activity');
+		expect(result.candidates[3]!.kind).toBe('stored');
 	});
 
 	it('prunes expired events without resetting the stream counter', async () => {

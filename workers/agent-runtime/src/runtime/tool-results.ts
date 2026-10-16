@@ -305,7 +305,7 @@ export function providerCheckNotificationsResultWithInclusions(
 		.filter((event): event is StoredNotificationEvent => Boolean(event));
 	const providerEvents: ProviderBudgetEvent[] = coalescedCommentNoticeGroups(mergedProviderNotificationEventGroups(storedEvents)).map(group =>
 		group.event.kind === 'follower_activity_digest'
-			? { kind: 'follower_digest', notificationIds: group.notificationIds, payload: providerFollowerDigest(group.event, group.deliveryReasons) }
+			? { kind: 'follower_digest', notificationIds: group.notificationIds, payload: providerFollowerDigest(text, group.event, group.deliveryReasons) }
 			: { kind: 'ordinary', notificationIds: group.notificationIds,
 				payload: runtimeRecord(providerSafeJsonValue(text, providerNotificationEvent(group.event, group.deliveryReasons, context))) },
 	);
@@ -565,7 +565,7 @@ function providerNotificationEvent(
 		deliveryReasons: orderedProviderDeliveryReasons(deliveryReasons),
 	};
 	switch (event.kind) {
-		case 'follower_activity_digest': return providerFollowerDigest(event, deliveryReasons);
+		case 'follower_activity_digest': return providerFollowerDigest(context.text, event, deliveryReasons);
 		case 'bootstrap':
 			if (event.bootstrapVersion === 1) return { ...header, message: event.composedMessage.text };
 			// The bootstrap message is Bickr's own words to the participant, not
@@ -639,7 +639,7 @@ function providerNotificationEvent(
 }
 
 function providerFollowerDigest(
-	event: Extract<NotificationEvent, { kind: 'follower_activity_digest' }>, deliveryReasons: string[],
+	text: BotText, event: Extract<NotificationEvent, { kind: 'follower_activity_digest' }>, deliveryReasons: string[],
 ): ProviderFollowerDigestPayload {
 	return {
 		type: event.type,
@@ -647,7 +647,7 @@ function providerFollowerDigest(
 		actor: providerNotificationProfileRef(event.actor),
 		olderActivityOmitted: event.olderActivityOmitted,
 		activities: event.activities.map(item => ({
-			kind: item.kind, createdAt: item.createdAt, threadRef: providerThreadRef(item.thread.id), title: stringValue(item.thread.title),
+			kind: item.kind, when: providerRelativeTime(text, item.createdAt), threadRef: providerThreadRef(item.thread.id), title: stringValue(item.thread.title),
 			...(item.kind === 'comment' ? { commentRef: providerCommentRef(item.comment.id) } : {}),
 		})),
 	};

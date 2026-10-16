@@ -1,7 +1,7 @@
 import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
 import { botText } from '../localization';
 const text = botText('en');
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { LanguageTag, NotificationEvent, RequiredLocalizedText } from "@bickr/shared/model";
 import type { ToolResultEnvelope } from "@bickr/shared/tool-results";
 import {
@@ -980,6 +980,16 @@ describe('bounded follower summaries', () => {
 		olderActivityOmitted:false,
 		activities:Array.from({length:5},(_,i)=>({kind:'thread' as const,createdAt:'2026-10-16T00:00:00.000Z',thread:{id:`thread-${i}`,title:en('A long title '.repeat(100))}})),
 	});
+	it('formats activity time with the same relative vocabulary as other provider events', () => {
+		const clock = vi.spyOn(Date,'now').mockReturnValue(Date.parse('2026-10-16T00:05:00.000Z'));
+		try {
+			const result = providerCheckNotificationsResultWithInclusions([digest()],readingParticipant());
+			const events = result.payload.events as Array<{activities:Record<string,unknown>[]} >;
+			expect(events[0]!.activities[0]).toMatchObject({when:text.format('time.minute.past',{count:5})});
+			expect(events[0]!.activities[0]).not.toHaveProperty('createdAt');
+		} finally { clock.mockRestore(); }
+	});
+
 	it('shrinks recent items with explicit omissions and keeps the one interval inclusion ID', () => {
 		const result = providerCheckNotificationsResultWithInclusions([digest()],readingParticipant(),200);
 		expect(result.includedEventIds).toEqual(['digest']);
