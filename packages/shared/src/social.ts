@@ -1,3 +1,5 @@
+import { encodeOwnedNotificationCursor, parseOwnedNotificationCursor, selectFollowerActivity, parseFollowerActivityReceiptId,
+	followerActivityHighWater, followerActivityAcknowledgement, type NotificationDeliveryCandidate, type FollowerActivitySelection, type FollowerActivityNotice, type FollowerActivityReceipt } from "./follower-activity";
 import { participantListLimits } from './content-limits';
 import { botServiceIssue } from './bot-service-issues';
 import { refreshDueThreadCommentCounts } from "./thread-hot-refresh";
@@ -5661,6 +5663,25 @@ export async function listPendingNotifications(
 	return delivered;
 }
 
+/** Prepare both storage kinds without consuming a shared activity interval. */
+export async function preparePendingNotificationDelivery(
+	kv: KVNamespaceLike, db: D1DatabaseLike, botId: string, after: string,
+): Promise<{ candidates: NotificationDeliveryCandidate[]; followers: FollowerActivitySelection }> {
+	const [stored, followers] = await Promise.all([
+		listPendingNotifications(kv, db, botId), selectFollowerActivity(db, botId, { after }),
+	]);
+	const candidates: NotificationDeliveryCandidate[] = [
+		...stored.map(document => ({ kind: "stored" as const, document })), ...followers.notices,
+	];
+	// Keep the delivery table's direct ordering and unknown-type fallback.
+	// The odd rank places shared digests immediately before legacy activity.
+	const rank = (candidate: NotificationDeliveryCandidate): number => candidate.kind === "follower_activity"
+		? notificationDeliveryPriorities.followed_activity * 2 - 1
+		: (notificationDeliveryPriorities[candidate.document.notificationType] ?? unknownNotificationTypeDeliveryPriority) * 2;
+	candidates.sort((a, b) => rank(a) - rank(b) || b.document.createdAt.localeCompare(a.document.createdAt) || b.document.id.localeCompare(a.document.id));
+	return { candidates: candidates.slice(0, notificationDeliveryWindow), followers };
+}
+
 async function selectPendingNotificationRows(
 	db: D1DatabaseLike,
 	botId: string,
@@ -5769,13 +5790,15 @@ export type OwnedBotPendingNotification = {
 	createdAt: string;
 	message: LocalizedText;
 	sourceObjectId?: string;
-	/** Absent only on documents old enough to predate stored events. */
-	event?: StoredNotificationEvent;
-};
+} & (
+	| { kind: "stored"; event?: StoredNotificationEvent }
+	| { kind: "follower_activity"; event: FollowerActivityNotice["document"]["event"] }
+);
 
 export type OwnedBotPendingNotificationPage = {
+	nextCursor?: string;
 	botId: string;
-	/** Newest first: `createdAt` descending, then `id` descending. */
+	/** Stored notices newest first, then shared digests in followed-profile ID order. */
 	notifications: OwnedBotPendingNotification[];
 	/**
 	 * Pending rows this call passed over because their KV document was missing.
@@ -5783,7 +5806,7 @@ export type OwnedBotPendingNotificationPage = {
 	 * not, because it must never change what the participant will be handed.
 	 */
 	unavailableCount: number;
-	/** True when older pending rows exist beyond what this call examined. */
+	/** Another bounded page remains; that page can be empty. */
 	hasMore: boolean;
 };
 
@@ -5828,49 +5851,49 @@ export type OwnedBotNotificationMarkReadOutcome =
 export async function listOwnedBotPendingNotifications(
 	kv: KVNamespaceLike,
 	db: D1DatabaseLike,
-	input: { ownerUserId: string; botId: string; limit?: number },
+	input: { ownerUserId: string; botId: string; limit?: number; cursor?: string },
 ): Promise<OwnedBotPendingNotificationPage> {
 	const limit = ownedBotNotificationListLimit(input.limit);
+	const pageCursor = parseOwnedNotificationCursor(input.cursor);
 	await requireNotificationOwner(kv, db, input.ownerUserId, input.botId);
 	const notifications: OwnedBotPendingNotification[] = [];
 	let unavailableCount = 0;
 	let scanned = 0;
-	let cursor: { createdAt: string; id: string } | null = null;
+	let cursor = pageCursor.kind === "stored" ? pageCursor.after : null;
 	let hasMore = false;
-	for (let round = 0; round < ownedBotNotificationListRounds && notifications.length < limit; round += 1) {
-		const budget = Math.min(limit - notifications.length, ownedBotNotificationListScanLimit - scanned);
-		if (budget <= 0) {
-			// The scan cap stopped the walk. The previous round saw an older row, so
-			// hasMore is already true.
-			break;
-		}
-		// One row past the budget tells whether anything older remains without a
-		// separate COUNT.
-		const rows = await selectRecentPendingNotificationRows(db, input.botId, budget + 1, cursor);
-		hasMore = rows.length > budget;
-		const page = rows.slice(0, budget);
-		if (page.length === 0) {
-			break;
-		}
-		scanned += page.length;
-		const documents = await Promise.all(
-			page.map((row) => readJson<NotificationDocument>(kv, kvKeys.notification(input.botId, row.id))),
-		);
-		for (const document of documents) {
-			// The same test the loop applies before handing a document to a visit.
-			if (document && !document.deletedAt) {
-				notifications.push(ownedBotPendingNotification(document));
-			} else {
-				unavailableCount += 1;
+	if (pageCursor.kind === "stored") {
+		for (let round = 0; round < ownedBotNotificationListRounds && notifications.length < limit; round += 1) {
+			const budget = Math.min(limit - notifications.length, ownedBotNotificationListScanLimit - scanned);
+			if (budget <= 0) break;
+			const rows = await selectRecentPendingNotificationRows(db, input.botId, budget + 1, cursor);
+			hasMore = rows.length > budget;
+			const page = rows.slice(0, budget);
+			if (!page.length) break;
+			scanned += page.length;
+			const documents = await Promise.all(page.map(row => readJson<NotificationDocument>(kv, kvKeys.notification(input.botId, row.id))));
+			for (const document of documents) {
+				if (document && !document.deletedAt) notifications.push(ownedBotPendingNotification(document));
+				else unavailableCount += 1;
 			}
+			const last = page.at(-1)!;
+			cursor = { createdAt: last.createdAt, id: last.id };
+			if (!hasMore) break;
 		}
-		const last = page[page.length - 1]!;
-		cursor = { createdAt: last.createdAt, id: last.id };
-		if (!hasMore) {
-			break;
-		}
+		if (hasMore) return { botId: input.botId, notifications, unavailableCount, hasMore: true,
+			nextCursor: encodeOwnedNotificationCursor({ kind: "stored", after: cursor }) };
 	}
-	return { botId: input.botId, notifications, unavailableCount, hasMore };
+	if (notifications.length === limit) {
+		const anyFollow = await db.prepare('SELECT followed_bot_id FROM follows WHERE follower_bot_id = ? LIMIT 1').bind(input.botId).first();
+		return { botId: input.botId, notifications, unavailableCount, hasMore: anyFollow !== null,
+			...(anyFollow ? { nextCursor: encodeOwnedNotificationCursor({ kind: "followers", after: "" }) } : {}) };
+	}
+	const followers = await selectFollowerActivity(db, input.botId, {
+		after: pageCursor.kind === "followers" ? pageCursor.after : "", probeLimit: 50, actorLimit: limit - notifications.length,
+	});
+	notifications.push(...followers.notices.map(notice => ownedFollowerActivityNotification(notice)));
+	return { botId: input.botId, notifications, unavailableCount, hasMore: followers.hasMore,
+		...(followers.hasMore ? { nextCursor: encodeOwnedNotificationCursor({ kind: "followers", after: followers.nextAfter }) } : {}),
+	};
 }
 
 /**
@@ -5908,6 +5931,21 @@ export async function markOwnedBotNotificationsRead(
 	if (ownerRejection) {
 		return ownerRejection;
 	}
+	let receipts: FollowerActivityReceipt[];
+	try { receipts = ids.flatMap(id => { const receipt = parseFollowerActivityReceiptId(id); return receipt ? [receipt] : []; }); }
+	catch (error) {
+		if (!(error instanceof InputError)) throw error;
+		return { kind: "rejected", error: "bad_request", status: 400, message: error.message };
+	}
+	if (receipts.some(receipt => receipt.followerBotId !== input.botId)) {
+		return { kind: "rejected", error: "bad_request", status: 400, message: "Every notification ID must belong to the named bot." };
+	}
+	if (receipts.length) {
+		const highWater = await followerActivityHighWater(db);
+		if (receipts.some(receipt => receipt.throughSequence > highWater)) {
+			return { kind: "rejected", error: "bad_request", status: 400, message: "Follower activity endpoint exceeds the published sequence." };
+		}
+	}
 	const placeholders = ids.map(() => "?").join(", ");
 	const foreign = await db
 		.prepare(
@@ -5920,15 +5958,13 @@ export async function markOwnedBotNotificationsRead(
 	if ((foreign?.count ?? 0) > 0) {
 		return { kind: "rejected", error: "bad_request", status: 400, message: "Every notification ID must belong to the named bot." };
 	}
-	const deleted = await db
-		.prepare(
-			`DELETE FROM notifications
-			 WHERE bot_id = ? AND status = 'pending' AND notification_id IN (${placeholders})
-			 RETURNING notification_id AS id`,
-		)
-		.bind(input.botId, ...ids)
-		.all<{ id: string }>();
-	const deletedIds = (deleted.results ?? []).map((row) => row.id);
+	const results = await db.batch([
+		db.prepare(`DELETE FROM notifications WHERE bot_id = ? AND status = 'pending' AND notification_id IN (${placeholders}) RETURNING notification_id AS id`)
+			.bind(input.botId, ...ids),
+		...receipts.map(receipt => followerActivityAcknowledgement(db, receipt)),
+	]);
+	const deletedIds = (results[0]?.results ?? []).map(row => (row as { id: string }).id);
+	const acknowledged = results.slice(1).reduce((count, result) => count + (result.meta?.changes ?? 0), 0);
 	// Best effort, as on delivery: a document whose row is gone is invisible to
 	// every reader and expires on its TTL.
 	await deleteNotificationKvDocuments(
@@ -5940,8 +5976,8 @@ export async function markOwnedBotNotificationsRead(
 		kind: "marked",
 		result: {
 			botId: input.botId,
-			markedReadCount: deletedIds.length,
-			notPendingCount: ids.length - deletedIds.length,
+			markedReadCount: deletedIds.length + acknowledged,
+			notPendingCount: ids.length - deletedIds.length - acknowledged,
 		},
 	};
 }
@@ -6023,9 +6059,10 @@ async function selectRecentPendingNotificationRows(
 	return result.results ?? [];
 }
 
-function ownedBotPendingNotification(document: NotificationDocument): OwnedBotPendingNotification {
+function ownedBotPendingNotification(document: NotificationDocument): Extract<OwnedBotPendingNotification, { kind: "stored" }> {
 	const event = storedNotificationEvent(document.event);
 	return {
+		kind: "stored",
 		id: document.id,
 		botId: document.botId,
 		worldId: document.worldId,
@@ -6035,6 +6072,10 @@ function ownedBotPendingNotification(document: NotificationDocument): OwnedBotPe
 		...(document.sourceObjectId ? { sourceObjectId: document.sourceObjectId } : {}),
 		...(event ? { event } : {}),
 	};
+}
+
+function ownedFollowerActivityNotification(notice: FollowerActivityNotice): OwnedBotPendingNotification {
+	return { ...ownedBotPendingNotification(notice.document), kind: "follower_activity", event: notice.document.event };
 }
 
 export async function pruneExpiredNotifications(

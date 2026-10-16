@@ -1,5 +1,6 @@
 /// <reference path="../../../test/env.d.ts" />
 /// <reference path="../../../apps/web/worker-configuration.d.ts" />
+import { selectFollowerActivity } from "./follower-activity";
 import { describe, expect, it, vi } from "vitest";
 import { env } from "cloudflare:test";
 import { resetD1Schema } from "../../../test/helpers/d1-schema";
@@ -595,10 +596,7 @@ describe("notification payloads per recipient class", () => {
 		return match;
 	};
 
-	/** What the KV document costs, which is what the retention numbers are made of. */
-	const storedBytes = (notification: NotificationDocument): number => JSON.stringify(notification).length;
-
-	it("gives a new thread's followers the root post and its mentions only the mentioning comment", async () => {
+	it("stores follower thread references once and gives mentions the mentioning comment", async () => {
 		const { db, kv, bot } = await payloadFixture({ followerBotIds: ["bot_follower"] });
 
 		const thread = await createThread(kv, db, {
@@ -608,23 +606,11 @@ describe("notification payloads per recipient class", () => {
 			body: en("Root body for u/reader."),
 		}, now);
 
-		const follower = await storedNotificationFor(kv, "bot_follower");
-		expect(follower.notificationType).toBe("followed_activity");
-		expect(follower.event).toEqual({
-			kind: "thread_post",
-			type: "thread_created",
-			id: follower.id,
-			createdAt: now,
-			deliveryReasons: ["followed_profile_activity"],
-			sourceObjectId: formatThreadRef(thread.id),
-			actor: { id: bot.id, username: "u/alice", displayName: en("Alice") },
-			thread: {
-				id: thread.id,
-				title: en("Root payloads"),
-				author: { id: bot.id, username: "u/alice", displayName: en("Alice") },
-				text: en("Root body for u/reader."),
-			},
-		});
+		const follower = (await selectFollowerActivity(db,"bot_follower",{now})).notices[0]!.document;
+		expect(follower.event).toMatchObject({kind:"follower_activity_digest",type:"followed_activity",
+			actor:{username:"u/alice"},activities:[{kind:"thread",thread:{id:thread.id,title:en("Root payloads")}}]});
+		expect(JSON.stringify(follower.event)).not.toContain("Root body for u/reader.");
+		expect((await storedNotifications(kv)).some(notification=>notification.botId==="bot_follower")).toBe(false);
 
 		// A mention of a new thread's root comment is a mention, not a thread post:
 		// the same references, with the root comment as the mentioning comment.
@@ -700,19 +686,13 @@ describe("notification payloads per recipient class", () => {
 		// The parent is not the root, so the root post is not part of the payload.
 		expect(JSON.stringify(parentAuthor.event)).not.toContain("Root body nobody replied to.");
 
-		const follower = await storedNotificationFor(kv, "bot_follower");
+		const follower = (await selectFollowerActivity(db,"bot_follower",{now})).notices[0]!.document;
 		expect(follower.notificationType).toBe("followed_activity");
-		expect(follower.event).toEqual({
-			kind: "comment_notice",
-			type: "comment_created",
-			id: follower.id,
-			createdAt: now,
-			deliveryReasons: ["followed_profile_activity"],
-			sourceObjectId: formatCommentRef(reply.id),
-			actor: { id: bot.id, username: "u/alice", displayName: en("Alice") },
-			thread: { id: thread.id, title: en("Reply payloads") },
-			comment: { id: reply.id, threadId: thread.id, parentCommentId: parent.id },
-		});
+		expect(follower.event).toMatchObject({kind:"follower_activity_digest",type:"followed_activity",
+			actor:{username:"u/alice"},activities:[{kind:"comment",thread:{id:thread.id,title:en("Reply payloads")},
+				comment:{id:reply.id,threadId:thread.id,parentCommentId:parent.id}}]});
+		expect(JSON.stringify(follower.event)).not.toContain("Reply body.");
+
 	});
 
 	it("carries the root post in a reply exactly when the parent is the root comment", async () => {
@@ -752,35 +732,21 @@ describe("notification payloads per recipient class", () => {
 		const merged = await storedNotificationFor(kv, "bot_reader");
 		expect(merged.notificationType).toBe("mention");
 		expect(merged.event?.kind).toBe("mention");
-		expect(merged.event?.deliveryReasons).toEqual(["mention", "followed_profile_activity"]);
+		expect(merged.event?.deliveryReasons).toEqual(["mention"]);
+		expect((await selectFollowerActivity(db,"bot_reader",{now})).notices).toHaveLength(0);
 		expect(localizedTextString(merged.message)).toBe(`Alice mentioned you in "Merged classes".`);
 	});
 
-	it("keeps follower notices under a kilobyte no matter how long the content is", async () => {
-		const { db, kv, bot } = await payloadFixture({ followerBotIds: ["bot_follower"] });
-		const longBody = "L".repeat(6_000);
-		const thread = await createThread(kv, db, {
-			forumId: "frm_main",
-			authorBotId: bot.id,
-			title: en("Long content"),
-			body: en(longBody),
-		}, now);
-		const postNotice = await storedNotificationFor(kv, "bot_follower");
-		kv.puts.length = 0;
-
-		await createComment(kv, db, {
-			threadId: thread.id,
-			authorBotId: bot.id,
-			body: en(longBody),
-		}, now, { thread });
-		const commentNotice = await storedNotificationFor(kv, "bot_follower");
-
-		// A new thread is the one payload that pays for the body; every comment
-		// after it is a reference and a title, which is what makes the steady-state
-		// notification store small.
-		expect(storedBytes(postNotice)).toBeGreaterThan(6_000);
-		expect(commentNotice.event?.kind).toBe("comment_notice");
-		expect(storedBytes(commentNotice)).toBeLessThan(1_024);
+	it("stores follower references under a kilobyte without copying long bodies", async () => {
+		const { db,kv,bot } = await payloadFixture({followerBotIds:["bot_follower"]});
+		const longBody = "L".repeat(6000);
+		const thread = await createThread(kv,db,{forumId:"frm_main",authorBotId:bot.id,title:en("Long content"),body:en(longBody)},now);
+		await createComment(kv,db,{threadId:thread.id,authorBotId:bot.id,body:en(longBody)},now,{thread});
+		const rows = (await db.prepare("SELECT * FROM follower_activity_events ORDER BY sequence").all()).results ?? [];
+		expect(rows).toHaveLength(2);
+		for (const row of rows) {expect(JSON.stringify(row).length).toBeLessThan(1024);expect(JSON.stringify(row)).not.toContain(longBody);}
+		expect(await storedNotifications(kv)).toHaveLength(0);
+		expect(JSON.stringify((await selectFollowerActivity(db,"bot_follower",{now})).notices)).not.toContain(longBody);
 	});
 });
 
@@ -906,10 +872,10 @@ describe("bot notification retention", () => {
 			notificationKeys.map((key) => kv.get(key, { type: "json" }) as Promise<NotificationDocument | null>),
 		);
 
-		expect(notifications).toHaveLength(2);
-		expect(new Set(notifications.map((notification) => notification?.botId))).toEqual(new Set(["bot_personal", "bot_follower"]));
+		expect(notifications).toHaveLength(1);
+		expect(new Set(notifications.map((notification) => notification?.botId))).toEqual(new Set(["bot_personal"]));
 		const personal = notifications.find((notification) => notification?.botId === "bot_personal");
-		const follower = notifications.find((notification) => notification?.botId === "bot_follower");
+		const shared = await selectFollowerActivity(db,"bot_follower",{now});
 		expect(personal).toMatchObject({
 			notificationType: "personal_forum_post",
 			sourceObjectId: formatThreadRef(thread.id),
@@ -918,20 +884,11 @@ describe("bot notification retention", () => {
 			},
 			event: {
 				type: "thread_created",
-				deliveryReasons: ["personal_forum_post", "followed_profile_activity"],
+				deliveryReasons: ["personal_forum_post"],
 			},
 		});
-		expect(follower).toMatchObject({
-			notificationType: "followed_activity",
-			sourceObjectId: formatThreadRef(thread.id),
-			message: {
-				text: `Alice created "Batch notifications".`,
-			},
-			event: {
-				type: "thread_created",
-				deliveryReasons: ["followed_profile_activity"],
-			},
-		});
+		expect(shared.notices).toHaveLength(1);
+		expect(shared.notices[0]!.document.event).toMatchObject({kind:"follower_activity_digest",activities:[{kind:"thread",thread:{id:thread.id}}]});
 		for (const key of notificationKeys) {
 			const index = kv.puts.indexOf(key);
 			expect(kv.putOptions[index]).toEqual({
@@ -941,7 +898,7 @@ describe("bot notification retention", () => {
 		const notificationBatches = db.batches.filter((queries) => queries.some((query) => query.includes("INSERT OR IGNORE INTO notifications")));
 		expect(notificationBatches).toHaveLength(1);
 		const published = await db.prepare("SELECT bot_id AS botId FROM notifications ORDER BY bot_id").all<{ botId: string }>();
-		expect(published.results?.map((row) => row.botId)).toEqual(["bot_follower", "bot_personal"]);
+		expect(published.results?.map((row) => row.botId)).toEqual(["bot_personal"]);
 	});
 });
 

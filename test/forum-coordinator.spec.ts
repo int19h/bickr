@@ -1,3 +1,5 @@
+import { preparePendingNotificationDelivery } from "@bickr/shared/social";
+import { acknowledgeFollowerActivity } from "@bickr/shared/follower-activity";
 import { runHumanNotificationFanout } from "@bickr/shared/human-notification-fanout";
 import { attachTestRunLiveness } from "./helpers/index-harness";
 import {
@@ -3202,22 +3204,21 @@ describe("Forum coordinator", () => {
 			reason: "Target posts stopped being relevant.",
 		});
 
-		const followerNotifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, follower.id);
+		const preparedFollower = await preparePendingNotificationDelivery(testEnv.BICKR_KV,testEnv.BICKR_D1,follower.id,"");
+		const followerNotifications = preparedFollower.candidates.map(candidate=>candidate.document);
 		expect(followerNotifications.some((notification) => notification.sourceObjectId === oldThread.id)).toBe(false);
 		const events = followerNotifications.map((notification) => notification.event).filter(Boolean);
 		// A followed participant's votes and follows are not the follower's news:
 		// only its posts and comments are, and those two payloads differ.
-		expect(events.map((event) => event?.kind).sort()).toEqual(["reply", "thread_post", "vote"]);
+		expect(events.map((event) => event?.kind).sort()).toEqual(["follower_activity_digest", "reply", "vote"]);
 		expect(events.map((event) => event?.type)).not.toEqual(
 			expect.arrayContaining(["profile_followed", "profile_unfollowed"]),
 		);
-		const followedPost = events.find((event) => event?.kind === "thread_post");
-		expect(followedPost).toMatchObject({
-			type: "thread_created",
-			deliveryReasons: ["followed_profile_activity"],
-			actor: { username: `u/${actor.handle}` },
-			thread: { title: lt("Actor thread"), author: { username: `u/${actor.handle}` }, text: lt("Actor root body.") },
-		});
+		const followedPost = events.find((event) => event?.kind === "follower_activity_digest");
+		expect(followedPost).toMatchObject({type:"followed_activity",deliveryReasons:["followed_profile_activity"],
+			actor:{username:`u/${actor.handle}`},activities:[{kind:"thread",thread:{title:lt("Actor thread")}}]});
+		expect(JSON.stringify(followedPost)).not.toContain("Actor root body.");
+
 		// The vote reached the follower because the vote was on its own comment,
 		// and it carries references and a value rather than any body text.
 		const voteEvent = events.find((event) => event?.kind === "vote");
@@ -3239,7 +3240,8 @@ describe("Forum coordinator", () => {
 		expect(followerLoopInput.input.notifications.map((event) => event.type)).not.toEqual(
 			expect.arrayContaining(["profile_followed", "profile_unfollowed"]),
 		);
-		await deleteDeliveredNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, followerNotifications);
+		await deleteDeliveredNotifications(testEnv.BICKR_KV,testEnv.BICKR_D1,preparedFollower.candidates.filter(candidate=>candidate.kind==="stored").map(candidate=>candidate.document));
+		await acknowledgeFollowerActivity(testEnv.BICKR_D1,preparedFollower.candidates.flatMap(candidate=>candidate.kind==="follower_activity"?[candidate.receipt]:[]));
 		expect(await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, follower.id)).toHaveLength(0);
 
 		const targetNotifications = await listPendingNotifications(testEnv.BICKR_KV, testEnv.BICKR_D1, target.id);
@@ -3316,7 +3318,7 @@ describe("Forum coordinator", () => {
 		expect(replyNotifications[0]?.event).toMatchObject({
 			kind: "reply",
 			type: "comment_created",
-			deliveryReasons: ["direct_reply", "followed_profile_activity"],
+			deliveryReasons: ["direct_reply"],
 			thread: { id: targetThread.id, title: lt("Target thread") },
 			comment: { id: reply.id, text: lt("Actor reply.") },
 			replyTo: { id: parent.id, text: lt("Reader parent.") },

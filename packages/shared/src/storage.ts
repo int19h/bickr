@@ -61,6 +61,9 @@ export const kvKeys = {
 	// One bounded cursor per orphan rotation, naming the arm it stopped in and
 	// its keyset position there. Retained only while a rotation is incomplete:
 	// the sweep deletes it on the pass that reaches the end of its last arm.
+	// One shared-event scan position. Deleted on a complete pass, with a
+	// 14-day TTL if a rotation stops before reaching the end.
+	followerActivitySourceSweepCursor: "v1:maintenance:follower-activity-source-cursor",
 	notificationSourceSweepCursor: "v1:maintenance:notification-source-sweep-cursor",
 	humanNotificationSourceSweepCursor: "v1:maintenance:human-notification-source-sweep-cursor",
 	// One cursor carrying the daily BotRuntime retention sweep's position in

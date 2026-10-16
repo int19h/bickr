@@ -48,6 +48,22 @@ describe('run finalization fault injection', () => {
 		expect(h.storage.database.prepare("SELECT payload_json FROM events WHERE type = 'tick_completed'").get()).toMatchObject({ payload_json: expect.stringContaining('provider_usage_export') });
 		h.storage.database.close();
 	});
+	it('releases the active slot and bounds a stalled follower acknowledgement', async () => {
+		vi.useFakeTimers();
+		const h = await harness();
+		h.storage.sql.exec("INSERT INTO runtime_state (key,value_json) VALUES ('follower_activity_receipts_v1',?)",
+			JSON.stringify([{kind:'follower_activity',version:1,followerBotId:'bot',followedBotId:'writer',fromSequence:0,throughSequence:7}]));
+		const batch = vi.fn(() => new Promise(() => {})).mockRejectedValueOnce(new Error('Injected initial D1 failure'));
+		h.runtime.env.BICKR_D1.batch = batch;
+		const run = h.run();
+		await vi.advanceTimersByTimeAsync(1);
+		expect(h.runtime.activeRunId).toBeNull(); expect(batch).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(cleanupTimeoutMs);
+		expect(await run).toMatchObject({ status:'completed' });
+		expect(h.storage.sql.exec("SELECT value_json FROM runtime_state WHERE key='follower_activity_receipts_v1'").toArray()).toHaveLength(1);
+		h.storage.database.close();
+	});
+
 	it('persists terminal success while release hangs and retries without rewriting the outcome', async () => {
 		vi.useFakeTimers();
 		const h = await harness();

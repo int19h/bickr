@@ -1,3 +1,4 @@
+import { selectFollowerActivity } from "@bickr/shared/follower-activity";
 import { beforeEach, expect, it } from "vitest";
 import { runBotNotificationFanout, type BotNotificationFanout } from "@bickr/shared/bot-notification-fanout";
 import { clearKv, resetD1Schema } from "./helpers/d1-schema";
@@ -20,6 +21,19 @@ async function audience(count: number) {
 	await testEnv.BICKR_D1.prepare(`INSERT INTO follows (world_id, follower_bot_id, followed_bot_id, created_at)
 		SELECT home_world_id, bot_id, ?, created_at FROM bots_index WHERE bot_id >= 'audience-' AND bot_id < 'audience.'`).bind(author.id).run();
 	const thread = await createThreadForTest(forum.id, author.id, "Bounded delivery", "Payload");
+	// Seed an old writer's durable job. New writers publish a shared event and
+	// never create this follower audience, but old staged plans still can.
+	const actor = { id: author.id, username: `u/${author.handle}`, displayName: requiredLt(author.displayName) };
+	const legacy: BotNotificationFanout = { id: `legacy-${thread.id}`, actorBotId: author.id, worldId: author.homeWorldId,
+		createdAt: new Date().toISOString(), direct: [], follower: { botId: author.id, template: 0 },
+		templates: [{ notificationType: "followed_activity", sourceObjectId: `t/${thread.id}`, message: requiredLt("Legacy activity"),
+			payload: { kind: "thread_post", type: "thread_created", actor,
+				thread: { id: thread.id, title: requiredLt("Bounded delivery"), author: actor, text: requiredLt("Payload") } } }],
+	};
+	await testEnv.BICKR_D1.prepare(`INSERT INTO bot_notification_fanouts(event_id,payload_json,after_bot_id,created_at,next_attempt_at) VALUES (?,?,'',?,?)`)
+		.bind(legacy.id,JSON.stringify(legacy),legacy.createdAt,legacy.createdAt).run();
+	await runBotNotificationFanout(testEnv.BICKR_KV,testEnv.BICKR_D1,new Date().toISOString());
+	await testEnv.BICKR_D1.prepare('UPDATE bot_notification_fanouts SET next_attempt_at=created_at').run();
 	return { author, thread };
 }
 
@@ -74,6 +88,8 @@ it("advances bounded raw pages without sending an older event to later followers
 
 it("does not select a staged audience before its event is published", async () => {
 	const { author, thread } = await audience(125);
+	await testEnv.BICKR_D1.prepare("DELETE FROM bot_notification_fanouts").run();
+	await testEnv.BICKR_D1.prepare("DELETE FROM notifications").run();
 	await testEnv.BICKR_D1.prepare(`DELETE FROM bot_notification_fanouts`).run();
 	await testEnv.BICKR_D1.prepare(`DELETE FROM notifications`).run();
 	const newcomer = "aaa-before-publication";
@@ -99,10 +115,11 @@ it("does not select a staged audience before its event is published", async () =
 	expect(response.status).toBe(201);
 	expect(joined).toBe(true);
 	expect(notificationWrites).toBe(0);
-	expect(await testEnv.BICKR_D1.prepare(`SELECT after_bot_id AS cursor FROM bot_notification_fanouts`).first()).toEqual({ cursor: "" });
-	const result = await runBotNotificationFanout(testEnv.BICKR_KV, testEnv.BICKR_D1, new Date(Date.now() + 60_000).toISOString());
-	expect(result.candidates).toBe(50);
-	expect(await testEnv.BICKR_D1.prepare(`SELECT bot_id FROM notifications WHERE bot_id = ?`).bind(newcomer).first()).toEqual({ bot_id: newcomer });
+	expect(await testEnv.BICKR_D1.prepare(`SELECT event_id FROM bot_notification_fanouts LIMIT 1`).first()).toBeNull();
+	const selected = await selectFollowerActivity(testEnv.BICKR_D1,newcomer);
+	expect(selected.notices).toHaveLength(1);
+	expect(selected.notices[0]!.document.event).toMatchObject({kind:"follower_activity_digest",activities:[{kind:"comment"}]});
+	expect(await testEnv.BICKR_D1.prepare(`SELECT bot_id FROM notifications WHERE bot_id = ?`).bind(newcomer).first()).toBeNull();
 });
 
 

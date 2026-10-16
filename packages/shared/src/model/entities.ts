@@ -735,6 +735,11 @@ export type NotificationCommentPostRef = NotificationCommentRef & {
 	text: LocalizedText;
 };
 
+/** Reference-only follower activity; it does not claim that a body was read. */
+export type FollowerActivityItem =
+	| { kind: "thread"; createdAt: string; thread: NotificationThreadRef }
+	| { kind: "comment"; createdAt: string; thread: NotificationThreadRef; comment: NotificationCommentRef };
+
 /**
  * The payload of a stored notification, built per recipient class rather than
  * per action: one new comment yields a full reply payload for the parent's
@@ -747,6 +752,13 @@ export type NotificationCommentPostRef = NotificationCommentRef & {
  * thread or a new comment while carrying the same references.
  */
 export type NotificationEventPayload =
+	| {
+			kind: "follower_activity_digest";
+			type: "followed_activity";
+			actor: NotificationProfileRef;
+			activities: FollowerActivityItem[];
+			olderActivityOmitted: boolean;
+		}
 	| {
 			kind: "bootstrap";
 			type: "bootstrap";
@@ -866,6 +878,7 @@ export type LegacyNotificationEvent = {
 export type StoredNotificationEvent = NotificationEvent | ComposedBootstrapNotificationEvent | LegacyNotificationEvent;
 
 const notificationEventKinds: readonly string[] = [
+	"follower_activity_digest",
 	"bootstrap",
 	"thread_post",
 	"reply",
