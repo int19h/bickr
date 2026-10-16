@@ -129,7 +129,19 @@ type ActivityRow = {
 // Each json_each range is one of at most 20 (runtime) or 50 (owner) actors.
 // Source eligibility is computed AFTER the six-row indexed scan, so deletions
 // and direct duplicates cannot turn the LIMIT into an unbounded search.
-export const followerActivityEventsSql = `WITH ranges AS (SELECT value FROM json_each(?1))
+// Materialization fences off eligibility joins. CROSS JOIN fixes the outer loop:
+// SQLite otherwise starts with every follow and scans each actor's whole backlog
+// before testing membership in the six-row subquery. Output LIMITs alone do not
+// bound reads. The remaining CROSS JOINs keep every eligibility check after
+// that bounded set, independent of planner statistics.
+export const followerActivityEventsSql = `WITH ranges AS (SELECT value FROM json_each(?1)),
+bounded AS MATERIALIZED (
+	SELECT e.* FROM ranges CROSS JOIN follower_activity_events e
+	WHERE e.sequence IN (
+		SELECT sequence FROM follower_activity_events WHERE actor_bot_id = json_extract(ranges.value,'$.followedBotId')
+		 AND sequence > json_extract(ranges.value,'$.cursor') AND sequence <= json_extract(ranges.value,'$.head')
+		 ORDER BY sequence DESC LIMIT 6)
+)
 SELECT CASE substr(e.source_ref,1,2) WHEN 'c/' THEN 'comment' ELSE 'thread' END AS kind, e.actor_bot_id AS actorId, e.sequence, e.created_at AS createdAt, e.source_ref AS sourceRef,
 	e.world_id AS worldId, a.handle, a.display_name AS displayName, a.display_name_lang AS displayNameLang,
 	t.thread_id AS threadId, t.title, t.title_lang AS titleLang, c.comment_id AS commentId, c.parent_comment_id AS parentId,
@@ -142,13 +154,9 @@ SELECT CASE substr(e.source_ref,1,2) WHEN 'c/' THEN 'comment' ELSE 'thread' END 
 	CASE WHEN w.world_id IS NOT NULL AND w.deleted_at IS NULL AND sw.world_id IS NOT NULL AND sw.deleted_at IS NULL
 	 AND t.thread_id IS NOT NULL AND t.deleted_at IS NULL AND f.forum_id IS NOT NULL AND f.deleted_at IS NULL
 	 AND (substr(e.source_ref,1,2) = 't/' OR (c.comment_id IS NOT NULL AND c.deleted_at IS NULL)) THEN 1 ELSE 0 END AS available
-FROM ranges JOIN follower_activity_events e ON e.sequence IN (
-	SELECT sequence FROM follower_activity_events WHERE actor_bot_id = json_extract(ranges.value,'$.followedBotId')
-	 AND sequence > json_extract(ranges.value,'$.cursor') AND sequence <= json_extract(ranges.value,'$.head')
-	 ORDER BY sequence DESC LIMIT 6)
-JOIN follows edge ON edge.follower_bot_id = ?2 AND edge.followed_bot_id = e.actor_bot_id AND e.sequence > edge.activity_delivered_sequence
-JOIN bots_index a ON a.bot_id = e.actor_bot_id JOIN users_index ao ON ao.user_id = a.owner_user_id
-JOIN bots_index r ON r.bot_id = ?2 JOIN users_index ro ON ro.user_id = r.owner_user_id
+FROM bounded e CROSS JOIN follows edge ON edge.follower_bot_id = ?2 AND edge.followed_bot_id = e.actor_bot_id AND e.sequence > edge.activity_delivered_sequence
+CROSS JOIN bots_index a ON a.bot_id = e.actor_bot_id CROSS JOIN users_index ao ON ao.user_id = a.owner_user_id
+CROSS JOIN bots_index r ON r.bot_id = ?2 CROSS JOIN users_index ro ON ro.user_id = r.owner_user_id
 LEFT JOIN worlds_index w ON w.world_id = e.world_id
 LEFT JOIN comments_index c ON substr(e.source_ref,1,2) = 'c/' AND c.comment_id = substr(e.source_ref,3)
 LEFT JOIN threads_index t ON t.thread_id = CASE WHEN substr(e.source_ref,1,2) = 't/' THEN substr(e.source_ref,3) ELSE c.thread_id END
