@@ -177,6 +177,10 @@ describe('shared follower activity publication and delivery', () => {
 		expect(eventsPlan).toContain('follower_activity_actor_sequence');
 		expect(eventsPlan).toContain('(follower_bot_id=? AND followed_bot_id=?)');
 		expect(eventsPlan).not.toContain('SEARCH e USING INDEX follower_activity_actor_sequence');
+		for (const alias of ['edge','a','ao','r','ro']) expect(eventsPlan).not.toContain(`SCAN ${alias} `);
+		const boundedScan = eventsPlan.indexOf('SCAN e');
+		expect(boundedScan).toBeGreaterThan(-1);
+		for (const alias of ['edge','a','ao','r','ro']) expect(eventsPlan.indexOf(`SEARCH ${alias} `)).toBeGreaterThan(boundedScan);
 	});
 
 	it('keeps event-query reads bounded with a large pending backlog and unrelated follows', async () => {

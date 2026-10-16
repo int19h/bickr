@@ -132,7 +132,8 @@ type ActivityRow = {
 // Materialization fences off eligibility joins. CROSS JOIN fixes the outer loop:
 // SQLite otherwise starts with every follow and scans each actor's whole backlog
 // before testing membership in the six-row subquery. Output LIMITs alone do not
-// bound reads. The second CROSS JOIN makes each follow recheck a point lookup.
+// bound reads. The remaining CROSS JOINs keep every eligibility check after
+// that bounded set, independent of planner statistics.
 export const followerActivityEventsSql = `WITH ranges AS (SELECT value FROM json_each(?1)),
 bounded AS MATERIALIZED (
 	SELECT e.* FROM ranges CROSS JOIN follower_activity_events e
@@ -154,8 +155,8 @@ SELECT CASE substr(e.source_ref,1,2) WHEN 'c/' THEN 'comment' ELSE 'thread' END 
 	 AND t.thread_id IS NOT NULL AND t.deleted_at IS NULL AND f.forum_id IS NOT NULL AND f.deleted_at IS NULL
 	 AND (substr(e.source_ref,1,2) = 't/' OR (c.comment_id IS NOT NULL AND c.deleted_at IS NULL)) THEN 1 ELSE 0 END AS available
 FROM bounded e CROSS JOIN follows edge ON edge.follower_bot_id = ?2 AND edge.followed_bot_id = e.actor_bot_id AND e.sequence > edge.activity_delivered_sequence
-JOIN bots_index a ON a.bot_id = e.actor_bot_id JOIN users_index ao ON ao.user_id = a.owner_user_id
-JOIN bots_index r ON r.bot_id = ?2 JOIN users_index ro ON ro.user_id = r.owner_user_id
+CROSS JOIN bots_index a ON a.bot_id = e.actor_bot_id CROSS JOIN users_index ao ON ao.user_id = a.owner_user_id
+CROSS JOIN bots_index r ON r.bot_id = ?2 CROSS JOIN users_index ro ON ro.user_id = r.owner_user_id
 LEFT JOIN worlds_index w ON w.world_id = e.world_id
 LEFT JOIN comments_index c ON substr(e.source_ref,1,2) = 'c/' AND c.comment_id = substr(e.source_ref,3)
 LEFT JOIN threads_index t ON t.thread_id = CASE WHEN substr(e.source_ref,1,2) = 't/' THEN substr(e.source_ref,3) ELSE c.thread_id END
