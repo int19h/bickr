@@ -12,11 +12,14 @@ export const onRequestGet: PagesFunction<AppEnv, "botId"> = async ({ env, reques
 	try {
 		const user = await requireCompleteUser(env, request);
 		const botId = Array.isArray(params.botId) ? params.botId[0] : params.botId;
-		const limit = new URL(request.url).searchParams.get("limit");
+		const searchParams = new URL(request.url).searchParams;
+		const limit = searchParams.get("limit");
+		const cursor = searchParams.get("cursor");
 		return ok(await listOwnedBotPendingNotifications(env.BICKR_KV, env.BICKR_D1, {
 			ownerUserId: user.id,
 			botId,
 			...(limit === null ? {} : { limit: parseLimit(limit) }),
+			...(cursor === null ? {} : { cursor }),
 		}));
 	} catch (error) {
 		return pageErrorResponse(error);

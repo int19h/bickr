@@ -10,6 +10,7 @@
 		"./api": "./src/api.ts",
 		"./avatar-prompts": "./src/avatar-prompts.ts",
 		"./avatar-storage": "./src/avatar-storage.ts",
+		"./follower-activity": "./src/follower-activity.ts",
 		"./bot-notification-fanout": "./src/bot-notification-fanout.ts",
 		"./bootstrap": "./src/bootstrap.ts",
 		"./cloudflare": "./src/cloudflare.ts",

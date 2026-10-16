@@ -303,10 +303,12 @@ export function providerCheckNotificationsResultWithInclusions(
 	const storedEvents = events
 		.map(storedNotificationEvent)
 		.filter((event): event is StoredNotificationEvent => Boolean(event));
-	const providerEvents = coalescedCommentNoticeGroups(mergedProviderNotificationEventGroups(storedEvents)).map((group) => ({
-		notificationIds: group.notificationIds,
-		payload: runtimeRecord(providerSafeJsonValue(text, providerNotificationEvent(group.event, group.deliveryReasons, context))),
-	}));
+	const providerEvents: ProviderBudgetEvent[] = coalescedCommentNoticeGroups(mergedProviderNotificationEventGroups(storedEvents)).map(group =>
+		group.event.kind === 'follower_activity_digest'
+			? { kind: 'follower_digest', notificationIds: group.notificationIds, payload: providerFollowerDigest(group.event, group.deliveryReasons) }
+			: { kind: 'ordinary', notificationIds: group.notificationIds,
+				payload: runtimeRecord(providerSafeJsonValue(text, providerNotificationEvent(group.event, group.deliveryReasons, context))) },
+	);
 	if (tokenBudget === undefined) {
 		return {
 			payload: providerNotificationResultPayload(text, providerEvents.map((event) => event.payload)),
@@ -354,26 +356,42 @@ function providerNotificationResultContext(text: BotText, pruned: Pick<ProviderN
  * merged or coalesced group holds several notification ids, and every one of
  * them stays pending when its group is dropped.
  */
+type ProviderFollowerDigestPayload = Record<string, unknown> & {
+	activities: Record<string, unknown>[];
+	olderActivityOmitted: boolean;
+};
+type ProviderBudgetEvent = { notificationIds: string[] } & (
+	| { kind: 'ordinary'; payload: Record<string, unknown> }
+	| { kind: 'follower_digest'; payload: ProviderFollowerDigestPayload }
+);
+
 function pruneProviderNotificationEventsForBudget(
 	text: BotText,
-	events: Array<{ notificationIds: string[]; payload: Record<string, unknown> }>,
+	events: ProviderBudgetEvent[],
 	tokenBudget: number,
 ): ProviderNotificationPruneResult {
 	const budget = Math.max(1, Math.floor(tokenBudget));
-	const prunedEvents = events.map((event) => ({
-		notificationIds: [...event.notificationIds],
-		payload: JSON.parse(JSON.stringify(event.payload)) as Record<string, unknown>,
-	}));
+	const prunedEvents: ProviderBudgetEvent[] = events.map(event => event.kind === 'follower_digest'
+		? { ...event, payload: { ...event.payload, activities: event.payload.activities.map(item => ({ ...item })) } }
+		: { ...event, payload: JSON.parse(JSON.stringify(event.payload)) as Record<string, unknown> });
 	let omittedNotificationCount = 0;
 	let tokenEstimate = providerNotificationTokenEstimate(
 		text,		prunedEvents.map((event) => event.payload),
 		{ omittedNotificationCount },
 	);
 	while (prunedEvents.length > 0 && tokenEstimate > budget) {
-		const dropped = prunedEvents.pop();
-		// A group with no ids is an event whose document carried none; it is still
-		// one notification the recipient did not get.
-		omittedNotificationCount += Math.max(1, dropped?.notificationIds.length ?? 1);
+		const last = prunedEvents.at(-1)!;
+		if (last.kind === 'follower_digest' && last.payload.activities.length > 1) {
+			last.payload.activities.pop();
+			last.payload.olderActivityOmitted = true;
+		} else if (last.kind === 'follower_digest' && !last.payload.titlesOmitted) {
+			for (const activity of last.payload.activities) delete activity.title;
+			last.payload.titlesOmitted = true;
+		} else {
+			const dropped = prunedEvents.pop();
+			// A group with no IDs still represents one omitted notification.
+			omittedNotificationCount += Math.max(1, dropped?.notificationIds.length ?? 1);
+		}
 		tokenEstimate = providerNotificationTokenEstimate(
 		text,			prunedEvents.map((event) => event.payload),
 			{ omittedNotificationCount },
@@ -412,6 +430,7 @@ function providerNotificationEventMergesBySource(event: StoredNotificationEvent)
 		case 'mention':
 		case 'comment_notice':
 			return true;
+		case 'follower_activity_digest':
 		case 'bootstrap':
 		case 'vote':
 		case 'follow':
@@ -546,6 +565,7 @@ function providerNotificationEvent(
 		deliveryReasons: orderedProviderDeliveryReasons(deliveryReasons),
 	};
 	switch (event.kind) {
+		case 'follower_activity_digest': return providerFollowerDigest(event, deliveryReasons);
 		case 'bootstrap':
 			if (event.bootstrapVersion === 1) return { ...header, message: event.composedMessage.text };
 			// The bootstrap message is Bickr's own words to the participant, not
@@ -616,6 +636,21 @@ function providerNotificationEvent(
 		case 'legacy':
 			return providerLegacyNotificationEvent(event, header, context);
 	}
+}
+
+function providerFollowerDigest(
+	event: Extract<NotificationEvent, { kind: 'follower_activity_digest' }>, deliveryReasons: string[],
+): ProviderFollowerDigestPayload {
+	return {
+		type: event.type,
+		deliveryReasons: orderedProviderDeliveryReasons(deliveryReasons),
+		actor: providerNotificationProfileRef(event.actor),
+		olderActivityOmitted: event.olderActivityOmitted,
+		activities: event.activities.map(item => ({
+			kind: item.kind, createdAt: item.createdAt, threadRef: providerThreadRef(item.thread.id), title: stringValue(item.thread.title),
+			...(item.kind === 'comment' ? { commentRef: providerCommentRef(item.comment.id) } : {}),
+		})),
+	};
 }
 
 /**

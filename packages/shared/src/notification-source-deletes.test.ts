@@ -76,7 +76,8 @@ describe("notificationSourceDeleteStatements", () => {
 	it("binds the formatted ref against the bot table and the raw id against both human arms", () => {
 		const statements = statementsFor([{ type: "comment", id: "abc23456" }]);
 
-		expect(statements).toHaveLength(3);
+		expect(statements).toHaveLength(4);
+		expect(statements.find(statement => statement.query.includes("DELETE FROM follower_activity_events"))?.bindings).toEqual(["c/abc23456"]);
 		expect(botStatements(statements).map((statement) => statement.bindings)).toEqual([["c/abc23456"]]);
 		// The formatted ref exists only in the bot table; binding it here would
 		// silently match nothing.
@@ -131,7 +132,7 @@ describe("notificationSourceDeleteStatements", () => {
 			{ type: "comment", id: "def23456" },
 		]);
 
-		expect(statements).toHaveLength(3);
+		expect(statements).toHaveLength(4);
 		expect(botStatements(statements)[0]?.bindings).toEqual(["c/abc23456", "c/def23456"]);
 		expect(humanStatements(statements, "source")[0]?.bindings).toEqual(["comment", "abc23456", "def23456"]);
 	});
@@ -202,7 +203,7 @@ describe("threadIndexScopedNotificationDeleteStatements", () => {
 		const db = new RecordingD1();
 		const statements = threadIndexScopedNotificationDeleteStatements(db, "thr23456");
 
-		expect(statements).toHaveLength(6);
+		expect(statements).toHaveLength(8);
 		const bot = botStatements(db.statements);
 		// The index arm covers both stored shapes in one statement, and the thread's
 		// own arm is the ordinary builder.

@@ -972,3 +972,25 @@ describe("providerSafeJsonValue", () => {
 		});
 	});
 });
+
+describe('bounded follower summaries', () => {
+	const digest = (): NotificationEvent => ({
+		kind:'follower_activity_digest',type:'followed_activity',id:'digest',createdAt:'2026-10-16T00:00:00.000Z',
+		deliveryReasons:['followed_profile_activity'],actor:{id:'author',username:'u/author',displayName:en('Author')},
+		olderActivityOmitted:false,
+		activities:Array.from({length:5},(_,i)=>({kind:'thread' as const,createdAt:'2026-10-16T00:00:00.000Z',thread:{id:`thread-${i}`,title:en('A long title '.repeat(100))}})),
+	});
+	it('shrinks recent items with explicit omissions and keeps the one interval inclusion ID', () => {
+		const result = providerCheckNotificationsResultWithInclusions([digest()],readingParticipant(),200);
+		expect(result.includedEventIds).toEqual(['digest']);
+		const events = result.payload.events as Array<Record<string,unknown>>;
+		expect(events[0]).toMatchObject({olderActivityOmitted:true,titlesOmitted:true,actor:'u/author'});
+		expect(events[0]!.activities).toHaveLength(1);
+		expect(JSON.stringify(result.payload)).not.toContain('A long title');
+	});
+	it('leaves a fully omitted interval unacknowledged and does not mutate the source event', () => {
+		const input = digest(); const original = JSON.stringify(input);
+		const result = providerCheckNotificationsResultWithInclusions([input],readingParticipant(),1);
+		expect(result.includedEventIds).toHaveLength(0); expect(JSON.stringify(input)).toBe(original);
+	});
+});

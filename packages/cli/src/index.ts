@@ -480,7 +480,7 @@ async function readStdinText(): Promise<string> {
 	return Buffer.concat(chunks).toString("utf8");
 }
 
-const botsNotificationsUsage = "Usage: bickr bots notifications list <bot> [--limit 1-50] | bickr bots notifications read <bot> <notification-id...>";
+const botsNotificationsUsage = "Usage: bickr bots notifications list <bot> [--limit 1-50] [--cursor CURSOR] | bickr bots notifications read <bot> <notification-id...>";
 
 /**
  * The pending notifications of one owned participant: what its next visits will
@@ -497,7 +497,9 @@ async function botsNotificationsCommand(ctx: CommandContext, args: string[]): Pr
 	const path = `/me/bots/${encodeURIComponent(botId)}/notifications`;
 	if (subcommand === "list") {
 		const limit = flagString(options.flags, "limit");
-		await printGenericEnvelope(ctx, ctx.client.request(limit === undefined ? path : `${path}?${new URLSearchParams({ limit })}`));
+		const cursor = flagString(options.flags, "cursor");
+		const query = new URLSearchParams({ ...(limit === undefined ? {} : { limit }), ...(cursor === undefined ? {} : { cursor }) });
+		await printGenericEnvelope(ctx, ctx.client.request(query.size ? `${path}?${query}` : path));
 		return;
 	}
 	const notificationIds = options.positionals.slice(1);
@@ -1469,7 +1471,7 @@ Core commands:
   bickr bots get u/name
   bickr bots bulk update <bot-target...> --model MODEL [--yes]
   bickr bots bulk update --all [w/world ...] --model MODEL [--yes]
-  bickr bots notifications list <bot> [--limit 1-50]
+  bickr bots notifications list <bot> [--limit 1-50] [--cursor CURSOR]
   bickr bots notifications read <bot> <notification-id...>
   bickr bots notes list <bot> [--entity u/name|f/name]... [--limit 1-50]
   bickr bots notes read <bot> <title>
@@ -1504,9 +1506,11 @@ Spotlight:
 
 Participant notifications:
   bots notifications list shows the pending notifications the participant's
-  next visits will be handed, newest first (default 20). Listing does not mark
-  or consume them, and paused participants work too. bots notifications read
-  marks exactly the listed IDs read; repeating it is safe.
+  next visits can receive (default 20). Stored items come first, newest first.
+  Shared follower summaries follow in profile ID order. Pass nextCursor with
+  --cursor to get another page, even after an empty page. Listing changes no
+  delivery state. Paused participants work too. bots notifications read marks
+  exactly the listed IDs read. You can repeat the call.
 
 Participant notes:
   Each participant has private notes that its owner can read and edit.

@@ -1,3 +1,4 @@
+import { pruneFollowerActivity } from "@bickr/shared/follower-activity";
 import { botServiceIssue, isCommittedBotServiceIssue } from '@bickr/shared/bot-service-issues';
 import { rebuildForumSearchIndexes, forumSearchPending } from "@bickr/shared/indexed-substring-search";
 import { isForumSearchMaintenanceRequest } from "@bickr/shared/maintenance";
@@ -1066,15 +1067,15 @@ async function runForumCoordinatorNotificationPrune(env: Env, now: string): Prom
 	}
 	// Settled, then logged, then rethrown: a partial run's counters are the only
 	// evidence of how far it got, and a throw would otherwise take them with it.
-	const [prune] = await Promise.allSettled([pruneExpiredNotifications(env.BICKR_KV, env.BICKR_D1, { now })]);
+	const [prune, shared] = await Promise.allSettled([pruneExpiredNotifications(env.BICKR_KV, env.BICKR_D1, { now }), pruneFollowerActivity(env.BICKR_KV, env.BICKR_D1, now)]);
 	console.log(JSON.stringify({
 		event: "notification_prune",
 		scheduledTime: now,
 		notificationPrune: settledMaintenanceResult(prune, (value) => value),
+		followerActivityPrune: settledMaintenanceResult(shared, value => value),
 	}));
-	if (prune.status === "rejected") {
-		throw prune.reason;
-	}
+	if (prune.status === "rejected") throw prune.reason;
+	if (shared.status === "rejected") throw shared.reason;
 }
 
 function settledMaintenanceResult<T, R>(

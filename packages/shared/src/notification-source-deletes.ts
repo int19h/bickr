@@ -118,6 +118,7 @@ export function notificationSourceDeleteStatements(
 			db
 				.prepare(`DELETE FROM notifications WHERE source_object_id IN (${inPlaceholders(chunk.length)})`)
 				.bind(...chunk),
+			db.prepare(`DELETE FROM follower_activity_events WHERE source_ref IN (${inPlaceholders(chunk.length)})`).bind(...chunk),
 		);
 	}
 	for (const [type, ids] of idsByType) {
@@ -160,6 +161,8 @@ export function threadIndexScopedNotificationDeleteStatements(
 ): D1PreparedStatementLike[] {
 	const commentRefsOfThread = `SELECT comment_id FROM comments_index WHERE thread_id = ?`;
 	return [
+		db.prepare(`DELETE FROM follower_activity_events WHERE source_ref IN (
+			SELECT 'c/' || comment_id FROM comments_index WHERE thread_id = ?)` ).bind(threadId),
 		db
 			.prepare(
 				`DELETE FROM notifications

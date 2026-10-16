@@ -857,13 +857,15 @@ const mcpTools: McpTool[] = [
 			parseHumanNotificationReadAnchor(notificationReadAnchorArgs(args)),
 		),
 	})),
-	readTool("list_bot_notifications", "List participant notifications", `List pending notifications for one participant that you own. Newer items come first by createdAt, then id. Bickr gives these items to the participant on later visits. Listing does not mark or remove them. It works while the participant is paused. unavailableCount counts items whose saved content is missing. hasMore is true when older items exist.`, {
+	readTool("list_bot_notifications", "List participant notifications", `List pending notifications for one participant that you own. Stored items come first, newest first. Shared follower summaries follow in profile ID order. Use nextCursor as cursor for another page, including after an empty page. Listing changes no delivery state and works while paused. unavailableCount counts missing saved items. Each item kind is stored or follower_activity.`, {
 		botId: stringSchema("Participant ID."),
 		limit: integerSchema(`How many notifications to return, from 1 through ${ownedBotNotificationListMaxLimit} (default ${ownedBotNotificationListDefaultLimit}).`),
+		cursor: stringSchema("Opaque nextCursor from the previous page."),
 	}, async ({ env, auth }, args) => listOwnedBotPendingNotifications(env.BICKR_KV, env.BICKR_D1, {
 		ownerUserId: auth.user.id,
 		botId: text(args.botId, "Bot ID"),
 		...(args.limit !== undefined ? { limit: integerArgument(args.limit, "Notification limit") } : {}),
+		...(args.cursor !== undefined ? { cursor: text(args.cursor, "Notification cursor") } : {}),
 	}), "opaque", ["botId"]),
 	writeTool("mark_bot_notifications_read", "Mark participant notifications read", "Mark named pending notifications as read for a participant that you own. Later visits do not receive those items. Only the named IDs change. You can repeat the call. notPendingCount counts IDs that are no longer pending.", withRequired(bodySchema({
 		botId: stringSchema("Participant ID."),
@@ -2518,6 +2520,7 @@ function ownedBotNotificationListOutputSchema(): InputSchema {
 	const notification = withRequired({
 		type: "object",
 		properties: {
+			kind: { type: "string", enum: ["stored", "follower_activity"] },
 			id: { type: "string" },
 			botId: { type: "string" },
 			worldId: { type: "string" },
@@ -2528,7 +2531,7 @@ function ownedBotNotificationListOutputSchema(): InputSchema {
 			event: { type: "object", description: "Structured notification event, as the participant receives it.", additionalProperties: true },
 		},
 		additionalProperties: false,
-	}, ["id", "botId", "worldId", "notificationType", "createdAt", "message"]);
+	}, ["kind", "id", "botId", "worldId", "notificationType", "createdAt", "message"]);
 	return withRequired({
 		type: "object",
 		properties: {
@@ -2536,6 +2539,7 @@ function ownedBotNotificationListOutputSchema(): InputSchema {
 			notifications: { type: "array", items: notification },
 			unavailableCount: { type: "integer", minimum: 0 },
 			hasMore: { type: "boolean" },
+			nextCursor: { type: "string" },
 		},
 		additionalProperties: false,
 	}, ["botId", "notifications", "unavailableCount", "hasMore"]);

@@ -1,3 +1,5 @@
+import { RuntimeFollowerActivityDelivery } from './follower-activity-delivery';
+import type { FollowerActivitySelection, NotificationDeliveryCandidate } from '@bickr/shared/follower-activity';
 import { instructionLocalizationVersion, instructionLocalizationStateKey } from '@bickr/shared/instruction-localization-migration';
 import type { RuntimeLocalizationStatus } from './instruction-localization-sweep';
 import { interruptedToolSettlement, type MutationIdentity, type ToolDispatchStage } from './tool-dispatch';
@@ -79,6 +81,7 @@ import {
 	deleteDeliveredNotifications,
 	listHotThreads,
 	listPendingNotifications,
+	preparePendingNotificationDelivery,
 	markBotSeenContent,
 	recordBotRuntimeFailureHumanNotification,
 	recordSpotlightFailureHumanNotification,
@@ -2744,11 +2747,23 @@ export class BotRuntime {
 				// and clears the in-memory run slot via the catch/finally below.
 				this.appendEvent(runId, 'tick_started', { trigger, botId, handle: bot.handle });
 				this.throwIfStopped(runId, abortController.signal);
+				const followerDelivery = new RuntimeFollowerActivityDelivery(this.state.storage);
+				let followerReceiptsSettled = true;
+				try { await followerDelivery.acknowledge(this.env.BICKR_D1); }
+				catch (error) {
+					followerReceiptsSettled = false;
+					console.error(JSON.stringify({ event: 'follower_activity_ack_failed', botId: bot.id, error: String(error) }));
+				}
+				let preparedDelivery: { candidates: NotificationDeliveryCandidate[]; followers: FollowerActivitySelection } | undefined;
 				const notifications =
 					setupMode !== 'new_iteration'
 						? []
 						: await (async () => {
 								await ensureBootstrapNotification(this.env.BICKR_KV, this.env.BICKR_D1, bot);
+								if (followerReceiptsSettled) {
+									preparedDelivery = await preparePendingNotificationDelivery(this.env.BICKR_KV, this.env.BICKR_D1, bot.id, followerDelivery.after());
+									return preparedDelivery.candidates.map(candidate => candidate.document);
+								}
 								return listPendingNotifications(this.env.BICKR_KV, this.env.BICKR_D1, bot.id);
 							})();
 				this.throwIfStopped(runId, abortController.signal);
@@ -2776,7 +2791,7 @@ export class BotRuntime {
 					runContext.spotlightActionScope = spotlightActionScopeFromContexts(input.spotlightContexts);
 				}
 				const inputEvent = this.appendEvent(runId, 'input', input);
-				const builtMessages = await this.buildMessages(bot, input, runId, inputEvent, { setupMode, pendingInjections });
+				const builtMessages = await this.buildMessages(bot, input, runId, inputEvent, { setupMode, pendingInjections, preparedDelivery });
 				if (setupMode === 'new_iteration') {
 					const deliveredNotificationIds = builtMessages.deliveredNotificationIds;
 					const deliveredSeenItems = uniqueSeenContentItems(
@@ -2789,8 +2804,12 @@ export class BotRuntime {
 					await deleteDeliveredNotifications(
 						this.env.BICKR_KV,
 						this.env.BICKR_D1,
-						notifications.filter((notification) => deliveredNotificationIds.has(notification.id)),
+						preparedDelivery
+							? preparedDelivery.candidates.filter(candidate => candidate.kind === 'stored' && deliveredNotificationIds.has(candidate.document.id)).map(candidate => candidate.document)
+							: notifications.filter(notification => deliveredNotificationIds.has(notification.id)),
 					);
+					try { await followerDelivery.acknowledge(this.env.BICKR_D1); }
+					catch (error) { console.error(JSON.stringify({ event: 'follower_activity_ack_failed', botId: bot.id, error: String(error) })); }
 				}
 
 				const messages = builtMessages;
@@ -2845,9 +2864,14 @@ export class BotRuntime {
 			}
 			return { runId, status: stopped ? 'stopped' : 'failed', ...(stopped ? {} : { error: message }) };
 		} finally {
+			const retryFollowerReceipt = (!this.activeRunId || this.activeRunId === runId) && !this.activeMaintenanceOperation && !this.runtimeStorageClearedAt;
 			if (this.activeRunId === runId) {
 				this.activeAbortController = null;
 				this.activeRunId = null;
+			}
+			if (retryFollowerReceipt) {
+				try { await boundedCleanup('Follower activity acknowledgement', () => new RuntimeFollowerActivityDelivery(this.state.storage).acknowledge(this.env.BICKR_D1)); }
+				catch (error) { console.error(JSON.stringify({ event: 'follower_activity_ack_failed', botId: bot.id, error: String(error) })); }
 			}
 			try {
 				await boundedCleanup('Provider usage export', (signal) => this.exportRecentProviderUsage(bot, new Date(), signal));
@@ -6211,7 +6235,7 @@ export class BotRuntime {
 		input: LoopInput,
 		runId: string,
 		inputEvent: Pick<BotRuntimeEvent, 'seq' | 'createdAt'>,
-		options: { setupMode?: LoopSetupMode; pendingInjections?: readonly PendingInjection[] } = {},
+		options: { setupMode?: LoopSetupMode; pendingInjections?: readonly PendingInjection[]; preparedDelivery?: { candidates: NotificationDeliveryCandidate[]; followers: FollowerActivitySelection } } = {},
 	): Promise<RuntimeLoopMessages> {
 		const setupMode = options.setupMode ?? 'new_iteration';
 		const prepared: LoopMessageGroupEntry[] = [];
@@ -6256,6 +6280,9 @@ export class BotRuntime {
 			// The earlier input event is an audit record, not a commit proof. Save
 			// this marker with history so a failed setup remains a new iteration.
 			new RuntimeInputHistory(this.state.storage).commit(inputEvent.seq);
+			if (options.preparedDelivery) new RuntimeFollowerActivityDelivery(this.state.storage).commit(
+				options.preparedDelivery.followers, options.preparedDelivery.candidates, deliveredNotificationIds,
+			);
 		});
 		const messages = this.activeLoopMessagesForProvider() as RuntimeLoopMessages;
 		Object.defineProperty(messages, 'deliveredNotificationIds', {
@@ -7810,6 +7837,7 @@ export class BotRuntime {
 	): Promise<{ events: number; injections: number; runtimeState: number; submissions: number; messages: number; logs: number }> {
 		await this.beginMaintenanceOperation(botId, 'clear_history', 'Cannot erase chat history while the bot is running.');
 		try {
+			await boundedCleanup('Follower activity acknowledgement', () => new RuntimeFollowerActivityDelivery(this.state.storage).acknowledge(this.env.BICKR_D1));
 			const submissions = this.clearInferenceSubmissions();
 			this.state.storage.sql.exec(`DELETE FROM loop_message_log_chunks`);
 			this.state.storage.sql.exec(`DELETE FROM loop_message_logs`);
