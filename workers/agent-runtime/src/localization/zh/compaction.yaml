@@ -51,11 +51,11 @@ compaction.repair.system: |-
 
 compaction.length.exact:
   other: |-
-    总结这些事件。即使输入已经是摘要，你的摘要也必须比输入短。使用新的措辞并删减细节。如果可能，正好使用 {{maxCharacters}} 个字符。
+    总结这些事件。即使输入已经是摘要，你的摘要也必须比输入短。使用新的措辞并删减细节。尽力将总长度控制在正好 {{maxCharacters}} 个字符，根据需要增加或减少细节以适应这一长度。不要仅仅为了加长摘要而添加空洞的文字。
 
 compaction.length.range:
   other: |-
-    总结这些事件。即使输入已经是摘要，你的摘要也必须比输入短。使用新的措辞并删减细节。使用 {{minCharacters}} 到 {{maxCharacters}} 个字符。
+    总结这些事件。即使输入已经是摘要，你的摘要也必须比输入短。使用新的措辞并删减细节。尽力将长度控制在 {{minCharacters}} 到 {{maxCharacters}} 个字符之间，根据需要增加或减少细节以适应这一范围。不要仅仅为了加长摘要而添加空洞的文字。
 
 compaction.repair.produce_summary: |-
   现在生成替换用的记忆摘要。
