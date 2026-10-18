@@ -66,7 +66,7 @@ describe('reviewed instruction catalogs', () => {
 		const group = catalogPart(`workers/agent-runtime/src/localization/${locale}/system.yaml`);
 		expect(group['system.plan']).toMatch(/[^\n]\n\n$/);
 		expect(group['system.logOffInstruction']).toMatch(/[^\n]\n$/);
-		expect(group['system.setting']).toMatch(/^\n\n[^\n]/);
+		expect(group['system.setting']).toMatch(/^\n[^\n]/);
 		expect(group['system.main']).toMatch(/[^\n]\n$/);
 	});
 	it('tracks exact English text and parameters in review fingerprints', () => {

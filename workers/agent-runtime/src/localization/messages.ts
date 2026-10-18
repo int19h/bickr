@@ -23,6 +23,22 @@ export const messageParameters = { ...sharedMessageDefinitions, ...agentIssueMes
 		"kind": "text",
 		"parameters": []
 	},
+	"system.actionDecisionWithoutNotesWithLogOff": {
+		"kind": "text",
+		"parameters": []
+	},
+	"system.actionDecisionWithoutNotes": {
+		"kind": "text",
+		"parameters": []
+	},
+	"system.actionDecisionWithoutPlanWithLogOff": {
+		"kind": "text",
+		"parameters": []
+	},
+	"system.actionDecisionWithoutPlan": {
+		"kind": "text",
+		"parameters": []
+	},
 	"system.plan": {
 		"kind": "text",
 		"parameters": []

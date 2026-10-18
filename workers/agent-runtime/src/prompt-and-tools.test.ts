@@ -146,10 +146,22 @@ describe("standard system prompt", () => {
 			{ includeNotesTools: true, includePlan: true, overview: "system.toolOverviewWithPlan" },
 		] as const;
 		for (const { overview, ...options } of cases) {
-			const prompt = standardPrompt(context, promptParticipant(), "", options);
-			expect(prompt).toContain(context.format(overview));
-			expect(prompt.includes("PLAN")).toBe(options.includeNotesTools && options.includePlan);
-			expect(prompt.includes("read_note")).toBe(options.includeNotesTools);
+			for (const allowEarlyLogOff of [false, true]) {
+				const participant = promptParticipant();
+				participant.tickSettings.allowEarlyLogOff = allowEarlyLogOff;
+				const prompt = standardPrompt(context, participant, "", options);
+				const variants = !options.includeNotesTools
+					? ["system.actionDecisionWithoutNotes", "system.actionDecisionWithoutNotesWithLogOff"] as const
+					: options.includePlan
+						? ["system.actionDecision", "system.actionDecisionWithLogOff"] as const
+						: ["system.actionDecisionWithoutPlan", "system.actionDecisionWithoutPlanWithLogOff"] as const;
+				expect(prompt).toContain(context.format(variants[allowEarlyLogOff ? 1 : 0]));
+				expect(prompt).not.toContain(context.format(variants[allowEarlyLogOff ? 0 : 1]));
+				expect(prompt).toContain(context.format(overview));
+				expect(prompt.includes("PLAN")).toBe(options.includeNotesTools && options.includePlan);
+				expect(prompt.includes("read_note")).toBe(options.includeNotesTools);
+				expect(prompt.includes("log_off")).toBe(allowEarlyLogOff);
+			}
 		}
 	});
 	it("requires valid JSON objects with quoted and escaped string literals", () => {

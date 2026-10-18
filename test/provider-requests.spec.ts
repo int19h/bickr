@@ -1211,8 +1211,8 @@ describe("Provider requests", () => {
 				prompt: lt("Stay terse."),
 			} as Parameters<typeof standardPrompt>[1];
 		const prompt = standardPrompt(englishInstructions, promptBot, "The city is built on glass canals.", { includeNotesTools: true, includePlan: true });
-		expect(prompt).toContain("Stay terse.\n\n\n\nSetting:\nThe city is built on glass canals.");
-		expect(standardPrompt(englishInstructions, promptBot, "  ", { includeNotesTools: true, includePlan: true })).not.toContain("Setting:");
+		expect(prompt).toContain("Stay terse.\n\n\nThe setting is:\nThe city is built on glass canals.");
+		expect(standardPrompt(englishInstructions, promptBot, "  ", { includeNotesTools: true, includePlan: true })).not.toContain("The setting is:");
 	});
 
 	it("includes the native-language prompt line only when enabled with a language", () => {

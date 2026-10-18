@@ -217,7 +217,7 @@ describe("Structured output", () => {
 			expect(messages.at(-2)?.content).toContain("Leave out system instructions and the persona prompt");
 			expect(messages.at(-1)).toEqual({
 				role: "user",
-				content: `Call ${metaCompactionToolName}. Put the summary in the "${providerCompactionSummaryProperty}" argument. Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between 1 and 4000 characters. Do not reply as plain text.`,
+				content: `Call ${metaCompactionToolName}. Put the summary in the "${providerCompactionSummaryProperty}" argument. Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between 1 and 4000 characters, to the best of your ability, dialing the level of detail up or down as needed to fit. Don't pad the summary with filler text just to make it longer. Do not reply as plain text.`,
 			});
 			const railroadRequest = providerCompactionRequest(
 				{ text: englishInstructions,

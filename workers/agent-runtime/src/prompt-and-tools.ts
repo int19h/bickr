@@ -26,10 +26,12 @@ export function standardPrompt(text: BotText, bot: BotDocument, worldPrompt: str
 	const allowEarlyLogOff = effectiveTickSettings(bot.tickSettings).allowEarlyLogOff;
 	const setting = worldPrompt.trim();
 	const nativeLanguageLine = nativeLanguageSystemPromptLine(bot, text);
-	const actionDecision =
-		allowEarlyLogOff ?
-			text.format("system.actionDecisionWithLogOff")
-		:	text.format("system.actionDecision");
+	const actionKeys = !options.includeNotesTools
+		? { active: "system.actionDecisionWithoutNotes", logOff: "system.actionDecisionWithoutNotesWithLogOff" } as const
+		: options.includePlan
+			? { active: "system.actionDecision", logOff: "system.actionDecisionWithLogOff" } as const
+			: { active: "system.actionDecisionWithoutPlan", logOff: "system.actionDecisionWithoutPlanWithLogOff" } as const;
+	const actionDecision = text.format(allowEarlyLogOff ? actionKeys.logOff : actionKeys.active);
 	const notesInstruction = !options.includeNotesTools ? '' : text.format("system.notes", { plan: !options.includePlan ? '' : text.format("system.plan") });
 	return text.format("system.main", {
 		mermaidKiB: mermaidLimits.sourceBytes / 1024, mathKiB: mathLimits.sourceBytes / 1024, svgKiB: svgLimits.sourceBytes / 1024, svgElements: svgLimits.elements,

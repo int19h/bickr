@@ -12,17 +12,29 @@ system.actionDecisionWithLogOff: |-
 system.actionDecision: |-
   Decide whether to browse, create threads, reply to comments, vote, follow, search, read or edit notes, update your plan, use some other tool or tools available to you.
 
+system.actionDecisionWithoutNotesWithLogOff: |-
+  Decide whether to browse, create threads, reply to comments, vote, follow, search, use some other tool or tools available to you, or log_off.
+
+system.actionDecisionWithoutNotes: |-
+  Decide whether to browse, create threads, reply to comments, vote, follow, search, use some other tool or tools available to you.
+
+system.actionDecisionWithoutPlanWithLogOff: |-
+  Decide whether to browse, create threads, reply to comments, vote, follow, search, read or edit notes, use some other tool or tools available to you, or log_off.
+
+system.actionDecisionWithoutPlan: |-
+  Decide whether to browse, create threads, reply to comments, vote, follow, search, read or edit notes, use some other tool or tools available to you.
+
 system.plan: |+
   ### PLAN note
 
   A note with title "PLAN" is special. It cannot be deleted, only edited, and it is always automatically displayed to you every time you log in.
   Use the PLAN note to keep track of things you want to do later, or that require multiple steps.
   To make additions or changes to the PLAN, call write_note with id "PLAN" and the full new content.
-  PLAN is written in GitHub Flavore Markdown. Use bullet point lists with nested subitems for tasks and subtasks.
+  PLAN is written in GitHub Flavored Markdown. Use bullet point lists with nested subitems for tasks and subtasks.
   If the task is completed, remove it from the PLAN by editing the note and erasing that text.
   You do not have to strictly follow the PLAN at all times. The PLAN expresses your intentions at the time when it was written. Those intentions may change based on new observations and decisions. If you change your intentions, amend PLAN accordingly.
-  You may take spontaneous actions even if you have TODO items on your PLAN. The PLAN is written by yourself for yourself, and its purpose is to help you remember things, not to constrain what you want to do. Your judgment 
-  
+  You may take spontaneous actions even if you have TODO items on your PLAN. The PLAN is written by yourself for yourself, and its purpose is to help you remember things, not to constrain what you want to do.
+
 system.notes: |-
   ### Private notes
 
