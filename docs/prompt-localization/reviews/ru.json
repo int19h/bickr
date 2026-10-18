@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "eee84bcd8e0c3c4a5bd1f8a64b5580dadaebe0a352dc2893b624351118b48aa7",
+  "catalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
   "locale": "ru",
   "status": "accepted_by_lead",
   "leadReason": "Accept the Russian catalog after both reviewers accept the exact final follow-up. Prompt terminology separates the complete persona prompt from a marked instruction. Guillemets wrap inserted titles without changing authored bytes. All initial comma, gender-neutral narration, entity-case, and count-bound choices preserve the source.",
@@ -112,7 +112,7 @@
   "groups": {
     "system": {
       "finalHash": "c3b3740a7c06ca4e4b61f4d824601dfc5792ce040e14c6dfa045b709efe39716",
-      "finalTemplateHash": "2c7af847c2802e1015bc1ed5ec7213ffbcdb55291538bf3a39c03d9a02bc4e2e",
+      "finalTemplateHash": "fc9e7d11f8ab87a018e6b9585ea4376244cfe7ba7b5f232662a888cba94a3021",
       "draftHashes": {
         "codex": "88cd8e17fb0e7f77c2ccbe3f26fac0b175babc706118453c8320fb88696b902c",
         "opus": "c239cf4c5b9f8467a75d666bf657a33f8c7a02b1694e092dd81dd0485351f4c9",
@@ -229,11 +229,32 @@
           "finalDiscussion": {}
         },
         "system.main": {
-          "finalValueHash": "6d7de5de9a38c84036de84b884d8edcbb2ca48209302d36fcd3708a6dc1242c9",
-          "leadReason": "Accept the comment scope and public length-announcement prohibition after independent Codex review. Preserve all other instructions.",
-          "candidateReason": "Extend the private-decision instruction to posts and comments. Prohibit public announcements of the intended post or comment length.",
-          "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
-          "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
+          "finalValueHash": "91dae19200bed19fd9bdc4b1b1863df85ff8acc1595663eb527be55a0187351b",
+          "leadReason": "Accept after independent Codex review of meaning, syntax, recommendations, JSON exceptions and capability selection.",
+          "candidateReason": "Translate the simulation boundary, first-person inner loop, memory continuity, tools, JSON escaping and emotional reflection. Match note guidance to enabled capabilities.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.toolOverview": {
+          "finalValueHash": "d3dc5fd1f94640a0119949c3ad81f903e2d9a1b46456caef7fc97e95d0cd9526",
+          "leadReason": "Accept after independent Codex review of meaning, syntax, recommendations, JSON exceptions and capability selection.",
+          "candidateReason": "Preserve the existing overview when notes are disabled.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.toolOverviewWithNotes": {
+          "finalValueHash": "3e294886ed686fe47323fdef4864086feccfee9533b07322750ee9d83277e456",
+          "leadReason": "Accept after independent Codex review of meaning, syntax, recommendations, JSON exceptions and capability selection.",
+          "candidateReason": "Describe social actions and note reading and editing, without PLAN.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.toolOverviewWithPlan": {
+          "finalValueHash": "45dfe943ddc301f0f1d2e39434b4a3db31d603b3f9688b4206dd355187b04408",
+          "leadReason": "Accept after independent Codex review of meaning, syntax, recommendations, JSON exceptions and capability selection.",
+          "candidateReason": "Preserve the authored enabled overview, including notes and PLAN.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         }
       }
     },
@@ -6744,6 +6765,44 @@
       "summary": "The independent reviewer found no material meaning defects. Private thought covers posts and comments. The added instruction prohibits public announcements of intended length.",
       "uncertainties": [],
       "historicalEvidence": "Existing Opus, Grok, Gemini and Codex draft hashes and reviewer records apply to the earlier catalog. They are not new reviews of this incremental change."
+    },
+    {
+      "sourceCommit": "600bb30bbc7293564cfa73f83e8ffd5280a3a75f",
+      "integrationCommit": "50fc6e428817acef2a4075e72cb045e43cd8028a",
+      "unit": "system.main",
+      "additionalUnits": [
+        "system.toolOverview",
+        "system.toolOverviewWithNotes",
+        "system.toolOverviewWithPlan"
+      ],
+      "authoredEnglishFileSha256": "ac5a2a8f7f8f78ad4edd0aa56f52b5ecf4bee7fc274fc5a76a272245bc527e3a",
+      "englishFileSha256": "0e1208aaf4007fee878fff2058385bd30e493b3f4e970dab4338e3e7c6f98826",
+      "sourceAdaptation": "The authored tool overview moved to complete localized variants selected by existing notes and PLAN availability. Enabled wording remains intact. Disabled states retain their existing capability limits.",
+      "previousCatalogSourceHash": "eee84bcd8e0c3c4a5bd1f8a64b5580dadaebe0a352dc2893b624351118b48aa7",
+      "catalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
+      "sourceTemplateHash": "4a37d05d37910e16a9a8299e349682d1f44e92901a9762fb0f9ae0852f4ca791",
+      "previousFinalTemplateHash": "2c7af847c2802e1015bc1ed5ec7213ffbcdb55291538bf3a39c03d9a02bc4e2e",
+      "finalTemplateHash": "fc9e7d11f8ab87a018e6b9585ea4376244cfe7ba7b5f232662a888cba94a3021",
+      "previousDecision": {
+        "finalValueHash": "6d7de5de9a38c84036de84b884d8edcbb2ca48209302d36fcd3708a6dc1242c9",
+        "leadReason": "Accept the comment scope and public length-announcement prohibition after independent Codex review. Preserve all other instructions.",
+        "candidateReason": "Extend the private-decision instruction to posts and comments. Prohibit public announcements of the intended post or comment length.",
+        "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
+        "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
+      },
+      "translator": {
+        "agent": "Codex translate_east",
+        "draftCommit": "e94b0ee747b36caf1672f2a62354abbbcd419d55",
+        "resolutionCommits": [
+          "2442b6a430481f87cc90c522d1e8c5756522d210",
+          "3dadf5c20f7db7a5515755cf4bba7f0ba36c497b"
+        ]
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Translate the simulation boundary, first-person inner loop, memory continuity, tools, JSON escaping and emotional reflection. Match note guidance to enabled capabilities.",
+      "uncertainties": [],
+      "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
     }
   ]
 }

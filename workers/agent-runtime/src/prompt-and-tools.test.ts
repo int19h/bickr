@@ -137,15 +137,18 @@ describe("standard system prompt", () => {
 		expect(noPlan).toContain("read notes, and edit notes.");
 		expect(allNotes).toContain("read notes, edit notes, and update your PLAN.");
 	});
-	it.each(instructionLocales)("omits PLAN when notes or PLAN are disabled in %s", (locale) => {
+	it.each(instructionLocales)("matches enabled note capabilities in %s", (locale) => {
 		const context = botText(locale);
-		for (const options of [
-			{ includeNotesTools: false, includePlan: false },
-			{ includeNotesTools: false, includePlan: true },
-			{ includeNotesTools: true, includePlan: false },
-		]) {
+		const cases = [
+			{ includeNotesTools: false, includePlan: false, overview: "system.toolOverview" },
+			{ includeNotesTools: false, includePlan: true, overview: "system.toolOverview" },
+			{ includeNotesTools: true, includePlan: false, overview: "system.toolOverviewWithNotes" },
+			{ includeNotesTools: true, includePlan: true, overview: "system.toolOverviewWithPlan" },
+		] as const;
+		for (const { overview, ...options } of cases) {
 			const prompt = standardPrompt(context, promptParticipant(), "", options);
-			expect(prompt).not.toContain("PLAN");
+			expect(prompt).toContain(context.format(overview));
+			expect(prompt.includes("PLAN")).toBe(options.includeNotesTools && options.includePlan);
 			expect(prompt.includes("read_note")).toBe(options.includeNotesTools);
 		}
 	});

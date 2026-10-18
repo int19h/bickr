@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "eee84bcd8e0c3c4a5bd1f8a64b5580dadaebe0a352dc2893b624351118b48aa7",
+  "catalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
   "locale": "ga",
   "status": "accepted_by_lead",
   "leadReason": "Accept best-effort Irish after both requested final discussions and both 28-unit follow-ups. Use standard is gá dom action needs, direct audience wording, explicit persona genitives, dictionary-backed disclaimer notices, singular detached member headers, native JSON adjective order and list punctuation. Keep the maximum ceiling and all conditions. Relative-time digit patterns follow resolved Unicode CLDR and protected identifiers remain opaque. The lead chooses the optional direct relative from Opus.",
@@ -168,7 +168,7 @@
   "groups": {
     "system": {
       "finalHash": "ac93aec6499b85f0e79f7c2d28b192d66fd9d0bec0d9e63a35cc64bb23bc7545",
-      "finalTemplateHash": "cbb6038c80f90f66f472a42862f954f48ea9b8a8d4552ffd606e91b8b8329fb4",
+      "finalTemplateHash": "896409c043736baf22b83aaadf34db7e4f25231f0c649a95a4b300237bed10d9",
       "draftHashes": {
         "codex": "725378aa73dbdeebb2570c44a999ac0295b09e1d6b3be689db0ba0916aeaa98e",
         "opus": "b9c7a9a1cf0a633b5dee16a391ee910ead008a84cc5a4c6dfccc4878edbd5822",
@@ -285,11 +285,32 @@
           "finalDiscussion": {}
         },
         "system.main": {
-          "finalValueHash": "2c00d979634eca68b35535ad4ac4332df4d2c0cb0aaeb78e09e4044992211c36",
-          "leadReason": "Accept the comment scope and public length-announcement prohibition after independent Codex review. Preserve all other instructions.",
-          "candidateReason": "Extend the private-decision instruction to posts and comments. Prohibit public announcements of the intended post or comment length.",
-          "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
-          "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
+          "finalValueHash": "5149a3c4a2f31ef3c261ed4030aa91316039e4aafaa53393597a5aa6b88f3560",
+          "leadReason": "Accept after independent Codex review of meaning, syntax, recommendations, JSON exceptions and capability selection.",
+          "candidateReason": "Translate the simulation boundary, first-person inner loop, memory continuity, tools, JSON escaping and emotional reflection. Match note guidance to enabled capabilities.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.toolOverview": {
+          "finalValueHash": "66bddd0479e22884b1b009481bd191f9ef176c488547adbe1d395a64c898ce59",
+          "leadReason": "Accept after independent Codex review of meaning, syntax, recommendations, JSON exceptions and capability selection.",
+          "candidateReason": "Preserve the existing overview when notes are disabled.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.toolOverviewWithNotes": {
+          "finalValueHash": "2e2559d442846f52785c76a4ec83cc9009ce5f38e928aa59074350c45f73d4ab",
+          "leadReason": "Accept after independent Codex review of meaning, syntax, recommendations, JSON exceptions and capability selection.",
+          "candidateReason": "Describe social actions and note reading and editing, without PLAN.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.toolOverviewWithPlan": {
+          "finalValueHash": "168cf633bd9680c3673f054f99675561be60b4a67a26cb00324592d7a47eae68",
+          "leadReason": "Accept after independent Codex review of meaning, syntax, recommendations, JSON exceptions and capability selection.",
+          "candidateReason": "Preserve the authored enabled overview, including notes and PLAN.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         }
       }
     },
@@ -7601,6 +7622,46 @@
         "Irish remains best effort. The phrase Is smaoineamh inmheánach duit é has clear meaning, but idiomatic fluency remains uncertain."
       ],
       "historicalEvidence": "Existing Opus, Grok, Gemini and Codex draft hashes and reviewer records apply to the earlier catalog. They are not new reviews of this incremental change."
+    },
+    {
+      "sourceCommit": "600bb30bbc7293564cfa73f83e8ffd5280a3a75f",
+      "integrationCommit": "50fc6e428817acef2a4075e72cb045e43cd8028a",
+      "unit": "system.main",
+      "additionalUnits": [
+        "system.toolOverview",
+        "system.toolOverviewWithNotes",
+        "system.toolOverviewWithPlan"
+      ],
+      "authoredEnglishFileSha256": "ac5a2a8f7f8f78ad4edd0aa56f52b5ecf4bee7fc274fc5a76a272245bc527e3a",
+      "englishFileSha256": "0e1208aaf4007fee878fff2058385bd30e493b3f4e970dab4338e3e7c6f98826",
+      "sourceAdaptation": "The authored tool overview moved to complete localized variants selected by existing notes and PLAN availability. Enabled wording remains intact. Disabled states retain their existing capability limits.",
+      "previousCatalogSourceHash": "eee84bcd8e0c3c4a5bd1f8a64b5580dadaebe0a352dc2893b624351118b48aa7",
+      "catalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
+      "sourceTemplateHash": "4a37d05d37910e16a9a8299e349682d1f44e92901a9762fb0f9ae0852f4ca791",
+      "previousFinalTemplateHash": "cbb6038c80f90f66f472a42862f954f48ea9b8a8d4552ffd606e91b8b8329fb4",
+      "finalTemplateHash": "896409c043736baf22b83aaadf34db7e4f25231f0c649a95a4b300237bed10d9",
+      "previousDecision": {
+        "finalValueHash": "2c00d979634eca68b35535ad4ac4332df4d2c0cb0aaeb78e09e4044992211c36",
+        "leadReason": "Accept the comment scope and public length-announcement prohibition after independent Codex review. Preserve all other instructions.",
+        "candidateReason": "Extend the private-decision instruction to posts and comments. Prohibit public announcements of the intended post or comment length.",
+        "opusReason": "The historical Opus review covers the previous text only. The incremental addition received independent Codex review, not a new Opus review.",
+        "grokReason": "The historical Grok review covers the previous text only. The incremental addition received independent Codex review, not a new Grok review."
+      },
+      "translator": {
+        "agent": "Codex translate_other",
+        "draftCommit": "cc621f1ce88183d20a3e7dc399e735f3baeeed0a",
+        "resolutionCommits": [
+          "2442b6a430481f87cc90c522d1e8c5756522d210",
+          "3dadf5c20f7db7a5515755cf4bba7f0ba36c497b"
+        ]
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Translate the simulation boundary, first-person inner loop, memory continuity, tools, JSON escaping and emotional reflection. Match note guidance to enabled capabilities.",
+      "uncertainties": [
+        "Irish remains best effort. Internal-loop and JSON-string-literal terminology use explanatory wording. Native fluency remains unverified. Inherited inner-thought uncertainty remains recorded."
+      ],
+      "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
     }
   ]
 }

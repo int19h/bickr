@@ -10,7 +10,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 648,
+          "line": 649,
           "kind": "direct"
         }
       ],

@@ -141,7 +141,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 44,
+          "line": 45,
           "kind": "direct"
         }
       ],
@@ -201,9 +201,12 @@
         "url(#gradient)",
         "viewBox",
         "…",
-        "‼️"
+        "‼️",
+        "toolOverview",
+        "`\\n`",
+        "`\\\\n`"
       ],
-      "sourceTemplateHash": "7a4d65e90f1a18d4b94ad55321cbf5ec48e459e49ee73b5cb34081a680c4c37e",
+      "sourceTemplateHash": "4a37d05d37910e16a9a8299e349682d1f44e92901a9762fb0f9ae0852f4ca791",
       "parameterNotes": {
         "svgElements": {
           "currentValue": 1500,
@@ -217,8 +220,71 @@
         },
         "mermaidKiB": {
           "currentValue": 16
+        },
+        "toolOverview": {
+          "purpose": "A complete localized overview follows enabled notes and PLAN capabilities.",
+          "variants": [
+            "system.toolOverview",
+            "system.toolOverviewWithNotes",
+            "system.toolOverviewWithPlan"
+          ]
         }
       }
+    },
+    {
+      "id": "system.toolOverview",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/system.yaml",
+        "line": 49
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 39,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "99df09a74b5e7d22e0b2971ae744c03fb087f830707bc9c47270e7e42c63bfba"
+    },
+    {
+      "id": "system.toolOverviewWithNotes",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/system.yaml",
+        "line": 52
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 39,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr"
+      ],
+      "sourceTemplateHash": "a4265096a77f7993427514d528ff367f3c750bf8b55a76302d40f625539fe869"
+    },
+    {
+      "id": "system.toolOverviewWithPlan",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/system.yaml",
+        "line": 55
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 39,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "Bickr",
+        "PLAN"
+      ],
+      "sourceTemplateHash": "be500561f8e6bd232e6ec5c0966b09130aa4c107ecbaf7a0e9cdf5eef52215ac"
     }
   ]
 }
