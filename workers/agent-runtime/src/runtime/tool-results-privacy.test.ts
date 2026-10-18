@@ -67,6 +67,16 @@ describe('participant JSON privacy boundaries', () => {
 		for (const [name, source] of cases) expectPublic(providerToolResultPayload(name, source, {}, context));
 	});
 
+	it('keeps temporary nesting metadata out of malformed content and roots', () => {
+		for (const item of [
+			{ ...comment, id: 'invalid' },
+			{ ...comment, type: 'thread' },
+		]) {
+			const result = providerToolResultPayload('read_thread_by_id', { thread, content: [item] }, {}, context);
+			expect(JSON.stringify(result)).not.toContain('parentCommentId');
+		}
+	});
+
 	it('fails closed for unknown and malformed results instead of copying new fields', () => {
 		for (const name of ['unknown', 'create_thread', 'reply_to_comment', 'follow_profile', 'unfollow_profile', 'vote', 'draw_random_integers', 'log_off', 'read_note']) {
 			expect(providerToolResultPayload(name, privateData, {}, context)).toMatchObject({ ok: false, code: 'result_unavailable' });

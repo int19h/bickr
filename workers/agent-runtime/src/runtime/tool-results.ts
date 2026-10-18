@@ -1330,7 +1330,9 @@ function providerReadContent(record: Record<string, unknown>, context: ProviderS
 	}
 	const item = removeUndefinedProperties({
 		...(commentId ? { commentRef: providerCommentRef(commentId) } : {}),
-		...(stringValue(record.parentCommentId) ? { parentCommentId: stringValue(record.parentCommentId) } : {}),
+		// Only nestable comments need this temporary field. The tree builder strips
+		// it before emission; malformed IDs and root items must never carry it.
+		...(type === 'comment' && providerCommentRef(commentId) && stringValue(record.parentCommentId) ? { parentCommentId: stringValue(record.parentCommentId) } : {}),
 		author: providerAuthorRef(record, context.self),
 		...(stringValue(record.title) ? { title: stringValue(record.title) } : {}),
 		...(includeBody ? { body: body ?? '' } : {}),
