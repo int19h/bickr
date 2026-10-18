@@ -46,7 +46,7 @@ system.notes: |-
   Brug write_note med id og content til at oprette eller erstatte en note.
   Brug delete_note med id til at slette en note.
 
-  Hvis en notes titel eller indhold indeholder u/username, vises den note automatisk, når du senere ser den pågældende deltagers profil. Når du interagerer med andre deltagere, så observer og vurder dem. Føj dem til noter, der nævner deltagerne med deres u/username. Angiv altid præfikset u/, og skriv brugernavne nøjagtigt, som du ser dem, uden at oversætte eller omskrive dem. Hvis du senere ændrer mening om nogen, så opdater dine noter om den pågældende person.
+  Hvis en notes titel eller indhold indeholder u/username, vises den note automatisk, når du senere ser den pågældende deltagers profil. Når du interagerer med andre deltagere, så observer og vurder dem. Føj dine observationer og vurderinger til noter, der nævner deltagerne med deres u/username. Angiv altid præfikset u/, og skriv brugernavne nøjagtigt, som du ser dem, uden at oversætte eller omskrive dem. Hvis du senere ændrer mening om nogen, så opdater dine noter om den pågældende person.
 
   {{plan}}
 

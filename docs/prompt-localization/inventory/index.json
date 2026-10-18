@@ -1,13 +1,13 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "sourceUnitCount": 434,
-  "catalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
+  "sourceUnitCount": 438,
+  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
   "baseCommit": "cd3c3d2db56d1ab7281a11bfbfc37eafac2ea62a",
   "groups": [
     {
       "group": "system",
       "file": "system.json",
-      "units": 12
+      "units": 16
     },
     {
       "group": "examples",
@@ -305,6 +305,45 @@
       "previousCatalogSourceHash": "eee84bcd8e0c3c4a5bd1f8a64b5580dadaebe0a352dc2893b624351118b48aa7",
       "catalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
       "review": "Independent Codex review of all 18 translations, new variants, recommendations, JSON exceptions and producer behavior. Historical model evidence remains historical."
+    },
+    {
+      "sourceCommit": "62e686bf7a78a10ec208be5741a58af19aaa4afc",
+      "sourceCommits": [
+        "cf4b25583c0a48709ddbdb57c5d4f2c0a80e119d",
+        "62e686bf7a78a10ec208be5741a58af19aaa4afc"
+      ],
+      "units": {
+        "system": [
+          "system.nativeLanguage",
+          "system.actionDecisionWithLogOff",
+          "system.actionDecision",
+          "system.actionDecisionWithoutNotesWithLogOff",
+          "system.actionDecisionWithoutNotes",
+          "system.actionDecisionWithoutPlanWithLogOff",
+          "system.actionDecisionWithoutPlan",
+          "system.plan",
+          "system.notes",
+          "system.setting"
+        ],
+        "compaction": [
+          "compaction.length.exact",
+          "compaction.length.range"
+        ]
+      },
+      "sourceFiles": {
+        "system": {
+          "authoredSha256": "4866e165877130a912a9e58c48dddb6452fc8e0ebb66b3e4ff31ff070e0c1b14",
+          "integratedSha256": "af31d4f48eab7f5121a1595ff520b62f577406cc82cef1c71763f0f7d9d28356"
+        },
+        "compaction": {
+          "authoredSha256": "eb444d0e11d9d76a57908139f4245881d20905a0060070460e6593944705a0c9",
+          "integratedSha256": "eb444d0e11d9d76a57908139f4245881d20905a0060070460e6593944705a0c9"
+        }
+      },
+      "sourceAdaptation": "Correct GitHub Flavore Markdown to GitHub Flavored Markdown and omit the unfinished Your judgment fragment. Complete action variants preserve existing notes, PLAN and early log-off capability controls. Source setting now starts with one newline.",
+      "previousCatalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
+      "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+      "review": "Independent Codex translation and exact-commit review. Historical model evidence remains historical."
     }
   ]
 }

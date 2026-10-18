@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
+  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
   "locale": "ko",
   "status": "accepted_by_lead",
   "leadReason": "The lead accepts the exact reconciled proposal. Both requested reviewers discussed every disputed unit and accepted every proposed value. Neither reviewer reported another finding or unresolved language question. Every other unit received the complete four-draft comparison and both initial reviews.",
@@ -57,7 +57,7 @@
   "groups": {
     "system": {
       "finalHash": "c40ac94fd1a41e5cd0259940d4ec3a849b5e66ded86f0f64a4cfb6712520d78f",
-      "finalTemplateHash": "0fa4f0ab121b3ee5ddbb617fb9d3873227c47fee5892605dbb130a47e912aaf7",
+      "finalTemplateHash": "e9912f3d4a5adfdf5c64a01e216a49b84bcdd2d5f19f71ab9cbfcbb98a5072d4",
       "draftHashes": {
         "codex": "b2a2c17fa0addc83b9125a10653b0207d086a2c4709258de964d25647c56b803",
         "opus": "9f3ae607b7fce58ba3c691fb3894dd5fe4d7f539f0770af7c0d0f2a3c01b90a1",
@@ -70,16 +70,11 @@
       },
       "decisions": {
         "system.nativeLanguage": {
-          "finalValueHash": "aca60972902ae218fc62b483b86f93314965b92da4fe4ed0190d0ae344182981",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All four retain BCP 47 and all-content scope. Codex uses direct native instructions without an unnecessary explicit pronoun.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful; omitting 당신의 is natural in Korean instructions.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Your native language is {{language}} (BCP 47). Think and write all content in that language.",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
+          "finalValueHash": "3ecc7ecb2e7e0875c88a829a58614bdf18ebdefe82ea8f8caeeb012811c57048",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.identity": {
           "finalValueHash": "d4b58babbae24aba062a814d548129bf15f6c48038a02bc95277857d51cfca42",
@@ -94,52 +89,32 @@
           "finalDiscussion": {}
         },
         "system.actionDecisionWithLogOff": {
-          "finalValueHash": "954024bb88bc870364d7be8176eb07fe9ba15cc5308b9dd62bebeae3e3625fbf",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All preserve the seven action choices including log_off. Codex uses natural reply wording and a clear alternative conjunction.",
-          "opusDecision": "accept",
-          "opusReason": "Full action list with log_off.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, search, or log_off.",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
+          "finalValueHash": "f5a4284c205cead3777d05fa6e0663a603a9a41b0045df1a3cb2f6886ce78fcc",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.actionDecision": {
-          "finalValueHash": "23ed69d4237f4cf8c26ac2796c77cf7f6de9305ea8f43fd2748be3ab6d4446a0",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All preserve the six choices without log_off. Codex uses the same clear action list as the companion instruction.",
-          "opusDecision": "accept",
-          "opusReason": "Same without log_off.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, or search.",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
+          "finalValueHash": "c6722b2f82ee58f7a41c1806ab3bec4b4dea228512580acbcc5f9e1e2d99cefc",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.plan": {
-          "finalValueHash": "643381b0f3411751f61c8c7666dbad91638f54be1e821ac559ed7ec6c23ee97b",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All preserve line prefixes, full replacement, and default restoration. Opus consistently calls each entry a task without adding Grok’s content field.",
-          "opusDecision": "accept",
-          "opusReason": "\"- \" prefix, id \"PLAN\", full new content, mark or remove, default restoration preserved; particles after PLAN and id are correct for their fixed pronunciation.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. actor, tense, limits, and parameters match the English. English: Use the PLAN note as your list of tasks. Put each task on a separate line that starts with \"- \". To change the list, call write_note with id \"PLAN\" and the full",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
+          "finalValueHash": "0939a46721d04389102356145ea1fa87c7a1b64c8982f686c9d805cf088d7a19",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.notes": {
-          "finalValueHash": "7082e44e5d58f59f6706b56d82d512048afca441ed5afde6852a851329823007",
-          "chosenFrom": "synthesis",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex and Grok retain exact title copying and tool parameters, while Gemini deletes major instructions. Use Opus’s natural prose but restore the protected content parameter.",
-          "opusDecision": "accept",
-          "opusReason": "Complete and faithful; gemini's draft is unrelated text. Fixed identifiers take correct particles (u/username이, f/forum이, content를).",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the prohibition stays; can stays 수 있습니다, not an obligation. English: ### Private notes Use private notes to save things that you want to remember about other participants. You can also save your own work for later visits. For exa",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
+          "finalValueHash": "149fc5de3a5bebd3c58424bf665a245fc8ea91893731cad5a1a910a43acaee90",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.logOffInstruction": {
           "finalValueHash": "4da130d65e225e7ecb1df85872c08ea2e87df35a0c18c9b5a754b10c88b01df1",
@@ -154,16 +129,11 @@
           "finalDiscussion": {}
         },
         "system.setting": {
-          "finalValueHash": "ad9bb8fe419347f9df1b1431f5fba2f04e3d65ee6641de06fcfeb64dd7e9ca32",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex and Opus preserve the setting heading and spacing. Grok narrows it to scene and Gemini adds community scope.",
-          "opusDecision": "accept",
-          "opusReason": "배경 설정 is the right sense of setting.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus. actor, tense, limits, and parameters match the English. English:  Setting: {{setting}}",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
+          "finalValueHash": "689d6f821d850fca9bd52d32e17225c60e50db65f3bed2f5c98bb406a017d2cf",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.main": {
           "finalValueHash": "d59cea6b8e6ea98dadbf531711de3cafcecd4f157203ce5abfdfd5475f5b000b",
@@ -190,6 +160,34 @@
           "finalValueHash": "b6662e945719175cd2e55e8e3bb2a2ccabe328bf830aedaf65ae25e8dfe0d62f",
           "leadReason": "Accept after independent Codex review of meaning, syntax, recommendations, JSON exceptions and capability selection.",
           "candidateReason": "Preserve the authored enabled overview, including notes and PLAN.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutNotesWithLogOff": {
+          "finalValueHash": "b7d9f7d5540c74cd9b837b67a5692596b98268084978e6ebc420aa0e2112586b",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutNotes": {
+          "finalValueHash": "58827c5bb06560a2cddcef4abcefb290a82c29b6b1db32dbb60fc975344b257e",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutPlanWithLogOff": {
+          "finalValueHash": "879d1a41d6f105dcddf396d1d70c9f1ac51bcc6136d5c794eee20491ad706de1",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutPlan": {
+          "finalValueHash": "87af4bc52c257aacb80141ad4703a96d10822d2162e62d0b06916b163e387602",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
           "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
           "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         }
@@ -1630,7 +1628,7 @@
     },
     "compaction": {
       "finalHash": "ea25d2204e33002075d4a1aef8fa34c9e9d62ae01860c0e37a4c6078752ba639",
-      "finalTemplateHash": "bed4aef5221a370e7998496d341d7fa48800dc6b3b090503290afeede18ad6e1",
+      "finalTemplateHash": "20f94b8aa15ccc259f694fc90b4c85f42a8d8cf5cd86bf1f34821d2a492c08aa",
       "draftHashes": {
         "codex": "d376c1f40e3616a5d1ac6df44b3d26dd7b3df958385974bac8187f65d9f51356",
         "opus": "aa4e30e6ba6c12fb96c5788430ba1930ea0fdc66f6dbd93d19fa624231415680",
@@ -1835,28 +1833,18 @@
           "finalDiscussion": {}
         },
         "compaction.length.exact": {
-          "finalValueHash": "2a569271444eae4ea32cd85093ec6f4b71ebff53fc9ad8e3f49075241db327d6",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every other variant retains if-possible exact count and shorter-than-input rule. Codex naturally asks for new expression rather than dictionary words.",
-          "opusDecision": "accept",
-          "opusReason": "Single other variant keeps \"exactly ... if possible\".",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. the only Korean category other was read and the count stays visible; the obligation stays 여야 or 해야. English: Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use exactly {{maxCh",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
+          "finalValueHash": "841a8ebcc5eb755102694e7ea4a289f6d4b41146bf6f51f574d51826f098e6ca",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve strict shortening, best-effort length targets, detail adjustment and no filler in every native plural form.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "compaction.length.range": {
-          "finalValueHash": "4bb0124344ffc914a7eeb1f3555bfe96cec7616add0be29c3ebb2bdf374a1c43",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every other variant retains both parameters. Codex explicitly makes both count endpoints inclusive and keeps the shorter-input requirement.",
-          "opusDecision": "accept",
-          "opusReason": "Inclusive bounds with 이상/이하.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. the only Korean category other was read and the count stays visible; the obligation stays 여야 or 해야. English: Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between {{minCh",
-          "changedAfterComparison": false,
-          "finalDiscussion": {}
+          "finalValueHash": "d1a92975ef46f3d9038378a94e1c30423d1f1e4a289fc0854c1873f2ee222df8",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve strict shortening, best-effort length targets, detail adjustment and no filler in every native plural form.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "compaction.repair.produce_summary": {
           "finalValueHash": "ca93a4f13ea3ebdd8e8cba87009d912b9ebe7074a5c52c43a6ea15ac3a6b040b",
@@ -6162,6 +6150,161 @@
       "reviewer": "Codex translation_review subagent",
       "status": "accepted_by_lead",
       "summary": "Translate the simulation boundary, first-person inner loop, memory continuity, tools, JSON escaping and emotional reflection. Match note guidance to enabled capabilities.",
+      "uncertainties": [],
+      "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    },
+    {
+      "sourceCommit": "62e686bf7a78a10ec208be5741a58af19aaa4afc",
+      "sourceCommits": [
+        "cf4b25583c0a48709ddbdb57c5d4f2c0a80e119d",
+        "62e686bf7a78a10ec208be5741a58af19aaa4afc"
+      ],
+      "units": {
+        "system": [
+          "system.nativeLanguage",
+          "system.actionDecisionWithLogOff",
+          "system.actionDecision",
+          "system.actionDecisionWithoutNotesWithLogOff",
+          "system.actionDecisionWithoutNotes",
+          "system.actionDecisionWithoutPlanWithLogOff",
+          "system.actionDecisionWithoutPlan",
+          "system.plan",
+          "system.notes",
+          "system.setting"
+        ],
+        "compaction": [
+          "compaction.length.exact",
+          "compaction.length.range"
+        ]
+      },
+      "sourceFiles": {
+        "system": {
+          "authoredSha256": "4866e165877130a912a9e58c48dddb6452fc8e0ebb66b3e4ff31ff070e0c1b14",
+          "integratedSha256": "af31d4f48eab7f5121a1595ff520b62f577406cc82cef1c71763f0f7d9d28356"
+        },
+        "compaction": {
+          "authoredSha256": "eb444d0e11d9d76a57908139f4245881d20905a0060070460e6593944705a0c9",
+          "integratedSha256": "eb444d0e11d9d76a57908139f4245881d20905a0060070460e6593944705a0c9"
+        }
+      },
+      "sourceAdaptation": "Correct GitHub Flavore Markdown to GitHub Flavored Markdown and omit the unfinished Your judgment fragment. Complete action variants preserve existing notes, PLAN and early log-off capability controls. Source setting now starts with one newline.",
+      "previousCatalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
+      "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+      "previous": {
+        "system": {
+          "finalTemplateHash": "0fa4f0ab121b3ee5ddbb617fb9d3873227c47fee5892605dbb130a47e912aaf7",
+          "decisions": {
+            "system.nativeLanguage": {
+              "finalValueHash": "aca60972902ae218fc62b483b86f93314965b92da4fe4ed0190d0ae344182981",
+              "chosenFrom": "codex",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "All four retain BCP 47 and all-content scope. Codex uses direct native instructions without an unnecessary explicit pronoun.",
+              "opusDecision": "accept",
+              "opusReason": "Faithful; omitting 당신의 is natural in Korean instructions.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Your native language is {{language}} (BCP 47). Think and write all content in that language.",
+              "changedAfterComparison": false,
+              "finalDiscussion": {}
+            },
+            "system.actionDecisionWithLogOff": {
+              "finalValueHash": "954024bb88bc870364d7be8176eb07fe9ba15cc5308b9dd62bebeae3e3625fbf",
+              "chosenFrom": "codex",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "All preserve the seven action choices including log_off. Codex uses natural reply wording and a clear alternative conjunction.",
+              "opusDecision": "accept",
+              "opusReason": "Full action list with log_off.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, search, or log_off.",
+              "changedAfterComparison": false,
+              "finalDiscussion": {}
+            },
+            "system.actionDecision": {
+              "finalValueHash": "23ed69d4237f4cf8c26ac2796c77cf7f6de9305ea8f43fd2748be3ab6d4446a0",
+              "chosenFrom": "codex",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "All preserve the six choices without log_off. Codex uses the same clear action list as the companion instruction.",
+              "opusDecision": "accept",
+              "opusReason": "Same without log_off.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, or search.",
+              "changedAfterComparison": false,
+              "finalDiscussion": {}
+            },
+            "system.plan": {
+              "finalValueHash": "643381b0f3411751f61c8c7666dbad91638f54be1e821ac559ed7ec6c23ee97b",
+              "chosenFrom": "opus",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "All preserve line prefixes, full replacement, and default restoration. Opus consistently calls each entry a task without adding Grok’s content field.",
+              "opusDecision": "accept",
+              "opusReason": "\"- \" prefix, id \"PLAN\", full new content, mark or remove, default restoration preserved; particles after PLAN and id are correct for their fixed pronunciation.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and opus. actor, tense, limits, and parameters match the English. English: Use the PLAN note as your list of tasks. Put each task on a separate line that starts with \"- \". To change the list, call write_note with id \"PLAN\" and the full",
+              "changedAfterComparison": false,
+              "finalDiscussion": {}
+            },
+            "system.notes": {
+              "finalValueHash": "7082e44e5d58f59f6706b56d82d512048afca441ed5afde6852a851329823007",
+              "chosenFrom": "synthesis",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Codex and Grok retain exact title copying and tool parameters, while Gemini deletes major instructions. Use Opus’s natural prose but restore the protected content parameter.",
+              "opusDecision": "accept",
+              "opusReason": "Complete and faithful; gemini's draft is unrelated text. Fixed identifiers take correct particles (u/username이, f/forum이, content를).",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the prohibition stays; can stays 수 있습니다, not an obligation. English: ### Private notes Use private notes to save things that you want to remember about other participants. You can also save your own work for later visits. For exa",
+              "changedAfterComparison": false,
+              "finalDiscussion": {}
+            },
+            "system.setting": {
+              "finalValueHash": "ad9bb8fe419347f9df1b1431f5fba2f04e3d65ee6641de06fcfeb64dd7e9ca32",
+              "chosenFrom": "opus",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Codex and Opus preserve the setting heading and spacing. Grok narrows it to scene and Gemini adds community scope.",
+              "opusDecision": "accept",
+              "opusReason": "배경 설정 is the right sense of setting.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and codex, opus. actor, tense, limits, and parameters match the English. English:  Setting: {{setting}}",
+              "changedAfterComparison": false,
+              "finalDiscussion": {}
+            }
+          }
+        },
+        "compaction": {
+          "finalTemplateHash": "bed4aef5221a370e7998496d341d7fa48800dc6b3b090503290afeede18ad6e1",
+          "decisions": {
+            "compaction.length.exact": {
+              "finalValueHash": "2a569271444eae4ea32cd85093ec6f4b71ebff53fc9ad8e3f49075241db327d6",
+              "chosenFrom": "codex",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Every other variant retains if-possible exact count and shorter-than-input rule. Codex naturally asks for new expression rather than dictionary words.",
+              "opusDecision": "accept",
+              "opusReason": "Single other variant keeps \"exactly ... if possible\".",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and codex. the only Korean category other was read and the count stays visible; the obligation stays 여야 or 해야. English: Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use exactly {{maxCh",
+              "changedAfterComparison": false,
+              "finalDiscussion": {}
+            },
+            "compaction.length.range": {
+              "finalValueHash": "4bb0124344ffc914a7eeb1f3555bfe96cec7616add0be29c3ebb2bdf374a1c43",
+              "chosenFrom": "codex",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Every other variant retains both parameters. Codex explicitly makes both count endpoints inclusive and keeps the shorter-input requirement.",
+              "opusDecision": "accept",
+              "opusReason": "Inclusive bounds with 이상/이하.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and codex. the only Korean category other was read and the count stays visible; the obligation stays 여야 or 해야. English: Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between {{minCh",
+              "changedAfterComparison": false,
+              "finalDiscussion": {}
+            }
+          }
+        }
+      },
+      "translator": {
+        "agent": "translate_east",
+        "commit": "2708f68b44fbf5ed827f662c93c5ba1540aa1845"
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
     }

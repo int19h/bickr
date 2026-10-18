@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
+  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
   "locale": "uk",
   "status": "accepted_by_lead",
   "leadReason": "Accept the exact Ukrainian proposal. Both reviewers accept all nineteen disputed units and find no additional defect. Native relative-time fragments and count forms preserve every quantity and direction. Gender-neutral narration keeps the participant role. The corrected instrumental, follow terminology, explicit relationship direction, and member-list headings retain the source meaning.",
@@ -63,7 +63,7 @@
   "groups": {
     "system": {
       "finalHash": "a2029e0fbd8861c20317a0c1d958e3d95371926ef09cbc55daf997f61c272af8",
-      "finalTemplateHash": "b17613b04fdeec07bfedc8cdf1918c98b2c8435cc74dd62eb2883c44daa1d109",
+      "finalTemplateHash": "29f80eeca6d49edc84ae73a8c81b658db1296d85c766c1c2875b1a4d7b2ca849",
       "draftHashes": {
         "codex": "28bb1fa4f2ceb3bea7acc8bb864634793804013ef9f880d62abe80a4fcab3120",
         "opus": "7b0a610b022a46a00c135edad8e3b8fc1d9e3bfa7543ed73ef59dce95735b18b",
@@ -76,17 +76,11 @@
       },
       "decisions": {
         "system.nativeLanguage": {
-          "finalValueHash": "2a86080c5b5f87882a4aa5abf9f007126a65e94a2e89bc92c03d9044f050ff77",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex uses native вміст instead of the content loan in Opus and preserves thinking plus writing every item.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful; polite plural imperative.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Your native language is {{language}} (BCP 47). Think and write all content in that language.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "110aa0fb6d67e43926db4081710b43d9b877ebfc6d80431c40b2601eec191613",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.identity": {
           "finalValueHash": "791c396b811c7e7297d2a63a19308294973cb6662e554c74b6810d576ccb8467",
@@ -102,78 +96,32 @@
           "finalDiscussion": {}
         },
         "system.actionDecisionWithLogOff": {
-          "finalValueHash": "15e1949d1544ce4226a42119efae8207bbd084e3f367e95c9a0152f111d2c228",
-          "chosenFrom": "opus",
-          "leadReason": "Use підписуватися for follow, matching the follow tools and the main prompt. Стежити is understandable but can mean general watching. Preserve every independent action alternative and the presence or absence of log_off.",
-          "candidateReason": "Grok preserves every activity and exact logout call. Opus adds forums to browsing and Gemini uses less natural execute wording.",
-          "opusDecision": "optional_change",
-          "opusReason": "Full action list with log_off, but \"стежити\" (watch/track) names following here, while system.main and the follow tools use \"підписуватися\". Align the term inside one prompt.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and grok. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, search, or log_off.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "\"підписуватися\" now matches system.main and the follow tools; every alternative and log_off are kept.",
-              "proposedValueHash": "15e1949d1544ce4226a42119efae8207bbd084e3f367e95c9a0152f111d2c228"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept підписуватися. English lists browse, create threads, reply, vote, follow, search, or log_off as separate choices. стежити can mean general watching. The follow tools already use підписуватися. log_off stays, and no action is dropped or added.",
-              "proposedValueHash": "15e1949d1544ce4226a42119efae8207bbd084e3f367e95c9a0152f111d2c228"
-            }
-          }
+          "finalValueHash": "7fff0a25dcd851e82108550b2ae2a75d2686475c84c8de302c634cda0890d56a",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.actionDecision": {
-          "finalValueHash": "88ea0a71e1d7a9cd200c89dd1fd8dbf7e6ee1bf6241c5fb8aac2bba42939d2b4",
-          "chosenFrom": "opus",
-          "leadReason": "Use підписуватися for follow, matching the follow tools and the main prompt. Стежити is understandable but can mean general watching. Preserve every independent action alternative and the presence or absence of log_off.",
-          "candidateReason": "Grok preserves all six alternatives. Gemini replaces the entire activity list with a generic next-action instruction.",
-          "opusDecision": "optional_change",
-          "opusReason": "Same list without log_off; same term alignment as actionDecisionWithLogOff.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and grok. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, or search.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Same term alignment without log_off.",
-              "proposedValueHash": "88ea0a71e1d7a9cd200c89dd1fd8dbf7e6ee1bf6241c5fb8aac2bba42939d2b4"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept підписуватися. English lists the same choices without log_off. This unit still has no log_off. стежити is not used. Browse, create threads, reply, vote, follow, and search all stay.",
-              "proposedValueHash": "88ea0a71e1d7a9cd200c89dd1fd8dbf7e6ee1bf6241c5fb8aac2bba42939d2b4"
-            }
-          }
+          "finalValueHash": "c98f705161edecd8b7280a1ab554bc67943a8d969c8436447c0a41a3ac10aceb",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.plan": {
-          "finalValueHash": "3e1e043fcf37f96cd52a6547e70a1842889aaf4f2e3d2c41a9b6e297640c624e",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus retains your task list, exact prefix, full replacement content, and default restoration with natural Ukrainian phrasing.",
-          "opusDecision": "accept",
-          "opusReason": "\"- \" prefix, id \"PLAN\", full new content, mark or remove, default restoration preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Task lines start with \"- \", write_note uses id \"PLAN\" and the full content, and the string ends with two newlines.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "27684946431c72caa745738097d92c79dd228fd5533101cb73d5438d1c760574",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.notes": {
-          "finalValueHash": "9aa253e75ea381bcd65bb02ef4c242725c80b64ae0a767f169e40e5af8ebac0c",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex preserves private notes and exact content argument. Opus translates content and weakens private to personal.",
-          "opusDecision": "accept",
-          "opusReason": "Every line checked: purpose, own work, ID as title, exact copy, no translation, write and delete, u/ and f/ linking preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. the prohibition stays не, не можна, or заборонено, with the ви imperative; can stays може, not має. English: ### Private notes Use private notes to save things that you want to remember about other participants. You can also save your own work for later visits. For exa",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "281101763ace4bc4603b376433ca0ee09c67bff390da326601b4b5c95e367f03",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.logOffInstruction": {
           "finalValueHash": "6a10f8eae1c352c61e0e936af1880056d53dc03dff28edbc31f28467b31a5edd",
@@ -189,17 +137,11 @@
           "finalDiscussion": {}
         },
         "system.setting": {
-          "finalValueHash": "ee3819a053d9556f3a88ddf2e53c0ec811c27ec4cd047855b258cc79a24babab",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex gives the broad setting context as circumstances. Opus narrows it to location and Gemini retains a loan.",
-          "opusDecision": "accept",
-          "opusReason": "\"Обставини\" is an acceptable setting label.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. The string starts with two newlines and uses Обставини, the same label as compaction.system.setting.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "5d7a8a29ef86e1248b1ede9c5869fb17e8fb446e396f6a5e37c919e29a23cbde",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.main": {
           "finalValueHash": "462a8237708f8686e8571f185b9b1655dbea657e84915b31a106fd870a4dd41e",
@@ -226,6 +168,34 @@
           "finalValueHash": "0349c4379822dd4d93b0c95649f7cccfa2aa56df21558a573b33f737cae8f94b",
           "leadReason": "Accept after independent Codex review of meaning, syntax, recommendations, JSON exceptions and capability selection.",
           "candidateReason": "Preserve the authored enabled overview, including notes and PLAN.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutNotesWithLogOff": {
+          "finalValueHash": "1141b03bdbf9cf252b307b0301c60bedac6948c38ccab2f814f5e86b0fca5dbf",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutNotes": {
+          "finalValueHash": "26b83bd14e1fa98e64f2ee0d854672ee0ab974de30c676f0a2f0bb31478c7cbc",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutPlanWithLogOff": {
+          "finalValueHash": "30069a69c955ed46865a8b34f6060725f326ed57ceccf99b54fb6f0c226fa1b1",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutPlan": {
+          "finalValueHash": "2ae7d01b5253c3e17ba5eee1c20a0a3ef858b1c0ec5c537f706f1c350986bbd4",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
           "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
           "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         }
@@ -1722,7 +1692,7 @@
     },
     "compaction": {
       "finalHash": "d74e0edad1c52238c8ed737ec2accaf0a7f8576928b16c012aa6786d708996da",
-      "finalTemplateHash": "98f725519f4f02f3b93076f7ed345b41019d4956fe4466c57914845f0acadbc2",
+      "finalTemplateHash": "c4b28c9fbeb05caa927b054bee611bcfed49af4d058b854c8317dfbb6d92d7fb",
       "draftHashes": {
         "codex": "b5a5ffc9fc9a132a464add66671f4ee0c0897e89a3a23302f6a60ce2820c14a2",
         "opus": "dcdb4ca168706ecd96c2619c6c0ce1788ce473e639907eb993a250562e926a2b",
@@ -1943,52 +1913,18 @@
           "finalDiscussion": {}
         },
         "compaction.length.exact": {
-          "finalValueHash": "33c1d04738105c48c16e9110ff1cd7fa7438de259bd45182a43a94781ae1d852",
-          "chosenFrom": "opus",
-          "leadReason": "Correct the instrumental підсумоком to підсумком. Keep the neutral count statement and every shortening requirement, even-if condition, and exact/range bound. This is an inflection correction rather than a change to memory semantics.",
-          "candidateReason": "Codex preserves all four categories with a neutral exact-character label and the if-possible exception. Gemini mishandles fractional agreement.",
-          "opusDecision": "required_change",
-          "opusReason": "Spelling error: \"уже є підсумоком\" uses a non-existent instrumental form. The instrumental of \"підсумок\" is \"підсумком\". The meaning and the neutral count form are otherwise correct in one, few, many and other.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category; the obligation stays має, потрібно, or повинні. English: Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use exactly {{maxCh",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "This adopts the original opus spelling fix (\"підсумком\"); the neutral count wording is valid in one, few, many and other, and the even-if condition is kept.",
-              "proposedValueHash": "33c1d04738105c48c16e9110ff1cd7fa7438de259bd45182a43a94781ae1d852"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept підсумком in every category. підсумоком is not an instrumental of підсумок. The summary must still be shorter than the input even when that input is already a summary. New words and removed details stay. The exact character count stays optional through якщо можливо. Кількість символів is a neutral label and is grammatical for 1, 21, 101, 0, and a fraction. one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0, 5, 11, and 1000000. other is the fractional genitive singular. {{count}} stays in every category.",
-              "proposedValueHash": "33c1d04738105c48c16e9110ff1cd7fa7438de259bd45182a43a94781ae1d852"
-            }
-          }
+          "finalValueHash": "2848200d48d2d49229cc7ec49be57cb51196216973f034b5eec743e3a1723812",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve strict shortening, best-effort length targets, detail adjustment and no filler in every native plural form.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "compaction.length.range": {
-          "finalValueHash": "3ee6eef9c330bba1eb3e0423f7e1cd4a0397d531b7b5a2d7f28ff63ba8d5cdb5",
-          "chosenFrom": "opus",
-          "leadReason": "Correct the instrumental підсумоком to підсумком. Keep the neutral count statement and every shortening requirement, even-if condition, and exact/range bound. This is an inflection correction rather than a change to memory semantics.",
-          "candidateReason": "Codex keeps the range and already-summary condition in every native category without adding inclusivity as Grok does.",
-          "opusDecision": "required_change",
-          "opusReason": "Spelling error: \"уже є підсумоком\" uses a non-existent instrumental form. The instrumental of \"підсумок\" is \"підсумком\". The meaning and the neutral count form are otherwise correct in one, few, many and other.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category; the obligation stays має, потрібно, or повинні. English: Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between {{minCh",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "Same spelling fix; range bounds are kept.",
-              "proposedValueHash": "3ee6eef9c330bba1eb3e0423f7e1cd4a0397d531b7b5a2d7f28ff63ba8d5cdb5"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept підсумком in every category. The same shortening requirement and even-if condition stay. The bounds stay from {{minCharacters}} to {{maxCharacters}}. The neutral character-count label does not need a different noun case in each category. one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0, 5, 11, and 1000000. other is the fractional genitive singular. {{count}} stays in every category.",
-              "proposedValueHash": "3ee6eef9c330bba1eb3e0423f7e1cd4a0397d531b7b5a2d7f28ff63ba8d5cdb5"
-            }
-          }
+          "finalValueHash": "9b7614a6180d77365758411d6679870e914e3459ee9c33fcdc3c608902bbcd50",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve strict shortening, best-effort length targets, detail adjustment and no filler in every native plural form.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "compaction.repair.produce_summary": {
           "finalValueHash": "e8a29091639a52b99f54da95abd34503b1031549aae20ae754a91883a6a7399d",
@@ -6709,6 +6645,213 @@
       "reviewer": "Codex translation_review subagent",
       "status": "accepted_by_lead",
       "summary": "Translate the simulation boundary, first-person inner loop, memory continuity, tools, JSON escaping and emotional reflection. Match note guidance to enabled capabilities.",
+      "uncertainties": [],
+      "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    },
+    {
+      "sourceCommit": "62e686bf7a78a10ec208be5741a58af19aaa4afc",
+      "sourceCommits": [
+        "cf4b25583c0a48709ddbdb57c5d4f2c0a80e119d",
+        "62e686bf7a78a10ec208be5741a58af19aaa4afc"
+      ],
+      "units": {
+        "system": [
+          "system.nativeLanguage",
+          "system.actionDecisionWithLogOff",
+          "system.actionDecision",
+          "system.actionDecisionWithoutNotesWithLogOff",
+          "system.actionDecisionWithoutNotes",
+          "system.actionDecisionWithoutPlanWithLogOff",
+          "system.actionDecisionWithoutPlan",
+          "system.plan",
+          "system.notes",
+          "system.setting"
+        ],
+        "compaction": [
+          "compaction.length.exact",
+          "compaction.length.range"
+        ]
+      },
+      "sourceFiles": {
+        "system": {
+          "authoredSha256": "4866e165877130a912a9e58c48dddb6452fc8e0ebb66b3e4ff31ff070e0c1b14",
+          "integratedSha256": "af31d4f48eab7f5121a1595ff520b62f577406cc82cef1c71763f0f7d9d28356"
+        },
+        "compaction": {
+          "authoredSha256": "eb444d0e11d9d76a57908139f4245881d20905a0060070460e6593944705a0c9",
+          "integratedSha256": "eb444d0e11d9d76a57908139f4245881d20905a0060070460e6593944705a0c9"
+        }
+      },
+      "sourceAdaptation": "Correct GitHub Flavore Markdown to GitHub Flavored Markdown and omit the unfinished Your judgment fragment. Complete action variants preserve existing notes, PLAN and early log-off capability controls. Source setting now starts with one newline.",
+      "previousCatalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
+      "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+      "previous": {
+        "system": {
+          "finalTemplateHash": "b17613b04fdeec07bfedc8cdf1918c98b2c8435cc74dd62eb2883c44daa1d109",
+          "decisions": {
+            "system.nativeLanguage": {
+              "finalValueHash": "2a86080c5b5f87882a4aa5abf9f007126a65e94a2e89bc92c03d9044f050ff77",
+              "chosenFrom": "codex",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Codex uses native вміст instead of the content loan in Opus and preserves thinking plus writing every item.",
+              "opusDecision": "accept",
+              "opusReason": "Faithful; polite plural imperative.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Your native language is {{language}} (BCP 47). Think and write all content in that language.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "system.actionDecisionWithLogOff": {
+              "finalValueHash": "15e1949d1544ce4226a42119efae8207bbd084e3f367e95c9a0152f111d2c228",
+              "chosenFrom": "opus",
+              "leadReason": "Use підписуватися for follow, matching the follow tools and the main prompt. Стежити is understandable but can mean general watching. Preserve every independent action alternative and the presence or absence of log_off.",
+              "candidateReason": "Grok preserves every activity and exact logout call. Opus adds forums to browsing and Gemini uses less natural execute wording.",
+              "opusDecision": "optional_change",
+              "opusReason": "Full action list with log_off, but \"стежити\" (watch/track) names following here, while system.main and the follow tools use \"підписуватися\". Align the term inside one prompt.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and grok. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, search, or log_off.",
+              "changedAfterComparison": true,
+              "finalFollowUp": {},
+              "finalDiscussion": {
+                "opus": {
+                  "decision": "accept",
+                  "reason": "\"підписуватися\" now matches system.main and the follow tools; every alternative and log_off are kept.",
+                  "proposedValueHash": "15e1949d1544ce4226a42119efae8207bbd084e3f367e95c9a0152f111d2c228"
+                },
+                "grok": {
+                  "decision": "accept",
+                  "reason": "Accept підписуватися. English lists browse, create threads, reply, vote, follow, search, or log_off as separate choices. стежити can mean general watching. The follow tools already use підписуватися. log_off stays, and no action is dropped or added.",
+                  "proposedValueHash": "15e1949d1544ce4226a42119efae8207bbd084e3f367e95c9a0152f111d2c228"
+                }
+              }
+            },
+            "system.actionDecision": {
+              "finalValueHash": "88ea0a71e1d7a9cd200c89dd1fd8dbf7e6ee1bf6241c5fb8aac2bba42939d2b4",
+              "chosenFrom": "opus",
+              "leadReason": "Use підписуватися for follow, matching the follow tools and the main prompt. Стежити is understandable but can mean general watching. Preserve every independent action alternative and the presence or absence of log_off.",
+              "candidateReason": "Grok preserves all six alternatives. Gemini replaces the entire activity list with a generic next-action instruction.",
+              "opusDecision": "optional_change",
+              "opusReason": "Same list without log_off; same term alignment as actionDecisionWithLogOff.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and grok. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, or search.",
+              "changedAfterComparison": true,
+              "finalFollowUp": {},
+              "finalDiscussion": {
+                "opus": {
+                  "decision": "accept",
+                  "reason": "Same term alignment without log_off.",
+                  "proposedValueHash": "88ea0a71e1d7a9cd200c89dd1fd8dbf7e6ee1bf6241c5fb8aac2bba42939d2b4"
+                },
+                "grok": {
+                  "decision": "accept",
+                  "reason": "Accept підписуватися. English lists the same choices without log_off. This unit still has no log_off. стежити is not used. Browse, create threads, reply, vote, follow, and search all stay.",
+                  "proposedValueHash": "88ea0a71e1d7a9cd200c89dd1fd8dbf7e6ee1bf6241c5fb8aac2bba42939d2b4"
+                }
+              }
+            },
+            "system.plan": {
+              "finalValueHash": "3e1e043fcf37f96cd52a6547e70a1842889aaf4f2e3d2c41a9b6e297640c624e",
+              "chosenFrom": "opus",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Opus retains your task list, exact prefix, full replacement content, and default restoration with natural Ukrainian phrasing.",
+              "opusDecision": "accept",
+              "opusReason": "\"- \" prefix, id \"PLAN\", full new content, mark or remove, default restoration preserved.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Task lines start with \"- \", write_note uses id \"PLAN\" and the full content, and the string ends with two newlines.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "system.notes": {
+              "finalValueHash": "9aa253e75ea381bcd65bb02ef4c242725c80b64ae0a767f169e40e5af8ebac0c",
+              "chosenFrom": "codex",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Codex preserves private notes and exact content argument. Opus translates content and weakens private to personal.",
+              "opusDecision": "accept",
+              "opusReason": "Every line checked: purpose, own work, ID as title, exact copy, no translation, write and delete, u/ and f/ linking preserved.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and codex. the prohibition stays не, не можна, or заборонено, with the ви imperative; can stays може, not має. English: ### Private notes Use private notes to save things that you want to remember about other participants. You can also save your own work for later visits. For exa",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "system.setting": {
+              "finalValueHash": "ee3819a053d9556f3a88ddf2e53c0ec811c27ec4cd047855b258cc79a24babab",
+              "chosenFrom": "codex",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Codex gives the broad setting context as circumstances. Opus narrows it to location and Gemini retains a loan.",
+              "opusDecision": "accept",
+              "opusReason": "\"Обставини\" is an acceptable setting label.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. The string starts with two newlines and uses Обставини, the same label as compaction.system.setting.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            }
+          }
+        },
+        "compaction": {
+          "finalTemplateHash": "98f725519f4f02f3b93076f7ed345b41019d4956fe4466c57914845f0acadbc2",
+          "decisions": {
+            "compaction.length.exact": {
+              "finalValueHash": "33c1d04738105c48c16e9110ff1cd7fa7438de259bd45182a43a94781ae1d852",
+              "chosenFrom": "opus",
+              "leadReason": "Correct the instrumental підсумоком to підсумком. Keep the neutral count statement and every shortening requirement, even-if condition, and exact/range bound. This is an inflection correction rather than a change to memory semantics.",
+              "candidateReason": "Codex preserves all four categories with a neutral exact-character label and the if-possible exception. Gemini mishandles fractional agreement.",
+              "opusDecision": "required_change",
+              "opusReason": "Spelling error: \"уже є підсумоком\" uses a non-existent instrumental form. The instrumental of \"підсумок\" is \"підсумком\". The meaning and the neutral count form are otherwise correct in one, few, many and other.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category; the obligation stays має, потрібно, or повинні. English: Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use exactly {{maxCh",
+              "changedAfterComparison": true,
+              "finalFollowUp": {},
+              "finalDiscussion": {
+                "opus": {
+                  "decision": "accept",
+                  "reason": "This adopts the original opus spelling fix (\"підсумком\"); the neutral count wording is valid in one, few, many and other, and the even-if condition is kept.",
+                  "proposedValueHash": "33c1d04738105c48c16e9110ff1cd7fa7438de259bd45182a43a94781ae1d852"
+                },
+                "grok": {
+                  "decision": "accept",
+                  "reason": "Accept підсумком in every category. підсумоком is not an instrumental of підсумок. The summary must still be shorter than the input even when that input is already a summary. New words and removed details stay. The exact character count stays optional through якщо можливо. Кількість символів is a neutral label and is grammatical for 1, 21, 101, 0, and a fraction. one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0, 5, 11, and 1000000. other is the fractional genitive singular. {{count}} stays in every category.",
+                  "proposedValueHash": "33c1d04738105c48c16e9110ff1cd7fa7438de259bd45182a43a94781ae1d852"
+                }
+              }
+            },
+            "compaction.length.range": {
+              "finalValueHash": "3ee6eef9c330bba1eb3e0423f7e1cd4a0397d531b7b5a2d7f28ff63ba8d5cdb5",
+              "chosenFrom": "opus",
+              "leadReason": "Correct the instrumental підсумоком to підсумком. Keep the neutral count statement and every shortening requirement, even-if condition, and exact/range bound. This is an inflection correction rather than a change to memory semantics.",
+              "candidateReason": "Codex keeps the range and already-summary condition in every native category without adding inclusivity as Grok does.",
+              "opusDecision": "required_change",
+              "opusReason": "Spelling error: \"уже є підсумоком\" uses a non-existent instrumental form. The instrumental of \"підсумок\" is \"підсумком\". The meaning and the neutral count form are otherwise correct in one, few, many and other.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. one is 1, 21, and 101; few is 2, 3, and 4; many includes 0; other is fractional; the shared count label was read for every category; the obligation stays має, потрібно, or повинні. English: Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between {{minCh",
+              "changedAfterComparison": true,
+              "finalFollowUp": {},
+              "finalDiscussion": {
+                "opus": {
+                  "decision": "accept",
+                  "reason": "Same spelling fix; range bounds are kept.",
+                  "proposedValueHash": "3ee6eef9c330bba1eb3e0423f7e1cd4a0397d531b7b5a2d7f28ff63ba8d5cdb5"
+                },
+                "grok": {
+                  "decision": "accept",
+                  "reason": "Accept підсумком in every category. The same shortening requirement and even-if condition stay. The bounds stay from {{minCharacters}} to {{maxCharacters}}. The neutral character-count label does not need a different noun case in each category. one covers 1, 21, and 101. few covers 2, 3, and 4. many includes 0, 5, 11, and 1000000. other is the fractional genitive singular. {{count}} stays in every category.",
+                  "proposedValueHash": "3ee6eef9c330bba1eb3e0423f7e1cd4a0397d531b7b5a2d7f28ff63ba8d5cdb5"
+                }
+              }
+            }
+          }
+        }
+      },
+      "translator": {
+        "agent": "translate_east",
+        "commit": "2708f68b44fbf5ed827f662c93c5ba1540aa1845"
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
     }

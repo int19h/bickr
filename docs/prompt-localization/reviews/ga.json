@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
+  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
   "locale": "ga",
   "status": "accepted_by_lead",
   "leadReason": "Accept best-effort Irish after both requested final discussions and both 28-unit follow-ups. Use standard is gá dom action needs, direct audience wording, explicit persona genitives, dictionary-backed disclaimer notices, singular detached member headers, native JSON adjective order and list punctuation. Keep the maximum ceiling and all conditions. Relative-time digit patterns follow resolved Unicode CLDR and protected identifiers remain opaque. The lead chooses the optional direct relative from Opus.",
@@ -168,7 +168,7 @@
   "groups": {
     "system": {
       "finalHash": "ac93aec6499b85f0e79f7c2d28b192d66fd9d0bec0d9e63a35cc64bb23bc7545",
-      "finalTemplateHash": "896409c043736baf22b83aaadf34db7e4f25231f0c649a95a4b300237bed10d9",
+      "finalTemplateHash": "67c888c0cef8ae5295a1e57302f5d9a04affad4f101b2196d06a5e21dc70fae3",
       "draftHashes": {
         "codex": "725378aa73dbdeebb2570c44a999ac0295b09e1d6b3be689db0ba0916aeaa98e",
         "opus": "b9c7a9a1cf0a633b5dee16a391ee910ead008a84cc5a4c6dfccc4878edbd5822",
@@ -181,17 +181,11 @@
       },
       "decisions": {
         "system.nativeLanguage": {
-          "finalValueHash": "d872d1c2309388b1f6021b7bc1852bb61a0489c1f2e50f37be3d387de6532f37",
-          "chosenFrom": "grok",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Correct feminine agreement with teanga and natural all-content instruction; Opus uses masculine copula.",
-          "opusDecision": "accept",
-          "opusReason": "Feminine í agrees with teanga; native-language and think-and-write rules preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and grok. actor, tense, limits, and parameters match the English. English: Your native language is {{language}} (BCP 47). Think and write all content in that language.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "161d37b5bd284aaf2dea04198173c2cf6ff98d354ecb38046b05f851f49219ff",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.identity": {
           "finalValueHash": "69aebc2d11431f894e6514fc0b490d303d77e84bc2a6311ede6b9092dec7b904",
@@ -207,56 +201,32 @@
           "finalDiscussion": {}
         },
         "system.actionDecisionWithLogOff": {
-          "finalValueHash": "ee565bbeab743b363ea3c9d22b21b7dedf63d96da1810468d8d28eedf89a3dc4",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Natural choice between verbal-noun actions; Opus is accurate but long and Gemini adds advice.",
-          "opusDecision": "accept",
-          "opusReason": "All seven choices including log_off as a protected name.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, search, or log_off.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "5f8d037a5f7ce67f69eb906d7fd4545fe078e8e87756297b8b986d13113f2a32",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.actionDecision": {
-          "finalValueHash": "6d7291646483d5041939eba7ad0cfcc310a933b4630676a268d80bffd90ac3fb",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Retains choice between actions without Grok incomplete decision construction or Gemini advisory meaning.",
-          "opusDecision": "accept",
-          "opusReason": "All six choices.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, or search.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "9864d6dc9d8e634773161786939f072414d9ed8109a4017fd3801895078b9997",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.plan": {
-          "finalValueHash": "38de4109ed07381866a4e17e5ec535912fa7dcf1bdfdbbfece81fbf58c9a5adc",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Complete default list returns and full replacement content; Gemini reduces the list to an unspecified default.",
-          "opusDecision": "accept",
-          "opusReason": "Task list, \"- \" marker, write_note with id \"PLAN\", mark or remove, and default-return rule preserved; identifiers not mutated.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Task lines start with \"- \", write_note uses id \"PLAN\" and the full content, and the string ends with two newlines.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "f9f4a508b45641e0714d980ee0a4cb3ef8e222d94745fc894061b7d008a711d4",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.notes": {
-          "finalValueHash": "b25cd65d965f77ec6d589641c97f016496c049d575c0e37de3be1ec355fd8562",
-          "chosenFrom": "synthesis",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Retains content as parameter and all note behaviors. Opus translates content, Gemini replaces the source. Add explicit user capability.",
-          "opusDecision": "accept",
-          "opusReason": "Purpose, own-work example, title as ID, exact-copy and no-paraphrase ban, three tools, and both linking rules preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the prohibition stays ná, ní cheadaítear, or ní féidir; can stays is féidir or ní féidir ach, not ní mór. English: ### Private notes Use private notes to save things that you want to remember about other participants. You can also save your own work for later visits. For exa",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "1f8a343c7ff7b57b90ee5f200cb4acee08c0454b41197a40c89ab81c2d7703a4",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.logOffInstruction": {
           "finalValueHash": "d6116644c017dc2d918da849cbb8e9e0191ebf4ffa1c3a3860abe386e0dec605",
@@ -272,17 +242,11 @@
           "finalDiscussion": {}
         },
         "system.setting": {
-          "finalValueHash": "ae48f04d079c1ea20fd0946fa04f3d24726c363f716b03e768de7efc795dddfc",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Setting of the story distinguishes contextual setting from bare location; Gemini adds community and changes delimiters.",
-          "opusDecision": "accept",
-          "opusReason": "Label and placeholder.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. The string starts with two newlines and uses Suíomh an scéil, the same label as compaction.system.setting.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "8cb760bda2c2a385d2641246681f4fc7c5c4bd623740648f31f523b677eb346a",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.main": {
           "finalValueHash": "5149a3c4a2f31ef3c261ed4030aa91316039e4aafaa53393597a5aa6b88f3560",
@@ -309,6 +273,34 @@
           "finalValueHash": "168cf633bd9680c3673f054f99675561be60b4a67a26cb00324592d7a47eae68",
           "leadReason": "Accept after independent Codex review of meaning, syntax, recommendations, JSON exceptions and capability selection.",
           "candidateReason": "Preserve the authored enabled overview, including notes and PLAN.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutNotesWithLogOff": {
+          "finalValueHash": "e45c95851813505902bebd57fc7063be07bd4df9bd815f11519d9bb74e2eecac",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutNotes": {
+          "finalValueHash": "bfc2a4dbb55237c492aaba03dc7b70f05dc66d3a9cd8deb48ad3bbbf4b0dc2f0",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutPlanWithLogOff": {
+          "finalValueHash": "fd688cfce3e466490b312672ccfd2fe365c2d167a35409a421ef33ab428d6ac6",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutPlan": {
+          "finalValueHash": "8ccdd70e5eedc2d854064435ead621abec1bb55b7780dc6d7895b21ed522bc7f",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
           "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
           "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         }
@@ -1883,7 +1875,7 @@
     },
     "compaction": {
       "finalHash": "e80d5edeff36de69a2190cd1f57bbe5b4ca213105ca74ca403a1fc75f73a4274",
-      "finalTemplateHash": "6e2f7ecb1b70d2fbb6ad5b3d27b4b9c06a277c8f18d054f7516ae1b48d55183e",
+      "finalTemplateHash": "ed89f4c2b633757513b3799d74fe0d4b8b0395ea01783a1fd0b501da07b0f988",
       "draftHashes": {
         "codex": "84a70c24adb085439448cfd2db040f3c6d56608502b2c5720db8f8c8b1b3b98d",
         "opus": "4825edd46cc027af335b9d0ed3436a83182082d7c9846c03efa77706cc09ab38",
@@ -2104,30 +2096,18 @@
           "finalDiscussion": {}
         },
         "compaction.length.exact": {
-          "finalValueHash": "a0e1a16ca86be50b65e36dec2df1d9800ff79702a78d854e4cc704c0816ed6a5",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every native variant uses a neutral complete character count; Gemini numeral mutations do not cover every category value.",
-          "opusDecision": "accept",
-          "opusReason": "Neutral \"líon na gcarachtar\" form works for all five categories; \"if possible\" preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. one is 1, two is 2, few is 3–6, many is 7–10, and other includes 0 and 11 or more; the shared líon or invariant wording is grammatical for each; the obligation stays caithfidh or ní mór. English: Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use exactly {{maxCh",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "5677f6bef04464b4a08c81114ab1c025240a1c38565e3e112dae67efa03b0b8a",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve strict shortening, best-effort length targets, detail adjustment and no filler in every native plural form.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "compaction.length.range": {
-          "finalValueHash": "60a57409b8a2752b8b4c478c8e5a01ffcfdecbb2ae34d6826937417c4a0a337d",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Every native variant uses neutral complete bounded character count; Grok malformed copula and Gemini range-count mutations rejected.",
-          "opusDecision": "accept",
-          "opusReason": "Neutral range form for all categories.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. one is 1, two is 2, few is 3–6, many is 7–10, and other includes 0 and 11 or more; the shared líon or invariant wording is grammatical for each; the obligation stays caithfidh or ní mór. English: Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between {{minCh",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "7813a8bfe0dcf31979d5b289d1b051b3aa1b42335ee674c1c98a4072f55c5f44",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve strict shortening, best-effort length targets, detail adjustment and no filler in every native plural form.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "compaction.repair.produce_summary": {
           "finalValueHash": "0f2affbfce64abf04270cd50fe60e292e0c5c081af666ebb9723de129c42ee52",
@@ -7660,6 +7640,171 @@
       "summary": "Translate the simulation boundary, first-person inner loop, memory continuity, tools, JSON escaping and emotional reflection. Match note guidance to enabled capabilities.",
       "uncertainties": [
         "Irish remains best effort. Internal-loop and JSON-string-literal terminology use explanatory wording. Native fluency remains unverified. Inherited inner-thought uncertainty remains recorded."
+      ],
+      "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    },
+    {
+      "sourceCommit": "62e686bf7a78a10ec208be5741a58af19aaa4afc",
+      "sourceCommits": [
+        "cf4b25583c0a48709ddbdb57c5d4f2c0a80e119d",
+        "62e686bf7a78a10ec208be5741a58af19aaa4afc"
+      ],
+      "units": {
+        "system": [
+          "system.nativeLanguage",
+          "system.actionDecisionWithLogOff",
+          "system.actionDecision",
+          "system.actionDecisionWithoutNotesWithLogOff",
+          "system.actionDecisionWithoutNotes",
+          "system.actionDecisionWithoutPlanWithLogOff",
+          "system.actionDecisionWithoutPlan",
+          "system.plan",
+          "system.notes",
+          "system.setting"
+        ],
+        "compaction": [
+          "compaction.length.exact",
+          "compaction.length.range"
+        ]
+      },
+      "sourceFiles": {
+        "system": {
+          "authoredSha256": "4866e165877130a912a9e58c48dddb6452fc8e0ebb66b3e4ff31ff070e0c1b14",
+          "integratedSha256": "af31d4f48eab7f5121a1595ff520b62f577406cc82cef1c71763f0f7d9d28356"
+        },
+        "compaction": {
+          "authoredSha256": "eb444d0e11d9d76a57908139f4245881d20905a0060070460e6593944705a0c9",
+          "integratedSha256": "eb444d0e11d9d76a57908139f4245881d20905a0060070460e6593944705a0c9"
+        }
+      },
+      "sourceAdaptation": "Correct GitHub Flavore Markdown to GitHub Flavored Markdown and omit the unfinished Your judgment fragment. Complete action variants preserve existing notes, PLAN and early log-off capability controls. Source setting now starts with one newline.",
+      "previousCatalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
+      "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+      "previous": {
+        "system": {
+          "finalTemplateHash": "896409c043736baf22b83aaadf34db7e4f25231f0c649a95a4b300237bed10d9",
+          "decisions": {
+            "system.nativeLanguage": {
+              "finalValueHash": "d872d1c2309388b1f6021b7bc1852bb61a0489c1f2e50f37be3d387de6532f37",
+              "chosenFrom": "grok",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Correct feminine agreement with teanga and natural all-content instruction; Opus uses masculine copula.",
+              "opusDecision": "accept",
+              "opusReason": "Feminine í agrees with teanga; native-language and think-and-write rules preserved.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and grok. actor, tense, limits, and parameters match the English. English: Your native language is {{language}} (BCP 47). Think and write all content in that language.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "system.actionDecisionWithLogOff": {
+              "finalValueHash": "ee565bbeab743b363ea3c9d22b21b7dedf63d96da1810468d8d28eedf89a3dc4",
+              "chosenFrom": "codex",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Natural choice between verbal-noun actions; Opus is accurate but long and Gemini adds advice.",
+              "opusDecision": "accept",
+              "opusReason": "All seven choices including log_off as a protected name.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, search, or log_off.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "system.actionDecision": {
+              "finalValueHash": "6d7291646483d5041939eba7ad0cfcc310a933b4630676a268d80bffd90ac3fb",
+              "chosenFrom": "codex",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Retains choice between actions without Grok incomplete decision construction or Gemini advisory meaning.",
+              "opusDecision": "accept",
+              "opusReason": "All six choices.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, or search.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "system.plan": {
+              "finalValueHash": "38de4109ed07381866a4e17e5ec535912fa7dcf1bdfdbbfece81fbf58c9a5adc",
+              "chosenFrom": "opus",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Complete default list returns and full replacement content; Gemini reduces the list to an unspecified default.",
+              "opusDecision": "accept",
+              "opusReason": "Task list, \"- \" marker, write_note with id \"PLAN\", mark or remove, and default-return rule preserved; identifiers not mutated.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Task lines start with \"- \", write_note uses id \"PLAN\" and the full content, and the string ends with two newlines.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "system.notes": {
+              "finalValueHash": "b25cd65d965f77ec6d589641c97f016496c049d575c0e37de3be1ec355fd8562",
+              "chosenFrom": "synthesis",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Retains content as parameter and all note behaviors. Opus translates content, Gemini replaces the source. Add explicit user capability.",
+              "opusDecision": "accept",
+              "opusReason": "Purpose, own-work example, title as ID, exact-copy and no-paraphrase ban, three tools, and both linking rules preserved.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the prohibition stays ná, ní cheadaítear, or ní féidir; can stays is féidir or ní féidir ach, not ní mór. English: ### Private notes Use private notes to save things that you want to remember about other participants. You can also save your own work for later visits. For exa",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "system.setting": {
+              "finalValueHash": "ae48f04d079c1ea20fd0946fa04f3d24726c363f716b03e768de7efc795dddfc",
+              "chosenFrom": "opus",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Setting of the story distinguishes contextual setting from bare location; Gemini adds community and changes delimiters.",
+              "opusDecision": "accept",
+              "opusReason": "Label and placeholder.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. The string starts with two newlines and uses Suíomh an scéil, the same label as compaction.system.setting.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            }
+          }
+        },
+        "compaction": {
+          "finalTemplateHash": "6e2f7ecb1b70d2fbb6ad5b3d27b4b9c06a277c8f18d054f7516ae1b48d55183e",
+          "decisions": {
+            "compaction.length.exact": {
+              "finalValueHash": "a0e1a16ca86be50b65e36dec2df1d9800ff79702a78d854e4cc704c0816ed6a5",
+              "chosenFrom": "opus",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Every native variant uses a neutral complete character count; Gemini numeral mutations do not cover every category value.",
+              "opusDecision": "accept",
+              "opusReason": "Neutral \"líon na gcarachtar\" form works for all five categories; \"if possible\" preserved.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and opus. one is 1, two is 2, few is 3–6, many is 7–10, and other includes 0 and 11 or more; the shared líon or invariant wording is grammatical for each; the obligation stays caithfidh or ní mór. English: Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use exactly {{maxCh",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "compaction.length.range": {
+              "finalValueHash": "60a57409b8a2752b8b4c478c8e5a01ffcfdecbb2ae34d6826937417c4a0a337d",
+              "chosenFrom": "opus",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Every native variant uses neutral complete bounded character count; Grok malformed copula and Gemini range-count mutations rejected.",
+              "opusDecision": "accept",
+              "opusReason": "Neutral range form for all categories.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and opus. one is 1, two is 2, few is 3–6, many is 7–10, and other includes 0 and 11 or more; the shared líon or invariant wording is grammatical for each; the obligation stays caithfidh or ní mór. English: Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between {{minCh",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            }
+          }
+        }
+      },
+      "translator": {
+        "agent": "translate_other",
+        "commit": "b7c376b2afc97d84b69184ec1cc646985d2f279a"
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
+      "uncertainties": [
+        "Irish remains best effort. Native fluency and technical terms for nested bullet lists, spontaneous actions, filler and compaction targets remain unverified. Inherited uncertainty remains recorded."
       ],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
     }

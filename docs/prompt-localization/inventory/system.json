@@ -15,9 +15,10 @@
         }
       ],
       "protectedTokens": [
-        "BCP 47"
+        "BCP 47",
+        "`{{language}}`"
       ],
-      "sourceTemplateHash": "f38267a968befde27625f97f6d1a00b6f7b8900b1b19cc2d991c3df37315fd6c"
+      "sourceTemplateHash": "7fb830ea032ff1d46045e89068d857fb8be0a554ad6ef5027d2289810945a587"
     },
     {
       "id": "system.identity",
@@ -47,14 +48,14 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 31,
-          "kind": "direct"
+          "line": 34,
+          "kind": "typed_dynamic"
         }
       ],
       "protectedTokens": [
         "log_off"
       ],
-      "sourceTemplateHash": "6d6f37bac288f15dca4193c3d641b88e4fcfcc3b234472976a8be13cb788597c"
+      "sourceTemplateHash": "33b2ed4087496733f57a174848265163aa359984f68116d9bfd8bb870272e63c"
     },
     {
       "id": "system.actionDecision",
@@ -65,65 +66,67 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 32,
-          "kind": "direct"
+          "line": 34,
+          "kind": "typed_dynamic"
         }
       ],
       "protectedTokens": [],
-      "sourceTemplateHash": "e57245af08c73d38e1bcf76dc490bac437ef0b756e035a3e3bde6f5d4ab64b73"
+      "sourceTemplateHash": "f00e58c4f406cca8d613f6df6aea4e06b32e5c97cd821c2c1220d861599236f4"
     },
     {
       "id": "system.plan",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/system.yaml",
-        "line": 15
+        "line": 27
       },
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 33,
+          "line": 35,
           "kind": "direct"
         }
       ],
       "protectedTokens": [
         "PLAN",
-        "write_note"
+        "write_note",
+        "GitHub Flavored Markdown",
+        "TODO"
       ],
-      "sourceTemplateHash": "e93015bd72d43eff2162f78f9b6b3ff1da56588f8c22b9f2ad8eb78c918a3f34"
+      "sourceTemplateHash": "f04dac45e2ff505e66f9104898f0065a168b69413b01286bf9bf90becb6947a8"
     },
     {
       "id": "system.notes",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/system.yaml",
-        "line": 21
+        "line": 38
       },
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 33,
+          "line": 35,
           "kind": "direct"
         }
       ],
       "protectedTokens": [
         "delete_note",
-        "f/forum",
         "list_notes",
         "read_note",
         "u/username",
-        "write_note"
+        "write_note",
+        "u/"
       ],
-      "sourceTemplateHash": "f586aa73105c1f83b80e387087e4da1cb559569d8b14a0bd2320f08aac77fdb1"
+      "sourceTemplateHash": "e18e67d8bb2433f269d66214d9bb790e2d0f881ff795886fd9df6b316a6274c7"
     },
     {
       "id": "system.logOffInstruction",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/system.yaml",
-        "line": 37
+        "line": 53
       },
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 37,
+          "line": 39,
           "kind": "direct"
         }
       ],
@@ -136,29 +139,29 @@
       "id": "system.setting",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/system.yaml",
-        "line": 40
+        "line": 56
       },
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 45,
+          "line": 47,
           "kind": "direct"
         }
       ],
       "protectedTokens": [],
-      "sourceTemplateHash": "7ae0d81b66e3a84f3087dc199786639b9aa1c2b8bf1c08dabbe5dc8c8243be27"
+      "sourceTemplateHash": "6f36ad15934a4045f0d5e93cf4ffa9ed0f372cf68f46d56f44c922b1280ef8a9"
     },
     {
       "id": "system.main",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/system.yaml",
-        "line": 46,
+        "line": 61,
         "templateFile": "workers/agent-runtime/src/localization/en/system/main.md"
       },
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 34,
+          "line": 36,
           "kind": "direct"
         }
       ],
@@ -235,12 +238,12 @@
       "id": "system.toolOverview",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/system.yaml",
-        "line": 49
+        "line": 64
       },
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 39,
+          "line": 41,
           "kind": "typed_dynamic"
         }
       ],
@@ -253,12 +256,12 @@
       "id": "system.toolOverviewWithNotes",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/system.yaml",
-        "line": 52
+        "line": 67
       },
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 39,
+          "line": 41,
           "kind": "typed_dynamic"
         }
       ],
@@ -271,12 +274,12 @@
       "id": "system.toolOverviewWithPlan",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/system.yaml",
-        "line": 55
+        "line": 70
       },
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 39,
+          "line": 41,
           "kind": "typed_dynamic"
         }
       ],
@@ -285,6 +288,74 @@
         "PLAN"
       ],
       "sourceTemplateHash": "be500561f8e6bd232e6ec5c0966b09130aa4c107ecbaf7a0e9cdf5eef52215ac"
+    },
+    {
+      "id": "system.actionDecisionWithoutNotesWithLogOff",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/system.yaml",
+        "line": 15
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 34,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "log_off"
+      ],
+      "sourceTemplateHash": "193ae9731616d15be7be394fc82188fd1569094282ac0478bd52d240b99b5bfc"
+    },
+    {
+      "id": "system.actionDecisionWithoutNotes",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/system.yaml",
+        "line": 18
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 34,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "6730c16f7f69b47a764d5ef202792cd6ede84c337e7d5a3e2afcfc6b98f7a082"
+    },
+    {
+      "id": "system.actionDecisionWithoutPlanWithLogOff",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/system.yaml",
+        "line": 21
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 34,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [
+        "log_off"
+      ],
+      "sourceTemplateHash": "ad7652ec608301fce2bfd977f737e8193828293dffa7ce5a49e8636cb56798cb"
+    },
+    {
+      "id": "system.actionDecisionWithoutPlan",
+      "definition": {
+        "file": "workers/agent-runtime/src/localization/en/system.yaml",
+        "line": 24
+      },
+      "sinks": [
+        {
+          "file": "workers/agent-runtime/src/prompt-and-tools.ts",
+          "line": 34,
+          "kind": "typed_dynamic"
+        }
+      ],
+      "protectedTokens": [],
+      "sourceTemplateHash": "9225f483221a08a81713db7fadfa989cd359ab6b7e9c6a08d2826efc3293489b"
     }
   ]
 }

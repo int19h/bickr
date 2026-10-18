@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
+  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
   "locale": "tr",
   "status": "accepted_by_lead",
   "leadReason": "Accept the Turkish catalog after both reviewers accept the exact three terminology follow-ups. Relative time uses count plus a singular unit and sonra or önce. Parenthesized member headings preserve singular and plural labels. Tool arguments consistently use argüman, with suffixes on native head nouns. All conditions, roles, limits, and protected identifiers remain intact.",
@@ -132,7 +132,7 @@
   "groups": {
     "system": {
       "finalHash": "7e3b80c4b500b7dcfc83314c6c9db151ad5ff116d9daa7ddbd6ac2c528a2ca36",
-      "finalTemplateHash": "21a081e18be23b209e215c7f0a9193eed1d2d7b33ae01363eaea8f3fd255fd51",
+      "finalTemplateHash": "7f64294d30ffdef7907fdfbfb55628a2861e9fd573dbc9aa7030dc23b1fac8d1",
       "draftHashes": {
         "codex": "6900444b8a3b365ade380ca7948a5e225e7b813791849b2df0dd3fc0f09fa45a",
         "opus": "589f7a5868dfb3461d88fd734ffc590954776d239796edb708a02512e9e2a323",
@@ -145,17 +145,11 @@
       },
       "decisions": {
         "system.nativeLanguage": {
-          "finalValueHash": "0a4e5534686c179d75be9236c6e850cf20b5b40fcb77eee7fc9ee29a8e0512f0",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex and Opus preserve the native-language instruction and all content. Grok is also faithful; Gemini adds a less natural plural.",
-          "opusDecision": "accept",
-          "opusReason": "Faithful; polite plural imperative.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex, opus. actor, tense, limits, and parameters match the English. English: Your native language is {{language}} (BCP 47). Think and write all content in that language.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "afafe3991d2c0a456c1772009ca1ce61b9906c70069f6310b9a20c2d0b910611",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.identity": {
           "finalValueHash": "e6b1f407856e47cb7b27bdf80a1d5ae1032095a5fc77e1eb18e1de3140aeddc5",
@@ -201,56 +195,32 @@
           }
         },
         "system.actionDecisionWithLogOff": {
-          "finalValueHash": "fe72597fa8bba84a4d2b7bca166286db9f419945c0effce26e477966ce7aa974",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus preserves the action alternatives and log_off head noun. Codex uses discussion for thread, and Gemini can read as several commands.",
-          "opusDecision": "accept",
-          "opusReason": "Full action list; \"log_off aracını\" puts the suffix on a head noun.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, search, or log_off.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "1121383fa4e8966ce8fee61ab0e95529160175f818ff02a48122329bab16c862",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.actionDecision": {
-          "finalValueHash": "dd8244a72347d1d80c5458fc7b53527d18ace59b7e7461ddb5da0b89bfe3f5b8",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus preserves all six choices as alternatives. Codex uses discussion instead of thread; Grok is faithful but less consistent in the terminology.",
-          "opusDecision": "accept",
-          "opusReason": "Same list without log_off.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, or search.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "083421dfa1a05a3917c52ff9930867c696cae03fdf0db909b740301f089e4280",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.plan": {
-          "finalValueHash": "42a30df6bc59535e5546c4f2165af0481884271cf736e3b58ba61ca3fa5ece57",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Opus keeps PLAN, full identifiers, lookup conditions, prefix, and default replacement. Codex and Grok are faithful but less direct.",
-          "opusDecision": "accept",
-          "opusReason": "\"- \" prefix, id \"PLAN\", full new content, mark or remove, default restoration preserved; \"PLAN notunu\" uses a head noun.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Task lines start with \"- \", write_note uses id \"PLAN\" and the full content, and the string ends with two newlines.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "e6ff9b532ffd728eeea32be53a5f6d8ceb3480974a8d3ce29d0bf8f6b80bb694",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.notes": {
-          "finalValueHash": "5c7978d811dd8b24c9dd2afc5f7bec40c1ce1cf8e54647b3f6cf92d353c8c742",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex preserves exact content, identifiers, lookup order, and copying requirements. Opus translates content and attaches suffixes to ID; Gemini drops conditions.",
-          "opusDecision": "accept",
-          "opusReason": "Every line checked: purpose, own work (kaydedebilirsiniz keeps permission), ID as title, exact copy, no translation, write and delete, u/ and f/ linking preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. the prohibition stays -mayın/-meyin, kullanmayın, or yasak; can stays -ebilir/-abilir, not -meli. English: ### Private notes Use private notes to save things that you want to remember about other participants. You can also save your own work for later visits. For exa",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "4706fcc7b4ed2a98aad0e1bb80ff4bcf1f410ecef9e2cda1bda9c9856627f211",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.logOffInstruction": {
           "finalValueHash": "5a9a1c38fd1c30859b6a1eaef41156129a05d113b0274ec5fbd1ecdda0d56a33",
@@ -266,17 +236,11 @@
           "finalDiscussion": {}
         },
         "system.setting": {
-          "finalValueHash": "3fc4b7240f97cdd1d3f08f89a37c25131200d2760bfc8c4d9e02c2a8dcead7df",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex, Opus, and Grok retain the environment heading and exact spacing. Gemini changes its meaning to community configuration.",
-          "opusDecision": "accept",
-          "opusReason": "\"Ortam\" is an acceptable setting label.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. The string starts with two newlines and uses Ortam, the same label as compaction.system.setting.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "f405c3d3e18119f81daaaf08e1fee0338003c981469354b7d6b280ac75c91b4c",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.main": {
           "finalValueHash": "2081dfd5c60547cc9edbf38b072f63bf16a80195f8c2ce9d044d9282a0bdaf2e",
@@ -303,6 +267,34 @@
           "finalValueHash": "b9dd81ffea6ac0c19ce8a7298e79827f2cd566d08b11ad517681b7a55fa8dca4",
           "leadReason": "Accept after independent Codex review of meaning, syntax, recommendations, JSON exceptions and capability selection.",
           "candidateReason": "Preserve the authored enabled overview, including notes and PLAN.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutNotesWithLogOff": {
+          "finalValueHash": "7cb54649045df490c822e6fd884482bad5a6639481b8997c3e175985d26af0f0",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutNotes": {
+          "finalValueHash": "78e15ed02ac2f74760022010862fda33f198e054dd0719b72ba7695bed8b83fd",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutPlanWithLogOff": {
+          "finalValueHash": "ca5ff383b4c061df8fac8d924d3c5eca1fea43a7ddd795b6d9a0b41cb5d5ae53",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutPlan": {
+          "finalValueHash": "c93f9193cfd0c6d0623acfbc14965ed60148a0b8604564ed546999c408492e7f",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
           "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
           "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         }
@@ -1788,7 +1780,7 @@
     },
     "compaction": {
       "finalHash": "a34e50e235a68e6e6edb871d2444e045e68254810ddb10335be1212d3f073c46",
-      "finalTemplateHash": "678661fc41e71fb3fb36b47c8bafba62cbb6aebde21cfda78b87864317cc35eb",
+      "finalTemplateHash": "6efb6c2ad02751a489a6616a87b5cb5d696ede6bf66bd65c60c44510c7cdd170",
       "draftHashes": {
         "codex": "f40b2921837e6edd4ca445795f330825250f3b4a74bacb5d12bb11e5c5024795",
         "opus": "aec1ca627c3b120de2eab2a6a5a91c44fb42d9e40a2d14dad6935ccfae4095e2",
@@ -2069,30 +2061,18 @@
           "finalDiscussion": {}
         },
         "compaction.length.exact": {
-          "finalValueHash": "6e69e658eb65a75a7cf31ed99856dc058f28010a5af4eb26ee7677a92fb8ea02",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Both categories retain exact count if possible, a shorter summary even for summary input, and new words. The other three agree with stylistic differences.",
-          "opusDecision": "accept",
-          "opusReason": "Noun stays singular after the count; \"Mümkünse\" keeps the soft target.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Mümkünse keeps if possible. tam olarak keeps exactly. karakter stays singular.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "c513a1038613c5124ad938b2bb659559bfe39920f8fc9e5b1b9ce3569a8fb110",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve strict shortening, best-effort length targets, detail adjustment and no filler in every native plural form.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "compaction.length.range": {
-          "finalValueHash": "873b1817387308f015f6c66238c41c83b10c2867e60fd4168b05abfae8991314",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Both categories retain both range parameters and required shortening. Grok adds explicit inclusiveness beyond the English wording.",
-          "opusDecision": "accept",
-          "opusReason": "Correct.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. one is exactly 1 and other includes 0 and 2 or more; the shared noun stays singular after the count; the obligation stays -malı/-meli, gerekir, or zorunlu. English: Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between {{minCh",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "5aab0d032d0c8f54c05abdcc553c94bd9f775850fb510e2d7d116c94160471c0",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve strict shortening, best-effort length targets, detail adjustment and no filler in every native plural form.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "compaction.repair.produce_summary": {
           "finalValueHash": "043cb5664906b4dc07bae4f6005c2f69c9de1f060250a4f25ff31d7741cba616",
@@ -6802,6 +6782,169 @@
       "reviewer": "Codex translation_review subagent",
       "status": "accepted_by_lead",
       "summary": "Translate the simulation boundary, first-person inner loop, memory continuity, tools, JSON escaping and emotional reflection. Match note guidance to enabled capabilities.",
+      "uncertainties": [],
+      "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    },
+    {
+      "sourceCommit": "62e686bf7a78a10ec208be5741a58af19aaa4afc",
+      "sourceCommits": [
+        "cf4b25583c0a48709ddbdb57c5d4f2c0a80e119d",
+        "62e686bf7a78a10ec208be5741a58af19aaa4afc"
+      ],
+      "units": {
+        "system": [
+          "system.nativeLanguage",
+          "system.actionDecisionWithLogOff",
+          "system.actionDecision",
+          "system.actionDecisionWithoutNotesWithLogOff",
+          "system.actionDecisionWithoutNotes",
+          "system.actionDecisionWithoutPlanWithLogOff",
+          "system.actionDecisionWithoutPlan",
+          "system.plan",
+          "system.notes",
+          "system.setting"
+        ],
+        "compaction": [
+          "compaction.length.exact",
+          "compaction.length.range"
+        ]
+      },
+      "sourceFiles": {
+        "system": {
+          "authoredSha256": "4866e165877130a912a9e58c48dddb6452fc8e0ebb66b3e4ff31ff070e0c1b14",
+          "integratedSha256": "af31d4f48eab7f5121a1595ff520b62f577406cc82cef1c71763f0f7d9d28356"
+        },
+        "compaction": {
+          "authoredSha256": "eb444d0e11d9d76a57908139f4245881d20905a0060070460e6593944705a0c9",
+          "integratedSha256": "eb444d0e11d9d76a57908139f4245881d20905a0060070460e6593944705a0c9"
+        }
+      },
+      "sourceAdaptation": "Correct GitHub Flavore Markdown to GitHub Flavored Markdown and omit the unfinished Your judgment fragment. Complete action variants preserve existing notes, PLAN and early log-off capability controls. Source setting now starts with one newline.",
+      "previousCatalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
+      "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+      "previous": {
+        "system": {
+          "finalTemplateHash": "21a081e18be23b209e215c7f0a9193eed1d2d7b33ae01363eaea8f3fd255fd51",
+          "decisions": {
+            "system.nativeLanguage": {
+              "finalValueHash": "0a4e5534686c179d75be9236c6e850cf20b5b40fcb77eee7fc9ee29a8e0512f0",
+              "chosenFrom": "codex",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Codex and Opus preserve the native-language instruction and all content. Grok is also faithful; Gemini adds a less natural plural.",
+              "opusDecision": "accept",
+              "opusReason": "Faithful; polite plural imperative.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and codex, opus. actor, tense, limits, and parameters match the English. English: Your native language is {{language}} (BCP 47). Think and write all content in that language.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "system.actionDecisionWithLogOff": {
+              "finalValueHash": "fe72597fa8bba84a4d2b7bca166286db9f419945c0effce26e477966ce7aa974",
+              "chosenFrom": "opus",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Opus preserves the action alternatives and log_off head noun. Codex uses discussion for thread, and Gemini can read as several commands.",
+              "opusDecision": "accept",
+              "opusReason": "Full action list; \"log_off aracını\" puts the suffix on a head noun.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and opus. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, search, or log_off.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "system.actionDecision": {
+              "finalValueHash": "dd8244a72347d1d80c5458fc7b53527d18ace59b7e7461ddb5da0b89bfe3f5b8",
+              "chosenFrom": "opus",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Opus preserves all six choices as alternatives. Codex uses discussion instead of thread; Grok is faithful but less consistent in the terminology.",
+              "opusDecision": "accept",
+              "opusReason": "Same list without log_off.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and opus. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, or search.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "system.plan": {
+              "finalValueHash": "42a30df6bc59535e5546c4f2165af0481884271cf736e3b58ba61ca3fa5ece57",
+              "chosenFrom": "opus",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Opus keeps PLAN, full identifiers, lookup conditions, prefix, and default replacement. Codex and Grok are faithful but less direct.",
+              "opusDecision": "accept",
+              "opusReason": "\"- \" prefix, id \"PLAN\", full new content, mark or remove, default restoration preserved; \"PLAN notunu\" uses a head noun.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Task lines start with \"- \", write_note uses id \"PLAN\" and the full content, and the string ends with two newlines.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "system.notes": {
+              "finalValueHash": "5c7978d811dd8b24c9dd2afc5f7bec40c1ce1cf8e54647b3f6cf92d353c8c742",
+              "chosenFrom": "codex",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Codex preserves exact content, identifiers, lookup order, and copying requirements. Opus translates content and attaches suffixes to ID; Gemini drops conditions.",
+              "opusDecision": "accept",
+              "opusReason": "Every line checked: purpose, own work (kaydedebilirsiniz keeps permission), ID as title, exact copy, no translation, write and delete, u/ and f/ linking preserved.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and codex. the prohibition stays -mayın/-meyin, kullanmayın, or yasak; can stays -ebilir/-abilir, not -meli. English: ### Private notes Use private notes to save things that you want to remember about other participants. You can also save your own work for later visits. For exa",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "system.setting": {
+              "finalValueHash": "3fc4b7240f97cdd1d3f08f89a37c25131200d2760bfc8c4d9e02c2a8dcead7df",
+              "chosenFrom": "codex",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Codex, Opus, and Grok retain the environment heading and exact spacing. Gemini changes its meaning to community configuration.",
+              "opusDecision": "accept",
+              "opusReason": "\"Ortam\" is an acceptable setting label.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. The string starts with two newlines and uses Ortam, the same label as compaction.system.setting.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            }
+          }
+        },
+        "compaction": {
+          "finalTemplateHash": "678661fc41e71fb3fb36b47c8bafba62cbb6aebde21cfda78b87864317cc35eb",
+          "decisions": {
+            "compaction.length.exact": {
+              "finalValueHash": "6e69e658eb65a75a7cf31ed99856dc058f28010a5af4eb26ee7677a92fb8ea02",
+              "chosenFrom": "codex",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Both categories retain exact count if possible, a shorter summary even for summary input, and new words. The other three agree with stylistic differences.",
+              "opusDecision": "accept",
+              "opusReason": "Noun stays singular after the count; \"Mümkünse\" keeps the soft target.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Mümkünse keeps if possible. tam olarak keeps exactly. karakter stays singular.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "compaction.length.range": {
+              "finalValueHash": "873b1817387308f015f6c66238c41c83b10c2867e60fd4168b05abfae8991314",
+              "chosenFrom": "codex",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Both categories retain both range parameters and required shortening. Grok adds explicit inclusiveness beyond the English wording.",
+              "opusDecision": "accept",
+              "opusReason": "Correct.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and codex. one is exactly 1 and other includes 0 and 2 or more; the shared noun stays singular after the count; the obligation stays -malı/-meli, gerekir, or zorunlu. English: Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between {{minCh",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            }
+          }
+        }
+      },
+      "translator": {
+        "agent": "translate_other",
+        "commit": "b7c376b2afc97d84b69184ec1cc646985d2f279a"
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
     }

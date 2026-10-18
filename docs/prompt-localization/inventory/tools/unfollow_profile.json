@@ -10,7 +10,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 374,
+          "line": 376,
           "kind": "direct"
         }
       ],
@@ -28,7 +28,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 378,
+          "line": 380,
           "kind": "direct"
         }
       ],
@@ -44,7 +44,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 382,
+          "line": 384,
           "kind": "direct"
         }
       ],
@@ -62,7 +62,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 533,
+          "line": 535,
           "kind": "direct"
         }
       ],

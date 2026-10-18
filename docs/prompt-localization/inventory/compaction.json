@@ -325,7 +325,7 @@
       "protectedTokens": [
         "maxCharacters"
       ],
-      "sourceTemplateHash": "f8bbd37a94910d9be3b82ab1faa1cbf4a7b4720b81d801f984a3979638ac8814"
+      "sourceTemplateHash": "8da3c67a8572b7a1246a039ebe0fe67794811fcad2a851add44b9e7a7db6ce85"
     },
     {
       "id": "compaction.length.range",
@@ -344,7 +344,7 @@
         "maxCharacters",
         "minCharacters"
       ],
-      "sourceTemplateHash": "ebd6d1524eb3969604b0ad120d9fa5d786d3c55a1dcc36df374fcda18fc4251b"
+      "sourceTemplateHash": "1928b45aae05cadc586ddd2dbb4f9f14bdb4e5b0251b5254c8b31353463b1fd6"
     },
     {
       "id": "compaction.repair.produce_summary",

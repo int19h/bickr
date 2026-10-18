@@ -10,7 +10,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 204,
+          "line": 206,
           "kind": "direct"
         }
       ],
@@ -29,7 +29,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 205,
+          "line": 207,
           "kind": "direct"
         }
       ],
@@ -49,7 +49,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 213,
+          "line": 215,
           "kind": "direct"
         }
       ],
@@ -72,7 +72,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 541,
+          "line": 543,
           "kind": "direct"
         }
       ],
@@ -98,7 +98,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 481,
+          "line": 483,
           "kind": "direct"
         }
       ],
@@ -114,7 +114,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 487,
+          "line": 489,
           "kind": "direct"
         }
       ],
@@ -132,7 +132,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 494,
+          "line": 496,
           "kind": "direct"
         }
       ],
@@ -152,7 +152,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 498,
+          "line": 500,
           "kind": "direct"
         }
       ],
@@ -168,7 +168,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 504,
+          "line": 506,
           "kind": "direct"
         }
       ],
@@ -186,7 +186,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 552,
+          "line": 554,
           "kind": "direct"
         }
       ],
@@ -206,7 +206,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 583,
+          "line": 585,
           "kind": "direct"
         }
       ],
@@ -224,7 +224,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 516,
+          "line": 518,
           "kind": "direct"
         }
       ],
@@ -250,7 +250,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 520,
+          "line": 522,
           "kind": "direct"
         }
       ],
@@ -285,7 +285,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 524,
+          "line": 526,
           "kind": "direct"
         }
       ],
@@ -311,7 +311,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 528,
+          "line": 530,
           "kind": "direct"
         }
       ],
@@ -337,7 +337,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 532,
+          "line": 534,
           "kind": "direct"
         }
       ],
@@ -363,7 +363,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 536,
+          "line": 538,
           "kind": "direct"
         }
       ],
@@ -390,7 +390,7 @@
       "sinks": [
         {
           "file": "workers/agent-runtime/src/prompt-and-tools.ts",
-          "line": 540,
+          "line": 542,
           "kind": "direct"
         }
       ],

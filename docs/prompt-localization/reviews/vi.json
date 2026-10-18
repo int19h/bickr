@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
+  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
   "locale": "vi",
   "status": "accepted_by_lead",
   "leadReason": "Accept the Vietnamese catalog after both reviewers accept all five exact follow-ups. Explicit actors preserve the audience instruction. Refreshed/public modifiers attach to the avatar. Native time, universal item removal, and notification clauses cover every count. Visit and vote terminology is consistent. Retained facts use dữ kiện, while events keep sự kiện. The earlier topic sentence uses đề tài without changing its avoidance rule.",
@@ -118,7 +118,7 @@
   "groups": {
     "system": {
       "finalHash": "94c22b1ff5e83754474701761865cccb108b47a3f4aec1277b23f1066da46d6d",
-      "finalTemplateHash": "28afa574b4904db6a92afddcffda9aba940a6108b9dfaa731ef6458c782bb980",
+      "finalTemplateHash": "d1453ba93a5e5b94a113d80347f751cc68ba4c14fe374532c340d2839e61a15b",
       "draftHashes": {
         "codex": "ddb8c752acbb08d6134e3d2466f80a725de0024ad287bdae82f7f306aa81a139",
         "opus": "223938bcfd01a847e721b8e0c3bbd10b4d61189bf29d68654f5892e14f01dfb4",
@@ -131,17 +131,11 @@
       },
       "decisions": {
         "system.nativeLanguage": {
-          "finalValueHash": "f2c2f21433de0b8fad23b391a2a064dae31c29de51c08f4639f8750123188f74",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Native mother tongue is precise; Grok changes it to original language. The other drafts add optional imperative particles.",
-          "opusDecision": "accept",
-          "opusReason": "Native language with BCP 47 note and the think-and-write instruction preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Your native language is {{language}} (BCP 47). Think and write all content in that language.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "584e433b54cabd0f70abebf36a10572a87e243954b0c8c1469da6b2676cc9fb9",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.identity": {
           "finalValueHash": "95745b55349e8e4647aa211a916297c63d59aa7bea13f97c4e8bd13a0dbdcc02",
@@ -157,78 +151,32 @@
           "finalDiscussion": {}
         },
         "system.actionDecisionWithLogOff": {
-          "finalValueHash": "ae53093bc91355a52e62e65cff042ec93520cf53009a55589006c4f3e63a6dd2",
-          "chosenFrom": "opus",
-          "leadReason": "Use bỏ phiếu for the vote action and phiếu bầu for its noun, consistently with the vote tool and surrounding catalog. Retain the complete action list, readable-forum limits, readOnly/false condition, personal-blog exclusions, or visible activity types for this source unit.",
-          "candidateReason": "Retains a choice between actions; Gemini turns the decision into required tasks. Grok adds advisory nên.",
-          "opusDecision": "optional_change",
-          "opusReason": "Meaning is preserved, but the unit says \"bình chọn\" for vote while system.main, tools/vote, schema vote reasons, log_off and recovery all say \"bỏ phiếu\". Align the term.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, search, or log_off.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "\"bỏ phiếu\" (action) and \"phiếu bầu\" (noun) now match the vote tool and the rest of the catalog; the scan finds no remaining \"bình chọn\". Every other condition is unchanged.",
-              "proposedValueHash": "ae53093bc91355a52e62e65cff042ec93520cf53009a55589006c4f3e63a6dd2"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept bỏ phiếu in the action list. English says decide whether to browse, create threads, reply to comments, vote, follow, search, or log_off. bỏ phiếu is the vote action. The full list and log_off stay.",
-              "proposedValueHash": "ae53093bc91355a52e62e65cff042ec93520cf53009a55589006c4f3e63a6dd2"
-            }
-          }
+          "finalValueHash": "86096d1cb1727b3583ff8d469a0a18f83234cac25718be230ea90170d77491dd",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.actionDecision": {
-          "finalValueHash": "0d6744ca9ee92f718185236b054a6911e5549325efeaca558818d136e884b18c",
-          "chosenFrom": "opus",
-          "leadReason": "Use bỏ phiếu for the vote action and phiếu bầu for its noun, consistently with the vote tool and surrounding catalog. Retain the complete action list, readable-forum limits, readOnly/false condition, personal-blog exclusions, or visible activity types for this source unit.",
-          "candidateReason": "Preserves the choice of actions without Gemini required tasks or Grok advisory nên.",
-          "opusDecision": "optional_change",
-          "opusReason": "Same vote-term alignment as actionDecisionWithLogOff.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and opus. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, or search.",
-          "changedAfterComparison": true,
-          "finalFollowUp": {},
-          "finalDiscussion": {
-            "opus": {
-              "decision": "accept",
-              "reason": "\"bỏ phiếu\" (action) and \"phiếu bầu\" (noun) now match the vote tool and the rest of the catalog; the scan finds no remaining \"bình chọn\". Every other condition is unchanged.",
-              "proposedValueHash": "0d6744ca9ee92f718185236b054a6911e5549325efeaca558818d136e884b18c"
-            },
-            "grok": {
-              "decision": "accept",
-              "reason": "Accept bỏ phiếu in the action list. English says decide whether to browse, create threads, reply to comments, vote, follow, or search. The list has no log_off here, and bỏ phiếu stays the vote action.",
-              "proposedValueHash": "0d6744ca9ee92f718185236b054a6911e5549325efeaca558818d136e884b18c"
-            }
-          }
+          "finalValueHash": "293dc9f52117f3c43f328f85e551d503d936153d2469e887a85e45309232b01d",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.plan": {
-          "finalValueHash": "3e9146c70ce85664b67e1a7364d3909124df3d99fd97a90c1600abbb0d488a19",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Makes completed tasks and the returning default list explicit. Codex is accurate but drops the possessive default-list link.",
-          "opusDecision": "accept",
-          "opusReason": "Task list, \"- \" line marker, write_note with id \"PLAN\", mark-or-remove, and default-returns rule preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Task lines start with \"- \", write_note uses id \"PLAN\" and the full content, and the string ends with two newlines.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "9bcf91b77768e5acfa49c3ba973e4b3c4430085e89a8cf39d9c50d2f4b9d3259",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.notes": {
-          "finalValueHash": "57e39ac8fbc90dcd1b89ff76b0fcd7cebd69b458b2796440b131071b0fb49f99",
-          "chosenFrom": "synthesis",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Keeps id and content as parameter names and all note behaviors. Opus translates content; Gemini replaces the source with different instructions. Use natural Vietnamese technical wording while retaining the original conditions and scope.",
-          "opusDecision": "accept",
-          "opusReason": "Purpose, own-work example, ID-is-title, exact-copy ban on translation or paraphrase, three note tools, and u/ and f/ linking preserved.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the prohibition stays không or không được; can stays có thể, not phải. English: ### Private notes Use private notes to save things that you want to remember about other participants. You can also save your own work for later visits. For exa",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "19abb3abbca213cc4791cf44b0b3911c4e1c9400ec423e0be9c5e988adb00084",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.logOffInstruction": {
           "finalValueHash": "869f99f4a9a7c0546437505dc661ea78b492c4bafba9bb187a499cdfc2f94f1d",
@@ -244,17 +192,11 @@
           "finalDiscussion": {}
         },
         "system.setting": {
-          "finalValueHash": "b45b0794c707ed4d6e1df0dbb7d07029de9aad2b5aa7be818ea8a1c396d1eb4e",
-          "chosenFrom": "codex",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Codex, Opus and Grok agree exactly on setting and layout; Gemini adds community and changes delimiters.",
-          "opusDecision": "accept",
-          "opusReason": "Label and placeholder with leading blank lines.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. The string starts with two newlines and uses Bối cảnh, the same label as compaction.system.setting.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "d823e6741cea577c09e6ce82c463b4f00980fcf7ec5013d7a7aafcf4fbaecb4d",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.main": {
           "finalValueHash": "47393354d19a4784fc9d4de74d49d1ffba382d24b3461c56b79b773c8f8d3b15",
@@ -281,6 +223,34 @@
           "finalValueHash": "4259c422254c329dcd39ff05b2672ca0a7b2105dfb898ea6c67b69f4eb6983ec",
           "leadReason": "Accept after independent Codex review of meaning, syntax, recommendations, JSON exceptions and capability selection.",
           "candidateReason": "Preserve the authored enabled overview, including notes and PLAN.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutNotesWithLogOff": {
+          "finalValueHash": "796845692b5479b17571980671c03d9d3b61bdb5f1f232e727c68122003130df",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutNotes": {
+          "finalValueHash": "319eb58d1646cff3a87b5aa646a073a0fa6f87a5f2295009d8d4b16e6a0e9675",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutPlanWithLogOff": {
+          "finalValueHash": "485f2475955f784c83305ca61acd9fd5a23d927883ec17bfa4ac6501e6df5fcb",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+        },
+        "system.actionDecisionWithoutPlan": {
+          "finalValueHash": "ccdc41d59e6ff66ade32f59129a24e50030d5237996e1c9fa4de7cf5a1ed5171",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
           "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
           "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         }
@@ -1799,7 +1769,7 @@
     },
     "compaction": {
       "finalHash": "38d56520e386fe3c219999bc1a1932773dfc37652345cdd2223851d9a2101777",
-      "finalTemplateHash": "38c15838108590281cd6b2e352bf57ea2058431b922a282f87d258500b898cf0",
+      "finalTemplateHash": "979c2f762bbe3dabe43351449b71222263f9d8daaf44adbcf6149ceb8b266ec2",
       "draftHashes": {
         "codex": "e12bdeb7a4d37f226590badd45f87ca6df399fc84969736bbe8577c694c2d6e6",
         "opus": "d5015fef088d7ec26b0a300e078ccfebd73b86fb95af7bfb66d922e9806e0dbf",
@@ -2073,30 +2043,18 @@
           }
         },
         "compaction.length.exact": {
-          "finalValueHash": "137e156b453c31c8f59cc7d1652f71609fad41a2c86a4689865ae1b8945ab9cb",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "All variants retain conditional exact count and shortening even summarized input; natural new-word instruction.",
-          "opusDecision": "accept",
-          "opusReason": "Shorter-than-input rule even for summaries, new words, exact count \"if possible\"; one form fits every count.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. Nếu có thể keeps if possible. đúng keeps exactly. phải ngắn hơn keeps must-be-shorter.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "5a7e10897404b6d1de02b638632f3e5052cca5121f2509145b36f514d6c642bc",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve strict shortening, best-effort length targets, detail adjustment and no filler in every native plural form.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "compaction.length.range": {
-          "finalValueHash": "6c97a0bc2991155560ac2653d0a1520c56be9c3fb90363cf3bdef530b0eb5194",
-          "chosenFrom": "opus",
-          "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
-          "candidateReason": "Retains lower and upper count and shorter-than-input requirement without Grok added endpoint explanation.",
-          "opusDecision": "accept",
-          "opusReason": "Same with range.",
-          "grokDecision": "accept",
-          "grokReason": "Accept. từ ... đến keeps between. phải ngắn hơn keeps must-be-shorter.",
-          "changedAfterComparison": false,
-          "finalFollowUp": {},
-          "finalDiscussion": {}
+          "finalValueHash": "1abdbab977c8cc7b287dcbff0fea960e0f5e8fa30c4ca3fae057594de8d28b1b",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+          "candidateReason": "Preserve strict shortening, best-effort length targets, detail adjustment and no filler in every native plural form.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "compaction.repair.produce_summary": {
           "finalValueHash": "f7b5edcf2f19b84b61c115f32dfb1846616f2fbb97a4e5e7661b31b1c148e128",
@@ -7028,6 +6986,191 @@
       "reviewer": "Codex translation_review subagent",
       "status": "accepted_by_lead",
       "summary": "Translate the simulation boundary, first-person inner loop, memory continuity, tools, JSON escaping and emotional reflection. Match note guidance to enabled capabilities.",
+      "uncertainties": [],
+      "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    },
+    {
+      "sourceCommit": "62e686bf7a78a10ec208be5741a58af19aaa4afc",
+      "sourceCommits": [
+        "cf4b25583c0a48709ddbdb57c5d4f2c0a80e119d",
+        "62e686bf7a78a10ec208be5741a58af19aaa4afc"
+      ],
+      "units": {
+        "system": [
+          "system.nativeLanguage",
+          "system.actionDecisionWithLogOff",
+          "system.actionDecision",
+          "system.actionDecisionWithoutNotesWithLogOff",
+          "system.actionDecisionWithoutNotes",
+          "system.actionDecisionWithoutPlanWithLogOff",
+          "system.actionDecisionWithoutPlan",
+          "system.plan",
+          "system.notes",
+          "system.setting"
+        ],
+        "compaction": [
+          "compaction.length.exact",
+          "compaction.length.range"
+        ]
+      },
+      "sourceFiles": {
+        "system": {
+          "authoredSha256": "4866e165877130a912a9e58c48dddb6452fc8e0ebb66b3e4ff31ff070e0c1b14",
+          "integratedSha256": "af31d4f48eab7f5121a1595ff520b62f577406cc82cef1c71763f0f7d9d28356"
+        },
+        "compaction": {
+          "authoredSha256": "eb444d0e11d9d76a57908139f4245881d20905a0060070460e6593944705a0c9",
+          "integratedSha256": "eb444d0e11d9d76a57908139f4245881d20905a0060070460e6593944705a0c9"
+        }
+      },
+      "sourceAdaptation": "Correct GitHub Flavore Markdown to GitHub Flavored Markdown and omit the unfinished Your judgment fragment. Complete action variants preserve existing notes, PLAN and early log-off capability controls. Source setting now starts with one newline.",
+      "previousCatalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
+      "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+      "previous": {
+        "system": {
+          "finalTemplateHash": "28afa574b4904db6a92afddcffda9aba940a6108b9dfaa731ef6458c782bb980",
+          "decisions": {
+            "system.nativeLanguage": {
+              "finalValueHash": "f2c2f21433de0b8fad23b391a2a064dae31c29de51c08f4639f8750123188f74",
+              "chosenFrom": "codex",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Native mother tongue is precise; Grok changes it to original language. The other drafts add optional imperative particles.",
+              "opusDecision": "accept",
+              "opusReason": "Native language with BCP 47 note and the think-and-write instruction preserved.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and codex. actor, tense, limits, and parameters match the English. English: Your native language is {{language}} (BCP 47). Think and write all content in that language.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "system.actionDecisionWithLogOff": {
+              "finalValueHash": "ae53093bc91355a52e62e65cff042ec93520cf53009a55589006c4f3e63a6dd2",
+              "chosenFrom": "opus",
+              "leadReason": "Use bỏ phiếu for the vote action and phiếu bầu for its noun, consistently with the vote tool and surrounding catalog. Retain the complete action list, readable-forum limits, readOnly/false condition, personal-blog exclusions, or visible activity types for this source unit.",
+              "candidateReason": "Retains a choice between actions; Gemini turns the decision into required tasks. Grok adds advisory nên.",
+              "opusDecision": "optional_change",
+              "opusReason": "Meaning is preserved, but the unit says \"bình chọn\" for vote while system.main, tools/vote, schema vote reasons, log_off and recovery all say \"bỏ phiếu\". Align the term.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and opus. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, search, or log_off.",
+              "changedAfterComparison": true,
+              "finalFollowUp": {},
+              "finalDiscussion": {
+                "opus": {
+                  "decision": "accept",
+                  "reason": "\"bỏ phiếu\" (action) and \"phiếu bầu\" (noun) now match the vote tool and the rest of the catalog; the scan finds no remaining \"bình chọn\". Every other condition is unchanged.",
+                  "proposedValueHash": "ae53093bc91355a52e62e65cff042ec93520cf53009a55589006c4f3e63a6dd2"
+                },
+                "grok": {
+                  "decision": "accept",
+                  "reason": "Accept bỏ phiếu in the action list. English says decide whether to browse, create threads, reply to comments, vote, follow, search, or log_off. bỏ phiếu is the vote action. The full list and log_off stay.",
+                  "proposedValueHash": "ae53093bc91355a52e62e65cff042ec93520cf53009a55589006c4f3e63a6dd2"
+                }
+              }
+            },
+            "system.actionDecision": {
+              "finalValueHash": "0d6744ca9ee92f718185236b054a6911e5549325efeaca558818d136e884b18c",
+              "chosenFrom": "opus",
+              "leadReason": "Use bỏ phiếu for the vote action and phiếu bầu for its noun, consistently with the vote tool and surrounding catalog. Retain the complete action list, readable-forum limits, readOnly/false condition, personal-blog exclusions, or visible activity types for this source unit.",
+              "candidateReason": "Preserves the choice of actions without Gemini required tasks or Grok advisory nên.",
+              "opusDecision": "optional_change",
+              "opusReason": "Same vote-term alignment as actionDecisionWithLogOff.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and opus. actor, tense, limits, and parameters match the English. English: Decide whether to browse, create threads, reply to comments, vote, follow, or search.",
+              "changedAfterComparison": true,
+              "finalFollowUp": {},
+              "finalDiscussion": {
+                "opus": {
+                  "decision": "accept",
+                  "reason": "\"bỏ phiếu\" (action) and \"phiếu bầu\" (noun) now match the vote tool and the rest of the catalog; the scan finds no remaining \"bình chọn\". Every other condition is unchanged.",
+                  "proposedValueHash": "0d6744ca9ee92f718185236b054a6911e5549325efeaca558818d136e884b18c"
+                },
+                "grok": {
+                  "decision": "accept",
+                  "reason": "Accept bỏ phiếu in the action list. English says decide whether to browse, create threads, reply to comments, vote, follow, or search. The list has no log_off here, and bỏ phiếu stays the vote action.",
+                  "proposedValueHash": "0d6744ca9ee92f718185236b054a6911e5549325efeaca558818d136e884b18c"
+                }
+              }
+            },
+            "system.plan": {
+              "finalValueHash": "3e9146c70ce85664b67e1a7364d3909124df3d99fd97a90c1600abbb0d488a19",
+              "chosenFrom": "opus",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Makes completed tasks and the returning default list explicit. Codex is accurate but drops the possessive default-list link.",
+              "opusDecision": "accept",
+              "opusReason": "Task list, \"- \" line marker, write_note with id \"PLAN\", mark-or-remove, and default-returns rule preserved.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Task lines start with \"- \", write_note uses id \"PLAN\" and the full content, and the string ends with two newlines.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "system.notes": {
+              "finalValueHash": "57e39ac8fbc90dcd1b89ff76b0fcd7cebd69b458b2796440b131071b0fb49f99",
+              "chosenFrom": "synthesis",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Keeps id and content as parameter names and all note behaviors. Opus translates content; Gemini replaces the source with different instructions. Use natural Vietnamese technical wording while retaining the original conditions and scope.",
+              "opusDecision": "accept",
+              "opusReason": "Purpose, own-work example, ID-is-title, exact-copy ban on translation or paraphrase, three note tools, and u/ and f/ linking preserved.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Compared with the English source and no single draft; the wording is a synthesis. the prohibition stays không or không được; can stays có thể, not phải. English: ### Private notes Use private notes to save things that you want to remember about other participants. You can also save your own work for later visits. For exa",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "system.setting": {
+              "finalValueHash": "b45b0794c707ed4d6e1df0dbb7d07029de9aad2b5aa7be818ea8a1c396d1eb4e",
+              "chosenFrom": "codex",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Codex, Opus and Grok agree exactly on setting and layout; Gemini adds community and changes delimiters.",
+              "opusDecision": "accept",
+              "opusReason": "Label and placeholder with leading blank lines.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. The string starts with two newlines and uses Bối cảnh, the same label as compaction.system.setting.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            }
+          }
+        },
+        "compaction": {
+          "finalTemplateHash": "38c15838108590281cd6b2e352bf57ea2058431b922a282f87d258500b898cf0",
+          "decisions": {
+            "compaction.length.exact": {
+              "finalValueHash": "137e156b453c31c8f59cc7d1652f71609fad41a2c86a4689865ae1b8945ab9cb",
+              "chosenFrom": "opus",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "All variants retain conditional exact count and shortening even summarized input; natural new-word instruction.",
+              "opusDecision": "accept",
+              "opusReason": "Shorter-than-input rule even for summaries, new words, exact count \"if possible\"; one form fits every count.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. Nếu có thể keeps if possible. đúng keeps exactly. phải ngắn hơn keeps must-be-shorter.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            },
+            "compaction.length.range": {
+              "finalValueHash": "6c97a0bc2991155560ac2653d0a1520c56be9c3fb90363cf3bdef530b0eb5194",
+              "chosenFrom": "opus",
+              "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
+              "candidateReason": "Retains lower and upper count and shorter-than-input requirement without Grok added endpoint explanation.",
+              "opusDecision": "accept",
+              "opusReason": "Same with range.",
+              "grokDecision": "accept",
+              "grokReason": "Accept. từ ... đến keeps between. phải ngắn hơn keeps must-be-shorter.",
+              "changedAfterComparison": false,
+              "finalFollowUp": {},
+              "finalDiscussion": {}
+            }
+          }
+        }
+      },
+      "translator": {
+        "agent": "translate_other",
+        "commit": "b7c376b2afc97d84b69184ec1cc646985d2f279a"
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
     }
