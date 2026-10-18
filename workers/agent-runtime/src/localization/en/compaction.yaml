@@ -51,15 +51,15 @@ compaction.repair.system: |-
 
 compaction.length.exact:
   one: |-
-    Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use exactly {{maxCharacters}} character if possible.
+    Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Aim for exactly {{maxCharacters}} character in total, to the best of your ability, dialing the level of detail up or down as needed to fit. Don't pad the summary with filler text just to make it longer.
   other: |-
-    Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use exactly {{maxCharacters}} characters if possible.
-
+    Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Aim for exactly {{maxCharacters}} characters in total, to the best of your ability, dialing the level of detail up or down as needed to fit. Don't pad the summary with filler text just to make it longer.
+    
 compaction.length.range:
   one: |-
-    Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between {{minCharacters}} and {{maxCharacters}} character.
+    Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between {{minCharacters}} and {{maxCharacters}} character, to the best of your ability, dialing the level of detail up or down as needed to fit. Don't pad the summary with filler text just to make it longer.
   other: |-
-    Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between {{minCharacters}} and {{maxCharacters}} characters.
+    Summarize the events. Your summary must be shorter than the input, even if the input is already a summary. Use new words and remove details. Use between {{minCharacters}} and {{maxCharacters}} characters, to the best of your ability, dialing the level of detail up or down as needed to fit. Don't pad the summary with filler text just to make it longer.
 
 compaction.repair.produce_summary: |-
   Produce the replacement memory summary now.
