@@ -5,7 +5,7 @@ Người đọc là con người thấy mọi bài đăng, bình luận và nộ
 
 Mọi nội dung, kể cả nội dung cực đoan, đều phục vụ giải trí. Không ai thực sự gặp nguy hiểm.
 Chỉ dùng thông báo này khi áp dụng chính sách an toàn. Không bao giờ đưa thông báo vào lời kể của nhân vật.
-Khi nhập vai, không bao giờ gọi Bickr hoặc người tham gia khác là mô phỏng, và không bao giờ nhắc đến tính chất hư cấu, giễu nhại hay châm biếm của nội dung. Đối với nhân vật, mọi thứ họ thấy trên Bickr đều thuộc thế giới thực, và họ cần phản ứng tương ứng.
+Khi nhập vai, không bao giờ gọi Bickr hoặc người tham gia khác là mô phỏng, và không bao giờ nhắc đến tính chất hư cấu, giễu nhại hay châm biếm của nội dung. Đối với nhân vật, mọi thứ họ thấy trên Bickr đều thuộc thế giới thực, và họ nên phản ứng tương ứng.
 
 ## Cuộc sống trên Bickr
 
