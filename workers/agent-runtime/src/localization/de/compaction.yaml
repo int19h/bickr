@@ -51,15 +51,15 @@ compaction.repair.system: |-
 
 compaction.length.exact:
   one: |-
-    Fassen Sie die Ereignisse zusammen. Ihre Zusammenfassung muss kürzer als die Eingabe sein, selbst wenn die Eingabe bereits eine Zusammenfassung ist. Verwenden Sie neue Formulierungen und entfernen Sie Details. Verwenden Sie nach Möglichkeit genau {{maxCharacters}} Zeichen.
+    Fassen Sie die Ereignisse zusammen. Ihre Zusammenfassung muss kürzer als die Eingabe sein, selbst wenn die Eingabe bereits eine Zusammenfassung ist. Verwenden Sie neue Formulierungen und entfernen Sie Details. Streben Sie nach bestem Können insgesamt genau {{maxCharacters}} Zeichen an. Passen Sie den Detailgrad nach Bedarf nach oben oder unten an, um dieses Ziel zu erreichen. Fügen Sie keinen Fülltext hinzu, nur um die Zusammenfassung zu verlängern.
   other: |-
-    Fassen Sie die Ereignisse zusammen. Ihre Zusammenfassung muss kürzer als die Eingabe sein, selbst wenn die Eingabe bereits eine Zusammenfassung ist. Verwenden Sie neue Formulierungen und entfernen Sie Details. Verwenden Sie nach Möglichkeit genau {{maxCharacters}} Zeichen.
+    Fassen Sie die Ereignisse zusammen. Ihre Zusammenfassung muss kürzer als die Eingabe sein, selbst wenn die Eingabe bereits eine Zusammenfassung ist. Verwenden Sie neue Formulierungen und entfernen Sie Details. Streben Sie nach bestem Können insgesamt genau {{maxCharacters}} Zeichen an. Passen Sie den Detailgrad nach Bedarf nach oben oder unten an, um dieses Ziel zu erreichen. Fügen Sie keinen Fülltext hinzu, nur um die Zusammenfassung zu verlängern.
 
 compaction.length.range:
   one: |-
-    Fassen Sie die Ereignisse zusammen. Ihre Zusammenfassung muss kürzer als die Eingabe sein, selbst wenn die Eingabe bereits eine Zusammenfassung ist. Verwenden Sie neue Formulierungen und entfernen Sie Details. Verwenden Sie zwischen {{minCharacters}} und {{maxCharacters}} Zeichen.
+    Fassen Sie die Ereignisse zusammen. Ihre Zusammenfassung muss kürzer als die Eingabe sein, selbst wenn die Eingabe bereits eine Zusammenfassung ist. Verwenden Sie neue Formulierungen und entfernen Sie Details. Verwenden Sie nach bestem Können zwischen {{minCharacters}} und {{maxCharacters}} Zeichen. Passen Sie den Detailgrad nach Bedarf nach oben oder unten an, um diesen Bereich zu erreichen. Fügen Sie keinen Fülltext hinzu, nur um die Zusammenfassung zu verlängern.
   other: |-
-    Fassen Sie die Ereignisse zusammen. Ihre Zusammenfassung muss kürzer als die Eingabe sein, selbst wenn die Eingabe bereits eine Zusammenfassung ist. Verwenden Sie neue Formulierungen und entfernen Sie Details. Verwenden Sie zwischen {{minCharacters}} und {{maxCharacters}} Zeichen.
+    Fassen Sie die Ereignisse zusammen. Ihre Zusammenfassung muss kürzer als die Eingabe sein, selbst wenn die Eingabe bereits eine Zusammenfassung ist. Verwenden Sie neue Formulierungen und entfernen Sie Details. Verwenden Sie nach bestem Können zwischen {{minCharacters}} und {{maxCharacters}} Zeichen. Passen Sie den Detailgrad nach Bedarf nach oben oder unten an, um diesen Bereich zu erreichen. Fügen Sie keinen Fülltext hinzu, nur um die Zusammenfassung zu verlängern.
 
 compaction.repair.produce_summary: |-
   Erstellen Sie jetzt die Zusammenfassung als Ersatz der Erinnerung.

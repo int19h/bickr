@@ -51,19 +51,19 @@ compaction.repair.system: |-
 
 compaction.length.exact:
   one: |-
-    Riassumi gli eventi. Il riassunto deve essere più breve dell’input, anche se l’input è già un riassunto. Usa parole nuove e rimuovi dettagli. Se possibile, usa esattamente questo numero di caratteri: {{maxCharacters}}.
+    Riassumi gli eventi. Il riassunto deve essere più breve dell’input, anche se l’input è già un riassunto. Usa parole nuove e rimuovi dettagli. Punta, al meglio delle tue capacità, a questo numero totale esatto di caratteri: {{maxCharacters}}. Aumenta o riduci il livello di dettaglio secondo necessità per raggiungere questo obiettivo. Non aggiungere testo riempitivo solo per allungare il riassunto.
   many: |-
-    Riassumi gli eventi. Il riassunto deve essere più breve dell’input, anche se l’input è già un riassunto. Usa parole nuove e rimuovi dettagli. Se possibile, usa esattamente questo numero di caratteri: {{maxCharacters}}.
+    Riassumi gli eventi. Il riassunto deve essere più breve dell’input, anche se l’input è già un riassunto. Usa parole nuove e rimuovi dettagli. Punta, al meglio delle tue capacità, a questo numero totale esatto di caratteri: {{maxCharacters}}. Aumenta o riduci il livello di dettaglio secondo necessità per raggiungere questo obiettivo. Non aggiungere testo riempitivo solo per allungare il riassunto.
   other: |-
-    Riassumi gli eventi. Il riassunto deve essere più breve dell’input, anche se l’input è già un riassunto. Usa parole nuove e rimuovi dettagli. Se possibile, usa esattamente questo numero di caratteri: {{maxCharacters}}.
+    Riassumi gli eventi. Il riassunto deve essere più breve dell’input, anche se l’input è già un riassunto. Usa parole nuove e rimuovi dettagli. Punta, al meglio delle tue capacità, a questo numero totale esatto di caratteri: {{maxCharacters}}. Aumenta o riduci il livello di dettaglio secondo necessità per raggiungere questo obiettivo. Non aggiungere testo riempitivo solo per allungare il riassunto.
 
 compaction.length.range:
   one: |-
-    Riassumi gli eventi. Il riassunto deve essere più breve dell’input, anche se l’input è già un riassunto. Usa parole nuove e rimuovi dettagli. Usa un numero di caratteri tra {{minCharacters}} e {{maxCharacters}}.
+    Riassumi gli eventi. Il riassunto deve essere più breve dell’input, anche se l’input è già un riassunto. Usa parole nuove e rimuovi dettagli. Cerca, al meglio delle tue capacità, di usare un numero di caratteri tra {{minCharacters}} e {{maxCharacters}}. Aumenta o riduci il livello di dettaglio secondo necessità per rientrare in questo intervallo. Non aggiungere testo riempitivo solo per allungare il riassunto.
   many: |-
-    Riassumi gli eventi. Il riassunto deve essere più breve dell’input, anche se l’input è già un riassunto. Usa parole nuove e rimuovi dettagli. Usa un numero di caratteri tra {{minCharacters}} e {{maxCharacters}}.
+    Riassumi gli eventi. Il riassunto deve essere più breve dell’input, anche se l’input è già un riassunto. Usa parole nuove e rimuovi dettagli. Cerca, al meglio delle tue capacità, di usare un numero di caratteri tra {{minCharacters}} e {{maxCharacters}}. Aumenta o riduci il livello di dettaglio secondo necessità per rientrare in questo intervallo. Non aggiungere testo riempitivo solo per allungare il riassunto.
   other: |-
-    Riassumi gli eventi. Il riassunto deve essere più breve dell’input, anche se l’input è già un riassunto. Usa parole nuove e rimuovi dettagli. Usa un numero di caratteri tra {{minCharacters}} e {{maxCharacters}}.
+    Riassumi gli eventi. Il riassunto deve essere più breve dell’input, anche se l’input è già un riassunto. Usa parole nuove e rimuovi dettagli. Cerca, al meglio delle tue capacità, di usare un numero di caratteri tra {{minCharacters}} e {{maxCharacters}}. Aumenta o riduci il livello di dettaglio secondo necessità per rientrare in questo intervallo. Non aggiungere testo riempitivo solo per allungare il riassunto.
 
 compaction.repair.produce_summary: |-
   Produci ora il riassunto della memoria sostitutivo.

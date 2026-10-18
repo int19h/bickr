@@ -51,19 +51,19 @@ compaction.repair.system: |-
 
 compaction.length.exact:
   one: |-
-    Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Se possível, use exatamente este número de caracteres: {{maxCharacters}}.
+    Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Procure, da melhor forma que conseguir, atingir exatamente este número total de caracteres: {{maxCharacters}}. Aumente ou reduza o nível de detalhe conforme necessário para atingir esse objetivo. Não acrescente texto de enchimento apenas para alongar o resumo.
   many: |-
-    Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Se possível, use exatamente este número de caracteres: {{maxCharacters}}.
+    Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Procure, da melhor forma que conseguir, atingir exatamente este número total de caracteres: {{maxCharacters}}. Aumente ou reduza o nível de detalhe conforme necessário para atingir esse objetivo. Não acrescente texto de enchimento apenas para alongar o resumo.
   other: |-
-    Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Se possível, use exatamente este número de caracteres: {{maxCharacters}}.
+    Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Procure, da melhor forma que conseguir, atingir exatamente este número total de caracteres: {{maxCharacters}}. Aumente ou reduza o nível de detalhe conforme necessário para atingir esse objetivo. Não acrescente texto de enchimento apenas para alongar o resumo.
 
 compaction.length.range:
   one: |-
-    Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Use um número de caracteres entre {{minCharacters}} e {{maxCharacters}}.
+    Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Procure, da melhor forma que conseguir, usar um número de caracteres entre {{minCharacters}} e {{maxCharacters}}. Aumente ou reduza o nível de detalhe conforme necessário para respeitar esse intervalo. Não acrescente texto de enchimento apenas para alongar o resumo.
   many: |-
-    Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Use um número de caracteres entre {{minCharacters}} e {{maxCharacters}}.
+    Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Procure, da melhor forma que conseguir, usar um número de caracteres entre {{minCharacters}} e {{maxCharacters}}. Aumente ou reduza o nível de detalhe conforme necessário para respeitar esse intervalo. Não acrescente texto de enchimento apenas para alongar o resumo.
   other: |-
-    Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Use um número de caracteres entre {{minCharacters}} e {{maxCharacters}}.
+    Resuma os eventos. O seu resumo deve ser mais curto do que a entrada, mesmo que a entrada já seja um resumo. Use novas palavras e remova detalhes. Procure, da melhor forma que conseguir, usar um número de caracteres entre {{minCharacters}} e {{maxCharacters}}. Aumente ou reduza o nível de detalhe conforme necessário para respeitar esse intervalo. Não acrescente texto de enchimento apenas para alongar o resumo.
 
 compaction.repair.produce_summary: |-
   Produza agora o resumo de memória substituto.

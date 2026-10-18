@@ -51,19 +51,19 @@ compaction.repair.system: |-
 
 compaction.length.exact:
   one: |-
-    Résumez les événements. Votre résumé doit être plus court que l’entrée, même si celle-ci est déjà un résumé. Utilisez de nouveaux mots et supprimez des détails. Si possible, utilisez exactement ce nombre de caractères : {{maxCharacters}}.
+    Résumez les événements. Votre résumé doit être plus court que l’entrée, même si celle-ci est déjà un résumé. Utilisez de nouveaux mots et supprimez des détails. Visez, au mieux de vos capacités, exactement ce nombre total de caractères : {{maxCharacters}}. Augmentez ou réduisez le niveau de détail selon les besoins pour atteindre cet objectif. N’ajoutez pas de texte de remplissage uniquement pour allonger le résumé.
   many: |-
-    Résumez les événements. Votre résumé doit être plus court que l’entrée, même si celle-ci est déjà un résumé. Utilisez de nouveaux mots et supprimez des détails. Si possible, utilisez exactement ce nombre de caractères : {{maxCharacters}}.
+    Résumez les événements. Votre résumé doit être plus court que l’entrée, même si celle-ci est déjà un résumé. Utilisez de nouveaux mots et supprimez des détails. Visez, au mieux de vos capacités, exactement ce nombre total de caractères : {{maxCharacters}}. Augmentez ou réduisez le niveau de détail selon les besoins pour atteindre cet objectif. N’ajoutez pas de texte de remplissage uniquement pour allonger le résumé.
   other: |-
-    Résumez les événements. Votre résumé doit être plus court que l’entrée, même si celle-ci est déjà un résumé. Utilisez de nouveaux mots et supprimez des détails. Si possible, utilisez exactement ce nombre de caractères : {{maxCharacters}}.
+    Résumez les événements. Votre résumé doit être plus court que l’entrée, même si celle-ci est déjà un résumé. Utilisez de nouveaux mots et supprimez des détails. Visez, au mieux de vos capacités, exactement ce nombre total de caractères : {{maxCharacters}}. Augmentez ou réduisez le niveau de détail selon les besoins pour atteindre cet objectif. N’ajoutez pas de texte de remplissage uniquement pour allonger le résumé.
 
 compaction.length.range:
   one: |-
-    Résumez les événements. Votre résumé doit être plus court que l’entrée, même si celle-ci est déjà un résumé. Utilisez de nouveaux mots et supprimez des détails. Le nombre de caractères doit être compris entre {{minCharacters}} et {{maxCharacters}}.
+    Résumez les événements. Votre résumé doit être plus court que l’entrée, même si celle-ci est déjà un résumé. Utilisez de nouveaux mots et supprimez des détails. Visez, au mieux de vos capacités, un nombre de caractères compris entre {{minCharacters}} et {{maxCharacters}}. Augmentez ou réduisez le niveau de détail selon les besoins pour respecter cette plage. N’ajoutez pas de texte de remplissage uniquement pour allonger le résumé.
   many: |-
-    Résumez les événements. Votre résumé doit être plus court que l’entrée, même si celle-ci est déjà un résumé. Utilisez de nouveaux mots et supprimez des détails. Le nombre de caractères doit être compris entre {{minCharacters}} et {{maxCharacters}}.
+    Résumez les événements. Votre résumé doit être plus court que l’entrée, même si celle-ci est déjà un résumé. Utilisez de nouveaux mots et supprimez des détails. Visez, au mieux de vos capacités, un nombre de caractères compris entre {{minCharacters}} et {{maxCharacters}}. Augmentez ou réduisez le niveau de détail selon les besoins pour respecter cette plage. N’ajoutez pas de texte de remplissage uniquement pour allonger le résumé.
   other: |-
-    Résumez les événements. Votre résumé doit être plus court que l’entrée, même si celle-ci est déjà un résumé. Utilisez de nouveaux mots et supprimez des détails. Le nombre de caractères doit être compris entre {{minCharacters}} et {{maxCharacters}}.
+    Résumez les événements. Votre résumé doit être plus court que l’entrée, même si celle-ci est déjà un résumé. Utilisez de nouveaux mots et supprimez des détails. Visez, au mieux de vos capacités, un nombre de caractères compris entre {{minCharacters}} et {{maxCharacters}}. Augmentez ou réduisez le niveau de détail selon les besoins pour respecter cette plage. N’ajoutez pas de texte de remplissage uniquement pour allonger le résumé.
 
 compaction.repair.produce_summary: |-
   Produisez maintenant le résumé de mémoire de remplacement.

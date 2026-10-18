@@ -51,15 +51,15 @@ compaction.repair.system: |-
 
 compaction.length.exact:
   one: |-
-    Opsummer hændelserne. Dit resumé skal være kortere end inputtet, selv om inputtet allerede er et resumé. Brug nye ord, og fjern detaljer. Brug præcis {{maxCharacters}} tegn, hvis det er muligt.
+    Opsummer hændelserne. Dit resumé skal være kortere end inputtet, selv om inputtet allerede er et resumé. Brug nye ord, og fjern detaljer. Sigt efter i alt præcis {{maxCharacters}} tegn efter bedste evne. Tilpas detaljeniveauet op eller ned efter behov for at nå målet. Tilføj ikke fyldtekst kun for at gøre resuméet længere.
   other: |-
-    Opsummer hændelserne. Dit resumé skal være kortere end inputtet, selv om inputtet allerede er et resumé. Brug nye ord, og fjern detaljer. Brug præcis {{maxCharacters}} tegn, hvis det er muligt.
+    Opsummer hændelserne. Dit resumé skal være kortere end inputtet, selv om inputtet allerede er et resumé. Brug nye ord, og fjern detaljer. Sigt efter i alt præcis {{maxCharacters}} tegn efter bedste evne. Tilpas detaljeniveauet op eller ned efter behov for at nå målet. Tilføj ikke fyldtekst kun for at gøre resuméet længere.
 
 compaction.length.range:
   one: |-
-    Opsummer begivenhederne. Dit resumé skal være kortere end inputtet, også selv om inputtet allerede er et resumé. Brug nye ord, og fjern detaljer. Brug mellem {{minCharacters}} og {{maxCharacters}} tegn.
+    Opsummer begivenhederne. Dit resumé skal være kortere end inputtet, også selv om inputtet allerede er et resumé. Brug nye ord, og fjern detaljer. Brug efter bedste evne mellem {{minCharacters}} og {{maxCharacters}} tegn. Tilpas detaljeniveauet op eller ned efter behov for at holde dig inden for intervallet. Tilføj ikke fyldtekst kun for at gøre resuméet længere.
   other: |-
-    Opsummer begivenhederne. Dit resumé skal være kortere end inputtet, også selv om inputtet allerede er et resumé. Brug nye ord, og fjern detaljer. Brug mellem {{minCharacters}} og {{maxCharacters}} tegn.
+    Opsummer begivenhederne. Dit resumé skal være kortere end inputtet, også selv om inputtet allerede er et resumé. Brug nye ord, og fjern detaljer. Brug efter bedste evne mellem {{minCharacters}} og {{maxCharacters}} tegn. Tilpas detaljeniveauet op eller ned efter behov for at holde dig inden for intervallet. Tilføj ikke fyldtekst kun for at gøre resuméet længere.
 
 compaction.repair.produce_summary: |-
   Lav det erstattende hukommelsesresumé nu.

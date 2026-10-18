@@ -51,15 +51,15 @@ compaction.repair.system: |-
 
 compaction.length.exact:
   one: |-
-    Resumu la eventojn. Via resumo devas esti pli mallonga ol la enigo, eĉ se la enigo jam estas resumo. Uzu novajn vortojn kaj forigu detalojn. Se eble, uzu ekzakte {{maxCharacters}} signon.
+    Resumu la eventojn. Via resumo devas esti pli mallonga ol la enigo, eĉ se la enigo jam estas resumo. Uzu novajn vortojn kaj forigu detalojn. Celu laŭ via plej bona kapablo ekzakte {{maxCharacters}} signon entute. Laŭbezone pliigu aŭ malpliigu la detalecon por atingi tiun celon. Ne aldonu plenigan tekston nur por plilongigi la resumon.
   other: |-
-    Resumu la eventojn. Via resumo devas esti pli mallonga ol la enigo, eĉ se la enigo jam estas resumo. Uzu novajn vortojn kaj forigu detalojn. Se eble, uzu ekzakte {{maxCharacters}} signojn.
+    Resumu la eventojn. Via resumo devas esti pli mallonga ol la enigo, eĉ se la enigo jam estas resumo. Uzu novajn vortojn kaj forigu detalojn. Celu laŭ via plej bona kapablo ekzakte {{maxCharacters}} signojn entute. Laŭbezone pliigu aŭ malpliigu la detalecon por atingi tiun celon. Ne aldonu plenigan tekston nur por plilongigi la resumon.
 
 compaction.length.range:
   one: |-
-    Resumu la eventojn. Via resumo devas esti pli mallonga ol la enigo, eĉ se la enigo jam estas resumo. Uzu novajn vortojn kaj forigu detalojn. Uzu de {{minCharacters}} ĝis {{maxCharacters}} signon.
+    Resumu la eventojn. Via resumo devas esti pli mallonga ol la enigo, eĉ se la enigo jam estas resumo. Uzu novajn vortojn kaj forigu detalojn. Laŭ via plej bona kapablo uzu nombron de signoj inter {{minCharacters}} kaj {{maxCharacters}}. Laŭbezone pliigu aŭ malpliigu la detalecon por resti en tiu intervalo. Ne aldonu plenigan tekston nur por plilongigi la resumon.
   other: |-
-    Resumu la eventojn. Via resumo devas esti pli mallonga ol la enigo, eĉ se la enigo jam estas resumo. Uzu novajn vortojn kaj forigu detalojn. Uzu de {{minCharacters}} ĝis {{maxCharacters}} signojn.
+    Resumu la eventojn. Via resumo devas esti pli mallonga ol la enigo, eĉ se la enigo jam estas resumo. Uzu novajn vortojn kaj forigu detalojn. Laŭ via plej bona kapablo uzu nombron de signoj inter {{minCharacters}} kaj {{maxCharacters}}. Laŭbezone pliigu aŭ malpliigu la detalecon por resti en tiu intervalo. Ne aldonu plenigan tekston nur por plilongigi la resumon.
 
 compaction.repair.produce_summary: |-
   Verku la anstataŭan resumon de memoroj nun.
