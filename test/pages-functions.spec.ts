@@ -3767,12 +3767,12 @@ describe("Pages functions", () => {
 		expect(first.responseReserveTokens).toBe(defaultLoopRequest.max_completion_tokens);
 		expect(calls).toHaveLength(3);
 		expect(calls[0]?.content).toContain(
-			"Your native language is en (BCP 47). Think and write all content in that language.",
+			"Your native language is `en` (BCP 47). Think and write all content in that language.",
 		);
 		expect(calls[0]?.content).not.toContain("Stay brief.");
 		expect(calls[1]?.content).toContain("Stay brief.");
 		expect(calls[2]?.content).toContain("Stay brief.");
-		expect(calls[2]?.content).not.toContain("Setting:");
+		expect(calls[2]?.content).not.toContain("The setting is:");
 
 		const second = await promptContextBudget(created.data.bot.id, {
 			prompt: "Stay brief.",
@@ -3837,7 +3837,7 @@ describe("Pages functions", () => {
 		});
 		expect(languageSettingChanged.cached).toBe(false);
 		expect(calls).toHaveLength(12);
-		expect(calls[9]?.content).not.toContain("Your native language is en");
+		expect(calls[9]?.content).not.toContain("Your native language is `en`");
 	});
 
 	it("allows bot prompts up to 64000 characters and rejects longer prompts", async () => {

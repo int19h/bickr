@@ -1225,7 +1225,7 @@ describe("Provider requests", () => {
 			prompt: localizedText("Stay terse.", "ja" as LanguageTag),
 		} as Parameters<typeof standardPrompt>[1];
 		const nativeLanguageLine =
-			"Your native language is ja (BCP 47). Think and write all content in that language.";
+			"Your native language is `ja` (BCP 47). Think and write all content in that language.";
 		expect(standardPrompt(englishInstructions, promptBot, "", { includeNotesTools: true, includePlan: true })).toContain(nativeLanguageLine);
 		expect(standardPrompt(englishInstructions, { ...promptBot, includeLanguageInSystemPrompt: false }, "", { includeNotesTools: true, includePlan: true })).not.toContain(nativeLanguageLine);
 		expect(standardPrompt(englishInstructions, { ...promptBot, language: null }, "", { includeNotesTools: true, includePlan: true })).not.toContain(nativeLanguageLine);
