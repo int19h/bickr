@@ -51,27 +51,27 @@ compaction.repair.system: |-
 
 compaction.length.exact:
   one: |-
-    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Más féidir, bíodh líon na gcarachtar díreach {{maxCharacters}}.
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Déan do dhícheall líon iomlán na gcarachtar a bheith díreach {{maxCharacters}}, agus méadaigh nó laghdaigh an leibhéal sonraí de réir mar is gá chun an fad sin a bhaint amach. Ná cuir téacs breise gan ábhar leis an achoimre díreach chun í a dhéanamh níos faide.
   two: |-
-    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Más féidir, bíodh líon na gcarachtar díreach {{maxCharacters}}.
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Déan do dhícheall líon iomlán na gcarachtar a bheith díreach {{maxCharacters}}, agus méadaigh nó laghdaigh an leibhéal sonraí de réir mar is gá chun an fad sin a bhaint amach. Ná cuir téacs breise gan ábhar leis an achoimre díreach chun í a dhéanamh níos faide.
   few: |-
-    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Más féidir, bíodh líon na gcarachtar díreach {{maxCharacters}}.
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Déan do dhícheall líon iomlán na gcarachtar a bheith díreach {{maxCharacters}}, agus méadaigh nó laghdaigh an leibhéal sonraí de réir mar is gá chun an fad sin a bhaint amach. Ná cuir téacs breise gan ábhar leis an achoimre díreach chun í a dhéanamh níos faide.
   many: |-
-    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Más féidir, bíodh líon na gcarachtar díreach {{maxCharacters}}.
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Déan do dhícheall líon iomlán na gcarachtar a bheith díreach {{maxCharacters}}, agus méadaigh nó laghdaigh an leibhéal sonraí de réir mar is gá chun an fad sin a bhaint amach. Ná cuir téacs breise gan ábhar leis an achoimre díreach chun í a dhéanamh níos faide.
   other: |-
-    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Más féidir, bíodh líon na gcarachtar díreach {{maxCharacters}}.
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Déan do dhícheall líon iomlán na gcarachtar a bheith díreach {{maxCharacters}}, agus méadaigh nó laghdaigh an leibhéal sonraí de réir mar is gá chun an fad sin a bhaint amach. Ná cuir téacs breise gan ábhar leis an achoimre díreach chun í a dhéanamh níos faide.
 
 compaction.length.range:
   one: |-
-    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Bíodh líon na gcarachtar idir {{minCharacters}} agus {{maxCharacters}}.
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Déan do dhícheall líon na gcarachtar a choinneáil idir {{minCharacters}} agus {{maxCharacters}}, agus méadaigh nó laghdaigh an leibhéal sonraí de réir mar is gá chun an fad sin a bhaint amach. Ná cuir téacs breise gan ábhar leis an achoimre díreach chun í a dhéanamh níos faide.
   two: |-
-    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Bíodh líon na gcarachtar idir {{minCharacters}} agus {{maxCharacters}}.
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Déan do dhícheall líon na gcarachtar a choinneáil idir {{minCharacters}} agus {{maxCharacters}}, agus méadaigh nó laghdaigh an leibhéal sonraí de réir mar is gá chun an fad sin a bhaint amach. Ná cuir téacs breise gan ábhar leis an achoimre díreach chun í a dhéanamh níos faide.
   few: |-
-    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Bíodh líon na gcarachtar idir {{minCharacters}} agus {{maxCharacters}}.
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Déan do dhícheall líon na gcarachtar a choinneáil idir {{minCharacters}} agus {{maxCharacters}}, agus méadaigh nó laghdaigh an leibhéal sonraí de réir mar is gá chun an fad sin a bhaint amach. Ná cuir téacs breise gan ábhar leis an achoimre díreach chun í a dhéanamh níos faide.
   many: |-
-    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Bíodh líon na gcarachtar idir {{minCharacters}} agus {{maxCharacters}}.
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Déan do dhícheall líon na gcarachtar a choinneáil idir {{minCharacters}} agus {{maxCharacters}}, agus méadaigh nó laghdaigh an leibhéal sonraí de réir mar is gá chun an fad sin a bhaint amach. Ná cuir téacs breise gan ábhar leis an achoimre díreach chun í a dhéanamh níos faide.
   other: |-
-    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Bíodh líon na gcarachtar idir {{minCharacters}} agus {{maxCharacters}}.
+    Déan achoimre ar na himeachtaí. Ní mór d'achoimre a bheith níos giorra ná an t-ionchur, fiú más achoimre cheana féin é an t-ionchur. Úsáid focail nua agus bain sonraí amach. Déan do dhícheall líon na gcarachtar a choinneáil idir {{minCharacters}} agus {{maxCharacters}}, agus méadaigh nó laghdaigh an leibhéal sonraí de réir mar is gá chun an fad sin a bhaint amach. Ná cuir téacs breise gan ábhar leis an achoimre díreach chun í a dhéanamh níos faide.
 
 compaction.repair.produce_summary: |-
   Cruthaigh an achoimre chuimhne ionaid anois.

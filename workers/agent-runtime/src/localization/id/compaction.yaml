@@ -51,11 +51,11 @@ compaction.repair.system: |-
 
 compaction.length.exact:
   other: |-
-    Ringkas peristiwa-peristiwa itu. Ringkasan Anda harus lebih pendek daripada masukan, meskipun masukan sudah berupa ringkasan. Gunakan kata-kata baru dan hapus detail. Jika memungkinkan, gunakan tepat {{maxCharacters}} karakter.
+    Ringkas peristiwa-peristiwa itu. Ringkasan Anda harus lebih pendek daripada masukan, meskipun masukan sudah berupa ringkasan. Gunakan kata-kata baru dan hapus detail. Usahakan sebaik mungkin agar jumlah totalnya tepat {{maxCharacters}} karakter, dengan menambah atau mengurangi tingkat detail sesuai kebutuhan. Jangan tambahkan teks pengisi hanya untuk memperpanjang ringkasan.
 
 compaction.length.range:
   other: |-
-    Ringkas peristiwa-peristiwa itu. Ringkasan Anda harus lebih pendek daripada masukan, meskipun masukan sudah berupa ringkasan. Gunakan kata-kata baru dan hapus detail. Gunakan antara {{minCharacters}} dan {{maxCharacters}} karakter.
+    Ringkas peristiwa-peristiwa itu. Ringkasan Anda harus lebih pendek daripada masukan, meskipun masukan sudah berupa ringkasan. Gunakan kata-kata baru dan hapus detail. Usahakan sebaik mungkin agar jumlahnya antara {{minCharacters}} dan {{maxCharacters}} karakter, dengan menambah atau mengurangi tingkat detail sesuai kebutuhan. Jangan tambahkan teks pengisi hanya untuk memperpanjang ringkasan.
 
 compaction.repair.produce_summary: |-
   Buat ringkasan ingatan pengganti sekarang.

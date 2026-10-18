@@ -51,15 +51,15 @@ compaction.repair.system: |-
 
 compaction.length.exact:
   one: |-
-    Olayları özetleyin. Girdi zaten özet olsa bile özetiniz girdiden daha kısa olmalıdır. Yeni sözcükler kullanın ve ayrıntıları çıkarın. Mümkünse tam olarak {{maxCharacters}} karakter kullanın.
+    Olayları özetleyin. Girdi zaten özet olsa bile özetiniz girdiden daha kısa olmalıdır. Yeni sözcükler kullanın ve ayrıntıları çıkarın. Gerektikçe ayrıntı düzeyini artırıp azaltarak elinizden geldiğince toplamda tam {{maxCharacters}} karakter hedefleyin. Özeti yalnızca uzatmak için dolgu metni eklemeyin.
   other: |-
-    Olayları özetleyin. Girdi zaten özet olsa bile özetiniz girdiden daha kısa olmalıdır. Yeni sözcükler kullanın ve ayrıntıları çıkarın. Mümkünse tam olarak {{maxCharacters}} karakter kullanın.
+    Olayları özetleyin. Girdi zaten özet olsa bile özetiniz girdiden daha kısa olmalıdır. Yeni sözcükler kullanın ve ayrıntıları çıkarın. Gerektikçe ayrıntı düzeyini artırıp azaltarak elinizden geldiğince toplamda tam {{maxCharacters}} karakter hedefleyin. Özeti yalnızca uzatmak için dolgu metni eklemeyin.
 
 compaction.length.range:
   one: |-
-    Olayları özetleyin. Girdi zaten özet olsa bile özetiniz girdiden daha kısa olmalıdır. Yeni sözcükler kullanın ve ayrıntıları çıkarın. {{minCharacters}} ile {{maxCharacters}} arasında karakter kullanın.
+    Olayları özetleyin. Girdi zaten özet olsa bile özetiniz girdiden daha kısa olmalıdır. Yeni sözcükler kullanın ve ayrıntıları çıkarın. Gerektikçe ayrıntı düzeyini artırıp azaltarak elinizden geldiğince {{minCharacters}} ile {{maxCharacters}} arasında karakter kullanın. Özeti yalnızca uzatmak için dolgu metni eklemeyin.
   other: |-
-    Olayları özetleyin. Girdi zaten özet olsa bile özetiniz girdiden daha kısa olmalıdır. Yeni sözcükler kullanın ve ayrıntıları çıkarın. {{minCharacters}} ile {{maxCharacters}} arasında karakter kullanın.
+    Olayları özetleyin. Girdi zaten özet olsa bile özetiniz girdiden daha kısa olmalıdır. Yeni sözcükler kullanın ve ayrıntıları çıkarın. Gerektikçe ayrıntı düzeyini artırıp azaltarak elinizden geldiğince {{minCharacters}} ile {{maxCharacters}} arasında karakter kullanın. Özeti yalnızca uzatmak için dolgu metni eklemeyin.
 
 compaction.repair.produce_summary: |-
   Yerine geçecek bellek özetini şimdi oluşturun.

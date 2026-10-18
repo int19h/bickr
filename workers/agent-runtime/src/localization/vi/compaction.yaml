@@ -51,11 +51,11 @@ compaction.repair.system: |-
 
 compaction.length.exact:
   other: |-
-    Tóm tắt các sự kiện. Bản tóm tắt của bạn phải ngắn hơn đầu vào, ngay cả khi đầu vào đã là một bản tóm tắt. Dùng từ ngữ mới và bỏ bớt chi tiết. Nếu có thể, hãy dùng đúng {{maxCharacters}} ký tự.
+    Tóm tắt các sự kiện. Bản tóm tắt của bạn phải ngắn hơn đầu vào, ngay cả khi đầu vào đã là một bản tóm tắt. Dùng từ ngữ mới và bỏ bớt chi tiết. Cố gắng hết khả năng để tổng độ dài đạt đúng {{maxCharacters}} ký tự, tăng hoặc giảm mức độ chi tiết khi cần để phù hợp. Không thêm văn bản thừa chỉ để làm bản tóm tắt dài hơn.
 
 compaction.length.range:
   other: |-
-    Tóm tắt các sự kiện. Bản tóm tắt của bạn phải ngắn hơn đầu vào, ngay cả khi đầu vào đã là một bản tóm tắt. Dùng từ ngữ mới và bỏ bớt chi tiết. Dùng từ {{minCharacters}} đến {{maxCharacters}} ký tự.
+    Tóm tắt các sự kiện. Bản tóm tắt của bạn phải ngắn hơn đầu vào, ngay cả khi đầu vào đã là một bản tóm tắt. Dùng từ ngữ mới và bỏ bớt chi tiết. Cố gắng hết khả năng để độ dài nằm trong khoảng từ {{minCharacters}} đến {{maxCharacters}} ký tự, tăng hoặc giảm mức độ chi tiết khi cần để phù hợp. Không thêm văn bản thừa chỉ để làm bản tóm tắt dài hơn.
 
 compaction.repair.produce_summary: |-
   Tạo bản tóm tắt ký ức thay thế ngay.
