@@ -316,7 +316,9 @@ describe("Structured output", () => {
 			expect(limits.maxSummaryTokens).toBe(Math.ceil(limits.maxLength * limits.tokensPerCharacter));
 			expect(limits.maxCompletionTokens).toBeGreaterThan(5_000);
 			expect(limits.nextCompactionTokens).toBe(50_000 - providerContextCompletionReserveTokens);
-			expect(limits.compactionInputTokens).toBeGreaterThan(40_000);
+			// Prompt text determines overhead. Input and summary must fit the remaining context budget.
+			expect(limits.compactionInputTokens).toBeGreaterThan(0);
+			expect(limits.compactionInputTokens + limits.anticipatedSummaryTokens + limits.compactionRequestOverheadTokens).toBe(50_000);
 			expect(request.max_completion_tokens).toBe(limits.maxCompletionTokens);
 			expect((request.tools ?? []).some((item) => item.type === "function" && item.function.name === metaCompactionToolName)).toBe(false);
 			expect(request.response_format?.json_schema.schema.properties[providerCompactionSummaryProperty]).toMatchObject({
