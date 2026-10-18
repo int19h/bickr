@@ -1,3 +1,4 @@
+import type { BickrFunctionToolName } from '../prompt-and-tools';
 import { participantListLimits } from '@bickr/shared/content-limits';
 import { agentIssue, type AgentIssue } from '../localization/issues';
 import { formatCommentRef, formatThreadRef, parseCommentRef, parseThreadRef } from '@bickr/shared/ids';
@@ -57,10 +58,7 @@ const threadCodec: ToolArgCodec<ThreadIdArgs, ThreadRefArgs> = {
 		return decoded as ThreadIdArgs;
 	},
 	encode(args) {
-		const encoded = { ...args };
-		encoded.threadRef = formatThreadRef(stringArg(encoded.threadId, 'threadId'));
-		delete encoded.threadId;
-		return encoded as ThreadRefArgs;
+		return { threadRef: formatThreadRef(stringArg(args.threadId, 'threadId')) };
 	},
 };
 
@@ -72,10 +70,7 @@ const commentCodec: ToolArgCodec<CommentIdArgs, CommentRefArgs> = {
 		return decoded as CommentIdArgs;
 	},
 	encode(args) {
-		const encoded = { ...args };
-		encoded.commentRef = formatCommentRef(stringArg(encoded.commentId, 'commentId'));
-		delete encoded.commentId;
-		return encoded as CommentRefArgs;
+		return { commentRef: formatCommentRef(stringArg(args.commentId, 'commentId')) };
 	},
 };
 
@@ -93,15 +88,11 @@ const replyCodec: ToolArgCodec<CommentIdArgs, CommentRefArgs> = {
 		return decoded as CommentIdArgs;
 	},
 	encode(args) {
-		const encoded = { ...args };
-		const commentId = stringValue(encoded.commentId) ?? stringValue(encoded.parentCommentId);
-		if (commentId) {
-			encoded.commentRef = formatCommentRef(commentId);
-		}
-		delete encoded.commentId;
-		delete encoded.parentCommentId;
-		delete encoded.threadId;
-		return encoded as CommentRefArgs;
+		const commentId = stringValue(args.commentId) ?? stringValue(args.parentCommentId);
+		return removeUndefinedProperties({
+			commentRef: commentId ? formatCommentRef(commentId) : undefined,
+			body: providerAuthoredArgument(args.body),
+		}) as CommentRefArgs;
 	},
 	async resolve(args, context) {
 		const commentId = stringValue(args.commentId);
@@ -124,19 +115,15 @@ const voteCodec: ToolArgCodec<VoteIdArgs, VoteRefArgs> = {
 		return { ...args, votes: voteTargetsArg(args.votes) } as VoteIdArgs;
 	},
 	encode(args) {
-		const votes = Array.isArray(args.votes)
-			? args.votes.map((item) => {
-					const record = runtimeRecord(item);
-					const commentId = stringValue(record.commentId ?? record.targetId);
-					return removeUndefinedProperties({
-						...record,
-						...(commentId ? { commentRef: formatCommentRef(commentId) } : {}),
-						commentId: undefined,
-						targetId: undefined,
-					});
-				})
-			: [];
-		return { ...args, votes } as VoteRefArgs;
+		const votes = Array.isArray(args.votes) ? args.votes.map((item) => {
+			const record = runtimeRecord(item);
+			const commentId = stringValue(record.commentId ?? record.targetId);
+			return removeUndefinedProperties({
+				commentRef: commentId ? formatCommentRef(commentId) : providerArgumentScalar(record.commentRef),
+				value: providerArgumentScalar(record.value),
+			});
+		}) : [];
+		return removeUndefinedProperties({ votes, reason: providerAuthoredArgument(args.reason) }) as VoteRefArgs;
 	},
 };
 
@@ -234,15 +221,83 @@ export function normalizeToolArgs(name: string, args: ToolArgs, language?: Langu
 	return normalized;
 }
 
+// A provider replay is a new public boundary. Keep this map exhaustive when a
+// tool is added, rather than letting new internal fields enter model history.
+const providerArgumentFields = {
+	list_accessible_forums: [],
+	list_recent_threads: ['forumHandle', 'limit'],
+	list_hot_threads: ['limit'],
+	read_thread: ['threadRef'],
+	read_thread_by_id: ['threadRef'],
+	read_comment_by_id: ['commentRef'],
+	create_thread: ['forumHandle', 'title', 'body', 'url'],
+	reply_to_comment: ['commentRef', 'body'],
+	make_additional_reply_to_the_same_comment: ['commentRef', 'body'],
+	vote: ['votes', 'reason'],
+	search_threads: ['query'],
+	search_threads_semantic: ['query'],
+	search_profiles: ['query', 'limit'],
+	list_profiles: ['mode', 'limit', 'offset'],
+	view_profiles: ['usernames'],
+	list_notes: ['entities', 'cursor', 'limit'],
+	read_note: ['id'],
+	write_note: ['id', 'content'],
+	delete_note: ['id'],
+	query_followers: ['isFollowing', 'isFollowedBy', 'usernameGlob'],
+	view_activity: ['username', 'limit'],
+	follow_profile: ['targets'],
+	unfollow_profile: ['targets'],
+	log_off: ['reason'],
+	draw_random_integers: ['ranges'],
+	provide_summary: ['detailedFirstPersonSummary'],
+	save_translation: ['translation'],
+	save_avatar_description: ['description'],
+} as const satisfies Record<BickrFunctionToolName, readonly string[]>;
+
+function providerArgumentScalar(value: unknown): string | number | boolean | null | undefined {
+	return value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : undefined;
+}
+
+function providerAuthoredArgument(value: unknown): unknown {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return providerArgumentScalar(value);
+	const source = runtimeRecord(value);
+	return removeUndefinedProperties({ lang: providerArgumentScalar(source.lang), text: providerArgumentScalar(source.text) });
+}
+
 export function providerToolArgs(name: string, args: ToolArgs): ToolArgs {
 	const canonical = canonicalToolName(name);
+	if (!Object.hasOwn(providerArgumentFields, canonical)) return {};
 	const codec = referenceCodec(canonical);
-	const encoded = codec && codecHasInternalReference(canonical, args) ? codec.encode(args) : { ...args };
-	if ('botId' in encoded && !('profileId' in encoded)) {
-		encoded.profileId = stringValue(encoded.botId);
-		delete encoded.botId;
+	const source = codec && codecHasInternalReference(canonical, args) ? codec.encode(args) : args;
+	const result: ToolArgs = {};
+	for (const field of providerArgumentFields[canonical as BickrFunctionToolName]) {
+		const value = source[field];
+		if (value === undefined) continue;
+		if (field === 'body' || field === 'title' || field === 'reason') {
+			result[field] = providerAuthoredArgument(value);
+		} else if (field === 'targets') {
+			result.targets = Array.isArray(value) ? value.map((item) => {
+				const target = runtimeRecord(item);
+				return removeUndefinedProperties({ username: providerArgumentScalar(target.username), reason: providerAuthoredArgument(target.reason) });
+			}) : providerArgumentScalar(value);
+		} else if (field === 'votes') {
+			result.votes = Array.isArray(value) ? value.map((item) => {
+				const vote = runtimeRecord(item);
+				return removeUndefinedProperties({ commentRef: providerArgumentScalar(vote.commentRef), value: providerArgumentScalar(vote.value) });
+			}) : providerArgumentScalar(value);
+		} else if (field === 'ranges') {
+			const range = (item: unknown) => {
+				const record = runtimeRecord(item);
+				return removeUndefinedProperties({ min: providerArgumentScalar(record.min), max: providerArgumentScalar(record.max) });
+			};
+			result.ranges = Array.isArray(value) ? value.map(range) : value && typeof value === 'object' ? range(value) : providerArgumentScalar(value);
+		} else if (field === 'usernames' || field === 'entities') {
+			result[field] = Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : providerArgumentScalar(value);
+		} else {
+			result[field] = providerArgumentScalar(value);
+		}
 	}
-	return encoded;
+	return removeUndefinedProperties(result);
 }
 
 export async function resolveToolArgs(name: string, args: ToolArgs, context: ToolArgResolutionContext): Promise<ToolArgs> {

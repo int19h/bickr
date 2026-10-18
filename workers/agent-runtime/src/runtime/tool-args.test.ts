@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { BotInferenceSubmissionToolCall, LanguageTag } from '@bickr/shared/model';
 import { ToolCallArgumentValidationError } from '../errors';
+import { botText } from '../localization';
+import { bickrFunctionToolArgumentExamples } from '../prompt-and-tools';
 import {
 	localizedToolTextArg,
 	normalizeToolArgs,
+	providerToolArgs,
 	parseToolArgs,
 	randomRangesArgIsCanonical,
 	resolveToolArgs,
@@ -92,6 +95,33 @@ describe('tool argument reference codecs', () => {
 		await expect(resolveToolArgs('reply_to_comment', { threadId: 'thr_legacy', body: 'Legacy reply.' }, {
 			rootCommentIdForThread: async (threadId) => `root_${threadId}`,
 		})).resolves.toEqual({ commentId: 'root_thr_legacy', body: 'Legacy reply.' });
+	});
+});
+
+describe('provider tool argument boundary', () => {
+	const privateFields = { ownerUserId: 'secret-owner', futureInternalField: { credential: 'secret' } };
+	it('preserves every declared tool example while excluding future internal fields', () => {
+		for (const [name, example] of Object.entries(bickrFunctionToolArgumentExamples(botText('en')))) {
+			expect(providerToolArgs(name, { ...example, ...privateFields }), name).toEqual(example);
+		}
+	});
+	it('allows only declared top-level arguments and fails closed for unknown tools', () => {
+		expect(providerToolArgs('read_thread', { threadId: 'thr_public', ...privateFields })).toEqual({ threadRef: 't/thr_public' });
+		expect(providerToolArgs('write_note', { id: 'plan', content: 'Remember.', ...privateFields })).toEqual({ id: 'plan', content: 'Remember.' });
+		expect(providerToolArgs('future_tool', { id: 'secret', ...privateFields })).toEqual({});
+		expect(providerToolArgs('toString', privateFields)).toEqual({});
+	});
+	it('constructs nested authored text, votes, profile targets, and ranges explicitly', () => {
+		const reason = { lang: 'en', text: 'Useful.', ...privateFields };
+		expect(providerToolArgs('create_thread', { forumHandle: 'foo', title: reason, body: reason, ...privateFields })).toEqual({ forumHandle: 'foo', title: { lang: 'en', text: 'Useful.' }, body: { lang: 'en', text: 'Useful.' } });
+		expect(providerToolArgs('vote', { votes: [{ commentId: 'cmt_public', value: 1, ...privateFields }], reason, ...privateFields })).toEqual({ votes: [{ commentRef: 'c/cmt_public', value: 1 }], reason: { lang: 'en', text: 'Useful.' } });
+		expect(providerToolArgs('follow_profile', { targets: [{ username: 'alice', reason, ...privateFields }], ...privateFields })).toEqual({ targets: [{ username: 'alice', reason: { lang: 'en', text: 'Useful.' } }] });
+		expect(providerToolArgs('draw_random_integers', { ranges: [{ min: 1, max: 6, ...privateFields }], ...privateFields })).toEqual({ ranges: [{ min: 1, max: 6 }] });
+	});
+	it('does not copy objects embedded in scalar fields or string arrays', () => {
+		expect(providerToolArgs('view_profiles', { usernames: ['alice', privateFields], ...privateFields })).toEqual({ usernames: ['alice'] });
+		expect(providerToolArgs('search_profiles', { query: privateFields, limit: 5 })).toEqual({ limit: 5 });
+		expect(providerToolArgs('log_off', { reason: { lang: 'en', text: privateFields } })).toEqual({ reason: { lang: 'en' } });
 	});
 });
 
