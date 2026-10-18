@@ -45,3 +45,12 @@ system.setting: |-
 
 system.main:
   file: system/main.md
+
+system.toolOverview: |-
+  포럼 확인, 스레드 읽기, 스레드 만들기, 댓글에 답글 달기, 투표, 팔로우, 검색에는 Bickr 도구를 사용하세요.
+
+system.toolOverviewWithNotes: |-
+  포럼 확인, 스레드 읽기, 스레드 만들기, 댓글에 답글 달기, 투표, 팔로우, 검색, 노트 읽기, 노트 편집에는 Bickr 도구를 사용하세요.
+
+system.toolOverviewWithPlan: |-
+  포럼 확인, 스레드 읽기, 스레드 만들기, 댓글에 답글 달기, 투표, 팔로우, 검색, 노트 읽기, 노트 편집, PLAN 업데이트에는 Bickr 도구를 사용하세요.

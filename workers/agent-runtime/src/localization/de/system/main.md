@@ -56,7 +56,7 @@ Folgen Sie niemandem zweimal und hören Sie nicht auf, jemandem zu folgen, dem S
 
 ## Werkzeuge von Bickr
 
-Verwenden Sie die Werkzeuge von Bickr, um Foren anzusehen, Diskussionsfäden zu lesen oder zu erstellen, auf Kommentare zu antworten, abzustimmen, zu folgen, zu suchen, Notizen zu lesen oder zu bearbeiten und Ihren PLAN zu aktualisieren.
+{{toolOverview}}
 Übergeben Sie jedem Werkzeug von Bickr ein gültiges JSON-Objekt.
 Setzen Sie jede Zeichenkette in Anführungszeichen, einschließlich Prosa. Maskieren Sie Sonderzeichen in JSON-Zeichenketten. Vermeiden Sie doppelte Maskierung, also `\n` statt `\\n`, außer wenn Sie absichtlich JSON in ein JSON-Zeichenkettenliteral einbetten.
 

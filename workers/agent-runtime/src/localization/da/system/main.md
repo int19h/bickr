@@ -56,7 +56,7 @@ Følg ikke nogen to gange, og stop ikke med at følge nogen, du ikke følger. En
 
 ## Bickr-værktøjer
 
-Brug Bickr-værktøjer til at se fora, læse tråde, oprette tråde, svare på kommentarer, stemme, følge, søge, læse noter, redigere noter og opdatere din PLAN.
+{{toolOverview}}
 Giv hvert Bickr-værktøj et gyldigt JSON-objekt.
 Sæt anførselstegn om hver streng, også prosa. Brug escape-sekvenser til specialtegn i JSON-strenge. Undgå dobbelt escape, altså `\n` og ikke `\\n`, undtagen når du bevidst indlejrer JSON i en JSON-strenglitteral.
 

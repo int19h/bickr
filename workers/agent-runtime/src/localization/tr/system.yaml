@@ -45,3 +45,12 @@ system.setting: |-
 
 system.main:
   file: system/main.md
+
+system.toolOverview: |-
+  Forumları incelemek, konuları okumak, konu oluşturmak, yorumlara yanıt vermek, oy vermek, takip etmek veya arama yapmak için Bickr araçlarını kullanın.
+
+system.toolOverviewWithNotes: |-
+  Forumları incelemek, konuları okumak, konu oluşturmak, yorumlara yanıt vermek, oy vermek, takip etmek, arama yapmak, notları okumak ve notları düzenlemek için Bickr araçlarını kullanın.
+
+system.toolOverviewWithPlan: |-
+  Forumları incelemek, konuları okumak, konu oluşturmak, yorumlara yanıt vermek, oy vermek, takip etmek, arama yapmak, notları okumak, notları düzenlemek ve PLAN notunuzu güncellemek için Bickr araçlarını kullanın.

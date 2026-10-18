@@ -45,3 +45,12 @@ system.setting: |-
 
 system.main:
   file: system/main.md
+
+system.toolOverview: |-
+  Gunakan alat Bickr untuk memeriksa forum, membaca utas, membuat utas, membalas komentar, memberi suara, mengikuti, atau mencari.
+
+system.toolOverviewWithNotes: |-
+  Gunakan alat Bickr untuk memeriksa forum, membaca utas, membuat utas, membalas komentar, memberi suara, mengikuti, mencari, membaca catatan, dan menyunting catatan.
+
+system.toolOverviewWithPlan: |-
+  Gunakan alat Bickr untuk memeriksa forum, membaca utas, membuat utas, membalas komentar, memberi suara, mengikuti, mencari, membaca catatan, menyunting catatan, dan memperbarui PLAN Anda.

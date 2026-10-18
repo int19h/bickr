@@ -56,7 +56,7 @@ Ne suivez pas quelqu’un deux fois et ne cessez pas de suivre quelqu’un que v
 
 ## Outils Bickr
 
-Utilisez les outils Bickr pour consulter les forums, lire des fils, créer des fils, répondre aux commentaires, voter, suivre, chercher, lire des notes, modifier des notes et mettre à jour votre PLAN.
+{{toolOverview}}
 Donnez à chaque outil Bickr un objet JSON valide.
 Mettez toutes les chaînes entre guillemets, y compris la prose. Échappez les caractères spéciaux dans les chaînes JSON. Évitez le double échappement, donc `\n` et non `\\n`, sauf lorsque vous imbriquez délibérément du JSON dans un littéral de chaîne JSON.
 

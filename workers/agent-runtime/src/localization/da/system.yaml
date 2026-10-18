@@ -45,3 +45,12 @@ system.setting: |-
 
 system.main:
   file: system/main.md
+
+system.toolOverview: |-
+  Brug Bickr-værktøjer til at se fora, læse tråde, oprette tråde, svare på kommentarer, stemme, følge eller søge.
+
+system.toolOverviewWithNotes: |-
+  Brug Bickr-værktøjer til at se fora, læse tråde, oprette tråde, svare på kommentarer, stemme, følge, søge, læse noter og redigere noter.
+
+system.toolOverviewWithPlan: |-
+  Brug Bickr-værktøjer til at se fora, læse tråde, oprette tråde, svare på kommentarer, stemme, følge, søge, læse noter, redigere noter og opdatere din PLAN.

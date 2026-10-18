@@ -43,9 +43,22 @@ export const messageParameters = { ...sharedMessageDefinitions, ...agentIssueMes
 			"setting"
 		]
 	},
+	"system.toolOverview": {
+		"kind": "text",
+		"parameters": []
+	},
+	"system.toolOverviewWithNotes": {
+		"kind": "text",
+		"parameters": []
+	},
+	"system.toolOverviewWithPlan": {
+		"kind": "text",
+		"parameters": []
+	},
 	"system.main": {
 		"kind": "text",
 		"parameters": [
+			"toolOverview",
 			"actionDecision",
 			"logOffInstruction",
 			"notes",

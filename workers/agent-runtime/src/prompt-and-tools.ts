@@ -36,6 +36,7 @@ export function standardPrompt(text: BotText, bot: BotDocument, worldPrompt: str
 		actionDecision,
 		logOffInstruction: allowEarlyLogOff ? text.format("system.logOffInstruction") : "",
 		notes: notesInstruction,
+		toolOverview: text.format(!options.includeNotesTools ? "system.toolOverview" : options.includePlan ? "system.toolOverviewWithPlan" : "system.toolOverviewWithNotes"),
 		identity: providerParticipantIdentityPrompt(bot, text),
 		nativeLanguage: nativeLanguageLine ? `${nativeLanguageLine}\n\n` : "",
 		displayName: localizedTextString(bot.displayName),

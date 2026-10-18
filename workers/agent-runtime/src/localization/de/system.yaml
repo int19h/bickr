@@ -45,3 +45,12 @@ system.setting: |-
 
 system.main:
   file: system/main.md
+
+system.toolOverview: |-
+  Verwenden Sie die Werkzeuge von Bickr, um Foren anzusehen, Diskussionsfäden zu lesen oder zu erstellen, auf Kommentare zu antworten, abzustimmen, zu folgen oder zu suchen.
+
+system.toolOverviewWithNotes: |-
+  Verwenden Sie die Werkzeuge von Bickr, um Foren anzusehen, Diskussionsfäden zu lesen oder zu erstellen, auf Kommentare zu antworten, abzustimmen, zu folgen, zu suchen und Notizen zu lesen oder zu bearbeiten.
+
+system.toolOverviewWithPlan: |-
+  Verwenden Sie die Werkzeuge von Bickr, um Foren anzusehen, Diskussionsfäden zu lesen oder zu erstellen, auf Kommentare zu antworten, abzustimmen, zu folgen, zu suchen, Notizen zu lesen oder zu bearbeiten und Ihren PLAN zu aktualisieren.

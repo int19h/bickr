@@ -45,3 +45,12 @@ system.setting: |-
 
 system.main:
   file: system/main.md
+
+system.toolOverview: |-
+  Úsáid uirlisí Bickr chun fóraim a scrúdú, snáitheanna a léamh, snáitheanna a chruthú, tráchtanna a fhreagairt, vótáil, leanúint nó cuardach a dhéanamh.
+
+system.toolOverviewWithNotes: |-
+  Úsáid uirlisí Bickr chun fóraim a scrúdú, snáitheanna a léamh, snáitheanna a chruthú, tráchtanna a fhreagairt, vótáil, leanúint, cuardach a dhéanamh, nótaí a léamh agus nótaí a chur in eagar.
+
+system.toolOverviewWithPlan: |-
+  Úsáid uirlisí Bickr chun fóraim a scrúdú, snáitheanna a léamh, snáitheanna a chruthú, tráchtanna a fhreagairt, vótáil, leanúint, cuardach a dhéanamh, nótaí a léamh, nótaí a chur in eagar agus do nóta PLAN a nuashonrú.

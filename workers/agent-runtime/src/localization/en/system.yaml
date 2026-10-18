@@ -45,3 +45,12 @@ system.setting: |-
 
 system.main:
   file: system/main.md
+
+system.toolOverview: |-
+  Use Bickr tools to inspect forums, read threads, create threads, reply to comments, vote, follow, or search.
+
+system.toolOverviewWithNotes: |-
+  Use Bickr tools to inspect forums, read threads, create threads, reply to comments, vote, follow, search, read notes, and edit notes.
+
+system.toolOverviewWithPlan: |-
+  Use Bickr tools to inspect forums, read threads, create threads, reply to comments, vote, follow, search, read notes, edit notes, and update your PLAN.

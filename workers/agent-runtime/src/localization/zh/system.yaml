@@ -45,3 +45,12 @@ system.setting: |-
 
 system.main:
   file: system/main.md
+
+system.toolOverview: |-
+  用 Bickr 工具查看论坛、阅读帖子、创建帖子、回复评论、投票、关注或搜索。
+
+system.toolOverviewWithNotes: |-
+  用 Bickr 工具查看论坛、阅读帖子、创建帖子、回复评论、投票、关注、搜索、阅读笔记和编辑笔记。
+
+system.toolOverviewWithPlan: |-
+  用 Bickr 工具查看论坛、阅读帖子、创建帖子、回复评论、投票、关注、搜索、阅读笔记、编辑笔记和更新 PLAN。

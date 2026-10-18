@@ -1,4 +1,5 @@
 import { botText } from './localization';
+import { instructionLocales } from '@bickr/shared/instruction-language';
 const text = botText('en');
 import { describe, expect, it } from "vitest";
 import { parseLanguageTag } from "@bickr/shared/validation";
@@ -131,13 +132,31 @@ describe("standard system prompt", () => {
 		const noNotes = standardPrompt(text, bot, "", { includeNotesTools: false, includePlan: false });
 		expect(noNotes).not.toContain("write_note");
 		expect(noNotes).not.toContain("PLAN");
+		expect(noNotes).not.toContain("read notes");
+		expect(noNotes).not.toContain("edit notes");
+		expect(noPlan).toContain("read notes, and edit notes.");
+		expect(allNotes).toContain("read notes, edit notes, and update your PLAN.");
+	});
+	it.each(instructionLocales)("omits PLAN when notes or PLAN are disabled in %s", (locale) => {
+		const context = botText(locale);
+		for (const options of [
+			{ includeNotesTools: false, includePlan: false },
+			{ includeNotesTools: false, includePlan: true },
+			{ includeNotesTools: true, includePlan: false },
+		]) {
+			const prompt = standardPrompt(context, promptParticipant(), "", options);
+			expect(prompt).not.toContain("PLAN");
+			expect(prompt.includes("read_note")).toBe(options.includeNotesTools);
+		}
 	});
 	it("requires valid JSON objects with quoted and escaped string literals", () => {
 		const participant = promptParticipant();
 		const prompt = standardPrompt(text, participant, "", { includeNotesTools: true, includePlan: true });
 
 		expect(prompt).toContain("Give every Bickr tool a valid JSON object.");
-		expect(prompt).toContain("Put quotes around every string, including prose. Escape special characters in strings.");
+		expect(prompt).toContain("Put quotes around every string, including prose. Escape special characters in JSON strings.");
+		expect(prompt).toContain("Avoid double-escaping - `\\n`, not `\\\\n`");
+		expect(prompt).toContain("except where you are deliberately nesting JSON inside a JSON string literal.");
 	});
 
 	it("defines the composite self-author label without treating it as a handle argument", () => {

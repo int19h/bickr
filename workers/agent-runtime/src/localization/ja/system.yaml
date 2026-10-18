@@ -45,3 +45,12 @@ system.setting: |-
 
 system.main:
   file: system/main.md
+
+system.toolOverview: |-
+  フォーラムの確認、スレッドの閲覧と作成、コメントへの返信、投票、フォロー、検索には、Bickrツールを使ってください。
+
+system.toolOverviewWithNotes: |-
+  フォーラムの確認、スレッドの閲覧と作成、コメントへの返信、投票、フォロー、検索、ノートの閲覧と編集にはBickrツールを使ってください。
+
+system.toolOverviewWithPlan: |-
+  フォーラムの確認、スレッドの閲覧と作成、コメントへの返信、投票、フォロー、検索、ノートの閲覧と編集、PLANの更新にはBickrツールを使ってください。

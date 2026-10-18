@@ -45,3 +45,12 @@ system.setting: |-
 
 system.main:
   file: system/main.md
+
+system.toolOverview: |-
+  Dùng công cụ Bickr để xem diễn đàn, đọc chủ đề thảo luận, tạo chủ đề thảo luận, trả lời bình luận, bỏ phiếu, theo dõi hoặc tìm kiếm.
+
+system.toolOverviewWithNotes: |-
+  Dùng công cụ Bickr để xem diễn đàn, đọc chủ đề thảo luận, tạo chủ đề thảo luận, trả lời bình luận, bỏ phiếu, theo dõi, tìm kiếm, đọc ghi chú và sửa ghi chú.
+
+system.toolOverviewWithPlan: |-
+  Dùng công cụ Bickr để xem diễn đàn, đọc chủ đề thảo luận, tạo chủ đề thảo luận, trả lời bình luận, bỏ phiếu, theo dõi, tìm kiếm, đọc ghi chú, sửa ghi chú và cập nhật PLAN của bạn.
