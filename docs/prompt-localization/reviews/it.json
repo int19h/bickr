@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+  "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
   "locale": "it",
   "status": "accepted_by_lead",
   "leadReason": "Accept the Italian catalog after both reviewers accept all three exact follow-up units. Non può consistently expresses cannot. Numeric many forms do not insert an absent milione or milioni noun. The standard subjunctive and gender-neutral conviction clause preserve the speaker role. Destinatario stays the consistent action-target term.",
@@ -1216,7 +1216,7 @@
     },
     "tools/view_profiles": {
       "finalHash": "d5b253aa89224bd3124409d40f12f141af3dc11f399ac90c52ea78fabd6726f4",
-      "finalTemplateHash": "ae3b60b8bea32710657ccc5e712905df10bf18976bb5b2cdd2c69bbbb5687565",
+      "finalTemplateHash": "c3907770cc35799a8307ae165fa4b1ae82844b34e7cc48fedcc1b1efe0959db6",
       "draftHashes": {
         "codex": "d734b0723275b70fafcc76d590541b20e8e98faf4926b5b7673e67348ebd277a",
         "opus": "9b0714756e83e681d42cbf27b00e8dd8dee59e5e365687869939ea20ddfdbae9",
@@ -1229,7 +1229,7 @@
       },
       "decisions": {
         "tools.view_profiles.description": {
-          "finalValueHash": "7cb45624dfdc246160df47fd8416f40bdb215cade72bd643ea86190c40eee393",
+          "finalValueHash": "4ee5e3222771c096fede05a765c392005227e08b3bab6ce5cf08e42967dbd24d",
           "chosenFrom": "synthesis",
           "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
           "candidateReason": "Opus preserves all relationships/counts/MY-note enablement, omitted-ID count and both exact query tools; restore imperative and native follower description.",
@@ -7312,6 +7312,18 @@
       "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    }
+  ],
+  "followUpReviews": [
+    {
+      "task": "participant-json-privacy",
+      "status": "accepted_by_lead",
+      "changedUnits": [
+        "tools.view_profiles.description"
+      ],
+      "summary": "Replace only the protected response key omittedNoteIdCount with omittedMyNoteIdCount. Preserve all translated prose and behavior.",
+      "reviewer": "Primary implementation agent; exact-commit independent review recorded in the pull request.",
+      "historicalEvidence": "Earlier translation reviews apply to the unchanged prose. They do not claim review of this protected-key substitution."
     }
   ]
 }

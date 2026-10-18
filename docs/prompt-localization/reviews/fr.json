@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+  "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
   "locale": "fr",
   "status": "accepted_by_lead",
   "leadReason": "Accept the French catalog after both reviewers accept all three exact follow-up units. Repeated de marks coordinated infinitives. The count formatter inserts digits, so the many variant uses the reviewed numeric plural without a written million noun. Décor denotes the visual setting consistently.",
@@ -1187,7 +1187,7 @@
     },
     "tools/view_profiles": {
       "finalHash": "537ba91d3f67fed2448bc677ccbfc12a82d778387069f310d01b1234177e7cdb",
-      "finalTemplateHash": "57368483a1112c474484968a34678d77236f1f20e70455a57c96f1bee0d1838a",
+      "finalTemplateHash": "7462b876eb8b6184f102277f42de2d8d71b9ce1ded8eb70b63ea799df1a91353",
       "draftHashes": {
         "codex": "3493f80b91e2daf634af69c32541c9aa2de212b757c4d9e35f9e8415680ec631",
         "opus": "db8533383e8fa35be84e45417916a9c433eae76a99a87f7c5ab73105d4df6958",
@@ -1200,7 +1200,7 @@
       },
       "decisions": {
         "tools.view_profiles.description": {
-          "finalValueHash": "a9d42e86ac5809203417cd89bf3a1b932f112b68344047ee698e90c8be45a510",
+          "finalValueHash": "d8ff45d1787e0159ae6f467fccf1ab7d4d6927c6b06df98ac4b6bbc0c709c812",
           "chosenFrom": "grok",
           "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
           "candidateReason": "Grok preserves my notes, enabled-note condition, omitted count, exact sample, and both username directions with vous; Gemini changes ownership.",
@@ -7060,6 +7060,18 @@
       "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    }
+  ],
+  "followUpReviews": [
+    {
+      "task": "participant-json-privacy",
+      "status": "accepted_by_lead",
+      "changedUnits": [
+        "tools.view_profiles.description"
+      ],
+      "summary": "Replace only the protected response key omittedNoteIdCount with omittedMyNoteIdCount. Preserve all translated prose and behavior.",
+      "reviewer": "Primary implementation agent; exact-commit independent review recorded in the pull request.",
+      "historicalEvidence": "Earlier translation reviews apply to the unchanged prose. They do not claim review of this protected-key substitution."
     }
   ]
 }

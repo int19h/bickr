@@ -16,6 +16,14 @@ Prefer types that guarantee correctness by construction. Express constraints and
 - Put tests beside their subsystem. Do not add tests to `test/index.spec.ts`. Put new agent runtime tests in subsystem spec files under `test/`. Move tests with modules that you extract from a large file.
 - Do not change an applied migration. D1 tracks migrations by filename and can apply a renamed file again. Do not reuse a numeric prefix.
 
+## Participant-facing JSON
+
+Construct every participant-facing JSON object field by field from source data. Never serialize an internal record directly or copy its fields into a response. This rule applies even when the current internal and output shapes match. A later internal field must not silently become output.
+
+Choose each field for the reader and the current task. Use explicit field lists for nested objects, arrays, tool results, tool arguments, notifications, errors, synthetic context, and legacy history. Unknown result kinds must return a bounded failure instead of arbitrary data. A key denylist cannot replace an explicit field list.
+
+Private notes belong to the reader. Reader-relative keys such as `my` or `me` must refer only to that participant. Do not expose another participant's private notes, credentials, owner data, runtime state, or internal diagnostics. Test response boundaries with extra internal fields so that future schema changes cannot leak data.
+
 ## Bot-Facing Prompt Terminology
 
 In-character text from Bickr calls the account a participant. It calls other accounts participants or profiles. Explicit instructions about the simulation can name AI personas. Technical instructions can name tools, JSON, providers, and other mechanisms when that makes them clearer.

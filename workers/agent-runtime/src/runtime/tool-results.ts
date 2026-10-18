@@ -60,7 +60,7 @@ export function providerToolResultPayload(
 	}
 	if (canonical === 'search_threads' || canonical === 'search_threads_semantic') {
 		if (!Array.isArray(result)) {
-			return providerSafeJsonValue(text, result);
+			return providerUnavailableToolResult(text);
 		}
 		const posts = result.map((item) => providerSearchPost(runtimeRecord(item), context));
 		return pruneProviderArrayForBudget(posts, options.tokenBudget).items;
@@ -73,22 +73,22 @@ export function providerToolResultPayload(
 		return providerProfileListResult(runtimeRecord(result), options.tokenBudget);
 	}
 	if (canonical === 'view_profiles') {
-		if (semanticResult.kind === 'profile_viewed') return providerViewedProfiles(semanticResult.profiles, options.tokenBudget);
+		if (semanticResult.kind === 'profile_viewed') return providerViewedProfiles(semanticResult.profiles, context.self, options.tokenBudget);
 		const legacyProfiles = Array.isArray(runtimeRecord(result).profiles) ? runtimeRecord(result).profiles as unknown[] : [];
 		const providerProfiles = legacyProfiles.map((profile) => providerProfile(runtimeRecord(profile)));
 		return { profiles: pruneProviderArrayForBudget(providerProfiles, options.tokenBudget, (items) => ({ profiles: items })).items };
 	}
-	if (semanticResult.kind === 'note_listed') {
-		return { ids: semanticResult.ids, nextCursor: semanticResult.nextCursor, total: semanticResult.total, unknownFilters: semanticResult.unknownFilters };
+	if (canonical === 'list_notes' && semanticResult.kind === 'note_listed') {
+		return { ids: semanticResult.ids.map(id => id), nextCursor: semanticResult.nextCursor, total: semanticResult.total, unknownFilters: semanticResult.unknownFilters.map(filter => filter) };
 	}
-	if (semanticResult.kind === 'note_read') {
+	if (canonical === 'read_note' && semanticResult.kind === 'note_read') {
 		return { id: semanticResult.id, content: semanticResult.content, links: semanticResult.links.map(({ kind, handle, deleted }) => ({ kind, handle, deleted })) };
 	}
-	if (semanticResult.kind === 'note_written') {
-		return { outcome: semanticResult.outcome, id: semanticResult.id, links: semanticResult.links.map(({ kind, handle, deleted }) => ({ kind, handle, deleted })), unknownReferences: semanticResult.unknownReferences };
+	if (canonical === 'write_note' && semanticResult.kind === 'note_written') {
+		return { outcome: semanticResult.outcome, id: semanticResult.id, links: semanticResult.links.map(({ kind, handle, deleted }) => ({ kind, handle, deleted })), unknownReferences: semanticResult.unknownReferences.map(reference => reference) };
 	}
-	if (semanticResult.kind === 'note_deleted') return { deleted: semanticResult.id };
-	if (semanticResult.kind === 'note_reset') return { reset: semanticResult.id, content: semanticResult.content };
+	if (canonical === 'delete_note' && semanticResult.kind === 'note_deleted') return { deleted: semanticResult.id };
+	if (canonical === 'delete_note' && semanticResult.kind === 'note_reset') return { reset: semanticResult.id, content: semanticResult.content };
 	if (canonical === 'query_followers') {
 		return providerFollowerQueryResult(runtimeRecord(result));
 	}
@@ -99,7 +99,7 @@ export function providerToolResultPayload(
 		if (semanticResult.kind === 'profile_followed' || semanticResult.kind === 'profile_unfollowed') {
 			return semanticResult.profiles.map(providerFollowResult);
 		}
-		return providerSafeJsonValue(text, result);
+		return providerUnavailableToolResult(text);
 	}
 	if (canonical === 'vote' && semanticResult.kind === 'vote_set') {
 		return semanticResult.votes.map(providerVoteResult);
@@ -108,21 +108,55 @@ export function providerToolResultPayload(
 		return providerReadResult(runtimeRecord(result), context);
 	}
 	if (canonical === 'create_thread') {
-		return semanticResult.kind === 'thread_created' ? providerCreateThreadResult(semanticResult) : providerSafeJsonValue(text, result);
+		return semanticResult.kind === 'thread_created' ? providerCreateThreadResult(semanticResult) : providerUnavailableToolResult(text);
 	}
 	if (canonical === 'reply_to_comment' || canonical === 'make_additional_reply_to_the_same_comment') {
-		return semanticResult.kind === 'comment_created' ? providerReplyCommentResult(semanticResult) : providerSafeJsonValue(text, result);
+		return semanticResult.kind === 'comment_created' ? providerReplyCommentResult(semanticResult) : providerUnavailableToolResult(text);
 	}
 	if (canonical === 'draw_random_integers') {
 		// The bare array is the whole result: one number per range, in range order.
 		// The participant still has its own call arguments in context, so position
 		// is enough to tie each number back to the range that produced it.
-		return semanticResult.kind === 'random_integers_drawn' ? semanticResult.numbers : providerSafeJsonValue(text, result);
+		return semanticResult.kind === 'random_integers_drawn' ? semanticResult.numbers.map(number => number)
+			: Array.isArray(result) && result.every(number => typeof number === 'number' && Number.isSafeInteger(number))
+				? result.map(number => number) : providerUnavailableToolResult(text);
 	}
-	if (canonical === 'log_off') {
-		return providerSafeJsonValue(text, result);
+	if (canonical === 'log_off' && runtimeRecord(result).ok === true && runtimeRecord(result).status === 'finished') {
+		return { ok: true, status: 'finished', message: text.format('tool.log_off.finished') };
 	}
-	return providerSafeJsonValue(text, result);
+	return providerUnavailableToolResult(text);
+}
+
+/** Legacy event adapter. Retire with the schema-version-1 history sweep. */
+export function providerLegacyToolResultPayload(
+	name: string, result: unknown, args: Record<string, unknown>, context: ProviderSerializationContext,
+): unknown {
+	const record = runtimeRecord(result);
+	if (record.ok === false) {
+		return removeUndefinedProperties({
+			ok: false, code: stringValue(record.code), message: stringValue(record.message),
+			guidance: stringValue(record.guidance),
+		});
+	}
+	return providerToolResultPayload(name, result, args, context);
+}
+
+/** Legacy input adapter. Never copy event or injection records into memory. */
+export function providerLegacyInputPayload(record: Record<string, unknown>, context: ProviderSerializationContext): unknown {
+	return removeUndefinedProperties({
+		notifications: providerCheckNotificationsResult(Array.isArray(record.notifications) ? record.notifications : [], context).events,
+		injections: Array.isArray(record.injections) ? record.injections.map(item => stringValue(runtimeRecord(item).text)).filter(Boolean) : [],
+		spotlightContexts: Array.isArray(record.spotlightContexts) ? record.spotlightContexts.map(value => {
+			const spotlight = runtimeRecord(value);
+			const threads = Array.isArray(spotlight.threads) ? spotlight.threads : [];
+			return {
+				forum: providerForumNameFromRecord(runtimeRecord(spotlight.forum)),
+				threads: threads.map(thread => providerThreadSummary(runtimeRecord(thread), context)),
+				content: Array.isArray(spotlight.content) ? providerReadContentTree(spotlight.content.map(runtimeRecord), context) : [],
+			};
+		}) : [],
+		toolUseReminder: stringValue(record.toolUseReminder),
+	});
 }
 
 function providerJsonTokenEstimate(value: unknown): number {
@@ -130,31 +164,33 @@ function providerJsonTokenEstimate(value: unknown): number {
 }
 
 type ProviderViewedProfile = Record<string, unknown> & {
-	noteIds?: string[];
-	totalNoteCount?: number;
-	omittedNoteIdCount?: number;
+	myNoteIds?: string[];
+	totalMyNoteCount?: number;
+	omittedMyNoteIdCount?: number;
 };
 
 export type ProviderViewedProfilesResult = { profiles: ProviderViewedProfile[]; omittedProfileCount?: number };
 
-export function providerViewedProfiles(profiles: ViewedProfileResult[], tokenBudget?: number): ProviderViewedProfilesResult {
+export function providerViewedProfiles(profiles: ViewedProfileResult[], self: ProviderSelfParticipant, tokenBudget?: number): ProviderViewedProfilesResult {
 	const payload = (items: ProviderViewedProfile[]): ProviderViewedProfilesResult => ({
 		profiles: items,
 		...(profiles.length > items.length ? { omittedProfileCount: profiles.length - items.length } : {}),
 	});
 	const withNoteLimit = (limit: number): ProviderViewedProfile[] => profiles.map((profile) => {
-		const ids = profile.associatedNoteIds;
+		// These IDs come from the reader's private note store, never from the viewed
+		// participant. Keep that perspective explicit in every emitted key.
+		const ids = profile.associatedNoteReaderBotId === self.botId ? profile.associatedNoteIds : undefined;
 		if (!ids) return providerProfile(runtimeRecord(profile));
 		const shown = ids.slice(0, limit);
 		const omitted = ids.length - shown.length;
 		return {
 			...providerProfile(runtimeRecord(profile)),
-			noteIds: shown,
-			totalNoteCount: profile.associatedNoteCount ?? ids.length,
-			...(omitted > 0 ? { omittedNoteIdCount: omitted } : {}),
+			myNoteIds: shown,
+			totalMyNoteCount: profile.associatedNoteCount ?? ids.length,
+			...(omitted > 0 ? { omittedMyNoteIdCount: omitted } : {}),
 		};
 	});
-	const maxIds = Math.max(0, ...profiles.map((profile) => profile.associatedNoteIds?.length ?? 0));
+	const maxIds = Math.max(0, ...profiles.map((profile) => profile.associatedNoteReaderBotId === self.botId ? profile.associatedNoteIds?.length ?? 0 : 0));
 	const complete = withNoteLimit(maxIds);
 	if (tokenBudget === undefined) return payload(complete);
 	const budget = Math.max(1, Math.floor(tokenBudget));
@@ -307,7 +343,7 @@ export function providerCheckNotificationsResultWithInclusions(
 		group.event.kind === 'follower_activity_digest'
 			? { kind: 'follower_digest', notificationIds: group.notificationIds, payload: providerFollowerDigest(text, group.event, group.deliveryReasons) }
 			: { kind: 'ordinary', notificationIds: group.notificationIds,
-				payload: runtimeRecord(providerSafeJsonValue(text, providerNotificationEvent(group.event, group.deliveryReasons, context))) },
+				payload: providerNotificationEvent(group.event, group.deliveryReasons, context) },
 	);
 	if (tokenBudget === undefined) {
 		return {
@@ -1628,64 +1664,9 @@ function applyProviderBodyPreviewCutoff(
 	}
 }
 
-export function providerSafeJsonValue(text: BotText, value: unknown): unknown {
-	if (Array.isArray(value)) {
-		return value.map((item) => providerSafeJsonValue(text, item));
-	}
-	if (!value || typeof value !== 'object') {
-		return value;
-	}
-	const output: Record<string, unknown> = {};
-	for (const [key, item] of Object.entries(value)) {
-		const safeKey = providerSafeKey(key);
-		if (!safeKey) {
-			continue;
-		}
-		if (providerTimestampKey(safeKey)) {
-			output[safeKey] = providerRelativeTime(text, item) ?? providerSafeJsonValue(text, item);
-		} else {
-			output[safeKey] = providerSafeJsonValue(text, item);
-		}
-	}
-	return output;
-}
-
-function providerTimestampKey(key: string): boolean {
-	return /(?:At|_at)$/.test(key);
-}
-
-const providerPrivateJsonKeys = new Set([
-	'createdbyuserid',
-	'owneruserid',
-	'password',
-	'secret',
-	'session',
-	'sessionid',
-	'userid',
-]);
-
-const providerCredentialTokenJsonKeys = new Set([
-	'accesstoken',
-	'apitoken',
-	'authtoken',
-	'bearertoken',
-	'idtoken',
-	'refreshtoken',
-	'sessiontoken',
-	'token',
-]);
-
-function providerSafeKey(key: string): string | null {
-	const normalized = key.replace(/[_-]/g, '').toLowerCase();
-	if (
-		providerPrivateJsonKeys.has(normalized) ||
-		providerCredentialTokenJsonKeys.has(normalized) ||
-		normalized.endsWith('apikey') ||
-		normalized.endsWith('secret')
-	) {
-		return null;
-	}
-	return key;
+// Unknown or malformed internal results must never define the provider response shape.
+function providerUnavailableToolResult(text: BotText): Record<string, unknown> {
+	return { ok: false, code: 'result_unavailable', message: text.format('recovery.genericError') };
 }
 
 function numberValue(value: unknown): number | undefined {

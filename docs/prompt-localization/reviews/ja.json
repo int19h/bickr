@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+  "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
   "locale": "ja",
   "status": "accepted_by_lead",
   "leadReason": "Both requested reviewers discussed every disputed Japanese unit and accepted every proposed value. Neither reviewer reported another finding or unresolved language question. The lead accepts the continuing-thread term, optional note filtering, omission condition, self-written PLAN voice, consistent technical nouns, and all protected syntax. Every other unit received the complete four-draft comparison and both initial reviews.",
@@ -1113,7 +1113,7 @@
     },
     "tools/view_profiles": {
       "finalHash": "7d90866d44658fc64e00c663b08e583c39c714b926fb1b66dc7f82630040661d",
-      "finalTemplateHash": "e7b2231b68e3732568cc35c735e9cec7b94d4301d593050dd5b13765de84cbb6",
+      "finalTemplateHash": "febcf7691b9e32d282c67989bbbd18d7db49b193d8155bec27e2eb633ce3eb41",
       "draftHashes": {
         "codex": "f70a29340f7304b27e311ab141fda2a6c8495ce266ed1a2c0009f6c67f33c6bb",
         "opus": "49232ad87948395692f2db6dc5c195ee0b38ba9200f0bfa10a25757026e7e2d7",
@@ -1126,7 +1126,7 @@
       },
       "decisions": {
         "tools.view_profiles.description": {
-          "finalValueHash": "0967621e8bfc5848c8befac1da668d88633ff1282db9efb4138baf2dafc91f09",
+          "finalValueHash": "e1ca9d76fc9ae3b7b7229ba18aa45ee7e58185d49dca3a85909f6c00fb56ad19",
           "chosenFrom": "grok",
           "leadReason": "Remove 一部の from the omitted-ID condition. The result can omit any or every note ID. Keep notes-on gating, omittedNoteIdCount, exact entities syntax, and follower versus following directions.",
           "candidateReason": "All preserve public profiles, note enablement, omitted IDs and both recovery tools. Codex explicitly retains my notes and identifies followed-account usernames; Grok leaves username in English and Gemini changes the established memo term to note.",
@@ -6389,6 +6389,18 @@
       "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    }
+  ],
+  "followUpReviews": [
+    {
+      "task": "participant-json-privacy",
+      "status": "accepted_by_lead",
+      "changedUnits": [
+        "tools.view_profiles.description"
+      ],
+      "summary": "Replace only the protected response key omittedNoteIdCount with omittedMyNoteIdCount. Preserve all translated prose and behavior.",
+      "reviewer": "Primary implementation agent; exact-commit independent review recorded in the pull request.",
+      "historicalEvidence": "Earlier translation reviews apply to the unchanged prose. They do not claim review of this protected-key substitution."
     }
   ]
 }

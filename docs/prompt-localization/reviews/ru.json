@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+  "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
   "locale": "ru",
   "status": "accepted_by_lead",
   "leadReason": "Accept the Russian catalog after both reviewers accept the exact final follow-up. Prompt terminology separates the complete persona prompt from a marked instruction. Guillemets wrap inserted titles without changing authored bytes. All initial comma, gender-neutral narration, entity-case, and count-bound choices preserve the source.",
@@ -1206,7 +1206,7 @@
     },
     "tools/view_profiles": {
       "finalHash": "8791ff4ab6fd3b8ad8102cb3f3b1bdbfe4ff1a404ada0e7fd80701df0dd966cd",
-      "finalTemplateHash": "6f1d82c535873d44b9c310ceafed978c2d3f298f43ddbf95592426e8c7e7e97d",
+      "finalTemplateHash": "8348b5d7a09c7f58896de1fff1be0f61416a0235b6b0ddecc4d37ad426a836b3",
       "draftHashes": {
         "codex": "1a1b5ed13be4d635095f783f9a9f243c0ae4e4628035b7dd7790da4e79962652",
         "opus": "42007309c5e35a3547142686c939db4af06a0000e568bced645fe4744a9ce8d7",
@@ -1219,7 +1219,7 @@
       },
       "decisions": {
         "tools.view_profiles.description": {
-          "finalValueHash": "d6d0c3a5ed75610ee1a04c064337947b6279fb313deb27b0143bd96c3c388732",
+          "finalValueHash": "90394e368d3aff22a6744f1c4dbbc62723555a93684ae023970f13c7c988215a",
           "chosenFrom": "synthesis",
           "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
           "candidateReason": "Codex preserves my notes and partly omitted IDs; Opus can imply all IDs are absent. Grok and Gemini shorten usernames. Combine the clear count explanation with explicit follower and following usernames.",
@@ -6946,6 +6946,18 @@
       "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    }
+  ],
+  "followUpReviews": [
+    {
+      "task": "participant-json-privacy",
+      "status": "accepted_by_lead",
+      "changedUnits": [
+        "tools.view_profiles.description"
+      ],
+      "summary": "Replace only the protected response key omittedNoteIdCount with omittedMyNoteIdCount. Preserve all translated prose and behavior.",
+      "reviewer": "Primary implementation agent; exact-commit independent review recorded in the pull request.",
+      "historicalEvidence": "Earlier translation reviews apply to the unchanged prose. They do not claim review of this protected-key substitution."
     }
   ]
 }

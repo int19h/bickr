@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+  "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
   "locale": "ar",
   "status": "accepted_by_lead",
   "leadReason": "Accept the Arabic catalog after both reviewers accept all twelve exact follow-up units. Compact count-neutral time phrases retain the interval direction, numeric value, and unit in all six native categories. The corrected tanwin and title quotes preserve meaning. Count-neutral wording deliberately avoids redundant numeric duals.",
@@ -1229,7 +1229,7 @@
     },
     "tools/view_profiles": {
       "finalHash": "3a98c38c5023f37a75f6952b7b951ce8152bc476f688a22e900ef170bc8c21d2",
-      "finalTemplateHash": "d27fbd596a9d0f071cb74bd66503b8ef18e69f402437ce17e5f6620869cf4a1f",
+      "finalTemplateHash": "cbd4640ae018fe9ced59f9cbdb8f9207671153f3e765d2ba478b21ce484e0862",
       "draftHashes": {
         "codex": "63a24ca7a177eb36e6b0801178877cb8ef71d3f2a89bccb9ccb70be3e7c797ef",
         "opus": "9475950107628df08a0b577c57004953aacb9a3e69cc2e037fb18e0bfab80ad7",
@@ -1242,7 +1242,7 @@
       },
       "decisions": {
         "tools.view_profiles.description": {
-          "finalValueHash": "c65d1d1c253725c28f71ee960939d8a83d5a2ac31dae4256d10a40ac82ba4248",
+          "finalValueHash": "26c28cd80bfb8efc85e5746686863b1be878846761a06c501e272c99dcf3c713",
           "chosenFrom": "opus",
           "leadReason": "Align the tool description with the established third-person descriptive verb. Preserve all capabilities, conditions, bounds, technical syntax, and the first-person statements within the random-number description.",
           "candidateReason": "Codex distinguishes omitted IDs from deleted ones and followed accounts from followers; the other drafts use a deletion verb. Add native head nouns for identifiers and keep structured-output terminology consistent.",
@@ -7348,6 +7348,18 @@
       "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    }
+  ],
+  "followUpReviews": [
+    {
+      "task": "participant-json-privacy",
+      "status": "accepted_by_lead",
+      "changedUnits": [
+        "tools.view_profiles.description"
+      ],
+      "summary": "Replace only the protected response key omittedNoteIdCount with omittedMyNoteIdCount. Preserve all translated prose and behavior.",
+      "reviewer": "Primary implementation agent; exact-commit independent review recorded in the pull request.",
+      "historicalEvidence": "Earlier translation reviews apply to the unchanged prose. They do not claim review of this protected-key substitution."
     }
   ]
 }

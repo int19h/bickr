@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+  "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
   "locale": "da",
   "status": "accepted_by_lead",
   "leadReason": "Accept the exact Danish proposal. Both reviewers accept all sixteen disputed units and find no additional defect. Native om/for ... siden fragments preserve the time value and direction without the ambiguous i år construction. Reference terminology, identification by u/username, and member-list headers preserve the source and use ordinary Danish.",
@@ -1132,7 +1132,7 @@
     },
     "tools/view_profiles": {
       "finalHash": "d035146e1ee474adf1127b539bd536b58ecb76a46f8e22b670a6743dd2709135",
-      "finalTemplateHash": "b5f20ec08b7ae7cff27128e3484919372319740074bf9a41054256525f5028f1",
+      "finalTemplateHash": "07c13888cede41b03aee3d85cf1bbb76bd873026c888d7188bcf611bb9ced3a1",
       "draftHashes": {
         "codex": "20af006df8ab6786416788040eba8372be21b438ecd85a5dbd7ad447301a0e49",
         "opus": "55003a4dda508d3f864313f83bee7b6f078e3ee3ba4820cfc0748b754828bb52",
@@ -1145,7 +1145,7 @@
       },
       "decisions": {
         "tools.view_profiles.description": {
-          "finalValueHash": "4ad3969101ceafbe7ddd5a25947f16bfd48671115e189d4aba255e79727dd613",
+          "finalValueHash": "4a268fb4689c8ce01270c374ca1a94c9f7560b1eab225ffa022c29c8f19831e0",
           "chosenFrom": "opus",
           "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
           "candidateReason": "Plain note enablement and MY IDs, omittedNoteIdCount, exact entities sample and both follower directions retained; Gemini changes protected u/username to plural.",
@@ -6818,6 +6818,18 @@
       "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    }
+  ],
+  "followUpReviews": [
+    {
+      "task": "participant-json-privacy",
+      "status": "accepted_by_lead",
+      "changedUnits": [
+        "tools.view_profiles.description"
+      ],
+      "summary": "Replace only the protected response key omittedNoteIdCount with omittedMyNoteIdCount. Preserve all translated prose and behavior.",
+      "reviewer": "Primary implementation agent; exact-commit independent review recorded in the pull request.",
+      "historicalEvidence": "Earlier translation reviews apply to the unchanged prose. They do not claim review of this protected-key substitution."
     }
   ]
 }

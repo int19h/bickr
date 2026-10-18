@@ -18,12 +18,12 @@
         "[\"u/name\"]",
         "entities",
         "list_notes",
-        "omittedNoteIdCount",
+        "omittedMyNoteIdCount",
         "query_followers",
         "u/name",
         "u/username"
       ],
-      "sourceTemplateHash": "cfec1e131aa4cd3f2dab1ed79bbe8117fd915a1bca13b211d0369119eed15bac"
+      "sourceTemplateHash": "b6f0d5b0a2064e10ea40bc533e77a603ecd7ca613b7e83878a1fc36adb6b5ae0"
     },
     {
       "id": "tools.view_profiles.properties.usernames.description",

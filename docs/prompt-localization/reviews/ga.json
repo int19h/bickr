@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+  "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
   "locale": "ga",
   "status": "accepted_by_lead",
   "leadReason": "Accept best-effort Irish after both requested final discussions and both 28-unit follow-ups. Use standard is gá dom action needs, direct audience wording, explicit persona genitives, dictionary-backed disclaimer notices, singular detached member headers, native JSON adjective order and list punctuation. Keep the maximum ceiling and all conditions. Relative-time digit patterns follow resolved Unicode CLDR and protected identifiers remain opaque. The lead chooses the optional direct relative from Opus.",
@@ -1295,7 +1295,7 @@
     },
     "tools/view_profiles": {
       "finalHash": "a6a78ae26150358b754dc4ab37f1f332b661714ed6b5d2060b15d35b2ff6d22d",
-      "finalTemplateHash": "fc9ef23453845e8fac8873078a7054c9e5fde68c1a2d16033082fae35cc1b157",
+      "finalTemplateHash": "8da93127a5184d144da5aea2e19af5f12d1e8b077a75a042b703da2e57bff072",
       "draftHashes": {
         "codex": "5b21b8878aba660fec020d2a86d7ab7c3ea39599c1932f863d313efd221d244a",
         "opus": "d22d317d467cea79064fa959f75df8f068c0b138058c7df9fc5021fa53bd85f1",
@@ -1308,7 +1308,7 @@
       },
       "decisions": {
         "tools.view_profiles.description": {
-          "finalValueHash": "b67589de87bca2e696870d7dd300a18511173fc8bf043d58d773015d0117430b",
+          "finalValueHash": "4c429a2a394c2fff0ab11084972a25791345b55521e6e1edcfe65e1ad0090775",
           "chosenFrom": "synthesis",
           "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
           "candidateReason": "Exact u/username and safe ID head nouns; Gemini changes protected token. Use clearer separate follow directions.",
@@ -7807,6 +7807,18 @@
         "Irish remains best effort. Native fluency and technical terms for nested bullet lists, spontaneous actions, filler and compaction targets remain unverified. Inherited uncertainty remains recorded."
       ],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    }
+  ],
+  "followUpReviews": [
+    {
+      "task": "participant-json-privacy",
+      "status": "accepted_by_lead",
+      "changedUnits": [
+        "tools.view_profiles.description"
+      ],
+      "summary": "Replace only the protected response key omittedNoteIdCount with omittedMyNoteIdCount. Preserve all translated prose and behavior.",
+      "reviewer": "Primary implementation agent; exact-commit independent review recorded in the pull request.",
+      "historicalEvidence": "Earlier translation reviews apply to the unchanged prose. They do not claim review of this protected-key substitution."
     }
   ]
 }

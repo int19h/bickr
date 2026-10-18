@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+  "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
   "locale": "id",
   "status": "accepted_by_lead",
   "leadReason": "Accept the exact Indonesian proposal. Both reviewers accept all thirteen disputed units and find no additional defect. Compact native time phrases preserve exact count, unit, and direction. The explicit Mermaid size clause preserves the maximum. Native member headers and the sampel term state the member subset precisely. Saya preserves participant narration and Anda names the addressee only where needed.",
@@ -1134,7 +1134,7 @@
     },
     "tools/view_profiles": {
       "finalHash": "fd63ecdd3e38ec4346306dc13f86b6ac3cfe660238ece7d10e25c23242ee5623",
-      "finalTemplateHash": "8ccfe7dc1cdcf6edd809ec44bb392504438fdd7a3bb267c663cf7908cfde19c6",
+      "finalTemplateHash": "f819985d7add287ea585aa32289b2f1248c7d64cb7daa02bdc03bf415dc6a8ea",
       "draftHashes": {
         "codex": "60ac1c8daa6a9959e84a6532bf5188dc8fdc15143163981c74f026266e75b0a6",
         "opus": "9efde74358761ec39380f9d261ee496905a0ad8027ce3e25a6c0c48a0290f509",
@@ -1147,7 +1147,7 @@
       },
       "decisions": {
         "tools.view_profiles.description": {
-          "finalValueHash": "13587e1b649e7985e9bb4e3d76d1c97cc28a46d898508f509f0000b87494d205",
+          "finalValueHash": "a5543eca46945c875d173ce49217689c97a095f49ef6033f1bad7ef2fd4b176c",
           "chosenFrom": "grok",
           "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
           "candidateReason": "Grok retains exact singular u/username and usernames in both relation directions; Gemini pluralizes the handle and Codex/Opus suggest returning followed profiles.",
@@ -6787,6 +6787,18 @@
       "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    }
+  ],
+  "followUpReviews": [
+    {
+      "task": "participant-json-privacy",
+      "status": "accepted_by_lead",
+      "changedUnits": [
+        "tools.view_profiles.description"
+      ],
+      "summary": "Replace only the protected response key omittedNoteIdCount with omittedMyNoteIdCount. Preserve all translated prose and behavior.",
+      "reviewer": "Primary implementation agent; exact-commit independent review recorded in the pull request.",
+      "historicalEvidence": "Earlier translation reviews apply to the unchanged prose. They do not claim review of this protected-key substitution."
     }
   ]
 }

@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+  "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
   "locale": "be",
   "status": "accepted_by_lead",
   "leadReason": "Accept the Belarusian catalog after both reviewers accept the final terminology adjustment. Native time cases, explicit relationship actors, obligation style, and control/tool terminology preserve the source. The standard word мусіць is not an orthography marker. The view_activity wording uses паводле consistently.",
@@ -1219,7 +1219,7 @@
     },
     "tools/view_profiles": {
       "finalHash": "fd2fea2dd29f4f5935f055ebbe5f2c934bc09a41af44060d78d283af7c544ead",
-      "finalTemplateHash": "8124f09996b12393ec7104a5c5abcaa8391a58c0a0f769c9b761264b395c84c6",
+      "finalTemplateHash": "12470e36dbaf0c2b695809cd054a71841869b532590bfe9fcaeb90e11afc5678",
       "draftHashes": {
         "codex": "a259685a5fc40d6e99bebc8809478dd55af02e975ff9ffa172b931a4f2e716b0",
         "opus": "500347649349443a69c86692c949cc2ede7a2870bd284134cb93c14be1b450cd",
@@ -1232,7 +1232,7 @@
       },
       "decisions": {
         "tools.view_profiles.description": {
-          "finalValueHash": "80a49c2b2720dd80458fde2d1c5bafe983f2dab8285b649acefbc0189b492cdb",
+          "finalValueHash": "1cdce05738b0dc0b26b7ad8d46f5db07af073baeb5ba90cf80b2956230e015e0",
           "chosenFrom": "codex",
           "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
           "candidateReason": "Codex keeps u/username, enabled-note condition, omission count and both retrieval calls; Gemini changes the handle to u/usernames and Grok changes followers to observers.",
@@ -7005,6 +7005,18 @@
       "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    }
+  ],
+  "followUpReviews": [
+    {
+      "task": "participant-json-privacy",
+      "status": "accepted_by_lead",
+      "changedUnits": [
+        "tools.view_profiles.description"
+      ],
+      "summary": "Replace only the protected response key omittedNoteIdCount with omittedMyNoteIdCount. Preserve all translated prose and behavior.",
+      "reviewer": "Primary implementation agent; exact-commit independent review recorded in the pull request.",
+      "historicalEvidence": "Earlier translation reviews apply to the unchanged prose. They do not claim review of this protected-key substitution."
     }
   ]
 }

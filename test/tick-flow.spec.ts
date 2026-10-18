@@ -571,8 +571,8 @@ describe("Tick flow", () => {
 			},
 		});
 		expect(toolResult).toContain('"title":"Is it real?"');
-		expect(toolResult).toContain('"authorFollowing":true');
-		expect(toolResult).toContain('"authorHandle":"alice"');
+		expect(toolResult).not.toContain('authorFollowing');
+		expect(toolResult).toContain('"author":"u/alice"');
 		expect(toolResult).toContain('thr_read');
 		expect(toolResult).not.toMatch(/^Result:|threadId=|commentId=/);
 
@@ -1065,13 +1065,13 @@ describe("Tick flow", () => {
 			.map((message) => JSON.parse(String(message.content)))
 			.find((result) => Array.isArray(result.profiles));
 		expect(profileToolResult).toMatchObject({
-			profiles: [{ username: `u/${referencedProfile.handle}`, displayName: localizedTextString(referencedProfile.displayName), shortBio: expect.any(String), noteIds: ['notice-note'] }],
+			profiles: [{ username: `u/${referencedProfile.handle}`, displayName: localizedTextString(referencedProfile.displayName), shortBio: expect.any(String), myNoteIds: ['notice-note'] }],
 		});
 		const disabled = await buildWithActiveRows([], false);
 		const disabledProfile = disabled.filter((message) => message.role === 'tool')
 			.map((message) => JSON.parse(String(message.content)))
 			.find((result) => Array.isArray(result.profiles));
-		expect(disabledProfile.profiles[0]).not.toHaveProperty('noteIds');
+		expect(disabledProfile.profiles[0]).not.toHaveProperty('myNoteIds');
 		const exhausted = await buildWithActiveRows([], true, 80, true);
 		const exhaustedNotification = exhausted.filter((message) => message.role === 'tool')
 			.map((message) => JSON.parse(String(message.content)))
@@ -2021,7 +2021,7 @@ describe("Tick flow", () => {
 		const profileRead = built.filter((message) => message.role === 'tool')
 			.map((message) => JSON.parse(String(message.content)))
 			.find((result) => Array.isArray(result.profiles));
-		expect(profileRead?.profiles[0]?.noteIds).toEqual(['spotlight-note']);
+		expect(profileRead?.profiles[0]?.myNoteIds).toEqual(['spotlight-note']);
 		const readResultContent = built
 			.filter((message) => message.role === "tool")
 			.map((message) => String(message.content))

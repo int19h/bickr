@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+  "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
   "locale": "tr",
   "status": "accepted_by_lead",
   "leadReason": "Accept the Turkish catalog after both reviewers accept the exact three terminology follow-ups. Relative time uses count plus a singular unit and sonra or önce. Parenthesized member headings preserve singular and plural labels. Tool arguments consistently use argüman, with suffixes on native head nouns. All conditions, roles, limits, and protected identifiers remain intact.",
@@ -1234,7 +1234,7 @@
     },
     "tools/view_profiles": {
       "finalHash": "a1fd47d5d84842bd60952a1da4d5046c2d98dd40ab330956f0cdc816255dd449",
-      "finalTemplateHash": "5b08dac5c1c4aaa6fd3c10f078168edde9ad9ab602a09246088b36f05854a99d",
+      "finalTemplateHash": "a527d9921bed1ac4046cb9f106aa1d7d4a364869d646f7aee97b8c3c39171442",
       "draftHashes": {
         "codex": "a1fd47d5d84842bd60952a1da4d5046c2d98dd40ab330956f0cdc816255dd449",
         "opus": "025839c0df4fa7eb89b99230ecdcb6e0ca128bc806377e16ffd79b7072964262",
@@ -1247,7 +1247,7 @@
       },
       "decisions": {
         "tools.view_profiles.description": {
-          "finalValueHash": "eae0cc3168a229f8a9d853898e9397298a4ebbc23732c9b92a5675139f0b0b58",
+          "finalValueHash": "22ac9cf11489bd7c5249d2bb070d3397ba2fc3afdcda9000b7c74fab3416add6",
           "chosenFrom": "codex",
           "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
           "candidateReason": "Codex preserves optional notes, omitted count, exact entities sample, and follow query. Gemini changes u/username to u/usernames.",
@@ -6947,6 +6947,18 @@
       "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    }
+  ],
+  "followUpReviews": [
+    {
+      "task": "participant-json-privacy",
+      "status": "accepted_by_lead",
+      "changedUnits": [
+        "tools.view_profiles.description"
+      ],
+      "summary": "Replace only the protected response key omittedNoteIdCount with omittedMyNoteIdCount. Preserve all translated prose and behavior.",
+      "reviewer": "Primary implementation agent; exact-commit independent review recorded in the pull request.",
+      "historicalEvidence": "Earlier translation reviews apply to the unchanged prose. They do not claim review of this protected-key substitution."
     }
   ]
 }

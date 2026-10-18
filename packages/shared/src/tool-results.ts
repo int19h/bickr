@@ -7,6 +7,8 @@ import type {
 } from "./model";
 
 export type ViewedProfileResult = BotProfileRelationshipSummary & {
+	/** Reader identity must match before private note associations can be emitted. */
+	associatedNoteReaderBotId?: string;
 	associatedNoteIds?: string[];
 	associatedNoteCount?: number;
 };

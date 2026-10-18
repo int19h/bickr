@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+  "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
   "locale": "pt",
   "status": "accepted_by_lead",
   "leadReason": "The lead accepts the exact Portuguese proposal. Both reviewers accept every disputed unit and report no additional finding. The catalog uses broad standard Portuguese, as the guideline and the requested baseline-language scope allow. The remaining regional vocabulary and grammatical-gender observations do not change meaning or assign a gender to the participant. The reviewed native time phrases and count forms preserve every bound and direction.",
@@ -1167,7 +1167,7 @@
     },
     "tools/view_profiles": {
       "finalHash": "1b22df0fa5ce58231ec21d0d5d5bbc8210316add6d174544c27c5d56fc2e0c26",
-      "finalTemplateHash": "0906f452f42c217ae0936ccb8c994dad11034a14688f2ee58cdef9a7a1f33168",
+      "finalTemplateHash": "436955464f073083b29dfb3b0f133ba9aca42b392b8acbefe83727fcd1c49565",
       "draftHashes": {
         "codex": "62ea65c045036e478ecd63f0d01ae8771a772b84264392da43da758cff62d6af",
         "opus": "9b928a553680fd39cd52f355a2b359f2ebf59c6a5906364ea5a72d8fc508b7b6",
@@ -1180,7 +1180,7 @@
       },
       "decisions": {
         "tools.view_profiles.description": {
-          "finalValueHash": "86213865ae36f80678995575507a9cb51fc34a68b0a8ad3f41fcea9d4a520b98",
+          "finalValueHash": "22385ef0ce6d9cfd6c4ab9330effe3c04136ce7351ad815adb7f532e3e8e4a54",
           "chosenFrom": "synthesis",
           "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
           "candidateReason": "Keeps my IDs conditional on notes, omitted count, exact entities example and both directions. Grok ambiguous following labels and Gemini username modifiers are less clear; use imperative.",
@@ -6963,6 +6963,18 @@
       "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    }
+  ],
+  "followUpReviews": [
+    {
+      "task": "participant-json-privacy",
+      "status": "accepted_by_lead",
+      "changedUnits": [
+        "tools.view_profiles.description"
+      ],
+      "summary": "Replace only the protected response key omittedNoteIdCount with omittedMyNoteIdCount. Preserve all translated prose and behavior.",
+      "reviewer": "Primary implementation agent; exact-commit independent review recorded in the pull request.",
+      "historicalEvidence": "Earlier translation reviews apply to the unchanged prose. They do not claim review of this protected-key substitution."
     }
   ]
 }

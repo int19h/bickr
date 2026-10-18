@@ -255,7 +255,8 @@ import {
 	providerCheckNotificationsResultWithInclusions,
 	providerReadCommentTreeTokenBudget,
 	providerReadResult,
-	providerSafeJsonValue,
+	providerLegacyToolResultPayload,
+	providerLegacyInputPayload,
 	providerSerializationContext,
 	providerToolResultPayload,
 	providerViewedProfiles,
@@ -489,7 +490,7 @@ export { defaultReasoningPrefill };
 export { parseAvatarImageGenerationSettingsOverride as parseImageGenerationSettingsOverride };
 export { PersistentCompactionReductionFailureError, runtimeMonitorInitialBackfillLimit };
 export { localizedToolTextArg, parseToolArgs };
-export { providerSafeJsonValue, providerSelfAuthor, providerSerializationContext, providerToolResultPayload };
+export { providerSelfAuthor, providerSerializationContext, providerToolResultPayload };
 export { followToolSelfCorrectionMessage, planFollowToolTargets };
 export type { ToolFailurePayload };
 export type { ProviderSettings } from '../provider-requests';
@@ -2048,7 +2049,8 @@ export class BotRuntime {
 			)
 			.toArray();
 		const latestSummary = this.latestCompactionSummary();
-		const activity = rows.map((row) => truncateForContext(runtimeContextLine(row), 500)).join('\n');
+		const selfBotId = this.botIdForStartupDiagnostics() ?? undefined;
+		const activity = rows.map((row) => truncateForContext(runtimeContextLine(row, selfBotId), 500)).join('\n');
 		const summary = storedMemorySummary(
 			[latestSummary.trim(), activity.trim() ? botText('en').format('compaction.legacy.preface', { history: activity.trim() }) : '']
 				.filter(Boolean)
@@ -6326,7 +6328,7 @@ export class BotRuntime {
 		const usernames = referencedProfileUsernamesFromNotifications(includedNotifications, bot.handle, existingProfileUsernames);
 		if (usernames.length > 0) {
 			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId);
-			const profileResult = providerViewedProfiles(profiles, notificationTokenBudget);
+			const profileResult = providerViewedProfiles(profiles, providerContext.self, notificationTokenBudget);
 			if (profileResult.profiles.length > 0) {
 				await this.markSyntheticProfilesSeen(bot, profiles.slice(0, profileResult.profiles.length), runId, 'notification');
 				const toolCall = syntheticToolCall(runId, 'view_profiles', toolCalls.length, { usernames });
@@ -6371,7 +6373,7 @@ export class BotRuntime {
 		const usernames = referencedProfileUsernamesFromSpotlight(contexts, bot.handle, existingProfileUsernames);
 		if (usernames.length > 0) {
 			const profiles = await this.syntheticProfilesForUsernames(bot, usernames, runId);
-			const profileResult = providerViewedProfiles(profiles, tokenBudget);
+			const profileResult = providerViewedProfiles(profiles, providerContext.self, tokenBudget);
 			if (profileResult.profiles.length > 0) {
 				await this.markSyntheticProfilesSeen(bot, profiles.slice(0, profileResult.profiles.length), runId, 'spotlight');
 				const toolCall = syntheticToolCall(runId, 'view_profiles', toolCalls.length, { usernames });
@@ -6479,7 +6481,7 @@ export class BotRuntime {
 		if (!notesEnabled(bot.toolSettings)) return related;
 		return related.map((profile) => {
 			const notes = this.notes.idsForEntity('participant', profile.id, planEnabled(bot.toolSettings));
-			return { ...profile, associatedNoteIds: notes.ids, associatedNoteCount: notes.total };
+			return { ...profile, associatedNoteReaderBotId: bot.id, associatedNoteIds: notes.ids, associatedNoteCount: notes.total };
 		});
 	}
 
@@ -9427,10 +9429,10 @@ export function repositoryErrorCode(code: ApiErrorPayload['error']): RepositoryE
 	return code === 'oauth_error' ? 'server_error' : code;
 }
 
-function runtimeContextLine(row: RuntimeRow): string {
+function runtimeContextLine(row: RuntimeRow, selfBotId?: string): string {
 	const payload = parsePayloadJson(row.payload_json);
 	return formatRuntimeEventForContext(row.type, payload, {
-		rawPayload: row.payload_json,
+		selfBotId,
 		runId: row.run_id,
 		seq: row.seq,
 	});
@@ -9443,22 +9445,25 @@ function runtimeContextLine(row: RuntimeRow): string {
 export function formatRuntimeEventForContext(
  type: BotRuntimeEventType,
  payload: Record<string, unknown>,
- details: { rawPayload?: string; runId?: string; seq?: number } = {},
+ details: { runId?: string; seq?: number; selfBotId?: string } = {},
 ): string {
  // The retained source events come from releases whose instructions were English.
  const text = botText('en');
  const quoted = (value: string) => markdownQuoteForContext(value, 700);
- const data = (value: unknown) => quoted(JSON.stringify(providerSafeJsonValue(text, value)) ?? '');
+ // Old events can lack identity. An empty ID cannot match a stored author ID,
+ // so these records retain handles without guessing which author is the reader.
+ const context = providerSerializationContext(text, { botId: details.selfBotId ?? '' });
+ const data = (value: unknown) => quoted(JSON.stringify(value) ?? '');
  switch (type) {
   case 'tool_call': {
    const toolName = canonicalToolName(stringValue(payload.name) ?? 'unknown_tool');
    return text.format('compaction.history.action', { toolName, arguments: safeContextText(JSON.stringify(providerToolArgs(toolName, runtimeRecord(payload.args))), 700) });
   }
-  case 'tool_result': return text.format('compaction.legacy.result', { toolName: canonicalToolName(stringValue(payload.name) ?? 'unknown_tool'), result: data(payload.result) });
-  case 'reasoning_message': return text.format('compaction.history.thought', { content: quoted(stringValue(payload.content) ?? details.rawPayload ?? '') });
-  case 'assistant_message': return text.format('compaction.history.written', { content: quoted(stringValue(payload.content) ?? details.rawPayload ?? '') });
+  case 'tool_result': return text.format('compaction.legacy.result', { toolName: canonicalToolName(stringValue(payload.name) ?? 'unknown_tool'), result: data(providerLegacyToolResultPayload(canonicalToolName(stringValue(payload.name) ?? 'unknown_tool'), payload.result, runtimeRecord(payload.args), context)) });
+  case 'reasoning_message': return text.format('compaction.history.thought', { content: quoted(stringValue(payload.content) ?? '') });
+  case 'assistant_message': return text.format('compaction.history.written', { content: quoted(stringValue(payload.content) ?? '') });
   case 'thought_injected': return text.format('compaction.legacy.thought', { thought: quoted(stringValue(payload.text) ?? '') });
-  case 'input': return text.format('compaction.legacy.input', { input: data({ notifications: payload.notifications, injections: payload.injections, spotlightContexts: payload.spotlightContexts, toolUseReminder: payload.toolUseReminder }) });
+  case 'input': return text.format('compaction.legacy.input', { input: data(providerLegacyInputPayload(payload, context)) });
   default: return '';
  }
 }

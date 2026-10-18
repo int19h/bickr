@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+  "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
   "locale": "hi",
   "status": "accepted_by_lead",
   "leadReason": "Accept the Hindi catalog after both reviewers accept all four exact follow-ups. Native time phrases preserve direction and units. Count labels and universal item commands cover zero and one without speaker gender. Website visits, comments, annotations, profiles, and tool-result terminology are consistent. The cycle rule uses an explicit ban without a blanket claim about चाहिए.",
@@ -1262,7 +1262,7 @@
     },
     "tools/view_profiles": {
       "finalHash": "d12b260b9c8fbd10745b67e8c6feb46fee97e3709ff77f7b1e8a75fd8c7802b0",
-      "finalTemplateHash": "e70e8e38776f837b626da63be379a41d366f3df2f14d5770c2a641a01ae1d3e2",
+      "finalTemplateHash": "92449c430d4b1d70921b9a44e27bff1c4be300ada0b1e4aba1c9ae2762231548",
       "draftHashes": {
         "codex": "d0e16146fd92dbe9fa8cd95fe6733bda09b25de9bee53001c78b46ba99835d1d",
         "opus": "3c827a52057aac7bcde3e292d083ce11e0e3dc388fc17cfb028f2520e42e7b93",
@@ -1275,7 +1275,7 @@
       },
       "decisions": {
         "tools.view_profiles.description": {
-          "finalValueHash": "b81da59113f4e5d83d1123d18114673559d7ff5b8746b83725578590b85000f7",
+          "finalValueHash": "3d6b2fc53952fcabd6023e4098a626744bed13a582f183c62637645088eb03c0",
           "chosenFrom": "synthesis",
           "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
           "candidateReason": "Opus retains note-enabled condition, missing ID count, fixed entities sample, and following profiles. Gemini changes u/username to u/usernames.",
@@ -7238,6 +7238,18 @@
       "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    }
+  ],
+  "followUpReviews": [
+    {
+      "task": "participant-json-privacy",
+      "status": "accepted_by_lead",
+      "changedUnits": [
+        "tools.view_profiles.description"
+      ],
+      "summary": "Replace only the protected response key omittedNoteIdCount with omittedMyNoteIdCount. Preserve all translated prose and behavior.",
+      "reviewer": "Primary implementation agent; exact-commit independent review recorded in the pull request.",
+      "historicalEvidence": "Earlier translation reviews apply to the unchanged prose. They do not claim review of this protected-key substitution."
     }
   ]
 }

@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+  "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
   "locale": "eo",
   "status": "accepted_by_lead",
   "leadReason": "Accept the Esperanto catalog after both reviewers accept all five exact follow-up units. JSON-objekto and resumo de memoroj stay consistent. The explicit quotation-mark phrase states the repair precisely. Native list and time patterns do not depend on the platform’s unsupported list or relative-time formatters.",
@@ -1186,7 +1186,7 @@
     },
     "tools/view_profiles": {
       "finalHash": "c6259f7a164519e39fac236ffbd27506f4f0dea1429dcc7080e49f6b5ad59c1d",
-      "finalTemplateHash": "281dc55c7e3a3cb082065fabef1e9b3b6004f6b5260b17c0f203c4add87957c3",
+      "finalTemplateHash": "423cda720cb23f89245286532ad83eff93fcb9e04c0d2efbc357e314f76a2f2d",
       "draftHashes": {
         "codex": "c6259f7a164519e39fac236ffbd27506f4f0dea1429dcc7080e49f6b5ad59c1d",
         "opus": "ede8ed83dd2c9928bcf6c74f264c81563494e63114e1408e53a90c81472db387",
@@ -1199,7 +1199,7 @@
       },
       "decisions": {
         "tools.view_profiles.description": {
-          "finalValueHash": "6319f47c5d5043d67f8ae863f613e3b7504e02f516ce647efe9d3ae6688f4a01",
+          "finalValueHash": "b3f9e89edb11909f112d4de4a2b8d0d4fdef743328bf2d700d9baf844f4e1e07",
           "chosenFrom": "codex",
           "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
           "candidateReason": "Codex retains my note identifiers, enabled-note condition, omitted count, and both retrieval tools; Gemini changes my to your and others inflect ID.",
@@ -6988,6 +6988,18 @@
       "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    }
+  ],
+  "followUpReviews": [
+    {
+      "task": "participant-json-privacy",
+      "status": "accepted_by_lead",
+      "changedUnits": [
+        "tools.view_profiles.description"
+      ],
+      "summary": "Replace only the protected response key omittedNoteIdCount with omittedMyNoteIdCount. Preserve all translated prose and behavior.",
+      "reviewer": "Primary implementation agent; exact-commit independent review recorded in the pull request.",
+      "historicalEvidence": "Earlier translation reviews apply to the unchanged prose. They do not claim review of this protected-key substitution."
     }
   ]
 }

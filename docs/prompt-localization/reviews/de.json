@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+  "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
   "locale": "de",
   "status": "accepted_by_lead",
   "leadReason": "Accept the German catalog after both reviewers accept both exact follow-up units. The direct Mermaid imperative keeps the required maximum. The SVG clause names its fence and label plainly. The profile-result actor is explicit. Darf nicht leer sein preserves the required nonempty constraint.",
@@ -1261,7 +1261,7 @@
     },
     "tools/view_profiles": {
       "finalHash": "40db4e61c885c775dc4c74af5add4989f5f886631a582690deb950fc66f9c472",
-      "finalTemplateHash": "cc8152334fc5dfe5bc2a5aa7d420da3c701069be07e7039e930ee27b3f70975f",
+      "finalTemplateHash": "5570643611f6447ccc49d6d93fc43bf44598d03a18a3ea88c272aafbde9b539e",
       "draftHashes": {
         "codex": "78cbe44a8b2b794968e3012ed192ea994b4da0fc93be6ebd682e071934f7c9e5",
         "opus": "12fc1f93ecfe83c319e28c176c81eff2e2b4b67523db39f1126060ee27800d91",
@@ -1274,7 +1274,7 @@
       },
       "decisions": {
         "tools.view_profiles.description": {
-          "finalValueHash": "343c9001fa6b3bd63e802cc3549c9675ba09f9bccf4f10325ce68e4764cb39cf",
+          "finalValueHash": "0e6e7c37c0afaddade1c84052a224057a6c439d2f1cc57b481444c3e55c06e58",
           "chosenFrom": "synthesis",
           "leadReason": "The result sentence also lacks the comma that closes the relative clause before und meine Notiz-IDs. Separate the always-visible relationships/follower counts from the note-ID condition. Use the explicit profile actor in the last sentence so follower direction cannot change.",
           "candidateReason": "Retains my IDs conditional on notes, omitted-ID count, exact entities sample and both relationship directions. Gemini changes my to your; clarify native follower and followed labels.",
@@ -6925,6 +6925,18 @@
       "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    }
+  ],
+  "followUpReviews": [
+    {
+      "task": "participant-json-privacy",
+      "status": "accepted_by_lead",
+      "changedUnits": [
+        "tools.view_profiles.description"
+      ],
+      "summary": "Replace only the protected response key omittedNoteIdCount with omittedMyNoteIdCount. Preserve all translated prose and behavior.",
+      "reviewer": "Primary implementation agent; exact-commit independent review recorded in the pull request.",
+      "historicalEvidence": "Earlier translation reviews apply to the unchanged prose. They do not claim review of this protected-key substitution."
     }
   ]
 }

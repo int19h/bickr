@@ -7,7 +7,6 @@ import type { ToolResultEnvelope } from "@bickr/shared/tool-results";
 import {
 	orderedProviderDeliveryReasons,
 	providerCheckNotificationsResultWithInclusions,
-	providerSafeJsonValue,
 	providerSerializationContext,
 	providerToolResultPayload,
 	providerToolResultUsesTokenBudget,
@@ -45,31 +44,31 @@ describe("provider-facing text preservation", () => {
 			language: null, displayName: en("Alice"), shortBio: en("A profile"),
 			createdAt: "2026-05-01T00:00:00.000Z", updatedAt: "2026-05-01T00:00:00.000Z",
 			isFollowedByMe: false, isFollowingMe: false, followers: 0,
-			associatedNoteIds: noteIds, associatedNoteCount: noteIds.length,
+			associatedNoteReaderBotId: selfBotId, associatedNoteIds: noteIds, associatedNoteCount: noteIds.length,
 		};
 		const result = providerToolResultPayload(
 			"view_profiles", { profiles: [profile] }, {}, readingParticipant(),
 			{ tokenBudget: 10_000 }, { kind: "profile_viewed", profiles: [profile] },
-		) as { profiles: Array<{ noteIds?: string[] }> };
-		expect(result.profiles[0]?.noteIds).toEqual(noteIds);
+		) as { profiles: Array<{ myNoteIds?: string[] }> };
+		expect(result.profiles[0]?.myNoteIds).toEqual(noteIds);
 		const shortened = providerToolResultPayload(
 			"view_profiles", { profiles: [profile] }, {}, readingParticipant(),
 			{ tokenBudget: 100 }, { kind: "profile_viewed", profiles: [profile] },
-		) as { profiles: Array<{ noteIds?: string[]; totalNoteCount?: number; omittedNoteIdCount?: number }> };
+		) as { profiles: Array<{ myNoteIds?: string[]; totalMyNoteCount?: number; omittedMyNoteIdCount?: number }> };
 		expect(shortened.profiles).toHaveLength(1);
-		expect(shortened.profiles[0]?.noteIds?.length).toBeLessThan(noteIds.length);
-		expect(shortened.profiles[0]?.totalNoteCount).toBe(noteIds.length);
-		expect(shortened.profiles[0]?.omittedNoteIdCount).toBe(noteIds.length - (shortened.profiles[0]?.noteIds?.length ?? 0));
+		expect(shortened.profiles[0]?.myNoteIds?.length).toBeLessThan(noteIds.length);
+		expect(shortened.profiles[0]?.totalMyNoteCount).toBe(noteIds.length);
+		expect(shortened.profiles[0]?.omittedMyNoteIdCount).toBe(noteIds.length - (shortened.profiles[0]?.myNoteIds?.length ?? 0));
 		expect(Math.ceil(JSON.stringify(shortened).length / 4)).toBeLessThanOrEqual(100);
 		const manyProfiles = Array.from({ length: 4 }, (_, index) => ({ ...profile, id: `bot_${index}`, handle: `profile-${index}` }));
 		const dropped = providerToolResultPayload(
 			"view_profiles", { profiles: manyProfiles }, {}, readingParticipant(),
 			{ tokenBudget: 100 }, { kind: "profile_viewed", profiles: manyProfiles },
-		) as { profiles: Array<{ omittedNoteIdCount?: number }>; omittedProfileCount?: number };
+		) as { profiles: Array<{ omittedMyNoteIdCount?: number }>; omittedProfileCount?: number };
 		expect(dropped.profiles.length).toBeGreaterThan(0);
 		expect(dropped.profiles.length).toBeLessThan(manyProfiles.length);
 		expect(dropped.omittedProfileCount).toBe(manyProfiles.length - dropped.profiles.length);
-		expect(dropped.profiles[0]?.omittedNoteIdCount).toBe(noteIds.length);
+		expect(dropped.profiles[0]?.omittedMyNoteIdCount).toBe(noteIds.length);
 		expect(Math.ceil(JSON.stringify(dropped).length / 4)).toBeLessThanOrEqual(100);
 		expect(providerToolResultPayload(
 			"view_profiles", { profiles: [profile] }, {}, readingParticipant(),
@@ -134,7 +133,7 @@ describe("provider-facing text preservation", () => {
 		expect(JSON.stringify(result)).not.toContain("Raw vote notification message should not appear.");
 	});
 
-	it("does not rewrite terminology in fallback tool result strings or keys", () => {
+	it("rejects unknown tool results without copying internal data", () => {
 		const result = providerToolResultPayload("unknown_tool", {
 			model: "z-ai/glm-4.5-air:free",
 			provider: "Z.AI",
@@ -149,16 +148,7 @@ describe("provider-facing text preservation", () => {
 			},
 		}, {}, readingParticipant());
 
-		expect(result).toEqual({
-			model: "z-ai/glm-4.5-air:free",
-			provider: "Z.AI",
-			ownerNote: "My owner says I am an AI bot.",
-			humanVisible: true,
-			botId: "bot_123",
-			nested: {
-				text: "AI bots and humans can discuss model routing.",
-			},
-		});
+		expect(result).toEqual({ ok: false, code: 'result_unavailable', message: text.format('recovery.genericError') });
 	});
 });
 
@@ -941,35 +931,6 @@ describe("drawn random integers", () => {
 
 	it("needs no per-tool pruning, because a draw is bounded by the range cap", () => {
 		expect(providerToolResultUsesTokenBudget("draw_random_integers")).toBe(false);
-	});
-});
-
-describe("providerSafeJsonValue", () => {
-	it("keeps promptToken-style provider fields while dropping real credential key shapes", () => {
-		expect(providerSafeJsonValue(text, {
-			promptToken: "visible",
-			prompt_tokens: 12,
-			token: "hidden",
-			apiToken: "hidden",
-			access_token: "hidden",
-			refreshToken: "hidden",
-			authToken: "hidden",
-			sessionToken: "hidden",
-			idToken: "hidden",
-			bearerToken: "hidden",
-			openRouterApiKey: "hidden",
-			clientSecret: "hidden",
-			nested: {
-				promptToken: "nested-visible",
-				bearer_token: "hidden",
-			},
-		})).toEqual({
-			promptToken: "visible",
-			prompt_tokens: 12,
-			nested: {
-				promptToken: "nested-visible",
-			},
-		});
 	});
 });
 

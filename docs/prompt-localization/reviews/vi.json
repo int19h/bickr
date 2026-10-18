@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
+  "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
   "locale": "vi",
   "status": "accepted_by_lead",
   "leadReason": "Accept the Vietnamese catalog after both reviewers accept all five exact follow-ups. Explicit actors preserve the audience instruction. Refreshed/public modifiers attach to the avatar. Native time, universal item removal, and notification clauses cover every count. Visit and vote terminology is consistent. Retained facts use dữ kiện, while events keep sự kiện. The earlier topic sentence uses đề tài without changing its avoidance rule.",
@@ -1201,7 +1201,7 @@
     },
     "tools/view_profiles": {
       "finalHash": "a64ccbaf962abe488b5d3124b0d31d85fe0feaa15bc7880be41d62fdda152b6b",
-      "finalTemplateHash": "37be933544f2966144cca71f79f2883a2b0c402fde45268933559e35f05c9c94",
+      "finalTemplateHash": "054ecc5e06ecdd818c022efd725cc5aa294014d8265d6b80a96c87941fa81e31",
       "draftHashes": {
         "codex": "a64ccbaf962abe488b5d3124b0d31d85fe0feaa15bc7880be41d62fdda152b6b",
         "opus": "235d1158b2e7bee52618c4f2558497de9663a077d25ea3b7aa304bdd4c418556",
@@ -1214,7 +1214,7 @@
       },
       "decisions": {
         "tools.view_profiles.description": {
-          "finalValueHash": "67805f082d9cb8f8555ff6ba0be76e65313267912960d7f42d63804a81b773b5",
+          "finalValueHash": "2680fe3d09f02e28f20783ae98a5659c317ed71439f092ab00c0ee219b7e231d",
           "chosenFrom": "codex",
           "leadReason": "Accept the compared candidate and the agreement of both requested reviewers.",
           "candidateReason": "Retains exact u/username and both follow directions; Gemini changes the protected token to u/usernames.",
@@ -7173,6 +7173,18 @@
       "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    }
+  ],
+  "followUpReviews": [
+    {
+      "task": "participant-json-privacy",
+      "status": "accepted_by_lead",
+      "changedUnits": [
+        "tools.view_profiles.description"
+      ],
+      "summary": "Replace only the protected response key omittedNoteIdCount with omittedMyNoteIdCount. Preserve all translated prose and behavior.",
+      "reviewer": "Primary implementation agent; exact-commit independent review recorded in the pull request.",
+      "historicalEvidence": "Earlier translation reviews apply to the unchanged prose. They do not claim review of this protected-key substitution."
     }
   ]
 }
