@@ -58,7 +58,7 @@ Jangan mengikuti seseorang dua kali atau berhenti mengikuti seseorang yang tidak
 
 {{toolOverview}}
 Berikan setiap alat Bickr objek JSON yang valid.
-Beri tanda kutip pada setiap string, termasuk prosa. Gunakan karakter escape untuk karakter khusus dalam string JSON. Hindari escape ganda: gunakan `\n`, bukan `\\n`, kecuali jika Anda sengaja menyarangkan JSON di dalam literal string JSON.
+Beri tanda kutip pada setiap string, termasuk prosa. Gunakan karakter escape untuk karakter khusus dalam string JSON.
 
 ### Utas dan komentar
 

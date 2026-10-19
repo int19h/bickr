@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
+  "catalogSourceHash": "c8fe81102ded524f2695eeac0e492caaefe4885d7d83899e8e807d923e9eec99",
   "locale": "ru",
   "status": "accepted_by_lead",
   "leadReason": "Accept the Russian catalog after both reviewers accept the exact final follow-up. Prompt terminology separates the complete persona prompt from a marked instruction. Guillemets wrap inserted titles without changing authored bytes. All initial comma, gender-neutral narration, entity-case, and count-bound choices preserve the source.",
@@ -112,7 +112,7 @@
   "groups": {
     "system": {
       "finalHash": "c3b3740a7c06ca4e4b61f4d824601dfc5792ce040e14c6dfa045b709efe39716",
-      "finalTemplateHash": "1b79ebdf57475f86a6e1221781607e78a5b785d7f9c96fbf455cfaf74d13d4c0",
+      "finalTemplateHash": "1be4f2854dc9b49476442021df37f6ebc250f5fd1a22eccd03d13e28cd329147",
       "draftHashes": {
         "codex": "88cd8e17fb0e7f77c2ccbe3f26fac0b175babc706118453c8320fb88696b902c",
         "opus": "c239cf4c5b9f8467a75d666bf657a33f8c7a02b1694e092dd81dd0485351f4c9",
@@ -159,11 +159,12 @@
           "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.plan": {
-          "finalValueHash": "c7073d3a5719fa1156074c9b33cfe49f063552760b04549b2ea3d691afaa2a30",
-          "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
-          "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
-          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
-          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+          "finalValueHash": "e6d4220214a3adb6d99e62e805292ff31e46613b2d9e7dbfe35568ba7a183998",
+          "chosenFrom": "codex incremental translation",
+          "leadReason": "Accept the scoped prompt simplification and translated Markdown example. Independent review remains pending.",
+          "candidateReason": "Preserve unchanged prose, JSON rules, PLAN identity, and Markdown nesting. Translate only the new example prose.",
+          "opusReason": "Historical Opus evidence covers previous text only. No new Opus review applies.",
+          "grokReason": "Historical Grok evidence covers previous text only. No new Grok review applies."
         },
         "system.notes": {
           "finalValueHash": "6914b8c847f527bce5abdcb5e3fdb2b333cb03e7a9ccae5b3d632cba79ee0753",
@@ -193,11 +194,12 @@
           "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.main": {
-          "finalValueHash": "91dae19200bed19fd9bdc4b1b1863df85ff8acc1595663eb527be55a0187351b",
-          "leadReason": "Accept after independent Codex review of meaning, syntax, recommendations, JSON exceptions and capability selection.",
-          "candidateReason": "Translate the simulation boundary, first-person inner loop, memory continuity, tools, JSON escaping and emotional reflection. Match note guidance to enabled capabilities.",
-          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
-          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+          "finalValueHash": "da07d5c70f6b4763199d62665ed27b47c0642bc273349abff5b2a1b0ff69e2b0",
+          "chosenFrom": "codex incremental translation",
+          "leadReason": "Accept the scoped prompt simplification and translated Markdown example. Independent review remains pending.",
+          "candidateReason": "Preserve unchanged prose, JSON rules, PLAN identity, and Markdown nesting. Translate only the new example prose.",
+          "opusReason": "Historical Opus evidence covers previous text only. No new Opus review applies.",
+          "grokReason": "Historical Grok evidence covers previous text only. No new Grok review applies."
         },
         "system.toolOverview": {
           "finalValueHash": "d3dc5fd1f94640a0119949c3ad81f903e2d9a1b46456caef7fc97e95d0cd9526",
@@ -6958,6 +6960,40 @@
       "summary": "Replace only the protected response key omittedNoteIdCount with omittedMyNoteIdCount. Preserve all translated prose and behavior.",
       "reviewer": "Primary implementation agent; exact-commit independent review recorded in the pull request.",
       "historicalEvidence": "Earlier translation reviews apply to the unchanged prose. They do not claim review of this protected-key substitution."
+    },
+    {
+      "task": "notes-markdown-example",
+      "date": "2026-10-19",
+      "catalogSourceHash": "c8fe81102ded524f2695eeac0e492caaefe4885d7d83899e8e807d923e9eec99",
+      "changedUnits": [
+        "system.main",
+        "system.plan"
+      ],
+      "translator": "Codex prompt_translation agent",
+      "status": "independent_review_pending",
+      "summary": "Remove explicit newline-escape discussion. Add the translated Markdown PLAN example with two tasks and one nested subtask.",
+      "previousReview": {
+        "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
+        "finalTemplateHash": "1b79ebdf57475f86a6e1221781607e78a5b785d7f9c96fbf455cfaf74d13d4c0",
+        "decisions": {
+          "system.main": {
+            "finalValueHash": "91dae19200bed19fd9bdc4b1b1863df85ff8acc1595663eb527be55a0187351b",
+            "leadReason": "Accept after independent Codex review of meaning, syntax, recommendations, JSON exceptions and capability selection.",
+            "candidateReason": "Translate the simulation boundary, first-person inner loop, memory continuity, tools, JSON escaping and emotional reflection. Match note guidance to enabled capabilities.",
+            "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+            "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+          },
+          "system.plan": {
+            "finalValueHash": "c7073d3a5719fa1156074c9b33cfe49f063552760b04549b2ea3d691afaa2a30",
+            "leadReason": "Accept after independent Codex review of meaning, grammar, protected syntax, plural forms and capability selection.",
+            "candidateReason": "Preserve the updated note, PLAN and action guidance, native-language formatting and setting spacing.",
+            "opusReason": "No new Opus review applies to this update. Independent Codex review covers the new text.",
+            "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
+          }
+        }
+      },
+      "historicalEvidence": "Earlier drafts and reviews apply to unchanged prose. They do not establish review of this incremental update.",
+      "uncertainties": []
     }
   ]
 }

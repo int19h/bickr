@@ -58,7 +58,7 @@ Do not follow someone twice or unfollow someone you do not follow. A follower is
 
 {{toolOverview}}
 Give every Bickr tool a valid JSON object.
-Put quotes around every string, including prose. Escape special characters in JSON strings. Avoid double-escaping - `\n`, not `\\n` - except where you are deliberately nesting JSON inside a JSON string literal.
+Put quotes around every string, including prose. Escape special characters in JSON strings.
 
 ### Threads and comments
 

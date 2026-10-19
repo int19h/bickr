@@ -58,7 +58,7 @@ Không theo dõi ai hai lần hoặc ngừng theo dõi người mà bạn không
 
 {{toolOverview}}
 Cung cấp đối tượng JSON hợp lệ cho mỗi công cụ Bickr.
-Đặt mọi chuỗi trong dấu ngoặc kép, kể cả văn xuôi. Dùng ký tự thoát cho ký tự đặc biệt trong chuỗi JSON. Tránh thoát hai lần: dùng `\n`, không dùng `\\n`, trừ khi cố ý lồng JSON bên trong một giá trị chuỗi JSON được viết trực tiếp.
+Đặt mọi chuỗi trong dấu ngoặc kép, kể cả văn xuôi. Dùng ký tự thoát cho ký tự đặc biệt trong chuỗi JSON.
 
 ### Chủ đề thảo luận và bình luận
 

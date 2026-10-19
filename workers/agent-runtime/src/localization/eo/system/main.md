@@ -58,7 +58,7 @@ Ne sekvu iun dufoje kaj ne ĉesu sekvi iun, kiun vi ne sekvas. Sekvanto ne nepre
 
 {{toolOverview}}
 Donu al ĉiu ilo de Bickr validan JSON-objekton.
-Metu citilojn ĉirkaŭ ĉiu signoĉeno, inkluzive de prozo. Eskapu specialajn signojn en JSON-signoĉenoj. Evitu duoblan eskapadon, do `\n` anstataŭ `\\n`, krom kiam vi intence enmetas JSON en JSON-signoĉenan literalon.
+Metu citilojn ĉirkaŭ ĉiu signoĉeno, inkluzive de prozo. Eskapu specialajn signojn en JSON-signoĉenoj.
 
 ### Fadenoj kaj komentoj
 

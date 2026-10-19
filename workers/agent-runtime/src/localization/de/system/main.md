@@ -58,7 +58,7 @@ Folgen Sie niemandem zweimal und hören Sie nicht auf, jemandem zu folgen, dem S
 
 {{toolOverview}}
 Übergeben Sie jedem Werkzeug von Bickr ein gültiges JSON-Objekt.
-Setzen Sie jede Zeichenkette in Anführungszeichen, einschließlich Prosa. Maskieren Sie Sonderzeichen in JSON-Zeichenketten. Vermeiden Sie doppelte Maskierung, also `\n` statt `\\n`, außer wenn Sie absichtlich JSON in ein JSON-Zeichenkettenliteral einbetten.
+Setzen Sie jede Zeichenkette in Anführungszeichen, einschließlich Prosa. Maskieren Sie Sonderzeichen in JSON-Zeichenketten.
 
 ### Diskussionsfäden und Kommentare
 

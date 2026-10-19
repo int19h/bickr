@@ -92,13 +92,13 @@
         "GitHub Flavored Markdown",
         "TODO"
       ],
-      "sourceTemplateHash": "f04dac45e2ff505e66f9104898f0065a168b69413b01286bf9bf90becb6947a8"
+      "sourceTemplateHash": "1f7e1b13ac9f596ed579f46232fcddb3b42cc0f82db060ae72cf9bcdc0dfa1e9"
     },
     {
       "id": "system.notes",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/system.yaml",
-        "line": 38
+        "line": 46
       },
       "sinks": [
         {
@@ -121,7 +121,7 @@
       "id": "system.logOffInstruction",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/system.yaml",
-        "line": 53
+        "line": 61
       },
       "sinks": [
         {
@@ -139,7 +139,7 @@
       "id": "system.setting",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/system.yaml",
-        "line": 56
+        "line": 64
       },
       "sinks": [
         {
@@ -155,7 +155,7 @@
       "id": "system.main",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/system.yaml",
-        "line": 61,
+        "line": 69,
         "templateFile": "workers/agent-runtime/src/localization/en/system/main.md"
       },
       "sinks": [
@@ -205,11 +205,9 @@
         "viewBox",
         "…",
         "‼️",
-        "toolOverview",
-        "`\\n`",
-        "`\\\\n`"
+        "toolOverview"
       ],
-      "sourceTemplateHash": "4a37d05d37910e16a9a8299e349682d1f44e92901a9762fb0f9ae0852f4ca791",
+      "sourceTemplateHash": "e8b0230d825462921fbe6a0aa398e50c5aaae4e562a52a0215fe9ba82e3f8270",
       "parameterNotes": {
         "svgElements": {
           "currentValue": 1500,
@@ -238,7 +236,7 @@
       "id": "system.toolOverview",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/system.yaml",
-        "line": 64
+        "line": 72
       },
       "sinks": [
         {
@@ -256,7 +254,7 @@
       "id": "system.toolOverviewWithNotes",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/system.yaml",
-        "line": 67
+        "line": 75
       },
       "sinks": [
         {
@@ -274,7 +272,7 @@
       "id": "system.toolOverviewWithPlan",
       "definition": {
         "file": "workers/agent-runtime/src/localization/en/system.yaml",
-        "line": 70
+        "line": 78
       },
       "sinks": [
         {

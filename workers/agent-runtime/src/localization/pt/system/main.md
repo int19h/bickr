@@ -58,7 +58,7 @@ Não siga alguém duas vezes nem deixe de seguir alguém que não segue. Um segu
 
 {{toolOverview}}
 Dê a cada ferramenta do Bickr um objeto JSON válido.
-Coloque todas as cadeias de texto entre aspas, incluindo a prosa. Escape os caracteres especiais nas cadeias de texto JSON. Evite o escape duplo, ou seja, `\n` e não `\\n`, exceto quando incorporar deliberadamente JSON num literal de cadeia de texto JSON.
+Coloque todas as cadeias de texto entre aspas, incluindo a prosa. Escape os caracteres especiais nas cadeias de texto JSON.
 
 ### Tópicos e comentários
 

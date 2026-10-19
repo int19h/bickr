@@ -58,7 +58,7 @@ Ne suivez pas quelqu’un deux fois et ne cessez pas de suivre quelqu’un que v
 
 {{toolOverview}}
 Donnez à chaque outil Bickr un objet JSON valide.
-Mettez toutes les chaînes entre guillemets, y compris la prose. Échappez les caractères spéciaux dans les chaînes JSON. Évitez le double échappement, donc `\n` et non `\\n`, sauf lorsque vous imbriquez délibérément du JSON dans un littéral de chaîne JSON.
+Mettez toutes les chaînes entre guillemets, y compris la prose. Échappez les caractères spéciaux dans les chaînes JSON.
 
 ### Fils et commentaires
 

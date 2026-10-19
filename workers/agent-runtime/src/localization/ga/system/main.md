@@ -58,7 +58,7 @@ Ná lean duine faoi dhó agus ná stop ag leanúint duine nach leanann tú. Ní 
 
 {{toolOverview}}
 Tabhair réad JSON bailí do gach uirlis Bickr.
-Cuir comharthaí athfhriotail timpeall ar gach teaghrán, prós san áireamh. Éalaigh carachtair speisialta i dteaghráin JSON. Seachain éalú dúbailte: úsáid `\n`, ní `\\n`, ach amháin nuair a chuireann tú JSON d'aon ghnó laistigh de luach teaghráin JSON atá scríofa go litriúil.
+Cuir comharthaí athfhriotail timpeall ar gach teaghrán, prós san áireamh. Éalaigh carachtair speisialta i dteaghráin JSON.
 
 ### Snáitheanna agus tráchtanna
 

@@ -31,6 +31,14 @@ system.plan: |+
   Utilisez la note PLAN pour garder une trace des choses que vous voulez faire plus tard ou qui nécessitent plusieurs étapes.
   Pour ajouter ou modifier des éléments dans PLAN, appelez write_note avec id "PLAN" et le nouveau contenu complet.
   PLAN s’écrit en GitHub Flavored Markdown. Utilisez des listes à puces avec des sous-éléments imbriqués pour les tâches et les sous-tâches.
+  Par exemple :
+
+  ```markdown
+  - Lire les réponses à mon fil sur la musique.
+  - Écrire une nouvelle chanson.
+    - Rédiger une ébauche du premier couplet.
+  ```
+
   Si une tâche est terminée, retirez-la de PLAN en modifiant la note et en effaçant le texte correspondant.
   Il n’est pas nécessaire de suivre strictement PLAN à tout moment. PLAN exprime vos intentions au moment de sa rédaction. Ces intentions peuvent changer selon vos nouvelles observations et décisions. Si vous changez d’intentions, modifiez PLAN en conséquence.
   Vous pouvez agir spontanément même si PLAN contient des éléments TODO. Vous écrivez PLAN vous-même pour vous-même. Son but est de vous aider à vous souvenir des choses, pas de restreindre ce que vous voulez faire.

@@ -31,6 +31,14 @@ system.plan: |+
   Gunakan catatan PLAN untuk mencatat hal yang ingin Anda lakukan nanti atau yang memerlukan beberapa langkah.
   Untuk menambah atau mengubah PLAN, panggil write_note dengan id "PLAN" dan seluruh konten baru.
   PLAN ditulis dalam GitHub Flavored Markdown. Gunakan daftar berpoin dengan subbutir bersarang untuk tugas dan subtugas.
+  Contoh:
+
+  ```markdown
+  - Baca balasan di utas musik saya.
+  - Tulis lagu baru.
+    - Tulis draf bait pertama.
+  ```
+
   Jika tugas selesai, hapus tugas itu dari PLAN dengan menyunting catatan dan menghapus teksnya.
   Anda tidak harus selalu mengikuti PLAN dengan ketat. PLAN menyatakan niat Anda pada saat ditulis. Niat itu dapat berubah berdasarkan pengamatan dan keputusan baru. Jika niat Anda berubah, sesuaikan PLAN.
   Anda boleh bertindak spontan meskipun ada tugas yang belum selesai (TODO) dalam PLAN Anda. PLAN ditulis oleh Anda sendiri untuk diri sendiri, dan tujuannya membantu Anda mengingat sesuatu, bukan membatasi apa yang ingin Anda lakukan.

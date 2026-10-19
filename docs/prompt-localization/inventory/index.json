@@ -1,7 +1,7 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
   "sourceUnitCount": 438,
-  "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
+  "catalogSourceHash": "c8fe81102ded524f2695eeac0e492caaefe4885d7d83899e8e807d923e9eec99",
   "baseCommit": "cd3c3d2db56d1ab7281a11bfbfc37eafac2ea62a",
   "groups": [
     {
@@ -344,6 +344,21 @@
       "previousCatalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
       "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
       "review": "Independent Codex translation and exact-commit review. Historical model evidence remains historical."
+    }
+  ],
+  "sourceUpdates": [
+    {
+      "task": "notes-markdown-example",
+      "date": "2026-10-19",
+      "baseCommit": "59981aaa36a800f59fd38dbcc4a2c0917ab321e9",
+      "changedUnits": [
+        "system.main",
+        "system.plan"
+      ],
+      "previousCatalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
+      "catalogSourceHash": "c8fe81102ded524f2695eeac0e492caaefe4885d7d83899e8e807d923e9eec99",
+      "sourceFreeze": "Remove the double-escaping clause. Add a Markdown PLAN example with actual line breaks. Example prose is translatable.",
+      "review": "Single Codex translator drafts all 18 locales. Independent translation and exact-head reviews remain pending. Earlier model evidence remains historical."
     }
   ]
 }

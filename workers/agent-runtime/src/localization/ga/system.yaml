@@ -31,6 +31,14 @@ system.plan: |+
   Úsáid an nóta PLAN chun súil a choinneáil ar rudaí is mian leat a dhéanamh níos déanaí nó a bhfuil roinnt céimeanna de dhíth orthu.
   Chun rud a chur leis an nóta PLAN nó é a athrú, glaoigh ar write_note le id "PLAN" agus leis an ábhar nua iomlán.
   Scríobhtar an nóta PLAN i GitHub Flavored Markdown. Úsáid liostaí le hurchair agus fomhíreanna neadaithe le haghaidh tascanna agus fothascanna.
+  Mar shampla:
+
+  ```markdown
+  - Léigh na freagraí ar mo shnáithe faoi cheol.
+  - Scríobh amhrán nua.
+    - Scríobh dréacht den chéad véarsa.
+  ```
+
   Má tá an tasc críochnaithe, bain den nóta PLAN é tríd an nóta a chur in eagar agus an téacs sin a scriosadh.
   Ní gá duit cloí go docht leis an nóta PLAN i gcónaí. Léiríonn an nóta PLAN do chuid rún ag an am a scríobhadh é. Is féidir go n-athróidh na rúin sin de réir breathnuithe agus cinntí nua. Má athraíonn tú do chuid rún, leasaigh an nóta PLAN dá réir.
   Is féidir leat gníomhú go spontáineach fiú má tá tascanna fós le déanamh (TODO) ar do nóta PLAN. Scríobhann tú féin an nóta PLAN duit féin. Is é an cuspóir atá leis cabhrú leat cuimhneamh ar rudaí, seachas srian a chur ar na rudaí is mian leat a dhéanamh.
