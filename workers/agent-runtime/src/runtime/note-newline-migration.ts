@@ -63,17 +63,22 @@ function planChanges(current: ReturnType<typeof snapshot>): Omit<NoteNewlineMigr
 		if (result.kind === 'ambiguous') ambiguousNotes.push(row.note_id);
 		if (result.kind === 'repaired') notes.push({ id: row.note_id, revision: row.revision, before: row.content, after: result.content, replacements: result.replacements });
 	}
-	// Match by the actual call ID, never by a result's incidental JSON fields.
+	// Tool IDs belong to one assistant group. Reuse in a later group must not
+	// turn an unrelated result with id/content fields into a note result.
 	const parsed = current.messages.map((row) => ({ row, message: JSON.parse(row.message_json) as ChatMessage }));
 	const calls = new Map<string, string>();
-	for (const { message } of parsed) {
-		if (message.role !== 'assistant') continue;
-		for (const call of message.tool_calls ?? []) {
-			if (call.function.name === 'read_note' || call.function.name === 'write_note') calls.set(call.id, call.function.name);
-		}
-	}
 	for (const { row, message } of parsed) {
+		if (message.role === 'assistant') {
+			calls.clear();
+			const duplicates = new Set<string>();
+			for (const call of message.tool_calls ?? []) {
+				if (calls.has(call.id)) duplicates.add(call.id);
+				calls.set(call.id, call.function.name);
+			}
+			for (const id of duplicates) calls.delete(id);
+		} else if (message.role !== 'tool') calls.clear();
 		const result = repairNoteMessage(message, message.role === 'tool' && message.tool_call_id ? calls.get(message.tool_call_id) : undefined);
+		if (message.role === 'tool' && message.tool_call_id) calls.delete(message.tool_call_id);
 		if (result.kind === 'ambiguous') ambiguousMessages.push(row.seq);
 		if (result.kind === 'repaired') messages.push({ seq: row.seq, before: row.message_json, after: JSON.stringify(result.message), tokenEstimateBefore: row.token_estimate, replacements: result.replacements });
 	}

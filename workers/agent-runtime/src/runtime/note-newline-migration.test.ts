@@ -74,6 +74,20 @@ describe('one-off note newline migration', () => {
 		expect(notes.read(text, 'PLAN')).toMatchObject({ content: broken, revision: 0 });
 	});
 
+	it('scopes tool-result identity to its preceding assistant group and refuses duplicate IDs', async () => {
+		const call = (name: string) => ({ id: 'reused', type: 'function', function: { name, arguments: '{"id":"PLAN"}' } });
+		const result = { role: 'tool', tool_call_id: 'reused', content: JSON.stringify({ id: 'PLAN', content: broken }) };
+		message(1, { role: 'assistant', tool_calls: [call('read_note')] });
+		message(2, result);
+		message(3, { role: 'assistant', tool_calls: [call('unrelated')] });
+		message(4, result);
+		message(5, { role: 'assistant', tool_calls: [call('read_note'), call('unrelated')] });
+		message(6, result);
+		const preview = await inspectNoteNewlineMigration(storage);
+		if (preview.kind !== 'ready') throw new Error('Expected plan.');
+		expect(preview.messages.map(row => row.seq)).toEqual([2]);
+	});
+
 	it.each(['pending_tool_v1', 'pending_tool_v2', 'pending_tool_v3'])('refuses unresolved %s', async (key) => {
 		storage.sql.exec('INSERT INTO runtime_state (key, value_json) VALUES (?, ?)', key, '{}');
 		await expect(inspectNoteNewlineMigration(storage)).rejects.toMatchObject({ details: { noteMigrationCause: 'pending_tool' } });

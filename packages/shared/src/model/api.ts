@@ -950,6 +950,7 @@ export type ApiErrorDetails = {
 	spotlightCause?: SpotlightErrorCause;
 	/** Cause of a refused note write or edit. */
 	noteCause?: "reserved_title" | "stale_revision" | "title_conflict";
+	noteMigrationCause?: "pending_tool" | "row_limit" | "size_limit" | "snapshot_changed";
 	/**
 	 * Typed cause for a runtime mutation refused because the participant's
 	 * Durable Object storage has already been fully cleared. Callers branch on
