@@ -170,8 +170,8 @@ describe("standard system prompt", () => {
 
 		expect(prompt).toContain("Give every Bickr tool a valid JSON object.");
 		expect(prompt).toContain("Put quotes around every string, including prose. Escape special characters in JSON strings.");
-		expect(prompt).toContain("Avoid double-escaping - `\\n`, not `\\\\n`");
-		expect(prompt).toContain("except where you are deliberately nesting JSON inside a JSON string literal.");
+		expect(prompt).not.toContain("Avoid double-escaping");
+		expect(prompt).toContain("```markdown\n- Read replies to my music thread.\n- Write a new song.\n  - Draft the first verse.\n```");
 	});
 
 	it("defines the composite self-author label without treating it as a handle argument", () => {
