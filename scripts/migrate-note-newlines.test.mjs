@@ -1,11 +1,32 @@
 import { describe, expect, it, vi } from "vitest";
-import { applyManifest, assertManifest, classifyFailure, createProxy, fleetQuery, migrationPlan } from "./migrate-note-newlines.mjs";
+import { applyManifest, assertManifest, classifyFailure, createProxy, fleetQuery, migrationPlan, saveReport } from "./migrate-note-newlines.mjs";
+
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const ready = (digest = "digest-a") => ({ kind: "ready", schemaVersion: 1, digest, notes: [{ id: "PLAN", before: "private\\ntext", after: "private\ntext" }], messages: [], ambiguousNotes: [], ambiguousMessages: [] });
 const manifest = () => ({ kind: "note-newlines-preview", schemaVersion: 1, environment: "test", complete: true, bots: [{ botId: "bot-a", migration: ready() }] });
 const report = () => ({ results: {} });
 
 describe("note newline fleet driver", () => {
+	it("resumes report updates despite orphaned temporary files", () => {
+		const scratch = existsSync("/build/bickr/scratch") ? "/build/bickr/scratch" : tmpdir();
+		const directory = mkdtempSync(join(scratch, "note-driver-test-"));
+		const path = join(directory, "report.json");
+		try {
+			saveReport(path, { results: {} }, true);
+			writeFileSync(`${path}.next`, "interrupted old update", { mode: 0o600 });
+			writeFileSync(`${path}.next-orphan`, "interrupted unique update", { mode: 0o600 });
+			saveReport(path, { results: { "bot-a": { kind: "applied" } } });
+			expect(JSON.parse(readFileSync(path, "utf8")).results["bot-a"].kind).toBe("applied");
+			expect(statSync(path).mode & 0o777).toBe(0o600);
+			expect(readdirSync(directory).sort()).toEqual(["report.json", "report.json.next", "report.json.next-orphan"]);
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
 	it("bounds the indexed keyset query and escapes cursors", () => {
 		expect(fleetQuery("bot'z")).toContain("bot_id > 'bot''z'");
 		expect(fleetQuery()).toContain("deleted_at IS NULL AND lifecycle_state IN ('active', 'pending') ORDER BY bot_id LIMIT 100");
@@ -42,6 +63,9 @@ describe("note newline fleet driver", () => {
 		expect(classifyFailure(409, { details: { noteMigrationCause: "snapshot_changed" } }).kind).toBe("snapshot_changed");
 		expect(classifyFailure(409, { error: { message: "anything" } }).kind).toBe("busy");
 		expect(classifyFailure(500, {}).kind).toBe("failed");
+		for (const cause of ["row_limit", "size_limit"]) {
+			expect(classifyFailure(409, { details: { noteMigrationCause: cause } })).toEqual({ kind: "limit_exceeded", cause, status: 409 });
+		}
 	});
 
 	it("refuses a changed snapshot and leaves busy participants for a later pass", async () => {

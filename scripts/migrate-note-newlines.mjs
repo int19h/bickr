@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -46,17 +46,23 @@ export function privateReportPath(path) {
 // updates from leaving a partly written report.
 export function saveReport(path, value, create = false) {
 	const json = `${JSON.stringify(value, null, 2)}\n`;
-	const temporary = create ? path : `${path}.next`;
-	const descriptor = openSync(temporary, "wx", 0o600);
+	const temporary = create ? path : `${path}.next-${randomUUID()}`;
 	try {
-		writeFileSync(descriptor, json);
-		fsyncSync(descriptor);
+		const descriptor = openSync(temporary, "wx", 0o600);
+		try {
+			writeFileSync(descriptor, json);
+			fsyncSync(descriptor);
+		} finally {
+			closeSync(descriptor);
+		}
+		if (!create) renameSync(temporary, path);
+		const directory = openSync(dirname(path), "r");
+		try { fsyncSync(directory); } finally { closeSync(directory); }
 	} finally {
-		closeSync(descriptor);
+		// An interrupted older process can leave its temporary file behind. A
+		// unique name prevents that orphan from blocking later progress updates.
+		if (!create) rmSync(temporary, { force: true });
 	}
-	if (!create) renameSync(temporary, path);
-	const directory = openSync(dirname(path), "r");
-	try { fsyncSync(directory); } finally { closeSync(directory); }
 }
 
 export function assertManifest(manifest, environment) {
@@ -81,6 +87,7 @@ function assertReady(migration) {
 
 export function classifyFailure(status, payload) {
 	const cause = payload?.details?.noteMigrationCause;
+	if (cause === "row_limit" || cause === "size_limit") return { kind: "limit_exceeded", cause, status };
 	if (status === 409) return { kind: cause === "snapshot_changed" ? "snapshot_changed" : cause === "pending_tool" ? "pending_tool" : "busy", status };
 	return { kind: "failed", status };
 }
