@@ -476,7 +476,7 @@ export type RuntimeReleaseStatus = 'idle' | 'failed';
  */
 export type RuntimeRunTrigger = 'cron' | 'manual' | 'spotlight';
 
-export type ActiveMaintenanceOperation = 'clear_history' | 'clear_storage' | 'manual_compaction';
+export type ActiveMaintenanceOperation = 'clear_history' | 'clear_storage' | 'manual_compaction' | 'note_newlines_migration';
 
 export type RuntimeStorageClearResult = {
 	deletedRowsByTable: Record<string, number>;

@@ -4,6 +4,7 @@ import { instructionLocalizationVersion, instructionLocalizationStateKey } from 
 import type { RuntimeLocalizationStatus } from './instruction-localization-sweep';
 import { interruptedToolSettlement, type MutationIdentity, type ToolDispatchStage } from './tool-dispatch';
 import { factoryPlanMigrationKey } from './notes';
+import { applyNoteNewlineMigration, inspectNoteNewlineMigration } from './note-newline-migration';
 import { providerBatchOutcome } from './batch-outcomes';
 import { ToolBatchOutcomeError } from '../errors';
 import { seenItemsFromToolResultEnvelope } from '@bickr/shared/social';
@@ -2357,6 +2358,21 @@ export class BotRuntime {
 	}
 
 	private async handleRuntimeMutationRequest(request: Request, url: URL, botId: string): Promise<Response | null> {
+		if (request.method === 'POST' && url.pathname.endsWith('/notes/newlines-migration')) {
+			this.requireInternalMaintenance(request);
+			const body = runtimeRecord(await readJsonBody(request));
+			if (body.mode !== 'inspect' && body.mode !== 'apply') throw new InputError('Note repair mode must be inspect or apply.');
+			if (body.mode === 'apply' && (typeof body.expectedDigest !== 'string' || !/^[a-f0-9]{64}$/.test(body.expectedDigest))) throw new InputError('Note repair requires the inspected digest.');
+			if (this.runtimeStorageClearedAt) return ok({ migration: { kind: 'cleared' } });
+			await this.beginMaintenanceOperation(botId, 'note_newlines_migration', 'Cannot repair notes while the participant is running.');
+			try {
+				return ok({ migration: body.mode === 'inspect'
+					? await inspectNoteNewlineMigration(this.state.storage)
+					: await applyNoteNewlineMigration(this.state.storage, body.expectedDigest as string) });
+			} finally {
+				this.finishMaintenanceOperation('note_newlines_migration');
+			}
+		}
 		if (request.method === 'POST' && url.pathname.endsWith('/notes/list')) {
 			await this.requireOwnerOrInternal(request, botId);
 			const body = runtimeRecord(await readJsonBody(request));
