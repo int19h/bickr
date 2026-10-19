@@ -1,0 +1,121 @@
+import type { ChatMessage } from '../types';
+
+export type NoteNewlineRepair = { kind: 'unchanged' } | { kind: 'ambiguous' } |
+	{ kind: 'repaired'; content: string; replacements: number };
+export type NoteMessageRepair = { kind: 'unchanged' } | { kind: 'ambiguous' } |
+	{ kind: 'repaired'; message: ChatMessage; replacements: number };
+
+const listStart = /^ {0,3}(?:[-+*] |\d+[.)] )/;
+
+/** A finite migration detector, not a write-time Markdown normalizer. */
+export function repairNoteNewlines(content: string): NoteNewlineRepair {
+	const offsets: number[] = [];
+	let decoded = '';
+	// A run of two or more backslashes can be intentional nested JSON or code.
+	for (let index = 0; index < content.length;) {
+		if (content[index] !== '\\') { decoded += content[index++]; continue; }
+		let end = index;
+		while (content[end] === '\\') end++;
+		if (end === index + 1 && content[end] === 'n') {
+			offsets.push(decoded.length);
+			decoded += '\n';
+			index = end + 1;
+		} else { decoded += content.slice(index, end); index = end; }
+	}
+	if (offsets.length === 0) return { kind: 'unchanged' };
+	const protectedOffsets = new Set<number>();
+	let fence: { character: string; width: number } | null = null;
+	let inlineWidth = 0;
+	let quoted = false;
+	let base = 0;
+	for (const line of decoded.split('\n')) {
+		const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+		const wasFenced = fence !== null;
+		if (fence) {
+			if (fenceMatch && fenceMatch[1]![0] === fence.character && fenceMatch[1]!.length >= fence.width && fenceMatch[2]!.trim() === '') fence = null;
+		} else if (inlineWidth === 0 && fenceMatch) {
+			fence = { character: fenceMatch[1]![0]!, width: fenceMatch[1]!.length };
+		}
+		// Escaped fence line endings do not distinguish code syntax from examples.
+		if (fenceMatch && offsets.includes(base + line.length)) return { kind: 'ambiguous' };
+		if (wasFenced || fenceMatch && fence) {
+			for (let index = base; index <= base + line.length; index++) protectedOffsets.add(index);
+		} else {
+			for (let index = 0; index < line.length;) {
+				if (line[index] === '"' && inlineWidth === 0 && line[index - 1] !== '\\') {
+					quoted = !quoted;
+					index++;
+				} else if (line[index] === '`' && !quoted) {
+					let end = index;
+					while (line[end] === '`') end++;
+					const width = end - index;
+					if (inlineWidth === 0) inlineWidth = width;
+					else if (inlineWidth === width) inlineWidth = 0;
+					index = end;
+				} else {
+					if (inlineWidth || quoted) protectedOffsets.add(base + index);
+					index++;
+				}
+			}
+			if (inlineWidth || quoted) protectedOffsets.add(base + line.length);
+		}
+		base += line.length + 1;
+	}
+	// An unmatched delimiter cannot establish which later escapes are prose.
+	if (fence || inlineWidth || quoted) return { kind: 'ambiguous' };
+	const safe = new Set(offsets.filter(offset => !protectedOffsets.has(offset)));
+	const listBoundaries = [...safe].filter(offset => listStart.test(decoded.slice(offset + 1))).length;
+	if (!listStart.test(decoded) || listBoundaries < 2) return { kind: 'ambiguous' };
+	let repaired = '';
+	let decodedOffset = 0;
+	for (let index = 0; index < content.length;) {
+		if (content[index] === '\\') {
+			let end = index;
+			while (content[end] === '\\') end++;
+			if (end === index + 1 && content[end] === 'n') {
+				repaired += safe.has(decodedOffset) ? '\n' : '\\n';
+				decodedOffset++;
+				index = end + 1;
+				continue;
+			}
+			repaired += content.slice(index, end);
+			decodedOffset += end - index;
+			index = end;
+		} else { repaired += content[index++]; decodedOffset++; }
+	}
+	return { kind: 'repaired', content: repaired, replacements: safe.size };
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Only note tool fields enter this adapter. Other history stays byte-for-byte intact. */
+export function repairNoteMessage(message: ChatMessage, toolName?: string): NoteMessageRepair {
+	let ambiguous = false;
+	let replacements = 0;
+	let next = message;
+	if (message.role === 'assistant' && message.tool_calls) {
+		const calls = message.tool_calls.map(call => {
+			if (call.function.name !== 'write_note') return call;
+			let args: unknown;
+			try { args = JSON.parse(call.function.arguments); } catch { ambiguous = true; return call; }
+			if (!record(args) || typeof args.content !== 'string' || typeof args.id !== 'string') return call;
+			const result = repairNoteNewlines(args.content);
+			if (result.kind === 'ambiguous') ambiguous = true;
+			if (result.kind !== 'repaired') return call;
+			replacements += result.replacements;
+			return { ...call, function: { ...call.function, arguments: JSON.stringify({ ...args, content: result.content }) } };
+		});
+		if (replacements) next = { ...message, tool_calls: calls };
+	} else if (message.role === 'tool' && (toolName === 'read_note' || toolName === 'write_note') && typeof message.content === 'string') {
+		let payload: unknown;
+		try { payload = JSON.parse(message.content); } catch { return { kind: 'ambiguous' }; }
+		if (!record(payload) || typeof payload.id !== 'string' || typeof payload.content !== 'string') return { kind: 'unchanged' };
+		const result = repairNoteNewlines(payload.content);
+		if (result.kind !== 'repaired') return result;
+		replacements = result.replacements;
+		next = { ...message, content: JSON.stringify({ ...payload, content: result.content }) };
+	}
+	return replacements ? { kind: 'repaired', message: next, replacements } : { kind: ambiguous ? 'ambiguous' : 'unchanged' };
+}
