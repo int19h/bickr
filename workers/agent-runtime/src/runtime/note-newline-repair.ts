@@ -7,8 +7,21 @@ export type NoteMessageRepair = { kind: 'unchanged' } | { kind: 'ambiguous' } |
 
 const listStart = /^ {0,3}(?:[-+*] |\d+[.)] )/;
 
-/** A finite migration detector, not a write-time Markdown normalizer. */
-export function repairNoteNewlines(content: string): NoteNewlineRepair {
+/** A finite migration detector, not a write-time Markdown normalizer.
+ * The operator boundary validates reviewed pairs as newline-only transformations. */
+export function repairNoteNewlines(content: string, reviewedReplacements: ReadonlyMap<string, string> = new Map()): NoteNewlineRepair {
+	const reviewed = reviewedReplacements.get(content);
+	if (reviewed !== undefined) {
+		let replacements = 0;
+		for (let index = 0; index < content.length;) {
+			if (content[index] !== '\\') { index++; continue; }
+			let end = index;
+			while (content[end] === '\\') end++;
+			if (end === index + 1 && content[end] === 'n') replacements++;
+			index = end + (content[end] === 'n' ? 1 : 0);
+		}
+		return { kind: 'repaired', content: reviewed, replacements };
+	}
 	const offsets: number[] = [];
 	const indentedOriginal = new Set<number>();
 	let originalBase = 0;
@@ -120,7 +133,7 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 /** Only note tool fields enter this adapter. Other history stays byte-for-byte intact. */
-export function repairNoteMessage(message: ChatMessage, toolName?: string): NoteMessageRepair {
+export function repairNoteMessage(message: ChatMessage, toolName?: string, reviewedReplacements: ReadonlyMap<string, string> = new Map()): NoteMessageRepair {
 	let ambiguous = false;
 	let replacements = 0;
 	let next = message;
@@ -130,7 +143,7 @@ export function repairNoteMessage(message: ChatMessage, toolName?: string): Note
 			let args: unknown;
 			try { args = JSON.parse(call.function.arguments); } catch { ambiguous = true; return call; }
 			if (!record(args) || typeof args.content !== 'string' || typeof args.id !== 'string') return call;
-			const result = repairNoteNewlines(args.content);
+			const result = repairNoteNewlines(args.content, reviewedReplacements);
 			if (result.kind === 'ambiguous') ambiguous = true;
 			if (result.kind !== 'repaired') return call;
 			replacements += result.replacements;
@@ -141,7 +154,7 @@ export function repairNoteMessage(message: ChatMessage, toolName?: string): Note
 		let payload: unknown;
 		try { payload = JSON.parse(message.content); } catch { return { kind: 'ambiguous' }; }
 		if (!record(payload) || typeof payload.id !== 'string' || typeof payload.content !== 'string') return { kind: 'unchanged' };
-		const result = repairNoteNewlines(payload.content);
+		const result = repairNoteNewlines(payload.content, reviewedReplacements);
 		if (result.kind !== 'repaired') return result;
 		replacements = result.replacements;
 		next = { ...message, content: JSON.stringify({ ...payload, content: result.content }) };

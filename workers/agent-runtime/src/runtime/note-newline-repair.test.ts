@@ -83,3 +83,32 @@ describe('code and quoted escape safety regressions', () => {
 		});
 	});
 });
+
+describe('exact reviewed note replacements', () => {
+	const prose = String.raw`Paragraph one.\n\nParagraph two. Keep \\n as an example.`;
+	const approved = 'Paragraph one.\n\nParagraph two. Keep ' + String.raw`\\n as an example.`;
+	const replacements = new Map([[prose, approved]]);
+	it('applies an exact approved prose replacement and counts only standalone escapes', () => {
+		expect(repairNoteNewlines(prose, replacements)).toEqual({ kind: 'repaired', content: approved, replacements: 2 });
+		expect(repairNoteNewlines(prose + ' More.', replacements)).toEqual({ kind: 'ambiguous' });
+		expect(repairNoteNewlines(prose)).toEqual({ kind: 'ambiguous' });
+	});
+	it('threads approved replacements into only a write_note content argument', () => {
+		const message: ChatMessage = { role: 'assistant', content: prose, tool_calls: [
+			{ id: 'one', type: 'function', function: { name: 'write_note', arguments: JSON.stringify({ id: 'notes', content: prose, extra: prose }) } },
+			{ id: 'two', type: 'function', function: { name: 'create_thread', arguments: JSON.stringify({ content: prose }) } },
+		] };
+		const result = repairNoteMessage(message, undefined, replacements);
+		if (result.kind !== 'repaired') throw new Error('Expected repair.');
+		expect(JSON.parse(result.message.tool_calls![0]!.function.arguments)).toEqual({ id: 'notes', content: approved, extra: prose });
+		expect(result.message.content).toBe(prose);
+		expect(result.message.tool_calls![1]).toBe(message.tool_calls![1]);
+	});
+	it('requires correlation before replacing a tool result content field', () => {
+		const message: ChatMessage = { role: 'tool', tool_call_id: 'read', content: JSON.stringify({ id: 'notes', content: prose, extra: prose }) };
+		expect(repairNoteMessage(message, undefined, replacements)).toEqual({ kind: 'unchanged' });
+		const result = repairNoteMessage(message, 'read_note', replacements);
+		if (result.kind !== 'repaired') throw new Error('Expected repair.');
+		expect(JSON.parse(result.message.content!)).toEqual({ id: 'notes', content: approved, extra: prose });
+	});
+});
