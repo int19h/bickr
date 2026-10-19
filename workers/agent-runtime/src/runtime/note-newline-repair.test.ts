@@ -59,3 +59,27 @@ describe('one-off note newline repair', () => {
 		expect(repairNoteMessage({ role: 'tool', content: '{' }, 'read_note')).toEqual({ kind: 'ambiguous' });
 	});
 });
+
+describe('code and quoted escape safety regressions', () => {
+	it.each(['    ', '\t', '  \t'])('preserves actual indented code after a list: %j', indent => {
+		const suffix = '\n\n' + indent + String.raw`const re = /\n/; const other = /\n/;`;
+		expect(repairNoteNewlines(String.raw`- One\n- Two\n- Three` + suffix)).toEqual({
+			kind: 'repaired', content: '- One\n- Two\n- Three' + suffix, replacements: 2,
+		});
+	});
+	it('preserves paired single-quoted escape examples', () => {
+		expect(repairNoteNewlines(String.raw`- Use 'a\nb'\n- Two\n- Three`)).toEqual({
+			kind: 'repaired', content: String.raw`- Use 'a\nb'` + '\n- Two\n- Three', replacements: 2,
+		});
+	});
+	it('allows word apostrophes and plural possessives in ordinary list text', () => {
+		expect(repairNoteNewlines(String.raw`- A participant's note\n- Other participants' notes\n- Last task`)).toEqual({
+			kind: 'repaired', content: "- A participant's note\n- Other participants' notes\n- Last task", replacements: 2,
+		});
+	});
+	it('preserves a single quote inside a double-quoted example', () => {
+		expect(repairNoteNewlines(String.raw`- Use "a'\nb"\n- Two\n- Three`)).toEqual({
+			kind: 'repaired', content: String.raw`- Use "a'\nb"` + '\n- Two\n- Three', replacements: 2,
+		});
+	});
+});

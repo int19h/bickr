@@ -10,25 +10,46 @@ const listStart = /^ {0,3}(?:[-+*] |\d+[.)] )/;
 /** A finite migration detector, not a write-time Markdown normalizer. */
 export function repairNoteNewlines(content: string): NoteNewlineRepair {
 	const offsets: number[] = [];
+	const indentedOriginal = new Set<number>();
+	let originalBase = 0;
+	for (const line of content.split('\n')) {
+		if (/^(?: {4}| {0,3}\t)/.test(line)) {
+			for (let index = originalBase; index < originalBase + line.length; index++) indentedOriginal.add(index);
+		}
+		originalBase += line.length + 1;
+	}
+	const protectedOffsets = new Set<number>();
 	let decoded = '';
 	// A run of two or more backslashes can be intentional nested JSON or code.
 	for (let index = 0; index < content.length;) {
-		if (content[index] !== '\\') { decoded += content[index++]; continue; }
+		if (content[index] !== '\\') {
+			if (indentedOriginal.has(index)) protectedOffsets.add(decoded.length);
+			decoded += content[index++];
+			continue;
+		}
 		let end = index;
 		while (content[end] === '\\') end++;
 		if (end === index + 1 && content[end] === 'n') {
+			if (indentedOriginal.has(index)) protectedOffsets.add(decoded.length);
 			offsets.push(decoded.length);
 			decoded += '\n';
 			index = end + 1;
-		} else { decoded += content.slice(index, end); index = end; }
+		} else {
+			for (let position = index; position < end; position++) {
+				if (indentedOriginal.has(position)) protectedOffsets.add(decoded.length + position - index);
+			}
+			decoded += content.slice(index, end);
+			index = end;
+		}
 	}
 	if (offsets.length === 0) return { kind: 'unchanged' };
-	const protectedOffsets = new Set<number>();
 	let fence: { character: string; width: number } | null = null;
 	let inlineWidth = 0;
-	let quoted = false;
+	let quoted: '"' | "'" | null = null;
 	let base = 0;
 	for (const line of decoded.split('\n')) {
+		// Actual indented source lines stay protected across virtual newline fragments.
+		if (protectedOffsets.has(base)) { base += line.length + 1; continue; }
 		const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
 		const wasFenced = fence !== null;
 		if (fence) {
@@ -42,8 +63,10 @@ export function repairNoteNewlines(content: string): NoteNewlineRepair {
 			for (let index = base; index <= base + line.length; index++) protectedOffsets.add(index);
 		} else {
 			for (let index = 0; index < line.length;) {
-				if (line[index] === '"' && inlineWidth === 0 && line[index - 1] !== '\\') {
-					quoted = !quoted;
+				if ((line[index] === '"' || line[index] === "'") && inlineWidth === 0 && !escapedAt(line, index)) {
+					const character = line[index] as '"' | "'";
+					if (quoted === character) quoted = null;
+					else if (quoted === null && (character === '"' || !/[\p{L}\p{N}]/u.test(line[index - 1] ?? ''))) quoted = character;
 					index++;
 				} else if (line[index] === '`' && !quoted) {
 					let end = index;
@@ -84,6 +107,12 @@ export function repairNoteNewlines(content: string): NoteNewlineRepair {
 		} else { repaired += content[index++]; decodedOffset++; }
 	}
 	return { kind: 'repaired', content: repaired, replacements: safe.size };
+}
+
+function escapedAt(line: string, index: number): boolean {
+	let backslashes = 0;
+	for (let previous = index - 1; previous >= 0 && line[previous] === '\\'; previous--) backslashes++;
+	return backslashes % 2 === 1;
 }
 
 function record(value: unknown): value is Record<string, unknown> {
