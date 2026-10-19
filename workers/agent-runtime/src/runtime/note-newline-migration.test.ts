@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { factoryText } from '@bickr/shared/localization';
 import { BotRuntime, runtimeSchema } from './bot-runtime';
 import { BotNotesStore } from './notes';
-import { applyNoteNewlineMigration, inspectNoteNewlineMigration, noteNewlineMigrationKey } from './note-newline-migration';
+import { applyNoteNewlineMigration, inspectNoteNewlineMigration, noteNewlineMigrationKey, reviewedNoteReplacements } from './note-newline-migration';
 import { createRuntimeTestStorage, type RuntimeTestStorage } from './sqlite-test-helper';
 
 const broken = ['- Read replies.', '- Write a song.', '  - Draft a verse.'].join(String.fromCharCode(92) + 'n');
@@ -91,6 +91,39 @@ describe('one-off note newline migration', () => {
 	it.each(['pending_tool_v1', 'pending_tool_v2', 'pending_tool_v3'])('refuses unresolved %s', async (key) => {
 		storage.sql.exec('INSERT INTO runtime_state (key, value_json) VALUES (?, ?)', key, '{}');
 		await expect(inspectNoteNewlineMigration(storage)).rejects.toMatchObject({ details: { noteMigrationCause: 'pending_tool' } });
+	});
+
+	it('binds exact reviewed prose replacements to the digest and exposes uncertain text only for operator review', async () => {
+		const before = ['An ordinary paragraph.', 'Another paragraph.'].join(String.fromCharCode(92) + 'n');
+		const after = 'An ordinary paragraph.\nAnother paragraph.';
+		notes.write('memory', before, []);
+		const automatic = await inspectNoteNewlineMigration(storage);
+		if (automatic.kind !== 'ready') throw new Error('Expected plan.');
+		expect(automatic.ambiguousNoteContents).toEqual([{ id: 'memory', content: before }]);
+		const reviewed = reviewedNoteReplacements([{ before, after }]);
+		await expect(applyNoteNewlineMigration(storage, automatic.digest, reviewed)).rejects.toMatchObject({ details: { noteMigrationCause: 'snapshot_changed' } });
+		const preview = await inspectNoteNewlineMigration(storage, reviewed);
+		if (preview.kind !== 'ready') throw new Error('Expected plan.');
+		expect(preview.notes).toMatchObject([{ id: 'memory', before, after }]);
+		await applyNoteNewlineMigration(storage, preview.digest, reviewed);
+		expect(notes.read(text, 'memory')?.content).toBe(after);
+	});
+
+	it('refuses arbitrary edits or duplicate replacement inputs at the operator boundary', () => {
+		expect(() => reviewedNoteReplacements([{ before: 'Old prose.', after: 'Different prose.' }])).toThrow();
+		expect(() => reviewedNoteReplacements([{ before: broken, after: fixed }, { before: broken, after: fixed }])).toThrow();
+		expect(() => reviewedNoteReplacements({ before: broken, after: fixed })).toThrow();
+		expect(reviewedNoteReplacements([{ before: broken, after: fixed }]).get(broken)).toBe(fixed);
+	});
+
+	it('reports an uncertain note even when another call in the same group is repaired', async () => {
+		const uncertain = 'First paragraph.' + String.fromCharCode(92) + 'nSecond paragraph.';
+		message(1, { role: 'assistant', tool_calls: [broken, uncertain].map((content, index) => ({ id: String(index), type: 'function', function: { name: 'write_note', arguments: JSON.stringify({ id: 'note-' + index, content }) } })) });
+		const plan = await inspectNoteNewlineMigration(storage);
+		if (plan.kind !== 'ready') throw new Error('Expected plan.');
+		expect(plan.messages).toHaveLength(1);
+		expect(plan.ambiguousMessages).toEqual([1]);
+		expect(plan.ambiguousMessageContents).toHaveLength(1);
 	});
 
 	it('routes internal requests through the idle gate and always releases it', async () => {

@@ -1,5 +1,6 @@
 import { RepositoryError } from '@bickr/shared/repository';
 import { approximateTextTokens } from '@bickr/shared/text-token-estimate';
+import { InputError } from '@bickr/shared/validation';
 import type { ChatMessage } from '../types';
 import { maxNotesPerBot } from './notes';
 import { repairNoteMessage, repairNoteNewlines } from './note-newline-repair';
@@ -20,10 +21,34 @@ export type NoteNewlineMigrationPlan = {
 	kind: 'ready'; schemaVersion: 1; digest: string;
 	notesExamined: number; activeMessagesExamined: number;
 	ambiguousNotes: string[]; ambiguousMessages: number[];
+	ambiguousNoteContents: { id: string; content: string }[];
+	ambiguousMessageContents: { seq: number; message: ChatMessage; toolName?: string }[];
 	notes: NoteChange[]; messages: MessageChange[];
 };
 type Completion = { schemaVersion: 1; appliedAt: string; notesChanged: number; messagesChanged: number };
 type AlreadyApplied = { kind: 'already_applied'; completion: Completion };
+
+/** Exact operator-reviewed exceptions, never a general string-unescape API. */
+export function reviewedNoteReplacements(value: unknown): ReadonlyMap<string, string> {
+	if (value === undefined) return new Map();
+	if (!Array.isArray(value) || value.length > maxNotesPerBot + 1) throw new InputError('Reviewed note replacements must be a bounded array.');
+	const result = new Map<string, string>();
+	let bytes = 0;
+	for (const item of value) {
+		if (!item || typeof item !== 'object' || Array.isArray(item) || typeof item.before !== 'string' || typeof item.after !== 'string' ||
+			item.before === item.after || item.after !== item.before.replace(/(?<!\\)\\n/g, '\n') || result.has(item.before)) {
+			throw new InputError('A reviewed replacement can change only literal line breaks in one exact note.');
+		}
+		bytes += new TextEncoder().encode(item.before).byteLength + new TextEncoder().encode(item.after).byteLength;
+		if (bytes > maximumSnapshotBytes / 2) throw new InputError('Reviewed note replacements exceed the size limit.');
+		result.set(item.before, item.after);
+	}
+	return result;
+}
+
+function digestInput(serialized: string, reviewed: ReadonlyMap<string, string>): string {
+	return JSON.stringify([serialized, [...reviewed].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)]);
+}
 
 function completion(storage: Storage): Completion | undefined {
 	const row = storage.sql.exec<{ value_json: string }>('SELECT value_json FROM runtime_state WHERE key = ? LIMIT 1', noteNewlineMigrationKey).toArray()[0];
@@ -53,14 +78,16 @@ async function digest(value: string): Promise<string> {
 	return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function planChanges(current: ReturnType<typeof snapshot>): Omit<NoteNewlineMigrationPlan, 'digest'> {
+function planChanges(current: ReturnType<typeof snapshot>, reviewed: ReadonlyMap<string, string>): Omit<NoteNewlineMigrationPlan, 'digest'> {
 	const notes: NoteChange[] = [];
 	const messages: MessageChange[] = [];
 	const ambiguousNotes: string[] = [];
 	const ambiguousMessages: number[] = [];
+	const ambiguousNoteContents: NoteNewlineMigrationPlan['ambiguousNoteContents'] = [];
+	const ambiguousMessageContents: NoteNewlineMigrationPlan['ambiguousMessageContents'] = [];
 	for (const row of current.notes) {
-		const result = repairNoteNewlines(row.content);
-		if (result.kind === 'ambiguous') ambiguousNotes.push(row.note_id);
+		const result = repairNoteNewlines(row.content, reviewed);
+		if (result.kind === 'ambiguous') { ambiguousNotes.push(row.note_id); ambiguousNoteContents.push({ id: row.note_id, content: row.content }); }
 		if (result.kind === 'repaired') notes.push({ id: row.note_id, revision: row.revision, before: row.content, after: result.content, replacements: result.replacements });
 	}
 	// Tool IDs belong to one assistant group. Reuse in a later group must not
@@ -77,31 +104,34 @@ function planChanges(current: ReturnType<typeof snapshot>): Omit<NoteNewlineMigr
 			}
 			for (const id of duplicates) calls.delete(id);
 		} else if (message.role !== 'tool') calls.clear();
-		const result = repairNoteMessage(message, message.role === 'tool' && message.tool_call_id ? calls.get(message.tool_call_id) : undefined);
+		const toolName = message.role === 'tool' && message.tool_call_id ? calls.get(message.tool_call_id) : undefined;
+		const result = repairNoteMessage(message, toolName, reviewed);
 		if (message.role === 'tool' && message.tool_call_id) calls.delete(message.tool_call_id);
-		if (result.kind === 'ambiguous') ambiguousMessages.push(row.seq);
+		// A group can contain both a repaired note and an uncertain note.
+		const remainder = result.kind === 'repaired' ? repairNoteMessage(result.message, toolName, reviewed) : result;
+		if (remainder.kind === 'ambiguous') { ambiguousMessages.push(row.seq); ambiguousMessageContents.push({ seq: row.seq, message, ...(toolName ? { toolName } : {}) }); }
 		if (result.kind === 'repaired') messages.push({ seq: row.seq, before: row.message_json, after: JSON.stringify(result.message), tokenEstimateBefore: row.token_estimate, replacements: result.replacements });
 	}
-	return { kind: 'ready', schemaVersion: 1, notesExamined: current.notes.length, activeMessagesExamined: current.messages.length, notes, messages, ambiguousNotes, ambiguousMessages };
+	return { kind: 'ready', schemaVersion: 1, notesExamined: current.notes.length, activeMessagesExamined: current.messages.length, notes, messages, ambiguousNotes, ambiguousMessages, ambiguousNoteContents, ambiguousMessageContents };
 }
 
 /** Internal operator output includes before/after text for a private backup. */
-export async function inspectNoteNewlineMigration(storage: Storage): Promise<NoteNewlineMigrationPlan | AlreadyApplied> {
+export async function inspectNoteNewlineMigration(storage: Storage, reviewed: ReadonlyMap<string, string> = new Map()): Promise<NoteNewlineMigrationPlan | AlreadyApplied> {
 	const done = completion(storage);
 	if (done) return { kind: 'already_applied', completion: done };
 	const current = snapshot(storage);
-	return { ...planChanges(current), digest: await digest(current.serialized) };
+	return { ...planChanges(current, reviewed), digest: await digest(digestInput(current.serialized, reviewed)) };
 }
 
 /** Call only while the runtime's maintenance gate excludes active inference. */
-export async function applyNoteNewlineMigration(storage: Storage, expectedDigest: string) {
+export async function applyNoteNewlineMigration(storage: Storage, expectedDigest: string, reviewed: ReadonlyMap<string, string> = new Map()) {
 	const done = completion(storage);
 	if (done) return { kind: 'already_applied' as const, completion: done };
 	const current = snapshot(storage);
-	if (await digest(current.serialized) !== expectedDigest) {
+	if (await digest(digestInput(current.serialized, reviewed)) !== expectedDigest) {
 		throw new RepositoryError('conflict', 'The notes changed after inspection. Inspect them again.', 409, { noteMigrationCause: 'snapshot_changed' });
 	}
-	const plan = planChanges(current);
+	const plan = planChanges(current, reviewed);
 	return storage.transactionSync(() => {
 		// Owner edits can arrive across the hash await even with inference gated.
 		// Compare the whole snapshot before any write, without an intervening await.
