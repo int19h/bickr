@@ -133,7 +133,7 @@
         "system.plan": {
           "finalValueHash": "ab13e03370b020eebbe1432d71fff89d8a247efe49c096de41adc61e70ed0c3d",
           "chosenFrom": "codex incremental translation",
-          "leadReason": "Accept the scoped prompt simplification and translated Markdown example. Independent review remains pending.",
+          "leadReason": "Accept the scoped prompt simplification and translated Markdown example after independent Codex review at d70df878c2ed8af89ed0c03f51b370a784585ef0.",
           "candidateReason": "Preserve unchanged prose, JSON rules, PLAN identity, and Markdown nesting. Translate only the new example prose.",
           "opusReason": "Historical Opus evidence covers previous text only. No new Opus review applies.",
           "grokReason": "Historical Grok evidence covers previous text only. No new Grok review applies."
@@ -168,7 +168,7 @@
         "system.main": {
           "finalValueHash": "dbb43884b91538c62847061b6ee8851e01d14aac149ad7e4f93b4bd509dac9b6",
           "chosenFrom": "codex incremental translation",
-          "leadReason": "Accept the scoped prompt simplification and translated Markdown example. Independent review remains pending.",
+          "leadReason": "Accept the scoped prompt simplification and translated Markdown example after independent Codex review at d70df878c2ed8af89ed0c03f51b370a784585ef0.",
           "candidateReason": "Preserve unchanged prose, JSON rules, PLAN identity, and Markdown nesting. Translate only the new example prose.",
           "opusReason": "Historical Opus evidence covers previous text only. No new Opus review applies.",
           "grokReason": "Historical Grok evidence covers previous text only. No new Grok review applies."
@@ -6987,7 +6987,7 @@
         "system.plan"
       ],
       "translator": "Codex prompt_translation agent",
-      "status": "independent_review_pending",
+      "status": "accepted_by_lead",
       "summary": "Remove explicit newline-escape discussion. Add the translated Markdown PLAN example with two tasks and one nested subtask.",
       "previousReview": {
         "catalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
@@ -7010,7 +7010,11 @@
         }
       },
       "historicalEvidence": "Earlier drafts and reviews apply to unchanged prose. They do not establish review of this incremental update.",
-      "uncertainties": []
+      "uncertainties": [],
+      "reviewer": "/root/translation_review",
+      "reviewerModel": "Same model as the primary agent",
+      "reviewedCommit": "d70df878c2ed8af89ed0c03f51b370a784585ef0",
+      "reviewSummary": "Independent review approved the incremental prompt text and translations without blocking findings. The reviewer compared all 19 source pairs against the base and recorded their exact hashes. Irish remains best effort without native-speaker certification."
     }
   ]
 }

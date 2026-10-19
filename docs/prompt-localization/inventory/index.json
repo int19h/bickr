@@ -358,7 +358,7 @@
       "previousCatalogSourceHash": "7b389cca539523c01e096675026667994793c44844664699370c1854b9c63deb",
       "catalogSourceHash": "c8fe81102ded524f2695eeac0e492caaefe4885d7d83899e8e807d923e9eec99",
       "sourceFreeze": "Remove the double-escaping clause. Add a Markdown PLAN example with actual line breaks. Example prose is translatable.",
-      "review": "Single Codex translator drafts all 18 locales. Independent translation and exact-head reviews remain pending. Earlier model evidence remains historical."
+      "review": "Independent Codex agent /root/translation_review approved prompt text and all 18 translations at d70df878c2ed8af89ed0c03f51b370a784585ef0. The reviewer uses the same model as the primary agent. Irish remains best effort without native-speaker certification. Earlier model evidence remains historical."
     }
   ]
 }
