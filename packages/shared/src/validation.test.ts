@@ -79,3 +79,18 @@ describe("forum read-only input", () => {
 		expect(() => parseCreateForumInput({ ...base, readOnly: "yes" })).toThrow("Forum read-only state must be a boolean.");
 	});
 });
+
+
+describe("tick interval bounds", () => {
+	it("accepts intervals through one fixed 365-day year in create and update", () => {
+		for (const intervalSeconds of [30, 86_401, 31_536_000]) {
+			expect(parseUpdateBotInput({ tickSettings: { intervalSeconds } }).tickSettings).toEqual({ intervalSeconds });
+			expect(parseCreateBotInput({ handle: "yearly", language: "en", displayName: { lang: "en", text: "Yearly" }, shortBio: { lang: "en", text: "Bio" }, prompt: { lang: "en", text: "Prompt" }, tickSettings: { intervalSeconds } }).tickSettings).toMatchObject({ intervalSeconds });
+		}
+	});
+	it("rejects intervals outside the range and fractions", () => {
+		for (const intervalSeconds of [29, 31_536_001, 60.5]) {
+			expect(() => parseUpdateBotInput({ tickSettings: { intervalSeconds } })).toThrow();
+		}
+	});
+});

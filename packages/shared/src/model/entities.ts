@@ -566,6 +566,9 @@ export type ThreadLock = {
 	limit: number;
 };
 
+// One year is a fixed 365-day scheduling interval.
+export const botTickIntervalSecondsMax = 365 * 24 * 60 * 60;
+
 export type BotTickSettings = {
 	enabled: boolean;
 	intervalSeconds: number;

@@ -22,6 +22,9 @@ import {
 } from "@bickr/shared/mcp-auth";
 import { requireMaintenanceDisabled } from "@bickr/shared/maintenance";
 import {
+	botTickIntervalSecondsMax,
+	contextWindowTokensMin,
+	contextWindowTokensMax,
 	type EffectiveBotDocument,
 	type BotGroupSummary,
 	type BotInferenceSettings,
@@ -710,6 +713,7 @@ const mcpTools: McpTool[] = [
 	serviceTool("create_bot", "Create bot", "Create a Bickr bot in a world. The instructionsLanguage string sets Bickr instructions separately from lang. The result returns instructionLanguage as the stored preference object and instructionLocale as the resolved language.", bodySchema({
 		worldHandle: stringSchema("World handle."),
 		handle: stringSchema("Bot handle."),
+		tickSettings: botTickSettingsSchema(),
 		instructionsLanguage: instructionsLanguageSchema("create"),
 		lang: requiredLanguageSchema("Selected bot language. Use a BCP 47 tag such as \"en\", \"ja\", \"zh-Hant\", or \"ar\"."),
 		displayName: localizedTextSchema("Bot display name. lang must match the selected bot language."),
@@ -720,6 +724,7 @@ const mcpTools: McpTool[] = [
 	serviceTool("update_bot", "Update bot", "Update a Bickr bot owned by the signed-in human user. The instructionsLanguage string sets Bickr instructions separately from lang. The result returns instructionLanguage as the stored preference object and instructionLocale as the resolved language.", bodySchema({
 		botId: stringSchema("Bot ID."),
 		handle: stringSchema("Bot handle."),
+		tickSettings: botTickSettingsSchema(),
 		instructionsLanguage: instructionsLanguageSchema("update"),
 		lang: languageSchema("Selected bot language. Required when updating localized bot text."),
 		displayName: localizedTextSchema("Bot display name. lang must match the selected bot language."),
@@ -2631,6 +2636,28 @@ function instructionsLanguageSchema(operation: "create" | "update"): InputSchema
 		description: operation === "create"
 			? "Language code for Bickr instructions and tool descriptions, or auto to follow the primary language. Auto uses English for unset or unsupported languages. Omission uses fixed English."
 			: "Language code for Bickr instructions and tool descriptions, auto to follow the primary language, or source to inherit from a linked clone source. Auto uses English for unset or unsupported languages. Omission keeps the preference unchanged.",
+	};
+}
+
+function botTickSettingsSchema(): InputSchema {
+	const nullableInteger = (minimum: number, maximum: number): InputSchema => ({
+		type: ["integer", "null"], minimum, maximum,
+	});
+	return {
+		type: "object", description: "Visit schedule and loop limits. Null clears an optional override. Omitted fields stay unchanged on update.",
+		properties: {
+			enabled: { type: "boolean" },
+			intervalSeconds: { type: "integer", minimum: 30, maximum: botTickIntervalSecondsMax, description: "Seconds between visits. One year is 365 days." },
+			allowEarlyLogOff: { type: ["boolean", "null"] },
+			contextWindowTokens: nullableInteger(contextWindowTokensMin, contextWindowTokensMax),
+			compactionThreshold: { type: "number", minimum: 0.2, maximum: 0.95 },
+			compactionSummaryPercent: nullableInteger(1, 50),
+			compactionMaxCharacters: nullableInteger(1, 1_000_000),
+			maxToolCallsPerTick: nullableInteger(1, 32),
+			maxSuccessfulToolCallsPerIteration: nullableInteger(1, 32),
+			maxGeneratedTokensPerTick: nullableInteger(1, 1_000_000),
+			maxGeneratedTokensPerIteration: nullableInteger(1, 1_000_000),
+		}, additionalProperties: false,
 	};
 }
 
