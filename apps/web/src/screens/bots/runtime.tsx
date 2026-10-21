@@ -124,8 +124,10 @@ export function BotRuntimePanel({
 	const logRef = useRef<HTMLDivElement | null>(null);
 	const sourceMessageRef = useRef<HTMLDivElement | null>(null);
 	const sourceMessageScrolledRef = useRef(false);
+	const sourceMessageRetriedRef = useRef(false);
+	const sourceLookupPendingRef = useRef(false);
 	const sourceNavigationGenerationRef = useRef(0);
-	const [sourceMessage, setSourceMessage] = useState<{ botId: string; seq: number; runId: string } | null>(null);
+	const [sourceMessage, setSourceMessage] = useState<{ botId: string; seq: number; runId: string; requestSeq: number; generation: number } | null>(null);
 	const shouldStickToBottomRef = useRef(true);
 	const latestPersistentEventSeqRef = useRef(0);
 	const latestLoopMessageSeqRef = useRef(0);
@@ -154,6 +156,7 @@ export function BotRuntimePanel({
 		shouldStickToBottomRef.current = !new URLSearchParams(window.location.search).has("inference");
 		setSourceMessage(null);
 		sourceMessageScrolledRef.current = false;
+		sourceMessageRetriedRef.current = false;
 		latestPersistentEventSeqRef.current = 0;
 		latestLoopMessageSeqRef.current = 0;
 		currentLoopPageRef.current = 1;
@@ -390,7 +393,19 @@ export function BotRuntimePanel({
 	}, [loopMessages]);
 
 	useEffect(() => {
-		if (!sourceMessage || sourceMessage.botId !== bot.id || sourceMessageScrolledRef.current || !sourceMessageRef.current) {
+		if (!sourceMessage || sourceMessage.botId !== bot.id || sourceMessageScrolledRef.current || sourceLookupPendingRef.current || !loopMessagePage) {
+			return;
+		}
+		if (!sourceMessageRef.current) {
+			// Compaction can move the message after its lookup but before the page
+			// arrives. Resolve once more rather than guessing from sequence ranges.
+			if (!sourceMessageRetriedRef.current) {
+				sourceMessageRetriedRef.current = true;
+				void navigateToSourceInference(sourceMessage.requestSeq, sourceMessage.runId, sourceMessage.generation);
+			} else {
+				setLoopMessageLogError("The source inference is no longer available on its loop page.");
+				setSourceMessage(null);
+			}
 			return;
 		}
 		const frame = window.requestAnimationFrame(() => {
@@ -401,7 +416,7 @@ export function BotRuntimePanel({
 			sourceMessageScrolledRef.current = true;
 		});
 		return () => window.cancelAnimationFrame(frame);
-	}, [bot.id, sourceMessage, loopMessages]);
+	}, [bot.id, sourceMessage, loopMessages, loopMessagePage]);
 
 	useEffect(() => {
 		const log = logRef.current;
@@ -429,6 +444,10 @@ export function BotRuntimePanel({
 	}, [loopMessagePage?.currentPage, loopMessages]);
 
 	function trackLogScroll(): void {
+		if (sourceMessage) {
+			shouldStickToBottomRef.current = false;
+			return;
+		}
 		const log = logRef.current;
 		if (!log) {
 			shouldStickToBottomRef.current = true;
@@ -570,6 +589,8 @@ export function BotRuntimePanel({
 			setMessage("This participant is paused. Unpause it before starting a loop run.");
 			return;
 		}
+		sourceNavigationGenerationRef.current += 1;
+		setSourceMessage(null);
 		shouldStickToBottomRef.current = true;
 		currentLoopPageRef.current = 1;
 		setMessage("Starting tick...");
@@ -659,30 +680,38 @@ export function BotRuntimePanel({
 		const query = new URLSearchParams(window.location.search);
 		const requestSeq = Number(query.get("inference"));
 		if (!Number.isSafeInteger(requestSeq) || requestSeq < 1) return;
-		let cancelled = false;
 		const generation = ++sourceNavigationGenerationRef.current;
 		if (query.get("sourceBot") !== bot.id) {
 			setLoopMessageLogError("This profile no longer identifies the author of that inference.");
 			return;
 		}
-		void api<BotLoopMessageLogsResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/inference-logs?requestSeq=${requestSeq}&runId=${encodeURIComponent(query.get("runId") ?? "")}`).then(result => {
-			if (cancelled || generation !== sourceNavigationGenerationRef.current) return;
-			if (!result.ok) {
-				setLoopMessageLogError(result.message);
-				return;
-			}
-			const target = result.data.message;
-			shouldStickToBottomRef.current = false;
-			sourceMessageScrolledRef.current = false;
-			setSourceMessage({ botId: bot.id, seq: target.seq, runId: target.runId });
-			setLoopMessages([]);
-			// Page numbers change after compaction. Resolve the source generation
-			// through the same authoritative page map used for history navigation.
-			currentLoopSourceCompactionSeqRef.current = target.compactedBy ?? null;
-			void refresh({ sourceCompactionSeq: target.compactedBy ?? null });
-		});
-		return () => { cancelled = true; };
+		void navigateToSourceInference(requestSeq, query.get("runId") ?? "", generation);
+		return () => {
+			if (generation === sourceNavigationGenerationRef.current) sourceNavigationGenerationRef.current += 1;
+		};
 	}, [bot.id]);
+
+	async function navigateToSourceInference(requestSeq: number, runId: string, generation: number): Promise<void> {
+		sourceLookupPendingRef.current = true;
+		const result = await api<BotLoopMessageLogsResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/inference-logs?requestSeq=${requestSeq}&runId=${encodeURIComponent(runId)}`);
+		if (generation !== sourceNavigationGenerationRef.current) return;
+		sourceLookupPendingRef.current = false;
+		if (!result.ok) {
+			setLoopMessageLogError(result.message);
+			setSourceMessage(null);
+			return;
+		}
+		const target = result.data.message;
+		shouldStickToBottomRef.current = false;
+		sourceMessageScrolledRef.current = false;
+		setSourceMessage({ botId: bot.id, seq: target.seq, runId: target.runId, requestSeq, generation });
+		setLoopMessagePage(null);
+		setLoopMessages([]);
+		// Page numbers change after compaction. Resolve the source generation
+		// through the same authoritative page map used for history navigation.
+		currentLoopSourceCompactionSeqRef.current = target.compactedBy ?? null;
+		void refresh({ sourceCompactionSeq: target.compactedBy ?? null });
+	}
 
 	async function viewLoopMessageLogs(loopMessage: BotLoopMessage): Promise<void> {
 		if (isLiveProviderLoopMessage(loopMessage)) {

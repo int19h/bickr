@@ -147,8 +147,8 @@ describe('source inference navigation', () => {
 		await act(async () => root.render(<BotRuntimePanel bot={bot} busy={false} onSave={async () => true} />));
 	}
 
-	async function resolveSource(target: BotLoopMessage): Promise<void> {
-		await act(async () => pendingInference[0]!.resolve(json({ ok: true, data: { message: target, logs: [] } })));
+	async function resolveSource(target: BotLoopMessage, index = 0): Promise<void> {
+		await act(async () => pendingInference[index]!.resolve(json({ ok: true, data: { message: target, logs: [] } })));
 	}
 
 	async function paintScroll(): Promise<void> {
@@ -208,6 +208,42 @@ describe('source inference navigation', () => {
 		expect(container.textContent).toContain('The source inference is no longer retained in this loop.');
 		expect(document.querySelector('.modal')).toBeNull();
 		expect(container.querySelector('.source-message-highlight')).toBeNull();
+	});
+
+	it('finds an active source compacted between lookup and page refresh', async () => {
+		const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
+		await openSource();
+		const target = { ...loopMessage(12, 'Source moved during navigation'), runId: 'run-source' };
+		await resolveSource(target);
+		const pages = [{ page: 1, messageCount: 1 }, { page: 2, messageCount: 1, sourceCompactionSeq: 40 }];
+		await answerMessages(1, [loopMessage(40, 'New compaction')], page(1, { 40: 2 }, pages));
+		expect(pendingInference).toHaveLength(2);
+		// Live refreshes during the second lookup must not consume its retry.
+		await act(async () => MonitorSocket.instances.at(-1)!.open());
+		await answerMessages(2, [loopMessage(40, 'New compaction')], page(1, { 40: 2 }, pages));
+		expect(container.textContent).not.toContain('no longer available on its loop page');
+		await resolveSource({ ...target, compactedBy: 40 }, 1);
+		await answerMessages(3, [loopMessage(40, 'New compaction')], page(1, { 40: 2 }, pages));
+		expect(pendingMessages[4]?.path).toContain('page=2');
+		await answerMessages(4, [{ ...target, compactedBy: 40 }], page(2, { 40: 2 }, pages));
+		await paintScroll();
+		expect(container.querySelector('.source-message-highlight')?.textContent).toContain('Source moved during navigation');
+		expect(scroll).toHaveBeenCalledTimes(1);
+		expect(pendingInference).toHaveLength(2);
+		expect(document.querySelector('.modal')).toBeNull();
+	});
+
+	it('bounds source resolution if the message remains absent', async () => {
+		await openSource();
+		const target = { ...loopMessage(12, 'Missing source'), runId: 'run-source' };
+		await resolveSource(target);
+		await answerMessages(1, []);
+		expect(pendingInference).toHaveLength(2);
+		await resolveSource(target, 1);
+		await answerMessages(2, []);
+		expect(container.textContent).toContain('The source inference is no longer available on its loop page.');
+		expect(pendingInference).toHaveLength(2);
+		expect(pendingMessages).toHaveLength(3);
 	});
 
 	it('rejects links for a different author without requesting inference logs', async () => {
