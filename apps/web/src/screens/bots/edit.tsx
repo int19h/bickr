@@ -2,6 +2,7 @@ import { resolveInstructionLocale } from '@bickr/shared/instruction-language';
 import { factoryText } from '@bickr/shared/localization';
 import { InstructionLanguageField } from "../../components/instruction-language-field";
 import {
+	botTickIntervalSecondsMax,
 	contextWindowTokensMax,
 	contextWindowTokensMin,
 	defaultReasoningPrefill,
@@ -202,7 +203,7 @@ export function BotEdit({
 		draft.prompt.length <= maxBotPromptLength &&
 		draft.recurringPrompt.length <= maxBotReasoningPrefillLength &&
 		tickIntervalMinutes >= 1 &&
-		tickIntervalMinutes <= 1440 &&
+		tickIntervalMinutes <= botTickIntervalSecondsMax / 60 &&
 		(contextWindowTokens === null ||
 			(contextWindowTokens >= contextWindowTokensMin && contextWindowTokens <= contextWindowTokensMax)) &&
 		(compactionSummaryPercent === null || (compactionSummaryPercent >= 1 && compactionSummaryPercent <= 50)) &&
@@ -446,7 +447,7 @@ export function BotEdit({
 										<input
 											className="input"
 											min={1}
-											max={1440}
+											max={botTickIntervalSecondsMax / 60}
 											onChange={(event) =>
 												setDraft((current) => ({ ...current, tickIntervalMinutes: event.target.value }))
 											}

@@ -40,6 +40,7 @@ import {
 	type RequiredLocalizedText,
 	type UiLocalePreference,
 	type VoteInput,
+	botTickIntervalSecondsMax,
 	contextWindowTokensMax,
 	contextWindowTokensMin,
 	localizedText,
@@ -1444,7 +1445,7 @@ function parseTickSettings(value: unknown): BotTickSettingsInput {
 	if (record.enabled !== undefined) {
 		settings.enabled = Boolean(record.enabled);
 	}
-	assignBoundedIntegerSetting(settings, "intervalSeconds", record.intervalSeconds, "Tick interval", 30, 86_400);
+	assignBoundedIntegerSetting(settings, "intervalSeconds", record.intervalSeconds, "Tick interval", 30, botTickIntervalSecondsMax);
 	assignNullableBooleanAlias(
 		settings,
 		"allowEarlyLogOff",

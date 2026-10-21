@@ -369,6 +369,39 @@ describe("MCP endpoint", () => {
 		expect(requests.at(-1)?.body).not.toHaveProperty("instructionsLanguage");
 	});
 
+	it("advertises and forwards tick patches with yearly bounds and nullable overrides", async () => {
+		const tools = new Map(mcpToolMetadataForTest().map(tool => [tool.name, tool]));
+		for (const name of ["create_bot", "update_bot"]) {
+			const schema = schemaProperty(tools, name, "tickSettings");
+			expect(schema).toMatchObject({ additionalProperties: false, properties: {
+				intervalSeconds: { type: "integer", minimum: 30, maximum: 31_536_000 },
+				maxToolCallsPerTick: { type: ["integer", "null"] },
+			} });
+		}
+		const kv = new MapKV();
+		const token = await issueAccessToken(kv, ["bickr.write"]);
+		const requests: Record<string, unknown>[] = [];
+		const service = { fetch: async (request: Request) => {
+			if (new URL(request.url).pathname.endsWith("/inference-consumers/annotations")) return Response.json({ ok: true, data: { annotations: [], graphRevision: 1 } });
+			requests.push(await request.json() as Record<string, unknown>);
+			return Response.json({ ok: true, data: { bot: testBot({ id: "bot_tick", handle: "tick", tickSettings: { enabled: false, intervalSeconds: 31_536_000, compactionThreshold: 0.75 } }) } });
+		} };
+		const call = async (name: string, args: Record<string, unknown>) => jsonResponse(await callMcp(kv, token, {
+			jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { operations: [{ operationId: crypto.randomUUID(), ...args }] } },
+		}, { BICKR_D1: emptyD1(), AGENT_RUNTIME: service, INTERNAL_SERVICE_SECRET: "test-internal-service-secret" }));
+		const tickSettings = { enabled: false, intervalSeconds: 31_536_000, allowEarlyLogOff: null, maxToolCallsPerTick: null, compactionThreshold: 0.8 };
+		const result = await call("update_bot", { botId: "bot_tick", tickSettings });
+		expect(requests.at(-1)).toEqual({ tickSettings });
+		expect(result).toMatchObject({ result: { structuredContent: { results: [{ status: "succeeded", result: { data: { bot: { tickSettings: { intervalSeconds: 31_536_000 } } } } }] } } });
+		const before = requests.length;
+		for (const patch of [{ intervalSeconds: 31_536_001 }, { intervalSeconds: 29 }, { intervalSeconds: 60.5 }, { enabled: "false" }, { intervalSeconds: null }, { unknown: 1 }]) {
+			expect(await call("update_bot", { botId: "bot_tick", tickSettings: patch })).toMatchObject({ result: { isError: true, structuredContent: { error: "bad_request" } } });
+		}
+		expect(requests).toHaveLength(before);
+		await call("create_bot", { worldHandle: "example", handle: "tick", lang: "en", displayName: { lang: "en", text: "Tick" }, shortBio: { lang: "en", text: "Bio" }, prompt: { lang: "en", text: "Prompt" }, tickSettings });
+		expect(requests.at(-1)).toMatchObject({ tickSettings });
+	});
+
 	it("updates real MCP instruction preferences independently and limits Source to linked clones", async () => {
 		await clearKv(testEnv.BICKR_KV);
 		const token = await issueAccessToken(testEnv.BICKR_KV, ["bickr.write"]);

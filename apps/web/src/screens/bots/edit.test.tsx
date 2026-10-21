@@ -159,3 +159,12 @@ it("invalidates the displayed budget when the resolved source instruction langua
 	expect(key("ja")).not.toBe(key("fr"));
 	expect(key("ja")).toBe(key("ja"));
 });
+
+
+it("supports a yearly tick interval in the web form and update body", () => {
+	const target = bot({ tickSettings: { enabled: false, intervalSeconds: 31_536_000, compactionThreshold: 0.75 } });
+	expect(render(target)).toContain('max="525600"');
+	const draft = botEditDraftFromBot(target);
+	expect(draft.tickIntervalMinutes).toBe("525600");
+	expect(parseUpdateBotInput(updateBotInputFromEditDraft(draft, parseBotEditDraft(draft), false)).tickSettings?.intervalSeconds).toBe(31_536_000);
+});
