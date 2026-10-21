@@ -74,12 +74,16 @@ let root: Root;
 let pendingMessages: PendingMessages[];
 let pendingEvents: PendingEvents[];
 let holdEventSnapshots: boolean;
+let pendingInference: Array<{ path: string; resolve: (response: Response) => void }>;
+let pendingLogs: Array<{ path: string; resolve: (response: Response) => void }>;
 
 beforeEach(async () => {
 	(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 	pendingMessages = [];
 	pendingEvents = [];
 	holdEventSnapshots = false;
+	pendingInference = [];
+	pendingLogs = [];
 	MonitorSocket.instances = [];
 	vi.stubGlobal('WebSocket', MonitorSocket);
 	vi.stubGlobal('fetch', (input: RequestInfo | URL) => {
@@ -100,6 +104,12 @@ beforeEach(async () => {
 		}
 		if (path.endsWith('/runtime/token-usage')) {
 			return Promise.resolve(json({ ok: false, error: 'unavailable', message: 'usage unavailable' }, 503));
+		}
+		if (path.includes('/runtime/inference-logs')) {
+			return new Promise<Response>(resolve => pendingInference.push({ path, resolve }));
+		}
+		if (/\/runtime\/messages\/\d+\/logs$/.test(path)) {
+			return new Promise<Response>(resolve => pendingLogs.push({ path, resolve }));
 		}
 		if (path.includes('/runtime/messages')) {
 			return new Promise<Response>((resolve) => {
@@ -122,8 +132,135 @@ beforeEach(async () => {
 afterEach(async () => {
 	await act(async () => root.unmount());
 	container.remove();
+	window.history.replaceState({}, '', '/');
+	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
 	(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
+});
+
+describe('source inference navigation', () => {
+	async function openSource(query = `?inference=7&sourceBot=${bot.id}&runId=run-source`): Promise<void> {
+		await act(async () => root.unmount());
+		pendingMessages = [];
+		window.history.replaceState({}, '', `/w/primary/u/runtime-dom/loop${query}`);
+		root = createRoot(container);
+		await act(async () => root.render(<BotRuntimePanel bot={bot} busy={false} onSave={async () => true} />));
+	}
+
+	async function resolveSource(target: BotLoopMessage, index = 0): Promise<void> {
+		await act(async () => pendingInference[index]!.resolve(json({ ok: true, data: { message: target, logs: [] } })));
+	}
+
+	async function paintScroll(): Promise<void> {
+		await act(async () => new Promise<void>(resolve => window.requestAnimationFrame(() => resolve())));
+	}
+
+	it('opens the compacted page, highlights and scrolls to the source, and keeps raw logs behind the info button', async () => {
+		const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
+		await openSource();
+		const target = { ...loopMessage(12, 'Source response'), runId: 'run-source', compactedBy: 40, hasLogs: true };
+		await answerMessages(0, [loopMessage(90, 'Active generation')]);
+		await resolveSource(target);
+		expect(pendingInference[0]?.path).toContain('requestSeq=7&runId=run-source');
+		const pages = [{ page: 1, messageCount: 1 }, { page: 2, messageCount: 2, sourceCompactionSeq: 40 }];
+		await answerMessages(1, [loopMessage(90, 'Active generation')], page(1, { 40: 2 }, pages));
+		expect(pendingMessages[2]?.path).toContain('page=2');
+		await answerMessages(2, [loopMessage(11, 'Other response'), target], page(2, { 40: 2 }, pages));
+		await paintScroll();
+		const row = container.querySelector('.source-message-highlight');
+		expect(row?.textContent).toContain('Source response');
+		expect(scroll.mock.instances).toEqual([row]);
+		expect(scroll).toHaveBeenCalledWith({ block: 'center' });
+		expect(container.querySelector('[aria-current="page"]')?.textContent).toBe('2');
+		expect(document.querySelector('.modal')).toBeNull();
+		expect(pendingLogs).toHaveLength(0);
+
+		const info = row!.querySelector<HTMLButtonElement>('[aria-label="Open raw logs for loop message 12"]')!;
+		await act(async () => info.click());
+		expect(pendingLogs).toHaveLength(1);
+		await act(async () => pendingLogs[0]!.resolve(json({ ok: true, data: { message: target, logs: [] } })));
+		expect(document.body.textContent).toContain('Loop Message Logs');
+	});
+
+	it('suppresses bottom scrolling on the active page and does not scroll again for live updates', async () => {
+		const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
+		const bottomScroll = vi.spyOn(runtimeUtils, 'scrollLogToBottom');
+		await openSource();
+		const target = { ...loopMessage(12, 'Active source'), runId: 'run-source' };
+		await resolveSource(target);
+		await answerMessages(1, [target, loopMessage(90, 'Newer response')]);
+		await paintScroll();
+		const callsAfterNavigation = bottomScroll.mock.calls.length;
+		await act(async () => MonitorSocket.instances.at(-1)!.emit({ type: 'loop_message', loopMessage: loopMessage(91, 'Live response') }));
+		await paintScroll();
+		expect(scroll).toHaveBeenCalledTimes(1);
+		expect(bottomScroll.mock.calls.length).toBe(callsAfterNavigation);
+		expect(container.querySelector('.source-message-highlight')?.textContent).toContain('Active source');
+		expect(document.querySelector('.modal')).toBeNull();
+		// An initial snapshot must not overwrite the navigation response.
+		await answerMessages(0, [loopMessage(1, 'Stale response')]);
+		expect(container.textContent).not.toContain('Stale response');
+	});
+
+	it('shows an unavailable source error without opening a modal', async () => {
+		await openSource();
+		await act(async () => pendingInference[0]!.resolve(json({ ok: false, error: 'not_found', message: 'The source inference is no longer retained in this loop.' }, 404)));
+		expect(container.textContent).toContain('The source inference is no longer retained in this loop.');
+		expect(document.querySelector('.modal')).toBeNull();
+		expect(container.querySelector('.source-message-highlight')).toBeNull();
+	});
+
+	it('finds an active source compacted between lookup and page refresh', async () => {
+		const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
+		await openSource();
+		const target = { ...loopMessage(12, 'Source moved during navigation'), runId: 'run-source' };
+		await resolveSource(target);
+		const pages = [{ page: 1, messageCount: 1 }, { page: 2, messageCount: 1, sourceCompactionSeq: 40 }];
+		await answerMessages(1, [loopMessage(40, 'New compaction')], page(1, { 40: 2 }, pages));
+		expect(pendingInference).toHaveLength(2);
+		// Live refreshes during the second lookup must not consume its retry.
+		await act(async () => MonitorSocket.instances.at(-1)!.open());
+		await answerMessages(2, [loopMessage(40, 'New compaction')], page(1, { 40: 2 }, pages));
+		expect(container.textContent).not.toContain('no longer available on its loop page');
+		await resolveSource({ ...target, compactedBy: 40 }, 1);
+		await answerMessages(3, [loopMessage(40, 'New compaction')], page(1, { 40: 2 }, pages));
+		expect(pendingMessages[4]?.path).toContain('page=2');
+		await answerMessages(4, [{ ...target, compactedBy: 40 }], page(2, { 40: 2 }, pages));
+		await paintScroll();
+		expect(container.querySelector('.source-message-highlight')?.textContent).toContain('Source moved during navigation');
+		expect(scroll).toHaveBeenCalledTimes(1);
+		expect(pendingInference).toHaveLength(2);
+		expect(document.querySelector('.modal')).toBeNull();
+	});
+
+	it('bounds source resolution if the message remains absent', async () => {
+		await openSource();
+		const target = { ...loopMessage(12, 'Missing source'), runId: 'run-source' };
+		await resolveSource(target);
+		await answerMessages(1, []);
+		expect(pendingInference).toHaveLength(2);
+		await resolveSource(target, 1);
+		await answerMessages(2, []);
+		expect(container.textContent).toContain('The source inference is no longer available on its loop page.');
+		expect(pendingInference).toHaveLength(2);
+		expect(pendingMessages).toHaveLength(3);
+	});
+
+	it('rejects links for a different author without requesting inference logs', async () => {
+		await openSource('?inference=7&sourceBot=another-bot&runId=run-source');
+		expect(pendingInference).toHaveLength(0);
+		expect(container.textContent).toContain('This profile no longer identifies the author of that inference.');
+	});
+
+	it('ignores a source lookup that completes after the participant changes', async () => {
+		await openSource();
+		const other = { ...bot, id: 'other-bot' };
+		await act(async () => root.render(<BotRuntimePanel bot={other} busy={false} onSave={async () => true} />));
+		await resolveSource({ ...loopMessage(12, 'Wrong participant'), runId: 'run-source' });
+		expect(pendingMessages).toHaveLength(2);
+		expect(container.querySelector('.source-message-highlight')).toBeNull();
+		expect(document.querySelector('.modal')).toBeNull();
+	});
 });
 
 describe('runtime monitor authoritative reconciliation', () => {

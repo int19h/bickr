@@ -1,4 +1,5 @@
 import { InferenceAttributionFields } from "../../components/inference-attribution";
+import type { Ref } from "react";
 import type {
 	BotInferenceSubmissionMessage,
 	BotLoopMessage,
@@ -67,6 +68,8 @@ export function LoopMessageLogsModal({
 
 export function LoopMessageRow({
 	deleting,
+	highlighted = false,
+	rowRef,
 	loadingLogs,
 	message,
 	onDelete,
@@ -74,6 +77,8 @@ export function LoopMessageRow({
 	toolCallsById,
 }: {
 	deleting: boolean;
+	highlighted?: boolean;
+	rowRef?: Ref<HTMLDivElement>;
 	loadingLogs: boolean;
 	message: BotLoopMessage;
 	onDelete: () => void;
@@ -87,7 +92,7 @@ export function LoopMessageRow({
 	const toolCallContext = message.message.tool_call_id ? toolCallsById.get(message.message.tool_call_id) : undefined;
 	const isLive = isLiveProviderLoopMessage(message);
 	return (
-		<div className={`event-row activity-${loopMessageActivityKind(message)}`}>
+		<div className={`event-row activity-${loopMessageActivityKind(message)}${highlighted ? " source-message-highlight" : ""}`} ref={rowRef}>
 			<button
 				aria-label={`Open raw logs for loop message ${message.seq}`}
 				className="raw-json-button"
