@@ -152,7 +152,7 @@ describe('source inference navigation', () => {
 	}
 
 	async function paintScroll(): Promise<void> {
-		await act(async () => new Promise(resolve => window.requestAnimationFrame(resolve)));
+		await act(async () => new Promise<void>(resolve => window.requestAnimationFrame(() => resolve())));
 	}
 
 	it('opens the compacted page, highlights and scrolls to the source, and keeps raw logs behind the info button', async () => {
