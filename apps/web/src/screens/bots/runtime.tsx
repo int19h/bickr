@@ -122,6 +122,10 @@ export function BotRuntimePanel({
 	const [clearConfirm, setClearConfirm] = useState(false);
 	const [compactConfirm, setCompactConfirm] = useState(false);
 	const logRef = useRef<HTMLDivElement | null>(null);
+	const sourceMessageRef = useRef<HTMLDivElement | null>(null);
+	const sourceMessageScrolledRef = useRef(false);
+	const sourceNavigationGenerationRef = useRef(0);
+	const [sourceMessage, setSourceMessage] = useState<{ botId: string; seq: number; runId: string } | null>(null);
 	const shouldStickToBottomRef = useRef(true);
 	const latestPersistentEventSeqRef = useRef(0);
 	const latestLoopMessageSeqRef = useRef(0);
@@ -147,7 +151,9 @@ export function BotRuntimePanel({
 		let heartbeatTimer: number | undefined;
 		let socket: WebSocket | null = null;
 		let lastMonitorMessageAt = Date.now();
-		shouldStickToBottomRef.current = true;
+		shouldStickToBottomRef.current = !new URLSearchParams(window.location.search).has("inference");
+		setSourceMessage(null);
+		sourceMessageScrolledRef.current = false;
 		latestPersistentEventSeqRef.current = 0;
 		latestLoopMessageSeqRef.current = 0;
 		currentLoopPageRef.current = 1;
@@ -384,6 +390,20 @@ export function BotRuntimePanel({
 	}, [loopMessages]);
 
 	useEffect(() => {
+		if (!sourceMessage || sourceMessage.botId !== bot.id || sourceMessageScrolledRef.current || !sourceMessageRef.current) {
+			return;
+		}
+		const frame = window.requestAnimationFrame(() => {
+			const row = sourceMessageRef.current;
+			if (!row) return;
+			shouldStickToBottomRef.current = false;
+			row.scrollIntoView({ block: "center" });
+			sourceMessageScrolledRef.current = true;
+		});
+		return () => window.cancelAnimationFrame(frame);
+	}, [bot.id, sourceMessage, loopMessages]);
+
+	useEffect(() => {
 		const log = logRef.current;
 		if (!log || typeof ResizeObserver === "undefined") {
 			return undefined;
@@ -533,6 +553,8 @@ export function BotRuntimePanel({
 		if (targetPage === currentLoopPageRef.current) {
 			return;
 		}
+		sourceNavigationGenerationRef.current += 1;
+		setSourceMessage(null);
 		currentLoopPageRef.current = targetPage;
 		shouldStickToBottomRef.current = targetPage === 1;
 		setLoopMessages([]);
@@ -638,14 +660,26 @@ export function BotRuntimePanel({
 		const requestSeq = Number(query.get("inference"));
 		if (!Number.isSafeInteger(requestSeq) || requestSeq < 1) return;
 		let cancelled = false;
+		const generation = ++sourceNavigationGenerationRef.current;
 		if (query.get("sourceBot") !== bot.id) {
 			setLoopMessageLogError("This profile no longer identifies the author of that inference.");
 			return;
 		}
 		void api<BotLoopMessageLogsResponse>(`/api/me/bots/${encodeURIComponent(bot.id)}/runtime/inference-logs?requestSeq=${requestSeq}&runId=${encodeURIComponent(query.get("runId") ?? "")}`).then(result => {
-			if (cancelled) return;
-			if (result.ok) setOpenLoopMessageLogs(result.data);
-			else setLoopMessageLogError(result.message);
+			if (cancelled || generation !== sourceNavigationGenerationRef.current) return;
+			if (!result.ok) {
+				setLoopMessageLogError(result.message);
+				return;
+			}
+			const target = result.data.message;
+			shouldStickToBottomRef.current = false;
+			sourceMessageScrolledRef.current = false;
+			setSourceMessage({ botId: bot.id, seq: target.seq, runId: target.runId });
+			setLoopMessages([]);
+			// Page numbers change after compaction. Resolve the source generation
+			// through the same authoritative page map used for history navigation.
+			currentLoopSourceCompactionSeqRef.current = target.compactedBy ?? null;
+			void refresh({ sourceCompactionSeq: target.compactedBy ?? null });
 		});
 		return () => { cancelled = true; };
 	}, [bot.id]);
@@ -839,6 +873,8 @@ export function BotRuntimePanel({
 						<LoopMessageRow
 							key={`${loopMessage.runId}-${loopMessage.seq}`}
 							deleting={deletingLoopMessageSeq === loopMessage.seq}
+							highlighted={sourceMessage?.botId === bot.id && sourceMessage.seq === loopMessage.seq && sourceMessage.runId === loopMessage.runId}
+							rowRef={sourceMessage?.botId === bot.id && sourceMessage.seq === loopMessage.seq && sourceMessage.runId === loopMessage.runId ? sourceMessageRef : undefined}
 							loadingLogs={loopMessageLogLoadingSeq === loopMessage.seq}
 							message={loopMessage}
 							onDelete={() => void deleteLoopMessage(loopMessage)}
