@@ -205,9 +205,10 @@
         "viewBox",
         "…",
         "‼️",
-        "toolOverview"
+        "toolOverview",
+        "\"focused\""
       ],
-      "sourceTemplateHash": "e8b0230d825462921fbe6a0aa398e50c5aaae4e562a52a0215fe9ba82e3f8270",
+      "sourceTemplateHash": "a7ff4cf2320c3f0d3dbd26f9470277a9ee22ebf777bbb954d2292b12857e4e8d",
       "parameterNotes": {
         "svgElements": {
           "currentValue": 1500,

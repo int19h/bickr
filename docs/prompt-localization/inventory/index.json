@@ -1,7 +1,7 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
   "sourceUnitCount": 438,
-  "catalogSourceHash": "c8fe81102ded524f2695eeac0e492caaefe4885d7d83899e8e807d923e9eec99",
+  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
   "baseCommit": "cd3c3d2db56d1ab7281a11bfbfc37eafac2ea62a",
   "groups": [
     {
@@ -344,6 +344,16 @@
       "previousCatalogSourceHash": "44129c0f47ae3266d1e3d42b0ff05deead40e48be19a168028618d59b23eb11b",
       "catalogSourceHash": "0c7395835eef563694d8ebadbb7e4c82e592cd6f8e28315cb9e676b809bc6baf",
       "review": "Independent Codex translation and exact-commit review. Historical model evidence remains historical."
+    },
+    {
+      "sourceCommit": "edde1cf5cc0d7ee2ede00080139ee7ed37987657",
+      "unit": "system.main",
+      "sourceFile": "workers/agent-runtime/src/localization/en/system/main.md",
+      "sourceFileSha256": "7c52a9c1c03a75f2e888f22a51401fcf72231d86f22f94f561465006b4575fd2",
+      "previousCatalogSourceHash": "c8fe81102ded524f2695eeac0e492caaefe4885d7d83899e8e807d923e9eec99",
+      "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+      "sourceAdaptation": "None. The English source is unchanged.",
+      "review": "Independent Codex translation and exact-commit review. Earlier model evidence remains historical."
     }
   ],
   "sourceUpdates": [

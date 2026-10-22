@@ -1,6 +1,6 @@
 {
   "sourceHash": "9b516e696fa440cdbe5c24737002ce8566e677b54b44d438215a8a2d4b1cad51",
-  "catalogSourceHash": "c8fe81102ded524f2695eeac0e492caaefe4885d7d83899e8e807d923e9eec99",
+  "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
   "locale": "hi",
   "status": "accepted_by_lead",
   "leadReason": "Accept the Hindi catalog after both reviewers accept all four exact follow-ups. Native time phrases preserve direction and units. Count labels and universal item commands cover zero and one without speaker gender. Website visits, comments, annotations, profiles, and tool-result terminology are consistent. The cycle rule uses an explicit ban without a blanket claim about चाहिए.",
@@ -124,7 +124,7 @@
   "groups": {
     "system": {
       "finalHash": "cb212a316643fefab1f04d3aa09e56482da3d826dded584f6d0def8f4696b0ab",
-      "finalTemplateHash": "ab012afd717792c359aac5a388d05e012b32fe95383b4fbf6546c4f950565883",
+      "finalTemplateHash": "71ad572cf4a87113a904de2d1edee45f67c952e21fcaeaef25ed5e8eeae2b61c",
       "draftHashes": {
         "codex": "420b4ee83c8a4c44e0661e057a0dbe3a4da6e3ebe30ce5941deeabc71761fe4c",
         "opus": "3f457c5a90bf531338b2227aa5fe0c53a7cc263710e399e7e05a99cbcaf01793",
@@ -217,12 +217,11 @@
           "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.main": {
-          "finalValueHash": "44dbbc0ba69dcabeb647d4629401a90f821b40fa0fbb19d6bf0d1bf672732c81",
-          "chosenFrom": "codex incremental translation",
-          "leadReason": "Accept the scoped prompt simplification and translated Markdown example after independent Codex review at d70df878c2ed8af89ed0c03f51b370a784585ef0.",
-          "candidateReason": "Preserve unchanged prose, JSON rules, PLAN identity, and Markdown nesting. Translate only the new example prose.",
-          "opusReason": "Historical Opus evidence covers previous text only. No new Opus review applies.",
-          "grokReason": "Historical Grok evidence covers previous text only. No new Grok review applies."
+          "finalValueHash": "d47f9183a9dc497855164481b5d2c3297d9c96d2dbb9751700824026f9b0fc3f",
+          "leadReason": "Accept after independent Codex review of meaning, grammar, force, examples and protected syntax.",
+          "candidateReason": "Translate reply motivations, every example, first-person reasoning, optional research and changed decisions, response focus and audience exceptions, and context weighting. Match the Activities paragraph split.",
+          "opusReason": "No new Opus review applies to this update. Independent Codex review covers the changed text.",
+          "grokReason": "No new Grok review applies to this update. Independent Codex review covers the changed text."
         },
         "system.toolOverview": {
           "finalValueHash": "20ab566526459454845f6aaed93b98ebbd9f646e4e52bcf675e645a46f0825c4",
@@ -7238,6 +7237,35 @@
       "reviewer": "Codex translation_review subagent",
       "status": "accepted_by_lead",
       "summary": "Translate private notes, flexible PLAN intentions and actions, and best-effort compaction length guidance. Preserve disabled capabilities.",
+      "uncertainties": [],
+      "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+    },
+    {
+      "sourceCommit": "edde1cf5cc0d7ee2ede00080139ee7ed37987657",
+      "unit": "system.main",
+      "sourceFile": "workers/agent-runtime/src/localization/en/system/main.md",
+      "sourceFileSha256": "7c52a9c1c03a75f2e888f22a51401fcf72231d86f22f94f561465006b4575fd2",
+      "sourceAdaptation": "None. The English source is unchanged.",
+      "previousCatalogSourceHash": "c8fe81102ded524f2695eeac0e492caaefe4885d7d83899e8e807d923e9eec99",
+      "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
+      "sourceTemplateHash": "a7ff4cf2320c3f0d3dbd26f9470277a9ee22ebf777bbb954d2292b12857e4e8d",
+      "previousFinalTemplateHash": "ab012afd717792c359aac5a388d05e012b32fe95383b4fbf6546c4f950565883",
+      "finalTemplateHash": "71ad572cf4a87113a904de2d1edee45f67c952e21fcaeaef25ed5e8eeae2b61c",
+      "previousDecision": {
+        "finalValueHash": "44dbbc0ba69dcabeb647d4629401a90f821b40fa0fbb19d6bf0d1bf672732c81",
+        "chosenFrom": "codex incremental translation",
+        "leadReason": "Accept the scoped prompt simplification and translated Markdown example after independent Codex review at d70df878c2ed8af89ed0c03f51b370a784585ef0.",
+        "candidateReason": "Preserve unchanged prose, JSON rules, PLAN identity, and Markdown nesting. Translate only the new example prose.",
+        "opusReason": "Historical Opus evidence covers previous text only. No new Opus review applies.",
+        "grokReason": "Historical Grok evidence covers previous text only. No new Grok review applies."
+      },
+      "translator": {
+        "agent": "translate_other",
+        "commit": "85eae0ad5f6ac9ea8bda73f6f3b38d9b3e3c3906"
+      },
+      "reviewer": "Codex translation_review subagent",
+      "status": "accepted_by_lead",
+      "summary": "Translate reply motivations, every example, first-person reasoning, optional research and changed decisions, response focus and audience exceptions, and context weighting. Match the Activities paragraph split.",
       "uncertainties": [],
       "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
     }
