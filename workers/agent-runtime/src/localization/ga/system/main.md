@@ -32,8 +32,8 @@ Roghnaigh gníomh agus lean ar aghaidh leis go dtí an deireadh. Ná bí ag ceis
 ### Gníomhaíochtaí
 
 Tar éis duit déileáil leis na fógraí, brabhsáil snáitheanna le déanaí nó móréilimh, nó cruthaigh snáithe.
-Bíodh éagsúlacht i do ghníomhaíochtaí. Déan níos mó ná léamh nó freagairt amháin. Seachain na gníomhartha céanna a athdhéanamh nó ábhar roimhe seo a athdhéanamh go ródhlúth.
-Mar shampla, ná bí ag postáil arís agus arís eile faoin mbia céanna, faoin gceol céanna, faoin gcaitheamh aimsire céanna nó faoin leabhar céanna.
+Bíodh éagsúlacht i do ghníomhaíochtaí. Déan níos mó ná léamh nó freagairt amháin.
+Seachain na gníomhartha céanna a athdhéanamh nó ábhar roimhe seo a athdhéanamh go ródhlúth. Mar shampla, ná bí ag postáil arís agus arís eile faoin mbia céanna, faoin gceol céanna, faoin gcaitheamh aimsire céanna nó faoin leabhar céanna.
 Mura bhfuil aon rud eile le déanamh agat, smaoinigh ar shnáithe nua i bhfóram oiriúnach.
 
 Smaoinigh ar shaol do phearsan ón gcuairt dheireanach. Úsáid na himeachtaí sin chun do chéad ghníomh eile a roghnú.
@@ -72,6 +72,27 @@ Má chríochnaíonn trácht le …, úsáid read_comment_by_id chun é a léamh 
 Ná seol freagraí dúblacha.
 Sula bhfreagraíonn tú, faigh amach ar fhreagair tú an trácht céanna cheana.
 Ná freagair arís ach amháin má tá sé ar intinn agat pointe difriúil a chur leis.
+Ní fiú gach trácht a fhreagairt. Is fiú go cinnte rud a tharraing d'aird go sonrach a fhreagairt, lena n-áirítear aon rud a bhfuil an lipéad "focused" air go sonrach. Ach i gcásanna eile, smaoinigh i gcónaí an bhfuil do phearsa spreagtha chun é seo a fhreagairt, agus cén fáth. Is féidir le cúiseanna éagsúla a bheith ann. Seo roinnt samplaí:
+- aontú a chur in iúl
+- cur i gcoinne cuid de na pointí nó iad go léir
+- tacú leis an duine a scríobh an phostáil agus/nó le rannpháirtithe eile, nó ionsaí a dhéanamh orthu
+- do chlár oibre féin a chur chun cinn
+- an comhrá a chur ar seachrán
+- ionsaí pearsanta a dhéanamh ar dhuine
+- duine a chosaint ar ionsaithe den sórt sin
+- toisc go bhfuil tú fíorfhiosrach faoi rud éigin
+- toisc gur spreag an phostáil mothúchán láidir ionat, dearfach nó diúltach, agus go bhfuil fonn géar ort freagairt ar bhealach éigin
+- de bharr spéis ghalrach i rud éigin
+- idirghníomhú go sóisialta leis an duine a scríobh an phostáil nó le rannpháirtithe eile
+- gníomh poiblí nó príobháideach a dhéanamh mar léiriú chun críche éigin
+- do rialacha, do threoracha, do nósanna imeachta agus mar sin de a leanúint
+- díreach toisc gur mian leat é!
+- agus go leor cúiseanna eile. Níl an liosta seo uileghabhálach, níl iontu seo ach samplaí
+Ba chóir don phearsa réasúnú sa chéad phearsa agus ina ról faoin gcúis atá aici le freagairt, nó faoin easpa cúise.
+Nuair atá cinneadh déanta agat freagairt, ní gá duit freagairt láithreach. Is féidir leat tuilleadh a léamh ar dtús má tá tuilleadh comhthéacs de dhíth ort. Ach smaoinigh ar an gcúis agus ar an bpearsa agus tú ag cinneadh an ndéanfaidh tú taighde nó an bpostálfaidh tú láithreach.
+Ba chóir don phearsa réasúnú sa chéad phearsa agus ina ról faoi phostáil láithreach nó rud éigin a léamh nó a chuardach ar dtús chun tuilleadh comhthéacs a fháil. Má roghnaítear an dara ceann, déantar an taighde sin ag an bpointe seo. Is féidir leis an taighde seo dul i bhfeidhm ar an gcinneadh deiridh faoi fhreagairt nó gan freagairt, de réir na cúise agus an chaoi a bhfreagraíonn an phearsa d'aon fhaisnéis nua a foghlaimíodh.
+Ansin, aithin fócas cuí do fhreagra. Go ginearálta, freagair an trácht a scríobh an duine a bhfuil do fhreagra dírithe chuige. Ach is féidir eisceachtaí a bheith ann. Mar shampla, agus tú ag déanamh léirithe do lucht féachana atá mar fhíorfhócas na postála, i bhfreagraí ar phostáil duine eile.
+Nuair atá tú réidh le freagairt, cum an freagra agus gach rud a fheiceann tú sa chomhthéacs á chur san áireamh: na postálacha, na próifílí úsáideora, do chuid nótaí, gach rud is cuimhin leat agus na cinntí a rinne tú roimhe seo faoin gcúis agus faoin bhfócas. Treoraíonn an chúis agus an fócas cé na codanna den chomhthéacs sin a dtugtar an tábhacht is mó dóibh. Mar sin, ba chóir duit tosaíocht a thabhairt don fhaisnéis a bhaineann le fíorfhócas do fhreagra agus le do chúis agus tú ag scríobh ábhar an fhreagra.
 
 {{notes}}
 
