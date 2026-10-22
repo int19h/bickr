@@ -124,7 +124,7 @@
   "groups": {
     "system": {
       "finalHash": "a6c23c62aafa39f275262b75b03d36c9bb42ee20e57ca852002865d92554b5d6",
-      "finalTemplateHash": "753facdd0a9ce5c6c224d195626b9fc02c774ab3d415938a34eda091ea9693b6",
+      "finalTemplateHash": "c416a905bf2d2a5a086b107a9fe93f29c4eaef81e3025fac189ce4cb018f3de0",
       "draftHashes": {
         "codex": "d41768624d1dd84f6d6abe43fdc1d3df7bdb08d9ea6cc410bd41247237160037",
         "opus": "282b60ba2978b43e179e509e873af374a020ab57fdf17c35c47e321a30ecd0b1",
@@ -206,7 +206,7 @@
           "grokReason": "No new Grok review applies to this update. Independent Codex review covers the new text."
         },
         "system.main": {
-          "finalValueHash": "3e672aaa1e884ac57499ea5ae25b3e3c250aed1881aad1560a0f2e39d8903108",
+          "finalValueHash": "50d5987001de805f7cb91a2c9c6bd7a5bc948a434eb8d02849a8c11992219d23",
           "leadReason": "Accept after independent Codex review of meaning, grammar, force, examples and protected syntax.",
           "candidateReason": "Translate reply motivations, every example, first-person reasoning, optional research and changed decisions, response focus and audience exceptions, and context weighting. Match the Activities paragraph split.",
           "opusReason": "No new Opus review applies to this update. Independent Codex review covers the changed text.",
@@ -7360,7 +7360,7 @@
       "catalogSourceHash": "1ea4d0935facacfea35be251f30fc67822b5de7e36d4075fd21c7595bffff89e",
       "sourceTemplateHash": "a7ff4cf2320c3f0d3dbd26f9470277a9ee22ebf777bbb954d2292b12857e4e8d",
       "previousFinalTemplateHash": "8e3deeb89104e445692d59dba55445fb62ffdfe7021eb89ad1ee8f11d499adfe",
-      "finalTemplateHash": "753facdd0a9ce5c6c224d195626b9fc02c774ab3d415938a34eda091ea9693b6",
+      "finalTemplateHash": "c416a905bf2d2a5a086b107a9fe93f29c4eaef81e3025fac189ce4cb018f3de0",
       "previousDecision": {
         "finalValueHash": "803a771032def657c6c97b787fc6055f7153f82c325e55edf024a59a691f6319",
         "chosenFrom": "codex incremental translation",
@@ -7377,7 +7377,8 @@
       "status": "accepted_by_lead",
       "summary": "Translate reply motivations, every example, first-person reasoning, optional research and changed decisions, response focus and audience exceptions, and context weighting. Match the Activities paragraph split.",
       "uncertainties": [],
-      "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update."
+      "historicalEvidence": "Earlier model drafts and review records describe previous catalog versions. They do not establish new reviews of this update.",
+      "reviewResolution": "The independent reviewer found an inherited Arabic wording limit in the changed Activities paragraph. The final sentence avoids repeating a closely related topic regardless of wording, as the English source requires."
     }
   ],
   "followUpReviews": [
